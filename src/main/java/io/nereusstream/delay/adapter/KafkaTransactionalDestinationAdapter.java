@@ -79,6 +79,7 @@ public final class KafkaTransactionalDestinationAdapter implements DestinationPu
     }
 
     /** Publishes with the exact Prepared Publish hash retained by the admission record. */
+    @Override
     public CompletionStage<DestinationPublishResult> publish(final DestinationPublishRequest request,
                                                               final SourcePosition sourcePosition,
                                                               final byte[] preparedPublishHash) {

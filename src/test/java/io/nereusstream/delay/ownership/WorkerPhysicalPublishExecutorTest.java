@@ -29,6 +29,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -120,6 +121,39 @@ class WorkerPhysicalPublishExecutorTest {
         final Fixture fixture = new Fixture();
         assertThrows(IllegalArgumentException.class,
                 () -> WorkerPhysicalPublishExecutor.prepareRequest(fixture.attempt, fixture.request.payload()));
+    }
+
+    @Test
+    void forwardsLedgerSourcePositionAndPreparedHashThroughBoundedAdapter() {
+        final Fixture fixture = new Fixture();
+        final AtomicReference<byte[]> sourcePosition = new AtomicReference<>();
+        final AtomicReference<byte[]> preparedHash = new AtomicReference<>();
+        final DestinationPublishAdapter delegate = new DestinationPublishAdapter() {
+            @Override
+            public java.util.concurrent.CompletionStage<DestinationPublishResult> publish(
+                    final DestinationPublishRequest request) {
+                throw new AssertionError("source-bound adapter path was not used");
+            }
+
+            @Override
+            public java.util.concurrent.CompletionStage<DestinationPublishResult> publish(
+                    final DestinationPublishRequest request,
+                    final io.nereusstream.delay.protocol.SourcePosition exactSourcePosition,
+                    final byte[] exactPreparedHash) {
+                sourcePosition.set(exactSourcePosition.canonicalBytes());
+                preparedHash.set(exactPreparedHash);
+                return CompletableFuture.completedFuture(DestinationPublishResult.published(
+                        Bytes.utf8("delivery"), 1_001, Bytes.utf8("ack")));
+            }
+        };
+        final WorkerPhysicalPublishExecutor executor = fixture.executor(delegate,
+                ignored -> { }, ignored -> WorkerPhysicalPublishExecutor.Decision.allowed());
+        try (executor) {
+            executor.submit(fixture.attempt, fixture.request, () -> 1_000);
+        }
+
+        assertArrayEquals(fixture.attempt.sourcePosition(), sourcePosition.get());
+        assertArrayEquals(fixture.attempt.preparedPublishHash(), preparedHash.get());
     }
 
     private static SystemMutation mutation(final ShardId shard) {

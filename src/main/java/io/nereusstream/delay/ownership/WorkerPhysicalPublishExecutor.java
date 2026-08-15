@@ -9,6 +9,7 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.PayloadForPublishV1;
 import io.nereusstream.delay.protocol.PreparedPublishDescriptorV1;
 import io.nereusstream.delay.protocol.PublishAdmissionBody;
+import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.SystemMutation;
 import io.nereusstream.delay.runtime.AttemptLedgerState;
@@ -135,7 +136,10 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
         final Submission submission = Submission.pending(exactAttempt, exactRequest);
         final BoundedDestinationPublishAdapter.PublishCall call;
         try {
-            call = physicalAdapter.submit(exactRequest, ignored -> lateGateResult(exactAttempt, exactRequest, clock));
+            call = physicalAdapter.submit(exactRequest,
+                    SourcePositionCodec.decode(exactAttempt.sourcePosition()),
+                    exactAttempt.preparedPublishHash(),
+                    ignored -> lateGateResult(exactAttempt, exactRequest, clock));
             submission.attachPhysicalCall(call);
             registerCompletion(call.outcome(), exactResult -> completeResult(submission, exactResult, clock));
             return submission;

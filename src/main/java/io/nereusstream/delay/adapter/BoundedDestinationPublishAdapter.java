@@ -1,6 +1,7 @@
 package io.nereusstream.delay.adapter;
 
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 
@@ -91,8 +92,30 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
      */
     public PublishCall submit(final DestinationPublishRequest request,
                               final PublishPreflight preflight) {
+        return submit(request, preflight, delegate::publish);
+    }
+
+    /**
+     * Submits with the source position and prepared hash retained by a
+     * durable Publish Attempt. The source-bound call remains behind the same
+     * physical admission, preflight and zombie-release semantics.
+     */
+    public PublishCall submit(final DestinationPublishRequest request,
+                              final SourcePosition sourcePosition,
+                              final byte[] preparedPublishHash,
+                              final PublishPreflight preflight) {
+        Objects.requireNonNull(sourcePosition, "sourcePosition");
+        Bytes.requireLength(preparedPublishHash, 32, "preparedPublishHash");
+        return submit(request, preflight,
+                ignored -> delegate.publish(ignored, sourcePosition, preparedPublishHash));
+    }
+
+    private PublishCall submit(final DestinationPublishRequest request,
+                               final PublishPreflight preflight,
+                               final DelegateCall delegateCall) {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(preflight, "preflight");
+        Objects.requireNonNull(delegateCall, "delegateCall");
         if (closeGuard.isClosed()) {
             return PublishCall.completed(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
         }
@@ -128,7 +151,7 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                 // already unknown.
                 taskStarted.set(true);
                 invokeDelegate(request, preflight, outcome, reservation, retainPhysicalCharge,
-                        completionObserved);
+                        completionObserved, delegateCall);
             });
         } catch (RuntimeException exception) {
             if (!taskStarted.get()) {
@@ -175,6 +198,13 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
     @Override
     public CompletionStage<DestinationPublishResult> publish(final DestinationPublishRequest request) {
         return submit(request).outcome();
+    }
+
+    @Override
+    public CompletionStage<DestinationPublishResult> publish(final DestinationPublishRequest request,
+                                                              final SourcePosition sourcePosition,
+                                                              final byte[] preparedPublishHash) {
+        return submit(request, sourcePosition, preparedPublishHash, ignored -> null).outcome();
     }
 
     @Override
@@ -233,7 +263,8 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                                 final CompletableFuture<DestinationPublishResult> outcome,
                                 final DestinationPhysicalAdmission.Reservation reservation,
                                 final AtomicBoolean retainPhysicalCharge,
-                                final AtomicBoolean completionObserved) {
+                                final AtomicBoolean completionObserved,
+                                final DelegateCall delegateCall) {
         final DelegateInvocation invocation;
         try {
             invocation = closeGuard.invokeIfOpen(
@@ -243,7 +274,7 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                             return new DelegateInvocation(CompletableFuture.completedFuture(preflightResult), false);
                         }
                         try {
-                            return new DelegateInvocation(delegate.publish(request), false);
+                            return new DelegateInvocation(delegateCall.publish(request), false);
                         } catch (RuntimeException exception) {
                             // A synchronous transport exception does not
                             // prove that the request stopped before
@@ -377,6 +408,11 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
     }
 
     private record DelegateInvocation(CompletionStage<DestinationPublishResult> stage, boolean closed) {
+    }
+
+    @FunctionalInterface
+    private interface DelegateCall {
+        CompletionStage<DestinationPublishResult> publish(DestinationPublishRequest request);
     }
 
     /** Runs immediately before the target delegate; non-null means do not call the delegate. */
