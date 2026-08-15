@@ -274,6 +274,39 @@ eligibility, production source ownership, remote Object Store authority,
 response-loss/crash cuts at every Store boundary, Pulsar multi-broker failover
 and automatic Claim/Publish remain open.
 
+### Kafka default full real-client revalidation
+
+After the Route Worker harness change, the default path was rerun with
+`NEREUS_DELAY_KAFKA_WITH_OXIA=1`; the two Route failover variables were not
+set, so they remained `0`. The source-locked run used Delay branch HEAD
+`52da04a3b14c56fcbe769f64836e1311e11956a7` (runtime slice
+`7e94d0f8a3e374832a111dbd2f741be5f20795d5`), Kafka
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Oxia
+`37a17bef17202d5fd6e232da5fd26d94865484`, Kafka/Oxia projects
+`nereus-delay-kafka-e2e-1786788428-10652` /
+`nereus-delay-kafka-oxia-e2e-1786788428-10652`, broker ports
+`19763,19764,19765`, and Oxia port `16679`:
+
+```bash
+JAVA_TOOL_OPTIONS='-Dorg.slf4j.simpleLogger.defaultLogLevel=warn' \
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 NEREUS_DELAY_KAFKA_OXIA_PORT=16679 \
+KAFKA_BROKER_1_PORT=19763 KAFKA_BROKER_2_PORT=19764 KAFKA_BROKER_3_PORT=19765 \
+./e2e/run-kafka-real-client-e2e.sh
+```
+
+The Route and aggregate receipts were:
+
+```text
+Kafka signed Route -> guarded Fetch barrier -> Oxia Worker assignment -> RocksDB apply/checkpoint smoke passed: fetch=v18, lso=1, routeRevision=1, assignmentRevision=1, barrierOffset=1, sourceOffset=1, commitSync ACK, final checkpoint
+Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, assignment recovery to RocksDB Worker apply before and after broker-1 failover, same-topic Worker resume after failover, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence.
+```
+
+This revalidates the default aggregate path; it is not a release PASS and does
+not expand the bounded Route evidence into catalog placement, session churn,
+native eligibility, production source ownership, remote Object Store
+authority, response-loss/crash coverage, Pulsar multi-broker failover or
+automatic Claim/Publish.
+
 ### Pulsar signed Route barrier to Worker assignment
 
 When `NEREUS_DELAY_PULSAR_WITH_OXIA=1`, the same harness also runs

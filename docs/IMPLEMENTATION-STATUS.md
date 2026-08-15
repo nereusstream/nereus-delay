@@ -7967,6 +7967,50 @@ Store credentials/quiescence, response-loss or crash cuts at every Store
 boundary, Pulsar multi-broker failover, automatic Claim/Publish orchestration
 or release PASS.
 
+## 2026-08-15 Kafka default full real-client revalidation
+
+After the accepted-Route slice, the default Kafka harness was rerun with
+`NEREUS_DELAY_KAFKA_ROUTE_FAILOVER` and
+`NEREUS_DELAY_KAFKA_ROUTE_FAILOVER_ONLY` left at their default `0` values. The
+successful rerun used branch HEAD Delay
+`52da04a3b14c56fcbe769f64836e1311e11956a7` (the runtime slice is
+`7e94d0f8a3e374832a111dbd2f741be5f20795d5`), Kafka
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Oxia
+`37a17bef17202d5fd6e232da5fd26d94865484`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Kafka Compose project `nereus-delay-kafka-e2e-1786788428-10652`, Oxia Compose
+project `nereus-delay-kafka-oxia-e2e-1786788428-10652`, broker ports
+`19763,19764,19765`, and Oxia port `16679`. The exact command was:
+
+```bash
+JAVA_TOOL_OPTIONS='-Dorg.slf4j.simpleLogger.defaultLogLevel=warn' \
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 NEREUS_DELAY_KAFKA_OXIA_PORT=16679 \
+KAFKA_BROKER_1_PORT=19763 KAFKA_BROKER_2_PORT=19764 KAFKA_BROKER_3_PORT=19765 \
+./e2e/run-kafka-real-client-e2e.sh
+```
+
+The current default Route receipt was:
+
+```text
+Kafka signed Route -> guarded Fetch barrier -> Oxia Worker assignment -> RocksDB apply/checkpoint smoke passed: fetch=v18, lso=1, routeRevision=1, assignmentRevision=1, barrierOffset=1, sourceOffset=1, commitSync ACK, final checkpoint
+```
+
+The complete source/Worker/K1/K2 harness ended with:
+
+```text
+Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, assignment recovery to RocksDB Worker apply before and after broker-1 failover, same-topic Worker resume after failover, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence.
+```
+
+A preceding startup attempt on a separate Compose project was discarded after
+the initial topic metadata `UnknownTopicOrPartitionException`; it was not
+counted as evidence. This successful rerun confirms the default harness path
+after the Route Worker script change, but does not promote the result to a V1
+release PASS or add catalog-driven placement, Route session churn, native
+eligibility, production source ownership, remote Object Store authority,
+response-loss/crash cuts, Pulsar multi-broker failover, automatic
+Claim/Publish orchestration or the release gates.
+
 ## 2026-08-15 Pulsar guarded SUBSCRIBE to signed Route Worker assignment evidence
 
 Delay commit `bf858b089b927fcf65129214d8ed5a7fc5300deb` adds

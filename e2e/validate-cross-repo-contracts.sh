@@ -120,8 +120,14 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "7e94d0f8a3e374832a111dbd2f741be5f20795d5"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "nereus-delay-kafka-e2e-1786787846-2966"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "nereus-delay-kafka-e2e-1786788428-10652"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "nereus-delay-kafka-e2e-1786788428-10652"
 require_file_text "$delay_root/e2e/README.md" \
     "NEREUS_DELAY_KAFKA_ROUTE_FAILOVER_ONLY=1"
+require_file_text "$delay_root/e2e/README.md" \
+    "nereus-delay-kafka-e2e-1786788428-10652"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "202368d46fedfe12ae414edaa9c3db32cc8e5073"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \

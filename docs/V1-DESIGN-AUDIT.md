@@ -6831,6 +6831,31 @@ remote Object Store authority, response-loss/crash cuts, Pulsar multi-broker
 failover, automatic Claim/Publish authority and §23.5 release gates remain
 open.
 
+## 2026-08-15 Kafka default full real-client revalidation audit
+
+The default Kafka harness was rerun after the Route Worker script change with
+the accepted-Route failover flags at their default `0` values. The successful
+receipt used Delay branch HEAD
+`52da04a3b14c56fcbe769f64836e1311e11956a7` (runtime slice
+`7e94d0f8a3e374832a111dbd2f741be5f20795d5`), Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+Oxia `37a17bef17202d5fd6e232da5fd26d94865484`, Kafka/Oxia projects
+`nereus-delay-kafka-e2e-1786788428-10652` /
+`nereus-delay-kafka-oxia-e2e-1786788428-10652`, broker ports
+`19763,19764,19765`, and Oxia port `16679`. It printed:
+
+```text
+Kafka signed Route -> guarded Fetch barrier -> Oxia Worker assignment -> RocksDB apply/checkpoint smoke passed: fetch=v18, lso=1, routeRevision=1, assignmentRevision=1, barrierOffset=1, sourceOffset=1, commitSync ACK, final checkpoint
+Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, assignment recovery to RocksDB Worker apply before and after broker-1 failover, same-topic Worker resume after failover, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence.
+```
+
+This is a current default-path revalidation, not a new production authority
+claim. The bounded accepted-Route broker failover remains the separately gated
+one-topic/one-partition evidence above; catalog placement, Route session
+reconnect/churn, native eligibility, production source ownership, remote Object
+Store authority, response-loss/crash boundaries, Pulsar multi-broker failover,
+automatic Claim/Publish authority and §23.5 release gates remain open.
+
 ## 2026-08-15 Pulsar guarded SUBSCRIBE to signed Route Worker assignment audit
 
 Delay commit `bf858b089b927fcf65129214d8ed5a7fc5300deb` adds a real-client
