@@ -55,6 +55,13 @@ public final class ClaimHandoffWorkClassExecutor {
         this.ownedShard.bindWorkClassExecutionRegistry(this.workClasses);
     }
 
+    /** Requires callers to use the registry that owns this executor's queue. */
+    void requireWorkClassExecutionRegistry(final WorkClassExecutionRegistry registry) {
+        if (workClasses != Objects.requireNonNull(registry, "registry")) {
+            throw new IllegalArgumentException("Claim handoff executor uses another work-class registry");
+        }
+    }
+
     /**
      * Binds and queues one exact already-polled Claim action. Queue rejection
      * restores the head and persisted fairness projection before returning.

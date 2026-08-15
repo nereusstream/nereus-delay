@@ -145,6 +145,13 @@ class ClaimHandoffWorkClassExecutorTest {
             final WorkClassExecutionRegistry workClasses = workClasses(1);
             final ClaimHandoffWorkClassExecutor executor = new ClaimHandoffWorkClassExecutor(workClasses,
                     owned, authority, scheduler, permits, ignored -> prerequisite.get());
+            final PublishAdmissionWorkClassExecutor publishExecutor = new PublishAdmissionWorkClassExecutor(
+                    workClasses, owned, authority, permits, ignored -> ShardLogMutationAppender.AppendOutcome.unknown(),
+                    ignored -> PublishAdmissionWorkClassExecutor.PrerequisiteDecision.available());
+            assertThrows(IllegalArgumentException.class, () -> new WorkerCommandRuntime(workClasses(1), resources,
+                    executor, publishExecutor));
+            final WorkerCommandRuntime commandRuntime = new WorkerCommandRuntime(workClasses, resources,
+                    executor, publishExecutor);
             final ClaimMaterializationV1 materialization = materialization(destination, capability,
                     schedule.delayMessageId(), message, payload);
             final byte[] claimCharge = claimCharge(payload.length);
@@ -184,8 +191,9 @@ class ClaimHandoffWorkClassExecutorTest {
 
             selected = scheduler.poll(evidence.earliestEpochMs(), budget).get(0);
             final ScheduleWorkItem claimedItem = selected;
-            final ClaimHandoffWorkClassExecutor.Submission claimed = executor.submit(claimedItem, evidence,
-                    3_000, materialization, claimCharge, () -> 101);
+            final ClaimHandoffWorkClassExecutor.Submission claimed = commandRuntime.submitClaim(
+                    new WorkerCommandRuntime.ClaimRequest(claimedItem, evidence, 3_000, materialization,
+                            claimCharge, () -> 101));
             assertTrue(claimed.result().isEmpty());
             assertEquals(List.of(claimed.task()),
                     workClasses.runTurn(new SchedulerBudget(1, 1_000_000, 1_000)));

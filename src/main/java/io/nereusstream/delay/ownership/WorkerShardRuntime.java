@@ -77,11 +77,19 @@ public final class WorkerShardRuntime implements AutoCloseable {
                               final WorkerSchedulingRuntime schedulingRuntime,
                               final WorkerCommandRuntime commandRuntime) {
         this.resources = Objects.requireNonNull(resources, "resources");
+        final WorkClassExecutionRegistry registry = Objects.requireNonNull(workClasses, "workClasses");
+        this.resources.bindWorkClassExecutionRegistry(registry);
+        if (schedulingRuntime != null) {
+            schedulingRuntime.requireWorkClassExecutionRegistry(registry);
+        }
+        if (commandRuntime != null) {
+            commandRuntime.requireWorkClassExecutionRegistry(registry);
+        }
         this.schedulingRuntime = schedulingRuntime;
         this.commandRuntime = commandRuntime;
-        this.sourceLoop = new WorkerSourceApplyLoop(sourceConsumer, workClasses, ownedShard, authority,
+        this.sourceLoop = new WorkerSourceApplyLoop(sourceConsumer, registry, ownedShard, authority,
                 verificationKey);
-        this.drainCoordinator = new OwnerDrainCoordinator(ownedShard, store, resources, authority, workClasses);
+        this.drainCoordinator = new OwnerDrainCoordinator(ownedShard, store, resources, authority, registry);
     }
 
     /** Runs one bounded source turn while the Worker runtime is admitting work. */

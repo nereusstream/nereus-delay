@@ -42,7 +42,16 @@ public final class WorkerCommandRuntime {
         this.resources = Objects.requireNonNull(resources, "resources");
         this.claimExecutor = Objects.requireNonNull(claimExecutor, "claimExecutor");
         this.publishExecutor = Objects.requireNonNull(publishExecutor, "publishExecutor");
+        this.claimExecutor.requireWorkClassExecutionRegistry(this.workClasses);
+        this.publishExecutor.requireWorkClassExecutionRegistry(this.workClasses);
         this.resources.bindWorkClassExecutionRegistry(this.workClasses);
+    }
+
+    /** Requires Worker wrappers to use the registry owned by both command executors. */
+    void requireWorkClassExecutionRegistry(final WorkClassExecutionRegistry registry) {
+        if (workClasses != Objects.requireNonNull(registry, "registry")) {
+            throw new IllegalArgumentException("command runtime uses another work-class registry");
+        }
     }
 
     /** Queues one exact READY candidate for Claim handoff after Worker admission. */

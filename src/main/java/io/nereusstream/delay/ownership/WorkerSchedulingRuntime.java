@@ -50,6 +50,13 @@ public final class WorkerSchedulingRuntime {
                 this.authority, this.scheduler);
     }
 
+    /** Requires the Worker wrapper to run the registry used by due discovery. */
+    void requireWorkClassExecutionRegistry(final WorkClassExecutionRegistry registry) {
+        if (workClasses != Objects.requireNonNull(registry, "registry")) {
+            throw new IllegalArgumentException("scheduling runtime uses another work-class registry");
+        }
+    }
+
     /**
      * Opens the scheduling graph after strict activation and restores the
      * exact READY/Lane projection for the accepted active-owner assignment.
