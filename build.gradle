@@ -155,6 +155,23 @@ tasks.register('runRealKafkaMutationSmoke', JavaExec) {
     args findProperty('kafkaBootstrap'), findProperty('kafkaMutationTopic')
 }
 
+tasks.register('runRealKafkaMutationWorkerSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs mixed signed System Mutation recovery and active Worker Store apply against a broker.'
+    dependsOn tasks.named('compileRealKafka')
+    if (realKafkaClientJar == null || findProperty('kafkaBootstrap') == null
+            || findProperty('kafkaMutationWorkerTopic') == null) {
+        doFirst {
+            throw new GradleException(
+                    'runRealKafkaMutationWorkerSmoke requires -PkafkaClientJar=... -PkafkaBootstrap=host:port '
+                            + '-PkafkaMutationWorkerTopic=name')
+        }
+    }
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactMutationWorkerSmoke'
+    args findProperty('kafkaBootstrap'), findProperty('kafkaMutationWorkerTopic')
+}
+
 tasks.register('runRealKafkaWorkerSmoke', JavaExec) {
     group = 'verification'
     description = 'Runs the Kafka guarded source, Owner recovery and RocksDB Worker vertical against a broker.'
