@@ -97,6 +97,8 @@ require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "a7fd5fa7dd35d5d8535d3c63e577208d29fc2c5"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "5dbd0874"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "10e21cbf0e6f741f10b353c56a316a0b57b71b9d"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "nereus/delay-full-implementation-v1@2dd2cfff83f4d029972cf7fbeb569fbf4538c026"
@@ -143,6 +145,12 @@ require_file_text "$delay_root/src/main/java/io/nereusstream/delay/client/DelayC
     "prepareScheduleSubmissionV1"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/protocol/ActivationBarrierV1.java" \
     "toSourceBarrier"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/runtime/DelayShard.java" \
+    "resolveClaimMaterializationV1"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/protocol/CanonicalLaneTupleV1.java" \
+    "public static Projection project"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerCommandRuntime.java" \
+    "derived-materialization overload"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/RouteSourceAssignmentFactory.java" \
     "fromRoute"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/RouteSourceAssignmentResolver.java" \

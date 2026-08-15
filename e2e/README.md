@@ -137,8 +137,10 @@ Kafka Shard Log mutation append/replay/ACK smoke passed: topicId=7jN1ZJcgRPSZILq
 
 This closes one source-locked Kafka partition's append → recovery replay →
 active-source ACK path. It does not claim mutation apply, signature trust
-authorization, automatic Claim/Publish, Pulsar mutation support,
-response-loss/crash coverage, multi-shard production wiring or release PASS.
+authorization, automatic Publish or external Claim prerequisites, Pulsar
+mutation support, response-loss/crash coverage, multi-shard production wiring
+or release PASS. Local durable V1 Claim materialization is covered by the
+focused Gradle tests, not by this Kafka transport smoke.
 
 The latest optional real-Oxia run used Delay
 `a7fd5fa7dd35d5d8535d3c63e577208d29fc2c5`, Kafka source

@@ -6353,13 +6353,15 @@ turns use the same `SharedRocksDbResources` admission gate as source and
 scheduling; the drain callback therefore fences new Claim and Publish
 admission together with source and due/READY scheduling.
 
-The wrapper carries exact caller-prepared materialization, charge,
-reservation, descriptor, certificate, decision evidence and signing key into
-the existing fenced executors. It does not manufacture external readiness,
-payload serialization, Claim authority, Profile/Object Store state, Broker
-append evidence or Source Position. This is local composition evidence, not a
-real Shard Log append/ACK, automatic command pipeline, multi-shard, crash,
-failover or release PASS.
+The wrapper carries either exact caller-prepared materialization or the
+derived V1 materialization from the accepted durable binding, current Message
+and canonical Lane tuple. The derived path runs behind the same strict
+Owner/READY fence before queue admission and then enters the existing fenced
+executor. It does not manufacture external readiness, payload serialization,
+Claim charge, Publish descriptor/Ready Certificate, Profile/Object Store state,
+Broker append evidence or Source Position. This is local composition evidence,
+not a real Shard Log append/ACK, automatic Publish pipeline, multi-shard,
+crash, failover or release PASS.
 
 ## 2026-08-15 Oxia checkpoint Owner/session gate audit
 
@@ -6477,6 +6479,31 @@ This is one source-locked partition and one `TIME_FENCE` mutation. It is not
 evidence of signature trust-set authorization, mutation-to-RocksDB apply,
 automatic Claim/Publish orchestration, Pulsar mutation replay, response-loss
 recovery, crash-boundary coverage, multi-shard placement or release PASS.
+
+## 2026-08-15 automatic V1 Claim materialization and Worker handoff audit
+
+Delay commit `5dbd0874` makes the durable Claim projection derivable at the
+production handoff boundary. `CanonicalLaneTupleV1.project` parses the exact
+Registry tuple; `DelayShard.resolveClaimMaterializationV1` combines its
+Destination/Capability Profile refs, Broker target and physical partition
+with the current Message generation, Timeline `actionAt`, adapter metadata and
+the accepted Schedule/Prepare payload branch. A committed Prepare payload
+reconstructs the descriptor from the persisted Object Store reference and
+retains reservation/proof identity. Missing V1 binding, timeline or commit
+proof is a fail-closed error.
+
+`OwnedDelayShard`, `ClaimHandoffWorkClassExecutor`, `WorkerCommandRuntime` and
+`WorkerShardRuntime` expose the derived path while retaining the explicit path
+for compatibility. The same external prerequisite gate still receives the
+derived bytes, and trusted time, charge/deadline, live Profile/credential/
+channel authority, payload serialization, Producer ownership and Publish
+descriptor/Ready Certificate remain independent inputs. Focused tests prove
+inline and committed-object equality with the strict Claim validator.
+
+This closes durable V1 Claim materialization and local handoff composition for
+one shard. It does not promote the result to automatic Publish, external
+provider authority, Pulsar mutation replay, response-loss/crash evidence,
+multi-shard Worker production wiring or release PASS.
 
 ## Final gate
 

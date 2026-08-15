@@ -3115,14 +3115,17 @@ crash/failover evidence remain separate gates.
 
 ### 2026-08-15 Worker Claim/Publish command composition implementation note
 
-`WorkerCommandRuntime` is the explicit handoff point from the active Worker
-graph to Claim and Publish Admission. It carries caller-prepared exact inputs
-through the same resource admission and `WorkerShardRuntime` drain fence as
-source/scheduling. The underlying executors retain their post-queue Owner,
-Claim, permit, prerequisite, signature and Shard Log uncertainty checks; the
-wrapper does not infer Profile, payload, credential, Claim, certificate or
-Source Position authority. This closes local graph composition while the live
-Broker append/ACK and external prerequisite evidence remain required.
+`WorkerCommandRuntime` is the handoff point from the active Worker graph to
+Claim and Publish Admission. It carries either caller-prepared exact Claim
+bytes or derives the V1 Claim materialization from the accepted durable
+Schedule binding, current Message and canonical Lane tuple behind the same
+resource/Owner/READY fence. The underlying executors retain their post-queue
+Owner, Claim, permit, prerequisite, signature and Shard Log uncertainty checks;
+the wrapper does not infer live Profile, payload serialization, credential,
+charge, Publish descriptor, certificate or Source Position authority. This
+closes local Claim graph composition while the live Broker append/ACK,
+automatic Publish preparation and external prerequisite evidence remain
+required.
 
 ### 2026-08-15 checkpoint Owner/session and Kafka survivor implementation note
 
@@ -3188,6 +3191,25 @@ recovery replay, active exposure and ACK on one partition. It does not make
 the source adapter a Worker apply authority, and it leaves trust-set
 authorization, automatic Claim/Publish, Pulsar mutation support,
 response-loss/crash cuts, multi-shard wiring and release gates open.
+
+### 2026-08-15 automatic V1 Claim materialization implementation note
+
+`CanonicalLaneTupleV1.project` is the public immutable tuple projection used by
+the local Claim materializer. `DelayShard.resolveClaimMaterializationV1`
+requires a current scheduled Message and its accepted V1 Schedule or
+PrepareLargeSchedule sidecar, then derives the exact Destination/Capability
+Profile refs, Broker target identity, physical partition, adapter metadata,
+timing/actionAt and payload branch. The PrepareLargeSchedule branch rebuilds a
+`CommittedPayloadDescriptorV1` from the durable `PayloadReference` and the
+binding's Object Store Profile, preserving reservation/proof identity.
+
+`OwnedDelayShard`, `ClaimHandoffWorkClassExecutor`, `WorkerCommandRuntime` and
+`WorkerShardRuntime` expose this as a derived Claim submission overload. The
+derivation is local durable projection only; trusted time, Claim charge,
+external Profile/Object Store/credential/channel readiness, serialization,
+Producer ownership and all Publish descriptor/Ready Certificate inputs stay
+explicit. Focused inline/object tests cover equality with the strict Claim
+validator and fail-closed missing-proof behavior.
 
 ## 16. 当前结论与仍需实测的数值
 
