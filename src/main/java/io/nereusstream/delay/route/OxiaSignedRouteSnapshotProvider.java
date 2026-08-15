@@ -120,6 +120,9 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
         requireOpen();
         try {
             client.reconnectSession();
+            if (started) {
+                client.reconnectNotifications(this::onNotification);
+            }
             refreshFromAuthority();
             return CompletableFuture.completedFuture(null);
         } catch (RuntimeException failure) {

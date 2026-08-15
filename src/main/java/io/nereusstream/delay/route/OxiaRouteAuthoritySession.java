@@ -35,7 +35,8 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final OxiaRouteRecordClient delegate;
-    private final OxiaRouteRecordClient notificationDelegate;
+    private final java.util.function.Supplier<OxiaRouteRecordClient> notificationDelegateFactory;
+    private OxiaRouteRecordClient notificationDelegate;
     private final String sessionPrefix;
     private String sessionKey;
     private byte[] challenge;
@@ -51,14 +52,17 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
 
     /** Package-private deterministic constructor for Route authority tests. */
     OxiaRouteAuthoritySession(final OxiaRouteRecordClient delegate, final String keyPrefix) {
-        this(delegate, delegate, keyPrefix);
+        this(delegate, delegate, null, keyPrefix);
     }
 
     private OxiaRouteAuthoritySession(final OxiaRouteRecordClient delegate,
                                       final OxiaRouteRecordClient notificationDelegate,
+                                      final java.util.function.Supplier<OxiaRouteRecordClient>
+                                              notificationDelegateFactory,
                                       final String keyPrefix) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         this.notificationDelegate = Objects.requireNonNull(notificationDelegate, "notificationDelegate");
+        this.notificationDelegateFactory = notificationDelegateFactory;
         final String prefix = canonicalKeyPrefix(keyPrefix);
         sessionPrefix = prefix + "/sessions/";
         rotateMarker();
@@ -90,7 +94,10 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
                     .sessionTimeout(sessionTimeout)
                     .syncClient();
             return new OxiaRouteAuthoritySession(new SyncRecordClient(sessionClient),
-                    new SyncRecordClient(notificationClient), keyPrefix);
+                    new SyncRecordClient(notificationClient),
+                    () -> createNotificationClient(serviceAddress, canonicalNamespace,
+                            canonicalClientIdentifier, sessionTimeout),
+                    keyPrefix);
         } catch (RuntimeException failure) {
             try {
                 sessionClient.close();
@@ -98,6 +105,22 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
                 failure.addSuppressed(closeFailure);
             }
             throw failure;
+        }
+    }
+
+    private static OxiaRouteRecordClient createNotificationClient(final String serviceAddress,
+                                                                   final String namespace,
+                                                                   final String clientIdentifier,
+                                                                   final Duration sessionTimeout) {
+        try {
+            return new SyncRecordClient(OxiaClientBuilder.create(serviceAddress)
+                    .namespace(namespace)
+                    .clientIdentifier(canonicalText(clientIdentifier + "-route-watch",
+                            "notificationClientIdentifier"))
+                    .sessionTimeout(sessionTimeout)
+                    .syncClient());
+        } catch (OxiaException failure) {
+            throw new IllegalStateException("failed to create Oxia Route notification client", failure);
         }
     }
 
@@ -145,6 +168,41 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
             }
         }
         startSession();
+    }
+
+    /** Replaces the notification client after a service restart and starts a fresh offset-tracked stream. */
+    @Override
+    public synchronized void reconnectNotifications(final Consumer<Notification> consumer) {
+        requireNotClosed();
+        Objects.requireNonNull(consumer, "consumer");
+        if (notificationDelegateFactory == null || notificationDelegate == delegate) {
+            return;
+        }
+        final OxiaRouteRecordClient replacement = notificationDelegateFactory.get();
+        final OxiaRouteRecordClient previous = notificationDelegate;
+        notificationDelegate = replacement;
+        try {
+            previous.close();
+        } catch (RuntimeException failure) {
+            try {
+                replacement.close();
+            } catch (RuntimeException closeFailure) {
+                failure.addSuppressed(closeFailure);
+            }
+            notificationDelegate = previous;
+            throw failure;
+        }
+        try {
+            notificationDelegate.notifications(consumer);
+        } catch (RuntimeException failure) {
+            try {
+                replacement.close();
+            } catch (RuntimeException closeFailure) {
+                failure.addSuppressed(closeFailure);
+            }
+            notificationDelegate = previous;
+            throw failure;
+        }
     }
 
     /** Returns the Oxia-session-derived identity after a successful exact check. */

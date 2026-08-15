@@ -23,6 +23,11 @@ interface OxiaRouteRecordClient extends AutoCloseable {
         startSession();
     }
 
+    /** Replaces a lost notification subscription and registers the supplied callback. */
+    default void reconnectNotifications(Consumer<Notification> consumer) {
+        // Raw clients rely on the Oxia client's own notification retry loop.
+    }
+
     GetResult get(String key);
 
     CloseableIterable<GetResult> rangeScan(String startKeyInclusive, String endKeyExclusive);

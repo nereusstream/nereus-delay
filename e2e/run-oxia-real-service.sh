@@ -10,6 +10,8 @@ compose_file="$e2e_root/docker-compose.oxia.yml"
 compose_project="nereus-delay-v1-oxia-e2e-$(date +%s)-$$"
 route_restart=${NEREUS_DELAY_OXIA_ROUTE_RESTART:-0}
 route_restart_only=${NEREUS_DELAY_OXIA_ROUTE_RESTART_ONLY:-0}
+route_restart_notifications=${NEREUS_DELAY_OXIA_ROUTE_RESTART_NOTIFICATIONS:-0}
+route_restart_pause_seconds=${NEREUS_DELAY_OXIA_ROUTE_RESTART_PAUSE_SECONDS:-5}
 
 if ! command -v docker >/dev/null 2>&1; then
     echo "docker is required" >&2
@@ -33,6 +35,18 @@ if [[ "$route_restart_only" != 0 && "$route_restart_only" != 1 ]]; then
 fi
 if [[ "$route_restart_only" == 1 && "$route_restart" != 1 ]]; then
     echo "NEREUS_DELAY_OXIA_ROUTE_RESTART_ONLY requires NEREUS_DELAY_OXIA_ROUTE_RESTART=1" >&2
+    exit 1
+fi
+if [[ "$route_restart_notifications" != 0 && "$route_restart_notifications" != 1 ]]; then
+    echo "NEREUS_DELAY_OXIA_ROUTE_RESTART_NOTIFICATIONS must be 0 or 1" >&2
+    exit 1
+fi
+if [[ "$route_restart_notifications" == 1 && "$route_restart" != 1 ]]; then
+    echo "NEREUS_DELAY_OXIA_ROUTE_RESTART_NOTIFICATIONS requires NEREUS_DELAY_OXIA_ROUTE_RESTART=1" >&2
+    exit 1
+fi
+if [[ ! "$route_restart_pause_seconds" =~ ^[0-9]+$ ]]; then
+    echo "NEREUS_DELAY_OXIA_ROUTE_RESTART_PAUSE_SECONDS must be a non-negative integer" >&2
     exit 1
 fi
 
@@ -79,13 +93,18 @@ wait_for_oxia_health() {
 }
 
 run_route_restart_smoke() {
+    local route_restart_test="io.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest.signedRouteProviderRecoversAfterRealOxiaRestart"
+    if [[ "$route_restart_notifications" == 1 ]]; then
+        route_restart_test="io.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest.signedRouteNotificationsRecoverAfterRealOxiaRestart"
+    fi
     NEREUS_DELAY_OXIA_ENDPOINT="127.0.0.1:$oxia_port" \
     NEREUS_DELAY_OXIA_NAMESPACE=default \
     NEREUS_DELAY_OXIA_ROUTE_RESTART_GATE="$route_restart_gate" \
     NEREUS_DELAY_OXIA_ROUTE_RESTART_READY="$route_restart_ready" \
     GRADLE_USER_HOME="$delay_gradle_user_home" \
         "$delay_root/gradlew" test \
-            --tests io.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest.signedRouteProviderRecoversAfterRealOxiaRestart \
+            --tests "$route_restart_test" \
+            --rerun-tasks \
             --no-daemon --console=plain >"$route_restart_log" 2>&1 &
     route_restart_pid=$!
     local ready=0
@@ -108,6 +127,9 @@ run_route_restart_smoke() {
     fi
 
     compose stop oxia
+    if [[ "$route_restart_notifications" == 1 ]]; then
+        sleep "$route_restart_pause_seconds"
+    fi
     compose start oxia
     wait_for_oxia_health
     touch "$route_restart_gate"
@@ -128,6 +150,10 @@ wait_for_oxia_health
 if [[ "$route_restart" == 1 ]]; then
     run_route_restart_smoke
     if [[ "$route_restart_only" == 1 ]]; then
+        if [[ "$route_restart_notifications" == 1 ]]; then
+            echo "Dockerized Oxia Route notification restart smoke passed: session rotation and notification stream recovery"
+            exit 0
+        fi
         echo "Dockerized Oxia Route restart smoke passed: provider session recovery and signed Route cache rebuild"
         exit 0
     fi
