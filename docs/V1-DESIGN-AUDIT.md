@@ -7188,7 +7188,7 @@ from `c300006a7705c240642db6950b5a95fec982bfc5`, client SHA-256
 image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
 Compose project `nereus-delay-kafka-e2e-1786798539-27043`, ports
 `19855,19856,19857`, and Oxia
-`37a17bef17202d5fd6e232da5fd26d94865484` in project
+`37a17bef17202d5fd6e23282da5fd26d94865484` in project
 `nereus-delay-kafka-oxia-e2e-1786798539-27043` on `16698`. The receipt was:
 
 ```text
@@ -7204,7 +7204,7 @@ common `94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`,
 image `sha256:892add226a105fb04b6df05df2c58f43e49f76647d39ed73944fcfc9ea1cb3d`,
 Compose project `nereus-delay-pulsar-e2e-1786798539-27042`, broker/web
 `20155,20156`, and Oxia
-`37a17bef17202d5fd6e232da5fd26d94865484` in project
+`37a17bef17202d5fd6e23282da5fd26d94865484` in project
 `nereus-delay-pulsar-oxia-e2e-1786798539-27042` on `16699`, with image
 `sha256:58c9302be462dc5f16ba593c289b17373a14d85cead7b0526b0bc02cfa2ee575`.
 The receipt was:
