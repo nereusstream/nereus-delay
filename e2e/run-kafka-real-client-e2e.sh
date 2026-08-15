@@ -91,6 +91,26 @@ start_oxia() {
   fi
 }
 
+run_worker_smoke() {
+  local bootstrap_server="$1"
+  local worker_topic_base="$2"
+  if [[ "${with_oxia}" == "1" ]]; then
+    NEREUS_DELAY_OXIA_ENDPOINT="${oxia_endpoint}" \
+    NEREUS_DELAY_OXIA_NAMESPACE=default \
+    GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaWorkerSmoke \
+      -PkafkaClientJar="${client_jar}" \
+      -PkafkaBootstrap="${bootstrap_server}" \
+      -PkafkaWorkerTopic="${worker_topic_base}" \
+      --no-daemon --console=plain
+  else
+    GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaWorkerSmoke \
+      -PkafkaClientJar="${client_jar}" \
+      -PkafkaBootstrap="${bootstrap_server}" \
+      -PkafkaWorkerTopic="${worker_topic_base}" \
+      --no-daemon --console=plain
+  fi
+}
+
 cd "${delay_dir}"
 require_clean_kafka_checkout
 test -s "${client_jar}"
@@ -138,20 +158,8 @@ GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaSourceSmoke \
 
 if [[ "${with_oxia}" == "1" ]]; then
   start_oxia
-  NEREUS_DELAY_OXIA_ENDPOINT="${oxia_endpoint}" \
-  NEREUS_DELAY_OXIA_NAMESPACE=default \
-  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaWorkerSmoke \
-    -PkafkaClientJar="${client_jar}" \
-    -PkafkaBootstrap="${bootstrap_all}" \
-    -PkafkaWorkerTopic="${worker_topic}" \
-    --no-daemon --console=plain
-else
-  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaWorkerSmoke \
-    -PkafkaClientJar="${client_jar}" \
-    -PkafkaBootstrap="${bootstrap_all}" \
-    -PkafkaWorkerTopic="${worker_topic}" \
-    --no-daemon --console=plain
 fi
+run_worker_smoke "${bootstrap_all}" "${worker_topic}"
 
 GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaK2Smoke \
   -PkafkaClientJar="${client_jar}" \
@@ -169,4 +177,6 @@ GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaSmoke \
   -PsmokeMode=preserve \
   --no-daemon --console=plain
 
-echo "Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, assignment recovery to RocksDB Worker apply, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence."
+run_worker_smoke "${bootstrap_survivors}" "${worker_topic}-survivor"
+
+echo "Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, assignment recovery to RocksDB Worker apply before and after broker-1 failover, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence."
