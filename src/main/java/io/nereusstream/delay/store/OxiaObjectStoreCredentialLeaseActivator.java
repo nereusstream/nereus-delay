@@ -17,14 +17,16 @@ import java.net.http.HttpClient;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Objects;
+import java.util.function.Supplier;
 
 /**
  * Activates one Object Store adapter from exact Profile authority state.
  *
  * <p>Activation resolves the immutable binding and current Head once, asks the
  * authority to protect and issue one bounded lease, and installs the local
- * fingerprint gate into the adapter. Provider calls do not reread Oxia; a
- * failed local gate requires a new activation/lease.</p>
+ * fingerprint gate into the adapter. Provider calls do not reread Oxia; the
+ * optional renewable activation path performs bounded control-plane renewal
+ * only inside its explicit renewal window.</p>
  */
 public final class OxiaObjectStoreCredentialLeaseActivator {
     private final CredentialProfileAuthority authority;
@@ -48,6 +50,28 @@ public final class OxiaObjectStoreCredentialLeaseActivator {
     /** Activates a lease-gated S3/S3-compatible checkpoint adapter. */
     public S3CompatibleCheckpointObjectStoreAdapter activateS3Compatible(
             final ActivationRequest request) {
+        return activate(request).adapter();
+    }
+
+    /**
+     * Activates an adapter that renews its control-plane lease before the
+     * current lease enters the configured renewal window.
+     *
+     * <p>The evidence supplier is called only during a renewal attempt and
+     * must provide fresh trusted time evidence. Provider calls remain behind
+     * the same local gate and never perform an Oxia read.</p>
+     */
+    public RenewableS3CompatibleCheckpointObjectStoreAdapter activateRenewableS3Compatible(
+            final ActivationRequest request, final long renewBeforeMs,
+            final Supplier<TrustedUtcIntervalEvidence> renewalEvidenceSupplier) {
+        final Activated activated = activate(request);
+        return new RenewableS3CompatibleCheckpointObjectStoreAdapter(activated.adapter(), activated.gate(),
+                authority, materialResolver, activated.profile(), activated.binding(), request.holderScopeDigest(),
+                maximumLeaseTtlMs, maximumAttestationAgeMs, renewBeforeMs, request.clock(),
+                renewalEvidenceSupplier);
+    }
+
+    private Activated activate(final ActivationRequest request) {
         Objects.requireNonNull(request, "request");
         final ProfileSemanticEnvelopeV1 profile = authority.resolve(request.profile());
         if (profile == null || !profile.ref().equals(request.profile())) {
@@ -83,9 +107,22 @@ public final class OxiaObjectStoreCredentialLeaseActivator {
         final ObjectStoreCredentialUseLeaseGate gate = new ObjectStoreCredentialUseLeaseGate(
                 profile, binding, protection, lease, material.resolvedCredentialFingerprintDigest(),
                 request.clock(), maximumLeaseTtlMs, maximumAttestationAgeMs);
-        return new S3CompatibleCheckpointObjectStoreAdapter(profile, request.endpoint(), request.region(),
+        final S3CompatibleCheckpointObjectStoreAdapter adapter = new S3CompatibleCheckpointObjectStoreAdapter(
+                profile, request.endpoint(), request.region(),
                 request.bucket(), material.accessKeyId(), material.secretAccessKey(), material.sessionToken(),
                 request.limits(), gate, request.client(), request.clock(), request.requestTimeout());
+        return new Activated(adapter, gate, profile, binding);
+    }
+
+    private record Activated(S3CompatibleCheckpointObjectStoreAdapter adapter,
+                             ObjectStoreCredentialUseLeaseGate gate,
+                             ProfileSemanticEnvelopeV1 profile, CredentialBindingV1 binding) {
+        private Activated {
+            Objects.requireNonNull(adapter, "adapter");
+            Objects.requireNonNull(gate, "gate");
+            Objects.requireNonNull(profile, "profile");
+            Objects.requireNonNull(binding, "binding");
+        }
     }
 
     @FunctionalInterface
