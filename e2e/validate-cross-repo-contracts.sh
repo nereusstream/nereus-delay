@@ -177,6 +177,26 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway certificate replacement and channel revalidation"
 require_file_text "$delay_root/e2e/README.md" \
     "Gateway certificate replacement and channel revalidation"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/SessionBoundOxiaGatewayRecordClient.java" \
+    "before and after every operation"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/OxiaGatewaySessionUnavailableException.java" \
+    "durable operation is fenced"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackend.java" \
+    "assertConnectedSession"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
+    "gatewayDurableRecordsRecoverAfterOxiaSessionChurn"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
+    "stale durable sessions failed closed"
+require_file_text "$delay_root/e2e/run-gateway-real-e2e.sh" \
+    "NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "241068fd"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Gateway durable admission/idempotency session-churn audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Gateway durable admission/idempotency recovery after Oxia session churn"
+require_file_text "$delay_root/e2e/README.md" \
+    "NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN=1"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayAdmissionRecordV1.java" \
     "nereus-delay-gateway-admission-record-v1"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayAdmissionControllerTest.java" \

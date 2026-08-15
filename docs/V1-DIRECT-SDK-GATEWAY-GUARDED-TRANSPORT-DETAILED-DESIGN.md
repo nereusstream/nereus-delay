@@ -4580,3 +4580,40 @@ This is positive same-port replacement and authenticated-channel
 revalidation, not hot certificate reload, staged rollback, revocation/CRL or
 OCSP proof, multi-process Gateway HA, load, crash/response-loss resolution,
 live Kafka/Pulsar publication or the §23.5 release gates.
+
+### 2026-08-16 Gateway durable admission/idempotency recovery after Oxia session churn
+
+Commit `f9fa48b7` makes the deployable Gateway durable-record composition
+session-fenced. `SessionBoundOxiaGatewayRecordClient` wraps the three Oxia
+record surfaces with the exact ephemeral marker from
+`OxiaSyncOwnerLeaseBackend.ClientHandle`; every `get` and `put` is checked both
+before and after the operation. Marker loss or metadata/version drift is a
+transport-unavailable boundary, not a retry permission. The old composition is
+closed to durable I/O until an operator creates a new set of client handles;
+the new composition may reread durable idempotency state but cannot recreate a
+one-shot attempt permit.
+
+Test commit `241068fd` adds the gated network test
+`gatewayDurableRecordsRecoverAfterOxiaSessionChurn`. It keeps the old Gateway
+server listening while a two-second Oxia session expires during a five-second
+service stop. The stale admission and idempotency wrappers fail with the
+session-fenced exception and the old mTLS RPC maps that boundary to
+`UNAVAILABLE`. A new three-handle composition then serves the same durable
+prefix and returns the exact prior outcome with one preparation, one physical
+attempt, zero live admission leases and two digest-only audit records.
+
+The source-locked receipt used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, image
+`sha256:e36ced8f25cff4ea67e61a1dd392668d53b5ac79ffe992587d49548cf038a059`,
+Compose `nereus-delay-gateway-e2e-1786824181-13578`, host ports `16678` and
+`22357`, and ended with `BUILD SUCCESSFUL` / `11 actionable tasks: 11 executed`:
+
+```text
+Gateway Oxia session churn E2E passed: stale durable sessions failed closed and recovery reread the exact durable outcome
+Dockerized Gateway Oxia session churn smoke passed for Oxia 37a17bef17202d5fd6e23282da5fd26d94865484
+```
+
+This is a bounded single-node session-rotation and controlled-recomposition
+proof. It is not transparent reconnect, multi-node Oxia failover, production
+Gateway HA, crash/response-loss, load, live Broker publication or release
+evidence.

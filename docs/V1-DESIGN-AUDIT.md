@@ -7851,6 +7851,34 @@ revalidation. It does not establish hot reload, staged rollback, certificate
 revocation, multi-process Gateway HA, load, crash/response-loss handling,
 live Kafka/Pulsar publication or V1 release readiness.
 
+## 2026-08-16 Gateway durable admission/idempotency session-churn audit
+
+Commit `f9fa48b7` binds Gateway admission, idempotency and audit I/O to the
+exact Oxia ephemeral session marker through
+`SessionBoundOxiaGatewayRecordClient`. The wrapper verifies the marker before
+and after every `get`/`put`; marker loss is surfaced as a fail-closed session
+unavailable boundary. Commit `241068fd` adds the real gated stop/start test
+`gatewayDurableRecordsRecoverAfterOxiaSessionChurn`, which keeps the old
+Gateway server alive across a five-second Oxia outage after two-second sessions
+expire, rejects stale admission/idempotency operations, and then composes three
+new sessions against the same durable prefix.
+
+The source-locked run used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, image
+`sha256:e36ced8f25cff4ea67e61a1dd392668d53b5ac79ffe992587d49548cf038a059`,
+Compose `nereus-delay-gateway-e2e-1786824181-13578`, Oxia port `16678` and
+Gateway port `22357`:
+
+```text
+Gateway Oxia session churn E2E passed: stale durable sessions failed closed and recovery reread the exact durable outcome
+Dockerized Gateway Oxia session churn smoke passed for Oxia 37a17bef17202d5fd6e23282da5fd26d94865484
+```
+
+Audit boundary: this is one single-node Oxia session-rotation and controlled
+recomposition receipt, not transparent automatic reconnect, multi-node Oxia or
+Gateway HA, crash/response-loss resolution, load, live Kafka/Pulsar publication
+or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

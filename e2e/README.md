@@ -867,3 +867,40 @@ This closes only bounded same-port certificate replacement and authenticated
 channel revalidation. Hot reload, staged rollback, revocation/CRL or OCSP,
 multi-process Gateway HA, load, crash/response-loss and release PASS remain
 open.
+
+## Gateway durable admission/idempotency recovery after Oxia session churn
+
+Run the gated stop/start receipt with a short old session and a five-second
+Oxia outage:
+
+```bash
+NEREUS_DELAY_OXIA_GATEWAY_E2E_PORT=16678 \
+NEREUS_DELAY_GATEWAY_PORT=22357 \
+NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN=1 \
+NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN_PAUSE_SECONDS=5 \
+./e2e/run-gateway-real-e2e.sh
+```
+
+The implementation commit is `f9fa48b7`; the gated test/harness commit is
+`241068fd`. The old Gateway composition uses two-second Oxia sessions and
+remains live while the harness stops Oxia. Session-bound admission and
+idempotency I/O fail closed, and the old mTLS request receives `UNAVAILABLE`.
+After Oxia restarts, a new three-handle composition rereads the same durable
+prefix and returns the exact prior outcome without another preparation or
+physical attempt. The scans require one quiescent idempotency attempt, zero
+admission leases and two digest-only audit records.
+
+The accepted source-locked run used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, image
+`sha256:e36ced8f25cff4ea67e61a1dd392668d53b5ac79ffe992587d49548cf038a059`,
+Compose project `nereus-delay-gateway-e2e-1786824181-13578`, and printed:
+
+```text
+Gateway Oxia session churn E2E passed: stale durable sessions failed closed and recovery reread the exact durable outcome
+Dockerized Gateway Oxia session churn smoke passed for Oxia 37a17bef17202d5fd6e23282da5fd26d94865484
+```
+
+This closes only the bounded single-node Oxia session-rotation,
+fail-closed/recomposition cut. Transparent automatic reconnect, multi-node
+Oxia failover, production Gateway HA, crash/response-loss, load, live
+Kafka/Pulsar publication and release PASS remain open.
