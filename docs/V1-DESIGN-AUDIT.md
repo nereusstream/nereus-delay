@@ -6801,6 +6801,10 @@ session-fenced real Oxia client, publishes and rereads a revision-CAS
 route-bound Worker assignment, and ACKs the next record on the unchanged
 guarded connection generation.
 
+The preceding bounded Worker evidence remains historically pinned to Delay
+`nereus/delay-full-implementation-v1@2dd2cfff83f4d029972cf7fbeb569fbf4538c026`;
+that frozen receipt is not the current implementation lock below.
+
 The receipt is source-locked to P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7`
 from `8dae0236c0a0d405ed7f8303081080520fe91551`, Delay
 `a73faf3e836ada67931f709d46214dde7caf3ad0`, and Oxia

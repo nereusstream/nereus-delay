@@ -110,6 +110,8 @@ require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "10e21cbf0e6f741f10b353c56a316a0b57b71b9d"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "nereus/delay-full-implementation-v1@2dd2cfff83f4d029972cf7fbeb569fbf4538c026"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "nereus/delay-full-implementation-v1@a73faf3e836ada67931f709d46214dde7caf3ad0"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "202368d46fedfe12ae414edaa9c3db32cc8e5073"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
