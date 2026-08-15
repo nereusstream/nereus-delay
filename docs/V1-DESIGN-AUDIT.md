@@ -4664,8 +4664,8 @@ the guarded Broker rollout attestation remains external evidence.
 
 | 依赖 | 审计锁 |
 |---|---|
-| Delay local implementation slice | `nereus/delay-full-implementation-v1@e01d3ee8708a53487747b0ef721d1f0d107ff677` (latest runtime slice: S3-compatible checkpoint upload/download with Profile-bound endpoint/credential scope, SigV4, conditional immutable PUT, exact reread after success/conflict/ambiguous response and atomic staged restore; it builds on the source-bound Kafka/Pulsar physical Publish/Outcome, Gateway/Oxia response-loss, real multi-node Oxia Gateway failover and bounded Kafka/Pulsar Worker failover slices; real provider credentials/quiescence, raw network/process cuts, catalog authority, production placement/eligibility and release gates remain open) |
-| Delay current implementation head | `nereus/delay-full-implementation-v1@a0d0fbd81097087a1ebc0031a93932398cb0de57` (current branch head; code slice `e01d3ee8708a53487747b0ef721d1f0d107ff677` adds the bounded S3-compatible checkpoint adapter and this commit synchronizes its evidence/validator; historical bounded Pulsar Route/Worker receipt remains provenance at `nereus/delay-full-implementation-v1@bf858b089b927fcf65129214d8ed5a7fc5300deb`; bounded Kafka/Pulsar Route/Worker assignment, failover, physical Publish/typed Outcome and Gateway/Oxia response-loss receipts are recorded; real Object Store provider authority, catalog-driven multi-shard placement, native eligibility, production Worker authority, raw chaos and release gates remain open) |
+| Delay local implementation slice | `nereus/delay-full-implementation-v1@078c66ce141a17a3e757aabb88bae5140d1d297a` (latest runtime slice: the S3-compatible checkpoint adapter now has a lease-gated constructor and local pre-provider recheck of exact Object Store binding/protection/lease identity, attestation age, trusted time and loaded credential fingerprint; it builds on the source-bound Kafka/Pulsar physical Publish/Outcome, Gateway/Oxia response-loss, real multi-node Oxia Gateway failover and bounded Kafka/Pulsar Worker failover slices; Oxia Head/protection CAS, trust-set/secret authority, real provider credentials, quiescence, raw network/process cuts, catalog authority, production placement/eligibility and release gates remain open) |
+| Delay current implementation head | `nereus/delay-full-implementation-v1@a0d0fbd81097087a1ebc0031a93932398cb0de57` (temporary until the documentation commit below; code slice `078c66ce141a17a3e757aabb88bae5140d1d297a` adds the local Object Store credential-use lease gate and this row will be advanced to the docs-synchronization commit; historical bounded Pulsar Route/Worker receipt remains provenance at `nereus/delay-full-implementation-v1@bf858b089b927fcf65129214d8ed5a7fc5300deb`; bounded Kafka/Pulsar Route/Worker assignment, failover, physical Publish/typed Outcome and Gateway/Oxia response-loss receipts are recorded; Oxia/provider authority, catalog-driven multi-shard placement, native eligibility, production Worker authority, raw chaos and release gates remain open) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
@@ -8227,6 +8227,33 @@ and response-loss seam. It does not close real S3/MinIO conformance,
 credential-use leases or rotation, provider quiescence/consistency
 attestation, version-aware deletion, multi-shard RecoveryPin/catalog
 transaction, process/network chaos, or the V1 release matrix.
+
+## 2026-08-16 Object Store credential-use lease gate audit
+
+Delay runtime commit `078c66ce141a17a3e757aabb88bae5140d1d297a` adds
+`ObjectStoreCredentialUseLeaseGate`. The lease-gated S3-compatible adapter
+constructor checks that the gate is bound to the same Profile, and `upload` and
+`download` invoke the gate before any HTTP request. The gate validates the
+exact binding/protection/lease projection, configured lease TTL and attestation
+age, current local trusted time and the loaded immutable credential
+fingerprint; its test covers a current lease, expiry, fingerprint drift and a
+protection horizon shorter than the lease.
+
+The focused command and full check both passed:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.ObjectStoreCredentialUseLeaseGateTest \
+  --tests io.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
+  --no-daemon --console=plain
+./gradlew check --no-daemon --console=plain --quiet
+```
+
+This is a local call-order and identity recheck receipt. It does not prove
+Oxia Head/protection CAS, attestation trust-set verification, secret
+resolution, credential rotation, real S3/MinIO conformance, provider
+quiescence, version-aware deletion, catalog transaction, chaos or V1 release
+readiness.
 
 ## Final gate
 

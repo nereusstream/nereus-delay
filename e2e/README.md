@@ -1305,3 +1305,24 @@ not real S3/MinIO conformance, credential-use lease or rotation evidence,
 provider quiescence/consistency attestation, version-aware deletion,
 multi-shard RecoveryPin/catalog authority, process/network chaos or V1 release
 PASS.
+
+## Object Store credential-use lease gate focused receipt
+
+The local gate and its adapter wiring are covered by:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.ObjectStoreCredentialUseLeaseGateTest \
+  --tests io.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
+  --no-daemon --console=plain
+```
+
+Delay commit `078c66ce141a17a3e757aabb88bae5140d1d297a` adds
+`ObjectStoreCredentialUseLeaseGate` and the lease-gated S3-compatible adapter
+constructor. Each upload/download rechecks the exact binding/protection/lease
+identity, configured TTL and attestation age, current local trusted time and
+loaded credential fingerprint before HTTP. The focused tests passed with
+`BUILD SUCCESSFUL`, and the full Gradle check passed. Existing ungated adapter
+constructors remain a local provider-shaped seam, not credential-authority
+evidence. Oxia Head/protection CAS, trust-set/secret authority, rotation, real
+S3/MinIO, provider quiescence, deletion, chaos and release gates remain open.

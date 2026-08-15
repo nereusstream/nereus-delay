@@ -839,18 +839,36 @@ require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3Compa
     "verifyAfterAmbiguousPut"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
     "objectBytesLimit"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+    "credentialGate.requireBeforeProviderCall"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/ObjectStoreCredentialUseLeaseGate.java" \
+    "requireBeforeProviderCall"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
     "uploadsAndRestoresAfterManifestResponseLossWithBoundedSigV4Requests"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
     "rejectsImmutableObjectConflictAfterIfNoneMatchPrecondition"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/ObjectStoreCredentialUseLeaseGateTest.java" \
+    "rejectsExpiredLeaseBeforeProviderCall"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/ObjectStoreCredentialUseLeaseGateTest.java" \
+    "rejectsLoadedCredentialFingerprintDriftAtConstruction"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "e01d3ee8708a53487747b0ef721d1f0d107ff677"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "078c66ce141a17a3e757aabb88bae5140d1d297a"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Object Store credential-use lease gate slice"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "S3-compatible checkpoint Object Store adapter audit"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Object Store credential-use lease gate audit"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "S3-compatible checkpoint Object Store adapter implementation note"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Object Store credential-use lease gate implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "S3-compatible checkpoint adapter focused receipt"
+require_file_text "$delay_root/e2e/README.md" \
+    "Object Store credential-use lease gate focused receipt"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

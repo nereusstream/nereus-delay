@@ -5014,3 +5014,24 @@ real S3/MinIO conformance, provider credential-use lease/rotation,
 quiescence/consistency attestation, version-aware delete/final sweep,
 multi-shard RecoveryPin/catalog transaction, process/network chaos,
 credential failover, or V1 release readiness.
+
+### 2026-08-16 Object Store credential-use lease gate implementation note
+
+`ObjectStoreCredentialUseLeaseGate` is the local call gate for an activated
+Object Store Adapter. The lease-gated
+`S3CompatibleCheckpointObjectStoreAdapter` constructor requires the same
+`ProfileRefV1` as the gate; immediately before `upload` or `download` starts
+provider I/O, the adapter rechecks the exact `CredentialBindingV1`,
+`CredentialBindingProtectionV1` and `CredentialUseLeaseV1` projection, the
+configured lease TTL and attestation age, the local trusted-time window and
+the loaded credential fingerprint. A gate failure therefore occurs before
+SigV4 HTTP ownership. `ObjectStoreCredentialUseLeaseGateTest` covers current
+and expired leases, loaded-fingerprint drift and a protection horizon shorter
+than the lease.
+
+This implementation supplies only the local recheck. The issuer's Oxia
+Head/protection CAS, attestation trust-set verification, secret resolution,
+credential rotation, provider quiescence/consistency and external Object Store
+authority remain outside this slice. The pre-existing ungated constructors are
+retained for the bounded provider-shaped adapter fixture and are not a
+production credential-authority claim.
