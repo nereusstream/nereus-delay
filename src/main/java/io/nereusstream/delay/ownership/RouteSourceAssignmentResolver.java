@@ -31,10 +31,19 @@ public final class RouteSourceAssignmentResolver {
                                    final int partition,
                                    final byte[] assignmentId,
                                    final long assignmentEpoch) {
+        return activeResolved(context, hint, partition, assignmentId, assignmentEpoch).sourceAssignment();
+    }
+
+    /** Resolves and returns the exact signed Route snapshot used for projection. */
+    public Resolved activeResolved(final AuthenticatedTenantContext context,
+                                   final RouteSelectionHint hint,
+                                   final int partition,
+                                   final byte[] assignmentId,
+                                   final long assignmentEpoch) {
         final RouteSnapshotV1 route = Objects.requireNonNull(
                 routeProvider.activeForNewSchedule(Objects.requireNonNull(context, "context"),
                         Objects.requireNonNull(hint, "hint")), "active Route snapshot");
-        return fromRoute(route, partition, assignmentId, assignmentEpoch);
+        return new Resolved(route, fromRoute(route, partition, assignmentId, assignmentEpoch));
     }
 
     /**
@@ -47,13 +56,22 @@ public final class RouteSourceAssignmentResolver {
                                   final int partition,
                                   final byte[] assignmentId,
                                   final long assignmentEpoch) {
+        return exactResolved(context, incarnation, partition, assignmentId, assignmentEpoch).sourceAssignment();
+    }
+
+    /** Resolves and returns an authorized historical Route plus its projection. */
+    public Resolved exactResolved(final AuthenticatedTenantContext context,
+                                  final RouteIncarnation incarnation,
+                                  final int partition,
+                                  final byte[] assignmentId,
+                                  final long assignmentEpoch) {
         final RouteIncarnation expected = Objects.requireNonNull(incarnation, "incarnation");
         final RouteSnapshotV1 route = routeProvider.exact(expected,
                 Objects.requireNonNull(context, "context"));
         if (route == null || !expected.equals(route.routeIncarnation())) {
             throw new IllegalArgumentException("authorized historical Route snapshot is unavailable");
         }
-        return fromRoute(route, partition, assignmentId, assignmentEpoch);
+        return new Resolved(route, fromRoute(route, partition, assignmentId, assignmentEpoch));
     }
 
     private static SourceAssignment fromRoute(final RouteSnapshotV1 route, final int partition,
@@ -61,5 +79,12 @@ public final class RouteSourceAssignmentResolver {
         Objects.requireNonNull(route, "route");
         Bytes.requireLength(assignmentId, SourceAssignment.ID_LENGTH, "assignmentId");
         return RouteSourceAssignmentFactory.fromRoute(route, partition, assignmentId, assignmentEpoch);
+    }
+
+    public record Resolved(RouteSnapshotV1 routeSnapshot, SourceAssignment sourceAssignment) {
+        public Resolved {
+            Objects.requireNonNull(routeSnapshot, "routeSnapshot");
+            Objects.requireNonNull(sourceAssignment, "sourceAssignment");
+        }
     }
 }

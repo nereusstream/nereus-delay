@@ -62,6 +62,7 @@ GRADLE_USER_HOME="$delay_gradle_user_home" \
         --tests io.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest \
         --tests io.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
         --tests io.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest \
+        --tests io.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest \
         --tests io.nereusstream.delay.gateway.OxiaRealGatewayAuditSinkSmokeTest \
         --tests io.nereusstream.delay.gateway.OxiaRealGatewayAdmissionSmokeTest \
         --no-daemon --console=plain

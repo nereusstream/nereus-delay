@@ -20,9 +20,16 @@ public record WorkerAssignment(
         String workerId,
         SourceAssignment sourceAssignment,
         long placementEpoch,
-        byte[] capacityEnvelopeDigest) {
+        byte[] capacityEnvelopeDigest,
+        byte[] routeSnapshotDigest) {
     private static final int VERSION = 1;
     private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-worker-assignment-v1\0");
+
+    /** Creates an assignment that is not yet bound to a Route snapshot. */
+    public WorkerAssignment(final String workerId, final SourceAssignment sourceAssignment,
+                            final long placementEpoch, final byte[] capacityEnvelopeDigest) {
+        this(workerId, sourceAssignment, placementEpoch, capacityEnvelopeDigest, new byte[0]);
+    }
 
     public WorkerAssignment {
         workerId = canonicalText(workerId, "workerId");
@@ -35,11 +42,22 @@ public record WorkerAssignment(
             throw new IllegalArgumentException("capacityEnvelopeDigest must be non-zero");
         }
         capacityEnvelopeDigest = Bytes.copy(capacityEnvelopeDigest);
+        routeSnapshotDigest = routeDigest(routeSnapshotDigest);
     }
 
     @Override
     public byte[] capacityEnvelopeDigest() {
         return Bytes.copy(capacityEnvelopeDigest);
+    }
+
+    @Override
+    public byte[] routeSnapshotDigest() {
+        return Bytes.copy(routeSnapshotDigest);
+    }
+
+    /** Whether this assignment was published from an authenticated Route snapshot. */
+    public boolean routeBound() {
+        return routeSnapshotDigest.length == 32;
     }
 
     @Override
@@ -50,7 +68,7 @@ public record WorkerAssignment(
     @Override
     public int hashCode() {
         return Objects.hash(workerId, sourceAssignment, placementEpoch,
-                Arrays.hashCode(capacityEnvelopeDigest));
+                Arrays.hashCode(capacityEnvelopeDigest), Arrays.hashCode(routeSnapshotDigest));
     }
 
     /** Digest-bound canonical projection stored by the assignment authority. */
@@ -61,33 +79,34 @@ public record WorkerAssignment(
             CanonicalProtobuf.uint64Bits(output, 3, placementEpoch);
             CanonicalProtobuf.bytes(output, 4, capacityEnvelopeDigest);
             CanonicalProtobuf.bytes(output, 5, sourceAssignment.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 6, routeSnapshotDigest);
         });
         return CanonicalProtobuf.message(output -> {
             output.writeBytes(body);
-            CanonicalProtobuf.bytes(output, 6, Bytes.sha256(DIGEST_DOMAIN, body));
+            CanonicalProtobuf.bytes(output, 7, Bytes.sha256(DIGEST_DOMAIN, body));
         });
     }
 
     /** Decodes and verifies a placement projection without accepting aliases. */
     public static WorkerAssignment decode(final byte[] encoded) {
         final List<CanonicalProtobuf.Reader.Field> fields = fields(encoded);
-        requireNumbers(fields, 1, 2, 3, 4, 5, 6);
+        requireNumbers(fields, 1, 2, 3, 4, 5, 6, 7);
         if (uint(fields.get(0), 1) != VERSION) {
             throw new IllegalArgumentException("unsupported WorkerAssignment version");
         }
         final byte[] body = CanonicalProtobuf.message(output -> {
-            for (int index = 0; index < 5; index++) {
+            for (int index = 0; index < 6; index++) {
                 final CanonicalProtobuf.Reader.Field field = fields.get(index);
                 writeField(output, field);
             }
         });
-        final byte[] digest = fixed(fields.get(5), 6, 32);
+        final byte[] digest = fixed(fields.get(6), 7, 32);
         if (!Bytes.constantTimeEquals(digest, Bytes.sha256(DIGEST_DOMAIN, body))) {
             throw new IllegalArgumentException("WorkerAssignment digest mismatch");
         }
         final WorkerAssignment result = new WorkerAssignment(text(bytes(fields.get(1), 2), "workerId"),
                 SourceAssignment.decode(bytes(fields.get(4), 5)), uint64Bits(fields.get(2), 3),
-                fixed(fields.get(3), 4, 32));
+                fixed(fields.get(3), 4, 32), routeDigest(bytes(fields.get(5), 6)));
         if (!Arrays.equals(encoded, result.canonicalBytes())) {
             throw new IllegalArgumentException("non-canonical WorkerAssignment");
         }
@@ -182,5 +201,16 @@ public record WorkerAssignment(
             }
         }
         return true;
+    }
+
+    private static byte[] routeDigest(final byte[] value) {
+        Objects.requireNonNull(value, "routeSnapshotDigest");
+        if (value.length != 0 && value.length != 32) {
+            throw new IllegalArgumentException("routeSnapshotDigest must be empty or 32 bytes");
+        }
+        if (value.length == 32 && allZero(value)) {
+            throw new IllegalArgumentException("routeSnapshotDigest must be non-zero");
+        }
+        return Bytes.copy(value);
     }
 }

@@ -34,8 +34,31 @@ public final class WorkerAssignmentCoordinator {
                                  final long nowEpochMs,
                                  final long movementBytes,
                                  final long expectedRevision) {
+        return place(sourceAssignment, capacityEnvelopeDigest, new byte[0], placementEpoch, candidates,
+                incomingShardCapacity, workerFixedCost, transitionDemand, currentWorkerId, nowEpochMs,
+                movementBytes, expectedRevision);
+    }
+
+    /**
+     * Scores and publishes an assignment optionally bound to a signed Route
+     * snapshot digest.  The empty digest overload above preserves the local
+     * source-assignment seam used by non-Route composition tests.
+     */
+    public PlacementResult place(final SourceAssignment sourceAssignment,
+                                 final byte[] capacityEnvelopeDigest,
+                                 final byte[] routeSnapshotDigest,
+                                 final long placementEpoch,
+                                 final List<WorkerPlacementPolicy.WorkerCandidate> candidates,
+                                 final io.nereusstream.delay.protocol.CapacityVectorV1 incomingShardCapacity,
+                                 final io.nereusstream.delay.protocol.CapacityVectorV1 workerFixedCost,
+                                 final io.nereusstream.delay.protocol.CapacityVectorV1 transitionDemand,
+                                 final String currentWorkerId,
+                                 final long nowEpochMs,
+                                 final long movementBytes,
+                                 final long expectedRevision) {
         Objects.requireNonNull(sourceAssignment, "sourceAssignment");
         Bytes.requireLength(capacityEnvelopeDigest, 32, "capacityEnvelopeDigest");
+        Objects.requireNonNull(routeSnapshotDigest, "routeSnapshotDigest");
         if (placementEpoch == 0 || expectedRevision < 0) {
             throw new IllegalArgumentException("placement epoch or expected revision is invalid");
         }
@@ -46,7 +69,7 @@ public final class WorkerAssignmentCoordinator {
             return new PlacementResult(decision, Optional.empty());
         }
         final WorkerAssignment assignment = new WorkerAssignment(decision.workerId(), sourceAssignment,
-                placementEpoch, capacityEnvelopeDigest);
+                placementEpoch, capacityEnvelopeDigest, routeSnapshotDigest);
         return new PlacementResult(decision, Optional.of(authority.publish(assignment, expectedRevision)));
     }
 
