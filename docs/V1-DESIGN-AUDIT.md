@@ -6931,6 +6931,31 @@ this smoke is the crash-durable filesystem object seam, so remote Object Store
 credentials/quiescence, session-bound RecoveryPin transaction, multi-shard
 placement and the release cross-entry gate remain open.
 
+## 2026-08-15 Oxia Route provider restart/revalidation audit
+
+Delay commit `164597c39f1da6fc403c5283494b1f0c6b132802` adds a gated real-service
+restart cut for `OxiaSignedRouteSnapshotProvider`. After a signed Route is
+published and cached, the isolated harness stops and starts the same Oxia
+container, waits for health, releases the test gate, and requires explicit
+provider refresh to rebuild the persisted head/event cache with the exact
+revision and signed snapshot intact.
+
+The receipt is locked to Oxia
+`37a17bef17202d5fd6e232da5fd26d94865484`, image
+`sha256:1ea8324636e65d92bf6f0767062e58078fd617767c9c74540443c5b6a2c1293d`,
+Compose project `nereus-delay-v1-oxia-e2e-1786789198-22565`, and port `16684`.
+The selected test passed with `BUILD SUCCESSFUL in 10s` and recorded:
+
+```text
+Oxia Route provider restart recovery passed: revision=1, session revalidated, cache healthy
+Dockerized Oxia Route restart smoke passed: provider session recovery and signed Route cache rebuild
+```
+
+This is one real Oxia service restart/revalidation cut. The observed reusable
+session identity did not rotate across this stop/start, so ephemeral marker
+expiry/rotation, notification-stream churn, multi-node failover, catalog
+placement, remote Object Store authority and §23.5 release gates remain open.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

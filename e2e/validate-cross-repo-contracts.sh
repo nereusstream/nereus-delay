@@ -355,6 +355,18 @@ require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaRea
     "signedRoutePublicationFeedsSessionBoundWorkerAssignmentAuthority"
 require_file_text "$delay_root/e2e/run-oxia-real-service.sh" \
     "OxiaRealRouteWorkerAssignmentSmokeTest"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaRealRouteAuthoritySmokeTest.java" \
+    "signedRouteProviderRecoversAfterRealOxiaRestart"
+require_file_text "$delay_root/e2e/run-oxia-real-service.sh" \
+    "NEREUS_DELAY_OXIA_ROUTE_RESTART"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "nereus-delay-v1-oxia-e2e-1786789198-22565"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "nereus-delay-v1-oxia-e2e-1786789198-22565"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "164597c39f1da6fc403c5283494b1f0c6b132802"
+require_file_text "$delay_root/e2e/README.md" \
+    "NEREUS_DELAY_OXIA_ROUTE_RESTART_ONLY=1"
 require_file_text "$delay_root/build.gradle" \
     "runRealPulsarWorkerSmoke"
 require_file_text "$delay_root/build.gradle" \

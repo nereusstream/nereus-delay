@@ -576,6 +576,40 @@ not catalog-driven multi-shard placement, capacity-envelope authority,
 Broker source ownership transfer/reconnect, due/Lane/publish/checkpoint
 production wiring, failover or crash gates.
 
+## Oxia Route provider restart/revalidation
+
+The restart-only mode validates a live Route cache against a real Oxia service.
+The test publishes and caches one signed Route, pauses at a file gate, and the
+harness stops/starts the same Oxia container. After the health check passes,
+the gate is released and explicit provider `refresh()` must recover the
+session-backed read path, replay the persisted head/event and retain the exact
+signed snapshot.
+
+Run it with:
+
+```bash
+NEREUS_DELAY_OXIA_ROUTE_RESTART=1 \
+NEREUS_DELAY_OXIA_ROUTE_RESTART_ONLY=1 \
+NEREUS_DELAY_OXIA_E2E_PORT=16684 \
+./e2e/run-oxia-real-service.sh
+```
+
+The source-locked run used Oxia
+`37a17bef17202d5fd6e232da5fd26d94865484`, Compose project
+`nereus-delay-v1-oxia-e2e-1786789198-22565`, host port `16684`, and image
+`sha256:1ea8324636e65d92bf6f0767062e58078fd617767c9c74540443c5b6a2c1293d`.
+It passed with:
+
+```text
+Oxia Route provider restart recovery passed: revision=1, session revalidated, cache healthy
+Dockerized Oxia Route restart smoke passed: provider session recovery and signed Route cache rebuild
+```
+
+This covers one real Oxia restart/revalidation cut. The session identity was
+reusable across this stop/start; marker expiry/rotation, notification-stream
+churn, multi-node failover, catalog placement, remote Object Store authority
+and release PASS remain outside the receipt.
+
 ## Worker final checkpoint-on-drain evidence
 
 Delay commit `2dd2cfff83f4d029972cf7fbeb569fbf4538c026` makes the real Kafka and

@@ -3569,6 +3569,30 @@ filesystem object seam; remote Object Store credentials/quiescence,
 session-bound RecoveryPin transaction, multi-shard placement and release
 cross-entry gates remain unproven.
 
+### 2026-08-15 Oxia Route provider restart/revalidation implementation note
+
+Delay commit `164597c39f1da6fc403c5283494b1f0c6b132802` adds a dedicated,
+file-gated real-service smoke for the Route cache lifecycle. The provider first
+publishes and caches a signed Route, then the harness restarts the same Oxia
+container and waits for service health before releasing the test. Explicit
+`refresh()` must revalidate the Oxia session and rebuild the head/event cache;
+the test checks revision, cache health and exact signed snapshot bytes.
+
+The source-locked receipt used Oxia
+`37a17bef17202d5fd6e232da5fd26d94865484`, Compose project
+`nereus-delay-v1-oxia-e2e-1786789198-22565`, port `16684`, and image
+`sha256:1ea8324636e65d92bf6f0767062e58078fd617767c9c74540443c5b6a2c1293d`:
+
+```text
+Oxia Route provider restart recovery passed: revision=1, session revalidated, cache healthy
+Dockerized Oxia Route restart smoke passed: provider session recovery and signed Route cache rebuild
+```
+
+This is bounded one-stream restart/revalidation evidence. It does not prove
+ephemeral marker rotation after expiry, notification-stream reconnect/churn,
+multi-node Oxia failover, catalog-driven placement, remote Object Store
+authority or the §23.5 release gates.
+
 ## 16. 当前结论与仍需实测的数值
 
 已经冻结：

@@ -8098,6 +8098,49 @@ it does not prove remote Object Store credentials, provider quiescence,
 session-bound RecoveryPin transaction, multi-shard placement or release PASS.
 The harness trap removed its matching container and network.
 
+## 2026-08-15 Oxia Route provider restart/revalidation evidence
+
+Delay commit `164597c39f1da6fc403c5283494b1f0c6b132802` adds a gated real-service
+Route restart smoke. It starts a signed Route provider against Oxia, waits
+after the first healthy revision is cached, stops and restarts the same Oxia
+container, waits for the health endpoint, and then explicitly calls provider
+`refresh()`. The test requires the persisted Route head/event replay to return
+the same revision, a healthy cache and the exact signed snapshot after the
+service restart.
+
+The source-locked run used Oxia
+`37a17bef17202d5fd6e232da5fd26d94865484`, Docker image
+`sha256:1ea8324636e65d92bf6f0767062e58078fd617767c9c74540443c5b6a2c1293d`,
+Compose project `nereus-delay-v1-oxia-e2e-1786789198-22565`, and host port
+`16684`. The exact command was:
+
+```bash
+NEREUS_DELAY_OXIA_ROUTE_RESTART=1 \
+NEREUS_DELAY_OXIA_ROUTE_RESTART_ONLY=1 \
+NEREUS_DELAY_OXIA_E2E_PORT=16684 \
+./e2e/run-oxia-real-service.sh
+```
+
+The selected Gradle test ended with `BUILD SUCCESSFUL in 10s`; its persisted
+test output was:
+
+```text
+Oxia Route provider restart recovery passed: revision=1, session revalidated, cache healthy
+```
+
+The harness printed:
+
+```text
+Dockerized Oxia Route restart smoke passed: provider session recovery and signed Route cache rebuild
+```
+
+This closes an explicit real-service restart/revalidation and cache rebuild
+cut for one signed Route stream. The reusable Oxia client kept a reusable
+session identity across this stop/start, so this is not evidence of ephemeral
+marker rotation after expiry, multi-node Oxia failover, notification-stream
+churn, catalog-driven placement, remote Object Store authority or release
+PASS. The matching container and network were removed.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
