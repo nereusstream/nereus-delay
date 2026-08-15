@@ -6615,6 +6615,21 @@ bounded per selected shard, while an absent optional graph yields no invented
 action. Closing the fleet still requires each shard's own drain/lease/source
 ordering.
 
+## 2026-08-15 recurring checkpoint Worker wiring audit
+
+Delay commit `46ca2b1e` binds a recurring checkpoint graph to one
+`WorkerShardRuntime` only after exact WorkClass-registry, Shard-Store and
+shared-resource identity checks. Register, due-claim, submit and run operations
+reuse the shard's source lifecycle and runtime-business-admission fences. The
+fleet adds a bounded checkpoint turn and round-robin cursor; it does not create
+a checkpoint graph for a source-only shard.
+
+The focused fleet/checkpoint tests and main checkstyle passed. This remains
+local recurring-checkpoint dispatch: remote Object Store/provider/catalog
+authority, checkpoint-on-drain completeness, catalog assignment, native source
+ownership transfer, broker failover, crash evidence and release PASS remain
+unproven.
+
 The focused checkpoint and fleet tests plus main checkstyle passed. This
 advances only local checkpoint retryability and event-loop multi-shard
 composition. It is not catalog-driven placement or assignment publication,

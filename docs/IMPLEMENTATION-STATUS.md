@@ -7645,6 +7645,23 @@ clients, orchestrate automatic Ready/Publish preparation, provide remote
 Object Store authority, or prove multi-broker/fresh-process crash evidence;
 those release gates remain open.
 
+## 2026-08-15 recurring checkpoint Worker wiring
+
+Delay commit `46ca2b1e` attaches the existing `WorkerCheckpointRuntime` to an
+activated `WorkerShardRuntime` only when the checkpoint graph carries the exact
+same WorkClass registry, Shard Store and shared RocksDB resource envelope. The
+shard wrapper now exposes bounded register, due-claim, submit and execution
+operations behind the source-lifecycle and runtime-business-admission fences.
+`WorkerShardFleetRuntime` can dispatch one checkpoint turn in the same bounded
+round-robin style as source, scheduling and Claim/Publish turns.
+
+The fleet test covers a checkpoint-enabled shard beside a source-only shard;
+the checkpoint graph is not silently synthesized for shards that do not have
+one. This is local recurring-checkpoint and event-loop composition only. It
+does not establish remote Object Store/provider/catalog authority, automatic
+Ready/Publish orchestration, checkpoint-on-drain completeness, multi-shard
+assignment/failover, crash-boundary evidence or release PASS.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

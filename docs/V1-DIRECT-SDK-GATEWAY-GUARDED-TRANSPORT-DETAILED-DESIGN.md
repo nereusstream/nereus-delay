@@ -3308,6 +3308,22 @@ the fleet can close it. This is local multi-shard event-loop wiring only, not
 catalog placement, automatic Ready/Publish orchestration, Broker failover,
 crash evidence or §23.5 release completion.
 
+### 2026-08-15 recurring checkpoint Worker wiring
+
+Delay commit `46ca2b1e` extends that composition with an optional recurring
+checkpoint graph. A shard accepts `WorkerCheckpointRuntime` only when its
+WorkClass registry, Shard Store and shared RocksDB resource envelope are the
+same object identities as the owning Worker composition. Its register,
+due-claim, submit and run methods therefore remain behind the source-running
+and runtime-business-admission fences. The fleet supplies a separate bounded
+checkpoint cursor and returns no checkpoint action for a shard without the
+graph.
+
+This wires local schedule/queue execution only. It does not claim remote Object
+Store/provider/catalog authority, automatic Ready/Publish preparation,
+checkpoint-on-drain completeness, assignment/failover ownership, crash-boundary
+evidence or §23.5 release completion.
+
 ## 16. 当前结论与仍需实测的数值
 
 已经冻结：
