@@ -7540,7 +7540,10 @@ having to roll back an unbounded batch of selected heads.
 The shared Claim prerequisite gate, trusted UTC evidence, Claim deadline and
 charge remain explicit; the method does not create a channel, Ready
 Certificate, Publish descriptor, Broker append or external authority. This is
-one-shard local DUE/READY → Claim queue composition only. Focused compilation,
+one-shard local DUE/READY → Claim queue composition only. Commit `d413869b`
+updates `ClaimHandoffWorkClassExecutorTest` to use a real V1 binding and the
+derived `WorkerCommandRuntime.submitClaim` overload, while retaining queue
+deferral, permit rejection and final Claim assertions. Focused compilation,
 checkstyle and the Claim/Publish/scheduling regressions passed; multi-shard
 orchestration, automatic Ready/Publish preparation, response-loss/crash and
 release gates remain open.

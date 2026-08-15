@@ -6536,9 +6536,11 @@ introduced.
 The entrypoint still requires trusted UTC evidence, Claim deadline/charge and
 the configured external prerequisite gate. It does not synthesize channel,
 Ready Certificate, Publish descriptor, Broker append or external authority.
-This closes only the local one-shard DUE/READY → Claim queue wiring and is not
-multi-shard, automatic Ready/Publish preparation, response-loss/crash or
-release evidence.
+Commit `d413869b` moves the Claim handoff regression to a real V1 binding and
+the derived Worker command overload, including queue deferral, permit
+rejection and successful Claim coverage. This closes only the local one-shard
+DUE/READY → Claim queue wiring and is not multi-shard, automatic Ready/Publish
+preparation, response-loss/crash or release evidence.
 
 ## Final gate
 
