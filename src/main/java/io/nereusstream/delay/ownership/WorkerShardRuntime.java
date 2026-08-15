@@ -35,6 +35,8 @@ import java.util.function.LongSupplier;
  * released the matching lease.</p>
  */
 public final class WorkerShardRuntime implements AutoCloseable {
+    private final WorkClassExecutionRegistry workClasses;
+    private final OwnedDelayShard ownedShard;
     private final SharedRocksDbResources resources;
     private final WorkerSourceApplyLoop sourceLoop;
     private final OwnerDrainCoordinator drainCoordinator;
@@ -81,20 +83,48 @@ public final class WorkerShardRuntime implements AutoCloseable {
                               final PublicKey verificationKey,
                               final WorkerSchedulingRuntime schedulingRuntime,
                               final WorkerCommandRuntime commandRuntime) {
+        this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
+        this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
         this.resources = Objects.requireNonNull(resources, "resources");
-        final WorkClassExecutionRegistry registry = Objects.requireNonNull(workClasses, "workClasses");
-        this.resources.bindWorkClassExecutionRegistry(registry);
+        this.resources.bindWorkClassExecutionRegistry(this.workClasses);
         if (schedulingRuntime != null) {
-            schedulingRuntime.requireWorkClassExecutionRegistry(registry);
+            schedulingRuntime.requireWorkClassExecutionRegistry(this.workClasses);
         }
         if (commandRuntime != null) {
-            commandRuntime.requireWorkClassExecutionRegistry(registry);
+            commandRuntime.requireWorkClassExecutionRegistry(this.workClasses);
         }
         this.schedulingRuntime = schedulingRuntime;
         this.commandRuntime = commandRuntime;
-        this.sourceLoop = new WorkerSourceApplyLoop(sourceConsumer, registry, ownedShard, authority,
+        this.sourceLoop = new WorkerSourceApplyLoop(sourceConsumer, this.workClasses, this.ownedShard, authority,
                 verificationKey);
-        this.drainCoordinator = new OwnerDrainCoordinator(ownedShard, store, resources, authority, registry);
+        this.drainCoordinator = new OwnerDrainCoordinator(this.ownedShard, store, resources, authority,
+                this.workClasses);
+    }
+
+    /** Returns the independently stored Shard identity owned by this runtime. */
+    public io.nereusstream.delay.protocol.ShardId shardId() {
+        return ownedShard.shard().shardId();
+    }
+
+    /** Whether this runtime has an active-owner scheduling graph attached. */
+    boolean hasSchedulingRuntime() {
+        return schedulingRuntime != null;
+    }
+
+    /** Whether this runtime has a Claim/Publish command graph attached. */
+    boolean hasCommandRuntime() {
+        return commandRuntime != null;
+    }
+
+    /** Validates process-wide graph/resource identity before fleet admission. */
+    void requireFleetComposition(final WorkClassExecutionRegistry expectedWorkClasses,
+                                 final SharedRocksDbResources expectedResources) {
+        if (workClasses != Objects.requireNonNull(expectedWorkClasses, "expectedWorkClasses")) {
+            throw new IllegalArgumentException("Worker shard runtime uses another work-class registry");
+        }
+        if (resources != Objects.requireNonNull(expectedResources, "expectedResources")) {
+            throw new IllegalArgumentException("Worker shard runtime uses another resource envelope");
+        }
     }
 
     /** Runs one bounded source turn while the Worker runtime is admitting work. */
