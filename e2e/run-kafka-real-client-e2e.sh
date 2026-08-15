@@ -34,6 +34,8 @@ k2_failover="${NEREUS_DELAY_KAFKA_K2_FAILOVER:-0}"
 k2_failover_only="${NEREUS_DELAY_KAFKA_K2_FAILOVER_ONLY:-0}"
 k2_response_loss="${NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS:-0}"
 k2_response_loss_only="${NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS_ONLY:-0}"
+worker_destination_response_loss="${NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS:-0}"
+worker_destination_response_loss_only="${NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS_ONLY:-0}"
 oxia_checkout="${NEREUS_DELAY_KAFKA_OXIA_CHECKOUT:-${delay_dir}/../../oxia}"
 oxia_port="${NEREUS_DELAY_KAFKA_OXIA_PORT:-$((16650 + ($$ % 100)))}"
 oxia_compose_project="nereus-delay-kafka-oxia-e2e-$(date +%s)-$$"
@@ -69,6 +71,14 @@ if [[ "${k2_response_loss_only}" != "0" && "${k2_response_loss_only}" != "1" ]];
   echo "NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS_ONLY must be 0 or 1" >&2
   exit 1
 fi
+if [[ "${worker_destination_response_loss}" != "0" && "${worker_destination_response_loss}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${worker_destination_response_loss_only}" != "0" && "${worker_destination_response_loss_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS_ONLY must be 0 or 1" >&2
+  exit 1
+fi
 if [[ "${route_failover}" == "1" && "${with_oxia}" != "1" ]]; then
   echo "NEREUS_DELAY_KAFKA_ROUTE_FAILOVER requires NEREUS_DELAY_KAFKA_WITH_OXIA=1" >&2
   exit 1
@@ -89,6 +99,10 @@ if [[ "${k2_response_loss_only}" == "1" && "${k2_response_loss}" != "1" ]]; then
   echo "NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS_ONLY requires NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS=1" >&2
   exit 1
 fi
+if [[ "${worker_destination_response_loss_only}" == "1" && "${worker_destination_response_loss}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS_ONLY requires NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS=1" >&2
+  exit 1
+fi
 if [[ "${k2_response_loss}" == "1" && "${k2_failover}" == "1" ]]; then
   echo "K2 response-loss and broker-failover modes are mutually exclusive" >&2
   exit 1
@@ -104,6 +118,22 @@ fi
 if [[ "${k2_failover_only}" == "1" && "${k2_response_loss_only}" == "1" ]]; then
   echo "K2 failover and response-loss-only modes are mutually exclusive" >&2
   exit 1
+fi
+if [[ "${worker_destination_response_loss_only}" == "1" && "${route_failover_only}" == "1" ]]; then
+  echo "route and Kafka Worker destination response-loss-only modes are mutually exclusive" >&2
+  exit 1
+fi
+if [[ "${worker_destination_response_loss_only}" == "1" && "${k2_failover_only}" == "1" ]]; then
+  echo "K2 failover and Kafka Worker destination response-loss-only modes are mutually exclusive" >&2
+  exit 1
+fi
+if [[ "${worker_destination_response_loss_only}" == "1" && "${k2_response_loss_only}" == "1" ]]; then
+  echo "K2 response-loss and Kafka Worker destination response-loss-only modes are mutually exclusive" >&2
+  exit 1
+fi
+
+if [[ "${worker_destination_response_loss}" == "1" ]]; then
+  export NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS=1
 fi
 
 route_failover_dir="$(mktemp -d -t nereus-delay-kafka-route-failover.XXXXXX)"
@@ -384,6 +414,16 @@ fi
 if [[ "${k2_response_loss_only}" == "1" ]]; then
   run_k2_smoke "${bootstrap_all}"
   echo "Kafka K2 committed response-loss E2E passed: real EndTxn commit was followed by local response loss and exact read_committed typed receipt resolution."
+  exit 0
+fi
+
+if [[ "${worker_destination_response_loss_only}" == "1" ]]; then
+  if [[ "${with_oxia}" == "1" ]]; then
+    start_oxia
+  fi
+  response_loss_worker_topic="${KAFKA_DELAY_WORKER_RESPONSE_LOSS_TOPIC:-${worker_topic}-destination-response-loss}"
+  run_worker_smoke "${bootstrap_all}" "${response_loss_worker_topic}"
+  echo "Kafka Worker destination response-loss E2E passed: real EndTxn response loss resolved through typed read_committed KAFKA_TRANSACTIONAL_RECEIPT evidence and the source-applied Outcome completed."
   exit 0
 fi
 

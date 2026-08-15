@@ -116,6 +116,8 @@ import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.ByteBuffer;
@@ -130,6 +132,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Real Kafka vertical smoke for assignment, recovery, active Worker apply and
@@ -734,6 +737,7 @@ public final class KafkaClientArtifactWorkerSmoke {
                     + ", stableCode=" + (appliedResult == null ? "missing" : appliedResult.stableCode()));
         }
         requirePayload(bootstrap, clusterId, bridge.destinationPhysicalTopic(), bridge.destinationTopicId(), payload);
+        bridge.requireDestinationResponseLossResolved(physicalResult);
         System.out.println("Kafka Worker source-applied physical publish passed: Admission source offset="
                 + admissionPosition.offset() + ", typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset="
                 + branchNumber(publishEvidence, 2) + ", Outcome source offset=" + outcomePosition.offset()
@@ -833,13 +837,19 @@ public final class KafkaClientArtifactWorkerSmoke {
         final String transactionalIdentity = "nereus-delay-kafka-worker-" + UUID.randomUUID();
         final byte[] transactionalIdentitySha256 = Bytes.sha256(Bytes.utf8(transactionalIdentity));
         final KafkaReceiptJournal journal = new KafkaReceiptJournal(shard, receiptResource);
+        final boolean destinationResponseLossExpected = hasWorkerDestinationResponseLoss();
+        final AtomicBoolean destinationResponseLossObserved = new AtomicBoolean();
         final KafkaProducer<byte[], byte[]> destinationProducer = new KafkaProducer<>(
                 transactionalProducerConfiguration(bootstrap, transactionalIdentity),
                 new ByteArraySerializer(), new ByteArraySerializer());
         destinationProducer.initTransactions();
+        final GuardedTransactionalProducer<byte[], byte[]> guardedDestinationProducer =
+                (GuardedTransactionalProducer<byte[], byte[]>) destinationProducer;
         final KafkaClientArtifactTransactionalDestinationTransport transport =
                 new KafkaClientArtifactTransactionalDestinationTransport(
-                        (GuardedTransactionalProducer<byte[], byte[]>) destinationProducer,
+                        destinationResponseLossExpected
+                                ? destinationResponseLossProducer(guardedDestinationProducer,
+                                destinationResponseLossObserved) : guardedDestinationProducer,
                         new KafkaClientArtifactTransactionalReceiptEvidenceProvider(
                                 configuration(bootstrap, "kafka-worker-k2-evidence"), 1,
                                 Duration.ofMillis(250)));
@@ -892,7 +902,34 @@ public final class KafkaClientArtifactWorkerSmoke {
                 issuedAt, validUntil);
         return new PhysicalPublishBridge(executor, appender, laneId, laneIncarnation, destinationProfile,
                 capabilityProfile, target, channel, readyCertificate, List.of(cursor), destinationPhysicalTopic,
-                destinationTopicId);
+                destinationTopicId, destinationResponseLossExpected, destinationResponseLossObserved);
+    }
+
+    private static boolean hasWorkerDestinationResponseLoss() {
+        return "1".equals(System.getenv("NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static GuardedTransactionalProducer<byte[], byte[]> destinationResponseLossProducer(
+            final GuardedTransactionalProducer<byte[], byte[]> delegate,
+            final AtomicBoolean responseLossObserved) {
+        return (GuardedTransactionalProducer<byte[], byte[]>) Proxy.newProxyInstance(
+                GuardedTransactionalProducer.class.getClassLoader(),
+                new Class<?>[]{GuardedTransactionalProducer.class},
+                (proxy, method, arguments) -> {
+                    final Object result;
+                    try {
+                        result = method.invoke(delegate, arguments);
+                    } catch (InvocationTargetException failure) {
+                        throw failure.getCause();
+                    }
+                    if (method.getName().equals("commitTransaction")
+                            && method.getParameterCount() == 0
+                            && responseLossObserved.compareAndSet(false, true)) {
+                        throw new IllegalStateException("simulated committed Kafka Worker EndTxn response loss");
+                    }
+                    return result;
+                });
     }
 
     private static ChannelResourceIdentityV1 channel(final DestinationLaneId laneId, final byte[] laneIncarnation,
@@ -1143,6 +1180,8 @@ public final class KafkaClientArtifactWorkerSmoke {
         private final List<EvidenceCursorV1> evidenceCursors;
         private final String destinationPhysicalTopic;
         private final UUID destinationTopicId;
+        private final boolean destinationResponseLossExpected;
+        private final AtomicBoolean destinationResponseLossObserved;
 
         private PhysicalPublishBridge(final WorkerPhysicalPublishExecutor executor,
                                       final KafkaClientArtifactShardLogMutationAppender appender,
@@ -1154,7 +1193,9 @@ public final class KafkaClientArtifactWorkerSmoke {
                                       final ReadyCertificateV1 readyCertificate,
                                       final List<EvidenceCursorV1> evidenceCursors,
                                       final String destinationPhysicalTopic,
-                                      final UUID destinationTopicId) {
+                                      final UUID destinationTopicId,
+                                      final boolean destinationResponseLossExpected,
+                                      final AtomicBoolean destinationResponseLossObserved) {
             this.executor = executor;
             this.appender = appender;
             this.laneId = laneId;
@@ -1167,6 +1208,8 @@ public final class KafkaClientArtifactWorkerSmoke {
             this.evidenceCursors = List.copyOf(evidenceCursors);
             this.destinationPhysicalTopic = destinationPhysicalTopic;
             this.destinationTopicId = destinationTopicId;
+            this.destinationResponseLossExpected = destinationResponseLossExpected;
+            this.destinationResponseLossObserved = destinationResponseLossObserved;
         }
 
         private WorkerPhysicalPublishExecutor executor() {
@@ -1215,6 +1258,26 @@ public final class KafkaClientArtifactWorkerSmoke {
 
         private UUID destinationTopicId() {
             return destinationTopicId;
+        }
+
+        private void requireDestinationResponseLossResolved(final DestinationPublishResult result) {
+            if (!destinationResponseLossExpected) {
+                return;
+            }
+            if (!destinationResponseLossObserved.get()) {
+                throw new IllegalStateException(
+                        "Kafka Worker destination response-loss proxy did not discard a committed EndTxn response");
+            }
+            final PublishEvidenceV1 evidence = PublishEvidenceV1.decode(result.evidence());
+            if (evidence.evidenceKind() != PublishEvidenceKindV1.KAFKA_TRANSACTIONAL_RECEIPT
+                    || evidence.verificationStatus() != EvidenceVerificationStatusV1.VERIFIED_PUBLISHED) {
+                throw new IllegalStateException(
+                        "Kafka Worker destination response-loss did not resolve typed published evidence");
+            }
+            evidence.requireBusinessMutation(result.externalDeliveryIdentity(), true);
+            System.out.println("Kafka Worker destination response-loss smoke passed: real EndTxn committed the exact "
+                    + "target-plus-receipt pair, the local response was discarded, and typed read_committed "
+                    + "KAFKA_TRANSACTIONAL_RECEIPT evidence resolved the source-applied PUBLISHED Outcome");
         }
 
         @Override
