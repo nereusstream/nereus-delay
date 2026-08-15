@@ -88,6 +88,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
     private final HttpClient client;
     private final Clock clock;
     private final Duration requestTimeout;
+    private final ObjectStoreCredentialUseLeaseGate credentialGate;
 
     /**
      * Creates an adapter with a bounded default HTTP client and UTC clock.
@@ -103,6 +104,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
                                                     final String sessionToken,
                                                     final CheckpointManifestLimits limits) {
         this(profile, endpoint, region, bucket, accessKeyId, secretAccessKey, sessionToken, limits,
+                null,
                 HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10))
                         .followRedirects(HttpClient.Redirect.NEVER).build(),
                 Clock.systemUTC(), Duration.ofSeconds(60));
@@ -117,6 +119,39 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
                                                     final String secretAccessKey,
                                                     final String sessionToken,
                                                     final CheckpointManifestLimits limits,
+                                                    final HttpClient client,
+                                                    final Clock clock,
+                                                    final Duration requestTimeout) {
+        this(profile, endpoint, region, bucket, accessKeyId, secretAccessKey, sessionToken, limits, null, client,
+                clock, requestTimeout);
+    }
+
+    /** Creates a provider adapter whose every upload/download is lease-gated. */
+    public S3CompatibleCheckpointObjectStoreAdapter(final ProfileSemanticEnvelopeV1 profile,
+                                                    final URI endpoint,
+                                                    final String region,
+                                                    final String bucket,
+                                                    final String accessKeyId,
+                                                    final String secretAccessKey,
+                                                    final String sessionToken,
+                                                    final CheckpointManifestLimits limits,
+                                                    final ObjectStoreCredentialUseLeaseGate credentialGate) {
+        this(profile, endpoint, region, bucket, accessKeyId, secretAccessKey, sessionToken, limits, credentialGate,
+                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10))
+                        .followRedirects(HttpClient.Redirect.NEVER).build(),
+                Clock.systemUTC(), Duration.ofSeconds(60));
+    }
+
+    /** Injectable constructor for the lease-gated provider path. */
+    public S3CompatibleCheckpointObjectStoreAdapter(final ProfileSemanticEnvelopeV1 profile,
+                                                    final URI endpoint,
+                                                    final String region,
+                                                    final String bucket,
+                                                    final String accessKeyId,
+                                                    final String secretAccessKey,
+                                                    final String sessionToken,
+                                                    final CheckpointManifestLimits limits,
+                                                    final ObjectStoreCredentialUseLeaseGate credentialGate,
                                                     final HttpClient client,
                                                     final Clock clock,
                                                     final Duration requestTimeout) {
@@ -140,6 +175,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         this.client = Objects.requireNonNull(client, "client");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.requestTimeout = Objects.requireNonNull(requestTimeout, "requestTimeout");
+        this.credentialGate = credentialGate;
         if (requestTimeout.isZero() || requestTimeout.isNegative()) {
             throw new IllegalArgumentException("requestTimeout must be positive");
         }
@@ -150,6 +186,9 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         if (!Bytes.constantTimeEquals(semantic.credentialAuthorizationScopeDigest(),
                 credentialAuthorizationScopeDigest(this.accessKeyId, this.region, this.bucket))) {
             throw new IllegalArgumentException("Object Store credential scope does not match Profile");
+        }
+        if (credentialGate != null && !credentialGate.profile().equals(profile.ref())) {
+            throw new IllegalArgumentException("Object Store credential gate Profile differs from adapter");
         }
     }
 
@@ -171,6 +210,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
     @Override
     public synchronized CheckpointResourceV1 upload(final CheckpointUploadRequest request) {
         Objects.requireNonNull(request, "request");
+        requireCredentialGate();
         if (!profile.ref().equals(request.intent().objectStoreProfile())) {
             throw new IllegalArgumentException("checkpoint upload uses a different Object Store Profile");
         }
@@ -209,6 +249,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
     @Override
     public synchronized Path download(final CheckpointDownloadRequest request, final Path targetDirectory) {
         Objects.requireNonNull(request, "request");
+        requireCredentialGate();
         final CheckpointManifest manifest = request.manifest();
         manifest.validateLimits(limits);
         final CheckpointResourceV1 resource = request.resource();
@@ -496,6 +537,12 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
 
     private long objectBytesLimit(final long localLimit) {
         return Math.min(localLimit, objectStore.maxObjectBytes());
+    }
+
+    private void requireCredentialGate() {
+        if (credentialGate != null) {
+            credentialGate.requireBeforeProviderCall();
+        }
     }
 
     private static HashedFile consume(final InputStream input, final OutputStream output,
