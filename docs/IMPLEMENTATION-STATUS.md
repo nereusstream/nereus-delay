@@ -8749,6 +8749,45 @@ source-apply a live Publish Admission, resolve Object Store payload authority,
 or prove Owner/Assignment state, Broker append/ACK, response-loss/crash
 recovery or real Worker E2E.
 
+## 2026-08-15 source-applied PUBLISHING ledger physical dispatch
+
+Delay commit `ada1d2aa80bbdaf73293e46203fcb7dfd4f0a93d` adds the next bounded
+Worker vertical. `runSourceBoundPhysicalPublish(...)` targets the exact
+Admission Source Position, runs bounded source turns until source apply and
+ACK, reloads the current `PUBLISHING` ledger from the owned shard, and only
+then calls the existing guarded physical executor. The payload provider is an
+explicit external `Optional<byte[]>` authority; empty means deferred, while a
+present value remains subject to the frozen Admission payload commitment.
+
+The one-shard due/Claim/Publish composition, fair fleet dispatch, and Kafka /
+Pulsar source-factory optional physical binding are exposed as well. The
+physical result still returns through the signed `PUBLISH_OUTCOME` append
+handoff; this slice does not shortcut source-ordered RocksDB mutation.
+
+Verification passed:
+
+```text
+./gradlew test --tests io.nereusstream.delay.ownership.WorkerShardRuntimePhysicalLookupTest --no-daemon --console=plain
+BUILD SUCCESSFUL in 5s
+11 actionable tasks: 2 executed, 9 up-to-date
+
+./gradlew check --no-daemon --console=plain
+BUILD SUCCESSFUL in 1m 12s
+21 actionable tasks: 5 executed, 16 up-to-date
+
+./gradlew compileRealKafka -PkafkaClientJar=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar --no-daemon --console=plain
+BUILD SUCCESSFUL in 6s
+
+./gradlew compileRealPulsar -PpulsarClientClasspath=/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar --no-daemon --console=plain
+BUILD SUCCESSFUL in 5s
+```
+
+This is local source-position/ledger composition evidence only. The live
+payload/Object Store, Owner/Assignment/channel authorities, destination Broker
+append/ACK, Outcome source application, response-loss/crash resolution,
+multi-broker failover and release gates remain open; the existing real-client
+harnesses were not rerun for this common Worker slice.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

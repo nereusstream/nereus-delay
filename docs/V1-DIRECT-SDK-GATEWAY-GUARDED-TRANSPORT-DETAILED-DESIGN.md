@@ -4040,3 +4040,30 @@ fence side effects.
 This removes stale caller-held ledger state from the local composition but does
 not perform source replay, live Owner/Assignment rereads, Object Store fetch,
 Broker append/ACK or crash/response-loss resolution.
+
+### 2026-08-15 source-applied PUBLISHING ledger to physical Worker dispatch
+
+Delay commit `ada1d2aa80bbdaf73293e46203fcb7dfd4f0a93d` adds
+`WorkerShardRuntime.runSourceBoundPhysicalPublish(...)`. The entrypoint accepts
+the exact Admission logical identity and its persisted Shard Log Source
+Position, then runs only bounded source turns until that Position is applied
+and ACKed. It reloads the current inflight ledger from the owned `DelayShard`,
+requires the ledger Source Position to equal the Admission append, and accepts
+only `PUBLISHING` before invoking the existing source-aware physical bridge.
+
+The payload callback is intentionally an external `Optional<byte[]>` authority:
+an empty result leaves the attempt open for Object Store retry, while a present
+value still passes the frozen inline/length/SHA-256 validation in
+`WorkerPhysicalPublishExecutor`. The combined one-shard and fair fleet
+entrypoints also compose bound due/Claim/Publish, source application and
+physical dispatch; Kafka and Pulsar source factories can now bind the optional
+physical executor into the complete Worker graph.
+
+`WorkerShardRuntimePhysicalLookupTest` covers the bounded no-source path, and
+the focused test, full `check`, `compileRealKafka` and `compileRealPulsar`
+checks passed. This closes source-position-to-local-ledger composition only.
+The physical result's signed `PUBLISH_OUTCOME` remains an append/source-apply
+handoff, and the real-client harnesses were not changed or rerun. Live payload,
+Owner/Assignment and channel authority, destination Broker append/ACK,
+Outcome source application, response-loss/crash resolution, multi-broker
+failover and release gates remain open.

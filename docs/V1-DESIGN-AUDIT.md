@@ -7381,6 +7381,30 @@ source application, live Owner/Assignment authority, Object Store payload
 resolution, Broker append/ACK, response-loss/crash recovery, real Worker E2E
 and §23.5 release readiness remain open.
 
+## 2026-08-15 source-applied PUBLISHING ledger physical dispatch audit
+
+Delay commit `ada1d2aa80bbdaf73293e46203fcb7dfd4f0a93d` adds a bounded
+source-bound Worker dispatch. It uses the exact Admission Source Position as
+the replay target, waits through the common source apply/ACK coordinator, then
+reloads the attempt by logical ID from the owned shard before allowing the
+physical adapter. A persisted Source Position mismatch, missing ledger after
+the matching source apply, non-`PUBLISHING` state or unavailable payload is
+returned as a closed boundary; none of those branches calls the destination.
+
+The runtime also exposes a bound due/Claim/Publish → source apply → physical
+composition, a fair fleet dispatch, and optional physical-executor binding in
+the Kafka/Pulsar source factories. The payload provider remains external and
+the physical executor still owns late gate, bounded adapter and signed Outcome
+handoff semantics.
+
+`WorkerShardRuntimePhysicalLookupTest` covers the bounded source-wait path;
+the focused test, full `check`, `compileRealKafka` and `compileRealPulsar`
+checks passed. This audit closes only local source-position/ledger
+orchestration. It does not prove live Object Store or channel authority,
+destination Broker append/ACK, source-ordered `PUBLISH_OUTCOME` application,
+response-loss/LSO/crash recovery, multi-broker or real Worker E2E evidence, or
+§23.5 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
