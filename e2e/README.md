@@ -1327,6 +1327,26 @@ constructors remain a local provider-shaped seam, not credential-authority
 evidence. Oxia Head/protection CAS, trust-set/secret authority, rotation, real
 S3/MinIO, provider quiescence, deletion, chaos and release gates remain open.
 
+## Object Store authority-to-adapter activation focused receipt
+
+The activation composition is covered by:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.runtime.OxiaObjectStoreCredentialLeaseActivatorTest \
+  --tests io.nereusstream.delay.runtime.OxiaSyncProfileCatalogBackendTest \
+  --no-daemon --console=plain
+```
+
+Delay commit `138c1c0e5e0e9af9c3b8e93b223da5b3e322a6bb` adds
+`CredentialProfileAuthority` and `OxiaObjectStoreCredentialLeaseActivator`.
+The focused tests passed with `BUILD SUCCESSFUL`: exact activation resolves
+one Profile/Head/Binding, fingerprint drift is rejected before lease issuance,
+and a lease whose returned Protection revision is not proven by the reread is
+rejected. This is activation-time composition evidence only; no real secret
+manager, trust-set/actor authorization, automatic renewal, provider
+rotation/quiescence, real S3/MinIO, deletion, chaos or release gate is closed.
+
 ## Oxia credential Profile Head/Protection/lease authority receipt
 
 Run the Dockerized real-service authority slice with:

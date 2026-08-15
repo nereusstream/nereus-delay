@@ -5066,3 +5066,23 @@ single-record/single-node authority receipt; secret resolution, trust-set and
 actor authorization, source ordering, retained-generation quota/GC,
 cross-record session transactions, multi-node failover for this authority,
 provider rotation/quiescence and release evidence remain outside the slice.
+
+### 2026-08-16 Object Store authority-to-adapter activation implementation note
+
+`CredentialProfileAuthority` is the activation-facing extension of the exact
+Profile catalog. `OxiaObjectStoreCredentialLeaseActivator` resolves the exact
+Object Store Profile, current Head and immutable Binding, invokes an injected
+private material resolver, compares its immutable fingerprint with the
+Binding's equivalence attestation before any lease CAS, then asks the authority
+to issue the bounded `OBJECT_STORE_ADAPTER` lease. It rereads the resulting
+Protection projection, validates the lease against both Binding and Protection,
+and passes the resulting `ObjectStoreCredentialUseLeaseGate` into
+`S3CompatibleCheckpointObjectStoreAdapter`.
+
+The adapter therefore has one explicit activation-time Oxia boundary and no
+per-provider-call Oxia read. `OxiaObjectStoreCredentialLeaseActivatorTest`
+covers exact composition, resolver fingerprint drift before issuance and a
+lease/protection revision mismatch. The injected resolver is a private
+material seam only; secret-manager resolution, trust-set/actor authorization,
+automatic renewal, rotation coordination, multi-node activation failover,
+provider quiescence and external Object Store evidence remain open.

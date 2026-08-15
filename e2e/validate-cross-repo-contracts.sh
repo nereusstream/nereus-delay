@@ -847,6 +847,12 @@ require_file_text "$delay_root/src/main/java/io/nereusstream/delay/runtime/OxiaS
     "issueCredentialUseLease"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/runtime/OxiaSyncProfileCatalogBackend.java" \
     "IfVersionIdEquals"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/runtime/CredentialProfileAuthority.java" \
+    "issueCredentialUseLease"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaObjectStoreCredentialLeaseActivator.java" \
+    "activateS3Compatible"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaObjectStoreCredentialLeaseActivator.java" \
+    "resolvedCredentialFingerprintDigest"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
     "uploadsAndRestoresAfterManifestResponseLossWithBoundedSigV4Requests"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
@@ -861,6 +867,10 @@ require_file_text "$delay_root/src/test/java/io/nereusstream/delay/runtime/OxiaS
     "rejectsHeadCasDriftAndProfileSemanticCollision"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/runtime/OxiaRealProfileCatalogSmokeTest.java" \
     "profileHeadProtectionLeaseAndRotationReopenAgainstRealService"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/runtime/OxiaObjectStoreCredentialLeaseActivatorTest.java" \
+    "rejectsResolverFingerprintDriftBeforeLeaseIssuance"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/runtime/OxiaObjectStoreCredentialLeaseActivatorTest.java" \
+    "rejectsAuthorityLeaseThatIsNotProtectedByTheRereadProjection"
 require_file_text "$delay_root/e2e/run-oxia-real-service.sh" \
     "OxiaRealProfileCatalogSmokeTest"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
@@ -873,24 +883,34 @@ require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Oxia credential Profile CAS authority slice"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "37d8efb49876e8eb95b9d214f0ad9ec1afe48595"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Object Store adapter activation binding slice"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "138c1c0e5e0e9af9c3b8e93b223da5b3e322a6bb"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "S3-compatible checkpoint Object Store adapter audit"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "Object Store credential-use lease gate audit"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "Oxia credential Profile CAS authority audit"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Object Store adapter activation binding audit"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "S3-compatible checkpoint Object Store adapter implementation note"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "Object Store credential-use lease gate implementation note"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "Oxia credential Profile Head/Protection CAS implementation note"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Object Store authority-to-adapter activation implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "S3-compatible checkpoint adapter focused receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "Object Store credential-use lease gate focused receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "Oxia credential Profile Head/Protection/lease authority receipt"
+require_file_text "$delay_root/e2e/README.md" \
+    "Object Store authority-to-adapter activation focused receipt"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"
