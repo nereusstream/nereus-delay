@@ -356,6 +356,35 @@ tasks.register('runRealPulsarMutationWorkerSmoke', JavaExec) {
     args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarMutationWorkerTopic')
 }
 
+tasks.register('runRealPulsarRouteWorkerSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs guarded SUBSCRIBE barrier, signed Route publication and Oxia Worker assignment against Pulsar.'
+    dependsOn tasks.named('compileRealPulsar')
+    if (realPulsarClientClasspath == null || realPulsarRuntimeDir == null
+            || findProperty('pulsarServiceUrl') == null
+            || findProperty('pulsarAdminUrl') == null || findProperty('pulsarRouteWorkerTopic') == null) {
+        doFirst {
+            throw new GradleException(
+                    'runRealPulsarRouteWorkerSmoke requires -PpulsarClientClasspath=... '
+                            + '-PpulsarRuntimeDir=/path/to/pulsar-distribution/lib '
+                            + '-PpulsarServiceUrl=pulsar://host:6650 -PpulsarAdminUrl=http://host:8080 '
+                            + '-PpulsarRouteWorkerTopic=topic and NEREUS_DELAY_OXIA_ENDPOINT')
+        }
+    }
+    doFirst {
+        if (!file(realPulsarRuntimeDir).isDirectory()) {
+            throw new GradleException('pulsarRuntimeDir must be an extracted P1 distribution lib directory')
+        }
+    }
+    def optionalOxiaClasspath = findProperty('pulsarWithOxia') == 'true'
+            ? sourceSets.main.runtimeClasspath : files()
+    classpath = files(sourceSets.main.output,
+            sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
+            fileTree(realPulsarRuntimeDir).include('**/*.jar'), optionalOxiaClasspath)
+    mainClass = 'io.nereusstream.delay.transport.PulsarClientArtifactRouteWorkerSmoke'
+    args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarRouteWorkerTopic')
+}
+
 tasks.register('runRealPulsarWorkerSmoke', JavaExec) {
     group = 'verification'
     description = 'Runs the P1 guarded recovery, Pulsar Worker apply and synchronous ACK smoke.'

@@ -27,6 +27,7 @@ tarball="${NEREUS_DELAY_PULSAR_TARBALL:-${pulsar_dir}/distribution/server/build/
 topic="${PULSAR_DELAY_E2E_TOPIC:-p1-real-client-${compose_project##*-}}"
 mutation_topic="${PULSAR_DELAY_MUTATION_TOPIC:-p1-mutation-${compose_project##*-}}"
 mutation_worker_topic="${PULSAR_DELAY_MUTATION_WORKER_TOPIC:-p1-mutation-worker-${compose_project##*-}}"
+route_worker_topic="${PULSAR_DELAY_ROUTE_WORKER_TOPIC:-p1-route-worker-${compose_project##*-}}"
 service_url="pulsar://127.0.0.1:${broker_port}"
 admin_url="http://127.0.0.1:${web_port}"
 pulsar_client_cp="${pulsar_dir}/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:${pulsar_dir}/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:${pulsar_dir}/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar"
@@ -167,6 +168,24 @@ run_mutation_worker_smoke() {
 
 run_mutation_worker_smoke "${mutation_worker_topic}"
 
+run_route_worker_smoke() {
+  if [[ "${with_oxia}" != "1" ]]; then
+    return 0
+  fi
+  local route_environment=(env "GRADLE_USER_HOME=${gradle_user_home}"
+    "NEREUS_DELAY_OXIA_ENDPOINT=127.0.0.1:${oxia_port}")
+  "${route_environment[@]}" ./gradlew runRealPulsarRouteWorkerSmoke \
+    -PpulsarClientClasspath="${pulsar_client_cp}" \
+    -PpulsarRuntimeDir="${runtime_dir}/lib" \
+    -PpulsarServiceUrl="${service_url}" \
+    -PpulsarAdminUrl="${admin_url}" \
+    -PpulsarRouteWorkerTopic="${route_worker_topic}" \
+    -PpulsarWithOxia=true \
+    --no-daemon --console=plain
+}
+
+run_route_worker_smoke
+
 run_worker_smoke() {
   local worker_topic="$1"
   local worker_mode="$2"
@@ -197,4 +216,4 @@ run_worker_smoke "${restart_topic}" prepare
 wait_for_service
 run_worker_smoke "${restart_topic}" resume
 
-echo "Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, guarded source replay, signed mutation append/replay/ACK, Broker timestamp, Worker recovery/apply, ACK handoff, and broker-restart resume."
+echo "Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, guarded source replay, signed mutation append/replay/ACK, signed Route barrier/assignment/source ACK, Broker timestamp, Worker recovery/apply, ACK handoff, and broker-restart resume."
