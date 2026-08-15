@@ -6361,6 +6361,44 @@ append evidence or Source Position. This is local composition evidence, not a
 real Shard Log append/ACK, automatic command pipeline, multi-shard, crash,
 failover or release PASS.
 
+## 2026-08-15 Oxia checkpoint Owner/session gate audit
+
+Delay commit `8918891a` extends `OxiaRealCheckpointPublicationSmokeTest` with
+an assignment-bound lease from the same real Oxia session used by the
+publication backend. The execution-time checkpoint gate rereads that lease
+after queue admission and checks exact assignment/session identity, active
+lifecycle state and expiry before local checkpoint I/O. The smoke then
+releases the exact lease and verifies that the authority is empty.
+
+The fresh run passed the selected real-service tests at Oxia
+`37a17bef17202d5fd6e232da5fd26d94865484`, project
+`nereus-delay-v1-oxia-e2e-1786769822-98671`, port `16664`, with
+`BUILD SUCCESSFUL`. This upgrades the previous one-shard publication smoke
+with Owner/session evidence only; it remains local filesystem Object Store
+adapter evidence and is not remote provider durability, multi-shard,
+crash/failover or release PASS.
+
+## 2026-08-15 Kafka Worker survivor-broker failover audit
+
+Delay commit `7a839678` makes the real Kafka harness run the complete Worker
+vertical once more after `kafka-1` is stopped. The second run bootstraps only
+from brokers 2 and 3, creates a fresh source topic, recovers offset 0,
+applies offset 1 through RocksDB before synchronous `commitSync`, and drains
+through the final local checkpoint.
+
+The fresh run passed with Kafka source
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, client
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+project `nereus-delay-kafka-e2e-1786769898-99544`, ports
+`19136,19137,19138`, and survivor bootstrap `19137,19138`. The all-broker and
+survivor Worker lines both passed and the harness cleaned its resources.
+
+This is survivor-bootstrap evidence for one smoke-created partition. It does
+not prove in-flight source ownership transfer, ACK response-loss recovery,
+Pulsar multi-broker failover, multi-shard placement, crash cuts or release
+PASS.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

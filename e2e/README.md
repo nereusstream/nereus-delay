@@ -60,6 +60,14 @@ SHA256, broker image ID and allocated ports, and cleans only its own Compose
 project, volumes, temporary image and staging directory. The Kafka checkout
 must be clean; ignored build outputs are read only.
 
+The harness also runs the full Worker recovery/apply/ACK smoke after stopping
+broker 1. The survivor invocation uses only brokers 2 and 3 and a fresh
+Worker topic; the latest run passed the same guarded Fetch v13, RocksDB
+WriteBatch, synchronous ACK and final-checkpoint line under bootstrap
+`127.0.0.1:19137,127.0.0.1:19138`. This is survivor-bootstrap evidence for
+one partition, not in-flight ownership transfer or complete crash/failover
+release evidence.
+
 ```text
 ./e2e/run-kafka-real-client-e2e.sh
 ```

@@ -7332,6 +7332,49 @@ external Profile/Object Store/credential authority, real Broker Shard Log
 append/ACK, multi-shard orchestration, crash recovery, broker failover or
 release PASS.
 
+## 2026-08-15 Oxia checkpoint Owner/session gate
+
+Delay commit `8918891a` extends the opt-in real Oxia checkpoint publication
+smoke with an assignment-bound Owner Lease acquired from the same connected
+Oxia session. The checkpoint prerequisite gate rereads the exact lease after
+queue admission, requires `ACTIVE_FOR_COMMANDS`, matching assignment/session
+identity and a live expiry, then permits the local checkpoint and combined
+intent/catalog CAS. The smoke releases the exact lease and verifies that the
+authority no longer exposes it after publication.
+
+The fresh Docker run used Oxia source
+`37a17bef17202d5fd6e232da5fd26d94865484`, Compose project
+`nereus-delay-v1-oxia-e2e-1786769822-98671`, host port `16664`, and the
+selected real-service suite exited `BUILD SUCCESSFUL`. This closes the
+one-shard Owner/session gate around the existing local filesystem upload and
+single-record Oxia publication cut. It does not claim remote Object Store
+credentials/attestation/quiescence, multi-shard scheduling, crash recovery,
+late provider-owned PUT handling, or release PASS.
+
+## 2026-08-15 Kafka Worker survivor-broker failover cut
+
+Delay commit `7a839678` changes the Kafka real-client harness to rerun the
+complete Worker recovery/apply/ACK smoke after broker 1 is stopped. The
+survivor invocation uses only brokers 2 and 3 and a fresh Worker topic; its
+assignment recovery still starts at offset 0, active apply reaches offset 1,
+the guarded Fetch v13 proof is accepted, RocksDB WriteBatch precedes
+`commitSync`, and the final local checkpoint precedes Owner release.
+
+The fresh three-broker run used Kafka source
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose project `nereus-delay-kafka-e2e-1786769898-99544`, and ports
+`19136,19137,19138`. Both the all-broker and survivor Worker runs passed;
+the survivor bootstrap was `19137,19138`, and the matching Docker resources
+were removed.
+
+This closes a survivor-bootstrap Worker recovery/apply/ACK cut for one
+partition. It does not establish same-process source ownership transfer with
+an in-flight ACK, Fetch/commit response-loss recovery, multi-shard placement,
+Pulsar multi-broker failover, crash-at-every-WriteBatch-boundary evidence or
+release PASS.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

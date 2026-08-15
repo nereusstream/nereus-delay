@@ -3124,6 +3124,22 @@ wrapper does not infer Profile, payload, credential, Claim, certificate or
 Source Position authority. This closes local graph composition while the live
 Broker append/ACK and external prerequisite evidence remain required.
 
+### 2026-08-15 checkpoint Owner/session and Kafka survivor implementation note
+
+The real Oxia checkpoint publication smoke now acquires an
+assignment/session-bound Owner Lease from the same connected Oxia client and
+rereads it at the `CHECKPOINT` execution gate before local checkpoint I/O.
+After the combined single-record publication CAS, it releases and rereads the
+exact lease. This is one-shard owner/session evidence around the local
+filesystem adapter; remote Object Store provider ownership and crash recovery
+remain separate.
+
+The Kafka real-client harness also reruns the Worker recovery/apply/ACK path
+after stopping broker 1, using only brokers 2 and 3. The survivor cut proves
+fresh assignment recovery, guarded Fetch v13, WriteBatch-before-`commitSync`
+and final checkpoint ordering. It does not prove live source ownership
+transfer, an in-flight ACK cut or full D6 failover/crash completion.
+
 ## 16. 当前结论与仍需实测的数值
 
 已经冻结：
