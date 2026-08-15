@@ -51,6 +51,7 @@ import io.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.ShardStoreConfig;
 import io.nereusstream.delay.store.SharedRocksDbResources;
+import io.nereusstream.delay.store.CheckpointFileInventory;
 import io.nereusstream.delay.store.WorkerLoadVector;
 import io.nereusstream.delay.store.WorkerPlacementPolicy;
 import org.apache.kafka.clients.admin.Admin;
@@ -192,17 +193,25 @@ public final class KafkaClientArtifactWorkerSmoke {
                                 throw new IllegalStateException("Kafka Worker Store did not persist exact active position");
                             }
                             requireCommittedOffset(admin, workerGroup, topic, 0, 2);
+                            final Path checkpointPath = root.resolve("worker-final-checkpoint");
+                            final byte[] checkpointId = java.util.Arrays.copyOf(
+                                    Bytes.sha256(Bytes.utf8("kafka-worker-final-checkpoint")), 16);
                             final var drain = runtime.drain(
                                     new io.nereusstream.delay.ownership.OwnerDrainCoordinator.DrainRequest(
-                                            System.currentTimeMillis() + 5_000, 0, null),
+                                            System.currentTimeMillis() + 30_000, 0, checkpointPath, checkpointId),
                                     System::currentTimeMillis, () -> { });
-                            if (drain.pendingCheckpointTask() != null || !authority.current(shard).isEmpty()) {
-                                throw new IllegalStateException("Kafka Worker drain did not release the exact owner lease");
+                            if (drain.pendingCheckpointTask() != null || drain.finalCheckpointPath() == null
+                                    || !Files.isDirectory(checkpointPath)
+                                    || CheckpointFileInventory.collect(checkpointPath).isEmpty()
+                                    || !authority.current(shard).isEmpty()) {
+                                throw new IllegalStateException(
+                                        "Kafka Worker drain did not publish the final checkpoint and release the exact owner lease");
                             }
                             runtime.close();
                             drained = true;
                             System.out.println("Kafka Worker vertical smoke passed: assignment recovery offset=0, "
-                                    + "active apply offset=1, guarded Fetch v13, RocksDB WriteBatch and commitSync ACK");
+                                    + "active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, "
+                                    + "and final checkpoint");
                             if (oxia != null) {
                                 System.out.println("Kafka Worker authority smoke passed: real Oxia session-bound lease");
                             }

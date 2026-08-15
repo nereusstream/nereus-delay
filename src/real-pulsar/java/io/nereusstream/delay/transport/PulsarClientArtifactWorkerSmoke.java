@@ -55,6 +55,7 @@ import io.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.ShardStoreConfig;
 import io.nereusstream.delay.store.SharedRocksDbResources;
+import io.nereusstream.delay.store.CheckpointFileInventory;
 import io.nereusstream.delay.store.WorkerLoadVector;
 import io.nereusstream.delay.store.WorkerPlacementPolicy;
 import org.apache.pulsar.client.api.GuardedConsumer;
@@ -200,18 +201,26 @@ public final class PulsarClientArtifactWorkerSmoke {
                                 throw new IllegalStateException(
                                         "Pulsar Worker Store did not persist the active position");
                             }
+                            final Path checkpointPath = root.resolve("worker-final-checkpoint");
+                            final byte[] checkpointId = Arrays.copyOf(
+                                    Bytes.sha256(Bytes.utf8("pulsar-worker-final-checkpoint")), 16);
                             final var drain = runtime.drain(
                                     new io.nereusstream.delay.ownership.OwnerDrainCoordinator.DrainRequest(
-                                            System.currentTimeMillis() + 5_000, 0, null),
+                                            System.currentTimeMillis() + 30_000, 0, checkpointPath, checkpointId),
                                     System::currentTimeMillis, () -> { });
-                            if (drain.pendingCheckpointTask() != null || !authority.current(shard).isEmpty()) {
-                                throw new IllegalStateException("Pulsar Worker drain did not release the owner lease");
+                            if (drain.pendingCheckpointTask() != null || drain.finalCheckpointPath() == null
+                                    || !Files.isDirectory(checkpointPath)
+                                    || CheckpointFileInventory.collect(checkpointPath).isEmpty()
+                                    || !authority.current(shard).isEmpty()) {
+                                throw new IllegalStateException(
+                                        "Pulsar Worker drain did not publish the final checkpoint and release the exact owner lease");
                             }
                             runtimeDrained = true;
                             System.out.println("Pulsar Worker vertical smoke passed: assignment recovery ledger/entry="
                                     + recovered.ledgerId() + "/" + recovered.entryId()
                                     + ", active apply ledger/entry=" + activePosition.ledgerId() + "/"
-                                    + activePosition.entryId() + ", guarded SUBSCRIBE, RocksDB WriteBatch and ACK");
+                                    + activePosition.entryId() + ", guarded SUBSCRIBE, RocksDB WriteBatch, ACK, "
+                                    + "and final checkpoint");
                             if (oxia != null) {
                                 System.out.println("Pulsar Worker authority smoke passed: real Oxia session-bound lease");
                             }
