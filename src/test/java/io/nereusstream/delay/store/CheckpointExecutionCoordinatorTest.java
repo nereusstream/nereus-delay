@@ -346,6 +346,49 @@ class CheckpointExecutionCoordinatorTest {
         }
     }
 
+    @Test
+    void checkpointPreflightFailureReleasesClaimForTheNextSchedule() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 22);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("preflight-release-resources"));
+        final CheckpointScheduler scheduler = new CheckpointScheduler(100, 0, 1);
+        final Path checkpointDirectory = tempDir.resolve("preflight-release-checkpoint");
+        final OwnerIdentityV1 owner = new OwnerIdentityV1(bytes(8, 60), bytes(8, 61), 62, bytes(32, 63));
+        final ProfileRefV1 objectStore = new ProfileRefV1(bytes(32, 64), 1, bytes(32, 65),
+                ProfileKindV1.OBJECT_STORE);
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shard, resources)) {
+            final CheckpointUploadIntentV1 pending = new CheckpointUploadIntentV1(
+                    new ShardSubjectV1(shard), bytes(16, 66), bytes(16, 67), owner,
+                    uuidBytes(store.metadata().storeIncarnationUuid()), bytes(32, 68), 1,
+                    null, null, objectStore, evidence(100), 5_000,
+                    CheckpointUploadStateV1.PENDING_UPLOAD, 1, null, null);
+            final WorkClassExecutionRegistry workClasses = workClasses(1);
+            final WorkerCheckpointRuntime runtime = new WorkerCheckpointRuntime(workClasses, scheduler, store,
+                    new CheckpointPublicationCoordinator(resources, new CheckpointUploadIntentStore(),
+                            new RecoveryCatalog()), request -> {
+                                throw new IllegalStateException("Owner lease is no longer active");
+                            });
+            runtime.register(shard, 0);
+            final CheckpointScheduler.ScheduledCheckpoint claim = runtime.claimDue(100, 1).get(0);
+            final CheckpointWorkClassExecutor.ExecutionRequest request =
+                    new CheckpointWorkClassExecutor.ExecutionRequest(claim, checkpointDirectory, pending,
+                            (directory, currentStore) -> {
+                                throw new AssertionError("preflight failure must precede checkpoint I/O");
+                            }, 100, () -> 100, upload -> {
+                                throw new AssertionError("preflight failure must precede provider I/O");
+                            });
+
+            final IllegalStateException failure = assertThrows(IllegalStateException.class,
+                    () -> runtime.submit(request));
+            assertEquals("Owner lease is no longer active", failure.getMessage());
+            assertFalse(runtime.scheduler().isInFlight(shard));
+            assertFalse(Files.exists(checkpointDirectory));
+            assertEquals(1, runtime.claimDue(200, 1).size());
+            assertEquals(0, workClasses.registeredActions());
+        }
+    }
+
     private static CheckpointManifest parentManifest(final ShardStore store, final ShardId shard,
                                                      final byte[] lineage, final SourcePosition position,
                                                      final OwnerIdentityV1 owner,

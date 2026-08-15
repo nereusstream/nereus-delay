@@ -56,8 +56,22 @@ public final class CheckpointWorkClassExecutor {
     /** Registers one exact action; physical checkpoint work starts only when its bounded turn runs. */
     public Submission submit(final ExecutionRequest request) {
         final ExecutionRequest submitted = Objects.requireNonNull(request, "request");
-        prerequisiteGate.validate(submitted);
-        checkpointExecutor.requireCurrentExecution(submitted.claim(), submitted.pending());
+        try {
+            prerequisiteGate.validate(submitted);
+            checkpointExecutor.requireCurrentExecution(submitted.claim(), submitted.pending());
+        } catch (RuntimeException failure) {
+            // claimDue has already removed this exact handle from the due
+            // set.  If preflight rejects before a work-class action exists,
+            // release that handle so the schedule remains retryable.  Queue
+            // rejection is intentionally outside this block: it has no
+            // physical side effect and must leave the claim current for an
+            // exact resubmission.
+            completeDeferredClaim(submitted, failure);
+            throw failure;
+        } catch (Error failure) {
+            completeDeferredClaim(submitted, failure);
+            throw failure;
+        }
         final byte[] identity = canonicalIdentity(submitted);
         final WorkClassTask task = new WorkClassTask(WorkClass.CHECKPOINT,
                 "checkpoint/" + Bytes.hex(Bytes.sha256(TASK_ID_DOMAIN, identity)), identity.length);
