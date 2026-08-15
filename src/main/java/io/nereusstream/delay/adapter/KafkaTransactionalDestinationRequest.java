@@ -24,6 +24,8 @@ public record KafkaTransactionalDestinationRequest(
         byte[] receiptValue) {
     private static final byte[] KEY_DOMAIN = Bytes.utf8("nereus-delay-kafka-receipt-key-v1\0");
     private static final byte[] VALUE_DOMAIN = Bytes.utf8("nereus-delay-kafka-receipt-value-v1\0");
+    private static final byte[] RECORD_HASH_DOMAIN = Bytes.utf8(
+            "nereus-delay-kafka-receipt-wire-record-v1\0");
 
     public KafkaTransactionalDestinationRequest {
         targetPhysicalTopic = canonicalText(targetPhysicalTopic, "targetPhysicalTopic");
@@ -83,6 +85,26 @@ public record KafkaTransactionalDestinationRequest(
     @Override
     public byte[] receiptValue() {
         return Bytes.copy(receiptValue);
+    }
+
+    /**
+     * Returns the canonical digest of the exact keyed receipt record sent by
+     * this request. The physical reader uses the same digest after a guarded
+     * read_committed Fetch, so a typed receipt evidence branch cannot be built
+     * from a receipt offset alone.
+     */
+    public byte[] canonicalReceiptRecordHash() {
+        return canonicalReceiptRecordHash(receiptKey, receiptValue);
+    }
+
+    /** Computes the canonical digest for one keyed receipt record. */
+    public static byte[] canonicalReceiptRecordHash(final byte[] key, final byte[] value) {
+        Bytes.requireLength(key, 32, "receiptRecordKey");
+        Objects.requireNonNull(value, "receiptRecordValue");
+        if (value.length == 0) {
+            throw new IllegalArgumentException("receiptRecordValue must not be empty");
+        }
+        return Bytes.sha256(RECORD_HASH_DOMAIN, Bytes.lp32(key), Bytes.lp32(value));
     }
 
     private static byte[] uuidBytes(final java.util.UUID value) {

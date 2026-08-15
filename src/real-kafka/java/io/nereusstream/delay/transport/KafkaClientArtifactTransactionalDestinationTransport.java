@@ -5,7 +5,10 @@ import io.nereusstream.delay.adapter.KafkaTransactionalDestinationRequest;
 import io.nereusstream.delay.adapter.KafkaTransactionalDestinationAdapter;
 import io.nereusstream.delay.protocol.BrokerResourceIdentityV1;
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.EvidenceVerificationStatusV1;
 import io.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
+import io.nereusstream.delay.protocol.PublishEvidenceKindV1;
+import io.nereusstream.delay.protocol.PublishEvidenceV1;
 import io.nereusstream.delay.protocol.StableCode;
 import org.apache.kafka.clients.producer.GuardedRecordMetadata;
 import org.apache.kafka.clients.producer.GuardedResponseEvidence;
@@ -19,6 +22,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutorService;
@@ -35,13 +39,27 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class KafkaClientArtifactTransactionalDestinationTransport
         implements KafkaTransactionalDestinationAdapter.KafkaTransactionalDestinationTransport {
     private final GuardedTransactionalProducer<byte[], byte[]> producer;
+    private final PublishEvidenceProvider publishEvidenceProvider;
     private final ExecutorService completionExecutor;
     private final AtomicBoolean inFlight = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
 
     public KafkaClientArtifactTransactionalDestinationTransport(
             final GuardedTransactionalProducer<byte[], byte[]> producer) {
+        this(producer, null);
+    }
+
+    /**
+     * Creates a transport with an optional source-locked read_committed
+     * evidence provider. Without the provider this remains the historical
+     * atomic K2 smoke binding; with it, PUBLISHED is returned only after the
+     * exact typed receipt evidence has been verified.
+     */
+    public KafkaClientArtifactTransactionalDestinationTransport(
+            final GuardedTransactionalProducer<byte[], byte[]> producer,
+            final PublishEvidenceProvider publishEvidenceProvider) {
         this.producer = Objects.requireNonNull(producer, "producer");
+        this.publishEvidenceProvider = publishEvidenceProvider;
         this.completionExecutor = Executors.newSingleThreadExecutor(runnable -> {
             final Thread thread = new Thread(runnable, "nereus-delay-kafka-k2-completion");
             thread.setDaemon(true);
@@ -115,17 +133,12 @@ public final class KafkaClientArtifactTransactionalDestinationTransport
         try {
             awaitCommitGate();
             producer.commitTransaction();
-            final GuardedResponseEvidence targetEvidence = targetMetadata.responseEvidence();
-            result.complete(DestinationPublishResult.published(
-                    BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
-                            request.target().authenticatedClusterId(), request.target().nativeTopicUuid())),
-                    request.target().partition(), request.mapping().publishAttemptId(),
-                    targetEvidence.logAppendTimeMs(), evidence(targetMetadata, receiptMetadata)));
+            result.complete(committedResult(request, targetMetadata, receiptMetadata));
         } catch (RuntimeException commitFailure) {
             // A lost EndTxn response is not a non-publication proof. The local
-            // mapping remains unresolved for the read-committed receipt path.
-            result.complete(DestinationPublishResult.unknown(StableCode.ENQUEUE_RESULT_UNCERTAIN,
-                    evidence(targetMetadata, receiptMetadata)));
+            // mapping remains unresolved unless a fresh read-committed receipt
+            // proves that this exact transaction committed.
+            result.complete(resolveCommitUncertainty(request, targetMetadata, receiptMetadata));
         } finally {
             inFlight.set(false);
         }
@@ -246,6 +259,53 @@ public final class KafkaClientArtifactTransactionalDestinationTransport
         return Bytes.concat(encode(target.responseEvidence()), encode(receipt.responseEvidence()));
     }
 
+    private DestinationPublishResult committedResult(final KafkaTransactionalDestinationRequest request,
+                                                      final GuardedRecordMetadata target,
+                                                      final GuardedRecordMetadata receipt) {
+        final GuardedResponseEvidence targetEvidence = target.responseEvidence();
+        if (publishEvidenceProvider == null) {
+            return DestinationPublishResult.published(
+                    BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+                            request.target().authenticatedClusterId(), request.target().nativeTopicUuid())),
+                    request.target().partition(), request.mapping().publishAttemptId(),
+                    targetEvidence.logAppendTimeMs(), evidence(target, receipt));
+        }
+        try {
+            final Optional<byte[]> candidate = publishEvidenceProvider.resolve(request, target, receipt);
+            if (candidate == null || candidate.isEmpty()) {
+                return DestinationPublishResult.unknown(StableCode.ENQUEUE_RESULT_UNCERTAIN,
+                        evidence(target, receipt));
+            }
+            final PublishEvidenceV1 typed = PublishEvidenceV1.decode(candidate.get());
+            if (typed.evidenceKind() != PublishEvidenceKindV1.KAFKA_TRANSACTIONAL_RECEIPT
+                    || typed.verificationStatus() != EvidenceVerificationStatusV1.VERIFIED_PUBLISHED) {
+                throw new IllegalArgumentException("K2 provider returned the wrong typed evidence branch");
+            }
+            typed.requireBusinessMutation(request.mapping().publishAttemptId(), true);
+            return DestinationPublishResult.published(
+                    BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+                            request.target().authenticatedClusterId(), request.target().nativeTopicUuid())),
+                    request.target().partition(), request.mapping().publishAttemptId(),
+                    targetEvidence.logAppendTimeMs(), typed.canonicalBytes());
+        } catch (RuntimeException evidenceFailure) {
+            return DestinationPublishResult.unknown(StableCode.ENQUEUE_RESULT_UNCERTAIN,
+                    evidence(target, receipt));
+        }
+    }
+
+    private DestinationPublishResult resolveCommitUncertainty(final KafkaTransactionalDestinationRequest request,
+                                                               final GuardedRecordMetadata target,
+                                                               final GuardedRecordMetadata receipt) {
+        if (publishEvidenceProvider != null) {
+            final DestinationPublishResult resolved = committedResult(request, target, receipt);
+            if (resolved.disposition() == DestinationPublishResult.Disposition.PUBLISHED) {
+                return resolved;
+            }
+        }
+        return DestinationPublishResult.unknown(StableCode.ENQUEUE_RESULT_UNCERTAIN,
+                evidence(target, receipt));
+    }
+
     private static byte[] encode(final GuardedResponseEvidence evidence) {
         return Bytes.concat(Bytes.utf8("nereus-delay-kafka-k2-guarded-evidence-v1\0"),
                 evidence.produceRequestBodySha256(), evidence.produceResponseBodySha256(),
@@ -254,5 +314,13 @@ public final class KafkaClientArtifactTransactionalDestinationTransport
 
     private static Uuid toKafkaUuid(final java.util.UUID uuid) {
         return new Uuid(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+    }
+
+    /** Source-locked proof provider used after EndTxn and on response loss. */
+    @FunctionalInterface
+    public interface PublishEvidenceProvider {
+        Optional<byte[]> resolve(KafkaTransactionalDestinationRequest request,
+                                 GuardedRecordMetadata targetMetadata,
+                                 GuardedRecordMetadata receiptMetadata);
     }
 }

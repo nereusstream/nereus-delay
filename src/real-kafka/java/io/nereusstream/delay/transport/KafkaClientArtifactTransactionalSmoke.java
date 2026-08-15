@@ -12,6 +12,8 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
+import io.nereusstream.delay.protocol.PublishEvidenceKindV1;
+import io.nereusstream.delay.protocol.PublishEvidenceV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
 import org.apache.kafka.clients.admin.Admin;
@@ -82,17 +84,17 @@ public final class KafkaClientArtifactTransactionalSmoke {
             try (KafkaProducer<byte[], byte[]> producer = newProducer(producerConfiguration)) {
                 producer.initTransactions();
                 final KafkaClientArtifactTransactionalDestinationTransport transport =
-                        new KafkaClientArtifactTransactionalDestinationTransport(
-                                (GuardedTransactionalProducer<byte[], byte[]>) producer);
+                        transport((GuardedTransactionalProducer<byte[], byte[]>) producer, bootstrap);
                 final KafkaTransactionalDestinationAdapter adapter = newAdapter(initialTarget, receipt,
                         targetTopic, receiptTopic, initialJournal, lane, laneIncarnation, transactionIdentity,
                         transport);
                 final DestinationPublishResult initialResult = adapter.publish(firstRequest, source, preparedHash)
                         .toCompletableFuture().join();
                 if (initialResult.disposition() == DestinationPublishResult.Disposition.PUBLISHED) {
+                    requireTypedPublished(initialResult, "initial target and receipt");
                     if (failoverGate) {
                         System.out.println("K2 broker failover commit returned PUBLISHED: "
-                                + "read_committed target+receipt pair");
+                                + "typed KAFKA_TRANSACTIONAL_RECEIPT evidence and read_committed target+receipt pair");
                     }
                 } else if (failoverGate
                         && initialResult.disposition() == DestinationPublishResult.Disposition.UNKNOWN) {
@@ -138,8 +140,7 @@ public final class KafkaClientArtifactTransactionalSmoke {
                     producerConfiguration(bootstrap, "k2-e2e-stale"))) {
                 producer.initTransactions();
                 final KafkaClientArtifactTransactionalDestinationTransport transport =
-                        new KafkaClientArtifactTransactionalDestinationTransport(
-                                (GuardedTransactionalProducer<byte[], byte[]>) producer);
+                        transport((GuardedTransactionalProducer<byte[], byte[]>) producer, bootstrap);
                 final KafkaTransactionalDestinationAdapter staleAdapter = newAdapter(initialTarget, receipt,
                         targetTopic, receiptTopic, staleJournal, lane, laneIncarnation, transactionIdentity,
                         transport);
@@ -157,8 +158,7 @@ public final class KafkaClientArtifactTransactionalSmoke {
                     producerConfiguration(bootstrap, "k2-e2e-replacement"))) {
                 producer.initTransactions();
                 final KafkaClientArtifactTransactionalDestinationTransport transport =
-                        new KafkaClientArtifactTransactionalDestinationTransport(
-                                (GuardedTransactionalProducer<byte[], byte[]>) producer);
+                        transport((GuardedTransactionalProducer<byte[], byte[]>) producer, bootstrap);
                 final KafkaTransactionalDestinationAdapter replacementAdapter = newAdapter(replacementTarget,
                         receipt, targetTopic, receiptTopic, replacementJournal, lane, laneIncarnation,
                         transactionIdentity, transport);
@@ -189,6 +189,13 @@ public final class KafkaClientArtifactTransactionalSmoke {
                                                                      final KafkaClientArtifactTransactionalDestinationTransport transport) {
         return new KafkaTransactionalDestinationAdapter(target, receipt, targetTopic, receiptTopic,
                 journal, lane, laneIncarnation, transactionIdentity, transport);
+    }
+
+    private static KafkaClientArtifactTransactionalDestinationTransport transport(
+            final GuardedTransactionalProducer<byte[], byte[]> producer, final String bootstrap) {
+        return new KafkaClientArtifactTransactionalDestinationTransport(producer,
+                new KafkaClientArtifactTransactionalReceiptEvidenceProvider(
+                        consumerConfiguration(bootstrap, "k2-e2e-evidence"), 1, Duration.ofMillis(250)));
     }
 
     private static KafkaTransactionalDestinationRequest expectedRequest(final KafkaTargetResource target,
@@ -238,10 +245,19 @@ public final class KafkaClientArtifactTransactionalSmoke {
     private static void requirePublished(final java.util.concurrent.CompletionStage<DestinationPublishResult> stage,
                                          final String label) {
         final DestinationPublishResult result = stage.toCompletableFuture().join();
+        requireTypedPublished(result, label);
+    }
+
+    private static void requireTypedPublished(final DestinationPublishResult result, final String label) {
         if (result.disposition() != DestinationPublishResult.Disposition.PUBLISHED) {
             throw new IllegalStateException(label + " was not published: " + result.disposition()
                     + "/" + result.stableCode());
         }
+        final PublishEvidenceV1 evidence = PublishEvidenceV1.decode(result.evidence());
+        if (evidence.evidenceKind() != PublishEvidenceKindV1.KAFKA_TRANSACTIONAL_RECEIPT) {
+            throw new IllegalStateException(label + " did not return KAFKA_TRANSACTIONAL_RECEIPT evidence");
+        }
+        evidence.requireBusinessMutation(result.externalDeliveryIdentity(), true);
     }
 
     private static boolean hasCommitGate() {
@@ -338,6 +354,20 @@ public final class KafkaClientArtifactTransactionalSmoke {
         configuration.put(ProducerConfig.CLIENT_ID_CONFIG, "nereus-delay-k2-smoke");
         configuration.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, 10_000);
         configuration.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, 30_000);
+        return configuration;
+    }
+
+    private static Map<String, Object> consumerConfiguration(final String bootstrap, final String groupId) {
+        final Map<String, Object> configuration = new HashMap<>();
+        configuration.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
+        configuration.put(ConsumerConfig.GROUP_ID_CONFIG, groupId + "-" + UUID.randomUUID());
+        configuration.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
+        configuration.put(ConsumerConfig.ISOLATION_LEVEL_CONFIG, "read_committed");
+        configuration.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        configuration.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class);
+        configuration.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class);
+        configuration.put(ConsumerConfig.CLIENT_ID_CONFIG, "nereus-delay-k2-evidence");
+        configuration.put(ConsumerConfig.REQUEST_TIMEOUT_MS_CONFIG, 10_000);
         return configuration;
     }
 
