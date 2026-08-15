@@ -36,6 +36,8 @@ k2_response_loss="${NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS:-0}"
 k2_response_loss_only="${NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS_ONLY:-0}"
 worker_destination_response_loss="${NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS:-0}"
 worker_destination_response_loss_only="${NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS_ONLY:-0}"
+source_ack_response_loss="${NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS:-0}"
+source_ack_response_loss_only="${NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS_ONLY:-0}"
 oxia_checkout="${NEREUS_DELAY_KAFKA_OXIA_CHECKOUT:-${delay_dir}/../../oxia}"
 oxia_port="${NEREUS_DELAY_KAFKA_OXIA_PORT:-$((16650 + ($$ % 100)))}"
 oxia_compose_project="nereus-delay-kafka-oxia-e2e-$(date +%s)-$$"
@@ -79,6 +81,14 @@ if [[ "${worker_destination_response_loss_only}" != "0" && "${worker_destination
   echo "NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS_ONLY must be 0 or 1" >&2
   exit 1
 fi
+if [[ "${source_ack_response_loss}" != "0" && "${source_ack_response_loss}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${source_ack_response_loss_only}" != "0" && "${source_ack_response_loss_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS_ONLY must be 0 or 1" >&2
+  exit 1
+fi
 if [[ "${route_failover}" == "1" && "${with_oxia}" != "1" ]]; then
   echo "NEREUS_DELAY_KAFKA_ROUTE_FAILOVER requires NEREUS_DELAY_KAFKA_WITH_OXIA=1" >&2
   exit 1
@@ -101,6 +111,10 @@ if [[ "${k2_response_loss_only}" == "1" && "${k2_response_loss}" != "1" ]]; then
 fi
 if [[ "${worker_destination_response_loss_only}" == "1" && "${worker_destination_response_loss}" != "1" ]]; then
   echo "NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS_ONLY requires NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS=1" >&2
+  exit 1
+fi
+if [[ "${source_ack_response_loss_only}" == "1" && "${source_ack_response_loss}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS_ONLY requires NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS=1" >&2
   exit 1
 fi
 if [[ "${k2_response_loss}" == "1" && "${k2_failover}" == "1" ]]; then
@@ -131,9 +145,28 @@ if [[ "${worker_destination_response_loss_only}" == "1" && "${k2_response_loss_o
   echo "K2 response-loss and Kafka Worker destination response-loss-only modes are mutually exclusive" >&2
   exit 1
 fi
+if [[ "${source_ack_response_loss_only}" == "1" && "${route_failover_only}" == "1" ]]; then
+  echo "route and Kafka Worker source ACK response-loss-only modes are mutually exclusive" >&2
+  exit 1
+fi
+if [[ "${source_ack_response_loss_only}" == "1" && "${k2_failover_only}" == "1" ]]; then
+  echo "K2 failover and Kafka Worker source ACK response-loss-only modes are mutually exclusive" >&2
+  exit 1
+fi
+if [[ "${source_ack_response_loss_only}" == "1" && "${k2_response_loss_only}" == "1" ]]; then
+  echo "K2 response-loss and Kafka Worker source ACK response-loss-only modes are mutually exclusive" >&2
+  exit 1
+fi
+if [[ "${source_ack_response_loss_only}" == "1" && "${worker_destination_response_loss_only}" == "1" ]]; then
+  echo "Kafka Worker destination and source ACK response-loss-only modes are mutually exclusive" >&2
+  exit 1
+fi
 
 if [[ "${worker_destination_response_loss}" == "1" ]]; then
   export NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS=1
+fi
+if [[ "${source_ack_response_loss}" == "1" ]]; then
+  export NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS=1
 fi
 
 route_failover_dir="$(mktemp -d -t nereus-delay-kafka-route-failover.XXXXXX)"
@@ -210,23 +243,22 @@ run_worker_smoke() {
   local bootstrap_server="$1"
   local worker_topic_base="$2"
   local worker_mode="${3:-run}"
+  local destination_topic="${4-${worker_destination_topic}}"
+  local worker_command=(./gradlew runRealKafkaWorkerSmoke
+    "-PkafkaClientJar=${client_jar}"
+    "-PkafkaBootstrap=${bootstrap_server}"
+    "-PkafkaWorkerTopic=${worker_topic_base}"
+    "-PkafkaWorkerMode=${worker_mode}")
+  if [[ -n "${destination_topic}" ]]; then
+    worker_command+=("-PkafkaWorkerDestinationTopic=${destination_topic}")
+  fi
   if [[ "${with_oxia}" == "1" ]]; then
     NEREUS_DELAY_OXIA_ENDPOINT="${oxia_endpoint}" \
     NEREUS_DELAY_OXIA_NAMESPACE=default \
-    GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaWorkerSmoke \
-      -PkafkaClientJar="${client_jar}" \
-      -PkafkaBootstrap="${bootstrap_server}" \
-      -PkafkaWorkerTopic="${worker_topic_base}" \
-      -PkafkaWorkerDestinationTopic="${worker_destination_topic}" \
-      -PkafkaWorkerMode="${worker_mode}" \
+    GRADLE_USER_HOME="${gradle_user_home}" "${worker_command[@]}" \
       --no-daemon --console=plain
   else
-    GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaWorkerSmoke \
-      -PkafkaClientJar="${client_jar}" \
-      -PkafkaBootstrap="${bootstrap_server}" \
-      -PkafkaWorkerTopic="${worker_topic_base}" \
-      -PkafkaWorkerDestinationTopic="${worker_destination_topic}" \
-      -PkafkaWorkerMode="${worker_mode}" \
+    GRADLE_USER_HOME="${gradle_user_home}" "${worker_command[@]}" \
       --no-daemon --console=plain
   fi
 }
@@ -424,6 +456,16 @@ if [[ "${worker_destination_response_loss_only}" == "1" ]]; then
   response_loss_worker_topic="${KAFKA_DELAY_WORKER_RESPONSE_LOSS_TOPIC:-${worker_topic}-destination-response-loss}"
   run_worker_smoke "${bootstrap_all}" "${response_loss_worker_topic}"
   echo "Kafka Worker destination response-loss E2E passed: real EndTxn response loss resolved through typed read_committed KAFKA_TRANSACTIONAL_RECEIPT evidence and the source-applied Outcome completed."
+  exit 0
+fi
+
+if [[ "${source_ack_response_loss_only}" == "1" ]]; then
+  if [[ "${with_oxia}" == "1" ]]; then
+    start_oxia
+  fi
+  response_loss_source_topic="${KAFKA_DELAY_SOURCE_ACK_RESPONSE_LOSS_TOPIC:-${worker_topic}-source-ack-response-loss}"
+  run_worker_smoke "${bootstrap_all}" "${response_loss_source_topic}" run ""
+  echo "Kafka Worker source ACK response-loss E2E passed: real commitSync ACK response loss was retried on the same source record and the bounded Worker vertical completed."
   exit 0
 fi
 

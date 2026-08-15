@@ -251,8 +251,12 @@ public final class KafkaClientArtifactWorkerSmoke {
                         final KafkaSourcePosition physicalSchedulePosition = physicalCommand == null ? null
                                 : produceAndPosition(bootstrap, clusterId, topic, topicId, physicalCommand);
                         final String workerGroup = "nereus-delay-worker-e2e-" + UUID.randomUUID();
-                        final GuardedConsumer<byte[], byte[]> workerConsumer = workerConsumer(
+                        final GuardedConsumer<byte[], byte[]> rawWorkerConsumer = workerConsumer(
                                 bootstrap, workerGroup, clusterId, topic, nativeTopicId, shard);
+                        final AtomicBoolean sourceAckResponseLossObserved = new AtomicBoolean();
+                        final GuardedConsumer<byte[], byte[]> workerConsumer = hasSourceAckResponseLoss()
+                                ? sourceAckResponseLossConsumer(rawWorkerConsumer, sourceAckResponseLossObserved)
+                                : rawWorkerConsumer;
                         final PhysicalPublishBridge physicalBridge = physicalCommand == null ? null
                                 : createPhysicalPublishBridge(bootstrap, clusterId, topic, nativeTopicId, shard,
                                 physicalSchedulePosition, destinationPhysicalTopic, destinationTopicId,
@@ -323,6 +327,15 @@ public final class KafkaClientArtifactWorkerSmoke {
                                     + "and final checkpoint");
                             if (oxia != null) {
                                 System.out.println("Kafka Worker authority smoke passed: real Oxia session-bound lease");
+                            }
+                            if (hasSourceAckResponseLoss()) {
+                                if (!sourceAckResponseLossObserved.get()) {
+                                    throw new IllegalStateException(
+                                            "Kafka Worker source ACK response-loss wrapper did not lose a response");
+                                }
+                                System.out.println("Kafka Worker source ACK response-loss smoke passed: real commitSync "
+                                        + "ACK was accepted before the local response was discarded, and the same "
+                                        + "source record was ACKed on the next bounded Worker turn");
                             }
                         } finally {
                             if (!drained) {
@@ -430,12 +443,41 @@ public final class KafkaClientArtifactWorkerSmoke {
             }
             if (result.status() != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.WAITING_FOR_SOURCE
                     && result.status()
-                    != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.WAITING_FOR_WORK_CLASS) {
+                    != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.WAITING_FOR_WORK_CLASS
+                    && result.status()
+                    != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN
+                    && result.status()
+                    != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.ACK_DEFINITIVELY_NOT_ACKED) {
                 throw new IllegalStateException("Kafka Worker source turn failed: " + result.status(),
                         result.failure());
             }
         } while (System.nanoTime() < deadline);
         throw new IllegalStateException("Kafka Worker source record did not become visible before deadline");
+    }
+
+    private static boolean hasSourceAckResponseLoss() {
+        return "1".equals(System.getenv("NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static GuardedConsumer<byte[], byte[]> sourceAckResponseLossConsumer(
+            final GuardedConsumer<byte[], byte[]> delegate, final AtomicBoolean responseLossObserved) {
+        return (GuardedConsumer<byte[], byte[]>) Proxy.newProxyInstance(
+                KafkaClientArtifactWorkerSmoke.class.getClassLoader(), new Class<?>[]{GuardedConsumer.class},
+                (proxy, method, arguments) -> {
+                    final Object result;
+                    try {
+                        result = method.invoke(delegate, arguments);
+                    } catch (InvocationTargetException failure) {
+                        throw failure.getCause();
+                    }
+                    if (method.getName().equals("commitSync")
+                            && method.getParameterCount() == 1
+                            && responseLossObserved.compareAndSet(false, true)) {
+                        throw new IllegalStateException("simulated committed Kafka source ACK response loss");
+                    }
+                    return result;
+                });
     }
 
     private static GuardedConsumer<byte[], byte[]> workerConsumer(final String bootstrap, final String groupId,
