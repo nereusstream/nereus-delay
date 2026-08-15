@@ -105,6 +105,8 @@ require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "d413869b"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "54c58557"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "10e21cbf0e6f741f10b353c56a316a0b57b71b9d"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "nereus/delay-full-implementation-v1@2dd2cfff83f4d029972cf7fbeb569fbf4538c026"
@@ -189,6 +191,14 @@ require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transp
     "GuardedConsumer<byte[]>"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactSourceRecordConsumer.java" \
     "connectionGeneration()"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactSourceRecordDecoder.java" \
+    "SourceReplayMutation"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactShardLogMutationAppender.java" \
+    "sendAsync"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactShardLogMutationAppender.java" \
+    "AppendOutcome.unknown"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactMutationSmoke.java" \
+    "Pulsar Shard Log mutation append/replay/ACK smoke passed"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactSourceRecordConsumer.java" \
     "KafkaClientArtifactSourceRecordConsumer"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactSourceRecordConsumer.java" \
@@ -297,8 +307,12 @@ require_file_text "$delay_root/e2e/run-oxia-real-service.sh" \
     "OxiaRealRouteWorkerAssignmentSmokeTest"
 require_file_text "$delay_root/build.gradle" \
     "runRealPulsarWorkerSmoke"
+require_file_text "$delay_root/build.gradle" \
+    "runRealPulsarMutationSmoke"
 require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \
     "runRealPulsarWorkerSmoke"
+require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \
+    "runRealPulsarMutationSmoke"
 require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \
     "restart_topic"
 require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \

@@ -6477,8 +6477,35 @@ full source/Worker/K1/K2 harness exited successfully with cleanup complete.
 
 This is one source-locked partition and one `TIME_FENCE` mutation. It is not
 evidence of signature trust-set authorization, mutation-to-RocksDB apply,
-automatic Claim/Publish orchestration, Pulsar mutation replay, response-loss
+automatic Claim/Publish orchestration, Pulsar mutation apply, response-loss
 recovery, crash-boundary coverage, multi-shard placement or release PASS.
+
+## 2026-08-15 Pulsar Shard Log System Mutation append/replay/ACK audit
+
+Delay commit `54c58557` closes the corresponding bounded P1 transport seam.
+`PulsarClientArtifactSourceRecordDecoder` preserves the ordered Client
+Command/System Mutation frame union. The guarded appender uses the P1
+resource-guarded Producer and binds its result to a stable guarded SUBSCRIBE
+proof; malformed or changed producer response identity, ledger/entry, batch
+shape, attestation, Broker timestamp or source proof is `UNKNOWN`. Only the
+typed P1 guard rejection with response evidence can establish definitive
+non-persistence.
+
+The source-locked fresh run used P1
+`nereus/delay-resource-guard-v1@358ce4a1033bd566faebcd3465c3ba4606f3c83f`,
+Delay `54c58557`, distribution SHA-256
+`7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5a1d137d`, image
+`sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`,
+Compose project `nereus-delay-pulsar-e2e-1786775596-63266`, ports
+`19916,19917`, and the three locked client artifacts recorded in the
+implementation status. It printed the guarded append/replay/ACK success line
+for `ledger=15, entry=0`; the complete source/Worker/restart harness exited
+`BUILD SUCCESSFUL` and cleaned its resources.
+
+This is one source-locked single-node partition and one `TIME_FENCE` mutation.
+It is not mutation-to-RocksDB apply, signature trust-set authorization,
+Pulsar multi-broker failover, response-loss/crash recovery, automatic
+Claim/Publish orchestration, multi-shard production wiring or release PASS.
 
 ## 2026-08-15 automatic V1 Claim materialization and Worker handoff audit
 
@@ -6502,7 +6529,7 @@ inline and committed-object equality with the strict Claim validator.
 
 This closes durable V1 Claim materialization and local handoff composition for
 one shard. It does not promote the result to automatic channel/Ready
-Certificate preparation, external provider authority, Pulsar mutation replay,
+Certificate preparation, external provider authority, Pulsar mutation apply,
 response-loss/crash evidence, multi-shard Worker production wiring or release
 PASS.
 
@@ -6522,7 +6549,7 @@ generation are external authority. Ready Certificate, trusted decision time,
 retry deadline, signing key and live prerequisite checks also remain explicit.
 This closes local Claim → descriptor composition, not automatic channel/Ready
 Certificate preparation, Broker append/ACK, response-loss/crash evidence,
-Pulsar mutation replay, multi-shard production wiring or release PASS.
+Pulsar mutation apply, multi-shard production wiring or release PASS.
 
 ## 2026-08-15 bounded READY-to-derived-Claim Worker wiring audit
 

@@ -3189,8 +3189,27 @@ exact mutation bytes and source identity, and keep the existing ACK rule:
 unacknowledged. The real Docker smoke covers one `TIME_FENCE` append, ordered
 recovery replay, active exposure and ACK on one partition. It does not make
 the source adapter a Worker apply authority, and it leaves trust-set
-authorization, automatic Claim/Publish, Pulsar mutation support,
+authorization, automatic Claim/Publish, Pulsar mutation apply,
 response-loss/crash cuts, multi-shard wiring and release gates open.
+
+### 2026-08-15 Pulsar Shard Log mutation implementation note
+
+`PulsarClientArtifactShardLogMutationAppender` uses the locked P1
+resource-guarded Producer to publish the exact signed System Mutation frame.
+It validates `GuardedMessageId`, P1 SEND evidence, physical topic/partition,
+ledger/entry, batch identity and Broker entry timestamp before creating a
+`PulsarSourcePosition`. The current guarded SUBSCRIBE connection generation and
+attestation digest are captured before and after the send; a changed proof
+returns `UNKNOWN` so the exact mutation must be reconciled through recovery.
+`PulsarClientArtifactSourceRecordDecoder` lets both recovery and active source
+paths decode the same command/mutation union, and active ACK remains behind the
+existing synchronous receipt boundary.
+
+The fresh P1 Docker harness passed the real append → replay → active-source ACK
+cut for one `TIME_FENCE` mutation, as well as the existing Worker and
+broker-restart/resume cuts. This is bounded single-node transport evidence;
+mutation apply, trust-set authorization, response-loss/crash recovery,
+multi-broker/multi-shard orchestration and release gates remain open.
 
 ### 2026-08-15 automatic V1 Claim materialization implementation note
 

@@ -198,7 +198,7 @@ directories. The latest run passed with P1
 `358ce4a1033bd566faebcd3465c3ba4606f3c83f`, distribution SHA-256
 `7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5a1d137d`, image
 `sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`,
-Compose project `nereus-delay-pulsar-e2e-1786770623-7577`, ports `19950,19951`,
+Compose project `nereus-delay-pulsar-e2e-1786775596-63266`, ports `19916,19917`,
 and writer output
 `initial=PERSISTED, stale=DEFINITIVELY_NOT_PERSISTED, replacement=PERSISTED`.
 The source output was
@@ -215,10 +215,23 @@ second command after a stable proof. The client artifacts were
 The exit check found no matching container, network, volume or temporary
 image.
 
+The same harness runs `runRealPulsarMutationSmoke` after the source smoke. It
+creates a guarded P1 Producer and a proof-bound source consumer, appends one
+signed `TIME_FENCE` frame, replays it through the no-ACK recovery cursor, then
+exposes and ACKs the mutation through the active guarded source. The appender
+keeps an ambiguous or changed source proof as `UNKNOWN`; only a typed P1 guard
+rejection with evidence is definitive non-persistence. The latest run used
+Compose project `nereus-delay-pulsar-e2e-1786775596-63266`, ports `19916,19917`,
+and printed:
+
+```text
+Pulsar Shard Log mutation append/replay/ACK smoke passed: physicalTopic=persistent://public/default/p1-mutation-63266-9fbffc7c-1863-4fdf-92df-9060f24b7538, ledger=15, entry=0, record=TIME_FENCE, guarded Producer, ordered mutation replay, ack receipt ACK
+```
+
 The standard Worker output was:
 
 ```text
-Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=15/0, active apply ledger/entry=15/1, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=18/0, active apply ledger/entry=18/1, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
 ```
 
 The same run then used Worker `prepare` to persist one guarded record on the
@@ -227,7 +240,7 @@ JVM in `resume` mode against that same topic:
 
 ```text
 Pulsar Worker restart preparation passed: one guarded record persisted before broker restart
-Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=17/0, active apply ledger/entry=24/0, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=20/0, active apply ledger/entry=27/0, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
 ```
 
 This closes the single-node real P1 client/broker delete-recreate, guarded

@@ -7471,9 +7471,44 @@ transaction smokes, printed the final aggregate E2E line, exited with code
 0, and removed its matching Docker resources. This closes one Kafka
 partition's guarded signed-mutation append → recovery replay → active-source
 ACK path. It does not claim mutation apply semantics in the Worker, automatic
-Claim/Publish materialization, Pulsar mutation support, response-loss or
+Claim/Publish materialization, Pulsar mutation apply/response-loss or
 crash cuts, multi-shard production wiring, remote Object Store authority or
 release PASS.
+
+## 2026-08-15 Pulsar Shard Log System Mutation append/replay/ACK slice
+
+Delay commit `54c58557` adds the matching guarded P1 mutation vertical. The
+Pulsar source decoder now accepts the same ordered NDL1 Client Command/System
+Mutation frame union used by the Kafka source set. The new
+`PulsarClientArtifactShardLogMutationAppender` writes the exact signed frame
+through a Producer created with the P1 `TopicResourceGuard`; it returns
+`PERSISTED` only after validating the guarded message identity, attestation,
+ledger/entry, batch shape, Broker entry timestamp and the unchanged guarded
+SUBSCRIBE proof used by the active Pulsar barrier. A connection-proof change
+during the send remains `UNKNOWN`; only a typed P1 guard rejection carrying
+definitive non-persistence evidence returns the negative branch.
+
+The fresh Docker run used P1 source
+`358ce4a1033bd566faebcd3465c3ba4606f3c83f`, distribution SHA-256
+`7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5a1d137d`, client
+artifacts `57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`, and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, image
+`sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`,
+Compose project `nereus-delay-pulsar-e2e-1786775596-63266`, and ports
+`19916,19917`. It printed:
+
+```text
+Pulsar Shard Log mutation append/replay/ACK smoke passed: physicalTopic=persistent://public/default/p1-mutation-63266-9fbffc7c-1863-4fdf-92df-9060f24b7538, ledger=15, entry=0, record=TIME_FENCE, guarded Producer, ordered mutation replay, ack receipt ACK
+```
+
+The same run passed the existing guarded source, Worker recovery/apply/ACK,
+volume-backed broker restart/resume and cleanup paths. This closes one
+source-locked single-node Pulsar partition's guarded signed-mutation append →
+recovery replay → active-source ACK path. It does not claim mutation-to-Store
+apply, signature trust-set authorization, Pulsar multi-broker failover,
+response-loss/crash coverage, automatic Claim/Publish orchestration,
+multi-shard production wiring or release PASS.
 
 ## 2026-08-15 automatic V1 Claim materialization and Worker handoff slice
 
@@ -7500,7 +7535,7 @@ Publish authority.
 derivation and exact equality with the strict Claim projection. `compileJava`,
 `checkstyleMain`, the focused Claim/Protocol tests and `git diff --check`
 passed. This closes durable Claim materialization only; automatic Ready
-Certificate preparation, external provider authority, Pulsar mutation support,
+Certificate preparation, external provider authority, Pulsar mutation apply,
 response-loss/crash cuts, multi-shard Worker wiring and release PASS remain
 open.
 
