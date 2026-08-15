@@ -5086,3 +5086,23 @@ lease/protection revision mismatch. The injected resolver is a private
 material seam only; secret-manager resolution, trust-set/actor authorization,
 automatic renewal, rotation coordination, multi-node activation failover,
 provider quiescence and external Object Store evidence remain open.
+
+### 2026-08-16 Credential attestation trust-set implementation note
+
+`CredentialAttestationTrustSet` is the verifier authority supplied to
+`OxiaSyncProfileCatalogBackend`. It is immutable, sorted by the complete
+verifier-version/verifier-id/signing-key tuple and retains only canonical
+Ed25519 public-key bytes plus an explicit verification window. Its semantic
+digest is stable and excludes private key material. Profile binding
+publication, equivalent-secret rotation, canonical record decode/reopen and
+credential-use lease issuance all require the exact attestation tuple to be
+present, its `verifiedAt`/`notAfter` interval to fit the retained key window,
+and its Ed25519 signature to verify.
+
+This closes the local trust-set/signature boundary before Object Store
+activation and prevents a persisted untrusted binding from becoming usable
+after reopen. The authority still does not publish or source-order trust-set
+records, authorize actors, resolve private secrets, coordinate cross-record
+Owner/Route/session state, renew leases automatically, fail over as a
+multi-node Profile authority or prove provider rotation/quiescence and real
+Object Store behavior.

@@ -847,6 +847,10 @@ require_file_text "$delay_root/src/main/java/io/nereusstream/delay/runtime/OxiaS
     "issueCredentialUseLease"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/runtime/OxiaSyncProfileCatalogBackend.java" \
     "IfVersionIdEquals"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/runtime/CredentialAttestationTrustSet.java" \
+    "semanticDigest"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/runtime/CredentialAttestationTrustSet.java" \
+    "verifySignature"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/runtime/CredentialProfileAuthority.java" \
     "issueCredentialUseLease"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaObjectStoreCredentialLeaseActivator.java" \
@@ -865,6 +869,10 @@ require_file_text "$delay_root/src/test/java/io/nereusstream/delay/runtime/OxiaS
     "responseLossIsAcceptedOnlyAfterExactReread"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/runtime/OxiaSyncProfileCatalogBackendTest.java" \
     "rejectsHeadCasDriftAndProfileSemanticCollision"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/runtime/CredentialAttestationTrustSetTest.java" \
+    "verifiesExactVerifierIdentitySignatureAndWindow"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/runtime/CredentialAttestationTrustSetTest.java" \
+    "rejectsUnknownVerifierAndOutOfWindowAttestation"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/runtime/OxiaRealProfileCatalogSmokeTest.java" \
     "profileHeadProtectionLeaseAndRotationReopenAgainstRealService"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/runtime/OxiaObjectStoreCredentialLeaseActivatorTest.java" \
@@ -887,6 +895,10 @@ require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Object Store adapter activation binding slice"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "138c1c0e5e0e9af9c3b8e93b223da5b3e322a6bb"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Credential attestation trust-set verification slice"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "f758d010b4d75f9c53d1f6e2cf01d573d655fd1c"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "S3-compatible checkpoint Object Store adapter audit"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
@@ -895,6 +907,8 @@ require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "Oxia credential Profile CAS authority audit"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "Object Store adapter activation binding audit"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Credential attestation trust-set verification audit"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "S3-compatible checkpoint Object Store adapter implementation note"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
@@ -903,6 +917,8 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Oxia credential Profile Head/Protection CAS implementation note"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "Object Store authority-to-adapter activation implementation note"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Credential attestation trust-set implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "S3-compatible checkpoint adapter focused receipt"
 require_file_text "$delay_root/e2e/README.md" \
@@ -911,6 +927,8 @@ require_file_text "$delay_root/e2e/README.md" \
     "Oxia credential Profile Head/Protection/lease authority receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "Object Store authority-to-adapter activation focused receipt"
+require_file_text "$delay_root/e2e/README.md" \
+    "Credential attestation trust-set focused receipt"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

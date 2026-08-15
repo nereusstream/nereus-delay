@@ -4664,8 +4664,8 @@ the guarded Broker rollout attestation remains external evidence.
 
 | 依赖 | 审计锁 |
 |---|---|
-| Delay local implementation slice | `nereus/delay-full-implementation-v1@138c1c0e5e0e9af9c3b8e93b223da5b3e322a6bb` (latest runtime slice: the single-record Oxia Profile catalog now has an activation composition that resolves exact Head/Binding/Protection once, obtains private Object Store material through an injected resolver, rejects fingerprint drift before issuing a bounded lease and constructs the lease-gated S3 adapter; Provider calls do not reread Oxia; it builds on the exact CAS/response-loss and real single-node Oxia Profile smoke plus the S3-compatible checkpoint adapter/local lease gate and source-bound Kafka/Pulsar physical Publish/Outcome, Gateway/Oxia response-loss, real multi-node Oxia Gateway failover and bounded Kafka/Pulsar Worker failover slices; secret/trust-set/actor authority, source ordering, retained-generation GC, cross-record session transactions, automatic renewal, multi-node failover for this authority, provider quiescence, raw network/process cuts, production placement/eligibility and release gates remain open) |
-| Delay current implementation head | `nereus/delay-full-implementation-v1@477d850affab5d26c2fcc52314d52a4f77791c15` (current branch head; code slice `138c1c0e5e0e9af9c3b8e93b223da5b3e322a6bb` adds the Object Store authority/material activation composition and this commit synchronizes its evidence/validator; historical bounded Pulsar Route/Worker receipt remains provenance at `nereus/delay-full-implementation-v1@bf858b089b927fcf65129214d8ed5a7fc5300deb`; bounded Kafka/Pulsar Route/Worker assignment, failover, physical Publish/typed Outcome and Gateway/Oxia response-loss receipts are recorded; secret/trust-set/actor authority, catalog-driven multi-shard placement, native eligibility, production Worker authority, raw chaos and release gates remain open) |
+| Delay local implementation slice | `nereus/delay-full-implementation-v1@f758d010b4d75f9c53d1f6e2cf01d573d655fd1c` (latest runtime slice: the single-record Oxia Profile catalog now requires an immutable credential-attestation trust set during publication, rotation, canonical decode/reopen and bounded lease issuance; exact verifier tuple, Ed25519 signature and retained key window are checked before the existing activation composition resolves Head/Binding/Protection once, obtains private Object Store material through an injected resolver, rejects fingerprint drift before issuing a bounded lease and constructs the lease-gated S3 adapter; Provider calls do not reread Oxia; it builds on the exact CAS/response-loss and real single-node Oxia Profile smoke plus the S3-compatible checkpoint adapter/local lease gate and source-bound Kafka/Pulsar physical Publish/Outcome, Gateway/Oxia response-loss, real multi-node Oxia Gateway failover and bounded Kafka/Pulsar Worker failover slices; source-ordered trust-set publication, secret/actor authority, source ordering, retained-generation GC, cross-record session transactions, automatic renewal, multi-node failover for this authority, provider quiescence, raw network/process cuts, production placement/eligibility and release gates remain open) |
+| Delay current implementation head | `nereus/delay-full-implementation-v1@477d850affab5d26c2fcc52314d52a4f77791c15` (temporary until the documentation commit below; code slice `f758d010b4d75f9c53d1f6e2cf01d573d655fd1c` adds the credential-attestation trust-set verification and this row will be advanced to the docs-synchronization commit; historical bounded Pulsar Route/Worker receipt remains provenance at `nereus/delay-full-implementation-v1@bf858b089b927fcf65129214d8ed5a7fc5300deb`; bounded Kafka/Pulsar Route/Worker assignment, failover, physical Publish/typed Outcome and Gateway/Oxia response-loss receipts are recorded; source-ordered trust-set publication, secret/actor authority, catalog-driven multi-shard placement, native eligibility, production Worker authority, raw chaos and release gates remain open) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
@@ -8295,6 +8295,44 @@ This closes only local activation wiring. It does not prove a real secret
 manager, trust-set or actor authorization, automatic renewal, multi-node
 activation failover, provider credential rotation/quiescence, real S3/MinIO,
 deletion, chaos or V1 release readiness.
+
+## 2026-08-16 Credential attestation trust-set verification audit
+
+Delay runtime commit `f758d010b4d75f9c53d1f6e2cf01d573d655fd1c` adds the
+immutable `CredentialAttestationTrustSet` and makes
+`OxiaSyncProfileCatalogBackend` require it for every credential binding
+publication, equivalent-secret rotation, canonical state decode/reopen and
+bounded lease issuance. The trust set orders and deduplicates the exact
+verifier-version/verifier-id/signing-key tuple, retains canonical Ed25519
+public-key bytes with an explicit verification window, and exposes a stable
+semantic digest. A binding is accepted only when the tuple is present, the
+attestation interval fits the retained key window and the attestation's
+Ed25519 signature verifies.
+
+The deterministic regression is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.runtime.CredentialAttestationTrustSetTest \
+  --tests io.nereusstream.delay.runtime.OxiaSyncProfileCatalogBackendTest \
+  --no-daemon --console=plain
+```
+
+It passed with `BUILD SUCCESSFUL`; the full Gradle check also passed. The
+Dockerized real-service receipt used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
+`nereus-delay-v1-oxia-e2e-1786837306-55484`, host port `16694`, and
+`OxiaRealProfileCatalogSmokeTest.profileHeadProtectionLeaseAndRotationReopenAgainstRealService`.
+The report recorded `tests=1`, `skipped=0`, `failures=0`, `errors=0`; the run
+ended with `BUILD SUCCESSFUL` and
+`Dockerized Oxia real-service smoke passed for 37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+This closes only local trust-set selection/signature/window verification and
+its integration with one Profile's single-record CAS authority. It does not
+prove source-ordered trust-set publication/rotation, actor authorization,
+secret-manager resolution, cross-record Owner/Route/session transactions,
+multi-node failover for this authority, automatic renewal, provider
+rotation/quiescence, real S3/MinIO, deletion, chaos or V1 release readiness.
 
 ## Final gate
 

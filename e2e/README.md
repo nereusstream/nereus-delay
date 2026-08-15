@@ -1374,3 +1374,34 @@ trust-set or actor authorization, source ordering, retained-generation GC,
 cross-record Owner/Route/session transaction, multi-node failover for this
 authority, provider credential rotation/quiescence, real S3/MinIO or V1
 release evidence.
+
+## Credential attestation trust-set focused receipt
+
+The deterministic trust-set and Profile-authority regression is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.runtime.CredentialAttestationTrustSetTest \
+  --tests io.nereusstream.delay.runtime.OxiaSyncProfileCatalogBackendTest \
+  --no-daemon --console=plain
+```
+
+Delay commit `f758d010b4d75f9c53d1f6e2cf01d573d655fd1c` adds the immutable
+`CredentialAttestationTrustSet`. The focused tests passed with `BUILD
+SUCCESSFUL`; they cover exact verifier tuple/signature/window acceptance,
+unknown verifier rejection, out-of-window rejection, and Profile CAS
+publication/rotation/reopen/lease integration. The full Gradle check passed.
+
+The real-service receipt used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
+`nereus-delay-v1-oxia-e2e-1786837306-55484`, host port `16694`, and
+`OxiaRealProfileCatalogSmokeTest.profileHeadProtectionLeaseAndRotationReopenAgainstRealService`.
+The report recorded one test, zero skips, zero failures and zero errors; the
+run ended with `BUILD SUCCESSFUL` and
+`Dockerized Oxia real-service smoke passed for 37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+This is local trust-set/signature/window evidence integrated with one
+single-record Oxia authority. It does not prove source-ordered trust-set
+publication/rotation, actor authorization, secret-manager resolution,
+automatic renewal, multi-node authority failover, provider rotation/
+quiescence, real S3/MinIO, chaos or release readiness.
