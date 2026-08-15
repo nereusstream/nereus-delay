@@ -9,7 +9,8 @@ import io.nereusstream.delay.protocol.KafkaActivationBarrier;
 import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.SharedRocksDbResources;
-import org.apache.kafka.clients.consumer.Consumer;
+import org.apache.kafka.clients.consumer.ConsumerResourceGuard;
+import org.apache.kafka.clients.consumer.GuardedConsumer;
 import org.apache.kafka.common.TopicPartition;
 
 import java.security.PublicKey;
@@ -33,7 +34,7 @@ public final class KafkaClientArtifactWorkerSourceFactory {
 
     /** Creates one active Kafka source runtime for the exact accepted assignment. */
     public static WorkerShardRuntime create(
-            final Consumer<byte[], byte[]> consumer,
+            final GuardedConsumer<byte[], byte[]> consumer,
             final String physicalTopic,
             final Duration pollTimeout,
             final SourceAssignment acceptedAssignment,
@@ -54,6 +55,12 @@ public final class KafkaClientArtifactWorkerSourceFactory {
         }
         if (assignment.shardId().partition() < 0) {
             throw new IllegalArgumentException("Kafka Worker source partition must be non-negative");
+        }
+        final ConsumerResourceGuard expectedGuard = new ConsumerResourceGuard(barrier.authenticatedClusterId(),
+                topic, new org.apache.kafka.common.Uuid(barrier.nativeTopicUuid().getMostSignificantBits(),
+                        barrier.nativeTopicUuid().getLeastSignificantBits()), assignment.shardId().partition());
+        if (!expectedGuard.equals(consumer.resourceGuard())) {
+            throw new IllegalArgumentException("Kafka Worker source consumer has a different resource guard");
         }
 
         final KafkaClientArtifactSourceRecordConsumer source =

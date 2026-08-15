@@ -26,7 +26,7 @@ import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.consumer.GuardedConsumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.clients.producer.GuardedProducer;
 import org.apache.kafka.clients.producer.KafkaProducer;
@@ -74,7 +74,8 @@ public final class KafkaClientArtifactSourceSmoke {
                     new KafkaActivationBarrier(shard, clusterId, toUuid(topicId), 0));
             final String recoveryGroup = "nereus-delay-recovery-e2e-" + UUID.randomUUID();
             try (KafkaClientArtifactRecoverySourceCursor recovery = new KafkaClientArtifactRecoverySourceCursor(
-                    recoveryConsumer(bootstrap, recoveryGroup), recoveryAssignment, topic, 0,
+                    recoveryConsumer(bootstrap, recoveryGroup, clusterId, topic, toUuid(topicId), shard),
+                    recoveryAssignment, topic, 0,
                     Duration.ofMillis(250))) {
                 final SourceReplayCursor<SourceReplayEntry> cursor = SourceReplayCursor.of(recovery);
                 final SourceReplayEntry recoveredFirst = cursor.peek();
@@ -212,11 +213,14 @@ public final class KafkaClientArtifactSourceSmoke {
         configuration.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         configuration.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class);
         configuration.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class);
-        return new KafkaClientArtifactSourceRecordConsumer(new KafkaConsumer<>(configuration), clusterId, topicId,
-                shard, topic, Duration.ofMillis(250));
+        return new KafkaClientArtifactSourceRecordConsumer(KafkaClientArtifactSourceConsumerFactory.create(
+                configuration, clusterId, topic, topicId, shard.partition()), clusterId, topicId, shard, topic,
+                Duration.ofMillis(250));
     }
 
-    private static KafkaConsumer<byte[], byte[]> recoveryConsumer(final String bootstrap, final String groupId) {
+    private static GuardedConsumer<byte[], byte[]> recoveryConsumer(final String bootstrap, final String groupId,
+                                                                     final String clusterId, final String topic,
+                                                                     final UUID topicId, final ShardId shard) {
         final Map<String, Object> configuration = new HashMap<>();
         configuration.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
         configuration.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
@@ -225,7 +229,8 @@ public final class KafkaClientArtifactSourceSmoke {
         configuration.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         configuration.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class);
         configuration.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class);
-        return new KafkaConsumer<>(configuration);
+        return KafkaClientArtifactSourceConsumerFactory.create(configuration, clusterId, topic, topicId,
+                shard.partition());
     }
 
     private static void requireCommittedOffset(final Admin admin, final String groupId, final String topic,

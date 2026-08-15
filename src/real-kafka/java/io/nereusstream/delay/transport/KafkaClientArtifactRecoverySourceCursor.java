@@ -8,9 +8,11 @@ import io.nereusstream.delay.protocol.KafkaActivationBarrier;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.ShardId;
-import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.ConsumerResourceGuard;
+import org.apache.kafka.clients.consumer.GuardedConsumer;
+import org.apache.kafka.clients.consumer.GuardedConsumerRecords;
+import org.apache.kafka.clients.consumer.GuardedFetchEvidence;
 import org.apache.kafka.common.TopicPartition;
 
 import java.time.Duration;
@@ -31,17 +33,18 @@ import java.util.Objects;
  */
 public final class KafkaClientArtifactRecoverySourceCursor
         implements Iterator<SourceReplayEntry>, AutoCloseable {
-    private final Consumer<byte[], byte[]> consumer;
+    private final GuardedConsumer<byte[], byte[]> consumer;
     private final String authenticatedClusterId;
     private final java.util.UUID nativeTopicUuid;
     private final ShardId shard;
     private final TopicPartition topicPartition;
+    private final ConsumerResourceGuard expectedGuard;
     private final Duration pollTimeout;
-    private final ArrayDeque<ConsumerRecord<byte[], byte[]>> buffered = new ArrayDeque<>();
+    private final ArrayDeque<BufferedRecord> buffered = new ArrayDeque<>();
     private SourceReplayEntry current;
     private boolean closed;
 
-    public KafkaClientArtifactRecoverySourceCursor(final Consumer<byte[], byte[]> consumer,
+    public KafkaClientArtifactRecoverySourceCursor(final GuardedConsumer<byte[], byte[]> consumer,
                                                    final SourceAssignment assignment,
                                                    final String physicalTopic,
                                                    final long startOffsetInclusive,
@@ -62,9 +65,14 @@ public final class KafkaClientArtifactRecoverySourceCursor
             throw new IllegalArgumentException("Kafka recovery partition must be non-negative");
         }
         this.topicPartition = new TopicPartition(topic, shard.partition());
+        this.expectedGuard = new ConsumerResourceGuard(authenticatedClusterId, topic, toKafkaUuid(nativeTopicUuid),
+                shard.partition());
         this.pollTimeout = Objects.requireNonNull(pollTimeout, "pollTimeout");
         if (pollTimeout.isNegative() || pollTimeout.isZero()) {
             throw new IllegalArgumentException("pollTimeout must be positive");
+        }
+        if (!expectedGuard.equals(consumer.resourceGuard())) {
+            throw new IllegalArgumentException("Kafka guarded recovery consumer has a different resource guard");
         }
         consumer.assign(java.util.List.of(topicPartition));
         consumer.seek(topicPartition, startOffsetInclusive);
@@ -77,15 +85,18 @@ public final class KafkaClientArtifactRecoverySourceCursor
             return true;
         }
         while (buffered.isEmpty()) {
-            final ConsumerRecords<byte[], byte[]> records = consumer.poll(pollTimeout);
+            final GuardedConsumerRecords<byte[], byte[]> records = consumer.pollGuarded(pollTimeout);
+            final GuardedFetchEvidence evidence = KafkaClientArtifactFetchEvidence.requireBatch(records, expectedGuard);
             for (ConsumerRecord<byte[], byte[]> record : records.records(topicPartition)) {
-                buffered.addLast(record);
+                KafkaClientArtifactFetchEvidence.requireRecord(record, evidence, expectedGuard);
+                buffered.addLast(new BufferedRecord(record, evidence));
             }
             if (records.isEmpty()) {
                 return false;
             }
         }
-        final ConsumerRecord<byte[], byte[]> record = buffered.removeFirst();
+        final BufferedRecord fetched = buffered.removeFirst();
+        final ConsumerRecord<byte[], byte[]> record = fetched.record();
         try {
             final PreparedCommand command = CommandCodec.decodeFrameV1(requireValue(record));
             if (!shard.equals(command.shardId())) {
@@ -99,7 +110,7 @@ public final class KafkaClientArtifactRecoverySourceCursor
             current = new SourceReplayRecord(command, position, null, null);
             return true;
         } catch (RuntimeException | Error failure) {
-            buffered.addFirst(record);
+            buffered.addFirst(fetched);
             throw failure;
         }
     }
@@ -141,5 +152,12 @@ public final class KafkaClientArtifactRecoverySourceCursor
         if (closed) {
             throw new IllegalStateException("Kafka recovery source is closed");
         }
+    }
+
+    private static org.apache.kafka.common.Uuid toKafkaUuid(final java.util.UUID uuid) {
+        return new org.apache.kafka.common.Uuid(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+    }
+
+    private record BufferedRecord(ConsumerRecord<byte[], byte[]> record, GuardedFetchEvidence evidence) {
     }
 }

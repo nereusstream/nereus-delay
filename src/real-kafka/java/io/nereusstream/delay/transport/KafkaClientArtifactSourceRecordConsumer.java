@@ -7,9 +7,11 @@ import io.nereusstream.delay.protocol.CommandCodec;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.ShardId;
-import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.ConsumerResourceGuard;
+import org.apache.kafka.clients.consumer.GuardedConsumer;
+import org.apache.kafka.clients.consumer.GuardedConsumerRecords;
+import org.apache.kafka.clients.consumer.GuardedFetchEvidence;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
 
@@ -30,16 +32,18 @@ import java.util.UUID;
  * retry it after a fresh consumer/owner boundary.</p>
  */
 public final class KafkaClientArtifactSourceRecordConsumer implements SourceRecordConsumer {
-    private final Consumer<byte[], byte[]> consumer;
+    private final GuardedConsumer<byte[], byte[]> consumer;
     private final String authenticatedClusterId;
     private final UUID nativeTopicUuid;
     private final ShardId shard;
     private final TopicPartition topicPartition;
+    private final ConsumerResourceGuard expectedGuard;
     private final Duration pollTimeout;
-    private final ArrayDeque<ConsumerRecord<byte[], byte[]>> buffered = new ArrayDeque<>();
+    private final ArrayDeque<BufferedRecord> buffered = new ArrayDeque<>();
+    private BufferedRecord inFlight;
     private boolean closed;
 
-    public KafkaClientArtifactSourceRecordConsumer(final Consumer<byte[], byte[]> consumer,
+    public KafkaClientArtifactSourceRecordConsumer(final GuardedConsumer<byte[], byte[]> consumer,
                                                    final String authenticatedClusterId,
                                                    final UUID nativeTopicUuid,
                                                    final ShardId shard,
@@ -51,9 +55,14 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
         this.shard = Objects.requireNonNull(shard, "shard");
         this.topicPartition = new TopicPartition(Objects.requireNonNull(physicalTopic, "physicalTopic"),
                 shard.partition());
+        this.expectedGuard = new ConsumerResourceGuard(authenticatedClusterId, physicalTopic,
+                toKafkaUuid(nativeTopicUuid), shard.partition());
         this.pollTimeout = Objects.requireNonNull(pollTimeout, "pollTimeout");
         if (pollTimeout.isNegative() || pollTimeout.isZero()) {
             throw new IllegalArgumentException("pollTimeout must be positive");
+        }
+        if (!expectedGuard.equals(consumer.resourceGuard())) {
+            throw new IllegalArgumentException("Kafka guarded source consumer has a different resource guard");
         }
         consumer.assign(List.of(topicPartition));
     }
@@ -61,16 +70,22 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
     @Override
     public synchronized Optional<PolledSourceRecord> poll() {
         ensureOpen();
+        if (inFlight != null) {
+            throw new IllegalStateException("previous Kafka source record has not been ACKed");
+        }
         if (buffered.isEmpty()) {
-            final ConsumerRecords<byte[], byte[]> records = consumer.poll(pollTimeout);
+            final GuardedConsumerRecords<byte[], byte[]> records = consumer.pollGuarded(pollTimeout);
+            final GuardedFetchEvidence evidence = KafkaClientArtifactFetchEvidence.requireBatch(records, expectedGuard);
             for (ConsumerRecord<byte[], byte[]> record : records.records(topicPartition)) {
-                buffered.addLast(record);
+                KafkaClientArtifactFetchEvidence.requireRecord(record, evidence, expectedGuard);
+                buffered.addLast(new BufferedRecord(record, evidence));
             }
         }
         if (buffered.isEmpty()) {
             return Optional.empty();
         }
-        final ConsumerRecord<byte[], byte[]> record = buffered.removeFirst();
+        final BufferedRecord fetched = buffered.removeFirst();
+        final ConsumerRecord<byte[], byte[]> record = fetched.record();
         try {
             final PreparedCommand command = CommandCodec.decodeFrameV1(requireValue(record));
             if (!command.shardId().equals(shard)) {
@@ -82,10 +97,11 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
             final KafkaSourcePosition position = new KafkaSourcePosition(shard, authenticatedClusterId,
                     nativeTopicUuid, record.offset(), record.leaderEpoch().orElse(null), record.timestamp());
             final SourceReplayRecord entry = new SourceReplayRecord(command, position, null, null);
+            inFlight = fetched;
             return Optional.of(new PolledSourceRecord(entry,
-                    (candidate, ignoredOutcome) -> acknowledge(record, entry, candidate)));
+                    (candidate, ignoredOutcome) -> acknowledge(fetched, entry, candidate)));
         } catch (RuntimeException failure) {
-            buffered.addFirst(record);
+            buffered.addFirst(fetched);
             throw failure;
         }
     }
@@ -99,15 +115,29 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
     }
 
     private SourceAcknowledgement.AcknowledgementResult acknowledge(
-            final ConsumerRecord<byte[], byte[]> record,
+            final BufferedRecord fetched,
             final SourceReplayRecord expected,
             final io.nereusstream.delay.ownership.SourceReplayEntry candidate) {
         if (candidate != expected) {
             return SourceAcknowledgement.AcknowledgementResult.unknown(
                     new IllegalStateException("Kafka source ACK entry identity changed"));
         }
+        synchronized (this) {
+            if (inFlight != fetched || closed) {
+                return SourceAcknowledgement.AcknowledgementResult.unknown(
+                        new IllegalStateException("Kafka source ACK state changed"));
+            }
+        }
         try {
-            consumer.commitSync(java.util.Map.of(topicPartition, new OffsetAndMetadata(record.offset() + 1)));
+            consumer.commitSync(java.util.Map.of(topicPartition,
+                    new OffsetAndMetadata(fetched.record().offset() + 1)));
+            synchronized (this) {
+                if (inFlight != fetched) {
+                    return SourceAcknowledgement.AcknowledgementResult.unknown(
+                            new IllegalStateException("Kafka source ACK state changed"));
+                }
+                inFlight = null;
+            }
             return SourceAcknowledgement.AcknowledgementResult.acked();
         } catch (RuntimeException failure) {
             return SourceAcknowledgement.AcknowledgementResult.unknown(failure);
@@ -125,5 +155,12 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
         if (closed) {
             throw new IllegalStateException("Kafka source consumer is closed");
         }
+    }
+
+    private static org.apache.kafka.common.Uuid toKafkaUuid(final UUID uuid) {
+        return new org.apache.kafka.common.Uuid(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+    }
+
+    private record BufferedRecord(ConsumerRecord<byte[], byte[]> record, GuardedFetchEvidence evidence) {
     }
 }
