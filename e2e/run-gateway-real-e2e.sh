@@ -112,5 +112,6 @@ GRADLE_USER_HOME="$delay_gradle_user_home" \
         --no-daemon --console=plain
 
 echo "Gateway mTLS/RS256 network E2E passed: authenticated Schedule and invalid JWT rejection"
+echo "Gateway restart/idempotency E2E passed: server restarted and returned the exact durable outcome without a second attempt"
 echo "Gateway Oxia durable E2E passed: admission released, one idempotency attempt, and two digest-only audit events"
 echo "Dockerized Gateway real-service smoke passed for Oxia $oxia_sha"

@@ -68,6 +68,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -133,6 +134,7 @@ class OxiaRealGatewayGrpcSmokeTest {
             final GatewayIngressService ingress = new GatewayIngressService(schedule, authority, admission, audit,
                     clock);
             final GatewayGrpcService grpc = new GatewayGrpcService(ingress, GatewayGrpcContext.provider());
+            io.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 firstResponse;
 
             try (GatewayGrpcServer server = GatewayGrpcServer.mutualTls(port, serverCertificate, serverPrivateKey,
                     trustedClientCertificates, grpc)) {
@@ -141,15 +143,14 @@ class OxiaRealGatewayGrpcSmokeTest {
                         clientPrivateKey);
                 try {
                     final DelayGatewayV1Grpc.DelayGatewayV1BlockingStub authenticated = stub(channel, token);
-                    final io.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 first =
-                            authenticated.schedule(request);
+                    firstResponse = authenticated.schedule(request);
                     final io.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 second =
                             authenticated.schedule(request);
 
-                    assertEquals(first, second);
-                    assertTrue(first.hasSubmissionOutcomeNdr1());
+                    assertEquals(firstResponse, second);
+                    assertTrue(firstResponse.hasSubmissionOutcomeNdr1());
                     assertEquals(StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED.wireValue(),
-                            SubmissionOutcomeMessageV1.decode(first.getSubmissionOutcomeNdr1().toByteArray())
+                            SubmissionOutcomeMessageV1.decode(firstResponse.getSubmissionOutcomeNdr1().toByteArray())
                                     .managed().definitelyNotQueued().error().code().wireValue());
                     assertEquals(1, core.prepareCalls);
                     assertEquals(1, coordinator.submitCalls);
@@ -160,6 +161,23 @@ class OxiaRealGatewayGrpcSmokeTest {
                             () -> invalid.schedule(request));
                     assertEquals(Status.Code.UNAUTHENTICATED, authenticationFailure.getStatus().getCode());
                     assertEquals(1, core.prepareCalls);
+                } finally {
+                    channel.shutdownNow();
+                    assertTrue(channel.awaitTermination(10, TimeUnit.SECONDS));
+                }
+            }
+
+            try (GatewayGrpcServer restarted = GatewayGrpcServer.mutualTls(port, serverCertificate, serverPrivateKey,
+                    trustedClientCertificates, grpc)) {
+                restarted.start();
+                final ManagedChannel channel = channel(port, trustedClientCertificates, clientCertificate,
+                        clientPrivateKey);
+                try {
+                    final io.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 afterRestart =
+                            stub(channel, token).schedule(request);
+                    assertArrayEquals(firstResponse.toByteArray(), afterRestart.toByteArray());
+                    assertEquals(1, core.prepareCalls);
+                    assertEquals(1, coordinator.submitCalls);
                 } finally {
                     channel.shutdownNow();
                     assertTrue(channel.awaitTermination(10, TimeUnit.SECONDS));
