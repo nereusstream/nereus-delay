@@ -7264,6 +7264,50 @@ regressions passed. `compileJava`, `checkstyleMain` and the focused source/due
 tests passed. This is local lifecycle evidence only; no new Broker, Oxia,
 object-store, crash or multi-shard E2E claim is made.
 
+## 2026-08-15 Worker checkpoint queue and atomic Oxia publication
+
+Delay commit `d9b06f5e` adds `WorkerCheckpointRuntime` as the bounded
+composition around `claimDue`, the shared `CHECKPOINT` work class and
+`CheckpointExecutionCoordinator`. `CheckpointWorkClassExecutor` now accepts an
+injected Owner/session/pending-intent prerequisite reread after queue wait. If
+that gate fails before physical checkpoint I/O, the exact scheduler claim is
+completed without creating a directory or invoking the upload adapter, leaving
+the schedule retryable. The focused
+`CheckpointExecutionCoordinatorTest.workerCheckpointRuntimeReleasesClaimWhenPrerequisiteChangesAfterQueueAdmission`
+passed together with the existing checkpoint coordinator suite.
+
+Delay commit `bdcd4ddb` adds `CheckpointAtomicPublicationAuthority` and
+`OxiaSyncCheckpointPublicationBackend`. The backend uses the Oxia 0.9
+single-record version CAS surface: one canonical record carries the bounded
+Recovery Catalog snapshot and the shard's upload-intent projections, so the
+provider's immutable object result is followed by one CAS that binds the exact
+PUBLISHED intent and catalog manifest. `CheckpointUploadCoordinator` selects
+that atomic operation only for the combined backend, and
+`CheckpointPublicationCoordinator` rejects a split atomic intent/catalog pair.
+The pre-existing separate `OxiaSyncCheckpointUploadIntentBackend` and
+`OxiaSyncRecoveryCatalogBackend` retain their fail-closed per-record contracts;
+they are not relabeled as a cross-record transaction.
+
+The deterministic backend tests cover canonical state encoding, exact CAS,
+response-loss reread, identity collision and catalog-generation binding. The
+opt-in Dockerized real-service suite also includes
+`OxiaRealCheckpointPublicationSmokeTest`. The run passed with Delay
+`bdcd4ddb`, Oxia `37a17bef17202d5fd6e232da5fd26d94865484`, Compose project
+`nereus-delay-v1-oxia-e2e-1786768622-85502`, host port `16663`, and locally
+built Oxia image
+`sha256:2d133d6ff493f0fffd4ac744a448d735d84f7ed08df42db9bd1df7b630477d03`.
+The test exercised real Oxia parent-catalog CAS, PENDING intent creation,
+Worker checkpoint creation, the filesystem upload adapter and the combined
+PUBLISHED-intent/catalog reread; the test result was `tests=1,
+skipped=0, failures=0, errors=0` and the harness exited `BUILD SUCCESSFUL`.
+
+This closes the single-record Oxia publication composition and one-shard
+real-service smoke. It does not claim a remote Object Store provider, provider
+credentials/attestation or quiescence, a multi-record Oxia transaction, an
+Owner Lease/session gate inside the checkpoint smoke, automatic Claim
+materialization/Publish Admission, multi-shard checkpoint scheduling, crash
+cut/recovery, broker failover or release PASS.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

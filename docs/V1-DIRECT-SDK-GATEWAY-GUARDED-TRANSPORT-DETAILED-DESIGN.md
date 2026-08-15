@@ -3092,6 +3092,27 @@ and scheduling, all three Worker scheduling entrypoints fail closed. This
 orders local lifecycle state without inventing remote Claim, publish or
 checkpoint authority.
 
+### 2026-08-15 Worker checkpoint queue and atomic Oxia publication implementation note
+
+`WorkerCheckpointRuntime` now owns the local `claimDue` → `CHECKPOINT` queue
+handoff while the caller supplies the exact pending intent, manifest factory,
+upload adapter and Owner/session prerequisite reread. The gate runs again
+after queue wait and, if it fails before physical I/O, completes the exact
+process-local claim without creating a checkpoint directory. This preserves a
+retryable schedule without turning local Store bytes into Owner or catalog
+authority.
+
+Because the pinned Oxia Java client exposes single-record version CAS rather
+than a multi-record transaction, `OxiaSyncCheckpointPublicationBackend` uses
+one canonical record containing the bounded catalog snapshot and shard upload
+intent projections. After an immutable provider upload, one Oxia CAS binds the
+exact PUBLISHED intent and catalog manifest. The split per-record Oxia
+backends continue to fail closed for this cross-record operation, and an
+atomic backend cannot be paired with a different catalog authority. The real
+smoke uses a filesystem adapter and one shard; remote Object Store
+attestation/quiescence, Owner-session fencing, multi-shard scheduling and
+crash/failover evidence remain separate gates.
+
 ## 16. 当前结论与仍需实测的数值
 
 已经冻结：

@@ -6315,6 +6315,36 @@ Claim materialization, external readiness, Shard Log outcome evidence,
 Object Store checkpoint publication, multi-shard scheduling or crash/failover
 evidence.
 
+## 2026-08-15 Worker checkpoint queue and atomic Oxia publication audit
+
+Delay commit `d9b06f5e` composes `claimDue` → bounded `CHECKPOINT` admission →
+`CheckpointExecutionCoordinator` through `WorkerCheckpointRuntime`. The
+execution-time prerequisite gate is deliberately injected: it rereads the
+Owner/session and exact pending-intent/catalog prerequisites after queue wait.
+When that gate fails before physical I/O, the exact scheduler claim is
+completed without creating a checkpoint directory or calling the upload
+adapter, so a later due turn can retry the same schedule boundary.
+
+Delay commit `bdcd4ddb` adds the production Oxia publication authority for the
+client surface available in this checkout. `OxiaSyncCheckpointPublicationBackend`
+stores the catalog snapshot and upload-intent projections in one canonical
+record and commits the provider resource identity, PUBLISHED intent and
+catalog manifest in one version CAS. `CheckpointUploadCoordinator` enters this
+path only when the intent authority is the combined backend, while
+`CheckpointPublicationCoordinator` rejects an atomic backend paired with a
+different catalog authority. The existing split Oxia backends remain
+per-record CAS seams and still reject the unsupported cross-record operation.
+
+The Dockerized real-Oxia suite included
+`OxiaRealCheckpointPublicationSmokeTest` and passed at Oxia
+`37a17bef17202d5fd6e232da5fd26d94865484` with project
+`nereus-delay-v1-oxia-e2e-1786768622-85502`, port `16663`, and image
+`sha256:2d133d6ff493f0fffd4ac744a448d735d84f7ed08df42db9bd1df7b630477d03`.
+The evidence is one shard, real Oxia intent/catalog CAS plus a local
+filesystem upload adapter. It is not remote Object Store, Owner-session gate,
+multi-shard production wiring, automatic Claim/Publish orchestration, crash
+recovery, broker failover or release PASS.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

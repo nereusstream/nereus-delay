@@ -14,7 +14,7 @@ pulsar_branch="nereus/delay-resource-guard-v1"
 pulsar_base="8dae0236c0a0d405ed7f8303081080520fe91551"
 pulsar_head="358ce4a1033bd566faebcd3465c3ba4606f3c83f"
 oxia_head="37a17bef17202d5fd6e23282da5fd26d94865484"
-delay_worker_head="579ad3ba"
+delay_worker_head="bdcd4ddb"
 
 fail() {
     echo "cross-repo contract audit failed: $*" >&2
@@ -213,6 +213,16 @@ require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/Wor
     "runSchedulingTurn"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/scheduler/PersistentLaneScheduler.java" \
     "forActiveOwner"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/WorkerCheckpointRuntime.java" \
+    "claimDue"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointAtomicPublicationAuthority.java" \
+    "publishUploadedCheckpointAtomically"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackend.java" \
+    "checkpoint-publication-v1"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaRealCheckpointPublicationSmokeTest.java" \
+    "workerCheckpointRuntimePublishesAtomicIntentAndCatalogAgainstRealService"
+require_file_text "$delay_root/e2e/run-oxia-real-service.sh" \
+    "OxiaRealCheckpointPublicationSmokeTest"
 require_file_text "$delay_root/build.gradle" \
     "runRealKafkaWorkerSmoke"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
