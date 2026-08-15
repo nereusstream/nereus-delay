@@ -136,6 +136,7 @@ public final class KafkaClientArtifactRouteWorkerSmoke {
             final ShardId shard = new ShardId(routeIncarnation, 0);
             final PreparedCommand beforeRoute = command(shard, "route-before");
             final PreparedCommand afterRoute = command(shard, "route-after");
+            final PreparedCommand afterFailover = command(shard, "route-after-failover");
             append(bootstrap, clusterId, topic, topicId, beforeRoute, 0);
 
             final GuardedFetchEvidence fetchEvidence = fetchEvidence(bootstrap, clusterId, topic, nativeTopicId,
@@ -240,6 +241,33 @@ public final class KafkaClientArtifactRouteWorkerSmoke {
                                         "Kafka Route Worker Store did not persist the post-barrier position");
                             }
                             requireCommittedOffset(admin, workerGroup, topic, 0, barrierOffset + 1);
+                            final boolean acceptedRouteFailover = configured("NEREUS_DELAY_KAFKA_ROUTE_FAILOVER_GATE",
+                                    "").length() > 0;
+                            if (acceptedRouteFailover) {
+                                awaitFailoverGate(Path.of(configuredRequired(
+                                        "NEREUS_DELAY_KAFKA_ROUTE_FAILOVER_GATE")), placement.publication().revision(),
+                                        barrierOffset);
+                                append(bootstrap, clusterId, topic, topicId, afterFailover, barrierOffset + 1);
+                                final io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult failoverResult =
+                                        runUntilApplied(runtime);
+                                if (failoverResult.status()
+                                        != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus
+                                        .APPLIED_AND_ACKED) {
+                                    throw new IllegalStateException(
+                                            "Kafka Route Worker did not recover after accepted-route failover: "
+                                                    + failoverResult.status(), failoverResult.failure());
+                                }
+                                if (!(store.appliedShardLogPosition()
+                                        instanceof io.nereusstream.delay.protocol.KafkaSourcePosition failoverPosition)
+                                        || failoverPosition.offset() != barrierOffset + 1
+                                        || !failoverPosition.shardId().equals(shard)
+                                        || !failoverPosition.authenticatedClusterId().equals(clusterId)
+                                        || !failoverPosition.nativeTopicUuid().equals(nativeTopicId)) {
+                                    throw new IllegalStateException(
+                                            "Kafka Route Worker Store did not persist the post-failover position");
+                                }
+                                requireCommittedOffset(admin, workerGroup, topic, 0, barrierOffset + 2);
+                            }
                             final Path checkpointPath = root.resolve("route-worker-final-checkpoint");
                             final byte[] checkpointId = java.util.Arrays.copyOf(
                                     Bytes.sha256(Bytes.utf8("kafka-route-worker-final-checkpoint")), 16);
@@ -266,7 +294,10 @@ public final class KafkaClientArtifactRouteWorkerSmoke {
                                     + fetchEvidence.requestVersion() + ", lso=" + fetchEvidence.lastStableOffset()
                                     + ", routeRevision=" + placement.routeRevision() + ", assignmentRevision="
                                     + placement.publication().revision() + ", barrierOffset=" + barrierOffset
-                                    + ", sourceOffset=" + barrierOffset + ", commitSync ACK, final checkpoint");
+                                    + ", sourceOffset=" + (acceptedRouteFailover ? barrierOffset + 1 : barrierOffset)
+                                    + ", commitSync ACK"
+                                    + (acceptedRouteFailover ? ", accepted-route broker failover" : "")
+                                    + ", final checkpoint");
                         } finally {
                             if (!drained) {
                                 workerConsumer.close();
@@ -400,6 +431,19 @@ public final class KafkaClientArtifactRouteWorkerSmoke {
             }
         } while (System.nanoTime() < deadline);
         throw new IllegalStateException("Kafka Route Worker source record did not become visible");
+    }
+
+    private static void awaitFailoverGate(final Path gate, final long assignmentRevision,
+                                          final long sourceOffset) throws Exception {
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60);
+        System.out.println("Kafka Route Worker ready for accepted-route failover: assignmentRevision="
+                + assignmentRevision + ", sourceOffset=" + sourceOffset + ", gate=" + gate);
+        while (!Files.exists(gate) && System.nanoTime() < deadline) {
+            TimeUnit.MILLISECONDS.sleep(50);
+        }
+        if (!Files.exists(gate)) {
+            throw new IllegalStateException("accepted-route failover gate was not released: " + gate);
+        }
     }
 
     private static GuardedConsumer<byte[], byte[]> workerConsumer(final String bootstrap, final String groupId,
