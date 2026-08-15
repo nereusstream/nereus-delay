@@ -3046,6 +3046,20 @@ session-bound assignment CAS cut for one assignment; catalog-driven
 multi-shard placement, capacity-envelope authority, Broker source ownership,
 due/Lane/publish/checkpoint wiring and crash/failover evidence remain open.
 
+Commit `2dd2cfff83f4d029972cf7fbeb569fbf4538c026` extends the two real Worker
+smokes through the final local drain checkpoint. The Worker supplies an exact
+checkpoint identity to `OwnerDrainCoordinator`, executes the bounded
+`CHECKPOINT` work class, requires non-empty `CheckpointFileInventory` output,
+and verifies exact lease release only after the checkpoint and Store close.
+Fresh default Kafka and Pulsar Docker runs both passed their source,
+recovery/apply/ACK and final-checkpoint lines, with Compose projects
+`nereus-delay-kafka-e2e-1786765675-51303` and
+`nereus-delay-pulsar-e2e-1786765675-51304`; both harnesses removed their own
+containers, networks and volumes. This is bounded local RocksDB checkpoint
+evidence only. It does not provide object-store manifest/publication, due/Lane/
+publish orchestration, crash recovery, multi-broker failover or production
+multi-shard Worker wiring.
+
 ## 16. 当前结论与仍需实测的数值
 
 已经冻结：

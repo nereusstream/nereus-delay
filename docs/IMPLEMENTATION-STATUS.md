@@ -333,6 +333,52 @@ GRADLE_USER_HOME=/tmp/nereus-delay-full-gradle \
 The gate completed with `BUILD SUCCESSFUL` in 21 actionable tasks; the five
 opt-in real-Oxia methods were skipped because no endpoint was configured.
 
+## 2026-08-15 Worker final checkpoint-on-drain evidence
+
+Delay commit `2dd2cfff83f4d029972cf7fbeb569fbf4538c026` makes both real Worker
+smokes provide an exact 16-byte final-checkpoint identity to
+`OwnerDrainCoordinator`. The drain path now runs the bounded checkpoint work
+class, verifies that `CheckpointFileInventory.collect` observes the resulting
+local RocksDB checkpoint files, and asserts the exact owner lease is empty only
+after checkpoint creation and Store close. The Kafka and Pulsar real source
+compiles plus their separate real checkstyle gates passed before the Docker
+runs.
+
+The fresh default Kafka run used source
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose project `nereus-delay-kafka-e2e-1786765675-51303`, and ports
+`19440,19441,19442`. It reported:
+
+```text
+Kafka source ACK smoke passed: topicId=SdnB8zvWRjGqeuaWld9WvA, firstOffset=0, secondOffset=1, committedAfterRestart=empty
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, and final checkpoint
+Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, assignment recovery to RocksDB Worker apply, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence.
+```
+
+The fresh default Pulsar run used P1 source
+`nereus/delay-resource-guard-v1@358ce4a1033bd566faebcd3465c3ba4606f3c83f`,
+distribution SHA-256
+`7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5a1d137d`, P1 image
+`sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`,
+Compose project `nereus-delay-pulsar-e2e-1786765675-51304`, and ports
+`19990,19991`. It reported:
+
+```text
+Pulsar source ACK smoke passed: physicalTopic=persistent://public/default/p1-real-client-51304-source-84647eaa-0eba-465b-a862-8daad610e5cc, firstLedger=11, firstEntry=0, secondLedger=11, secondEntry=1, firstConnectionGeneration=5, secondConnectionGeneration=6
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=15/0, active apply ledger/entry=15/1, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
+Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, guarded source replay, Broker timestamp, Worker recovery/apply, and ACK handoff.
+```
+
+Both harness traps removed their matching containers, networks and volumes.
+This closes bounded local final-checkpoint creation/inventory and the
+checkpoint-before-lease-release ordering for these real-client Worker smokes.
+It does not claim object-store checkpoint manifest/publication, due/Lane/
+publish orchestration, crash recovery, multi-broker failover or a production
+multi-shard Worker deployment; those remain release gates.
+
 ## 2026-08-15 native capability issuance boundary
 
 Delay commit `3bae4a6b` adds `NativeCapabilitySnapshotIssuer` and the

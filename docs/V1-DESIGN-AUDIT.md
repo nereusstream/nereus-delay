@@ -4665,7 +4665,7 @@ the guarded Broker rollout attestation remains external evidence.
 | 依赖 | 审计锁 |
 |---|---|
 | Delay local implementation slice | `nereus/delay-full-implementation-v1@4f606fec86aaeb74472f6575e5ee7ddcb8dc8f82` (Oxia Route session-fenced publisher/provider composition on top of Gateway query/await/message handlers and bounded query ingress behind explicit `GatewayQueryAuthority`, receipt-bound payload upload/attestation ingress, PrepareLargeSchedule/CommitLargeSchedule, Cancel and Reschedule control slices, Direct SDK outbox fail-closed and Worker source-consumer/ACK-after-sync composition; transport result/attempt binding `5cc955e1306e1f54db06a06a2bb2b84f232c2a7b`; Gateway query base `59d492041ac42b79a632ebddfb56a7608b2d7283`, Gateway ingress base `1dc28eaf391429f2dc9221f416af968d36575dff`, Gateway API generation base `a06ab232a5608ec0e7c9152ef80fc72c06966e66`; Gateway CAS base `e276bec3ffff7f5015367bed55f5b8d63c080e21`, Route authority base `62a9438967112f96e65b8daa7b2b86d52a103b10`, Gateway retry base `c42405ce6c69aef8ae0f8a9a63158c917410309f`, route-cache base `67ef3de3ab6f69ae992c3ccb70c7cb65cad47613`, composition base `402b27fa0dced95c2312bfedc0678af03463f2d5`, repository base `origin/main@2dfc3289ffdbe9cf9d7f4d0de1d701493d1b49a6`) |
-| Delay current implementation head | `nereus/delay-full-implementation-v1@e173cf0e02e701229f07c37ccac926416ea5c3cb` (Kafka guarded Fetch/source proof and ACK/replay handoff, guarded Pulsar SUBSCRIBE/replay/ACK binding, strict Gateway RS256+mTLS JWT policy, durable Oxia tenant admission CAS, explicit Route session recovery, real-Kafka and real-Pulsar recovery/apply/ACK Worker slices, opt-in network Oxia session-bound owner lease, authoritative Route-bound per-shard Worker assignment publication/acceptance and nounset-safe E2E harness; catalog-driven multi-shard placement, production Worker wiring and release gates remain open) |
+| Delay current implementation head | `nereus/delay-full-implementation-v1@2dd2cfff83f4d029972cf7fbeb569fbf4538c026` (Kafka guarded Fetch/source proof and ACK/replay handoff, guarded Pulsar SUBSCRIBE/replay/ACK binding, strict Gateway RS256+mTLS JWT policy, durable Oxia tenant admission CAS, explicit Route session recovery, real-Kafka and real-Pulsar recovery/apply/ACK Worker slices, opt-in network Oxia session-bound owner lease, authoritative Route-bound per-shard Worker assignment publication/acceptance, bounded local final-checkpoint-on-drain evidence and nounset-safe E2E harness; object-store checkpoint publication, catalog-driven multi-shard placement, production Worker wiring and release gates remain open) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
@@ -6226,6 +6226,47 @@ assignment CAS cut for one assignment. It does not prove catalog-driven
 multi-shard placement, capacity-envelope authority, Broker source ownership
 transfer/reconnect, multi-broker failover, due/Lane/publish/checkpoint wiring
 or D6 crash/failure-injection gates.
+
+## 2026-08-15 Worker final checkpoint-on-drain audit
+
+Delay commit `2dd2cfff83f4d029972cf7fbeb569fbf4538c026` wires an exact
+checkpoint identity into the real Kafka and Pulsar Worker drain paths. Each
+smoke invokes the bounded `CHECKPOINT` work class, verifies the local
+`CheckpointFileInventory` is non-empty, and checks that the session-bound owner
+lease is released only after the final checkpoint and Store close. This is a
+local RocksDB checkpoint evidence cut, not an object-store manifest or
+publication claim.
+
+The fresh Kafka run used project `nereus-delay-kafka-e2e-1786765675-51303` on
+ports `19440,19441,19442`, Kafka source
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, and
+broker image
+`sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`.
+It printed:
+
+```text
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, and final checkpoint
+```
+
+The fresh Pulsar run used project `nereus-delay-pulsar-e2e-1786765675-51304`
+on ports `19990,19991`, P1 source
+`358ce4a1033bd566faebcd3465c3ba4606f3c83f`, distribution SHA-256
+`7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5a1d137d`, and P1
+image
+`sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`.
+It printed:
+
+```text
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=15/0, active apply ledger/entry=15/1, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
+```
+
+Both harnesses exited successfully and removed their matching containers,
+networks and volumes. This closes the bounded local checkpoint/inventory and
+checkpoint-before-lease-release ordering for these two real-client smokes. It
+does not close due/Lane/publish orchestration, object-store checkpoint
+publication, crash recovery, multi-broker failover or production multi-shard
+Worker wiring.
 
 ## Final gate
 

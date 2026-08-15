@@ -43,7 +43,9 @@ Worker smoke then recovers one pre-activation record through the no-ACK
 recovery cursor, activates the owned shard at the exact barrier, applies the
 next guarded record through `WorkerShardRuntime` and RocksDB `WriteBatch`, and
 checks the committed group offset after synchronous ACK plus exact owner-lease
-release on drain. The default owner authority is deliberately deterministic;
+release on drain. The Worker smoke also runs the bounded final local RocksDB
+checkpoint and checks its file inventory before that release. The default
+owner authority is deliberately deterministic;
 when `NEREUS_DELAY_OXIA_ENDPOINT` is set, the same Worker smoke can acquire
 the assignment through a real Oxia ephemeral session-bound lease. This remains
 an owner-authority smoke, not Route placement or publication evidence. The K2 smoke
@@ -127,7 +129,8 @@ replayed. It extracts the distribution `lib/*.jar` files into a temporary host
 directory for the client runtime; the client/server jars and distribution all
 come from the same locked P1 checkout. The Worker smoke then reuses the
 post-seek guarded consumer through no-ACK recovery, applies the next record
-through `WorkerShardRuntime` and RocksDB `WriteBatch`, performs synchronous ACK
+through `WorkerShardRuntime` and RocksDB `WriteBatch`, performs synchronous ACK,
+runs the bounded final local RocksDB checkpoint, verifies its file inventory
 and drains the exact owner lease.
 
 ```text
@@ -267,6 +270,31 @@ event/head → Route cache → route-bound assignment CAS cut for one assignment
 not catalog-driven multi-shard placement, capacity-envelope authority,
 Broker source ownership transfer/reconnect, due/Lane/publish/checkpoint
 production wiring, failover or crash gates.
+
+## Worker final checkpoint-on-drain evidence
+
+Delay commit `2dd2cfff83f4d029972cf7fbeb569fbf4538c026` makes the real Kafka and
+Pulsar Worker smokes pass an exact checkpoint identity to the drain coordinator.
+The smoke executes the bounded `CHECKPOINT` work class, requires a non-empty
+`CheckpointFileInventory`, and verifies that the exact owner lease is empty
+only after checkpoint creation and Store close.
+
+The fresh default runs used Kafka Compose project
+`nereus-delay-kafka-e2e-1786765675-51303` on ports `19440,19441,19442` and
+Pulsar Compose project `nereus-delay-pulsar-e2e-1786765675-51304` on ports
+`19990,19991`. Their Worker lines were:
+
+```text
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, and final checkpoint
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=15/0, active apply ledger/entry=15/1, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
+```
+
+Both scripts exited successfully and removed their matching containers,
+networks and volumes. This proves only bounded local checkpoint/inventory and
+checkpoint-before-lease-release ordering in these two source-locked smokes; it
+does not prove object-store checkpoint publication, due/Lane/publish
+orchestration, crash recovery, multi-broker failover or production multi-shard
+Worker wiring.
 
 ## Optional source-locked client bindings
 
