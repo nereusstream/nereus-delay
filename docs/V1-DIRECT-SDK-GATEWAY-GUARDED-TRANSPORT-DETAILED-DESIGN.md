@@ -2981,6 +2981,26 @@ multi-broker failover, production multi-shard Worker wiring, due/Lane/
 publish/checkpoint/recovery production paths or Docker crash cuts. The §23.5
 completion gate still controls release status.
 
+Commit `10e21cbf0e6f741f10b353c56a316a0b57b71b9d` adds an opt-in real Oxia
+authority path to the same Pulsar Worker smoke. With
+`NEREUS_DELAY_OXIA_ENDPOINT` set, it creates and revalidates an ephemeral
+Oxia session marker before using the owner lease, while the default path stays
+in-memory. The run used P1 image
+`sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, Oxia image
+`sha256:4fdba6125c3f3ceca0d5ebe0224464ec83eb815e91999e1910660c60416231ca`,
+Pulsar/Oxia Compose projects
+`nereus-delay-pulsar-e2e-1786761304-98904` /
+`nereus-delay-pulsar-oxia-e2e-1786761304-98904`, and ports
+`19940,19941` / `16657`; it printed
+`Pulsar Worker authority smoke passed: real Oxia session-bound lease` after
+the Worker recovery/apply/ACK line. Commit
+`0da18a7b4d6040eeb6700195a1132ee224087ffa` also makes the optional Gradle
+arguments safe under the harness's `set -u`. This proves only session-bound
+owner authority for the smoke-created assignment; placement, RouteSnapshot
+publication, production multi-shard Worker wiring, failover and
+crash/failure-injection gates remain open.
+
 ## 16. 当前结论与仍需实测的数值
 
 已经冻结：

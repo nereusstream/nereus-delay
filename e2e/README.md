@@ -173,6 +173,38 @@ unload/failover/session ownership, guarded Fetch/rewind, network Oxia
 session/placement, D3 Direct SDK integration or production multi-shard Worker
 wiring.
 
+The Worker can also use a real network Oxia owner-lease authority. This is
+opt-in; without the environment variable the deterministic in-memory
+authority above remains in use:
+
+```text
+NEREUS_DELAY_PULSAR_WITH_OXIA=1 \
+NEREUS_DELAY_PULSAR_OXIA_PORT=16657 \
+PULSAR_BROKER_PORT=19940 PULSAR_WEB_PORT=19941 \
+./e2e/run-pulsar-real-client-e2e.sh
+```
+
+The verified run used P1
+`358ce4a1033bd566faebcd3465c3ba4606f3c83f`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Pulsar Compose project
+`nereus-delay-pulsar-e2e-1786761304-98904`, Oxia Compose project
+`nereus-delay-pulsar-oxia-e2e-1786761304-98904`, ports `19940,19941` and
+`16657`, P1 image
+`sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`,
+and Oxia image
+`sha256:4fdba6125c3f3ceca0d5ebe0224464ec83eb815e91999e1910660c60416231ca`.
+It printed:
+
+```text
+Pulsar Worker authority smoke passed: real Oxia session-bound lease
+```
+
+The matching containers, networks and volumes were removed; the locally
+built Oxia image remains. This proves session-bound owner authority around
+one smoke-created assignment, not Oxia placement, Route publication, Broker
+source ownership, multi-broker failover, production multi-shard Worker
+wiring, due/Lane/publish/checkpoint paths or crash gates.
+
 ## Optional source-locked client bindings
 
 The shared Gradle build never puts upstream Kafka or Pulsar classes on the

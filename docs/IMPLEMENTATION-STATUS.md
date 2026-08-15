@@ -6995,6 +6995,48 @@ multi-broker failover, real Pulsar Worker production wiring, due/Lane/
 publish/checkpoint production paths and crash/failure-injection gates remain
 open.
 
+## 2026-08-15 Pulsar Worker real Oxia authority evidence
+
+Delay commit `10e21cbf0e6f741f10b353c56a316a0b57b71b9d` adds an opt-in real
+Oxia path to `PulsarClientArtifactWorkerSmoke`. When
+`NEREUS_DELAY_OXIA_ENDPOINT` is set, the Worker uses
+`OxiaSyncOwnerLeaseBackend.connectUnchecked`, creates the Oxia-backed
+session-bound owner lease and derives the Worker context identity from the
+ephemeral session marker. The default path remains deterministic in-memory.
+Commit `0da18a7b4d6040eeb6700195a1132ee224087ffa` then made the optional
+Gradle argument array safe under the E2E harness's `set -u` mode.
+
+The optional run used P1
+`nereus/delay-resource-guard-v1@358ce4a1033bd566faebcd3465c3ba4606f3c83f`,
+distribution SHA-256
+`7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5a1d137d`, client
+SHA-256 values `57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`, and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, P1
+image `sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`,
+and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. Pulsar Compose project
+`nereus-delay-pulsar-e2e-1786761304-98904` used ports `19940,19941`; Oxia
+project `nereus-delay-pulsar-oxia-e2e-1786761304-98904` used port `16657` and
+image `sha256:4fdba6125c3f3ceca0d5ebe0224464ec83eb815e91999e1910660c60416231ca`.
+The run printed:
+
+```text
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=15/0, active apply ledger/entry=15/1, guarded SUBSCRIBE, RocksDB WriteBatch and ACK
+Pulsar Worker authority smoke passed: real Oxia session-bound lease
+Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, guarded source replay, Broker timestamp, Worker recovery/apply, and ACK handoff.
+```
+
+The matching Pulsar/Oxia containers, networks and volumes were absent after
+cleanup; the locally built Oxia image is retained by Docker. A second fresh
+default run after `0da18a7b4d6040eeb6700195a1132ee224087ffa` used project
+`nereus-delay-pulsar-e2e-1786761713-4817` on ports `19960,19961` and printed
+the same Worker vertical and final E2E lines with `Pulsar Worker Oxia
+authority: 0`. This closes network session-bound owner authority for the one
+smoke-created assignment and preserves the in-memory default path. It does
+not establish Oxia placement, Route assignment publication, Broker source
+ownership, multi-broker failover, production multi-shard Worker wiring,
+due/Lane/publish/checkpoint production paths or crash/failure-injection gates.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
