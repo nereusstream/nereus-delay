@@ -4343,3 +4343,31 @@ service and single Pulsar Broker receipt: multi-Broker failover, Oxia
 failover/partition behavior, crash/response-loss resolution, live
 Profile/credential/Object Store/catalog authority, placement,
 checkpoint/quiescence and §23.5 release gates remain open.
+
+### 2026-08-16 real Oxia authority provider-driven Kafka receipt
+
+The provider-driven Kafka Worker E2E was rerun with
+`NEREUS_DELAY_KAFKA_WITH_OXIA=1`. Worker assignment/ownership and the
+due-to-Claim-to-physical-Publish graph used the real Oxia backend. The locked
+K1 source was
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. The receipt used Compose
+project `nereus-delay-kafka-e2e-1786815566-17636`, Kafka ports
+`21792,21793,21794`, and Oxia port `16659`:
+
+```text
+Kafka Worker source-applied physical publish passed: Admission source offset=3, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=2, Outcome source offset=4, exact payload readback
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, source-applied physical publish with typed KAFKA_TRANSACTIONAL_RECEIPT Outcome and payload readback, and final checkpoint
+Kafka Worker authority smoke passed: real Oxia session-bound lease
+Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, assignment recovery to RocksDB Worker apply before and after broker-1 failover, source-applied physical publish with typed KAFKA_TRANSACTIONAL_RECEIPT Outcome and payload readback, same-topic Worker resume after failover, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence.
+```
+
+This closes positive real-Oxia authority evidence for the provider-driven
+Kafka Worker path across the three-broker K1/K2 run and broker-1 survivor
+cut. It remains one standalone Oxia service; Oxia failover/partition
+behavior, crash/response-loss resolution, live Profile/credential/Object
+Store/catalog authority, multi-shard placement, checkpoint/quiescence and
+§23.5 release gates remain open.

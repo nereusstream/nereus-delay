@@ -514,6 +514,16 @@ require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "nereus-delay-pulsar-e2e-1786815185-13398"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "Admission source ledger=35/2"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "nereus-delay-kafka-e2e-1786815566-17636"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Kafka Worker source-applied physical publish passed: Admission source offset=3, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=2"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "21792,21793,21794"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Kafka Worker authority smoke passed: real Oxia session-bound lease"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "37a17bef17202d5fd6e23282da5fd26d94865484"
 
 require_file_text "$kafka_checkout/clients/src/main/java/org/apache/kafka/clients/producer/GuardedProducer.java" \
     "sendGuarded"
