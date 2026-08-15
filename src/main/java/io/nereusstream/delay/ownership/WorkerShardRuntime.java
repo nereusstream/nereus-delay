@@ -47,6 +47,7 @@ public final class WorkerShardRuntime implements AutoCloseable {
     private final WorkerSchedulingRuntime schedulingRuntime;
     private final WorkerCommandRuntime commandRuntime;
     private final WorkerCheckpointRuntime checkpointRuntime;
+    private final PublishPreparationProvider preparationProvider;
     private boolean sourcePaused;
     private boolean terminal;
 
@@ -103,6 +104,22 @@ public final class WorkerShardRuntime implements AutoCloseable {
                               final WorkerSchedulingRuntime schedulingRuntime,
                               final WorkerCommandRuntime commandRuntime,
                               final WorkerCheckpointRuntime checkpointRuntime) {
+        this(sourceConsumer, workClasses, ownedShard, store, resources, authority, verificationKey,
+                schedulingRuntime, commandRuntime, checkpointRuntime, null);
+    }
+
+    /** Creates the complete Worker graph with an optionally bound Publish preparation provider. */
+    public WorkerShardRuntime(final SourceRecordConsumer sourceConsumer,
+                              final WorkClassExecutionRegistry workClasses,
+                              final OwnedDelayShard ownedShard,
+                              final ShardStore store,
+                              final SharedRocksDbResources resources,
+                              final OxiaOwnerLeaseStore authority,
+                              final PublicKey verificationKey,
+                              final WorkerSchedulingRuntime schedulingRuntime,
+                              final WorkerCommandRuntime commandRuntime,
+                              final WorkerCheckpointRuntime checkpointRuntime,
+                              final PublishPreparationProvider preparationProvider) {
         this.workClasses = Objects.requireNonNull(workClasses, "workClasses");
         this.ownedShard = Objects.requireNonNull(ownedShard, "ownedShard");
         this.resources = Objects.requireNonNull(resources, "resources");
@@ -119,6 +136,7 @@ public final class WorkerShardRuntime implements AutoCloseable {
         this.schedulingRuntime = schedulingRuntime;
         this.commandRuntime = commandRuntime;
         this.checkpointRuntime = checkpointRuntime;
+        this.preparationProvider = preparationProvider;
         this.sourceLoop = new WorkerSourceApplyLoop(sourceConsumer, this.workClasses, this.ownedShard, authority,
                 verificationKey);
         this.drainCoordinator = new OwnerDrainCoordinator(this.ownedShard, store, resources, authority,
@@ -305,6 +323,28 @@ public final class WorkerShardRuntime implements AutoCloseable {
                 exactCommandBudget, maxCommandTurns);
         return new DueClaimPublishTurn(dueClaim, claimCompletedTasks, completedClaim,
                 Optional.of(publishSubmission), publishCompletedTasks);
+    }
+
+    /**
+     * Runs the bounded due-to-Claim-to-Publish composition using the provider
+     * bound when this Worker graph was assembled.  A graph without that
+     * binding fails closed instead of silently falling back to a caller that
+     * may not have the typed Lane identity fence.
+     */
+    public synchronized DueClaimPublishTurn runDueClaimPublishTurn(
+            final TrustedUtcIntervalEvidence evidence,
+            final SchedulerBudget discoveryBudget,
+            final long claimDeadlineEpochMs,
+            final byte[] claimedCharge,
+            final LongSupplier ownerClock,
+            final SchedulerBudget commandBudget,
+            final int maxCommandTurns) {
+        final PublishPreparationProvider provider = preparationProvider;
+        if (provider == null) {
+            throw new IllegalStateException("Worker shard runtime has no bound Publish preparation provider");
+        }
+        return runDueClaimPublishTurn(evidence, discoveryBudget, claimDeadlineEpochMs, claimedCharge,
+                ownerClock, commandBudget, maxCommandTurns, provider);
     }
 
     private List<WorkClassTask> runCommandTurnsUntilCompleted(final WorkClassTask target,

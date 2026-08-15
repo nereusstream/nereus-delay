@@ -97,7 +97,59 @@ public final class PulsarClientArtifactWorkerSourceFactory {
             return new WorkerShardRuntime(source, Objects.requireNonNull(workClasses, "workClasses"), ownedShard,
                     Objects.requireNonNull(store, "store"), Objects.requireNonNull(resources, "resources"),
                     Objects.requireNonNull(authority, "authority"), Objects.requireNonNull(verificationKey,
-                            "verificationKey"), schedulingRuntime, commandRuntime, checkpointRuntime);
+                            "verificationKey"), schedulingRuntime, commandRuntime, checkpointRuntime, null);
+        } catch (RuntimeException | Error failure) {
+            closeAfterFailure(source, failure);
+            throw failure;
+        }
+    }
+
+    /**
+     * Creates a Pulsar source runtime with a provider bound to the complete
+     * Worker graph. The provider remains caller-supplied because it owns live
+     * credential/channel/signing/timing authority; the runtime only controls
+     * the typed Claim-to-preparation identity fence.
+     */
+    public static WorkerShardRuntime create(
+            final GuardedConsumer<byte[]> consumer,
+            final TopicResourceGuard expectedGuard,
+            final String physicalTopic,
+            final Duration receiveTimeout,
+            final SourceAssignment acceptedAssignment,
+            final WorkClassExecutionRegistry workClasses,
+            final OwnedDelayShard ownedShard,
+            final ShardStore store,
+            final SharedRocksDbResources resources,
+            final OxiaOwnerLeaseStore authority,
+            final PublicKey verificationKey,
+            final WorkerSchedulingRuntime schedulingRuntime,
+            final WorkerCommandRuntime commandRuntime,
+            final WorkerCheckpointRuntime checkpointRuntime,
+            final WorkerShardRuntime.PublishPreparationProvider preparationProvider) {
+        Objects.requireNonNull(consumer, "consumer");
+        final TopicResourceGuard guard = Objects.requireNonNull(expectedGuard, "expectedGuard");
+        final String topic = requirePhysicalTopic(physicalTopic);
+        final SourceAssignment assignment = requireActiveAssignment(acceptedAssignment, ownedShard);
+        if (!(assignment.activationBarrier() instanceof PulsarActivationBarrier barrier)) {
+            throw new IllegalArgumentException("Pulsar Worker source requires a Pulsar activation barrier");
+        }
+        if (assignment.shardId().partition() < 0) {
+            throw new IllegalArgumentException("Pulsar Worker source partition must be non-negative");
+        }
+        if (!topic.equals(barrier.physicalTopic())
+                || !Arrays.equals(barrier.brokerResourceIncarnation(), guard.resourceIncarnation())) {
+            throw new IllegalArgumentException("Pulsar Worker source does not match the activation resource identity");
+        }
+        requireCurrentGuardProof(consumer, guard, barrier, topic, assignment.shardId().partition());
+        final PulsarClientArtifactSourceRecordConsumer source =
+                new PulsarClientArtifactSourceRecordConsumer(consumer, guard, assignment.shardId(), topic,
+                        receiveTimeout);
+        try {
+            return new WorkerShardRuntime(source, Objects.requireNonNull(workClasses, "workClasses"), ownedShard,
+                    Objects.requireNonNull(store, "store"), Objects.requireNonNull(resources, "resources"),
+                    Objects.requireNonNull(authority, "authority"), Objects.requireNonNull(verificationKey,
+                            "verificationKey"), schedulingRuntime, commandRuntime, checkpointRuntime,
+                    preparationProvider);
         } catch (RuntimeException | Error failure) {
             closeAfterFailure(source, failure);
             throw failure;

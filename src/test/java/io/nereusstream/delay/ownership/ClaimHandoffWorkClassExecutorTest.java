@@ -180,12 +180,6 @@ class ClaimHandoffWorkClassExecutorTest {
             final WorkerSchedulingRuntime schedulingRuntime = new WorkerSchedulingRuntime(
                     workClasses, owned, authority, scheduler);
             final KeyPair verificationKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-            final WorkerShardRuntime workerRuntime = new WorkerShardRuntime(() -> java.util.Optional.empty(),
-                    workClasses, owned, store, resources, authority, verificationKey.getPublic(),
-                    schedulingRuntime, commandRuntime);
-            final ClaimMaterializationV1 materialization = shard.resolveClaimMaterializationV1(
-                    schedule.delayMessageId());
-            final byte[] claimCharge = claimCharge(payload.length);
             final ReadyCertificateV1 readyCertificate = ReadyCertificateV1.decode(certificate);
             final ChannelResourceIdentityV1 channel = ChannelResourceIdentityV1.decode(
                     readyCertificate.channel());
@@ -194,6 +188,18 @@ class ClaimHandoffWorkClassExecutorTest {
                             preparation -> java.util.Optional.of(new WorkerCommandRuntime.PublishPreparation(
                                     channel, readyCertificate, evidence, 3_000, 1,
                                     verificationKey.getPrivate(), () -> 101)));
+            final WorkerShardRuntime unboundWorkerRuntime = new WorkerShardRuntime(
+                    () -> java.util.Optional.empty(), workClasses, owned, store, resources, authority,
+                    verificationKey.getPublic(), schedulingRuntime, commandRuntime);
+            assertThrows(IllegalStateException.class, () -> unboundWorkerRuntime.runDueClaimPublishTurn(
+                    evidence, budget, 3_000, claimCharge(payload.length), () -> 101,
+                    new SchedulerBudget(1, 1_000_000, 1_000), 2));
+            final WorkerShardRuntime workerRuntime = new WorkerShardRuntime(() -> java.util.Optional.empty(),
+                    workClasses, owned, store, resources, authority, verificationKey.getPublic(),
+                    schedulingRuntime, commandRuntime, null, preparationCoordinator);
+            final ClaimMaterializationV1 materialization = shard.resolveClaimMaterializationV1(
+                    schedule.delayMessageId());
+            final byte[] claimCharge = claimCharge(payload.length);
 
             final WorkerSchedulingRuntime.DueTurn dueTurn = workerRuntime.runDueTurn(evidence, budget, () -> 101);
             assertEquals(List.of(dueTurn.task()), dueTurn.completedTasks());
@@ -234,8 +240,7 @@ class ClaimHandoffWorkClassExecutorTest {
             scheduler.requeueFailedClaim(claimedItem);
             final WorkerShardRuntime.DueClaimPublishTurn dueClaim = workerRuntime.runDueClaimPublishTurn(
                     evidence, budget, 3_000, claimCharge, () -> 101,
-                    new SchedulerBudget(1, 1_000_000, 1_000), 2,
-                    preparationCoordinator);
+                    new SchedulerBudget(1, 1_000_000, 1_000), 2);
             final ClaimHandoffWorkClassExecutor.ClaimHandoffResult result = dueClaim.claimResult().orElseThrow();
             assertEquals(ClaimHandoffWorkClassExecutor.ResultKind.CLAIMED, result.kind());
             assertEquals(schedule.delayMessageId(), result.claim().delayMessageId());
