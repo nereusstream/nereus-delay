@@ -264,6 +264,12 @@ The bounded Route receipt was:
 Pulsar signed Route -> guarded SUBSCRIBE barrier -> Oxia Worker assignment smoke passed: generation=15, barrier=20/0, routeRevision=1, assignmentRevision=1, source=20/1, ACK
 ```
 
+The same run ended with:
+
+```text
+Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, guarded source replay, signed mutation append/replay/ACK, signed Route barrier/assignment/source ACK, Broker timestamp, Worker recovery/apply, ACK handoff, and broker-restart resume.
+```
+
 This is one source-locked native partition and one Oxia assignment/session
 cut. It does not prove catalog-driven multi-shard placement, session
 reconnect/churn, multi-broker failover with an accepted Route, native

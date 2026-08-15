@@ -6815,12 +6815,17 @@ common `94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`,
 distribution `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`,
 base image `eclipse-temurin:21-jre@sha256:371da296b8cb74c7e53fbe7083d5374befc0011b493231d97d45fa789915e434`,
 P1 image `sha256:892add226a105fb04b6df05df2c58f43e49f76647d39ed73944fcfc9ea1cb3d5`,
-Compose project `nereus-delay-pulsar-e2e-1786784183-57675`, broker/web ports
+Compose project `nereus-delay-pulsar-e2e-1786784850-65412`, broker/web ports
 `20020,20021`, and Oxia port `16674`. The exact Route receipt was:
 
 ```text
 Pulsar signed Route -> guarded SUBSCRIBE barrier -> Oxia Worker assignment smoke passed: generation=15, barrier=20/0, routeRevision=1, assignmentRevision=1, source=20/1, ACK
 ```
+
+The same run ended with the aggregate receipt `Pulsar P1 real-client E2E
+passed: guarded send, stale resource rejection, guarded source replay, signed
+mutation append/replay/ACK, signed Route barrier/assignment/source ACK, Broker
+timestamp, Worker recovery/apply, ACK handoff, and broker-restart resume.`
 
 This is source-locked, one-native-partition integration evidence for the
 guarded source position, signed Pulsar barrier, Oxia assignment CAS and
