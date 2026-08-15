@@ -9677,3 +9677,52 @@ This is source-applied Worker evidence with a controlled client-side
 post-SEND response cut. It does not prove raw network loss, a process/Broker
 crash between physical persistence and Outcome, multi-Broker failover,
 Attempt Journal recovery or the complete D6/V1 release matrix.
+
+## 2026-08-16 Kafka Worker source-applied destination response-loss receipt
+
+Implementation commit `e95d1c0cbaf4b94c8523d6fd9994b6487102f400` adds a focused
+Kafka Worker destination response-loss mode. The test-only
+`GuardedTransactionalProducer` proxy delegates the real guarded
+`commitTransaction()` first and throws only after the Broker has committed the
+target-plus-receipt transaction. The existing
+`KafkaClientArtifactTransactionalReceiptEvidenceProvider` then rereads the
+exact keyed receipt through `read_committed`, validates the Fetch/LSO and
+resource evidence, and returns typed `KAFKA_TRANSACTIONAL_RECEIPT` evidence.
+The Worker source-applies that result as `PUBLISH_OUTCOME`, closes the same
+publish attempt as `PUBLISHED`, and reads back the exact destination payload.
+
+The source-locked receipt used Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose project `nereus-delay-kafka-e2e-1786831579-93599`, ports
+`19669,19670,19671`, and Delay commit
+`e95d1c0cbaf4b94c8523d6fd9994b6487102f400`.
+
+The dedicated run was:
+
+```bash
+NEREUS_DELAY_KAFKA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-gradle \
+NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS=1 \
+NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS_ONLY=1 \
+KAFKA_BROKER_1_PORT=19669 KAFKA_BROKER_2_PORT=19670 KAFKA_BROKER_3_PORT=19671 \
+./e2e/run-kafka-real-client-e2e.sh
+```
+
+The run ended with `BUILD SUCCESSFUL in 26s` / `11 actionable tasks: 1
+executed, 10 up-to-date` and printed:
+
+```text
+Kafka Worker destination response-loss smoke passed: real EndTxn committed the exact target-plus-receipt pair, the local response was discarded, and typed read_committed KAFKA_TRANSACTIONAL_RECEIPT evidence resolved the source-applied PUBLISHED Outcome
+Kafka Worker source-applied physical publish passed: Admission source offset=3, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=0, Outcome source offset=4, exact payload readback
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, source-applied physical publish with typed KAFKA_TRANSACTIONAL_RECEIPT Outcome and payload readback, and final checkpoint
+Kafka Worker destination response-loss E2E passed: real EndTxn response loss resolved through typed read_committed KAFKA_TRANSACTIONAL_RECEIPT evidence and the source-applied Outcome completed.
+```
+
+This is source-applied Kafka Worker evidence with a controlled client-side
+post-commit response cut and in-memory Worker authority. It does not prove raw
+network packet loss, a process or Broker crash between physical persistence and
+Outcome, multi-Broker failover, Attempt Journal recovery or V1 release
+readiness.

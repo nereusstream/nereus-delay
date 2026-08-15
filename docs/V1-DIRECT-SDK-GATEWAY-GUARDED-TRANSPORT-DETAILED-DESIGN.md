@@ -4903,3 +4903,38 @@ This is narrower than D6: controlled client-side response loss after real
 physical persistence is covered, but raw network loss, process/Broker crash
 between persistence and Outcome, multi-Broker failover, Attempt Journal
 recovery and release activation remain open.
+
+## Kafka Worker destination response-loss receipt
+
+Run the focused Kafka Worker physical-publish cut with:
+
+```bash
+NEREUS_DELAY_KAFKA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-gradle \
+NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS=1 \
+NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS_ONLY=1 \
+KAFKA_BROKER_1_PORT=19669 KAFKA_BROKER_2_PORT=19670 KAFKA_BROKER_3_PORT=19671 \
+./e2e/run-kafka-real-client-e2e.sh
+```
+
+The receipt is locked to Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose `nereus-delay-kafka-e2e-1786831579-93599`, ports `19669,19670,19671`,
+and Delay commit `e95d1c0cbaf4b94c8523d6fd9994b6487102f400`.
+
+It printed:
+
+```text
+Kafka Worker destination response-loss smoke passed: real EndTxn committed the exact target-plus-receipt pair, the local response was discarded, and typed read_committed KAFKA_TRANSACTIONAL_RECEIPT evidence resolved the source-applied PUBLISHED Outcome
+Kafka Worker source-applied physical publish passed: Admission source offset=3, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=0, Outcome source offset=4, exact payload readback
+Kafka Worker destination response-loss E2E passed: real EndTxn response loss resolved through typed read_committed KAFKA_TRANSACTIONAL_RECEIPT evidence and the source-applied Outcome completed.
+```
+
+The proxy cuts only the client-side response after real Kafka transaction
+commit. The source-bound provider and Worker Outcome remain the authority for
+publication; this receipt does not establish raw network loss, process/Broker
+crash recovery, multi-Broker failover, Attempt Journal recovery or V1 release
+readiness.

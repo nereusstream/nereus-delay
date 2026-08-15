@@ -8141,6 +8141,34 @@ Worker process. It is not raw network loss, process/Broker crash recovery,
 multi-Broker failover, Attempt Journal completion recovery or a V1 release
 PASS.
 
+## 2026-08-16 Kafka Worker source-applied destination response-loss receipt audit
+
+Commit `e95d1c0cbaf4b94c8523d6fd9994b6487102f400` adds the focused Worker
+destination response-loss receipt. A test-only producer proxy lets real
+`EndTxn` commit the exact target-plus-keyed-receipt pair and then discards only
+the local response. The existing source-bound `read_committed` provider
+resolves typed `KAFKA_TRANSACTIONAL_RECEIPT` evidence; the Worker then
+source-applies the matching `PUBLISH_OUTCOME`, closes the publish attempt and
+verifies exact payload readback.
+
+The receipt is locked to Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose `nereus-delay-kafka-e2e-1786831579-93599`, ports `19669,19670,19671`,
+and Delay `e95d1c0cbaf4b94c8523d6fd9994b6487102f400`. The run printed:
+
+```text
+Kafka Worker destination response-loss smoke passed: real EndTxn committed the exact target-plus-receipt pair, the local response was discarded, and typed read_committed KAFKA_TRANSACTIONAL_RECEIPT evidence resolved the source-applied PUBLISHED Outcome
+Kafka Worker source-applied physical publish passed: Admission source offset=3, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=0, Outcome source offset=4, exact payload readback
+Kafka Worker destination response-loss E2E passed: real EndTxn response loss resolved through typed read_committed KAFKA_TRANSACTIONAL_RECEIPT evidence and the source-applied Outcome completed.
+```
+
+This is controlled client-side post-commit response-loss evidence in one
+source-applied Worker process. It is not raw network fault injection, crash
+recovery, multi-Broker failover, Attempt Journal recovery or a V1 release PASS.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

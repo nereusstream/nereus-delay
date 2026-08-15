@@ -447,6 +447,26 @@ require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "nereus-delay-kafka-e2e-1786806083-13395"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "typed KAFKA_TRANSACTIONAL_RECEIPT evidence"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+    "NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+    "destinationResponseLossProducer"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+    "Kafka Worker destination response-loss smoke passed"
+require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
+    "NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS_ONLY"
+require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
+    "Kafka Worker destination response-loss E2E passed"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "e95d1c0cbaf4b94c8523d6fd9994b6487102f400"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "nereus-delay-kafka-e2e-1786831579-93599"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Kafka Worker source-applied destination response-loss receipt audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Kafka Worker destination response-loss receipt"
+require_file_text "$delay_root/e2e/README.md" \
+    "NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS=1"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "nereus-delay-kafka-e2e-1786790805-40581"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
