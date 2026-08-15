@@ -1,7 +1,11 @@
 package io.nereusstream.delay.ownership;
 
+import io.nereusstream.delay.protocol.ActiveLaneStateV1;
+import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+import io.nereusstream.delay.runtime.AdmissionGate;
 import io.nereusstream.delay.runtime.LaneRecord;
+import io.nereusstream.delay.runtime.RuntimeReadiness;
 import io.nereusstream.delay.scheduler.PersistentLaneScheduler;
 import io.nereusstream.delay.scheduler.ScheduleWorkItem;
 import io.nereusstream.delay.scheduler.SchedulerBudget;
@@ -9,8 +13,11 @@ import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import io.nereusstream.delay.scheduler.WorkClassTask;
 import io.nereusstream.delay.store.ShardStore;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.LongSupplier;
 
 /**
@@ -76,6 +83,49 @@ public final class WorkerSchedulingRuntime {
                 authority, scheduler);
         scheduler.rebuildAuthoritativeReady(maxReadyEntries);
         return runtime;
+    }
+
+    /**
+     * Opens the production-shaped scheduling graph from the exact typed Lane
+     * identities persisted by activation. Callers cannot supply a guessed
+     * LaneRecord or a legacy readiness projection to this path.
+     */
+    public static WorkerSchedulingRuntime openForActiveOwnerFromTypedLanes(
+            final WorkClassExecutionRegistry workClasses,
+            final OwnedDelayShard ownedShard,
+            final OxiaOwnerLeaseStore authority,
+            final ShardStore store,
+            final io.nereusstream.delay.protocol.OwnerIdentityV1 owner,
+            final List<DestinationLaneId> laneIds,
+            final int maxReadyEntries) {
+        final OwnedDelayShard exactOwned = Objects.requireNonNull(ownedShard, "ownedShard");
+        final List<DestinationLaneId> exactLaneIds = List.copyOf(Objects.requireNonNull(laneIds, "laneIds"));
+        final Set<DestinationLaneId> seen = new HashSet<>();
+        final List<LaneRecord> activeLanes = new ArrayList<>(exactLaneIds.size());
+        for (DestinationLaneId laneId : exactLaneIds) {
+            final DestinationLaneId exactLaneId = Objects.requireNonNull(laneId, "laneId");
+            if (!seen.add(exactLaneId)) {
+                throw new IllegalArgumentException("typed Lane bootstrap contains a duplicate Lane");
+            }
+            final ActiveLaneStateV1 typed = exactOwned.shard().getActiveLaneStateV1(exactLaneId);
+            if (typed == null) {
+                throw new IllegalStateException("typed Lane bootstrap requires an ActiveLaneStateV1");
+            }
+            if (typed.admissionGate() != AdmissionGate.OPEN
+                    || typed.runtimeReadiness() != RuntimeReadiness.READY
+                    || typed.readyCertificate() == null) {
+                throw new IllegalStateException("typed Lane bootstrap requires certificate-backed READY state");
+            }
+            final LaneRecord lane = exactOwned.shard().getLane(exactLaneId);
+            if (lane == null || !lane.schedulable()
+                    || !java.util.Arrays.equals(lane.laneIncarnation(), typed.laneIncarnation())
+                    || lane.laneVersion() != typed.laneVersion()) {
+                throw new IllegalStateException("typed Lane bootstrap projection differs from Lane record");
+            }
+            activeLanes.add(lane);
+        }
+        return openForActiveOwner(workClasses, exactOwned, authority, store,
+                Objects.requireNonNull(owner, "owner"), activeLanes, maxReadyEntries);
     }
 
     /** Runs one arbitrary bounded WorkClass turn from the shared Worker graph. */

@@ -111,13 +111,11 @@ class DueSchedulerWorkClassExecutorTest {
             owned.markCatchingUp(authority, assignment, SourceReplaySuccessor.strictKafka(), 101);
             owned.recordCatchup(source);
             owned.activateForCommands(authority, 101);
-            final PersistentLaneScheduler scheduler = new PersistentLaneScheduler(
-                    store, LaneScheduler.defaults(), owner);
             final byte[] certificate = bindReadyCertificate(PublishAdmissionBody.decode(
                     PublishAdmissionBodyTest.Fixture.createForSourceWithLane(shard, messageId, incarnation(),
                             timelineKey, 1, 0, 0, Bytes.sha256(Bytes.utf8("due-work-obligations")),
                             Bytes.sha256(Bytes.utf8("due-work-semantic")), laneId.bytes()).body())
-                    .readyCertificate().canonicalBytes(), scheduler.ownerIdentity(),
+                    .readyCertificate().canonicalBytes(), owner,
                     store.metadata().storeIncarnation());
             final ActiveLaneStateV1 activeLane = new ActiveLaneStateV1(laneId, incarnation(),
                     io.nereusstream.delay.runtime.AdmissionGate.OPEN, RuntimeReadiness.READY, null,
@@ -132,30 +130,16 @@ class DueSchedulerWorkClassExecutorTest {
                         new TimelineEntry(messageId, message.generation()).encode());
                 batch.putValue(ColumnFamily.TIMELINE, 3, readyKey, ready.encode());
             });
-            io.nereusstream.delay.scheduler.PersistentLaneSchedulerTestSupport.register(scheduler, lane);
-            final WorkClassExecutionRegistry workClasses = workClasses(1);
-            final DueSchedulerWorkClassExecutor executor = new DueSchedulerWorkClassExecutor(
-                    workClasses, owned, authority, scheduler);
-            final WorkerSchedulingRuntime schedulingRuntime = new WorkerSchedulingRuntime(
-                    workClasses, owned, authority, scheduler);
-            final WorkerShardRuntime workerRuntime = new WorkerShardRuntime(
-                    () -> java.util.Optional.empty(), workClasses, owned, store, resources, authority,
-                    KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic(), schedulingRuntime);
-
-            workClasses.submit(new WorkClassTask(WorkClass.DUE_SCHEDULER, "occupied", 1), () -> {
-            });
-            assertThrows(IllegalStateException.class, () -> executor.submit(evidence, budget, () -> 101));
-            assertEquals(0, scheduler.snapshot().lanes().get(0).pendingItems());
-            workClasses.runTurn(new SchedulerBudget(1, 1_000_000, 1_000));
-
             final TrustedUtcIntervalEvidence certificateBoundary = new TrustedUtcIntervalEvidence(
                     8_000, 8_000, TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
                     Bytes.utf8("due-work-expired-clock"), 1, 2, 2,
                     Bytes.sha256(Bytes.utf8("due-work-expired-proof")), 0, null);
+            final PersistentLaneScheduler expiredScheduler = new PersistentLaneScheduler(
+                    store, LaneScheduler.defaults(), owner);
+            io.nereusstream.delay.scheduler.PersistentLaneSchedulerTestSupport.register(expiredScheduler, lane);
             assertThrows(IllegalStateException.class,
-                    () -> scheduler.discoverReady(certificateBoundary, budget));
-            assertEquals(0, scheduler.snapshot().lanes().get(0).pendingItems());
-
+                    () -> expiredScheduler.discoverReady(certificateBoundary, budget));
+            assertEquals(0, expiredScheduler.snapshot().lanes().get(0).pendingItems());
             final byte[] otherWorker = Bytes.utf8("due-work-other-owner");
             final OwnerIdentityV1 otherOwner = new OwnerIdentityV1(Bytes.utf8("embedded-scheduler"),
                     otherWorker, lease.ownerEpoch(), Bytes.sha256(Bytes.utf8("due-work-other-owner-fence")));
@@ -165,6 +149,25 @@ class DueSchedulerWorkClassExecutorTest {
             assertThrows(IllegalStateException.class,
                     () -> otherOwnerScheduler.discoverReady(evidence, budget));
             assertEquals(0, otherOwnerScheduler.snapshot().lanes().get(0).pendingItems());
+            final WorkClassExecutionRegistry workClasses = workClasses(1);
+            final WorkerSchedulingRuntime schedulingRuntime =
+                    WorkerSchedulingRuntime.openForActiveOwnerFromTypedLanes(workClasses, owned, authority,
+                            store, owner, List.of(laneId), 16);
+            final PersistentLaneScheduler scheduler = schedulingRuntime.scheduler();
+            final DueSchedulerWorkClassExecutor executor = new DueSchedulerWorkClassExecutor(
+                    workClasses, owned, authority, scheduler);
+            final WorkerShardRuntime workerRuntime = new WorkerShardRuntime(
+                    () -> java.util.Optional.empty(), workClasses, owned, store, resources, authority,
+                    KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic(), schedulingRuntime);
+
+            workClasses.submit(new WorkClassTask(WorkClass.DUE_SCHEDULER, "occupied", 1), () -> {
+            });
+            assertThrows(IllegalStateException.class, () -> executor.submit(evidence, budget, () -> 101));
+            assertEquals(1, scheduler.snapshot().lanes().get(0).pendingItems());
+            workClasses.runTurn(new SchedulerBudget(1, 1_000_000, 1_000));
+
+            assertEquals(1, scheduler.snapshot().lanes().get(0).pendingItems());
+
             final DueSchedulerWorkClassExecutor wrongOwnerExecutor = new DueSchedulerWorkClassExecutor(
                     workClasses, owned, authority, otherOwnerScheduler);
             assertThrows(IllegalArgumentException.class,
@@ -184,8 +187,7 @@ class DueSchedulerWorkClassExecutorTest {
             assertEquals(16 + 4 + 4 + 8 + 8 + 4 + evidence.canonicalBytes().length + budget.maxBytes(),
                     dueTurn.task().bytes());
             assertEquals(List.of(dueTurn.task()), dueTurn.completedTasks());
-            assertEquals(List.of(messageId), dueTurn.discoveredItems().stream()
-                    .map(ScheduleWorkItem::messageId).toList());
+            assertEquals(List.of(), dueTurn.discoveredItems());
             assertEquals(0, workClasses.registeredActions());
             assertEquals(1, scheduler.snapshot().lanes().get(0).pendingItems());
 
