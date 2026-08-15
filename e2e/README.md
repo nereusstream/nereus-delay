@@ -142,6 +142,39 @@ mutation support, response-loss/crash coverage, multi-shard production wiring
 or release PASS. Local durable V1 Claim materialization is covered by the
 focused Gradle tests, not by this Kafka transport smoke.
 
+### Kafka mutation-to-Store Worker vertical
+
+The full harness now also runs `runRealKafkaMutationWorkerSmoke`. Two signed
+`TIME_FENCE` records are appended through the guarded Producer; strict recovery
+applies offset `0`, the active Worker applies offset `1` through guarded Fetch
+v13 and the shared RocksDB WriteBatch, then performs `commitSync` and final
+checkpoint. The source-locked receipt used Delay mutation Worker commit
+`eee022bd`, Kafka `05849884ca81fad767fda058444d1e17c7f9cbf9`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+and Compose project `nereus-delay-kafka-e2e-1786779783-8472` on
+`19700,19701,19702`. It printed:
+
+```text
+Kafka mutation Worker vertical smoke passed: recovery TIME_FENCE offset=0, active Store apply TIME_FENCE offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, and final checkpoint
+```
+
+The network-authority rerun used Kafka/Oxia projects
+`nereus-delay-kafka-e2e-1786781272-24697` /
+`nereus-delay-kafka-oxia-e2e-1786781272-24697` on
+`19710,19711,19712` / `16671`, and printed:
+
+```text
+Kafka mutation Worker assignment publication/acceptance passed: revision=1, worker=kafka-mutation-worker, authority=real Oxia session-bound
+Kafka mutation Worker vertical smoke passed: recovery TIME_FENCE offset=0, active Store apply TIME_FENCE offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, and final checkpoint
+Kafka mutation Worker authority smoke passed: real Oxia session-bound lease
+```
+
+Both full runs exited successfully; the Oxia run also completed the existing
+K1/K2 and broker-failover/resume cuts. This closes the bounded Kafka
+mutation-to-Store Worker plus network owner-session cut, not response-loss or
+crash recovery, catalog placement, Route source ownership or release PASS.
+
 The latest optional real-Oxia run used Delay
 `a7fd5fa7dd35d5d8535d3c63e577208d29fc2c5`, Kafka source
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Oxia
@@ -281,6 +314,40 @@ built Oxia image remains. This proves session-bound owner authority around
 one smoke-created assignment, not Oxia placement, Route publication, Broker
 source ownership, multi-broker failover, production multi-shard Worker
 wiring, due/Lane/publish/checkpoint paths or crash gates.
+
+### Pulsar mutation-to-Store Worker vertical
+
+The full harness now also runs `runRealPulsarMutationWorkerSmoke`. Two signed
+`TIME_FENCE` records are appended through the guarded P1 Producer; strict
+recovery applies ledger/entry `18/0`, the active Worker applies `18/1` through
+guarded SUBSCRIBE and the shared RocksDB WriteBatch, then ACKs and publishes a
+final checkpoint. The source-locked receipt used Delay mutation Worker commit
+`016288b1`, P1 `358ce4a1033bd566faebcd3465c3ba4606f3c83f`, distribution SHA-256
+`7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5c5a1d137d`, image
+`sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`,
+and Compose project `nereus-delay-pulsar-e2e-1786780346-14394` on
+`19930,19931`. It printed:
+
+```text
+Pulsar mutation Worker vertical smoke passed: recovery TIME_FENCE ledger/entry=18/0, active Store apply TIME_FENCE ledger/entry=18/1, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
+```
+
+The network-authority rerun used Pulsar/Oxia projects
+`nereus-delay-pulsar-e2e-1786781139-23243` /
+`nereus-delay-pulsar-oxia-e2e-1786781139-23243` on
+`19950,19951` / `16670`, and printed:
+
+```text
+Pulsar mutation Worker assignment publication/acceptance passed: revision=1, worker=pulsar-mutation-worker, authority=real Oxia session-bound
+Pulsar mutation Worker vertical smoke passed: recovery TIME_FENCE ledger/entry=18/0, active Store apply TIME_FENCE ledger/entry=18/1, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
+Pulsar mutation Worker authority smoke passed: real Oxia session-bound lease
+```
+
+Both runs exited successfully; the Oxia run also completed the existing source,
+Worker and broker-restart/resume cuts. This closes the bounded Pulsar
+mutation-to-Store Worker plus network owner-session cut, not multi-broker
+failover, response-loss or crash recovery, catalog placement, Route source
+ownership or release PASS.
 
 ## Worker assignment publication and acceptance
 

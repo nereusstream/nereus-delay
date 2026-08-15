@@ -3405,7 +3405,7 @@ The receipt used Delay `016288b1`, P1 source
 `f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`, and
 `94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`,
 distribution SHA-256
-`7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5a1d137d`, P1 image
+`7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5c5a1d137d`, P1 image
 `sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`,
 and the Docker receipt `nereus-delay-pulsar-e2e-1786780346-14394` on ports
 `19930,19931`. A second full run on `19940,19941` reproduced the same
@@ -3416,6 +3416,28 @@ establish real Oxia assignment/session CAS, Pulsar multi-broker failover,
 native source ownership transfer, response-loss or crash evidence,
 automatic Claim/Publish authority, catalog-driven placement or §23.5 release
 completion.
+
+### 2026-08-15 real Oxia mutation Worker authority
+
+The bounded Kafka and Pulsar mutation Worker cuts were rerun with network Oxia
+enabled. Kafka used source `05849884ca81fad767fda058444d1e17c7f9cbf9` and
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, with Compose projects
+`nereus-delay-kafka-e2e-1786781272-24697` /
+`nereus-delay-kafka-oxia-e2e-1786781272-24697`, broker ports
+`19710,19711,19712` and Oxia port `16671`. The mutation Worker applied
+offset `0` during recovery and offset `1` through guarded Fetch v13 before
+`commitSync`, then reported a real Oxia session-bound lease. Pulsar used P1
+source `358ce4a1033bd566faebcd3465c3ba4606f3c83f`, the same Oxia source,
+Compose projects `nereus-delay-pulsar-e2e-1786781139-23243` /
+`nereus-delay-pulsar-oxia-e2e-1786781139-23243`, broker/web ports
+`19950,19951` and Oxia port `16670`. Its mutation Worker applied ledger/entry
+`18/0` during recovery and `18/1` through guarded SUBSCRIBE before ACK, then
+reported the same real Oxia lease proof.
+
+These are bounded one-shard assignment/session receipts. They do not establish
+catalog-driven multi-shard placement, signed Route activation/source ownership
+transfer, Pulsar multi-broker failover, response-loss or crash evidence,
+automatic Claim/Publish authority or §23.5 release completion.
 
 ## 16. 当前结论与仍需实测的数值
 

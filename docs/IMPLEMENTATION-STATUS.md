@@ -361,7 +361,7 @@ Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, as
 The fresh default Pulsar run used P1 source
 `nereus/delay-resource-guard-v1@358ce4a1033bd566faebcd3465c3ba4606f3c83f`,
 distribution SHA-256
-`7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5a1d137d`, P1 image
+`7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5c5a1d137d`, P1 image
 `sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`,
 Compose project `nereus-delay-pulsar-e2e-1786765675-51304`, and ports
 `19990,19991`. It reported:
@@ -7800,6 +7800,63 @@ owner authority used by these receipts. Optional real Oxia authority was not
 enabled; production multi-broker failover, assignment/session CAS, mutation
 response-loss/crash cuts, automatic Claim/Publish authority, catalog-driven
 placement and release PASS remain open.
+
+## 2026-08-15 real Oxia mutation Worker authority evidence
+
+The bounded mutation-to-Store Worker cuts were rerun with the optional network
+Oxia authority enabled. The Kafka receipt used Delay branch HEAD `2945ea46`,
+Kafka `05849884ca81fad767fda058444d1e17c7f9cbf9`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Kafka Compose project `nereus-delay-kafka-e2e-1786781272-24697`, Oxia Compose
+project `nereus-delay-kafka-oxia-e2e-1786781272-24697`, broker ports
+`19710,19711,19712`, and Oxia port `16671`. The exact command was:
+
+```bash
+JAVA_TOOL_OPTIONS='-Dorg.slf4j.simpleLogger.defaultLogLevel=warn' \
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 NEREUS_DELAY_KAFKA_OXIA_PORT=16671 \
+KAFKA_BROKER_1_PORT=19710 KAFKA_BROKER_2_PORT=19711 KAFKA_BROKER_3_PORT=19712 \
+./e2e/run-kafka-real-client-e2e.sh
+```
+
+It printed the mutation Worker assignment, apply and lease receipts:
+
+```text
+Kafka mutation Worker assignment publication/acceptance passed: revision=1, worker=kafka-mutation-worker, authority=real Oxia session-bound
+Kafka mutation Worker vertical smoke passed: recovery TIME_FENCE offset=0, active Store apply TIME_FENCE offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, and final checkpoint
+Kafka mutation Worker authority smoke passed: real Oxia session-bound lease
+```
+
+The Pulsar receipt used Delay branch HEAD `2945ea46`, P1
+`358ce4a1033bd566faebcd3465c3ba4606f3c83f`, the same Oxia source, client
+artifacts and P1 image recorded above, Pulsar Compose project
+`nereus-delay-pulsar-e2e-1786781139-23243`, Oxia Compose project
+`nereus-delay-pulsar-oxia-e2e-1786781139-23243`, broker/web ports
+`19950,19951`, and Oxia port `16670`. The exact command was:
+
+```bash
+JAVA_TOOL_OPTIONS='-Dorg.slf4j.simpleLogger.defaultLogLevel=warn' \
+NEREUS_DELAY_PULSAR_WITH_OXIA=1 NEREUS_DELAY_PULSAR_OXIA_PORT=16670 \
+PULSAR_BROKER_PORT=19950 PULSAR_WEB_PORT=19951 \
+./e2e/run-pulsar-real-client-e2e.sh
+```
+
+It printed:
+
+```text
+Pulsar mutation Worker assignment publication/acceptance passed: revision=1, worker=pulsar-mutation-worker, authority=real Oxia session-bound
+Pulsar mutation Worker vertical smoke passed: recovery TIME_FENCE ledger/entry=18/0, active Store apply TIME_FENCE ledger/entry=18/1, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
+Pulsar mutation Worker authority smoke passed: real Oxia session-bound lease
+```
+
+Both full harnesses also completed their existing source, K1/K2 or broker
+restart/resume suites and removed their matching Docker resources. This closes
+the bounded mutation Worker assignment publication/acceptance and
+session-bound owner lease cut with real Oxia. It does not close catalog-driven
+multi-shard placement, signed Route activation/source ownership transfer,
+Pulsar multi-broker failover, response-loss/crash recovery, automatic
+Claim/Publish authority or release PASS.
 
 ## Verification command
 

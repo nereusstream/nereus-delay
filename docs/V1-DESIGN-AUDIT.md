@@ -6252,7 +6252,7 @@ Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply o
 The fresh Pulsar run used project `nereus-delay-pulsar-e2e-1786765675-51304`
 on ports `19990,19991`, P1 source
 `358ce4a1033bd566faebcd3465c3ba4606f3c83f`, distribution SHA-256
-`7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5a1d137d`, and P1
+`7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5c5a1d137d`, and P1
 image
 `sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`.
 It printed:
@@ -6731,6 +6731,30 @@ Oxia assignment/session CAS, multi-broker failover, native source ownership
 transfer, response-loss or crash recovery at every WriteBatch boundary,
 automatic Claim/Publish authority, catalog placement or §23.5 release
 completion.
+
+## 2026-08-15 real Oxia mutation Worker authority audit
+
+The Kafka and Pulsar mutation Worker receipts were rerun with network Oxia
+enabled. Kafka used Compose projects
+`nereus-delay-kafka-e2e-1786781272-24697` /
+`nereus-delay-kafka-oxia-e2e-1786781272-24697`, broker ports
+`19710,19711,19712`, Oxia port `16671`, Kafka source
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, and Oxia source
+`37a17bef17202d5fd6e23282da5fd26d94865484`. It reported guarded mutation
+recovery/apply/ACK plus `authority=real Oxia session-bound` and
+`real Oxia session-bound lease`. Pulsar used projects
+`nereus-delay-pulsar-e2e-1786781139-23243` /
+`nereus-delay-pulsar-oxia-e2e-1786781139-23243`, broker/web ports
+`19950,19951`, Oxia port `16670`, P1 source
+`358ce4a1033bd566faebcd3465c3ba4606f3c83f`, and the same Oxia source; it
+reported the equivalent guarded mutation recovery/apply/ACK and real Oxia
+session-bound lease receipts.
+
+This is stronger authority evidence for one bounded shard and one Worker
+session. It does not establish catalog-driven multi-shard placement, signed
+Route activation/source ownership transfer, Pulsar multi-broker failover,
+response-loss or crash recovery at every WriteBatch boundary, automatic
+Claim/Publish authority or §23.5 release completion.
 
 ## Final gate
 
