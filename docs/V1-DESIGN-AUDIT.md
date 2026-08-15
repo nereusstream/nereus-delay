@@ -7677,6 +7677,39 @@ crash/response-loss resolution, live Profile/credential/Object Store/catalog
 authority, multi-shard placement, physical delayed Publish,
 checkpoint/quiescence or §23.5 release readiness.
 
+## 2026-08-16 locked P1 two-Broker Worker failover audit
+
+The checked-in `e2e/run-pulsar-multi-broker-failover-e2e.sh` harness ran a
+same-topic Worker through a real Broker-1 stop and Broker-2 resume. Its
+bounded topology was one ZooKeeper, one BookKeeper and two P1 Brokers, with
+internal bridge-network forwarding separated from the host-facing external
+listener. The Worker used the P1 `listenerName=external` lookup path and the
+Admin client followed owner redirects.
+
+The accepted run used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, P1
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, image
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+Compose project `nereus-delay-pulsar-multi-e2e-1786819171-58253`, Pulsar
+ports `21985,21986,21987,21988`, and Oxia port `16666`:
+
+```text
+Pulsar Worker assignment publication/acceptance passed: revision=1, worker=pulsar-worker, authority=real Oxia session-bound
+Pulsar Worker source-applied physical publish passed: Admission source ledger=3/3, typed PULSAR_SEND_ACK target ledger/entry=5/0, Outcome source ledger=3/4, exact payload readback
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=3/0, active apply ledger/entry=3/1, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
+Pulsar Worker authority smoke passed: real Oxia session-bound lease
+Pulsar multi-Broker failover E2E passed: same-topic guarded Worker resumed through broker-2 after broker-1 stop, applied the source record, completed provider-driven physical Publish, ACKed the source and released its final checkpoint and owner assignment.
+```
+
+This is positive real-Oxia same-topic Worker failover evidence. It is bounded
+to a single BookKeeper, single ZooKeeper, two Brokers and one single-shard
+topic; it does not prove production metadata/storage HA, Oxia failover or
+partition behavior, crash/response-loss resolution, multi-shard placement,
+live Profile/credential/Object Store/catalog authority,
+checkpoint/quiescence or §23.5 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

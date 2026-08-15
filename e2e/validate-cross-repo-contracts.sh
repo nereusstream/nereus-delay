@@ -514,6 +514,32 @@ require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "nereus-delay-pulsar-e2e-1786815185-13398"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "Admission source ledger=35/2"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+    "NEREUS_DELAY_PULSAR_LISTENER_NAME"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+    "followRedirects(HttpClient.Redirect.NORMAL)"
+require_file_text "$delay_root/e2e/run-pulsar-multi-broker-failover-e2e.sh" \
+    "NEREUS_DELAY_PULSAR_LISTENER_NAME=external"
+require_file_text "$delay_root/e2e/run-pulsar-multi-broker-failover-e2e.sh" \
+    "Pulsar multi-Broker failover E2E passed"
+require_file_text "$delay_root/e2e/docker-compose.pulsar-cluster.yml" \
+    "PULSAR_ADVERTISED_LISTENERS"
+require_file_text "$delay_root/e2e/docker-compose.pulsar-cluster.yml" \
+    "pulsar-cluster"
+require_file_text "$delay_root/e2e/pulsar-p1-cluster-entrypoint.sh" \
+    "PULSAR_ADVERTISED_LISTENERS"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "nereus-delay-pulsar-multi-e2e-1786819171-58253"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Admission source ledger=3/3"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Pulsar multi-Broker failover E2E passed"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "21985,21986,21987,21988"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Pulsar Worker source-applied physical publish passed: Admission source ledger=3/3"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "nereus-delay-kafka-e2e-1786815566-17636"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \

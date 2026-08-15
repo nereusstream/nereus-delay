@@ -4397,3 +4397,44 @@ single-shard receipt: Oxia failover/partition behavior, crash/response-loss
 resolution, live Profile/credential/Object Store/catalog authority,
 multi-shard placement, physical delayed Publish and §23.5 release gates
 remain open.
+
+### 2026-08-16 locked P1 two-Broker Worker failover receipt
+
+The checked-in `e2e/run-pulsar-multi-broker-failover-e2e.sh` harness now runs a
+same-topic Worker through a real Broker-1 stop and Broker-2 resume. The
+Compose topology is deliberately bounded to one ZooKeeper, one BookKeeper and
+two P1 Brokers. Internal broker forwarding uses the bridge-network listener;
+the host Worker uses the dedicated external listener and the P1 client
+`listenerName=external` lookup path. The harness follows Admin owner redirects
+and removes its containers, volumes and image on exit.
+
+The accepted run used `NEREUS_DELAY_PULSAR_WITH_OXIA=1` with Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, P1
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
+SHA-256 values
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`, and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, image
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+Compose project `nereus-delay-pulsar-multi-e2e-1786819171-58253`, Pulsar
+ports `21985,21986,21987,21988`, and Oxia port `16666`:
+
+```text
+Pulsar Worker assignment publication/acceptance passed: revision=1, worker=pulsar-worker, authority=real Oxia session-bound
+Pulsar Worker source-applied physical publish passed: Admission source ledger=3/3, typed PULSAR_SEND_ACK target ledger/entry=5/0, Outcome source ledger=3/4, exact payload readback
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=3/0, active apply ledger/entry=3/1, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
+Pulsar Worker authority smoke passed: real Oxia session-bound lease
+Pulsar multi-Broker failover E2E passed: same-topic guarded Worker resumed through broker-2 after broker-1 stop, applied the source record, completed provider-driven physical Publish, ACKed the source and released its final checkpoint and owner assignment.
+```
+
+This is positive real-Oxia same-topic Worker failover evidence: Broker-1 was
+stopped after the prepared source record, Broker-2 resumed the guarded source
+and completed the source-applied physical Publish/readback path, and Broker-1
+was then restarted. It is not production HA evidence: the run has one
+BookKeeper and one ZooKeeper, does not fail over Oxia or metadata/storage
+services, uses one single-shard topic and deterministic smoke profiles, and
+does not prove crash/response-loss resolution, multi-shard placement, live
+Profile/credential/Object Store/catalog authority, checkpoint/quiescence or
+the §23.5 V1 release gates.
