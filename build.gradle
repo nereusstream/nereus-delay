@@ -188,6 +188,9 @@ tasks.register('runRealKafkaWorkerSmoke', JavaExec) {
     mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactWorkerSmoke'
     args findProperty('kafkaBootstrap'), findProperty('kafkaWorkerTopic'),
             findProperty('kafkaWorkerMode') ?: 'run'
+    if (findProperty('kafkaWorkerDestinationTopic') != null) {
+        args findProperty('kafkaWorkerDestinationTopic')
+    }
 }
 
 tasks.register('runRealKafkaRouteWorkerSmoke', JavaExec) {

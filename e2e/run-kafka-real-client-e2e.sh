@@ -24,6 +24,7 @@ mutation_topic="${KAFKA_DELAY_E2E_MUTATION_TOPIC:-nereus-delay-mutation-topic}"
 mutation_worker_topic="${KAFKA_DELAY_E2E_MUTATION_WORKER_TOPIC:-nereus-delay-mutation-worker-topic}"
 route_worker_topic="${KAFKA_DELAY_E2E_ROUTE_WORKER_TOPIC:-nereus-delay-route-worker-topic}"
 worker_topic="${KAFKA_DELAY_E2E_WORKER_TOPIC:-nereus-delay-worker-topic}"
+worker_destination_topic="${KAFKA_DELAY_E2E_WORKER_DESTINATION_TOPIC:-nereus-delay-worker-destination-topic}"
 k2_target_topic="${KAFKA_DELAY_E2E_K2_TARGET_TOPIC:-nereus-delay-k2-target}"
 k2_receipt_topic="${KAFKA_DELAY_E2E_K2_RECEIPT_TOPIC:-nereus-delay-k2-receipt}"
 with_oxia="${NEREUS_DELAY_KAFKA_WITH_OXIA:-0}"
@@ -160,6 +161,7 @@ run_worker_smoke() {
       -PkafkaClientJar="${client_jar}" \
       -PkafkaBootstrap="${bootstrap_server}" \
       -PkafkaWorkerTopic="${worker_topic_base}" \
+      -PkafkaWorkerDestinationTopic="${worker_destination_topic}" \
       -PkafkaWorkerMode="${worker_mode}" \
       --no-daemon --console=plain
   else
@@ -167,6 +169,7 @@ run_worker_smoke() {
       -PkafkaClientJar="${client_jar}" \
       -PkafkaBootstrap="${bootstrap_server}" \
       -PkafkaWorkerTopic="${worker_topic_base}" \
+      -PkafkaWorkerDestinationTopic="${worker_destination_topic}" \
       -PkafkaWorkerMode="${worker_mode}" \
       --no-daemon --console=plain
   fi
@@ -388,7 +391,7 @@ GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaSmoke \
 run_worker_smoke "${bootstrap_survivors}" "${restart_worker_topic}" resume
 
 if [[ "${route_failover}" == "1" && "${with_oxia}" == "1" ]]; then
-  echo "Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, accepted Route Worker apply across broker-1 failover, assignment recovery to RocksDB Worker apply before and after broker-1 failover, same-topic Worker resume after failover, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence."
+  echo "Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, accepted Route Worker apply across broker-1 failover, assignment recovery to RocksDB Worker apply before and after broker-1 failover, source-applied physical publish with typed KAFKA_TRANSACTIONAL_RECEIPT Outcome and payload readback, same-topic Worker resume after failover, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence."
 else
-  echo "Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, assignment recovery to RocksDB Worker apply before and after broker-1 failover, same-topic Worker resume after failover, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence."
+  echo "Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, assignment recovery to RocksDB Worker apply before and after broker-1 failover, source-applied physical publish with typed KAFKA_TRANSACTIONAL_RECEIPT Outcome and payload readback, same-topic Worker resume after failover, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence."
 fi

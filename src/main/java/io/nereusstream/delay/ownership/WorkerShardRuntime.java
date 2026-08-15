@@ -2,9 +2,11 @@ package io.nereusstream.delay.ownership;
 
 import io.nereusstream.delay.protocol.ChannelResourceIdentityV1;
 import io.nereusstream.delay.adapter.DestinationPublishRequest;
+import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.ReadyCertificateV1;
 import io.nereusstream.delay.protocol.SourcePosition;
+import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.scheduler.SchedulerBudget;
 import io.nereusstream.delay.scheduler.ScheduleWorkItem;
 import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
@@ -545,7 +547,8 @@ public final class WorkerShardRuntime implements AutoCloseable {
         while (true) {
             final PublishAttemptLedger persisted = ownedShard.shard().findOpenPublishAttempt(exactAttemptId);
             if (persisted != null) {
-                if (!Arrays.equals(persisted.sourcePosition(), exactAdmissionPosition.canonicalBytes())) {
+                if (!sameSourcePosition(SourcePositionCodec.decode(persisted.sourcePosition()),
+                        exactAdmissionPosition)) {
                     return SourceBoundPhysicalPublishTurn.sourcePositionMismatch(sourceTurns, lastSourceTurn,
                             persisted, new IllegalStateException(
                                     "PUBLISHING ledger Source Position differs from Admission append"));
@@ -641,8 +644,17 @@ public final class WorkerShardRuntime implements AutoCloseable {
     }
 
     private static boolean sameSourcePosition(final SourcePosition first, final SourcePosition second) {
-        return first != null && second != null
-                && Arrays.equals(first.canonicalBytes(), second.canonicalBytes());
+        if (first == null || second == null || !first.shardId().equals(second.shardId())
+                || !first.sameSourceIdentity(second)) {
+            return false;
+        }
+        if (first instanceof KafkaSourcePosition left && second instanceof KafkaSourcePosition right) {
+            return left.offset() == right.offset()
+                    && left.brokerLogAppendTimeEpochMs() == right.brokerLogAppendTimeEpochMs()
+                    && (left.leaderEpoch() == null || right.leaderEpoch() == null
+                    || left.leaderEpoch().equals(right.leaderEpoch()));
+        }
+        return Arrays.equals(first.canonicalBytes(), second.canonicalBytes());
     }
 
     /** Runs one bounded Claim/Publish turn through the shared Worker graph. */
