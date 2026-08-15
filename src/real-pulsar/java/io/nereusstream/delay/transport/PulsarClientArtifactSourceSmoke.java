@@ -69,13 +69,14 @@ public final class PulsarClientArtifactSourceSmoke {
             final String recoverySubscription = "nereus-delay-recovery-" + UUID.randomUUID();
             final GuardedConsumer<byte[]> recoveryNative = PulsarClientArtifactSourceConsumerFactory.create(
                     client, guard, physicalTopic, recoverySubscription);
-            final var recoveryAttestation = recoveryNative.resourceGuardAttestation().orElseThrow(
-                    () -> new IllegalStateException("Pulsar recovery consumer has no guard attestation"));
+            final PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof recoveryProof =
+                    PulsarClientArtifactRecoverySourcePositioner.seekAfter(recoveryNative, guard, physicalTopic,
+                            shard, Optional.empty(), java.time.Duration.ofSeconds(5));
             final SourceAssignment recoveryAssignment = new SourceAssignment(shard,
                     Bytes.sha256(Bytes.utf8("pulsar-recovery-assignment")), 1,
                     PulsarActivationBarrier.empty(shard, INCARNATION, physicalTopic,
-                            recoveryNative.connectionGeneration(),
-                            PulsarClientArtifactSourceRecordConsumer.attestationDigest(recoveryAttestation)));
+                            recoveryProof.connectionGeneration(), recoveryProof.attestationDigest()));
+            final PulsarSourcePosition recoveredFirstPosition;
             try (PulsarClientArtifactRecoverySourceCursor recovery =
                          new PulsarClientArtifactRecoverySourceCursor(recoveryNative, guard, recoveryAssignment,
                                  physicalTopic, java.time.Duration.ofMillis(250))) {
@@ -86,6 +87,10 @@ public final class PulsarClientArtifactSourceSmoke {
                         || cursor.peek() != recoveredFirst) {
                     throw new IllegalStateException("Pulsar recovery cursor did not retain the exact first entry");
                 }
+                if (!(recoveredFirst.position() instanceof PulsarSourcePosition position)) {
+                    throw new IllegalStateException("Pulsar recovery cursor returned a non-Pulsar position");
+                }
+                recoveredFirstPosition = position;
                 cursor.next();
                 final SourceReplayEntry recoveredSecond = cursor.peek();
                 if (!(recoveredSecond instanceof SourceReplayRecord recoveredSecondRecord)
@@ -97,6 +102,37 @@ public final class PulsarClientArtifactSourceSmoke {
                     throw new IllegalStateException("Pulsar recovery cursor exposed an unexpected third entry");
                 }
             }
+
+            final String positionedRecoverySubscription = "nereus-delay-recovery-positioned-" + UUID.randomUUID();
+            final GuardedConsumer<byte[]> positionedRecoveryNative = PulsarClientArtifactSourceConsumerFactory.create(
+                    client, guard, physicalTopic, positionedRecoverySubscription);
+            final PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof positionedRecoveryProof =
+                    PulsarClientArtifactRecoverySourcePositioner.seekAfter(positionedRecoveryNative, guard,
+                            physicalTopic, shard, Optional.of(recoveredFirstPosition),
+                            java.time.Duration.ofSeconds(5));
+            final SourceAssignment positionedAssignment = new SourceAssignment(shard,
+                    Bytes.sha256(Bytes.utf8("pulsar-positioned-recovery-assignment")), 1,
+                    PulsarActivationBarrier.empty(shard, INCARNATION, physicalTopic,
+                            positionedRecoveryProof.connectionGeneration(),
+                            positionedRecoveryProof.attestationDigest()));
+            try (PulsarClientArtifactRecoverySourceCursor positionedRecovery =
+                         new PulsarClientArtifactRecoverySourceCursor(positionedRecoveryNative, guard,
+                                 positionedAssignment, physicalTopic, java.time.Duration.ofSeconds(2))) {
+                final SourceReplayCursor<SourceReplayEntry> cursor = SourceReplayCursor.of(positionedRecovery);
+                final SourceReplayEntry positionedSecond = cursor.peek();
+                if (!(positionedSecond instanceof SourceReplayRecord positionedSecondRecord)
+                        || !positionedSecondRecord.command().equals(secondCommand)) {
+                    throw new IllegalStateException("Pulsar positioned recovery did not skip the durable first entry");
+                }
+                cursor.next();
+                if (cursor.hasNext()) {
+                    throw new IllegalStateException("Pulsar positioned recovery exposed an unexpected third entry");
+                }
+            }
+            System.out.println("Pulsar positioned recovery passed: skipped=" + recoveredFirstPosition.ledgerId()
+                    + "/" + recoveredFirstPosition.entryId()
+                    + ", returned=" + secondCommand.commandId()
+                    + ", connectionGeneration=" + positionedRecoveryProof.connectionGeneration());
 
             final String subscription = "nereus-delay-source-" + UUID.randomUUID();
             final GuardedConsumer<byte[]> firstNative = PulsarClientArtifactSourceConsumerFactory.create(

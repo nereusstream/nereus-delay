@@ -21,9 +21,10 @@ import java.util.concurrent.TimeUnit;
  * Native guarded Pulsar replay input for {@code OwnerRecoveryCoordinator}.
  *
  * <p>The caller positions the guarded subscription at the durable recovery
- * cursor before constructing this class. No ACK is issued here: releasing a
- * decoded message with {@link #next()} only advances this local iterator after
- * the coordinator has proven the Store apply. A changed guarded SUBSCRIBE
+ * cursor and builds the activation barrier from the post-positioning proof
+ * before constructing this class. No ACK is issued here: releasing a decoded
+ * message with {@link #next()} only advances this local iterator after the
+ * coordinator has proven the Store apply. A changed guarded SUBSCRIBE
  * generation or attestation fails the cursor and therefore requires a fresh
  * assignment/session.</p>
  */
