@@ -3113,6 +3113,17 @@ smoke uses a filesystem adapter and one shard; remote Object Store
 attestation/quiescence, Owner-session fencing, multi-shard scheduling and
 crash/failover evidence remain separate gates.
 
+### 2026-08-15 Worker Claim/Publish command composition implementation note
+
+`WorkerCommandRuntime` is the explicit handoff point from the active Worker
+graph to Claim and Publish Admission. It carries caller-prepared exact inputs
+through the same resource admission and `WorkerShardRuntime` drain fence as
+source/scheduling. The underlying executors retain their post-queue Owner,
+Claim, permit, prerequisite, signature and Shard Log uncertainty checks; the
+wrapper does not infer Profile, payload, credential, Claim, certificate or
+Source Position authority. This closes local graph composition while the live
+Broker append/ACK and external prerequisite evidence remain required.
+
 ## 16. 当前结论与仍需实测的数值
 
 已经冻结：

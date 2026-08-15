@@ -14,7 +14,7 @@ pulsar_branch="nereus/delay-resource-guard-v1"
 pulsar_base="8dae0236c0a0d405ed7f8303081080520fe91551"
 pulsar_head="358ce4a1033bd566faebcd3465c3ba4606f3c83f"
 oxia_head="37a17bef17202d5fd6e23282da5fd26d94865484"
-delay_worker_head="bdcd4ddb"
+delay_worker_head="a025fade"
 
 fail() {
     echo "cross-repo contract audit failed: $*" >&2
@@ -211,6 +211,10 @@ require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/Wor
     "openForActiveOwner"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerShardRuntime.java" \
     "runSchedulingTurn"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerCommandRuntime.java" \
+    "submitPublish"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerShardRuntime.java" \
+    "runCommandTurn"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/scheduler/PersistentLaneScheduler.java" \
     "forActiveOwner"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/WorkerCheckpointRuntime.java" \

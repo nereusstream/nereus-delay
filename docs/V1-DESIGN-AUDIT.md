@@ -6345,6 +6345,22 @@ filesystem upload adapter. It is not remote Object Store, Owner-session gate,
 multi-shard production wiring, automatic Claim/Publish orchestration, crash
 recovery, broker failover or release PASS.
 
+## 2026-08-15 Worker Claim/Publish command composition audit
+
+Delay commit `a025fade` adds `WorkerCommandRuntime` and attaches its optional
+Claim/Publish graph to `WorkerShardRuntime`. Command submissions and bounded
+turns use the same `SharedRocksDbResources` admission gate as source and
+scheduling; the drain callback therefore fences new Claim and Publish
+admission together with source and due/READY scheduling.
+
+The wrapper carries exact caller-prepared materialization, charge,
+reservation, descriptor, certificate, decision evidence and signing key into
+the existing fenced executors. It does not manufacture external readiness,
+payload serialization, Claim authority, Profile/Object Store state, Broker
+append evidence or Source Position. This is local composition evidence, not a
+real Shard Log append/ACK, automatic command pipeline, multi-shard, crash,
+failover or release PASS.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

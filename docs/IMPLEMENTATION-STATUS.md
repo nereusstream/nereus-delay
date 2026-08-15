@@ -7308,6 +7308,30 @@ Owner Lease/session gate inside the checkpoint smoke, automatic Claim
 materialization/Publish Admission, multi-shard checkpoint scheduling, crash
 cut/recovery, broker failover or release PASS.
 
+## 2026-08-15 Worker Claim/Publish command composition
+
+Delay commit `a025fade` adds `WorkerCommandRuntime` and the optional command
+graph on `WorkerShardRuntime`. Claim and Publish Admission submissions now
+cross the same shared Worker resource-admission gate as source and scheduling;
+after the OwnerDrain callback fences the runtime, new command admissions are
+rejected. `runCommandTurn` executes both bounded work classes on the same
+registry.
+
+The composition intentionally accepts only caller-owned exact inputs: the
+selected `ScheduleWorkItem`, trusted evidence, Claim materialization and
+charge, then the exact Claim reservation, prepared Publish descriptor, Ready
+Certificate, decision time and signing key. Existing
+`ClaimHandoffWorkClassExecutor` and `PublishAdmissionWorkClassExecutor` keep
+their queue-wait Owner/Claim/permit/prerequisite rereads and Shard Log append
+uncertainty handling. No Profile/Object Store/credential state, payload,
+certificate, Claim or Source Position is inferred by this wrapper.
+
+This closes the local source → scheduling → explicit Claim/Publish command
+graph composition only. It does not claim automatic Claim materialization,
+external Profile/Object Store/credential authority, real Broker Shard Log
+append/ACK, multi-shard orchestration, crash recovery, broker failover or
+release PASS.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
