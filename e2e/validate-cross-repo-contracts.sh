@@ -242,6 +242,8 @@ require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transp
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
     "Pulsar Worker vertical smoke passed"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+    "prepare"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
     "Pulsar Worker assignment publication/acceptance passed"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
     "CheckpointFileInventory.collect"
@@ -258,7 +260,11 @@ require_file_text "$delay_root/build.gradle" \
 require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \
     "runRealPulsarWorkerSmoke"
 require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \
+    "restart_topic"
+require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \
     "NEREUS_DELAY_PULSAR_WITH_OXIA"
+require_file_text "$delay_root/build.gradle" \
+    "pulsarWorkerMode"
 require_file_text "$delay_root/build.gradle" \
     "pulsarWithOxia"
 

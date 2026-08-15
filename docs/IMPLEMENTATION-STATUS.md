@@ -7375,6 +7375,33 @@ an in-flight ACK, Fetch/commit response-loss recovery, multi-shard placement,
 Pulsar multi-broker failover, crash-at-every-WriteBatch-boundary evidence or
 release PASS.
 
+## 2026-08-15 Pulsar Worker broker-restart resume cut
+
+Delay commit `fe8879b3` adds explicit `prepare` and `resume` modes to the P1
+Worker smoke. The harness persists one guarded source record on a
+volume-backed standalone broker, restarts the broker container, then starts a
+new Worker JVM against the same topic. The resumed Worker recovers the
+prepared record, appends and ACKs a fresh active record, creates the bounded
+final checkpoint and releases the exact owner lease.
+
+The fresh run used P1 source
+`358ce4a1033bd566faebcd3465c3ba4606f3c83f`, distribution SHA-256
+`7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5a1d137d`, client
+artifacts `57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`, and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, image
+`sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`,
+Compose project `nereus-delay-pulsar-e2e-1786770623-7577`, and ports
+`19950,19951`. The standard Worker line passed at `15/0` → `15/1`; after
+restart the same-topic resume line passed at `17/0` → `24/0`. The preparation,
+resume and full harness all exited `BUILD SUCCESSFUL`, and matching Docker
+resources were removed.
+
+This closes one volume-backed single-node broker-process restart/resume cut.
+It does not establish Pulsar multi-broker unload/failover, in-flight source
+ownership transfer, ACK response-loss recovery, crash-at-every-WriteBatch
+boundary evidence, multi-shard placement or release PASS.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

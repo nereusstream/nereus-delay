@@ -6399,6 +6399,27 @@ not prove in-flight source ownership transfer, ACK response-loss recovery,
 Pulsar multi-broker failover, multi-shard placement, crash cuts or release
 PASS.
 
+## 2026-08-15 Pulsar Worker broker-restart resume audit
+
+Delay commit `fe8879b3` adds a two-process cut to the P1 Worker harness. The
+first process persists one guarded record on the standalone broker's named
+volume; the harness restarts the broker container; a new Worker JVM then
+resumes the same topic, recovers the prepared record, applies and ACKs the
+next record, writes the final local checkpoint and releases the exact lease.
+
+The fresh run passed with P1 source
+`358ce4a1033bd566faebcd3465c3ba4606f3c83f`, image
+`sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`,
+project `nereus-delay-pulsar-e2e-1786770623-7577`, ports `19950,19951`, and
+resume recovery/apply positions `17/0` → `24/0`. The preparation, resume and
+full harness exited `BUILD SUCCESSFUL` and cleaned their matching resources.
+
+This is single-node broker-process restart/resume evidence with the
+deterministic in-memory Owner authority. It does not prove Pulsar
+multi-broker failover, live source ownership transfer, ACK response-loss,
+crash cuts at every WriteBatch boundary, multi-shard placement or release
+PASS.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

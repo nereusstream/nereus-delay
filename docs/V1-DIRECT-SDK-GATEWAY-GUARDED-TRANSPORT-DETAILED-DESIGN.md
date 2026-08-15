@@ -3140,6 +3140,17 @@ fresh assignment recovery, guarded Fetch v13, WriteBatch-before-`commitSync`
 and final checkpoint ordering. It does not prove live source ownership
 transfer, an in-flight ACK cut or full D6 failover/crash completion.
 
+### 2026-08-15 Pulsar Worker broker-restart implementation note
+
+The P1 Worker harness now has an explicit prepare/resume cut. It persists one
+guarded source record on the standalone broker's named volume, restarts the
+broker container and starts a new Worker JVM with the same topic. The resumed
+Worker recovers the prepared ledger/entry, applies and ACKs a new active
+record, writes the bounded final checkpoint and releases the exact lease.
+This is one single-node process-restart proof with deterministic in-memory
+Owner authority; Pulsar multi-broker failover, in-flight response-loss and
+full D6 crash evidence remain separate.
+
 ## 16. 当前结论与仍需实测的数值
 
 已经冻结：

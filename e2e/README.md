@@ -150,12 +150,12 @@ The harness requires a clean
 `8dae0236c0a0d405ed7f8303081080520fe91551`. It records the P1 source SHA,
 distribution and client-jar SHA-256 values, image ID and allocated ports, and
 cleans only its own Compose project, volumes, temporary image and staging
-directories. The current run passed with P1
+directories. The latest run passed with P1
 `358ce4a1033bd566faebcd3465c3ba4606f3c83f`, distribution SHA-256
-`7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5c5a1d137d`, image
+`7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5a1d137d`, image
 `sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`,
-Compose project `nereus-delay-pulsar-e2e-1786760203-85592`, ports
-`19930,19931`, and writer output
+Compose project `nereus-delay-pulsar-e2e-1786770623-7577`, ports `19950,19951`,
+and writer output
 `initial=PERSISTED, stale=DEFINITIVELY_NOT_PERSISTED, replacement=PERSISTED`.
 The source output was
 `firstLedger=11, firstEntry=0, secondLedger=11, secondEntry=1,
@@ -171,18 +171,27 @@ second command after a stable proof. The client artifacts were
 The exit check found no matching container, network, volume or temporary
 image.
 
-The Worker output was:
+The standard Worker output was:
 
 ```text
-Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=15/0, active apply ledger/entry=15/1, guarded SUBSCRIBE, RocksDB WriteBatch and ACK
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=15/0, active apply ledger/entry=15/1, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
 ```
 
-This closes only the single-node real P1 client/broker delete-recreate,
-guarded source replay/ACK and Worker recovery/apply/ACK cuts. It does not
-claim unload, multi-broker failover, old-peer proxy compatibility, source
-unload/failover/session ownership, guarded Fetch/rewind, network Oxia
-session/placement, D3 Direct SDK integration or production multi-shard Worker
-wiring.
+The same run then used Worker `prepare` to persist one guarded record on the
+named Pulsar volume, restarted the broker container, and launched a new Worker
+JVM in `resume` mode against that same topic:
+
+```text
+Pulsar Worker restart preparation passed: one guarded record persisted before broker restart
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=17/0, active apply ledger/entry=24/0, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
+```
+
+This closes the single-node real P1 client/broker delete-recreate, guarded
+source replay/ACK, Worker recovery/apply/ACK and one volume-backed broker
+restart/resume cut. It does not claim unload, multi-broker failover, old-peer
+proxy compatibility, live source ownership transfer, ACK response-loss,
+guarded Fetch/rewind, network Oxia session/placement, D3 Direct SDK
+integration or production multi-shard Worker wiring.
 
 The Worker can also use a real network Oxia owner-lease authority. This is
 opt-in; without the environment variable the deterministic in-memory
