@@ -7301,6 +7301,28 @@ publication, crash/response-loss resolution, real fleet E2E or §23.5 release
 readiness. No real-client harness was rerun for this common-only change; its
 latest source-qualified receipts remain bound to `d02d8120`.
 
+## 2026-08-15 bounded PUBLISHING physical adapter and Outcome bridge audit
+
+Delay commit `9a9c14827d01f94b36820e2e4381373725cec7fa` adds
+`WorkerPhysicalPublishExecutor` and the bounded adapter preflight hook. A
+`PUBLISHING` ledger is decoded and identity-checked against its canonical
+`PUBLISH_ADMISSION`, Claim, READY Lane, message, attempt and payload
+projection before a `DestinationPublishRequest` is admitted. The injected
+`PhysicalPublishGate` is evaluated both before physical admission and in the
+last pre-delegate slot; deferred or definitive gate outcomes do not invoke the
+target. A physical result, including `UNKNOWN`, is handed to the external
+signed `PublishOutcomeMutationFactory` through the bounded outcome executor.
+
+`WorkerPhysicalPublishExecutorTest` covers allowed handoff, deferred admission,
+the late-gate race and opaque-admission rejection; the focused Worker tests and
+full `check` passed. This audit closes only the common local bridge. It does
+not prove live prerequisite/payload authority, signed typed outcome/evidence
+construction, physical Kafka/Pulsar Broker append/ACK, source-factory binding,
+adapter evidence journals/classifiers, crash/response-loss resolution,
+multi-shard placement, checkpoint/quiescence or §23.5 release readiness. The
+real-client harnesses were not changed or rerun; their source-qualified
+receipts remain bound to `d02d8120`.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

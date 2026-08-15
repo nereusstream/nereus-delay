@@ -3958,3 +3958,28 @@ remain source-qualified to `d02d8120`; they do not prove this fleet method.
 Live prerequisite authority, catalog placement, physical Publish append/ACK,
 checkpoint publication, crash/response-loss recovery and release gates remain
 open.
+
+### 2026-08-15 PUBLISHING physical adapter and Outcome bridge implementation note
+
+Delay commit `9a9c14827d01f94b36820e2e4381373725cec7fa` adds the common
+`WorkerPhysicalPublishExecutor` bridge. It accepts only a retained
+`PUBLISHING` attempt whose canonical `PUBLISH_ADMISSION` descriptor matches the
+Claim, READY Lane, message, generation, attempt and prepared payload identity.
+Inline payloads and Object Store payload bytes are checked against the frozen
+length/SHA-256 projection before the exact destination request is built.
+
+The bridge checks the injected `PhysicalPublishGate` before local physical
+admission and again via `BoundedDestinationPublishAdapter.PublishPreflight`
+immediately before the delegate. This preserves the required happens-before
+boundary while retaining bounded-adapter zombie/in-flight semantics. Deferred
+and definitive gate results do not call the target. An observed destination
+result, including `UNKNOWN`, is passed to the injected signed
+`PublishOutcomeMutationFactory` and then the bounded `OutcomeWorkClassExecutor`;
+the bridge does not apply RocksDB state or invent a Source Position.
+
+This is a common composition seam, not physical Broker proof. Live gate,
+payload/Object Store, channel/certificate/credential, signed outcome/evidence/
+retry/charge factories, Kafka/Pulsar append/ACK, adapter journals and
+non-persistence classifiers remain external. The real-client harnesses do not
+construct this executor and were not rerun for this change, so their latest
+receipts remain source-qualified to `d02d81201d0cff3f9fa5fb3c8bba912721de5575`.
