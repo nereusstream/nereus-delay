@@ -277,8 +277,24 @@ require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transpo
     "K2 broker failover commit returned PUBLISHED"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactTransactionalSmoke.java" \
     "K2 broker failover commit resolved after UNKNOWN"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/adapter/KafkaTransactionalPublishEvidence.java" \
+    "KAFKA_TRANSACTIONAL_RECEIPT"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactTransactionalReceiptEvidenceProvider.java" \
+    "lastStableOffset"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactTransactionalReceiptEvidenceProvider.java" \
+    "read_committed"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactTransactionalDestinationTransport.java" \
+    "typed.requireBusinessMutation"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactTransactionalSmoke.java" \
+    "typed KAFKA_TRANSACTIONAL_RECEIPT evidence"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "6912b940"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "3c7128eb6caecc50f3d6f4865ed2cdfa2838ad8a"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "nereus-delay-kafka-e2e-1786806083-13395"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "typed KAFKA_TRANSACTIONAL_RECEIPT evidence"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "nereus-delay-kafka-e2e-1786790805-40581"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \

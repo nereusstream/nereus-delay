@@ -8788,6 +8788,52 @@ append/ACK, Outcome source application, response-loss/crash resolution,
 multi-broker failover and release gates remain open; the existing real-client
 harnesses were not rerun for this common Worker slice.
 
+## 2026-08-15 typed Kafka K2 read-committed receipt evidence
+
+Delay commit `3c7128eb6caecc50f3d6f4865ed2cdfa2838ad8a` adds the typed K2
+receipt path. A guarded producer receipt metadata pair is resolved by a fresh
+Kafka client-artifact consumer in `read_committed` mode. The provider pins
+the receipt cluster/topic UUID/partition, validates Fetch v13 proof and exact
+key/value bytes, requires an LSO strictly beyond the receipt offset, and
+constructs the canonical `KAFKA_TRANSACTIONAL_RECEIPT` /
+`VERIFIED_PUBLISHED` evidence branch. The transport accepts `PUBLISHED` only
+after decoding that branch and checking its Publish Attempt owner. If the
+receipt cannot be reread, including after a commit response failure, the
+result remains `UNKNOWN`.
+
+The new typed builder test, full `check`, and exact real-Kafka compile passed:
+
+```text
+./gradlew test --tests io.nereusstream.delay.adapter.KafkaTransactionalPublishEvidenceTest --no-daemon --console=plain
+BUILD SUCCESSFUL in 5s
+
+./gradlew check --no-daemon --console=plain
+BUILD SUCCESSFUL in 1m 13s
+
+./gradlew compileRealKafka -PkafkaClientJar=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar --no-daemon --console=plain
+BUILD SUCCESSFUL in 4s
+```
+
+The source-qualified K2 failover-only receipt used Kafka commit
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose project `nereus-delay-kafka-e2e-1786806083-13395`, and ports
+`19985,19986,19987`. The receipt was:
+
+```text
+K2 broker failover commit returned PUBLISHED: typed KAFKA_TRANSACTIONAL_RECEIPT evidence and read_committed target+receipt pair
+K2 broker failover smoke passed: target-plus-receipt transaction crossed broker-1 failover and exact read_committed records were verified
+Kafka K2 broker failover E2E passed: target-plus-receipt transaction crossed broker-1 failover with read_committed resolution.
+```
+
+This closes positive typed K2 direct-adapter evidence only. It does not claim
+that the current real Worker E2E invokes the source-applied physical publish
+provider, or that Fetch response-loss, retention-floor/crash recovery, live
+Profile/credential/channel/Object Store authority, source-ordered Outcome,
+Pulsar multi-broker parity, checkpoint/quiescence or V1 release gates are
+complete.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

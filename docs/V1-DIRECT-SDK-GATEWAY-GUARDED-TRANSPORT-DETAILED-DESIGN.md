@@ -4067,3 +4067,51 @@ handoff, and the real-client harnesses were not changed or rerun. Live payload,
 Owner/Assignment and channel authority, destination Broker append/ACK,
 Outcome source application, response-loss/crash resolution, multi-broker
 failover and release gates remain open.
+
+### 2026-08-15 typed Kafka K2 read-committed receipt evidence implementation note
+
+Delay commit `3c7128eb6caecc50f3d6f4865ed2cdfa2838ad8a` adds the source-locked
+Kafka K2 receipt-evidence bridge. `KafkaTransactionalPublishEvidence` builds
+the closed `KAFKA_TRANSACTIONAL_RECEIPT` / `VERIFIED_PUBLISHED` branch only
+after binding the exact receipt cursor to the mapped lane, lane incarnation,
+receipt TopicId, partition, non-zero evidence generation, receipt offset and
+LSO. The branch also carries the Publish Attempt identity, prepared hash,
+target Broker resource/partition, transactional identity digest and the exact
+keyed receipt-record digest. The record digest is
+`SHA-256("nereus-delay-kafka-receipt-wire-record-v1\\0" || LP32(key) ||
+LP32(value))`.
+
+`KafkaClientArtifactTransactionalReceiptEvidenceProvider` creates a fresh
+source-locked consumer with `isolation.level=read_committed`, seeks to the
+guarded producer receipt offset, validates Fetch v13 evidence and the exact
+TopicId/topic/partition, requires an LSO strictly covering the receipt, and
+returns the typed branch. The transactional transport decodes that result and
+requires the Kafka transactional-receipt kind, `VERIFIED_PUBLISHED` status and
+Publish Attempt ownership. A missing or invalid reread stays `UNKNOWN`; it is
+never converted to `DEFINITIVELY_NOT_PUBLISHED`. The same provider is retried
+after a commit/EndTxn runtime failure, so a lost commit response can resolve
+only through the fresh guarded `read_committed` receipt.
+
+The real K2 smoke binds this provider for the initial, stale-incarnation and
+replacement paths and decodes every returned `PUBLISHED` evidence value. The
+focused typed-evidence test, full `check` and exact `compileRealKafka` gate
+passed. The dedicated three-broker failover receipt used Kafka source
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose project `nereus-delay-kafka-e2e-1786806083-13395`, and ports
+`19985,19986,19987`:
+
+```text
+K2 broker failover commit returned PUBLISHED: typed KAFKA_TRANSACTIONAL_RECEIPT evidence and read_committed target+receipt pair
+K2 broker failover smoke passed: target-plus-receipt transaction crossed broker-1 failover and exact read_committed records were verified
+Kafka K2 broker failover E2E passed: target-plus-receipt transaction crossed broker-1 failover with read_committed resolution.
+```
+
+This closes positive typed K2 receipt resolution for the direct real-client
+adapter smoke, including the exercised EndTxn response-loss/failover cut. It
+does not bind the checked-in real Worker harness to the physical
+due/Claim/Publish executor, prove Fetch response-loss or retention-floor
+recovery, provide live Profile/credential/channel/Object Store authority,
+apply a signed `PUBLISH_OUTCOME` through source ordering, prove Pulsar
+multi-broker equivalence, or satisfy the V1 release gates.

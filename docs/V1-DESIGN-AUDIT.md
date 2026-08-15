@@ -7405,6 +7405,42 @@ destination Broker append/ACK, source-ordered `PUBLISH_OUTCOME` application,
 response-loss/LSO/crash recovery, multi-broker or real Worker E2E evidence, or
 §23.5 release readiness.
 
+## 2026-08-15 typed Kafka K2 read-committed receipt evidence audit
+
+Delay commit `3c7128eb6caecc50f3d6f4865ed2cdfa2838ad8a` closes the positive
+typed K2 evidence boundary at the real Kafka adapter. The shared builder
+rejects a foreign lane/incarnation, TopicId, partition, cursor kind,
+zero-generation cursor, uncovered receipt offset/LSO or mismatched exact
+receipt-record digest. The source-locked provider uses a fresh
+`read_committed` guarded consumer, validates Fetch v13 evidence and the exact
+producer receipt metadata, requires the returned LSO to cover the receipt, and
+only then emits `KAFKA_TRANSACTIONAL_RECEIPT` with
+`VERIFIED_PUBLISHED`. The transport decodes the returned evidence and checks
+the kind, status and Publish Attempt owner before returning `PUBLISHED`;
+response loss without that reread remains `UNKNOWN`.
+
+The focused test, full `check` and exact Kafka client compile passed. The
+dedicated failover-only Docker receipt is source-qualified to Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose project `nereus-delay-kafka-e2e-1786806083-13395`, and ports
+`19985,19986,19987`. Its exact lines were:
+
+```text
+K2 broker failover commit returned PUBLISHED: typed KAFKA_TRANSACTIONAL_RECEIPT evidence and read_committed target+receipt pair
+K2 broker failover smoke passed: target-plus-receipt transaction crossed broker-1 failover and exact read_committed records were verified
+Kafka K2 broker failover E2E passed: target-plus-receipt transaction crossed broker-1 failover with read_committed resolution.
+```
+
+This is direct adapter evidence, not a full V1 or Worker production PASS. The
+real Worker harness still does not source-apply a PUBLISHING ledger through
+the bound physical executor/provider. Fetch response-loss, retention-floor
+and crash resolution, live prerequisite/channel/Object Store authority,
+source-ordered `PUBLISH_OUTCOME`, Pulsar multi-broker parity, placement,
+checkpoint/quiescence and §23.5 release gates remain open.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
