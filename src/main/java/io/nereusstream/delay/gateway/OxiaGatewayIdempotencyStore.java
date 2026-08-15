@@ -99,7 +99,8 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
         final Entry current = require(keyHash);
         if (current.record().phase() != GatewayIdempotencyPhaseV1.PREPARED
                 || current.record().aggregateOutcomeBytes() != null) {
-            return new GatewayIdempotencyStore.AttemptStart(current.record(), null);
+            final Entry recovered = recoverExpiredStartedAttempt(keyHash, current);
+            return new GatewayIdempotencyStore.AttemptStart(recovered.record(), null);
         }
         final long started = now();
         final long uncertaintyAt = checkedAdd(started, outcomeWaitMs);
@@ -121,6 +122,31 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
             }
             return new GatewayIdempotencyStore.AttemptStart(observed.record(), null);
         }
+    }
+
+    private Entry recoverExpiredStartedAttempt(final Digest32 keyHash, final Entry current) {
+        if (current.record().phase() != GatewayIdempotencyPhaseV1.ACTIVE
+                || current.record().aggregateOutcomeBytes() != null || current.record().attempts().isEmpty()) {
+            return current;
+        }
+        final GatewayPhysicalAttemptV1 started = current.record().attempts()
+                .get(current.record().attempts().size() - 1);
+        if (started.state() != GatewayPhysicalAttemptStateV1.STARTED
+                || now() < started.uncertaintyAtEpochMs()) {
+            return current;
+        }
+        final PreparedSubmissionV1 prepared = PreparedSubmissionV1.decode(current.record().preparedSubmissionBytes());
+        final SubmissionOutcomeMessageV1 uncertain = GatewayOutcomeSupport.uncertain(prepared,
+                started.physicalAttemptId());
+        final GatewayIdempotencyRecordV1 recovered = current.record().withOutcome(
+                new GatewayIdempotencyRecordV1.PhysicalEnqueueAttemptIdMatch(started.physicalAttemptId()),
+                uncertain.canonicalBytes(), GatewayPhysicalAttemptStateV1.UNCERTAIN);
+        try {
+            put(current.key(), recovered, Set.of(PutOption.IfVersionIdEquals(current.versionId())));
+        } catch (RuntimeException raceOrResponseLoss) {
+            return require(keyHash);
+        }
+        return require(keyHash);
     }
 
     @Override

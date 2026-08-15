@@ -18,6 +18,7 @@ import io.nereusstream.delay.protocol.RetryPolicyRefV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.ShardId;
+import io.nereusstream.delay.protocol.SubmissionOutcomeKindV1;
 import io.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
 import io.nereusstream.delay.protocol.SubmissionModeV1;
 import io.nereusstream.delay.semantic.LargeSchedulePreparationV1;
@@ -41,6 +42,7 @@ import java.util.TreeMap;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 class OxiaGatewayIdempotencyStoreTest {
@@ -89,6 +91,42 @@ class OxiaGatewayIdempotencyStoreTest {
         assertEquals(GatewayIdempotencyStore.RetryState.EXISTING_RETRY, retried.state());
         assertNull(retried.permit());
         assertEquals(2, reopened.exact(keyHash).attempts().size());
+    }
+
+    @Test
+    void attemptCasResponseLossConvergesToUncertainAfterDeadlineWithoutPermit() {
+        final long[] now = {100};
+        final TrustedClock clock = () -> now[0];
+        final FakeGatewayClient client = new FakeGatewayClient();
+        final OxiaGatewayIdempotencyStore store = new OxiaGatewayIdempotencyStore(client, "/nereus/gateway", clock,
+                10, 20);
+        final PreparedSubmissionV1 prepared = prepared();
+        final Digest32 keyHash = new Digest32(bytes(32, 21));
+        final Digest32 bodyHash = new Digest32(bytes(32, 22));
+        store.prepareIfAbsent(keyHash, GatewayOperationKindV1.SCHEDULE, bodyHash, prepared, 800);
+
+        client.loseNextPutResponse = true;
+        final GatewayIdempotencyStore.AttemptStart responseLost = store.startAttempt(keyHash);
+        assertNull(responseLost.permit());
+        assertEquals(GatewayIdempotencyPhaseV1.ACTIVE, responseLost.record().phase());
+        assertNull(responseLost.record().aggregateOutcomeBytes());
+        assertEquals(GatewayPhysicalAttemptStateV1.STARTED, responseLost.record().attempts().get(0).state());
+
+        now[0] = 119;
+        final GatewayIdempotencyStore.AttemptStart beforeDeadline = store.startAttempt(keyHash);
+        assertNull(beforeDeadline.permit());
+        assertEquals(GatewayIdempotencyPhaseV1.ACTIVE, beforeDeadline.record().phase());
+        assertNull(beforeDeadline.record().aggregateOutcomeBytes());
+
+        now[0] = 120;
+        final GatewayIdempotencyStore.AttemptStart recovered = store.startAttempt(keyHash);
+        assertNull(recovered.permit());
+        assertEquals(GatewayIdempotencyPhaseV1.QUIESCENT, recovered.record().phase());
+        assertEquals(GatewayPhysicalAttemptStateV1.UNCERTAIN,
+                recovered.record().attempts().get(0).state());
+        assertNotNull(recovered.record().aggregateOutcomeBytes());
+        assertEquals(SubmissionOutcomeKindV1.MANAGED,
+                SubmissionOutcomeMessageV1.decode(recovered.record().aggregateOutcomeBytes()).kind());
     }
 
     private static PreparedSubmissionV1 prepared() {

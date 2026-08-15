@@ -50,6 +50,24 @@ public final class InMemoryGatewayIdempotencyStore implements GatewayIdempotency
     public synchronized AttemptStart startAttempt(final Digest32 keyHash) {
         final GatewayIdempotencyRecordV1 current = require(keyHash);
         if (current.phase() != GatewayIdempotencyPhaseV1.PREPARED || current.aggregateOutcomeBytes() != null) {
+            if (current.phase() == GatewayIdempotencyPhaseV1.ACTIVE
+                    && current.aggregateOutcomeBytes() == null
+                    && !current.attempts().isEmpty()) {
+                final GatewayPhysicalAttemptV1 started = current.attempts().get(current.attempts().size() - 1);
+                if (started.state() == GatewayPhysicalAttemptStateV1.STARTED
+                        && now() >= started.uncertaintyAtEpochMs()) {
+                    final PreparedSubmissionV1 prepared = PreparedSubmissionV1.decode(
+                            current.preparedSubmissionBytes());
+                    final SubmissionOutcomeMessageV1 uncertain = GatewayOutcomeSupport.uncertain(prepared,
+                            started.physicalAttemptId());
+                    final GatewayIdempotencyRecordV1 recovered = current.withOutcome(
+                            new GatewayIdempotencyRecordV1.PhysicalEnqueueAttemptIdMatch(
+                                    started.physicalAttemptId()), uncertain.canonicalBytes(),
+                            GatewayPhysicalAttemptStateV1.UNCERTAIN);
+                    records.put(keyHash, recovered);
+                    return new AttemptStart(recovered, null);
+                }
+            }
             return new AttemptStart(current, null);
         }
         final long started = now();
