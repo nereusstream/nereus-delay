@@ -15,12 +15,16 @@ import org.apache.kafka.clients.producer.ProducerResourceGuard;
 import org.apache.kafka.clients.producer.ResourceGuardException;
 import org.apache.kafka.common.Uuid;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -109,6 +113,7 @@ public final class KafkaClientArtifactTransactionalDestinationTransport
             return;
         }
         try {
+            awaitCommitGate();
             producer.commitTransaction();
             final GuardedResponseEvidence targetEvidence = targetMetadata.responseEvidence();
             result.complete(DestinationPublishResult.published(
@@ -123,6 +128,41 @@ public final class KafkaClientArtifactTransactionalDestinationTransport
                     evidence(targetMetadata, receiptMetadata)));
         } finally {
             inFlight.set(false);
+        }
+    }
+
+    /**
+     * Optional real-broker harness gate immediately before EndTxn. The gate
+     * is deliberately outside the normal path and lets the Docker harness
+     * move a transaction through broker failover without changing the
+     * production transaction ordering.
+     */
+    private static void awaitCommitGate() {
+        final String gateValue = System.getenv("NEREUS_DELAY_KAFKA_K2_COMMIT_GATE");
+        if (gateValue == null || gateValue.isBlank()) {
+            return;
+        }
+        final Path gate = Path.of(gateValue);
+        final String readyValue = System.getenv("NEREUS_DELAY_KAFKA_K2_COMMIT_READY");
+        try {
+            if (readyValue != null && !readyValue.isBlank()) {
+                Files.writeString(Path.of(readyValue), "ready\n");
+            }
+        } catch (IOException failure) {
+            throw new IllegalStateException("Kafka K2 commit gate could not publish readiness", failure);
+        }
+        System.out.println("Kafka K2 transaction ready for broker failover: gate=" + gate);
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(120);
+        while (!Files.exists(gate) && System.nanoTime() < deadline) {
+            try {
+                TimeUnit.MILLISECONDS.sleep(50);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Kafka K2 commit gate was interrupted", interrupted);
+            }
+        }
+        if (!Files.exists(gate)) {
+            throw new IllegalStateException("Kafka K2 commit gate was not released: " + gate);
         }
     }
 

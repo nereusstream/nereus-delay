@@ -28,6 +28,7 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.ProducerResourceGuard;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.Uuid;
+import org.apache.kafka.common.errors.InvalidReplicationFactorException;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 
@@ -77,6 +78,7 @@ public final class KafkaClientArtifactTransactionalSmoke {
 
             final Map<String, Object> producerConfiguration = producerConfiguration(bootstrap, "k2-e2e-initial");
             final KafkaReceiptJournal initialJournal = new KafkaReceiptJournal(shard, receipt);
+            final boolean failoverGate = hasCommitGate();
             try (KafkaProducer<byte[], byte[]> producer = newProducer(producerConfiguration)) {
                 producer.initTransactions();
                 final KafkaClientArtifactTransactionalDestinationTransport transport =
@@ -85,16 +87,42 @@ public final class KafkaClientArtifactTransactionalSmoke {
                 final KafkaTransactionalDestinationAdapter adapter = newAdapter(initialTarget, receipt,
                         targetTopic, receiptTopic, initialJournal, lane, laneIncarnation, transactionIdentity,
                         transport);
-                requirePublished(adapter.publish(firstRequest, source, preparedHash), "initial target and receipt");
+                final DestinationPublishResult initialResult = adapter.publish(firstRequest, source, preparedHash)
+                        .toCompletableFuture().join();
+                if (initialResult.disposition() == DestinationPublishResult.Disposition.PUBLISHED) {
+                    if (failoverGate) {
+                        System.out.println("K2 broker failover commit returned PUBLISHED: "
+                                + "read_committed target+receipt pair");
+                    }
+                } else if (failoverGate
+                        && initialResult.disposition() == DestinationPublishResult.Disposition.UNKNOWN) {
+                    // EndTxn response loss is not a non-publication proof. The
+                    // real read_committed pair is the only accepted recovery
+                    // boundary for this harness cut.
+                    requireCommittedCounts(bootstrap, targetTopic, receiptTopic, 1, 1);
+                    System.out.println("K2 broker failover commit resolved after UNKNOWN: read_committed target+receipt pair");
+                } else {
+                    throw new IllegalStateException("initial target and receipt were not published: "
+                            + initialResult.disposition() + "/" + initialResult.stableCode());
+                }
                 requireCommittedCounts(bootstrap, targetTopic, receiptTopic, 1, 1);
                 final KafkaTransactionalDestinationRequest initialRecord = expectedRequest(initialTarget, receipt,
                         targetTopic, receiptTopic, initialJournal);
                 requireExactRecord(bootstrap, targetTopic, null, firstRequest.payload(), "initial target");
                 requireExactRecord(bootstrap, receiptTopic, initialRecord.receiptKey(), initialRecord.receiptValue(),
                         "initial receipt");
-                abortDirectPair(producer, initialTarget, receipt, targetTopic, receiptTopic, firstRequest, preparedHash);
-                requireCommittedCounts(bootstrap, targetTopic, receiptTopic, 1, 1);
+                if (!failoverGate) {
+                    abortDirectPair(producer, initialTarget, receipt, targetTopic, receiptTopic, firstRequest,
+                            preparedHash);
+                    requireCommittedCounts(bootstrap, targetTopic, receiptTopic, 1, 1);
+                }
                 adapter.close();
+            }
+
+            if (failoverGate) {
+                System.out.println("K2 broker failover smoke passed: target-plus-receipt transaction "
+                        + "crossed broker-1 failover and exact read_committed records were verified");
+                return;
             }
 
             admin.deleteTopics(Collections.singleton(targetTopic)).all().get(10, TimeUnit.SECONDS);
@@ -216,6 +244,11 @@ public final class KafkaClientArtifactTransactionalSmoke {
         }
     }
 
+    private static boolean hasCommitGate() {
+        final String gate = System.getenv("NEREUS_DELAY_KAFKA_K2_COMMIT_GATE");
+        return gate != null && !gate.isBlank();
+    }
+
     private static void requireDefinitelyNotPublished(
             final java.util.concurrent.CompletionStage<DestinationPublishResult> stage, final String label) {
         final DestinationPublishResult result = stage.toCompletableFuture().join();
@@ -313,8 +346,10 @@ public final class KafkaClientArtifactTransactionalSmoke {
     }
 
     private static void ensureTopic(final Admin admin, final String topic) throws Exception {
+        waitForRegisteredBrokers(admin);
         try {
             if (describe(admin, topic) != null) {
+                waitForTopic(admin, topic);
                 return;
             }
         } catch (Exception missing) {
@@ -322,8 +357,44 @@ public final class KafkaClientArtifactTransactionalSmoke {
         }
         final NewTopic newTopic = new NewTopic(topic, 1, (short) 3);
         newTopic.configs(Map.of("message.timestamp.type", "LogAppendTime"));
-        admin.createTopics(Collections.singleton(newTopic)).all().get(10, TimeUnit.SECONDS);
+        for (int attempt = 0; ; attempt++) {
+            try {
+                admin.createTopics(Collections.singleton(newTopic)).all().get(10, TimeUnit.SECONDS);
+                break;
+            } catch (Exception failure) {
+                if (!hasCause(failure, InvalidReplicationFactorException.class) || attempt >= 60) {
+                    throw failure;
+                }
+                waitForRegisteredBrokers(admin);
+                TimeUnit.SECONDS.sleep(1);
+            }
+        }
         waitForTopic(admin, topic);
+    }
+
+    private static boolean hasCause(final Throwable failure, final Class<? extends Throwable> type) {
+        Throwable current = failure;
+        while (current != null) {
+            if (type.isInstance(current)) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private static void waitForRegisteredBrokers(final Admin admin) throws Exception {
+        for (int attempt = 0; attempt < 60; attempt++) {
+            try {
+                if (admin.describeCluster().nodes().get(10, TimeUnit.SECONDS).size() >= 3) {
+                    return;
+                }
+            } catch (Exception ignored) {
+                // Retry while the restarted broker registers with the controller.
+            }
+            TimeUnit.MILLISECONDS.sleep(250);
+        }
+        throw new IllegalStateException("three Kafka brokers did not register");
     }
 
     private static TopicDescription describe(final Admin admin, final String topic) throws Exception {
@@ -333,7 +404,9 @@ public final class KafkaClientArtifactTransactionalSmoke {
     private static void waitForTopic(final Admin admin, final String topic) throws Exception {
         for (int attempt = 0; attempt < 30; attempt++) {
             try {
-                if (describe(admin, topic) != null) {
+                final TopicDescription description = describe(admin, topic);
+                if (description != null && description.partitions().stream()
+                        .allMatch(partition -> partition.isr().size() >= 3)) {
                     return;
                 }
             } catch (Exception ignored) {

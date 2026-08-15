@@ -29,6 +29,8 @@ k2_receipt_topic="${KAFKA_DELAY_E2E_K2_RECEIPT_TOPIC:-nereus-delay-k2-receipt}"
 with_oxia="${NEREUS_DELAY_KAFKA_WITH_OXIA:-0}"
 route_failover="${NEREUS_DELAY_KAFKA_ROUTE_FAILOVER:-0}"
 route_failover_only="${NEREUS_DELAY_KAFKA_ROUTE_FAILOVER_ONLY:-0}"
+k2_failover="${NEREUS_DELAY_KAFKA_K2_FAILOVER:-0}"
+k2_failover_only="${NEREUS_DELAY_KAFKA_K2_FAILOVER_ONLY:-0}"
 oxia_checkout="${NEREUS_DELAY_KAFKA_OXIA_CHECKOUT:-${delay_dir}/../../oxia}"
 oxia_port="${NEREUS_DELAY_KAFKA_OXIA_PORT:-$((16650 + ($$ % 100)))}"
 oxia_compose_project="nereus-delay-kafka-oxia-e2e-$(date +%s)-$$"
@@ -48,6 +50,14 @@ if [[ "${route_failover_only}" != "0" && "${route_failover_only}" != "1" ]]; the
   echo "NEREUS_DELAY_KAFKA_ROUTE_FAILOVER_ONLY must be 0 or 1" >&2
   exit 1
 fi
+if [[ "${k2_failover}" != "0" && "${k2_failover}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_K2_FAILOVER must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${k2_failover_only}" != "0" && "${k2_failover_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_K2_FAILOVER_ONLY must be 0 or 1" >&2
+  exit 1
+fi
 if [[ "${route_failover}" == "1" && "${with_oxia}" != "1" ]]; then
   echo "NEREUS_DELAY_KAFKA_ROUTE_FAILOVER requires NEREUS_DELAY_KAFKA_WITH_OXIA=1" >&2
   exit 1
@@ -60,12 +70,29 @@ if [[ "${route_failover_only}" == "1" && "${route_failover}" != "1" ]]; then
   echo "NEREUS_DELAY_KAFKA_ROUTE_FAILOVER_ONLY requires NEREUS_DELAY_KAFKA_ROUTE_FAILOVER=1" >&2
   exit 1
 fi
+if [[ "${k2_failover_only}" == "1" && "${k2_failover}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_K2_FAILOVER_ONLY requires NEREUS_DELAY_KAFKA_K2_FAILOVER=1" >&2
+  exit 1
+fi
+if [[ "${route_failover_only}" == "1" && "${k2_failover_only}" == "1" ]]; then
+  echo "route and K2 failover-only modes are mutually exclusive" >&2
+  exit 1
+fi
 
 route_failover_dir="$(mktemp -d -t nereus-delay-kafka-route-failover.XXXXXX)"
 route_failover_gate="${route_failover_dir}/release"
 route_failover_log="${route_failover_dir}/route-worker.log"
+k2_failover_dir="$(mktemp -d -t nereus-delay-kafka-k2-failover.XXXXXX)"
+k2_failover_gate="${k2_failover_dir}/release"
+k2_failover_ready="${k2_failover_dir}/ready"
+k2_failover_log="${k2_failover_dir}/k2.log"
+k2_failover_pid=""
 
 cleanup() {
+  if [[ -n "${k2_failover_pid}" ]]; then
+    kill "${k2_failover_pid}" >/dev/null 2>&1 || true
+    wait "${k2_failover_pid}" >/dev/null 2>&1 || true
+  fi
   "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
   docker image rm "${image}" >/dev/null 2>&1 || true
   if [[ "${with_oxia}" == "1" ]]; then
@@ -73,6 +100,7 @@ cleanup() {
   fi
   rm -rf "${image_context}"
   rm -rf "${route_failover_dir}"
+  rm -rf "${k2_failover_dir}"
 }
 trap cleanup EXIT INT TERM
 
@@ -213,6 +241,66 @@ run_route_worker_smoke() {
   cat "${route_failover_log}"
 }
 
+run_k2_smoke() {
+  local bootstrap_server="$1"
+  local k2_command=(./gradlew runRealKafkaK2Smoke
+    "-PkafkaClientJar=${client_jar}"
+    "-PkafkaBootstrap=${bootstrap_server}"
+    "-PkafkaTargetTopic=${k2_target_topic}"
+    "-PkafkaReceiptTopic=${k2_receipt_topic}"
+    --no-daemon --console=plain)
+  if [[ "${k2_failover}" != "1" ]]; then
+    GRADLE_USER_HOME="${gradle_user_home}" "${k2_command[@]}"
+    return 0
+  fi
+
+  rm -f "${k2_failover_gate}" "${k2_failover_ready}" "${k2_failover_log}"
+  NEREUS_DELAY_KAFKA_K2_COMMIT_GATE="${k2_failover_gate}" \
+  NEREUS_DELAY_KAFKA_K2_COMMIT_READY="${k2_failover_ready}" \
+  GRADLE_USER_HOME="${gradle_user_home}" "${k2_command[@]}" >"${k2_failover_log}" 2>&1 &
+  k2_failover_pid=$!
+  local deadline=$((SECONDS + 180))
+  while (( SECONDS < deadline )); do
+    if [[ -f "${k2_failover_ready}" ]]; then
+      break
+    fi
+    if ! kill -0 "${k2_failover_pid}" >/dev/null 2>&1; then
+      if wait "${k2_failover_pid}"; then
+        :
+      else
+        cat "${k2_failover_log}" >&2
+        k2_failover_pid=""
+        return 1
+      fi
+      cat "${k2_failover_log}" >&2
+      k2_failover_pid=""
+      return 1
+    fi
+    sleep 1
+  done
+  if [[ ! -f "${k2_failover_ready}" ]]; then
+    echo "Kafka K2 smoke did not reach the broker failover gate" >&2
+    cat "${k2_failover_log}" >&2
+    return 1
+  fi
+
+  "${compose[@]}" stop kafka-1
+  wait_for_broker kafka-2
+  touch "${k2_failover_gate}"
+  local k2_status=0
+  if wait "${k2_failover_pid}"; then
+    :
+  else
+    k2_status=$?
+  fi
+  k2_failover_pid=""
+  "${compose[@]}" start kafka-1
+  wait_for_broker kafka-1
+  sleep 10
+  cat "${k2_failover_log}"
+  return "${k2_status}"
+}
+
 cd "${delay_dir}"
 require_clean_kafka_checkout
 test -s "${client_jar}"
@@ -253,6 +341,12 @@ if [[ "${route_failover_only}" == "1" ]]; then
   exit 0
 fi
 
+if [[ "${k2_failover_only}" == "1" ]]; then
+  run_k2_smoke "${bootstrap_all}"
+  echo "Kafka K2 broker failover E2E passed: target-plus-receipt transaction crossed broker-1 failover with read_committed resolution."
+  exit 0
+fi
+
 GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaSmoke \
   -PkafkaClientJar="${client_jar}" \
   -PkafkaBootstrap="${bootstrap_all}" \
@@ -280,12 +374,7 @@ run_worker_smoke "${bootstrap_all}" "${worker_topic}"
 restart_worker_topic="${KAFKA_DELAY_RESTART_WORKER_TOPIC:-${worker_topic}-broker-restart}"
 run_worker_smoke "${bootstrap_all}" "${restart_worker_topic}" prepare
 
-GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaK2Smoke \
-  -PkafkaClientJar="${client_jar}" \
-  -PkafkaBootstrap="${bootstrap_all}" \
-  -PkafkaTargetTopic="${k2_target_topic}" \
-  -PkafkaReceiptTopic="${k2_receipt_topic}" \
-  --no-daemon --console=plain
+run_k2_smoke "${bootstrap_all}"
 
 "${compose[@]}" stop kafka-1
 wait_for_broker kafka-2
