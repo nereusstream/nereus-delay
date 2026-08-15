@@ -266,6 +266,33 @@ tasks.register('runRealPulsarSourceSmoke', JavaExec) {
     args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarTopic')
 }
 
+tasks.register('runRealPulsarMutationSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs guarded signed System Mutation append/replay/ACK against an explicitly supplied Pulsar service.'
+    dependsOn tasks.named('compileRealPulsar')
+    if (realPulsarClientClasspath == null || realPulsarRuntimeDir == null
+            || findProperty('pulsarServiceUrl') == null
+            || findProperty('pulsarAdminUrl') == null || findProperty('pulsarMutationTopic') == null) {
+        doFirst {
+            throw new GradleException(
+                    'runRealPulsarMutationSmoke requires -PpulsarClientClasspath=... '
+                            + '-PpulsarRuntimeDir=/path/to/pulsar-distribution/lib '
+                            + '-PpulsarServiceUrl=pulsar://host:6650 -PpulsarAdminUrl=http://host:8080 '
+                            + '-PpulsarMutationTopic=topic')
+        }
+    }
+    doFirst {
+        if (!file(realPulsarRuntimeDir).isDirectory()) {
+            throw new GradleException('pulsarRuntimeDir must be an extracted P1 distribution lib directory')
+        }
+    }
+    classpath = files(sourceSets.main.output,
+            sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
+            fileTree(realPulsarRuntimeDir).include('**/*.jar'))
+    mainClass = 'io.nereusstream.delay.transport.PulsarClientArtifactMutationSmoke'
+    args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarMutationTopic')
+}
+
 tasks.register('runRealPulsarWorkerSmoke', JavaExec) {
     group = 'verification'
     description = 'Runs the P1 guarded recovery, Pulsar Worker apply and synchronous ACK smoke.'

@@ -2,11 +2,9 @@ package io.nereusstream.delay.transport;
 
 import io.nereusstream.delay.ownership.SourceAcknowledgement;
 import io.nereusstream.delay.ownership.SourceRecordConsumer;
-import io.nereusstream.delay.ownership.SourceReplayRecord;
+import io.nereusstream.delay.ownership.SourceReplayEntry;
 import io.nereusstream.delay.protocol.Bytes;
-import io.nereusstream.delay.protocol.CommandCodec;
 import io.nereusstream.delay.protocol.PulsarSourcePosition;
-import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.ShardId;
 import org.apache.pulsar.client.api.GuardedConsumer;
 import org.apache.pulsar.client.api.Message;
@@ -26,7 +24,7 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>The native cursor is advanced only by a synchronous acknowledgement with
  * broker acknowledgement receipts enabled on the consumer.  The adapter
- * carries the exact guarded SUBSCRIBE proof into every {@link SourceReplayRecord};
+ * carries the exact guarded SUBSCRIBE proof into every source replay entry;
  * a changed connection generation is therefore an activation-boundary change,
  * not a transparent client-side detail.</p>
  */
@@ -93,7 +91,7 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
             if (!beforeReceive.equals(afterReceive)) {
                 throw new IllegalStateException("Pulsar source connection proof changed during receive");
             }
-            final SourceReplayRecord entry = decodeReplayRecord(message, shard, physicalTopic,
+            final SourceReplayEntry entry = decodeReplayRecord(message, shard, physicalTopic,
                     afterReceive.attestation(), afterReceive.generation(), afterReceive.digest());
             buffered = null;
             bufferedProof = null;
@@ -136,7 +134,7 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
     }
 
     private SourceAcknowledgement.AcknowledgementResult acknowledge(
-            final Message<byte[]> message, final SourceReplayRecord expected,
+            final Message<byte[]> message, final SourceReplayEntry expected,
             final io.nereusstream.delay.ownership.SourceReplayEntry candidate) {
         synchronized (this) {
             if (candidate != expected || inFlight != message || closed) {
@@ -160,19 +158,15 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
     }
 
     /** Decodes one guarded message for both active ACK and recovery replay paths. */
-    static SourceReplayRecord decodeReplayRecord(final Message<byte[]> message, final ShardId shard,
-                                                 final String physicalTopic,
-                                                 final TopicResourceGuardAttestation attestation,
-                                                 final long generation, final byte[] digest) {
-        final PreparedCommand command = CommandCodec.decodeFrameV1(requireData(message));
-        if (!shard.equals(command.shardId())) {
-            throw new IllegalArgumentException("Pulsar source command belongs to another Shard");
-        }
+    static SourceReplayEntry decodeReplayRecord(final Message<byte[]> message, final ShardId shard,
+                                                final String physicalTopic,
+                                                final TopicResourceGuardAttestation attestation,
+                                                final long generation, final byte[] digest) {
         if (!physicalTopic.equals(message.getTopicName())) {
             throw new IllegalArgumentException("Pulsar source message belongs to another physical topic");
         }
-        return new SourceReplayRecord(command, position(message, shard, physicalTopic, attestation), generation,
-                digest);
+        return PulsarClientArtifactSourceRecordDecoder.decode(requireData(message), shard,
+                position(message, shard, physicalTopic, attestation), generation, digest);
     }
 
     private static PulsarSourcePosition position(final Message<byte[]> message, final ShardId shard,

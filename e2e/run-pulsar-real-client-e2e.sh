@@ -25,6 +25,7 @@ web_port="${PULSAR_WEB_PORT:-$((base_port + 1))}"
 oxia_port="${NEREUS_DELAY_PULSAR_OXIA_PORT:-16657}"
 tarball="${NEREUS_DELAY_PULSAR_TARBALL:-${pulsar_dir}/distribution/server/build/distributions/apache-pulsar-5.0.0-M1-bin.tar.gz}"
 topic="${PULSAR_DELAY_E2E_TOPIC:-p1-real-client-${compose_project##*-}}"
+mutation_topic="${PULSAR_DELAY_MUTATION_TOPIC:-p1-mutation-${compose_project##*-}}"
 service_url="pulsar://127.0.0.1:${broker_port}"
 admin_url="http://127.0.0.1:${web_port}"
 pulsar_client_cp="${pulsar_dir}/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:${pulsar_dir}/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:${pulsar_dir}/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar"
@@ -135,6 +136,14 @@ GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealPulsarSourceSmoke \
   -PpulsarTopic="${topic}" \
   --no-daemon --console=plain
 
+GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealPulsarMutationSmoke \
+  -PpulsarClientClasspath="${pulsar_client_cp}" \
+  -PpulsarRuntimeDir="${runtime_dir}/lib" \
+  -PpulsarServiceUrl="${service_url}" \
+  -PpulsarAdminUrl="${admin_url}" \
+  -PpulsarMutationTopic="${mutation_topic}" \
+  --no-daemon --console=plain
+
 run_worker_smoke() {
   local worker_topic="$1"
   local worker_mode="$2"
@@ -165,4 +174,4 @@ run_worker_smoke "${restart_topic}" prepare
 wait_for_service
 run_worker_smoke "${restart_topic}" resume
 
-echo "Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, guarded source replay, Broker timestamp, Worker recovery/apply, ACK handoff, and broker-restart resume."
+echo "Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, guarded source replay, signed mutation append/replay/ACK, Broker timestamp, Worker recovery/apply, ACK handoff, and broker-restart resume."
