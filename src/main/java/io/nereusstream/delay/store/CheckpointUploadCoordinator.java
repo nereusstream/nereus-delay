@@ -108,6 +108,10 @@ public final class CheckpointUploadCoordinator {
                     "checkpoint upload adapter returned null resource");
             limits.validateResource(resource);
             validatePublishedResource(pending, manifest, resource, manifestBytes);
+            if (intentStore instanceof CheckpointAtomicPublicationAuthority atomicPublication) {
+                return atomicPublication.publishUploadedCheckpointAtomically(pending, resource, manifest,
+                        pending.baseCatalogGeneration());
+            }
             return intentStore.publish(pending, resource);
         } catch (RuntimeException | Error failure) {
             primaryFailure = failure;

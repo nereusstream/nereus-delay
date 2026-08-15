@@ -1,0 +1,218 @@
+package io.nereusstream.delay.store;
+
+import io.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
+import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.CheckpointUploadIntentV1;
+import io.nereusstream.delay.protocol.CheckpointUploadStateV1;
+import io.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
+import io.nereusstream.delay.protocol.KafkaSourcePosition;
+import io.nereusstream.delay.protocol.OwnerIdentityV1;
+import io.nereusstream.delay.protocol.ProfileKindV1;
+import io.nereusstream.delay.protocol.ProfileRefV1;
+import io.nereusstream.delay.protocol.ProtocolTupleV1;
+import io.nereusstream.delay.protocol.PublishAdmissionBody;
+import io.nereusstream.delay.protocol.QuotaGrantRefV1;
+import io.nereusstream.delay.protocol.RouteIncarnation;
+import io.nereusstream.delay.protocol.ShardId;
+import io.nereusstream.delay.protocol.ShardSubjectV1;
+import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+import io.nereusstream.delay.scheduler.SchedulerBudget;
+import io.nereusstream.delay.scheduler.WorkClass;
+import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
+import io.nereusstream.delay.scheduler.WorkClassPolicy;
+import io.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.ByteBuffer;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.EnumMap;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/** Opt-in real Oxia coverage for the Worker checkpoint publication composition. */
+@Tag("real-service")
+class OxiaRealCheckpointPublicationSmokeTest {
+    private static final CheckpointManifestLimits LIMITS = new CheckpointManifestLimits(
+            100, Long.MAX_VALUE, Long.MAX_VALUE, 4_096, 1 << 20, 100, 4_096);
+
+    @TempDir
+    Path tempDir;
+
+    @Test
+    void workerCheckpointRuntimePublishesAtomicIntentAndCatalogAgainstRealService() throws Exception {
+        final String endpoint = endpoint();
+        final String prefix = "nereus-delay-real-checkpoint/" + UUID.randomUUID();
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 23);
+        final OwnerIdentityV1 owner = new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("worker"), 7,
+                id32(1));
+        final byte[] lineage = id16(2);
+        final byte[] checkpointId = id16(3);
+        final ProfileRefV1 objectStore = new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, id32(4),
+                ProfileKindV1.OBJECT_STORE);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("resources"));
+        final CheckpointScheduler scheduler = new CheckpointScheduler(100, 0, 1);
+        final Path checkpointDirectory = tempDir.resolve("checkpoint");
+        final Path objectRoot = tempDir.resolve("objects");
+
+        try (OxiaSyncOwnerLeaseBackend.ClientHandle client = client(endpoint, prefix + "/client");
+             SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shard, resources)) {
+            final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshot(shard);
+            store.recordControlSnapshot(controlSnapshot);
+            final UUID topic = UUID.nameUUIDFromBytes(lineage);
+            final KafkaSourcePosition parentPosition = new KafkaSourcePosition(shard, "cluster", topic, 0,
+                    null, 900);
+            final KafkaSourcePosition appliedPosition = new KafkaSourcePosition(shard, "cluster", topic, 1,
+                    null, 901);
+            store.write(batch -> {
+                batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(3), appliedPosition.canonicalBytes());
+                batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(5), Bytes.u64beBits(1));
+            });
+
+            final OxiaSyncCheckpointPublicationBackend publicationBackend =
+                    new OxiaSyncCheckpointPublicationBackend(client.client(), prefix + "/publication", LIMITS);
+            final CheckpointManifest parent = parentManifest(store, shard, lineage, owner, controlSnapshot,
+                    parentPosition);
+            assertEquals(1, publicationBackend.publish(parent, 0).catalogGeneration());
+            final CheckpointUploadIntentV1 pending = new CheckpointUploadIntentV1(
+                    new ShardSubjectV1(shard), lineage, checkpointId, owner, uuidBytes(
+                            store.metadata().storeIncarnationUuid()), id32(5), 1, parent.checkpointId(),
+                    parent.manifestSha256(), objectStore, evidence(1_000), 5_000,
+                    CheckpointUploadStateV1.PENDING_UPLOAD, 1, null, null);
+            assertEquals(pending, publicationBackend.create(pending));
+
+            final WorkClassExecutionRegistry workClasses = workClasses(1);
+            final CheckpointPublicationCoordinator publication = new CheckpointPublicationCoordinator(resources,
+                    publicationBackend, LIMITS, publicationBackend);
+            final WorkerCheckpointRuntime runtime = new WorkerCheckpointRuntime(workClasses, scheduler, store,
+                    publication, request -> assertEquals(pending, publicationBackend.current(pending).orElseThrow()));
+            runtime.register(shard, 0);
+            final CheckpointScheduler.ScheduledCheckpoint claim = runtime.claimDue(100, 1).get(0);
+            final CheckpointWorkClassExecutor.ExecutionRequest request =
+                    new CheckpointWorkClassExecutor.ExecutionRequest(claim, checkpointDirectory, pending,
+                            (directory, currentStore) -> childManifest(directory, currentStore, pending, parent, owner,
+                                    controlSnapshot), 1_000, () -> 100,
+                            new FilesystemCheckpointUploadAdapter(objectRoot, "bucket", LIMITS));
+
+            final CheckpointWorkClassExecutor.Submission submitted = runtime.submit(request);
+            assertEquals(List.of(submitted.task()), runtime.runTurn(new SchedulerBudget(1,
+                    submitted.task().bytes(), 1_000)));
+            final CheckpointWorkClassExecutor.AttemptOutcome outcome = submitted.outcome().orElseThrow();
+            assertNotNull(outcome.result());
+            assertEquals(CheckpointUploadStateV1.PUBLISHED, outcome.result().publication().uploadIntent().state());
+            assertEquals(outcome.result().publication().uploadIntent(),
+                    publicationBackend.currentPublishedFor(pending).orElseThrow());
+            assertArrayEquals(outcome.result().manifest().canonicalJsonBytes(), publicationBackend.manifest(
+                    checkpointId).orElseThrow().canonicalJsonBytes());
+            assertTrue(Files.isDirectory(checkpointDirectory));
+            assertTrue(Files.isDirectory(objectRoot));
+            assertFalse(scheduler.isInFlight(shard));
+        }
+    }
+
+    private static String endpoint() {
+        final String endpoint = System.getenv("NEREUS_DELAY_OXIA_ENDPOINT");
+        Assumptions.assumeTrue(endpoint != null && !endpoint.isBlank(),
+                "NEREUS_DELAY_OXIA_ENDPOINT is not configured");
+        return endpoint;
+    }
+
+    private static OxiaSyncOwnerLeaseBackend.ClientHandle client(final String endpoint, final String identifier)
+            throws Exception {
+        return OxiaSyncOwnerLeaseBackend.connect(endpoint, "default", identifier, Duration.ofSeconds(15),
+                "real-checkpoint-smoke");
+    }
+
+    private static CheckpointManifest parentManifest(final ShardStore store, final ShardId shard,
+                                                     final byte[] lineage, final OwnerIdentityV1 owner,
+                                                     final CompatibleControlSnapshotV1 controlSnapshot,
+                                                     final KafkaSourcePosition position) {
+        final CheckpointManifest.FileEntry file = new CheckpointManifest.FileEntry("CURRENT", 1, id32(10),
+                Bytes.utf8("parent-object"), Bytes.utf8("parent-version"), null);
+        return new CheckpointManifest(id16(11), lineage, 0, null, null,
+                new CheckpointManifest.CreatedBy(owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch()),
+                createdAt(800), shard, store.metadata().dbIdentity(), store.metadata().storeIncarnationUuid(),
+                store.metadata().storeFormatVersion(), 0, position, controlSnapshot.snapshotDigest(), id32(12),
+                List.of(), List.of(file));
+    }
+
+    private static CheckpointManifest childManifest(final Path directory, final ShardStore store,
+                                                    final CheckpointUploadIntentV1 pending,
+                                                    final CheckpointManifest parent, final OwnerIdentityV1 owner,
+                                                    final CompatibleControlSnapshotV1 controlSnapshot) {
+        final List<CheckpointManifest.FileEntry> files = CheckpointFileInventory.collect(directory).stream()
+                .map(file -> new CheckpointManifest.FileEntry(file.name(), file.length(), file.checksum(),
+                        Bytes.utf8("object/" + file.name()), Bytes.utf8("version/" + file.name()), null))
+                .toList();
+        return new CheckpointManifest(pending.checkpointId(), pending.recoveryLineageId(), 1,
+                new CheckpointManifest.ParentCheckpoint(parent.checkpointId(), Bytes.hex(parent.manifestSha256())),
+                null, new CheckpointManifest.CreatedBy(owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch()),
+                createdAt(1_000), store.shardId(), store.metadata().dbIdentity(),
+                store.metadata().storeIncarnationUuid(), store.metadata().storeFormatVersion(),
+                store.shardMutationSequence(), store.appliedShardLogPosition(), controlSnapshot.snapshotDigest(),
+                id32(13), store.runtimeMetadata().evidenceCursors(), files);
+    }
+
+    private static CompatibleControlSnapshotV1 controlSnapshot(final ShardId shard) {
+        return new CompatibleControlSnapshotV1(new ShardSubjectV1(shard),
+                List.of(new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1)),
+                List.of(new ProfileRefV1(id32(20), 1, id32(21), ProfileKindV1.DESTINATION)),
+                new QuotaGrantRefV1(id32(22), 1, new PublishAdmissionBody.ChargeVector(
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));
+    }
+
+    private static CheckpointManifest.CreatedAt createdAt(final long time) {
+        return new CheckpointManifest.CreatedAt(time, time + 1, "CERTIFIED_HOST_CLOCK", id32(30), 1, 1, 1,
+                id32(31), 0, null);
+    }
+
+    private static TrustedUtcIntervalEvidence evidence(final long earliest) {
+        return new TrustedUtcIntervalEvidence(earliest, earliest + 1,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("clock"), 1, 1, 1,
+                id32(32), 0, null);
+    }
+
+    private static WorkClassExecutionRegistry workClasses(final int maxQueueRecords) {
+        final EnumMap<WorkClass, WorkClassPolicy> policies = new EnumMap<>(WorkClass.class);
+        for (WorkClass workClass : WorkClass.values()) {
+            final boolean protectedClass = switch (workClass) {
+                case LEASE_FENCE, SOURCE_APPLY, OUTCOME_AND_CONTROL, EXPIRY, DUE_SCHEDULER, GC -> true;
+                case QUERY, CHECKPOINT -> false;
+            };
+            policies.put(workClass, new WorkClassPolicy(1, maxQueueRecords, maxQueueRecords * 1_000_000L,
+                    maxQueueRecords, maxQueueRecords * 1_000_000L, 1_000,
+                    protectedClass ? 1 : 0, protectedClass ? 8 : 0, workClass == WorkClass.LEASE_FENCE));
+        }
+        return new WorkClassExecutionRegistry(new WorkClassRuntimeConfig(policies, 100, 100,
+                16, 8_000_000), new AtomicLong()::get);
+    }
+
+    private static byte[] uuidBytes(final UUID value) {
+        return ByteBuffer.allocate(16).putLong(value.getMostSignificantBits())
+                .putLong(value.getLeastSignificantBits()).array();
+    }
+
+    private static byte[] id16(final int value) {
+        final byte[] bytes = new byte[16];
+        bytes[15] = (byte) value;
+        return bytes;
+    }
+
+    private static byte[] id32(final int value) {
+        final byte[] bytes = new byte[32];
+        bytes[31] = (byte) value;
+        return bytes;
+    }
+}

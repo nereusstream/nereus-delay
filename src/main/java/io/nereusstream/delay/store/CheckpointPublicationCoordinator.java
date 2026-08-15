@@ -23,14 +23,14 @@ public final class CheckpointPublicationCoordinator {
     public CheckpointPublicationCoordinator(final SharedRocksDbResources resources,
                                             final CheckpointUploadIntentAuthority intentAuthority,
                                             final RecoveryCatalogAuthority catalog) {
-        this(new CheckpointUploadCoordinator(resources, intentAuthority), catalog);
+        this(uploadCoordinator(resources, intentAuthority, catalog), catalog);
     }
 
     public CheckpointPublicationCoordinator(final SharedRocksDbResources resources,
                                             final CheckpointUploadIntentAuthority intentAuthority,
                                             final CheckpointManifestLimits limits,
                                             final RecoveryCatalogAuthority catalog) {
-        this(new CheckpointUploadCoordinator(resources, intentAuthority, limits), catalog);
+        this(uploadCoordinator(resources, intentAuthority, limits, catalog), catalog);
     }
 
     /** Allows callers to share a finite-limit upload coordinator. */
@@ -72,6 +72,30 @@ public final class CheckpointPublicationCoordinator {
         public CheckpointPublication {
             Objects.requireNonNull(uploadIntent, "uploadIntent");
             Objects.requireNonNull(catalogPublication, "catalogPublication");
+        }
+    }
+
+    private static CheckpointUploadCoordinator uploadCoordinator(final SharedRocksDbResources resources,
+                                                                  final CheckpointUploadIntentAuthority intentAuthority,
+                                                                  final RecoveryCatalogAuthority catalog) {
+        requireAtomicPublicationPair(intentAuthority, catalog);
+        return new CheckpointUploadCoordinator(resources, intentAuthority);
+    }
+
+    private static CheckpointUploadCoordinator uploadCoordinator(final SharedRocksDbResources resources,
+                                                                  final CheckpointUploadIntentAuthority intentAuthority,
+                                                                  final CheckpointManifestLimits limits,
+                                                                  final RecoveryCatalogAuthority catalog) {
+        requireAtomicPublicationPair(intentAuthority, catalog);
+        return new CheckpointUploadCoordinator(resources, intentAuthority, limits);
+    }
+
+    private static void requireAtomicPublicationPair(final CheckpointUploadIntentAuthority intentAuthority,
+                                                     final RecoveryCatalogAuthority catalog) {
+        if (intentAuthority instanceof CheckpointAtomicPublicationAuthority
+                && intentAuthority != catalog) {
+            throw new IllegalArgumentException(
+                    "atomic checkpoint publication intent and catalog authorities must be the same record backend");
         }
     }
 }

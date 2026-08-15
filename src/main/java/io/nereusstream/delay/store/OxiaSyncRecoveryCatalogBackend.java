@@ -217,6 +217,12 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
     }
 
     private RecoveryCatalog.Snapshot decodeSnapshot(final byte[] encoded) {
+        return decodeSnapshot(encoded, manifestLimits);
+    }
+
+    static RecoveryCatalog.Snapshot decodeSnapshot(final byte[] encoded,
+                                                    final CheckpointManifestLimits manifestLimits) {
+        Objects.requireNonNull(manifestLimits, "manifestLimits");
         final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(encoded, true);
         final List<CanonicalProtobuf.Reader.Field> fields = new ArrayList<>();
         while (reader.hasRemaining()) {
