@@ -4553,3 +4553,30 @@ receipt. It is not evidence of multi-node Oxia failover or partition healing,
 multi-shard Route activation, native Broker eligibility, live Profile/credential
 authority, production transport publication, crash/response-loss resolution or
 the §23.5 release gates.
+
+### 2026-08-16 Gateway certificate replacement and channel revalidation
+
+Commit `cbe895e1` adds a bounded deployment-replacement cut to the Gateway
+network harness. It generates independent old and rotated CA/server/client
+sets. The old server accepts the first request and persists the durable
+idempotency result. After same-port replacement, the new server trusts only
+the rotated CA and presents the rotated server certificate. An old client is
+configured to trust the rotated server but presents the old client certificate,
+so the handshake is rejected by the new trust bundle. A new client certificate
+and a new RS256 JWT with matching `cnf.x5t#S256` authenticate and reread the
+exact old outcome; the core and coordinator counters remain one.
+
+The source-locked run used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, image
+`sha256:054bb7d13cd9c3d7a6c4dd0b70d5820b6ece2115e840cf47ff8ea0e679a9248c`,
+Compose `nereus-delay-gateway-e2e-1786823102-1813`, Oxia port `16677` and
+Gateway port `22356`:
+
+```text
+Gateway certificate rotation E2E passed: old mTLS client rejected and new certificate reread the exact durable outcome
+```
+
+This is positive same-port replacement and authenticated-channel
+revalidation, not hot certificate reload, staged rollback, revocation/CRL or
+OCSP proof, multi-process Gateway HA, load, crash/response-loss resolution,
+live Kafka/Pulsar publication or the §23.5 release gates.

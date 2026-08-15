@@ -836,3 +836,34 @@ attempt:
 ```text
 Gateway two-server CAS race E2E passed: independent Gateway servers converged on one durable physical attempt
 ```
+
+## Gateway certificate replacement and channel revalidation
+
+The Gateway harness also exercises a bounded deployment replacement. It
+generates independent old and rotated CA/server/client sets. The old server
+persists the first request. The replacement server uses the rotated server
+certificate and trusts only the rotated CA; an old client trusts the rotated
+server but presents the old client certificate and must fail at mTLS. A new
+client certificate and JWT with matching `cnf.x5t#S256` must receive the exact
+durable outcome without another preparation or physical attempt.
+
+The source-locked run used:
+
+```bash
+NEREUS_DELAY_OXIA_GATEWAY_E2E_PORT=16677 \
+NEREUS_DELAY_GATEWAY_PORT=22356 \
+./e2e/run-gateway-real-e2e.sh
+```
+
+It used Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, image
+`sha256:054bb7d13cd9c3d7a6c4dd0b70d5820b6ece2115e840cf47ff8ea0e679a9248c`,
+Compose project `nereus-delay-gateway-e2e-1786823102-1813`, and printed:
+
+```text
+Gateway certificate rotation E2E passed: old mTLS client rejected and new certificate reread the exact durable outcome
+```
+
+This closes only bounded same-port certificate replacement and authenticated
+channel revalidation. Hot reload, staged rollback, revocation/CRL or OCSP,
+multi-process Gateway HA, load, crash/response-loss and release PASS remain
+open.

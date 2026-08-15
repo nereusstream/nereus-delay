@@ -7825,6 +7825,32 @@ receipt. It does not establish multi-node Oxia failover, partial-placement
 behavior, multi-shard activation, native eligibility, live resource/profile
 authority, production Worker transport or V1 release readiness.
 
+## 2026-08-16 Gateway certificate replacement audit
+
+Commit `cbe895e1` adds an independent certificate set to the real Gateway
+network harness. The first server uses the original CA, server certificate and
+client certificate. The replacement server uses a new CA, server certificate
+and client certificate on the same port. An old client trusts the new CA but
+still presents the old client certificate and is rejected during mTLS; the new
+client presents a JWT bound to its new certificate fingerprint and rereads the
+same Oxia idempotency result. Counters and scans require one attempt, one
+quiescent aggregate, released admission and two audit records.
+
+The source-locked run used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, image
+`sha256:054bb7d13cd9c3d7a6c4dd0b70d5820b6ece2115e840cf47ff8ea0e679a9248c`,
+Compose `nereus-delay-gateway-e2e-1786823102-1813`, Oxia port `16677` and
+Gateway port `22356`:
+
+```text
+Gateway certificate rotation E2E passed: old mTLS client rejected and new certificate reread the exact durable outcome
+```
+
+Audit boundary: this is bounded same-port server replacement and channel
+revalidation. It does not establish hot reload, staged rollback, certificate
+revocation, multi-process Gateway HA, load, crash/response-loss handling,
+live Kafka/Pulsar publication or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
