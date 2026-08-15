@@ -7798,6 +7798,33 @@ production multi-process HA, Oxia failover, session churn, certificate
 operations, load, crash/response-loss resolution, live Kafka/Pulsar
 publication or V1 release readiness.
 
+## 2026-08-16 Oxia Route notification recovery audit
+
+Delay commit `6a64ca894928a9a6f210129e2567b02f7df1329f` closes the missing
+session-rotation notification cut for the session-fenced Route provider. On a
+started provider, `refresh()` revalidates or rotates the main ephemeral marker,
+replaces the separate notification client and registers the same callback on a
+fresh offset-tracked Oxia notification manager before replaying the signed
+head/event stream. Raw clients keep the native Oxia retry path without a second
+callback registration.
+
+The gated real-service run used two-second Route sessions, a five-second
+stop window, Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, image
+`sha256:05d66cf3117d24b358baee21fb87caa001c99bec2f734ea9ce2549f7675d085a`,
+Compose `nereus-delay-v1-oxia-e2e-1786822655-96457`, and port `16675`. After
+the restart, the provider identity changed, one explicit refresh restored the
+cache, and a later revision reached the provider without a second refresh:
+
+```text
+Oxia Route notification restart recovery passed: revision=2, session rotated, notification stream resumed without a second provider refresh
+Dockerized Oxia Route notification restart smoke passed: session rotation and notification stream recovery
+```
+
+Audit boundary: this is a bounded single-node Oxia restart/session-rotation
+receipt. It does not establish multi-node Oxia failover, partial-placement
+behavior, multi-shard activation, native eligibility, live resource/profile
+authority, production Worker transport or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

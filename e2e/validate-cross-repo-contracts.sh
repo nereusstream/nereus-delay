@@ -447,8 +447,20 @@ require_file_text "$delay_root/e2e/run-oxia-real-service.sh" \
     "OxiaRealRouteWorkerAssignmentSmokeTest"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaRealRouteAuthoritySmokeTest.java" \
     "signedRouteProviderRecoversAfterRealOxiaRestart"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaRealRouteAuthoritySmokeTest.java" \
+    "signedRouteNotificationsRecoverAfterRealOxiaRestart"
 require_file_text "$delay_root/e2e/run-oxia-real-service.sh" \
     "NEREUS_DELAY_OXIA_ROUTE_RESTART"
+require_file_text "$delay_root/e2e/run-oxia-real-service.sh" \
+    "NEREUS_DELAY_OXIA_ROUTE_RESTART_NOTIFICATIONS"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "6a64ca894928a9a6f210129e2567b02f7df1329f"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Oxia Route notification restart recovery passed"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Route notification stream recovery after Oxia session rotation"
+require_file_text "$delay_root/e2e/README.md" \
+    "NEREUS_DELAY_OXIA_ROUTE_RESTART_NOTIFICATIONS=1"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "nereus-delay-v1-oxia-e2e-1786789198-22565"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \

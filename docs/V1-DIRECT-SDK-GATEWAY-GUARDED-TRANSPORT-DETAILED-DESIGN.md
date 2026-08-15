@@ -4521,3 +4521,35 @@ This is bounded independent-client concurrency in one test JVM. It does not
 establish production multi-process HA, Oxia failover, notification/session
 churn, certificate deployment/rotation, load, crash/response-loss handling or
 live Kafka/Pulsar publication.
+
+### 2026-08-16 Route notification stream recovery after Oxia session rotation
+
+Commit `6a64ca894928a9a6f210129e2567b02f7df1329f` completes the bounded
+notification recovery seam for `OxiaSignedRouteSnapshotProvider`. The provider
+still treats `refresh()` as the explicit authority-recovery boundary: it first
+revalidates or rotates the session-fenced marker, then the session composition
+closes its old watch client, creates a new client with the same namespace and
+watch identity, and registers the provider callback on the new notification
+manager. The cache is rebuilt from the signed head/event stream after that
+subscription is installed. A raw `SyncOxiaClient` keeps the Oxia client's own
+retry behavior through the no-op compatibility hook and is never registered a
+second time.
+
+The real-service gate uses two-second session timeouts and
+`NEREUS_DELAY_OXIA_ROUTE_RESTART_PAUSE_SECONDS=5`, then publishes a second
+revision after one explicit provider refresh. Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, image
+`sha256:05d66cf3117d24b358baee21fb87caa001c99bec2f734ea9ce2549f7675d085a`,
+Compose `nereus-delay-v1-oxia-e2e-1786822655-96457`, and host port `16675`
+were used. The receipt was:
+
+```text
+Oxia Route notification restart recovery passed: revision=2, session rotated, notification stream resumed without a second provider refresh
+Dockerized Oxia Route notification restart smoke passed: session rotation and notification stream recovery
+```
+
+This is a positive single-node restart/session-rotation and resumed-notification
+receipt. It is not evidence of multi-node Oxia failover or partition healing,
+multi-shard Route activation, native Broker eligibility, live Profile/credential
+authority, production transport publication, crash/response-loss resolution or
+the §23.5 release gates.

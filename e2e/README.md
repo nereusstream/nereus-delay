@@ -652,6 +652,45 @@ reusable across this stop/start; marker expiry/rotation, notification-stream
 churn, multi-node failover, catalog placement, remote Object Store authority
 and release PASS remain outside the receipt.
 
+## Oxia Route notification recovery after session rotation
+
+The notification-recovery mode exercises the stricter restart cut. It uses
+two-second session timeouts and pauses the stopped Oxia container for five
+seconds so the publisher and provider markers expire. After the service is
+healthy again, the test reconnects the publisher and calls provider `refresh()`
+once. That refresh replaces the separate watch client and registers the same
+callback on a new offset-tracked notification stream. The test then publishes
+revision 2 without another provider refresh; receiving the retired snapshot
+proves the recovered stream, while the changed session identity proves marker
+rotation.
+
+Run it with:
+
+```bash
+NEREUS_DELAY_OXIA_ROUTE_RESTART=1 \
+NEREUS_DELAY_OXIA_ROUTE_RESTART_ONLY=1 \
+NEREUS_DELAY_OXIA_ROUTE_RESTART_NOTIFICATIONS=1 \
+NEREUS_DELAY_OXIA_ROUTE_RESTART_PAUSE_SECONDS=5 \
+NEREUS_DELAY_OXIA_E2E_PORT=16675 \
+./e2e/run-oxia-real-service.sh
+```
+
+The source-locked run used Delay commit `6a64ca894928a9a6f210129e2567b02f7df1329f`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, image
+`sha256:05d66cf3117d24b358baee21fb87caa001c99bec2f734ea9ce2549f7675d085a`,
+Compose project `nereus-delay-v1-oxia-e2e-1786822655-96457`, and port `16675`.
+It printed:
+
+```text
+Oxia Route notification restart recovery passed: revision=2, session rotated, notification stream resumed without a second provider refresh
+Dockerized Oxia Route notification restart smoke passed: session rotation and notification stream recovery
+```
+
+This closes only the bounded single-node restart/session-rotation and
+notification-resume cut. Multi-node Oxia failover, partial placement, catalog
+authority, native eligibility, live Broker transport, crash/response-loss and
+release PASS remain open.
+
 ## Worker final checkpoint-on-drain evidence
 
 Delay commit `2dd2cfff83f4d029972cf7fbeb569fbf4538c026` makes the real Kafka and

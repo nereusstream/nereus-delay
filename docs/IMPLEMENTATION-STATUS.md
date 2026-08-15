@@ -5562,7 +5562,7 @@ covers this ordering.
 
 | Area | Status | Evidence |
 |---|---|---|
-| Shared Semantic Core and signed immutable RouteSnapshot | Partial (local deterministic core plus Oxia event/head-CAS authority composition; bounded Kafka and Pulsar activation proofs added; production gates open) | `RouteSnapshotV1`, `DefaultDelaySemanticCore`, `InMemorySignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotPublisher`, `RouteSnapshotCompatibilityV1`, `DefaultDelayClient`, `RouteBoundSubmissionTransportPlanResolver`, `RouteSnapshotV1Test`, `DefaultDelaySemanticCoreTest`, `InMemorySignedRouteSnapshotProviderTest`, `OxiaSignedRouteSnapshotProviderTest`, `OxiaRealRouteAuthoritySmokeTest`, `KafkaClientArtifactRouteWorkerSmoke`, `PulsarClientArtifactRouteWorkerSmoke`; canonical signature/digest, contiguous replay, head CAS, notification refresh with an isolated watch client, same-incarnation immutable-drift quarantine, tenant-scoped historical resolution, explicit-refresh real Oxia publication and zero-I/O preparation are covered. Bounded real Kafka Fetch v13/LSO and Pulsar guarded SUBSCRIBE/position proofs now feed signed Route barriers, real Oxia Route publication and route-bound Worker assignment; Kafka additionally proves bounded Worker Store apply, source ACK, final local checkpoint and owner/assignment release. Notification-stream reconnect/stability under session churn, multi-broker activation/failover, native eligibility authority, package split and production cross-entry gate remain open |
+| Shared Semantic Core and signed immutable RouteSnapshot | Partial (local deterministic core plus Oxia event/head-CAS authority composition; bounded Kafka and Pulsar activation proofs added; production gates open) | `RouteSnapshotV1`, `DefaultDelaySemanticCore`, `InMemorySignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotPublisher`, `RouteSnapshotCompatibilityV1`, `DefaultDelayClient`, `RouteBoundSubmissionTransportPlanResolver`, `RouteSnapshotV1Test`, `DefaultDelaySemanticCoreTest`, `InMemorySignedRouteSnapshotProviderTest`, `OxiaSignedRouteSnapshotProviderTest`, `OxiaRealRouteAuthoritySmokeTest`, `KafkaClientArtifactRouteWorkerSmoke`, `PulsarClientArtifactRouteWorkerSmoke`; canonical signature/digest, contiguous replay, head CAS, notification refresh with an isolated watch client, same-incarnation immutable-drift quarantine, tenant-scoped historical resolution, explicit-refresh real Oxia publication and zero-I/O preparation are covered. Bounded real Kafka Fetch v13/LSO and Pulsar guarded SUBSCRIBE/position proofs now feed signed Route barriers, real Oxia Route publication and route-bound Worker assignment; Kafka additionally proves bounded Worker Store apply, source ACK, final local checkpoint and owner/assignment release. A bounded Oxia restart/session-rotation reset now reopens the provider notification client and resumes the next signed revision; multi-node Oxia failover, multi-broker activation/failover, native eligibility authority, package split and production cross-entry gate remain open |
 | Delay Gateway and Gateway idempotency | Partial (generated handlers, strict RS256+mTLS authority, durable Oxia admission/idempotency/audit compositions, real network plus server-restart revalidation, and bounded two-server CAS race; live/HA authority still open) | `GatewayScheduleRequestV1`, `GatewayRetryUncertainRequestV1`, `GatewayAdmissionRecordV1`, `GatewayAdmissionController`, `OxiaGatewayAdmissionController`, `GatewayIdempotencyStore`, `GatewayIdempotencyHashV1`, `GatewayIdempotencyRecordV1`, `GatewayPhysicalAttemptV1`, `InMemoryGatewayAdmissionController`, `InMemoryGatewayIdempotencyStore`, `OxiaGatewayIdempotencyStore`, `OxiaGatewayAuditSink`, `GatewayScheduleService`, `GatewayGrpcService`, `GatewayGrpcContext`, `GatewayGrpcServer`, `MutualTlsJwtGatewayTenantAuthority`, `RsaSha256GatewayJwtVerifier`, source proto, `GatewayScheduleServiceTest`, `GatewaySecurityCompositionTest`, `RsaSha256GatewayJwtVerifierTest`, `OxiaGatewayAdmissionControllerTest`, `OxiaRealGatewayAdmissionSmokeTest`, `OxiaGatewayIdempotencyStoreTest`, `OxiaGatewayAuditSinkTest`, `OxiaRealGatewayAuditSinkSmokeTest` and `OxiaRealGatewayGrpcSmokeTest`; exact body conflict, prepared-before-ownership, one-shot attempt, strict record decoding, separate durable admission pools with expiring lease CAS, trusted expiry reclaim, uncertain expected-prior/retry-ID CAS, response-loss exact rereads, generated eleven-RPC surface, mandatory mTLS server composition, RS256 signature/issuer/audience/time policy, mTLS `cnf.x5t#S256` binding, immutable digest-only audit persistence, live Oxia admission/audit readback, server restart with exact outcome reread, independent-client two-server CAS convergence, and the checked-in `e2e/run-gateway-real-e2e.sh` network path are covered. Certificate deployment/rotation, quota-rate/load proof, admission HA/session churn, multi-process HA/transactional idempotency, late authenticated evidence promotion, crash cuts and multi-language vectors remain open |
 | Kafka generic guarded Producer patch | Implemented in isolated upstream worktree plus opt-in Delay K1/K2 binding (full K2 gate open) | Kafka branch `nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9` from locked `trunk@c300006a7705c240642db6950b5a95fec982bfc5`; focused K1/K2 client tests, guarded Fetch/source evidence, real KRaft delete/recreate/leader-failover, transaction-v2 guarded send, Delay source-set compile and three-broker K1/K2 Docker E2E pass. Client SHA-256 and broker image ID are recorded above; response-loss, LSO/retention, source assignment authority and release gates remain open |
 | Kafka guarded Consumer/source/Worker vertical | Implemented (opt-in real Kafka plus local owner authority; production authority pending) | `ConsumerResourceGuard`, `GuardedFetchEvidence`, `KafkaClientArtifactSourceConsumerFactory`, `KafkaClientArtifactRecoverySourceCursor`, `KafkaClientArtifactWorkerSourceFactory`, `KafkaClientArtifactWorkerSmoke`, `OwnerRecoveryCoordinator`, `WorkerShardRuntime`; guarded Fetch v13 evidence is validated before recovery or active source exposure, recovery applies offset 0 before activation, active offset 1 reaches RocksDB before `commitSync`, exact group offset is checked and drain releases the lease. The Docker evidence is recorded in the 2026-08-15 section above; Oxia network session/placement, Route publication, Broker failure cuts and due/Lane/publish/checkpoint production wiring remain open |
@@ -8244,6 +8244,52 @@ session identity across this stop/start, so this is not evidence of ephemeral
 marker rotation after expiry, multi-node Oxia failover, notification-stream
 churn, catalog-driven placement, remote Object Store authority or release
 PASS. The matching container and network were removed.
+
+## 2026-08-16 Oxia Route notification stream session-rotation evidence
+
+Delay commit `6a64ca894928a9a6f210129e2567b02f7df1329f` adds an explicit
+notification recovery operation to the session-fenced Route composition. A
+started provider's `refresh()` first revalidates or rotates the ephemeral
+authority marker, replaces the old watch client and registers the existing
+callback on a new Oxia notification manager, then rebuilds the signed Route
+cache. Raw clients retain Oxia 0.9.0's own offset-tracked retry loop and are
+not double-registered. Registration failure closes the replacement client and
+returns the provider to the failed refresh path.
+
+The new gated real-service test uses two-second Route sessions and a five-second
+Oxia stop window so both authority markers expire. After restart it reconnects
+the publisher and calls provider `refresh()` once; it then publishes revision 2
+without another provider refresh. The provider must receive that revision from
+the recovered notification stream and expose the retired signed snapshot.
+The source-locked run used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, image
+`sha256:05d66cf3117d24b358baee21fb87caa001c99bec2f734ea9ce2549f7675d085a`,
+Compose project `nereus-delay-v1-oxia-e2e-1786822655-96457`, and host port
+`16675`:
+
+```bash
+NEREUS_DELAY_OXIA_ROUTE_RESTART=1 \
+NEREUS_DELAY_OXIA_ROUTE_RESTART_ONLY=1 \
+NEREUS_DELAY_OXIA_ROUTE_RESTART_NOTIFICATIONS=1 \
+NEREUS_DELAY_OXIA_ROUTE_RESTART_PAUSE_SECONDS=5 \
+NEREUS_DELAY_OXIA_E2E_PORT=16675 \
+./e2e/run-oxia-real-service.sh
+```
+
+The selected test ended with `BUILD SUCCESSFUL in 23s` and `11 actionable
+tasks: 11 executed`; its exact deterministic receipt was:
+
+```text
+Oxia Route notification restart recovery passed: revision=2, session rotated, notification stream resumed without a second provider refresh
+Dockerized Oxia Route notification restart smoke passed: session rotation and notification stream recovery
+```
+
+This closes a bounded single-node Oxia restart, ephemeral-marker rotation,
+Route-cache rebuild and notification-stream recovery cut. It does not prove
+multi-node Oxia failover or partition behavior, notification recovery under
+partial metadata placement, multi-shard Route activation, native eligibility,
+live Profile/credential/Object Store/catalog authority or release PASS. The
+matching container and network were removed.
 
 ## 2026-08-15 Kafka K2 broker failover commit-boundary evidence
 
