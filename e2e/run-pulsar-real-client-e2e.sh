@@ -136,19 +136,20 @@ GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealPulsarSourceSmoke \
   --no-daemon --console=plain
 
 worker_environment=(env "GRADLE_USER_HOME=${gradle_user_home}")
-worker_properties=()
+worker_gradle_args=(
+  -PpulsarClientClasspath="${pulsar_client_cp}"
+  -PpulsarRuntimeDir="${runtime_dir}/lib"
+  -PpulsarServiceUrl="${service_url}"
+  -PpulsarAdminUrl="${admin_url}"
+  -PpulsarTopic="${topic}"
+)
 if [[ "${with_oxia}" == "1" ]]; then
   worker_environment+=("NEREUS_DELAY_OXIA_ENDPOINT=127.0.0.1:${oxia_port}")
-  worker_properties+=("-PpulsarWithOxia=true")
+  worker_gradle_args+=("-PpulsarWithOxia=true")
 fi
 
 "${worker_environment[@]}" ./gradlew runRealPulsarWorkerSmoke \
-  -PpulsarClientClasspath="${pulsar_client_cp}" \
-  -PpulsarRuntimeDir="${runtime_dir}/lib" \
-  -PpulsarServiceUrl="${service_url}" \
-  -PpulsarAdminUrl="${admin_url}" \
-  -PpulsarTopic="${topic}" \
-  "${worker_properties[@]}" \
+  "${worker_gradle_args[@]}" \
   --no-daemon --console=plain
 
 echo "Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, guarded source replay, Broker timestamp, Worker recovery/apply, and ACK handoff."
