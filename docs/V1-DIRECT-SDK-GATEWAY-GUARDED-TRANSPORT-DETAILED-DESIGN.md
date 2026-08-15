@@ -3640,8 +3640,9 @@ from `c300006a7705c240642db6950b5a95fec982bfc5`; the client SHA-256 was
 broker image was
 `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`.
 
-The receipt observed `PUBLISHED` after the broker cut. This is a bounded
-source-locked failover proof, not a lost-response proof: generic `UNKNOWN`
-resolution, Fetch/LSO/retention ambiguity, coordinator failover and crash
-recovery remain separately gated. The normal K2 smoke continues to own abort
-and target delete/recreate fencing.
+The receipt observed `PUBLISHED` after the broker cut, and the client
+rediscovered the transaction coordinator on broker 3 after broker 1 stopped.
+This is a bounded source-locked failover proof, not a lost-response proof:
+generic `UNKNOWN` resolution, Fetch/LSO/retention ambiguity and crash recovery
+remain separately gated. The normal K2 smoke continues to own abort and target
+delete/recreate fencing.

@@ -150,10 +150,12 @@ BUILD SUCCESSFUL in 10s
 Kafka K2 broker failover E2E passed: target-plus-receipt transaction crossed broker-1 failover with read_committed resolution.
 ```
 
-This run observed `PUBLISHED`, so it does not close a lost `EndTxn` response;
-generic response-loss resolution, Fetch/LSO/retention-floor ambiguity,
-transaction coordinator failover and crash gates remain open. The receipt is
-source-bound integration evidence, not a V1 release PASS.
+The client trace showed coordinator `19795/id=1` before the stop and
+rediscovery at `19797/id=3` after broker-1 failed over. This run observed
+`PUBLISHED`, so it does not close a lost `EndTxn` response; generic
+response-loss resolution, Fetch/LSO/retention-floor ambiguity and crash gates
+remain open. The receipt is source-bound integration evidence, not a V1 release
+PASS.
 
 ### Kafka Shard Log signed mutation append/replay/ACK
 

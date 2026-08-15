@@ -6972,7 +6972,9 @@ from `c300006a7705c240642db6950b5a95fec982bfc5`, with client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3` and
 broker image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`.
 The successful project was `nereus-delay-kafka-e2e-1786790805-40581` on
-`19795,19796,19797`. It printed:
+`19795,19796,19797`. The client trace recorded coordinator
+`127.0.0.1:19795 (id: 1)` before the stop and rediscovered
+`127.0.0.1:19797 (id: 3)` after broker-1 was stopped. It printed:
 
 ```text
 K2 broker failover commit returned PUBLISHED: read_committed target+receipt pair
@@ -6980,9 +6982,9 @@ K2 broker failover smoke passed: target-plus-receipt transaction crossed broker-
 ```
 
 This is a bounded real broker failover receipt for one target-plus-receipt
-transaction. Because the observed commit returned `PUBLISHED`, it does not
-close lost `EndTxn` response resolution; LSO/retention-floor recovery,
-transaction coordinator failover, crash cuts and release gates remain open.
+transaction and coordinator rediscovery. Because the observed commit returned
+`PUBLISHED`, it does not close lost `EndTxn` response resolution;
+LSO/retention-floor recovery, crash cuts and release gates remain open.
 
 ## Final gate
 

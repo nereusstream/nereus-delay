@@ -281,8 +281,12 @@ require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "6912b940"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "nereus-delay-kafka-e2e-1786790805-40581"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "127.0.0.1:19795 (id: 1)"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "nereus-delay-kafka-e2e-1786790805-40581"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "127.0.0.1:19797 (id: 3)"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "6912b940"
 require_file_text "$delay_root/e2e/README.md" \

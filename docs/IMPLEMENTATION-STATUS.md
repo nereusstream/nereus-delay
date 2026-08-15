@@ -8166,7 +8166,9 @@ KAFKA_BROKER_1_PORT=19795 KAFKA_BROKER_2_PORT=19796 KAFKA_BROKER_3_PORT=19797 \
 ```
 
 The harness stopped and restarted `kafka-1` around the released gate. The
-real-client receipt was:
+The client trace recorded transaction coordinator `127.0.0.1:19795 (id: 1)`
+before the stop and rediscovered `127.0.0.1:19797 (id: 3)` after broker-1 was
+stopped. The real-client receipt was:
 
 ```text
 K2 broker failover commit returned PUBLISHED: read_committed target+receipt pair
@@ -8176,11 +8178,11 @@ Kafka K2 broker failover E2E passed: target-plus-receipt transaction crossed bro
 ```
 
 This closes one three-broker, one-partition target-plus-keyed-receipt
-transaction cut across a real broker-1 stop/start, with exact
-`read_committed` counts and target/receipt record reads. The observed result
-was `PUBLISHED`, not an injected or observed lost `EndTxn` response; generic
-response-loss resolution, LSO/retention-floor ambiguity, transaction
-coordinator failover, and crash cuts remain independent open evidence. This is
+transaction cut across a real broker-1 stop/start and transaction-coordinator
+rediscovery, with exact `read_committed` counts and target/receipt record
+reads. The observed result was `PUBLISHED`, not an injected or observed lost
+`EndTxn` response; generic response-loss resolution, LSO/retention-floor
+ambiguity and crash cuts remain independent open evidence. This is
 source-bound integration evidence, not a V1 production or release PASS.
 
 ## Verification command
