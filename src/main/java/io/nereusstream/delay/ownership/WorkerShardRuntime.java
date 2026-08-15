@@ -2,7 +2,9 @@ package io.nereusstream.delay.ownership;
 
 import io.nereusstream.delay.protocol.ChannelResourceIdentityV1;
 import io.nereusstream.delay.adapter.DestinationPublishRequest;
+import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.ReadyCertificateV1;
+import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.scheduler.SchedulerBudget;
 import io.nereusstream.delay.scheduler.ScheduleWorkItem;
 import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
@@ -21,6 +23,7 @@ import io.nereusstream.delay.store.WorkerCheckpointRuntime;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -501,6 +504,147 @@ public final class WorkerShardRuntime implements AutoCloseable {
         return submitPhysicalPublish(persisted, payload, ownerClock);
     }
 
+    /**
+     * Replays the assigned source until one exact Admission Source Position
+     * has been applied, then reloads its durable PUBLISHING ledger and starts
+     * the bounded physical adapter bridge.  The source turn remains the only
+     * path that can create the local attempt projection; a caller cannot
+     * manufacture a PUBLISHING ledger by supplying an attempt object.
+     *
+     * <p>An empty payload result is a deliberate external Object Store
+     * deferral.  The payload provider runs only after the source-applied
+     * ledger has been reloaded, and the physical executor repeats the frozen
+     * inline/length/hash validation before any destination call.</p>
+     */
+    public synchronized SourceBoundPhysicalPublishTurn runSourceBoundPhysicalPublish(
+            final byte[] publishAttemptId,
+            final SourcePosition admissionSourcePosition,
+            final SchedulerBudget sourceBudget,
+            final int maxSourceTurns,
+            final PublishPayloadProvider payloadProvider,
+            final LongSupplier ownerClock) {
+        ensurePhysicalPublishExecutor();
+        ensureSourceRunning();
+        resources.requireRuntimeBusinessAdmission();
+        final byte[] exactAttemptId = Bytes.copy(Objects.requireNonNull(publishAttemptId, "publishAttemptId"));
+        final SourcePosition exactAdmissionPosition = Objects.requireNonNull(admissionSourcePosition,
+                "admissionSourcePosition");
+        if (!ownedShard.shard().shardId().equals(exactAdmissionPosition.shardId())) {
+            throw new IllegalArgumentException("Admission Source Position belongs to another shard");
+        }
+        final SchedulerBudget exactSourceBudget = Objects.requireNonNull(sourceBudget, "source budget");
+        if (maxSourceTurns <= 0) {
+            throw new IllegalArgumentException("maxSourceTurns must be positive");
+        }
+        final PublishPayloadProvider exactPayloadProvider = Objects.requireNonNull(payloadProvider,
+                "payload provider");
+        final LongSupplier exactOwnerClock = Objects.requireNonNull(ownerClock, "owner clock");
+        SourceApplyCoordinator.TurnResult lastSourceTurn = null;
+        boolean admissionApplied = false;
+        int sourceTurns = 0;
+        while (true) {
+            final PublishAttemptLedger persisted = ownedShard.shard().findOpenPublishAttempt(exactAttemptId);
+            if (persisted != null) {
+                if (!Arrays.equals(persisted.sourcePosition(), exactAdmissionPosition.canonicalBytes())) {
+                    return SourceBoundPhysicalPublishTurn.sourcePositionMismatch(sourceTurns, lastSourceTurn,
+                            persisted, new IllegalStateException(
+                                    "PUBLISHING ledger Source Position differs from Admission append"));
+                }
+                if (persisted.state() != AttemptLedgerState.PUBLISHING) {
+                    return SourceBoundPhysicalPublishTurn.attemptNotPublishing(sourceTurns, lastSourceTurn,
+                            persisted);
+                }
+                final Optional<byte[]> payload = Objects.requireNonNull(exactPayloadProvider.load(persisted),
+                        "payload provider result");
+                if (payload.isEmpty()) {
+                    return SourceBoundPhysicalPublishTurn.payloadUnavailable(sourceTurns, lastSourceTurn,
+                            persisted);
+                }
+                final WorkerPhysicalPublishExecutor.Submission physical = submitPhysicalPublish(
+                        persisted.publishAttemptId(), payload.orElseThrow(), exactOwnerClock);
+                return physical.state() == WorkerPhysicalPublishExecutor.SubmissionState.DEFERRED
+                        ? SourceBoundPhysicalPublishTurn.physicalDeferred(sourceTurns, lastSourceTurn,
+                        persisted, physical)
+                        : SourceBoundPhysicalPublishTurn.physicalSubmitted(sourceTurns, lastSourceTurn,
+                        persisted, physical);
+            }
+            if (admissionApplied) {
+                ownedShard.fence();
+                return SourceBoundPhysicalPublishTurn.sourceAppliedWithoutAttempt(sourceTurns, lastSourceTurn,
+                        new IllegalStateException("Admission source apply did not create its PUBLISHING ledger"));
+            }
+            if (sourceTurns >= maxSourceTurns) {
+                return SourceBoundPhysicalPublishTurn.sourceTurnLimit(sourceTurns, lastSourceTurn);
+            }
+
+            lastSourceTurn = runSourceTurn(exactSourceBudget, exactOwnerClock);
+            sourceTurns++;
+            if (lastSourceTurn.status() == SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED) {
+                if (sameSourcePosition(lastSourceTurn.entry().position(), exactAdmissionPosition)) {
+                    admissionApplied = true;
+                }
+                continue;
+            }
+            if (lastSourceTurn.status() == SourceApplyCoordinator.TurnStatus.WAITING_FOR_SOURCE
+                    || lastSourceTurn.status() == SourceApplyCoordinator.TurnStatus.WAITING_FOR_WORK_CLASS) {
+                if (sourceTurns >= maxSourceTurns) {
+                    return SourceBoundPhysicalPublishTurn.sourceTurnLimit(sourceTurns, lastSourceTurn);
+                }
+                continue;
+            }
+            return SourceBoundPhysicalPublishTurn.sourceApplyBlocked(sourceTurns, lastSourceTurn,
+                    lastSourceTurn.failure() == null
+                            ? new IllegalStateException("source turn stopped before Admission application")
+                            : lastSourceTurn.failure());
+        }
+    }
+
+    /**
+     * Runs the bound due/Claim/Publish graph, source-applies its exact
+     * Admission append, and starts the physical publish bridge.  The method
+     * returns before an asynchronous destination result is source-applied;
+     * the returned physical submission retains the signed Outcome handoff
+     * and the normal Worker command/source loops remain authoritative.
+     */
+    public synchronized DueClaimPublishPhysicalTurn runDueClaimPublishPhysicalTurn(
+            final TrustedUtcIntervalEvidence evidence,
+            final SchedulerBudget discoveryBudget,
+            final long claimDeadlineEpochMs,
+            final byte[] claimedCharge,
+            final LongSupplier ownerClock,
+            final SchedulerBudget commandBudget,
+            final int maxCommandTurns,
+            final SchedulerBudget sourceBudget,
+            final int maxSourceTurns,
+            final PublishPayloadProvider payloadProvider) {
+        ensurePhysicalPublishExecutor();
+        Objects.requireNonNull(sourceBudget, "source budget");
+        Objects.requireNonNull(payloadProvider, "payload provider");
+        if (maxSourceTurns <= 0) {
+            throw new IllegalArgumentException("maxSourceTurns must be positive");
+        }
+        final DueClaimPublishTurn dueClaimPublish = runDueClaimPublishTurn(evidence, discoveryBudget,
+                claimDeadlineEpochMs, claimedCharge, ownerClock, commandBudget, maxCommandTurns);
+        if (dueClaimPublish.publishSubmission().isEmpty()) {
+            return new DueClaimPublishPhysicalTurn(dueClaimPublish, Optional.empty());
+        }
+        final PublishAdmissionWorkClassExecutor.Submission admission = dueClaimPublish.publishSubmission()
+                .orElseThrow();
+        final PublishAdmissionWorkClassExecutor.AdmissionHandoffResult admissionResult = admission.result()
+                .orElseThrow(() -> new IllegalStateException("Publish Admission task completed without a result"));
+        if (admissionResult.kind() != PublishAdmissionWorkClassExecutor.ResultKind.ENQUEUED) {
+            return new DueClaimPublishPhysicalTurn(dueClaimPublish, Optional.empty());
+        }
+        return new DueClaimPublishPhysicalTurn(dueClaimPublish, Optional.of(runSourceBoundPhysicalPublish(
+                admission.mutation().logicalOperationIdentity(), admissionResult.sourcePosition(), sourceBudget,
+                maxSourceTurns, payloadProvider, ownerClock)));
+    }
+
+    private static boolean sameSourcePosition(final SourcePosition first, final SourcePosition second) {
+        return first != null && second != null
+                && Arrays.equals(first.canonicalBytes(), second.canonicalBytes());
+    }
+
     /** Runs one bounded Claim/Publish turn through the shared Worker graph. */
     public synchronized List<WorkClassTask> runCommandTurn(final SchedulerBudget budget) {
         ensureCommandRuntime();
@@ -668,6 +812,12 @@ public final class WorkerShardRuntime implements AutoCloseable {
         }
     }
 
+    /** External authority that resolves inline or Object Store payload bytes. */
+    @FunctionalInterface
+    public interface PublishPayloadProvider {
+        Optional<byte[]> load(PublishAttemptLedger attempt);
+    }
+
     /** Evidence from one combined due-discovery to derived-Claim handoff. */
     public record DueClaimTurn(WorkerSchedulingRuntime.DueTurn dueTurn,
                                Optional<ClaimHandoffWorkClassExecutor.Submission> claimSubmission) {
@@ -699,6 +849,124 @@ public final class WorkerShardRuntime implements AutoCloseable {
             publishSubmission = Objects.requireNonNull(publishSubmission, "publishSubmission");
             publishCompletedTasks = List.copyOf(Objects.requireNonNull(publishCompletedTasks,
                     "publishCompletedTasks"));
+        }
+    }
+
+    /** Result of one source-bound Admission-to-physical handoff. */
+    public record SourceBoundPhysicalPublishTurn(
+            SourceBoundPhysicalPublishStatus status,
+            int sourceTurns,
+            Optional<SourceApplyCoordinator.TurnResult> lastSourceTurn,
+            Optional<PublishAttemptLedger> attempt,
+            Optional<WorkerPhysicalPublishExecutor.Submission> physicalSubmission,
+            Throwable failure) {
+        public SourceBoundPhysicalPublishTurn {
+            Objects.requireNonNull(status, "status");
+            if (sourceTurns < 0) {
+                throw new IllegalArgumentException("sourceTurns must be non-negative");
+            }
+            lastSourceTurn = Objects.requireNonNull(lastSourceTurn, "lastSourceTurn");
+            attempt = Objects.requireNonNull(attempt, "attempt");
+            physicalSubmission = Objects.requireNonNull(physicalSubmission, "physicalSubmission");
+            if ((status == SourceBoundPhysicalPublishStatus.PHYSICAL_SUBMITTED
+                    || status == SourceBoundPhysicalPublishStatus.PHYSICAL_DEFERRED)
+                    != physicalSubmission.isPresent()) {
+                throw new IllegalArgumentException("physical status must match physical submission");
+            }
+            if ((status == SourceBoundPhysicalPublishStatus.ATTEMPT_NOT_PUBLISHING
+                    || status == SourceBoundPhysicalPublishStatus.PAYLOAD_UNAVAILABLE
+                    || status == SourceBoundPhysicalPublishStatus.PHYSICAL_SUBMITTED
+                    || status == SourceBoundPhysicalPublishStatus.PHYSICAL_DEFERRED)
+                    != attempt.isPresent()) {
+                throw new IllegalArgumentException("attempt status must match attempt evidence");
+            }
+            if (status == SourceBoundPhysicalPublishStatus.SOURCE_APPLY_BLOCKED
+                    || status == SourceBoundPhysicalPublishStatus.SOURCE_POSITION_MISMATCH
+                    || status == SourceBoundPhysicalPublishStatus.SOURCE_APPLIED_WITHOUT_ATTEMPT) {
+                Objects.requireNonNull(failure, "blocked source result requires failure");
+            }
+        }
+
+        private static SourceBoundPhysicalPublishTurn physicalSubmitted(
+                final int sourceTurns, final SourceApplyCoordinator.TurnResult lastSourceTurn,
+                final PublishAttemptLedger attempt, final WorkerPhysicalPublishExecutor.Submission submission) {
+            return new SourceBoundPhysicalPublishTurn(SourceBoundPhysicalPublishStatus.PHYSICAL_SUBMITTED,
+                    sourceTurns, Optional.ofNullable(lastSourceTurn), Optional.of(attempt), Optional.of(submission),
+                    null);
+        }
+
+        private static SourceBoundPhysicalPublishTurn physicalDeferred(
+                final int sourceTurns, final SourceApplyCoordinator.TurnResult lastSourceTurn,
+                final PublishAttemptLedger attempt, final WorkerPhysicalPublishExecutor.Submission submission) {
+            return new SourceBoundPhysicalPublishTurn(SourceBoundPhysicalPublishStatus.PHYSICAL_DEFERRED,
+                    sourceTurns, Optional.ofNullable(lastSourceTurn), Optional.of(attempt), Optional.of(submission),
+                    null);
+        }
+
+        private static SourceBoundPhysicalPublishTurn attemptNotPublishing(
+                final int sourceTurns, final SourceApplyCoordinator.TurnResult lastSourceTurn,
+                final PublishAttemptLedger attempt) {
+            return new SourceBoundPhysicalPublishTurn(SourceBoundPhysicalPublishStatus.ATTEMPT_NOT_PUBLISHING,
+                    sourceTurns, Optional.ofNullable(lastSourceTurn), Optional.of(attempt), Optional.empty(), null);
+        }
+
+        private static SourceBoundPhysicalPublishTurn payloadUnavailable(
+                final int sourceTurns, final SourceApplyCoordinator.TurnResult lastSourceTurn,
+                final PublishAttemptLedger attempt) {
+            return new SourceBoundPhysicalPublishTurn(SourceBoundPhysicalPublishStatus.PAYLOAD_UNAVAILABLE,
+                    sourceTurns, Optional.ofNullable(lastSourceTurn), Optional.of(attempt), Optional.empty(), null);
+        }
+
+        private static SourceBoundPhysicalPublishTurn sourceTurnLimit(
+                final int sourceTurns, final SourceApplyCoordinator.TurnResult lastSourceTurn) {
+            return new SourceBoundPhysicalPublishTurn(SourceBoundPhysicalPublishStatus.SOURCE_TURN_LIMIT,
+                    sourceTurns, Optional.ofNullable(lastSourceTurn), Optional.empty(), Optional.empty(), null);
+        }
+
+        private static SourceBoundPhysicalPublishTurn sourceApplyBlocked(
+                final int sourceTurns, final SourceApplyCoordinator.TurnResult lastSourceTurn,
+                final Throwable failure) {
+            return new SourceBoundPhysicalPublishTurn(SourceBoundPhysicalPublishStatus.SOURCE_APPLY_BLOCKED,
+                    sourceTurns, Optional.ofNullable(lastSourceTurn), Optional.empty(), Optional.empty(),
+                    Objects.requireNonNull(failure, "failure"));
+        }
+
+        private static SourceBoundPhysicalPublishTurn sourcePositionMismatch(
+                final int sourceTurns, final SourceApplyCoordinator.TurnResult lastSourceTurn,
+                final PublishAttemptLedger attempt, final Throwable failure) {
+            return new SourceBoundPhysicalPublishTurn(SourceBoundPhysicalPublishStatus.SOURCE_POSITION_MISMATCH,
+                    sourceTurns, Optional.ofNullable(lastSourceTurn), Optional.of(attempt), Optional.empty(),
+                    Objects.requireNonNull(failure, "failure"));
+        }
+
+        private static SourceBoundPhysicalPublishTurn sourceAppliedWithoutAttempt(
+                final int sourceTurns, final SourceApplyCoordinator.TurnResult lastSourceTurn,
+                final Throwable failure) {
+            return new SourceBoundPhysicalPublishTurn(
+                    SourceBoundPhysicalPublishStatus.SOURCE_APPLIED_WITHOUT_ATTEMPT,
+                    sourceTurns, Optional.ofNullable(lastSourceTurn), Optional.empty(), Optional.empty(),
+                    Objects.requireNonNull(failure, "failure"));
+        }
+    }
+
+    public enum SourceBoundPhysicalPublishStatus {
+        PHYSICAL_SUBMITTED,
+        PHYSICAL_DEFERRED,
+        ATTEMPT_NOT_PUBLISHING,
+        PAYLOAD_UNAVAILABLE,
+        SOURCE_TURN_LIMIT,
+        SOURCE_APPLY_BLOCKED,
+        SOURCE_POSITION_MISMATCH,
+        SOURCE_APPLIED_WITHOUT_ATTEMPT
+    }
+
+    /** Result of the full bound due/Claim/Publish/source/physical composition. */
+    public record DueClaimPublishPhysicalTurn(
+            DueClaimPublishTurn dueClaimPublishTurn,
+            Optional<SourceBoundPhysicalPublishTurn> physicalTurn) {
+        public DueClaimPublishPhysicalTurn {
+            Objects.requireNonNull(dueClaimPublishTurn, "dueClaimPublishTurn");
+            physicalTurn = Objects.requireNonNull(physicalTurn, "physicalTurn");
         }
     }
 }

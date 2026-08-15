@@ -131,6 +131,40 @@ public final class WorkerShardFleetRuntime implements AutoCloseable {
                 Objects.requireNonNull(commandBudget, "command budget"), maxCommandTurns)));
     }
 
+    /**
+     * Runs the next fair shard through due/Claim/Publish, source application
+     * of the exact Admission append and the bounded physical publish bridge.
+     * Only runtimes with all three graphs are selected; payload resolution
+     * remains an explicit external authority.
+     */
+    public synchronized Optional<DueClaimPublishPhysicalTurn> runNextDueClaimPublishPhysicalTurn(
+            final TrustedUtcIntervalEvidence evidence,
+            final SchedulerBudget discoveryBudget,
+            final long claimDeadlineEpochMs,
+            final byte[] claimedCharge,
+            final LongSupplier ownerClock,
+            final SchedulerBudget commandBudget,
+            final int maxCommandTurns,
+            final SchedulerBudget sourceBudget,
+            final int maxSourceTurns,
+            final WorkerShardRuntime.PublishPayloadProvider payloadProvider) {
+        ensureOpen();
+        final Optional<IndexedRuntime> selected = nextRuntime(true, true, false, true);
+        if (selected.isEmpty()) {
+            return Optional.empty();
+        }
+        final WorkerShardRuntime runtime = selected.get().runtime();
+        return Optional.of(new DueClaimPublishPhysicalTurn(runtime.shardId(),
+                runtime.runDueClaimPublishPhysicalTurn(
+                        Objects.requireNonNull(evidence, "trusted UTC evidence"),
+                        Objects.requireNonNull(discoveryBudget, "discovery budget"), claimDeadlineEpochMs,
+                        Objects.requireNonNull(claimedCharge, "claimed charge"),
+                        Objects.requireNonNull(ownerClock, "owner clock"),
+                        Objects.requireNonNull(commandBudget, "command budget"), maxCommandTurns,
+                        Objects.requireNonNull(sourceBudget, "source budget"), maxSourceTurns,
+                        Objects.requireNonNull(payloadProvider, "payload provider"))));
+    }
+
     /** Runs one recurring checkpoint turn on the next checkpoint-enabled shard. */
     public synchronized Optional<CheckpointTurn> runNextCheckpointTurn(final SchedulerBudget budget) {
         ensureOpen();
@@ -157,13 +191,19 @@ public final class WorkerShardFleetRuntime implements AutoCloseable {
 
     private Optional<IndexedRuntime> nextRuntime(final boolean scheduling, final boolean command,
                                                  final boolean checkpoint) {
+        return nextRuntime(scheduling, command, checkpoint, false);
+    }
+
+    private Optional<IndexedRuntime> nextRuntime(final boolean scheduling, final boolean command,
+                                                 final boolean checkpoint, final boolean physical) {
         int cursor = scheduling ? schedulingCursor : command ? commandCursor : checkpointCursor;
         for (int offset = 0; offset < shards.size(); offset++) {
             final int index = (cursor + offset) % shards.size();
             final WorkerShardRuntime runtime = shards.get(index);
             if ((!scheduling || runtime.hasSchedulingRuntime())
                     && (!command || runtime.hasCommandRuntime())
-                    && (!checkpoint || runtime.hasCheckpointRuntime())) {
+                    && (!checkpoint || runtime.hasCheckpointRuntime())
+                    && (!physical || runtime.hasPhysicalPublishExecutor())) {
                 if (scheduling) {
                     schedulingCursor = (index + 1) % shards.size();
                 } else if (command) {
@@ -214,6 +254,15 @@ public final class WorkerShardFleetRuntime implements AutoCloseable {
     public record DueClaimPublishTurn(io.nereusstream.delay.protocol.ShardId shardId,
                                       WorkerShardRuntime.DueClaimPublishTurn result) {
         public DueClaimPublishTurn {
+            Objects.requireNonNull(shardId, "shardId");
+            Objects.requireNonNull(result, "result");
+        }
+    }
+
+    /** Result of one fair fleet dispatch through the source-bound physical path. */
+    public record DueClaimPublishPhysicalTurn(io.nereusstream.delay.protocol.ShardId shardId,
+                                              WorkerShardRuntime.DueClaimPublishPhysicalTurn result) {
+        public DueClaimPublishPhysicalTurn {
             Objects.requireNonNull(shardId, "shardId");
             Objects.requireNonNull(result, "result");
         }

@@ -5,6 +5,7 @@ import io.nereusstream.delay.ownership.OwnedDelayShard;
 import io.nereusstream.delay.ownership.ShardLifecycleState;
 import io.nereusstream.delay.ownership.SourceAssignment;
 import io.nereusstream.delay.ownership.WorkerCommandRuntime;
+import io.nereusstream.delay.ownership.WorkerPhysicalPublishExecutor;
 import io.nereusstream.delay.ownership.WorkerSchedulingRuntime;
 import io.nereusstream.delay.ownership.WorkerShardRuntime;
 import io.nereusstream.delay.protocol.Bytes;
@@ -49,7 +50,7 @@ public final class PulsarClientArtifactWorkerSourceFactory {
             final OxiaOwnerLeaseStore authority,
             final PublicKey verificationKey) {
         return create(consumer, expectedGuard, physicalTopic, receiveTimeout, acceptedAssignment, workClasses,
-                ownedShard, store, resources, authority, verificationKey, null, null, null);
+                ownedShard, store, resources, authority, verificationKey, null, null, null, null, null);
     }
 
     /**
@@ -74,6 +75,29 @@ public final class PulsarClientArtifactWorkerSourceFactory {
             final WorkerSchedulingRuntime schedulingRuntime,
             final WorkerCommandRuntime commandRuntime,
             final WorkerCheckpointRuntime checkpointRuntime) {
+        return create(consumer, expectedGuard, physicalTopic, receiveTimeout, acceptedAssignment, workClasses,
+                ownedShard, store, resources, authority, verificationKey, schedulingRuntime, commandRuntime,
+                checkpointRuntime, null, null);
+    }
+
+    /** Creates the complete Pulsar Worker graph with optional Publish bridges. */
+    public static WorkerShardRuntime create(
+            final GuardedConsumer<byte[]> consumer,
+            final TopicResourceGuard expectedGuard,
+            final String physicalTopic,
+            final Duration receiveTimeout,
+            final SourceAssignment acceptedAssignment,
+            final WorkClassExecutionRegistry workClasses,
+            final OwnedDelayShard ownedShard,
+            final ShardStore store,
+            final SharedRocksDbResources resources,
+            final OxiaOwnerLeaseStore authority,
+            final PublicKey verificationKey,
+            final WorkerSchedulingRuntime schedulingRuntime,
+            final WorkerCommandRuntime commandRuntime,
+            final WorkerCheckpointRuntime checkpointRuntime,
+            final WorkerShardRuntime.PublishPreparationProvider preparationProvider,
+            final WorkerPhysicalPublishExecutor physicalPublishExecutor) {
         Objects.requireNonNull(consumer, "consumer");
         final TopicResourceGuard guard = Objects.requireNonNull(expectedGuard, "expectedGuard");
         final String topic = requirePhysicalTopic(physicalTopic);
@@ -97,7 +121,8 @@ public final class PulsarClientArtifactWorkerSourceFactory {
             return new WorkerShardRuntime(source, Objects.requireNonNull(workClasses, "workClasses"), ownedShard,
                     Objects.requireNonNull(store, "store"), Objects.requireNonNull(resources, "resources"),
                     Objects.requireNonNull(authority, "authority"), Objects.requireNonNull(verificationKey,
-                            "verificationKey"), schedulingRuntime, commandRuntime, checkpointRuntime, null);
+                            "verificationKey"), schedulingRuntime, commandRuntime, checkpointRuntime,
+                    preparationProvider, physicalPublishExecutor);
         } catch (RuntimeException | Error failure) {
             closeAfterFailure(source, failure);
             throw failure;
@@ -126,34 +151,9 @@ public final class PulsarClientArtifactWorkerSourceFactory {
             final WorkerCommandRuntime commandRuntime,
             final WorkerCheckpointRuntime checkpointRuntime,
             final WorkerShardRuntime.PublishPreparationProvider preparationProvider) {
-        Objects.requireNonNull(consumer, "consumer");
-        final TopicResourceGuard guard = Objects.requireNonNull(expectedGuard, "expectedGuard");
-        final String topic = requirePhysicalTopic(physicalTopic);
-        final SourceAssignment assignment = requireActiveAssignment(acceptedAssignment, ownedShard);
-        if (!(assignment.activationBarrier() instanceof PulsarActivationBarrier barrier)) {
-            throw new IllegalArgumentException("Pulsar Worker source requires a Pulsar activation barrier");
-        }
-        if (assignment.shardId().partition() < 0) {
-            throw new IllegalArgumentException("Pulsar Worker source partition must be non-negative");
-        }
-        if (!topic.equals(barrier.physicalTopic())
-                || !Arrays.equals(barrier.brokerResourceIncarnation(), guard.resourceIncarnation())) {
-            throw new IllegalArgumentException("Pulsar Worker source does not match the activation resource identity");
-        }
-        requireCurrentGuardProof(consumer, guard, barrier, topic, assignment.shardId().partition());
-        final PulsarClientArtifactSourceRecordConsumer source =
-                new PulsarClientArtifactSourceRecordConsumer(consumer, guard, assignment.shardId(), topic,
-                        receiveTimeout);
-        try {
-            return new WorkerShardRuntime(source, Objects.requireNonNull(workClasses, "workClasses"), ownedShard,
-                    Objects.requireNonNull(store, "store"), Objects.requireNonNull(resources, "resources"),
-                    Objects.requireNonNull(authority, "authority"), Objects.requireNonNull(verificationKey,
-                            "verificationKey"), schedulingRuntime, commandRuntime, checkpointRuntime,
-                    preparationProvider);
-        } catch (RuntimeException | Error failure) {
-            closeAfterFailure(source, failure);
-            throw failure;
-        }
+        return create(consumer, expectedGuard, physicalTopic, receiveTimeout, acceptedAssignment, workClasses,
+                ownedShard, store, resources, authority, verificationKey, schedulingRuntime, commandRuntime,
+                checkpointRuntime, preparationProvider, null);
     }
 
     private static SourceAssignment requireActiveAssignment(final SourceAssignment acceptedAssignment,
