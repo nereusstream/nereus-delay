@@ -236,13 +236,15 @@ stamps the physical `-partition-0` guard through the P1 dedicated Resource
 Controller endpoint, captures a guarded SUBSCRIBE position and stable
 attestation, signs the Pulsar Route activation barrier, publishes the Route
 event/head through session-fenced Oxia, publishes and rereads a route-bound
-Worker assignment by revision CAS, and ACKs the next source record on the
-same guarded connection only after verifying the connection generation and
-position advance. The generic topic-properties mutation remains fail-closed
-for the guard tuple.
+Worker assignment by revision CAS, recovers the pre-Route record into the
+Worker Store before ACK, and hands the same guarded connection to the Worker.
+The Worker applies and ACKs the post-barrier record, publishes a bounded local
+RocksDB checkpoint, and releases the owner lease and assignment. The generic
+topic-properties mutation remains fail-closed for the guard tuple.
 
-The source-locked receipt used Delay
-`a73faf3e836ada67931f709d46214dde7caf3ad0`, P1
+The assignment-only receipt at Delay
+`a73faf3e836ada67931f709d46214dde7caf3ad0` is historical provenance. The
+current source-locked receipt uses Delay `bf858b089b927fcf65129214d8ed5a7fc5300deb`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` from
 `8dae0236c0a0d405ed7f8303081080520fe91551`, and Oxia
 `37a17bef17202d5fd6e232da5fd26d94865484`. It used P1 client
@@ -264,7 +266,7 @@ PULSAR_BROKER_PORT=20020 PULSAR_WEB_PORT=20021 \
 The bounded Route receipt was:
 
 ```text
-Pulsar signed Route -> guarded SUBSCRIBE barrier -> Oxia Worker assignment smoke passed: generation=15, barrier=20/0, routeRevision=1, assignmentRevision=1, source=20/1, ACK
+Pulsar signed Route -> guarded SUBSCRIBE barrier -> Oxia Worker assignment -> RocksDB apply/checkpoint smoke passed: generation=15, barrier=20/0, routeRevision=1, assignmentRevision=1, source=20/1, ACK, final checkpoint
 ```
 
 The same run ended with:
@@ -273,11 +275,11 @@ The same run ended with:
 Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, guarded source replay, signed mutation append/replay/ACK, signed Route barrier/assignment/source ACK, Broker timestamp, Worker recovery/apply, ACK handoff, and broker-restart resume.
 ```
 
-This is one source-locked native partition and one Oxia assignment/session
-cut. It does not prove catalog-driven multi-shard placement, session
-reconnect/churn, multi-broker failover with an accepted Route, native
-eligibility, production source ownership transfer, Object Store checkpoint
-publication or release PASS.
+This is one source-locked native partition and one Oxia
+assignment/Worker-apply/checkpoint/session cut. It does not prove
+catalog-driven multi-shard placement, session reconnect/churn, multi-broker
+failover with an accepted Route, native eligibility, production source
+ownership transfer, Object Store checkpoint publication or release PASS.
 
 ## Pulsar P1 real-client service E2E
 

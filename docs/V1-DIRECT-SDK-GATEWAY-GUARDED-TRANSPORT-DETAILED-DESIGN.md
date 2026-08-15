@@ -3477,7 +3477,7 @@ Object Store/checkpoint/Claim/Publish/release gates.
 
 ### 2026-08-15 Pulsar guarded SUBSCRIBE to signed Route Worker assignment
 
-Delay commit `a73faf3e836ada67931f709d46214dde7caf3ad0` adds
+Delay commit `bf858b089b927fcf65129214d8ed5a7fc5300deb` adds
 `PulsarClientArtifactRouteWorkerSmoke` for the locked P1 source. P1 commit
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` adds a dedicated,
 admin/ownership-checked Resource Controller endpoint for the exact guard
@@ -3489,16 +3489,17 @@ source.
 The first guarded record supplies the exact Pulsar ledger/entry/batch source
 position and stable attestation. Those values, together with the guarded
 connection generation and attestation digest, form
-`ActivationBarrierV1.pulsar`. The smoke signs and publishes the immutable Route
+`ActivationBarrierV1.pulsar`. The smoke recovers the pre-Route record into the
+real Worker Store before ACK, signs and publishes the immutable Route
 event/head through a session-fenced real Oxia client, rereads it through the
 Route provider, and projects the exact Route digest/barrier into a revision-CAS
-Worker assignment. The second record is consumed on the same guarded
-connection only after the assignment is reread; the smoke verifies that the
-connection generation is unchanged, the source position advances from `20/0`
-to `20/1`, and the source ACK succeeds.
+Worker assignment. It hands the guarded connection to `WorkerShardRuntime`,
+which applies and ACKs the second record, publishes a bounded local RocksDB
+checkpoint, and releases the owner lease and assignment.
 
-The source-locked receipt used Delay
-`a73faf3e836ada67931f709d46214dde7caf3ad0`, P1
+The assignment-only source receipt at Delay
+`a73faf3e836ada67931f709d46214dde7caf3ad0` is retained as historical
+provenance. The current source-locked receipt uses Delay `bf858b089b927fcf65129214d8ed5a7fc5300deb`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` from
 `8dae0236c0a0d405ed7f8303081080520fe91551`, and Oxia
 `37a17bef17202d5fd6e232da5fd26d94865484`. P1 artifact digests were client
@@ -3512,15 +3513,15 @@ base image was
 The exact receipt was:
 
 ```text
-Pulsar signed Route -> guarded SUBSCRIBE barrier -> Oxia Worker assignment smoke passed: generation=15, barrier=20/0, routeRevision=1, assignmentRevision=1, source=20/1, ACK
+Pulsar signed Route -> guarded SUBSCRIBE barrier -> Oxia Worker assignment -> RocksDB apply/checkpoint smoke passed: generation=15, barrier=20/0, routeRevision=1, assignmentRevision=1, source=20/1, ACK, final checkpoint
 ```
 
-This is bounded one-partition Route barrier/assignment/source-ACK evidence.
-It is not production activation evidence and does not close session
-reconnect/churn, multi-broker failover, catalog-driven multi-shard placement,
-native eligibility, source ownership transfer, Object Store/checkpoint
-publication, automatic Claim/Publish authority or the release cross-entry
-gate.
+This is bounded one-partition Route barrier/assignment/Worker-apply/source-ACK
+and local-checkpoint evidence. It is not production activation evidence and
+does not close session reconnect/churn, multi-broker failover,
+catalog-driven multi-shard placement, native eligibility, source ownership
+transfer, Object Store/checkpoint publication, automatic Claim/Publish
+authority or the release cross-entry gate.
 
 ## 16. 当前结论与仍需实测的数值
 

@@ -7915,7 +7915,7 @@ automatic Claim/Publish orchestration or release PASS.
 
 ## 2026-08-15 Pulsar guarded SUBSCRIBE to signed Route Worker assignment evidence
 
-Delay commit `a73faf3e836ada67931f709d46214dde7caf3ad0` adds
+Delay commit `bf858b089b927fcf65129214d8ed5a7fc5300deb` adds
 `PulsarClientArtifactRouteWorkerSmoke` and the
 `runRealPulsarRouteWorkerSmoke` task. P1 commit
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` adds the dedicated,
@@ -7923,16 +7923,20 @@ admin/ownership-checked Resource Controller endpoint used to stamp the exact
 guard tuple on a native partitioned physical topic; the generic topic
 properties endpoint remains fail-closed for this tuple. The smoke creates a
 real one-partition Pulsar topic, stamps its physical `-partition-0` guard,
-sends and ACKs the first guarded record, and derives
+derives
 `ActivationBarrierV1.pulsar` from the exact ledger/entry/batch position plus
 the guarded connection generation and attestation digest. It then publishes
 the signed Route event/head through a real session-fenced Oxia authority,
 publishes and rereads the exact route-bound Worker assignment by revision CAS,
-and ACKs the next source record on the same guarded connection only after
-verifying that the connection generation and source position advance as
-expected.
+recovers the pre-Route record into the real Worker Store before ACK, and hands
+the same guarded connection to `WorkerShardRuntime`. The Worker applies and
+ACKs the post-barrier record, drains through a bounded local RocksDB
+checkpoint, and proves the Oxia owner lease and assignment are released.
 
-The source-locked receipt used Delay `a73faf3e836ada67931f709d46214dde7caf3ad0`,
+The assignment-only receipt from Delay
+`nereus/delay-full-implementation-v1@a73faf3e836ada67931f709d46214dde7caf3ad0`
+is retained as historical provenance. The current source-locked receipt uses
+Delay `bf858b089b927fcf65129214d8ed5a7fc5300deb`,
 P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1 base
 `8dae0236c0a0d405ed7f8303081080520fe91551`, Oxia
 `37a17bef17202d5fd6e232da5fd26d94865484`, P1 client SHA-256
@@ -7945,7 +7949,7 @@ distribution SHA-256
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`,
 base image `eclipse-temurin:21-jre@sha256:371da296b8cb74c7e53fbe7083d5374befc0011b493231d97d45fa789915e434`,
 P1 image `sha256:892add226a105fb04b6df05df2c58f43e49f76647d39ed73944fcfc9ea1cb3d5`,
-Compose project `nereus-delay-pulsar-e2e-1786784850-65412`, broker/web ports
+Compose project `nereus-delay-pulsar-e2e-1786786327-81328`, broker/web ports
 `20020,20021`, and Oxia port `16674`. The command was:
 
 ```bash
@@ -7958,7 +7962,7 @@ PULSAR_BROKER_PORT=20020 PULSAR_WEB_PORT=20021 \
 The Route cut printed:
 
 ```text
-Pulsar signed Route -> guarded SUBSCRIBE barrier -> Oxia Worker assignment smoke passed: generation=15, barrier=20/0, routeRevision=1, assignmentRevision=1, source=20/1, ACK
+Pulsar signed Route -> guarded SUBSCRIBE barrier -> Oxia Worker assignment -> RocksDB apply/checkpoint smoke passed: generation=15, barrier=20/0, routeRevision=1, assignmentRevision=1, source=20/1, ACK, final checkpoint
 ```
 
 The same source-locked run ended with:
@@ -7967,13 +7971,13 @@ The same source-locked run ended with:
 Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, guarded source replay, signed mutation append/replay/ACK, signed Route barrier/assignment/source ACK, Broker timestamp, Worker recovery/apply, ACK handoff, and broker-restart resume.
 ```
 
-This closes a bounded one-native-
-partition guarded SUBSCRIBE position proof -> signed Route barrier -> real
-Oxia assignment/source ACK cut. It does not establish catalog-driven
-multi-shard placement, Route session reconnect under churn, multi-broker
-failover with an accepted Route, native eligibility, production source
-ownership transfer, Object Store checkpoint publication, automatic
-Claim/Publish authority or release PASS.
+This closes a bounded one-native-partition guarded SUBSCRIBE position proof ->
+signed Route barrier -> real Oxia assignment -> Worker Store recovery/apply,
+post-barrier source ACK and bounded local checkpoint cut. It does not
+establish catalog-driven multi-shard placement, Route session reconnect under
+churn, multi-broker failover with an accepted Route, native eligibility,
+production source ownership transfer, Object Store checkpoint publication,
+automatic Claim/Publish authority or release PASS.
 
 ## Verification command
 

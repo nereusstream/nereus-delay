@@ -112,6 +112,8 @@ require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "nereus/delay-full-implementation-v1@2dd2cfff83f4d029972cf7fbeb569fbf4538c026"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "nereus/delay-full-implementation-v1@a73faf3e836ada67931f709d46214dde7caf3ad0"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "nereus/delay-full-implementation-v1@bf858b089b927fcf65129214d8ed5a7fc5300deb"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "202368d46fedfe12ae414edaa9c3db32cc8e5073"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
@@ -249,6 +251,8 @@ require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "run_route_worker_smoke"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactRouteWorkerSmoke.java" \
     "Pulsar signed Route -> guarded SUBSCRIBE barrier"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactRouteWorkerSmoke.java" \
+    "RocksDB apply/checkpoint"
 require_file_text "$delay_root/build.gradle" \
     "runRealPulsarRouteWorkerSmoke"
 require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \
