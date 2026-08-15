@@ -776,3 +776,15 @@ uses deterministic Semantic-Core/submission doubles and a local definite
 non-submission outcome; live Kafka/Pulsar publish, certificate
 deployment/rotation, admission HA, load, crash cuts and release gates remain
 open.
+
+The current revalidation is commit `232ce29d`: after the first authenticated
+request the harness restarts `GatewayGrpcServer` on the same port and sends a
+new mTLS request. It requires the exact durable outcome without a second
+preparation or submission attempt. The accepted run used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
+`nereus-delay-gateway-e2e-1786820937-77983`, Oxia port `16669` and Gateway
+port `22351`, and printed:
+
+```text
+Gateway restart/idempotency E2E passed: server restarted and returned the exact durable outcome without a second attempt
+```

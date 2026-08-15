@@ -4470,3 +4470,29 @@ smoke uses deterministic Semantic-Core/submission doubles and a local definite
 non-submission outcome; certificate deployment/rotation, live transport
 publish, admission HA/session churn, load, crash cuts, multi-language vectors
 and the release gates remain open.
+
+### 2026-08-16 Gateway server-restart idempotency revalidation
+
+Commit `232ce29d` extends the real Gateway receipt across a server restart.
+After the first authenticated Schedule response, the harness closes the
+first `GatewayGrpcServer`, starts a second instance on the same port with the
+same Oxia-backed records, and sends the exact request again through a new
+mTLS channel. The second response is byte-identical; the Semantic-Core
+preparation and submission counters remain one, so a durable reread does not
+recreate ownership or a physical attempt.
+
+The accepted revalidation used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
+`nereus-delay-gateway-e2e-1786820937-77983`, Oxia port `16669`, and Gateway
+port `22351`. It ended with `BUILD SUCCESSFUL` and the exact output:
+
+```text
+Gateway mTLS/RS256 network E2E passed: authenticated Schedule and invalid JWT rejection
+Gateway restart/idempotency E2E passed: server restarted and returned the exact durable outcome without a second attempt
+Gateway Oxia durable E2E passed: admission released, one idempotency attempt, and two digest-only audit events
+Dockerized Gateway real-service smoke passed for Oxia 37a17bef17202d5fd6e23282da5fd26d94865484
+```
+
+This closes only single-process restart/reconnect durability for the Gateway
+composition. Multi-process HA/session churn, certificate operations, load,
+crash/response-loss cuts and live Kafka/Pulsar publication remain open.

@@ -7741,6 +7741,34 @@ and the bounded local `SDK_BACKPRESSURE_NOT_SUBMITTED` branch, so it does not
 promote live Kafka/Pulsar publish, certificate operations, HA/session churn,
 load, crash cuts or V1 release readiness.
 
+## 2026-08-16 Gateway server-restart idempotency audit
+
+Commit `232ce29d` reruns the Gateway network receipt across a real server
+restart. The first Gateway instance handles the authenticated Schedule and is
+closed; a second instance on the same port then serves the exact request with
+the same mTLS/JWT policy and Oxia records. The returned outcome is byte
+identical, while Semantic-Core preparation and submission remain one. The
+durable scans still prove one released admission record, one idempotency
+attempt and two deduplicated audit events.
+
+The source-locked revalidation used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
+`nereus-delay-gateway-e2e-1786820937-77983`, Oxia port `16669`, Gateway port
+`22351`, and ended with `BUILD SUCCESSFUL` after `11 actionable tasks: 11
+executed`:
+
+```text
+Gateway mTLS/RS256 network E2E passed: authenticated Schedule and invalid JWT rejection
+Gateway restart/idempotency E2E passed: server restarted and returned the exact durable outcome without a second attempt
+Gateway Oxia durable E2E passed: admission released, one idempotency attempt, and two digest-only audit events
+Dockerized Gateway real-service smoke passed for Oxia 37a17bef17202d5fd6e23282da5fd26d94865484
+```
+
+Audit boundary: this proves one Gateway process restart/reconnect path, not
+multi-process HA, admission session churn, certificate deployment/rotation,
+load, crash/response-loss cuts, live Kafka/Pulsar publication or V1 release
+readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
