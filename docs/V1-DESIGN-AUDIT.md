@@ -7441,6 +7441,42 @@ and crash resolution, live prerequisite/channel/Object Store authority,
 source-ordered `PUBLISH_OUTCOME`, Pulsar multi-broker parity, placement,
 checkpoint/quiescence and §23.5 release gates remain open.
 
+## 2026-08-15 typed Pulsar SEND ACK evidence audit
+
+Delay commit `4f2297e1dc593f8b5e16f7733e6ed1109544cb4a` adds
+`PulsarSendAckEvidence` and the source-locked P1
+`PulsarClientArtifactDestinationTransport`. The builder covers Registry
+branch fields 1–11 and binds the target resource/partition, ledger/entry,
+normalized batch index, broker time, producer-name hash, sequence, exact
+Publish Attempt, prepared hash and authenticated response digest. The real
+transport validates the P1 `GuardedMessageId`/`TopicResourceGuard` and
+`MessageIdAdv` identity before returning a typed `PUBLISHED`; request-only
+publication is conservatively unavailable. Invalid or incomplete physical
+proof remains `UNKNOWN`.
+
+The focused evidence test, full `check`, and exact P1 compile passed. The
+source-qualified E2E used P1
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+distribution SHA-256 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`,
+client SHAs `57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394` and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, image
+`sha256:892add226a105fb04b6df05df2c58f43e49f76647d39ed73944fcfc9ea1cb3d5`,
+Compose project `nereus-delay-pulsar-e2e-1786807647-30858`, and ports
+`20305,20306`. Its exact typed receipt was:
+
+```text
+Pulsar destination typed-evidence smoke passed: topic=persistent://public/default/p1-destination-30858, ledger=11, entry=0, batchIndex=0, sequence=0, brokerPersistenceTime=1786807670952
+```
+
+The same run read the exact destination payload back through a guarded P1
+consumer and passed the existing source, mutation, Worker and restart smokes.
+This is a positive direct-adapter evidence cut, not a release PASS: the real
+Worker E2E still does not invoke the source-applied physical destination
+transport, and typed guard rejection, response-loss/crash resolution,
+Pulsar multi-broker failover, live prerequisite authority, placement,
+checkpoint/quiescence and §23.5 gates remain open.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

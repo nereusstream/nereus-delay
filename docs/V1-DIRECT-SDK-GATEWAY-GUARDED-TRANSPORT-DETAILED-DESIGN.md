@@ -4115,3 +4115,54 @@ due/Claim/Publish executor, prove Fetch response-loss or retention-floor
 recovery, provide live Profile/credential/channel/Object Store authority,
 apply a signed `PUBLISH_OUTCOME` through source ordering, prove Pulsar
 multi-broker equivalence, or satisfy the V1 release gates.
+
+### 2026-08-15 typed Pulsar `PULSAR_SEND_ACK` direct destination implementation note
+
+Delay commit `4f2297e1dc593f8b5e16f7733e6ed1109544cb4a` adds the first real P1
+destination binding that returns the Registry's typed Pulsar publication
+branch. `PulsarSendAckEvidence` emits
+`PULSAR_SEND_ACK`/`VERIFIED_PUBLISHED` with the exact target resource and
+partition, ledger/entry, normalized batch index, broker persistence time,
+caller-owned producer-name SHA-256, guarded sequence ID, Publish Attempt
+identity, prepared-publish hash and the P1 authenticated response SHA-256.
+The response digest is taken directly from
+`GuardedSendSuccessEvidence.authenticatedResponseCommandSha256()`; it is not
+manufactured from a local callback or an opaque result wrapper.
+
+`PulsarClientArtifactDestinationTransport` requires the source-bound adapter
+overload and the exact prepared hash. The request-only overload remains
+`CAPABILITY_UNAVAILABLE`, because it cannot bind a retained Prepared Publish.
+Before constructing typed evidence it checks the pinned request identity,
+`GuardedMessageId`, expected `TopicResourceGuard`, topic/partition/attestation,
+`MessageIdAdv` ledger/entry/batch identity and the corresponding guarded
+success fields. Non-batch P1 messages are normalized to index `0`, size `1`.
+Any missing or divergent proof remains `UNKNOWN`; this slice does not turn a
+guard error into a definitive not-published mutation without the separate
+typed guard-rejection branch.
+
+The focused `PulsarSendAckEvidenceTest`, full `check`, and exact
+`compileRealPulsar` gate passed. The source-qualified real P1 E2E used Pulsar
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
+SHA-256 values `57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`
+(`pulsar-client-original`),
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`
+(`pulsar-client-api`) and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`
+(`pulsar-common`), image
+`sha256:892add226a105fb04b6df05df2c58f43e49f76647d39ed73944fcfc9ea1cb3d5`,
+Compose project `nereus-delay-pulsar-e2e-1786807647-30858`, and ports
+`20305,20306`. The typed destination smoke receipt was:
+
+```text
+Pulsar destination typed-evidence smoke passed: topic=persistent://public/default/p1-destination-30858, ledger=11, entry=0, batchIndex=0, sequence=0, brokerPersistenceTime=1786807670952
+Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, source-bound typed destination SEND ACK/payload readback, guarded source replay, signed mutation append/replay/ACK, signed Route barrier/assignment/source ACK, Broker timestamp, Worker recovery/apply, ACK handoff, and broker-restart resume.
+```
+
+This closes positive typed Pulsar direct-destination evidence and exact
+payload readback on the checked-in standalone P1 service. It does not yet
+bind the real Worker harness's due/Claim/Publish turn to this destination
+transport, prove Pulsar multi-broker failover, provide typed guard-rejection
+or response-loss/crash resolution, or satisfy live Profile/credential,
+Owner/Assignment, Object Store, checkpoint/quiescence and V1 release gates.

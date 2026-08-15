@@ -8834,6 +8834,38 @@ Profile/credential/channel/Object Store authority, source-ordered Outcome,
 Pulsar multi-broker parity, checkpoint/quiescence or V1 release gates are
 complete.
 
+## 2026-08-15 typed Pulsar destination SEND ACK evidence
+
+Delay commit `4f2297e1dc593f8b5e16f7733e6ed1109544cb4a` adds a source-bound P1
+destination transport and the canonical `PULSAR_SEND_ACK` evidence builder.
+It requires the prepared-publish hash from the source-bound overload, checks
+the guarded producer response and exact ledger/entry/partition/batch identity,
+then returns `PUBLISHED` only with `VERIFIED_PUBLISHED` evidence owned by the
+exact Publish Attempt. The request-only path is `CAPABILITY_UNAVAILABLE` and
+incomplete proof stays `UNKNOWN`.
+
+The focused test, full `check`, exact `compileRealPulsar`, and current-source
+real P1 E2E passed. Locks: P1
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+distribution SHA-256 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`,
+client SHAs `57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`,
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, image
+`sha256:892add226a105fb04b6df05df2c58f43e49f76647d39ed73944fcfc9ea1cb3d5`,
+Compose project `nereus-delay-pulsar-e2e-1786807647-30858`, ports
+`20305,20306`.
+
+```text
+Pulsar destination typed-evidence smoke passed: topic=persistent://public/default/p1-destination-30858, ledger=11, entry=0, batchIndex=0, sequence=0, brokerPersistenceTime=1786807670952
+Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, source-bound typed destination SEND ACK/payload readback, guarded source replay, signed mutation append/replay/ACK, signed Route barrier/assignment/source ACK, Broker timestamp, Worker recovery/apply, ACK handoff, and broker-restart resume.
+```
+
+This is positive direct-destination evidence only. Due/Claim/Publish source
+application through the real Worker physical executor, typed guard-rejection
+and response-loss/crash recovery, Pulsar multi-broker failover, live
+prerequisite/Object Store authority, checkpoint/quiescence and V1 release
+gates remain open.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

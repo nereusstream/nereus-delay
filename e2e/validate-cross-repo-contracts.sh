@@ -426,6 +426,23 @@ require_file_text "$delay_root/build.gradle" \
 require_file_text "$delay_root/build.gradle" \
     "pulsarWithOxia"
 
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/adapter/PulsarSendAckEvidence.java" \
+    "PULSAR_SEND_ACK"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactDestinationTransport.java" \
+    "PulsarSendAckEvidence.published"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactDestinationSmoke.java" \
+    "Pulsar destination typed-evidence smoke passed"
+require_file_text "$delay_root/build.gradle" \
+    "runRealPulsarDestinationSmoke"
+require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \
+    "destination_topic"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "4f2297e1dc593f8b5e16f7733e6ed1109544cb4a"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Pulsar destination typed-evidence smoke passed"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "ledger=11, entry=0, batchIndex=0, sequence=0"
+
 require_file_text "$kafka_checkout/clients/src/main/java/org/apache/kafka/clients/producer/GuardedProducer.java" \
     "sendGuarded"
 require_file_text "$kafka_checkout/clients/src/main/java/org/apache/kafka/clients/producer/GuardedTransactionalProducer.java" \
