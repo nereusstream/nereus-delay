@@ -8185,6 +8185,51 @@ reads. The observed result was `PUBLISHED`, not an injected or observed lost
 ambiguity and crash cuts remain independent open evidence. This is
 source-bound integration evidence, not a V1 production or release PASS.
 
+## 2026-08-15 strict typed Lane activation and complete Worker graph
+
+Delay commit `defce755` adds a strict typed Lane activation boundary. When the
+first V1 Schedule/Prepare projection contains a valid canonical Lane tuple,
+the Store now persists `ActiveLaneStateV1` with the exact Destination and
+Capability Profile refs, tuple identity and typed readiness. Malformed legacy
+resolver bytes remain a compatibility projection and are never converted into
+typed identity by guessing. `ReadyCertificateV1` exposes its activation barrier
+and evidence cursors for the activation proof.
+
+`LaneActivationCoordinator` requires `CATCHING_UP`, captures the exact Lane
+incarnation/Owner/Store identity, and delegates live Profile, credential,
+channel and evidence preparation to an injected authority. The resulting
+`LaneActivationPrerequisites` must contain a self-consistent Channel Resource,
+Ready Certificate, evidence cursors and trusted UTC interval. The owned shard
+rereads the context-bound Oxia catch-up lease, then atomically installs the
+certificate-backed READY projection and READY index. Foreign Owner, Store,
+Lane, tuple, barrier or evidence identity is rejected; an already READY Lane
+accepts only the exact same certificate. The compatibility readiness setter
+cannot activate a typed Lane without a certificate.
+
+Kafka and Pulsar `WorkerSourceFactory.create` now have complete-graph
+overloads taking the registry-bound `WorkerSchedulingRuntime`,
+`WorkerCommandRuntime` and `WorkerCheckpointRuntime`. The existing source
+guard, assignment, Store/resource and Worker identity fences remain active.
+
+Verification passed:
+
+```text
+GRADLE_USER_HOME=/tmp/nereus-delay-lane-activation-full-gradle ./gradlew check --no-daemon --console=plain
+BUILD SUCCESSFUL in 1m 14s; 21 actionable tasks
+GRADLE_USER_HOME=/tmp/nereus-delay-lane-activation-full-gradle ./gradlew checkstyleMain --rerun-tasks --no-daemon --console=plain
+BUILD SUCCESSFUL in 22s
+GRADLE_USER_HOME=/tmp/nereus-delay-real-kafka-worker-factory-gradle ./gradlew compileRealKafka -PkafkaClientJar=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar --no-daemon --console=plain
+BUILD SUCCESSFUL in 4s
+GRADLE_USER_HOME=/tmp/nereus-delay-real-pulsar-worker-factory-gradle ./gradlew compileRealPulsar -PpulsarClientClasspath=/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar --no-daemon --console=plain
+BUILD SUCCESSFUL in 4s
+```
+
+The real Oxia smoke tests in the full check were skipped by their normal
+opt-in gates. This is local typed Lane activation and Worker graph evidence,
+not a production due-to-Claim-to-Publish E2E or release PASS. Live external
+Profile/credential/Broker prerequisite authority, multi-shard/transport
+orchestration, crash/response-loss evidence and release gates remain open.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

@@ -3646,3 +3646,38 @@ This is a bounded source-locked failover proof, not a lost-response proof:
 generic `UNKNOWN` resolution, Fetch/LSO/retention ambiguity and crash recovery
 remain separately gated. The normal K2 smoke continues to own abort and target
 delete/recreate fencing.
+
+### 2026-08-15 strict typed Lane activation and complete Worker graph implementation note
+
+Delay commit `defce755` makes a V1 Schedule/Prepare Lane typed when the first
+projection contains the exact canonical V1 Lane tuple. The persisted
+`ActiveLaneStateV1` carries the immutable Destination/Capability Profile refs,
+tuple identity and typed readiness; a malformed legacy resolver tuple remains
+a compatibility projection and is not upgraded by guessing Profile data.
+`ReadyCertificateV1` now exposes its exact activation barrier and evidence
+cursors so activation can bind the external proof rather than treating a
+readiness enum as authority.
+
+`LaneActivationCoordinator` captures the exact Lane incarnation, Owner and
+Store Incarnation after the owned shard enters `CATCHING_UP`, then delegates
+Profile/credential/channel/evidence preparation to an injected authority.
+`OwnedDelayShard` rereads the context-bound Oxia catch-up lease before
+`DelayShard.activateLaneReadiness` atomically replaces the Lane projection and
+READY index with the externally supplied Channel Resource, Ready Certificate
+and evidence cursors. Exact-certificate retries are idempotent; a different
+certificate, Lane, tuple, Store or Owner is rejected. The raw readiness test
+seam remains compatibility-only and cannot make a typed Lane READY without a
+certificate.
+
+Kafka and Pulsar `WorkerSourceFactory.create` now also accept the complete
+`WorkerSchedulingRuntime`, `WorkerCommandRuntime` and
+`WorkerCheckpointRuntime` graph. The existing resource/assignment/Owner
+identity fences remain in `WorkerShardRuntime`; the overload does not create a
+Profile, Broker, credential, Oxia or checkpoint authority.
+
+`check` passed with the focused Lane activation, Claim handoff and Claim
+materialization tests; the real Kafka and Pulsar factory compile gates passed
+against their locked client artifacts. This closes local typed Lane activation
+and Worker graph composition only. It does not provide a live prerequisite
+authority, automatic due-to-Claim-to-Publish execution, multi-shard or
+transport E2E, crash/response-loss evidence, or V1 release PASS.
