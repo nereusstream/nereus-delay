@@ -34,9 +34,9 @@ import java.util.concurrent.ThreadLocalRandom;
  * <p>The lease record is an Oxia ephemeral record.  A separate durable epoch
  * record is incremented with version CAS before the ephemeral record is
  * created; losing a race may consume an epoch, but it can never reuse one.
- * The caller still has to create the {@link SyncOxiaClient} with the desired
- * session timeout and authenticated identity.  This class does not own or
- * close that client.</p>
+ * The public client constructor does not own or close its client. The
+ * {@link #connect} factory creates an ephemeral session marker and returns a
+ * {@link ClientHandle} that owns the connected client.</p>
  *
  * <p>The backend is deliberately below {@link OxiaOwnerLeaseStore}: the
  * latter remains responsible for validating the response against the V1
@@ -50,21 +50,33 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
 
     private final RecordClient client;
     private final String keyPrefix;
+    private final SessionMarker sessionMarker;
 
     /** Creates a backend over an already configured Oxia client. */
     public OxiaSyncOwnerLeaseBackend(final SyncOxiaClient client, final String keyPrefix) {
-        this(new SyncRecordClient(client), keyPrefix);
+        this(new SyncRecordClient(client), keyPrefix, false);
     }
 
     /**
      * Convenience factory that creates a client with Oxia's ephemeral-session
-     * support enabled.  The returned backend does not close the client; keep
-     * the client and close it after the worker has released all leases.
+     * support enabled. The returned handle owns the client and exposes the
+     * session-derived identity for context-bound owner leases.
      */
     public static ClientHandle connect(final String serviceAddress, final String namespace,
                                        final String clientIdentifier, final String keyPrefix)
             throws OxiaException {
         return connect(serviceAddress, namespace, clientIdentifier, Duration.ofSeconds(15), keyPrefix);
+    }
+
+    /** Runtime-friendly wrapper for opt-in integration launchers. */
+    public static ClientHandle connectUnchecked(final String serviceAddress, final String namespace,
+                                                final String clientIdentifier, final Duration sessionTimeout,
+                                                final String keyPrefix) {
+        try {
+            return connect(serviceAddress, namespace, clientIdentifier, sessionTimeout, keyPrefix);
+        } catch (OxiaException failure) {
+            throw new IllegalStateException("cannot connect to Oxia owner authority", failure);
+        }
     }
 
     /** Creates a client with an explicit Oxia ephemeral-session timeout. */
@@ -83,13 +95,42 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
                 .clientIdentifier(canonicalText(clientIdentifier, "clientIdentifier"))
                 .sessionTimeout(sessionTimeout)
                 .syncClient();
-        return new ClientHandle(client, new OxiaSyncOwnerLeaseBackend(client, keyPrefix));
+        try {
+            return new ClientHandle(client, new OxiaSyncOwnerLeaseBackend(client, keyPrefix, true));
+        } catch (RuntimeException failure) {
+            try {
+                client.close();
+            } catch (Exception closeFailure) {
+                failure.addSuppressed(closeFailure);
+            }
+            throw failure;
+        }
     }
 
     /** Package-private constructor used by deterministic CAS tests. */
     OxiaSyncOwnerLeaseBackend(final RecordClient client, final String keyPrefix) {
+        this(client, keyPrefix, false);
+    }
+
+    private OxiaSyncOwnerLeaseBackend(final SyncOxiaClient client, final String keyPrefix,
+                                      final boolean establishSession) {
+        this(new SyncRecordClient(client), keyPrefix, establishSession);
+    }
+
+    private OxiaSyncOwnerLeaseBackend(final RecordClient client, final String keyPrefix,
+                                      final boolean establishSession) {
         this.client = Objects.requireNonNull(client, "client");
         this.keyPrefix = canonicalKeyPrefix(keyPrefix);
+        this.sessionMarker = establishSession ? establishSessionMarker() : null;
+    }
+
+    /** Returns the exact session-derived identity for a client created by {@link #connect}. */
+    public byte[] connectedSessionIdentity() {
+        if (sessionMarker == null) {
+            throw new IllegalStateException("backend was not connected with an Oxia session marker");
+        }
+        requireConnectedSession();
+        return Bytes.copy(sessionMarker.identity());
     }
 
     /**
@@ -123,6 +164,7 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
                                         final byte[] sessionIdentity, final long nowEpochMs,
                                         final long leaseDurationMs) {
         Objects.requireNonNull(assignment, "assignment");
+        requireConnectedSession(sessionIdentity);
         final OwnerLeaseContext context = new OwnerLeaseContext(assignment.assignmentId(),
                 assignment.assignmentEpoch(), sessionIdentity);
         validateRequest(assignment.shardId(), ownerId, nowEpochMs, leaseDurationMs);
@@ -133,6 +175,7 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
     public Optional<OwnerLease> renew(final OwnerLease expected, final long nowEpochMs,
                                       final long leaseDurationMs) {
         Objects.requireNonNull(expected, "expected");
+        requireConnectedSession(expected.sessionIdentity());
         validateRequest(expected.shardId(), expected.ownerId(), nowEpochMs, leaseDurationMs);
         final StoredLease current = readLease(expected.shardId());
         if (current == null || !expected.sameIdentity(current.lease)
@@ -153,6 +196,7 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
     @Override
     public boolean release(final OwnerLease expected) {
         Objects.requireNonNull(expected, "expected");
+        requireConnectedSession(expected.sessionIdentity());
         final StoredLease current = readLease(expected.shardId());
         if (current == null || !expected.sameIdentity(current.lease)) {
             return false;
@@ -185,6 +229,7 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
     @Override
     public Optional<OwnerLease> transition(final OwnerLease expected, final ShardLifecycleState nextState) {
         Objects.requireNonNull(expected, "expected");
+        requireConnectedSession(expected.sessionIdentity());
         Objects.requireNonNull(nextState, "nextState");
         if (!expected.state().canTransitionTo(nextState)) {
             return Optional.empty();
@@ -203,6 +248,57 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
         Objects.requireNonNull(shardId, "shardId");
         final StoredLease current = readLease(shardId);
         return current == null ? Optional.empty() : Optional.of(current.lease);
+    }
+
+    private SessionMarker establishSessionMarker() {
+        final byte[] challenge = randomToken();
+        final String key = keyPrefix + "/session/" + Bytes.hex(challenge);
+        final PutResult result;
+        try {
+            result = client.put(key, challenge,
+                    Set.of(PutOption.IfRecordDoesNotExist, PutOption.AsEphemeralRecord));
+        } catch (KeyAlreadyExistsException | UnexpectedVersionIdException failure) {
+            throw new IllegalStateException("Oxia owner session marker CAS failed", failure);
+        }
+        if (result == null || !key.equals(result.key()) || result.version() == null) {
+            throw new IllegalStateException("Oxia owner session marker put returned an invalid identity");
+        }
+        final GetResult observed = client.get(key);
+        if (observed == null || !key.equals(observed.key()) || observed.value() == null
+                || !Arrays.equals(challenge, observed.value()) || observed.version() == null
+                || observed.version().versionId() != result.version().versionId()) {
+            throw new IllegalStateException("Oxia owner session marker reread is not exact");
+        }
+        validateEphemeralVersion(observed.version(), null);
+        return new SessionMarker(key, challenge, observed.version(), sessionIdentity(observed.version()));
+    }
+
+    private void requireConnectedSession(final byte[] requestedIdentity) {
+        if (sessionMarker == null || requestedIdentity == null) {
+            return;
+        }
+        requireConnectedSession();
+        if (!Bytes.constantTimeEquals(requestedIdentity, sessionMarker.identity())) {
+            throw new IllegalStateException("owner lease request is bound to another Oxia session");
+        }
+    }
+
+    private void requireConnectedSession() {
+        if (sessionMarker == null) {
+            return;
+        }
+        final GetResult observed = client.get(sessionMarker.key());
+        if (observed == null || !sessionMarker.key().equals(observed.key()) || observed.value() == null
+                || !Arrays.equals(sessionMarker.challenge(), observed.value()) || observed.version() == null
+                || observed.version().versionId() != sessionMarker.version().versionId()
+                || !sameSessionMetadata(observed.version(), sessionMarker.version())) {
+            throw new IllegalStateException("Oxia owner session marker is absent or changed");
+        }
+    }
+
+    private static boolean sameSessionMetadata(final Version left, final Version right) {
+        return left.sessionId().equals(right.sessionId())
+                && left.clientIdentifier().equals(right.clientIdentifier());
     }
 
     private Optional<OwnerLease> acquireInternal(final ShardId shardId, final String ownerId,
@@ -550,6 +646,11 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
             Objects.requireNonNull(backend, "backend");
         }
 
+        /** Returns the exact session-derived identity for context-bound owner leases. */
+        public byte[] sessionIdentity() {
+            return backend.connectedSessionIdentity();
+        }
+
         @Override
         public void close() throws IOException {
             try {
@@ -571,6 +672,9 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
     }
 
     private record StoredLease(OwnerLease lease, long versionId) {
+    }
+
+    private record SessionMarker(String key, byte[] challenge, Version version, byte[] identity) {
     }
 
     private static final class SyncRecordClient implements RecordClient {

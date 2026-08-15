@@ -2,6 +2,7 @@ package io.nereusstream.delay.transport;
 
 import io.nereusstream.delay.ownership.InMemoryOwnerLeaseStore;
 import io.nereusstream.delay.ownership.OxiaOwnerLeaseStore;
+import io.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
 import io.nereusstream.delay.ownership.OwnerLease;
 import io.nereusstream.delay.ownership.OwnerRecoveryCoordinator;
 import io.nereusstream.delay.ownership.OwnerRecoveryTurn;
@@ -75,9 +76,11 @@ import java.util.concurrent.TimeUnit;
  * Real Kafka vertical smoke for assignment, recovery, active Worker apply and
  * synchronous source ACK.
  *
- * <p>The authority in this opt-in smoke is the deterministic in-memory
- * implementation. It proves the native Kafka plus RocksDB Worker vertical;
- * the separate Oxia Docker harness remains the authority/session evidence.</p>
+ * <p>By default this smoke uses a deterministic in-memory authority. When
+ * {@code NEREUS_DELAY_OXIA_ENDPOINT} is configured, it instead connects to a
+ * real Oxia service and acquires the assignment through an ephemeral,
+ * session-bound lease. Neither mode claims production placement, Route
+ * publication, due-time scheduling, or the full multi-shard Worker wiring.</p>
  */
 public final class KafkaClientArtifactWorkerSmoke {
     private static final long LEASE_DURATION_MS = 60_000;
@@ -108,86 +111,116 @@ public final class KafkaClientArtifactWorkerSmoke {
                     Bytes.sha256(Bytes.utf8("kafka-worker-assignment")), 1,
                     new KafkaActivationBarrier(shard, clusterId, nativeTopicId, 1));
             final WorkClassExecutionRegistry workClasses = workClasses();
-            final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
-            final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
-            final long ownerNow = System.currentTimeMillis();
-            final byte[] sessionIdentity = Bytes.sha256(Bytes.utf8("kafka-worker-session"));
-            final OwnerLease lease = authority.acquire(assignment, "kafka-worker", sessionIdentity,
-                    ownerNow, LEASE_DURATION_MS).orElseThrow();
-            final KeyPair verificationKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-            final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshot(shard);
-            final Path root = Files.createTempDirectory("nereus-delay-kafka-worker-");
-
+            final OxiaSyncOwnerLeaseBackend.ClientHandle oxia = connectOxiaIfConfigured();
             try {
-                final ShardStoreConfig storeConfig = ShardStoreConfig.defaults(root);
-                try (SharedRocksDbResources resources = new SharedRocksDbResources(storeConfig);
-                     ShardStore store = ShardStore.open(storeConfig, shard, resources)) {
-                    resources.bindWorkClassExecutionRegistry(workClasses);
-                    store.recordControlSnapshot(controlSnapshot);
-                    final DelayShard delayShard = new DelayShard(store, DelayShardConfig.defaults(), null, null,
-                            scheduleResolver());
-                    final io.nereusstream.delay.ownership.OwnedDelayShard ownedShard =
-                            new io.nereusstream.delay.ownership.OwnedDelayShard(delayShard, lease,
-                                    new OwnerIdentityV1(bytes(16, 70), bytes(16, 71), lease.ownerEpoch(),
-                                            Bytes.sha256(Bytes.utf8("kafka-worker-fencing"))));
+                final OxiaOwnerLeaseStore authority;
+                if (oxia == null) {
+                    authority = new OxiaOwnerLeaseStore(new InMemoryOwnerLeaseStore());
+                } else {
+                    authority = new OxiaOwnerLeaseStore(oxia.backend());
+                }
+                final long ownerNow = System.currentTimeMillis();
+                final byte[] sessionIdentity = oxia == null
+                        ? Bytes.sha256(Bytes.utf8("kafka-worker-session")) : oxia.sessionIdentity();
+                final OwnerLease lease = authority.acquire(assignment, "kafka-worker", sessionIdentity,
+                        ownerNow, LEASE_DURATION_MS).orElseThrow();
+                final KeyPair verificationKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+                final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshot(shard);
+                final Path root = Files.createTempDirectory("nereus-delay-kafka-worker-");
+                try {
+                    final ShardStoreConfig storeConfig = ShardStoreConfig.defaults(root);
+                    try (SharedRocksDbResources resources = new SharedRocksDbResources(storeConfig);
+                         ShardStore store = ShardStore.open(storeConfig, shard, resources)) {
+                        resources.bindWorkClassExecutionRegistry(workClasses);
+                        store.recordControlSnapshot(controlSnapshot);
+                        final DelayShard delayShard = new DelayShard(store, DelayShardConfig.defaults(), null, null,
+                                scheduleResolver());
+                        final io.nereusstream.delay.ownership.OwnedDelayShard ownedShard =
+                                new io.nereusstream.delay.ownership.OwnedDelayShard(delayShard, lease,
+                                        new OwnerIdentityV1(bytes(16, 70), bytes(16, 71), lease.ownerEpoch(),
+                                                Bytes.sha256(Bytes.utf8("kafka-worker-fencing"))));
 
-                    recoverFirstRecord(bootstrap, clusterId, topic, nativeTopicId, shard, assignment,
-                            authority, ownedShard, verificationKey, controlSnapshot, workClasses);
-                    if (ownedShard.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
-                            || ownedShard.lastCatchupPosition() == null
-                            || ownedShard.lastCatchupPosition().compareTo(
-                            new io.nereusstream.delay.protocol.KafkaSourcePosition(shard, clusterId,
-                                    nativeTopicId, 0, null, 0)) < 0) {
-                        throw new IllegalStateException("Kafka Worker recovery did not activate at offset zero");
-                    }
+                        recoverFirstRecord(bootstrap, clusterId, topic, nativeTopicId, shard, assignment,
+                                authority, ownedShard, verificationKey, controlSnapshot, workClasses);
+                        if (ownedShard.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
+                                || ownedShard.lastCatchupPosition() == null
+                                || ownedShard.lastCatchupPosition().compareTo(
+                                new io.nereusstream.delay.protocol.KafkaSourcePosition(shard, clusterId,
+                                        nativeTopicId, 0, null, 0)) < 0) {
+                            throw new IllegalStateException("Kafka Worker recovery did not activate at offset zero");
+                        }
 
-                    final PreparedCommand activeCommand = command(shard, "worker-active");
-                    produce(bootstrap, clusterId, topic, topicId, activeCommand);
-                    final String workerGroup = "nereus-delay-worker-e2e-" + UUID.randomUUID();
-                    final GuardedConsumer<byte[], byte[]> workerConsumer = workerConsumer(
-                            bootstrap, workerGroup, clusterId, topic, nativeTopicId, shard);
-                    WorkerShardRuntime runtime = null;
-                    boolean drained = false;
-                    try {
-                        runtime = KafkaClientArtifactWorkerSourceFactory.create(workerConsumer, topic,
-                                Duration.ofMillis(250), assignment, workClasses, ownedShard, store, resources,
-                                authority, verificationKey.getPublic());
-                        final io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult result =
-                                runUntilApplied(runtime);
-                        if (result.status()
-                                != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED) {
-                            throw new IllegalStateException("Kafka Worker source turn did not ACK: " + result.status(),
-                                    result.failure());
-                        }
-                        final var applied = store.appliedShardLogPosition();
-                        if (!(applied instanceof io.nereusstream.delay.protocol.KafkaSourcePosition position)
-                                || position.offset() != 1 || !position.shardId().equals(shard)
-                                || !position.authenticatedClusterId().equals(clusterId)
-                                || !position.nativeTopicUuid().equals(nativeTopicId)) {
-                            throw new IllegalStateException("Kafka Worker Store did not persist exact active position");
-                        }
-                        requireCommittedOffset(admin, workerGroup, topic, 0, 2);
-                        final var drain = runtime.drain(
-                                new io.nereusstream.delay.ownership.OwnerDrainCoordinator.DrainRequest(
-                                        System.currentTimeMillis() + 5_000, 0, null),
-                                System::currentTimeMillis, () -> { });
-                        if (drain.pendingCheckpointTask() != null || !backend.current(shard).isEmpty()) {
-                            throw new IllegalStateException("Kafka Worker drain did not release the exact owner lease");
-                        }
-                        runtime.close();
-                        drained = true;
-                        System.out.println("Kafka Worker vertical smoke passed: assignment recovery offset=0, "
-                                + "active apply offset=1, guarded Fetch v13, RocksDB WriteBatch and commitSync ACK");
-                    } finally {
-                        if (!drained) {
-                            workerConsumer.close();
+                        final PreparedCommand activeCommand = command(shard, "worker-active");
+                        produce(bootstrap, clusterId, topic, topicId, activeCommand);
+                        final String workerGroup = "nereus-delay-worker-e2e-" + UUID.randomUUID();
+                        final GuardedConsumer<byte[], byte[]> workerConsumer = workerConsumer(
+                                bootstrap, workerGroup, clusterId, topic, nativeTopicId, shard);
+                        WorkerShardRuntime runtime = null;
+                        boolean drained = false;
+                        try {
+                            runtime = KafkaClientArtifactWorkerSourceFactory.create(workerConsumer, topic,
+                                    Duration.ofMillis(250), assignment, workClasses, ownedShard, store, resources,
+                                    authority, verificationKey.getPublic());
+                            final io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult result =
+                                    runUntilApplied(runtime);
+                            if (result.status()
+                                    != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED) {
+                                throw new IllegalStateException("Kafka Worker source turn did not ACK: " + result.status(),
+                                        result.failure());
+                            }
+                            final var applied = store.appliedShardLogPosition();
+                            if (!(applied instanceof io.nereusstream.delay.protocol.KafkaSourcePosition position)
+                                    || position.offset() != 1 || !position.shardId().equals(shard)
+                                    || !position.authenticatedClusterId().equals(clusterId)
+                                    || !position.nativeTopicUuid().equals(nativeTopicId)) {
+                                throw new IllegalStateException("Kafka Worker Store did not persist exact active position");
+                            }
+                            requireCommittedOffset(admin, workerGroup, topic, 0, 2);
+                            final var drain = runtime.drain(
+                                    new io.nereusstream.delay.ownership.OwnerDrainCoordinator.DrainRequest(
+                                            System.currentTimeMillis() + 5_000, 0, null),
+                                    System::currentTimeMillis, () -> { });
+                            if (drain.pendingCheckpointTask() != null || !authority.current(shard).isEmpty()) {
+                                throw new IllegalStateException("Kafka Worker drain did not release the exact owner lease");
+                            }
+                            runtime.close();
+                            drained = true;
+                            System.out.println("Kafka Worker vertical smoke passed: assignment recovery offset=0, "
+                                    + "active apply offset=1, guarded Fetch v13, RocksDB WriteBatch and commitSync ACK");
+                            if (oxia != null) {
+                                System.out.println("Kafka Worker authority smoke passed: real Oxia session-bound lease");
+                            }
+                        } finally {
+                            if (!drained) {
+                                workerConsumer.close();
+                            }
                         }
                     }
+                } finally {
+                    deleteTree(root);
                 }
             } finally {
-                deleteTree(root);
+                if (oxia != null) {
+                    oxia.close();
+                }
             }
         }
+    }
+
+    private static OxiaSyncOwnerLeaseBackend.ClientHandle connectOxiaIfConfigured() throws Exception {
+        final String endpoint = System.getenv("NEREUS_DELAY_OXIA_ENDPOINT");
+        if (endpoint == null || endpoint.isBlank()) {
+            return null;
+        }
+        final String namespace = configured("NEREUS_DELAY_OXIA_NAMESPACE", "default");
+        return OxiaSyncOwnerLeaseBackend.connectUnchecked(endpoint, namespace,
+                "nereus-delay-kafka-worker-" + UUID.randomUUID(), Duration.ofSeconds(15),
+                "nereus-delay-kafka-worker/" + UUID.randomUUID());
+    }
+
+    private static String configured(final String name, final String fallback) {
+        final String value = System.getenv(name);
+        return value == null || value.isBlank() ? fallback : value;
     }
 
     private static void recoverFirstRecord(final String bootstrap, final String clusterId, final String topic,

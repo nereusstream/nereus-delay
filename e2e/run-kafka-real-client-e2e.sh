@@ -23,10 +23,25 @@ source_topic="${KAFKA_DELAY_E2E_SOURCE_TOPIC:-nereus-delay-source-topic}"
 worker_topic="${KAFKA_DELAY_E2E_WORKER_TOPIC:-nereus-delay-worker-topic}"
 k2_target_topic="${KAFKA_DELAY_E2E_K2_TARGET_TOPIC:-nereus-delay-k2-target}"
 k2_receipt_topic="${KAFKA_DELAY_E2E_K2_RECEIPT_TOPIC:-nereus-delay-k2-receipt}"
+with_oxia="${NEREUS_DELAY_KAFKA_WITH_OXIA:-0}"
+oxia_checkout="${NEREUS_DELAY_KAFKA_OXIA_CHECKOUT:-${delay_dir}/../../oxia}"
+oxia_port="${NEREUS_DELAY_KAFKA_OXIA_PORT:-$((16650 + ($$ % 100)))}"
+oxia_compose_project="nereus-delay-kafka-oxia-e2e-$(date +%s)-$$"
+oxia_compose_file="${script_dir}/docker-compose.oxia.yml"
+oxia_compose=(docker compose -p "${oxia_compose_project}" -f "${oxia_compose_file}")
+oxia_endpoint="127.0.0.1:${oxia_port}"
+
+if [[ "${with_oxia}" != "0" && "${with_oxia}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_WITH_OXIA must be 0 or 1" >&2
+  exit 1
+fi
 
 cleanup() {
   "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
   docker image rm "${image}" >/dev/null 2>&1 || true
+  if [[ "${with_oxia}" == "1" ]]; then
+    "${oxia_compose[@]}" down --volumes --remove-orphans --rmi local >/dev/null 2>&1 || true
+  fi
   rm -rf "${image_context}"
 }
 trap cleanup EXIT INT TERM
@@ -49,6 +64,31 @@ wait_for_broker() {
   "${compose[@]}" ps >&2 || true
   "${compose[@]}" logs >&2 || true
   return 1
+}
+
+start_oxia() {
+  test -d "${oxia_checkout}"
+  test -s "${oxia_checkout}/Dockerfile"
+  export NEREUS_DELAY_OXIA_CHECKOUT="${oxia_checkout}"
+  export NEREUS_DELAY_OXIA_E2E_PORT="${oxia_port}"
+  echo "Oxia checkout: $(git -C "${oxia_checkout}" rev-parse HEAD)"
+  echo "Oxia Compose project: ${oxia_compose_project}"
+  echo "Oxia endpoint: ${oxia_endpoint}"
+  "${oxia_compose[@]}" up --build --detach
+  local ready=0
+  for attempt in $(seq 1 60); do
+    if "${oxia_compose[@]}" exec --no-TTY oxia oxia health --host 127.0.0.1 --port 6648 --timeout 2s \
+        >/dev/null 2>&1; then
+      ready=1
+      break
+    fi
+    sleep 1
+  done
+  if [[ "${ready}" != "1" ]]; then
+    "${oxia_compose[@]}" logs oxia >&2 || true
+    echo "Oxia did not become healthy" >&2
+    return 1
+  fi
 }
 
 cd "${delay_dir}"
@@ -96,11 +136,22 @@ GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaSourceSmoke \
   -PkafkaSourceTopic="${source_topic}" \
   --no-daemon --console=plain
 
-GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaWorkerSmoke \
-  -PkafkaClientJar="${client_jar}" \
-  -PkafkaBootstrap="${bootstrap_all}" \
-  -PkafkaWorkerTopic="${worker_topic}" \
-  --no-daemon --console=plain
+if [[ "${with_oxia}" == "1" ]]; then
+  start_oxia
+  NEREUS_DELAY_OXIA_ENDPOINT="${oxia_endpoint}" \
+  NEREUS_DELAY_OXIA_NAMESPACE=default \
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaWorkerSmoke \
+    -PkafkaClientJar="${client_jar}" \
+    -PkafkaBootstrap="${bootstrap_all}" \
+    -PkafkaWorkerTopic="${worker_topic}" \
+    --no-daemon --console=plain
+else
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaWorkerSmoke \
+    -PkafkaClientJar="${client_jar}" \
+    -PkafkaBootstrap="${bootstrap_all}" \
+    -PkafkaWorkerTopic="${worker_topic}" \
+    --no-daemon --console=plain
+fi
 
 GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaK2Smoke \
   -PkafkaClientJar="${client_jar}" \
