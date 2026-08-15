@@ -6524,6 +6524,22 @@ This closes local Claim → descriptor composition, not automatic channel/Ready
 Certificate preparation, Broker append/ACK, response-loss/crash evidence,
 Pulsar mutation replay, multi-shard production wiring or release PASS.
 
+## 2026-08-15 bounded READY-to-derived-Claim Worker wiring audit
+
+Delay commit `e7495086` adds a one-head `WorkerShardRuntime` entrypoint. It
+narrows the scheduler poll budget to one message, applies the active
+Owner/Store fence, and immediately submits the exact head through the derived
+Claim handoff. Existing Claim executor queue-rejection and pre-commit failure
+paths retain the scheduler's exact requeue identity; no batch rollback guess is
+introduced.
+
+The entrypoint still requires trusted UTC evidence, Claim deadline/charge and
+the configured external prerequisite gate. It does not synthesize channel,
+Ready Certificate, Publish descriptor, Broker append or external authority.
+This closes only the local one-shard DUE/READY → Claim queue wiring and is not
+multi-shard, automatic Ready/Publish preparation, response-loss/crash or
+release evidence.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

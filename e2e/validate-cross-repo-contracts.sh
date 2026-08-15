@@ -101,6 +101,8 @@ require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "4865ba4f"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "e7495086"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "10e21cbf0e6f741f10b353c56a316a0b57b71b9d"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "nereus/delay-full-implementation-v1@2dd2cfff83f4d029972cf7fbeb569fbf4538c026"
@@ -155,6 +157,8 @@ require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/Wor
     "materialization derived from the accepted"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/PublishAdmissionWorkClassExecutor.java" \
     "deriveDescriptor"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerShardRuntime.java" \
+    "pollAndSubmitClaim"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/RouteSourceAssignmentFactory.java" \
     "fromRoute"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/RouteSourceAssignmentResolver.java" \

@@ -3229,6 +3229,19 @@ prerequisite remain explicit. This is local Claim → descriptor composition;
 automatic channel/Ready-Certificate preparation, physical append/ACK and
 response-loss/crash evidence remain separate gates.
 
+### 2026-08-15 bounded READY-to-derived-Claim Worker wiring note
+
+`WorkerShardRuntime.pollAndSubmitClaim` narrows one scheduling visit to a
+single READY head and sends that exact item through the derived Claim overload.
+This preserves the persistent scheduler's per-head `requeueFailedClaim` and
+`completeClaim` semantics when the Claim queue or pre-commit validation fails;
+the Worker does not need to speculate about rollback for a multi-head poll.
+
+Trusted UTC evidence, Claim deadline/charge and the external prerequisite gate
+remain inputs. The method is a local one-shard DUE/READY → Claim composition;
+channel/Ready Certificate/Publish preparation, physical append/ACK,
+multi-shard assignment and crash/failover evidence remain separate.
+
 ## 16. 当前结论与仍需实测的数值
 
 已经冻结：

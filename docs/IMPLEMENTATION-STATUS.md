@@ -7528,6 +7528,23 @@ does not establish automatic channel/Ready-Certificate preparation, remote
 provider authority, Broker append/ACK, response-loss/crash cuts, Pulsar
 mutation support, multi-shard Worker wiring or release PASS.
 
+## 2026-08-15 bounded READY-to-derived-Claim Worker wiring slice
+
+Delay commit `e7495086` adds `WorkerShardRuntime.pollAndSubmitClaim`. The
+entrypoint uses a one-message scheduler budget, polls at most one exact READY
+head under the active Owner/Store fence, and immediately queues the derived
+Claim handoff. A queue rejection or pre-commit Claim failure therefore retains
+the existing `PersistentLaneScheduler.requeueFailedClaim` contract without
+having to roll back an unbounded batch of selected heads.
+
+The shared Claim prerequisite gate, trusted UTC evidence, Claim deadline and
+charge remain explicit; the method does not create a channel, Ready
+Certificate, Publish descriptor, Broker append or external authority. This is
+one-shard local DUE/READY → Claim queue composition only. Focused compilation,
+checkstyle and the Claim/Publish/scheduling regressions passed; multi-shard
+orchestration, automatic Ready/Publish preparation, response-loss/crash and
+release gates remain open.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
