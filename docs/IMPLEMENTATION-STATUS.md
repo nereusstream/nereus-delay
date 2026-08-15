@@ -7431,6 +7431,48 @@ It does not establish Pulsar multi-broker unload/failover, in-flight source
 ownership transfer, ACK response-loss recovery, crash-at-every-WriteBatch
 boundary evidence, multi-shard placement or release PASS.
 
+## 2026-08-15 Kafka Shard Log System Mutation append/replay/ACK slice
+
+Delay commit `02f4b458` adds the first real Kafka Shard Log mutation vertical.
+`SystemMutationIdentityV1` derives the registered logical operation identity
+from each canonical typed body during replay; the source decoder therefore
+does not accept an identity supplied by a caller. The Kafka source set now
+decodes both ordered NDL1 Client Command and signed System Mutation frames,
+while the recovery cursor and active source retain the same exact source
+position and `commitSync` ACK fence for either record kind.
+
+`KafkaClientArtifactShardLogMutationAppender` binds one partition to the K1
+`ProducerResourceGuard` and calls `GuardedProducer.sendGuarded`. It returns
+`PERSISTED` only when the guarded response proves cluster, TopicId, topic,
+partition, offset and Broker append time; timeout, malformed evidence and
+ordinary producer failures remain `UNKNOWN`, and only a typed K1
+definitely-not-persisted guard rejection can return the definitive negative
+branch. Produce response leader epoch remains optional as required by the
+K1 contract; a fetch replay may enrich that field without changing the stable
+resource/offset/append-time identity.
+
+The fresh three-broker run used Delay `02f4b458`, Kafka source
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose project `nereus-delay-kafka-e2e-1786773092-35482`, and ports
+`19570,19571,19572`. The source smoke passed with
+`topicId=n1uJgResRtmRRnrWKBSVtQ, firstOffset=0, secondOffset=1,
+committedAfterRestart=empty`; the new mutation smoke passed with:
+
+```text
+Kafka Shard Log mutation append/replay/ACK smoke passed: topicId=7jN1ZJcgRPSZILqxxNLqVw, offset=0, record=TIME_FENCE, guarded Producer, ordered mutation replay, commitSync ACK
+```
+
+The same run also passed the existing Worker, K1 survivor/failover and K2
+transaction smokes, printed the final aggregate E2E line, exited with code
+0, and removed its matching Docker resources. This closes one Kafka
+partition's guarded signed-mutation append → recovery replay → active-source
+ACK path. It does not claim mutation apply semantics in the Worker, automatic
+Claim/Publish materialization, Pulsar mutation support, response-loss or
+crash cuts, multi-shard production wiring, remote Object Store authority or
+release PASS.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

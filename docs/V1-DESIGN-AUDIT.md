@@ -6447,6 +6447,37 @@ multi-broker failover, live source ownership transfer, ACK response-loss,
 crash cuts at every WriteBatch boundary, multi-shard placement or release
 PASS.
 
+## 2026-08-15 Kafka Shard Log System Mutation append/replay/ACK audit
+
+Delay commit `02f4b458` closes a bounded Kafka-side mutation transport seam.
+The canonical System Mutation body is the sole source of the replay logical
+identity, and the Kafka decoder preserves the ordered Client Command/System
+Mutation frame union. Both the no-ACK recovery cursor and the active source
+carry the same signed mutation object and source-position guard; active ACK
+still occurs only after the guarded consumer's `commitSync` succeeds.
+
+The guarded K1 appender accepts only response evidence bound to the exact
+cluster, TopicId, topic and partition, with a nonnegative offset and Broker
+append time. It maps timeout, ordinary failure and incomplete evidence to
+`UNKNOWN`; it does not convert a missing Produce response leader epoch into
+fabricated evidence. Fetch replay can supply the optional epoch later while
+the route/resource/offset/append-time identity remains fixed.
+
+The source-locked fresh run used Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+Delay `02f4b458`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose project `nereus-delay-kafka-e2e-1786773092-35482`, ports
+`19570,19571,19572`, mutation TopicId `7jN1ZJcgRPSZILqxxNLqVw`, and mutation
+offset `0`. It printed the guarded append/replay/ACK success line, and the
+full source/Worker/K1/K2 harness exited successfully with cleanup complete.
+
+This is one source-locked partition and one `TIME_FENCE` mutation. It is not
+evidence of signature trust-set authorization, mutation-to-RocksDB apply,
+automatic Claim/Publish orchestration, Pulsar mutation replay, response-loss
+recovery, crash-boundary coverage, multi-shard placement or release PASS.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

@@ -177,6 +177,18 @@ require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transpo
     "consumer.commitSync"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactSourceConsumerFactory.java" \
     "bindResourceGuard"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/protocol/SystemMutationIdentityV1.java" \
+    "RESOURCE_DELETE_CONFIRMED"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/protocol/SystemMutation.java" \
+    "public static SystemMutation decodeFrame"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactSourceRecordDecoder.java" \
+    "SourceReplayMutation"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactShardLogMutationAppender.java" \
+    "sendGuarded"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactShardLogMutationAppender.java" \
+    "AppendOutcome.unknown"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactMutationSmoke.java" \
+    "Kafka Shard Log mutation append/replay/ACK smoke passed"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactFetchEvidence.java" \
     "requireBatch"
 require_file_text "$kafka_checkout/clients/src/main/java/org/apache/kafka/clients/consumer/GuardedConsumer.java" \
@@ -240,9 +252,13 @@ require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "restart_worker_topic"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
+    "runRealKafkaMutationSmoke"
+require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "NEREUS_DELAY_KAFKA_WITH_OXIA"
 require_file_text "$delay_root/build.gradle" \
     "kafkaWorkerMode"
+require_file_text "$delay_root/build.gradle" \
+    "runRealKafkaMutationSmoke"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactSourceSmoke.java" \
     "PulsarClientArtifactRecoverySourceCursor"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \

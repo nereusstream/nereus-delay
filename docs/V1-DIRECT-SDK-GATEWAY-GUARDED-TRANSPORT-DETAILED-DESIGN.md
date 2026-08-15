@@ -3169,6 +3169,26 @@ This is one single-node process-restart proof with deterministic in-memory
 Owner authority; Pulsar multi-broker failover, in-flight response-loss and
 full D6 crash evidence remain separate.
 
+### 2026-08-15 Kafka Shard Log mutation implementation note
+
+The Kafka source set now treats the V1 Shard Log as one ordered union of
+Client Command and System Mutation frames. `SystemMutationIdentityV1` parses
+the canonical typed body and derives the registry identity before a replay
+object is constructed; no adapter may inject an operation identity from
+outside the frame. `KafkaClientArtifactShardLogMutationAppender` uses the
+locked K1 guarded Producer and returns a source position only from checked
+response evidence. A missing Produce-response leader epoch is preserved as
+optional rather than invented; a later Fetch replay may enrich it.
+
+The recovery and active source paths use the same frame decoder, retain the
+exact mutation bytes and source identity, and keep the existing ACK rule:
+`commitSync` is the durable cursor boundary and any ambiguous commit remains
+unacknowledged. The real Docker smoke covers one `TIME_FENCE` append, ordered
+recovery replay, active exposure and ACK on one partition. It does not make
+the source adapter a Worker apply authority, and it leaves trust-set
+authorization, automatic Claim/Publish, Pulsar mutation support,
+response-loss/crash cuts, multi-shard wiring and release gates open.
+
 ## 16. 当前结论与仍需实测的数值
 
 已经冻结：

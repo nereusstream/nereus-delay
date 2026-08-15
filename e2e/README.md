@@ -111,6 +111,35 @@ EndTxn response-loss, Fetch response-loss, LSO/retention-floor recovery, Route
 assignment publication, placement authority, ACK-failure injection,
 due/Lane/publish/checkpoint production wiring or the complete Worker vertical.
 
+### Kafka Shard Log signed mutation append/replay/ACK
+
+The same harness now runs `runRealKafkaMutationSmoke` after the ordinary
+source smoke. It creates one LogAppendTime topic with replication factor 3,
+builds a signed `TIME_FENCE` System Mutation, appends its canonical frame with
+the K1 `GuardedProducer` and exact `ProducerResourceGuard`, then reads the
+same frame through the no-ACK recovery cursor and active guarded source. The
+active source acknowledges only after `commitSync`; the smoke also rejects a
+second visible entry. The appender maps missing/ambiguous response evidence
+to `UNKNOWN` and does not fabricate a Produce-response leader epoch; replay
+may enrich that optional field from Fetch metadata while route, resource,
+offset and append-time identity must remain the same.
+
+The fresh run used Delay `02f4b458`, Kafka source
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose project `nereus-delay-kafka-e2e-1786773092-35482`, and ports
+`19570,19571,19572`. It printed:
+
+```text
+Kafka Shard Log mutation append/replay/ACK smoke passed: topicId=7jN1ZJcgRPSZILqxxNLqVw, offset=0, record=TIME_FENCE, guarded Producer, ordered mutation replay, commitSync ACK
+```
+
+This closes one source-locked Kafka partition's append → recovery replay →
+active-source ACK path. It does not claim mutation apply, signature trust
+authorization, automatic Claim/Publish, Pulsar mutation support,
+response-loss/crash coverage, multi-shard production wiring or release PASS.
+
 The latest optional real-Oxia run used Delay
 `a7fd5fa7dd35d5d8535d3c63e577208d29fc2c5`, Kafka source
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Oxia
@@ -365,6 +394,11 @@ closed when their artifact paths are omitted:
   -PkafkaClientJar=/absolute/path/to/kafka-clients-4.4.0-SNAPSHOT.jar \
   -PkafkaBootstrap=127.0.0.1:9092 \
   -PkafkaSourceTopic=nereus-delay-source-topic
+
+./gradlew runRealKafkaMutationSmoke \
+  -PkafkaClientJar=/absolute/path/to/kafka-clients-4.4.0-SNAPSHOT.jar \
+  -PkafkaBootstrap=127.0.0.1:9092 \
+  -PkafkaMutationTopic=nereus-delay-mutation-topic
 
 ./gradlew runRealPulsarSmoke \
   -PpulsarClientClasspath=/absolute/path/pulsar-client.jar:/absolute/path/pulsar-client-api.jar:/absolute/path/pulsar-common.jar
