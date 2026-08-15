@@ -232,6 +232,48 @@ reconnect/churn, Broker failover with an accepted Route, native eligibility,
 production source ownership transfer, Object Store checkpoint publication or
 release PASS.
 
+### Kafka accepted Route broker failover cut
+
+The accepted-Route failover cut is opt-in and intentionally standalone. Set
+both `NEREUS_DELAY_KAFKA_ROUTE_FAILOVER=1` and
+`NEREUS_DELAY_KAFKA_ROUTE_FAILOVER_ONLY=1` together with
+`NEREUS_DELAY_KAFKA_WITH_OXIA=1`. The route Worker pauses after the signed
+Route/assignment acceptance; the harness stops `kafka-1`, waits for a
+surviving broker, releases the gate, and requires the next record to reach the
+same Worker Store, exact Kafka position check and `commitSync` ACK before the
+final local checkpoint and Oxia assignment release.
+
+The source-locked run used Delay
+`7e94d0f8a3e374832a111dbd2f741be5f20795d5`, Kafka
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Oxia
+`37a17bef17202d5fd6e232da5fd26d94865484`, Kafka/Oxia projects
+`nereus-delay-kafka-e2e-1786787846-2966` /
+`nereus-delay-kafka-oxia-e2e-1786787846-2966`, broker ports
+`19750,19751,19752`, and Oxia port `16677`:
+
+```bash
+JAVA_TOOL_OPTIONS='-Dorg.slf4j.simpleLogger.defaultLogLevel=warn' \
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+NEREUS_DELAY_KAFKA_ROUTE_FAILOVER=1 \
+NEREUS_DELAY_KAFKA_ROUTE_FAILOVER_ONLY=1 \
+NEREUS_DELAY_KAFKA_OXIA_PORT=16677 \
+KAFKA_BROKER_1_PORT=19750 KAFKA_BROKER_2_PORT=19751 KAFKA_BROKER_3_PORT=19752 \
+./e2e/run-kafka-real-client-e2e.sh
+```
+
+The bounded receipt was:
+
+```text
+Kafka signed Route -> guarded Fetch barrier -> Oxia Worker assignment -> RocksDB apply/checkpoint smoke passed: fetch=v18, lso=1, routeRevision=1, assignmentRevision=1, barrierOffset=1, sourceOffset=2, commitSync ACK, accepted-route broker failover, final checkpoint
+Kafka accepted-route broker failover E2E passed: Route-bound Worker applied and ACKed after broker-1 failover, then released its final checkpoint and Oxia assignment.
+```
+
+This is one source-locked topic/partition and is not the aggregate Kafka/K1/K2
+E2E or a release PASS. Catalog-driven placement, Route session churn, native
+eligibility, production source ownership, remote Object Store authority,
+response-loss/crash cuts at every Store boundary, Pulsar multi-broker failover
+and automatic Claim/Publish remain open.
+
 ### Pulsar signed Route barrier to Worker assignment
 
 When `NEREUS_DELAY_PULSAR_WITH_OXIA=1`, the same harness also runs

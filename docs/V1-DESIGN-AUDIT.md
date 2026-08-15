@@ -6797,6 +6797,40 @@ session churn/reconnect, accepted-Route broker failover, catalog placement,
 native eligibility, source ownership transfer, Object Store checkpointing,
 automatic Claim/Publish authority and §23.5 release gates remain open.
 
+## 2026-08-15 Kafka accepted Route broker failover audit
+
+Delay commit `7e94d0f8a3e374832a111dbd2f741be5f20795d5` adds a separately gated
+real-client cut after the signed Route and route-bound Oxia assignment have
+been accepted. The harness stops `kafka-1` while the Worker is held at the
+accepted assignment, waits for a surviving broker, releases the gate, and
+requires the same Worker Store to apply and `commitSync` ACK the next Kafka
+record at `barrierOffset + 1`. It then restarts `kafka-1`, drains, publishes
+the bounded local checkpoint and proves assignment/owner release.
+
+The source lock is Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+Oxia `37a17bef17202d5fd6e232da5fd26d94865484`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Kafka/Oxia projects `nereus-delay-kafka-e2e-1786787846-2966` /
+`nereus-delay-kafka-oxia-e2e-1786787846-2966`, broker ports
+`19750,19751,19752`, and Oxia port `16677`. The Delay harness was run with
+`NEREUS_DELAY_KAFKA_ROUTE_FAILOVER=1` and
+`NEREUS_DELAY_KAFKA_ROUTE_FAILOVER_ONLY=1`; it printed:
+
+```text
+Kafka signed Route -> guarded Fetch barrier -> Oxia Worker assignment -> RocksDB apply/checkpoint smoke passed: fetch=v18, lso=1, routeRevision=1, assignmentRevision=1, barrierOffset=1, sourceOffset=2, commitSync ACK, accepted-route broker failover, final checkpoint
+Kafka accepted-route broker failover E2E passed: Route-bound Worker applied and ACKed after broker-1 failover, then released its final checkpoint and Oxia assignment.
+```
+
+This is source-locked evidence for one accepted Route and one Kafka
+topic/partition. The `ROUTE_FAILOVER_ONLY` mode is deliberately not promoted
+to the aggregate E2E or release gate. Catalog placement, Route session
+reconnect/churn, native eligibility, production source ownership transfer,
+remote Object Store authority, response-loss/crash cuts, Pulsar multi-broker
+failover, automatic Claim/Publish authority and §23.5 release gates remain
+open.
+
 ## 2026-08-15 Pulsar guarded SUBSCRIBE to signed Route Worker assignment audit
 
 Delay commit `bf858b089b927fcf65129214d8ed5a7fc5300deb` adds a real-client

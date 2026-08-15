@@ -7913,6 +7913,60 @@ Broker failover while an accepted Route is active, native eligibility,
 production source ownership transfer, Object Store checkpoint publication,
 automatic Claim/Publish orchestration or release PASS.
 
+## 2026-08-15 Kafka accepted Route broker failover evidence
+
+Delay commit `7e94d0f8a3e374832a111dbd2f741be5f20795d5` adds an opt-in
+accepted-Route failover cut to `KafkaClientArtifactRouteWorkerSmoke` and
+`run-kafka-real-client-e2e.sh`. With a real Oxia Route and revision-CAS Worker
+assignment already accepted, the harness pauses at an explicit gate, stops
+`kafka-1`, waits for the surviving broker, releases the gate, and lets the
+same route-bound Worker source reconnect and apply the next record. The Worker
+checks the exact Kafka source position, `commitSync` ACK, then drains through
+the final local checkpoint and releases the Oxia assignment/owner lease after
+`kafka-1` is restarted.
+
+The source-locked standalone receipt used Delay
+`7e94d0f8a3e374832a111dbd2f741be5f20795d5`, Kafka
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Oxia
+`37a17bef17202d5fd6e232da5fd26d94865484`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Kafka Compose project `nereus-delay-kafka-e2e-1786787846-2966`, Oxia Compose
+project `nereus-delay-kafka-oxia-e2e-1786787846-2966`, broker ports
+`19750,19751,19752`, and Oxia port `16677`. The exact command was:
+
+```bash
+JAVA_TOOL_OPTIONS='-Dorg.slf4j.simpleLogger.defaultLogLevel=warn' \
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+NEREUS_DELAY_KAFKA_ROUTE_FAILOVER=1 \
+NEREUS_DELAY_KAFKA_ROUTE_FAILOVER_ONLY=1 \
+NEREUS_DELAY_KAFKA_OXIA_PORT=16677 \
+KAFKA_BROKER_1_PORT=19750 KAFKA_BROKER_2_PORT=19751 KAFKA_BROKER_3_PORT=19752 \
+./e2e/run-kafka-real-client-e2e.sh
+```
+
+The bounded Route/Worker receipt was:
+
+```text
+Kafka signed Route -> guarded Fetch barrier -> Oxia Worker assignment -> RocksDB apply/checkpoint smoke passed: fetch=v18, lso=1, routeRevision=1, assignmentRevision=1, barrierOffset=1, sourceOffset=2, commitSync ACK, accepted-route broker failover, final checkpoint
+```
+
+The harness then printed `BUILD SUCCESSFUL in 14s` and:
+
+```text
+Kafka accepted-route broker failover E2E passed: Route-bound Worker applied and ACKed after broker-1 failover, then released its final checkpoint and Oxia assignment.
+```
+
+`NEREUS_DELAY_KAFKA_ROUTE_FAILOVER_ONLY=1` intentionally scopes this receipt to
+the accepted-Route cut; it is not the aggregate Kafka/K1/K2 E2E receipt. This
+closes one source-locked topic/partition's accepted-Route broker-1 failover,
+Worker Store apply/ACK and local checkpoint/release evidence. It does not
+establish catalog-driven multi-shard placement, Route session reconnect under
+churn, native eligibility, production source ownership transfer, remote Object
+Store credentials/quiescence, response-loss or crash cuts at every Store
+boundary, Pulsar multi-broker failover, automatic Claim/Publish orchestration
+or release PASS.
+
 ## 2026-08-15 Pulsar guarded SUBSCRIBE to signed Route Worker assignment evidence
 
 Delay commit `bf858b089b927fcf65129214d8ed5a7fc5300deb` adds

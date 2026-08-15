@@ -114,6 +114,14 @@ require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "nereus/delay-full-implementation-v1@a73faf3e836ada67931f709d46214dde7caf3ad0"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "nereus/delay-full-implementation-v1@bf858b089b927fcf65129214d8ed5a7fc5300deb"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "7e94d0f8a3e374832a111dbd2f741be5f20795d5"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "7e94d0f8a3e374832a111dbd2f741be5f20795d5"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "nereus-delay-kafka-e2e-1786787846-2966"
+require_file_text "$delay_root/e2e/README.md" \
+    "NEREUS_DELAY_KAFKA_ROUTE_FAILOVER_ONLY=1"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "202368d46fedfe12ae414edaa9c3db32cc8e5073"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
@@ -245,10 +253,14 @@ require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transpo
     "RocksDB apply/checkpoint"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactRouteWorkerSmoke.java" \
     "lastStableOffset"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactRouteWorkerSmoke.java" \
+    "accepted-route broker failover"
 require_file_text "$delay_root/build.gradle" \
     "runRealKafkaRouteWorkerSmoke"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "run_route_worker_smoke"
+require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
+    "NEREUS_DELAY_KAFKA_ROUTE_FAILOVER_ONLY"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactRouteWorkerSmoke.java" \
     "Pulsar signed Route -> guarded SUBSCRIBE barrier"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactRouteWorkerSmoke.java" \

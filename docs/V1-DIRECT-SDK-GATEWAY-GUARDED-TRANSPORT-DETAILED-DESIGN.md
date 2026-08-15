@@ -3475,6 +3475,37 @@ churn, survive Broker failover with an accepted assignment, establish native
 eligibility, perform catalog-driven multi-shard placement or complete the
 Object Store/checkpoint/Claim/Publish/release gates.
 
+### 2026-08-15 Kafka accepted Route broker failover implementation note
+
+Delay commit `7e94d0f8a3e374832a111dbd2f741be5f20795d5` adds an explicit
+failover gate to the real Kafka Route Worker smoke. After the signed Route and
+route-bound Oxia assignment are reread and accepted, the Worker waits without
+changing the assignment. The opt-in harness stops `kafka-1`, waits for a
+surviving broker, releases the gate, and requires the next guarded source
+record to pass the same Route-bound Store apply, exact Kafka position check and
+`commitSync` ACK before final local checkpoint and assignment/owner release.
+
+The source-locked standalone command set
+`NEREUS_DELAY_KAFKA_WITH_OXIA=1`,
+`NEREUS_DELAY_KAFKA_ROUTE_FAILOVER=1`, and
+`NEREUS_DELAY_KAFKA_ROUTE_FAILOVER_ONLY=1` against Kafka
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Oxia
+`37a17bef17202d5fd6e232da5fd26d94865484`, Kafka/Oxia Compose projects
+`nereus-delay-kafka-e2e-1786787846-2966` /
+`nereus-delay-kafka-oxia-e2e-1786787846-2966`, broker ports
+`19750,19751,19752`, and Oxia port `16677`. The bounded receipt was:
+
+```text
+Kafka signed Route -> guarded Fetch barrier -> Oxia Worker assignment -> RocksDB apply/checkpoint smoke passed: fetch=v18, lso=1, routeRevision=1, assignmentRevision=1, barrierOffset=1, sourceOffset=2, commitSync ACK, accepted-route broker failover, final checkpoint
+```
+
+This implementation note establishes only the one-topic/one-partition
+accepted-Route broker-1 failover cut. It does not establish Route session
+churn/reconnect, catalog-driven placement, native eligibility, production
+source ownership transfer, remote Object Store authority, response-loss or
+crash-at-boundary evidence, Pulsar multi-broker failover or the §23.5 release
+gates.
+
 ### 2026-08-15 Pulsar guarded SUBSCRIBE to signed Route Worker assignment
 
 Delay commit `bf858b089b927fcf65129214d8ed5a7fc5300deb` adds
