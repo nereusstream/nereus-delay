@@ -4665,13 +4665,13 @@ the guarded Broker rollout attestation remains external evidence.
 | 依赖 | 审计锁 |
 |---|---|
 | Delay local implementation slice | `nereus/delay-full-implementation-v1@4f606fec86aaeb74472f6575e5ee7ddcb8dc8f82` (Oxia Route session-fenced publisher/provider composition on top of Gateway query/await/message handlers and bounded query ingress behind explicit `GatewayQueryAuthority`, receipt-bound payload upload/attestation ingress, PrepareLargeSchedule/CommitLargeSchedule, Cancel and Reschedule control slices, Direct SDK outbox fail-closed and Worker source-consumer/ACK-after-sync composition; transport result/attempt binding `5cc955e1306e1f54db06a06a2bb2b84f232c2a7b`; Gateway query base `59d492041ac42b79a632ebddfb56a7608b2d7283`, Gateway ingress base `1dc28eaf391429f2dc9221f416af968d36575dff`, Gateway API generation base `a06ab232a5608ec0e7c9152ef80fc72c06966e66`; Gateway CAS base `e276bec3ffff7f5015367bed55f5b8d63c080e21`, Route authority base `62a9438967112f96e65b8daa7b2b86d52a103b10`, Gateway retry base `c42405ce6c69aef8ae0f8a9a63158c917410309f`, route-cache base `67ef3de3ab6f69ae992c3ccb70c7cb65cad47613`, composition base `402b27fa0dced95c2312bfedc0678af03463f2d5`, repository base `origin/main@2dfc3289ffdbe9cf9d7f4d0de1d701493d1b49a6`) |
-| Delay current implementation head | `nereus/delay-full-implementation-v1@a7fd5fa7dd35d5d8535d3c63e577208d29fc2c5` (Kafka guarded Fetch/source proof and ACK/replay handoff, guarded Pulsar SUBSCRIBE/replay/ACK binding, strict Gateway RS256+mTLS JWT policy, durable Oxia tenant admission CAS, explicit Route session recovery, real-Kafka recovery/apply/ACK Worker slice and opt-in network Oxia session-bound owner lease; placement, Route publication, production Worker wiring and release gates remain open) |
+| Delay current implementation head | `nereus/delay-full-implementation-v1@202368d46fedfe12ae414edaa9c3db32cc8e5073` (Kafka guarded Fetch/source proof and ACK/replay handoff, guarded Pulsar SUBSCRIBE/replay/ACK binding, strict Gateway RS256+mTLS JWT policy, durable Oxia tenant admission CAS, explicit Route session recovery, real-Kafka recovery/apply/ACK Worker slice, real-Pulsar recovery/apply/ACK Worker slice and opt-in network Oxia session-bound owner lease; placement, Route publication, production Worker wiring and release gates remain open) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
 | Pulsar first-class-guard implementation base inspected for ADR 0044 | `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551` |
 | Kafka isolated K1/K2 implementation | `nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9` |
-| Pulsar isolated P1 implementation | `nereus/delay-resource-guard-v1@f813c96687cc19e6fca1c82d3d161cf3e045c86b` |
+| Pulsar isolated P1 implementation | `nereus/delay-resource-guard-v1@358ce4a1033bd566faebcd3465c3ba4606f3c83f` |
 
 主设计 R12–R37 的 Kafka/Pulsar correctness-critical 链接全部使用上述 immutable commit。发布包还必须记录实际 patch/binary digest、Broker rollout attestation 和 delete/recreate cuts；仅有文档 source lock 不等于实现已通过。
 
@@ -6093,6 +6093,33 @@ The run proves only this real Oxia session-bound authority cut around a
 single smoke-created assignment. It does not prove RouteSnapshot publication,
 placement, catalog-driven assignment, production multi-shard Worker wiring,
 real Pulsar Worker apply/ACK, or D6 crash/failure-injection gates.
+
+## 2026-08-15 guarded Pulsar Worker vertical audit
+
+Delay commit `202368d46fedfe12ae414edaa9c3db32cc8e5073` adds
+`PulsarClientArtifactWorkerSmoke` and the `runRealPulsarWorkerSmoke` E2E task.
+The smoke captures a post-seek P1 guard proof, uses the exact same guarded
+consumer for no-ACK `OwnerRecoveryCoordinator` replay and the active source
+loop, applies the next record through `WorkerShardRuntime` and RocksDB
+`WriteBatch`, then performs the synchronous source ACK and owner drain/release.
+
+The real-client run used P1
+`nereus/delay-resource-guard-v1@358ce4a1033bd566faebcd3465c3ba4606f3c83f`,
+distribution SHA-256
+`7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5c5a1d137d`, image
+`sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`,
+Compose project `nereus-delay-pulsar-e2e-1786760203-85592`, and ports
+`19930,19931`. It passed the existing guarded writer/delete-recreate and
+source replay/ACK smokes and printed:
+
+```text
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=15/0, active apply ledger/entry=15/1, guarded SUBSCRIBE, RocksDB WriteBatch and ACK
+```
+
+This is single-node, non-batch, smoke-created assignment evidence with a
+deterministic in-memory owner authority. Network Oxia session/placement,
+Route publication, multi-broker failover, production multi-shard Worker
+wiring and D6 crash/failure-injection gates remain open.
 
 ## Final gate
 

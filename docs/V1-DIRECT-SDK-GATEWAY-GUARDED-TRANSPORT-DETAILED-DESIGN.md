@@ -2963,6 +2963,24 @@ apply/ACK, Broker ACK/rewind failure cuts, due/Lane/publish/checkpoint/
 recovery production wiring or Docker crash cuts. The §23.5 completion gate
 still controls release status; this slice cannot imply V1 release-ready.
 
+Commit `202368d4` adds the matching real P1 Pulsar Worker smoke. It reuses the
+guarded consumer and its post-positioning connection proof across the no-ACK
+recovery cursor and the active source loop, then proves the next physical
+record through RocksDB `WriteBatch`, synchronous ACK and exact owner drain.
+The single-node run used P1
+`358ce4a1033bd566faebcd3465c3ba4606f3c83f`, distribution SHA-256
+`7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5c5a1d137d`, image
+`sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`,
+and Compose `nereus-delay-pulsar-e2e-1786760203-85592` on `19930,19931`; it
+printed `Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=15/0, active apply ledger/entry=15/1, guarded SUBSCRIBE, RocksDB WriteBatch and ACK`.
+
+This closes the single-node guarded Pulsar recovery → active apply → ACK cut
+for one smoke-created source. Its authority is deterministic in-memory, so it
+does not establish network Oxia session/placement, Route publication,
+multi-broker failover, production multi-shard Worker wiring, due/Lane/
+publish/checkpoint/recovery production paths or Docker crash cuts. The §23.5
+completion gate still controls release status.
+
 ## 16. 当前结论与仍需实测的数值
 
 已经冻结：

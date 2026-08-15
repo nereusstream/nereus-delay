@@ -6955,6 +6955,46 @@ placement/assignment authority, catalog-driven multi-shard Worker wiring,
 real Pulsar Worker apply/ACK, due/Lane/publish/checkpoint production wiring,
 or crash/failover evidence; those remain open.
 
+## 2026-08-15 guarded Pulsar Worker recovery/apply evidence
+
+Delay commit `202368d46fedfe12ae414edaa9c3db32cc8e5073` adds
+`PulsarClientArtifactWorkerSmoke` and the `runRealPulsarWorkerSmoke` Gradle
+task. The smoke publishes one guarded record, positions a real P1
+`GuardedConsumer<byte[]>` at the earliest cursor, builds the exact
+connection-generation/attestation barrier, and runs `OwnerRecoveryCoordinator`
+through recovery without ACK. It then continues the same guarded consumer
+through `PulsarClientArtifactWorkerSourceFactory`, applies the next record via
+`WorkerShardRuntime` and RocksDB `WriteBatch`, synchronously ACKs it, and
+drains/releases the owner lease.
+
+The fresh single-node run used Pulsar
+`nereus/delay-resource-guard-v1@358ce4a1033bd566faebcd3465c3ba4606f3c83f`,
+distribution SHA-256
+`7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5c5a1d137d`, client
+SHA-256 values `57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`, and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, and
+image `sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`.
+The Compose project was `nereus-delay-pulsar-e2e-1786760203-85592` on broker
+port `19930` and web port `19931`. The existing guarded writer/source smokes
+also passed, and the Worker output was:
+
+```text
+Pulsar positioned recovery passed: skipped=11/0, returned=01de6468dc1e60414b8b0528af34463b6f0000000001a0033563587f298a082c04e598dc294e787927, connectionGeneration=4
+Pulsar source ACK smoke passed: physicalTopic=persistent://public/default/p1-real-client-85592-source-24c8d950-0f92-49c5-9e59-b755ba1d940f, firstLedger=11, firstEntry=0, secondLedger=11, secondEntry=1, firstConnectionGeneration=5, secondConnectionGeneration=6
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=15/0, active apply ledger/entry=15/1, guarded SUBSCRIBE, RocksDB WriteBatch and ACK
+Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, guarded source replay, Broker timestamp, Worker recovery/apply, and ACK handoff.
+```
+
+The harness exited successfully and removed its matching container, network,
+volumes, temporary image and staging directories. This closes the single-node
+P1 guarded SUBSCRIBE → recovery → active apply → synchronous ACK cut for the
+smoke-created non-batch source. Its owner authority remains deterministic
+in-memory; network Oxia session/placement, Route assignment publication,
+multi-broker failover, real Pulsar Worker production wiring, due/Lane/
+publish/checkpoint production paths and crash/failure-injection gates remain
+open.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

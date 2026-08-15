@@ -125,7 +125,10 @@ it replays an unacknowledged record after a client reconnect, ACKs only after
 the synchronous broker ACK call, and confirms that the committed record is not
 replayed. It extracts the distribution `lib/*.jar` files into a temporary host
 directory for the client runtime; the client/server jars and distribution all
-come from the same locked P1 checkout.
+come from the same locked P1 checkout. The Worker smoke then reuses the
+post-seek guarded consumer through no-ACK recovery, applies the next record
+through `WorkerShardRuntime` and RocksDB `WriteBatch`, performs synchronous ACK
+and drains the exact owner lease.
 
 ```text
 ./e2e/run-pulsar-real-client-e2e.sh
@@ -137,18 +140,19 @@ The harness requires a clean
 distribution and client-jar SHA-256 values, image ID and allocated ports, and
 cleans only its own Compose project, volumes, temporary image and staging
 directories. The current run passed with P1
-`f813c96687cc19e6fca1c82d3d161cf3e045c86b`, distribution SHA-256
-`bfe0c479c60db1a7a56f4548bd821d218c4c284dceb7c112d92f425606adec37`, image
-`sha256:735e2a6b952e2f7d4c8fc4c7a7b0d4ec2a852a9f4a9b21e82b076477cf19669f`,
-Compose project `nereus-delay-pulsar-e2e-1786743812-11877`, ports
-`19827,19828`, and writer output
+`358ce4a1033bd566faebcd3465c3ba4606f3c83f`, distribution SHA-256
+`7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5c5a1d137d`, image
+`sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`,
+Compose project `nereus-delay-pulsar-e2e-1786760203-85592`, ports
+`19930,19931`, and writer output
 `initial=PERSISTED, stale=DEFINITIVELY_NOT_PERSISTED, replacement=PERSISTED`.
 The source output was
 `firstLedger=11, firstEntry=0, secondLedger=11, secondEntry=1,
-firstConnectionGeneration=1, secondConnectionGeneration=2`, followed by an
-empty poll after the ACK. The client artifacts were
+firstConnectionGeneration=5, secondConnectionGeneration=6`, followed by an
+empty poll after the ACK; positioned recovery skipped `11/0` and returned the
+second command after a stable proof. The client artifacts were
 `pulsar-client-original` SHA-256
-`a636470f7d3f04af18980b84703a2b90f240a4bb58f77f8c19c1fd05b5bb40b2`,
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
 `pulsar-client-api` SHA-256
 `f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`, and
 `pulsar-common` SHA-256
@@ -156,10 +160,18 @@ empty poll after the ACK. The client artifacts were
 The exit check found no matching container, network, volume or temporary
 image.
 
-This closes only the single-node real P1 client/broker delete-recreate and
-guarded source replay/ACK cut. It does not claim unload, multi-broker failover,
-old-peer proxy compatibility, source unload/failover/session ownership,
-guarded Fetch/rewind, D3 Direct SDK integration or the Worker vertical.
+The Worker output was:
+
+```text
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=15/0, active apply ledger/entry=15/1, guarded SUBSCRIBE, RocksDB WriteBatch and ACK
+```
+
+This closes only the single-node real P1 client/broker delete-recreate,
+guarded source replay/ACK and Worker recovery/apply/ACK cuts. It does not
+claim unload, multi-broker failover, old-peer proxy compatibility, source
+unload/failover/session ownership, guarded Fetch/rewind, network Oxia
+session/placement, D3 Direct SDK integration or production multi-shard Worker
+wiring.
 
 ## Optional source-locked client bindings
 
