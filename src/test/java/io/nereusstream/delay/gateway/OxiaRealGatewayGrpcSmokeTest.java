@@ -335,6 +335,156 @@ class OxiaRealGatewayGrpcSmokeTest {
     }
 
     @Test
+    void gatewayDurableRecordsRecoverAfterOxiaSessionChurn() throws Exception {
+        final String endpoint = System.getenv("NEREUS_DELAY_OXIA_ENDPOINT");
+        Assumptions.assumeTrue(endpoint != null && !endpoint.isBlank(),
+                "NEREUS_DELAY_OXIA_ENDPOINT is not configured");
+        final Path serverCertificate = requiredPath("NEREUS_DELAY_GATEWAY_SERVER_CERT");
+        final Path serverPrivateKey = requiredPath("NEREUS_DELAY_GATEWAY_SERVER_KEY");
+        final Path trustedClientCertificates = requiredPath("NEREUS_DELAY_GATEWAY_CA_CERT");
+        final Path clientCertificate = requiredPath("NEREUS_DELAY_GATEWAY_CLIENT_CERT");
+        final Path clientPrivateKey = requiredPath("NEREUS_DELAY_GATEWAY_CLIENT_KEY");
+        final int port = Integer.parseInt(requiredEnv("NEREUS_DELAY_GATEWAY_PORT"));
+        if (port <= 0 || port > 65_535) {
+            throw new IllegalArgumentException("NEREUS_DELAY_GATEWAY_PORT must be 1..65535");
+        }
+        final Path restartGate = Path.of(requiredEnv("NEREUS_DELAY_GATEWAY_SESSION_CHURN_GATE"));
+        final Path restartReady = Path.of(requiredEnv("NEREUS_DELAY_GATEWAY_SESSION_CHURN_READY"));
+        Files.deleteIfExists(restartGate);
+        Files.deleteIfExists(restartReady);
+
+        final String namespace = configured("NEREUS_DELAY_OXIA_NAMESPACE", "default");
+        final String prefix = "nereus-delay-real-gateway-session-churn/" + UUID.randomUUID();
+        final MutableClock clock = new MutableClock(NOW_EPOCH_MS);
+        final AuthenticatedTenantContext tenant = tenant(31);
+        final KeyPair jwtKeyPair = rsaKeyPair();
+        final byte[] certificateFingerprint = certificateFingerprint(clientCertificate);
+        final RsaSha256GatewayJwtVerifier verifier = new RsaSha256GatewayJwtVerifier(
+                jwtKeyPair.getPublic(), "nereus-delay-gateway-e2e-issuer", "nereus-delay-gateway-e2e",
+                "gateway-e2e-key", Clock.fixed(Instant.ofEpochSecond(NOW_EPOCH_SECONDS), ZoneOffset.UTC),
+                30, 600);
+        final MutualTlsJwtGatewayTenantAuthority authority = new MutualTlsJwtGatewayTenantAuthority(verifier);
+        final ScheduleIntentV1 intent = scheduleIntent();
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
+        final PreparedCommand command = PreparedCommand.scheduleV1(shard, intent, 2_000_000);
+        final PreparedSubmissionV1 prepared = PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(command));
+        final FixedCore core = new FixedCore(prepared);
+        final CountingCoordinator coordinator = new CountingCoordinator(command);
+        final String token = token(jwtKeyPair, tenant, certificateFingerprint);
+        final io.nereusstream.delay.gateway.v1.GatewayScheduleRequestV1 request = request(intent);
+
+        try (OxiaSyncOwnerLeaseBackend.ClientHandle admissionClient = OxiaSyncOwnerLeaseBackend.connect(
+                endpoint, namespace, "nereus-delay-gateway-churn-admission-old-" + UUID.randomUUID(),
+                Duration.ofSeconds(2), prefix + "/admission-client");
+             OxiaSyncOwnerLeaseBackend.ClientHandle idempotencyClient = OxiaSyncOwnerLeaseBackend.connect(
+                     endpoint, namespace, "nereus-delay-gateway-churn-idempotency-old-" + UUID.randomUUID(),
+                     Duration.ofSeconds(2), prefix + "/idempotency-client");
+             OxiaSyncOwnerLeaseBackend.ClientHandle auditClient = OxiaSyncOwnerLeaseBackend.connect(
+                     endpoint, namespace, "nereus-delay-gateway-churn-audit-old-" + UUID.randomUUID(),
+                     Duration.ofSeconds(2), prefix + "/audit-client")) {
+            final GatewayGrpcService oldGrpc = grpcService(admissionClient, idempotencyClient, auditClient, prefix,
+                    clock, core, coordinator, authority);
+            final io.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 firstResponse;
+            try (GatewayGrpcServer oldServer = GatewayGrpcServer.mutualTls(port, serverCertificate, serverPrivateKey,
+                    trustedClientCertificates, oldGrpc)) {
+                oldServer.start();
+                final ManagedChannel firstChannel = channel(port, trustedClientCertificates, clientCertificate,
+                        clientPrivateKey);
+                try {
+                    firstResponse = stub(firstChannel, token).schedule(request);
+                    assertTrue(firstResponse.hasSubmissionOutcomeNdr1());
+                } finally {
+                    firstChannel.shutdownNow();
+                    assertTrue(firstChannel.awaitTermination(10, TimeUnit.SECONDS));
+                }
+
+                Files.createFile(restartReady);
+                awaitFile(restartGate);
+
+                final GatewayAdmissionController staleAdmission = new OxiaGatewayAdmissionController(
+                        admissionClient, prefix, clock,
+                        new OxiaGatewayAdmissionController.Limits(2, 2_000_000, 1, 1, 10_000, 8));
+                assertThrows(OxiaGatewaySessionUnavailableException.class,
+                        () -> staleAdmission.reserve(new GatewayAdmissionRequestV1(
+                                tenant, GatewayIngressOperationV1.SCHEDULE, 1)));
+                final OxiaGatewayIdempotencyStore staleIdempotency = new OxiaGatewayIdempotencyStore(
+                        idempotencyClient, prefix + "/idempotency", clock, 10_000, 10_000);
+                assertThrows(OxiaGatewaySessionUnavailableException.class,
+                        () -> staleIdempotency.exact(GatewayIdempotencyHashV1.keyHash(
+                                tenant.authenticatedTenantScopeHash(), request.getIdempotencyKey().toByteArray())));
+
+                final ManagedChannel staleChannel = channel(port, trustedClientCertificates, clientCertificate,
+                        clientPrivateKey);
+                try {
+                    final StatusRuntimeException rejection = assertThrows(StatusRuntimeException.class,
+                            () -> stub(staleChannel, token).withDeadlineAfter(5, TimeUnit.SECONDS)
+                                    .schedule(request));
+                    assertEquals(Status.Code.UNAVAILABLE, rejection.getStatus().getCode());
+                } finally {
+                    staleChannel.shutdownNow();
+                    assertTrue(staleChannel.awaitTermination(10, TimeUnit.SECONDS));
+                }
+            }
+
+            try (OxiaSyncOwnerLeaseBackend.ClientHandle recoveredAdmissionClient = OxiaSyncOwnerLeaseBackend.connect(
+                    endpoint, namespace, "nereus-delay-gateway-churn-admission-new-" + UUID.randomUUID(),
+                    Duration.ofSeconds(15), prefix + "/recovered-admission-client");
+                 OxiaSyncOwnerLeaseBackend.ClientHandle recoveredIdempotencyClient =
+                         OxiaSyncOwnerLeaseBackend.connect(endpoint, namespace,
+                                 "nereus-delay-gateway-churn-idempotency-new-" + UUID.randomUUID(),
+                                 Duration.ofSeconds(15), prefix + "/recovered-idempotency-client");
+                 OxiaSyncOwnerLeaseBackend.ClientHandle recoveredAuditClient = OxiaSyncOwnerLeaseBackend.connect(
+                         endpoint, namespace, "nereus-delay-gateway-churn-audit-new-" + UUID.randomUUID(),
+                         Duration.ofSeconds(15), prefix + "/recovered-audit-client")) {
+                final GatewayGrpcService recoveredGrpc = grpcService(recoveredAdmissionClient,
+                        recoveredIdempotencyClient, recoveredAuditClient, prefix, clock, core, coordinator,
+                        authority);
+                try (GatewayGrpcServer recoveredServer = GatewayGrpcServer.mutualTls(port, serverCertificate,
+                        serverPrivateKey, trustedClientCertificates, recoveredGrpc)) {
+                    recoveredServer.start();
+                    final ManagedChannel recoveredChannel = channel(port, trustedClientCertificates,
+                            clientCertificate, clientPrivateKey);
+                    try {
+                        final io.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 recoveredResponse =
+                                stub(recoveredChannel, token).schedule(request);
+                        assertArrayEquals(firstResponse.toByteArray(), recoveredResponse.toByteArray());
+                        assertEquals(1, core.prepareCalls);
+                        assertEquals(1, coordinator.submitCalls);
+                    } finally {
+                        recoveredChannel.shutdownNow();
+                        assertTrue(recoveredChannel.awaitTermination(10, TimeUnit.SECONDS));
+                    }
+                }
+
+                try (var admissionScan = recoveredAdmissionClient.client().rangeScan(
+                        prefix + "/admission/admission/", prefix + "/admission/admission/\uffff");
+                     var idempotencyScan = recoveredIdempotencyClient.client().rangeScan(
+                             prefix + "/idempotency/idempotency/", prefix + "/idempotency/idempotency/\uffff");
+                     var auditScan = recoveredAuditClient.client().rangeScan(
+                             prefix + "/audit/audit/", prefix + "/audit/audit/\uffff")) {
+                    final List<io.oxia.client.api.GetResult> admissionRecords =
+                            java.util.stream.StreamSupport.stream(admissionScan.spliterator(), false).toList();
+                    final List<io.oxia.client.api.GetResult> idempotencyRecords =
+                            java.util.stream.StreamSupport.stream(idempotencyScan.spliterator(), false).toList();
+                    final List<io.oxia.client.api.GetResult> auditRecords =
+                            java.util.stream.StreamSupport.stream(auditScan.spliterator(), false).toList();
+                    assertEquals(1, admissionRecords.size());
+                    assertEquals(0, GatewayAdmissionRecordV1.decode(admissionRecords.get(0).value()).leases().size());
+                    assertEquals(1, idempotencyRecords.size());
+                    final GatewayIdempotencyRecordV1 idempotencyRecord =
+                            GatewayIdempotencyRecordV1.decode(idempotencyRecords.get(0).value());
+                    assertEquals(GatewayIdempotencyPhaseV1.QUIESCENT, idempotencyRecord.phase());
+                    assertEquals(1, idempotencyRecord.attempts().size());
+                    assertNotNull(idempotencyRecord.aggregateOutcomeBytes());
+                    assertEquals(2, auditRecords.size());
+                }
+            }
+            System.out.println("Gateway Oxia session churn E2E passed: stale admission/idempotency sessions failed "
+                    + "closed and new sessions reread the exact durable outcome");
+        }
+    }
+
+    @Test
     void concurrentDuplicateRequestsAcrossTwoGatewayServersUseOneDurableAttempt() throws Exception {
         final String endpoint = System.getenv("NEREUS_DELAY_OXIA_ENDPOINT");
         Assumptions.assumeTrue(endpoint != null && !endpoint.isBlank(),
@@ -571,6 +721,16 @@ class OxiaRealGatewayGrpcSmokeTest {
     private static String configured(final String name, final String fallback) {
         final String value = System.getenv(name);
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private static void awaitFile(final Path path) throws Exception {
+        for (int attempt = 0; attempt < 120; attempt++) {
+            if (Files.isRegularFile(path)) {
+                return;
+            }
+            Thread.sleep(500);
+        }
+        throw new IllegalStateException("Gateway Oxia session churn gate was not released: " + path);
     }
 
     private static byte[] bytes(final int length, final int seed) {

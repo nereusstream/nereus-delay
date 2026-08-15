@@ -10,6 +10,13 @@ delay_gradle_user_home=${NEREUS_DELAY_GATEWAY_GRADLE_USER_HOME:-/tmp/nereus-dela
 compose_file="$e2e_root/docker-compose.oxia.yml"
 compose_project="nereus-delay-gateway-e2e-$(date +%s)-$$"
 tls_dir=$(mktemp -d -t nereus-delay-gateway-tls.XXXXXX)
+session_churn=${NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN:-0}
+session_churn_pause_seconds=${NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN_PAUSE_SECONDS:-5}
+session_churn_dir=$(mktemp -d -t nereus-delay-gateway-session-churn.XXXXXX)
+session_churn_gate="$session_churn_dir/release"
+session_churn_ready="$session_churn_dir/ready"
+session_churn_log="$session_churn_dir/session-churn.log"
+session_churn_pid=""
 
 if ! command -v docker >/dev/null 2>&1; then
     echo "docker is required" >&2
@@ -27,6 +34,14 @@ if ! git -C "$oxia_checkout" rev-parse --verify HEAD >/dev/null 2>&1; then
     echo "NEREUS_DELAY_OXIA_CHECKOUT is not a Git checkout: $oxia_checkout" >&2
     exit 1
 fi
+if [[ "$session_churn" != 0 && "$session_churn" != 1 ]]; then
+    echo "NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN must be 0 or 1" >&2
+    exit 1
+fi
+if [[ ! "$session_churn_pause_seconds" =~ ^[0-9]+$ ]]; then
+    echo "NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN_PAUSE_SECONDS must be a non-negative integer" >&2
+    exit 1
+fi
 
 oxia_sha=$(git -C "$oxia_checkout" rev-parse HEAD)
 echo "Oxia checkout: $oxia_checkout@$oxia_sha"
@@ -39,8 +54,13 @@ compose() {
 }
 
 cleanup() {
+    if [[ -n "$session_churn_pid" ]]; then
+        kill "$session_churn_pid" >/dev/null 2>&1 || true
+        wait "$session_churn_pid" >/dev/null 2>&1 || true
+    fi
     compose down --remove-orphans >/dev/null 2>&1 || true
     rm -rf "$tls_dir"
+    rm -rf "$session_churn_dir"
 }
 trap cleanup EXIT INT TERM
 
@@ -120,11 +140,68 @@ wait_for_oxia_health() {
     fi
 }
 
+run_session_churn_smoke() {
+    NEREUS_DELAY_OXIA_ENDPOINT="127.0.0.1:$oxia_port" \
+    NEREUS_DELAY_OXIA_NAMESPACE=default \
+    NEREUS_DELAY_GATEWAY_PORT="$gateway_port" \
+    NEREUS_DELAY_GATEWAY_SERVER_CERT="$tls_dir/server.crt" \
+    NEREUS_DELAY_GATEWAY_SERVER_KEY="$tls_dir/server.key" \
+    NEREUS_DELAY_GATEWAY_CA_CERT="$tls_dir/ca.crt" \
+    NEREUS_DELAY_GATEWAY_CLIENT_CERT="$tls_dir/client.crt" \
+    NEREUS_DELAY_GATEWAY_CLIENT_KEY="$tls_dir/client.key" \
+    NEREUS_DELAY_GATEWAY_SESSION_CHURN_GATE="$session_churn_gate" \
+    NEREUS_DELAY_GATEWAY_SESSION_CHURN_READY="$session_churn_ready" \
+    GRADLE_USER_HOME="$delay_gradle_user_home" \
+        "$delay_root/gradlew" test \
+            --tests io.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.gatewayDurableRecordsRecoverAfterOxiaSessionChurn \
+            --rerun-tasks \
+            --no-daemon --console=plain >"$session_churn_log" 2>&1 &
+    session_churn_pid=$!
+    local ready=0
+    for attempt in $(seq 1 120); do
+        if [[ -f "$session_churn_ready" ]]; then
+            ready=1
+            break
+        fi
+        if ! kill -0 "$session_churn_pid" >/dev/null 2>&1; then
+            wait "$session_churn_pid" || true
+            cat "$session_churn_log" >&2 || true
+            return 1
+        fi
+        sleep 1
+    done
+    if [[ "$ready" != 1 ]]; then
+        echo "Gateway Oxia session churn test did not reach the restart gate" >&2
+        cat "$session_churn_log" >&2 || true
+        return 1
+    fi
+
+    compose stop oxia
+    sleep "$session_churn_pause_seconds"
+    compose start oxia
+    wait_for_oxia_health
+    touch "$session_churn_gate"
+    local test_status=0
+    wait "$session_churn_pid" || test_status=$?
+    session_churn_pid=""
+    cat "$session_churn_log"
+    if [[ "$test_status" != 0 ]]; then
+        return "$test_status"
+    fi
+}
+
 generate_tls_material
 export NEREUS_DELAY_OXIA_CHECKOUT="$oxia_checkout"
 export NEREUS_DELAY_OXIA_E2E_PORT="$oxia_port"
 compose up --build --detach
 wait_for_oxia_health
+
+if [[ "$session_churn" == 1 ]]; then
+    run_session_churn_smoke
+    echo "Gateway Oxia session churn E2E passed: stale durable sessions failed closed and recovery reread one exact outcome"
+    echo "Dockerized Gateway Oxia session churn smoke passed for Oxia $oxia_sha"
+    exit 0
+fi
 
 NEREUS_DELAY_OXIA_ENDPOINT="127.0.0.1:$oxia_port" \
 NEREUS_DELAY_OXIA_NAMESPACE=default \
