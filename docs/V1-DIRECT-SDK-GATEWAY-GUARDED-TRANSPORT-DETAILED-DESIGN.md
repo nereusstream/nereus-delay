@@ -4617,3 +4617,36 @@ This is a bounded single-node session-rotation and controlled-recomposition
 proof. It is not transparent reconnect, multi-node Oxia failover, production
 Gateway HA, crash/response-loss, load, live Broker publication or release
 evidence.
+
+### 2026-08-16 Gateway recovery across a real multi-node Oxia DataServer leader stop
+
+Commit `43493a709e4041e94c7f4f270a25b2725534ab59` adds an isolated
+three-Coordinator/three-DataServer Oxia deployment in
+`e2e/docker-compose.oxia-cluster.yml` and the gated
+`e2e/run-oxia-multi-node-gateway-e2e.sh` run. The harness registers a
+three-replica `default` namespace through the real admin API, discovers the
+current shard leader, and bootstraps the Gateway against a surviving
+DataServer. The Gateway server, three Oxia client handles and all durable
+admission/idempotency/audit wrappers remain alive across the cut.
+
+The source-locked run used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
+`nereus-delay-oxia-cluster-gateway-e2e-1786825431-27266`, host ports
+`16691,16692,16693` for Coordinators, `16681,16682,16683` for DataServers and
+`22358` for Gateway. The run stopped `ds-3`, observed `ds-1` as the successor,
+revalidated all three session markers, reread the exact byte-identical public
+outcome and required one preparation, one physical attempt, zero admission
+leases and two audit records:
+
+```text
+Oxia shard successor leader: ds-1
+Gateway multi-node Oxia failover E2E passed: session-bound clients preserved the exact durable outcome after the shard leader stopped
+Oxia multi-node Gateway failover E2E passed: session-bound Gateway reread the exact durable outcome after leader stop
+Dockerized Oxia multi-node Gateway failover smoke passed for Oxia 37a17bef17202d5fd6e23282da5fd26d94865484
+```
+
+This opens only the bounded multi-node DataServer leader-stop/session
+preservation evidence. It does not change the explicit fail-closed policy for
+a total outage, prove transparent reconnect after all durable replicas are
+unavailable, establish Gateway HA/load or crash/response-loss resolution, or
+promote live Kafka/Pulsar publication and release readiness.

@@ -197,6 +197,22 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway durable admission/idempotency recovery after Oxia session churn"
 require_file_text "$delay_root/e2e/README.md" \
     "NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN=1"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
+    "gatewayRecoversAcrossRealOxiaDataServerFailover"
+require_file_text "$delay_root/e2e/docker-compose.oxia-cluster.yml" \
+    "raft-bootstrap-nodes"
+require_file_text "$delay_root/e2e/run-oxia-multi-node-gateway-e2e.sh" \
+    "wait_for_namespace_leader"
+require_file_text "$delay_root/e2e/run-oxia-multi-node-gateway-e2e.sh" \
+    "NEREUS_DELAY_GATEWAY_MULTI_NODE_FAILOVER_GATE"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "43493a709e4041e94c7f4f270a25b2725534ab59"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Gateway multi-node Oxia DataServer failover audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Gateway recovery across a real multi-node Oxia DataServer leader stop"
+require_file_text "$delay_root/e2e/README.md" \
+    "run-oxia-multi-node-gateway-e2e.sh"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayAdmissionRecordV1.java" \
     "nereus-delay-gateway-admission-record-v1"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayAdmissionControllerTest.java" \

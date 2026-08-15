@@ -7546,6 +7546,54 @@ automatic session reconnect, multi-node Oxia failover, production Gateway HA,
 crash/response-loss resolution, load, live Kafka/Pulsar publication or release
 PASS.
 
+## 2026-08-16 Gateway recovery across real multi-node Oxia data-server failover
+
+Delay commit `43493a709e4041e94c7f4f270a25b2725534ab59` adds the independent
+`e2e/docker-compose.oxia-cluster.yml` and
+`e2e/run-oxia-multi-node-gateway-e2e.sh` harness. It builds the locked Oxia
+checkout as three Raft Coordinators and three DataServers, registers a
+three-replica `default` namespace through the admin API, and discovers the
+actual shard leader before choosing a surviving DataServer as the Gateway
+bootstrap endpoint. The test keeps one Gateway process and its three
+session-bound Oxia clients alive while the current DataServer leader is
+stopped; no client handles or Gateway durable wrappers are reconstructed.
+
+The source-locked run used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Delay commit
+`43493a709e4041e94c7f4f270a25b2725534ab59`, Compose project
+`nereus-delay-oxia-cluster-gateway-e2e-1786825431-27266`, Coordinator host
+ports `16691,16692,16693`, DataServer host ports `16681,16682,16683`, and
+Gateway port `22358`. The selected container image IDs were:
+
+```text
+coordinator-1 sha256:a0acdd66e365d20aca851c8c71e7bb1b8707181865202fdea5e772616e628e90
+coordinator-2 sha256:d3c8d105d17449416e76eec459ab5b9a62e77a527e90170ee6eb3766451c99f7
+coordinator-3 sha256:f7e9f77ae1b540cefd0b497d11f135b9bd233e718f99b3dbcf7d35bfe23e8415
+data-server-1 sha256:e912ce711ad0ae9a10fbf74a0a9de94e97f63aba57e93957750f738ce667f280
+data-server-2 sha256:dcb69389fce95c6b1d3ff1dcd5b1c4799539cad47a9e8ca4280140d9eaa34aab
+data-server-3 sha256:3094752b8c12b7cd32a623b6a6066756ca66689ca8b30350d6fc8b24c5066698
+```
+
+The initial shard leader was `ds-3`; after the harness stopped
+`data-server-3`, Oxia elected `ds-1` and the old Gateway composition passed
+the exact idempotent Schedule request through the same sessions. The test
+also revalidates all three session markers, byte-compares the public outcome,
+requires one preparation and one physical attempt, and scans one quiescent
+idempotency record, zero admission leases and two audit records:
+
+```text
+Oxia shard successor leader: ds-1
+Gateway multi-node Oxia failover E2E passed: session-bound clients preserved the exact durable outcome after the shard leader stopped
+Oxia multi-node Gateway failover E2E passed: session-bound Gateway reread the exact durable outcome after leader stop
+Dockerized Oxia multi-node Gateway failover smoke passed for Oxia 37a17bef17202d5fd6e23282da5fd26d94865484
+```
+
+Status boundary: this closes one real three-DataServer, one-shard leader-stop
+and session-preserving Gateway recovery cut. It does not prove automatic
+reconnect after a total multi-node outage, partial placement/quorum loss,
+production Gateway HA, crash/response-loss resolution, load, live
+Kafka/Pulsar publication or V1 release PASS.
+
 ## Verification command
 
 ## 2026-08-15 Kafka Worker same-topic failover resume cut

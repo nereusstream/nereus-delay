@@ -7879,6 +7879,40 @@ recomposition receipt, not transparent automatic reconnect, multi-node Oxia or
 Gateway HA, crash/response-loss resolution, load, live Kafka/Pulsar publication
 or V1 release readiness.
 
+## 2026-08-16 Gateway multi-node Oxia DataServer failover audit
+
+Commit `43493a709e4041e94c7f4f270a25b2725534ab59` adds the isolated
+three-Coordinator/three-DataServer deployment and the real Gateway cut
+`gatewayRecoversAcrossRealOxiaDataServerFailover`. The harness uses the real
+Oxia admin API to create a three-replica namespace, identifies the actual
+shard leader, stops that DataServer and waits for a successor before releasing
+the test gate. The old Gateway process and its three session-bound Oxia
+handles remain in place; the test explicitly checks each session marker after
+the leader transition.
+
+The source-locked receipt used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
+`nereus-delay-oxia-cluster-gateway-e2e-1786825431-27266`, Coordinator ports
+`16691,16692,16693`, DataServer ports `16681,16682,16683`, Gateway port
+`22358`, and the six built image IDs recorded in
+`docs/IMPLEMENTATION-STATUS.md`. The cut started with `ds-3`, elected `ds-1`
+after `data-server-3` stopped, and ended with:
+
+```text
+Oxia shard successor leader: ds-1
+Gateway multi-node Oxia failover E2E passed: session-bound clients preserved the exact durable outcome after the shard leader stopped
+Oxia multi-node Gateway failover E2E passed: session-bound Gateway reread the exact durable outcome after leader stop
+Dockerized Oxia multi-node Gateway failover smoke passed for Oxia 37a17bef17202d5fd6e23282da5fd26d94865484
+```
+
+The checks require byte-identical idempotent outcome, one Semantic preparation,
+one physical attempt, zero admission leases, one quiescent idempotency record
+and two audit records. This is real multi-node DataServer leader-stop and
+session-preserving recovery evidence. It does not establish total-outage
+reconnect, partial-placement/quorum-loss behavior, production Gateway HA,
+crash/response-loss resolution, load, live Kafka/Pulsar publication or V1
+release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

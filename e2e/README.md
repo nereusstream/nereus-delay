@@ -904,3 +904,47 @@ This closes only the bounded single-node Oxia session-rotation,
 fail-closed/recomposition cut. Transparent automatic reconnect, multi-node
 Oxia failover, production Gateway HA, crash/response-loss, load, live
 Kafka/Pulsar publication and release PASS remain open.
+
+## Gateway recovery across a real multi-node Oxia DataServer leader stop
+
+Run the independent three-Coordinator/three-DataServer receipt:
+
+```bash
+NEREUS_DELAY_OXIA_CHECKOUT=/absolute/path/to/oxia \
+NEREUS_DELAY_OXIA_COORDINATOR_1_PORT=16691 \
+NEREUS_DELAY_OXIA_COORDINATOR_2_PORT=16692 \
+NEREUS_DELAY_OXIA_COORDINATOR_3_PORT=16693 \
+NEREUS_DELAY_OXIA_DATA_SERVER_1_PORT=16681 \
+NEREUS_DELAY_OXIA_DATA_SERVER_2_PORT=16682 \
+NEREUS_DELAY_OXIA_DATA_SERVER_3_PORT=16683 \
+NEREUS_DELAY_GATEWAY_PORT=22358 \
+./e2e/run-oxia-multi-node-gateway-e2e.sh
+```
+
+The harness builds the source-locked Oxia checkout, starts a three-node Raft
+Coordinator set and three DataServers, registers a three-replica `default`
+namespace through the admin API, and discovers the actual shard leader. It
+starts the Gateway test against a surviving DataServer, then stops the leader
+while the same Gateway process and all three session-bound durable wrappers
+remain live. The old handles must preserve their session markers; the second
+authenticated request must return the exact prior outcome without a second
+preparation or physical attempt. Final scans require one quiescent
+idempotency attempt, zero admission leases and two audit records.
+
+The accepted run used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Delay commit
+`43493a709e4041e94c7f4f270a25b2725534ab59`, Compose project
+`nereus-delay-oxia-cluster-gateway-e2e-1786825431-27266`, host ports
+`16691,16692,16693` and `16681,16682,16683`, and Gateway port `22358`:
+
+```text
+Oxia shard successor leader: ds-1
+Gateway multi-node Oxia failover E2E passed: session-bound clients preserved the exact durable outcome after the shard leader stopped
+Oxia multi-node Gateway failover E2E passed: session-bound Gateway reread the exact durable outcome after leader stop
+Dockerized Oxia multi-node Gateway failover smoke passed for Oxia 37a17bef17202d5fd6e23282da5fd26d94865484
+```
+
+This is a bounded real multi-node DataServer leader-stop/session-preserving
+cut. It does not prove total-outage automatic reconnect, partial placement or
+quorum-loss behavior, production Gateway HA, crash/response-loss resolution,
+load, live Kafka/Pulsar publication or release PASS.
