@@ -415,12 +415,20 @@ require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "NEREUS_DELAY_KAFKA_K2_FAILOVER"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "NEREUS_DELAY_KAFKA_K2_FAILOVER_ONLY"
+require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
+    "NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS"
+require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
+    "NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS_ONLY"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactTransactionalDestinationTransport.java" \
     "NEREUS_DELAY_KAFKA_K2_COMMIT_GATE"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactTransactionalSmoke.java" \
     "K2 broker failover commit returned PUBLISHED"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactTransactionalSmoke.java" \
     "K2 broker failover commit resolved after UNKNOWN"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactTransactionalSmoke.java" \
+    "NEREUS_DELAY_KAFKA_K2_COMMITTED_RESPONSE_LOSS"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactTransactionalSmoke.java" \
+    "K2 committed response-loss smoke passed"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/adapter/KafkaTransactionalPublishEvidence.java" \
     "KAFKA_TRANSACTIONAL_RECEIPT"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactTransactionalReceiptEvidenceProvider.java" \
@@ -453,6 +461,18 @@ require_file_text "$delay_root/e2e/README.md" \
     "K2 broker failover commit returned PUBLISHED"
 require_file_text "$delay_root/e2e/README.md" \
     "NEREUS_DELAY_KAFKA_K2_FAILOVER_ONLY=1"
+require_file_text "$delay_root/e2e/README.md" \
+    "NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS_ONLY=1"
+require_file_text "$delay_root/e2e/README.md" \
+    "K2 committed response-loss smoke passed"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "376252bae0faf6f2d5120e223886b3af8a54e636"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "nereus-delay-kafka-e2e-1786828912-64477"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "K2 committed response-loss E2E passed"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "typed KAFKA_TRANSACTIONAL_RECEIPT"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactRouteWorkerSmoke.java" \
     "Pulsar signed Route -> guarded SUBSCRIBE barrier"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactRouteWorkerSmoke.java" \

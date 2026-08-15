@@ -9482,3 +9482,46 @@ default Gradle native cache is not writable:
 ```bash
 GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle ./gradlew clean check
 ```
+
+## 2026-08-16 Kafka K2 committed EndTxn response-loss receipt
+
+Implementation commit `376252bae0faf6f2d5120e223886b3af8a54e636` adds a
+dedicated K2 response-loss-only harness mode. The test-only producer wrapper
+delegates the real guarded `commitTransaction()` call, lets Kafka commit the
+transaction, and then raises locally before returning the commit result. The
+production transport is unchanged: its existing commit-uncertainty path opens
+a fresh `read_committed` evidence consumer and returns `PUBLISHED` only after
+the exact target/receipt pair and typed `KAFKA_TRANSACTIONAL_RECEIPT` evidence
+are verified. `NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS=1` with
+`NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS_ONLY=1` runs only this cut.
+
+The source-locked real three-Broker run used Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose project `nereus-delay-kafka-e2e-1786828912-64477`, and ports
+`19569,19570,19571`:
+
+```bash
+NEREUS_DELAY_KAFKA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1 \
+NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS=1 \
+NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS_ONLY=1 \
+KAFKA_BROKER_1_PORT=19569 KAFKA_BROKER_2_PORT=19570 KAFKA_BROKER_3_PORT=19571 \
+./e2e/run-kafka-real-client-e2e.sh
+```
+
+The run ended with `BUILD SUCCESSFUL in 8s` / `11 actionable tasks: 1
+executed, 10 up-to-date` and printed:
+
+```text
+K2 committed response-loss smoke passed: real EndTxn committed the exact target-plus-receipt pair, the local response was discarded, and typed read_committed evidence resolved PUBLISHED
+Kafka K2 committed response-loss E2E passed: real EndTxn commit was followed by local response loss and exact read_committed typed receipt resolution.
+```
+
+The smoke also required one committed target, one committed receipt, and exact
+payload/key/value readback. This is source-bound real-Broker post-commit
+durability and typed recovery evidence with a controlled client-side response
+cut; it is not raw socket packet-loss injection, Broker failover/crash
+evidence, or a V1 release PASS. Generic Kafka crash, Fetch response-loss,
+LSO/retention-floor ambiguity, and the §23.5 release gates remain open.

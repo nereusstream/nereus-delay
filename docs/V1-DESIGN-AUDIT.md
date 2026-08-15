@@ -7999,6 +7999,35 @@ Broker transport response-loss evidence; physical Kafka/Pulsar crash/response-
 loss resolution, transparent reconnect/HA, load, multi-shard placement and
 V1 release readiness remain open.
 
+## 2026-08-16 Kafka K2 committed EndTxn response-loss receipt audit
+
+Commit `376252bae0faf6f2d5120e223886b3af8a54e636` adds the response-loss-only
+real-client cut. A test-only `GuardedTransactionalProducer` proxy calls the
+real Kafka producer's guarded transaction commit first and throws only after
+that call returns. The transport then exercises its normal
+`resolveCommitUncertainty` branch. A separate `read_committed` consumer and
+the source-bound receipt provider prove the exact target and keyed receipt,
+Fetch/LSO evidence, and typed `KAFKA_TRANSACTIONAL_RECEIPT` before returning
+`PUBLISHED`.
+
+The receipt is locked to Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose `nereus-delay-kafka-e2e-1786828912-64477`, ports `19569,19570,19571`,
+and Delay `376252bae0faf6f2d5120e223886b3af8a54e636`:
+
+```text
+K2 committed response-loss smoke passed: real EndTxn committed the exact target-plus-receipt pair, the local response was discarded, and typed read_committed evidence resolved PUBLISHED
+K2 committed response-loss E2E passed: real EndTxn commit was followed by local response loss and exact read_committed typed receipt resolution.
+```
+
+This is a source-bound real-Broker durable post-commit response-loss receipt
+with controlled client-side response loss. It is not raw socket fault
+injection and does not establish Broker crash/failover, generic Fetch response
+loss, LSO/retention-floor recovery, or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

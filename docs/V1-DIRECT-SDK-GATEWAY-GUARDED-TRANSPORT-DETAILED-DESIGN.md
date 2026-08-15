@@ -4761,3 +4761,32 @@ durable explicit-retry response-loss recovery with a controlled client-side
 response cut, not raw socket fault injection. It does not promote physical
 Kafka/Pulsar response-loss/crash resolution, transparent Gateway reconnect/HA,
 load, multi-shard placement or the V1 release gates.
+
+### 2026-08-16 Kafka K2 committed EndTxn response-loss receipt
+
+The K2 transport now has a source-bound real-client receipt for the case where
+the broker commits the target-plus-keyed-receipt transaction but the producer
+does not receive the local `EndTxn` result. Commit `376252bae0faf6f2d5120e223886b3af8a54e636`
+adds a response-loss-only harness mode whose wrapper delegates the real
+`commitTransaction()` and throws after it returns. It does not alter the
+production transaction ordering or make a second transaction.
+
+The existing uncertainty branch creates a fresh `read_committed` evidence
+consumer, checks the exact receipt and target, and accepts only typed
+`KAFKA_TRANSACTIONAL_RECEIPT` evidence with the required Fetch/LSO proof. The
+locked run used Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, image
+`sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose `nereus-delay-kafka-e2e-1786828912-64477`, ports
+`19569,19570,19571`, and printed:
+
+```text
+K2 committed response-loss smoke passed: real EndTxn committed the exact target-plus-receipt pair, the local response was discarded, and typed read_committed evidence resolved PUBLISHED
+Kafka K2 committed response-loss E2E passed: real EndTxn commit was followed by local response loss and exact read_committed typed receipt resolution.
+```
+
+This closes only the controlled client-side post-commit K2 response-loss
+receipt. It is not raw packet-loss, Broker crash/failover, generic Fetch
+response-loss, LSO/retention-floor, or V1 release evidence.

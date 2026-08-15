@@ -157,6 +157,44 @@ response-loss resolution, Fetch/LSO/retention-floor ambiguity and crash gates
 remain open. The receipt is source-bound integration evidence, not a V1 release
 PASS.
 
+### Kafka K2 committed response-loss-only cut
+
+Set `NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS=1` and
+`NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS_ONLY=1` for the dedicated cut. The
+test-only producer wrapper delegates the real guarded K2
+`commitTransaction()`/`EndTxn`, then discards the local result. The transport
+must recover through its normal commit-uncertainty path and a fresh
+`read_committed` consumer; the run requires the exact target-plus-keyed-receipt
+pair and typed `KAFKA_TRANSACTIONAL_RECEIPT` evidence before returning
+`PUBLISHED`. This is a controlled client-side post-commit response cut, not raw
+socket packet-loss or Broker failover injection.
+
+The source-locked receipt used Delay `376252bae0faf6f2d5120e223886b3af8a54e636`,
+Kafka `nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose project `nereus-delay-kafka-e2e-1786828912-64477`, and ports
+`19569,19570,19571`:
+
+```bash
+NEREUS_DELAY_KAFKA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1 \
+NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS=1 \
+NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS_ONLY=1 \
+KAFKA_BROKER_1_PORT=19569 KAFKA_BROKER_2_PORT=19570 KAFKA_BROKER_3_PORT=19571 \
+./e2e/run-kafka-real-client-e2e.sh
+```
+
+It printed:
+
+```text
+K2 committed response-loss smoke passed: real EndTxn committed the exact target-plus-receipt pair, the local response was discarded, and typed read_committed evidence resolved PUBLISHED
+Kafka K2 committed response-loss E2E passed: real EndTxn commit was followed by local response loss and exact read_committed typed receipt resolution.
+```
+
+The receipt does not promote generic Kafka crash/response-loss, Fetch
+response-loss, LSO/retention-floor recovery, or V1 release readiness.
+
 ### Kafka Shard Log signed mutation append/replay/ACK
 
 The same harness now runs `runRealKafkaMutationSmoke` after the ordinary
