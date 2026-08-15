@@ -9364,14 +9364,16 @@ checkpoint/quiescence and §23.5 V1 release gates remain open.
 
 ## 2026-08-16 Gateway STARTED CAS response-loss recovery
 
-Delay commit `a120b6bd` closes the Gateway durable state-machine cut after a
-successful `STARTED` attempt CAS loses its response. The in-memory and Oxia
+Delay commits `a120b6bd` and `7adb95f0` close the Gateway durable state-machine
+cut after a successful `STARTED` attempt CAS loses its response. The in-memory and Oxia
 stores never recreate the one-shot `GatewayAttemptOwnershipPermit` from a
 reread. Before `uncertaintyAtEpochMs`, a same-key caller observes the active
 attempt without an aggregate. At or after that trusted deadline, the caller
 decodes the persisted prepared bytes and CASes the exact attempt to
 `UNCERTAIN`/`QUIESCENT`; a recovery CAS race is reread and cannot authorize a
-second physical send.
+second physical send. Explicit retry attempts use the same deadline recovery,
+and outcome completion preserves retry identity for repeated-request
+deduplication.
 
 Focused verification:
 
@@ -9388,7 +9390,9 @@ BUILD SUCCESSFUL in 1m 22s
 `OxiaGatewayIdempotencyStoreTest.attemptCasResponseLossConvergesToUncertainAfterDeadlineWithoutPermit`
 injects a committed-then-lost response, verifies no aggregate before the
 deadline, then verifies one canonical uncertain aggregate and no permit after
-the deadline. This is deterministic local CAS evidence, not a real Oxia
+the deadline. The companion
+`retryAttemptCasResponseLossConvergesToUncertainAfterDeadlineWithoutPermit`
+verifies explicit retry recovery remains `EXISTING_RETRY`. This is deterministic local CAS evidence, not a real Oxia
 network fault-injection or physical transport response-loss receipt; Gateway
 transparent reconnect/HA, Kafka/Pulsar response-loss/crash resolution and V1
 release gates remain open.

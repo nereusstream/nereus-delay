@@ -7915,19 +7915,24 @@ release readiness.
 
 ## 2026-08-16 Gateway STARTED CAS response-loss recovery audit
 
-Commit `a120b6bd` closes the state-machine recovery required after a successful
-Gateway `STARTED` CAS whose response is lost. The implementation never derives
+Commits `a120b6bd` and `7adb95f0` close the state-machine recovery required
+after a successful Gateway `STARTED` CAS whose response is lost. The implementation never derives
 an ownership permit from a reread. Before `uncertaintyAtEpochMs`, a same-key
 caller sees the active attempt without an aggregate; at or after that trusted
 deadline, it decodes the persisted prepared bytes and CASes the exact attempt
 to `UNCERTAIN`/`QUIESCENT` with the canonical aggregate. A failed recovery CAS
-is reread and cannot authorize a second physical send.
+is reread and cannot authorize a second physical send. Explicit retry attempts
+use the same recovery and retain their retry identity through outcome
+completion.
 
 The focused test
 `OxiaGatewayIdempotencyStoreTest.attemptCasResponseLossConvergesToUncertainAfterDeadlineWithoutPermit`
 passed with the committed-then-lost response injection. It verifies no permit
 before or after reread, no aggregate before the deadline, and one persisted
-uncertain attempt after the deadline. Full `./gradlew check` also passed.
+uncertain attempt after the deadline. The companion
+`retryAttemptCasResponseLossConvergesToUncertainAfterDeadlineWithoutPermit`
+verifies the retry path remains `EXISTING_RETRY` after recovery. Full
+`./gradlew check` also passed.
 
 This is deterministic local CAS evidence, not a real Oxia network fault
 injection. Physical Kafka/Pulsar response-loss or crash resolution, Gateway

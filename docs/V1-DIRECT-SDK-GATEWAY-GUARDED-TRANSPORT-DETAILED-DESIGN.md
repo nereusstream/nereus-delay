@@ -4653,22 +4653,27 @@ promote live Kafka/Pulsar publication and release readiness.
 
 ### 2026-08-16 Gateway STARTED CAS response-loss recovery
 
-Commit `a120b6bd` closes the durable Gateway state-machine gap after a CAS
-response is lost immediately after the `STARTED` attempt write. Both the
+Commits `a120b6bd` and `7adb95f0` close the durable Gateway state-machine gap
+after a CAS response is lost immediately after a `STARTED` attempt write. Both the
 in-memory conformance store and `OxiaGatewayIdempotencyStore` still refuse to
 reconstruct the one-shot `GatewayAttemptOwnershipPermit`; a caller before the
 attempt's `uncertaintyAtEpochMs` only observes the active attempt. Once that
 trusted deadline has passed, a same-key caller decodes the already persisted
 prepared bytes, CASes the exact attempt to `UNCERTAIN` with the canonical NDR1
 aggregate, and returns no permit. A concurrent CAS race is reread rather than
-treated as permission to send.
+treated as permission to send. The same deadline recovery is applied to an
+explicit retry attempt, and outcome completion preserves its
+`retryRequestId/retryRequestHash` so a repeated retry request remains
+`EXISTING_RETRY` rather than becoming a stale precondition.
 
 The deterministic regression is
 `OxiaGatewayIdempotencyStoreTest.attemptCasResponseLossConvergesToUncertainAfterDeadlineWithoutPermit`.
 It injects a committed-then-lost response, checks the pre-deadline `ACTIVE`
 record remains without an aggregate, advances trusted time to the exact
 deadline, and verifies `QUIESCENT/UNCERTAIN`, one persisted attempt and a
-canonical managed outcome without a physical resend.
+canonical managed outcome without a physical resend. The companion
+`retryAttemptCasResponseLossConvergesToUncertainAfterDeadlineWithoutPermit`
+test covers the explicit retry path and preserved retry identity.
 
 Focused verification:
 
@@ -4682,7 +4687,8 @@ BUILD SUCCESSFUL in 1m 22s
 21 actionable tasks: 3 executed, 18 up-to-date
 ```
 
-This closes the local durable STARTED-CAS response-loss convergence cut only.
+This closes the local durable STARTED-CAS response-loss convergence cut for
+both first attempts and explicit retries only.
 It does not by itself provide a real Oxia fault-injection receipt, transparent
 Gateway reconnect, physical transport response-loss/crash resolution,
 multi-node placement or Gateway HA, live Kafka/Pulsar publication, or V1

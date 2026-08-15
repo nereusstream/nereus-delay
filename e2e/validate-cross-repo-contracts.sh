@@ -219,6 +219,8 @@ require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/OxiaG
     "recoverExpiredStartedAttempt"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Gateway STARTED CAS response-loss recovery"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "7adb95f0"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "Gateway STARTED CAS response-loss recovery audit"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \

@@ -968,8 +968,9 @@ GRADLE_USER_HOME=/tmp/nereus-delay-gateway-started-recovery-gradle \
   --no-daemon --console=plain
 ```
 
-The accepted source tree uses commit `a120b6bd` and the test
-`attemptCasResponseLossConvergesToUncertainAfterDeadlineWithoutPermit`. This
-is local committed-then-lost CAS evidence; it is not a real Oxia network fault
-injection, physical Kafka/Pulsar response-loss receipt, transparent Gateway
-reconnect, HA/load evidence or release PASS.
+The accepted source tree uses commits `a120b6bd` and `7adb95f0`; the tests are
+`attemptCasResponseLossConvergesToUncertainAfterDeadlineWithoutPermit` and
+`retryAttemptCasResponseLossConvergesToUncertainAfterDeadlineWithoutPermit`.
+This is local committed-then-lost CAS evidence; it is not a real Oxia network
+fault injection, physical Kafka/Pulsar response-loss receipt, transparent
+Gateway reconnect, HA/load evidence or release PASS.
