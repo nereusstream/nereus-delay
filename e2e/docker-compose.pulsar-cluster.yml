@@ -1,0 +1,125 @@
+services:
+  zk:
+    image: ${PULSAR_P1_IMAGE}
+    hostname: zk
+    entrypoint: ["/opt/pulsar/pulsar-p1-cluster-entrypoint.sh"]
+    environment:
+      PULSAR_COMPONENT: zookeeper
+      PULSAR_MEM: "-Xms64m -Xmx128m"
+    networks:
+      - pulsar-cluster
+    volumes:
+      - zk-data:/pulsar/data
+
+  pulsar-init:
+    image: ${PULSAR_P1_IMAGE}
+    hostname: pulsar-init
+    entrypoint: ["/opt/pulsar/pulsar-p1-cluster-entrypoint.sh"]
+    environment:
+      PULSAR_COMPONENT: init
+      PULSAR_CLUSTER_NAME: ${PULSAR_CLUSTER_NAME:-standalone}
+      PULSAR_METADATA_STORE: zk:zk:2181
+      PULSAR_CONFIGURATION_STORE: zk:zk:2181
+      PULSAR_ZOOKEEPER_HOST: zk
+      PULSAR_WEB_SERVICE_URL: http://pulsar-broker-1:8080/
+      PULSAR_BROKER_SERVICE_URL: pulsar://pulsar-broker-1:6650/
+      PULSAR_MEM: "-Xms64m -Xmx128m"
+    networks:
+      - pulsar-cluster
+    depends_on:
+      zk:
+        condition: service_started
+
+  bookie:
+    image: ${PULSAR_P1_IMAGE}
+    hostname: bookie
+    entrypoint: ["/opt/pulsar/pulsar-p1-cluster-entrypoint.sh"]
+    environment:
+      PULSAR_COMPONENT: bookie
+      PULSAR_ZOOKEEPER_SERVERS: zk:2181
+      PULSAR_BOOKIE_ADVERTISED_ADDRESS: bookie
+      PULSAR_BOOKIE_USE_HOSTNAME_AS_ID: "false"
+      PULSAR_BOOKIE_ALLOW_LOOPBACK: "false"
+      PULSAR_BOOKIE_ID: bookie:3181
+      PULSAR_BOOKIE_PROMETHEUS_PORT: 8001
+      BOOKIE_MEM: "-Xms64m -Xmx256m"
+    networks:
+      - pulsar-cluster
+    volumes:
+      - bookie-data:/pulsar/data
+    depends_on:
+      pulsar-init:
+        condition: service_completed_successfully
+
+  pulsar-broker-1:
+    image: ${PULSAR_P1_IMAGE}
+    hostname: pulsar-broker-1
+    entrypoint: ["/opt/pulsar/pulsar-p1-cluster-entrypoint.sh"]
+    ports:
+      - "${PULSAR_BROKER_1_PORT}:6651"
+      - "${PULSAR_WEB_1_PORT}:8081"
+    environment:
+      PULSAR_COMPONENT: broker
+      PULSAR_CLUSTER_NAME: ${PULSAR_CLUSTER_NAME:-standalone}
+      PULSAR_ZOOKEEPER_SERVERS: zk:2181
+      PULSAR_ZOOKEEPER_HOST: zk
+      PULSAR_METADATA_STORE: zk:zk:2181
+      PULSAR_CONFIGURATION_STORE: zk:zk:2181
+      PULSAR_BROKER_PORT: 6650
+      PULSAR_WEB_PORT: 8080
+      PULSAR_ADVERTISED_ADDRESS: pulsar-broker-1
+      PULSAR_ADVERTISED_LISTENERS: external:pulsar://127.0.0.1:${PULSAR_BROKER_1_PORT},external:http://127.0.0.1:${PULSAR_WEB_1_PORT}
+      PULSAR_BIND_ADDRESSES: external:pulsar://0.0.0.0:6651,external:http://0.0.0.0:8081
+      PULSAR_MEM: "-Xms256m -Xmx512m -XX:MaxDirectMemorySize=512m"
+    networks:
+      - pulsar-cluster
+    volumes:
+      - broker-1-data:/pulsar/data
+      - broker-1-logs:/pulsar/logs
+    depends_on:
+      bookie:
+        condition: service_started
+      pulsar-init:
+        condition: service_completed_successfully
+
+  pulsar-broker-2:
+    image: ${PULSAR_P1_IMAGE}
+    hostname: pulsar-broker-2
+    entrypoint: ["/opt/pulsar/pulsar-p1-cluster-entrypoint.sh"]
+    ports:
+      - "${PULSAR_BROKER_2_PORT}:6651"
+      - "${PULSAR_WEB_2_PORT}:8081"
+    environment:
+      PULSAR_COMPONENT: broker
+      PULSAR_CLUSTER_NAME: ${PULSAR_CLUSTER_NAME:-standalone}
+      PULSAR_ZOOKEEPER_SERVERS: zk:2181
+      PULSAR_ZOOKEEPER_HOST: zk
+      PULSAR_METADATA_STORE: zk:zk:2181
+      PULSAR_CONFIGURATION_STORE: zk:zk:2181
+      PULSAR_BROKER_PORT: 6650
+      PULSAR_WEB_PORT: 8080
+      PULSAR_ADVERTISED_ADDRESS: pulsar-broker-2
+      PULSAR_ADVERTISED_LISTENERS: external:pulsar://127.0.0.1:${PULSAR_BROKER_2_PORT},external:http://127.0.0.1:${PULSAR_WEB_2_PORT}
+      PULSAR_BIND_ADDRESSES: external:pulsar://0.0.0.0:6651,external:http://0.0.0.0:8081
+      PULSAR_MEM: "-Xms256m -Xmx512m -XX:MaxDirectMemorySize=512m"
+    networks:
+      - pulsar-cluster
+    volumes:
+      - broker-2-data:/pulsar/data
+      - broker-2-logs:/pulsar/logs
+    depends_on:
+      bookie:
+        condition: service_started
+      pulsar-init:
+        condition: service_completed_successfully
+
+volumes:
+  zk-data:
+  bookie-data:
+  broker-1-data:
+  broker-1-logs:
+  broker-2-data:
+  broker-2-logs:
+
+networks:
+  pulsar-cluster:

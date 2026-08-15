@@ -5,10 +5,11 @@ WORKDIR /opt/pulsar
 ARG PULSAR_TARBALL=apache-pulsar-5.0.0-M1-bin.tar.gz
 COPY ${PULSAR_TARBALL} /tmp/pulsar.tar.gz
 COPY pulsar-p1-entrypoint.sh /opt/pulsar/pulsar-p1-entrypoint.sh
+COPY pulsar-p1-cluster-entrypoint.sh /opt/pulsar/pulsar-p1-cluster-entrypoint.sh
 
 RUN tar -xzf /tmp/pulsar.tar.gz --strip-components=1 \
     && rm /tmp/pulsar.tar.gz \
-    && chmod +x /opt/pulsar/bin/*.sh /opt/pulsar/pulsar-p1-entrypoint.sh \
+    && chmod +x /opt/pulsar/bin/*.sh /opt/pulsar/pulsar-p1-entrypoint.sh /opt/pulsar/pulsar-p1-cluster-entrypoint.sh \
     && mkdir -p /pulsar/data /pulsar/logs
 
 ENV PULSAR_MEM="-Xms256m -Xmx512m -XX:MaxDirectMemorySize=512m"

@@ -147,14 +147,21 @@ public final class PulsarClientArtifactWorkerSmoke {
         final String physicalTopic = "persistent://public/default/" + topic;
         final String destinationPhysicalTopic = destinationTopic == null ? null
                 : "persistent://public/default/" + destinationTopic;
-        final HttpClient admin = HttpClient.newHttpClient();
+        final HttpClient admin = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
         createTopic(admin, adminUrl, topic, mode.equals("resume"));
         if (destinationTopic != null && !mode.equals("prepare")) {
             createTopic(admin, adminUrl, destinationTopic, false, DESTINATION_INCARNATION,
                     DESTINATION_CREATION_TIMESTAMP);
         }
         try {
-            try (PulsarClient client = PulsarClient.builder().serviceUrl(serviceUrl).build()) {
+            final var clientBuilder = PulsarClient.builder().serviceUrl(serviceUrl);
+            final String listenerName = System.getenv("NEREUS_DELAY_PULSAR_LISTENER_NAME");
+            if (listenerName != null && !listenerName.isBlank()) {
+                clientBuilder.listenerName(listenerName);
+            }
+            try (PulsarClient client = clientBuilder.build()) {
                 if (mode.equals("prepare")) {
                     prepareWorkerRecord(client, physicalTopic);
                 } else {
