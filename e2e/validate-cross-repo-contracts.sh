@@ -150,7 +150,7 @@ require_file_text "$delay_root/src/main/java/io/nereusstream/delay/runtime/Delay
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/protocol/CanonicalLaneTupleV1.java" \
     "public static Projection project"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerCommandRuntime.java" \
-    "derived-materialization overload"
+    "materialization derived from the accepted"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/RouteSourceAssignmentFactory.java" \
     "fromRoute"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/RouteSourceAssignmentResolver.java" \
