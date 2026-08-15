@@ -1,10 +1,15 @@
 package io.nereusstream.delay.store;
 
+import io.nereusstream.delay.ownership.OxiaOwnerLeaseStore;
+import io.nereusstream.delay.ownership.OwnerLease;
 import io.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
+import io.nereusstream.delay.ownership.ShardLifecycleState;
+import io.nereusstream.delay.ownership.SourceAssignment;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CheckpointUploadIntentV1;
 import io.nereusstream.delay.protocol.CheckpointUploadStateV1;
 import io.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
+import io.nereusstream.delay.protocol.KafkaActivationBarrier;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.OwnerIdentityV1;
 import io.nereusstream.delay.protocol.ProfileKindV1;
@@ -55,8 +60,6 @@ class OxiaRealCheckpointPublicationSmokeTest {
         final String endpoint = endpoint();
         final String prefix = "nereus-delay-real-checkpoint/" + UUID.randomUUID();
         final ShardId shard = new ShardId(RouteIncarnation.random(), 23);
-        final OwnerIdentityV1 owner = new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("worker"), 7,
-                id32(1));
         final byte[] lineage = id16(2);
         final byte[] checkpointId = id16(3);
         final ProfileRefV1 objectStore = new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, id32(4),
@@ -65,16 +68,26 @@ class OxiaRealCheckpointPublicationSmokeTest {
         final CheckpointScheduler scheduler = new CheckpointScheduler(100, 0, 1);
         final Path checkpointDirectory = tempDir.resolve("checkpoint");
         final Path objectRoot = tempDir.resolve("objects");
+        final UUID sourceTopic = UUID.nameUUIDFromBytes(lineage);
+        final SourceAssignment assignment = new SourceAssignment(shard, id32(6), 1,
+                new KafkaActivationBarrier(shard, "cluster", sourceTopic, 0));
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle client = client(endpoint, prefix + "/client");
              SharedRocksDbResources resources = new SharedRocksDbResources(config);
              ShardStore store = ShardStore.open(config, shard, resources)) {
+            final OxiaOwnerLeaseStore ownerAuthority = new OxiaOwnerLeaseStore(client.backend());
+            final long ownerNow = System.currentTimeMillis();
+            final OwnerLease acquiring = ownerAuthority.acquire(assignment, "worker", client.sessionIdentity(),
+                    ownerNow, 60_000).orElseThrow();
+            final OwnerLease activeLease = ownerAuthority.transitionOrRead(acquiring,
+                    ShardLifecycleState.ACTIVE_FOR_COMMANDS).orElseThrow();
+            final OwnerIdentityV1 owner = new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("worker"),
+                    activeLease.ownerEpoch(), id32(1));
             final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshot(shard);
             store.recordControlSnapshot(controlSnapshot);
-            final UUID topic = UUID.nameUUIDFromBytes(lineage);
-            final KafkaSourcePosition parentPosition = new KafkaSourcePosition(shard, "cluster", topic, 0,
+            final KafkaSourcePosition parentPosition = new KafkaSourcePosition(shard, "cluster", sourceTopic, 0,
                     null, 900);
-            final KafkaSourcePosition appliedPosition = new KafkaSourcePosition(shard, "cluster", topic, 1,
+            final KafkaSourcePosition appliedPosition = new KafkaSourcePosition(shard, "cluster", sourceTopic, 1,
                     null, 901);
             store.write(batch -> {
                 batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(3), appliedPosition.canonicalBytes());
@@ -97,7 +110,15 @@ class OxiaRealCheckpointPublicationSmokeTest {
             final CheckpointPublicationCoordinator publication = new CheckpointPublicationCoordinator(resources,
                     publicationBackend, LIMITS, publicationBackend);
             final WorkerCheckpointRuntime runtime = new WorkerCheckpointRuntime(workClasses, scheduler, store,
-                    publication, request -> assertEquals(pending, publicationBackend.current(pending).orElseThrow()));
+                    publication, request -> {
+                        final OwnerLease current = ownerAuthority.current(shard).orElseThrow();
+                        if (!activeLease.sameIdentity(current)
+                                || current.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
+                                || !current.validAt(System.currentTimeMillis())) {
+                            throw new IllegalStateException("checkpoint Owner Lease/session is not the exact active lease");
+                        }
+                        assertEquals(pending, publicationBackend.current(pending).orElseThrow());
+                    });
             runtime.register(shard, 0);
             final CheckpointScheduler.ScheduledCheckpoint claim = runtime.claimDue(100, 1).get(0);
             final CheckpointWorkClassExecutor.ExecutionRequest request =
@@ -119,6 +140,8 @@ class OxiaRealCheckpointPublicationSmokeTest {
             assertTrue(Files.isDirectory(checkpointDirectory));
             assertTrue(Files.isDirectory(objectRoot));
             assertFalse(scheduler.isInFlight(shard));
+            assertTrue(ownerAuthority.release(activeLease));
+            assertTrue(ownerAuthority.current(shard).isEmpty());
         }
     }
 
