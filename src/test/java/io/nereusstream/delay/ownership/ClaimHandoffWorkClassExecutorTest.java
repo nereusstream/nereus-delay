@@ -189,6 +189,11 @@ class ClaimHandoffWorkClassExecutorTest {
             final ReadyCertificateV1 readyCertificate = ReadyCertificateV1.decode(certificate);
             final ChannelResourceIdentityV1 channel = ChannelResourceIdentityV1.decode(
                     readyCertificate.channel());
+            final WorkerPublishPreparationCoordinator preparationCoordinator =
+                    new WorkerPublishPreparationCoordinator(owned, authority, () -> 101,
+                            preparation -> java.util.Optional.of(new WorkerCommandRuntime.PublishPreparation(
+                                    channel, readyCertificate, evidence, 3_000, 1,
+                                    verificationKey.getPrivate(), () -> 101)));
 
             final WorkerSchedulingRuntime.DueTurn dueTurn = workerRuntime.runDueTurn(evidence, budget, () -> 101);
             assertEquals(List.of(dueTurn.task()), dueTurn.completedTasks());
@@ -230,8 +235,7 @@ class ClaimHandoffWorkClassExecutorTest {
             final WorkerShardRuntime.DueClaimPublishTurn dueClaim = workerRuntime.runDueClaimPublishTurn(
                     evidence, budget, 3_000, claimCharge, () -> 101,
                     new SchedulerBudget(1, 1_000_000, 1_000), 2,
-                    claimResult -> java.util.Optional.of(new WorkerCommandRuntime.PublishPreparation(
-                            channel, readyCertificate, evidence, 3_000, 1, verificationKey.getPrivate(), () -> 101)));
+                    preparationCoordinator);
             final ClaimHandoffWorkClassExecutor.ClaimHandoffResult result = dueClaim.claimResult().orElseThrow();
             assertEquals(ClaimHandoffWorkClassExecutor.ResultKind.CLAIMED, result.kind());
             assertEquals(schedule.delayMessageId(), result.claim().delayMessageId());
@@ -244,6 +248,14 @@ class ClaimHandoffWorkClassExecutorTest {
             assertEquals(PublishAdmissionWorkClassExecutor.ResultKind.UNKNOWN,
                     publish.result().orElseThrow().kind());
             assertEquals(ClaimExecutionAdmission.ReservationState.ACTIVE, result.reservation().state());
+            final WorkerPublishPreparationCoordinator certificateDrift =
+                    new WorkerPublishPreparationCoordinator(owned, authority, () -> 101,
+                            preparation -> java.util.Optional.of(new WorkerCommandRuntime.PublishPreparation(
+                                    preparation.channel(),
+                                    ReadyCertificateV1.decode(bindReadyCertificate(certificate, owner,
+                                            Bytes.sha256(Bytes.utf8("claim-work-foreign-store")))),
+                                    evidence, 3_000, 1, verificationKey.getPrivate(), () -> 101)));
+            assertThrows(IllegalArgumentException.class, () -> certificateDrift.prepare(result));
             assertEquals(0, workClasses.registeredActions());
             assertTrue(result.reservation().release());
             assertFalse(result.reservation().release());
