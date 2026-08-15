@@ -253,6 +253,30 @@ require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transpo
     "and final checkpoint"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "Kafka Worker restart preparation passed"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+    "runSourceAppliedPhysicalPublish"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+    "readBackSourcePosition"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+    "Kafka Worker source-applied physical publish passed"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerShardRuntime.java" \
+    "sameSourcePosition"
+require_file_text "$delay_root/build.gradle" \
+    "kafkaWorkerDestinationTopic"
+require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
+    "worker_destination_topic"
+require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
+    "source-applied physical publish with typed KAFKA_TRANSACTIONAL_RECEIPT Outcome"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "112522e6"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Kafka Worker source-applied physical publish passed"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Admission source offset=3"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "nereus-delay-kafka-e2e-1786812109-79794"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "21092,21093,21094"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactRouteWorkerSmoke.java" \
     "Kafka signed Route -> guarded Fetch barrier"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactRouteWorkerSmoke.java" \

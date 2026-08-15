@@ -8827,9 +8827,10 @@ K2 broker failover smoke passed: target-plus-receipt transaction crossed broker-
 Kafka K2 broker failover E2E passed: target-plus-receipt transaction crossed broker-1 failover with read_committed resolution.
 ```
 
-This closes positive typed K2 direct-adapter evidence only. It does not claim
-that the current real Worker E2E invokes the source-applied physical publish
-provider, or that Fetch response-loss, retention-floor/crash recovery, live
+This closes positive typed K2 direct-adapter evidence only. At the time of this
+2026-08-15 status snapshot, it did not claim that the real Worker E2E invoked
+the source-applied physical publish provider, or that Fetch response-loss,
+retention-floor/crash recovery, live
 Profile/credential/channel/Object Store authority, source-ordered Outcome,
 Pulsar multi-broker parity, checkpoint/quiescence or V1 release gates are
 complete.
@@ -8860,8 +8861,9 @@ Pulsar destination typed-evidence smoke passed: topic=persistent://public/defaul
 Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, source-bound typed destination SEND ACK/payload readback, guarded source replay, signed mutation append/replay/ACK, signed Route barrier/assignment/source ACK, Broker timestamp, Worker recovery/apply, ACK handoff, and broker-restart resume.
 ```
 
-This is positive direct-destination evidence only. Due/Claim/Publish source
-application through the real Worker physical executor, typed guard-rejection
+This is positive direct-destination evidence only. At that 2026-08-15 status
+snapshot, due/Claim/Publish source application through the real Worker
+physical executor, typed guard-rejection
 and response-loss/crash recovery, Pulsar multi-broker failover, live
 prerequisite/Object Store authority, checkpoint/quiescence and V1 release
 gates remain open.
@@ -8899,6 +8901,41 @@ does not invoke `runDueClaimPublishPhysicalTurn`, Oxia Route authority was
 disabled, and standalone Broker restart does not prove Pulsar multi-Broker
 failover, crash/response-loss resolution, checkpoint/quiescence or V1
 release readiness.
+
+## 2026-08-16 source-applied Kafka Worker physical Publish vertical
+
+Delay commit `112522e6` wires the real K1 Worker smoke to a bounded physical
+Publish vertical. The smoke records a guarded Kafka Shard Log Schedule and
+immediately Fetch-reads the exact source position, applies the Schedule,
+builds the typed Lane projection, appends signed `PUBLISH_ADMISSION`, and
+calls `WorkerShardRuntime.runSourceBoundPhysicalPublish(...)`. The runtime
+reloads the persisted `PUBLISHING` ledger and reaches the guarded Kafka
+transactional destination transport. A fresh `read_committed` receipt returns
+typed `KAFKA_TRANSACTIONAL_RECEIPT` evidence; the signed source
+`PUBLISH_OUTCOME` closes the attempt as `PUBLISHED`, and the smoke verifies
+exact destination payload readback.
+
+Checks passed: `./gradlew check`, exact `compileRealKafka` against the locked
+client JAR, and the full current-source three-broker K1/K2 E2E. Locks: K1
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose `nereus-delay-kafka-e2e-1786812109-79794`, ports `21092,21093,21094`.
+
+```text
+Kafka Worker source-applied physical publish passed: Admission source offset=3, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=0, Outcome source offset=4, exact payload readback
+Kafka Worker source-applied physical publish passed: Admission source offset=3, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=2, Outcome source offset=4, exact payload readback
+Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, assignment recovery to RocksDB Worker apply before and after broker-1 failover, source-applied physical publish with typed KAFKA_TRANSACTIONAL_RECEIPT Outcome and payload readback, same-topic Worker resume after failover, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence.
+```
+
+Status boundary: this is positive source-applied Worker and three-broker
+failover evidence, not a full due/Claim/Object Store provider PASS. Claim,
+readiness, credential and payload inputs remain bounded smoke authority; the
+E2E does not invoke `runDueClaimPublishPhysicalTurn`, Oxia Route authority was
+disabled, and crash/response-loss coverage beyond the exercised K2 receipt,
+multi-shard placement, checkpoint/quiescence and V1 release gates remain
+open.
 
 ## Verification command
 

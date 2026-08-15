@@ -4213,3 +4213,50 @@ run does not invoke the live due/Claim/Object Store provider graph or
 receipt, not Pulsar multi-Broker failover, crash/response-loss resolution,
 runtime/milestone PASS, or V1 release readiness. Oxia Route Worker authority
 was disabled for this receipt (`NEREUS_DELAY_PULSAR_WITH_OXIA=0`).
+
+### 2026-08-16 source-applied Kafka Worker physical Publish and typed Outcome implementation note
+
+Delay commit `112522e6` binds the real K1 Worker smoke to the corresponding
+source-applied physical Publish vertical. With
+`-PkafkaWorkerDestinationTopic`, the smoke produces a physical Schedule to the
+guarded Kafka Shard Log and immediately reads the exact record back through a
+guarded Fetch v13. That readback completes the optional Produce leader epoch
+when the broker response omits it; the Worker then uses the authenticated
+cluster/topic/shard/offset/append-time identity, while rejecting conflicting
+known leader epochs, for the Lane incarnation and source-bound Admission
+match.
+
+After the source loop applies the Schedule, the smoke builds the bounded typed
+Lane/channel/certificate projection and appends a signed `PUBLISH_ADMISSION`
+for the local Claim and prepared descriptor. `WorkerShardRuntime
+runSourceBoundPhysicalPublish(...)` source-applies that Admission, reloads the
+persisted `PUBLISHING` ledger, and invokes
+`KafkaClientArtifactTransactionalDestinationTransport` only with the exact
+source-bound position and prepared hash. The K2 adapter commits the target and
+receipt atomically; a fresh `read_committed` receipt yields typed
+`KAFKA_TRANSACTIONAL_RECEIPT` evidence, a signed source `PUBLISH_OUTCOME`
+closes the attempt as `PUBLISHED`, and the smoke reads the exact destination
+payload back.
+
+The current-source three-broker receipt used K1
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose project `nereus-delay-kafka-e2e-1786812109-79794`, and ports
+`21092,21093,21094`:
+
+```text
+Kafka Worker source-applied physical publish passed: Admission source offset=3, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=0, Outcome source offset=4, exact payload readback
+Kafka Worker source-applied physical publish passed: Admission source offset=3, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=2, Outcome source offset=4, exact payload readback
+Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, assignment recovery to RocksDB Worker apply before and after broker-1 failover, source-applied physical publish with typed KAFKA_TRANSACTIONAL_RECEIPT Outcome and payload readback, same-topic Worker resume after failover, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence.
+```
+
+`./gradlew check`, exact `compileRealKafka` against the locked client JAR and
+the full real-client script passed. This is positive three-broker source/
+Worker/K2 evidence, not a V1 release or milestone PASS: Claim, readiness,
+credential and payload inputs remain bounded smoke authority, the run does not
+invoke the live due/Claim/Object Store provider graph or
+`runDueClaimPublishPhysicalTurn`, Oxia Route authority was disabled, and the
+full crash/response-loss matrix, multi-shard placement, checkpoint/quiescence
+and §23.5 release gates remain open.

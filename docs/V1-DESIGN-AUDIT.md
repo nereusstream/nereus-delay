@@ -7434,9 +7434,10 @@ K2 broker failover smoke passed: target-plus-receipt transaction crossed broker-
 Kafka K2 broker failover E2E passed: target-plus-receipt transaction crossed broker-1 failover with read_committed resolution.
 ```
 
-This is direct adapter evidence, not a full V1 or Worker production PASS. The
-real Worker harness still does not source-apply a PUBLISHING ledger through
-the bound physical executor/provider. Fetch response-loss, retention-floor
+This is direct adapter evidence, not a full V1 or Worker production PASS. At
+the time of this 2026-08-15 audit snapshot, the real Worker harness still did
+not source-apply a PUBLISHING ledger through the bound physical
+executor/provider. Fetch response-loss, retention-floor
 and crash resolution, live prerequisite/channel/Object Store authority,
 source-ordered `PUBLISH_OUTCOME`, Pulsar multi-broker parity, placement,
 checkpoint/quiescence and §23.5 release gates remain open.
@@ -7471,9 +7472,10 @@ Pulsar destination typed-evidence smoke passed: topic=persistent://public/defaul
 
 The same run read the exact destination payload back through a guarded P1
 consumer and passed the existing source, mutation, Worker and restart smokes.
-This is a positive direct-adapter evidence cut, not a release PASS: the real
-Worker E2E still does not invoke the source-applied physical destination
-transport, and typed guard rejection, response-loss/crash resolution,
+This is a positive direct-adapter evidence cut, not a release PASS: at that
+2026-08-15 direct-destination snapshot, the real Worker E2E did not invoke the
+source-applied physical destination transport, and typed guard rejection,
+response-loss/crash resolution,
 Pulsar multi-broker failover, live prerequisite authority, placement,
 checkpoint/quiescence and §23.5 gates remain open.
 
@@ -7510,6 +7512,44 @@ authority and §23.5 release gates remain open. The receipt ran with
 Pulsar Worker source-applied physical publish passed: Admission source ledger=22/3, typed PULSAR_SEND_ACK target ledger/entry=23/0, Outcome source ledger=22/4, exact payload readback
 Pulsar Worker source-applied physical publish passed: Admission source ledger=33/2, typed PULSAR_SEND_ACK target ledger/entry=34/0, Outcome source ledger=33/3, exact payload readback
 ```
+
+## 2026-08-16 source-applied Kafka Worker physical Publish and typed Outcome audit
+
+Delay commit `112522e6` extends the current K1 real-client Worker smoke through
+a bounded source-ordered physical Publish path. The smoke obtains a guarded
+Kafka source position for a physical Schedule and verifies it with exact
+Fetch-v13 readback, including the broker append time and any available leader
+epoch. The Worker applies that Schedule, derives the typed Lane projection,
+appends signed `PUBLISH_ADMISSION`, and calls
+`WorkerShardRuntime.runSourceBoundPhysicalPublish(...)`. The runtime reloads
+the persisted `PUBLISHING` ledger and invokes the guarded transactional
+destination adapter with the exact source position and prepared hash. Typed
+`KAFKA_TRANSACTIONAL_RECEIPT` evidence is read in `read_committed`, carried by
+a signed source `PUBLISH_OUTCOME`, source-applied to `PUBLISHED`, and checked
+with exact destination payload readback.
+
+Verification passed with `./gradlew check`, exact `compileRealKafka` against
+the locked client artifact, and the full three-broker K1/K2 E2E. Locks: K1
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose project `nereus-delay-kafka-e2e-1786812109-79794`, and ports
+`21092,21093,21094`.
+
+```text
+Kafka Worker source-applied physical publish passed: Admission source offset=3, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=0, Outcome source offset=4, exact payload readback
+Kafka Worker source-applied physical publish passed: Admission source offset=3, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=2, Outcome source offset=4, exact payload readback
+Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, assignment recovery to RocksDB Worker apply before and after broker-1 failover, source-applied physical publish with typed KAFKA_TRANSACTIONAL_RECEIPT Outcome and payload readback, same-topic Worker resume after failover, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence.
+```
+
+This is positive source-applied Worker and three-broker failover evidence only.
+The Claim, readiness, credential and payload inputs are bounded smoke
+authority; the E2E does not invoke the live due/Claim/Object Store provider
+graph or `runDueClaimPublishPhysicalTurn`, and Oxia Route authority was
+disabled. Crash/response-loss coverage beyond the exercised K2 read-committed
+receipt, multi-shard placement, checkpoint/quiescence and §23.5 release gates
+remain open.
 
 ## Final gate
 
