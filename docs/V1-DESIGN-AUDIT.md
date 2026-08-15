@@ -7029,6 +7029,29 @@ there is still no live Profile/credential/Broker prerequisite authority, real
 due-to-Claim-to-Publish E2E, multi-shard or transport production wiring,
 crash/response-loss proof, or release PASS.
 
+## 2026-08-15 typed Lane scheduling bootstrap audit
+
+Delay commit `7a48f85b` adds `WorkerSchedulingRuntime.openForActiveOwnerFromTypedLanes`.
+The bootstrap rereads each requested Lane from the same Store, requires an
+`ActiveLaneStateV1` with `OPEN` admission, `READY` runtime state and a
+certificate, and checks that the derived `LaneRecord` has the same incarnation
+and version. Missing/legacy state, duplicate identities and projection drift
+are rejected before scheduler construction. The existing strict active
+Owner/Shard/Store checks and authoritative READY-index rebuild then remain in
+force.
+
+The due-worker regression now exercises this typed bootstrap. It verifies that
+a persisted READY head is restored before the due turn, that no duplicate new
+head is reported, and that the exact restored item remains available to strict
+READY polling. `check` passed with the typed Lane activation and due/Claim
+regressions; the full check's real Oxia smoke tests were skipped by their
+normal opt-in gates.
+
+This closes only the local typed activation → scheduler bootstrap boundary.
+It does not establish live Profile/credential/Broker prerequisite authority,
+automatic due-to-Claim-to-Publish execution, multi-shard or transport E2E,
+crash/response-loss evidence, or release PASS.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

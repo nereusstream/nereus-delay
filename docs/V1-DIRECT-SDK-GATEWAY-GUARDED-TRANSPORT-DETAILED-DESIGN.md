@@ -3681,3 +3681,21 @@ against their locked client artifacts. This closes local typed Lane activation
 and Worker graph composition only. It does not provide a live prerequisite
 authority, automatic due-to-Claim-to-Publish execution, multi-shard or
 transport E2E, crash/response-loss evidence, or V1 release PASS.
+
+### 2026-08-15 typed Lane scheduling bootstrap implementation note
+
+Delay commit `7a48f85b` adds `WorkerSchedulingRuntime.openForActiveOwnerFromTypedLanes`.
+The production-shaped bootstrap accepts only the exact Lane identities that
+were persisted by typed activation, rereads each `ActiveLaneStateV1`, and
+rejects missing/legacy state, non-OPEN or non-READY state, absent Ready
+Certificate, duplicate Lane identity, or LaneRecord incarnation/version drift
+before constructing the scheduler. It then uses the existing strict
+Owner/Store/Shard fence and authoritative READY-index rebuild.
+
+The caller-supplied `List<LaneRecord>` factory remains an embedded compatibility
+seam for historical composition tests. The new path makes the intended
+activation-to-scheduling boundary explicit: a restart can restore a durable
+READY head before a due turn, so that turn reports no newly promoted head while
+the strict READY poll still returns the restored candidate. This is local typed
+bootstrap and fairness-state recovery only; it does not add live Profile,
+Broker, credential, Oxia placement, Claim/Publish or checkpoint authority.

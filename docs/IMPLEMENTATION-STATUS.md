@@ -8230,6 +8230,28 @@ not a production due-to-Claim-to-Publish E2E or release PASS. Live external
 Profile/credential/Broker prerequisite authority, multi-shard/transport
 orchestration, crash/response-loss evidence and release gates remain open.
 
+## 2026-08-15 typed Lane scheduling bootstrap
+
+Delay commit `7a48f85b` adds
+`WorkerSchedulingRuntime.openForActiveOwnerFromTypedLanes`. It accepts the
+exact Lane IDs supplied by the activation/Route projection, rereads each
+`ActiveLaneStateV1` from the same Store, and rejects missing or legacy state,
+non-OPEN/non-READY state, absent Ready Certificate, duplicate IDs and
+LaneRecord incarnation/version drift. Only after this gate does it construct
+the active-owner scheduler and rebuild its authoritative READY index. The
+older `List<LaneRecord>` factory remains an embedded compatibility seam.
+
+The due scheduling regression now runs through the typed bootstrap and proves
+that an already persisted READY head is restored before a due turn without
+being reported as a duplicate new promotion, while strict READY polling still
+returns that exact head. The full `check` passed; real Oxia smoke tests were
+skipped by their normal opt-in gates.
+
+This is local activation-to-scheduler bootstrap evidence only. Live
+Profile/credential/Broker prerequisite authority, automatic due-to-Claim-to-
+Publish execution, multi-shard/transport orchestration, crash/response-loss
+evidence and release PASS remain open.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
