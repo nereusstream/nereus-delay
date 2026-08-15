@@ -2,11 +2,8 @@ package io.nereusstream.delay.transport;
 
 import io.nereusstream.delay.ownership.SourceAssignment;
 import io.nereusstream.delay.ownership.SourceReplayEntry;
-import io.nereusstream.delay.ownership.SourceReplayRecord;
-import io.nereusstream.delay.protocol.CommandCodec;
 import io.nereusstream.delay.protocol.KafkaActivationBarrier;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
-import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.ShardId;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerResourceGuard;
@@ -98,16 +95,12 @@ public final class KafkaClientArtifactRecoverySourceCursor
         final BufferedRecord fetched = buffered.removeFirst();
         final ConsumerRecord<byte[], byte[]> record = fetched.record();
         try {
-            final PreparedCommand command = CommandCodec.decodeFrameV1(requireValue(record));
-            if (!shard.equals(command.shardId())) {
-                throw new IllegalArgumentException("Kafka recovery command belongs to another shard");
-            }
             if (record.offset() < 0 || record.timestamp() < 0) {
                 throw new IllegalArgumentException("Kafka recovery record lacks a bounded broker position");
             }
             final KafkaSourcePosition position = new KafkaSourcePosition(shard, authenticatedClusterId,
                     nativeTopicUuid, record.offset(), record.leaderEpoch().orElse(null), record.timestamp());
-            current = new SourceReplayRecord(command, position, null, null);
+            current = KafkaClientArtifactSourceRecordDecoder.decode(requireValue(record), shard, position, null, null);
             return true;
         } catch (RuntimeException | Error failure) {
             buffered.addFirst(fetched);

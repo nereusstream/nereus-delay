@@ -155,6 +155,20 @@ public final class SystemMutation {
     }
 
     /**
+     * Decodes a frame and derives the logical operation identity from its
+     * canonical typed body. This is the source-replay entrypoint; adapters
+     * must not accept an identity supplied by a caller when reading a broker
+     * record.
+     */
+    public static SystemMutation decodeFrame(final byte[] frame) {
+        final ShardLogFrame.Decoded decoded = ShardLogFrame.decode(frame);
+        if (decoded.recordKind() != ShardLogFrame.SYSTEM_MUTATION_KIND) {
+            throw new IllegalArgumentException("frame is not a System Mutation");
+        }
+        return decodeEnvelope(decoded.canonicalEnvelope());
+    }
+
+    /**
      * Decodes a frame and validates the logical operation identity supplied by the operation-specific caller.
      * The identity is deliberately not duplicated in the wire envelope; the registry derives it from the body
      * operation's stable identity.
@@ -167,14 +181,32 @@ public final class SystemMutation {
         return decodeEnvelope(decoded.canonicalEnvelope(), logicalOperationIdentity);
     }
 
+    /** Decodes an envelope and derives its registered logical operation identity. */
+    public static SystemMutation decodeEnvelope(final byte[] envelope) {
+        final EnvelopeFields fields = readEnvelope(envelope);
+        return decodeEnvelope(envelope, SystemMutationIdentityV1.resolve(fields.shardId(), fields.type(),
+                fields.body()));
+    }
+
     public static SystemMutation decodeEnvelope(final byte[] envelope, final byte[] logicalOperationIdentity) {
-        final List<CanonicalProtobuf.Reader.Field> outer = readAll(new CanonicalProtobuf.Reader(envelope));
+        final EnvelopeFields fields = readEnvelope(envelope);
+        final SystemMutation decoded = new SystemMutation(fields.shardId(), fields.type(), fields.retryUntilEpochMs(),
+                logicalOperationIdentity, fields.body(), fields.authorIdentity(), fields.signingKeyVersion(),
+                fields.systemMutationId(), fields.mutationHash(), fields.signature());
+        if (!Arrays.equals(envelope, decoded.canonicalEnvelope())) {
+            throw new IllegalArgumentException("non-canonical System Mutation envelope");
+        }
+        return decoded;
+    }
+
+    private static EnvelopeFields readEnvelope(final byte[] envelope) {
+        final List<CanonicalProtobuf.Reader.Field> outer = readAll(new CanonicalProtobuf.Reader(
+                Objects.requireNonNull(envelope, "envelope")));
         if (outer.size() != 2) {
             throw new IllegalArgumentException("Shard Log envelope fields are incomplete or unknown");
         }
         requireVarint(outer.get(0), 1, LOG_ENVELOPE_VERSION);
         requireWire(outer.get(1), 3, 2);
-
         final List<CanonicalProtobuf.Reader.Field> fields = readAll(
                 new CanonicalProtobuf.Reader(outer.get(1).rawValue()));
         if (fields.size() != 11) {
@@ -194,12 +226,7 @@ public final class SystemMutation {
             throw new IllegalArgumentException("signingKeyVersion exceeds uint32 range");
         }
         final byte[] signature = requireFixed(fields.get(10), 11, SIGNATURE_LENGTH);
-        final SystemMutation decoded = new SystemMutation(shard, type, retryUntil, logicalOperationIdentity, body,
-                author, (int) keyVersion, id, hash, signature);
-        if (!Arrays.equals(envelope, decoded.canonicalEnvelope())) {
-            throw new IllegalArgumentException("non-canonical System Mutation envelope");
-        }
-        return decoded;
+        return new EnvelopeFields(shard, type, retryUntil, body, author, (int) keyVersion, id, hash, signature);
     }
 
     public boolean verifySignature(final PublicKey publicKey) {
@@ -429,6 +456,43 @@ public final class SystemMutation {
     private static byte[] fixed(final byte[] value, final int length, final String name) {
         Bytes.requireLength(value, length, name);
         return Bytes.copy(value);
+    }
+
+    private record EnvelopeFields(ShardId shardId, SystemMutationType type, long retryUntilEpochMs,
+                                  byte[] body, byte[] authorIdentity, int signingKeyVersion,
+                                  byte[] systemMutationId, byte[] mutationHash, byte[] signature) {
+        private EnvelopeFields {
+            body = Bytes.copy(body);
+            authorIdentity = Bytes.copy(authorIdentity);
+            systemMutationId = Bytes.copy(systemMutationId);
+            mutationHash = Bytes.copy(mutationHash);
+            signature = Bytes.copy(signature);
+        }
+
+        @Override
+        public byte[] body() {
+            return Bytes.copy(body);
+        }
+
+        @Override
+        public byte[] authorIdentity() {
+            return Bytes.copy(authorIdentity);
+        }
+
+        @Override
+        public byte[] systemMutationId() {
+            return Bytes.copy(systemMutationId);
+        }
+
+        @Override
+        public byte[] mutationHash() {
+            return Bytes.copy(mutationHash);
+        }
+
+        @Override
+        public byte[] signature() {
+            return Bytes.copy(signature);
+        }
     }
 
     @Override

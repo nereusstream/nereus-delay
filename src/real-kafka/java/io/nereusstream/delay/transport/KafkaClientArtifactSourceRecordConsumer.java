@@ -2,10 +2,8 @@ package io.nereusstream.delay.transport;
 
 import io.nereusstream.delay.ownership.SourceAcknowledgement;
 import io.nereusstream.delay.ownership.SourceRecordConsumer;
-import io.nereusstream.delay.ownership.SourceReplayRecord;
-import io.nereusstream.delay.protocol.CommandCodec;
+import io.nereusstream.delay.ownership.SourceReplayEntry;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
-import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.ShardId;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerResourceGuard;
@@ -25,11 +23,12 @@ import java.util.UUID;
 /**
  * Source-set Kafka binding for one assigned V1 Shard Log partition.
  *
- * <p>The consumer deliberately has no Nereus apply authority: it decodes a
- * canonical NDL1 Client Command, exposes the exact Kafka Source Position, and
- * advances the broker cursor only after {@code commitSync} returns.  A commit
- * exception is always {@code UNKNOWN}; the caller must retain the record and
- * retry it after a fresh consumer/owner boundary.</p>
+ * <p>The consumer deliberately has no Nereus apply authority: it decodes one
+ * canonical Client Command or signed System Mutation, exposes the exact
+ * Kafka Source Position, and advances the broker cursor only after
+ * {@code commitSync} returns. A commit exception is always {@code UNKNOWN};
+ * the caller must retain the record and retry it after a fresh
+ * consumer/owner boundary.</p>
  */
 public final class KafkaClientArtifactSourceRecordConsumer implements SourceRecordConsumer {
     private final GuardedConsumer<byte[], byte[]> consumer;
@@ -87,16 +86,13 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
         final BufferedRecord fetched = buffered.removeFirst();
         final ConsumerRecord<byte[], byte[]> record = fetched.record();
         try {
-            final PreparedCommand command = CommandCodec.decodeFrameV1(requireValue(record));
-            if (!command.shardId().equals(shard)) {
-                throw new IllegalArgumentException("Kafka source command belongs to another Shard");
-            }
             if (record.timestamp() < 0 || record.offset() == -1L) {
                 throw new IllegalArgumentException("Kafka source record lacks a bounded broker position");
             }
             final KafkaSourcePosition position = new KafkaSourcePosition(shard, authenticatedClusterId,
                     nativeTopicUuid, record.offset(), record.leaderEpoch().orElse(null), record.timestamp());
-            final SourceReplayRecord entry = new SourceReplayRecord(command, position, null, null);
+            final SourceReplayEntry entry = KafkaClientArtifactSourceRecordDecoder.decode(requireValue(record), shard,
+                    position, null, null);
             inFlight = fetched;
             return Optional.of(new PolledSourceRecord(entry,
                     (candidate, ignoredOutcome) -> acknowledge(fetched, entry, candidate)));
@@ -115,9 +111,7 @@ public final class KafkaClientArtifactSourceRecordConsumer implements SourceReco
     }
 
     private SourceAcknowledgement.AcknowledgementResult acknowledge(
-            final BufferedRecord fetched,
-            final SourceReplayRecord expected,
-            final io.nereusstream.delay.ownership.SourceReplayEntry candidate) {
+            final BufferedRecord fetched, final SourceReplayEntry expected, final SourceReplayEntry candidate) {
         if (candidate != expected) {
             return SourceAcknowledgement.AcknowledgementResult.unknown(
                     new IllegalStateException("Kafka source ACK entry identity changed"));

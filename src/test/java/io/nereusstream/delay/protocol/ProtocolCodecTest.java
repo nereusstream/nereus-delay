@@ -968,6 +968,36 @@ class ProtocolCodecTest {
     }
 
     @Test
+    void systemMutationReplayDecoderDerivesTimeFenceIdentityFromBody() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 12);
+        final TrustedUtcIntervalEvidence evidence = new TrustedUtcIntervalEvidence(2_000, 2_001,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("clock"), 1, 2, 3,
+                Bytes.sha256(Bytes.utf8("time-fence-evidence")), 0, null);
+        final int keyVersion = 1;
+        final long closeThrough = 1_000;
+        final byte[] proofId = Bytes.sha256(Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                shard.routeIncarnation().bytes(), Bytes.u32beBits(shard.partition()), Bytes.i64be(closeThrough),
+                Bytes.u32beBits(keyVersion), Bytes.lp32(evidence.canonicalBytes()));
+        final byte[] subject = new ShardSubjectV1(shard).canonicalBytes();
+        final byte[] body = CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, subject);
+            CanonicalProtobuf.uint32(output, 2, SystemMutationType.TIME_FENCE.wireValue());
+            CanonicalProtobuf.int64(output, 3, 9_000);
+            CanonicalProtobuf.int64(output, 10, closeThrough);
+            CanonicalProtobuf.uint32Bits(output, 11, keyVersion);
+            CanonicalProtobuf.bytes(output, 12, proofId);
+            CanonicalProtobuf.bytes(output, 13, evidence.canonicalBytes());
+        });
+        final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
+        final KeyPair keyPair = keyPairGenerator.generateKeyPair();
+        final SystemMutation mutation = SystemMutation.signed(shard, SystemMutationType.TIME_FENCE, 9_000,
+                proofId, body, AuthorIdentity.fence(Bytes.utf8("fence"), keyVersion).canonicalBytes(), keyVersion,
+                keyPair.getPrivate());
+
+        assertEquals(mutation, SystemMutation.decodeFrame(mutation.encodeFrame()));
+    }
+
+    @Test
     void systemMutationRejectsWrongIdentityAndTampering() throws Exception {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 8);
         final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
