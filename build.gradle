@@ -190,6 +190,23 @@ tasks.register('runRealKafkaWorkerSmoke', JavaExec) {
             findProperty('kafkaWorkerMode') ?: 'run'
 }
 
+tasks.register('runRealKafkaRouteWorkerSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs guarded Fetch barrier, signed Route publication and Oxia Worker assignment against Kafka.'
+    dependsOn tasks.named('compileRealKafka')
+    if (realKafkaClientJar == null || findProperty('kafkaBootstrap') == null
+            || findProperty('kafkaRouteWorkerTopic') == null) {
+        doFirst {
+            throw new GradleException(
+                    'runRealKafkaRouteWorkerSmoke requires -PkafkaClientJar=... -PkafkaBootstrap=host:port '
+                            + '-PkafkaRouteWorkerTopic=name and NEREUS_DELAY_OXIA_ENDPOINT')
+        }
+    }
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactRouteWorkerSmoke'
+    args findProperty('kafkaBootstrap'), findProperty('kafkaRouteWorkerTopic')
+}
+
 tasks.register('compileRealPulsar', JavaCompile) {
     group = 'verification'
     description = 'Compiles the Delay Pulsar binding against explicitly supplied locked P1 client artifacts.'

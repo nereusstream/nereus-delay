@@ -22,6 +22,7 @@ topic_1="${KAFKA_DELAY_E2E_TOPIC_1:-nereus-delay-k1-topic-1}"
 source_topic="${KAFKA_DELAY_E2E_SOURCE_TOPIC:-nereus-delay-source-topic}"
 mutation_topic="${KAFKA_DELAY_E2E_MUTATION_TOPIC:-nereus-delay-mutation-topic}"
 mutation_worker_topic="${KAFKA_DELAY_E2E_MUTATION_WORKER_TOPIC:-nereus-delay-mutation-worker-topic}"
+route_worker_topic="${KAFKA_DELAY_E2E_ROUTE_WORKER_TOPIC:-nereus-delay-route-worker-topic}"
 worker_topic="${KAFKA_DELAY_E2E_WORKER_TOPIC:-nereus-delay-worker-topic}"
 k2_target_topic="${KAFKA_DELAY_E2E_K2_TARGET_TOPIC:-nereus-delay-k2-target}"
 k2_receipt_topic="${KAFKA_DELAY_E2E_K2_RECEIPT_TOPIC:-nereus-delay-k2-receipt}"
@@ -135,6 +136,20 @@ run_mutation_worker_smoke() {
   fi
 }
 
+run_route_worker_smoke() {
+  local bootstrap_server="$1"
+  if [[ "${with_oxia}" != "1" ]]; then
+    return 0
+  fi
+  NEREUS_DELAY_OXIA_ENDPOINT="${oxia_endpoint}" \
+  NEREUS_DELAY_OXIA_NAMESPACE=default \
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaRouteWorkerSmoke \
+    -PkafkaClientJar="${client_jar}" \
+    -PkafkaBootstrap="${bootstrap_server}" \
+    -PkafkaRouteWorkerTopic="${route_worker_topic}" \
+    --no-daemon --console=plain
+}
+
 cd "${delay_dir}"
 require_clean_kafka_checkout
 test -s "${client_jar}"
@@ -190,6 +205,7 @@ if [[ "${with_oxia}" == "1" ]]; then
   start_oxia
 fi
 run_mutation_worker_smoke "${bootstrap_all}"
+run_route_worker_smoke "${bootstrap_all}"
 run_worker_smoke "${bootstrap_all}" "${worker_topic}"
 restart_worker_topic="${KAFKA_DELAY_RESTART_WORKER_TOPIC:-${worker_topic}-broker-restart}"
 run_worker_smoke "${bootstrap_all}" "${restart_worker_topic}" prepare
