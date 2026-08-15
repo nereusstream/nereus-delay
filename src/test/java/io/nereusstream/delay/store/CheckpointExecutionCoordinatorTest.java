@@ -369,6 +369,8 @@ class CheckpointExecutionCoordinatorTest {
                             new RecoveryCatalog()), request -> {
                                 throw new IllegalStateException("Owner lease is no longer active");
                             });
+            final ShardId otherShard = new ShardId(RouteIncarnation.random(), 23);
+            assertThrows(IllegalArgumentException.class, () -> runtime.register(otherShard, 0));
             runtime.register(shard, 0);
             final CheckpointScheduler.ScheduledCheckpoint claim = runtime.claimDue(100, 1).get(0);
             final CheckpointWorkClassExecutor.ExecutionRequest request =

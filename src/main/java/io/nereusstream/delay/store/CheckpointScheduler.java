@@ -79,12 +79,30 @@ public final class CheckpointScheduler {
      * reconstruct it from the shard ID and due time.
      */
     public synchronized List<ScheduledCheckpoint> claimDue(final long nowEpochMs, final int limit) {
+        return claimDueInternal(null, nowEpochMs, limit);
+    }
+
+    /** Claims only the due handle owned by one shard from a shared schedule. */
+    public synchronized List<ScheduledCheckpoint> claimDueForShard(final ShardId shardId,
+                                                                    final long nowEpochMs,
+                                                                    final int limit) {
+        Objects.requireNonNull(shardId, "shardId");
+        requireState(shardId);
+        return claimDueInternal(shardId, nowEpochMs, limit);
+    }
+
+    private List<ScheduledCheckpoint> claimDueInternal(final ShardId shardFilter,
+                                                       final long nowEpochMs,
+                                                       final int limit) {
         requireTime(nowEpochMs, "nowEpochMs");
         if (limit <= 0) {
             throw new IllegalArgumentException("claim limit must be positive");
         }
         final List<ScheduledCheckpoint> due = new ArrayList<>();
         for (Map.Entry<ShardId, State> entry : states.entrySet()) {
+            if (shardFilter != null && !shardFilter.equals(entry.getKey())) {
+                continue;
+            }
             final State state = entry.getValue();
             if (!state.inFlight() && state.dueAtEpochMs() <= nowEpochMs) {
                 due.add(new ScheduledCheckpoint(entry.getKey(), state.dueAtEpochMs()));

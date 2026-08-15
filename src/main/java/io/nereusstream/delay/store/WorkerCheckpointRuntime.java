@@ -57,12 +57,14 @@ public final class WorkerCheckpointRuntime {
 
     /** Registers one shard in the process-local due schedule. */
     public long register(final io.nereusstream.delay.protocol.ShardId shardId, final long nowEpochMs) {
-        return scheduler.register(Objects.requireNonNull(shardId, "shardId"), nowEpochMs);
+        final io.nereusstream.delay.protocol.ShardId requested = Objects.requireNonNull(shardId, "shardId");
+        requireStoreShard(requested);
+        return scheduler.register(requested, nowEpochMs);
     }
 
-    /** Claims at most {@code limit} exact checkpoint schedule handles. */
+    /** Claims at most {@code limit} exact handles for this Store's shard. */
     public List<CheckpointScheduler.ScheduledCheckpoint> claimDue(final long nowEpochMs, final int limit) {
-        return scheduler.claimDue(nowEpochMs, limit);
+        return scheduler.claimDueForShard(store.shardId(), nowEpochMs, limit);
     }
 
     /** Queues one exact checkpoint attempt after prerequisite preflight. */
@@ -79,5 +81,11 @@ public final class WorkerCheckpointRuntime {
 
     public CheckpointScheduler scheduler() {
         return scheduler;
+    }
+
+    private void requireStoreShard(final io.nereusstream.delay.protocol.ShardId requested) {
+        if (!store.shardId().equals(requested)) {
+            throw new IllegalArgumentException("checkpoint runtime cannot schedule another Store shard");
+        }
     }
 }

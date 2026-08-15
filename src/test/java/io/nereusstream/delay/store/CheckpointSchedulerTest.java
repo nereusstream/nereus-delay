@@ -48,6 +48,22 @@ class CheckpointSchedulerTest {
     }
 
     @Test
+    void targetedClaimsDoNotStealAnotherShardFromASharedSchedule() {
+        final CheckpointScheduler scheduler = new CheckpointScheduler(100, 0, 2);
+        final ShardId first = new ShardId(RouteIncarnation.fromUuid(new java.util.UUID(31, 32)), 0);
+        final ShardId second = new ShardId(RouteIncarnation.fromUuid(new java.util.UUID(33, 34)), 0);
+        scheduler.register(first, 0);
+        scheduler.register(second, 0);
+
+        final List<CheckpointScheduler.ScheduledCheckpoint> claimed =
+                scheduler.claimDueForShard(second, 100, 1);
+        assertEquals(List.of(second), claimed.stream().map(CheckpointScheduler.ScheduledCheckpoint::shardId).toList());
+        assertFalse(scheduler.isInFlight(first));
+        assertTrue(scheduler.isInFlight(second));
+        scheduler.complete(claimed.get(0), 100);
+    }
+
+    @Test
     void largeIntervalJitterUsesCheckedWideArithmetic() {
         assertDoesNotThrow(() -> new CheckpointScheduler(Long.MAX_VALUE, 50, 1));
         assertThrows(IllegalArgumentException.class,
