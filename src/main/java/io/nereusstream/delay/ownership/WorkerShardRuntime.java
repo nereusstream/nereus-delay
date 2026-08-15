@@ -8,7 +8,9 @@ import io.nereusstream.delay.scheduler.ScheduleWorkItem;
 import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import io.nereusstream.delay.scheduler.WorkClassTask;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+import io.nereusstream.delay.runtime.AttemptLedgerState;
 import io.nereusstream.delay.runtime.ClaimRecord;
+import io.nereusstream.delay.runtime.PublishAttemptLedger;
 import io.nereusstream.delay.scheduler.ClaimExecutionAdmission;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.SharedRocksDbResources;
@@ -459,7 +461,7 @@ public final class WorkerShardRuntime implements AutoCloseable {
 
     /** Queues one PUBLISHING attempt behind the live physical gate and Outcome handoff. */
     public synchronized WorkerPhysicalPublishExecutor.Submission submitPhysicalPublish(
-            final io.nereusstream.delay.runtime.PublishAttemptLedger attempt,
+            final PublishAttemptLedger attempt,
             final DestinationPublishRequest request,
             final LongSupplier ownerClock) {
         ensurePhysicalPublishExecutor();
@@ -470,11 +472,33 @@ public final class WorkerShardRuntime implements AutoCloseable {
 
     /** Rebuilds the exact request from the retained Admission before handoff. */
     public synchronized WorkerPhysicalPublishExecutor.Submission submitPhysicalPublish(
-            final io.nereusstream.delay.runtime.PublishAttemptLedger attempt,
+            final PublishAttemptLedger attempt,
             final byte[] payload,
             final LongSupplier ownerClock) {
         return submitPhysicalPublish(attempt,
                 WorkerPhysicalPublishExecutor.prepareRequest(attempt, payload), ownerClock);
+    }
+
+    /**
+     * Reloads the exact persisted PUBLISHING ledger before physical handoff.
+     * Callers cannot carry a stale in-memory attempt across source replay or
+     * an UNCERTAIN transition; the bounded shard scan is the identity source.
+     */
+    public synchronized WorkerPhysicalPublishExecutor.Submission submitPhysicalPublish(
+            final byte[] publishAttemptId,
+            final byte[] payload,
+            final LongSupplier ownerClock) {
+        ensurePhysicalPublishExecutor();
+        ensureSourceRunning();
+        resources.requireRuntimeBusinessAdmission();
+        final PublishAttemptLedger persisted =
+                ownedShard.shard().findOpenPublishAttempt(Objects.requireNonNull(publishAttemptId,
+                        "publishAttemptId"));
+        if (persisted == null
+                || persisted.state() != AttemptLedgerState.PUBLISHING) {
+            throw new IllegalStateException("persisted physical publish attempt is not PUBLISHING");
+        }
+        return submitPhysicalPublish(persisted, payload, ownerClock);
     }
 
     /** Runs one bounded Claim/Publish turn through the shared Worker graph. */
