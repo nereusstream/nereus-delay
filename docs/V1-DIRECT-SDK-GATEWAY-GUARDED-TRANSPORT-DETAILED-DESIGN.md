@@ -3324,6 +3324,18 @@ Store/provider/catalog authority, automatic Ready/Publish preparation,
 checkpoint-on-drain completeness, assignment/failover ownership, crash-boundary
 evidence or §23.5 release completion.
 
+### 2026-08-15 checkpoint claim-to-Store shard fence
+
+Delay commit `c8d85e66` makes the Worker checkpoint wrapper identity-aware:
+registration rejects a shard different from the attached Store, and due
+selection uses a shard-filtered scheduler claim when the process schedule is
+shared. This prevents a valid process-local schedule handle from being routed
+to the wrong Store/manifest/catalog execution boundary.
+
+The fence is local identity protection only. It does not turn the schedule into
+durable authority or provide remote publication, assignment/failover,
+crash-boundary or §23.5 release evidence.
+
 ## 16. 当前结论与仍需实测的数值
 
 已经冻结：

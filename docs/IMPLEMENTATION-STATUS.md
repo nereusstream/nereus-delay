@@ -7662,6 +7662,19 @@ does not establish remote Object Store/provider/catalog authority, automatic
 Ready/Publish orchestration, checkpoint-on-drain completeness, multi-shard
 assignment/failover, crash-boundary evidence or release PASS.
 
+## 2026-08-15 checkpoint claim-to-Store shard fence
+
+Delay commit `c8d85e66` closes a cross-shard scheduling hazard. A
+`WorkerCheckpointRuntime` is now allowed to register only its owning Store's
+`ShardId`, and its due-claim path uses `CheckpointScheduler.claimDueForShard`
+when a process-level scheduler is shared. The targeted scheduler regression
+shows that claiming one shard leaves another due shard unclaimed; the Worker
+regression rejects a foreign shard before it enters the schedule.
+
+This is an identity/retry safety fence, not a claim of durable schedule
+authority, remote checkpoint publication, assignment/failover or crash
+evidence.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

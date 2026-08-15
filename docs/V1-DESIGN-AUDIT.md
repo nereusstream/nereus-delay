@@ -6630,6 +6630,18 @@ authority, checkpoint-on-drain completeness, catalog assignment, native source
 ownership transfer, broker failover, crash evidence and release PASS remain
 unproven.
 
+## 2026-08-15 checkpoint claim-to-Store shard fence audit
+
+Delay commit `c8d85e66` binds Worker-facing recurring checkpoint registration
+and due-claim operations to the exact `ShardId` of the attached Store. Shared
+process schedules now offer a targeted claim operation, so a selected shard
+cannot hand another Store's checkpoint handle to its own execution coordinator.
+The focused scheduler/runtime regressions and main Checkstyle passed.
+
+This closes only a local cross-shard identity hazard. Durable schedule
+authority, remote publication, assignment/failover, crash-boundary evidence and
+release PASS remain open.
+
 The focused checkpoint and fleet tests plus main checkstyle passed. This
 advances only local checkpoint retryability and event-loop multi-shard
 composition. It is not catalog-driven placement or assignment publication,
