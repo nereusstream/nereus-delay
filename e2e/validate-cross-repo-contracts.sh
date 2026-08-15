@@ -151,6 +151,12 @@ require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/OxiaG
     "IfVersionIdEquals"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/OxiaGatewayAdmissionController.java" \
     "containsExact"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
+    "GatewayGrpcServer.mutualTls"
+require_file_text "$delay_root/e2e/run-gateway-real-e2e.sh" \
+    "OxiaRealGatewayGrpcSmokeTest"
+require_file_text "$delay_root/e2e/run-gateway-real-e2e.sh" \
+    "NEREUS_DELAY_GATEWAY_CA_CERT"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayAdmissionRecordV1.java" \
     "nereus-delay-gateway-admission-record-v1"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayAdmissionControllerTest.java" \

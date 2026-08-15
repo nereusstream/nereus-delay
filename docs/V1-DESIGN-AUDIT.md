@@ -7710,6 +7710,37 @@ partition behavior, crash/response-loss resolution, multi-shard placement,
 live Profile/credential/Object Store/catalog authority,
 checkpoint/quiescence or §23.5 release readiness.
 
+## 2026-08-16 real Gateway mTLS/RS256 network and Oxia durability audit
+
+Delay commit `9a170837` adds the opt-in
+`OxiaRealGatewayGrpcSmokeTest` and `e2e/run-gateway-real-e2e.sh`. The test
+starts the actual `GatewayGrpcServer.mutualTls` composition, connects with a
+real client certificate, signs an RS256 JWT with the exact issuer/audience/kid
+policy and certificate confirmation, and sends the generated Schedule RPC
+over a Netty gRPC channel. Repeating the exact request proves one Semantic
+preparation and one Oxia idempotency attempt; direct range scans prove the
+admission lease is released and the two digest-only audit phases are exactly
+deduplicated. A mutated signature is rejected as `UNAUTHENTICATED` before
+preparation.
+
+The source-locked run used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
+`nereus-delay-gateway-e2e-1786820415-72294`, Oxia port `16668`, Gateway port
+`22350`, and ended with `BUILD SUCCESSFUL` after `11 actionable tasks: 11
+executed`:
+
+```text
+Gateway mTLS/RS256 network E2E passed: authenticated Schedule and invalid JWT rejection
+Gateway Oxia durable E2E passed: admission released, one idempotency attempt, and two digest-only audit events
+Dockerized Gateway real-service smoke passed for Oxia 37a17bef17202d5fd6e23282da5fd26d94865484
+```
+
+Audit boundary: this is one real Gateway network/authentication and durable
+record composition. It uses deterministic Semantic-Core/submission doubles
+and the bounded local `SDK_BACKPRESSURE_NOT_SUBMITTED` branch, so it does not
+promote live Kafka/Pulsar publish, certificate operations, HA/session churn,
+load, crash cuts or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

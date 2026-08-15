@@ -4438,3 +4438,35 @@ services, uses one single-shard topic and deterministic smoke profiles, and
 does not prove crash/response-loss resolution, multi-shard placement, live
 Profile/credential/Object Store/catalog authority, checkpoint/quiescence or
 the §23.5 V1 release gates.
+
+### 2026-08-16 real Gateway mTLS/RS256 network and Oxia durability receipt
+
+The deployable Gateway composition is now exercised through a real network
+boundary by `e2e/run-gateway-real-e2e.sh` and
+`OxiaRealGatewayGrpcSmokeTest` (Delay commit `9a170837`). The harness creates
+short-lived test certificates, starts `GatewayGrpcServer.mutualTls`, and uses
+a Netty client certificate plus an RS256 JWT whose `cnf.x5t#S256` is bound to
+that certificate. The generated Schedule request crosses the gRPC interceptor
+and `GatewayGrpcService`; authentication, admission, durable prepared-byte
+idempotency and digest-only audit are still separate layers.
+
+The accepted run used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
+`nereus-delay-gateway-e2e-1786820415-72294`, Oxia port `16668`, and Gateway
+port `22350`. Two identical authenticated requests produced the same public
+outcome while the real Oxia scans proved one released admission record, one
+quiescent idempotency record with one attempt, and two deduplicated audit
+records. A mutated JWT signature was rejected before Semantic-Core
+preparation. The run ended with `BUILD SUCCESSFUL` and the exact script lines:
+
+```text
+Gateway mTLS/RS256 network E2E passed: authenticated Schedule and invalid JWT rejection
+Gateway Oxia durable E2E passed: admission released, one idempotency attempt, and two digest-only audit events
+Dockerized Gateway real-service smoke passed for Oxia 37a17bef17202d5fd6e23282da5fd26d94865484
+```
+
+This is a bounded Gateway/authentication and durable-record receipt. The
+smoke uses deterministic Semantic-Core/submission doubles and a local definite
+non-submission outcome; certificate deployment/rotation, live transport
+publish, admission HA/session churn, load, crash cuts, multi-language vectors
+and the release gates remain open.

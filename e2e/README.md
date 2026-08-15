@@ -749,3 +749,30 @@ success, resource-incarnation mismatch and typed error evidence. These opt-in
 checks do not silently fall back to stock/name-only clients and do not by
 themselves establish the remaining K2/D3 receipt/source-consumer or release
 gates.
+
+## Gateway real mTLS/RS256 and Oxia durability E2E
+
+Run the Gateway network receipt with an isolated Oxia port and Gateway port:
+
+```bash
+NEREUS_DELAY_OXIA_GATEWAY_E2E_PORT=16668 \
+NEREUS_DELAY_GATEWAY_PORT=22350 \
+./e2e/run-gateway-real-e2e.sh
+```
+
+The checked-in harness creates an ephemeral test CA/server/client
+certificate, starts `GatewayGrpcServer.mutualTls`, and calls the generated
+Schedule RPC through a real Netty gRPC channel. The RS256 JWT is bound to the
+client certificate through `cnf.x5t#S256`; a mutated signature must be
+rejected before preparation. Two identical authenticated requests must leave
+one prepared-byte/idempotency attempt, a released Oxia admission lease and
+two deduplicated digest-only audit records. The source-locked receipt used
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
+`nereus-delay-gateway-e2e-1786820415-72294`, Oxia port `16668` and Gateway
+port `22350`.
+
+This is a bounded Gateway/authentication and durable-record receipt. The test
+uses deterministic Semantic-Core/submission doubles and a local definite
+non-submission outcome; live Kafka/Pulsar publish, certificate
+deployment/rotation, admission HA, load, crash cuts and release gates remain
+open.
