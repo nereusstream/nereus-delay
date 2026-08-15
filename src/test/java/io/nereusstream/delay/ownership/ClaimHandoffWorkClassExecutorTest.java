@@ -2,20 +2,17 @@ package io.nereusstream.delay.ownership;
 
 import io.nereusstream.delay.protocol.ActiveLaneStateV1;
 import io.nereusstream.delay.protocol.AdapterMetadataV1;
-import io.nereusstream.delay.protocol.BrokerResourceIdentityV1;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.ClaimMaterializationV1;
+import io.nereusstream.delay.protocol.DeliveryMode;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.KafkaActivationBarrier;
-import io.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
-import io.nereusstream.delay.protocol.KafkaMetadataV1;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.LaneCircuitStateV1;
 import io.nereusstream.delay.protocol.LaneRecordEnvelopeV1;
 import io.nereusstream.delay.protocol.OrderingMode;
 import io.nereusstream.delay.protocol.OwnerIdentityV1;
-import io.nereusstream.delay.protocol.PayloadForPublishV1;
 import io.nereusstream.delay.protocol.PreparedCommand;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
@@ -23,8 +20,9 @@ import io.nereusstream.delay.protocol.ProtocolTestFixtures;
 import io.nereusstream.delay.protocol.PublishAdmissionBody;
 import io.nereusstream.delay.protocol.PublishAdmissionBodyTest;
 import io.nereusstream.delay.protocol.RouteIncarnation;
-import io.nereusstream.delay.protocol.ScheduleIntent;
+import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.ShardId;
+import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.runtime.DelayShard;
 import io.nereusstream.delay.runtime.DelayShardConfig;
@@ -33,6 +31,7 @@ import io.nereusstream.delay.runtime.LaneRecord;
 import io.nereusstream.delay.runtime.MessageRecord;
 import io.nereusstream.delay.runtime.MessageStatus;
 import io.nereusstream.delay.runtime.RuntimeReadiness;
+import io.nereusstream.delay.runtime.V1ScheduleResolver;
 import io.nereusstream.delay.scheduler.ClaimExecutionAdmission;
 import io.nereusstream.delay.scheduler.LaneScheduler;
 import io.nereusstream.delay.scheduler.PersistentLaneScheduler;
@@ -84,8 +83,31 @@ class ClaimHandoffWorkClassExecutorTest {
         final byte[] laneTuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
         final DestinationLaneId laneId = DestinationLaneId.derive(laneTuple);
         final byte[] payload = Bytes.utf8("claim-work-payload");
-        final PreparedCommand schedule = PreparedCommand.schedule(shardId,
-                new ScheduleIntent(laneId, 2_000, 9_000, OrderingMode.BEST_EFFORT, payload), 10_000);
+        final ScheduleIntentV1 scheduleIntent = ScheduleIntentV1.create(destination,
+                new io.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("claim-work-retry"), 1,
+                        Bytes.sha256(Bytes.utf8("claim-work-retry-semantic"))),
+                2_000, 9_000, DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT,
+                Bytes.utf8("claim-work-ordering"), payload, null,
+                AdapterMetadataV1.kafka(new io.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())),
+                null, null);
+        final PreparedCommand schedule = PreparedCommand.scheduleV1(shardId, scheduleIntent, 10_000);
+        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+            @Override
+            public ResolvedSchedule resolveSchedule(final ShardId shard,
+                                                     final io.nereusstream.delay.protocol.DelayMessageId messageId,
+                                                     final ScheduleIntentV1 intent,
+                                                     final SourcePosition source) {
+                return new ResolvedSchedule(laneId, laneTuple, payload, null);
+            }
+
+            @Override
+            public ResolvedPrepare resolvePrepare(final ShardId shard,
+                                                  final io.nereusstream.delay.protocol.DelayMessageId messageId,
+                                                  final io.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1 body,
+                                                  final SourcePosition source) {
+                throw new UnsupportedOperationException("not used by this test");
+            }
+        };
         final KafkaSourcePosition source = new KafkaSourcePosition(shardId, "claim-work-cluster", topic,
                 0, null, 1_000);
         final TrustedUtcIntervalEvidence evidence = evidence();
@@ -97,7 +119,7 @@ class ClaimHandoffWorkClassExecutorTest {
             final OwnerIdentityV1 owner = new OwnerIdentityV1(Bytes.utf8("claim-work-deployment"),
                     Bytes.utf8("claim-work-worker"), lease.ownerEpoch(),
                     Bytes.sha256(Bytes.utf8("claim-work-owner-fence")));
-            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver);
             shard.apply(schedule, source);
             io.nereusstream.delay.runtime.DelayShardTestSupport.updateLaneReadiness(
                     shard, laneId, RuntimeReadiness.READY);
@@ -152,8 +174,8 @@ class ClaimHandoffWorkClassExecutorTest {
                     executor, publishExecutor));
             final WorkerCommandRuntime commandRuntime = new WorkerCommandRuntime(workClasses, resources,
                     executor, publishExecutor);
-            final ClaimMaterializationV1 materialization = materialization(destination, capability,
-                    schedule.delayMessageId(), message, payload);
+            final ClaimMaterializationV1 materialization = shard.resolveClaimMaterializationV1(
+                    schedule.delayMessageId());
             final byte[] claimCharge = claimCharge(payload.length);
 
             ScheduleWorkItem selected = scheduler.poll(evidence.earliestEpochMs(), budget).get(0);
@@ -192,8 +214,7 @@ class ClaimHandoffWorkClassExecutorTest {
             selected = scheduler.poll(evidence.earliestEpochMs(), budget).get(0);
             final ScheduleWorkItem claimedItem = selected;
             final ClaimHandoffWorkClassExecutor.Submission claimed = commandRuntime.submitClaim(
-                    new WorkerCommandRuntime.ClaimRequest(claimedItem, evidence, 3_000, materialization,
-                            claimCharge, () -> 101));
+                    claimedItem, evidence, 3_000, claimCharge, () -> 101);
             assertTrue(claimed.result().isEmpty());
             assertEquals(List.of(claimed.task()),
                     workClasses.runTurn(new SchedulerBudget(1, 1_000_000, 1_000)));
@@ -208,20 +229,6 @@ class ClaimHandoffWorkClassExecutorTest {
             assertTrue(result.reservation().release());
             assertFalse(result.reservation().release());
         }
-    }
-
-    private static ClaimMaterializationV1 materialization(final ProfileRefV1 destination,
-                                                           final ProfileRefV1 capability,
-                                                           final io.nereusstream.delay.protocol.DelayMessageId id,
-                                                           final MessageRecord message,
-                                                           final byte[] payload) {
-        return new ClaimMaterializationV1(destination, capability,
-                BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1("target-cluster",
-                        UUID.nameUUIDFromBytes(Bytes.utf8("claim-target-topic")))), 0, id,
-                Integer.toUnsignedLong(message.generation()), PayloadForPublishV1.inline(payload),
-                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())),
-                message.deliverAtEpochMs(), message.expireAtEpochMs(),
-                message.runtimeIndex().timeline().actionAtEpochMs());
     }
 
     private static TrustedUtcIntervalEvidence evidence() {
