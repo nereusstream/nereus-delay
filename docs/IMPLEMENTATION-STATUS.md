@@ -9397,6 +9397,41 @@ network fault-injection or physical transport response-loss receipt; Gateway
 transparent reconnect/HA, Kafka/Pulsar response-loss/crash resolution and V1
 release gates remain open.
 
+## 2026-08-16 real Oxia Gateway STARTED CAS response-loss receipt
+
+Test commit `1ce8b7e604ca969adabd7372e80ce04f96e5b45a` adds the real-service
+`gatewayRecoversAfterCommittedOxiaAttemptResponseLoss` test. It composes the
+mTLS/RS256 Gateway with three session-bound Oxia record clients and wraps only
+the idempotency client in a test-only `ResponseLossOnceRecordClient`. The
+wrapper lets the prepare `put` complete, lets the `STARTED` CAS `put` commit
+in real Oxia, then throws before returning that second result. The Gateway's
+first authenticated request returns managed `ENQUEUE_UNCERTAIN` with one
+Semantic preparation and zero physical submissions. After trusted time passes
+the uncertainty deadline, the same request returns byte-identical output and
+does not submit a second physical attempt.
+
+The source-locked run used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, image
+`sha256:db1b0409c36cbf16bc21d63f74932a0f9f188f5d0101b9b398e6b90de3e01cc`,
+Compose project `nereus-delay-gateway-e2e-1786827281-47103`, Oxia port
+`16695` and Gateway port `22360`. The class ran six tests with two opt-in
+multi-node/session-churn tests skipped and zero failures; Gradle ended with
+`BUILD SUCCESSFUL in 1m 14s` / `11 actionable tasks: 11 executed`. The
+response-loss test printed:
+
+```text
+Gateway Oxia STARTED response-loss E2E passed: committed attempt was reread after deadline as exact UNCERTAIN without a second physical submission
+```
+
+The final real-Oxia scans found one admission record with zero leases, one
+quiescent idempotency record with one `UNCERTAIN` attempt and a non-null
+aggregate, and four immutable audit records (two requests at different trusted
+timestamps). This upgrades the earlier deterministic local CAS result to a
+real-Oxia durable post-commit response-loss receipt with controlled client-side
+response loss. It is not a raw socket fault-injection proof and does not close
+physical Kafka/Pulsar response-loss or crash resolution, transparent Gateway
+reconnect/HA, load, multi-shard placement or the §23.5 V1 release gates.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

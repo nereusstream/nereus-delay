@@ -227,6 +227,22 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway STARTED CAS response-loss recovery"
 require_file_text "$delay_root/e2e/README.md" \
     "Gateway STARTED CAS response-loss recovery"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
+    "gatewayRecoversAfterCommittedOxiaAttemptResponseLoss"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
+    "Gateway Oxia STARTED response-loss E2E passed"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "real Oxia Gateway STARTED CAS response-loss receipt"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "1ce8b7e604ca969adabd7372e80ce04f96e5b45a"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "nereus-delay-gateway-e2e-1786827281-47103"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "real Oxia Gateway STARTED CAS response-loss receipt audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "real Oxia Gateway STARTED CAS response-loss receipt"
+require_file_text "$delay_root/e2e/README.md" \
+    "Gateway STARTED CAS response-loss recovery against real Oxia"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayAdmissionRecordV1.java" \
     "nereus-delay-gateway-admission-record-v1"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayAdmissionControllerTest.java" \

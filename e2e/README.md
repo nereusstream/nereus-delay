@@ -974,3 +974,41 @@ The accepted source tree uses commits `a120b6bd` and `7adb95f0`; the tests are
 This is local committed-then-lost CAS evidence; it is not a real Oxia network
 fault injection, physical Kafka/Pulsar response-loss receipt, transparent
 Gateway reconnect, HA/load evidence or release PASS.
+
+## Gateway STARTED CAS response-loss recovery against real Oxia
+
+Run the Gateway class against a source-locked real Oxia service:
+
+```bash
+NEREUS_DELAY_OXIA_CHECKOUT=/absolute/path/to/oxia \
+NEREUS_DELAY_OXIA_GATEWAY_E2E_PORT=16695 \
+NEREUS_DELAY_GATEWAY_PORT=22360 \
+NEREUS_DELAY_GATEWAY_GRADLE_USER_HOME=/tmp/nereus-delay-gateway-response-loss-gradle \
+./e2e/run-gateway-real-e2e.sh
+```
+
+Test commit `1ce8b7e604ca969adabd7372e80ce04f96e5b45a` adds
+`gatewayRecoversAfterCommittedOxiaAttemptResponseLoss`. The test uses the
+real mTLS/RS256 Gateway and Oxia record clients, then throws from a test-only
+wrapper after the real `STARTED` CAS has committed. The first request returns
+managed `ENQUEUE_UNCERTAIN`; after the exact trusted deadline, the repeated
+request returns byte-identical output, with one preparation and zero physical
+submissions. Final scans require one quiescent idempotency record with one
+`UNCERTAIN` attempt and an aggregate, zero admission leases and four audit
+records.
+
+The accepted source-locked run used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, image
+`sha256:db1b0409c36cbf16bc21d63f74932a0f9f188f5d0101b9b398e6b90de3e01cc`,
+Compose project `nereus-delay-gateway-e2e-1786827281-47103`, Oxia port
+`16695` and Gateway port `22360`. The six-test class ended with
+`BUILD SUCCESSFUL in 1m 14s` and two opt-in tests skipped, and emitted:
+
+```text
+Gateway Oxia STARTED response-loss E2E passed: committed attempt was reread after deadline as exact UNCERTAIN without a second physical submission
+```
+
+This is real-Oxia durable post-commit recovery with controlled client-side
+response loss. It is not raw socket fault injection or physical Kafka/Pulsar
+response-loss/crash evidence; transparent Gateway reconnect/HA, load,
+multi-shard placement and release PASS remain open.

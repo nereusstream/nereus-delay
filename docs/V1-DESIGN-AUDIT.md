@@ -7939,6 +7939,36 @@ injection. Physical Kafka/Pulsar response-loss or crash resolution, Gateway
 transparent reconnect/HA, multi-node placement and V1 release readiness
 remain open.
 
+## 2026-08-16 real Oxia Gateway STARTED CAS response-loss receipt audit
+
+Test commit `1ce8b7e604ca969adabd7372e80ce04f96e5b45a` adds
+`gatewayRecoversAfterCommittedOxiaAttemptResponseLoss`. The test uses a real
+Oxia service and the normal mTLS/RS256 Gateway path. A test-only wrapper around
+the idempotency record client throws after the real Oxia `STARTED` CAS has
+committed, modeling a committed-then-lost client response without fabricating
+the durable record. The first Schedule returns managed `ENQUEUE_UNCERTAIN`;
+after the trusted uncertainty deadline, the same request rereads and converges
+to the exact byte-identical outcome without a second physical submission.
+
+The receipt is locked to Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, image
+`sha256:db1b0409c36cbf16bc21d63f74932a0f9f188f5d0101b9b398e6b90de3e01cc`,
+Compose `nereus-delay-gateway-e2e-1786827281-47103`, Oxia `16695` and Gateway
+`22360`. The real scans require one admission record with zero leases, one
+quiescent idempotency record with one `UNCERTAIN` attempt and a non-null
+aggregate, and four audit records because the two authenticated calls use
+different trusted timestamps. The run ended with:
+
+```text
+Gateway Oxia STARTED response-loss E2E passed: committed attempt was reread after deadline as exact UNCERTAIN without a second physical submission
+```
+
+This is source-bound real-Oxia durability and recovery evidence with controlled
+post-commit response loss. It is not raw network packet-loss or Broker
+transport response-loss evidence; physical Kafka/Pulsar crash/response-loss
+resolution, transparent reconnect/HA, load, multi-shard placement and V1
+release readiness remain open.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

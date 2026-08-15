@@ -4693,3 +4693,35 @@ It does not by itself provide a real Oxia fault-injection receipt, transparent
 Gateway reconnect, physical transport response-loss/crash resolution,
 multi-node placement or Gateway HA, live Kafka/Pulsar publication, or V1
 release readiness.
+
+### 2026-08-16 real Oxia Gateway STARTED CAS response-loss receipt
+
+Test commit `1ce8b7e604ca969adabd7372e80ce04f96e5b45a` adds the source-bound
+network test `gatewayRecoversAfterCommittedOxiaAttemptResponseLoss`. It uses
+the deployable Gateway mTLS/RS256 path and three real
+`SessionBoundOxiaGatewayRecordClient` handles. Only the idempotency handle is
+wrapped by `ResponseLossOnceRecordClient`: the prepare write succeeds, the
+real Oxia `STARTED` CAS succeeds durably, and the wrapper then raises a
+client-side exception before returning its result. The first request therefore
+returns managed `ENQUEUE_UNCERTAIN` with no physical submission. After the
+test clock advances beyond `uncertaintyAtEpochMs`, the same request performs
+the exact-record recovery CAS, returns byte-identical output, and still has no
+physical submission.
+
+The source-locked receipt used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, image
+`sha256:db1b0409c36cbf16bc21d63f74932a0f9f188f5d0101b9b398e6b90de3e01cc`,
+Compose `nereus-delay-gateway-e2e-1786827281-47103`, host ports `16695` and
+`22360`, and ended with `BUILD SUCCESSFUL in 1m 14s` / `11 actionable tasks:
+11 executed` for the six-test class (two opt-in tests skipped):
+
+```text
+Gateway Oxia STARTED response-loss E2E passed: committed attempt was reread after deadline as exact UNCERTAIN without a second physical submission
+```
+
+The real Oxia scans prove one quiescent idempotency record, one uncertain
+attempt, a non-null aggregate, zero admission leases and four audit records.
+This is durable post-commit response-loss recovery with a controlled client
+response cut, not raw socket fault injection. It does not promote physical
+Kafka/Pulsar response-loss/crash resolution, transparent Gateway reconnect/HA,
+load, multi-shard placement or the V1 release gates.
