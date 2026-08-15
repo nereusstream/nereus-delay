@@ -52,8 +52,8 @@ public interface SourceReplaySuccessor {
         return (previous, current) -> true;
     }
 
-    /** Strict Kafka successor for a non-compacted Command Topic partition. */
-    static SourceReplaySuccessor strictKafka() {
+    /** Returns the strict successor proof for a non-compacted Kafka partition. */
+    public static SourceReplaySuccessor strictKafka() {
         return (previous, current) -> previous instanceof KafkaSourcePosition previousKafka
                 && current instanceof KafkaSourcePosition currentKafka
                 && previousKafka.offset() != -1L
@@ -66,7 +66,8 @@ public interface SourceReplaySuccessor {
      * gaps), so a production adapter must provide its own successor for that
      * boundary rather than guessing entry contiguity.
      */
-    static SourceReplaySuccessor strictPulsarBatchMember() {
+    /** Returns the strict successor proof for members within one Pulsar batch entry. */
+    public static SourceReplaySuccessor strictPulsarBatchMember() {
         return (previous, current) -> previous instanceof PulsarSourcePosition previousPulsar
                 && current instanceof PulsarSourcePosition currentPulsar
                 && previousPulsar.ledgerId() == currentPulsar.ledgerId()

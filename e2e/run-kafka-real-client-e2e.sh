@@ -20,6 +20,7 @@ bootstrap_all="127.0.0.1:${broker_1_port},127.0.0.1:${broker_2_port},127.0.0.1:$
 bootstrap_survivors="127.0.0.1:${broker_2_port},127.0.0.1:${broker_3_port}"
 topic_1="${KAFKA_DELAY_E2E_TOPIC_1:-nereus-delay-k1-topic-1}"
 source_topic="${KAFKA_DELAY_E2E_SOURCE_TOPIC:-nereus-delay-source-topic}"
+worker_topic="${KAFKA_DELAY_E2E_WORKER_TOPIC:-nereus-delay-worker-topic}"
 k2_target_topic="${KAFKA_DELAY_E2E_K2_TARGET_TOPIC:-nereus-delay-k2-target}"
 k2_receipt_topic="${KAFKA_DELAY_E2E_K2_RECEIPT_TOPIC:-nereus-delay-k2-receipt}"
 
@@ -95,6 +96,12 @@ GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaSourceSmoke \
   -PkafkaSourceTopic="${source_topic}" \
   --no-daemon --console=plain
 
+GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaWorkerSmoke \
+  -PkafkaClientJar="${client_jar}" \
+  -PkafkaBootstrap="${bootstrap_all}" \
+  -PkafkaWorkerTopic="${worker_topic}" \
+  --no-daemon --console=plain
+
 GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaK2Smoke \
   -PkafkaClientJar="${client_jar}" \
   -PkafkaBootstrap="${bootstrap_all}" \
@@ -111,4 +118,4 @@ GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaSmoke \
   -PsmokeMode=preserve \
   --no-daemon --console=plain
 
-echo "Kafka source/K1/K2 real-client E2E passed: source ACK/restart handoff, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence."
+echo "Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, assignment recovery to RocksDB Worker apply, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence."
