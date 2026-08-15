@@ -29,6 +29,7 @@ mutation_topic="${PULSAR_DELAY_MUTATION_TOPIC:-p1-mutation-${compose_project##*-
 mutation_worker_topic="${PULSAR_DELAY_MUTATION_WORKER_TOPIC:-p1-mutation-worker-${compose_project##*-}}"
 route_worker_topic="${PULSAR_DELAY_ROUTE_WORKER_TOPIC:-p1-route-worker-${compose_project##*-}}"
 destination_topic="${PULSAR_DELAY_DESTINATION_TOPIC:-p1-destination-${compose_project##*-}}"
+worker_destination_topic="${PULSAR_DELAY_WORKER_DESTINATION_TOPIC:-p1-worker-destination-${compose_project##*-}}"
 service_url="pulsar://127.0.0.1:${broker_port}"
 admin_url="http://127.0.0.1:${web_port}"
 pulsar_client_cp="${pulsar_dir}/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:${pulsar_dir}/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:${pulsar_dir}/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar"
@@ -206,6 +207,7 @@ run_worker_smoke() {
     -PpulsarAdminUrl="${admin_url}"
     -PpulsarTopic="${worker_topic}"
     -PpulsarWorkerMode="${worker_mode}"
+    -PpulsarWorkerDestinationTopic="${worker_destination_topic}"
   )
   if [[ "${with_oxia}" == "1" ]]; then
     worker_environment+=("NEREUS_DELAY_OXIA_ENDPOINT=127.0.0.1:${oxia_port}")
@@ -225,4 +227,4 @@ run_worker_smoke "${restart_topic}" prepare
 wait_for_service
 run_worker_smoke "${restart_topic}" resume
 
-echo "Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, source-bound typed destination SEND ACK/payload readback, guarded source replay, signed mutation append/replay/ACK, signed Route barrier/assignment/source ACK, Broker timestamp, Worker recovery/apply, ACK handoff, and broker-restart resume."
+echo "Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, source-bound typed destination SEND ACK/payload readback, guarded source replay, signed mutation append/replay/ACK, signed Route barrier/assignment/source ACK, Broker timestamp, Worker recovery/apply, source-applied physical publish with typed Outcome and payload readback, ACK handoff, and broker-restart resume."

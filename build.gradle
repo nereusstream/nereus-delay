@@ -439,7 +439,7 @@ tasks.register('runRealPulsarWorkerSmoke', JavaExec) {
             fileTree(realPulsarRuntimeDir).include('**/*.jar'), optionalOxiaClasspath)
     mainClass = 'io.nereusstream.delay.transport.PulsarClientArtifactWorkerSmoke'
     args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarTopic'),
-            findProperty('pulsarWorkerMode') ?: 'run'
+            findProperty('pulsarWorkerMode') ?: 'run', findProperty('pulsarWorkerDestinationTopic') ?: ''
 }
 
 protobuf {
