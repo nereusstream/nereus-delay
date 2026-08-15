@@ -13,6 +13,8 @@ destination_response_loss="${NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS:-0}"
 destination_response_loss_only="${NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_ONLY:-0}"
 source_ack_response_loss="${NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS:-0}"
 source_ack_response_loss_only="${NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_ONLY:-0}"
+worker_destination_response_loss="${NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS:-0}"
+worker_destination_response_loss_only="${NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS_ONLY:-0}"
 oxia_checkout="${NEREUS_DELAY_OXIA_CHECKOUT:-${delay_dir}/../../oxia}"
 compose_project="nereus-delay-pulsar-e2e-$(date +%s)-$$"
 oxia_project="nereus-delay-pulsar-oxia-e2e-${compose_project#nereus-delay-pulsar-e2e-}"
@@ -61,6 +63,18 @@ if [[ "${source_ack_response_loss_only}" != "0" && "${source_ack_response_loss_o
 fi
 if [[ "${source_ack_response_loss_only}" == "1" && "${source_ack_response_loss}" != "1" ]]; then
   echo "NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_ONLY requires NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS=1" >&2
+  exit 1
+fi
+if [[ "${worker_destination_response_loss}" != "0" && "${worker_destination_response_loss}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${worker_destination_response_loss_only}" != "0" && "${worker_destination_response_loss_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS_ONLY must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${worker_destination_response_loss_only}" == "1" && "${worker_destination_response_loss}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS_ONLY requires NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS=1" >&2
   exit 1
 fi
 
@@ -160,6 +174,9 @@ fi
 if [[ "${source_ack_response_loss}" == "1" ]]; then
   export NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS=1
 fi
+if [[ "${worker_destination_response_loss}" == "1" ]]; then
+  export NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS=1
+fi
 
 if [[ "${destination_response_loss_only}" == "1" ]]; then
   GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealPulsarDestinationSmoke \
@@ -184,6 +201,20 @@ if [[ "${source_ack_response_loss_only}" == "1" ]]; then
     -PpulsarWorkerDestinationTopic= \
     --no-daemon --console=plain
   echo "Pulsar Worker source ACK response-loss E2E passed: real ACK response loss was retried on the same source record and the bounded Worker vertical completed."
+  exit 0
+fi
+
+if [[ "${worker_destination_response_loss_only}" == "1" ]]; then
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealPulsarWorkerSmoke \
+    -PpulsarClientClasspath="${pulsar_client_cp}" \
+    -PpulsarRuntimeDir="${runtime_dir}/lib" \
+    -PpulsarServiceUrl="${service_url}" \
+    -PpulsarAdminUrl="${admin_url}" \
+    -PpulsarTopic="${topic}" \
+    -PpulsarWorkerMode=run \
+    -PpulsarWorkerDestinationTopic="${worker_destination_topic}" \
+    --no-daemon --console=plain
+  echo "Pulsar Worker destination response-loss E2E passed: real SEND response loss resolved through typed PULSAR_SEND_ACK evidence and the source-applied Outcome completed."
   exit 0
 fi
 

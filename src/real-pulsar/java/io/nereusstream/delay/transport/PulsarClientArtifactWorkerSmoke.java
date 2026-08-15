@@ -3,7 +3,9 @@ package io.nereusstream.delay.transport;
 import io.nereusstream.delay.adapter.DestinationPhysicalAdmission;
 import io.nereusstream.delay.adapter.DestinationPublishResult;
 import io.nereusstream.delay.adapter.PinnedPulsarDestinationAdapter;
+import io.nereusstream.delay.adapter.PulsarDestinationRequest;
 import io.nereusstream.delay.adapter.PulsarSendRequest;
+import io.nereusstream.delay.adapter.PulsarSendAckEvidence;
 import io.nereusstream.delay.adapter.PulsarSendResult;
 import io.nereusstream.delay.adapter.PulsarTargetResource;
 import io.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutor;
@@ -95,11 +97,17 @@ import io.nereusstream.delay.store.CheckpointFileInventory;
 import io.nereusstream.delay.store.WorkerLoadVector;
 import io.nereusstream.delay.store.WorkerPlacementPolicy;
 import org.apache.pulsar.client.api.GuardedConsumer;
+import org.apache.pulsar.client.api.GuardedMessageId;
+import org.apache.pulsar.client.api.GuardedSendSuccessEvidence;
 import org.apache.pulsar.client.api.Message;
+import org.apache.pulsar.client.api.MessageId;
+import org.apache.pulsar.client.api.MessageIdAdv;
+import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.TopicResourceGuard;
 import org.apache.pulsar.client.api.TopicResourceGuardAttestation;
+import org.apache.pulsar.client.api.TypedMessageBuilder;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
@@ -118,8 +126,10 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Real Pulsar recovery, active Worker apply and synchronous ACK smoke. */
 public final class PulsarClientArtifactWorkerSmoke {
@@ -500,6 +510,15 @@ public final class PulsarClientArtifactWorkerSmoke {
             throw new IllegalStateException("source-applied typed Publish Outcome did not close the PUBLISHED attempt");
         }
         requirePayload(client, bridge.destinationPhysicalTopic(), payload);
+        if (bridge.destinationResponseLoss()) {
+            if (!bridge.destinationResponseEvidenceResolved()) {
+                throw new IllegalStateException(
+                        "Pulsar Worker destination response-loss provider did not resolve evidence");
+            }
+            System.out.println("Pulsar Worker destination response-loss smoke passed: real SEND persisted the "
+                    + "exact payload, the local response was discarded, and typed PULSAR_SEND_ACK evidence "
+                    + "resolved the source-applied PUBLISHED Outcome");
+        }
         System.out.println("Pulsar Worker source-applied physical publish passed: Admission source ledger="
                 + admissionPosition.ledgerId() + "/" + admissionPosition.entryId()
                 + ", typed PULSAR_SEND_ACK target ledger/entry=" + branchNumber(evidence, 3) + "/"
@@ -567,6 +586,92 @@ public final class PulsarClientArtifactWorkerSmoke {
         }
     }
 
+    private static Optional<PulsarClientArtifactDestinationTransport.ResolvedPublish> resolveDestinationResponseLoss(
+            final PulsarDestinationRequest request, final byte[] preparedPublishHash,
+            final byte[] producerNameHash, final AtomicReference<GuardedMessageId> responseLostMessage,
+            final AtomicBoolean responseEvidenceResolved) {
+        final GuardedMessageId messageId = responseLostMessage.get();
+        if (messageId == null) {
+            return Optional.empty();
+        }
+        final TopicResourceGuard expectedGuard = new TopicResourceGuard(request.authenticatedClusterId(),
+                request.resourceIncarnation(), request.physicalTopicCreationTimestamp());
+        if (!expectedGuard.equals(messageId.resourceGuard()) || !request.physicalTopic().equals(messageId.physicalTopic())
+                || request.partition() != messageId.partition() || !(messageId instanceof MessageIdAdv advanced)
+                || advanced.getLedgerId() < 0 || advanced.getEntryId() < 0
+                || advanced.getPartitionIndex() != request.partition()) {
+            return Optional.empty();
+        }
+        final GuardedSendSuccessEvidence evidence = messageId.responseEvidence();
+        final TopicResourceGuardAttestation expectedAttestation = new TopicResourceGuardAttestation(
+                expectedGuard, request.physicalTopic(), request.partition());
+        if (evidence == null || !expectedAttestation.equals(evidence.attestation())
+                || evidence.ledgerId() != advanced.getLedgerId() || evidence.entryId() != advanced.getEntryId()
+                || evidence.brokerEntryTimestamp() != messageId.brokerEntryTimestamp()) {
+            return Optional.empty();
+        }
+        final int rawBatchIndex = advanced.getBatchIndex();
+        final int rawBatchSize = advanced.getBatchSize();
+        final int normalizedBatchIndex = rawBatchIndex < 0 ? 0 : rawBatchIndex;
+        if (rawBatchIndex >= 0 && (rawBatchSize <= 0
+                || Integer.compareUnsigned(rawBatchIndex, rawBatchSize) >= 0)) {
+            return Optional.empty();
+        }
+        final PublishEvidenceV1 typed = PulsarSendAckEvidence.published(request, preparedPublishHash,
+                producerNameHash, advanced.getLedgerId(), advanced.getEntryId(), normalizedBatchIndex,
+                evidence.brokerEntryTimestamp(), evidence.sequenceId(), evidence.authenticatedResponseCommandSha256());
+        typed.requireBusinessMutation(request.publishAttemptId(), true);
+        responseEvidenceResolved.set(true);
+        return Optional.of(new PulsarClientArtifactDestinationTransport.ResolvedPublish(
+                typed, evidence.brokerEntryTimestamp()));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Producer<byte[]> responseLossProducer(final Producer<byte[]> delegate,
+                                                          final AtomicReference<GuardedMessageId> responseLostMessage) {
+        return (Producer<byte[]>) Proxy.newProxyInstance(
+                PulsarClientArtifactWorkerSmoke.class.getClassLoader(), new Class<?>[]{Producer.class},
+                (proxy, method, arguments) -> {
+                    if (method.getName().equals("newMessage") && method.getParameterCount() == 0) {
+                        final TypedMessageBuilder<byte[]> builder = (TypedMessageBuilder<byte[]>) invoke(
+                                delegate, method, arguments);
+                        return responseLossBuilder(builder, responseLostMessage);
+                    }
+                    return invoke(delegate, method, arguments);
+                });
+    }
+
+    @SuppressWarnings("unchecked")
+    private static TypedMessageBuilder<byte[]> responseLossBuilder(
+            final TypedMessageBuilder<byte[]> delegate, final AtomicReference<GuardedMessageId> responseLostMessage) {
+        return (TypedMessageBuilder<byte[]>) Proxy.newProxyInstance(
+                PulsarClientArtifactWorkerSmoke.class.getClassLoader(), new Class<?>[]{TypedMessageBuilder.class},
+                (proxy, method, arguments) -> {
+                    if (method.getName().equals("value") && method.getParameterCount() == 1) {
+                        invoke(delegate, method, arguments);
+                        return proxy;
+                    }
+                    if (method.getName().equals("sendAsync") && method.getParameterCount() == 0) {
+                        final CompletableFuture<MessageId> sent = (CompletableFuture<MessageId>) invoke(
+                                delegate, method, arguments);
+                        return sent.thenCompose(messageId -> {
+                            if (!(messageId instanceof GuardedMessageId guarded)) {
+                                return CompletableFuture.failedFuture(new IllegalStateException(
+                                        "Pulsar Worker response-loss wrapper observed an unguarded MessageId"));
+                            }
+                            responseLostMessage.set(guarded);
+                            return CompletableFuture.failedFuture(new IllegalStateException(
+                                    "simulated committed Pulsar Worker destination response loss"));
+                        });
+                    }
+                    return invoke(delegate, method, arguments);
+                });
+    }
+
+    private static boolean hasWorkerDestinationResponseLoss() {
+        return "1".equals(System.getenv("NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS"));
+    }
+
     private static PhysicalPublishBridge createPhysicalPublishBridge(
             final PulsarClient client,
             final GuardedConsumer<?> nativeConsumer,
@@ -606,12 +711,23 @@ public final class PulsarClientArtifactWorkerSmoke {
                 1, 1, 1, 1_000_000, 1, 1_000_000));
         physicalAdmission.openReady(laneId);
         final String producerName = "pulsar-worker-destination-" + UUID.randomUUID();
+        final byte[] producerNameHash = Bytes.sha256(Bytes.utf8(producerName));
+        final boolean destinationResponseLoss = hasWorkerDestinationResponseLoss();
+        final AtomicReference<GuardedMessageId> responseLostMessage = new AtomicReference<>();
+        final AtomicBoolean responseEvidenceResolved = new AtomicBoolean();
+        final Producer<byte[]> rawProducer = PulsarClientArtifactProducerFactory.create(client, CLUSTER,
+                DESTINATION_INCARNATION, destinationPhysicalTopic, DESTINATION_CREATION_TIMESTAMP, producerName);
+        final Producer<byte[]> producer = destinationResponseLoss
+                ? responseLossProducer(rawProducer, responseLostMessage) : rawProducer;
+        final PulsarClientArtifactDestinationTransport.PublishEvidenceProvider evidenceProvider = destinationResponseLoss
+                ? (request, preparedHash, failure) -> resolveDestinationResponseLoss(request, preparedHash,
+                producerNameHash, responseLostMessage, responseEvidenceResolved)
+                : null;
         final io.nereusstream.delay.transport.PulsarClientArtifactDestinationTransport transport =
                 new PulsarClientArtifactDestinationTransport(
-                        PulsarClientArtifactProducerFactory.create(client, CLUSTER, DESTINATION_INCARNATION,
-                                destinationPhysicalTopic, DESTINATION_CREATION_TIMESTAMP, producerName),
+                        producer,
                         CLUSTER, DESTINATION_INCARNATION, destinationPhysicalTopic,
-                        DESTINATION_CREATION_TIMESTAMP, 0, Bytes.sha256(Bytes.utf8(producerName)));
+                        DESTINATION_CREATION_TIMESTAMP, 0, producerNameHash, evidenceProvider);
         final PinnedPulsarDestinationAdapter adapter = new PinnedPulsarDestinationAdapter(
                 new PulsarTargetResource(CLUSTER, DESTINATION_INCARNATION, destinationPhysicalTopic,
                         DESTINATION_CREATION_TIMESTAMP, 0), transport);
@@ -644,7 +760,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                 capabilityProfile, target, channel, readyCertificate, List.of(
                 EvidenceCursorV1.pulsar(laneId.bytes(), laneIncarnation, DESTINATION_INCARNATION, 0, 1, 0,
                         destinationPhysicalTopic, DESTINATION_CREATION_TIMESTAMP, 0, 0, 0, 1)),
-                destinationPhysicalTopic);
+                destinationPhysicalTopic, destinationResponseLoss, responseEvidenceResolved);
     }
 
     private static ChannelResourceIdentityV1 channel(final DestinationLaneId laneId, final byte[] laneIncarnation,
@@ -832,6 +948,8 @@ public final class PulsarClientArtifactWorkerSmoke {
         private final ReadyCertificateV1 readyCertificate;
         private final List<EvidenceCursorV1> evidenceCursors;
         private final String destinationPhysicalTopic;
+        private final boolean destinationResponseLoss;
+        private final AtomicBoolean destinationResponseEvidenceResolved;
 
         private PhysicalPublishBridge(final WorkerPhysicalPublishExecutor executor,
                                       final PulsarClientArtifactShardLogMutationAppender appender,
@@ -841,7 +959,8 @@ public final class PulsarClientArtifactWorkerSmoke {
                                       final ChannelResourceIdentityV1 channel,
                                       final ReadyCertificateV1 readyCertificate,
                                       final List<EvidenceCursorV1> evidenceCursors,
-                                      final String destinationPhysicalTopic) {
+                                      final String destinationPhysicalTopic, final boolean destinationResponseLoss,
+                                      final AtomicBoolean destinationResponseEvidenceResolved) {
             this.executor = executor;
             this.appender = appender;
             this.laneId = laneId;
@@ -853,6 +972,8 @@ public final class PulsarClientArtifactWorkerSmoke {
             this.readyCertificate = readyCertificate;
             this.evidenceCursors = List.copyOf(evidenceCursors);
             this.destinationPhysicalTopic = destinationPhysicalTopic;
+            this.destinationResponseLoss = destinationResponseLoss;
+            this.destinationResponseEvidenceResolved = destinationResponseEvidenceResolved;
         }
 
         private WorkerPhysicalPublishExecutor executor() {
@@ -897,6 +1018,14 @@ public final class PulsarClientArtifactWorkerSmoke {
 
         private String destinationPhysicalTopic() {
             return destinationPhysicalTopic;
+        }
+
+        private boolean destinationResponseLoss() {
+            return destinationResponseLoss;
+        }
+
+        private boolean destinationResponseEvidenceResolved() {
+            return destinationResponseEvidenceResolved.get();
         }
 
         @Override
