@@ -524,6 +524,14 @@ require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Kafka Worker authority smoke passed: real Oxia session-bound lease"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "37a17bef17202d5fd6e23282da5fd26d94865484"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "nereus-delay-kafka-e2e-1786815918-21809"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Kafka accepted-route broker failover E2E passed"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "fetch=v18, lso=1, routeRevision=1"
+require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
+    "NEREUS_DELAY_KAFKA_ROUTE_FAILOVER_ONLY"
 
 require_file_text "$kafka_checkout/clients/src/main/java/org/apache/kafka/clients/producer/GuardedProducer.java" \
     "sendGuarded"

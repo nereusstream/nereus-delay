@@ -4371,3 +4371,29 @@ cut. It remains one standalone Oxia service; Oxia failover/partition
 behavior, crash/response-loss resolution, live Profile/credential/Object
 Store/catalog authority, multi-shard placement, checkpoint/quiescence and
 §23.5 release gates remain open.
+
+### 2026-08-16 real Oxia accepted-Route Kafka failover receipt
+
+The accepted-Route Kafka Worker failover-only E2E used
+`NEREUS_DELAY_KAFKA_WITH_OXIA=1`,
+`NEREUS_DELAY_KAFKA_ROUTE_FAILOVER=1` and
+`NEREUS_DELAY_KAFKA_ROUTE_FAILOVER_ONLY=1`. Locks were K1
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. The receipt used Compose
+project `nereus-delay-kafka-e2e-1786815918-21809`, Kafka ports
+`21892,21893,21894`, and Oxia port `16660`:
+
+```text
+Kafka signed Route -> guarded Fetch barrier -> Oxia Worker assignment -> RocksDB apply/checkpoint smoke passed: fetch=v18, lso=1, routeRevision=1, assignmentRevision=1, barrierOffset=1, sourceOffset=2, commitSync ACK, accepted-route broker failover, final checkpoint
+Kafka accepted-route broker failover E2E passed: Route-bound Worker applied and ACKed after broker-1 failover, then released its final checkpoint and Oxia assignment.
+```
+
+This closes positive real-Oxia accepted-Route Worker evidence across a
+three-broker Kafka broker-1 failover cut. It remains a failover-only
+single-shard receipt: Oxia failover/partition behavior, crash/response-loss
+resolution, live Profile/credential/Object Store/catalog authority,
+multi-shard placement, physical delayed Publish and §23.5 release gates
+remain open.
