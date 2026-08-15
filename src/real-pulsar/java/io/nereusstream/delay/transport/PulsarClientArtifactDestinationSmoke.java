@@ -3,6 +3,8 @@ package io.nereusstream.delay.transport;
 import io.nereusstream.delay.adapter.DestinationPublishRequest;
 import io.nereusstream.delay.adapter.DestinationPublishResult;
 import io.nereusstream.delay.adapter.PinnedPulsarDestinationAdapter;
+import io.nereusstream.delay.adapter.PulsarDestinationRequest;
+import io.nereusstream.delay.adapter.PulsarSendAckEvidence;
 import io.nereusstream.delay.adapter.PulsarTargetResource;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
@@ -15,18 +17,30 @@ import io.nereusstream.delay.protocol.PublishEvidenceV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
 import org.apache.pulsar.client.api.GuardedConsumer;
+import org.apache.pulsar.client.api.GuardedMessageId;
+import org.apache.pulsar.client.api.GuardedSendSuccessEvidence;
 import org.apache.pulsar.client.api.Message;
+import org.apache.pulsar.client.api.MessageId;
+import org.apache.pulsar.client.api.MessageIdAdv;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.TopicResourceGuard;
+import org.apache.pulsar.client.api.TopicResourceGuardAttestation;
+import org.apache.pulsar.client.api.TypedMessageBuilder;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Real-service smoke for source-bound Pulsar destination publication evidence. */
 public final class PulsarClientArtifactDestinationSmoke {
@@ -50,11 +64,21 @@ public final class PulsarClientArtifactDestinationSmoke {
 
         try (PulsarClient client = PulsarClient.builder().serviceUrl(serviceUrl).build()) {
             final String producerName = "nereus-delay-p1-destination-" + topic;
+            final byte[] producerNameHash = Bytes.sha256(Bytes.utf8(producerName));
+            final boolean responseLoss = hasResponseLoss();
+            final AtomicReference<GuardedMessageId> responseLostMessage = new AtomicReference<>();
+            final AtomicBoolean responseEvidenceResolved = new AtomicBoolean();
             final Producer<byte[]> producer = PulsarClientArtifactProducerFactory.create(client, CLUSTER, INCARNATION,
                     physicalTopic, CREATION_TIMESTAMP, producerName);
+            final Producer<byte[]> transportProducer = responseLoss
+                    ? responseLossProducer(producer, responseLostMessage) : producer;
+            final PulsarClientArtifactDestinationTransport.PublishEvidenceProvider evidenceProvider = responseLoss
+                    ? (request, preparedHash, failure) -> resolveResponseLoss(request, preparedHash,
+                    producerNameHash, responseLostMessage, responseEvidenceResolved)
+                    : null;
             try (PulsarClientArtifactDestinationTransport transport = new PulsarClientArtifactDestinationTransport(
-                    producer, CLUSTER, INCARNATION, physicalTopic, CREATION_TIMESTAMP, 0,
-                    Bytes.sha256(Bytes.utf8(producerName)))) {
+                    transportProducer, CLUSTER, INCARNATION, physicalTopic, CREATION_TIMESTAMP, 0,
+                    producerNameHash, evidenceProvider)) {
                 try (PinnedPulsarDestinationAdapter adapter = new PinnedPulsarDestinationAdapter(
                         new PulsarTargetResource(CLUSTER, INCARNATION, physicalTopic, CREATION_TIMESTAMP, 0),
                         transport)) {
@@ -68,6 +92,15 @@ public final class PulsarClientArtifactDestinationSmoke {
                             .toCompletableFuture().get(20, TimeUnit.SECONDS);
                     requireTypedPublished(result, request, "source-bound Pulsar destination publish");
                     requirePayload(client, physicalTopic, request.payload());
+                    if (responseLoss) {
+                        if (!responseEvidenceResolved.get()) {
+                            throw new IllegalStateException("Pulsar response-loss provider did not resolve evidence");
+                        }
+                        System.out.println("Pulsar committed response-loss smoke passed: real SEND persisted the "
+                                + "exact payload, the local response was discarded, and typed PULSAR_SEND_ACK "
+                                + "evidence resolved PUBLISHED");
+                        return;
+                    }
                     final PublishEvidenceV1 evidence = PublishEvidenceV1.decode(result.evidence());
                     System.out.println("Pulsar destination typed-evidence smoke passed: topic=" + physicalTopic
                             + ", ledger=" + branchNumber(evidence, 3) + ", entry=" + branchNumber(evidence, 4)
@@ -77,6 +110,101 @@ public final class PulsarClientArtifactDestinationSmoke {
             }
         } finally {
             deleteTopicIfPresent(admin, adminUrl, topic);
+        }
+    }
+
+    private static boolean hasResponseLoss() {
+        return "1".equals(System.getenv("NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS"));
+    }
+
+    private static Optional<PulsarClientArtifactDestinationTransport.ResolvedPublish> resolveResponseLoss(
+            final PulsarDestinationRequest request, final byte[] preparedPublishHash,
+            final byte[] producerNameHash, final AtomicReference<GuardedMessageId> responseLostMessage,
+            final AtomicBoolean responseEvidenceResolved) {
+        final GuardedMessageId messageId = responseLostMessage.get();
+        if (messageId == null) {
+            return Optional.empty();
+        }
+        final TopicResourceGuard expectedGuard = new TopicResourceGuard(request.authenticatedClusterId(),
+                request.resourceIncarnation(), request.physicalTopicCreationTimestamp());
+        if (!expectedGuard.equals(messageId.resourceGuard()) || !request.physicalTopic().equals(messageId.physicalTopic())
+                || request.partition() != messageId.partition() || !(messageId instanceof MessageIdAdv advanced)
+                || advanced.getLedgerId() < 0 || advanced.getEntryId() < 0
+                || advanced.getPartitionIndex() != request.partition()) {
+            return Optional.empty();
+        }
+        final GuardedSendSuccessEvidence evidence = messageId.responseEvidence();
+        final TopicResourceGuardAttestation expectedAttestation = new TopicResourceGuardAttestation(
+                expectedGuard, request.physicalTopic(), request.partition());
+        if (evidence == null || !expectedAttestation.equals(evidence.attestation())
+                || evidence.ledgerId() != advanced.getLedgerId() || evidence.entryId() != advanced.getEntryId()
+                || evidence.brokerEntryTimestamp() != messageId.brokerEntryTimestamp()) {
+            return Optional.empty();
+        }
+        final int rawBatchIndex = advanced.getBatchIndex();
+        final int rawBatchSize = advanced.getBatchSize();
+        final int normalizedBatchIndex = rawBatchIndex < 0 ? 0 : rawBatchIndex;
+        if (rawBatchIndex >= 0 && (rawBatchSize <= 0
+                || Integer.compareUnsigned(rawBatchIndex, rawBatchSize) >= 0)) {
+            return Optional.empty();
+        }
+        final PublishEvidenceV1 typed = PulsarSendAckEvidence.published(request, preparedPublishHash,
+                producerNameHash, advanced.getLedgerId(), advanced.getEntryId(), normalizedBatchIndex,
+                evidence.brokerEntryTimestamp(), evidence.sequenceId(), evidence.authenticatedResponseCommandSha256());
+        typed.requireBusinessMutation(request.publishAttemptId(), true);
+        responseEvidenceResolved.set(true);
+        return Optional.of(new PulsarClientArtifactDestinationTransport.ResolvedPublish(
+                typed, evidence.brokerEntryTimestamp()));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Producer<byte[]> responseLossProducer(final Producer<byte[]> delegate,
+                                                          final AtomicReference<GuardedMessageId> responseLostMessage) {
+        return (Producer<byte[]>) Proxy.newProxyInstance(
+                PulsarClientArtifactDestinationSmoke.class.getClassLoader(), new Class<?>[]{Producer.class},
+                (proxy, method, arguments) -> {
+                    if (method.getName().equals("newMessage") && method.getParameterCount() == 0) {
+                        final TypedMessageBuilder<byte[]> builder = (TypedMessageBuilder<byte[]>) invoke(
+                                delegate, method, arguments);
+                        return responseLossBuilder(builder, responseLostMessage);
+                    }
+                    return invoke(delegate, method, arguments);
+                });
+    }
+
+    @SuppressWarnings("unchecked")
+    private static TypedMessageBuilder<byte[]> responseLossBuilder(
+            final TypedMessageBuilder<byte[]> delegate, final AtomicReference<GuardedMessageId> responseLostMessage) {
+        return (TypedMessageBuilder<byte[]>) Proxy.newProxyInstance(
+                PulsarClientArtifactDestinationSmoke.class.getClassLoader(), new Class<?>[]{TypedMessageBuilder.class},
+                (proxy, method, arguments) -> {
+                    if (method.getName().equals("value") && method.getParameterCount() == 1) {
+                        invoke(delegate, method, arguments);
+                        return proxy;
+                    }
+                    if (method.getName().equals("sendAsync") && method.getParameterCount() == 0) {
+                        final CompletableFuture<MessageId> sent = (CompletableFuture<MessageId>) invoke(
+                                delegate, method, arguments);
+                        return sent.thenCompose(messageId -> {
+                            if (!(messageId instanceof GuardedMessageId guarded)) {
+                                return CompletableFuture.failedFuture(new IllegalStateException(
+                                        "Pulsar response-loss wrapper observed an unguarded MessageId"));
+                            }
+                            responseLostMessage.set(guarded);
+                            return CompletableFuture.failedFuture(new IllegalStateException(
+                                    "simulated committed Pulsar SEND response loss"));
+                        });
+                    }
+                    return invoke(delegate, method, arguments);
+                });
+    }
+
+    private static Object invoke(final Object target, final java.lang.reflect.Method method,
+                                 final Object[] arguments) throws Throwable {
+        try {
+            return method.invoke(target, arguments);
+        } catch (InvocationTargetException failure) {
+            throw failure.getCause();
         }
     }
 

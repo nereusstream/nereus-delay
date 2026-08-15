@@ -24,6 +24,7 @@ import org.apache.pulsar.client.api.TopicResourceGuardException;
 
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
@@ -38,6 +39,7 @@ public final class PulsarClientArtifactDestinationTransport
     private final int partition;
     private final byte[] producerNameHash;
     private final TopicResourceGuard expectedGuard;
+    private final PublishEvidenceProvider publishEvidenceProvider;
 
     public PulsarClientArtifactDestinationTransport(final Producer<byte[]> producer,
                                                     final String authenticatedClusterId,
@@ -46,6 +48,24 @@ public final class PulsarClientArtifactDestinationTransport
                                                     final long physicalTopicCreationTimestamp,
                                                     final int partition,
                                                     final byte[] producerNameHash) {
+        this(producer, authenticatedClusterId, resourceIncarnation, physicalTopic,
+                physicalTopicCreationTimestamp, partition, producerNameHash, null);
+    }
+
+    /**
+     * Creates a source-bound destination transport with an optional evidence
+     * provider used only after the Producer completion is uncertain. A
+     * provider must return typed PULSAR_SEND_ACK evidence bound to this exact
+     * request; a missing or invalid reread remains UNKNOWN.
+     */
+    public PulsarClientArtifactDestinationTransport(final Producer<byte[]> producer,
+                                                    final String authenticatedClusterId,
+                                                    final byte[] resourceIncarnation,
+                                                    final String physicalTopic,
+                                                    final long physicalTopicCreationTimestamp,
+                                                    final int partition,
+                                                    final byte[] producerNameHash,
+                                                    final PublishEvidenceProvider publishEvidenceProvider) {
         this.producer = Objects.requireNonNull(producer, "producer");
         this.authenticatedClusterId = Objects.requireNonNull(authenticatedClusterId, "authenticatedClusterId");
         Bytes.requireLength(resourceIncarnation, 32, "resourceIncarnation");
@@ -58,6 +78,7 @@ public final class PulsarClientArtifactDestinationTransport
         this.partition = partition;
         Bytes.requireLength(producerNameHash, 32, "producerNameHash");
         this.producerNameHash = Bytes.copy(producerNameHash);
+        this.publishEvidenceProvider = publishEvidenceProvider;
         this.expectedGuard = new TopicResourceGuard(authenticatedClusterId, this.resourceIncarnation,
                 physicalTopicCreationTimestamp);
         if (!physicalTopic.equals(producer.getTopic())) {
@@ -92,9 +113,10 @@ public final class PulsarClientArtifactDestinationTransport
         try {
             return producer.newMessage().value(request.payload()).sendAsync()
                     .handle((messageId, failure) -> failure == null
-                            ? success(request, preparedPublishHash, messageId) : failure(failure));
+                            ? success(request, preparedPublishHash, messageId)
+                            : failure(request, preparedPublishHash, failure));
         } catch (RuntimeException failure) {
-            return CompletableFuture.completedFuture(failure(failure));
+            return CompletableFuture.completedFuture(failure(request, preparedPublishHash, failure));
         }
     }
 
@@ -155,10 +177,34 @@ public final class PulsarClientArtifactDestinationTransport
         }
     }
 
-    private DestinationPublishResult failure(final Throwable failure) {
+    private DestinationPublishResult failure(final PulsarDestinationRequest request,
+                                             final byte[] preparedPublishHash,
+                                             final Throwable failure) {
         final TopicResourceGuardException guardFailure = unwrap(failure);
         if (guardFailure != null && guardFailure.definitelyNotPersisted()) {
             return DestinationPublishResult.unknown(StableCode.BROKER_DEFINITIVE_NOT_PERSISTED, null);
+        }
+        if (publishEvidenceProvider != null) {
+            try {
+                final Optional<ResolvedPublish> resolved = publishEvidenceProvider.resolve(
+                        request, preparedPublishHash, failure);
+                if (resolved != null && resolved.isPresent()) {
+                    final ResolvedPublish candidate = resolved.get();
+                    final PublishEvidenceV1 evidence = candidate.evidence();
+                    if (evidence.evidenceKind() != PublishEvidenceKindV1.PULSAR_SEND_ACK
+                            || evidence.verificationStatus() != EvidenceVerificationStatusV1.VERIFIED_PUBLISHED) {
+                        throw new IllegalArgumentException("Pulsar recovery provider returned the wrong evidence");
+                    }
+                    evidence.requireBusinessMutation(request.publishAttemptId(), true);
+                    return DestinationPublishResult.published(BrokerResourceIdentityV1.pulsar(
+                                    new PulsarBrokerResourceIdentityV1(authenticatedClusterId, resourceIncarnation,
+                                            physicalTopic, physicalTopicCreationTimestamp)), partition,
+                            request.publishAttemptId(), candidate.brokerPersistenceTimeEpochMs(),
+                            evidence.canonicalBytes());
+                }
+            } catch (RuntimeException ignored) {
+                // A provider cannot turn an unverified or divergent reread into PUBLISHED.
+            }
         }
         return DestinationPublishResult.unknown(StableCode.ENQUEUE_RESULT_UNCERTAIN, null);
     }
@@ -180,5 +226,25 @@ public final class PulsarClientArtifactDestinationTransport
             current = current.getCause();
         }
         return null;
+    }
+
+    /** Source-bound proof returned by a recovery provider after SEND uncertainty. */
+    public record ResolvedPublish(PublishEvidenceV1 evidence, long brokerPersistenceTimeEpochMs) {
+        public ResolvedPublish {
+            Objects.requireNonNull(evidence, "evidence");
+            if (brokerPersistenceTimeEpochMs < 0) {
+                throw new IllegalArgumentException("brokerPersistenceTimeEpochMs must be non-negative");
+            }
+        }
+    }
+
+    /**
+     * Optional source-bound recovery hook. Implementations must reread or
+     * otherwise prove the exact Broker outcome; returning empty keeps UNKNOWN.
+     */
+    @FunctionalInterface
+    public interface PublishEvidenceProvider {
+        Optional<ResolvedPublish> resolve(PulsarDestinationRequest request, byte[] preparedPublishHash,
+                                           Throwable failure);
     }
 }

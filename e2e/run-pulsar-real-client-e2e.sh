@@ -9,6 +9,8 @@ delay_dir="$(cd "${script_dir}/.." && pwd)"
 pulsar_dir="${NEREUS_DELAY_PULSAR_CHECKOUT:-${delay_dir}/../../pulsar-worktrees/nereus-delay-p1}"
 gradle_user_home="${NEREUS_DELAY_PULSAR_GRADLE_USER_HOME:-/tmp/nereus-delay-pulsar-e2e-gradle}"
 with_oxia="${NEREUS_DELAY_PULSAR_WITH_OXIA:-0}"
+destination_response_loss="${NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS:-0}"
+destination_response_loss_only="${NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_ONLY:-0}"
 oxia_checkout="${NEREUS_DELAY_OXIA_CHECKOUT:-${delay_dir}/../../oxia}"
 compose_project="nereus-delay-pulsar-e2e-$(date +%s)-$$"
 oxia_project="nereus-delay-pulsar-oxia-e2e-${compose_project#nereus-delay-pulsar-e2e-}"
@@ -34,6 +36,19 @@ service_url="pulsar://127.0.0.1:${broker_port}"
 admin_url="http://127.0.0.1:${web_port}"
 pulsar_client_cp="${pulsar_dir}/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:${pulsar_dir}/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:${pulsar_dir}/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar"
 IFS=: read -r -a pulsar_client_artifacts <<< "${pulsar_client_cp}"
+
+if [[ "${destination_response_loss}" != "0" && "${destination_response_loss}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${destination_response_loss_only}" != "0" && "${destination_response_loss_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_ONLY must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${destination_response_loss_only}" == "1" && "${destination_response_loss}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_ONLY requires NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS=1" >&2
+  exit 1
+fi
 
 cleanup() {
   "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
@@ -95,6 +110,7 @@ test -x "${delay_dir}/gradlew"
 cp "${tarball}" "${image_context}/apache-pulsar-5.0.0-M1-bin.tar.gz"
 cp "${script_dir}/Dockerfile.pulsar-p1" "${image_context}/Dockerfile"
 cp "${script_dir}/pulsar-p1-entrypoint.sh" "${image_context}/pulsar-p1-entrypoint.sh"
+cp "${script_dir}/pulsar-p1-cluster-entrypoint.sh" "${image_context}/pulsar-p1-cluster-entrypoint.sh"
 docker build --pull=false -t "${image}" "${image_context}"
 image_id="$(docker image inspect "${image}" --format '{{.Id}}')"
 
@@ -122,6 +138,22 @@ if [[ "${with_oxia}" == "1" ]]; then
   NEREUS_DELAY_OXIA_CHECKOUT="${oxia_checkout}" NEREUS_DELAY_OXIA_E2E_PORT="${oxia_port}" \
     "${oxia_compose[@]}" up --build -d
   wait_for_oxia
+fi
+
+if [[ "${destination_response_loss}" == "1" ]]; then
+  export NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS=1
+fi
+
+if [[ "${destination_response_loss_only}" == "1" ]]; then
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealPulsarDestinationSmoke \
+    -PpulsarClientClasspath="${pulsar_client_cp}" \
+    -PpulsarRuntimeDir="${runtime_dir}/lib" \
+    -PpulsarServiceUrl="${service_url}" \
+    -PpulsarAdminUrl="${admin_url}" \
+    -PpulsarDestinationTopic="${destination_topic}" \
+    --no-daemon --console=plain
+  echo "Pulsar destination committed response-loss E2E passed: real SEND response loss resolved through typed PULSAR_SEND_ACK evidence and exact guarded payload readback."
+  exit 0
 fi
 
 GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealPulsarServiceSmoke \
