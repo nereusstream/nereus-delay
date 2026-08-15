@@ -7913,6 +7913,27 @@ reconnect, partial-placement/quorum-loss behavior, production Gateway HA,
 crash/response-loss resolution, load, live Kafka/Pulsar publication or V1
 release readiness.
 
+## 2026-08-16 Gateway STARTED CAS response-loss recovery audit
+
+Commit `a120b6bd` closes the state-machine recovery required after a successful
+Gateway `STARTED` CAS whose response is lost. The implementation never derives
+an ownership permit from a reread. Before `uncertaintyAtEpochMs`, a same-key
+caller sees the active attempt without an aggregate; at or after that trusted
+deadline, it decodes the persisted prepared bytes and CASes the exact attempt
+to `UNCERTAIN`/`QUIESCENT` with the canonical aggregate. A failed recovery CAS
+is reread and cannot authorize a second physical send.
+
+The focused test
+`OxiaGatewayIdempotencyStoreTest.attemptCasResponseLossConvergesToUncertainAfterDeadlineWithoutPermit`
+passed with the committed-then-lost response injection. It verifies no permit
+before or after reread, no aggregate before the deadline, and one persisted
+uncertain attempt after the deadline. Full `./gradlew check` also passed.
+
+This is deterministic local CAS evidence, not a real Oxia network fault
+injection. Physical Kafka/Pulsar response-loss or crash resolution, Gateway
+transparent reconnect/HA, multi-node placement and V1 release readiness
+remain open.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

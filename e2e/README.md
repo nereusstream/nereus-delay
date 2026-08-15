@@ -948,3 +948,28 @@ This is a bounded real multi-node DataServer leader-stop/session-preserving
 cut. It does not prove total-outage automatic reconnect, partial placement or
 quorum-loss behavior, production Gateway HA, crash/response-loss resolution,
 load, live Kafka/Pulsar publication or release PASS.
+
+## Gateway STARTED CAS response-loss recovery
+
+The durable Gateway state machine also covers the cut where the Oxia CAS
+response is lost after the `STARTED` attempt has already committed. The
+production stores never recreate the one-shot physical-attempt permit from a
+reread. A caller before `uncertaintyAtEpochMs` observes the active attempt; a
+same-key caller at or after that trusted deadline CASes the exact persisted
+attempt to `UNCERTAIN`/`QUIESCENT` using the original prepared bytes. A failed
+recovery CAS is reread and cannot authorize a duplicate physical send.
+
+Run the deterministic regression with:
+
+```bash
+GRADLE_USER_HOME=/tmp/nereus-delay-gateway-started-recovery-gradle \
+./gradlew test \
+  --tests io.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest \
+  --no-daemon --console=plain
+```
+
+The accepted source tree uses commit `a120b6bd` and the test
+`attemptCasResponseLossConvergesToUncertainAfterDeadlineWithoutPermit`. This
+is local committed-then-lost CAS evidence; it is not a real Oxia network fault
+injection, physical Kafka/Pulsar response-loss receipt, transparent Gateway
+reconnect, HA/load evidence or release PASS.

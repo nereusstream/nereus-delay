@@ -213,6 +213,18 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway recovery across a real multi-node Oxia DataServer leader stop"
 require_file_text "$delay_root/e2e/README.md" \
     "run-oxia-multi-node-gateway-e2e.sh"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
+    "attemptCasResponseLossConvergesToUncertainAfterDeadlineWithoutPermit"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/OxiaGatewayIdempotencyStore.java" \
+    "recoverExpiredStartedAttempt"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Gateway STARTED CAS response-loss recovery"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Gateway STARTED CAS response-loss recovery audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Gateway STARTED CAS response-loss recovery"
+require_file_text "$delay_root/e2e/README.md" \
+    "Gateway STARTED CAS response-loss recovery"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayAdmissionRecordV1.java" \
     "nereus-delay-gateway-admission-record-v1"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayAdmissionControllerTest.java" \

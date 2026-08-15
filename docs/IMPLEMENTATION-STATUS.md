@@ -9362,6 +9362,37 @@ and Oxia failover/partition behavior, crash/response-loss resolution, live
 Profile/credential/Object Store/catalog authority, multi-shard placement,
 checkpoint/quiescence and §23.5 V1 release gates remain open.
 
+## 2026-08-16 Gateway STARTED CAS response-loss recovery
+
+Delay commit `a120b6bd` closes the Gateway durable state-machine cut after a
+successful `STARTED` attempt CAS loses its response. The in-memory and Oxia
+stores never recreate the one-shot `GatewayAttemptOwnershipPermit` from a
+reread. Before `uncertaintyAtEpochMs`, a same-key caller observes the active
+attempt without an aggregate. At or after that trusted deadline, the caller
+decodes the persisted prepared bytes and CASes the exact attempt to
+`UNCERTAIN`/`QUIESCENT`; a recovery CAS race is reread and cannot authorize a
+second physical send.
+
+Focused verification:
+
+```text
+./gradlew test --tests io.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest --no-daemon --console=plain
+BUILD SUCCESSFUL in 59s
+11 actionable tasks: 3 executed, 8 up-to-date
+
+./gradlew check --no-daemon --console=plain
+BUILD SUCCESSFUL in 1m 22s
+21 actionable tasks: 3 executed, 18 up-to-date
+```
+
+`OxiaGatewayIdempotencyStoreTest.attemptCasResponseLossConvergesToUncertainAfterDeadlineWithoutPermit`
+injects a committed-then-lost response, verifies no aggregate before the
+deadline, then verifies one canonical uncertain aggregate and no permit after
+the deadline. This is deterministic local CAS evidence, not a real Oxia
+network fault-injection or physical transport response-loss receipt; Gateway
+transparent reconnect/HA, Kafka/Pulsar response-loss/crash resolution and V1
+release gates remain open.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

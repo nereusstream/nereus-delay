@@ -4650,3 +4650,40 @@ preservation evidence. It does not change the explicit fail-closed policy for
 a total outage, prove transparent reconnect after all durable replicas are
 unavailable, establish Gateway HA/load or crash/response-loss resolution, or
 promote live Kafka/Pulsar publication and release readiness.
+
+### 2026-08-16 Gateway STARTED CAS response-loss recovery
+
+Commit `a120b6bd` closes the durable Gateway state-machine gap after a CAS
+response is lost immediately after the `STARTED` attempt write. Both the
+in-memory conformance store and `OxiaGatewayIdempotencyStore` still refuse to
+reconstruct the one-shot `GatewayAttemptOwnershipPermit`; a caller before the
+attempt's `uncertaintyAtEpochMs` only observes the active attempt. Once that
+trusted deadline has passed, a same-key caller decodes the already persisted
+prepared bytes, CASes the exact attempt to `UNCERTAIN` with the canonical NDR1
+aggregate, and returns no permit. A concurrent CAS race is reread rather than
+treated as permission to send.
+
+The deterministic regression is
+`OxiaGatewayIdempotencyStoreTest.attemptCasResponseLossConvergesToUncertainAfterDeadlineWithoutPermit`.
+It injects a committed-then-lost response, checks the pre-deadline `ACTIVE`
+record remains without an aggregate, advances trusted time to the exact
+deadline, and verifies `QUIESCENT/UNCERTAIN`, one persisted attempt and a
+canonical managed outcome without a physical resend.
+
+Focused verification:
+
+```text
+./gradlew test --tests io.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest --no-daemon --console=plain
+BUILD SUCCESSFUL in 59s
+11 actionable tasks: 3 executed, 8 up-to-date
+
+./gradlew check --no-daemon --console=plain
+BUILD SUCCESSFUL in 1m 22s
+21 actionable tasks: 3 executed, 18 up-to-date
+```
+
+This closes the local durable STARTED-CAS response-loss convergence cut only.
+It does not by itself provide a real Oxia fault-injection receipt, transparent
+Gateway reconnect, physical transport response-loss/crash resolution,
+multi-node placement or Gateway HA, live Kafka/Pulsar publication, or V1
+release readiness.
