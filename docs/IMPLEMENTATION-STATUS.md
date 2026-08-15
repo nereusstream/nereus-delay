@@ -9525,3 +9525,56 @@ durability and typed recovery evidence with a controlled client-side response
 cut; it is not raw socket packet-loss injection, Broker failover/crash
 evidence, or a V1 release PASS. Generic Kafka crash, Fetch response-loss,
 LSO/retention-floor ambiguity, and the §23.5 release gates remain open.
+
+## 2026-08-16 Pulsar committed SEND response-loss receipt
+
+Implementation commit `12334f63` adds an optional source-bound
+`PublishEvidenceProvider` to the real Pulsar destination transport. When the
+guarded Producer completion is uncertain, the provider may return a verified
+typed `PULSAR_SEND_ACK`; absent, invalid or divergent evidence remains
+`UNKNOWN`. The real-client smoke wraps only the test Producer completion: the
+underlying guarded `sendAsync()` persists the message and returns a real
+`GuardedMessageId`, then the wrapper discards that local completion. The
+provider validates the exact resource guard, topic, partition, ledger/entry,
+batch coordinates and attestation before constructing the typed ACK. The
+smoke then consumes the exact guarded payload from the real Broker.
+
+The same commit fixes the single-node Pulsar image build context by copying
+the cluster entrypoint required by the shared Dockerfile. The source-locked
+receipt used Pulsar
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
+SHA-256 values
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394` and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, base
+image `eclipse-temurin:21-jre@sha256:371da296b8cb74c7e53fbe7083d5374befc0011b493231d97d45fa789915e434`,
+P1 image `sha256:4faa8217a39de36a030e449473fc07f4cd04553477f4f2e84c5d799720989cf0`,
+Compose project `nereus-delay-pulsar-e2e-1786829967-75545`, ports `21885` and
+`21886`, and Delay commit `12334f63`.
+
+The dedicated run was:
+
+```bash
+NEREUS_DELAY_PULSAR_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1 \
+NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-p1-response-loss-real-gradle \
+NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS=1 \
+NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_ONLY=1 \
+PULSAR_BROKER_PORT=21885 PULSAR_WEB_PORT=21886 \
+./e2e/run-pulsar-real-client-e2e.sh
+```
+
+The run ended with `BUILD SUCCESSFUL in 48s` / `11 actionable tasks: 1
+executed, 10 up-to-date` and printed:
+
+```text
+Pulsar committed response-loss smoke passed: real SEND persisted the exact payload, the local response was discarded, and typed PULSAR_SEND_ACK evidence resolved PUBLISHED
+Pulsar destination committed response-loss E2E passed: real SEND response loss resolved through typed PULSAR_SEND_ACK evidence and exact guarded payload readback.
+```
+
+This is a controlled client-side post-send response cut after real Broker
+persistence, not raw socket packet-loss injection. It does not integrate the
+local `PulsarAttemptJournal`, prove response loss after a process or Broker
+crash, prove multi-Broker failover, or make the Pulsar destination and V1
+release gates complete.

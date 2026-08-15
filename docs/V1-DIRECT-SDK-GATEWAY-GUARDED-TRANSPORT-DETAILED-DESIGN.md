@@ -4790,3 +4790,46 @@ Kafka K2 committed response-loss E2E passed: real EndTxn commit was followed by 
 This closes only the controlled client-side post-commit K2 response-loss
 receipt. It is not raw packet-loss, Broker crash/failover, generic Fetch
 response-loss, LSO/retention-floor, or V1 release evidence.
+
+### 2026-08-16 Pulsar destination committed SEND response-loss receipt
+
+The real Pulsar destination transport now accepts an optional
+`PublishEvidenceProvider` for an uncertain guarded `sendAsync()` completion.
+The provider is a source-bound seam: it must prove the same request and return
+typed `PULSAR_SEND_ACK` evidence; otherwise the transport stays `UNKNOWN`.
+The transport still uses the existing exact guard/attestation checks on normal
+success, and the recovery result must carry the same `publishAttemptId` as a
+business mutation.
+
+The real-client smoke implements a bounded receipt with a test-only proxy. The
+underlying P1 client persists the exact guarded payload and yields a real
+`GuardedMessageId`; the proxy captures that ID and replaces only the local
+completion with a failure. The provider validates the resource guard, topic,
+partition, ledger/entry, batch index/size and guarded SEND attestation, then
+builds `PULSAR_SEND_ACK`. A guarded consumer reads the exact payload after the
+transport returns `PUBLISHED`. `PulsarAttemptJournal` remains a local protocol
+seam and is intentionally not presented as real transport durability by this
+receipt.
+
+The source-locked run used Pulsar
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
+SHA-256 values
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394` and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, base
+image `eclipse-temurin:21-jre@sha256:371da296b8cb74c7e53fbe7083d5374befc0011b493231d97d45fa789915e434`,
+P1 image `sha256:4faa8217a39de36a030e449473fc07f4cd04553477f4f2e84c5d799720989cf0`,
+Compose project `nereus-delay-pulsar-e2e-1786829967-75545`, and ports
+`21885,21886`. It printed:
+
+```text
+Pulsar committed response-loss smoke passed: real SEND persisted the exact payload, the local response was discarded, and typed PULSAR_SEND_ACK evidence resolved PUBLISHED
+Pulsar destination committed response-loss E2E passed: real SEND response loss resolved through typed PULSAR_SEND_ACK evidence and exact guarded payload readback.
+```
+
+This receipt is narrower than D6: it does not inject raw network packet loss,
+exercise Attempt Journal recovery, stop a producer/client/Broker during an
+in-flight SEND, prove multi-Broker failover or activate the Pulsar destination
+release profile. The shared Dockerfile build-context copy fix is harness-only.

@@ -8028,6 +8028,50 @@ with controlled client-side response loss. It is not raw socket fault
 injection and does not establish Broker crash/failover, generic Fetch response
 loss, LSO/retention-floor recovery, or V1 release readiness.
 
+## 2026-08-16 Pulsar committed SEND response-loss receipt audit
+
+Commit `12334f63` adds an optional source-bound recovery provider to
+`PulsarClientArtifactDestinationTransport`. The provider is invoked only after
+the guarded Producer completion is exceptional or otherwise uncertain and may
+return `PULSAR_SEND_ACK` evidence. The transport accepts `PUBLISHED` only for
+typed verified evidence whose business mutation is bound to the same
+`publishAttemptId`; empty, malformed or divergent provider output remains
+`UNKNOWN`.
+
+The real smoke uses a test-only dynamic proxy around `sendAsync()`. It allows
+the guarded client and Broker to complete the SEND, stores the real
+`GuardedMessageId`, and then returns an exceptional completion to the
+transport. The provider checks the exact `TopicResourceGuard`, physical topic,
+partition, `MessageIdAdv` ledger/entry/batch values, and
+`GuardedSendSuccessEvidence` attestation before constructing the typed ACK.
+The smoke verifies the result through a guarded consumer and exact payload
+readback. Commit `12334f63` also copies the cluster entrypoint into the
+single-node Docker build context because the shared Pulsar Dockerfile declares
+it.
+
+The receipt is locked to Pulsar
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
+SHA-256 values
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394` and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, base
+image `eclipse-temurin:21-jre@sha256:371da296b8cb74c7e53fbe7083d5374befc0011b493231d97d45fa789915e434`,
+P1 image `sha256:4faa8217a39de36a030e449473fc07f4cd04553477f4f2e84c5d799720989cf0`,
+Compose `nereus-delay-pulsar-e2e-1786829967-75545`, host ports `21885` and
+`21886`, and Delay `12334f63`. The dedicated run printed:
+
+```text
+Pulsar committed response-loss smoke passed: real SEND persisted the exact payload, the local response was discarded, and typed PULSAR_SEND_ACK evidence resolved PUBLISHED
+Pulsar destination committed response-loss E2E passed: real SEND response loss resolved through typed PULSAR_SEND_ACK evidence and exact guarded payload readback.
+```
+
+This is a source-bound real-Pulsar durable post-send receipt with a controlled
+client-side completion cut. It is not raw network loss, process/Broker crash
+recovery, multi-Broker failover, Attempt Journal completion recovery or a V1
+release PASS.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

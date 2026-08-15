@@ -612,6 +612,26 @@ require_file_text "$delay_root/build.gradle" \
     "runRealPulsarDestinationSmoke"
 require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \
     "destination_topic"
+require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \
+    "NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_ONLY"
+require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \
+    "pulsar-p1-cluster-entrypoint.sh"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactDestinationTransport.java" \
+    "PublishEvidenceProvider"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactDestinationTransport.java" \
+    "PULSAR_SEND_ACK"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactDestinationSmoke.java" \
+    "Pulsar committed response-loss smoke passed"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "12334f63"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Pulsar committed response-loss smoke passed"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Pulsar destination committed SEND response-loss receipt"
+require_file_text "$delay_root/e2e/README.md" \
+    "NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS=1"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "nereus-delay-pulsar-e2e-1786829967-75545"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "4f2297e1dc593f8b5e16f7733e6ed1109544cb4a"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \

@@ -1088,3 +1088,45 @@ This is real-Oxia durable explicit-retry recovery with controlled client-side
 post-commit response loss. It is not raw socket fault injection or physical
 Kafka/Pulsar response-loss/crash evidence; transparent Gateway reconnect/HA,
 load, multi-shard placement and release PASS remain open.
+
+## Pulsar committed SEND response-loss receipt
+
+Run the dedicated source-bound P1 destination cut with:
+
+```bash
+NEREUS_DELAY_PULSAR_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1 \
+NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-p1-response-loss-real-gradle \
+NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS=1 \
+NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_ONLY=1 \
+PULSAR_BROKER_PORT=21885 PULSAR_WEB_PORT=21886 \
+./e2e/run-pulsar-real-client-e2e.sh
+```
+
+The run is locked to Pulsar
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
+SHA-256 values
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394` and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, base
+image `eclipse-temurin:21-jre@sha256:371da296b8cb74c7e53fbe7083d5374befc0011b493231d97d45fa789915e434`,
+P1 image `sha256:4faa8217a39de36a030e449473fc07f4cd04553477f4f2e84c5d799720989cf0`,
+Compose project `nereus-delay-pulsar-e2e-1786829967-75545`, ports `21885` and
+`21886`, and Delay implementation commit `12334f63`.
+
+It printed:
+
+```text
+Pulsar committed response-loss smoke passed: real SEND persisted the exact payload, the local response was discarded, and typed PULSAR_SEND_ACK evidence resolved PUBLISHED
+Pulsar destination committed response-loss E2E passed: real SEND response loss resolved through typed PULSAR_SEND_ACK evidence and exact guarded payload readback.
+```
+
+The implementation uses an optional source-bound provider to accept only exact
+typed `PULSAR_SEND_ACK` evidence after the guarded SEND completion becomes
+uncertain. The test proxy loses the local completion after the real Broker has
+persisted the message, and the smoke confirms exact guarded payload readback.
+The run is controlled client-side response loss, not raw socket fault
+injection. It does not cover `PulsarAttemptJournal` durability, in-flight
+process/Broker crash, multi-Broker failover, generic transport response-loss
+or V1 release PASS.
