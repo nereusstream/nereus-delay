@@ -7114,6 +7114,36 @@ to the assignment authority, source ownership transfer/reconnect, capacity
 envelope registry authority, due/Lane/publish/checkpoint production wiring,
 multi-broker failover or crash/failure-injection gates.
 
+## 2026-08-15 signed Route publication to Worker assignment authority evidence
+
+Delay commit `e173cf0e02e701229f07c37ccac926416ea5c3cb` extends the assignment
+identity with the signed `RouteSnapshotV1.snapshotDigest`. The new
+`RouteWorkerAssignmentCoordinator` obtains the active or exact historical
+Route through the tenant-authorized `RouteSnapshotProvider`, projects the
+partition barrier once, publishes the route-bound canonical assignment through
+the in-memory or Oxia revision-CAS authority, and requires the same historical
+Route incarnation, barrier projection and snapshot digest to be reread before
+Worker acceptance. An unbound assignment cannot pass this Route-aware
+acceptance boundary.
+
+The Dockerized Oxia real-service harness now includes
+`OxiaRealRouteWorkerAssignmentSmokeTest`. It published a signed Route event and
+head through `OxiaSignedRouteSnapshotPublisher`, refreshed a separate
+session-fenced `OxiaSignedRouteSnapshotProvider`, then placed and reread the
+route-bound assignment through `OxiaSyncWorkerAssignmentBackend` using a third
+Oxia session. The selected real-service tests passed with `BUILD SUCCESSFUL` at
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`; the run used Compose project
+`nereus-delay-v1-oxia-e2e-1786765353-47776`, host port `16660`, and Oxia image
+`sha256:7001f39d94a8d21d74928aad06e7666fcf4bcf3879ef6d27940c9a7ef8db702f`.
+The matching container and network were absent after cleanup; the image is
+retained locally.
+
+This closes signed Route event/head → tenant-authorized Route cache →
+session-bound Worker assignment CAS for one real Oxia service cut. It does not
+yet establish catalog-driven multi-shard placement, capacity-envelope
+authority, Broker source ownership transfer/reconnect, multi-broker failover,
+due/Lane/publish/checkpoint production wiring or crash/failure-injection gates.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

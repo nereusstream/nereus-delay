@@ -246,6 +246,28 @@ catalog-driven multi-shard placement, signed RouteSnapshot publication,
 source ownership transfer/reconnect, capacity-envelope authority,
 due/Lane/publish/checkpoint production wiring, failover or crash gates.
 
+## Signed Route publication to Worker assignment authority
+
+`RouteWorkerAssignmentCoordinator` binds Worker assignment identity to the
+signed `RouteSnapshotV1.snapshotDigest`. It reads the active or exact
+historical Route through the tenant-authorized provider, publishes the
+route-bound canonical assignment through revision-CAS authority, and rereads
+the same Route incarnation, partition barrier and digest before acceptance.
+The real Oxia harness includes
+`OxiaRealRouteWorkerAssignmentSmokeTest`, which uses separate session-fenced
+Route publisher/provider and Worker assignment-authority clients.
+
+The verified run used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
+`nereus-delay-v1-oxia-e2e-1786765353-47776`, host port `16660`, and image
+`sha256:7001f39d94a8d21d74928aad06e7666fcf4bcf3879ef6d27940c9a7ef8db702f`.
+The selected real-service Gradle suite passed and the matching container and
+network were removed; the local image remains. This closes the signed Route
+event/head → Route cache → route-bound assignment CAS cut for one assignment,
+not catalog-driven multi-shard placement, capacity-envelope authority,
+Broker source ownership transfer/reconnect, due/Lane/publish/checkpoint
+production wiring, failover or crash gates.
+
 ## Optional source-locked client bindings
 
 The shared Gradle build never puts upstream Kafka or Pulsar classes on the

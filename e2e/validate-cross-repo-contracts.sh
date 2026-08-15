@@ -14,7 +14,7 @@ pulsar_branch="nereus/delay-resource-guard-v1"
 pulsar_base="8dae0236c0a0d405ed7f8303081080520fe91551"
 pulsar_head="358ce4a1033bd566faebcd3465c3ba4606f3c83f"
 oxia_head="37a17bef17202d5fd6e23282da5fd26d94865484"
-delay_worker_head="759c4a49b54395211c8ee02c2705006525288fe3"
+delay_worker_head="e173cf0e02e701229f07c37ccac926416ea5c3cb"
 
 fail() {
     echo "cross-repo contract audit failed: $*" >&2
@@ -99,7 +99,7 @@ require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "10e21cbf0e6f741f10b353c56a316a0b57b71b9d"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
-    "nereus/delay-full-implementation-v1@759c4a49b54395211c8ee02c2705006525288fe3"
+    "nereus/delay-full-implementation-v1@e173cf0e02e701229f07c37ccac926416ea5c3cb"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "202368d46fedfe12ae414edaa9c3db32cc8e5073"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
@@ -201,6 +201,8 @@ require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/Oxi
     "nereus-delay-oxia-worker-assignment-record-v1"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerAssignmentCoordinator.java" \
     "requireAccepted"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/RouteWorkerAssignmentCoordinator.java" \
+    "snapshotDigest"
 require_file_text "$delay_root/build.gradle" \
     "runRealKafkaWorkerSmoke"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
@@ -215,6 +217,10 @@ require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transp
     "Pulsar Worker assignment publication/acceptance passed"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "Kafka Worker assignment publication/acceptance passed"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaRealRouteWorkerAssignmentSmokeTest.java" \
+    "signedRoutePublicationFeedsSessionBoundWorkerAssignmentAuthority"
+require_file_text "$delay_root/e2e/run-oxia-real-service.sh" \
+    "OxiaRealRouteWorkerAssignmentSmokeTest"
 require_file_text "$delay_root/build.gradle" \
     "runRealPulsarWorkerSmoke"
 require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \

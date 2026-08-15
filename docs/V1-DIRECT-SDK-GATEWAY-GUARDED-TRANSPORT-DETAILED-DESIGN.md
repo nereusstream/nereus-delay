@@ -3030,6 +3030,22 @@ capacity-envelope registry authority, signed RouteSnapshot publication,
 source ownership transfer/reconnect, due/Lane/publish/checkpoint wiring or
 crash/failover evidence.
 
+Commit `e173cf0e02e701229f07c37ccac926416ea5c3cb` closes the Route-to-
+assignment publication seam. `WorkerAssignment` now carries the signed
+`RouteSnapshotV1.snapshotDigest`; `RouteWorkerAssignmentCoordinator` obtains
+the Route through the tenant-authorized provider, projects the selected
+partition barrier, publishes through revision-CAS authority and revalidates
+the exact historical Route projection plus digest before Worker acceptance.
+The selected Dockerized Oxia real-service suite included
+`OxiaRealRouteWorkerAssignmentSmokeTest` and passed with `BUILD SUCCESSFUL`
+against Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
+`nereus-delay-v1-oxia-e2e-1786765353-47776` on port `16660`, and image
+`sha256:7001f39d94a8d21d74928aad06e7666fcf4bcf3879ef6d27940c9a7ef8db702f`.
+It proves the real signed Route event/head, tenant-authorized cache and
+session-bound assignment CAS cut for one assignment; catalog-driven
+multi-shard placement, capacity-envelope authority, Broker source ownership,
+due/Lane/publish/checkpoint wiring and crash/failover evidence remain open.
+
 ## 16. 当前结论与仍需实测的数值
 
 已经冻结：
