@@ -324,6 +324,17 @@ public final class WorkerShardRuntime implements AutoCloseable {
         return checkpointRuntime.claimDue(nowEpochMs, limit);
     }
 
+    /** Claims one exact recurring checkpoint and queues its immutable request. */
+    public synchronized Optional<CheckpointWorkClassExecutor.Submission> claimDueAndSubmitCheckpoint(
+            final long nowEpochMs,
+            final WorkerCheckpointRuntime.ExecutionRequestFactory requestFactory,
+            final LongSupplier completionClock) {
+        ensureCheckpointRuntime();
+        ensureSourceRunning();
+        resources.requireRuntimeBusinessAdmission();
+        return checkpointRuntime.claimDueAndSubmit(nowEpochMs, requestFactory, completionClock);
+    }
+
     /** Queues one exact recurring checkpoint attempt behind the Worker fence. */
     public synchronized CheckpointWorkClassExecutor.Submission submitCheckpoint(
             final CheckpointWorkClassExecutor.ExecutionRequest request) {

@@ -6,6 +6,8 @@ import io.nereusstream.delay.scheduler.WorkClassTask;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.function.LongSupplier;
 
 /**
  * Worker-side composition for scheduled checkpoint publication.
@@ -67,6 +69,43 @@ public final class WorkerCheckpointRuntime {
         return scheduler.claimDueForShard(store.shardId(), nowEpochMs, limit);
     }
 
+    /**
+     * Claims at most one exact handle and builds its immutable execution
+     * request before queue admission.  A request-factory failure has not
+     * started checkpoint I/O, so this method completes the same capability
+     * immediately and leaves the schedule retryable.  Once {@link #submit}
+     * is entered, its existing preflight and queue-rejection ownership rules
+     * remain authoritative.
+     */
+    public Optional<CheckpointWorkClassExecutor.Submission> claimDueAndSubmit(
+            final long nowEpochMs,
+            final ExecutionRequestFactory requestFactory,
+            final LongSupplier completionClock) {
+        final List<CheckpointScheduler.ScheduledCheckpoint> claimed = claimDue(nowEpochMs, 1);
+        if (claimed.isEmpty()) {
+            return Optional.empty();
+        }
+        final CheckpointScheduler.ScheduledCheckpoint exact = claimed.get(0);
+        final CheckpointWorkClassExecutor.ExecutionRequest request;
+        try {
+            request = Objects.requireNonNull(requestFactory, "requestFactory").create(exact);
+            if (request.claim() != exact) {
+                throw new IllegalArgumentException("checkpoint request must retain the exact claimed handle");
+            }
+        } catch (RuntimeException | Error failure) {
+            try {
+                executor.completeWithoutExecution(exact, Objects.requireNonNull(completionClock,
+                        "completionClock"));
+            } catch (RuntimeException | Error releaseFailure) {
+                if (releaseFailure != failure) {
+                    failure.addSuppressed(releaseFailure);
+                }
+            }
+            throw failure;
+        }
+        return Optional.of(submit(request));
+    }
+
     /** Removes this Store's idle recurring schedule before Owner drain begins. */
     public void prepareForDrain() {
         final io.nereusstream.delay.protocol.ShardId shardId = store.shardId();
@@ -93,6 +132,13 @@ public final class WorkerCheckpointRuntime {
 
     public CheckpointScheduler scheduler() {
         return scheduler;
+    }
+
+    /** Builds one immutable request from the exact scheduler capability. */
+    @FunctionalInterface
+    public interface ExecutionRequestFactory {
+        CheckpointWorkClassExecutor.ExecutionRequest create(
+                CheckpointScheduler.ScheduledCheckpoint claim);
     }
 
     private void requireStoreShard(final io.nereusstream.delay.protocol.ShardId requested) {

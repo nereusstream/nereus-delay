@@ -80,6 +80,12 @@ public final class CheckpointWorkClassExecutor {
         return result;
     }
 
+    /** Releases a claimed handle when request construction never reached queue admission. */
+    void completeWithoutExecution(final CheckpointScheduler.ScheduledCheckpoint claim,
+                                  final LongSupplier completionClock) {
+        checkpointExecutor.completeWithoutExecution(claim, completionClock);
+    }
+
     private void execute(final ExecutionRequest request, final Submission submission) {
         if (submission.outcome().isPresent()) {
             throw new IllegalStateException("checkpoint work-class action already completed");

@@ -391,6 +391,32 @@ class CheckpointExecutionCoordinatorTest {
         }
     }
 
+    @Test
+    void workerCheckpointClaimAndSubmitReleasesClaimWhenRequestFactoryFails() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 24);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(
+                tempDir.resolve("claim-submit-factory-resources"));
+        final CheckpointScheduler scheduler = new CheckpointScheduler(100, 0, 1);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, shard, resources)) {
+            final WorkerCheckpointRuntime runtime = new WorkerCheckpointRuntime(
+                    workClasses(1), scheduler, store,
+                    new CheckpointPublicationCoordinator(resources, new CheckpointUploadIntentStore(),
+                            new RecoveryCatalog()), request -> {
+                    });
+            runtime.register(shard, 0);
+
+            final IllegalStateException failure = assertThrows(IllegalStateException.class,
+                    () -> runtime.claimDueAndSubmit(100, ignored -> {
+                        throw new IllegalStateException("checkpoint request inputs unavailable");
+                    }, () -> 100));
+            assertEquals("checkpoint request inputs unavailable", failure.getMessage());
+            assertFalse(scheduler.isInFlight(shard));
+            assertEquals(1, runtime.claimDue(200, 1).size(),
+                    "request construction failure must leave the exact schedule retryable");
+        }
+    }
+
     private static CheckpointManifest parentManifest(final ShardStore store, final ShardId shard,
                                                      final byte[] lineage, final SourcePosition position,
                                                      final OwnerIdentityV1 owner,
