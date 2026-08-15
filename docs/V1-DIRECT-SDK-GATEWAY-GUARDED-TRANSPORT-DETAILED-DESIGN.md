@@ -4980,3 +4980,37 @@ source adapter's in-flight record and the Worker applied outcome remain the
 retry authority. This receipt does not establish raw network loss,
 process/consumer/Broker crash recovery, multi-Broker failover, coordinator
 recovery or V1 release readiness.
+
+### 2026-08-16 S3-compatible checkpoint Object Store adapter implementation note
+
+Delay commit `e01d3ee8708a53487747b0ef721d1f0d107ff677` adds the
+`S3CompatibleCheckpointObjectStoreAdapter` for the existing checkpoint
+`CheckpointUploadRequest`/`CheckpointDownloadRequest` contract. It accepts only
+the S3/S3-compatible Profile branches and checks the Profile-bound endpoint and
+credential authorization-scope digests before any provider call. The JDK HTTP
+client emits SigV4 requests with canonical path-style bucket/object keys;
+checkpoint file objects reuse the filesystem adapter's deterministic object
+identity, use `If-None-Match: *`, and the manifest is uploaded last. A 2xx file
+write is reread and hashed, while 409/412 and transport failure resolve only by
+an exact remote length/SHA-256 reread. The manifest resource records the
+provider version when present and otherwise the deterministic content identity;
+resource length/version bounds are checked against the activated limits.
+
+Download requires the full exact `ProfileRefV1`, bucket and canonical manifest
+key, verifies manifest bytes/hash/version, streams each file with bounded
+length/checksum validation into a private staging directory, re-inventories the
+complete tree and atomically renames it into place. The focused local raw HTTP
+fixture exercises SigV4/conditional headers, endpoint/credential drift,
+manifest response loss, exact restore and immutable conflict:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
+  --no-daemon --console=plain
+```
+
+This is a provider-shaped adapter and local evidence seam. It does not claim
+real S3/MinIO conformance, provider credential-use lease/rotation,
+quiescence/consistency attestation, version-aware delete/final sweep,
+multi-shard RecoveryPin/catalog transaction, process/network chaos,
+credential failover, or V1 release readiness.

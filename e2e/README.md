@@ -1281,3 +1281,27 @@ returns. The source adapter retains the same in-flight record and the Worker
 retries its pending ACK without reapplying the Store mutation. This is
 controlled client-side response loss, not raw network loss, process/consumer/
 Broker crash recovery, multi-Broker failover or a V1 release receipt.
+
+## S3-compatible checkpoint adapter focused receipt
+
+The local adapter test exercises the provider-shaped checkpoint boundary without
+claiming a real cloud or MinIO deployment:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
+  --no-daemon --console=plain
+```
+
+Delay commit `e01d3ee8708a53487747b0ef721d1f0d107ff677` adds
+`S3CompatibleCheckpointObjectStoreAdapter`. The test fixture is a raw local
+HTTP server and verifies Profile endpoint/credential-scope drift rejection,
+SigV4 and `If-None-Match: *` headers, deterministic object identity,
+manifest-last upload, manifest PUT response loss followed by exact reread,
+bounded full restore and same-key immutable conflict rejection.
+
+The focused test passed with `BUILD SUCCESSFUL`. This is local adapter evidence,
+not real S3/MinIO conformance, credential-use lease or rotation evidence,
+provider quiescence/consistency attestation, version-aware deletion,
+multi-shard RecoveryPin/catalog authority, process/network chaos or V1 release
+PASS.

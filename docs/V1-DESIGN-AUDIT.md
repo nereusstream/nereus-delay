@@ -4664,8 +4664,8 @@ the guarded Broker rollout attestation remains external evidence.
 
 | 依赖 | 审计锁 |
 |---|---|
-| Delay local implementation slice | `nereus/delay-full-implementation-v1@d165e73e457834be55af58d238980be65c2054c7` (latest runtime slice: Kafka Worker source-ACK response-loss retry after a real `commitSync`, with exact in-flight-record retention and no repeated Store apply; it builds on the source-bound Kafka/Pulsar physical Publish/Outcome, Gateway/Oxia response-loss, real multi-node Oxia Gateway failover and bounded Kafka/Pulsar Worker failover slices; raw network/process cuts, Object Store publication, production placement/eligibility and release gates remain open) |
-| Delay current implementation head | `nereus/delay-full-implementation-v1@62482a9e9883dc2f5e8e3934c620436bbd903818` (current branch head, with the source-ACK receipt documentation/validator synchronized to runtime commit `d165e73e457834be55af58d238980be65c2054c7`; historical bounded Pulsar Route/Worker receipt remains provenance at `nereus/delay-full-implementation-v1@bf858b089b927fcf65129214d8ed5a7fc5300deb` and is not this current lock; bounded Kafka/Pulsar Route/Worker assignment, failover, physical Publish/typed Outcome and Gateway/Oxia response-loss receipts are recorded; Object Store checkpoint publication, catalog-driven multi-shard placement, native eligibility, production Worker authority, raw chaos and release gates remain open) |
+| Delay local implementation slice | `nereus/delay-full-implementation-v1@e01d3ee8708a53487747b0ef721d1f0d107ff677` (latest runtime slice: S3-compatible checkpoint upload/download with Profile-bound endpoint/credential scope, SigV4, conditional immutable PUT, exact reread after success/conflict/ambiguous response and atomic staged restore; it builds on the source-bound Kafka/Pulsar physical Publish/Outcome, Gateway/Oxia response-loss, real multi-node Oxia Gateway failover and bounded Kafka/Pulsar Worker failover slices; real provider credentials/quiescence, raw network/process cuts, catalog authority, production placement/eligibility and release gates remain open) |
+| Delay current implementation head | `nereus/delay-full-implementation-v1@62482a9e9883dc2f5e8e3934c620436bbd903818` (the latest source-locked documentation before this adapter slice; code is now at `e01d3ee8708a53487747b0ef721d1f0d107ff677` and the next docs commit will advance this head lock; historical bounded Pulsar Route/Worker receipt remains provenance at `nereus/delay-full-implementation-v1@bf858b089b927fcf65129214d8ed5a7fc5300deb`; bounded Kafka/Pulsar Route/Worker assignment, failover, physical Publish/typed Outcome and Gateway/Oxia response-loss receipts are recorded; real Object Store provider authority, catalog-driven multi-shard placement, native eligibility, production Worker authority, raw chaos and release gates remain open) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
@@ -8195,6 +8195,38 @@ Kafka Worker source ACK response-loss E2E passed: real commitSync ACK response l
 This is controlled client-side post-ACK response-loss evidence. It is not raw
 network fault injection, process/consumer/Broker crash recovery,
 multi-Broker failover, coordinator recovery or a V1 release PASS.
+
+## 2026-08-16 S3-compatible checkpoint Object Store adapter audit
+
+Delay runtime commit `e01d3ee8708a53487747b0ef721d1f0d107ff677` adds the
+Profile-bound `S3CompatibleCheckpointObjectStoreAdapter`. Constructor checks
+the exact `OBJECT_STORE` semantic body, provider kind, endpoint configuration
+digest and non-secret credential authorization-scope digest before HTTP. The
+adapter uses SigV4 over canonical path-style S3 requests, reuses the existing
+checkpoint object identity function, sends `If-None-Match: *`, writes the
+manifest last, and verifies the remote object byte-for-byte after a successful
+file PUT as well as after HTTP precondition conflict or transport ambiguity.
+The download path validates the exact resource/profile and manifest, streams
+bounded objects into a private staging tree, re-inventories all files and
+atomically publishes the target directory.
+
+The focused local receipt is
+`S3CompatibleCheckpointObjectStoreAdapterTest`, run with:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
+  --no-daemon --console=plain
+```
+
+It passed with `BUILD SUCCESSFUL`; the raw local HTTP fixture covers the
+SigV4/conditional headers, endpoint/credential drift before I/O, manifest
+response loss followed by exact reread, complete restore and same-key
+immutable conflict. This closes only the provider adapter's bounded identity
+and response-loss seam. It does not close real S3/MinIO conformance,
+credential-use leases or rotation, provider quiescence/consistency
+attestation, version-aware deletion, multi-shard RecoveryPin/catalog
+transaction, process/network chaos, or the V1 release matrix.
 
 ## Final gate
 

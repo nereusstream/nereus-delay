@@ -833,6 +833,25 @@ require_file_text "$pulsar_checkout/pulsar-broker/src/main/java/org/apache/pulsa
 require_file_text "$pulsar_checkout/pulsar-client/src/main/java/org/apache/pulsar/client/impl/ProducerImpl.java" \
     "recoverResourceIncarnationMismatch"
 
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+    "x-amz-content-sha256"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+    "verifyAfterAmbiguousPut"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+    "objectBytesLimit"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
+    "uploadsAndRestoresAfterManifestResponseLossWithBoundedSigV4Requests"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
+    "rejectsImmutableObjectConflictAfterIfNoneMatchPrecondition"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "e01d3ee8708a53487747b0ef721d1f0d107ff677"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "S3-compatible checkpoint Object Store adapter audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "S3-compatible checkpoint Object Store adapter implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "S3-compatible checkpoint adapter focused receipt"
+
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"
 echo "Kafka:  $kafka_branch@$kafka_head from $kafka_base"
