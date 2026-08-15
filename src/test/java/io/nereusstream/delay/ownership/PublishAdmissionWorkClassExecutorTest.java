@@ -39,6 +39,8 @@ import io.nereusstream.delay.runtime.MessageStatus;
 import io.nereusstream.delay.runtime.RuntimeReadiness;
 import io.nereusstream.delay.runtime.ClaimRecord;
 import io.nereusstream.delay.scheduler.ClaimExecutionAdmission;
+import io.nereusstream.delay.scheduler.LaneScheduler;
+import io.nereusstream.delay.scheduler.PersistentLaneScheduler;
 import io.nereusstream.delay.scheduler.WorkClass;
 import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import io.nereusstream.delay.scheduler.WorkClassPolicy;
@@ -141,6 +143,11 @@ class PublishAdmissionWorkClassExecutorTest {
             final WorkClassExecutionRegistry workClasses = workClasses();
             final PublishAdmissionWorkClassExecutor executor = new PublishAdmissionWorkClassExecutor(
                     workClasses, owned, authority, permits, appender, ignored -> gate.get());
+            final ClaimHandoffWorkClassExecutor claimExecutor = new ClaimHandoffWorkClassExecutor(
+                    workClasses, owned, authority, new PersistentLaneScheduler(store, LaneScheduler.defaults(), owner),
+                    permits, ignored -> ClaimHandoffWorkClassExecutor.PrerequisiteDecision.available());
+            final WorkerCommandRuntime commandRuntime = new WorkerCommandRuntime(workClasses, resources,
+                    claimExecutor, executor);
 
             assertThrows(IllegalArgumentException.class, () -> executor.submit(claim, reservation,
                     descriptor, certificate, evidence(1_999, 2_000), 2_500, 1, keyPair.getPrivate(), () -> 101));
@@ -179,8 +186,13 @@ class PublishAdmissionWorkClassExecutorTest {
             assertEquals(MessageStatus.CLAIMED, shard.getMessage(schedule.delayMessageId()).status());
 
             gate.set(PublishAdmissionWorkClassExecutor.PrerequisiteDecision.available());
-            final PublishAdmissionWorkClassExecutor.Submission admitted = executor.submit(claim, reservation,
-                    descriptor.channel(), certificate, decision, 2_500, 1, keyPair.getPrivate(), () -> 101);
+            final ClaimHandoffWorkClassExecutor.ClaimHandoffResult claimHandoff =
+                    new ClaimHandoffWorkClassExecutor.ClaimHandoffResult(
+                            ClaimHandoffWorkClassExecutor.ResultKind.CLAIMED, claim, reservation,
+                            null, null);
+            final PublishAdmissionWorkClassExecutor.Submission admitted = commandRuntime.submitPublish(
+                    claimHandoff, new WorkerCommandRuntime.PublishPreparation(descriptor.channel(), certificate,
+                            decision, 2_500, 1, keyPair.getPrivate(), () -> 101));
             assertTrue(admitted.result().isEmpty());
             workClasses.runTurn(new io.nereusstream.delay.scheduler.SchedulerBudget(1, 1_000_000, 1_000));
             final PublishAdmissionWorkClassExecutor.AdmissionHandoffResult admittedResult =

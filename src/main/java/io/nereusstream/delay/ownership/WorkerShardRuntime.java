@@ -261,6 +261,16 @@ public final class WorkerShardRuntime implements AutoCloseable {
                 retryUntilEpochMs, signingKeyVersion, signingKey, ownerClock);
     }
 
+    /** Queues Publish Admission from one exact successful Claim handoff. */
+    public synchronized PublishAdmissionWorkClassExecutor.Submission submitPublish(
+            final ClaimHandoffWorkClassExecutor.ClaimHandoffResult claimResult,
+            final WorkerCommandRuntime.PublishPreparation preparation) {
+        ensureCommandRuntime();
+        ensureSourceRunning();
+        resources.requireRuntimeBusinessAdmission();
+        return commandRuntime.submitPublish(claimResult, preparation);
+    }
+
     /** Runs one bounded Claim/Publish turn through the shared Worker graph. */
     public synchronized List<WorkClassTask> runCommandTurn(final SchedulerBudget budget) {
         ensureCommandRuntime();

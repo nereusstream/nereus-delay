@@ -108,6 +108,26 @@ public final class WorkerCommandRuntime {
                 retryUntilEpochMs, signingKeyVersion, signingKey, ownerClock);
     }
 
+    /**
+     * Queues Publish Admission from the exact successful Claim handoff.
+     * Callers cannot accidentally pair a reservation with a different Claim;
+     * channel, Ready Certificate, time and signing inputs remain external.
+     */
+    public PublishAdmissionWorkClassExecutor.Submission submitPublish(
+            final ClaimHandoffWorkClassExecutor.ClaimHandoffResult claimResult,
+            final PublishPreparation preparation) {
+        final ClaimHandoffWorkClassExecutor.ClaimHandoffResult completed =
+                Objects.requireNonNull(claimResult, "claimResult");
+        if (completed.kind() != ClaimHandoffWorkClassExecutor.ResultKind.CLAIMED
+                || completed.claim() == null || completed.reservation() == null) {
+            throw new IllegalArgumentException("Publish Admission requires a successful Claim handoff");
+        }
+        final PublishPreparation external = Objects.requireNonNull(preparation, "preparation");
+        return submitPublish(completed.claim(), completed.reservation(), external.channel(),
+                external.readyCertificate(), external.decisionTime(), external.retryUntilEpochMs(),
+                external.signingKeyVersion(), external.signingKey(), external.ownerClock());
+    }
+
     /** Runs one bounded turn for Claim and Publish Admission actions. */
     public List<WorkClassTask> runTurn(final SchedulerBudget budget) {
         resources.requireRuntimeBusinessAdmission();
@@ -150,6 +170,26 @@ public final class WorkerCommandRuntime {
             Objects.requireNonNull(claim, "claim");
             Objects.requireNonNull(reservation, "reservation");
             Objects.requireNonNull(descriptor, "descriptor");
+            Objects.requireNonNull(readyCertificate, "readyCertificate");
+            Objects.requireNonNull(decisionTime, "decisionTime");
+            if (retryUntilEpochMs < 0) {
+                throw new IllegalArgumentException("retryUntilEpochMs must be non-negative");
+            }
+            Objects.requireNonNull(signingKey, "signingKey");
+            Objects.requireNonNull(ownerClock, "ownerClock");
+        }
+    }
+
+    /** External, immutable Publish prerequisites carried after Claim success. */
+    public record PublishPreparation(ChannelResourceIdentityV1 channel,
+                                     ReadyCertificateV1 readyCertificate,
+                                     TrustedUtcIntervalEvidence decisionTime,
+                                     long retryUntilEpochMs,
+                                     int signingKeyVersion,
+                                     PrivateKey signingKey,
+                                     LongSupplier ownerClock) {
+        public PublishPreparation {
+            Objects.requireNonNull(channel, "channel");
             Objects.requireNonNull(readyCertificate, "readyCertificate");
             Objects.requireNonNull(decisionTime, "decisionTime");
             if (retryUntilEpochMs < 0) {
