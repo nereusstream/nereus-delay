@@ -267,6 +267,28 @@ require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "run_route_worker_smoke"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "NEREUS_DELAY_KAFKA_ROUTE_FAILOVER_ONLY"
+require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
+    "NEREUS_DELAY_KAFKA_K2_FAILOVER"
+require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
+    "NEREUS_DELAY_KAFKA_K2_FAILOVER_ONLY"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactTransactionalDestinationTransport.java" \
+    "NEREUS_DELAY_KAFKA_K2_COMMIT_GATE"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactTransactionalSmoke.java" \
+    "K2 broker failover commit returned PUBLISHED"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactTransactionalSmoke.java" \
+    "K2 broker failover commit resolved after UNKNOWN"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "6912b940"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "nereus-delay-kafka-e2e-1786790805-40581"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "nereus-delay-kafka-e2e-1786790805-40581"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "6912b940"
+require_file_text "$delay_root/e2e/README.md" \
+    "K2 broker failover commit returned PUBLISHED"
+require_file_text "$delay_root/e2e/README.md" \
+    "NEREUS_DELAY_KAFKA_K2_FAILOVER_ONLY=1"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactRouteWorkerSmoke.java" \
     "Pulsar signed Route -> guarded SUBSCRIBE barrier"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactRouteWorkerSmoke.java" \

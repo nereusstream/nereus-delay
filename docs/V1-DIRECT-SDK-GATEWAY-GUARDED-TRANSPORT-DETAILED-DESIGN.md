@@ -3625,3 +3625,23 @@ authority or the §23.5 release gates.
 - transport close quiescence 和 credential lease 时间界限。
 
 这些是发布数值 evidence，不是语义 OPEN。实现缺少它们时状态为“未达到 production/release gate”，不能静默采用无界默认值。
+
+### K2 broker failover evidence boundary
+
+Delay commit `6912b940` adds a test-only file gate immediately before the
+guarded transaction-v2 `commitTransaction`/`EndTxn` boundary. The Docker
+harness uses `NEREUS_DELAY_KAFKA_K2_FAILOVER_ONLY=1` to stop broker 1 while the
+target and keyed receipt are already guarded and enqueued, releases the gate,
+and then proves the result with `read_committed` counts plus exact target and
+receipt reads. The successful source lock was Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`
+from `c300006a7705c240642db6950b5a95fec982bfc5`; the client SHA-256 was
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3` and the
+broker image was
+`sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`.
+
+The receipt observed `PUBLISHED` after the broker cut. This is a bounded
+source-locked failover proof, not a lost-response proof: generic `UNKNOWN`
+resolution, Fetch/LSO/retention ambiguity, coordinator failover and crash
+recovery remain separately gated. The normal K2 smoke continues to own abort
+and target delete/recreate fencing.

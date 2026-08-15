@@ -6956,6 +6956,34 @@ session identity did not rotate across this stop/start, so ephemeral marker
 expiry/rotation, notification-stream churn, multi-node failover, catalog
 placement, remote Object Store authority and §23.5 release gates remain open.
 
+## 2026-08-15 Kafka K2 broker failover commit-boundary audit
+
+Delay commit `6912b940` adds an opt-in file gate immediately before the guarded
+K2 transaction's `EndTxn`/`commitTransaction` call. The dedicated
+`K2_FAILOVER_ONLY` mode starts the locked three-broker Kafka image, pauses the
+real client at that gate, stops `kafka-1`, releases the gate, and requires the
+transaction result plus exact `read_committed` target/receipt records before
+the smoke exits. The normal K2 path remains the receipt for abort and
+delete/recreate fencing.
+
+The source lock was Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`
+from `c300006a7705c240642db6950b5a95fec982bfc5`, with client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3` and
+broker image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`.
+The successful project was `nereus-delay-kafka-e2e-1786790805-40581` on
+`19795,19796,19797`. It printed:
+
+```text
+K2 broker failover commit returned PUBLISHED: read_committed target+receipt pair
+K2 broker failover smoke passed: target-plus-receipt transaction crossed broker-1 failover and exact read_committed records were verified
+```
+
+This is a bounded real broker failover receipt for one target-plus-receipt
+transaction. Because the observed commit returned `PUBLISHED`, it does not
+close lost `EndTxn` response resolution; LSO/retention-floor recovery,
+transaction coordinator failover, crash cuts and release gates remain open.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

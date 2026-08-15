@@ -8141,6 +8141,48 @@ marker rotation after expiry, multi-node Oxia failover, notification-stream
 churn, catalog-driven placement, remote Object Store authority or release
 PASS. The matching container and network were removed.
 
+## 2026-08-15 Kafka K2 broker failover commit-boundary evidence
+
+Delay commit `6912b940` adds a deliberately opt-in K2 harness gate immediately
+before the transaction-v2 `EndTxn` call. The gate is only enabled by
+`NEREUS_DELAY_KAFKA_K2_FAILOVER`; the normal transport path has no wait or
+filesystem dependency. `NEREUS_DELAY_KAFKA_K2_FAILOVER_ONLY=1` runs only this
+bounded transaction cut, so the normal K2 smoke remains responsible for abort,
+same-name delete/recreate fencing and replacement-target commit.
+
+The source-locked run used Delay `6912b940`, Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`
+from base `c300006a7705c240642db6950b5a95fec982bfc5`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose project `nereus-delay-kafka-e2e-1786790805-40581`, and broker ports
+`19795,19796,19797`. The exact command was:
+
+```bash
+NEREUS_DELAY_KAFKA_K2_FAILOVER=1 \
+NEREUS_DELAY_KAFKA_K2_FAILOVER_ONLY=1 \
+KAFKA_BROKER_1_PORT=19795 KAFKA_BROKER_2_PORT=19796 KAFKA_BROKER_3_PORT=19797 \
+./e2e/run-kafka-real-client-e2e.sh
+```
+
+The harness stopped and restarted `kafka-1` around the released gate. The
+real-client receipt was:
+
+```text
+K2 broker failover commit returned PUBLISHED: read_committed target+receipt pair
+K2 broker failover smoke passed: target-plus-receipt transaction crossed broker-1 failover and exact read_committed records were verified
+BUILD SUCCESSFUL in 10s
+Kafka K2 broker failover E2E passed: target-plus-receipt transaction crossed broker-1 failover with read_committed resolution.
+```
+
+This closes one three-broker, one-partition target-plus-keyed-receipt
+transaction cut across a real broker-1 stop/start, with exact
+`read_committed` counts and target/receipt record reads. The observed result
+was `PUBLISHED`, not an injected or observed lost `EndTxn` response; generic
+response-loss resolution, LSO/retention-floor ambiguity, transaction
+coordinator failover, and crash cuts remain independent open evidence. This is
+source-bound integration evidence, not a V1 production or release PASS.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
