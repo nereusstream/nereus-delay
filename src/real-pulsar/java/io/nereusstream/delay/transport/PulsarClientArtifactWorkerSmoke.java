@@ -101,6 +101,8 @@ import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.TopicResourceGuard;
 import org.apache.pulsar.client.api.TopicResourceGuardAttestation;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -117,6 +119,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Real Pulsar recovery, active Worker apply and synchronous ACK smoke. */
 public final class PulsarClientArtifactWorkerSmoke {
@@ -199,8 +202,11 @@ public final class PulsarClientArtifactWorkerSmoke {
         final OxiaSyncOwnerLeaseBackend.ClientHandle oxia = connectOxiaIfConfigured();
         try {
             final String subscription = "nereus-delay-worker-" + UUID.randomUUID();
-            final GuardedConsumer<byte[]> nativeConsumer = PulsarClientArtifactSourceConsumerFactory.create(
+            final GuardedConsumer<byte[]> rawNativeConsumer = PulsarClientArtifactSourceConsumerFactory.create(
                     client, guard, physicalTopic, subscription);
+            final AtomicBoolean sourceAckResponseLossObserved = new AtomicBoolean();
+            final GuardedConsumer<byte[]> nativeConsumer = hasSourceAckResponseLoss()
+                    ? responseLossConsumer(rawNativeConsumer, sourceAckResponseLossObserved) : rawNativeConsumer;
             final PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof proof =
                     PulsarClientArtifactRecoverySourcePositioner.seekAfter(nativeConsumer, guard, physicalTopic, shard,
                             Optional.empty(), Duration.ofSeconds(5));
@@ -336,6 +342,15 @@ public final class PulsarClientArtifactWorkerSmoke {
                                     + "and final checkpoint");
                             if (oxia != null) {
                                 System.out.println("Pulsar Worker authority smoke passed: real Oxia session-bound lease");
+                            }
+                            if (hasSourceAckResponseLoss()) {
+                                if (!sourceAckResponseLossObserved.get()) {
+                                    throw new IllegalStateException(
+                                            "Pulsar Worker source ACK response-loss wrapper did not lose a response");
+                                }
+                                System.out.println("Pulsar Worker source ACK response-loss smoke passed: real ACK "
+                                        + "was accepted before the local response was discarded, and the same "
+                                        + "source record was ACKed on the next bounded Worker turn");
                             }
                             } finally {
                                 if (!runtimeDrained) {
@@ -970,12 +985,44 @@ public final class PulsarClientArtifactWorkerSmoke {
             if (result.status()
                     != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.WAITING_FOR_SOURCE
                     && result.status()
-                    != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.WAITING_FOR_WORK_CLASS) {
+                    != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.WAITING_FOR_WORK_CLASS
+                    && result.status()
+                    != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN
+                    && result.status()
+                    != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.ACK_DEFINITIVELY_NOT_ACKED) {
                 throw new IllegalStateException("Pulsar Worker source turn failed: " + result.status(),
                         result.failure());
             }
         } while (System.nanoTime() < deadline);
         throw new IllegalStateException("Pulsar Worker source record did not become visible before deadline");
+    }
+
+    private static boolean hasSourceAckResponseLoss() {
+        return "1".equals(System.getenv("NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static GuardedConsumer<byte[]> responseLossConsumer(
+            final GuardedConsumer<byte[]> delegate, final AtomicBoolean responseLossObserved) {
+        return (GuardedConsumer<byte[]>) Proxy.newProxyInstance(
+                PulsarClientArtifactWorkerSmoke.class.getClassLoader(), new Class<?>[]{GuardedConsumer.class},
+                (proxy, method, arguments) -> {
+                    final Object result = invoke(delegate, method, arguments);
+                    if (method.getName().equals("acknowledge") && method.getParameterCount() == 1
+                            && responseLossObserved.compareAndSet(false, true)) {
+                        throw new IllegalStateException("simulated committed Pulsar source ACK response loss");
+                    }
+                    return result;
+                });
+    }
+
+    private static Object invoke(final Object target, final java.lang.reflect.Method method,
+                                 final Object[] arguments) throws Throwable {
+        try {
+            return method.invoke(target, arguments);
+        } catch (InvocationTargetException failure) {
+            throw failure.getCause();
+        }
     }
 
     private static void send(final PulsarClient client, final TopicResourceGuard guard, final String physicalTopic,
