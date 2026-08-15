@@ -857,6 +857,12 @@ require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaObj
     "activateS3Compatible"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaObjectStoreCredentialLeaseActivator.java" \
     "resolvedCredentialFingerprintDigest"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/RenewableS3CompatibleCheckpointObjectStoreAdapter.java" \
+    "renewIfNeeded"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/RenewableS3CompatibleCheckpointObjectStoreAdapter.java" \
+    "requires adapter quiescence"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/ObjectStoreCredentialUseLeaseGate.java" \
+    "renewed Object Store credential lease moves expiry backwards"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
     "uploadsAndRestoresAfterManifestResponseLossWithBoundedSigV4Requests"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
@@ -879,6 +885,10 @@ require_file_text "$delay_root/src/test/java/io/nereusstream/delay/runtime/OxiaO
     "rejectsResolverFingerprintDriftBeforeLeaseIssuance"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/runtime/OxiaObjectStoreCredentialLeaseActivatorTest.java" \
     "rejectsAuthorityLeaseThatIsNotProtectedByTheRereadProjection"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/RenewableS3CompatibleCheckpointObjectStoreAdapterTest.java" \
+    "renewsOnlyInsideWindowAndReplacesTheLocalGate"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/RenewableS3CompatibleCheckpointObjectStoreAdapterTest.java" \
+    "refusesToRenewAcrossAHeadRotationBeforeProviderIo"
 require_file_text "$delay_root/e2e/run-oxia-real-service.sh" \
     "OxiaRealProfileCatalogSmokeTest"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
@@ -929,6 +939,16 @@ require_file_text "$delay_root/e2e/README.md" \
     "Object Store authority-to-adapter activation focused receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "Credential attestation trust-set focused receipt"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Same-generation Object Store lease renewal slice"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "8307d690351af1699a6a9cb69e2cfe9bfe26a4a2"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Same-generation Object Store lease renewal audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Same-generation Object Store lease renewal implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Same-generation Object Store lease renewal focused receipt"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

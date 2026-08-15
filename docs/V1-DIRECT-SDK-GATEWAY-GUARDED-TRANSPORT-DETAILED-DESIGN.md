@@ -5106,3 +5106,22 @@ records, authorize actors, resolve private secrets, coordinate cross-record
 Owner/Route/session state, renew leases automatically, fail over as a
 multi-node Profile authority or prove provider rotation/quiescence and real
 Object Store behavior.
+
+### 2026-08-16 Same-generation Object Store lease renewal implementation note
+
+`RenewableS3CompatibleCheckpointObjectStoreAdapter` wraps the existing
+lease-gated adapter with an explicit renewal window. Before an upload or
+download it checks the local lease expiry; outside the window it performs no
+authority I/O. Inside the window it resolves the exact Profile, requires the
+Head generation and immutable Binding digest to remain unchanged, resolves the
+same material fingerprint, obtains fresh trusted-time evidence, asks the
+`CredentialProfileAuthority` for a bounded `OBJECT_STORE_ADAPTER` lease,
+rereads and validates its `CredentialBindingProtectionV1`, then atomically
+replaces the gate projection. Provider credentials are not silently changed;
+Head rotation fails closed and requires adapter quiescence/re-activation.
+
+This is an opportunistic, single-process control-plane renewal composition.
+It does not establish a scheduled multi-process renewal owner, source-ordered
+rotation/quiescence, secret-manager resolution, cross-record
+Owner/Route/session transactions, multi-node authority failover, real
+S3/MinIO consistency, deletion or release evidence.

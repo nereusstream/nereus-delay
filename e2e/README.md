@@ -1405,3 +1405,25 @@ single-record Oxia authority. It does not prove source-ordered trust-set
 publication/rotation, actor authorization, secret-manager resolution,
 automatic renewal, multi-node authority failover, provider rotation/
 quiescence, real S3/MinIO, chaos or release readiness.
+
+## Same-generation Object Store lease renewal focused receipt
+
+The local renewal and gate-replacement regression is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.RenewableS3CompatibleCheckpointObjectStoreAdapterTest \
+  --tests io.nereusstream.delay.store.ObjectStoreCredentialUseLeaseGateTest \
+  --no-daemon --console=plain
+```
+
+Delay commit `8307d690351af1699a6a9cb69e2cfe9bfe26a4a2` adds
+`RenewableS3CompatibleCheckpointObjectStoreAdapter`. The focused tests passed
+with `BUILD SUCCESSFUL`; they cover no authority read outside the renewal
+window, protected lease/protection revision advancement inside the window and
+Head rotation rejection before Provider I/O. The full Gradle check passed.
+
+This is bounded same-generation, single-process renewal evidence. It does not
+prove scheduled multi-process renewal ownership, source-ordered rotation or
+provider quiescence, secret-manager resolution, multi-node Profile authority
+failover, real S3/MinIO, deletion, chaos or release readiness.
