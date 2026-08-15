@@ -165,6 +165,7 @@ GRADLE_USER_HOME="$delay_gradle_user_home" \
     "$delay_root/gradlew" test \
         --tests io.nereusstream.delay.ownership.OxiaRealServiceSmokeTest \
         --tests io.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest \
+        --tests io.nereusstream.delay.runtime.OxiaRealProfileCatalogSmokeTest \
         --tests io.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
         --tests io.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest \
         --tests io.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest \
