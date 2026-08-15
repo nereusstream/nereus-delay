@@ -3712,16 +3712,23 @@ Kafka Oxia image was removed by cleanup.
 - Gateway 请求幂等先持久化 exact prepared bytes，再取得 Broker ownership；
 - Kafka/Pulsar 提供通用 guarded resource API，绝不依赖 Nereus SDK；
 - Kafka K1 non-transactional wire 固定 Produce v13+ exact TopicId；K2
-  provides an opt-in transaction-v2 target-plus-receipt binding, while its
-  response-loss/Fetch/LSO/retention/source gates remain independently open；
-- Pulsar 使用 first-class v22 create/per-SEND guard 和 guarded receipt；
+  provides an opt-in transaction-v2 target-plus-receipt binding。受控
+  committed-EndTxn 与 source/Worker response-loss receipt 子集已有 evidence，
+  但 raw network/process response-loss、Fetch/LSO/retention 与 production
+  source/placement gates 仍独立开放；
+- Pulsar 使用 first-class v22 create/per-SEND guard 和 guarded receipt；受控
+  SEND、source-ACK 与 Worker response-loss receipt 子集已有真实 Broker
+  evidence，但 raw network/proxy/session、rewind 与完整 D3/production gates
+  仍保持独立开放；
 - native AUTO_FAST 只允许 issuer-verified local snapshots，且 managed fallback
   保持 exact bytes；issuer now has a local protection-before-signing boundary,
   but production native capability authority and live Broker eligibility remain open；
 - Route activation barriers now have an exact signed-snapshot-to-source-assignment
   projection, and Worker assignment lookup is tenant-authorized for current or
-  historical Routes; live activation publication, Owner Lease CAS and
-  source-session authority remain open；
+  historical Routes；bounded real Kafka/Pulsar activation、assignment and
+  Broker-survivor Worker failover evidence exists，while catalog placement、
+  native eligibility、production Owner Lease CAS and source-session authority
+  remain open；
 - 当前 V1 self-routing ID、tenant authority、Worker 状态机不改；
 - stock/name-only fallback 不可进入生产包。
 
