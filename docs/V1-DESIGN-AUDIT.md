@@ -6852,6 +6852,26 @@ Route, catalog placement, native eligibility, source ownership transfer,
 Object Store checkpointing, automatic Claim/Publish authority and §23.5
 release gates remain open.
 
+## 2026-08-15 Dockerized Oxia authority and checkpoint publication audit
+
+The latest isolated Oxia authority run used Delay
+`nereus/delay-full-implementation-v1@ac72e43803806b9c309b62150c0aa54b43f8a3ea`,
+Oxia `37a17bef17202d5fd6e232da5fd26d94865484`, Compose project
+`nereus-delay-v1-oxia-e2e-1786787138-90186`, and host port `16675`. The
+selected real-service tests passed with `BUILD SUCCESSFUL in 11s`, including
+the real Oxia Owner Lease/Control/Recovery Catalog, atomic checkpoint
+intent/catalog publication, Route publication/refresh/assignment, Gateway
+audit and Gateway tenant-admission CAS methods. The harness printed:
+
+```text
+Dockerized Oxia real-service smoke passed for 37a17bef17202d5fd6e232da5fd26d94865484
+```
+
+This is real Oxia authority evidence. The provider-side checkpoint adapter in
+this smoke is the crash-durable filesystem object seam, so remote Object Store
+credentials/quiescence, session-bound RecoveryPin transaction, multi-shard
+placement and the release cross-entry gate remain open.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

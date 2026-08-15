@@ -7979,6 +7979,27 @@ churn, multi-broker failover with an accepted Route, native eligibility,
 production source ownership transfer, Object Store checkpoint publication,
 automatic Claim/Publish authority or release PASS.
 
+## 2026-08-15 Dockerized Oxia authority and checkpoint publication revalidation
+
+The isolated `e2e/run-oxia-real-service.sh` harness was rerun from Delay
+`ac72e43803806b9c309b62150c0aa54b43f8a3ea` against Oxia
+`37a17bef17202d5fd6e232da5fd26d94865484`. It used Compose project
+`nereus-delay-v1-oxia-e2e-1786787138-90186` on host port `16675` and ran the
+selected Owner Lease, Control, Recovery Catalog, checkpoint publication,
+signed Route publication/refresh and assignment, Gateway audit, and Gateway
+tenant-admission CAS real-service tests. The selected Gradle test task ended
+with `BUILD SUCCESSFUL in 11s`; the harness printed:
+
+```text
+Dockerized Oxia real-service smoke passed for 37a17bef17202d5fd6e232da5fd26d94865484
+```
+
+The checkpoint method uses the real Oxia atomic intent/catalog authority and
+the crash-durable filesystem upload adapter as its provider-side object seam;
+it does not prove remote Object Store credentials, provider quiescence,
+session-bound RecoveryPin transaction, multi-shard placement or release PASS.
+The harness trap removed its matching container and network.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the

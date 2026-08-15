@@ -297,6 +297,12 @@ require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaRea
     "checkpoint Owner Lease/session"
 require_file_text "$delay_root/e2e/run-oxia-real-service.sh" \
     "OxiaRealCheckpointPublicationSmokeTest"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "nereus-delay-v1-oxia-e2e-1786787138-90186"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "ac72e43803806b9c309b62150c0aa54b43f8a3ea"
+require_file_text "$delay_root/e2e/README.md" \
+    "BUILD SUCCESSFUL in 11s"
 require_file_text "$delay_root/build.gradle" \
     "runRealKafkaWorkerSmoke"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \

@@ -3523,6 +3523,21 @@ catalog-driven multi-shard placement, native eligibility, source ownership
 transfer, Object Store/checkpoint publication, automatic Claim/Publish
 authority or the release cross-entry gate.
 
+### 2026-08-15 Dockerized Oxia authority and checkpoint publication revalidation
+
+The isolated real-service harness passed from Delay
+`ac72e43803806b9c309b62150c0aa54b43f8a3ea` against Oxia
+`37a17bef17202d5fd6e232da5fd26d94865484`, using Compose project
+`nereus-delay-v1-oxia-e2e-1786787138-90186` and host port `16675`. The selected
+Owner Lease, Control, Recovery Catalog, atomic checkpoint intent/catalog,
+Route, Gateway audit and Gateway admission tests completed with
+`BUILD SUCCESSFUL in 11s`.
+
+The provider-side checkpoint upload in this evidence is the crash-durable
+filesystem object seam; remote Object Store credentials/quiescence,
+session-bound RecoveryPin transaction, multi-shard placement and release
+cross-entry gates remain unproven.
+
 ## 16. 当前结论与仍需实测的数值
 
 已经冻结：
