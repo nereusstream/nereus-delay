@@ -4027,3 +4027,16 @@ compatibility default.
 This does not prove Pulsar Broker persistence, source ACK, reconnect/rewind or
 response-loss resolution. Those require the source-applied Worker ledger,
 live assignment/channel authority and a real-client Worker E2E.
+
+### 2026-08-15 persisted PUBLISHING attempt lookup implementation note
+
+Delay commit `e9cfde1415e2c389c8587b1d72ed7f42afa47b79` adds a Worker physical
+entrypoint keyed by the durable Publish Attempt ID. It performs the bounded
+owned-shard inflight scan and accepts only a current `PUBLISHING` ledger before
+calling the existing Admission payload validator and source-aware adapter
+path. Missing or already-UNCERTAIN attempts stop before adapter, Outcome or
+fence side effects.
+
+This removes stale caller-held ledger state from the local composition but does
+not perform source replay, live Owner/Assignment rereads, Object Store fetch,
+Broker append/ACK or crash/response-loss resolution.

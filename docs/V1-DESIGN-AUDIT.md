@@ -7367,6 +7367,20 @@ Pulsar assignment/ACK authority, Broker append, reconnect/rewind,
 response-loss/crash resolution, real Worker E2E and §23.5 release readiness
 remain open.
 
+## 2026-08-15 persisted PUBLISHING attempt lookup audit
+
+Delay commit `e9cfde1415e2c389c8587b1d72ed7f42afa47b79` adds the persisted
+attempt-ID entrypoint on `WorkerShardRuntime`. It reloads from the owned
+shard's bounded inflight scan, rejects missing or non-PUBLISHING state before
+any physical adapter or Outcome path, and then delegates to the existing
+canonical request/source-bound checks.
+
+`WorkerShardRuntimePhysicalLookupTest` proves the missing-attempt fail-closed
+boundary and the full `check` passed. This remains local lookup evidence only;
+source application, live Owner/Assignment authority, Object Store payload
+resolution, Broker append/ACK, response-loss/crash recovery, real Worker E2E
+and §23.5 release readiness remain open.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

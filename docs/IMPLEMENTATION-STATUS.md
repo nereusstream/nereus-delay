@@ -5615,6 +5615,7 @@ covers this ordering.
 | Scheduled checkpoint work-class admission | Implemented (local concrete handler wiring and derived static request charge; production authority pending) | `CheckpointWorkClassExecutor`, `CheckpointExecutionCoordinator`, `WorkClassExecutionRegistry`, `CheckpointExecutionCoordinatorTest.checkpointWorkClassRejectsBeforeIoThenExecutesTheExactClaim`; exact scheduler claim and pending intent are fenced before `CHECKPOINT` queue admission and repeated before I/O, normalized path/claim/pending-intent/upload-time bytes form one canonical identity whose domain-separated hash is the task ID and whose exact length is the queue byte charge, caller-supplied `workClassBytes` is absent, negative upload time fails before admission, direct preflight/execution methods are package-private so cross-package composition must use the bounded entrypoint, queue rejection leaves the current claim and filesystem/provider state unchanged, ordinary attempt failure returns a checkpoint-owned outcome without a stale generic work action, and only the next exact scheduler claim can start the next physical attempt; Owner Lease/session, Source Assignment, external Object Store/Oxia authority, the other shard-specific handlers and dynamic checkpoint-file/upload/WriteBatch I/O attribution remain release gates |
 | Signed Worker PUBLISH_OUTCOME construction | Implemented (typed local factory; context and source authority pending) | `WorkerPublishOutcomeMutationFactory`, `WorkerPublishOutcomeMutationFactoryTest`; exact PUBLISHING ledger/request identity, physical-result side-effect/disposition compatibility, typed PublishEvidence ownership, canonical `PublishOutcomeBody` construction and Ed25519 `SystemMutation` signing are enforced; external retry-policy/charge/time context, live owner/signing-key authority, Broker evidence and source-log append/application remain release blockers |
 | Source-bound physical adapter invocation | Implemented (common bounded path; real Worker source replay pending) | `DestinationPublishAdapter`, `BoundedDestinationPublishAdapter`, `KafkaTransactionalDestinationAdapter`, `PinnedPulsarDestinationAdapter`, `WorkerPhysicalPublishExecutor`, `WorkerPhysicalPublishExecutorTest`, `DestinationAdapterTest`; the durable ledger Source Position and prepared Publish hash now cross the bounded preflight into Kafka transactional and Pulsar guarded source-aware overloads, while ordinary adapters retain the one-argument compatibility path; source-ordered admission lookup, live Source Assignment/ACK authority, response-loss resolution and real Kafka/Pulsar Worker E2E remain release blockers |
+| Persisted PUBLISHING attempt lookup before physical handoff | Implemented (bounded local lookup; source application/authority pending) | `WorkerShardRuntime.submitPhysicalPublish(byte[], byte[], LongSupplier)`, `WorkerShardRuntimePhysicalLookupTest`; the Worker reloads the exact attempt ID from the owned shard's bounded inflight scan, rejects missing/UNCERTAIN state before adapter or Outcome calls, and then reuses Admission payload/hash/source-bound validation; live source replay/application, Owner/Assignment authority, Object Store payload resolution and real Worker E2E remain release blockers |
 | Shard identity and local Store Incarnation validation | Implemented | `StoreMetadata`, `ShardStoreTest` |
 | Synchronous atomic WriteBatch | Implemented | `ShardStore.write`, `ShardStoreTest` |
 | Native RocksDB checkpoint creation | Implemented | `ShardStore.createCheckpoint`, `ShardStoreTest`; checkpoint creation is staged under the same-filesystem `checkpoint-tmp` namespace, rejects an existing target, installs only through an atomic rename, and removes a target that was moved but failed the subsequent parent-directory durability step, with failed-stage cleanup |
@@ -8721,6 +8722,32 @@ BUILD SUCCESSFUL in 1m 15s
 This closes only source-context transport composition. No real-client harness
 was changed or rerun; source-applied PUBLISHING lookup, Broker append/ACK,
 Pulsar reconnect/rewind and response-loss/crash resolution remain open.
+
+## 2026-08-15 persisted PUBLISHING attempt lookup before physical handoff
+
+Delay commit `e9cfde1415e2c389c8587b1d72ed7f42afa47b79` adds a Worker entrypoint
+that accepts only an attempt ID and payload. It reloads the exact ledger from
+the owned shard's bounded inflight scan instead of trusting a caller-held
+ledger object, rejects a missing or non-`PUBLISHING` record before any adapter,
+Outcome factory or fence callback, and then reuses the existing canonical
+Admission/payload/source-bound request path.
+
+Focused verification:
+
+```text
+./gradlew test --tests io.nereusstream.delay.ownership.WorkerShardRuntimePhysicalLookupTest --tests io.nereusstream.delay.ownership.WorkerPhysicalPublishExecutorTest --no-daemon --console=plain
+BUILD SUCCESSFUL in 6s
+11 actionable tasks: 2 executed, 9 up-to-date
+
+./gradlew check --no-daemon --console=plain
+BUILD SUCCESSFUL in 1m 13s
+21 actionable tasks: 3 executed, 18 up-to-date
+```
+
+This proves the local persisted-attempt lookup boundary only. It does not
+source-apply a live Publish Admission, resolve Object Store payload authority,
+or prove Owner/Assignment state, Broker append/ACK, response-loss/crash
+recovery or real Worker E2E.
 
 ## Verification command
 
