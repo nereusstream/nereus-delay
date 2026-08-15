@@ -8459,6 +8459,96 @@ placement, remote Object Store checkpoint authority, crash/response-loss
 resolution and release PASS remain open. Temporary Compose resources were
 removed; the Kafka Oxia image was removed by cleanup.
 
+## 2026-08-15 typed Worker preparation provider binding
+
+Delay commit `d02d81201d0cff3f9fa5fb3c8bba912721de5575` binds the
+`PublishPreparationProvider` into the complete Worker graph. `WorkerShardRuntime`
+retains the provider on the graph and its no-provider
+`runDueClaimPublishTurn(...)` overload now resolves that bound provider; an
+unbound runtime fails closed with `IllegalStateException`. The existing
+provider-argument overload remains available for the narrow composition seam.
+
+The complete Kafka and Pulsar `WorkerSourceFactory.create` overloads now accept
+the provider and pass it into `WorkerShardRuntime`; their older complete-graph
+overloads remain compatibility construction paths with no provider bound. The
+focused Claim handoff test binds `WorkerPublishPreparationCoordinator` through
+the graph, exercises the no-provider call, and verifies that an unbound runtime
+cannot enter the path. The provider is still caller-supplied external authority:
+this slice does not create live Profile, credential, Broker, channel, signing-key
+or physical Publish authority.
+
+Verification passed:
+
+```text
+./gradlew test --tests io.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest --no-daemon --console=plain
+BUILD SUCCESSFUL
+
+./gradlew compileRealKafka -PkafkaClientJar=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar --no-daemon --console=plain
+BUILD SUCCESSFUL
+
+./gradlew compileRealPulsar -PpulsarClientClasspath=/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar --no-daemon --console=plain
+BUILD SUCCESSFUL
+
+./gradlew check --no-daemon --console=plain
+BUILD SUCCESSFUL
+```
+
+The full check keeps real Oxia smokes behind their opt-in gates. This closes
+local Worker graph binding and fail-closed construction only; it does not prove
+automatic due-to-Claim-to-Publish execution, live preparation, physical
+append/ACK, response-loss or crash resolution, multi-shard placement, remote
+Object Store authority or release PASS.
+
+## 2026-08-15 current-source Kafka and Pulsar revalidation after typed Worker provider binding
+
+The fresh real-client receipts use Delay source lock
+`d02d81201d0cff3f9fa5fb3c8bba912721de5575`. Kafka used
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`
+from base `c300006a7705c240642db6950b5a95fec982bfc5`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Compose project `nereus-delay-kafka-e2e-1786799494-38038`, broker ports
+`19865,19866,19867`, and Oxia source
+`37a17bef17202d5fd6e23282da5fd26d94865484` in project
+`nereus-delay-kafka-oxia-e2e-1786799494-38038` on port `16700`, with Oxia image
+`sha256:ef4317d7af1b23d92361d72e3038065cf9ef0fdc37e1812d8b66b7d3c3ad555e`.
+The final receipt was:
+
+```text
+Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, assignment recovery to RocksDB Worker apply before and after broker-1 failover, same-topic Worker resume after failover, K1 identity/failover, and K2 atomic target+receipt commit, abort, and delete/recreate fence.
+```
+
+Pulsar used P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` from base
+`8dae0236c0a0d405ed7f8303081080520fe91551`, distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+client-api `f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`,
+common `94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`,
+image `sha256:892add226a105fb04b6df05df2c58f43e49f76647d39ed73944fcfc9ea1cb3d`,
+runtime library count `341`, Compose project
+`nereus-delay-pulsar-e2e-1786799494-38039`, broker/web ports `20165,20166`,
+and Oxia source `37a17bef17202d5fd6e23282da5fd26d94865484` in project
+`nereus-delay-pulsar-oxia-e2e-1786799494-38039` on port `16701`, with Oxia image
+`sha256:71d69981a5b9dd458158a8c440fb6d90642450d96b0e92e59f7c49745bbc498c`.
+The final receipt was:
+
+```text
+Pulsar P1 real-client E2E passed: guarded send, stale resource rejection, guarded source replay, signed mutation append/replay/ACK, signed Route barrier/assignment/source ACK, Broker timestamp, Worker recovery/apply, ACK handoff, and broker-restart resume.
+```
+
+These receipts revalidate the locked transport/Worker source paths after
+`d02d8120`; neither checked-in harness constructs the bound
+`PublishPreparationProvider` or invokes provider-driven
+`runDueClaimPublishTurn`. They therefore do not prove automatic live
+preparation or physical Publish append/ACK. Kafka covers the three-broker K1/K2
+cuts; Pulsar covers one standalone-broker restart, not multi-broker failover.
+Live Profile/credential/Broker authority, multi-shard placement, remote Object
+Store checkpoint authority, crash/response-loss resolution and release PASS
+remain open. Temporary Compose resources were removed; the Kafka Oxia image was
+removed by cleanup, while the Pulsar Oxia image remained locally with the
+recorded digest above.
+
 ## Verification command
 
 Use the checked-in Gradle Wrapper and an isolated cache on hosts where the
