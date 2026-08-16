@@ -20,12 +20,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Opt-in real MinIO coverage for the S3-compatible checkpoint adapter. */
@@ -53,6 +55,7 @@ class S3CompatibleMinioRealSmokeTest {
                 fixture.checkpointDirectory(), fixture.manifest().canonicalJsonBytes());
 
         final CheckpointResourceV1 first = adapter.upload(request);
+        assertFalse(new String(first.immutableVersion(), StandardCharsets.UTF_8).startsWith("sha256-"));
         assertEquals(first, adapter.upload(request));
 
         final Path restored = adapter.download(new CheckpointDownloadRequest(fixture.manifest(), first),

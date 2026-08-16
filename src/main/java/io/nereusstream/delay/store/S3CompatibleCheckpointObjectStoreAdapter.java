@@ -58,9 +58,11 @@ import javax.crypto.spec.SecretKeySpec;
  * directory only through an atomic rename.</p>
  *
  * <p>This closes the S3-compatible data-plane identity and response-loss
- * boundary. Credential rotation, provider quiescence/consistency
- * attestations, lifecycle deletion and the Oxia catalog transaction remain
- * external authority inputs.</p>
+ * boundary only when the provider returns an exact immutable version header;
+ * a Profile requiring exact-version deletion fails closed if that header is
+ * absent. Credential rotation, provider quiescence/consistency attestations,
+ * lifecycle deletion and the Oxia catalog transaction remain external
+ * authority inputs.</p>
  */
 public final class S3CompatibleCheckpointObjectStoreAdapter
         implements CheckpointUploadAdapter, CheckpointDownloadAdapter {
@@ -350,7 +352,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
             return verifyAfterAmbiguousPut(key, bytes.length, checksum, objectBytesLimit(maxBytes), failure);
         }
         if (isSuccess(response.statusCode())) {
-            return responseVersion(response, "sha256-" + payloadHash);
+            return responseVersionOrFallback(response, "sha256-" + payloadHash, "PUT", key);
         }
         if (isAlreadyExists(response.statusCode())) {
             return verifyRemoteFile(key, bytes.length, checksum, objectBytesLimit(maxBytes));
@@ -386,7 +388,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
                     || !Bytes.constantTimeEquals(actual.checksum(), expectedChecksum)) {
                 throw new IllegalStateException("immutable remote checkpoint object identity conflict: " + key);
             }
-            return responseVersion(response, "sha256-" + Bytes.hex(expectedChecksum));
+            return responseVersionOrFallback(response, "sha256-" + Bytes.hex(expectedChecksum), "GET", key);
         } catch (IOException failure) {
             throw new IllegalStateException("cannot verify remote checkpoint object: " + key, failure);
         }
@@ -404,6 +406,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
             closeQuietly(response.body());
             throw unexpectedStatus("GET", key, response.statusCode());
         }
+        responseVersionOrFallback(response, null, "GET", key);
         try (InputStream input = response.body();
              FileChannel output = FileChannel.open(destination, StandardOpenOption.CREATE_NEW,
                      StandardOpenOption.WRITE)) {
@@ -433,7 +436,8 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         try (InputStream input = response.body()) {
             final ByteArrayOutputStream output = new ByteArrayOutputStream();
             consume(input, output, -1, objectBytesLimit(maxBytes));
-            return new RemoteBytes(output.toByteArray(), responseVersion(response, null));
+            return new RemoteBytes(output.toByteArray(),
+                    responseVersionOrFallback(response, null, "GET", key));
         } catch (IOException failure) {
             throw new IllegalStateException("cannot read remote checkpoint manifest: " + key, failure);
         }
@@ -594,6 +598,18 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
     private static String responseVersion(final HttpResponse<?> response, final String fallback) {
         return response.headers().firstValue("x-amz-version-id")
                 .filter(value -> !value.isBlank()).orElse(fallback);
+    }
+
+    private String responseVersionOrFallback(final HttpResponse<?> response, final String fallback,
+                                             final String method, final String key) {
+        final String version = responseVersion(response, null);
+        if (objectStore.requireExactVersionDelete() && version == null) {
+            if (response.body() instanceof InputStream input) {
+                closeQuietly(input);
+            }
+            throw new IllegalStateException("S3 response omitted exact immutable version: " + method + " " + key);
+        }
+        return version == null ? fallback : version;
     }
 
     private static boolean isSuccess(final int status) {

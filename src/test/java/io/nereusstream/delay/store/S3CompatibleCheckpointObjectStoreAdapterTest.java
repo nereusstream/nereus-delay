@@ -130,6 +130,21 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
         }
     }
 
+    @Test
+    void rejectsProviderThatOmitsExactVersionHeaders() throws Exception {
+        try (FakeS3Server server = new FakeS3Server()) {
+            server.omitVersionHeaders = true;
+            final Fixture fixture = fixture(server.endpoint());
+            final S3CompatibleCheckpointObjectStoreAdapter adapter = adapter(fixture.profile(), server.endpoint());
+            final CheckpointUploadRequest request = new CheckpointUploadRequest(fixture.pending(), fixture.manifest(),
+                    fixture.checkpointDirectory(), fixture.manifest().canonicalJsonBytes());
+
+            final IllegalStateException failure = assertThrows(IllegalStateException.class,
+                    () -> adapter.upload(request));
+            assertTrue(failure.getMessage().contains("omitted exact immutable version"));
+        }
+    }
+
     private S3CompatibleCheckpointObjectStoreAdapter adapter(final ProfileSemanticEnvelopeV1 profile,
                                                               final URI endpoint) {
         return new S3CompatibleCheckpointObjectStoreAdapter(profile, endpoint, REGION, BUCKET, ACCESS_KEY,
@@ -198,6 +213,7 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
         private volatile boolean closed;
         private volatile boolean dropFirstManifestPutResponse;
         private volatile boolean manifestPutResponseDropped;
+        private volatile boolean omitVersionHeaders;
 
         private FakeS3Server() throws IOException {
             serverSocket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
@@ -254,7 +270,7 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
             final StoredObject existing = objects.get(request.path());
             if (existing != null) {
                 record(request, 412);
-                respond(output, 412, new byte[0], existing.version());
+                respond(output, 412, new byte[0], omitVersionHeaders ? null : existing.version());
                 return;
             }
             final String version = version(request.body());
@@ -267,7 +283,7 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
                 return;
             }
             record(request, 200);
-            respond(output, 200, new byte[0], version);
+            respond(output, 200, new byte[0], omitVersionHeaders ? null : version);
         }
 
         private void handleGet(final ParsedRequest request, final OutputStream output) throws IOException {
@@ -278,7 +294,7 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
                 return;
             }
             record(request, 200);
-            respond(output, 200, object.body(), object.version());
+            respond(output, 200, object.body(), omitVersionHeaders ? null : object.version());
         }
 
         private void respond(final OutputStream output, final int status, final byte[] body,

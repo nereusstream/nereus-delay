@@ -96,6 +96,11 @@ fi
 curl --silent --show-error --fail --aws-sigv4 "aws:amz:${minio_region}:s3" \
     --user "${minio_access_key}:${minio_secret_key}" --request PUT \
     --url "${minio_endpoint}/${minio_bucket}" >/dev/null
+curl --silent --show-error --fail --aws-sigv4 "aws:amz:${minio_region}:s3" \
+    --user "${minio_access_key}:${minio_secret_key}" --request PUT \
+    --header 'Content-Type: application/xml' \
+    --data-binary '<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>' \
+    --url "${minio_endpoint}/${minio_bucket}?versioning" >/dev/null
 
 echo "MinIO image: $minio_image"
 echo "MinIO image ID: $(docker image inspect --format '{{.Id}}' "$minio_image")"
