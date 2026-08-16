@@ -10608,7 +10608,7 @@ Oxia images; no global Docker prune was used.
 ## 2026-08-17 V1 release-gate audit result
 
 Source locks for this audit are Delay
-`2f5d512b80497336c92ba55358deb6075abc39f1`, K1
+`262254fcefea86f34cc153282706cfb2b16ad222`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`. Full local `check` and the
@@ -10622,3 +10622,32 @@ required benchmark configurations, capacity/SLO artifacts, certified soak,
 upgrade/downgrade proof and restore/fence/DLQ/uncertain/disaster runbook
 drills have not been produced. This is a release audit boundary, not a reason
 to reinterpret the existing positive slices as V1 approval.
+
+## 2026-08-17 Current-source Gateway Oxia session-churn audit
+
+The current-source fault run locks Delay to
+`262254fcefea86f34cc153282706cfb2b16ad222` and Oxia to
+`37a17bef17202d5fd6e23282da5fd26d94865484`, using project
+`nereus-delay-gateway-e2e-1786900154-5135` on Oxia port `26500` and Gateway
+port `28500`. The run stopped and restarted the real Oxia service while the
+old Gateway process remained alive, with two-second session expiry and a
+two-second service pause.
+
+Audit result: PASS for the bounded single-node session-churn slice. Stale
+admission/idempotency/audit clients failed closed; a new three-session
+composition reread the exact durable outcome with one preparation, one
+physical attempt, zero live admission leases and two digest-only audit
+records. The test report had one test, zero failures and zero errors, and
+printed:
+
+```text
+Gateway Oxia session churn E2E passed: stale admission/idempotency sessions failed closed and new sessions reread the exact durable outcome
+```
+
+The run-created Oxia image
+`sha256:15ca9bafe5206cc9709255955a99a6b7761c85916163831ea248c350dea3335`
+was removed. This receipt does not establish transparent automatic
+reconnect, multi-node Gateway HA, load, complete crash/response-loss
+resolution, external credential/provider authority or V1 release readiness.
+Exact project/image postchecks were empty; the locked MinIO base remained and
+no global Docker prune was used.

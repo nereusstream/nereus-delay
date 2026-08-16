@@ -7110,7 +7110,7 @@ quiescence, chaos and V1 release gates remain separate.
 
 ## 2026-08-17 V1 release-gate implementation boundary
 
-At Delay `2f5d512b80497336c92ba55358deb6075abc39f1`, with K1
+At Delay `262254fcefea86f34cc153282706cfb2b16ad222`, with K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`, the implementation has crossed
@@ -7120,3 +7120,29 @@ and patch-distribution gates are partial; benchmark, capacity/SLO, soak,
 upgrade/downgrade and runbook gates are open. The complete crash/chaos matrix,
 external credential authority/rotation, multi-node provider failover and
 source-locked release artifacts must be completed before any V1-ready claim.
+
+### 2026-08-17 Current-source Gateway/Oxia session-churn implementation note
+
+The current-source real-service cut uses Delay
+`262254fcefea86f34cc153282706cfb2b16ad222`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, project
+`nereus-delay-gateway-e2e-1786900154-5135`, Oxia `26500` and Gateway `28500`.
+The harness keeps the old Gateway process alive while stopping Oxia long
+enough for the two-second Oxia sessions to expire, then starts Oxia and opens
+three fresh session-bound record clients.
+
+The gated real test passed with one test, zero failures and zero errors:
+
+```text
+Gateway Oxia session churn E2E passed: stale admission/idempotency sessions failed closed and new sessions reread the exact durable outcome
+```
+
+The old admission, idempotency and audit wrappers reject stale-session I/O;
+the new composition rereads the exact durable record and preserves one
+preparation, one physical attempt, zero live admission leases and two
+digest-only audit records. The run-created image
+`sha256:15ca9bafe5206cc9709255955a99a6b7761c85916163831ea248c350dea3335`
+was removed after exact compose cleanup. This is bounded single-node
+session-churn/recomposition evidence, not transparent reconnect, Gateway HA,
+load, full crash/response-loss resolution or V1 release evidence. The locked
+MinIO image was retained; no global Docker prune was used.

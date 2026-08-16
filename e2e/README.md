@@ -3845,7 +3845,7 @@ images; no global Docker prune was used.
 ## V1 release-gate audit (2026-08-17)
 
 Current source locks are Delay
-`2f5d512b80497336c92ba55358deb6075abc39f1`, K1
+`262254fcefea86f34cc153282706cfb2b16ad222`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`. The full local check and
@@ -3856,3 +3856,42 @@ remain open for benchmark matrix, capacity/SLO artifact, certified soak,
 upgrade/downgrade proof and operational restore/fence/DLQ/uncertain/disaster
 drills. Full chaos and external credential/provider failover are also open;
 positive bounded receipts must not be used as release substitutes.
+
+## Gateway Oxia session-churn recovery (current source)
+
+Run the real Gateway/Oxia session-churn cut with:
+
+```bash
+NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN=1 \
+NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN_PAUSE_SECONDS=2 \
+NEREUS_DELAY_OXIA_GATEWAY_E2E_PORT=26500 \
+NEREUS_DELAY_GATEWAY_PORT=28500 \
+NEREUS_DELAY_GATEWAY_GRADLE_USER_HOME=/tmp/nereus-delay-gateway-e2e-20260817 \
+  bash e2e/run-gateway-real-e2e.sh
+```
+
+The current-source run locks Delay to
+`262254fcefea86f34cc153282706cfb2b16ad222` and Oxia to
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The exact project was
+`nereus-delay-gateway-e2e-1786900154-5135`; the real Oxia and Gateway ports
+were `26500` and `28500`. The one-test report passed with zero failures and
+zero errors:
+
+```text
+Gateway Oxia session churn E2E passed: stale admission/idempotency sessions failed closed and new sessions reread the exact durable outcome
+```
+
+The old Gateway process stayed alive across an Oxia stop/start. Stale
+admission, idempotency and audit sessions failed closed after expiry; three
+new session-bound clients reread the exact durable outcome with one
+preparation, one physical attempt, zero live admission leases and two
+digest-only audit records. The run-created Oxia image
+`sha256:15ca9bafe5206cc9709255955a99a6b7761c85916163831ea248c350dea3335`
+was removed after exact project cleanup. No matching project resources
+remain; the locked MinIO base was retained and no global Docker prune was
+used.
+
+This is bounded single-node session-churn/recomposition evidence. Transparent
+automatic reconnect, production multi-process Gateway HA, load, complete
+crash/response-loss resolution, external credential/provider authority and
+V1 release gates remain open.

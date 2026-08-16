@@ -9209,7 +9209,7 @@ rotation/quiescence, full chaos and V1 release gates remain open.
 ## 2026-08-17 V1 release-gate audit (not release-ready)
 
 The audit is source-bound to Delay
-`2f5d512b80497336c92ba55358deb6075abc39f1`, Kafka
+`262254fcefea86f34cc153282706cfb2b16ad222`, Kafka
 `nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 Pulsar `nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`
 and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. The current full local
@@ -13178,3 +13178,40 @@ base was retained and no global Docker prune was used. This closes the
 current-source real Oxia/MinIO REAPING handoff, but not multi-worker disaster
 authority, external secret-manager rotation, full chaos, soak or V1 release
 gates.
+
+## 2026-08-17 Current-source Gateway Oxia session-churn recovery receipt
+
+The current-source Gateway fault rerun locks Delay to
+`262254fcefea86f34cc153282706cfb2b16ad222` and Oxia to
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The source-bound command was:
+
+```bash
+NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN=1 \
+NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN_PAUSE_SECONDS=2 \
+NEREUS_DELAY_OXIA_GATEWAY_E2E_PORT=26500 \
+NEREUS_DELAY_GATEWAY_PORT=28500 \
+NEREUS_DELAY_GATEWAY_GRADLE_USER_HOME=/tmp/nereus-delay-gateway-e2e-20260817 \
+  bash e2e/run-gateway-real-e2e.sh
+```
+
+The isolated project was `nereus-delay-gateway-e2e-1786900154-5135`, with
+Oxia at `26500` and Gateway at `28500`. The run-created Oxia image was
+`sha256:15ca9bafe5206cc9709255955a99a6b7761c85916163831ea248c350dea3335`,
+which was removed after the run. The one-test report ended with zero failures
+and zero errors and emitted:
+
+```text
+Gateway Oxia session churn E2E passed: stale admission/idempotency sessions failed closed and new sessions reread the exact durable outcome
+```
+
+The harness held the old Gateway process across an Oxia stop/start. The old
+admission, idempotency and audit session-bound clients failed closed after
+their stale sessions expired; a new three-session composition then reread the
+same durable prefix and proved one preparation, one physical attempt, zero
+live admission leases and two digest-only audit records. This closes the
+bounded single-node Gateway/Oxia session-churn and explicit recomposition
+slice. It does not close transparent automatic reconnect, multi-node Gateway
+HA, load, the full crash/response-loss matrix, external credential authority
+or V1 release gates. Exact post-run checks found no project resources or
+matching temporary image; the locked MinIO base was retained and no global
+Docker prune was used.
