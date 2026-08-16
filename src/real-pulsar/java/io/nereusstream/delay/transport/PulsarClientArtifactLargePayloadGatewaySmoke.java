@@ -399,9 +399,17 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                                     final byte[] incarnation, final long creationTimestamp) throws Exception {
         final String path = adminUrl + "/admin/v2/persistent/public/default/" + topic;
         final String body = guardBody(incarnation, creationTimestamp);
+        int lastStatus = -1;
+        String lastBody = "";
         for (int attempt = 0; attempt < 40; attempt++) {
             final HttpResponse<String> response = request(client, path, "PUT", body);
+            lastStatus = response.statusCode();
+            lastBody = response.body();
             if (response.statusCode() >= 200 && response.statusCode() < 300 || response.statusCode() == 409) {
+                if (topic.endsWith("-partition-0")) {
+                    System.out.println("Pulsar large-payload physical topic materialization response: status="
+                            + response.statusCode() + ", topic=" + topic);
+                }
                 return;
             }
             if (response.statusCode() != 412 && response.statusCode() != 503) {
@@ -409,7 +417,8 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
             }
             TimeUnit.MILLISECONDS.sleep(250);
         }
-        throw new IllegalStateException("Pulsar large-payload destination topic did not converge: " + topic);
+        throw new IllegalStateException("Pulsar large-payload topic did not converge: " + topic
+                + " lastStatus=" + lastStatus + " lastBody=" + lastBody);
     }
 
     private static void stampGuard(final HttpClient client, final String adminUrl, final String physicalTopic,
