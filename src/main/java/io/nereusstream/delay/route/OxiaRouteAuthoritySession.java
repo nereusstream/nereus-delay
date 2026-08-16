@@ -85,6 +85,7 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
         }
         final String canonicalNamespace = canonicalText(namespace, "namespace");
         final String canonicalClientIdentifier = canonicalText(clientIdentifier, "clientIdentifier");
+        final String canonicalPrefix = canonicalKeyPrefix(keyPrefix);
         final SyncOxiaClient sessionClient = OxiaClientBuilder.create(serviceAddress)
                 .namespace(canonicalNamespace)
                 .clientIdentifier(canonicalClientIdentifier)
@@ -101,7 +102,7 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
                     new SyncRecordClient(notificationClient),
                     () -> createNotificationClient(serviceAddress, canonicalNamespace,
                             canonicalClientIdentifier, sessionTimeout),
-                    keyPrefix);
+                    canonicalPrefix);
         } catch (RuntimeException failure) {
             try {
                 sessionClient.close();
