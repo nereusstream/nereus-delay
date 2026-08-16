@@ -11687,3 +11687,38 @@ Post-documentation verification passed at Delay
 remain Kafka K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+## 2026-08-17 Current-source large-payload authority rerun
+
+At Delay `53a1eb71b480d3d1ecff1a14d6c1f76d675fe4d8`, the isolated Kafka K1 and
+Pulsar P1 runners were rerun with real Oxia, Gateway mTLS/JWT, real Broker,
+Worker source apply/ACK, real MinIO and destination readback. Kafka used
+client SHA-256 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`
+and image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`;
+Pulsar used distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3` and image
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`.
+Oxia was `37a17bef17202d5fd6e23282da5fd26d94865484`; MinIO was pinned to
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+The Kafka receipt (`nereus-delay-large-payload-e2e-1786919558-57250`) reached
+`Admission offset=4`, typed `KAFKA_TRANSACTIONAL_RECEIPT` destination offset
+`0`, and `Outcome offset=5`, with exact payload readback. Gateway source
+markers were `activationOffset=0`, `barrierOffset=2`, `prepareOffset=2` and
+`commitOffset=3`, with `exactGatewayIdempotency=true`; the real Kafka
+destination branch also passed.
+
+The Pulsar receipt (`nereus-delay-pulsar-large-e2e-1786919804-59806`) reached
+`Admission ledger=3/4`, typed `PULSAR_SEND_ACK` destination `ledger/entry=4/0`,
+and `Outcome ledger=3/5`, with exact payload readback. Gateway markers were
+`prepare=3/2` and `commit=3/3`, `exactGatewayIdempotency=true`, and
+`sourceRecords=6`; the real Pulsar destination branch also passed.
+
+Both runs exercised real 1 MiB payloads and MinIO-backed checkpoint
+publication. This confirms that Worker egress and the large-payload production
+authority composition are implemented for bounded one-shard Kafka and Pulsar
+receipts. It does not establish multi-shard production placement, arbitrary
+Broker/controller/storage chaos, Object Store failure injection, authenticated
+protocol activation/cutover, benchmark/capacity/soak certification or V1
+release readiness. Exact cleanup left only the locked Oxia and MinIO base
+images; no global Docker prune or unrelated image deletion was performed.

@@ -4519,3 +4519,78 @@ RSS, FD or disk envelope values. This receipt therefore does not close Gates 5
 or 6, and it does not cover broker batching/linger, 1M/10M/100M records, Lane
 distributions, multi-Worker placement, checkpoint restore throughput, or the
 long-cycle soak required by Gate 7.
+
+## Gateway + real Oxia + Worker + MinIO large payload (current source)
+
+Run the Kafka production-authority chain with the isolated K1 worktree and a
+real Kafka destination readback:
+
+```bash
+NEREUS_DELAY_KAFKA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1 \
+NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia \
+NEREUS_DELAY_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-large-payload-kafka-20260817-r1 \
+KAFKA_LARGE_PAYLOAD_BROKER_1_PORT=31400 \
+KAFKA_LARGE_PAYLOAD_BROKER_2_PORT=31401 \
+KAFKA_LARGE_PAYLOAD_BROKER_3_PORT=31402 \
+NEREUS_DELAY_LARGE_PAYLOAD_OXIA_PORT=31410 \
+NEREUS_DELAY_LARGE_PAYLOAD_MINIO_PORT=31411 \
+NEREUS_DELAY_LARGE_PAYLOAD_GATEWAY_PORT=31412 \
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_TOPIC=nereus-delay-large-payload-20260817-r1 \
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_DESTINATION_TOPIC=nereus-delay-large-destination-20260817-r1 \
+  bash e2e/run-large-payload-gateway-e2e.sh
+```
+
+The current-source run used Delay `53a1eb71b480d3d1ecff1a14d6c1f76d675fe4d8`,
+Kafka K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, K1 image
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, and the locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+Project `nereus-delay-large-payload-e2e-1786919558-57250` passed in 1m 6s:
+
+```text
+Kafka Worker source-applied physical publish passed: Admission source offset=4, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=0, Outcome source offset=5, exact payload readback
+Kafka + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: activationOffset=0, barrierOffset=2, prepareOffset=... offset=2 ..., commitOffset=... offset=3 ..., providerVersion=895ef48b-def6-4789-bd3c-875139095322, exactGatewayIdempotency=true
+Kafka + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload + Kafka destination authority E2E passed
+```
+
+Run the corresponding P1 chain with a bare source topic name (the smoke task
+adds the `persistent://public/default/` prefix) and a real Pulsar destination:
+
+```bash
+NEREUS_DELAY_PULSAR_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1 \
+NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-large-payload-pulsar-20260817-r2 \
+PULSAR_LARGE_BROKER_1_PORT=31440 \
+PULSAR_LARGE_WEB_1_PORT=31441 \
+PULSAR_LARGE_BROKER_2_PORT=31442 \
+PULSAR_LARGE_WEB_2_PORT=31443 \
+NEREUS_DELAY_PULSAR_LARGE_OXIA_PORT=31450 \
+NEREUS_DELAY_PULSAR_LARGE_MINIO_PORT=31451 \
+NEREUS_DELAY_PULSAR_LARGE_GATEWAY_PORT=31452 \
+PULSAR_LARGE_PAYLOAD_TOPIC=nereus-delay-large-payload-20260817-r2 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_DESTINATION_TOPIC=nereus-delay-large-destination-20260817-r2 \
+  bash e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+The current-source run used the same Delay/Oxia locks, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1
+image `sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+and project `nereus-delay-pulsar-large-e2e-1786919804-59806`. It passed in
+1m 12s:
+
+```text
+Pulsar Worker source-applied physical publish passed: Admission source ledger=3/4, typed PULSAR_SEND_ACK target ledger/entry=4/0, Outcome source ledger=3/5, exact payload readback
+Pulsar + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: prepare=3/2, commit=3/3, exactGatewayIdempotency=true, sourceRecords=6
+Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed
+```
+
+Both runs used real 1 MiB payloads, source-ordered apply, typed destination
+evidence, exact payload readback and real MinIO-backed checkpoint publication.
+They strengthen the bounded Gateway/Broker/Worker/Object Store authority chain
+and destination coverage, but do not close the full fault matrix, benchmark or
+soak gates, authenticated activation-state/cutover, multi-shard production
+placement, or V1 release readiness. The runners removed their exact project
+containers, networks, volumes and temporary images; no global Docker prune was
+used.
