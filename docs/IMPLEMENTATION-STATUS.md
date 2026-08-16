@@ -10436,3 +10436,21 @@ slice only composes a source-log mutation. It does not authorize the retire
 intent, prove provider-side deletion, advance a Recovery Floor, release a
 Pin, fence a GC Owner, append to the Shard Log, or apply the mutation; those
 remain external lifecycle and source-order boundaries.
+
+## 2026-08-16 Delete-confirmation temporal evidence fence
+
+Delay commit `a26c6816` moves the provider-observation/confirmation time
+ordering rule below the composer. `ResourceDeleteConfirmedBody` now rejects
+any canonical body whose `confirmedAt.earliestEpochMs()` is earlier than the
+complete `ExternalDeleteEvidence.observedAt().latestEpochMs()` interval, and
+`ResourceDeleteConfirmedRecord` repeats the same check while decoding or
+constructing the durable tombstone. A caller that signs or manually builds a
+confirmation body therefore cannot bypass the causal evidence boundary by
+skipping `CheckpointDeleteConfirmationComposer`.
+
+The focused regression covers the protocol body, durable GC record, existing
+GC handoff and checkpoint composer tests; 26 tests passed. The full
+`./gradlew check --no-daemon --console=plain --quiet` remains the required
+repository gate. This is a local evidence-shape invariant only; it does not
+attest provider execution, authorize deletion, advance Floor/Pin/Owner state,
+append or apply the source mutation, or provide release evidence.

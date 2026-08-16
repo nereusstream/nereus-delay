@@ -1815,3 +1815,19 @@ JUnit recorded `tests=4 skipped=0 failures=0 errors=0`, and the full
 local composition receipt only: it does not claim provider-side deletion,
 GC Owner/Floor/Pin authorization, Shard Log append, mutation apply, or V1
 release readiness.
+
+## Delete-confirmation temporal evidence fence receipt
+
+Delay commit `a26c6816` moves the confirmation-time causal fence into both
+the canonical `ResourceDeleteConfirmedBody` parser and the durable
+`ResourceDeleteConfirmedRecord`. Every `RESOURCE_DELETE_CONFIRMED_V1` path
+now requires `confirmedAt.earliestEpochMs()` to be at least the complete
+provider-observation interval's `latestEpochMs()`, so a manually constructed
+or differently composed signed mutation cannot bypass the evidence ordering
+rule.
+
+The focused body/record/GC/composer regression recorded 26 passing tests; the
+full `./gradlew check --no-daemon --console=plain --quiet` remains the
+repository gate. This receipt is local evidence-shape coverage only and does
+not claim provider completion, deletion authorization, Floor/Pin/Owner
+transition, Shard Log append/apply, or release readiness.

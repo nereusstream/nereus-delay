@@ -1233,6 +1233,26 @@ require_file_text "$delay_root/e2e/README.md" \
     "Checkpoint delete-confirmation mutation composition receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "io.nereusstream.delay.store.CheckpointDeleteConfirmationComposerTest"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/protocol/ResourceDeleteConfirmedBody.java" \
+    "this.confirmedAt.requireEarliestAtLeast(this.evidence.observedAt().latestEpochMs())"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/runtime/ResourceDeleteConfirmedRecord.java" \
+    "confirmedEvidence.requireEarliestAtLeast(observedEvidence.latestEpochMs())"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/protocol/ResourceDeleteConfirmedBodyTest.java" \
+    "confirmationIntervalMustFollowTheCompleteObservationInterval"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/runtime/ResourceGcGuardTest.java" \
+    "durableDeleteConfirmationRequiresConfirmationAfterObservation"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Delete-confirmation temporal evidence fence"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "a26c6816"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Delay delete-confirmation temporal evidence fence slice"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Delete-confirmed temporal evidence audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Delete-confirmation temporal evidence fence implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Delete-confirmation temporal evidence fence receipt"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

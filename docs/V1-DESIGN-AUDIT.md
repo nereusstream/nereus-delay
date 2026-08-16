@@ -4677,6 +4677,7 @@ the guarded Broker rollout attestation remains external evidence.
 | Delay checkpoint REAPING Owner proof slice | `nereus/delay-full-implementation-v1@44cd3230709f5e87742cd94cd9a8b7bce314a184` (typed proof binds pending/Owner/Store/session lease identity, distinguishes explicit abandonment from a recorded lease no longer current, and requires trusted UTC after the upload deadline; the locked MinIO receipt records `ea89d80e-e63e-4980-b225-94b070d3c36b`; the issuer is local composition, not the production cross-record intent/Owner/catalog authority) |
 | Delay Object Store provider ownership horizon slice | `nereus/delay-full-implementation-v1@cc97c7654cb19f88c69045cd3c33a4d970a9fed3` (local tracker spans complete upload/download/delete/sweep operations, retains response-loss uncertainty through a bounded horizon, fences new operations and rechecks the credential-use lease before each HTTP send; the locked MinIO receipt records `1b904a10-2104-46eb-a6fd-0bd2afe24524`; remote provider execution/quiescence attestation remains external) |
 | Delay checkpoint delete-confirmation composition slice | `nereus/delay-full-implementation-v1@70e5f0da` (pure local `CheckpointDeleteConfirmationComposer` binds `CheckpointDeleteResult` to the exact durable checkpoint retire identity, requires confirmation earliest time at or after the observation latest time, and composes a signed `RESOURCE_DELETE_CONFIRMED_V1`; provider-side deletion, retire/Floor/Pin/Owner authorization, Shard Log append and mutation apply remain external) |
+| Delay delete-confirmation temporal evidence fence slice | `nereus/delay-full-implementation-v1@a26c6816` (`ResourceDeleteConfirmedBody` and `ResourceDeleteConfirmedRecord` both require confirmation earliest time at or after the complete provider-observation interval, so manual/signed callers cannot bypass the composer; provider execution and lifecycle authorization remain external) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
@@ -8725,6 +8726,20 @@ strictly local evidence-to-mutation composition. It does not prove the
 provider performed the delete, authorize the retire intent, evaluate
 Recovery Floor/Pin/Owner coverage, append or apply the source mutation, or
 promote the GC lifecycle to PASS.
+
+## 2026-08-16 Delete-confirmed temporal evidence audit
+
+Delay commit `a26c6816` moves the confirmation-time causal check into both
+the canonical `ResourceDeleteConfirmedBody` parser and the durable
+`ResourceDeleteConfirmedRecord`. A `RESOURCE_DELETE_CONFIRMED_V1` body or
+tombstone is accepted only when its confirmation interval's earliest trusted
+time is no earlier than the complete provider-observation interval's latest
+trusted time. The regression covers direct body decode, durable record
+construction, existing GC handoff fixtures and the checkpoint composer.
+
+This closes a local evidence-ordering bypass, not provider or lifecycle
+authority. It does not attest remote deletion, authorize retire/Floor/Pin/Owner
+state, append or apply the source mutation, or promote GC to PASS.
 
 ## Final gate
 

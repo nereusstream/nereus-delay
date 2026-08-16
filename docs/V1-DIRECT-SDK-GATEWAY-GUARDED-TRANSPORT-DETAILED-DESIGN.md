@@ -5408,3 +5408,18 @@ the callers' explicit source-order and ownership gates.
 The focused `CheckpointDeleteConfirmationComposerTest` covers DELETED,
 ALREADY_ABSENT, exact-identity mismatch and an observation/confirmation
 interval overlap; all four tests passed, as did the full Gradle check.
+
+### 2026-08-16 Delete-confirmation temporal evidence fence implementation note
+
+Delay commit `a26c6816` makes the time-causality rule a canonical protocol and
+durable-record invariant rather than a property of one factory. The
+`RESOURCE_DELETE_CONFIRMED_V1` parser rejects a confirmation interval whose
+earliest trusted time is before the provider evidence's latest trusted
+observation time. `ResourceDeleteConfirmedRecord` repeats that validation
+before retaining the two intervals, covering direct construction, replay
+decode and any future signed-body composer. Existing fixtures now carry a
+strictly later confirmation interval.
+
+This fence protects evidence ordering only. It does not turn trusted time
+into provider-side completion, perform owner/Floor/Pin authorization, append
+or apply a source mutation, or close the external GC lifecycle transaction.
