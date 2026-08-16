@@ -9918,6 +9918,34 @@ multi-shard placement, raw chaos or the §23.5 release gates. The runner's
 exact-name cleanup check found no project containers, network, volume or
 temporary Oxia image; the locked MinIO base image remains by design.
 
+## 2026-08-16 Pulsar Worker UNKNOWN Publish Admission response-loss audit
+
+Delay commit `88d58c02` adds a focused `NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS_ONLY=1`
+mode to `e2e/run-pulsar-real-client-e2e.sh`. Its test-only appender wrapper
+discards exactly one local `PERSISTED` result after a real guarded Pulsar
+Shard Log mutation has been accepted; the following Outcome append is not
+discarded. The runtime therefore has to retain the exact mutation as
+`UNKNOWN`, reconcile it from the source log, and continue from the recovered
+source position.
+
+The run used real Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1 image
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+real Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, Pulsar project
+`nereus-delay-pulsar-e2e-1786886923-27929` (`19679/19680`), and Oxia project
+`nereus-delay-pulsar-oxia-e2e-1786886923-27929` (`16657`). The receipt included
+`recovered UNKNOWN Publish Admission from exact source mutation`, source
+Admission `9/3`, typed destination `PULSAR_SEND_ACK` target `10/0`, Outcome
+`9/4`, exact payload readback, real Oxia lease authority and final checkpoint;
+Gradle reported `BUILD SUCCESSFUL in 15s`.
+
+This is positive evidence for the bounded source-reconciliation branch, not a
+generic transport-fault or release PASS. Raw socket/process/Broker cuts,
+Pulsar multi-Broker reactivation, combined Gateway failover, multi-shard
+placement, checkpoint REAPING and the remaining chaos/release gates stay open.
+The runner removed its exact temporary containers, images, volumes and
+networks.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

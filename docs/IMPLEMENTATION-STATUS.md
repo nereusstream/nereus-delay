@@ -11836,6 +11836,60 @@ It does not prove real-Oxia REAPING/RecoveryPin competition, provider-side
 quiescence or consistency attestation, late-PUT/response-loss deletion,
 restore activation, multi-shard placement, raw chaos or V1 release readiness.
 
+## 2026-08-16 Pulsar Worker UNKNOWN Publish Admission response-loss with real Oxia
+
+Delay commit `nereus/delay-full-implementation-v1@88d58c02` adds a one-shot
+client-side response-loss wrapper around the real guarded Shard Log mutation
+appender and a focused runner mode. The wrapper lets the real Pulsar producer
+persist the admission mutation, discards only the first local `PERSISTED`
+response, and leaves the later `PUBLISH_OUTCOME` append untouched. The Worker
+must therefore retain the exact mutation as `UNKNOWN`, find the same bytes by
+source replay, and continue the physical publish without appending a retry.
+
+The source-bound command was:
+
+```bash
+NEREUS_DELAY_PULSAR_WITH_OXIA=1 \
+NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS=1 \
+NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS_ONLY=1 \
+NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-worker-admission-response-loss-oxia-20260816 \
+  bash e2e/run-pulsar-real-client-e2e.sh
+```
+
+The run locked P1
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
+artifact SHA-256 values
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`, and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, P1
+image ID `sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. Pulsar Compose project
+`nereus-delay-pulsar-e2e-1786886923-27929` used broker/web ports `19679/19680`;
+the Oxia project was `nereus-delay-pulsar-oxia-e2e-1786886923-27929` on port
+`16657`.
+
+The source-bound output was:
+
+```text
+Pulsar Worker recovered UNKNOWN Publish Admission from exact source mutation: PulsarSourcePosition[shardId=ShardId[routeIncarnation=85d32917c2004c0ca801400cc3da8572, partition=0], brokerResourceIncarnation=[B@69a2b3b6, physicalTopic=persistent://public/default/p1-real-client-27929-worker-4e3cfaad-300e-437f-befa-1e3205c2d2a2, ledgerId=9, entryId=3, normalizedBatchIndex=0, batchSize=1, entryKind=NON_BATCH, brokerEntryTimestampEpochMs=1786886946158]
+Pulsar Worker Publish Admission response-loss smoke passed: the real Shard Log mutation was persisted, its local append response was discarded, and exact source replay recovered the PUBLISHING admission
+Pulsar Worker source-applied physical publish passed: Admission source ledger=9/3, typed PULSAR_SEND_ACK target ledger/entry=10/0, Outcome source ledger=9/4, exact payload readback
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=9/0, active apply ledger/entry=9/1, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
+Pulsar Worker authority smoke passed: real Oxia session-bound lease
+BUILD SUCCESSFUL in 15s
+Pulsar Worker Publish Admission response-loss E2E passed: the real Shard Log mutation was persisted, its append response was discarded, and exact source replay recovered the PUBLISHING admission.
+```
+
+This closes the bounded real-Broker/real-Oxia recovered `UNKNOWN` Publish
+Admission branch and its source-applied physical publish. It is a controlled
+client-side loss after real Pulsar persistence, not raw socket loss, process or
+Broker crash recovery, multi-Broker failover, combined Gateway failover,
+multi-shard placement, checkpoint REAPING or V1 release evidence. Exact-name
+post-run checks found no containers, images, volumes or networks for either
+isolated Compose project.
+
 ## 2026-08-16 Kafka source Fetch response-loss receipt
 
 Delay implementation commit
