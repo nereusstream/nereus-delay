@@ -11,6 +11,7 @@ import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.ShardSubjectV1;
+import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -230,6 +231,20 @@ class CheckpointUploadCoordinatorTest {
     }
 
     @Test
+    void rejectsMismatchedAtomicAuthorityRegardlessOfWhichSideDeclaresIt() throws Exception {
+        final CheckpointAtomicPublicationAuthority atomic = new AtomicPublicationAuthorityStub();
+        final CheckpointUploadIntentAuthority independentIntent = new CheckpointUploadIntentStore();
+        final RecoveryCatalog independentCatalog = new RecoveryCatalog();
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(
+                ShardStoreConfig.defaults(tempDir.resolve("atomic-authority-pair")))) {
+            assertThrows(IllegalArgumentException.class, () -> new CheckpointPublicationCoordinator(resources,
+                    atomic, CheckpointManifestLimits.unbounded(), independentCatalog));
+            assertThrows(IllegalArgumentException.class, () -> new CheckpointPublicationCoordinator(resources,
+                    independentIntent, CheckpointManifestLimits.unbounded(), atomic));
+        }
+    }
+
+    @Test
     void explicitManifestLimitsRejectBeforeProviderIo() throws Exception {
         final Fixture fixture = fixture();
         final CheckpointUploadIntentStore intentStore = new CheckpointUploadIntentStore();
@@ -367,6 +382,85 @@ class CheckpointUploadCoordinatorTest {
                 published = true;
             }
             return result;
+        }
+    }
+
+    /** Marker-only atomic authority used to exercise constructor pairing. */
+    private static final class AtomicPublicationAuthorityStub implements CheckpointAtomicPublicationAuthority {
+        @Override
+        public CheckpointUploadIntentV1 create(final CheckpointUploadIntentV1 pending) {
+            throw new AssertionError("not invoked");
+        }
+
+        @Override
+        public CheckpointUploadIntentV1 publish(final CheckpointUploadIntentV1 expectedPending,
+                                                final CheckpointResourceV1 resource) {
+            throw new AssertionError("not invoked");
+        }
+
+        @Override
+        public Optional<CheckpointUploadIntentV1> currentPublishedFor(
+                final CheckpointUploadIntentV1 expectedPending) {
+            throw new AssertionError("not invoked");
+        }
+
+        @Override
+        public CheckpointUploadIntentV1 beginReaping(final CheckpointUploadIntentV1 expectedPending,
+                                                     final TrustedUtcIntervalEvidence evidence) {
+            throw new AssertionError("not invoked");
+        }
+
+        @Override
+        public CheckpointUploadIntentV1 beginReaping(final CheckpointUploadIntentV1 expectedPending,
+                                                     final TrustedUtcIntervalEvidence evidence,
+                                                     final RecoveryCatalogAuthority catalog) {
+            throw new AssertionError("not invoked");
+        }
+
+        @Override
+        public Optional<CheckpointUploadIntentV1> current(final CheckpointUploadIntentV1 identity) {
+            throw new AssertionError("not invoked");
+        }
+
+        @Override
+        public CheckpointUploadIntentV1 publishUploadedCheckpointAtomically(
+                final CheckpointUploadIntentV1 expectedPending, final CheckpointResourceV1 resource,
+                final CheckpointManifest manifest, final long expectedCatalogGeneration) {
+            throw new AssertionError("not invoked");
+        }
+
+        @Override
+        public RecoveryCatalog.Publication publish(final CheckpointManifest manifest,
+                                                   final long expectedCatalogGeneration) {
+            throw new AssertionError("not invoked");
+        }
+
+        @Override
+        public RecoveryFloor advanceFloor(final byte[] checkpointId, final long expectedCatalogGeneration,
+                                          final byte[] evidenceCursorDigest) {
+            throw new AssertionError("not invoked");
+        }
+
+        @Override
+        public Optional<CheckpointManifest> manifest(final byte[] checkpointId) {
+            throw new AssertionError("not invoked");
+        }
+
+        @Override
+        public Optional<RecoveryFloor> currentFloor() {
+            throw new AssertionError("not invoked");
+        }
+
+        @Override
+        public void validatePublishedRestoreCandidate(final CheckpointManifest candidate) {
+            throw new AssertionError("not invoked");
+        }
+
+        @Override
+        public Optional<RecoveryCatalog.FloorCoverage> proveFloorCoverage(final byte[] candidateCheckpointId,
+                                                                           final long requiredMutationSequence,
+                                                                           final SourcePosition... requiredPositions) {
+            throw new AssertionError("not invoked");
         }
     }
 

@@ -92,8 +92,9 @@ public final class CheckpointPublicationCoordinator {
 
     private static void requireAtomicPublicationPair(final CheckpointUploadIntentAuthority intentAuthority,
                                                      final RecoveryCatalogAuthority catalog) {
-        if (intentAuthority instanceof CheckpointAtomicPublicationAuthority
-                && intentAuthority != catalog) {
+        final boolean intentIsAtomic = intentAuthority instanceof CheckpointAtomicPublicationAuthority;
+        final boolean catalogIsAtomic = catalog instanceof CheckpointAtomicPublicationAuthority;
+        if ((intentIsAtomic || catalogIsAtomic) && intentAuthority != catalog) {
             throw new IllegalArgumentException(
                     "atomic checkpoint publication intent and catalog authorities must be the same record backend");
         }
