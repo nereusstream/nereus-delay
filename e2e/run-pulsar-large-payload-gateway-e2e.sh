@@ -22,6 +22,7 @@ receipt_log="$(mktemp -t nereus-delay-pulsar-large-receipt.XXXXXX).log"
 failover_mode="${NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER:-0}"
 process_crash_mode="${NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_PROCESS_CRASH:-0}"
 network_partition_mode="${NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_NETWORK_PARTITION:-0}"
+network_partition_handoff_wait_seconds="${NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_NETWORK_PARTITION_HANDOFF_WAIT_SECONDS:-75}"
 failover_marker="${runtime_dir}/gateway-commit.failover.ready"
 
 base_port=$((29100 + ($$ % 300)))
@@ -67,6 +68,10 @@ if [[ "${process_crash_mode}" != "0" && "${process_crash_mode}" != "1" ]]; then
 fi
 if [[ "${network_partition_mode}" != "0" && "${network_partition_mode}" != "1" ]]; then
   echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_NETWORK_PARTITION must be 0 or 1" >&2
+  exit 1
+fi
+if [[ ! "${network_partition_handoff_wait_seconds}" =~ ^[0-9]+$ ]]; then
+  echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_NETWORK_PARTITION_HANDOFF_WAIT_SECONDS must be a non-negative integer" >&2
   exit 1
 fi
 if [[ "${process_crash_mode}" == "1" && "${failover_mode}" != "1" ]]; then
@@ -320,6 +325,8 @@ if [[ "${failover_mode}" == "1" ]]; then
       echo "Pulsar Gateway large-payload network partition did not disconnect broker-1" >&2
       exit 1
     fi
+    echo "Pulsar Gateway large-payload network partition: waiting ${network_partition_handoff_wait_seconds}s for the disconnected broker ownership lease to expire"
+    sleep "${network_partition_handoff_wait_seconds}"
   else
     echo "Pulsar Gateway large-payload failover cut: stopping broker-1"
     "${compose[@]}" stop pulsar-broker-1
