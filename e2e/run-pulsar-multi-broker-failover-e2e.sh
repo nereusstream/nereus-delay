@@ -10,6 +10,7 @@ pulsar_dir="${NEREUS_DELAY_PULSAR_CHECKOUT:-${delay_dir}/../../pulsar-worktrees/
 gradle_user_home="${NEREUS_DELAY_PULSAR_GRADLE_USER_HOME:-/tmp/nereus-delay-pulsar-multi-broker-gradle}"
 oxia_checkout="${NEREUS_DELAY_OXIA_CHECKOUT:-${delay_dir}/../../oxia}"
 with_oxia="${NEREUS_DELAY_PULSAR_WITH_OXIA:-0}"
+broker_process_crash="${NEREUS_DELAY_PULSAR_MULTI_BROKER_PROCESS_CRASH:-0}"
 compose_project="nereus-delay-pulsar-multi-e2e-$(date +%s)-$$"
 oxia_project="nereus-delay-pulsar-multi-oxia-e2e-${compose_project#nereus-delay-pulsar-multi-e2e-}"
 compose_file="${script_dir}/docker-compose.pulsar-cluster.yml"
@@ -17,6 +18,7 @@ compose=(docker compose -p "${compose_project}" -f "${compose_file}")
 oxia_compose_file="${script_dir}/docker-compose.oxia.yml"
 oxia_compose=(docker compose -p "${oxia_project}" -f "${oxia_compose_file}")
 image="nereus-delay-pulsar-p1:${compose_project}"
+oxia_image="${oxia_project}-oxia"
 image_context="$(mktemp -d -t nereus-delay-p1-cluster-image.XXXXXX)"
 runtime_dir="$(mktemp -d -t nereus-delay-p1-cluster-runtime.XXXXXX)"
 base_port=$((21900 + ($$ % 200)))
@@ -36,12 +38,22 @@ tarball="${NEREUS_DELAY_PULSAR_TARBALL:-${pulsar_dir}/distribution/server/build/
 pulsar_client_cp="${pulsar_dir}/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:${pulsar_dir}/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:${pulsar_dir}/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar"
 IFS=: read -r -a pulsar_client_artifacts <<< "${pulsar_client_cp}"
 
+if [[ "${broker_process_crash}" != "0" && "${broker_process_crash}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_MULTI_BROKER_PROCESS_CRASH must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${broker_process_crash}" == "1" && "${with_oxia}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_MULTI_BROKER_PROCESS_CRASH requires NEREUS_DELAY_PULSAR_WITH_OXIA=1" >&2
+  exit 1
+fi
+
 cleanup() {
   "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
   if [[ "${with_oxia}" == "1" ]]; then
     "${oxia_compose[@]}" down --remove-orphans >/dev/null 2>&1 || true
   fi
   docker image rm "${image}" >/dev/null 2>&1 || true
+  docker image rm "${oxia_image}" >/dev/null 2>&1 || true
   rm -rf "${image_context}"
   rm -rf "${runtime_dir}"
 }
@@ -58,7 +70,7 @@ wait_for_admin() {
   local url="$1"
   local deadline=$((SECONDS + 120))
   while (( SECONDS < deadline )); do
-    if curl --silent --fail "${url}/admin/v2/clusters" >/dev/null 2>&1; then
+    if curl --silent --fail "${url}/admin/v2/brokers/ready" >/dev/null 2>&1; then
       return 0
     fi
     sleep 2
@@ -154,10 +166,18 @@ if [[ "${with_oxia}" == "1" ]]; then
 fi
 
 run_worker "${service_url_before}" "${admin_url_after}" prepare
-"${compose[@]}" stop pulsar-broker-1
+if [[ "${broker_process_crash}" == "1" ]]; then
+  "${compose[@]}" kill --signal KILL pulsar-broker-1
+else
+  "${compose[@]}" stop pulsar-broker-1
+fi
 wait_for_admin "${admin_url_after}"
 run_worker "${service_url_failover}" "${admin_url_after}" resume
 "${compose[@]}" start pulsar-broker-1
 wait_for_admin "${admin_url_before}"
 
-echo "Pulsar multi-Broker failover E2E passed: same-topic guarded Worker resumed through broker-2 after broker-1 stop, applied the source record, completed provider-driven physical Publish, ACKed the source and released its final checkpoint and owner assignment."
+if [[ "${broker_process_crash}" == "1" ]]; then
+  echo "Pulsar Broker process-crash failover E2E passed: broker-1 was SIGKILLed after guarded Worker preparation, the same topic resumed through broker-2 with real Oxia authority, and broker-1 rejoined afterward."
+else
+  echo "Pulsar multi-Broker failover E2E passed: same-topic guarded Worker resumed through broker-2 after broker-1 stop, applied the source record, completed provider-driven physical Publish, ACKed the source and released its final checkpoint and owner assignment."
+fi

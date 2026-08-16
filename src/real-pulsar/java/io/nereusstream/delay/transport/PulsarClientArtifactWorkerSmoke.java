@@ -1546,8 +1546,17 @@ public final class PulsarClientArtifactWorkerSmoke {
                 + Base64.getUrlEncoder().withoutPadding().encodeToString(incarnation) + "\","
                 + "\"nereus.resource.created-at\":\""
                 + Long.toUnsignedString(creationTimestamp) + "\"}";
-        for (int attempt = 0; attempt < 40; attempt++) {
-            final HttpResponse<String> response = request(client, path, "PUT", body);
+        for (int attempt = 0; attempt < 120; attempt++) {
+            final HttpResponse<String> response;
+            try {
+                response = request(client, path, "PUT", body);
+            } catch (java.io.IOException failure) {
+                if (attempt == 119) {
+                    throw failure;
+                }
+                TimeUnit.MILLISECONDS.sleep(500L);
+                continue;
+            }
             if (response.statusCode() >= 200 && response.statusCode() < 300) {
                 return;
             }
