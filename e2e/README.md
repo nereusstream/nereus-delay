@@ -2734,6 +2734,51 @@ no temporary P1/Oxia images. This is a normal-path revalidation only; it does
 not claim combined multi-Broker failover, the untriggered recovered `UNKNOWN`
 response-loss branch, multi-shard placement, chaos or V1 release readiness.
 
+## Pulsar Worker destination response-loss with real Oxia
+
+The focused Worker destination response-loss mode now passes the real Oxia
+endpoint into the Worker when `NEREUS_DELAY_PULSAR_WITH_OXIA=1`. Run it with:
+
+```bash
+NEREUS_DELAY_PULSAR_WITH_OXIA=1 \
+NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS=1 \
+NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS_ONLY=1 \
+NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-worker-destination-response-loss-oxia-20260816 \
+  bash e2e/run-pulsar-real-client-e2e.sh
+```
+
+The source-bound run was Delay
+`b647176ed92491fd96514eed2b87098454078a79`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, distribution
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
+artifact SHA-256 values
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`, and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, P1
+image `sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. Pulsar Compose project
+`nereus-delay-pulsar-e2e-1786885612-9737` used `19787/19788`; the Oxia project
+was `nereus-delay-pulsar-oxia-e2e-1786885612-9737` on `16657`.
+
+The source-bound output was:
+
+```text
+Pulsar Worker assignment publication/acceptance passed: revision=1, worker=pulsar-worker, authority=real Oxia session-bound
+Pulsar Worker destination response-loss smoke passed: real SEND persisted the exact payload, the local response was discarded, and typed PULSAR_SEND_ACK evidence resolved the source-applied PUBLISHED Outcome
+Pulsar Worker source-applied physical publish passed: Admission source ledger=9/3, typed PULSAR_SEND_ACK target ledger/entry=10/0, Outcome source ledger=9/4, exact payload readback
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=9/0, active apply ledger/entry=9/1, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
+BUILD SUCCESSFUL in 1m 1s
+Pulsar Worker destination response-loss E2E passed: real SEND response loss resolved through typed PULSAR_SEND_ACK evidence and the source-applied Outcome completed.
+```
+
+This proves the bounded real-Oxia Worker destination SEND response-loss path,
+typed evidence resolution, source-applied `PUBLISHED` Outcome and final
+checkpoint. Exact cleanup checks found no containers, images, volumes or
+networks for either project. The run used normal `ENQUEUED` admission; it does
+not claim the recovered `UNKNOWN` Publish Admission branch, raw socket/process
+loss, combined Gateway multi-Broker failover, checkpoint publication,
+multi-shard placement or V1 release readiness.
+
 ## Kafka source Fetch response-loss receipt
 
 The focused source fault mode composes the locked K1 client with a real
