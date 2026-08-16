@@ -92,13 +92,16 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
         if (sessionTimeout.isZero() || sessionTimeout.isNegative()) {
             throw new IllegalArgumentException("sessionTimeout must be positive");
         }
+        final String canonicalNamespace = canonicalText(namespace, "namespace");
+        final String canonicalClientIdentifier = canonicalText(clientIdentifier, "clientIdentifier");
+        final String canonicalPrefix = canonicalKeyPrefix(keyPrefix);
         final SyncOxiaClient client = OxiaClientBuilder.create(serviceAddress)
-                .namespace(canonicalText(namespace, "namespace"))
-                .clientIdentifier(canonicalText(clientIdentifier, "clientIdentifier"))
+                .namespace(canonicalNamespace)
+                .clientIdentifier(canonicalClientIdentifier)
                 .sessionTimeout(sessionTimeout)
                 .syncClient();
         try {
-            return new ClientHandle(client, new OxiaSyncOwnerLeaseBackend(client, keyPrefix, true));
+            return new ClientHandle(client, new OxiaSyncOwnerLeaseBackend(client, canonicalPrefix, true));
         } catch (RuntimeException failure) {
             try {
                 client.close();

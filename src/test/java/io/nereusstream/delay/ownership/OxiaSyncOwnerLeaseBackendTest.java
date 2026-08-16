@@ -14,6 +14,7 @@ import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -28,6 +29,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class OxiaSyncOwnerLeaseBackendTest {
+    @Test
+    void connectRejectsAnInvalidKeyPrefixBeforeCreatingAnOxiaClient() {
+        assertThrows(IllegalArgumentException.class, () -> OxiaSyncOwnerLeaseBackend.connect(
+                "invalid-endpoint", "default", "owner-client", Duration.ofSeconds(1), "delay/owner/"));
+    }
+
     @Test
     void contextBoundCasUsesDurableEpochAndEphemeralSessionIdentity() {
         final FakeRecordClient records = new FakeRecordClient();
