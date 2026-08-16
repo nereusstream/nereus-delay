@@ -25,12 +25,16 @@ import java.util.Objects;
  * coordinator retains the same decoded record until the bounded Store apply
  * outcome is proven, then calls {@link #next()} to release only the local
  * look-ahead. The caller supplies the already validated durable replay start
- * offset; the Route activation barrier remains an identity fence, not a
- * substitute for local Store recovery metadata.</p>
+ * offset; transient empty polls before the Route activation barrier are
+ * retried, while an empty poll after the barrier is a proved source boundary.
+ * The Route activation barrier remains an identity fence, not a substitute
+ * for local Store recovery metadata.</p>
  */
 public final class KafkaClientArtifactRecoverySourceCursor
         implements Iterator<SourceReplayEntry>, AutoCloseable {
+    private static final int MAX_EMPTY_POLLS_BEFORE_ACTIVATION_BARRIER = 120;
     private final GuardedConsumer<byte[], byte[]> consumer;
+    private final KafkaActivationBarrier activationBarrier;
     private final String authenticatedClusterId;
     private final java.util.UUID nativeTopicUuid;
     private final ShardId shard;
@@ -39,6 +43,8 @@ public final class KafkaClientArtifactRecoverySourceCursor
     private final Duration pollTimeout;
     private final ArrayDeque<BufferedRecord> buffered = new ArrayDeque<>();
     private SourceReplayEntry current;
+    private int emptyPollsBeforeActivationBarrier;
+    private boolean activationBarrierReached;
     private boolean closed;
 
     public KafkaClientArtifactRecoverySourceCursor(final GuardedConsumer<byte[], byte[]> consumer,
@@ -54,6 +60,7 @@ public final class KafkaClientArtifactRecoverySourceCursor
         if (startOffsetInclusive < 0 || barrier.exclusiveOffset() < 0) {
             throw new IllegalArgumentException("Kafka recovery offsets must be non-negative");
         }
+        this.activationBarrier = barrier;
         this.authenticatedClusterId = barrier.authenticatedClusterId();
         this.nativeTopicUuid = barrier.nativeTopicUuid();
         this.shard = accepted.shardId();
@@ -71,6 +78,7 @@ public final class KafkaClientArtifactRecoverySourceCursor
         if (!expectedGuard.equals(consumer.resourceGuard())) {
             throw new IllegalArgumentException("Kafka guarded recovery consumer has a different resource guard");
         }
+        activationBarrierReached = Long.compareUnsigned(startOffsetInclusive, barrier.exclusiveOffset()) >= 0;
         consumer.assign(java.util.List.of(topicPartition));
         consumer.seek(topicPartition, startOffsetInclusive);
     }
@@ -89,8 +97,16 @@ public final class KafkaClientArtifactRecoverySourceCursor
                 buffered.addLast(new BufferedRecord(record, evidence));
             }
             if (records.isEmpty()) {
-                return false;
+                if (activationBarrierReached) {
+                    return false;
+                }
+                if (++emptyPollsBeforeActivationBarrier >= MAX_EMPTY_POLLS_BEFORE_ACTIVATION_BARRIER) {
+                    throw new IllegalStateException("Kafka recovery source did not reach the activation barrier after "
+                            + MAX_EMPTY_POLLS_BEFORE_ACTIVATION_BARRIER + " empty polls");
+                }
+                continue;
             }
+            emptyPollsBeforeActivationBarrier = 0;
         }
         final BufferedRecord fetched = buffered.removeFirst();
         final ConsumerRecord<byte[], byte[]> record = fetched.record();
@@ -101,6 +117,7 @@ public final class KafkaClientArtifactRecoverySourceCursor
             final KafkaSourcePosition position = new KafkaSourcePosition(shard, authenticatedClusterId,
                     nativeTopicUuid, record.offset(), record.leaderEpoch().orElse(null), record.timestamp());
             current = KafkaClientArtifactSourceRecordDecoder.decode(requireValue(record), shard, position, null, null);
+            activationBarrierReached = activationBarrier.reachedBy(position);
             return true;
         } catch (RuntimeException | Error failure) {
             buffered.addFirst(fetched);

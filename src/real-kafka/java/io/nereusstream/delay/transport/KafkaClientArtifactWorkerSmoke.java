@@ -692,11 +692,15 @@ public final class KafkaClientArtifactWorkerSmoke {
         final RetryPolicyRefV1 retryPolicy = new RetryPolicyRefV1(Bytes.utf8("retry-" + identity), 1,
                 Bytes.sha256(Bytes.utf8("retry-semantic-" + identity)));
         final long deliverAt = System.currentTimeMillis() + delayMs;
+        // Broker failover and a real Worker replay can consume several seconds
+        // before the due/Claim/physical-publish turn starts. Keep the smoke's
+        // materialization window bounded but large enough that the fault
+        // injection tests the recovery path instead of expiring the fixture.
         final ScheduleIntentV1 intent = ScheduleIntentV1.create(destination, retryPolicy, deliverAt,
-                deliverAt + 10_000, DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, payload,
+                deliverAt + 60_000, DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, payload,
                 Bytes.utf8("source-" + identity), null,
                 AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())), null, null);
-        return PreparedCommand.scheduleV1(shard, intent, deliverAt + 20_000);
+        return PreparedCommand.scheduleV1(shard, intent, deliverAt + 90_000);
     }
 
     private static V1ScheduleResolver scheduleResolver(final String clusterId, final UUID destinationTopicId,
