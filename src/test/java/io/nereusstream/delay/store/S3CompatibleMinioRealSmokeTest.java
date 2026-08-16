@@ -55,7 +55,9 @@ class S3CompatibleMinioRealSmokeTest {
                 fixture.checkpointDirectory(), fixture.manifest().canonicalJsonBytes());
 
         final CheckpointResourceV1 first = adapter.upload(request);
-        assertFalse(new String(first.immutableVersion(), StandardCharsets.UTF_8).startsWith("sha256-"));
+        final String providerVersion = new String(first.immutableVersion(), StandardCharsets.UTF_8);
+        assertFalse(providerVersion.startsWith("sha256-"));
+        System.out.println("MinIO checkpoint manifest provider version=" + providerVersion);
         assertEquals(first, adapter.upload(request));
 
         final Path restored = adapter.download(new CheckpointDownloadRequest(fixture.manifest(), first),
