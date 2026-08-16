@@ -2075,6 +2075,22 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "2026-08-16 Current multi-shard placement implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Current Oxia Route-driven multi-shard placement"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactRouteWorkerSmoke.java" \
+    "Kafka signed Route -> two guarded Fetch barriers"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactRouteWorkerSmoke.java" \
+    "WorkerShardFleetRuntime"
+require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
+    "NEREUS_DELAY_KAFKA_MULTI_SHARD_ONLY"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "2026-08-16 Kafka native multi-shard Worker fleet receipt"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "c6b2d0ea"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "2026-08-16 Kafka native multi-shard Worker fleet audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "2026-08-16 Kafka native multi-shard Worker fleet implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Kafka native multi-shard Worker fleet"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

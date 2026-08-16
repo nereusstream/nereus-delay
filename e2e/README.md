@@ -3339,3 +3339,36 @@ V1 release readiness remain open.
 The runner's project/container/network cleanup was exact. Its run-created
 Oxia image required one explicit `docker image rm` after the runner, and was
 then absent; reusable base images remain and no global Docker prune is run.
+
+## Kafka native multi-shard Worker fleet
+
+Run the source-bound Kafka two-shard Worker path with the real K1 Broker
+cluster and real Oxia authority:
+
+```bash
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+NEREUS_DELAY_KAFKA_MULTI_SHARD_ONLY=1 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-multishard-20260816-c6b2d0ea \
+GRADLE_USER_HOME=/tmp/nereus-delay-kafka-multishard-20260816-c6b2d0ea \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+At Delay `c6b2d0ea`, Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`
+and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, the runner published one
+signed two-partition Route, crossed two guarded Fetch barriers, admitted two
+real Oxia Assignment/Owner paths and attached two native guarded source
+consumers to one `WorkerShardFleetRuntime`. The current receipt is:
+
+```text
+Kafka signed Route -> two guarded Fetch barriers -> Oxia multi-shard Assignment/Owner -> one Worker fleet -> RocksDB apply/ACK/checkpoint smoke passed: fetchPartitions=2, routeRevision=1, assignmentRevisions=[1, 1], workers=[kafka-route-worker-a, kafka-route-worker-b], sourceBarriers=[1, 1]
+Kafka native multi-shard Worker fleet E2E passed: one signed Route covered two guarded Fetch barriers, two real Oxia Assignment/Owner Lease CAS paths admitted two native source consumers, one fair fleet applied/ACKed both partitions, and both final checkpoints/assignments were released.
+```
+
+This is positive source-bound Kafka evidence for two native Worker shards,
+including per-shard recovery/apply/ACK/checkpoint and exact withdrawal. It does
+not claim native Pulsar multi-shard production, multiple Worker processes, raw
+chaos completeness or V1 release readiness. The run used isolated Kafka and
+Oxia Compose projects; post-run checks found no containers, networks, volumes
+or matching temporary images. Reusable base images remain and no global Docker
+prune is used.

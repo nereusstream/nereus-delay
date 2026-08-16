@@ -10252,3 +10252,33 @@ two-native-source Worker fleet receipt: source ownership, per-shard catch-up/
 ACK, scheduler fairness, raw chaos and V1 release readiness remain open. The
 run-created Oxia image was explicitly removed after exact Compose cleanup; no
 global Docker prune was used.
+
+## 2026-08-16 Kafka native multi-shard Worker fleet audit
+
+The source-bound real-service rerun locks Delay to `c6b2d0ea`, Kafka to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+Kafka client SHA-256 to
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, and
+Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. It used Kafka Compose
+project `nereus-delay-kafka-e2e-1786895755-39992` on ports
+`19584,19585,19586` and Oxia project
+`nereus-delay-kafka-oxia-e2e-1786895755-39992` at `127.0.0.1:16742`.
+
+The implementation ran one signed two-partition Route, real guarded Fetch
+barriers `[1, 1]`, two session-bound Oxia Assignment publications
+`[1, 1]`, two Owner Leases on `kafka-route-worker-a/b`, two native source
+consumers and one `WorkerShardFleetRuntime`. Both partitions crossed recovery,
+source apply/ACK, committed source offsets, final checkpoint and exact
+Assignment withdrawal. The run marker was:
+
+```text
+Kafka signed Route -> two guarded Fetch barriers -> Oxia multi-shard Assignment/Owner -> one Worker fleet -> RocksDB apply/ACK/checkpoint smoke passed: fetchPartitions=2, routeRevision=1, assignmentRevisions=[1, 1], workers=[kafka-route-worker-a, kafka-route-worker-b], sourceBarriers=[1, 1]
+```
+
+This is a source-bound Kafka multi-shard Worker production receipt for two
+partitions, and supersedes the prior placement-only boundary for Kafka. It
+does not prove native Pulsar multi-shard fleet wiring, multiple Worker
+processes, the full raw crash/chaos matrix or V1 release approval. Exact
+post-run Docker checks found no containers, networks, volumes or matching
+temporary images for either isolated project; reusable base images were kept
+and no global Docker prune was used.

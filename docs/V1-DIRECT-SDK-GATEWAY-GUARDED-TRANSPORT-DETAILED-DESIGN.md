@@ -6767,3 +6767,24 @@ The next production boundary is to bind each accepted assignment to a native
 Kafka/Pulsar source consumer, Owner Lease, catch-up, scheduler and source
 ACK/checkpoint lifecycle. Until that exists, the current evidence must remain
 “multi-shard placement authority”, not “multi-shard Worker production”.
+
+## 2026-08-16 Kafka native multi-shard Worker fleet implementation note
+
+The Kafka Route smoke now has an explicit `NEREUS_DELAY_KAFKA_ROUTE_WORKER_SHARDS=2`
+path, exposed by `NEREUS_DELAY_KAFKA_MULTI_SHARD_ONLY=1`. It publishes one
+signed `RouteSnapshotV1` containing two partition-specific guarded Fetch/LSO
+barriers. Each partition is independently projected through the real Oxia
+Assignment CAS and Owner Lease, recovered from offset zero, and admitted to a
+native guarded Kafka source. The two `WorkerShardRuntime` instances share one
+`SharedRocksDbResources`, one `WorkClassExecutionRegistry` and one
+`WorkerShardFleetRuntime`; fleet source turns are round-robin and no assignment
+or lease authority is moved into the fleet.
+
+The source-bound run at Delay `c6b2d0ea` passed both partition apply/ACK paths,
+committed source offsets, per-shard final checkpoint, exact Owner release and
+exact Assignment withdrawal against K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. This closes the Kafka native
+two-shard Worker source composition. It deliberately does not imply native
+Pulsar multi-shard wiring, multiple Worker processes, scheduler/placement
+churn, raw chaos completeness or V1 release approval.

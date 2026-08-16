@@ -12284,6 +12284,50 @@ explicitly after the runner left it behind; post-cleanup checks found no
 container, network, volume or project image, and no global Docker prune was
 used.
 
+## 2026-08-16 Kafka native multi-shard Worker fleet receipt
+
+The source-bound rerun used Delay `c6b2d0ea`, Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+Kafka client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, Kafka
+image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`:
+
+```bash
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+NEREUS_DELAY_KAFKA_MULTI_SHARD_ONLY=1 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-multishard-20260816-c6b2d0ea \
+GRADLE_USER_HOME=/tmp/nereus-delay-kafka-multishard-20260816-c6b2d0ea \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The isolated Kafka Compose project was
+`nereus-delay-kafka-e2e-1786895755-39992`, with broker ports
+`19584,19585,19586`; its isolated Oxia project was
+`nereus-delay-kafka-oxia-e2e-1786895755-39992`, endpoint `127.0.0.1:16742`.
+The real route topic was
+`nereus-delay-route-worker-topic-2b3573c5-2b0a-44f5-aada-f94ed66ecb2e`.
+The runner created one signed two-partition Route, two real Oxia Assignment
+CAS publications (`[1, 1]`), two Owner Leases and two native guarded source
+consumers, then admitted both runtimes into one `WorkerShardFleetRuntime`.
+
+The source-bound output was:
+
+```text
+Kafka signed Route -> two guarded Fetch barriers -> Oxia multi-shard Assignment/Owner -> one Worker fleet -> RocksDB apply/ACK/checkpoint smoke passed: fetchPartitions=2, routeRevision=1, assignmentRevisions=[1, 1], workers=[kafka-route-worker-a, kafka-route-worker-b], sourceBarriers=[1, 1]
+Kafka native multi-shard Worker fleet E2E passed: one signed Route covered two guarded Fetch barriers, two real Oxia Assignment/Owner Lease CAS paths admitted two native source consumers, one fair fleet applied/ACKed both partitions, and both final checkpoints/assignments were released.
+```
+
+This closes the previously open Kafka-native multi-shard Worker source
+vertical for two partitions: Route barrier, Assignment/Owner admission,
+per-shard catch-up, source apply/ACK, fleet dispatch, final checkpoint and
+exact Assignment withdrawal are all exercised against real Kafka and real
+Oxia. It does not promote the result to native Pulsar multi-shard production,
+multi-worker process placement, raw crash/chaos completeness or V1 release
+readiness. Exact post-run checks found no containers, networks, volumes or
+matching temporary Kafka/Oxia images for either isolated project; reusable
+base images were retained and no global Docker prune was used.
+
 ## 2026-08-16 Kafka current Large-payload production-authority receipt
 
 The current-source rerun used Delay `eb8e4a9df859316253202ba3abfb48236bf64196`
