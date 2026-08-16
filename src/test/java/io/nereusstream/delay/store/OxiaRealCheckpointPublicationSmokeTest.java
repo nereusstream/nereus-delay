@@ -6,14 +6,18 @@ import io.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
 import io.nereusstream.delay.ownership.ShardLifecycleState;
 import io.nereusstream.delay.ownership.SourceAssignment;
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.CheckpointResourceV1;
 import io.nereusstream.delay.protocol.CheckpointUploadIntentV1;
 import io.nereusstream.delay.protocol.CheckpointUploadStateV1;
 import io.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
 import io.nereusstream.delay.protocol.KafkaActivationBarrier;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
+import io.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
+import io.nereusstream.delay.protocol.ObjectStoreProviderKindV1;
 import io.nereusstream.delay.protocol.OwnerIdentityV1;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
+import io.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
 import io.nereusstream.delay.protocol.ProtocolTupleV1;
 import io.nereusstream.delay.protocol.PublishAdmissionBody;
 import io.nereusstream.delay.protocol.QuotaGrantRefV1;
@@ -35,6 +39,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -62,16 +67,51 @@ class OxiaRealCheckpointPublicationSmokeTest {
     @Test
     void workerCheckpointRuntimePublishesAtomicIntentAndCatalogAgainstRealService() throws Exception {
         final String endpoint = endpoint();
-        final String prefix = "nereus-delay-real-checkpoint/" + UUID.randomUUID();
+        final ProfileRefV1 objectStore = new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, id32(4),
+                ProfileKindV1.OBJECT_STORE);
+        final Path objectRoot = tempDir.resolve("objects");
+        final PublishedCheckpoint published = publishWorkerCheckpoint(endpoint,
+                "nereus-delay-real-checkpoint/" + UUID.randomUUID(), objectStore,
+                new FilesystemCheckpointUploadAdapter(objectRoot, "bucket", LIMITS));
+        assertTrue(Files.isDirectory(published.directory()));
+        assertTrue(Files.isDirectory(objectRoot));
+    }
+
+    @Test
+    void workerCheckpointRuntimePublishesToRealMinioAndOxia() throws Exception {
+        final String oxiaEndpoint = endpoint();
+        final URI minioEndpoint = URI.create(required("NEREUS_DELAY_MINIO_ENDPOINT"));
+        final String region = valueOrDefault("NEREUS_DELAY_MINIO_REGION", "us-east-1");
+        final String bucket = required("NEREUS_DELAY_MINIO_BUCKET");
+        final String accessKey = required("NEREUS_DELAY_MINIO_ACCESS_KEY");
+        final String secretKey = required("NEREUS_DELAY_MINIO_SECRET_KEY");
+        final ProfileSemanticEnvelopeV1 profile = minioProfile(minioEndpoint, region, bucket, accessKey);
+        final S3CompatibleCheckpointObjectStoreAdapter adapter = new S3CompatibleCheckpointObjectStoreAdapter(
+                profile, minioEndpoint, region, bucket, accessKey, secretKey, null, LIMITS);
+
+        final PublishedCheckpoint published = publishWorkerCheckpoint(oxiaEndpoint,
+                "nereus-delay-real-checkpoint-minio/" + UUID.randomUUID(), profile.ref(), adapter);
+        final CheckpointResourceV1 resource = published.resource();
+        final Path restored = adapter.download(new CheckpointDownloadRequest(published.manifest(), resource),
+                tempDir.resolve("restored"));
+        assertEquals(published.manifest().files().stream().map(CheckpointManifest.FileEntry::name).toList(),
+                CheckpointFileInventory.collect(restored).stream().map(CheckpointFileInventory::name).toList());
+        assertEquals(published.manifest().canonicalJsonBytes().length, resource.manifestLength());
+        assertTrue(adapter.providerOwnershipObservation().activeOperationCount() == 0);
+        System.out.println("Oxia + MinIO Worker checkpoint publication passed: atomic Intent/Catalog="
+                + "true, immutable object upload/download=" + true + ", checkpoint="
+                + Bytes.hex(published.manifest().checkpointId()));
+    }
+
+    private PublishedCheckpoint publishWorkerCheckpoint(final String endpoint, final String prefix,
+                                                        final ProfileRefV1 objectStore,
+                                                        final CheckpointUploadAdapter adapter) throws Exception {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 23);
         final byte[] lineage = id16(2);
         final byte[] checkpointId = id16(3);
-        final ProfileRefV1 objectStore = new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, id32(4),
-                ProfileKindV1.OBJECT_STORE);
-        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("resources"));
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("resources-" + UUID.randomUUID()));
         final CheckpointScheduler scheduler = new CheckpointScheduler(100, 0, 1);
-        final Path checkpointDirectory = tempDir.resolve("checkpoint");
-        final Path objectRoot = tempDir.resolve("objects");
+        final Path checkpointDirectory = tempDir.resolve("checkpoint-" + UUID.randomUUID());
         final UUID sourceTopic = UUID.nameUUIDFromBytes(lineage);
         final SourceAssignment assignment = new SourceAssignment(shard, id32(6), 1,
                 new KafkaActivationBarrier(shard, "cluster", sourceTopic, 0));
@@ -128,8 +168,7 @@ class OxiaRealCheckpointPublicationSmokeTest {
             final CheckpointWorkClassExecutor.ExecutionRequest request =
                     new CheckpointWorkClassExecutor.ExecutionRequest(claim, checkpointDirectory, pending,
                             (directory, currentStore) -> childManifest(directory, currentStore, pending, parent, owner,
-                                    controlSnapshot), 1_000, () -> 100,
-                            new FilesystemCheckpointUploadAdapter(objectRoot, "bucket", LIMITS));
+                                    controlSnapshot), 1_000, () -> 100, adapter);
 
             final CheckpointWorkClassExecutor.Submission submitted = runtime.submit(request);
             assertEquals(List.of(submitted.task()), runtime.runTurn(new SchedulerBudget(1,
@@ -142,10 +181,12 @@ class OxiaRealCheckpointPublicationSmokeTest {
             assertArrayEquals(outcome.result().manifest().canonicalJsonBytes(), publicationBackend.manifest(
                     checkpointId).orElseThrow().canonicalJsonBytes());
             assertTrue(Files.isDirectory(checkpointDirectory));
-            assertTrue(Files.isDirectory(objectRoot));
             assertFalse(scheduler.isInFlight(shard));
+            final CheckpointUploadIntentV1 publishedIntent = outcome.result().publication().uploadIntent();
             assertTrue(ownerAuthority.release(activeLease));
             assertTrue(ownerAuthority.current(shard).isEmpty());
+            return new PublishedCheckpoint(checkpointDirectory, outcome.result().manifest(),
+                    publishedIntent.publishedManifest());
         }
     }
 
@@ -181,6 +222,30 @@ class OxiaRealCheckpointPublicationSmokeTest {
         Assumptions.assumeTrue(endpoint != null && !endpoint.isBlank(),
                 "NEREUS_DELAY_OXIA_ENDPOINT is not configured");
         return endpoint;
+    }
+
+    private static String required(final String name) {
+        final String value = System.getenv(name);
+        Assumptions.assumeTrue(value != null && !value.isBlank(), name + " is not configured");
+        return value;
+    }
+
+    private static String valueOrDefault(final String name, final String defaultValue) {
+        final String value = System.getenv(name);
+        return value == null || value.isBlank() ? defaultValue : value;
+    }
+
+    private static ProfileSemanticEnvelopeV1 minioProfile(final URI endpoint, final String region,
+                                                          final String bucket, final String accessKey) {
+        final ObjectStoreProfileSemanticV1 semantic = new ObjectStoreProfileSemanticV1(
+                ObjectStoreProviderKindV1.S3_COMPATIBLE,
+                S3CompatibleCheckpointObjectStoreAdapter.endpointConfigDigest(endpoint, region, bucket),
+                S3CompatibleCheckpointObjectStoreAdapter.credentialAuthorizationScopeDigest(
+                        accessKey, region, bucket),
+                1, true, true, true, true, id32(20), 1 << 20,
+                ObjectStoreProfileSemanticV1.SINGLE_PUT, 1, id32(21));
+        return new ProfileSemanticEnvelopeV1(ProfileKindV1.OBJECT_STORE,
+                Bytes.utf8("checkpoint-store"), 1, semantic);
     }
 
     private static OxiaSyncOwnerLeaseBackend.ClientHandle client(final String endpoint, final String identifier)
@@ -291,5 +356,9 @@ class OxiaRealCheckpointPublicationSmokeTest {
         final byte[] bytes = new byte[32];
         bytes[31] = (byte) value;
         return bytes;
+    }
+
+    private record PublishedCheckpoint(Path directory, CheckpointManifest manifest,
+                                       CheckpointResourceV1 resource) {
     }
 }
