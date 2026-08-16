@@ -10966,6 +10966,37 @@ the complete Kafka Fetch/LSO/retention recovery matrix, or V1 release
 readiness. Exact postchecks found no project resources, dangling images or
 temporary K1 image; no global Docker prune was used.
 
+## 2026-08-17 Current-source Kafka native multi-shard Worker fleet audit
+
+The current-source audit locks Delay to
+`cd0b90bd52d5db00cbccdf42be24bdcf41375dbc`, Kafka K1 to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+the K1 client artifact to SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, K1
+broker image to
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+and Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. The exact projects
+were `nereus-delay-kafka-e2e-1786909915-30675` and
+`nereus-delay-kafka-oxia-e2e-1786909915-30675` on Kafka `30750,30751,30752`
+and Oxia `30760`.
+
+Audit result: PASS for the bounded current-source native two-shard Worker
+composition. One signed Route covered two guarded Fetch barriers; two real
+Oxia Assignment/Owner Lease CAS paths admitted two native source consumers;
+one fair Worker fleet applied and ACKed both partitions and released both
+final checkpoints and assignments:
+
+```text
+Kafka signed Route -> two guarded Fetch barriers -> Oxia multi-shard Assignment/Owner -> one Worker fleet -> RocksDB apply/ACK/checkpoint smoke passed: fetchPartitions=2, routeRevision=1, assignmentRevisions=[1, 1], workers=[kafka-route-worker-a, kafka-route-worker-b], sourceBarriers=[1, 1]
+Kafka native multi-shard Worker fleet E2E passed: one signed Route covered two guarded Fetch barriers, two real Oxia Assignment/Owner Lease CAS paths admitted two native source consumers, one fair fleet applied/ACKed both partitions, and both final checkpoints/assignments were released.
+```
+
+The audit boundary remains explicit: this is not catalog-driven production
+placement, authenticated eligible-reader rollout, multi-shard large-payload
+egress, arbitrary multi-shard chaos or V1 release evidence. Exact postchecks
+found no project resources, dangling images or temporary K1/Oxia image; no
+global Docker prune was used.
+
 ## 2026-08-17 Protocol activation payload codec audit boundary
 
 Commit `99049c6f` adds a strict implementation of the Registry-defined

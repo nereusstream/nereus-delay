@@ -13792,6 +13792,51 @@ approval. Gate 2 and the release status therefore remain unchanged. Exact
 postchecks found no project containers, networks, volumes, dangling images or
 temporary `nereus-delay-kafka-k1` image; no global Docker prune was used.
 
+## 2026-08-17 Current-source Kafka native multi-shard Worker fleet receipt
+
+The current-source rerun locks Delay to
+`cd0b90bd52d5db00cbccdf42be24bdcf41375dbc`, Kafka K1 to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+the K1 client artifact to SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, K1
+broker image to
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+and Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. The isolated Kafka
+project was `nereus-delay-kafka-e2e-1786909915-30675` on
+`30750,30751,30752`; the Oxia project was
+`nereus-delay-kafka-oxia-e2e-1786909915-30675` on `30760`.
+
+The source-bound command was:
+
+```bash
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+NEREUS_DELAY_KAFKA_MULTI_SHARD_ONLY=1 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-multishard-20260817-r1 \
+NEREUS_DELAY_KAFKA_OXIA_PORT=30760 \
+KAFKA_BROKER_1_PORT=30750 \
+KAFKA_BROKER_2_PORT=30751 \
+KAFKA_BROKER_3_PORT=30752 \
+KAFKA_DELAY_E2E_ROUTE_WORKER_TOPIC=nereus-delay-kafka-route-multishard-20260817-r1 \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The run completed with `BUILD SUCCESSFUL in 54s` / `11 actionable tasks: 1
+executed, 10 up-to-date` and printed:
+
+```text
+Kafka signed Route -> two guarded Fetch barriers -> Oxia multi-shard Assignment/Owner -> one Worker fleet -> RocksDB apply/ACK/checkpoint smoke passed: fetchPartitions=2, routeRevision=1, assignmentRevisions=[1, 1], workers=[kafka-route-worker-a, kafka-route-worker-b], sourceBarriers=[1, 1]
+Kafka native multi-shard Worker fleet E2E passed: one signed Route covered two guarded Fetch barriers, two real Oxia Assignment/Owner Lease CAS paths admitted two native source consumers, one fair fleet applied/ACKed both partitions, and both final checkpoints/assignments were released.
+```
+
+This refreshes the bounded current-source native two-shard Worker composition:
+two physical source partitions, one signed Route, two real Oxia Assignment/
+Owner CAS paths, shared-fleet fairness, per-shard apply/ACK and final
+checkpoint/assignment release. It does not establish catalog-driven
+production placement, eligible-reader rollout authority, multi-shard large
+payload egress, arbitrary multi-shard chaos or V1 release readiness. Exact
+postchecks found no project containers, networks, volumes, dangling images or
+temporary K1/Oxia image; no global Docker prune was used.
+
 ## 2026-08-17 Protocol activation payload codec boundary
 
 Commit `99049c6f` adds the strict Java codec for the Registry-defined

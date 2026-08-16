@@ -4285,3 +4285,43 @@ This is controlled local post-commit response loss, not raw socket loss,
 Broker crash/failover, the full Kafka LSO/retention matrix or a release gate.
 The runner's exact postchecks found no project containers, networks, volumes or
 temporary K1 image; no global Docker prune was used.
+
+## Kafka native multi-shard Worker fleet (current source)
+
+Run the focused current-source two-shard Kafka Worker composition with:
+
+```bash
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+NEREUS_DELAY_KAFKA_MULTI_SHARD_ONLY=1 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-multishard-20260817-r1 \
+NEREUS_DELAY_KAFKA_OXIA_PORT=30760 \
+KAFKA_BROKER_1_PORT=30750 \
+KAFKA_BROKER_2_PORT=30751 \
+KAFKA_BROKER_3_PORT=30752 \
+KAFKA_DELAY_E2E_ROUTE_WORKER_TOPIC=nereus-delay-kafka-route-multishard-20260817-r1 \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The current-source receipt locks Delay to
+`cd0b90bd52d5db00cbccdf42be24bdcf41375dbc`, K1 to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+the client artifact to
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, K1
+image to
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`, and the isolated projects
+to `nereus-delay-kafka-e2e-1786909915-30675` and
+`nereus-delay-kafka-oxia-e2e-1786909915-30675`.
+
+The run passed with `BUILD SUCCESSFUL in 54s` and printed:
+
+```text
+Kafka signed Route -> two guarded Fetch barriers -> Oxia multi-shard Assignment/Owner -> one Worker fleet -> RocksDB apply/ACK/checkpoint smoke passed: fetchPartitions=2, routeRevision=1, assignmentRevisions=[1, 1], workers=[kafka-route-worker-a, kafka-route-worker-b], sourceBarriers=[1, 1]
+Kafka native multi-shard Worker fleet E2E passed: one signed Route covered two guarded Fetch barriers, two real Oxia Assignment/Owner Lease CAS paths admitted two native source consumers, one fair fleet applied/ACKed both partitions, and both final checkpoints/assignments were released.
+```
+
+This proves the bounded two-physical-partition Worker fleet path. It does not
+close production placement/eligibility authority, multi-shard large-payload
+egress, arbitrary multi-shard chaos or a release gate. Exact postchecks found
+no project containers, networks, volumes or temporary Kafka/Oxia images; no
+global Docker prune was used.
