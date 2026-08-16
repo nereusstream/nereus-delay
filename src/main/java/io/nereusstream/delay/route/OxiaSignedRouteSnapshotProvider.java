@@ -101,7 +101,9 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
     public synchronized CompletionStage<Void> start() {
         requireOpen();
         if (started) {
-            return CompletableFuture.completedFuture(null);
+            return health == RouteCacheHealth.HEALTHY
+                    ? CompletableFuture.completedFuture(null)
+                    : refresh();
         }
         try {
             client.startSession();

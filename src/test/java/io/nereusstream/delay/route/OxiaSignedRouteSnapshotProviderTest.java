@@ -77,6 +77,35 @@ class OxiaSignedRouteSnapshotProviderTest {
     }
 
     @Test
+    void startRetriesNotificationRegistrationAfterACommittedRegistrationIsFenced() throws Exception {
+        final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final FakeRouteClient authority = new FakeRouteClient();
+        final FakeRouteClient previousNotificationClient = new FakeRouteClient();
+        final FakeRouteClient replacementNotificationClient = new FakeRouteClient();
+        final OxiaRouteAuthoritySession session = new OxiaRouteAuthoritySession(authority,
+                previousNotificationClient, () -> replacementNotificationClient, "/nereus/route");
+        final RouteSnapshotV1 active = snapshot(keys, new RouteIncarnation(bytes(16, 30)),
+                RouteLifecycleV1.ACTIVE_FOR_NEW, 1);
+        final OxiaSignedRouteSnapshotPublisher publisher = new OxiaSignedRouteSnapshotPublisher(authority,
+                "/nereus/route", keys.getPublic());
+        publisher.publish(hint(), active, 0);
+        final OxiaSignedRouteSnapshotProvider provider = new OxiaSignedRouteSnapshotProvider(session,
+                "/nereus/route", keys.getPublic(), () -> 200);
+        try {
+            previousNotificationClient.afterNextNotifications(authority::expireEphemeralRecords);
+            assertThrows(RuntimeException.class, () -> provider.start().toCompletableFuture().join());
+            assertEquals(RouteCacheHealth.WATCH_GAP, provider.health());
+
+            provider.start().toCompletableFuture().join();
+            assertEquals(RouteCacheHealth.HEALTHY, provider.health());
+            assertEquals(1, provider.publishedRevision());
+            assertEquals(1, replacementNotificationClient.notificationRegistrationCount());
+        } finally {
+            provider.close();
+        }
+    }
+
+    @Test
     void explicitSessionReconnectRotatesMarkerAfterFenceAndRestoresReads() {
         final FakeRouteClient client = new FakeRouteClient();
         final OxiaRouteAuthoritySession session = new OxiaRouteAuthoritySession(client, "/nereus/route");
