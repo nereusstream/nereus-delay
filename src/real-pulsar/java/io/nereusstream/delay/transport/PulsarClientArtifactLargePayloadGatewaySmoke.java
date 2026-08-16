@@ -376,7 +376,8 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
 
     private static void createPartitionedTopic(final HttpClient client, final String adminUrl, final String topicBase,
                                                final String physicalTopic, final byte[] incarnation,
-                                               final long creationTimestamp) throws Exception {
+                                               final long creationTimestamp, final List<String> guardAdminUrls)
+            throws Exception {
         final String partitionsPath = adminUrl + "/admin/v2/persistent/public/default/" + topicBase + "/partitions";
         for (int attempt = 0; attempt < 120; attempt++) {
             final HttpResponse<String> response = request(client, partitionsPath, "PUT", "1");
@@ -392,7 +393,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         // Materialize the exact partition through the normal create endpoint so
         // the resource-controller endpoint can apply its ordered guard update.
         createTopic(client, adminUrl, physicalTopic, incarnation, creationTimestamp);
-        stampGuard(client, adminUrl, physicalTopic, incarnation, creationTimestamp);
+        stampGuard(client, guardAdminUrls, physicalTopic, incarnation, creationTimestamp);
     }
 
     private static void createTopic(final HttpClient client, final String adminUrl, final String topic,
@@ -421,20 +422,29 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                 + " lastStatus=" + lastStatus + " lastBody=" + lastBody);
     }
 
-    private static void stampGuard(final HttpClient client, final String adminUrl, final String physicalTopic,
-                                   final byte[] incarnation, final long creationTimestamp) throws Exception {
-        final String path = adminUrl + "/admin/v2/persistent/public/default/" + physicalTopic + "/resourceGuard";
+    private static void stampGuard(final HttpClient client, final List<String> adminUrls,
+                                   final String physicalTopic, final byte[] incarnation,
+                                   final long creationTimestamp) throws Exception {
         int lastStatus = -1;
         String lastBody = "";
         for (int attempt = 0; attempt < 120; attempt++) {
-            final HttpResponse<String> response = request(client, path, "PUT", guardBody(incarnation, creationTimestamp));
-            lastStatus = response.statusCode();
-            lastBody = response.body();
-            if (response.statusCode() >= 200 && response.statusCode() < 300 || response.statusCode() == 409) {
-                return;
-            }
-            if (response.statusCode() != 404 && response.statusCode() != 412 && response.statusCode() != 503) {
-                throw failure("stamp Pulsar large-payload resource guard", response);
+            for (String adminUrl : adminUrls) {
+                final String path = adminUrl + "/admin/v2/persistent/public/default/"
+                        + physicalTopic + "/resourceGuard";
+                final HttpResponse<String> response = request(client, path, "PUT",
+                        guardBody(incarnation, creationTimestamp));
+                lastStatus = response.statusCode();
+                lastBody = response.body();
+                if (response.statusCode() >= 200 && response.statusCode() < 300 || response.statusCode() == 409) {
+                    return;
+                }
+                if (response.statusCode() != 307 && response.statusCode() != 404
+                        && response.statusCode() != 412 && response.statusCode() != 503) {
+                    throw failure("stamp Pulsar large-payload resource guard", response);
+                }
+                // A 307/404 from one Broker can mean that the physical topic is
+                // owned or loaded by the other Broker. Try the next exact admin
+                // endpoint before consuming the bounded retry delay.
             }
             TimeUnit.MILLISECONDS.sleep(250);
         }
@@ -561,6 +571,17 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
     private static String configured(final String name, final String fallback) {
         final String value = System.getenv(name);
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private static List<String> configuredAdminUrls(final String value) {
+        final List<String> urls = Arrays.stream(value.split(","))
+                .map(String::trim)
+                .filter(candidate -> !candidate.isEmpty())
+                .toList();
+        if (urls.isEmpty()) {
+            throw new IllegalArgumentException("Pulsar large-payload admin URL list must not be empty");
+        }
+        return urls;
     }
 
     private static boolean failoverRequested() {
@@ -897,7 +918,8 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
             throw new IllegalArgumentException("usage: <service-url> <admin-url> <topic>");
         }
         final String serviceUrl = arguments[0];
-        final String adminUrl = arguments[1];
+        final List<String> adminUrls = configuredAdminUrls(arguments[1]);
+        final String adminUrl = adminUrls.get(0);
         final String sourceBase = arguments[2] + "-" + UUID.randomUUID();
         final String sourcePhysicalName = sourceBase + "-partition-0";
         final String sourcePhysicalBase = "persistent://public/default/" + sourceBase;
@@ -923,7 +945,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
 
         final HttpClient admin = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build();
         createPartitionedTopic(admin, adminUrl, sourceBase, sourcePhysicalName, SOURCE_INCARNATION,
-                SOURCE_CREATION_TIMESTAMP);
+                SOURCE_CREATION_TIMESTAMP, adminUrls);
         createTopic(admin, adminUrl, destinationName, DESTINATION_INCARNATION, DESTINATION_CREATION_TIMESTAMP);
 
         final AuthenticatedTenantContext tenant = new AuthenticatedTenantContext(

@@ -253,11 +253,14 @@ smoke_environment=(
 if [[ "${failover_mode}" == "1" ]]; then
   smoke_environment+=("NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER_MARKER=${failover_marker}")
 fi
-# Topic creation and the P1 resource-guard extension must go through the
-# broker named by cluster initialization.  The client service URL still
-# contains both brokers for the later failover cut; the admin URL is not
-# switched to broker-2 before the source topic has been materialized.
+# Topic metadata/physical materialization starts through the broker named by
+# cluster initialization.  Once the physical topic exists, resource-guard
+# administration may need the exact successor Broker because P1 ownership can
+# redirect a PUT; the client service URL still contains both Brokers.
 smoke_admin_url="${admin_url}"
+if [[ "${failover_mode}" == "1" ]]; then
+  smoke_admin_url="${admin_url},${admin_url_failover}"
+fi
 smoke_arguments=(
   runRealPulsarLargePayloadGatewaySmoke
   "-PpulsarClientClasspath=${pulsar_client_cp}"
