@@ -10130,3 +10130,41 @@ temporary images for the two named projects.
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
+
+## 2026-08-16 Kafka raw TCP endpoint-cut audit receipt
+
+The source-bound implementation is Delay `79d4617c`. Its focused
+`NEREUS_DELAY_KAFKA_BROKER_TCP_CUT_ONLY=1` branch composes a real K1
+three-Broker KRaft cluster, real Oxia Worker authority and a local raw TCP
+proxy. The proxy forwards Broker-1 before the cut, rejects one post-cut
+connection, then forwards later connections from the same public endpoint to
+Broker-2. This is an explicit endpoint-handoff harness, not a production
+Kafka failover mechanism.
+
+The live run used Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, and projects
+`nereus-delay-kafka-e2e-1786892446-98685` /
+`nereus-delay-kafka-oxia-e2e-1786892446-98685` on ports
+`19277,19278,19279/16769`. The source partition and the actual
+`groupId.hashCode() % __consumer_offsets.partitions` coordinator partition
+`15` both converged to `leader=2, replicas=[2, 3, 1]` while Broker-1 stayed
+alive.
+
+The source-bound receipt was:
+
+```text
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, and final checkpoint
+Kafka Worker authority smoke passed: real Oxia session-bound lease
+Kafka Worker raw TCP Broker-endpoint cut recovery E2E passed: Broker-1 remained alive, the source and selected group-coordinator partitions were explicitly placed on Broker-2, the raw proxy rejected Broker-1 once and handed later connections to Broker-2, and a fresh Worker resumed the same source through the full bootstrap list with real Oxia authority and source apply/ACK/checkpoint.
+```
+
+This provides positive evidence for the raw endpoint-cut and explicit
+endpoint-handoff branch. It does not satisfy the design's automatic
+controller/coordinator failover, Broker crash, network partition, multi-shard,
+full chaos or V1 release gates. Exact cleanup found no containers, networks,
+volumes or temporary Kafka/Oxia images; base images were retained and no
+global `docker prune` was run.

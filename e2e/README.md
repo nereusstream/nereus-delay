@@ -3218,3 +3218,39 @@ packet/proxy/socket chaos, controller/coordinator leader failover, production
 multi-shard runtime or V1 release readiness. The named Compose containers,
 networks, volumes and temporary images were absent after exact cleanup; base
 images were retained and no global `docker prune` was run.
+
+## Kafka raw TCP Broker endpoint-cut Worker recovery
+
+Run the focused real-service slice with:
+
+```bash
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+NEREUS_DELAY_KAFKA_BROKER_TCP_CUT_ONLY=1 \
+NEREUS_DELAY_KAFKA_OXIA_PORT=16769 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-broker-tcp-cut-gradle-20260816-r5 \
+KAFKA_DELAY_BROKER_TCP_CUT_TOPIC=nereus-delay-worker-broker-tcp-cut-live-20260816-r5 \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+This starts three real K1 Brokers and real Oxia. Before the cut, the local raw
+proxy forwards Broker-1's public endpoint to its bound listener. The placement
+smoke then moves the one-partition source leader and the exact
+`__consumer_offsets` partition for the fixed Worker group to
+`[2,3,1]`/leader `2`, without stopping Broker-1. The cut closes existing
+sockets, rejects one new Broker-1 endpoint connection, and forwards later
+connections on that endpoint to Broker-2. The fresh Worker must complete the
+real Oxia assignment/Owner Lease path, guarded source replay/apply, ACK and
+final checkpoint.
+
+The successful receipt recorded source `leader=2, replicas=[2, 3, 1]`,
+coordinator `offsetsPartition=15, leader=2, replicas=[2, 3, 1]`, the vertical
+Worker receipt and the raw endpoint-cut E2E receipt. The runner fails closed
+unless pre-cut forwarding, cut acknowledgement, post-cut rejection and
+post-cut handoff marker files all exist.
+
+This is an explicit endpoint fault/handoff harness. It does not prove automatic
+Kafka controller/coordinator failover, Broker crash recovery, Docker network
+partition recovery, production proxy behavior, multi-shard runtime, the full
+chaos matrix or V1 release readiness. Cleanup removes only the exact Compose
+projects, temporary networks/volumes and run-created Kafka/Oxia images; reusable
+base images are retained and no global `docker prune` is performed.

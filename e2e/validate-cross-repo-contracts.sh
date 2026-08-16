@@ -2011,6 +2011,30 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Recovery Pin session-fenced client wiring correction implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Recovery Pin session-fenced client wiring correction receipt"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "2026-08-16 Kafka raw TCP Broker endpoint-cut Worker recovery receipt"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "2026-08-16 Kafka raw TCP endpoint-cut audit receipt"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "2026-08-16 Raw Kafka endpoint-cut boundary"
+require_file_text "$delay_root/e2e/README.md" \
+    "Kafka raw TCP Broker endpoint-cut Worker recovery"
+require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
+    "NEREUS_DELAY_KAFKA_BROKER_TCP_CUT_ONLY"
+require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
+    "Kafka raw TCP fault proxy did not forward a later post-cut connection to Broker-2"
+require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
+    "runRealKafkaLeaderPlacementSmoke"
+require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
+    "runRealKafkaTcpFaultProxy"
+require_file_text "$delay_root/e2e/docker-compose.kafka.yml" \
+    "KAFKA_BROKER_1_BIND_PORT"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactTcpFaultProxy.java" \
+    "post-cut-handoff-file"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactLeaderPlacementSmoke.java" \
+    "Utils.abs(workerGroup.hashCode())"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+    "NEREUS_DELAY_KAFKA_WORKER_GROUP_ID"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

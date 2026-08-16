@@ -12256,6 +12256,58 @@ evidence. Exact post-run checks found no containers, networks, volumes or
 temporary Kafka/Oxia images for either isolated project; base images were not
 globally pruned.
 
+## 2026-08-16 Kafka raw TCP Broker endpoint-cut Worker recovery receipt
+
+Delay implementation commit `79d4617c` adds a focused raw TCP endpoint fault
+harness. Before the cut, the proxy forwards the public Broker-1 endpoint to
+Broker-1's bound listener. The harness then uses real Kafka Admin placement to
+put both the one-partition source leader and the selected
+`__consumer_offsets` coordinator partition on Broker-2, while Broker-1 stays
+alive. After the cut, the proxy rejects one new Broker-1 endpoint connection
+and hands later connections on that public endpoint to Broker-2.
+
+The source-bound command was:
+
+```bash
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+NEREUS_DELAY_KAFKA_BROKER_TCP_CUT_ONLY=1 \
+NEREUS_DELAY_KAFKA_OXIA_PORT=16769 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-broker-tcp-cut-gradle-20260816-r5 \
+KAFKA_DELAY_BROKER_TCP_CUT_TOPIC=nereus-delay-worker-broker-tcp-cut-live-20260816-r5 \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The run locked Delay `nereus/delay-full-implementation-v1@79d4617c`, Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image ID
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. Kafka used project
+`nereus-delay-kafka-e2e-1786892446-98685` on public ports
+`19277,19278,19279`, with Broker-1's raw backend on `19377`; the Oxia project
+was `nereus-delay-kafka-oxia-e2e-1786892446-98685` on `16769`.
+
+The authoritative placement and Worker receipts were:
+
+```text
+Kafka raw TCP cut source leader placement passed: topic=nereus-delay-worker-broker-tcp-cut-live-20260816-r5, leader=2, replicas=[2, 3, 1], broker1Alive=true
+Kafka raw TCP cut group coordinator placement passed: group=nereus-delay-worker-broker-tcp-cut-live-20260816-r5-group, offsetsPartition=15, leader=2, replicas=[2, 3, 1], broker1Alive=true
+Kafka Worker assignment publication/acceptance passed: revision=1, worker=kafka-worker, authority=real Oxia session-bound
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, and final checkpoint
+Kafka Worker authority smoke passed: real Oxia session-bound lease
+Kafka Worker raw TCP Broker-endpoint cut recovery E2E passed: Broker-1 remained alive, the source and selected group-coordinator partitions were explicitly placed on Broker-2, the raw proxy rejected Broker-1 once and handed later connections to Broker-2, and a fresh Worker resumed the same source through the full bootstrap list with real Oxia authority and source apply/ACK/checkpoint.
+```
+
+The runner also required the pre-cut forward, cut-ack, post-cut rejection and
+post-cut handoff marker files. This closes the bounded Kafka raw endpoint-cut
+plus explicit endpoint-handoff/source-Worker recovery slice. It does not claim
+automatic controller/coordinator failover, a Broker-1 crash, a Docker network
+partition, a production load balancer, multi-shard runtime, the complete
+chaos matrix or V1 release readiness. Exact post-run checks found no named
+containers, networks, volumes or temporary Kafka/Oxia images; reusable base
+images were retained and no global Docker prune was used.
+
 ## 2026-08-16 Kafka Worker durable-apply-before-ACK SIGKILL receipt
 
 Delay implementation commit `2cfc207f` adds a focused ACK-boundary process cut.

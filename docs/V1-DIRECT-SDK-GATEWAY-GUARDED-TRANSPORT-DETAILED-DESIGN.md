@@ -6682,3 +6682,32 @@ failover, production multi-shard runtime or V1 release readiness. Exact cleanup
 found no containers, networks, volumes or temporary Kafka/Oxia images for the
 two named projects; base images were retained and no global Docker prune was
 used.
+
+## 2026-08-16 Raw Kafka endpoint-cut boundary
+
+The Kafka fault matrix now has a source-Worker receipt for a live Broker-1
+public-endpoint cut. The harness is intentionally explicit about the authority
+sequence:
+
+1. A real Kafka Admin client places the source partition on Broker-2 and puts
+   the `__consumer_offsets` partition selected by Kafka's actual
+   `Utils.abs(groupId.hashCode()) % partitionCount` rule on Broker-2.
+2. Broker-1 remains running. A local raw TCP proxy closes the pre-cut sockets,
+   rejects one new connection to the Broker-1 public endpoint, and forwards
+   later connections on that endpoint to Broker-2.
+3. A fresh Worker uses the complete bootstrap list, real Oxia assignment and
+   Owner Lease authority, then proves source replay/apply, guarded ACK and final
+   checkpoint.
+
+The exact receipt used Delay `79d4617c`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, source
+leader and coordinator `leader=2, replicas=[2, 3, 1]`, and real Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The runner required raw
+pre-cut, cut-ack, post-cut rejection and post-cut handoff marker files.
+
+This boundary must not be generalized to automatic Kafka controller or group
+coordinator failover: the placement and endpoint handoff are test authority
+actions. Broker crash, Docker network partition, production proxy/load-balancer
+behavior, multi-shard scheduling, the full chaos matrix and the V1 release gate
+remain separate obligations.
