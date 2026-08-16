@@ -372,6 +372,7 @@ public final class GatewayIdempotencyRecordV1 {
         final Set<PhysicalEnqueueAttemptId> physicalIds = new HashSet<>();
         final Set<PhysicalEnqueueAttemptId> retryIds = new HashSet<>();
         boolean hasStarted = false;
+        int startedCount = 0;
         for (int index = 0; index < attempts.size(); index++) {
             final GatewayPhysicalAttemptV1 attempt = attempts.get(index);
             if (attempt.attemptNo() != index + 1) {
@@ -383,7 +384,16 @@ public final class GatewayIdempotencyRecordV1 {
             if (attempt.retryRequestId() != null && !retryIds.add(attempt.retryRequestId())) {
                 throw new IllegalArgumentException("Gateway retry request identity is duplicated");
             }
-            hasStarted |= attempt.state() == GatewayPhysicalAttemptStateV1.STARTED;
+            if (attempt.state() == GatewayPhysicalAttemptStateV1.STARTED) {
+                startedCount++;
+                if (index != attempts.size() - 1) {
+                    throw new IllegalArgumentException("Gateway STARTED attempt must be the final attempt");
+                }
+                hasStarted = true;
+            }
+        }
+        if (startedCount > 1) {
+            throw new IllegalArgumentException("Gateway ACTIVE record must contain one STARTED attempt");
         }
         final GatewayIdempotencyPhaseV1 expectedPhase = attempts.isEmpty()
                 ? GatewayIdempotencyPhaseV1.PREPARED

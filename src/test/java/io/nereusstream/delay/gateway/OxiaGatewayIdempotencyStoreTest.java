@@ -96,6 +96,33 @@ class OxiaGatewayIdempotencyStoreTest {
                 new Digest32(bytes(32, 8)), GatewayOperationKindV1.SCHEDULE, new Digest32(bytes(32, 9)),
                 prepared.canonicalBytes(), GatewayIdempotencyPhaseV1.QUIESCENT, List.of(first, duplicate),
                 uncertain.canonicalBytes(), 100, 200, 3));
+
+        final PhysicalEnqueueAttemptId firstStartedId = PhysicalEnqueueAttemptId.require(bytes(16, 27));
+        final PhysicalEnqueueAttemptId secondStartedId = PhysicalEnqueueAttemptId.require(bytes(16, 28));
+        final GatewayPhysicalAttemptV1 firstStarted = new GatewayPhysicalAttemptV1(1, firstStartedId,
+                GatewayPhysicalAttemptStateV1.STARTED, null, 100, 120, 2, 110);
+        final GatewayPhysicalAttemptV1 secondStarted = new GatewayPhysicalAttemptV1(2, secondStartedId,
+                GatewayPhysicalAttemptStateV1.STARTED, null, 121, 140, 3, 130);
+        assertThrows(IllegalArgumentException.class, () -> new GatewayIdempotencyRecordV1(
+                new Digest32(bytes(32, 29)), GatewayOperationKindV1.SCHEDULE, new Digest32(bytes(32, 30)),
+                prepared.canonicalBytes(), GatewayIdempotencyPhaseV1.ACTIVE,
+                List.of(firstStarted, secondStarted), null, 100, 200, 3));
+
+        final Digest32 nonFinalStartedKey = new Digest32(bytes(32, 31));
+        final PhysicalEnqueueAttemptId nonFinalStartedId = PhysicalEnqueueAttemptId.require(bytes(16, 32));
+        final PhysicalEnqueueAttemptId laterAttemptId = PhysicalEnqueueAttemptId.require(bytes(16, 33));
+        final PhysicalEnqueueAttemptId retryRequestId = PhysicalEnqueueAttemptId.require(bytes(16, 34));
+        final SubmissionOutcomeMessageV1 laterUncertain = GatewayOutcomeSupport.uncertain(prepared, laterAttemptId);
+        final GatewayPhysicalAttemptV1 laterUncertainAttempt = new GatewayPhysicalAttemptV1(2, laterAttemptId,
+                GatewayPhysicalAttemptStateV1.UNCERTAIN, laterUncertain.canonicalBytes(), 121, 140,
+                retryRequestId, GatewayIdempotencyHashV1.retryRequestHash(nonFinalStartedKey,
+                        nonFinalStartedId, retryRequestId), 3, 130);
+        final GatewayPhysicalAttemptV1 nonFinalStarted = new GatewayPhysicalAttemptV1(1, nonFinalStartedId,
+                GatewayPhysicalAttemptStateV1.STARTED, null, 100, 120, 2, 110);
+        assertThrows(IllegalArgumentException.class, () -> new GatewayIdempotencyRecordV1(
+                nonFinalStartedKey, GatewayOperationKindV1.SCHEDULE, new Digest32(bytes(32, 35)),
+                prepared.canonicalBytes(), GatewayIdempotencyPhaseV1.ACTIVE,
+                List.of(nonFinalStarted, laterUncertainAttempt), laterUncertain.canonicalBytes(), 100, 200, 3));
     }
 
     @Test
