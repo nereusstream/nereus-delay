@@ -10575,3 +10575,32 @@ secret-manager rotation/quiescence, multi-process chaos, soak and release
 gates remain open. Exact project/container/network/volume/image checks were
 empty after cleanup; the locked MinIO base remained and no global Docker
 prune was used.
+
+## 2026-08-17 Current-source Oxia Profile/Route authority and restart audit
+
+The current-source main Oxia authority project
+`nereus-delay-v1-oxia-e2e-1786899760-96148` used Delay
+`d521aeb41c13d396716f8ac726a63bf4f96db4db`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and endpoint `26420`. It passed
+the real Profile catalog CAS/trust/rotation, Owner/control/recovery,
+Route/Assignment and Gateway audit/admission tests with zero failures or
+errors; the report had three explicit opt-in skips (Route restart and
+MinIO-dependent checkpoint publication).
+
+The dedicated current-source notification-restart project
+`nereus-delay-v1-oxia-e2e-1786899721-95680` then passed the previously failing
+cut at endpoint `26410`:
+
+```text
+Dockerized Oxia Route notification restart smoke passed: session rotation and notification stream recovery
+```
+
+Audit result: PASS for the bounded real Oxia Profile/Route authority and
+explicit session-recovery slice. The implementation fix is important to the
+boundary: after a service restart, an old ephemeral marker may remain
+readable even though its underlying session is gone, so explicit recovery now
+always publishes a fresh marker before authority I/O. This does not close
+source-ordered Profile/trust publication, external secret-manager authority,
+multi-node Oxia failover, provider rotation/quiescence, full chaos or V1
+release approval. Exact post-run checks found no named resources or temporary
+Oxia images; no global Docker prune was used.

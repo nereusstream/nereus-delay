@@ -3799,3 +3799,45 @@ external secret-manager rotation, full chaos or V1 release readiness. Exact
 post-run checks found no project resources, temporary Oxia image or standalone
 MinIO container; the locked MinIO base was retained and no global Docker prune
 was run.
+
+## Current-source Oxia Profile/Route authority and notification restart
+
+Run the current-source main Oxia authority smoke with:
+
+```bash
+NEREUS_DELAY_OXIA_E2E_PORT=26420 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-real-20260817 \
+  bash e2e/run-oxia-real-service.sh
+```
+
+The run locks Delay to
+`d521aeb41c13d396716f8ac726a63bf4f96db4db`, Oxia to
+`37a17bef17202d5fd6e23282da5fd26d94865484`, and project
+`nereus-delay-v1-oxia-e2e-1786899760-96148`. It passed the real Profile,
+Owner/control/recovery, Route/Assignment and Gateway authority tests with
+zero failures/errors; three opt-in tests were explicitly skipped.
+
+Run the current-source restart cut with:
+
+```bash
+NEREUS_DELAY_OXIA_E2E_PORT=26410 \
+NEREUS_DELAY_OXIA_ROUTE_RESTART=1 \
+NEREUS_DELAY_OXIA_ROUTE_RESTART_ONLY=1 \
+NEREUS_DELAY_OXIA_ROUTE_RESTART_NOTIFICATIONS=1 \
+NEREUS_DELAY_OXIA_ROUTE_RESTART_PAUSE_SECONDS=2 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-real-20260817 \
+  bash e2e/run-oxia-real-service.sh
+```
+
+The exact restart project was
+`nereus-delay-v1-oxia-e2e-1786899721-95680`; the receipt was:
+
+```text
+Dockerized Oxia Route notification restart smoke passed: session rotation and notification stream recovery
+```
+
+This is bounded real Oxia session recovery evidence. The old-marker-visible
+restart bug is fixed by `d521aeb41c13d396716f8ac726a63bf4f96db4db`, with
+deterministic coverage in `OxiaSignedRouteSnapshotProviderTest`. Exact
+post-run checks found no named containers/networks/volumes or temporary Oxia
+images; no global Docker prune was used.

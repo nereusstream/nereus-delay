@@ -7078,3 +7078,32 @@ Oxia + MinIO Worker checkpoint publication and REAPING E2E passed: real Oxia Int
 The implementation remains bounded to one real Oxia authority session and one
 real MinIO provider. Multi-worker disaster takeover, external credential
 rotation/quiescence, full chaos, soak and V1 release gates remain separate.
+
+## 2026-08-17 Current Oxia Profile/Route authority and session-recovery implementation note
+
+The current source is Delay
+`d521aeb41c13d396716f8ac726a63bf4f96db4db` against Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The real Oxia main smoke passed
+Profile catalog Head/protection/rotation, credential trust verification,
+Owner/control/recovery authority, Route/Assignment and Gateway
+audit/admission. Its three explicit skips were retained as skips rather than
+being treated as evidence.
+
+The fault cut exposed a session-recovery edge: `reconnectSession()` only
+revalidated the old marker. After a service restart, Oxia could still return
+that marker while the underlying session was already invalid, so the next
+publish hit `SessionFenceException`. Explicit recovery now clears the local
+session projection, rotates the marker identity and performs a fresh
+session-bound CAS even when the old marker reread succeeds. The deterministic
+regression is
+`explicitSessionReconnectRotatesMarkerWhenTheOldMarkerIsStillReadable`, and
+the real current-source receipt is:
+
+```text
+Dockerized Oxia Route notification restart smoke passed: session rotation and notification stream recovery
+```
+
+The fix is scoped to explicit recovery; ordinary start/notification operation
+still preserves session fencing. External secret-manager resolution,
+source-ordered credential rotation, multi-node authority failover, provider
+quiescence, chaos and V1 release gates remain separate.

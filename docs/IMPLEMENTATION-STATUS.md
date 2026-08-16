@@ -9151,6 +9151,61 @@ and response-loss/crash recovery, Pulsar multi-broker failover, live
 prerequisite/Object Store authority, checkpoint/quiescence and V1 release
 gates remain open.
 
+## 2026-08-17 Current-source Oxia Profile/Route authority and restart receipt
+
+The current-source Oxia authority rerun locks Delay to
+`d521aeb41c13d396716f8ac726a63bf4f96db4db` and Oxia to
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The main authority command was:
+
+```bash
+NEREUS_DELAY_OXIA_E2E_PORT=26420 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-real-20260817 \
+  bash e2e/run-oxia-real-service.sh
+```
+
+The isolated project was `nereus-delay-v1-oxia-e2e-1786899760-96148` at
+`127.0.0.1:26420`, and its run-created Oxia image ID was
+`sha256:c42cd4b617a08b973dfd636399d07ef70903be7f56047da636f73b5d0347a604`.
+The report recorded `15` tests with `12` passed and `3` explicit skips,
+`failures=0`, `errors=0`; the passed set includes the real Profile catalog
+Head/protection/rotation smoke, Owner/control/recovery authority, Route
+worker assignment, Gateway audit/admission and real Oxia service checks. The
+three skips are the opt-in Route restart tests and the MinIO-dependent
+checkpoint publication test, so they are not promoted by this suite.
+
+The fixed current-source Route notification restart was then run separately:
+
+```bash
+NEREUS_DELAY_OXIA_E2E_PORT=26410 \
+NEREUS_DELAY_OXIA_ROUTE_RESTART=1 \
+NEREUS_DELAY_OXIA_ROUTE_RESTART_ONLY=1 \
+NEREUS_DELAY_OXIA_ROUTE_RESTART_NOTIFICATIONS=1 \
+NEREUS_DELAY_OXIA_ROUTE_RESTART_PAUSE_SECONDS=2 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-real-20260817 \
+  bash e2e/run-oxia-real-service.sh
+```
+
+It used project `nereus-delay-v1-oxia-e2e-1786899721-95680`, the same Oxia
+source, and temporary image ID
+`sha256:3d4b730477fab514bbbf160547b84e8043a1114793281083a835354dfb0e7845`.
+The first attempt exposed that explicit `reconnectSession()` incorrectly
+no-op'd when an old ephemeral marker was still readable after service restart;
+`d521aeb41c13d396716f8ac726a63bf4f96db4db` now always rotates the explicit
+recovery marker and adds a deterministic regression. The fixed real-service
+receipt was:
+
+```text
+Dockerized Oxia Route notification restart smoke passed: session rotation and notification stream recovery
+```
+
+Both named projects had no remaining containers, networks or volumes after
+exact cleanup, and both temporary Oxia images were removed by exact tag/ID.
+No global Docker prune was used. This closes current-source single-record
+Profile CAS/trust verification, Route notification session recovery and the
+real Oxia authority smoke boundary; source-ordered Profile/trust publication,
+external secret-manager resolution, multi-node authority failover, provider
+rotation/quiescence, full chaos and V1 release gates remain open.
+
 ## 2026-08-16 source-applied Pulsar Worker physical Publish vertical
 
 Delay commit `cb309d82` wires the real P1 Worker smoke to a bounded physical

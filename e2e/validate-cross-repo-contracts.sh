@@ -2225,6 +2225,22 @@ require_file_text "$delay_root/e2e/README.md" \
     "Current-source Checkpoint REAPING with real Oxia and MinIO"
 require_file_text "$delay_root/e2e/run-oxia-minio-checkpoint-e2e.sh" \
     "OxiaRealCheckpointReapingSmokeTest.realOxiaOwnerAbandonmentReapsExactMinioCheckpointPrefix"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaRouteAuthoritySession.java" \
+    "old marker may still be visible after the session was lost"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
+    "explicitSessionReconnectRotatesMarkerWhenTheOldMarkerIsStillReadable"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "2026-08-17 Current-source Oxia Profile/Route authority and restart receipt"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "nereus-delay-v1-oxia-e2e-1786899721-95680"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Dockerized Oxia Route notification restart smoke passed: session rotation and notification stream recovery"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "2026-08-17 Current-source Oxia Profile/Route authority and restart audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "2026-08-17 Current Oxia Profile/Route authority and session-recovery implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Current-source Oxia Profile/Route authority and notification restart"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"
