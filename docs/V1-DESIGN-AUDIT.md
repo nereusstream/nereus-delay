@@ -11206,3 +11206,37 @@ temporary P1/Oxia images and staging directories. The locked MinIO base image
 was retained. This receipt does not establish raw socket loss, BookKeeper or
 controller failover, multi-shard large-payload placement, REAPING, soak,
 benchmark/capacity evidence, the full chaos matrix or V1 release readiness.
+
+## 2026-08-17 Current-source Pulsar large-payload Broker network-partition failover audit
+
+The current-source receipt locks Delay to
+`183682c850e9e2f272bd22e864a85bc35a65f545`, P1 to
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1
+distribution SHA-256 to
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1 image
+to `sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`, and MinIO to the locked
+digest `sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The exact Compose project was `nereus-delay-pulsar-large-e2e-1786911815-58790`
+on Pulsar `30850/30851,30852/30853`, Oxia `30860`, MinIO `30861`, and Gateway
+`30862`.
+
+Audit result: PASS for the bounded current-source Gateway-authority large
+payload Broker network-partition failover slice. After Gateway Commit/readback,
+Broker-1 stayed alive but was disconnected from the exact Compose network;
+after the 75-second ownership handoff wait, Broker-2 completed the same
+source-applied physical Publish with typed `PULSAR_SEND_ACK`, exact payload
+readback and MinIO-backed checkpoint, and Broker-1 rejoined:
+
+```text
+Pulsar Worker source-applied physical publish passed: Admission source ledger=5/0, typed PULSAR_SEND_ACK target ledger/entry=7/0, Outcome source ledger=5/1, exact payload readback
+Pulsar + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: prepare=2/2, commit=2/3, exactGatewayIdempotency=true, sourceRecords=6
+Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload Broker network-partition failover E2E passed: broker-1 stayed alive but lost its exact Compose network endpoint after Gateway Commit/readback, the same source-applied physical Publish completed through broker-2, and broker-1 rejoined afterward
+BUILD SUCCESSFUL in 2m 4s
+```
+
+The runner's exact cleanup removed the project containers, networks, volumes,
+temporary P1/Oxia images and staging directories. The locked MinIO base image
+was retained. This receipt does not establish raw socket loss, BookKeeper or
+controller failover, multi-shard large-payload placement, REAPING, soak,
+benchmark/capacity evidence, the full chaos matrix or V1 release readiness.
