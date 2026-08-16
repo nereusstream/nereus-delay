@@ -67,9 +67,12 @@ import javax.crypto.spec.SecretKeySpec;
  * <p>This closes the S3-compatible data-plane identity and response-loss
  * boundary only when the provider returns an exact immutable version header;
  * a Profile requiring exact-version deletion fails closed if that header is
- * absent. Credential rotation, provider quiescence/consistency attestations,
- * lifecycle deletion and the Oxia catalog transaction remain external
- * authority inputs.</p>
+ * absent. The adapter also records a local operation-completion and
+ * response-loss uncertainty horizon and supports a one-way local admission
+ * fence. That observation is not a provider-side quiescence or consistency
+ * attestation. Credential rotation, provider quiescence/consistency
+ * attestations, lifecycle deletion and the Oxia catalog transaction remain
+ * external authority inputs.</p>
  */
 public final class S3CompatibleCheckpointObjectStoreAdapter
         implements CheckpointUploadAdapter, CheckpointDownloadAdapter, CheckpointDeleteAdapter,
@@ -99,6 +102,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
     private final Clock clock;
     private final Duration requestTimeout;
     private final ObjectStoreCredentialUseLeaseGate credentialGate;
+    private final ObjectStoreProviderOwnershipTracker providerOwnership;
 
     /**
      * Creates an adapter with a bounded default HTTP client and UTC clock.
@@ -117,7 +121,8 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
                 null,
                 HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10))
                         .followRedirects(HttpClient.Redirect.NEVER).build(),
-                Clock.systemUTC(), Duration.ofSeconds(60));
+                Clock.systemUTC(), Duration.ofSeconds(60),
+                ObjectStoreProviderOwnershipTracker.DEFAULT_MAXIMUM_PROVIDER_OWNERSHIP_LIFETIME_MS);
     }
 
     /** Constructor with injectable client/clock for deterministic provider tests. */
@@ -133,7 +138,8 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
                                                     final Clock clock,
                                                     final Duration requestTimeout) {
         this(profile, endpoint, region, bucket, accessKeyId, secretAccessKey, sessionToken, limits, null, client,
-                clock, requestTimeout);
+                clock, requestTimeout,
+                ObjectStoreProviderOwnershipTracker.DEFAULT_MAXIMUM_PROVIDER_OWNERSHIP_LIFETIME_MS);
     }
 
     /** Creates a provider adapter whose every upload/download is lease-gated. */
@@ -149,7 +155,8 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         this(profile, endpoint, region, bucket, accessKeyId, secretAccessKey, sessionToken, limits, credentialGate,
                 HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10))
                         .followRedirects(HttpClient.Redirect.NEVER).build(),
-                Clock.systemUTC(), Duration.ofSeconds(60));
+                Clock.systemUTC(), Duration.ofSeconds(60),
+                ObjectStoreProviderOwnershipTracker.DEFAULT_MAXIMUM_PROVIDER_OWNERSHIP_LIFETIME_MS);
     }
 
     /** Injectable constructor for the lease-gated provider path. */
@@ -165,6 +172,25 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
                                                     final HttpClient client,
                                                     final Clock clock,
                                                     final Duration requestTimeout) {
+        this(profile, endpoint, region, bucket, accessKeyId, secretAccessKey, sessionToken, limits, credentialGate,
+                client, clock, requestTimeout,
+                ObjectStoreProviderOwnershipTracker.DEFAULT_MAXIMUM_PROVIDER_OWNERSHIP_LIFETIME_MS);
+    }
+
+    /** Injectable constructor with an explicit local provider ownership horizon. */
+    public S3CompatibleCheckpointObjectStoreAdapter(final ProfileSemanticEnvelopeV1 profile,
+                                                    final URI endpoint,
+                                                    final String region,
+                                                    final String bucket,
+                                                    final String accessKeyId,
+                                                    final String secretAccessKey,
+                                                    final String sessionToken,
+                                                    final CheckpointManifestLimits limits,
+                                                    final ObjectStoreCredentialUseLeaseGate credentialGate,
+                                                    final HttpClient client,
+                                                    final Clock clock,
+                                                    final Duration requestTimeout,
+                                                    final long maximumProviderOwnershipLifetimeMs) {
         this.profile = Objects.requireNonNull(profile, "profile");
         if (profile.profileKind() != ProfileKindV1.OBJECT_STORE
                 || !(profile.body() instanceof ObjectStoreProfileSemanticV1 semantic)) {
@@ -186,6 +212,8 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         this.clock = Objects.requireNonNull(clock, "clock");
         this.requestTimeout = Objects.requireNonNull(requestTimeout, "requestTimeout");
         this.credentialGate = credentialGate;
+        this.providerOwnership = new ObjectStoreProviderOwnershipTracker(this.clock,
+                maximumProviderOwnershipLifetimeMs);
         if (requestTimeout.isZero() || requestTimeout.isNegative()) {
             throw new IllegalArgumentException("requestTimeout must be positive");
         }
@@ -217,6 +245,21 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
                 Bytes.utf8(canonicalText(region, "region")), Bytes.utf8(canonicalBucket(bucket)));
     }
 
+    /** Returns the local provider ownership observation without changing admission. */
+    public synchronized ObjectStoreProviderOwnershipTracker.Observation providerOwnershipObservation() {
+        return providerOwnership.observe();
+    }
+
+    /** Permanently fences this adapter generation from starting new provider operations. */
+    public synchronized void beginProviderQuiescence() {
+        providerOwnership.beginQuiescence();
+    }
+
+    /** Requires the local fence, operation drain and ambiguity horizon to be closed. */
+    public synchronized ObjectStoreProviderOwnershipTracker.Observation requireProviderQuiescence() {
+        return providerOwnership.requireLocallyQuiescent();
+    }
+
     @Override
     public synchronized CheckpointResourceV1 upload(final CheckpointUploadRequest request) {
         Objects.requireNonNull(request, "request");
@@ -236,24 +279,31 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         final Path checkpointDirectory = normalizeDirectory(request.checkpointDirectory(), "checkpoint directory");
         validateInventory(checkpointDirectory, manifest, limits);
         final String prefix = checkpointPrefix(manifest);
-        for (CheckpointManifest.FileEntry file : manifest.files()) {
-            if (file.length() > objectStore.maxObjectBytes()) {
-                throw new IllegalArgumentException("checkpoint file exceeds Object Store maxObjectBytes: "
-                        + file.name());
+        final ObjectStoreProviderOwnershipTracker.Operation ownership = beginProviderOperation();
+        try {
+            for (CheckpointManifest.FileEntry file : manifest.files()) {
+                if (file.length() > objectStore.maxObjectBytes()) {
+                    throw new IllegalArgumentException("checkpoint file exceeds Object Store maxObjectBytes: "
+                            + file.name());
+                }
+                final Path source = checkpointDirectory.resolve(file.name()).normalize();
+                ensureWithin(checkpointDirectory, source);
+                putFile(objectKey(prefix, file), source, file.length(), file.checksum());
             }
-            final Path source = checkpointDirectory.resolve(file.name()).normalize();
-            ensureWithin(checkpointDirectory, source);
-            putFile(objectKey(prefix, file), source, file.length(), file.checksum());
+            final String manifestKey = prefix + "/manifest.json";
+            final String immutableVersion = putBytes(manifestKey, manifestBytes, manifest.manifestSha256(),
+                    limits.maxManifestBytes());
+            final CheckpointResourceV1 resource = new CheckpointResourceV1(manifest.recoveryLineageId(),
+                    manifest.checkpointId(),
+                    request.intent().objectStoreProfile(), Bytes.utf8(bucket), Bytes.utf8(manifestKey),
+                    Bytes.utf8(immutableVersion), manifestBytes.length, manifest.manifestSha256());
+            limits.validateResource(resource);
+            ownership.complete();
+            return resource;
+        } catch (RuntimeException | Error failure) {
+            ownership.uncertain();
+            throw failure;
         }
-        final String manifestKey = prefix + "/manifest.json";
-        final String immutableVersion = putBytes(manifestKey, manifestBytes, manifest.manifestSha256(),
-                limits.maxManifestBytes());
-        final CheckpointResourceV1 resource = new CheckpointResourceV1(manifest.recoveryLineageId(),
-                manifest.checkpointId(),
-                request.intent().objectStoreProfile(), Bytes.utf8(bucket), Bytes.utf8(manifestKey),
-                Bytes.utf8(immutableVersion), manifestBytes.length, manifest.manifestSha256());
-        limits.validateResource(resource);
-        return resource;
     }
 
     @Override
@@ -265,53 +315,65 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         final CheckpointResourceV1 resource = request.resource();
         validateCheckpointResource(manifest, resource);
 
-        final String prefix = checkpointPrefix(manifest);
-        final String manifestKey = prefix + "/manifest.json";
-        final String manifestVersion = decodeProviderVersion(resource.immutableVersion());
-        final List<ProviderResponseEvidence> preflightEvidence = new ArrayList<>(manifest.files().size() + 1);
-        boolean manifestPresent = false;
+        final ObjectStoreProviderOwnershipTracker.Operation ownership = beginProviderOperation();
         try {
-            final RemoteBytes remoteManifest = getBytes(manifestKey, limits.maxManifestBytes(), manifestVersion);
-            preflightEvidence.add(remoteManifest.evidence());
-            if (remoteManifest.bytes().length != resource.manifestLength()
-                    || !Arrays.equals(remoteManifest.bytes(), manifest.canonicalJsonBytes())
-                    || !Arrays.equals(resource.manifestSha256(), sha256(remoteManifest.bytes()))
-                    || !Arrays.equals(resource.immutableVersion(), Bytes.utf8(remoteManifest.version(null)))) {
-                throw new IllegalStateException("remote checkpoint manifest differs from catalog resource");
+            final String prefix = checkpointPrefix(manifest);
+            final String manifestKey = prefix + "/manifest.json";
+            final String manifestVersion = decodeProviderVersion(resource.immutableVersion());
+            final List<ProviderResponseEvidence> preflightEvidence = new ArrayList<>(manifest.files().size() + 1);
+            boolean manifestPresent = false;
+            try {
+                final RemoteBytes remoteManifest = getBytes(manifestKey, limits.maxManifestBytes(), manifestVersion);
+                preflightEvidence.add(remoteManifest.evidence());
+                if (remoteManifest.bytes().length != resource.manifestLength()
+                        || !Arrays.equals(remoteManifest.bytes(), manifest.canonicalJsonBytes())
+                        || !Arrays.equals(resource.manifestSha256(), sha256(remoteManifest.bytes()))
+                        || !Arrays.equals(resource.immutableVersion(), Bytes.utf8(remoteManifest.version(null)))) {
+                    throw new IllegalStateException("remote checkpoint manifest differs from catalog resource");
+                }
+                manifestPresent = true;
+            } catch (RemoteObjectMissing missing) {
+                preflightEvidence.add(missing.evidence());
             }
-            manifestPresent = true;
-        } catch (RemoteObjectMissing missing) {
-            preflightEvidence.add(missing.evidence());
-        }
 
-        final List<DeletePlan> plans = new ArrayList<>(manifest.files().size() + 1);
-        boolean filePresent = false;
-        for (CheckpointManifest.FileEntry file : manifest.files()) {
-            final String key = objectKey(prefix, file);
-            final RemoteObjectObservation observation = observeRemoteFile(key, file.length(), file.checksum(),
-                    objectBytesLimit(limits.maxIndividualFileBytes()));
-            preflightEvidence.add(observation.evidence());
-            if (observation.present()) {
-                filePresent = true;
-                plans.add(new DeletePlan(key, observation.version()));
+            final List<DeletePlan> plans = new ArrayList<>(manifest.files().size() + 1);
+            boolean filePresent = false;
+            for (CheckpointManifest.FileEntry file : manifest.files()) {
+                final String key = objectKey(prefix, file);
+                final RemoteObjectObservation observation = observeRemoteFile(key, file.length(), file.checksum(),
+                        objectBytesLimit(limits.maxIndividualFileBytes()));
+                preflightEvidence.add(observation.evidence());
+                if (observation.present()) {
+                    filePresent = true;
+                    plans.add(new DeletePlan(key, observation.version()));
+                }
             }
-        }
-        if (!manifestPresent) {
-            if (filePresent) {
-                throw new IllegalStateException("checkpoint manifest version is absent while file objects remain");
+            if (!manifestPresent) {
+                if (filePresent) {
+                    throw new IllegalStateException("checkpoint manifest version is absent while file objects remain");
+                }
+                final CheckpointDeleteResult result = new CheckpointDeleteResult(resource,
+                        ResourceDeleteConfirmedBody.DeleteOutcome.ALREADY_ABSENT,
+                        aggregateProbeRequestIds(preflightEvidence), aggregateProbeResponses(preflightEvidence));
+                ownership.complete();
+                return result;
             }
-            return new CheckpointDeleteResult(resource, ResourceDeleteConfirmedBody.DeleteOutcome.ALREADY_ABSENT,
-                    aggregateProbeRequestIds(preflightEvidence), aggregateProbeResponses(preflightEvidence));
-        }
-        // Keep the manifest visible until every file has passed the identity preflight.
-        plans.add(new DeletePlan(manifestKey, manifestVersion));
+            // Keep the manifest visible until every file has passed the identity preflight.
+            plans.add(new DeletePlan(manifestKey, manifestVersion));
 
-        final List<DeleteOperation> operations = new ArrayList<>(plans.size());
-        for (DeletePlan plan : plans) {
-            operations.add(deleteObject(plan.key(), plan.version()));
+            final List<DeleteOperation> operations = new ArrayList<>(plans.size());
+            for (DeletePlan plan : plans) {
+                operations.add(deleteObject(plan.key(), plan.version()));
+            }
+            final CheckpointDeleteResult result = new CheckpointDeleteResult(resource,
+                    ResourceDeleteConfirmedBody.DeleteOutcome.DELETED,
+                    aggregateDeleteRequestIds(operations), aggregateDeleteResponses(operations));
+            ownership.complete();
+            return result;
+        } catch (RuntimeException | Error failure) {
+            ownership.uncertain();
+            throw failure;
         }
-        return new CheckpointDeleteResult(resource, ResourceDeleteConfirmedBody.DeleteOutcome.DELETED,
-                aggregateDeleteRequestIds(operations), aggregateDeleteResponses(operations));
     }
 
     @Override
@@ -321,19 +383,28 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         if (!request.objectStoreProfile().equals(profile.ref())) {
             throw new IllegalArgumentException("checkpoint prefix sweep uses a different Object Store Profile");
         }
-        final String prefix = checkpointPrefix(request.recoveryLineageId(), request.checkpointId());
-        final VersionList initial = listVersions(prefix, request.maxVersions());
-        final List<DeleteOperation> operations = new ArrayList<>(initial.entries().size());
-        for (VersionedObject entry : initial.entries()) {
-            operations.add(deleteObject(entry.key(), entry.version()));
+        final ObjectStoreProviderOwnershipTracker.Operation ownership = beginProviderOperation();
+        try {
+            final String prefix = checkpointPrefix(request.recoveryLineageId(), request.checkpointId());
+            final VersionList initial = listVersions(prefix, request.maxVersions());
+            final List<DeleteOperation> operations = new ArrayList<>(initial.entries().size());
+            for (VersionedObject entry : initial.entries()) {
+                operations.add(deleteObject(entry.key(), entry.version()));
+            }
+            final VersionList finalListing = listVersions(prefix, request.maxVersions());
+            if (!finalListing.entries().isEmpty()) {
+                throw new IllegalStateException("checkpoint prefix sweep did not prove an empty prefix: " + prefix);
+            }
+            final CheckpointPrefixSweepResult result = new CheckpointPrefixSweepResult(initial.entries().size(),
+                    operations.size(),
+                    aggregateSweepRequestIds(initial.evidence(), operations, finalListing.evidence()),
+                    aggregateSweepResponses(initial.evidence(), operations, finalListing.evidence()));
+            ownership.complete();
+            return result;
+        } catch (RuntimeException | Error failure) {
+            ownership.uncertain();
+            throw failure;
         }
-        final VersionList finalListing = listVersions(prefix, request.maxVersions());
-        if (!finalListing.entries().isEmpty()) {
-            throw new IllegalStateException("checkpoint prefix sweep did not prove an empty prefix: " + prefix);
-        }
-        return new CheckpointPrefixSweepResult(initial.entries().size(), operations.size(),
-                aggregateSweepRequestIds(initial.evidence(), operations, finalListing.evidence()),
-                aggregateSweepResponses(initial.evidence(), operations, finalListing.evidence()));
     }
 
     @Override
@@ -344,47 +415,54 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         manifest.validateLimits(limits);
         final CheckpointResourceV1 resource = request.resource();
         validateCheckpointResource(manifest, resource);
-        final String prefix = checkpointPrefix(manifest);
-        final String expectedManifestKey = prefix + "/manifest.json";
-        final String manifestVersion = decodeProviderVersion(resource.immutableVersion());
-        final RemoteBytes remoteManifest = getBytes(expectedManifestKey, limits.maxManifestBytes(), manifestVersion);
-        if (remoteManifest.bytes().length != resource.manifestLength()
-                || !Arrays.equals(remoteManifest.bytes(), manifest.canonicalJsonBytes())
-                || !Arrays.equals(manifest.manifestSha256(), sha256(remoteManifest.bytes()))) {
-            throw new IllegalStateException("remote checkpoint manifest differs from catalog manifest");
-        }
-        final String fallbackVersion = "sha256-" + Bytes.hex(manifest.manifestSha256());
-        if (!Arrays.equals(resource.immutableVersion(), Bytes.utf8(remoteManifest.version(fallbackVersion)))) {
-            throw new IllegalStateException("remote checkpoint manifest version differs from catalog resource");
-        }
-        final Path target = normalizeTarget(targetDirectory);
-        final Path parent = Objects.requireNonNull(target.getParent(), "target parent");
-        ensureDirectory(parent, "checkpoint target parent");
-        if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IllegalStateException("checkpoint download target already exists: " + target);
-        }
-        final Path temporary = parent.resolve("." + target.getFileName() + ".s3-checkpoint-"
-                + UUID.randomUUID()).normalize();
-        ensureWithin(parent, temporary);
-        boolean published = false;
+        final ObjectStoreProviderOwnershipTracker.Operation ownership = beginProviderOperation();
         try {
-            ensureDirectory(temporary, "checkpoint staging directory");
-            for (CheckpointManifest.FileEntry file : manifest.files()) {
-                final Path destination = temporary.resolve(file.name()).normalize();
-                ensureWithin(temporary, destination);
-                ensureDirectory(Objects.requireNonNull(destination.getParent(), "checkpoint file parent"),
-                        "checkpoint staging parent");
-                getFile(objectKey(prefix, file), destination, file.length(), file.checksum());
+            final String prefix = checkpointPrefix(manifest);
+            final String expectedManifestKey = prefix + "/manifest.json";
+            final String manifestVersion = decodeProviderVersion(resource.immutableVersion());
+            final RemoteBytes remoteManifest = getBytes(expectedManifestKey, limits.maxManifestBytes(), manifestVersion);
+            if (remoteManifest.bytes().length != resource.manifestLength()
+                    || !Arrays.equals(remoteManifest.bytes(), manifest.canonicalJsonBytes())
+                    || !Arrays.equals(manifest.manifestSha256(), sha256(remoteManifest.bytes()))) {
+                throw new IllegalStateException("remote checkpoint manifest differs from catalog manifest");
             }
-            validateInventory(temporary, manifest, limits);
-            moveCreateNew(temporary, target);
-            forceDirectory(parent);
-            published = true;
-            return target;
-        } finally {
-            if (!published) {
-                deleteTree(temporary);
+            final String fallbackVersion = "sha256-" + Bytes.hex(manifest.manifestSha256());
+            if (!Arrays.equals(resource.immutableVersion(), Bytes.utf8(remoteManifest.version(fallbackVersion)))) {
+                throw new IllegalStateException("remote checkpoint manifest version differs from catalog resource");
             }
+            final Path target = normalizeTarget(targetDirectory);
+            final Path parent = Objects.requireNonNull(target.getParent(), "target parent");
+            ensureDirectory(parent, "checkpoint target parent");
+            if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
+                throw new IllegalStateException("checkpoint download target already exists: " + target);
+            }
+            final Path temporary = parent.resolve("." + target.getFileName() + ".s3-checkpoint-"
+                    + UUID.randomUUID()).normalize();
+            ensureWithin(parent, temporary);
+            boolean published = false;
+            try {
+                ensureDirectory(temporary, "checkpoint staging directory");
+                for (CheckpointManifest.FileEntry file : manifest.files()) {
+                    final Path destination = temporary.resolve(file.name()).normalize();
+                    ensureWithin(temporary, destination);
+                    ensureDirectory(Objects.requireNonNull(destination.getParent(), "checkpoint file parent"),
+                            "checkpoint staging parent");
+                    getFile(objectKey(prefix, file), destination, file.length(), file.checksum());
+                }
+                validateInventory(temporary, manifest, limits);
+                moveCreateNew(temporary, target);
+                forceDirectory(parent);
+                published = true;
+                ownership.complete();
+                return target;
+            } finally {
+                if (!published) {
+                    deleteTree(temporary);
+                }
+            }
+        } catch (RuntimeException | Error failure) {
+            ownership.uncertain();
+            throw failure;
         }
     }
 
@@ -883,6 +961,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
             builder.header(header.getKey(), header.getValue());
         }
         try {
+            requireCredentialGate();
             return client.send(builder.build(), handler);
         } catch (IOException failure) {
             throw new TransportFailure("S3 request failed: " + method + " " + operation, failure);
@@ -958,6 +1037,10 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
 
     private long objectBytesLimit(final long localLimit) {
         return Math.min(localLimit, objectStore.maxObjectBytes());
+    }
+
+    private ObjectStoreProviderOwnershipTracker.Operation beginProviderOperation() {
+        return providerOwnership.begin();
     }
 
     private void requireCredentialGate() {

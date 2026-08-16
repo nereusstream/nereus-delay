@@ -90,6 +90,22 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
     }
 
     @Test
+    void providerQuiescenceFenceStopsNewOperationsBeforeHttp() throws Exception {
+        try (FakeS3Server server = new FakeS3Server()) {
+            final Fixture fixture = fixture(server.endpoint());
+            final S3CompatibleCheckpointObjectStoreAdapter adapter = adapter(fixture.profile(), server.endpoint());
+            final CheckpointUploadRequest request = new CheckpointUploadRequest(fixture.pending(), fixture.manifest(),
+                    fixture.checkpointDirectory(), fixture.manifest().canonicalJsonBytes());
+
+            adapter.beginProviderQuiescence();
+
+            assertThrows(IllegalStateException.class, () -> adapter.upload(request));
+            assertTrue(server.requests.isEmpty());
+            assertTrue(adapter.requireProviderQuiescence().locallyQuiescent());
+        }
+    }
+
+    @Test
     void deletesEveryCheckpointObjectByExactProviderVersion() throws Exception {
         try (FakeS3Server server = new FakeS3Server()) {
             final Fixture fixture = fixture(server.endpoint());

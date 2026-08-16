@@ -80,12 +80,14 @@ public final class RenewableS3CompatibleCheckpointObjectStoreAdapter
     @Override
     public synchronized io.nereusstream.delay.protocol.CheckpointResourceV1 upload(
             final CheckpointUploadRequest request) {
+        requireProviderAdmission();
         renewIfNeeded();
         return delegate.upload(request);
     }
 
     @Override
     public synchronized Path download(final CheckpointDownloadRequest request, final Path targetDirectory) {
+        requireProviderAdmission();
         renewIfNeeded();
         return delegate.download(request, targetDirectory);
     }
@@ -93,6 +95,21 @@ public final class RenewableS3CompatibleCheckpointObjectStoreAdapter
     /** Returns the current local lease projection without reading the authority. */
     public CredentialUseLeaseV1 lease() {
         return gate.lease();
+    }
+
+    /** Permanently fences this adapter generation before any renewal or provider call. */
+    public synchronized void beginProviderQuiescence() {
+        delegate.beginProviderQuiescence();
+    }
+
+    /** Returns the delegate's local provider ownership observation. */
+    public synchronized ObjectStoreProviderOwnershipTracker.Observation providerOwnershipObservation() {
+        return delegate.providerOwnershipObservation();
+    }
+
+    /** Requires the delegate's local fence, drain and uncertainty horizon to be closed. */
+    public synchronized ObjectStoreProviderOwnershipTracker.Observation requireProviderQuiescence() {
+        return delegate.requireProviderQuiescence();
     }
 
     /** Performs one automatic renewal check; provider I/O is not performed here. */
@@ -151,6 +168,12 @@ public final class RenewableS3CompatibleCheckpointObjectStoreAdapter
         renewedLease.requireProtectedBy(protection);
         renewedLease.requireTtlAtMost(maximumLeaseTtlMs);
         gate.replace(protection, renewedLease, material.resolvedCredentialFingerprintDigest());
+    }
+
+    private void requireProviderAdmission() {
+        if (!delegate.providerOwnershipObservation().acceptingNewOperations()) {
+            throw new IllegalStateException("Object Store provider ownership is fenced");
+        }
     }
 
     private static ProfileSemanticEnvelopeV1 requireObjectStoreProfile(
