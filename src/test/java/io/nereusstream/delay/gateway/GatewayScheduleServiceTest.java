@@ -362,13 +362,14 @@ class GatewayScheduleServiceTest {
                                                                     final PreparedSubmissionV1 submission,
                                                                     final TransportOwnershipPermit permit) {
             calls++;
+            final PreparedCommand submitted = CommandCodec.decodeFrameV1(submission.managedFrame());
             if (uncertainFirst && calls == 1) {
                 return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
-                        WireIngressOutcomeSupport.uncertain(command, permit.physicalAttemptId().bytes(),
+                        WireIngressOutcomeSupport.uncertain(submitted, permit.physicalAttemptId().bytes(),
                                 StableCode.ENQUEUE_RESULT_UNCERTAIN, null)));
             }
             return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
-                    WireIngressOutcomeSupport.localDefinite(command, StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED)));
+                    WireIngressOutcomeSupport.localDefinite(submitted, StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED)));
         }
     }
 
@@ -410,7 +411,7 @@ class GatewayScheduleServiceTest {
                                              final MessagePreconditionV1 precondition,
                                              final long retryUntilEpochMs) {
             cancelCalls++;
-            return command;
+            return PreparedCommand.cancelV1(command.shardId(), messageId, precondition, retryUntilEpochMs);
         }
 
         @Override
@@ -420,7 +421,8 @@ class GatewayScheduleServiceTest {
                                                  final long deliverAtEpochMs, final long expireAtEpochMs,
                                                  final long retryUntilEpochMs) {
             rescheduleCalls++;
-            return command;
+            return PreparedCommand.rescheduleV1(command.shardId(), messageId, precondition, deliverAtEpochMs,
+                    expireAtEpochMs, retryUntilEpochMs);
         }
 
         @Override
@@ -453,7 +455,9 @@ class GatewayScheduleServiceTest {
                                                      final LargeSchedulePreparationV1 request,
                                                      final long retryUntilEpochMs) {
             largeCalls++;
-            return command;
+            return PreparedCommand.prepareLargeV1(command.shardId(), request.intentWithoutPayload(),
+                    request.expectedPayloadLength(), request.payloadSha256(), request.reservationTtlMs(),
+                    request.trustSet(), request.objectStoreProfile(), retryUntilEpochMs);
         }
 
         @Override
@@ -462,7 +466,8 @@ class GatewayScheduleServiceTest {
                                                     final PayloadCommitProofV1 proof,
                                                     final long retryUntilEpochMs) {
             commitCalls++;
-            return command;
+            return PreparedCommand.commitLargeV1(command.shardId(), proof.delayMessageId(), proof.reservationId(),
+                    proof, retryUntilEpochMs);
         }
 
         @Override

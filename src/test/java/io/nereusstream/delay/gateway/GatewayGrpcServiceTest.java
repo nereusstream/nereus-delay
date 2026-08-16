@@ -225,7 +225,10 @@ class GatewayGrpcServiceTest {
                                                      final RouteSelectionHint route,
                                                      final LargeSchedulePreparationV1 request,
                                                      final long retryUntilEpochMs) {
-            return CommandCodec.decodeFrameV1(prepared.managedFrame());
+            final PreparedCommand base = CommandCodec.decodeFrameV1(prepared.managedFrame());
+            return PreparedCommand.prepareLargeV1(base.shardId(), request.intentWithoutPayload(),
+                    request.expectedPayloadLength(), request.payloadSha256(), request.reservationTtlMs(),
+                    request.trustSet(), request.objectStoreProfile(), retryUntilEpochMs);
         }
 
         @Override
@@ -233,14 +236,17 @@ class GatewayGrpcServiceTest {
                                                     final PayloadReservationReceiptV1 reservation,
                                                     final PayloadCommitProofV1 proof,
                                                     final long retryUntilEpochMs) {
-            return CommandCodec.decodeFrameV1(prepared.managedFrame());
+            final PreparedCommand base = CommandCodec.decodeFrameV1(prepared.managedFrame());
+            return PreparedCommand.commitLargeV1(base.shardId(), proof.delayMessageId(), proof.reservationId(),
+                    proof, retryUntilEpochMs);
         }
 
         @Override
         public PreparedCommand prepareCancel(final AuthenticatedTenantContext tenant, final DelayMessageId messageId,
                                              final MessagePreconditionV1 precondition,
                                              final long retryUntilEpochMs) {
-            return CommandCodec.decodeFrameV1(prepared.managedFrame());
+            return PreparedCommand.cancelV1(messageId.routingId().shardId(), messageId, precondition,
+                    retryUntilEpochMs);
         }
 
         @Override
@@ -249,13 +255,14 @@ class GatewayGrpcServiceTest {
                                                  final MessagePreconditionV1 precondition,
                                                  final long deliverAtEpochMs, final long expireAtEpochMs,
                                                  final long retryUntilEpochMs) {
-            return CommandCodec.decodeFrameV1(prepared.managedFrame());
+            return PreparedCommand.rescheduleV1(messageId.routingId().shardId(), messageId, precondition,
+                    deliverAtEpochMs, expireAtEpochMs, retryUntilEpochMs);
         }
 
         @Override
         public PreparedSubmissionV1 prepareManaged(final AuthenticatedTenantContext tenant,
                                                    final PreparedCommand command) {
-            return prepared;
+            return PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(command));
         }
     }
 
@@ -270,8 +277,9 @@ class GatewayGrpcServiceTest {
         public CompletionStage<SubmissionOutcomeMessageV1> submit(final AuthenticatedTenantContext tenant,
                                                                     final PreparedSubmissionV1 submission,
                                                                     final TransportOwnershipPermit permit) {
+            final PreparedCommand submitted = CommandCodec.decodeFrameV1(submission.managedFrame());
             return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
-                    WireIngressOutcomeSupport.localDefinite(command, StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED)));
+                    WireIngressOutcomeSupport.localDefinite(submitted, StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED)));
         }
     }
 }

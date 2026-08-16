@@ -83,6 +83,9 @@ class OxiaGatewayIdempotencyStoreTest {
         assertThrows(IllegalArgumentException.class, () -> new GatewayIdempotencyRecordV1(
                 new Digest32(bytes(32, 6)), GatewayOperationKindV1.SCHEDULE, new Digest32(bytes(32, 7)),
                 prepared.canonicalBytes(), GatewayIdempotencyPhaseV1.QUIESCENT, List.of(), null, 100, 200, 1));
+        assertThrows(IllegalArgumentException.class, () -> new GatewayIdempotencyRecordV1(
+                new Digest32(bytes(32, 25)), GatewayOperationKindV1.CANCEL, new Digest32(bytes(32, 26)),
+                prepared.canonicalBytes(), GatewayIdempotencyPhaseV1.PREPARED, List.of(), null, 100, 200, 1));
 
         final SubmissionOutcomeMessageV1 uncertain = GatewayOutcomeSupport.uncertain(prepared, attemptId);
         final GatewayPhysicalAttemptV1 first = new GatewayPhysicalAttemptV1(1, attemptId,

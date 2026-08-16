@@ -400,11 +400,13 @@ public final class GatewayIdempotencyRecordV1 {
     }
 
     private void validateStoredProjection() {
+        final PreparedSubmissionV1 prepared;
         try {
-            PreparedSubmissionV1.decode(preparedSubmissionBytes);
+            prepared = PreparedSubmissionV1.decode(preparedSubmissionBytes);
         } catch (RuntimeException malformed) {
             throw new IllegalArgumentException("Gateway prepared submission is malformed", malformed);
         }
+        validatePreparedOperation(prepared);
         for (int index = 0; index < attempts.size(); index++) {
             final GatewayPhysicalAttemptV1 attempt = attempts.get(index);
             validateRetryRequestHash(index, attempt);
@@ -421,6 +423,25 @@ public final class GatewayIdempotencyRecordV1 {
         if (!Arrays.equals(expectedAggregate, aggregateOutcomeBytes)) {
             throw new IllegalArgumentException("Gateway aggregate does not match attempt history");
         }
+    }
+
+    private void validatePreparedOperation(final PreparedSubmissionV1 prepared) {
+        final boolean matches = prepared.isManaged()
+                ? switch (preparedCommand(prepared).type()) {
+                    case SCHEDULE -> operation == GatewayOperationKindV1.SCHEDULE;
+                    case PREPARE_LARGE_SCHEDULE -> operation == GatewayOperationKindV1.PREPARE_LARGE_SCHEDULE;
+                    case COMMIT_LARGE_SCHEDULE -> operation == GatewayOperationKindV1.COMMIT_LARGE_SCHEDULE;
+                    case CANCEL -> operation == GatewayOperationKindV1.CANCEL;
+                    case RESCHEDULE -> operation == GatewayOperationKindV1.RESCHEDULE;
+                }
+                : operation == GatewayOperationKindV1.SCHEDULE;
+        if (!matches) {
+            throw new IllegalArgumentException("Gateway operation does not match prepared submission");
+        }
+    }
+
+    private static PreparedCommand preparedCommand(final PreparedSubmissionV1 prepared) {
+        return CommandCodec.decodeFrameV1(prepared.managedFrame());
     }
 
     private void validateRetryRequestHash(final int attemptIndex, final GatewayPhysicalAttemptV1 attempt) {
