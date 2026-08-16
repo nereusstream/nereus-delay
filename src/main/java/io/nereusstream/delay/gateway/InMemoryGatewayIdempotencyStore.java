@@ -69,13 +69,16 @@ public final class InMemoryGatewayIdempotencyStore implements GatewayIdempotency
             }
             return new AttemptStart(current, null);
         }
+        if (now() >= current.retainUntilEpochMs()) {
+            return new AttemptStart(current, null);
+        }
         final long started = now();
         final long uncertaintyAt = checkedAdd(started, outcomeWaitMs);
         final long ownershipNotAfter = checkedAdd(started, ownershipMaxAgeMs);
         final PhysicalEnqueueAttemptId id = PhysicalEnqueueAttemptId.random();
         final GatewayPhysicalAttemptV1 attempt = new GatewayPhysicalAttemptV1(1, id,
-                GatewayPhysicalAttemptStateV1.STARTED, null, started, uncertaintyAt, current.revision() + 1,
-                ownershipNotAfter);
+                GatewayPhysicalAttemptStateV1.STARTED, null, started, uncertaintyAt,
+                checkedIncrement(current.revision()), ownershipNotAfter);
         final GatewayIdempotencyRecordV1 next = current.withAttempt(attempt);
         records.put(keyHash, next);
         return new AttemptStart(next, new GatewayAttemptOwnershipPermit(id, next.revision(), ownershipNotAfter,
@@ -129,7 +132,7 @@ public final class InMemoryGatewayIdempotencyStore implements GatewayIdempotency
         final PhysicalEnqueueAttemptId id = PhysicalEnqueueAttemptId.random();
         final GatewayPhysicalAttemptV1 attempt = new GatewayPhysicalAttemptV1(current.attempts().size() + 1, id,
                 GatewayPhysicalAttemptStateV1.STARTED, null, started, uncertaintyAt, retryRequestId, retryHash,
-                current.revision() + 1, ownershipNotAfter);
+                checkedIncrement(current.revision()), ownershipNotAfter);
         final GatewayIdempotencyRecordV1 next = current.withAttempt(attempt);
         records.put(keyHash, next);
         return new RetryStart(next, new GatewayAttemptOwnershipPermit(id, next.revision(), ownershipNotAfter,
@@ -202,6 +205,13 @@ public final class InMemoryGatewayIdempotencyStore implements GatewayIdempotency
         } catch (ArithmeticException overflow) {
             throw new IllegalArgumentException("Gateway time bound overflows", overflow);
         }
+    }
+
+    private static long checkedIncrement(final long value) {
+        if (value <= 0 || value == Long.MAX_VALUE) {
+            throw new IllegalArgumentException("Gateway record revision is exhausted");
+        }
+        return value + 1;
     }
 
 }

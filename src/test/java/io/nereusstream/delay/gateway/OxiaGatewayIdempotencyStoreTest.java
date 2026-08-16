@@ -135,6 +135,25 @@ class OxiaGatewayIdempotencyStoreTest {
     }
 
     @Test
+    void expiredPreparedRecordCannotCreateAnAttemptAtTheStoreBoundary() {
+        final TrustedClock clock = () -> 100;
+        final FakeGatewayClient client = new FakeGatewayClient();
+        final OxiaGatewayIdempotencyStore store = new OxiaGatewayIdempotencyStore(client, "/nereus/gateway",
+                clock, 10, 20);
+        final PreparedSubmissionV1 prepared = prepared();
+        final Digest32 keyHash = new Digest32(bytes(32, 35));
+        store.prepareIfAbsent(keyHash, GatewayOperationKindV1.SCHEDULE, new Digest32(bytes(32, 36)), prepared, 100);
+        final byte[] before = store.exact(keyHash).canonicalBytes();
+
+        final GatewayIdempotencyStore.AttemptStart expired = store.startAttempt(keyHash);
+
+        assertNull(expired.permit());
+        assertArrayEquals(before, store.exact(keyHash).canonicalBytes());
+        assertEquals(GatewayIdempotencyPhaseV1.PREPARED, expired.record().phase());
+        assertEquals(0, expired.record().attempts().size());
+    }
+
+    @Test
     void retryAttemptCasResponseLossConvergesToUncertainAfterDeadlineWithoutPermit() {
         final long[] now = {100};
         final TrustedClock clock = () -> now[0];

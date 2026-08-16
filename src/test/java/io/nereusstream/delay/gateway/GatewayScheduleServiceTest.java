@@ -70,6 +70,55 @@ class GatewayScheduleServiceTest {
     }
 
     @Test
+    void completedAggregateReplaysAfterRetryDeadlineWithoutAnotherCoordinatorCall() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
+        final PreparedCommand command = PreparedCommand.scheduleV1(shard, schedule(), 600);
+        final PreparedSubmissionV1 prepared = PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(command));
+        final FakeCore core = new FakeCore(prepared);
+        final CountingCoordinator coordinator = new CountingCoordinator(command);
+        final long[] now = {100};
+        final TrustedClock clock = () -> now[0];
+        final InMemoryGatewayIdempotencyStore store = new InMemoryGatewayIdempotencyStore(clock, 10, 20);
+        final GatewayScheduleService service = new GatewayScheduleService(core, store, coordinator, clock);
+        final AuthenticatedTenantContext tenant = tenant();
+        final GatewayScheduleRequestV1 request = request(600);
+
+        final GatewaySubmissionOutcomeV1 first = service.schedule(tenant, request).toCompletableFuture().join();
+        now[0] = 601;
+        final GatewaySubmissionOutcomeV1 replay = service.schedule(tenant, request).toCompletableFuture().join();
+
+        assertArrayEquals(first.submissionOutcome().canonicalBytes(), replay.submissionOutcome().canonicalBytes());
+        assertEquals(1, core.prepareCalls);
+        assertEquals(1, coordinator.calls);
+    }
+
+    @Test
+    void expiredPreparedRecordDoesNotCreateAnAttemptOrCallCoordinator() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
+        final PreparedCommand command = PreparedCommand.scheduleV1(shard, schedule(), 100);
+        final PreparedSubmissionV1 prepared = PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(command));
+        final FakeCore core = new FakeCore(prepared);
+        final CountingCoordinator coordinator = new CountingCoordinator(command);
+        final TrustedClock clock = () -> 100;
+        final InMemoryGatewayIdempotencyStore store = new InMemoryGatewayIdempotencyStore(clock, 10, 20);
+        final GatewayScheduleService service = new GatewayScheduleService(core, store, coordinator, clock);
+        final AuthenticatedTenantContext tenant = tenant();
+        final GatewayScheduleRequestV1 request = request(100);
+
+        final GatewaySubmissionOutcomeV1 outcome = service.schedule(tenant, request).toCompletableFuture().join();
+        final io.nereusstream.delay.transport.Digest32 keyHash = GatewayIdempotencyHashV1.keyHash(
+                tenant.authenticatedTenantScopeHash(), request.idempotencyKey());
+
+        assertEquals(io.nereusstream.delay.protocol.EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED,
+                outcome.submissionOutcome().managed().kind());
+        assertEquals(StableCode.PREPARED_COMMAND_EXPIRED,
+                outcome.submissionOutcome().managed().definitelyNotQueued().error().code());
+        assertEquals(0, coordinator.calls);
+        assertEquals(0, store.exact(keyHash).attempts().size());
+        assertEquals(GatewayIdempotencyPhaseV1.PREPARED, store.exact(keyHash).phase());
+    }
+
+    @Test
     void sameKeyWithDifferentCanonicalBodyIsPreparationConflictBeforeIo() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
         final PreparedCommand command = PreparedCommand.scheduleV1(shard, schedule(), 600);

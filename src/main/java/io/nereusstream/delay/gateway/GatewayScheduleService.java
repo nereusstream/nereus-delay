@@ -84,7 +84,7 @@ public final class GatewayScheduleService {
         if (prepared.state() == GatewayIdempotencyStore.PrepareState.CONFLICT) {
             return completed(preparationError(StableCode.PREPARED_SUBMISSION_MISMATCH));
         }
-        return continueAttempt(tenant, keyHash, submission, request.retryUntilEpochMs());
+        return continueAttempt(tenant, keyHash, submission);
     }
 
     /** Cancel path using the same durable prepared-bytes/attempt protocol as Schedule. */
@@ -136,17 +136,7 @@ public final class GatewayScheduleService {
     private CompletionStage<GatewaySubmissionOutcomeV1> continueAttempt(
             final AuthenticatedTenantContext tenant,
             final io.nereusstream.delay.transport.Digest32 keyHash,
-            final PreparedSubmissionV1 submission,
-            final long retryUntilEpochMs) {
-        try {
-            if (trustedClock.nowEpochMs() >= retryUntilEpochMs) {
-                return completed(GatewaySubmissionOutcomeV1.submission(GatewayOutcomeSupport.localDefinite(submission,
-                        StableCode.PREPARED_COMMAND_EXPIRED)));
-            }
-        } catch (RuntimeException unavailable) {
-            return completed(GatewaySubmissionOutcomeV1.submission(GatewayOutcomeSupport.localDefinite(submission,
-                    StableCode.ROUTE_SNAPSHOT_UNAVAILABLE)));
-        }
+            final PreparedSubmissionV1 submission) {
         return continueStartedAttempt(tenant, keyHash, submission, idempotency.startAttempt(keyHash));
     }
 
@@ -187,7 +177,7 @@ public final class GatewayScheduleService {
         if (prepared.state() == GatewayIdempotencyStore.PrepareState.CONFLICT) {
             return completed(preparationError(StableCode.PREPARED_SUBMISSION_MISMATCH));
         }
-        return continueAttempt(tenant, keyHash, submission, retryUntilEpochMs);
+        return continueAttempt(tenant, keyHash, submission);
     }
 
     /** Retries only the stored exact prepared bytes after an uncertain aggregate. */
@@ -244,8 +234,15 @@ public final class GatewayScheduleService {
                 }
             }
             if (started.record().attempts().isEmpty()) {
-                return completed(GatewaySubmissionOutcomeV1.submission(
-                        GatewayOutcomeSupport.localDefinite(submission, StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED)));
+                try {
+                    final StableCode code = trustedClock.nowEpochMs() >= started.record().retainUntilEpochMs()
+                            ? StableCode.PREPARED_COMMAND_EXPIRED : StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED;
+                    return completed(GatewaySubmissionOutcomeV1.submission(
+                            GatewayOutcomeSupport.localDefinite(submission, code)));
+                } catch (RuntimeException unavailable) {
+                    return completed(GatewaySubmissionOutcomeV1.submission(
+                            GatewayOutcomeSupport.localDefinite(submission, StableCode.ROUTE_SNAPSHOT_UNAVAILABLE)));
+                }
             }
             final GatewayPhysicalAttemptV1 last = started.record().attempts()
                     .get(started.record().attempts().size() - 1);

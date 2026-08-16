@@ -102,6 +102,9 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
             final Entry recovered = recoverExpiredStartedAttempt(keyHash, current);
             return new GatewayIdempotencyStore.AttemptStart(recovered.record(), null);
         }
+        if (now() >= current.record().retainUntilEpochMs()) {
+            return new GatewayIdempotencyStore.AttemptStart(current.record(), null);
+        }
         final long started = now();
         final long uncertaintyAt = checkedAdd(started, outcomeWaitMs);
         final long ownershipNotAfter = checkedAdd(started, ownershipMaxAgeMs);
