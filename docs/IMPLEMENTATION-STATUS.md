@@ -5675,7 +5675,7 @@ The query/control matrix's local durable operation state is now covered by
 `PersistentControlOperationAuthority`; the remaining durable-operation blocker
 is the production Oxia routing/authorization/session boundary and source-ordered
 marker authority, not the embedded file recovery seam.
-| Real-service, chaos, benchmark, soak and upgrade evidence | Partial (bounded real Kafka/Pulsar/Oxia and Gateway receipts; full matrix and release gates open) | `e2e/run-gateway-real-e2e.sh`, the Kafka/Pulsar/Oxia receipts above, the real multi-node Oxia Gateway DataServer leader-stop run, Gateway STARTED/RETRY_UNCERTAIN response-loss rereads, Kafka K2/Worker response-loss receipts, Pulsar destination/source-ACK/Worker response-loss receipts and the locked P1 two-Broker harness provide bounded real-service evidence; raw network/crash chaos, benchmark, soak, upgrade, HA, Object Store and release-gate coverage remain open |
+| Real-service, chaos, benchmark, soak and upgrade evidence | Partial (bounded real Kafka/Pulsar/Oxia and Gateway receipts; full matrix and release gates open) | `e2e/run-gateway-real-e2e.sh`, the Kafka/Pulsar/Oxia receipts above, the real multi-node Oxia Gateway DataServer leader-stop run, Gateway STARTED/RETRY_UNCERTAIN response-loss rereads, Kafka K2/Worker response-loss/LSO/retention/process/network/TCP receipts, Pulsar destination/source-ACK/Worker response-loss receipts, Worker JVM and Broker process/network failover receipts, native multi-shard fleets and the combined Pulsar large-payload network-partition receipt provide bounded real-service evidence; arbitrary fault combinations, controller/coordinator/storage failover, benchmark, soak, upgrade, HA, Object Store failure injection and release-gate coverage remain open |
 
 The local DLQ bridge now retains a typed `RetryDecisionV1` alongside the raw
 body bytes. When an exact source-position Retry Policy catalog and V1 schedule
@@ -13440,6 +13440,32 @@ cache after an external Maven TLS handshake failure; the successful run and
 all postchecks were clean. Exact postchecks found no project resources,
 temporary P1/Oxia images or crash state; the locked MinIO base was untouched
 and no global Docker prune was used.
+
+## 2026-08-17 Bounded fault-matrix inventory
+
+The current receipts above establish these independently source-bound slices:
+
+- Kafka: K2 target/receipt commit response loss, Worker destination and source
+  ACK response loss, guarded Fetch response loss with `read_committed` LSO,
+  retention-floor rejection/readability, source/Worker/Broker process cuts,
+  Docker network partition and raw TCP endpoint cut, Route failover and native
+  multi-shard Worker placement.
+- Pulsar: guarded destination/source-ACK/Worker-admission response loss,
+  Worker JVM recovery, native multi-shard Worker placement, two-Broker
+  graceful/process failover, and the combined large-payload Gateway/Oxia/
+  Worker/MinIO process/network-partition slices.
+- Oxia/Gateway/Object Store: Gateway server restart/certificate/session churn,
+  multi-node DataServer leader-stop reread, durable Gateway response-loss
+  rereads, real MinIO payload/checkpoint versioning and checkpoint REAPING
+  slices.
+
+This inventory is not a single all-combinations chaos PASS. Still open are
+controller/coordinator and ZooKeeper/BookKeeper/storage failover, arbitrary
+packet/proxy/socket combinations, fault injection during every Gateway/Object
+Store stage and physical egress stage, multi-process HA, certified benchmark
+and soak artifacts, upgrade/downgrade proof, and the V1 release-gate runbook/
+capacity/SLO/restore evidence. The current release status therefore remains
+`NOT READY`; positive bounded receipts cannot promote it.
 
 ## 2026-08-17 Current-source Pulsar Gateway + Broker process-crash large-payload receipt
 
