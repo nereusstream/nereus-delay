@@ -188,6 +188,12 @@ commandHash = SHA-256(
   i64be(retryUntilEpochMs) || lp32(canonicalBody)
 )
 
+The command hash version tuple is the exact Client Command
+`(framingVersion, logEnvelopeVersion, recordKind, envelopeVersion, bodyVersion)`;
+`recordKind` is fixed to `CLIENT_COMMAND` for this preimage. A command with the
+same logical fields but a different version tuple therefore has a different
+identity and cannot hit an older command's dedupe result.
+
 mutationHash = SHA-256(
   "nereus-delay-system-mutation-hash-v1\0" ||
   u8(framingVersion) || u32be(logEnvelopeVersion) ||
@@ -1536,6 +1542,25 @@ dedupe/RESULT:           02 01 | commandId[41]
 dedupe/POSITION:         03 01 | canonicalSourcePosition
 dedupe/FENCE:            04 01 | proofId[32]
 dedupe/SYSTEM_MUTATION:  05 01 | systemMutationId[32]
+
+The `dedupe/COMMAND` value type 1 payload has a payload version independent of
+the outer Value Envelope version. Legacy payload version 1 is:
+
+```text
+u32be(1) | commandHash[32] | u32be(resultLength) | CommandResult
+```
+
+Payload version 2 is:
+
+```text
+u32be(2) | u32be(protocolTupleLength) | ProtocolTupleV1
+  | commandHash[32] | u32be(resultLength) | CommandResult
+```
+
+Version 1 decodes as the managed Client Command V1 tuple for backward
+compatibility. New writes use version 2; readers compare the persisted tuple
+before treating a command as an exact duplicate. Unknown, non-canonical or
+System Mutation tuples are rejected.
 
 `dedupe/POSITION` uses value type 3 as a closed physical-record audit union:
 the Client Command branch carries the exact `commandId[41]` payload, while the

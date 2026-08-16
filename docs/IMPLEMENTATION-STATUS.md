@@ -9206,14 +9206,42 @@ real Oxia authority smoke boundary; source-ordered Profile/trust publication,
 external secret-manager resolution, multi-node authority failover, provider
 rotation/quiescence, full chaos and V1 release gates remain open.
 
+## 2026-08-17 Gate 8 protocol-tuple dedupe implementation receipt
+
+The current Delay source lock for this bounded Gate 8 slice is
+`59e085ed643e7e16658004aa73761079d6c036ae`. It adds the Client Command
+protocol tuple to `commandHash`, persists it in `dedupe/COMMAND` payload
+version 2, reads legacy payload version 1 as managed V1, and compares tuple
+plus hash before returning a duplicate result. Same `commandId` with a
+different tuple is a position-level `COMMAND_ID_CONFLICT`; current V1
+wire/receipt projections reject unsupported tuples instead of silently
+downgrading them.
+
+The focused tests and full local check passed:
+
+```text
+CommandProtocolTupleTest: managed V1 hash compatibility, tuple-bound hash and wire fail-closed
+CommandDedupeRecordTest: legacy v1 decode, tuple-bearing v2 round-trip and malformed-branch rejection
+CommandProtocolDedupeApplyTest: same commandId/different tuple -> COMMAND_ID_CONFLICT
+GRADLE_USER_HOME=/tmp/nereus-delay-full-check-20260817 ./gradlew check --no-daemon --console=plain --quiet -> BUILD SUCCESSFUL
+```
+
+This closes a bounded durable identity/idempotency seam only. It does not close
+the authenticated activation marker, eligible-reader assignment, writer-before-
+reader cutover, downgrade, or full release artifact required by Gate 8.
+
 ## 2026-08-17 V1 release-gate audit (not release-ready)
 
 The audit is source-bound to Delay
-`f95c8a5468d6a1ee6df0bc1bd99000dc769d8797`, Kafka
+`59e085ed643e7e16658004aa73761079d6c036ae` (Gate 8 implementation slice; the
+preceding current-source E2E receipts remain bound to Delay
+`f95c8a5468d6a1ee6df0bc1bd99000dc769d8797`), Kafka
 `nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 Pulsar `nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`
-and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. At documentation
-commit `ea134e6acdd28f333e4d87444f020d6e2ca623f6`, the current full local
+and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. The prior audit snapshot
+was synchronized at documentation commit
+`ea134e6acdd28f333e4d87444f020d6e2ca623f6`; at the current source lock, the
+full local
 `GRADLE_USER_HOME=/tmp/nereus-delay-full-check-20260817 ./gradlew check --no-daemon --console=plain --quiet`
 and `bash e2e/validate-cross-repo-contracts.sh` pass. That is necessary
 evidence, not a V1 release claim.
@@ -9227,7 +9255,7 @@ evidence, not a V1 release claim.
 | 5. Required benchmark configurations | OPEN | No source-locked benchmark campaign artifact covers the required size, burst, Lane, shard, compaction, restore and inline/object matrix. |
 | 6. Capacity artifacts and SLO catalog | OPEN | Required memory/RSS/cgroup, FD/file, disk/temp, reserve, adapter/zombie, fairness formulas and durable SLO denominator evidence are not complete. |
 | 7. Soak | OPEN | No certified soak spans the longest checkpoint/floor, retry, uncertainty and GC cycles with zero unexplained gaps/drift. |
-| 8. Upgrade/downgrade | OPEN | Writer-before-reader and same-bytes/different-version dedupe gates have no release artifact. |
+| 8. Upgrade/downgrade | PARTIAL | Tuple-bound command hash, durable v2 dedupe, legacy v1 read and same-command/different-tuple conflict tests pass; writer-before-reader, eligible-reader assignment, cutover/downgrade and release artifact remain open. |
 | 9. Operations runbook | OPEN | Restore, fence, DLQ replay, uncertain override and disaster-boundary drills are not complete. |
 | 10. Kafka/Pulsar patch distribution gate | PARTIAL | K1/P1 source locks, binary digests, guarded receipts and delete/recreate/failover evidence exist; full Broker rollout, typed rejection/delete-recreate cut matrix and stock/name-fallback exclusion are not release-certified. |
 

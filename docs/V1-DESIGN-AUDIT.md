@@ -10744,7 +10744,9 @@ Oxia images; no global Docker prune was used.
 ## 2026-08-17 V1 release-gate audit result
 
 Source locks for this audit are Delay
-`f95c8a5468d6a1ee6df0bc1bd99000dc769d8797`, K1
+`59e085ed643e7e16658004aa73761079d6c036ae` for the Gate 8 tuple-bound
+dedupe slice (the preceding real-E2E receipts remain bound to Delay
+`f95c8a5468d6a1ee6df0bc1bd99000dc769d8797`), K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`. Full local `check` and the
@@ -10754,11 +10756,15 @@ Audit result: `NOT READY`. Gates 1--4 and 10 are bounded `PARTIAL`: the
 repository now has current-source real Kafka/Pulsar Gateway large-payload,
 Worker fault, Oxia authority, MinIO REAPING and bounded Pulsar combined
 network-partition failover evidence, but not the complete all-language,
-clock-bound, rollout or chaos matrix. Gates 5--9 remain `OPEN`:
+clock-bound, rollout or chaos matrix. Gate 8 is now bounded `PARTIAL`: the
+command hash and durable dedupe compare the full protocol tuple, legacy values
+remain readable, and unsupported current wire projections fail closed. Gates
+5--7 and 9 remain `OPEN`:
 required benchmark configurations, capacity/SLO artifacts, certified soak,
-upgrade/downgrade proof and restore/fence/DLQ/uncertain/disaster runbook
-drills have not been produced. This is a release audit boundary, not a reason
-to reinterpret the existing positive slices as V1 approval.
+restore/fence/DLQ/uncertain/disaster runbook drills have not been produced;
+Gate 8 still lacks authenticated writer-before-reader assignment,
+cutover/downgrade and a release artifact. This is a release audit boundary,
+not a reason to reinterpret the existing positive slices as V1 approval.
 
 ## 2026-08-17 Current-source Gateway Oxia session-churn audit
 

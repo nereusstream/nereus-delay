@@ -708,6 +708,13 @@ Route Incarnation 维护 source-ordered activated writable version set。只有�
 
 Activated writable set 同时固定 `(framingVersion, logEnvelopeVersion, recordKind, envelopeVersion, bodyVersion)`；writer 只有在 marker 前置、全 eligible reader 支持且旧 reader 已从 assignment 排除后才可选择新 tuple。dedupe 保存并比较该 version tuple；不存在“同 hash、不同 version 仍算 duplicate”的兼容捷径。
 
+当前实现边界（2026-08-17）：Client Command 的 `commandHash` 已按该 tuple
+计算，`dedupe/COMMAND` 新写入保存 tuple，旧 payload version 1 会绑定到当前
+managed V1 tuple 后读取；tuple 不同的同 `commandId` 返回
+`COMMAND_ID_CONFLICT`，不会复用旧结果。现有 wire codec 仍只发出 managed V1，
+对未激活/未支持 tuple fail closed。该切片不等同于 writer-before-reader、
+eligible-reader assignment、升级/降级或发布包演练已完成。
+
 ## 8. Shard Log 与 Source Position
 
 ### 8.1 Kafka
