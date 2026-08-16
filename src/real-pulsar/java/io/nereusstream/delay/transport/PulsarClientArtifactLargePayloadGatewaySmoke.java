@@ -622,10 +622,11 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         return marker != null && !marker.isBlank();
     }
 
-    private static void signalFailoverCut() throws Exception {
+    private static OwnerLease signalFailoverCut(final OxiaOwnerLeaseStore ownerAuthority,
+                                                final OwnerLease lease) throws Exception {
         final String marker = System.getenv("NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER_MARKER");
         if (marker == null || marker.isBlank()) {
-            return;
+            return lease;
         }
         final Path markerPath = Path.of(marker);
         final Path parent = markerPath.getParent();
@@ -636,13 +637,25 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         System.out.println("Pulsar Gateway large-payload failover cut marker written after Commit/readback");
         final Path releasePath = Path.of(marker + ".release");
         final long deadline = System.currentTimeMillis() + 180_000;
+        OwnerLease currentLease = lease;
+        long nextRenewalAt = System.currentTimeMillis() + 15_000;
         while (!Files.exists(releasePath)) {
             if (System.currentTimeMillis() >= deadline) {
                 throw new IllegalStateException("Pulsar Gateway large-payload failover cut was not released");
             }
+            final long now = System.currentTimeMillis();
+            if (now >= nextRenewalAt) {
+                currentLease = ownerAuthority.renew(currentLease, now, LEASE_DURATION_MS)
+                        .orElseThrow(() -> new IllegalStateException(
+                                "Pulsar Owner Lease renewal was rejected during failover cut"));
+                System.out.println("Pulsar Owner Lease renewed during failover cut: ownerEpoch="
+                        + currentLease.ownerEpoch() + ", expiresAt=" + currentLease.expiresAtEpochMs());
+                nextRenewalAt = now + 15_000;
+            }
             TimeUnit.MILLISECONDS.sleep(100);
         }
         System.out.println("Pulsar Gateway large-payload failover cut release acknowledged after broker-1 stop");
+        return currentLease;
     }
 
     private static String encode(final byte[] value) {
@@ -1242,7 +1255,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                                         if (!Arrays.equals(objectPayload, payload)) {
                                             throw new IllegalStateException("Pulsar Worker Object Store readback did not match the committed payload");
                                         }
-                                        signalFailoverCut();
+                                        final OwnerLease reactivationLease = signalFailoverCut(ownerAuthority, lease);
                                         if (failoverRequested()) {
                                             final PulsarActivationBarrier oldBarrier =
                                                     (PulsarActivationBarrier) activeAssignment.sourceAssignment()
@@ -1282,7 +1295,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                                                 final PulsarSourceReactivationCoordinator.FencedPlan fencedPlan =
                                                         reactivationCoordinator.fenceForReactivation(tenant,
                                                                 activePublication,
-                                                                ownerAuthority.current(shard).orElseThrow(), reactivation,
+                                                                reactivationLease, reactivation,
                                                                 System.currentTimeMillis());
                                                 final WorkerShardRuntime oldRuntime = runtime;
                                                 final OwnedDelayShard oldOwnedShard = activeOwnedShard;
