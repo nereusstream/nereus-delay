@@ -5656,3 +5656,25 @@ returned 0.
 This is a single desired-assignment session fence, not an Assignment/Owner/
 Route transaction or placement authority. Session recovery, source ordering,
 raw chaos, failover and release evidence remain outside this receipt.
+
+### 2026-08-16 Oxia Owner Lease session-bound CAS implementation note
+
+Delay commit `7a76a3af61ea16bceb81cc566462c078ca8de2a5` strengthens the
+connected `OxiaSyncOwnerLeaseBackend` path. The backend retains the raw client
+for session-marker inspection and wraps the owner epoch and ephemeral lease
+record client in a private `SessionBoundRecordClient`. Every `get`, version-CAS
+`put` and exact-version `delete` checks the exact marker before and after the
+record call. A committed lease whose response arrives after marker loss
+therefore fails closed rather than being exposed as a successful acquire,
+renewal, lifecycle transition or release; the unbound constructor remains the
+explicit deterministic/external surface.
+
+The deterministic regression commits the fake lease, fences the session before
+the ephemeral put response returns, asserts failure and then reopens the exact
+lease through the unbound seam. Fourteen Owner Lease tests passed; the opt-in
+real Oxia owner smoke was skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was not
+configured, and the full Gradle check returned 0.
+
+This is a per-record epoch/lease session fence, not an Assignment/Owner/Route
+transaction or placement authority. Session recovery, source ordering, raw
+chaos, failover and release evidence remain outside this receipt.

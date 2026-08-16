@@ -2097,3 +2097,30 @@ returned 0. This receipt proves only desired-assignment single-record session
 fencing; it does not prove Assignment/Owner/Route transactionality, placement
 authority, session recovery, source/evidence replay, chaos, failover or V1
 release readiness.
+
+## Oxia Owner Lease session-bound CAS receipt
+
+Delay commit `7a76a3af61ea16bceb81cc566462c078ca8de2a5` strengthens the
+connected `OxiaSyncOwnerLeaseBackend` path. The owner epoch and ephemeral
+lease records check the exact connected Oxia session marker before and after
+every read, version-CAS write and exact-version delete. A committed lease
+followed by marker loss is fenced instead of being returned as a guessed
+acquire/renewal/transition/release result; the unbound constructor remains an
+explicit deterministic/external seam.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackendTest \
+  --tests io.nereusstream.delay.ownership.OxiaRealServiceSmokeTest \
+  --no-daemon --console=plain
+```
+
+The deterministic owner-lease suite passed 14 tests. The real-service smoke
+method was skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was not configured,
+and the full `./gradlew check --no-daemon --console=plain --quiet` returned 0.
+This receipt proves only the per-record owner epoch/lease session fence; it
+does not prove Assignment/Owner/Route transactionality, placement authority,
+automatic session recovery, source ordering, chaos, failover or V1 release
+readiness.

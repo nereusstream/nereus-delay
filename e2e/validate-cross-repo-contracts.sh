@@ -1437,6 +1437,24 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Oxia Worker assignment session-bound CAS implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Oxia Worker assignment session-bound CAS receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackend.java" \
+    "owner epoch or lease"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackend.java" \
+    "committed ephemeral lease whose response is lost"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackendTest.java" \
+    "sessionFenceRejectsACommittedLeaseAfterTheMarkerChanges"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/ownership/OxiaRealServiceSmokeTest.java" \
+    "OxiaSyncOwnerLeaseBackend.connect("
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Oxia Owner Lease session-bound CAS"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "7a76a3af61ea16bceb81cc566462c078ca8de2a5"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Oxia Owner Lease session-bound CAS audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Oxia Owner Lease session-bound CAS implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Oxia Owner Lease session-bound CAS receipt"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"
