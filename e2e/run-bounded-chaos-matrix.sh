@@ -121,6 +121,48 @@ run_cell checkpoint-reaping env \
   NEREUS_DELAY_MINIO_CHECKPOINT_E2E_PORT=31301 \
   "${script_dir}/run-oxia-minio-checkpoint-e2e.sh"
 
+run_cell kafka-fetch-response-loss env \
+  NEREUS_DELAY_KAFKA_CHECKOUT="${kafka_dir}" \
+  NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
+  NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+  NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ONLY=1 \
+  NEREUS_DELAY_KAFKA_GRADLE_USER_HOME="${matrix_gradle_home}" \
+  KAFKA_BROKER_1_PORT=31320 KAFKA_BROKER_2_PORT=31321 KAFKA_BROKER_3_PORT=31322 \
+  NEREUS_DELAY_KAFKA_OXIA_PORT=31330 \
+  "${script_dir}/run-kafka-real-client-e2e.sh"
+
+run_cell kafka-retention-floor env \
+  NEREUS_DELAY_KAFKA_CHECKOUT="${kafka_dir}" \
+  NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
+  NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+  NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ONLY=1 \
+  NEREUS_DELAY_KAFKA_GRADLE_USER_HOME="${matrix_gradle_home}" \
+  KAFKA_BROKER_1_PORT=31340 KAFKA_BROKER_2_PORT=31341 KAFKA_BROKER_3_PORT=31342 \
+  NEREUS_DELAY_KAFKA_OXIA_PORT=31350 \
+  "${script_dir}/run-kafka-real-client-e2e.sh"
+
+run_cell pulsar-destination-response-loss env \
+  NEREUS_DELAY_PULSAR_CHECKOUT="${pulsar_dir}" \
+  NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
+  NEREUS_DELAY_PULSAR_WITH_OXIA=1 \
+  NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS=1 \
+  NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_ONLY=1 \
+  NEREUS_DELAY_PULSAR_GRADLE_USER_HOME="${matrix_gradle_home}" \
+  PULSAR_BROKER_PORT=31360 PULSAR_WEB_PORT=31361 \
+  NEREUS_DELAY_PULSAR_OXIA_PORT=31370 \
+  "${script_dir}/run-pulsar-real-client-e2e.sh"
+
+run_cell pulsar-source-ack-response-loss env \
+  NEREUS_DELAY_PULSAR_CHECKOUT="${pulsar_dir}" \
+  NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
+  NEREUS_DELAY_PULSAR_WITH_OXIA=1 \
+  NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS=1 \
+  NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_ONLY=1 \
+  NEREUS_DELAY_PULSAR_GRADLE_USER_HOME="${matrix_gradle_home}" \
+  PULSAR_BROKER_PORT=31380 PULSAR_WEB_PORT=31381 \
+  NEREUS_DELAY_PULSAR_OXIA_PORT=31390 \
+  "${script_dir}/run-pulsar-real-client-e2e.sh"
+
 printf '\n===== MATRIX SUMMARY =====\n'
 for result in "${cell_results[@]}"; do
   echo "${result}"
