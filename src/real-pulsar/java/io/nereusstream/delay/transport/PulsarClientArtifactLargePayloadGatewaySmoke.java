@@ -472,6 +472,58 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         }
     }
 
+    /**
+     * Creates the successor source only after a fresh guarded proof is available.
+     *
+     * <p>The P1 generation is allocated by the Broker process that admits the
+     * guarded SUBSCRIBE.  During a multi-Broker failover two independent Broker
+     * JVM counters can therefore accidentally present the same raw value.  A
+     * candidate with that value is not a successor proof: discard the exact
+     * candidate and establish another guarded SUBSCRIBE.  The reactivation
+     * contract still remains strict and never accepts an equal generation.</p>
+     */
+    private static SuccessorSource createSuccessorSource(
+            final PulsarClient client,
+            final TopicResourceGuard sourceGuard,
+            final String sourcePhysicalTopic,
+            final ShardId shard,
+            final PulsarSourcePosition commitPosition,
+            final long previousGeneration) throws Exception {
+        RuntimeException lastCollision = null;
+        for (int attempt = 1; attempt <= 8; attempt++) {
+            final GuardedConsumer<byte[]> candidate = PulsarClientArtifactSourceConsumerFactory.create(
+                    client, sourceGuard, sourcePhysicalTopic,
+                    "nereus-delay-pulsar-large-reactivation-" + UUID.randomUUID());
+            try {
+                final PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof proof =
+                        PulsarClientArtifactRecoverySourcePositioner.seekAfter(candidate, sourceGuard,
+                                sourcePhysicalTopic, shard, Optional.of(commitPosition), Duration.ofSeconds(15));
+                if (proof.connectionGeneration() != previousGeneration) {
+                    return new SuccessorSource(candidate, proof);
+                }
+                closeNative(candidate);
+                lastCollision = new IllegalStateException("equal successor connection generation="
+                        + proof.connectionGeneration() + ", attempt=" + attempt);
+                System.out.println("Pulsar source successor discarded equal Broker-local connection generation: "
+                        + proof.connectionGeneration() + "; retry=" + (attempt < 8));
+            } catch (RuntimeException | Error failure) {
+                try {
+                    closeNative(candidate);
+                } catch (RuntimeException closeFailure) {
+                    failure.addSuppressed(closeFailure);
+                }
+                throw failure;
+            }
+        }
+        throw new IllegalStateException("Pulsar source successor did not obtain a distinct connection generation",
+                lastCollision);
+    }
+
+    private record SuccessorSource(
+            GuardedConsumer<byte[]> consumer,
+            PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof proof) {
+    }
+
     private static String requiredEnv(final String name) {
         final String value = System.getenv(name);
         if (value == null || value.isBlank()) {
@@ -1119,19 +1171,17 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                                         }
                                         signalFailoverCut();
                                         if (failoverRequested()) {
-                                            final GuardedConsumer<byte[]> successorConsumer =
-                                                    PulsarClientArtifactSourceConsumerFactory.create(client, sourceGuard,
-                                                            sourcePhysicalTopic,
-                                                            "nereus-delay-pulsar-large-reactivation-" + UUID.randomUUID());
+                                            final PulsarActivationBarrier oldBarrier =
+                                                    (PulsarActivationBarrier) activeAssignment.sourceAssignment()
+                                                            .activationBarrier();
+                                            final SuccessorSource successor = createSuccessorSource(client, sourceGuard,
+                                                    sourcePhysicalTopic, shard, commitPosition,
+                                                    oldBarrier.guardedSourceConnectionGeneration());
+                                            final GuardedConsumer<byte[]> successorConsumer = successor.consumer();
                                             boolean successorInstalled = false;
                                             try {
                                                 final PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof successorProof =
-                                                        PulsarClientArtifactRecoverySourcePositioner.seekAfter(successorConsumer,
-                                                                sourceGuard, sourcePhysicalTopic, shard,
-                                                                Optional.of(commitPosition), Duration.ofSeconds(15));
-                                                final PulsarActivationBarrier oldBarrier =
-                                                        (PulsarActivationBarrier) activeAssignment.sourceAssignment()
-                                                                .activationBarrier();
+                                                        successor.proof();
                                                 final PulsarActivationBarrier successorBarrier = new PulsarActivationBarrier(
                                                         shard, oldBarrier.brokerResourceIncarnation(), oldBarrier.physicalTopic(),
                                                         oldBarrier.ledgerId(), oldBarrier.entryId(),
