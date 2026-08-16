@@ -3,6 +3,11 @@ package io.nereusstream.delay.transport;
 import io.nereusstream.delay.adapter.KafkaProduceRequest;
 import io.nereusstream.delay.adapter.KafkaProduceResult;
 import io.nereusstream.delay.adapter.PinnedKafkaCommandIngress;
+import io.nereusstream.delay.adapter.PinnedPulsarCommandIngress;
+import io.nereusstream.delay.adapter.PinnedPulsarNativeSubmissionAdapter;
+import io.nereusstream.delay.adapter.PulsarNativeSendRequest;
+import io.nereusstream.delay.adapter.PulsarSendRequest;
+import io.nereusstream.delay.adapter.PulsarSendResult;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CommandId;
 import io.nereusstream.delay.protocol.CommandType;
@@ -93,6 +98,53 @@ class GuardedTransportOwnershipTest {
         assertThrows(java.util.concurrent.CompletionException.class,
                 () -> transport.send(request, permit).toCompletableFuture().join());
         assertEquals(TransportOwnershipState.LIBRARY_OWNED, permit.state());
+    }
+
+    @Test
+    void pulsarCloseAttemptsNativeSenderAfterManagedSenderFailure() {
+        final AtomicInteger managedCloseCalls = new AtomicInteger();
+        final AtomicInteger nativeCloseCalls = new AtomicInteger();
+        final PinnedPulsarCommandIngress.PulsarSendTransport managed =
+                new PinnedPulsarCommandIngress.PulsarSendTransport() {
+            @Override
+            public CompletableFuture<PulsarSendResult> send(final PulsarSendRequest request) {
+                return null;
+            }
+
+            @Override
+            public void close() {
+                if (managedCloseCalls.incrementAndGet() == 1) {
+                    throw new IllegalStateException("simulated managed sender close failure");
+                }
+            }
+        };
+        final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport nativeSender =
+                new PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport() {
+                    @Override
+                    public CompletableFuture<PulsarSendResult> send(final PulsarNativeSendRequest request) {
+                        return null;
+                    }
+
+                    @Override
+                    public void close() {
+                        nativeCloseCalls.incrementAndGet();
+                    }
+                };
+        final PulsarCommandTransportKey key = new PulsarCommandTransportKey("cluster", "topic",
+                new Bytes32(bytes(32, 30)), 31, 0,
+                new CredentialBindingKey(1, digest(30), digest(31)));
+        final GuardedPulsarCommandTransport transport = new GuardedPulsarCommandTransport(key, managed, nativeSender);
+
+        final IllegalStateException failure = assertThrows(IllegalStateException.class, transport::close);
+
+        assertEquals("simulated managed sender close failure", failure.getMessage());
+        assertEquals(1, managedCloseCalls.get());
+        assertEquals(1, nativeCloseCalls.get());
+
+        transport.close();
+
+        assertEquals(2, managedCloseCalls.get());
+        assertEquals(2, nativeCloseCalls.get());
     }
 
     private static Digest32 digest(final int seed) {

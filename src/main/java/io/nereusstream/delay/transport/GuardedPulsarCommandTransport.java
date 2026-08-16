@@ -63,8 +63,40 @@ public final class GuardedPulsarCommandTransport implements CommandTransport {
 
     @Override
     public void close() {
-        managedSender.close();
-        nativeSender.close();
+        Throwable first = null;
+        try {
+            managedSender.close();
+        } catch (RuntimeException | Error failure) {
+            first = appendCloseFailure(first, failure);
+        }
+        try {
+            nativeSender.close();
+        } catch (RuntimeException | Error failure) {
+            first = appendCloseFailure(first, failure);
+        }
+        if (first != null) {
+            throwUnchecked(first);
+        }
+    }
+
+    private static Throwable appendCloseFailure(final Throwable first, final Throwable failure) {
+        if (first == null) {
+            return failure;
+        }
+        if (failure != first) {
+            first.addSuppressed(failure);
+        }
+        return first;
+    }
+
+    private static void throwUnchecked(final Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error errorFailure) {
+            throw errorFailure;
+        }
+        throw new IllegalStateException("unexpected checked teardown failure", failure);
     }
 
     private boolean matches(final TransportRequest request) {
