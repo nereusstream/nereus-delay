@@ -10989,3 +10989,27 @@ The focused Route provider/session suite passed 12 tests, including
 retryability only; it does not add automatic session recovery, Route
 transactionality, placement/source ownership, chaos/failover or release
 evidence.
+
+## 2026-08-16 Direct SDK client teardown retry boundary
+
+Delay commit `677026b3` makes `DefaultDelayClient.close()` retryable after a
+partial child-resource close failure. The client fences new operations as soon
+as close begins, attempts the outbox, query client and optional transport
+registry independently, retains the first failure with later failures
+suppressed, and records close completion only after every child close returns
+successfully. A later explicit close therefore retries the full owned-child
+teardown rather than treating a partial release as terminal.
+
+The focused receipt is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.client.DefaultDelayClientTest \
+  --no-daemon --console=plain
+```
+
+The deterministic Direct SDK client suite passed 11 tests, including
+`closeRetriesEveryChildAfterTheFirstCloseFailure`. This is local Direct SDK
+teardown retryability only; it does not establish provider/session recovery,
+transport delivery, durable outbox authority, crash/chaos, failover or V1
+release evidence.

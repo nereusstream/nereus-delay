@@ -5832,3 +5832,19 @@ The deterministic Route provider/session suite passed 12 tests, including
 failed-session-close and failed-provider-client-close retry regressions. This
 is local teardown state only; automatic session recovery, Route transactionality,
 placement/source authority, chaos, failover and release evidence remain open.
+
+### 2026-08-16 Direct SDK client teardown retry boundary implementation note
+
+Delay commit `677026b3` keeps `DefaultDelayClient` fenced but retryable during
+child teardown. `close()` sets the existing client-operation fence before
+calling the outbox, query client and optional `CommandTransportRegistry`; it
+attempts each child independently, preserves the first `RuntimeException` or
+`Error` with later failures suppressed, and sets `closeCompleted` only after
+the complete child set closes successfully. A failed first close therefore
+does not permit new SDK I/O and does not discard the explicit retry path.
+
+`DefaultDelayClientTest.closeRetriesEveryChildAfterTheFirstCloseFailure`
+passed in the 11-test deterministic Direct SDK client suite. The note closes
+only local SDK teardown retryability; provider/session recovery, transport
+delivery, durable outbox authority, crash/chaos, failover and release gates
+remain open.

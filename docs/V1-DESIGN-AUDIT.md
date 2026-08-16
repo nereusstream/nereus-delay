@@ -9174,6 +9174,26 @@ This closes only local Route teardown retryability. It does not establish
 automatic session recovery, event/head transactionality, placement/source
 ownership, raw chaos, failover or V1 release readiness.
 
+## 2026-08-16 Direct SDK client teardown retry boundary audit
+
+Delay commit `677026b3` separates the Direct SDK close fence from close
+completion. `DefaultDelayClient.close()` fences new submissions immediately,
+attempts the outbox, query client and optional transport registry even when an
+earlier child close fails, and retains the first failure with later failures
+suppressed. The client becomes terminally closed only after all owned child
+resources close successfully, so a later explicit close can retry the same
+teardown boundary.
+
+`DefaultDelayClientTest.closeRetriesEveryChildAfterTheFirstCloseFailure`
+forces the first outbox close to fail, verifies that all three children were
+attempted, then requires the second client close to reach every child again.
+The deterministic Direct SDK client suite passed 11 tests with zero
+failures/skips/errors.
+
+This closes only local Direct SDK teardown retryability. It does not establish
+provider/session recovery, transport delivery, durable outbox authority,
+crash/chaos, failover or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

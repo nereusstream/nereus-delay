@@ -2305,3 +2305,25 @@ session and provider client-close retry regressions. This receipt proves only
 local teardown retryability; it does not prove automatic Oxia recovery, Route
 transactionality, placement/source ownership, chaos, failover or V1 release
 readiness.
+
+## Direct SDK client teardown retry receipt
+
+Delay commit `677026b3` keeps `DefaultDelayClient` closed to new operations
+while its owned child resources remain explicitly retryable. The first close
+attempts the outbox, query client and optional transport registry even when the
+outbox fails; the next close reaches all three children again and completes
+only after success.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.client.DefaultDelayClientTest \
+  --no-daemon --console=plain
+```
+
+The deterministic Direct SDK client suite passed 11 tests, including
+`closeRetriesEveryChildAfterTheFirstCloseFailure`. This receipt proves only
+local SDK teardown retryability; it does not prove provider/session recovery,
+transport delivery, durable outbox authority, crash/chaos, failover or V1
+release readiness.
