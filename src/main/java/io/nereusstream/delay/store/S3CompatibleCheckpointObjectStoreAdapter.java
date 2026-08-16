@@ -262,20 +262,40 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         final String prefix = checkpointPrefix(manifest);
         final String manifestKey = prefix + "/manifest.json";
         final String manifestVersion = decodeProviderVersion(resource.immutableVersion());
-        final RemoteBytes remoteManifest = getBytes(manifestKey, limits.maxManifestBytes(), manifestVersion);
-        if (remoteManifest.bytes().length != resource.manifestLength()
-                || !Arrays.equals(remoteManifest.bytes(), manifest.canonicalJsonBytes())
-                || !Arrays.equals(resource.manifestSha256(), sha256(remoteManifest.bytes()))
-                || !Arrays.equals(resource.immutableVersion(), Bytes.utf8(remoteManifest.version(null)))) {
-            throw new IllegalStateException("remote checkpoint manifest differs from catalog resource");
+        final List<ProviderResponseEvidence> preflightEvidence = new ArrayList<>(manifest.files().size() + 1);
+        boolean manifestPresent = false;
+        try {
+            final RemoteBytes remoteManifest = getBytes(manifestKey, limits.maxManifestBytes(), manifestVersion);
+            preflightEvidence.add(remoteManifest.evidence());
+            if (remoteManifest.bytes().length != resource.manifestLength()
+                    || !Arrays.equals(remoteManifest.bytes(), manifest.canonicalJsonBytes())
+                    || !Arrays.equals(resource.manifestSha256(), sha256(remoteManifest.bytes()))
+                    || !Arrays.equals(resource.immutableVersion(), Bytes.utf8(remoteManifest.version(null)))) {
+                throw new IllegalStateException("remote checkpoint manifest differs from catalog resource");
+            }
+            manifestPresent = true;
+        } catch (RemoteObjectMissing missing) {
+            preflightEvidence.add(missing.evidence());
         }
 
         final List<DeletePlan> plans = new ArrayList<>(manifest.files().size() + 1);
+        boolean filePresent = false;
         for (CheckpointManifest.FileEntry file : manifest.files()) {
             final String key = objectKey(prefix, file);
-            final String version = verifyRemoteFile(key, file.length(), file.checksum(),
+            final RemoteObjectObservation observation = observeRemoteFile(key, file.length(), file.checksum(),
                     objectBytesLimit(limits.maxIndividualFileBytes()));
-            plans.add(new DeletePlan(key, version));
+            preflightEvidence.add(observation.evidence());
+            if (observation.present()) {
+                filePresent = true;
+                plans.add(new DeletePlan(key, observation.version()));
+            }
+        }
+        if (!manifestPresent) {
+            if (filePresent) {
+                throw new IllegalStateException("checkpoint manifest version is absent while file objects remain");
+            }
+            return new CheckpointDeleteResult(resource, ResourceDeleteConfirmedBody.DeleteOutcome.ALREADY_ABSENT,
+                    aggregateProbeRequestIds(preflightEvidence), aggregateProbeResponses(preflightEvidence));
         }
         // Keep the manifest visible until every file has passed the identity preflight.
         plans.add(new DeletePlan(manifestKey, manifestVersion));
@@ -429,11 +449,23 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
 
     private String verifyRemoteFile(final String key, final long expectedLength,
                                     final byte[] expectedChecksum, final long maxBytes) {
+        final RemoteObjectObservation observation = observeRemoteFile(key, expectedLength, expectedChecksum, maxBytes);
+        if (!observation.present()) {
+            throw new RemoteObjectMissing("remote Object Store object does not exist: " + key,
+                    observation.evidence());
+        }
+        return observation.version();
+    }
+
+    private RemoteObjectObservation observeRemoteFile(final String key, final long expectedLength,
+                                                      final byte[] expectedChecksum, final long maxBytes) {
         final HttpResponse<InputStream> response = send("GET", key, EMPTY_SHA256,
                 HttpRequest.BodyPublishers.noBody(), Map.of(), HttpResponse.BodyHandlers.ofInputStream());
+        final ProviderResponseEvidence missingEvidence = responseEvidence("GET", key, response.statusCode(), null,
+                sha256(new byte[0]), response);
         if (response.statusCode() == 404) {
             closeQuietly(response.body());
-            throw new RemoteObjectMissing("remote Object Store object does not exist: " + key);
+            return new RemoteObjectObservation(false, null, missingEvidence);
         }
         if (!isSuccess(response.statusCode())) {
             closeQuietly(response.body());
@@ -445,7 +477,10 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
                     || !Bytes.constantTimeEquals(actual.checksum(), expectedChecksum)) {
                 throw new IllegalStateException("immutable remote checkpoint object identity conflict: " + key);
             }
-            return responseVersionOrFallback(response, "sha256-" + Bytes.hex(expectedChecksum), "GET", key);
+            final String version = responseVersionOrFallback(response, "sha256-" + Bytes.hex(expectedChecksum),
+                    "GET", key);
+            return new RemoteObjectObservation(true, version,
+                    responseEvidence("GET", key, response.statusCode(), version, actual.checksum(), response));
         } catch (IOException failure) {
             throw new IllegalStateException("cannot verify remote checkpoint object: " + key, failure);
         }
@@ -489,7 +524,8 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
                 HttpResponse.BodyHandlers.ofInputStream());
         if (response.statusCode() == 404) {
             closeQuietly(response.body());
-            throw new IllegalStateException("remote checkpoint manifest is missing: " + key);
+            throw new RemoteObjectMissing("remote checkpoint manifest is missing: " + key,
+                    responseEvidence("GET", key, response.statusCode(), null, sha256(new byte[0]), response));
         }
         if (!isSuccess(response.statusCode())) {
             closeQuietly(response.body());
@@ -498,8 +534,10 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         try (InputStream input = response.body()) {
             final ByteArrayOutputStream output = new ByteArrayOutputStream();
             consume(input, output, -1, objectBytesLimit(maxBytes));
-            return new RemoteBytes(output.toByteArray(),
-                    responseVersionOrFallback(response, null, "GET", key));
+            final byte[] bytes = output.toByteArray();
+            final String version = responseVersionOrFallback(response, null, "GET", key);
+            return new RemoteBytes(bytes, version,
+                    responseEvidence("GET", key, response.statusCode(), version, sha256(bytes), response));
         } catch (IOException failure) {
             throw new IllegalStateException("cannot read remote checkpoint manifest: " + key, failure);
         }
@@ -552,6 +590,48 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
             fields[index + 1] = Bytes.lp32(operations.get(index).responseHash());
         }
         return Bytes.sha256(fields);
+    }
+
+    private static byte[] aggregateProbeRequestIds(final List<ProviderResponseEvidence> evidence) {
+        final byte[][] fields = new byte[evidence.size() + 1][];
+        fields[0] = Bytes.utf8("nereus-delay-s3-delete-probe-request-ids-v1\0");
+        for (int index = 0; index < evidence.size(); index++) {
+            final byte[] requestIdHash = evidence.get(index).requestIdHash();
+            if (requestIdHash == null) {
+                throw new IllegalStateException("S3 delete absence probe omitted provider request ID");
+            }
+            fields[index + 1] = Bytes.lp32(requestIdHash);
+        }
+        return Bytes.sha256(fields);
+    }
+
+    private static byte[] aggregateProbeResponses(final List<ProviderResponseEvidence> evidence) {
+        final byte[][] fields = new byte[evidence.size() + 1][];
+        fields[0] = Bytes.utf8("nereus-delay-s3-delete-probe-responses-v1\0");
+        for (int index = 0; index < evidence.size(); index++) {
+            fields[index + 1] = Bytes.lp32(evidence.get(index).responseHash());
+        }
+        return Bytes.sha256(fields);
+    }
+
+    private static ProviderResponseEvidence responseEvidence(final String method, final String key,
+                                                             final int status, final String version,
+                                                             final byte[] bodyHash,
+                                                             final HttpResponse<?> response) {
+        final String requestId = response.headers().firstValue("x-amz-request-id")
+                .filter(value -> !value.isBlank()).orElse(null);
+        final String secondaryRequestId = response.headers().firstValue("x-amz-id-2")
+                .filter(value -> !value.isBlank()).orElse("");
+        final byte[] requestIdHash = requestId == null ? null
+                : Bytes.sha256(Bytes.utf8("nereus-delay-s3-probe-request-v1\0"),
+                Bytes.lp32(Bytes.utf8(method)), Bytes.lp32(Bytes.utf8(key)),
+                Bytes.lp32(Bytes.utf8(requestId)));
+        final byte[] responseHash = Bytes.sha256(Bytes.utf8("nereus-delay-s3-probe-response-v1\0"),
+                Bytes.lp32(Bytes.utf8(method)), Bytes.lp32(Bytes.utf8(key)), Bytes.u32be(status),
+                Bytes.lp32(Bytes.utf8(version == null ? "" : version)), bodyHash,
+                Bytes.lp32(Bytes.utf8(requestId == null ? "" : requestId)),
+                Bytes.lp32(Bytes.utf8(secondaryRequestId)));
+        return new ProviderResponseEvidence(requestIdHash, responseHash);
     }
 
     private <T> HttpResponse<T> send(final String method, final String key, final String payloadHash,
@@ -970,9 +1050,10 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
     private record HashedFile(long length, byte[] checksum) {
     }
 
-    private record RemoteBytes(byte[] bytes, String version) {
+    private record RemoteBytes(byte[] bytes, String version, ProviderResponseEvidence evidence) {
         private RemoteBytes {
             bytes = Bytes.copy(bytes);
+            Objects.requireNonNull(evidence, "evidence");
         }
 
         @Override
@@ -982,6 +1063,40 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
 
         private String version(final String fallback) {
             return version == null || version.isBlank() ? fallback : version;
+        }
+    }
+
+    private record RemoteObjectObservation(boolean present, String version,
+                                           ProviderResponseEvidence evidence) {
+        private RemoteObjectObservation {
+            Objects.requireNonNull(evidence, "evidence");
+            if (present && (version == null || version.isBlank())) {
+                throw new IllegalArgumentException("present remote object must carry a provider version");
+            }
+            if (!present && version != null) {
+                throw new IllegalArgumentException("absent remote object must not carry a provider version");
+            }
+        }
+    }
+
+    private record ProviderResponseEvidence(byte[] requestIdHash, byte[] responseHash) {
+        private ProviderResponseEvidence {
+            Bytes.requireLength(responseHash, 32, "responseHash");
+            responseHash = Bytes.copy(responseHash);
+            if (requestIdHash != null) {
+                Bytes.requireLength(requestIdHash, 32, "requestIdHash");
+                requestIdHash = Bytes.copy(requestIdHash);
+            }
+        }
+
+        @Override
+        public byte[] requestIdHash() {
+            return requestIdHash == null ? null : Bytes.copy(requestIdHash);
+        }
+
+        @Override
+        public byte[] responseHash() {
+            return Bytes.copy(responseHash);
         }
     }
 
@@ -1015,9 +1130,15 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
 
     private static final class RemoteObjectMissing extends IllegalStateException {
         private static final long serialVersionUID = 1L;
+        private transient final ProviderResponseEvidence evidence;
 
-        private RemoteObjectMissing(final String message) {
+        private RemoteObjectMissing(final String message, final ProviderResponseEvidence evidence) {
             super(message);
+            this.evidence = Objects.requireNonNull(evidence, "evidence");
+        }
+
+        private ProviderResponseEvidence evidence() {
+            return evidence;
         }
     }
 }
