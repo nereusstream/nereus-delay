@@ -124,6 +124,11 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
             client.reconnectSession();
             if (started) {
                 client.reconnectNotifications(this::onNotification);
+            } else {
+                refreshFromAuthority();
+                started = true;
+                client.notifications(this::onNotification);
+                return CompletableFuture.completedFuture(null);
             }
             refreshFromAuthority();
             return CompletableFuture.completedFuture(null);

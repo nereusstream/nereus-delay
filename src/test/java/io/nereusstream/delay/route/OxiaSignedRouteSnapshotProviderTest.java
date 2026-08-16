@@ -106,6 +106,41 @@ class OxiaSignedRouteSnapshotProviderTest {
     }
 
     @Test
+    void refreshAfterAnInitialRouteGapRestoresTheNotificationStream() throws Exception {
+        final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final FakeRouteClient authority = new FakeRouteClient();
+        final FakeRouteClient notificationClient = new FakeRouteClient();
+        final OxiaRouteAuthoritySession session = new OxiaRouteAuthoritySession(authority,
+                notificationClient, () -> new FakeRouteClient(), "/nereus/route");
+        final RouteSnapshotV1 first = snapshot(keys, new RouteIncarnation(bytes(16, 30)),
+                RouteLifecycleV1.ACTIVE_FOR_NEW, 1);
+        final OxiaRouteSnapshotRecordV1 firstEvent = OxiaRouteSnapshotRecordV1.create(1, 0, hint(), first);
+        authority.seed("/nereus/route/events/00000000000000000001", firstEvent.canonicalBytes());
+        authority.seed("/nereus/route/head", new OxiaRouteSnapshotHeadV1(2,
+                firstEvent.recordDigest()).canonicalBytes());
+        final OxiaSignedRouteSnapshotProvider provider = new OxiaSignedRouteSnapshotProvider(session,
+                "/nereus/route", keys.getPublic(), () -> 200);
+        try {
+            assertThrows(RuntimeException.class, () -> provider.start().toCompletableFuture().join());
+            assertEquals(RouteCacheHealth.WATCH_GAP, provider.health());
+
+            final RouteSnapshotV1 second = snapshot(keys, first.routeIncarnation(),
+                    RouteLifecycleV1.CONTROL_ONLY, 2);
+            final OxiaRouteSnapshotRecordV1 secondEvent = OxiaRouteSnapshotRecordV1.create(2, 1, hint(), second);
+            authority.seed("/nereus/route/events/00000000000000000002", secondEvent.canonicalBytes());
+            authority.seed("/nereus/route/head", new OxiaRouteSnapshotHeadV1(2,
+                    secondEvent.recordDigest()).canonicalBytes());
+
+            provider.refresh().toCompletableFuture().join();
+            assertEquals(RouteCacheHealth.HEALTHY, provider.health());
+            assertEquals(2, provider.publishedRevision());
+            assertEquals(1, notificationClient.notificationRegistrationCount());
+        } finally {
+            provider.close();
+        }
+    }
+
+    @Test
     void explicitSessionReconnectRotatesMarkerAfterFenceAndRestoresReads() {
         final FakeRouteClient client = new FakeRouteClient();
         final OxiaRouteAuthoritySession session = new OxiaRouteAuthoritySession(client, "/nereus/route");
