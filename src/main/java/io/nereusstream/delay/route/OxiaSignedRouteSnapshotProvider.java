@@ -54,6 +54,7 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
     private long publishedRevision;
     private RouteCacheHealth health = RouteCacheHealth.UNAVAILABLE;
     private boolean started;
+    private boolean closeCompleted;
 
     /** Creates a provider over an owned/configured SyncOxiaClient. */
     public OxiaSignedRouteSnapshotProvider(final SyncOxiaClient client, final String keyPrefix,
@@ -179,17 +180,50 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
 
     @Override
     public synchronized void close() {
-        if (health == RouteCacheHealth.CLOSED) {
+        if (closeCompleted) {
             return;
         }
         active.clear();
         history.clear();
         activeKeyByIncarnation.clear();
         health = RouteCacheHealth.CLOSED;
+        Throwable closeFailure = null;
         if (ownedNotificationExecutor != null) {
-            ownedNotificationExecutor.shutdownNow();
+            try {
+                ownedNotificationExecutor.shutdownNow();
+            } catch (RuntimeException | Error failure) {
+                closeFailure = appendCloseFailure(closeFailure, failure);
+            }
         }
-        client.close();
+        try {
+            client.close();
+        } catch (RuntimeException | Error failure) {
+            closeFailure = appendCloseFailure(closeFailure, failure);
+        }
+        if (closeFailure != null) {
+            throwUnchecked(closeFailure);
+        }
+        closeCompleted = true;
+    }
+
+    private static Throwable appendCloseFailure(final Throwable first, final Throwable failure) {
+        if (first == null) {
+            return failure;
+        }
+        if (failure != first) {
+            first.addSuppressed(failure);
+        }
+        return first;
+    }
+
+    private static void throwUnchecked(final Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error errorFailure) {
+            throw errorFailure;
+        }
+        throw new IllegalStateException("unexpected checked teardown failure", failure);
     }
 
     private void refreshFromAuthority() {

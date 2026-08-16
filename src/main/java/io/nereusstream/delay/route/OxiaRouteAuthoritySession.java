@@ -46,6 +46,7 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
     private byte[] sessionIdentity;
     private boolean started;
     private boolean closed;
+    private boolean closeCompleted;
 
     /** Creates a session that owns and closes the supplied Oxia client. */
     public OxiaRouteAuthoritySession(final SyncOxiaClient client, final String keyPrefix) {
@@ -275,7 +276,7 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
 
     @Override
     public synchronized void close() {
-        if (closed) {
+        if (closeCompleted) {
             return;
         }
         closed = true;
@@ -301,6 +302,7 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
         if (closeFailure != null) {
             throwUnchecked(closeFailure);
         }
+        closeCompleted = true;
     }
 
     private static Throwable appendCloseFailure(final Throwable first, final Throwable failure) {

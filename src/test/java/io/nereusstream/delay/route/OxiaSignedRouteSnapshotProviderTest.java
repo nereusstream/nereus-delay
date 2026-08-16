@@ -165,13 +165,37 @@ class OxiaSignedRouteSnapshotProviderTest {
         final FakeRouteClient notification = new FakeRouteClient();
         final OxiaRouteAuthoritySession session = new OxiaRouteAuthoritySession(authority, notification,
                 () -> new FakeRouteClient(), "/nereus/route");
-        authority.failClose();
+        authority.failNextClose();
 
         final IllegalStateException failure = assertThrows(IllegalStateException.class, session::close);
 
         assertEquals("simulated Route client close failure", failure.getMessage());
         assertEquals(1, authority.closeCount());
         assertEquals(1, notification.closeCount());
+
+        session.close();
+
+        assertEquals(2, authority.closeCount());
+        assertEquals(2, notification.closeCount());
+    }
+
+    @Test
+    void routeProviderRetriesClientCloseAfterAReleaseFailure() throws Exception {
+        final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final FakeRouteClient client = new FakeRouteClient();
+        final OxiaSignedRouteSnapshotProvider provider = new OxiaSignedRouteSnapshotProvider(client,
+                "/nereus/route", keys.getPublic(), () -> 200);
+        client.failNextClose();
+
+        final IllegalStateException failure = assertThrows(IllegalStateException.class, provider::close);
+
+        assertEquals("simulated Route client close failure", failure.getMessage());
+        assertEquals(RouteCacheHealth.CLOSED, provider.health());
+        assertEquals(1, client.closeCount());
+
+        provider.close();
+
+        assertEquals(2, client.closeCount());
     }
 
     @Test
@@ -365,7 +389,7 @@ class OxiaSignedRouteSnapshotProviderTest {
         private Runnable afterNextNotifications;
         private int notificationRegistrations;
         private int closeCalls;
-        private boolean failClose;
+        private int failNextCloseCalls;
 
         @Override
         public GetResult get(final String key) {
@@ -472,8 +496,8 @@ class OxiaSignedRouteSnapshotProviderTest {
             return notificationRegistrations;
         }
 
-        void failClose() {
-            failClose = true;
+        void failNextClose() {
+            failNextCloseCalls++;
         }
 
         int closeCount() {
@@ -486,7 +510,8 @@ class OxiaSignedRouteSnapshotProviderTest {
             records.clear();
             ephemeralKeys.clear();
             watchers.clear();
-            if (failClose) {
+            if (failNextCloseCalls > 0) {
+                failNextCloseCalls--;
                 throw new IllegalStateException("simulated Route client close failure");
             }
         }
