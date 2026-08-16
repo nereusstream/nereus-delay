@@ -14316,3 +14316,41 @@ temporary P1/Oxia images and staging directories. The locked MinIO base image
 was retained. This receipt does not establish raw socket loss, BookKeeper or
 controller failover, multi-shard large-payload placement, REAPING, soak,
 benchmark/capacity evidence, the full chaos matrix or V1 release readiness.
+
+## 2026-08-17 Current-source Kafka Worker ACK process-crash recovery audit
+
+The current-source receipt locks Delay to
+`06146b67aae0d4420ba7da3ad0f591bfdae64d12` (the preceding docs-only gate
+re-audit; the exercised Worker path is unchanged from the current code at
+`d63285ff5232bf92f6b947becaed5456a9c68b66`), Kafka K1 to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9`, the
+client artifact to SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, the K1
+image to
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+and Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. The exact Compose
+projects were `nereus-delay-kafka-e2e-1786912797-70275` and
+`nereus-delay-kafka-oxia-e2e-1786912797-70275` on Kafka
+`30950,30951,30952` and Oxia `30960`.
+
+Audit result: PASS for the bounded current-source Kafka Worker ACK
+process-crash recovery cell. The Worker reached the explicit cut after the
+RocksDB `WriteBatch` was durable and before Kafka `commitSync` ACK started;
+the process was then `SIGKILL`ed. A fresh JVM replayed the exact source record
+through real Oxia assignment/owner authority, dedupe, ACK and final
+checkpoint:
+
+```text
+Kafka Worker ACK process-crash cut reached: pid=70565, storeWriteBatchDurable=true, kafkaCommitSyncStarted=false
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, and final checkpoint
+Kafka Worker authority smoke passed: real Oxia session-bound lease
+Kafka Worker ACK process-crash recovery E2E passed: the Worker Store WriteBatch was durable before SIGKILL and before Kafka commitSync ACK, and a fresh JVM replayed the exact source record through real Oxia authority, dedupe, ACK and final checkpoint.
+BUILD SUCCESSFUL in 7s
+```
+
+The runner's exact cleanup left both Compose projects with no containers,
+networks or volumes, and the known temporary K1/Oxia image references were
+absent. This is a focused Worker ACK recovery receipt; it does not establish
+Gateway/mTLS/MinIO large-payload authority, Broker process/network failover,
+raw socket loss, REAPING, soak, benchmark/capacity evidence, the full chaos
+matrix or V1 release readiness.
