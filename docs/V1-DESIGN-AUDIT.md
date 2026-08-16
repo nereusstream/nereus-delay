@@ -9328,6 +9328,22 @@ monotonicity and exact-replay behavior only; it does not establish distributed
 Gateway authority, transport delivery, Broker failover, raw chaos or V1
 release readiness.
 
+## 2026-08-16 Gateway prepared-expiry fence and aggregate replay audit
+
+Delay commit `66508783f5e8230ace8bae37ff04c28dfb353653` closes the expiry
+ordering gap between the Gateway handler and durable idempotency record. Both
+stores refuse to create an attempt when a `PREPARED` record has reached its
+retention fence; the record remains `PREPARED` with no permit, attempt or
+aggregate. The handler now asks the store for the current attempt state before
+applying the request deadline, so a previously installed aggregate remains the
+exact replay result after expiry.
+
+The focused Gateway suites passed 16 tests with zero failures/skips/errors,
+and the full `./gradlew check` passed 1535 tests with 24 skips and zero
+failures/errors. This closes only local prepared-expiry and replay ordering;
+it does not establish distributed Gateway authority, transport delivery,
+Broker failover, raw chaos or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

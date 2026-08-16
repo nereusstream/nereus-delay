@@ -1689,6 +1689,26 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway idempotency evidence monotonicity implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Gateway idempotency evidence monotonicity receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayScheduleService.java" \
+    "PREPARED_COMMAND_EXPIRED"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/InMemoryGatewayIdempotencyStore.java" \
+    "current.retainUntilEpochMs()"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/OxiaGatewayIdempotencyStore.java" \
+    "current.record().retainUntilEpochMs()"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/GatewayScheduleServiceTest.java" \
+    "completedAggregateReplaysAfterRetryDeadlineWithoutAnotherCoordinatorCall"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
+    "expiredPreparedRecordCannotCreateAnAttemptAtTheStoreBoundary"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Gateway prepared-expiry fence and aggregate replay"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "66508783f5e8230ace8bae37ff04c28dfb353653"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Gateway prepared-expiry fence and aggregate replay audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Gateway prepared-expiry fence and aggregate replay implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Gateway prepared-expiry fence and aggregate replay receipt"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPublicationCoordinator.java" \
     "intentIsAtomic || catalogIsAtomic"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointUploadCoordinatorTest.java" \

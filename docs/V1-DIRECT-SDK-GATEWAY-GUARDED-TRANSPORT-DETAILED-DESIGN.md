@@ -5957,3 +5957,19 @@ the full `./gradlew check` passed 1532 tests with 24 skips and zero
 failures/errors. This note closes only local durable evidence ordering and
 retry-precondition behavior; transport delivery, distributed authority,
 failover, chaos and release gates remain open.
+
+### 2026-08-16 Gateway prepared-expiry fence and aggregate replay implementation note
+
+Delay commit `66508783f5e8230ace8bae37ff04c28dfb353653` makes the prepared
+retention fence durable at `startAttempt()` in both store implementations. A
+record still in `PREPARED` with no attempt cannot cross its retention deadline
+to create a `STARTED` attempt or ownership permit. The schedule handler first
+resolves the durable state, allowing an already installed aggregate to replay
+exactly after the caller's retry deadline; only an empty expired preparation
+maps to `PREPARED_COMMAND_EXPIRED`.
+
+The focused Gateway suites passed 16 tests with zero failures/skips/errors;
+the full `./gradlew check` passed 1535 tests with 24 skips and zero
+failures/errors. This note closes only prepared-expiry and aggregate-replay
+ordering; transport delivery, distributed authority, failover, chaos and
+release gates remain open.

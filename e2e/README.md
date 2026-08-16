@@ -2478,3 +2478,27 @@ errors. The full `./gradlew check` passed 1532 tests with 24 skips and zero
 failures/errors. This receipt proves only local durable idempotency evidence
 ordering; it does not prove distributed Gateway authority, transport delivery,
 Broker failover, chaos or V1 release readiness.
+
+## Gateway prepared-expiry fence and aggregate replay receipt
+
+Delay commit `66508783f5e8230ace8bae37ff04c28dfb353653` checks prepared
+retention at the durable `startAttempt()` boundary in both the Oxia and
+in-memory stores. An expired prepared record remains attempt-free and does not
+call the submission coordinator. A record with an installed aggregate bypasses
+the request deadline and returns the exact stored outcome on a later duplicate
+RPC.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.gateway.GatewayScheduleServiceTest \
+  --tests io.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest \
+  --no-daemon --console=plain
+```
+
+The deterministic Gateway suites passed 16 tests with zero failures/skips/
+errors. The full `./gradlew check` passed 1535 tests with 24 skips and zero
+failures/errors. This receipt proves only local prepared-expiry fencing and
+durable aggregate replay; it does not prove distributed Gateway authority,
+transport delivery, Broker failover, chaos or V1 release readiness.

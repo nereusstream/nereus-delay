@@ -11188,3 +11188,30 @@ skips and zero failures/errors. This closes local durable evidence ordering
 and retry-precondition behavior only; it does not establish distributed
 Gateway authority, transport delivery, Broker failover, raw chaos or V1
 release evidence.
+
+## 2026-08-16 Gateway prepared-expiry fence and aggregate replay
+
+Delay commit `66508783f5e8230ace8bae37ff04c28dfb353653` moves the Gateway
+prepared retry/expiry fence to both idempotency stores' `startAttempt()`
+boundary. An expired `PREPARED` record with no attempt remains unchanged and
+does not acquire a permit or invoke the submission coordinator. The schedule
+service no longer applies the request deadline before reading the durable
+state, so a completed aggregate still replays byte-identically after that
+deadline; only an unstarted expired preparation returns
+`PREPARED_COMMAND_EXPIRED`.
+
+The focused receipt is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.gateway.GatewayScheduleServiceTest \
+  --tests io.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest \
+  --no-daemon --console=plain
+```
+
+The focused Gateway suites passed 16 tests with zero failures/skips/errors,
+including completed-aggregate replay after expiry and Oxia store-boundary
+expiry fencing. The full `./gradlew check` passed 1535 tests with 24 skips
+and zero failures/errors. This closes local prepared-expiry and replay
+ordering only; it does not establish distributed Gateway authority,
+transport delivery, Broker failover, raw chaos or V1 release evidence.
