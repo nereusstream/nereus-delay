@@ -10338,6 +10338,37 @@ chaos completeness or V1 release approval. Exact project and image checks
 found no post-run containers, networks, volumes or matching temporary images;
 no global Docker prune was used.
 
+## 2026-08-17 Current-source Pulsar Broker process-crash failover audit
+
+The current-source audit locks Delay to
+`123ffe6e6f70c7779a5712012f1836f8d792b43b`, P1 to
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1 distribution to
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1
+image to
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+and Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. Projects were
+`nereus-delay-pulsar-multi-e2e-1786902614-37701` and
+`nereus-delay-pulsar-multi-oxia-e2e-1786902614-37701` on
+`29480/29481`, `29482/29483` and Oxia `29490`; the temporary Oxia image was
+`sha256:d4808a1f1860d744ec8d12539d1a85daf583114589b36a70c62aaffcae7819e6`.
+
+Audit result: PASS for the bounded current-source two-Broker process-crash
+failover slice. The harness prepared the guarded Worker record, sent an
+actual `SIGKILL` to Broker-1, resumed the same topic through Broker-2 with
+real Oxia authority, completed physical publish/source ACK/final checkpoint,
+and restarted Broker-1 until its full readiness endpoint passed:
+
+```text
+Pulsar Broker process-crash failover E2E passed: broker-1 was SIGKILLed after guarded Worker preparation, the same topic resumed through broker-2 with real Oxia authority, and broker-1 rejoined afterward.
+```
+
+This is not a V1 release approval. It uses one ZooKeeper and one BookKeeper
+and does not establish raw socket/network recovery, metadata/controller
+failover, Gateway-plus-Broker failover, multi-shard placement, the complete
+crash/chaos matrix or release readiness. Exact postchecks found no named
+project resources or temporary images; the locked Oxia base remained and no
+global Docker prune was used.
+
 ## 2026-08-17 Current-source Kafka raw TCP Broker endpoint-cut audit
 
 The current-source receipt locks Delay to

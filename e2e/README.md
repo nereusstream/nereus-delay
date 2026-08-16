@@ -4079,3 +4079,45 @@ during physical destination publish, raw socket/network chaos,
 Broker/controller failover, multi-Worker placement, REAPING or V1 release
 gates. Exact postchecks found no project resources, temporary images or crash
 state; no global Docker prune was used.
+
+## Pulsar multi-Broker Worker process-crash failover (current source)
+
+Run the real P1 two-Broker + real Oxia process-crash cut with:
+
+```bash
+NEREUS_DELAY_PULSAR_WITH_OXIA=1 \
+NEREUS_DELAY_PULSAR_MULTI_BROKER_PROCESS_CRASH=1 \
+NEREUS_DELAY_PULSAR_OXIA_PORT=29490 \
+PULSAR_BROKER_1_PORT=29480 \
+PULSAR_WEB_1_PORT=29481 \
+PULSAR_BROKER_2_PORT=29482 \
+PULSAR_WEB_2_PORT=29483 \
+NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-full-check-20260817 \
+  bash e2e/run-pulsar-multi-broker-failover-e2e.sh
+```
+
+The current-source receipt locks Delay to
+`123ffe6e6f70c7779a5712012f1836f8d792b43b`, P1 to
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+the P1 distribution to
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and
+Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. The exact projects were
+`nereus-delay-pulsar-multi-e2e-1786902614-37701` and
+`nereus-delay-pulsar-multi-oxia-e2e-1786902614-37701`; the brokers used
+`29480/29481` and `29482/29483`, Oxia used `29490`, P1 image was
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+and the temporary Oxia image was
+`sha256:d4808a1f1860d744ec8d12539d1a85daf583114589b36a70c62aaffcae7819e6`.
+
+The run passed with both Worker invocations reporting `BUILD SUCCESSFUL`:
+
+```text
+Pulsar Broker process-crash failover E2E passed: broker-1 was SIGKILLed after guarded Worker preparation, the same topic resumed through broker-2 with real Oxia authority, and broker-1 rejoined afterward.
+```
+
+This is bounded two-Broker process-crash evidence using one ZooKeeper and one
+BookKeeper. It does not close raw network/socket cuts, controller or storage
+failover, Gateway-plus-Broker failover, multi-shard placement, the full
+crash/chaos matrix or V1 release gates. Exact postchecks found no project
+containers, networks, volumes or matching P1/Oxia images; the locked Oxia
+base remained and no global Docker prune was used.

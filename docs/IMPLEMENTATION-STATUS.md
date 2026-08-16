@@ -13440,3 +13440,52 @@ cache after an external Maven TLS handshake failure; the successful run and
 all postchecks were clean. Exact postchecks found no project resources,
 temporary P1/Oxia images or crash state; the locked MinIO base was untouched
 and no global Docker prune was used.
+
+## 2026-08-17 Current-source Pulsar Broker process-crash failover receipt
+
+The current-source implementation is Delay
+`123ffe6e6f70c7779a5712012f1836f8d792b43b`, P1
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+P1 distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, the
+three P1 client artifact SHA-256 values recorded above, P1 image
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. The source-bound command
+was:
+
+```bash
+NEREUS_DELAY_PULSAR_WITH_OXIA=1 \
+NEREUS_DELAY_PULSAR_MULTI_BROKER_PROCESS_CRASH=1 \
+NEREUS_DELAY_PULSAR_OXIA_PORT=29490 \
+PULSAR_BROKER_1_PORT=29480 \
+PULSAR_WEB_1_PORT=29481 \
+PULSAR_BROKER_2_PORT=29482 \
+PULSAR_WEB_2_PORT=29483 \
+NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-full-check-20260817 \
+  bash e2e/run-pulsar-multi-broker-failover-e2e.sh
+```
+
+The isolated Pulsar project was
+`nereus-delay-pulsar-multi-e2e-1786902614-37701`; the Oxia project was
+`nereus-delay-pulsar-multi-oxia-e2e-1786902614-37701`. Broker-1 used
+`29480/29481`, Broker-2 used `29482/29483`, and Oxia used `29490`. The
+run-created Oxia image was
+`sha256:d4808a1f1860d744ec8d12539d1a85daf583114589b36a70c62aaffcae7819e6`.
+Both Worker invocations completed with `BUILD SUCCESSFUL`. The final marker
+was:
+
+```text
+Pulsar Broker process-crash failover E2E passed: broker-1 was SIGKILLed after guarded Worker preparation, the same topic resumed through broker-2 with real Oxia authority, and broker-1 rejoined afterward.
+```
+
+The cut is a bounded two-Broker/one-ZooKeeper/one-BookKeeper process-crash
+receipt: after the exact Broker-1 `SIGKILL`, the same topic resumed through
+Broker-2, completed the real Oxia Assignment/Owner and Worker physical
+publish/ACK vertical, and Broker-1 became ready again after restart. The
+runner now waits for Pulsar's `/admin/v2/brokers/ready` endpoint and uses a
+bounded retry for transient topic-create connection loss. It does not close
+raw socket/network cuts, ZooKeeper/BookKeeper/controller failover, Gateway
+plus Broker combined failover, multi-shard placement, the full crash/chaos
+matrix or V1 release evidence. Exact postchecks found no project containers,
+networks, volumes or matching P1/Oxia images; the locked Oxia base remained,
+and no global Docker prune was used.

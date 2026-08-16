@@ -7205,6 +7205,39 @@ and Oxia image
 `sha256:fb4ef2e60386870ff19076357e35d59c7006476bf63eb9c1fecc3f5b2a89f074`;
 the locked MinIO base was retained and no global Docker prune was used.
 
+### 2026-08-17 Current-source Pulsar Broker process-crash implementation note
+
+The multi-Broker runner at Delay
+`123ffe6e6f70c7779a5712012f1836f8d792b43b` adds the explicit
+`NEREUS_DELAY_PULSAR_MULTI_BROKER_PROCESS_CRASH=1` cut. It uses
+`docker compose kill --signal KILL pulsar-broker-1`, waits for Broker-2's
+fully initialized `/admin/v2/brokers/ready` endpoint, resumes the same topic
+through the two-entry Pulsar service URL, starts Broker-1 again and waits for
+its readiness. The real Worker topic-create path retries only transient
+`IOException` failures for a bounded 60 seconds, preserving the existing
+guarded resource metadata and exact topic identity.
+
+The current source-bound run used P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, P1 image
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+temporary Oxia image
+`sha256:d4808a1f1860d744ec8d12539d1a85daf583114589b36a70c62aaffcae7819e6`,
+and projects
+`nereus-delay-pulsar-multi-e2e-1786902614-37701` /
+`nereus-delay-pulsar-multi-oxia-e2e-1786902614-37701`. Its receipt was:
+
+```text
+Pulsar Broker process-crash failover E2E passed: broker-1 was SIGKILLed after guarded Worker preparation, the same topic resumed through broker-2 with real Oxia authority, and broker-1 rejoined afterward.
+```
+
+This is bounded process-level Broker failover evidence with one
+ZooKeeper/BookKeeper pair. It does not claim raw network cuts, metadata
+controller or storage failover, Gateway-plus-Broker failover, multi-shard
+placement, full chaos or V1 release readiness. Exact project cleanup removed
+the P1/Oxia temporary images and all named resources; the locked Oxia base
+was retained and no global Docker prune was used.
+
 ### 2026-08-17 Current-source Pulsar Worker source ACK response-loss implementation note
 
 The real-P1/real-Oxia focused cut uses Delay
