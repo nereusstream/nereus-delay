@@ -10551,3 +10551,27 @@ controller/coordinator leader failover, and no closure of Profile/Oxia
 credential authority, checkpoint REAPING/GC, full chaos or V1 release
 approval. Exact post-run checks found no project resources, P1 image or Oxia
 image; the locked MinIO base remained and no global Docker prune was used.
+
+## 2026-08-17 Current-source Checkpoint REAPING audit
+
+The source-bound audit locks Delay to
+`f3adc8cba4c78479f2daa883f0605136dc085f50`, Oxia to
+`37a17bef17202d5fd6e23282da5fd26d94865484`, and the locked MinIO digest to
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The isolated project was
+`nereus-delay-oxia-minio-checkpoint-e2e-1786899309-90091`; exact runtime
+ports were Oxia `26300` and MinIO `27300`.
+
+Audit result: PASS for the bounded real-service Checkpoint REAPING handoff.
+The test used a real Oxia session-bound Owner Lease, explicitly abandoned the
+old Owner, won the exact Intent `PENDING_UPLOAD -> REAPING` CAS, proved local
+provider ownership was closed, swept only the derived checkpoint prefix with
+exact object versions, and reread an empty prefix. The same run also passed
+atomic Intent/Catalog publication against real Oxia and immutable versioned
+objects in real MinIO.
+
+This is not V1 release approval: cross-record disaster authority, external
+secret-manager rotation/quiescence, multi-process chaos, soak and release
+gates remain open. Exact project/container/network/volume/image checks were
+empty after cleanup; the locked MinIO base remained and no global Docker
+prune was used.

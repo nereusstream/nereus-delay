@@ -7050,3 +7050,31 @@ This proves the bounded external-stop reactivation path, not automatic
 Pulsar controller/coordinator leader failover, more than one physical source
 partition, Profile/Oxia external credential authority, checkpoint REAPING/GC,
 the complete chaos matrix or V1 release gates.
+
+## 2026-08-17 Current Checkpoint REAPING real-service implementation note
+
+The current real-service composition locks Delay to
+`f3adc8cba4c78479f2daa883f0605136dc085f50` and Oxia to
+`37a17bef17202d5fd6e23282da5fd26d94865484`. It runs
+`OxiaRealCheckpointPublicationSmokeTest` and
+`OxiaRealCheckpointReapingSmokeTest` against real Oxia and a locked,
+version-enabled MinIO endpoint in project
+`nereus-delay-oxia-minio-checkpoint-e2e-1786899309-90091`.
+
+The reaping path is now source/authority-bound rather than a local deadline:
+the real Owner Lease is abandoned and reread absent, the exact pending Intent
+is CASed to `REAPING`, provider ownership/quiescence evidence is checked, and
+the reaper lists and deletes only the canonical checkpoint prefix with exact
+object versions before requiring an empty-prefix reread. A provider response
+loss therefore retains the same REAPING identity for retry instead of
+inventing a new sweep.
+
+The source-bound receipt was:
+
+```text
+Oxia + MinIO Worker checkpoint publication and REAPING E2E passed: real Oxia Intent/Catalog/Owner authority and real MinIO immutable objects
+```
+
+The implementation remains bounded to one real Oxia authority session and one
+real MinIO provider. Multi-worker disaster takeover, external credential
+rotation/quiescence, full chaos, soak and V1 release gates remain separate.

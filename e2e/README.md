@@ -3765,3 +3765,37 @@ leader failover; Profile/Oxia credential authority, checkpoint REAPING/GC, the
 full chaos matrix and V1 release readiness remain open. Exact post-run checks
 found no P1/Oxia project containers, networks, volumes or temporary images;
 the locked MinIO base image was retained and no global Docker prune was run.
+
+## Current-source Checkpoint REAPING with real Oxia and MinIO
+
+Run the current-source real checkpoint publication plus REAPING handoff with:
+
+```bash
+NEREUS_DELAY_OXIA_CHECKPOINT_E2E_PORT=26300 \
+NEREUS_DELAY_MINIO_CHECKPOINT_E2E_PORT=27300 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-minio-checkpoint-20260817 \
+  bash e2e/run-oxia-minio-checkpoint-e2e.sh
+```
+
+The current-source run locks Delay to
+`f3adc8cba4c78479f2daa883f0605136dc085f50`, Oxia to
+`37a17bef17202d5fd6e23282da5fd26d94865484`, and the locked MinIO digest to
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The exact project was
+`nereus-delay-oxia-minio-checkpoint-e2e-1786899309-90091`; it used Oxia
+`26300`, MinIO `27300`, and run-created Oxia image ID
+`sha256:2a9b1dcff9c104121084556f300b7222eeeb6f2493d1056a6454560e041b4353`.
+
+The receipt was:
+
+```text
+Oxia + MinIO Worker checkpoint publication and REAPING E2E passed: real Oxia Intent/Catalog/Owner authority and real MinIO immutable objects
+```
+
+The test proves real Owner abandonment, Intent `PENDING_UPLOAD -> REAPING`,
+provider quiescence, exact-version prefix deletion and empty-prefix reread.
+It is bounded real-service evidence, not multi-worker disaster takeover,
+external secret-manager rotation, full chaos or V1 release readiness. Exact
+post-run checks found no project resources, temporary Oxia image or standalone
+MinIO container; the locked MinIO base was retained and no global Docker prune
+was run.

@@ -2211,6 +2211,20 @@ require_file_text "$delay_root/e2e/run-large-payload-gateway-e2e.sh" \
     "KAFKA_LARGE_PAYLOAD_BROKER_1_PORT"
 require_file_text "$delay_root/e2e/run-pulsar-large-payload-gateway-e2e.sh" \
     "PULSAR_LARGE_BROKER_2_PORT"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "2026-08-17 Current-source Checkpoint REAPING with real Oxia Owner and MinIO"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "nereus-delay-oxia-minio-checkpoint-e2e-1786899309-90091"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "real Oxia Intent/Catalog/Owner authority and real MinIO immutable objects"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "2026-08-17 Current-source Checkpoint REAPING audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "2026-08-17 Current Checkpoint REAPING real-service implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Current-source Checkpoint REAPING with real Oxia and MinIO"
+require_file_text "$delay_root/e2e/run-oxia-minio-checkpoint-e2e.sh" \
+    "OxiaRealCheckpointReapingSmokeTest.realOxiaOwnerAbandonmentReapsExactMinioCheckpointPrefix"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

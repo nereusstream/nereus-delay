@@ -13058,3 +13058,41 @@ checkpoint REAPING/GC, full chaos and V1 release gates remain open. Exact
 post-run checks found no containers, networks, volumes, P1 image or Oxia image
 for the project; the locked MinIO base was retained and no global Docker
 prune was used.
+
+## 2026-08-17 Current-source Checkpoint REAPING with real Oxia Owner and MinIO
+
+The current-source real-service rerun locks Delay to
+`f3adc8cba4c78479f2daa883f0605136dc085f50`, Oxia to
+`37a17bef17202d5fd6e23282da5fd26d94865484`, and MinIO to
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+(local image ID `sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`).
+The source-bound command was:
+
+```bash
+NEREUS_DELAY_OXIA_CHECKPOINT_E2E_PORT=26300 \
+NEREUS_DELAY_MINIO_CHECKPOINT_E2E_PORT=27300 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-minio-checkpoint-20260817 \
+  bash e2e/run-oxia-minio-checkpoint-e2e.sh
+```
+
+The isolated Oxia project was
+`nereus-delay-oxia-minio-checkpoint-e2e-1786899309-90091`, with Oxia at
+`127.0.0.1:26300`, MinIO at `127.0.0.1:27300`, bucket
+`nereus-delay-checkpoints-1786899309-90091`, and run-created Oxia image ID
+`sha256:2a9b1dcff9c104121084556f300b7222eeeb6f2493d1056a6454560e041b4353`.
+The real-service command ran both the atomic checkpoint publication and
+REAPING tests and ended with:
+
+```text
+Oxia + MinIO Worker checkpoint publication and REAPING E2E passed: real Oxia Intent/Catalog/Owner authority and real MinIO immutable objects
+```
+
+The REAPING assertion proved real Owner abandonment, exact
+`PENDING_UPLOAD -> REAPING` Intent CAS, provider quiescence, exact-version
+checkpoint-prefix sweep, equal listed/deleted version counts and an empty
+prefix after sweep. Exact post-run checks found no containers, networks,
+volumes, matching Oxia image or standalone MinIO container; the locked MinIO
+base was retained and no global Docker prune was used. This closes the
+current-source real Oxia/MinIO REAPING handoff, but not multi-worker disaster
+authority, external secret-manager rotation, full chaos, soak or V1 release
+gates.
