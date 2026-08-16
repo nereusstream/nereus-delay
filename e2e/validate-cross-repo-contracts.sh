@@ -2057,6 +2057,16 @@ require_file_text "$delay_root/e2e/README.md" \
     "Pulsar Gateway large-payload multi-Broker reactivation"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "49665a75041ea05cd7b47e887c9e28fa08647b9"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "2026-08-16 Kafka current Large-payload production-authority receipt"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "eb8e4a9df859316253202ba3abfb48236bf64196"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "2026-08-16 Kafka current Large-payload production-authority audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "2026-08-16 Kafka current large-payload destination implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Kafka current Large-payload Gateway-to-destination authority"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

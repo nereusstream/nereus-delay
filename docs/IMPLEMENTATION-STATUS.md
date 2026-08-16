@@ -12256,6 +12256,54 @@ evidence. Exact post-run checks found no containers, networks, volumes or
 temporary Kafka/Oxia images for either isolated project; base images were not
 globally pruned.
 
+## 2026-08-16 Kafka current Large-payload production-authority receipt
+
+The current-source rerun used Delay `eb8e4a9df859316253202ba3abfb48236bf64196`
+with the Kafka destination branch enabled:
+
+```bash
+NEREUS_DELAY_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-large-payload-gradle-20260816-r2 \
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_DESTINATION_TOPIC=nereus-delay-large-payload-destination-20260816-r2 \
+  ./e2e/run-large-payload-gateway-e2e.sh
+```
+
+The source locks were Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, Kafka
+image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, and MinIO
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+(local image ID `sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`).
+The isolated Compose project was
+`nereus-delay-large-payload-e2e-1786894724-26133`, with Kafka ports
+`25133,25134,25135`, Oxia `26133`, MinIO `27133`, Gateway `28133`, and bucket
+`nereus-delay-large-payload-1786894724-26133`.
+
+The one-partition source topic was
+`nereus-delay-large-payload-7cc0adaa-82db-4a6f-8d2f-6356749e7b2a`; the
+destination authority topic was
+`nereus-delay-large-payload-destination-20260816-r2`. The source-bound output
+included:
+
+```text
+Kafka Worker source-applied physical publish passed: Admission source offset=4, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=0, Outcome source offset=5, exact payload readback
+Kafka + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: activationOffset=0, barrierOffset=2, prepareOffset=2, commitOffset=3, providerVersion=7917f183-823e-492c-b8df-d82f29e306ec, exactGatewayIdempotency=true
+Kafka + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload + Kafka destination authority E2E passed
+```
+
+This refreshes the Kafka side of the combined Gateway + real Oxia + real Broker
++ Worker + real MinIO production-authority chain on the current Delay source.
+It remains one physical partition, retains the exact in-memory semantic trust
+resolver seam and does not close Kafka response-loss/LSO/retention recovery
+beyond its separately recorded slices, multi-shard placement, raw crash/chaos
+or the V1 release gate.
+
+The runner removed the exact Compose project, networks/volumes/orphans and
+run-created Kafka/Oxia images; reusable base images were retained and no
+global Docker prune was run. Post-run checks found no containers, networks,
+volumes or matching temporary images for the named project.
+
 ## 2026-08-16 Pulsar Gateway large-payload multi-Broker reactivation receipt
 
 The authoritative rerun used the checked-in implementation commit

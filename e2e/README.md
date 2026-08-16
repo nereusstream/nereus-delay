@@ -3291,3 +3291,30 @@ exactly scoped to the Compose project, its networks/volumes/orphans and
 run-created temporary images; reusable base images remain and no global Docker
 prune is run. The runner emitted a topic-delete cleanup warning, but post-run
 checks found no Docker resources or matching temporary images for the run.
+
+## Kafka current Large-payload Gateway-to-destination authority
+
+Run the current-source Kafka destination slice with:
+
+```bash
+NEREUS_DELAY_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-large-payload-gradle-20260816-r2 \
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_DESTINATION_TOPIC=nereus-delay-large-payload-destination-20260816-r2 \
+  ./e2e/run-large-payload-gateway-e2e.sh
+```
+
+The receipt locks Delay to `eb8e4a9df859316253202ba3abfb48236bf64196`, Kafka
+to `05849884ca81fad767fda058444d1e17c7f9cbf9`, Oxia to
+`37a17bef17202d5fd6e23282da5fd26d94865484`, and MinIO to
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+It uses one physical source partition and proves real Gateway/Oxia/Worker/
+MinIO authority plus Kafka destination typed receipt and exact payload
+readback. The successful markers are:
+
+```text
+Kafka Worker source-applied physical publish passed: Admission source offset=4, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=0, Outcome source offset=5, exact payload readback
+Kafka + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload + Kafka destination authority E2E passed
+```
+
+The runner removes only the exact Compose project, its temporary networks,
+volumes and run-created Kafka/Oxia images; reusable base images remain and no
+global Docker prune is run.

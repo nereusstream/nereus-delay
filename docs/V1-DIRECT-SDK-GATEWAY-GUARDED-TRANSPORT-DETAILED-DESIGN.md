@@ -6739,3 +6739,18 @@ The source-bound implementation is Delay
 fence-quiesce-publish-acquire sequence and the failed-quiescence fence. The
 real E2E source lock additionally covers Gateway mTLS/JWT, real Oxia, two real
 Pulsar Brokers, Worker source apply and real MinIO exact payload readback.
+
+## 2026-08-16 Kafka current large-payload destination implementation note
+
+The current Kafka source-bound receipt reruns the existing
+`KafkaClientArtifactLargePayloadGatewaySmoke` composition at Delay
+`eb8e4a9df859316253202ba3abfb48236bf64196` with the destination branch
+enabled. It binds the signed Route, session-bound Oxia Assignment/Owner, Gateway
+mTLS/JWT admission and idempotency, Worker Prepare/Commit, versioned MinIO
+payload proof, typed `KAFKA_TRANSACTIONAL_RECEIPT`, source-applied Outcome and
+exact destination payload readback.
+
+This remains the one-partition destination-authority slice. The current live
+receipt is evidence for the Kafka path only; it does not collapse separately
+required response-loss/LSO/retention, raw crash/chaos, catalog-driven
+multi-shard or release-gate obligations into this smoke.

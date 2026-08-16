@@ -10205,3 +10205,33 @@ The runner removed only the exact run resources and temporary images; reusable
 base images were retained and no global Docker prune was used. Topic deletion
 printed a cleanup warning, but no named Docker resources or matching temporary
 images remained.
+
+## 2026-08-16 Kafka current Large-payload production-authority audit
+
+The current-source receipt locks Delay to
+`eb8e4a9df859316253202ba3abfb48236bf64196`, Kafka to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, Kafka
+image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, and MinIO
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The isolated project was `nereus-delay-large-payload-e2e-1786894724-26133`.
+
+The live chain reached the typed Kafka destination receipt and exact payload
+readback after real Gateway mTLS/JWT admission, real Oxia Route/Assignment/
+Owner authority, Worker Prepare/Commit, versioned MinIO payload proof and
+source apply. Its markers were:
+
+```text
+Kafka Worker source-applied physical publish passed: Admission source offset=4, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=0, Outcome source offset=5, exact payload readback
+Kafka + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: activationOffset=0, barrierOffset=2, prepareOffset=2, commitOffset=3, providerVersion=7917f183-823e-492c-b8df-d82f29e306ec, exactGatewayIdempotency=true
+Kafka + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload + Kafka destination authority E2E passed
+```
+
+This is a current bounded production-authority audit for the Kafka destination
+branch, with one physical source/destination partition. It does not promote
+the separate Kafka response-loss/LSO/retention slices into a single chaos
+matrix, and it does not close multi-shard placement or V1 release readiness.
+The exact run resources and temporary images were removed; reusable base
+images were retained and no global Docker prune was used.
