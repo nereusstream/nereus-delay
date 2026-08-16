@@ -147,6 +147,7 @@ GRADLE_USER_HOME="$gradle_user_home" \
     "$delay_root/gradlew" test \
         --tests io.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.workerCheckpointRuntimePublishesToRealMinioAndOxia \
         --tests io.nereusstream.delay.store.OxiaRealCheckpointReapingSmokeTest.realOxiaOwnerAbandonmentReapsExactMinioCheckpointPrefix \
+        --tests io.nereusstream.delay.store.OxiaRealObjectStoreCredentialRenewalSmokeTest.renewsRealOxiaLeaseAndFencesTheLiveAdapterAtHeadRotation \
         --rerun-tasks \
         --no-daemon --console=plain
 
