@@ -11157,3 +11157,19 @@ Registry wire codec now exists, but authenticated source-ordered activation
 state, eligible-reader assignment, writer-before-reader cutover,
 downgrade/release artifact and corresponding authority are not implemented.
 No bounded E2E receipt is reinterpreted as V1 release approval.
+
+## 2026-08-17 Initial Route control activation codec audit
+
+The incremental source lock is Delay
+`853a37c4ffbca80bae9cf1a7390a3eb090ab6226`. The Registry-defined kind-14
+`InitialRouteControlActivatePayloadV1` now has a typed canonical Java codec,
+including repeated tuple/Profile ordering and duplicate rejection, the initial
+quota-grant reference, the immutable snapshot hash, and an
+`ApplyShardControlBody` accessor. Focused tests, the current full Gradle check,
+and the cross-repository contract validator passed.
+
+Audit result: PASS for the bounded kind-14 wire-model slice only. No
+source-ordered activation projection or `DelayShard` application was added;
+there is no new activation metadata key, eligible-reader assignment,
+writer-before-reader cutover, downgrade path, or release artifact. Gate 8
+therefore remains `PARTIAL`, and the V1 release result remains `NOT READY`.

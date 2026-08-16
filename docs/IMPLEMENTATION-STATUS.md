@@ -14060,3 +14060,21 @@ The release result remains NOT READY:
 
 Positive bounded receipts still cannot be promoted into benchmark, soak,
 upgrade, runbook, full-chaos or V1 release PASS.
+
+## 2026-08-17 Initial Route control activation payload codec boundary
+
+Commit `853a37c4ffbca80bae9cf1a7390a3eb090ab6226` adds the strict Java codec
+for Registry ControlPayload field 14,
+`InitialRouteControlActivatePayloadV1`: repeated protocol tuples and Profile
+references are normalized and checked for the Registry ordering/uniqueness
+rules, while the initial `QuotaGrantRefV1` and 32-byte immutable snapshot hash
+are decoded as typed values. `ApplyShardControlBody` now exposes the typed
+kind-14 accessor. The focused codec test and the current full `check` passed;
+the cross-repository contract audit also passed with Delay at this source
+lock.
+
+This is a wire-model slice only. It does not add source-ordered initial
+activation state, change `DelayShard` kind-14 application, create another
+`meta/FIXED` key, or establish eligible-reader assignment, writer-before-reader
+cutover, downgrade, or release evidence. Gate 8 remains `PARTIAL` and V1
+remains `NOT READY`.
