@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -38,6 +39,26 @@ class OxiaSyncWorkerAssignmentBackendTest {
         assertEquals(1, publication.revision());
         assertEquals(publication, backend.current(assignment.sourceAssignment().shardId()).orElseThrow());
         assertEquals(publication, backend.publish(assignment, 1));
+    }
+
+    @Test
+    void sessionFenceRejectsACommittedAssignmentAfterTheMarkerChanges() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final AtomicBoolean sessionAlive = new AtomicBoolean(true);
+        final OxiaSyncWorkerAssignmentBackend backend = new OxiaSyncWorkerAssignmentBackend(records,
+                "delay/fenced-assignment", () -> {
+                    if (!sessionAlive.get()) {
+                        throw new IllegalStateException("simulated Oxia session fence");
+                    }
+                });
+        final WorkerAssignment assignment = assignment("worker-a", 1, "fenced");
+        records.afterPut = () -> sessionAlive.set(false);
+
+        assertThrows(IllegalStateException.class, () -> backend.publish(assignment, 0));
+
+        final OxiaSyncWorkerAssignmentBackend reopened = new OxiaSyncWorkerAssignmentBackend(records,
+                "delay/fenced-assignment");
+        assertEquals(assignment, reopened.current(assignment.sourceAssignment().shardId()).orElseThrow().assignment());
     }
 
     @Test
@@ -104,6 +125,8 @@ class OxiaSyncWorkerAssignmentBackendTest {
         private boolean failNextDeleteAfterCommit;
         private boolean wrongKeyOnNextGet;
         private boolean wrongKeyOnNextPut;
+        private Runnable afterPut = () -> {
+        };
 
         @Override
         public GetResult get(final String key) {
@@ -135,6 +158,7 @@ class OxiaSyncWorkerAssignmentBackendTest {
             final Version version = new Version(nextVersion++, 0, 0, 1, Optional.empty(), Optional.empty());
             final GetResult result = new GetResult(key, Bytes.copy(value), version);
             records.put(key, new Entry(result));
+            afterPut.run();
             if (failNextPutAfterCommit) {
                 failNextPutAfterCommit = false;
                 throw new IllegalStateException("simulated response loss");

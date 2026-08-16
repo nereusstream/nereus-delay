@@ -48,7 +48,7 @@ public final class OxiaSyncWorkerAssignmentBackend implements WorkerAssignmentAu
     public OxiaSyncWorkerAssignmentBackend(final OxiaSyncOwnerLeaseBackend.ClientHandle handle,
                                            final String keyPrefix) {
         this(new SyncRecordClient(Objects.requireNonNull(handle, "handle").client()), keyPrefix,
-                () -> handle.sessionIdentity());
+                handle.backend()::assertConnectedSession);
     }
 
     /** Package-private constructor used by deterministic CAS tests. */
@@ -57,11 +57,13 @@ public final class OxiaSyncWorkerAssignmentBackend implements WorkerAssignmentAu
         });
     }
 
-    private OxiaSyncWorkerAssignmentBackend(final RecordClient client, final String keyPrefix,
-                                            final Runnable sessionCheck) {
-        this.client = Objects.requireNonNull(client, "client");
+    /** Package-private constructor used to exercise the session fence. */
+    OxiaSyncWorkerAssignmentBackend(final RecordClient client, final String keyPrefix,
+                                    final Runnable sessionCheck) {
+        this.client = new SessionBoundRecordClient(Objects.requireNonNull(client, "client"),
+                Objects.requireNonNull(sessionCheck, "sessionCheck"));
         this.keyPrefix = canonicalKeyPrefix(keyPrefix);
-        this.sessionCheck = Objects.requireNonNull(sessionCheck, "sessionCheck");
+        this.sessionCheck = sessionCheck;
     }
 
     @Override
@@ -349,6 +351,68 @@ public final class OxiaSyncWorkerAssignmentBackend implements WorkerAssignmentAu
         public boolean delete(final String key, final Set<DeleteOption> options)
                 throws UnexpectedVersionIdException {
             return delegate.delete(key, options);
+        }
+    }
+
+    /**
+     * Checks the caller's Oxia session around every Worker-assignment record
+     * operation. A committed assignment CAS whose response is lost after the
+     * marker disappears cannot be reported as a successful publication.
+     */
+    private static final class SessionBoundRecordClient implements RecordClient {
+        private final RecordClient delegate;
+        private final Runnable sessionCheck;
+
+        private SessionBoundRecordClient(final RecordClient delegate, final Runnable sessionCheck) {
+            this.delegate = delegate;
+            this.sessionCheck = sessionCheck;
+        }
+
+        @Override
+        public GetResult get(final String key) {
+            sessionCheck.run();
+            try {
+                final GetResult result = delegate.get(key);
+                sessionCheck.run();
+                return result;
+            } catch (RuntimeException failure) {
+                sessionCheck.run();
+                throw failure;
+            }
+        }
+
+        @Override
+        public PutResult put(final String key, final byte[] value, final Set<PutOption> options)
+                throws UnexpectedVersionIdException, KeyAlreadyExistsException {
+            sessionCheck.run();
+            try {
+                final PutResult result = delegate.put(key, value, options);
+                sessionCheck.run();
+                return result;
+            } catch (KeyAlreadyExistsException | UnexpectedVersionIdException expectedCasRace) {
+                sessionCheck.run();
+                throw expectedCasRace;
+            } catch (RuntimeException failure) {
+                sessionCheck.run();
+                throw failure;
+            }
+        }
+
+        @Override
+        public boolean delete(final String key, final Set<DeleteOption> options)
+                throws UnexpectedVersionIdException {
+            sessionCheck.run();
+            try {
+                final boolean deleted = delegate.delete(key, options);
+                sessionCheck.run();
+                return deleted;
+            } catch (UnexpectedVersionIdException expectedCasRace) {
+                sessionCheck.run();
+                throw expectedCasRace;
+            } catch (RuntimeException failure) {
+                sessionCheck.run();
+                throw failure;
+            }
         }
     }
 }
