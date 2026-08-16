@@ -9206,6 +9206,59 @@ real Oxia authority smoke boundary; source-ordered Profile/trust publication,
 external secret-manager resolution, multi-node authority failover, provider
 rotation/quiescence, full chaos and V1 release gates remain open.
 
+## 2026-08-17 Current-source Kafka + Pulsar large-payload authority revalidation after tuple-bound dedupe
+
+The current-source revalidation uses Delay
+`9e29af8e70fa4d84725d624959f377c271d9f319`, which contains the Gate 8
+implementation from `59e085ed643e7e16658004aa73761079d6c036ae`, Kafka K1
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+Pulsar P1
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. The locked MinIO image
+was
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+with local image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`.
+
+Kafka used client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, K1
+image ID `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+project `nereus-delay-large-payload-e2e-1786908323-7577`, ports
+`30530,30531,30532`, Oxia `30540`, MinIO `30541`, Gateway `30542`, source
+topic `nereus-delay-kafka-large-payload-vtuple-20260817-r1` and destination
+topic `nereus-delay-kafka-large-destination-vtuple-20260817-r1`. The source-bound
+receipt was:
+
+```text
+Kafka Worker source-applied physical publish passed: Admission source offset=4, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=0, Outcome source offset=5, exact payload readback
+Kafka + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: activationOffset=0, barrierOffset=2, prepareOffset=2, commitOffset=3, providerVersion=70c455a1-fa1d-4d59-8d12-4e1c255891ac, exactGatewayIdempotency=true
+Kafka + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload + Kafka destination authority E2E passed
+BUILD SUCCESSFUL in 2m 47s
+```
+
+Pulsar used P1 distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1
+image ID
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+project `nereus-delay-pulsar-large-e2e-1786908528-9642`, broker ports
+`30640,30642`, web ports `30641,30643`, Oxia `30650`, MinIO `30651`, Gateway
+`30652`, source topic `nereus-delay-pulsar-large-payload-vtuple-20260817-r1`
+and destination topic `nereus-delay-pulsar-large-destination-vtuple-20260817-r1`.
+The source-bound receipt was:
+
+```text
+Pulsar Worker source-applied physical publish passed: Admission source ledger=3/4, typed PULSAR_SEND_ACK target ledger/entry=8/0, Outcome source ledger=3/5, exact payload readback
+Pulsar + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: prepare=3/2, commit=3/3, exactGatewayIdempotency=true, sourceRecords=6
+Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload multi-Broker failover E2E passed: broker-1 stopped after Gateway Commit/readback and the same source-applied physical Publish completed through broker-2
+BUILD SUCCESSFUL in 1m 13s
+```
+
+Both runner postchecks found no project containers, networks, volumes or
+run-created Kafka/Pulsar/Oxia images. The locked MinIO base and reusable Oxia
+base were retained; no global Docker prune was used. These are current-source
+positive production-authority revalidations, not benchmark, soak, full chaos,
+multi-shard, external credential/provider failover or V1 release approval.
+
 ## 2026-08-17 Gate 8 protocol-tuple dedupe implementation receipt
 
 The current Delay source lock for this bounded Gate 8 slice is
@@ -9233,9 +9286,8 @@ reader cutover, downgrade, or full release artifact required by Gate 8.
 ## 2026-08-17 V1 release-gate audit (not release-ready)
 
 The audit is source-bound to Delay
-`59e085ed643e7e16658004aa73761079d6c036ae` (Gate 8 implementation slice; the
-preceding current-source E2E receipts remain bound to Delay
-`f95c8a5468d6a1ee6df0bc1bd99000dc769d8797`), Kafka
+`9e29af8e70fa4d84725d624959f377c271d9f319` (current-source Gateway/Broker
+revalidation; the Gate 8 implementation is `59e085ed643e7e16658004aa73761079d6c036ae`), Kafka
 `nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 Pulsar `nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`
 and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. The prior audit snapshot

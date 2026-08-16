@@ -3845,9 +3845,9 @@ images; no global Docker prune was used.
 ## V1 release-gate audit (2026-08-17)
 
 Current source locks are Delay
-`59e085ed643e7e16658004aa73761079d6c036ae` for the Gate 8 tuple-bound
-dedupe slice (the preceding real-E2E receipts remain bound to Delay
-`f95c8a5468d6a1ee6df0bc1bd99000dc769d8797`), K1
+`9e29af8e70fa4d84725d624959f377c271d9f319` for the current-source Gateway /
+Broker revalidation (the Gate 8 tuple-bound dedupe implementation is
+`59e085ed643e7e16658004aa73761079d6c036ae`), K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`. The prior audit snapshot was
@@ -3855,7 +3855,8 @@ synchronized at documentation commit `ea134e6acdd28f333e4d87444f020d6e2ca623f6`;
 the current source-lock check and cross-repo validator pass. The release gate
 is `NOT READY`.
 
-Current real E2E evidence makes gates 1--4 and 10 partial only. Gate 8 is now
+Current real E2E evidence makes gates 1--4 and 10 partial only; the current
+source Kafka and Pulsar Gateway/Broker large-payload revalidations pass. Gate 8 is now
 partial: tuple-bound command hashing and durable dedupe conflict evidence pass,
 but authenticated writer-before-reader assignment, cutover/downgrade and the
 release artifact remain open. Gates 5--7 and 9 remain open for benchmark
