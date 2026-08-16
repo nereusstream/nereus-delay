@@ -10337,3 +10337,30 @@ controller/coordinator failover beyond the topic-leader check, multi-shard
 chaos completeness or V1 release approval. Exact project and image checks
 found no post-run containers, networks, volumes or matching temporary images;
 no global Docker prune was used.
+
+## 2026-08-17 Current-source Kafka raw TCP Broker endpoint-cut audit
+
+The current-source receipt locks Delay to
+`47fa6620e7816dbd13ea393b42891a53286009ec`, Kafka to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+and Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. The real three-Broker
+KRaft run used Kafka project `nereus-delay-kafka-e2e-1786897339-61592` on
+`19461,19462,19463`, Broker-1 raw backend `19561`, Oxia project
+`nereus-delay-kafka-oxia-e2e-1786897339-61592` at `127.0.0.1:16762`, and source
+topic `nereus-delay-worker-broker-tcp-cut-live-20260817`.
+
+The placement smoke put the source leader and the selected fixed-group
+`__consumer_offsets` partition on Broker-2 with replicas `[2,3,1]` while
+Broker-1 remained alive. The raw proxy forwarded the pre-cut endpoint,
+acknowledged the cut, rejected one new Broker-1 endpoint connection, and
+forwarded a later connection to Broker-2. A fresh Worker then reopened the
+same guarded source through the full bootstrap list, reacquired real Oxia
+authority, applied and ACKed the source record, and released its final
+checkpoint.
+
+This is positive current-source evidence for the explicit raw TCP endpoint
+handoff and Worker recovery contract. It is not automatic controller/
+coordinator failover, Broker crash recovery, Docker network partition,
+destination egress under the cut, multi-shard chaos or V1 release approval.
+Exact project and image checks found no post-run containers, networks, volumes
+or matching temporary images; no global Docker prune was used.

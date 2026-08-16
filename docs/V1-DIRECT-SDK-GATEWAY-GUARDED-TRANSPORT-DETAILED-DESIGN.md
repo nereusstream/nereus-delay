@@ -6839,3 +6839,28 @@ turn the topic-leader check into controller/coordinator failover evidence and
 does not cover physical destination publish during the partition, raw
 packet/proxy/socket injection, production multi-shard fault coverage or the
 V1 release gate.
+
+## 2026-08-17 Current Kafka raw TCP Broker endpoint-cut implementation note
+
+The focused `NEREUS_DELAY_KAFKA_BROKER_TCP_CUT_ONLY=1` path starts a real
+three-Broker K1 cluster plus real Oxia and inserts
+`KafkaClientArtifactTcpFaultProxy` in front of Broker-1's public endpoint.
+Before cutting, `KafkaClientArtifactLeaderPlacementSmoke` uses the real Admin
+API to place both the one-partition source leader and the selected fixed-group
+`__consumer_offsets` partition on Broker-2, with Broker-1 still alive.
+
+The proxy then closes existing sockets, rejects exactly one new Broker-1
+endpoint connection, and hands a later connection on that same endpoint to
+Broker-2. The resumed Worker keeps the original guarded source identity and
+full bootstrap list, reopens the real Oxia Assignment/Owner authority, applies
+the unacknowledged source record, commits the source ACK and final checkpoint,
+and the runner requires pre-cut forward, cut-ack, post-cut rejection and
+post-cut handoff markers before passing.
+
+The current source-bound run locks Delay to
+`47fa6620e7816dbd13ea393b42891a53286009ec`, K1 to
+`05849884ca81fad767fda058444d1e17c7f9cbf9` and Oxia to
+`37a17bef17202d5fd6e23282da5fd26d94865484`. This remains an explicit endpoint
+fault/handoff boundary, not automatic controller/coordinator failover,
+Broker crash recovery, Docker network partition, destination egress under
+the cut, multi-shard chaos or the V1 release gate.

@@ -3442,3 +3442,46 @@ Kafka project was `nereus-delay-kafka-e2e-1786896942-56285` and the exact Oxia
 project was `nereus-delay-kafka-oxia-e2e-1786896942-56285`; post-run checks
 found no containers, networks, volumes or matching temporary images, reusable
 base images were retained and no global Docker prune was used.
+
+## Kafka raw TCP Broker endpoint-cut Worker recovery receipt (current source)
+
+Run the current-source raw TCP endpoint-cut slice:
+
+```bash
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+NEREUS_DELAY_KAFKA_BROKER_TCP_CUT_ONLY=1 \
+KAFKA_BROKER_1_PORT=19461 \
+KAFKA_BROKER_2_PORT=19462 \
+KAFKA_BROKER_3_PORT=19463 \
+KAFKA_BROKER_1_BIND_PORT=19561 \
+NEREUS_DELAY_KAFKA_OXIA_PORT=16762 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-broker-tcp-cut-20260817 \
+GRADLE_USER_HOME=/tmp/nereus-delay-kafka-broker-tcp-cut-20260817 \
+KAFKA_DELAY_BROKER_TCP_CUT_TOPIC=nereus-delay-worker-broker-tcp-cut-live-20260817 \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+At Delay `47fa6620e7816dbd13ea393b42891a53286009ec`, Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`
+and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, the placement smoke put
+the source leader and selected group coordinator partition on Broker-2 with
+replicas `[2,3,1]` while Broker-1 stayed alive. The raw proxy then rejected one
+Broker-1 endpoint connection and handed a later connection to Broker-2. The
+fresh Worker resumed through the full bootstrap list under real Oxia authority
+and completed source apply/ACK/final checkpoint:
+
+```text
+Kafka raw TCP cut source leader placement passed: topic=nereus-delay-worker-broker-tcp-cut-live-20260817, leader=2, replicas=[2, 3, 1], broker1Alive=true
+Kafka raw TCP cut group coordinator placement passed: group=nereus-delay-worker-broker-tcp-cut-live-20260817-group, offsetsPartition=6, leader=2, replicas=[2, 3, 1], broker1Alive=true
+Kafka Worker raw TCP Broker-endpoint cut recovery E2E passed: Broker-1 remained alive, the source and selected group-coordinator partitions were explicitly placed on Broker-2, the raw proxy rejected Broker-1 once and handed later connections to Broker-2, and a fresh Worker resumed the same source through the full bootstrap list with real Oxia authority and source apply/ACK/checkpoint.
+```
+
+The runner also required pre-cut forwarding, cut acknowledgement, post-cut
+rejection and post-cut handoff marker files. This is a bounded raw endpoint
+fault/handoff receipt; it does not claim controller/coordinator automatic
+failover, Broker crash recovery, Docker network partition, destination egress
+under the cut, production multi-shard chaos or V1 release readiness. The exact
+Kafka project was `nereus-delay-kafka-e2e-1786897339-61592` and exact Oxia
+project was `nereus-delay-kafka-oxia-e2e-1786897339-61592`; post-run checks
+found no containers, networks, volumes or matching temporary images, reusable
+base images were retained and no global Docker prune was used.
