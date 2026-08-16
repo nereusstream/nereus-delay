@@ -253,7 +253,9 @@ public final class KafkaClientArtifactWorkerSmoke {
                                 "kafka-worker-source-applied-payload"), 2_000);
                         final KafkaSourcePosition physicalSchedulePosition = physicalCommand == null ? null
                                 : produceAndPosition(bootstrap, clusterId, topic, topicId, physicalCommand);
-                        final String workerGroup = "nereus-delay-worker-e2e-" + UUID.randomUUID();
+                        final String configuredWorkerGroup = System.getenv("NEREUS_DELAY_KAFKA_WORKER_GROUP_ID");
+                        final String workerGroup = configuredWorkerGroup == null || configuredWorkerGroup.isBlank()
+                                ? "nereus-delay-worker-e2e-" + UUID.randomUUID() : configuredWorkerGroup;
                         final GuardedConsumer<byte[], byte[]> rawWorkerConsumer = workerConsumer(
                                 bootstrap, workerGroup, clusterId, topic, nativeTopicId, shard);
                         final AtomicBoolean sourceAckResponseLossObserved = new AtomicBoolean();

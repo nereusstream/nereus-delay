@@ -208,6 +208,46 @@ tasks.register('runRealKafkaSurvivorLeaderRecoverySmoke', JavaExec) {
     args findProperty('kafkaBootstrap'), findProperty('kafkaSurvivorTopics')
 }
 
+tasks.register('runRealKafkaLeaderPlacementSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Moves one replicated Kafka source partition to Broker 2 while Broker 1 remains alive.'
+    dependsOn tasks.named('compileRealKafka')
+    if (realKafkaClientJar == null || findProperty('kafkaBootstrap') == null
+            || findProperty('kafkaLeaderPlacementTopic') == null) {
+        doFirst {
+            throw new GradleException(
+                    'runRealKafkaLeaderPlacementSmoke requires -PkafkaClientJar=... '
+                            + '-PkafkaBootstrap=host:port -PkafkaLeaderPlacementTopic=name')
+        }
+    }
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactLeaderPlacementSmoke'
+    args findProperty('kafkaBootstrap'), findProperty('kafkaLeaderPlacementTopic'),
+            findProperty('kafkaLeaderPlacementGroup')
+}
+
+tasks.register('runRealKafkaTcpFaultProxy', JavaExec) {
+    group = 'verification'
+    description = 'Runs the raw TCP relay used by the focused Kafka Broker endpoint-cut E2E.'
+    dependsOn tasks.named('compileRealKafka')
+    def proxyProperties = [
+            'kafkaProxyListenPort', 'kafkaProxyTargetHost', 'kafkaProxyTargetPort',
+            'kafkaProxyPostCutTargetHost', 'kafkaProxyPostCutTargetPort',
+            'kafkaProxyCutFile', 'kafkaProxyReleaseFile', 'kafkaProxyStopFile',
+            'kafkaProxyReadyFile', 'kafkaProxyCutAckFile', 'kafkaProxyPreCutFile',
+            'kafkaProxyPostCutFile', 'kafkaProxyPostCutHandoffFile'
+    ]
+    if (realKafkaClientJar == null || proxyProperties.any { findProperty(it) == null }) {
+        doFirst {
+            throw new GradleException('runRealKafkaTcpFaultProxy requires the locked Kafka client and all '
+                    + 'kafkaProxy* properties')
+        }
+    }
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactTcpFaultProxy'
+    args proxyProperties.collect { findProperty(it) }
+}
+
 tasks.register('runRealKafkaMutationSmoke', JavaExec) {
     group = 'verification'
     description = 'Runs guarded signed System Mutation append/replay/ACK against an explicitly supplied broker.'

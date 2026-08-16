@@ -45,6 +45,12 @@ worker_process_crash_only="${NEREUS_DELAY_KAFKA_WORKER_PROCESS_CRASH_ONLY:-0}"
 worker_ack_process_crash_only="${NEREUS_DELAY_KAFKA_WORKER_ACK_PROCESS_CRASH_ONLY:-0}"
 broker_process_crash_only="${NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_ONLY:-0}"
 broker_network_partition_only="${NEREUS_DELAY_KAFKA_BROKER_NETWORK_PARTITION_ONLY:-0}"
+broker_tcp_cut_only="${NEREUS_DELAY_KAFKA_BROKER_TCP_CUT_ONLY:-0}"
+if [[ "${broker_tcp_cut_only}" == "1" ]]; then
+  broker_1_bind_port="${KAFKA_BROKER_1_BIND_PORT:-$((broker_1_port + 100))}"
+else
+  broker_1_bind_port="${KAFKA_BROKER_1_BIND_PORT:-${broker_1_port}}"
+fi
 oxia_checkout="${NEREUS_DELAY_KAFKA_OXIA_CHECKOUT:-${delay_dir}/../../oxia}"
 oxia_port="${NEREUS_DELAY_KAFKA_OXIA_PORT:-$((16650 + ($$ % 100)))}"
 oxia_compose_project="nereus-delay-kafka-oxia-e2e-$(date +%s)-$$"
@@ -122,6 +128,14 @@ if [[ "${broker_process_crash_only}" != "0" && "${broker_process_crash_only}" !=
 fi
 if [[ "${broker_network_partition_only}" != "0" && "${broker_network_partition_only}" != "1" ]]; then
   echo "NEREUS_DELAY_KAFKA_BROKER_NETWORK_PARTITION_ONLY must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${broker_tcp_cut_only}" != "0" && "${broker_tcp_cut_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_BROKER_TCP_CUT_ONLY must be 0 or 1" >&2
+  exit 1
+fi
+if (( broker_1_bind_port <= 0 || broker_1_bind_port > 65535 )); then
+  echo "KAFKA_BROKER_1_BIND_PORT must be 1..65535" >&2
   exit 1
 fi
 if [[ "${broker_process_crash_only}" == "1" && "${with_oxia}" != "1" ]]; then
@@ -288,6 +302,20 @@ if [[ "${broker_network_partition_only}" == "1" && ("${route_failover_only}" == 
   echo "Kafka Broker network-partition-only mode is mutually exclusive with other focused modes" >&2
   exit 1
 fi
+if [[ "${broker_tcp_cut_only}" == "1" && ("${route_failover_only}" == "1"
+        || "${k2_failover_only}" == "1" || "${k2_response_loss_only}" == "1"
+        || "${worker_destination_response_loss_only}" == "1"
+        || "${source_ack_response_loss_only}" == "1"
+        || "${fetch_response_loss_only}" == "1"
+        || "${retention_floor_only}" == "1" || "${process_crash_only}" == "1"
+        || "${worker_process_crash_only}" == "1" || "${worker_ack_process_crash_only}" == "1"
+        || "${broker_process_crash_only}" == "1" || "${broker_network_partition_only}" == "1"
+        || "${route_failover}" == "1" || "${k2_failover}" == "1"
+        || "${k2_response_loss}" == "1" || "${worker_destination_response_loss}" == "1"
+        || "${source_ack_response_loss}" == "1") ]]; then
+  echo "Kafka Broker raw TCP cut-only mode is mutually exclusive with other focused modes" >&2
+  exit 1
+fi
 
 if [[ "${worker_destination_response_loss}" == "1" ]]; then
   export NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS=1
@@ -318,6 +346,17 @@ worker_ack_process_crash_resume_log="${worker_ack_process_crash_dir}/resume.log"
 worker_ack_process_crash_gate="${worker_ack_process_crash_dir}/release"
 worker_ack_process_crash_pid_file="${worker_ack_process_crash_dir}/worker.pid"
 worker_ack_process_crash_launcher_pid=""
+broker_tcp_cut_dir="$(mktemp -d -t nereus-delay-kafka-broker-tcp-cut.XXXXXX)"
+broker_tcp_cut_log="${broker_tcp_cut_dir}/proxy.log"
+broker_tcp_cut_file="${broker_tcp_cut_dir}/cut"
+broker_tcp_release_file="${broker_tcp_cut_dir}/release"
+broker_tcp_stop_file="${broker_tcp_cut_dir}/stop"
+broker_tcp_ready_file="${broker_tcp_cut_dir}/ready"
+broker_tcp_ack_file="${broker_tcp_cut_dir}/cut-ack"
+broker_tcp_pre_cut_file="${broker_tcp_cut_dir}/pre-cut-forward"
+broker_tcp_post_cut_file="${broker_tcp_cut_dir}/post-cut-rejection"
+broker_tcp_post_cut_handoff_file="${broker_tcp_cut_dir}/post-cut-handoff"
+broker_tcp_proxy_pid=""
 
 cleanup() {
   if [[ -n "${worker_process_crash_launcher_pid}" ]]; then
@@ -327,6 +366,10 @@ cleanup() {
   if [[ -n "${worker_ack_process_crash_launcher_pid}" ]]; then
     kill "${worker_ack_process_crash_launcher_pid}" >/dev/null 2>&1 || true
     wait "${worker_ack_process_crash_launcher_pid}" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${broker_tcp_proxy_pid}" ]]; then
+    touch "${broker_tcp_stop_file}" >/dev/null 2>&1 || true
+    wait "${broker_tcp_proxy_pid}" >/dev/null 2>&1 || true
   fi
   if [[ -n "${k2_failover_pid}" ]]; then
     kill "${k2_failover_pid}" >/dev/null 2>&1 || true
@@ -343,6 +386,7 @@ cleanup() {
   rm -rf "${process_crash_dir}"
   rm -rf "${worker_process_crash_dir}"
   rm -rf "${worker_ack_process_crash_dir}"
+  rm -rf "${broker_tcp_cut_dir}"
 }
 trap cleanup EXIT INT TERM
 
@@ -413,6 +457,43 @@ run_worker_smoke() {
     GRADLE_USER_HOME="${gradle_user_home}" "${worker_command[@]}" \
       --no-daemon --console=plain
   fi
+}
+
+start_broker_tcp_fault_proxy() {
+  rm -f "${broker_tcp_ready_file}" "${broker_tcp_ack_file}" "${broker_tcp_pre_cut_file}" \
+    "${broker_tcp_post_cut_file}" "${broker_tcp_post_cut_handoff_file}" "${broker_tcp_stop_file}"
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaTcpFaultProxy \
+    "-PkafkaClientJar=${client_jar}" \
+    "-PkafkaProxyListenPort=${broker_1_port}" \
+    "-PkafkaProxyTargetHost=127.0.0.1" \
+    "-PkafkaProxyTargetPort=${broker_1_bind_port}" \
+    "-PkafkaProxyPostCutTargetHost=127.0.0.1" \
+    "-PkafkaProxyPostCutTargetPort=${broker_2_port}" \
+    "-PkafkaProxyCutFile=${broker_tcp_cut_file}" \
+    "-PkafkaProxyReleaseFile=${broker_tcp_release_file}" \
+    "-PkafkaProxyStopFile=${broker_tcp_stop_file}" \
+    "-PkafkaProxyReadyFile=${broker_tcp_ready_file}" \
+    "-PkafkaProxyCutAckFile=${broker_tcp_ack_file}" \
+    "-PkafkaProxyPreCutFile=${broker_tcp_pre_cut_file}" \
+    "-PkafkaProxyPostCutFile=${broker_tcp_post_cut_file}" \
+    "-PkafkaProxyPostCutHandoffFile=${broker_tcp_post_cut_handoff_file}" \
+    --no-daemon --console=plain >"${broker_tcp_cut_log}" 2>&1 &
+  broker_tcp_proxy_pid=$!
+  local deadline=$((SECONDS + 120))
+  while (( SECONDS < deadline )); do
+    if [[ -f "${broker_tcp_ready_file}" ]]; then
+      return 0
+    fi
+    if ! kill -0 "${broker_tcp_proxy_pid}" >/dev/null 2>&1; then
+      cat "${broker_tcp_cut_log}" >&2
+      echo "Kafka raw TCP fault proxy exited before readiness" >&2
+      return 1
+    fi
+    sleep 1
+  done
+  cat "${broker_tcp_cut_log}" >&2
+  echo "Kafka raw TCP fault proxy did not become ready" >&2
+  return 1
 }
 
 run_mutation_worker_smoke() {
@@ -569,6 +650,7 @@ image_digest="$(docker image inspect "${image}" --format '{{.Id}}')"
 export KAFKA_CLUSTER_ID="${cluster_id}"
 export KAFKA_K1_IMAGE="${image}"
 export KAFKA_BROKER_1_PORT="${broker_1_port}"
+export KAFKA_BROKER_1_BIND_PORT="${broker_1_bind_port}"
 export KAFKA_BROKER_2_PORT="${broker_2_port}"
 export KAFKA_BROKER_3_PORT="${broker_3_port}"
 if [[ "${retention_floor_only}" == "1" ]]; then
@@ -583,6 +665,9 @@ echo "Compose project: ${compose_project}"
 echo "Broker ports: ${broker_1_port},${broker_2_port},${broker_3_port}"
 
 "${compose[@]}" up -d
+if [[ "${broker_tcp_cut_only}" == "1" ]]; then
+  start_broker_tcp_fault_proxy
+fi
 wait_for_broker kafka-1
 
 if [[ "${route_failover_only}" == "1" ]]; then
@@ -858,6 +943,49 @@ if [[ "${broker_network_partition_only}" == "1" ]]; then
   fi
   wait_for_broker kafka-1
   echo "Kafka Broker network-partition recovery E2E passed: kafka-1 stayed alive but was disconnected from the Compose network after guarded Worker preparation, the same topic resumed through kafka-2/kafka-3 with real Oxia Worker authority and source apply/ACK/checkpoint, and kafka-1 reconnected afterward."
+  exit 0
+fi
+
+if [[ "${broker_tcp_cut_only}" == "1" ]]; then
+  start_oxia
+  broker_tcp_cut_topic="${KAFKA_DELAY_BROKER_TCP_CUT_TOPIC:-${worker_topic}-broker-tcp-cut}"
+  broker_tcp_cut_group="${broker_tcp_cut_topic}-group"
+  run_worker_smoke "${bootstrap_all}" "${broker_tcp_cut_topic}" prepare
+  if [[ ! -s "${broker_tcp_pre_cut_file}" ]]; then
+    cat "${broker_tcp_cut_log}" >&2
+    echo "Kafka raw TCP fault proxy did not forward the pre-cut Worker connection" >&2
+    exit 1
+  fi
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaLeaderPlacementSmoke \
+    "-PkafkaClientJar=${client_jar}" \
+    "-PkafkaBootstrap=${bootstrap_all}" \
+    "-PkafkaLeaderPlacementTopic=${broker_tcp_cut_topic}" \
+    "-PkafkaLeaderPlacementGroup=${broker_tcp_cut_group}" \
+    --no-daemon --console=plain
+  touch "${broker_tcp_cut_file}"
+  cut_deadline=$((SECONDS + 60))
+  while [[ ! -f "${broker_tcp_ack_file}" ]]; do
+    if (( SECONDS >= cut_deadline )); then
+      cat "${broker_tcp_cut_log}" >&2
+      echo "Kafka raw TCP fault proxy did not acknowledge the endpoint cut" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  NEREUS_DELAY_KAFKA_WORKER_GROUP_ID="${broker_tcp_cut_group}" \
+    run_worker_smoke "${bootstrap_all}" "${broker_tcp_cut_topic}" resume ""
+  touch "${broker_tcp_release_file}"
+  if [[ ! -s "${broker_tcp_post_cut_file}" ]]; then
+    cat "${broker_tcp_cut_log}" >&2
+    echo "Kafka raw TCP fault proxy did not reject a post-cut Broker-1 connection" >&2
+    exit 1
+  fi
+  if [[ ! -s "${broker_tcp_post_cut_handoff_file}" ]]; then
+    cat "${broker_tcp_cut_log}" >&2
+    echo "Kafka raw TCP fault proxy did not forward a later post-cut connection to Broker-2" >&2
+    exit 1
+  fi
+  echo "Kafka Worker raw TCP Broker-endpoint cut recovery E2E passed: Broker-1 remained alive, the source and selected group-coordinator partitions were explicitly placed on Broker-2, the raw proxy rejected Broker-1 once and handed later connections to Broker-2, and a fresh Worker resumed the same source through the full bootstrap list with real Oxia authority and source apply/ACK/checkpoint."
   exit 0
 fi
 
