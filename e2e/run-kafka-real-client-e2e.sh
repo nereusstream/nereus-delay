@@ -509,6 +509,23 @@ start_broker_tcp_fault_proxy() {
   return 1
 }
 
+probe_broker_tcp_cut_rejection() {
+  local deadline=$((SECONDS + 10))
+  while (( SECONDS < deadline )); do
+    # The Worker must still exercise the real recovery path below. This probe
+    # only makes the transport fault receipt deterministic instead of relying
+    # on Kafka's bootstrap-server selection order to open Broker-1 first.
+    (echo > "/dev/tcp/127.0.0.1/${broker_1_port}") >/dev/null 2>&1 || true
+    if [[ -s "${broker_tcp_post_cut_file}" ]]; then
+      return 0
+    fi
+    sleep 1
+  done
+  cat "${broker_tcp_cut_log}" >&2
+  echo "Kafka raw TCP fault proxy did not reject the deterministic post-cut endpoint probe" >&2
+  return 1
+}
+
 run_mutation_worker_smoke() {
   local bootstrap_server="$1"
   if [[ "${with_oxia}" == "1" ]]; then
@@ -993,6 +1010,7 @@ if [[ "${broker_tcp_cut_only}" == "1" ]]; then
     fi
     sleep 1
   done
+  probe_broker_tcp_cut_rejection
   NEREUS_DELAY_KAFKA_WORKER_GROUP_ID="${broker_tcp_cut_group}" \
     run_worker_smoke "${bootstrap_all}" "${broker_tcp_cut_topic}" resume ""
   touch "${broker_tcp_release_file}"
