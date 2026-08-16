@@ -180,6 +180,29 @@ if [[ "${worker_destination_response_loss}" == "1" ]]; then
   export NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS=1
 fi
 
+run_focused_worker_smoke() {
+  local worker_topic="$1"
+  local worker_destination="$2"
+  local worker_environment=(env "GRADLE_USER_HOME=${gradle_user_home}")
+  local worker_gradle_args=(
+    -PpulsarClientClasspath="${pulsar_client_cp}"
+    -PpulsarRuntimeDir="${runtime_dir}/lib"
+    -PpulsarServiceUrl="${service_url}"
+    -PpulsarAdminUrl="${admin_url}"
+    -PpulsarTopic="${worker_topic}"
+    -PpulsarWorkerMode=run
+    -PpulsarWorkerDestinationTopic="${worker_destination}"
+  )
+  if [[ "${with_oxia}" == "1" ]]; then
+    worker_environment+=("NEREUS_DELAY_OXIA_ENDPOINT=127.0.0.1:${oxia_port}")
+    worker_gradle_args+=("-PpulsarWithOxia=true")
+  fi
+
+  "${worker_environment[@]}" ./gradlew runRealPulsarWorkerSmoke \
+    "${worker_gradle_args[@]}" \
+    --no-daemon --console=plain
+}
+
 if [[ "${destination_response_loss_only}" == "1" ]]; then
   GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealPulsarDestinationSmoke \
     -PpulsarClientClasspath="${pulsar_client_cp}" \
@@ -193,29 +216,13 @@ if [[ "${destination_response_loss_only}" == "1" ]]; then
 fi
 
 if [[ "${source_ack_response_loss_only}" == "1" ]]; then
-  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealPulsarWorkerSmoke \
-    -PpulsarClientClasspath="${pulsar_client_cp}" \
-    -PpulsarRuntimeDir="${runtime_dir}/lib" \
-    -PpulsarServiceUrl="${service_url}" \
-    -PpulsarAdminUrl="${admin_url}" \
-    -PpulsarTopic="${topic}" \
-    -PpulsarWorkerMode=run \
-    -PpulsarWorkerDestinationTopic= \
-    --no-daemon --console=plain
+  run_focused_worker_smoke "${topic}" ""
   echo "Pulsar Worker source ACK response-loss E2E passed: real ACK response loss was retried on the same source record and the bounded Worker vertical completed."
   exit 0
 fi
 
 if [[ "${worker_destination_response_loss_only}" == "1" ]]; then
-  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealPulsarWorkerSmoke \
-    -PpulsarClientClasspath="${pulsar_client_cp}" \
-    -PpulsarRuntimeDir="${runtime_dir}/lib" \
-    -PpulsarServiceUrl="${service_url}" \
-    -PpulsarAdminUrl="${admin_url}" \
-    -PpulsarTopic="${topic}" \
-    -PpulsarWorkerMode=run \
-    -PpulsarWorkerDestinationTopic="${worker_destination_topic}" \
-    --no-daemon --console=plain
+  run_focused_worker_smoke "${topic}" "${worker_destination_topic}"
   echo "Pulsar Worker destination response-loss E2E passed: real SEND response loss resolved through typed PULSAR_SEND_ACK evidence and the source-applied Outcome completed."
   exit 0
 fi
