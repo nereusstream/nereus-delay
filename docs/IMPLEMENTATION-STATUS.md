@@ -9997,3 +9997,32 @@ cache boundary used to feed activation. An external secret-manager reader,
 source-ordered cache refresh/publication, actor authorization, multi-node
 failover, rotation/quiescence, real S3/MinIO, deletion, chaos and V1 release
 evidence remain open.
+
+## 2026-08-16 MinIO S3-compatible checkpoint provider smoke
+
+Delay commit `31ba5661` adds the opt-in
+`S3CompatibleMinioRealSmokeTest` and `e2e/run-minio-real-e2e.sh`. The harness
+requires the locally available MinIO image
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z` with repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+and observed image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`.
+It allocates an isolated host port, creates only its generated bucket through
+curl AWS SigV4, runs the real JDK S3 adapter with `--rerun-tasks`, and removes
+only the harness-owned container on exit.
+
+The real run used container
+`nereus-delay-minio-e2e-1786839150-77162`, endpoint
+`http://127.0.0.1:62159`, bucket
+`nereus-delay-checkpoints-1786839150-77162`, and ended with
+`BUILD SUCCESSFUL` plus the JUnit report
+`tests=1 skipped=0 failures=0 errors=0`. The test uploaded the canonical
+checkpoint file objects and manifest, retried the same immutable upload, and
+restored both files through the real MinIO endpoint.
+
+This closes only one locked MinIO path-style S3-compatible provider smoke and
+the adapter's real upload/idempotent-retry/download boundary. It does not
+claim generic S3 or other provider compatibility, Object Store credential
+authority/renewal or rotation, provider version-aware deletion, consistency
+attestation, external secret management, process/network chaos, multi-node
+failover, or V1 release evidence.

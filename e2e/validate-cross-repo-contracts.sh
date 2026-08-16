@@ -967,6 +967,26 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Verified credential material cache implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Verified credential material cache focused receipt"
+require_file_text "$delay_root/e2e/run-minio-real-e2e.sh" \
+    "S3CompatibleMinioRealSmokeTest"
+require_file_text "$delay_root/e2e/run-minio-real-e2e.sh" \
+    "--rerun-tasks"
+require_file_text "$delay_root/e2e/run-minio-real-e2e.sh" \
+    "sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleMinioRealSmokeTest.java" \
+    "immutableCheckpointUploadsIdempotentlyAndRestoresAgainstMinio"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "MinIO S3-compatible checkpoint provider smoke"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "tests=1 skipped=0 failures=0 errors=0"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Delay MinIO provider smoke slice"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "MinIO S3-compatible checkpoint provider implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "MinIO S3-compatible checkpoint real-service receipt"
+require_file_text "$delay_root/e2e/README.md" \
+    "Dockerized MinIO S3-compatible checkpoint smoke passed"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

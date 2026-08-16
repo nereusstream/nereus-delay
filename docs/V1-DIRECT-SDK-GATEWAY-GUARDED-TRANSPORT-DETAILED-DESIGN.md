@@ -5142,3 +5142,23 @@ This supplies the cache-side contract required by native/managed activation;
 an external secret-manager reader and source-ordered refresh/publication remain
 control-plane responsibilities, as do actor authorization, rotation
 quiescence and production availability evidence.
+
+### 2026-08-16 MinIO S3-compatible checkpoint provider implementation note
+
+`e2e/run-minio-real-e2e.sh` is the opt-in real-provider harness for the
+existing `S3CompatibleCheckpointObjectStoreAdapter`. It locks the local
+MinIO image tag and repository digest, starts a unique container with a
+dynamic host port, creates only a generated bucket with curl AWS SigV4, and
+passes the exact endpoint/region/bucket/access-key scope into
+`S3CompatibleMinioRealSmokeTest`. The Gradle invocation uses `--rerun-tasks`
+so an earlier skipped real-service result cannot be mistaken for a live
+provider receipt; cleanup removes only the container created by this run.
+
+The locked MinIO run at image digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+completed the real adapter upload, same-key immutable retry and atomic
+download restore, with JUnit `tests=1 skipped=0 failures=0 errors=0` and
+`BUILD SUCCESSFUL`. This is bounded evidence for one MinIO S3-compatible
+endpoint. It does not create a generic provider conformance claim or close
+credential-authority renewal/rotation, version-aware deletion, consistency
+attestation, cross-provider behavior, chaos, failover or release gates.

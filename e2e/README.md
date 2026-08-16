@@ -1449,3 +1449,40 @@ This is local verified-cache evidence only. It does not prove an external
 secret-manager reader, source-ordered cache refresh/publication, actor
 authorization, multi-node authority failover, credential rotation/quiescence,
 real S3/MinIO, chaos or release readiness.
+
+## MinIO S3-compatible checkpoint real-service receipt
+
+Run the locked, opt-in MinIO provider smoke from the Delay checkout with:
+
+```text
+./e2e/run-minio-real-e2e.sh
+```
+
+The harness uses the locally available
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z` image at repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+It starts one isolated container on a dynamic host port, creates a generated
+bucket with curl AWS SigV4, runs
+`S3CompatibleMinioRealSmokeTest` with Gradle `--rerun-tasks`, and cleans only
+the matching container. `NEREUS_DELAY_MINIO_E2E_PORT` can pin a host port;
+access key, secret key, region and bucket can be overridden with the
+`NEREUS_DELAY_MINIO_*` variables.
+
+The source-locked receipt used Delay commit `31ba5661`, image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`,
+container `nereus-delay-minio-e2e-1786839150-77162`, endpoint
+`http://127.0.0.1:62159` and bucket
+`nereus-delay-checkpoints-1786839150-77162`. The JUnit report recorded
+`tests=1 skipped=0 failures=0 errors=0`; the run ended with `BUILD SUCCESSFUL`
+and:
+
+```text
+Dockerized MinIO S3-compatible checkpoint smoke passed for quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+```
+
+The test proves real MinIO upload of immutable checkpoint objects and the
+manifest, same-key idempotent retry, and download restore of both files. It is
+one-provider bounded evidence, not generic S3 compatibility, credential
+authority/renewal/rotation, provider deletion/versioning, consistency
+attestation, network/process chaos, multi-node failover or V1 release
+evidence.

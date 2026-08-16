@@ -4666,6 +4666,7 @@ the guarded Broker rollout attestation remains external evidence.
 |---|---|
 | Delay local implementation slice | `nereus/delay-full-implementation-v1@d9b713a9159a8b2672a2b0aea5bd5243ca798c3e` (latest runtime slice: the single-record Oxia Profile catalog requires an immutable credential-attestation trust set during publication, rotation, canonical decode/reopen and bounded lease issuance; the verified material cache now installs only exact Object Store Profile/generation/binding/reference/fingerprint values after trust-set and scope checks, returns null on miss and atomically preserves its previous snapshot on failed replacement; the renewable S3 adapter renews only inside an explicit window, rechecks the exact same Head/Binding/material fingerprint, atomically replaces the local gate after a protected lease reread and rejects Head generation rotation as a quiescence boundary; exact verifier tuple, Ed25519 signature and retained key window are checked before the existing activation composition resolves Head/Binding/Protection once, obtains private Object Store material through a resolver/cache and constructs the lease-gated S3 adapter; Provider calls do not reread Oxia unless renewal is due; it builds on the exact CAS/response-loss and real single-node Oxia Profile smoke plus the S3-compatible checkpoint adapter/local lease gate and source-bound Kafka/Pulsar physical Publish/Outcome, Gateway/Oxia response-loss, real multi-node Oxia Gateway failover and bounded Kafka/Pulsar Worker failover slices; external secret-manager resolution/source-ordered refresh, trust-set publication, secret/actor authority, source ordering, retained-generation GC, cross-record session transactions, scheduled multi-process renewal ownership, multi-node failover for this authority, provider quiescence, raw network/process cuts, production placement/eligibility and release gates remain open) |
 | Delay current implementation head | `nereus/delay-full-implementation-v1@db9bafe8c26693fe2ba022e321931f8ee8a8a38d` (current branch head; code slice `d9b713a9159a8b2672a2b0aea5bd5243ca798c3e` adds the verified credential material cache and this commit synchronizes its evidence/validator; historical bounded Pulsar Route/Worker receipt remains provenance at `nereus/delay-full-implementation-v1@bf858b089b927fcf65129214d8ed5a7fc5300deb`; bounded Kafka/Pulsar Route/Worker assignment, failover, physical Publish/typed Outcome and Gateway/Oxia response-loss receipts are recorded; external secret-manager resolution/source-ordered refresh, trust-set publication, secret/actor authority, catalog-driven multi-shard placement, native eligibility, production Worker authority, scheduled renewal ownership, raw chaos and release gates remain open) |
+| Delay MinIO provider smoke slice | `nereus/delay-full-implementation-v1@31ba5661` (`S3CompatibleMinioRealSmokeTest` plus `e2e/run-minio-real-e2e.sh`; the harness locks the local MinIO image tag/repository digest, creates only its own temporary bucket through curl SigV4, runs the real adapter with `--rerun-tasks`, and removes only its own container; the receipt proves one MinIO endpoint's immutable checkpoint upload/idempotent retry/download path, while generic S3/provider breadth, credential authority/renewal, deletion, chaos and release gates remain open) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
@@ -8394,6 +8395,30 @@ prove an external secret-manager reader, source-ordered cache publication or
 refresh, actor authorization, cross-record Owner/Route/session transactions,
 multi-node authority failover, credential rotation/quiescence, real S3/MinIO,
 chaos or V1 release readiness.
+
+## 2026-08-16 MinIO S3-compatible checkpoint provider audit
+
+Delay implementation commit `31ba5661` adds the opt-in
+`S3CompatibleMinioRealSmokeTest` and `e2e/run-minio-real-e2e.sh`. The harness
+uses the local MinIO image
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z` at repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+and observed image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`.
+The source-locked run used container
+`nereus-delay-minio-e2e-1786839150-77162`, host endpoint
+`http://127.0.0.1:62159` and bucket
+`nereus-delay-checkpoints-1786839150-77162`. It created the bucket through
+curl SigV4, executed the real adapter with Gradle `--rerun-tasks`, and cleaned
+the matching container.
+
+The JUnit report recorded `tests=1 skipped=0 failures=0 errors=0`; the run
+ended with `BUILD SUCCESSFUL` and verified canonical file/manifest upload,
+same-key immutable retry and complete two-file download restore through
+MinIO. This is bounded one-provider evidence only. Generic S3/provider
+compatibility, credential authority/renewal/rotation, provider deletion and
+consistency attestation, cross-record failover, chaos and V1 release readiness
+remain open.
 
 ## Final gate
 
