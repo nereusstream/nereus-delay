@@ -11722,3 +11722,47 @@ Broker/controller/storage chaos, Object Store failure injection, authenticated
 protocol activation/cutover, benchmark/capacity/soak certification or V1
 release readiness. Exact cleanup left only the locked Oxia and MinIO base
 images; no global Docker prune or unrelated image deletion was performed.
+
+## 2026-08-17 Current-source twelve-cell bounded chaos matrix rerun
+
+Audit result: PASS for the current-source bounded matrix runner at Delay
+`0d4fdbbc899c0af0d9edee20d939b207dc3721a5`. The run completed all twelve
+cells with `matrix_status=0`: Kafka Broker process crash, Worker ACK process
+crash, raw TCP Broker endpoint cut and Broker network partition; Pulsar Worker
+process crash, two-Broker process crash/failover, and Publish Admission
+response loss; Oxia/MinIO checkpoint REAPING; Kafka Fetch response loss and
+retention-floor recovery; and Pulsar destination SEND and source ACK response
+loss. The exact projects and ports are recorded in
+`docs/IMPLEMENTATION-STATUS.md` immediately above this audit delta.
+
+The source locks were Kafka K1
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9`, its
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, and
+image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`;
+Pulsar P1
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and
+image `sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`;
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`; and MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The runner's artifact directory was
+`/var/folders/vk/l_r0z80j1dj93fsrjx3zqv4r0000gn/T/nereus-delay-chaos-current.XXXXXX.BMoa8FhanZ`.
+
+The focused receipts are bounded: the Kafka cuts prove fresh-process source
+recovery, exact Fetch v13/LSO and retention-floor behavior; the Pulsar cuts
+prove source/destination response-loss recovery and a two-Broker Worker
+resume; and the checkpoint cell proves real Oxia Intent/Catalog/Owner plus
+MinIO publication/REAPING. They do not prove raw controller/coordinator or
+BookKeeper storage failure, long GC/half-open/ENOSPC/fsync/SST cuts, Object
+Store 5xx/timeout/config-drift authority, target-isolation gates, soak,
+benchmark/capacity certification, authenticated activation/cutover or full
+§23.3 completion.
+
+Post-run inspection found no exact-project containers, networks, volumes or
+temporary broker/Oxia images. Only the locked Oxia and MinIO base images were
+retained; no global Docker prune or unrelated image deletion was performed.
+The receipt strengthens Gates 2, 3 and 10 but does not promote them to
+release PASS. Gates 5, 6, 7 and 9 remain `OPEN`, Gate 8 remains `PARTIAL`,
+and V1 remains `NOT READY`.

@@ -4594,3 +4594,30 @@ soak gates, authenticated activation-state/cutover, multi-shard production
 placement, or V1 release readiness. The runners removed their exact project
 containers, networks, volumes and temporary images; no global Docker prune was
 used.
+
+## Current-source twelve-cell bounded chaos rerun
+
+The bounded matrix runner can be rerun as one source-locked command:
+
+```bash
+env NEREUS_DELAY_CHAOS_MATRIX_ARTIFACT_DIR="$(mktemp -d -t nereus-delay-chaos-current.XXXXXX)" \
+  NEREUS_DELAY_CHAOS_MATRIX_GRADLE_USER_HOME=/tmp/nereus-delay-chaos-current-20260817-r1 \
+  bash e2e/run-bounded-chaos-matrix.sh
+```
+
+At Delay `0d4fdbbc899c0af0d9edee20d939b207dc3721a5`, the current-source run
+completed all twelve cells with `matrix_status=0`: four Kafka Broker/Worker
+cuts; Pulsar Worker crash, two-Broker crash/failover and Publish Admission
+response loss; checkpoint REAPING; Kafka Fetch response loss and retention
+floor; and Pulsar destination SEND and source ACK response loss. It used K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, the locked K1/P1 image and
+artifact digests documented in `docs/IMPLEMENTATION-STATUS.md`, and a unique
+Compose project per cell.
+
+The run is bounded evidence, not full §23.3 or V1 release certification.
+After completion, exact-name checks found no matrix containers, networks or
+volumes and no temporary broker/Pulsar/Oxia images. The locked Oxia and MinIO
+base images were retained for later source-locked runs; no global Docker
+prune or unrelated image deletion was performed.
