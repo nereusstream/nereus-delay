@@ -11241,3 +11241,30 @@ and duplicate physical identity rejection. The full `./gradlew check` passed
 projection integrity only; it does not establish distributed Gateway
 authority, transport delivery, Broker failover, raw chaos or V1 release
 evidence.
+
+## 2026-08-16 Gateway stored evidence binding
+
+Delay commit `380e279725e9ac5d31f98ad49ee711cd15c5b25c` extends the Gateway
+projection fence from structural shape to stored-evidence meaning. Every
+decoded terminal attempt now has to decode as the same managed/native branch
+as the prepared submission, bind to the exact prepared command or native
+reference and physical attempt identity, and map to the attempt's persisted
+state. The stored aggregate must also equal the deterministic aggregate
+selected from the source-ordered attempt history; syntactically valid evidence
+for another attempt cannot become a durable aggregate merely because its bytes
+are canonical.
+
+The focused receipt is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest \
+  --no-daemon --console=plain
+```
+
+The deterministic idempotency suite passed 11 tests with zero
+failures/skips/errors, including `gatewayProjectionRejectsOutcomeStateAndAggregateMismatches`.
+The full `./gradlew check` passed 1537 tests with 24 skips and zero
+failures/errors. This closes only local stored-evidence binding and aggregate
+recomputation; it does not establish distributed Gateway authority, transport
+delivery, Broker failover, raw chaos or V1 release evidence.

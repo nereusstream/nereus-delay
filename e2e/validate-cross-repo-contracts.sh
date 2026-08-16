@@ -1727,6 +1727,24 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway attempt projection integrity fence implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Gateway attempt projection integrity fence receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
+    "validateStoredProjection"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
+    "Gateway attempt state does not match outcome"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
+    "Gateway aggregate does not match attempt history"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
+    "gatewayProjectionRejectsOutcomeStateAndAggregateMismatches"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Gateway stored evidence binding"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "380e279725e9ac5d31f98ad49ee711cd15c5b25c"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Gateway stored evidence binding audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Gateway stored evidence binding implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Gateway stored evidence binding receipt"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPublicationCoordinator.java" \
     "intentIsAtomic || catalogIsAtomic"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointUploadCoordinatorTest.java" \

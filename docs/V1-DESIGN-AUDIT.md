@@ -9359,6 +9359,25 @@ failures/skips/errors, and the full `./gradlew check` passed 1536 tests with
 integrity; it does not establish distributed Gateway authority, transport
 delivery, Broker failover, raw chaos or V1 release readiness.
 
+## 2026-08-16 Gateway stored evidence binding audit
+
+Delay commit `380e279725e9ac5d31f98ad49ee711cd15c5b25c` extends the Gateway
+projection audit from lifecycle shape to semantic binding. On construction
+and decode, every terminal attempt outcome is decoded and checked against the
+stored prepared submission's managed/native branch, prepared command or native
+reference, physical attempt identity and persisted lifecycle state. The
+aggregate bytes are independently recomputed from the attempt history and
+must match the stored aggregate exactly, so a canonical but foreign outcome
+cannot be accepted as the record summary.
+
+`OxiaGatewayIdempotencyStoreTest.gatewayProjectionRejectsOutcomeStateAndAggregateMismatches`
+covers both state/outcome disagreement and a foreign aggregate. The
+deterministic idempotency suite passed 11 tests with zero failures/skips/errors;
+the full `./gradlew check` passed 1537 tests with 24 skips and zero
+failures/errors. This closes only local stored-evidence binding and aggregate
+integrity; it does not establish distributed Gateway authority, transport
+delivery, Broker failover, raw chaos or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

@@ -5988,3 +5988,20 @@ failures/skips/errors; the full `./gradlew check` passed 1536 tests with 24
 skips and zero failures/errors. This note closes only local projection
 integrity; transport delivery, distributed authority, failover, chaos and
 release gates remain open.
+
+### 2026-08-16 Gateway stored evidence binding implementation note
+
+Delay commit `380e279725e9ac5d31f98ad49ee711cd15c5b25c` makes the durable
+Gateway record validate semantic evidence before it can be consumed. Record
+construction and strict decode validate the prepared submission, decode every
+terminal attempt outcome, bind its branch/reference/physical attempt identity
+through the existing outcome validator, and require the outcome kind to agree
+with the persisted attempt state. The record then recomputes the aggregate
+from the complete attempt history and rejects any stored aggregate whose bytes
+do not equal that deterministic projection.
+
+`OxiaGatewayIdempotencyStoreTest.gatewayProjectionRejectsOutcomeStateAndAggregateMismatches`
+passed in the 11-test deterministic idempotency suite. The full
+`./gradlew check` passed 1537 tests with 24 skips and zero failures/errors.
+This closes only local semantic projection integrity; transport delivery,
+distributed authority, failover, chaos and release gates remain open.

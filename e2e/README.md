@@ -2524,3 +2524,28 @@ failures/skips/errors. The full `./gradlew check` passed 1536 tests with 24
 skips and zero failures/errors. This receipt proves only local durable
 projection integrity; it does not prove distributed Gateway authority,
 transport delivery, Broker failover, chaos or V1 release readiness.
+
+## Gateway stored evidence binding receipt
+
+Delay commit `380e279725e9ac5d31f98ad49ee711cd15c5b25c` makes the Gateway
+idempotency record reject semantically foreign stored evidence. Terminal
+outcomes must match the prepared managed/native branch, prepared command or
+native reference, physical attempt identity and persisted state; the stored
+aggregate must equal the deterministic aggregate recomputed from the attempt
+history.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest \
+  --no-daemon --console=plain
+```
+
+The deterministic idempotency suite passed 11 tests with zero
+failures/skips/errors, including
+`gatewayProjectionRejectsOutcomeStateAndAggregateMismatches`. The full
+`./gradlew check` passed 1537 tests with 24 skips and zero failures/errors.
+This receipt proves only local stored-evidence binding and aggregate
+recomputation; it does not prove distributed Gateway authority, transport
+delivery, Broker failover, chaos or V1 release readiness.
