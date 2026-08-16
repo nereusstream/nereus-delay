@@ -4121,3 +4121,55 @@ failover, Gateway-plus-Broker failover, multi-shard placement, the full
 crash/chaos matrix or V1 release gates. Exact postchecks found no project
 containers, networks, volumes or matching P1/Oxia images; the locked Oxia
 base remained and no global Docker prune was used.
+
+## Pulsar Gateway + Broker process-crash large-payload failover (current source)
+
+Run the current-source combined Gateway/Oxia/Worker/MinIO process-crash slice:
+
+```bash
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER=1 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_PROCESS_CRASH=1 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-full-check-20260817 \
+PULSAR_LARGE_BROKER_1_PORT=29520 \
+PULSAR_LARGE_WEB_1_PORT=29521 \
+PULSAR_LARGE_BROKER_2_PORT=29522 \
+PULSAR_LARGE_WEB_2_PORT=29523 \
+NEREUS_DELAY_PULSAR_LARGE_OXIA_PORT=29530 \
+NEREUS_DELAY_PULSAR_LARGE_MINIO_PORT=29531 \
+NEREUS_DELAY_PULSAR_LARGE_GATEWAY_PORT=29532 \
+PULSAR_LARGE_PAYLOAD_TOPIC=nereus-delay-pulsar-large-payload-process-crash-20260817-r4 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_DESTINATION_TOPIC=nereus-delay-pulsar-large-destination-process-crash-20260817-r4 \
+  bash e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+The receipt locks Delay to
+`888c0513c433234282a12eff6e401aa4a8a40116`, P1 to
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+the P1 distribution to
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and
+Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. It uses the locked MinIO
+image
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`,
+P1 image `sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+and project `nereus-delay-pulsar-large-e2e-1786903675-50550` on Pulsar
+`29520/29521,29522/29523`, Oxia `29530`, MinIO `29531` and Gateway `29532`.
+
+The run passed with `BUILD SUCCESSFUL`:
+
+```text
+Pulsar source reactivation successor accepted: oldGeneration=2, newGeneration=3, assignmentRevision=2, ownerEpoch=2
+Pulsar Worker source-applied physical publish passed: Admission source ledger=5/0, typed PULSAR_SEND_ACK target ledger/entry=3/0, Outcome source ledger=5/1, exact payload readback
+Pulsar + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: prepare=2/2, commit=2/3, exactGatewayIdempotency=true, sourceRecords=6
+Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload Broker process-crash failover E2E passed: broker-1 was SIGKILLed after Gateway Commit/readback, the same source-applied physical Publish completed through broker-2, and broker-1 rejoined afterward
+```
+
+The runner keeps the strict equal-generation rejection. Since the current P1
+generation allocator is Broker-process local, an equal candidate is closed
+and retried with a fresh guarded SUBSCRIBE; no equal proof is accepted and no
+cluster-global generation monotonicity is claimed. This is bounded
+two-Broker/one-physical-source-partition evidence, not automatic Pulsar
+controller/coordinator failover, raw socket/network chaos,
+ZooKeeper/BookKeeper/storage failover, multi-shard placement, full chaos or
+V1 release evidence. Exact postchecks found no project containers, networks,
+volumes, P1 image or run-created Oxia image; the locked MinIO base remained
+and no global Docker prune was used.

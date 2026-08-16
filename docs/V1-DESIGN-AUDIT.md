@@ -10338,6 +10338,54 @@ chaos completeness or V1 release approval. Exact project and image checks
 found no post-run containers, networks, volumes or matching temporary images;
 no global Docker prune was used.
 
+## 2026-08-17 Current-source Pulsar Gateway + Broker process-crash large-payload audit
+
+The source-bound audit locks Delay to
+`888c0513c433234282a12eff6e401aa4a8a40116`, P1 to
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1
+distribution to
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
+artifacts to
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394` and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, P1
+image to
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`, and MinIO to the locked
+digest
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`. The
+isolated project was `nereus-delay-pulsar-large-e2e-1786903675-50550` on
+Pulsar `29520/29521,29522/29523`, Oxia `29530`, MinIO `29531` and Gateway
+`29532`.
+
+Audit result: PASS for this bounded current-source combined production-
+authority slice. The harness completed Gateway mTLS/JWT admission and exact
+Oxia idempotency before externally SIGKILLing Broker-1. The successor path
+retained immutable Route/source identity, fenced and released the old Owner,
+published the successor Assignment and acquired its Owner lease, then applied
+the exact MinIO payload through Broker-2, persisted typed `PULSAR_SEND_ACK`,
+applied the source Outcome and published the final checkpoint. Broker-1 was
+started again and its readiness endpoint passed. The receipt was:
+
+```text
+Pulsar source reactivation successor accepted: oldGeneration=2, newGeneration=3, assignmentRevision=2, ownerEpoch=2
+Pulsar Worker source-applied physical publish passed: Admission source ledger=5/0, typed PULSAR_SEND_ACK target ledger/entry=3/0, Outcome source ledger=5/1, exact payload readback
+Pulsar + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: prepare=2/2, commit=2/3, exactGatewayIdempotency=true, sourceRecords=6
+Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload Broker process-crash failover E2E passed: broker-1 was SIGKILLed after Gateway Commit/readback, the same source-applied physical Publish completed through broker-2, and broker-1 rejoined afterward
+```
+
+The implementation keeps `PulsarSourceReactivationV1`'s equal-generation
+rejection. Because the current P1 generation allocator is Broker-process
+local, the Delay harness closes and retries an exact successor candidate when
+the raw value collides across Broker handoff; it does not convert equality
+into acceptance or claim a cluster-global generation sequence. This is a
+bounded two-Broker/one-physical-source-partition audit PASS, not a V1 release
+PASS: controller/coordinator automatic failover, raw network/socket cuts,
+ZooKeeper/BookKeeper/storage failover, multi-shard placement, the full
+crash/chaos matrix, and release gates remain open. Exact postchecks found no
+project containers, networks, volumes or matching temporary images; the
+locked MinIO base remained and no global Docker prune was used.
+
 ## 2026-08-17 Current-source Pulsar Broker process-crash failover audit
 
 The current-source audit locks Delay to

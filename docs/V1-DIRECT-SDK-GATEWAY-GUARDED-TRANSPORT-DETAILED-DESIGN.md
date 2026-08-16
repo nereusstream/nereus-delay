@@ -7304,3 +7304,58 @@ physical destination publish, raw network cuts, Broker/controller failover,
 multi-Worker placement, REAPING or full release-gate coverage. The runner
 removed its temporary P1/Oxia images and state; the locked MinIO base was
 retained and no global Docker prune was used.
+
+### 2026-08-17 Current-source Pulsar Gateway + Broker process-crash large-payload implementation note
+
+The combined source-bound runner now exercises the full bounded production-
+authority path at Delay `888c0513c433234282a12eff6e401aa4a8a40116`: Gateway
+mTLS/JWT prepare/upload-attest/commit through real Oxia, real two-Broker P1
+source reactivation, Worker Store apply and ACK, real MinIO large-payload
+readback, typed destination publish evidence, source Outcome/apply and final
+checkpoint. The run locks P1
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+P1 distribution
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, the
+three client artifacts
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394` and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, and locked MinIO
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+After Gateway Commit/readback the shell harness executes
+`docker compose kill --signal KILL pulsar-broker-1`, releases the Java cut
+only after Broker-2 is ready, and starts Broker-1 after the same source-
+applied physical publish completes. The current receipt is:
+
+```text
+Pulsar source reactivation successor accepted: oldGeneration=2, newGeneration=3, assignmentRevision=2, ownerEpoch=2
+Pulsar Worker source-applied physical publish passed: Admission source ledger=5/0, typed PULSAR_SEND_ACK target ledger/entry=3/0, Outcome source ledger=5/1, exact payload readback
+Pulsar + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: prepare=2/2, commit=2/3, exactGatewayIdempotency=true, sourceRecords=6
+Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload Broker process-crash failover E2E passed: broker-1 was SIGKILLed after Gateway Commit/readback, the same source-applied physical Publish completed through broker-2, and broker-1 rejoined afterward
+```
+
+The source reactivation proof remains immutable: the successor retains the
+same Broker resource incarnation, physical topic, cursor position, batch
+shape and attestation digest while requiring a new assignment identity,
+assignment epoch and distinct guarded connection generation. A source-bound
+trial before `888c0513` correctly failed when the P1 Broker-local allocator
+returned the same raw generation after handoff. The new
+`createSuccessorSource` helper does not weaken
+`PulsarSourceReactivationV1`; it closes the equal-generation candidate and
+retries a fresh guarded SUBSCRIBE with a bounded budget, failing closed if no
+distinct proof appears. This handles the current P1 per-Broker allocator
+boundary without claiming cluster-global generation monotonicity.
+
+The verified project was
+`nereus-delay-pulsar-large-e2e-1786903675-50550` on Pulsar
+`29520/29521,29522/29523`, Oxia `29530`, MinIO `29531` and Gateway `29532`.
+Exact post-run checks found no project containers, networks, volumes, P1
+image `sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`
+or run-created Oxia image
+`sha256:f0248322573f38df19556f4eda1146f4ffc89fe362566cf50e26f64ed22292f4`.
+The locked MinIO base was retained and no global Docker prune was used. This
+is bounded two-Broker/one-physical-source-partition evidence; automatic
+controller/coordinator failover, raw socket/network chaos, ZooKeeper/
+BookKeeper/storage failover, multi-shard production placement, full chaos and
+V1 release gates remain separate obligations.

@@ -13441,6 +13441,72 @@ all postchecks were clean. Exact postchecks found no project resources,
 temporary P1/Oxia images or crash state; the locked MinIO base was untouched
 and no global Docker prune was used.
 
+## 2026-08-17 Current-source Pulsar Gateway + Broker process-crash large-payload receipt
+
+The source-bound combined implementation is Delay
+`888c0513c433234282a12eff6e401aa4a8a40116`, P1
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
+artifact SHA-256 values
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394` and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, P1
+image `sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, and locked MinIO
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The source-bound command was:
+
+```bash
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER=1 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_PROCESS_CRASH=1 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-full-check-20260817 \
+PULSAR_LARGE_BROKER_1_PORT=29520 \
+PULSAR_LARGE_WEB_1_PORT=29521 \
+PULSAR_LARGE_BROKER_2_PORT=29522 \
+PULSAR_LARGE_WEB_2_PORT=29523 \
+NEREUS_DELAY_PULSAR_LARGE_OXIA_PORT=29530 \
+NEREUS_DELAY_PULSAR_LARGE_MINIO_PORT=29531 \
+NEREUS_DELAY_PULSAR_LARGE_GATEWAY_PORT=29532 \
+PULSAR_LARGE_PAYLOAD_TOPIC=nereus-delay-pulsar-large-payload-process-crash-20260817-r4 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_DESTINATION_TOPIC=nereus-delay-pulsar-large-destination-process-crash-20260817-r4 \
+  bash e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+The isolated project was `nereus-delay-pulsar-large-e2e-1786903675-50550` on
+Pulsar `29520/29521,29522/29523`, Oxia `29530`, MinIO `29531` and Gateway
+`29532`. The current-source receipt was:
+
+```text
+Pulsar source reactivation successor accepted: oldGeneration=2, newGeneration=3, assignmentRevision=2, ownerEpoch=2
+Pulsar Worker source-applied physical publish passed: Admission source ledger=5/0, typed PULSAR_SEND_ACK target ledger/entry=3/0, Outcome source ledger=5/1, exact payload readback
+Pulsar + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: prepare=2/2, commit=2/3, exactGatewayIdempotency=true, sourceRecords=6
+Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload Broker process-crash failover E2E passed: broker-1 was SIGKILLed after Gateway Commit/readback, the same source-applied physical Publish completed through broker-2, and broker-1 rejoined afterward
+BUILD SUCCESSFUL in 1m 35s
+```
+
+An earlier source-bound process-crash trial was intentionally not promoted
+after the existing strict reactivation check rejected an equal Broker-local
+generation. Delay `888c0513` keeps that check unchanged and discards an exact
+successor candidate when its proof equals the previous assignment generation;
+it closes that candidate and establishes another guarded SUBSCRIBE, failing
+closed after a bounded retry budget. This makes the accepted successor proof
+strictly distinct without claiming that the P1 per-Broker counter is a
+cluster-global sequence.
+
+This closes the bounded current-source Gateway + real Oxia + two real P1
+Broker + Worker + real MinIO large-payload process-crash chain for one
+physical source partition. It proves Gateway Commit/readback before the
+external Broker-1 `SIGKILL`, old Owner fence/quiescence/release, successor
+Assignment/Owner CAS, guarded SUBSCRIBE reactivation, exact MinIO payload
+readback, typed destination evidence, source Outcome/apply and final
+checkpoint, followed by Broker-1 readiness after restart. It does not close
+automatic Pulsar controller/coordinator failover, raw socket/network cuts,
+ZooKeeper/BookKeeper/storage failover, multi-shard production placement, the
+full crash/chaos matrix or V1 release evidence. Exact postchecks found no
+project containers, networks, volumes or matching P1/Oxia images; the locked
+MinIO base was retained and no global Docker prune was used.
+
 ## 2026-08-17 Current-source Pulsar Broker process-crash failover receipt
 
 The current-source implementation is Delay
