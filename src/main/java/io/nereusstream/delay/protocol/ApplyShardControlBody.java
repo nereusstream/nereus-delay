@@ -67,6 +67,12 @@ public final class ApplyShardControlBody {
         return Bytes.copy(payload);
     }
 
+    /** Decodes the field-1 protocol-tuple activation branch. */
+    public ProtocolVersionActivatePayloadV1 protocolVersionActivate() {
+        requireControlKind(1);
+        return ProtocolVersionActivatePayloadV1.decode(branchPayload(1));
+    }
+
     /** Decodes the field-12 trust-set activation branch. */
     public PayloadProofTrustSetActivatePayloadV1 payloadProofTrustSetActivate() {
         requireControlKind(12);
