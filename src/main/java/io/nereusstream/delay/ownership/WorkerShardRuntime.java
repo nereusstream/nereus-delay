@@ -56,7 +56,7 @@ public final class WorkerShardRuntime implements AutoCloseable {
     private WorkerCommandRuntime commandRuntime;
     private final WorkerCheckpointRuntime checkpointRuntime;
     private PublishPreparationProvider preparationProvider;
-    private final WorkerPhysicalPublishExecutor physicalPublishExecutor;
+    private WorkerPhysicalPublishExecutor physicalPublishExecutor;
     private boolean sourcePaused;
     private boolean terminal;
 
@@ -220,6 +220,22 @@ public final class WorkerShardRuntime implements AutoCloseable {
         this.schedulingRuntime = exactScheduling;
         this.commandRuntime = exactCommand;
         this.preparationProvider = exactPreparation;
+    }
+
+    /**
+     * Binds the physical destination executor after source replay has
+     * materialized the exact durable Lane identity. A source-only bootstrap
+     * may therefore apply Prepare/Commit first instead of guessing a Lane
+     * incarnation before the source record is persisted.
+     */
+    public synchronized void bindPhysicalPublishExecutor(
+            final WorkerPhysicalPublishExecutor physicalPublishExecutor) {
+        ensureSourceRunning();
+        if (this.physicalPublishExecutor != null) {
+            throw new IllegalStateException("Worker physical publish executor is already bound");
+        }
+        this.physicalPublishExecutor = Objects.requireNonNull(physicalPublishExecutor,
+                "physicalPublishExecutor");
     }
 
     /** Validates process-wide graph/resource identity before fleet admission. */

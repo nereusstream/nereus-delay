@@ -29,6 +29,7 @@ cluster_id="${KAFKA_LARGE_PAYLOAD_CLUSTER_ID:-MkU3OEVBNTcwNTJENDM2Qk}"
 client_jar="${NEREUS_DELAY_KAFKA_CLIENT_JAR:-${kafka_dir}/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar}"
 bootstrap="127.0.0.1:${kafka_broker_1_port},127.0.0.1:${kafka_broker_2_port},127.0.0.1:${kafka_broker_3_port}"
 topic="${NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_TOPIC:-nereus-delay-large-payload}"
+destination_topic="${NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_DESTINATION_TOPIC:-}"
 
 minio_image="quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z"
 minio_digest="sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
@@ -218,6 +219,7 @@ echo "Kafka bootstrap: ${bootstrap}"
 echo "Oxia endpoint: ${oxia_endpoint}"
 echo "MinIO endpoint/bucket: ${minio_endpoint}/${minio_bucket}"
 echo "Gateway port: ${gateway_port}"
+echo "Kafka destination topic: ${destination_topic:-<disabled>}"
 
 set +e
 NEREUS_DELAY_OXIA_ENDPOINT="${oxia_endpoint}" \
@@ -245,4 +247,8 @@ if [[ "${smoke_status}" != 0 ]]; then
   exit "${smoke_status}"
 fi
 
-echo "Kafka + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed"
+if [[ -n "${destination_topic}" ]]; then
+  echo "Kafka + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload + Kafka destination authority E2E passed"
+else
+  echo "Kafka + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed"
+fi
