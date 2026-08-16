@@ -1,0 +1,32 @@
+services:
+  oxia:
+    build:
+      context: ${NEREUS_DELAY_OXIA_CHECKOUT}
+      dockerfile: Dockerfile
+    command:
+      - oxia
+      - standalone
+      - --public-addr
+      - 0.0.0.0:6648
+      - --metrics-addr
+      - 0.0.0.0:8080
+      - --wal-dir
+      - /tmp/nereus-delay-pulsar-large-oxia/wal
+      - --data-dir
+      - /tmp/nereus-delay-pulsar-large-oxia/db
+    ports:
+      - "127.0.0.1:${NEREUS_DELAY_PULSAR_LARGE_OXIA_PORT}:6648"
+
+  minio:
+    image: ${NEREUS_DELAY_MINIO_IMAGE}
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${NEREUS_DELAY_MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${NEREUS_DELAY_MINIO_SECRET_KEY}
+    ports:
+      - "127.0.0.1:${NEREUS_DELAY_PULSAR_LARGE_MINIO_PORT}:9000"
+    volumes:
+      - pulsar-large-payload-minio-data:/data
+
+volumes:
+  pulsar-large-payload-minio-data:

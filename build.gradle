@@ -463,6 +463,34 @@ tasks.register('runRealPulsarWorkerSmoke', JavaExec) {
             findProperty('pulsarWorkerMode') ?: 'run', findProperty('pulsarWorkerDestinationTopic') ?: ''
 }
 
+tasks.register('runRealPulsarLargePayloadGatewaySmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the real Pulsar Gateway/Oxia/Worker/MinIO large-payload authority smoke.'
+    dependsOn tasks.named('compileRealPulsar')
+    if (realPulsarClientClasspath == null || realPulsarRuntimeDir == null
+            || findProperty('pulsarServiceUrl') == null
+            || findProperty('pulsarAdminUrl') == null || findProperty('pulsarLargePayloadTopic') == null) {
+        doFirst {
+            throw new GradleException(
+                    'runRealPulsarLargePayloadGatewaySmoke requires -PpulsarClientClasspath=... '
+                            + '-PpulsarRuntimeDir=/path/to/pulsar-distribution/lib '
+                            + '-PpulsarServiceUrl=pulsar://host:6650 -PpulsarAdminUrl=http://host:8080 '
+                            + '-PpulsarLargePayloadTopic=topic and real Oxia/MinIO/Gateway environment')
+        }
+    }
+    doFirst {
+        if (!file(realPulsarRuntimeDir).isDirectory()) {
+            throw new GradleException('pulsarRuntimeDir must be an extracted P1 distribution lib directory')
+        }
+    }
+    def optionalOxiaClasspath = sourceSets.main.runtimeClasspath
+    classpath = files(sourceSets.main.output,
+            sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
+            fileTree(realPulsarRuntimeDir).include('**/*.jar'), optionalOxiaClasspath)
+    mainClass = 'io.nereusstream.delay.transport.PulsarClientArtifactLargePayloadGatewaySmoke'
+    args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarLargePayloadTopic')
+}
+
 protobuf {
     protoc {
         artifact = 'com.google.protobuf:protoc:4.35.0'

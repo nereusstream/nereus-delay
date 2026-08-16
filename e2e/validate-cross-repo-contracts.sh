@@ -718,14 +718,22 @@ require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transp
     "runDueClaimPublishPhysicalTurn"
 require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
     "Pulsar Worker source-applied physical publish passed"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactLargePayloadGatewaySmoke.java" \
+    "Pulsar + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerShardRuntime.java" \
     "runSourceBoundPhysicalPublish"
 require_file_text "$delay_root/build.gradle" \
     "pulsarWorkerDestinationTopic"
+require_file_text "$delay_root/build.gradle" \
+    "runRealPulsarLargePayloadGatewaySmoke"
 require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \
     "worker_destination_topic"
 require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \
     "source-applied physical publish with typed Outcome"
+require_file_text "$delay_root/e2e/run-pulsar-large-payload-gateway-e2e.sh" \
+    "Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed"
+require_file_text "$delay_root/e2e/docker-compose.pulsar-large-payload-infra.yml" \
+    "NEREUS_DELAY_PULSAR_LARGE_OXIA_PORT"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "cb309d82"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
