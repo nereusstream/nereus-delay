@@ -12152,3 +12152,55 @@ temporary Kafka/Oxia images for either isolated project. This is not a raw
 network/proxy/socket cut, a consumer-coordinator or controller-leader
 failover receipt, a Worker crash during apply/publish, a production
 multi-shard runtime, a full chaos matrix or V1 release evidence.
+
+## 2026-08-16 Kafka Broker network-partition Worker recovery receipt
+
+Delay implementation commit
+`5460746c74b2a4cc05f9ecfb71c5d2a285828380` adds the focused
+`NEREUS_DELAY_KAFKA_BROKER_NETWORK_PARTITION_ONLY=1` mode and the real Java
+Admin leader-recovery smoke. After guarded Worker preparation, the runner
+disconnects the live `kafka-1` container from its Docker Compose network while
+leaving its process running, waits for the survivor Brokers to elect leaders
+for the source/destination/receipt topics, resumes the same Worker source
+topic through `kafka-2,kafka-3`, then reconnects `kafka-1`.
+
+The source-bound command was:
+
+```bash
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+NEREUS_DELAY_KAFKA_BROKER_NETWORK_PARTITION_ONLY=1 \
+NEREUS_DELAY_KAFKA_OXIA_PORT=16689 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/Users/liusinan/.gradle \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The run locked Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image ID
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, Kafka Compose project
+`nereus-delay-kafka-e2e-1786889717-63599` on ports `19191,19192,19193`, and
+Oxia project `nereus-delay-kafka-oxia-e2e-1786889717-63599` on port `16689`.
+The temporary Oxia build image was
+`sha256:aecb6c23a141525d985cf639d9e7805329a9f621ff2bd9d0839be1ca274e77bf`.
+
+The source-bound output included:
+
+```text
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, and final checkpoint
+Kafka Worker authority smoke passed: real Oxia session-bound lease
+Kafka Broker network-partition recovery E2E passed: kafka-1 stayed alive but was disconnected from the Compose network after guarded Worker preparation, the same topic resumed through kafka-2/kafka-3 with real Oxia Worker authority and source apply/ACK/checkpoint, and kafka-1 reconnected afterward.
+```
+
+This closes the bounded real Docker-network partition boundary for Worker
+source recovery: the survivor leader check is source-bound through the real
+Kafka Admin API, and the resumed Worker performs guarded source apply, ACK and
+final checkpoint under real Oxia authority. The network-partition slice
+intentionally skips physical destination publish during the survivor window,
+so it does not claim egress recovery, raw packet/proxy/socket injection,
+controller/coordinator leader proof beyond the topic-leader check, production
+multi-shard runtime, the full chaos matrix or V1 release evidence. Exact
+post-run checks found no containers, networks, volumes or temporary Kafka/Oxia
+images for either isolated project.

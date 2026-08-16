@@ -10030,6 +10030,37 @@ production multi-shard ownership, the complete chaos matrix or the V1 release
 gate. Exact post-run cleanup found no resources or temporary images for the
 two named Compose projects.
 
+## 2026-08-16 Kafka Broker network-partition Worker recovery audit
+
+Delay commit `5460746c74b2a4cc05f9ecfb71c5d2a285828380` adds a focused real
+Docker-network partition branch and
+`KafkaClientArtifactSurvivorLeaderRecoverySmoke`. The live run used K1
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image ID
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, Kafka project
+`nereus-delay-kafka-e2e-1786889717-63599`, Oxia project
+`nereus-delay-kafka-oxia-e2e-1786889717-63599`, and ports
+`19191,19192,19193/16689`.
+
+After Worker preparation, the harness used `docker network disconnect` to
+isolate the still-running `kafka-1` container, verified survivor-side topic
+leaders through the Java Admin client, resumed the same Worker topic with
+`kafka-2,kafka-3`, and reattached/waited for `kafka-1`. The receipt was:
+
+```text
+Kafka Broker network-partition recovery E2E passed: kafka-1 stayed alive but was disconnected from the Compose network after guarded Worker preparation, the same topic resumed through kafka-2/kafka-3 with real Oxia Worker authority and source apply/ACK/checkpoint, and kafka-1 reconnected afterward.
+```
+
+This is positive evidence for the narrow real network-partition/source-worker
+boundary. Because the survivor run deliberately uses the source-only Worker
+resume, it is not a physical destination egress PASS, raw packet/proxy/socket
+fault matrix, controller/coordinator leader-failover proof, production
+multi-shard runtime or V1 release evidence. Exact cleanup found no named
+Compose resources or temporary images.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

@@ -3087,3 +3087,43 @@ chaos, controller/coordinator leader-failover evidence, Worker crash recovery,
 production multi-shard runtime or V1 release readiness. Exact post-run checks
 found no containers, networks, volumes or temporary Kafka/Oxia images for the
 two isolated projects.
+
+## Kafka Broker network-partition Worker recovery receipt
+
+The focused mode uses a real three-Broker KRaft cluster and cuts only the
+Docker network membership of the still-running `kafka-1` container:
+
+```bash
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+NEREUS_DELAY_KAFKA_BROKER_NETWORK_PARTITION_ONLY=1 \
+NEREUS_DELAY_KAFKA_OXIA_PORT=16689 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/Users/liusinan/.gradle \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The source-bound run was Delay
+`5460746c74b2a4cc05f9ecfb71c5d2a285828380`, Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, and projects
+`nereus-delay-kafka-e2e-1786889717-63599` /
+`nereus-delay-kafka-oxia-e2e-1786889717-63599`.
+
+The runner verified survivor topic leaders with the Java Admin client, then
+completed source-only Worker recovery/apply/ACK/final-checkpoint through
+`kafka-2,kafka-3` and reconnected `kafka-1`. It printed:
+
+```text
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, and final checkpoint
+Kafka Worker authority smoke passed: real Oxia session-bound lease
+Kafka Broker network-partition recovery E2E passed: kafka-1 stayed alive but was disconnected from the Compose network after guarded Worker preparation, the same topic resumed through kafka-2/kafka-3 with real Oxia Worker authority and source apply/ACK/checkpoint, and kafka-1 reconnected afterward.
+```
+
+This is a bounded real Docker-network partition receipt. The survivor run
+deliberately skips physical destination publish, so raw packet/proxy/socket
+chaos, destination egress under partition, controller/coordinator leader
+proof, production multi-shard runtime and V1 release readiness remain open.
+Exact post-run checks found no containers, networks, volumes or temporary
+Kafka/Oxia images for the two isolated projects.
