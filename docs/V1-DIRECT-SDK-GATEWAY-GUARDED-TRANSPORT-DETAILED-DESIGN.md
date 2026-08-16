@@ -5242,3 +5242,30 @@ to pass against the versioned bucket. Final prefix sweeping, retire/Floor/Pin
 authorization, provider consistency/quiescence, credential rotation,
 multi-provider behavior, chaos, failover and release gates remain external
 boundaries.
+
+### 2026-08-16 Bounded checkpoint prefix sweep implementation note
+
+Delay commit `c32a98f328400c71346b98188930a6efa80da7c9` adds an explicit
+`CheckpointPrefixSweepAdapter` seam for the reaper's provider step. The
+caller supplies the exact Object Store Profile, recovery lineage, checkpoint
+identity and a bounded one-page version limit. The S3-compatible adapter
+derives only `checkpoints/<lineage>/<checkpoint>/`, signs a bucket-level
+`ListObjectVersions` request, parses bounded XML with DTD/external entities
+disabled, rejects `IsTruncated`, incomplete/duplicate entries and prefix
+escape, deletes every returned version with the exact version/request-ID
+proof, and performs a final list that must be empty before returning
+`CheckpointPrefixSweepResult`.
+
+The local fake-provider test and the locked MinIO harness both passed. The
+MinIO run used container `nereus-delay-minio-e2e-1786842572-18888`, endpoint
+`http://127.0.0.1:56466`, bucket
+`nereus-delay-checkpoints-1786842572-18888`, image repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`,
+and provider manifest version `f905db1e-1a7e-455c-bb32-5fa90bb7ed1f`; JUnit
+recorded `tests=1 skipped=0 failures=0 errors=0` and the harness ended with
+`BUILD SUCCESSFUL`.
+
+This seam is intentionally not a lifecycle authority: external REAPING
+state, source ordering, retire-intent validation, Recovery Floor/Pin/Owner
+authorization, provider consistency/quiescence and multi-page reaper policy
+remain outside it.

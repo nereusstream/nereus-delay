@@ -1604,3 +1604,38 @@ This closes direct delete retry convergence for the locked provider seam. It
 does not close final prefix sweeping, source-ordered retire/Floor/Pin
 authorization, provider consistency/quiescence, credential rotation,
 generic provider compatibility, chaos, failover or release gates.
+
+## Checkpoint prefix sweep receipt
+
+The provider seam now exposes a bounded exact checkpoint-prefix sweep. It
+lists one non-truncated `ListObjectVersions` page for the derived
+`checkpoints/<lineage>/<checkpoint>/` prefix, rejects malformed or escaped
+entries, deletes every listed version with the exact version ID and performs
+a final list that must be empty. The caller must already hold the exact
+Object Store Profile and checkpoint identity; this receipt does not stand in
+for external REAPING, retire, Recovery Floor/Pin or Owner authorization.
+
+The local regression is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
+  --no-daemon --console=plain
+```
+
+The source-locked implementation is Delay commit
+`c32a98f328400c71346b98188930a6efa80da7c9`. The locked MinIO rerun used
+container `nereus-delay-minio-e2e-1786842572-18888`, endpoint
+`http://127.0.0.1:56466`, bucket
+`nereus-delay-checkpoints-1786842572-18888`, image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`
+and repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+JUnit recorded `tests=1 skipped=0 failures=0 errors=0`, system-out recorded
+manifest provider version `f905db1e-1a7e-455c-bb32-5fa90bb7ed1f`, and the
+harness ended with `BUILD SUCCESSFUL` after final empty-prefix proof.
+
+This closes direct prefix-sweep evidence for one locked provider only. It
+does not close external lifecycle authorization, multi-page policy, provider
+consistency/quiescence, credential rotation, generic provider compatibility,
+chaos, failover or release gates.

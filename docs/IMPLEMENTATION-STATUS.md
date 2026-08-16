@@ -10163,3 +10163,51 @@ It does not establish final empty-prefix sweeping, source-ordered retire
 authorization, Recovery Floor/Pin release, provider consistency/quiescence,
 credential rotation, generic cross-provider compatibility, chaos, failover
 or V1 release evidence.
+
+## 2026-08-16 Bounded checkpoint prefix sweep provider seam
+
+Delay commit `c32a98f328400c71346b98188930a6efa80da7c9` adds
+`CheckpointPrefixSweepAdapter`, `CheckpointPrefixSweepRequest` and
+`CheckpointPrefixSweepResult`. The S3-compatible implementation derives the
+exact `checkpoints/<recoveryLineageId>/<checkpointId>/` prefix, requests one
+bounded `ListObjectVersions` page, parses it with DTD/external-entity support
+disabled, rejects truncation, incomplete/duplicate versions and keys outside
+the exact prefix, deletes every listed object by its exact provider version,
+and performs a second bounded listing before returning a receipt that proves
+the prefix is empty. The request requires the exact Object Store Profile and
+nonzero fixed checkpoint identities; `maxVersions` is bounded to one page.
+The provider seam does not infer REAPING, Recovery Floor/Pin or Owner
+authorization from those identities.
+
+The focused local regression is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
+  --no-daemon --console=plain
+```
+
+It passed with `BUILD SUCCESSFUL`; the fake provider lists three exact object
+versions, verifies the `prefix`/`versions` request shape, deletes all three
+by exact version and proves the second listing empty. The full
+`./gradlew check --no-daemon --console=plain --quiet` also returned 0.
+
+The locked MinIO rerun used container
+`nereus-delay-minio-e2e-1786842572-18888`, endpoint
+`http://127.0.0.1:56466`, bucket
+`nereus-delay-checkpoints-1786842572-18888`, the locked image at repository
+digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+and image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`.
+JUnit recorded `tests=1 skipped=0 failures=0 errors=0`, system-out recorded
+manifest provider version `f905db1e-1a7e-455c-bb32-5fa90bb7ed1f`, and the
+harness ended with `BUILD SUCCESSFUL` after the exact delete and final empty
+prefix proof.
+
+This closes only the bounded direct provider sweep seam for one locked MinIO
+implementation. It does not close the external REAPING state transition,
+source-ordered retire authorization, Recovery Floor/Pin/Owner checks,
+multi-page listing policy, provider consistency/quiescence, credential
+rotation, generic provider compatibility, chaos, failover or V1 release
+evidence.

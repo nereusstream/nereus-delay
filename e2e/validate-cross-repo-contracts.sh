@@ -1071,6 +1071,36 @@ require_file_text "$delay_root/e2e/README.md" \
     "Checkpoint delete retry-convergence receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "1a81631c-3bd9-41e6-a132-8abe1da7ea2e"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPrefixSweepAdapter.java" \
+    "CheckpointPrefixSweepResult sweep"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPrefixSweepRequest.java" \
+    "MAX_SINGLE_PAGE_VERSIONS"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPrefixSweepResult.java" \
+    "emptyAfterSweep"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+    "CheckpointPrefixSweepAdapter"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+    "private VersionList listVersions"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+    "parseVersionList"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
+    "sweepsExactCheckpointPrefixVersionsAndProvesEmptyAfterward"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleMinioRealSmokeTest.java" \
+    "CheckpointPrefixSweepResult swept"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Bounded checkpoint prefix sweep provider seam"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "c32a98f328400c71346b98188930a6efa80da7c9"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Delay checkpoint prefix sweep slice"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Checkpoint prefix sweep audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Bounded checkpoint prefix sweep implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Checkpoint prefix sweep receipt"
+require_file_text "$delay_root/e2e/README.md" \
+    "f905db1e-1a7e-455c-bb32-5fa90bb7ed1f"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

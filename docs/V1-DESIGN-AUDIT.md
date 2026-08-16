@@ -4671,6 +4671,7 @@ the guarded Broker rollout attestation remains external evidence.
 | Delay exact manifest-version readback slice | `nereus/delay-full-implementation-v1@d7f51441` (download signs and requests the catalog-bound manifest `versionId` and rejects a different response version; the real MinIO receipt records `ac201fe8-ba70-4bcb-a49c-a75a6657be55`; complete object-set deletion and GC authority remain open) |
 | Delay exact checkpoint object-set deletion slice | `nereus/delay-full-implementation-v1@3bfe030a` (the S3-compatible adapter preflights every manifest/file identity, captures provider versions, deletes files by exact `versionId` and the catalog-bound manifest last, and requires matching delete response version plus provider request ID; the locked MinIO receipt records `e223584d-2863-45a1-8471-9b378c0899c5`; `ALREADY_ABSENT` reconciliation, final prefix sweep and retire/Floor/Pin authority remain open) |
 | Delay checkpoint delete retry-convergence slice | `nereus/delay-full-implementation-v1@220fc98a` (404 presence probes now carry provider request/response evidence; partial response loss resumes from the remaining verified object set and a completely absent set returns `ALREADY_ABSENT`; final prefix sweep and retire/Floor/Pin authority remain open) |
+| Delay checkpoint prefix sweep slice | `nereus/delay-full-implementation-v1@c32a98f328400c71346b98188930a6efa80da7c9` (bounded one-page `ListObjectVersions` over the exact checkpoint prefix, secure/version-complete parsing, exact-version deletes and a final empty-prefix listing; the locked MinIO receipt records `f905db1e-1a7e-455c-bb32-5fa90bb7ed1f`; external REAPING/Floor/Pin/Owner authorization and lifecycle state transition remain open) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
@@ -8535,6 +8536,37 @@ This closes bounded direct delete retry convergence. Final empty-prefix
 sweeping, source-ordered retire authorization, Recovery Floor/Pin release,
 provider consistency/quiescence, credential rotation, generic provider
 compatibility, chaos, failover and release readiness remain open.
+
+## 2026-08-16 Checkpoint prefix sweep audit
+
+Delay commit `c32a98f328400c71346b98188930a6efa80da7c9` adds the narrow
+provider-facing prefix sweep seam. `CheckpointPrefixSweepRequest` binds the
+exact Object Store Profile and nonzero lineage/checkpoint identities to a
+single bounded page. `S3CompatibleCheckpointObjectStoreAdapter.sweep` signs
+`ListObjectVersions` at the bucket endpoint, rejects a truncated or malformed
+version listing and any key outside the exact checkpoint prefix, deletes each
+listed version with the existing exact-version/request-ID checks, then lists
+again and refuses to return unless the prefix is empty. The receipt hashes
+both listings and every delete operation.
+
+The fake-provider regression proves the three-object manifest/file prefix,
+exact `prefix`/`versions` query, exact-version deletes and the final empty
+listing. The locked MinIO run used container
+`nereus-delay-minio-e2e-1786842572-18888`, endpoint
+`http://127.0.0.1:56466`, bucket
+`nereus-delay-checkpoints-1786842572-18888`, image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`
+and repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+JUnit recorded `tests=1 skipped=0 failures=0 errors=0`, system-out recorded
+manifest provider version `f905db1e-1a7e-455c-bb32-5fa90bb7ed1f`, and the
+harness ended with `BUILD SUCCESSFUL`.
+
+This is bounded direct provider evidence only. It does not authorize or
+perform the external REAPING transition, source-ordered retire, Recovery
+Floor/Pin/Owner checks, multi-page continuation, provider consistency or
+quiescence, credential rotation, generic provider compatibility, chaos,
+failover or V1 release readiness.
 
 ## Final gate
 
