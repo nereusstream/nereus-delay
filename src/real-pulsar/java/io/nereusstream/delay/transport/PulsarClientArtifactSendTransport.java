@@ -11,6 +11,7 @@ import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.MessageIdAdv;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.TopicResourceGuard;
+import org.apache.pulsar.client.api.TopicResourceGuardAttestation;
 import org.apache.pulsar.client.api.TopicResourceGuardException;
 
 import java.io.ByteArrayOutputStream;
@@ -115,6 +116,15 @@ public final class PulsarClientArtifactSendTransport implements
                     io.nereusstream.delay.protocol.StableCode.INTEGRITY_ERROR.wireValue(), null);
         }
         final GuardedSendSuccessEvidence evidence = guarded.responseEvidence();
+        final TopicResourceGuardAttestation expectedAttestation = new TopicResourceGuardAttestation(
+                expectedGuard, physicalTopic, partition);
+        if (!expectedAttestation.equals(evidence.attestation())
+                || evidence.ledgerId() != advanced.getLedgerId()
+                || evidence.entryId() != advanced.getEntryId()
+                || evidence.brokerEntryTimestamp() != guarded.brokerEntryTimestamp()) {
+            return PulsarSendResult.unknown(
+                    io.nereusstream.delay.protocol.StableCode.INTEGRITY_ERROR.wireValue(), null);
+        }
         return new PulsarSendResult(PulsarSendResult.Disposition.PERSISTED, authenticatedClusterId,
                 resourceIncarnation, physicalTopic, physicalTopicCreationTimestamp, partition,
                 advanced.getLedgerId(), advanced.getEntryId(), batchIndex, batchSize, batched,

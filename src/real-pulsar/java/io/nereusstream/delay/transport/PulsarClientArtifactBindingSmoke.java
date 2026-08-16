@@ -49,6 +49,17 @@ public final class PulsarClientArtifactBindingSmoke {
             throw new IllegalStateException("P1 success evidence was not projected exactly");
         }
 
+        final GuardedSendSuccessEvidence mismatchedEvidence = new GuardedSendSuccessEvidence(
+                22, 3, 4, 5, new TopicResourceGuardAttestation(guard, TOPIC, 0), 18, 19, 23,
+                digest(31), digest(41));
+        final PulsarSendResult mismatched = new PulsarClientArtifactSendTransport(
+                producer(TOPIC, guardedMessageId(guard, mismatchedEvidence), null), CLUSTER, INCARNATION,
+                TOPIC, CREATION_TIMESTAMP, 0).send(request).toCompletableFuture().join();
+        if (mismatched.disposition() != PulsarSendResult.Disposition.UNKNOWN
+                || mismatched.stableCode() != io.nereusstream.delay.protocol.StableCode.INTEGRITY_ERROR.wireValue()) {
+            throw new IllegalStateException("P1 mismatched success evidence was accepted as persisted");
+        }
+
         final byte[] replacement = digest(99);
         final PulsarSendResult mismatch = transport.send(new PulsarSendRequest(CLUSTER, replacement, TOPIC,
                 CREATION_TIMESTAMP, 0, request.commandId(), request.frame()))
