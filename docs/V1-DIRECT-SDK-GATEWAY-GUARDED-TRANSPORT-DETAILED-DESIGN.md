@@ -6907,3 +6907,52 @@ wait for readiness. The current source-bound run locks Delay to
 process-cut contract and does not imply raw endpoint/network fault injection,
 controller/coordinator failover, production multi-shard chaos or V1 release
 readiness.
+
+## 2026-08-17 Current Kafka Fetch response-loss implementation note
+
+The current source-bound Fetch rerun locks Delay to
+`a3bb8462edc3d4e32006f5d98af958d1c8d7ef18`, K1 to
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, the K1 client SHA-256 to
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, and
+the broker image ID to
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`.
+The runner's three-Broker KRaft project was
+`nereus-delay-kafka-e2e-1786898037-72717`.
+
+`KafkaClientArtifactFetchResponseLossSmoke` uses the K1 patched
+`GuardedConsumer.pollGuarded` path and `GuardedFetchEvidence` before source
+ACK. The focused run deliberately discards the first real Fetch response,
+reopens the same group, requires the exact replay offsets and an LSO covering
+the batch, then advances the group offset only after guarded evidence is
+validated. The receipt was:
+
+```text
+Kafka source Fetch response-loss smoke passed: responseDiscardedAfterFetch=true, replayOffset=0, secondOffset=1, fetchLso=2, committedAfterReplay=2
+```
+
+This is a current-source implementation/evidence refresh for the controlled
+Fetch response-loss and LSO replay contract. Raw socket loss, retention-floor
+recovery, Broker/coordinator crash, multi-shard placement, checkpoint
+publication, chaos and V1 release gates remain separate.
+
+## 2026-08-17 Current Kafka retention-floor implementation note
+
+The current source-bound retention rerun uses the same K1 guard/evidence
+path and a three-Broker KRaft project
+`nereus-delay-kafka-e2e-1786898140-73898`. The smoke produces twenty guarded
+records under an accelerated retention interval, observes the real earliest
+offset move from `0` to `20`, appends a fresh tail, and tests both sides of
+the floor: a stale guarded Fetch must fail closed with typed
+`OFFSET_OUT_OF_RANGE`, while a Fetch at the new floor must carry valid
+`GuardedFetchEvidence` and an LSO of `21`.
+
+The current-source receipt was:
+
+```text
+Kafka source retention-floor smoke passed: oldOffset=0, retentionFloor=20, endOffset=21, staleOffsetRejected=true, floorFetchOffset=20, fetchLso=21
+```
+
+This closes the bounded retention-floor/LSO readability implementation
+slice. The acceleration is test-only; disk ENOSPC, raw socket/process
+chaos, automatic controller/coordinator failover, multi-shard placement,
+checkpoint publication and V1 release readiness remain unclaimed.

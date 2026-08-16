@@ -2147,6 +2147,28 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "2026-08-17 Current Kafka Broker process-crash implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Kafka Broker process-crash recovery receipt (current source)"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "2026-08-17 Current-source Kafka Fetch response-loss receipt"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "a3bb8462edc3d4e32006f5d98af958d1c8d7ef18"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "nereus-delay-kafka-e2e-1786898037-72717"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "2026-08-17 Current-source Kafka retention-floor receipt"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "nereus-delay-kafka-e2e-1786898140-73898"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "2026-08-17 Current-source Kafka Fetch response-loss audit"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "2026-08-17 Current-source Kafka retention-floor audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "2026-08-17 Current Kafka Fetch response-loss implementation note"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "2026-08-17 Current Kafka retention-floor implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Kafka source Fetch response-loss receipt (current source)"
+require_file_text "$delay_root/e2e/README.md" \
+    "Kafka source retention-floor receipt (current source)"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

@@ -3443,6 +3443,82 @@ project was `nereus-delay-kafka-oxia-e2e-1786896942-56285`; post-run checks
 found no containers, networks, volumes or matching temporary images, reusable
 base images were retained and no global Docker prune was used.
 
+## Kafka source Fetch response-loss receipt (current source)
+
+Run the focused receipt against the current Delay source:
+
+```bash
+NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ONLY=1 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-fetch-response-loss-gradle-20260817-r1 \
+KAFKA_DELAY_E2E_SOURCE_TOPIC=nereus-delay-fetch-response-loss-live-20260817-r1 \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The current-source run locks Delay to
+`a3bb8462edc3d4e32006f5d98af958d1c8d7ef18`, Kafka to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+the K1 client SHA-256 to
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, and
+the broker image ID to
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`.
+The exact Kafka project was
+`nereus-delay-kafka-e2e-1786898037-72717` on ports
+`19309,19310,19311`.
+
+The receipt was:
+
+```text
+Kafka source Fetch response-loss smoke passed: responseDiscardedAfterFetch=true, replayOffset=0, secondOffset=1, fetchLso=2, committedAfterReplay=2
+BUILD SUCCESSFUL in 50s
+Kafka source Fetch response-loss E2E passed: real read_committed Fetch v13 response was discarded before ACK, exact source replay and LSO coverage were recovered.
+```
+
+This is a bounded controlled client-side response-loss receipt after a real
+Fetch. It does not cover raw socket loss, retention-floor recovery,
+coordinator/Broker crash, multi-shard placement, checkpoint publication,
+chaos or V1 release readiness. Exact post-run checks found no matching
+containers, networks, volumes or temporary image tag/image ID; reusable base
+images were retained and no global Docker prune was run.
+
+## Kafka source retention-floor receipt (current source)
+
+Run the focused retention receipt:
+
+```bash
+NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ONLY=1 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-fetch-response-loss-gradle-20260817-r1 \
+KAFKA_DELAY_E2E_SOURCE_TOPIC=nereus-delay-retention-floor-live-20260817-r2 \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The first attempt stopped before Gradle because a new wrapper cache hit a
+transient TLS EOF; the exact runner cleanup still completed. The successful
+retry used the populated cache and locked Delay to
+`a3bb8462edc3d4e32006f5d98af958d1c8d7ef18`, Kafka to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+the K1 client SHA-256 to
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, and
+the broker image ID to
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`.
+The exact Kafka project was
+`nereus-delay-kafka-e2e-1786898140-73898` on ports
+`19490,19491,19492`.
+
+The successful receipt was:
+
+```text
+Kafka source retention-floor smoke passed: oldOffset=0, retentionFloor=20, endOffset=21, staleOffsetRejected=true, floorFetchOffset=20, fetchLso=21
+BUILD SUCCESSFUL in 30s
+Kafka source retention-floor E2E passed: real Broker retention advanced the earliest offset, stale source offset was rejected, and the current floor remained readable through guarded Fetch v13 with LSO.
+```
+
+This is bounded real-Broker retention-floor recovery with test-accelerated
+retention. It does not claim disk ENOSPC, raw socket/process chaos,
+controller/coordinator failover, multi-shard placement, checkpoint
+publication or V1 release readiness. Exact post-run checks found no matching
+containers, networks, volumes or temporary image tag/image ID; reusable base
+images were retained and no global Docker prune was run.
+
 ## Kafka Worker durable-apply-before-ACK process-cut receipt (current source)
 
 Run the current-source Worker ACK process cut:

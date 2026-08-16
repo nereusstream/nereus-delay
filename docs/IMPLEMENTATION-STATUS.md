@@ -12747,6 +12747,92 @@ matching temporary Kafka/Oxia images for either isolated project; both the K1
 image ID and the run-created Oxia image ID were absent, reusable base images
 were retained, and no global Docker prune was used.
 
+## 2026-08-17 Current-source Kafka Fetch response-loss receipt
+
+The current-source rerun locks Delay to
+`a3bb8462edc3d4e32006f5d98af958d1c8d7ef18`, Kafka to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+the K1 client SHA-256 to
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, and
+the broker image ID to
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`.
+The source-bound command was:
+
+```bash
+NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ONLY=1 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-fetch-response-loss-gradle-20260817-r1 \
+KAFKA_DELAY_E2E_SOURCE_TOPIC=nereus-delay-fetch-response-loss-live-20260817-r1 \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The isolated Kafka project was
+`nereus-delay-kafka-e2e-1786898037-72717` on ports
+`19309,19310,19311`; the dynamic source topic was
+`nereus-delay-fetch-response-loss-live-20260817-r1-fetch-response-loss-eb7f454a-c86f-4b7e-8182-270a5690d954`.
+The current-source output was:
+
+```text
+Kafka source Fetch response-loss smoke passed: responseDiscardedAfterFetch=true, replayOffset=0, secondOffset=1, fetchLso=2, committedAfterReplay=2
+BUILD SUCCESSFUL in 50s
+Kafka source Fetch response-loss E2E passed: real read_committed Fetch v13 response was discarded before ACK, exact source replay and LSO coverage were recovered.
+```
+
+This refreshes the bounded real three-Broker KRaft Fetch response-loss
+receipt at the current Delay source. The real `read_committed` Fetch v13
+response was discarded before ACK, the same group replayed exact offsets
+`0` and `1`, the batch LSO was `2`, and the recovered group offset reached
+`2`. This remains controlled client-side response loss after a real Fetch,
+not raw socket loss, Broker/coordinator crash recovery, multi-shard runtime,
+checkpoint publication, chaos completeness or V1 release readiness.
+Exact post-run checks found no containers, networks, volumes or matching
+temporary Kafka image tag or image ID; the reusable broker base image was
+retained and no global Docker prune was used.
+
+## 2026-08-17 Current-source Kafka retention-floor receipt
+
+The current-source rerun locks Delay to
+`a3bb8462edc3d4e32006f5d98af958d1c8d7ef18`, Kafka to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+the K1 client SHA-256 to
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, and
+the broker image ID to
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`.
+The source-bound command was:
+
+```bash
+NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ONLY=1 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-fetch-response-loss-gradle-20260817-r1 \
+KAFKA_DELAY_E2E_SOURCE_TOPIC=nereus-delay-retention-floor-live-20260817-r2 \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The first attempt stopped before the Gradle test because a new wrapper cache
+hit a transient TLS EOF while downloading Gradle; exact runner cleanup still
+removed its Compose resources and temporary image. The successful retry used
+the already-populated wrapper cache. Its isolated Kafka project was
+`nereus-delay-kafka-e2e-1786898140-73898` on ports
+`19490,19491,19492`; the dynamic source topic was
+`nereus-delay-retention-floor-live-20260817-r2-retention-floor-b3c4a270-45b2-4cc9-b085-2dc0d2db2f64`.
+The successful current-source output was:
+
+```text
+Kafka source retention-floor smoke passed: oldOffset=0, retentionFloor=20, endOffset=21, staleOffsetRejected=true, floorFetchOffset=20, fetchLso=21
+BUILD SUCCESSFUL in 30s
+Kafka source retention-floor E2E passed: real Broker retention advanced the earliest offset, stale source offset was rejected, and the current floor remained readable through guarded Fetch v13 with LSO.
+```
+
+This refreshes the bounded real retention-floor contract: twenty guarded
+records advanced the earliest retained offset from `0` to `20`, a stale
+guarded Fetch at offset `0` failed closed with typed
+`OFFSET_OUT_OF_RANGE`, the fresh floor record at offset `20` remained
+readable, and its LSO was `21`. The accelerated retention configuration is a
+deterministic test setting; this is not disk ENOSPC, raw socket chaos,
+controller/coordinator failover, multi-shard placement, checkpoint
+publication or V1 release evidence. Exact post-run checks found no
+containers, networks, volumes or matching temporary Kafka image tag or image
+ID; the reusable broker base image was retained and no global Docker prune
+was used.
+
 ## 2026-08-17 Current-source Kafka Broker process-crash recovery receipt
 
 The current-source Broker crash rerun locks Delay to

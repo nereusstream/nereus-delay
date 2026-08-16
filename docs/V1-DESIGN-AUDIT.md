@@ -10390,6 +10390,51 @@ multi-shard fault coverage or V1 release approval. Exact project and image
 checks found no post-run containers, networks, volumes or matching temporary
 images; no global Docker prune was used.
 
+## 2026-08-17 Current-source Kafka Fetch response-loss audit
+
+The current-source receipt locks Delay to
+`a3bb8462edc3d4e32006f5d98af958d1c8d7ef18`, Kafka to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+the K1 client SHA-256 to
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, and
+the broker image ID to
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`.
+The real three-Broker KRaft project was
+`nereus-delay-kafka-e2e-1786898037-72717` on `19309,19310,19311`.
+
+The focused Fetch path discarded a real `read_committed` Fetch v13 response
+before ACK, then replayed exact source offsets `0` and `1` in the same group.
+The receipt proved `responseDiscardedAfterFetch=true`, `fetchLso=2` and
+`committedAfterReplay=2`; the runner also completed Gradle successfully and
+removed its exact Compose project and temporary broker image.
+
+Audit result: PASS for this controlled real-Broker Fetch response-loss and
+LSO/replay slice. Boundary remains explicit: it is not raw socket loss,
+coordinator/Broker crash recovery, retention-floor authority, multi-shard
+placement, checkpoint publication, full chaos or V1 release approval.
+
+## 2026-08-17 Current-source Kafka retention-floor audit
+
+The current-source receipt uses the same Delay/K1/client/image locks and the
+real three-Broker KRaft project
+`nereus-delay-kafka-e2e-1786898140-73898` on `19490,19491,19492`. A transient
+Gradle wrapper TLS EOF occurred before the first test attempt; the runner
+cleaned its exact resources, and a retry using the populated wrapper cache
+completed the test.
+
+The successful receipt proved `retentionFloor=20`,
+`staleOffsetRejected=true`, `floorFetchOffset=20` and `fetchLso=21` after
+twenty guarded records and a fresh tail record. The stale request failed
+closed with typed `OFFSET_OUT_OF_RANGE`, while the current floor remained
+readable through guarded Fetch v13.
+
+Audit result: PASS for this bounded real-Broker retention-floor and LSO
+readability slice. Boundary remains explicit: accelerated retention is not
+disk ENOSPC or raw network chaos, and this does not prove coordinator/Broker
+crash recovery, multi-shard placement, checkpoint publication or V1 release
+approval. Exact post-run checks found no project resources or matching
+temporary image.
+
 ## 2026-08-17 Current-source Kafka Broker process-crash recovery audit
 
 The current-source receipt locks Delay to
