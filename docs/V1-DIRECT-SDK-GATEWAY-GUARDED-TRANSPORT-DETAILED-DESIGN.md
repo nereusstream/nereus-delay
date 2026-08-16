@@ -6788,3 +6788,30 @@ exact Assignment withdrawal against K1
 two-shard Worker source composition. It deliberately does not imply native
 Pulsar multi-shard wiring, multiple Worker processes, scheduler/placement
 churn, raw chaos completeness or V1 release approval.
+
+## 2026-08-17 Pulsar native multi-shard Worker fleet implementation note
+
+The Pulsar Route smoke now has an explicit
+`NEREUS_DELAY_PULSAR_ROUTE_WORKER_SHARDS=2` path, exposed by
+`NEREUS_DELAY_PULSAR_MULTI_SHARD_ONLY=1`. It creates one real partitioned
+Pulsar topic and stamps each physical partition with the guarded resource
+identity. Each partition sends and replays its own pre-Route command, captures
+its guarded SUBSCRIBE connection-generation/attestation proof, and contributes
+one exact `PulsarActivationBarrier` to the single signed `RouteSnapshotV1`.
+
+Each Route partition is independently projected through real Oxia Assignment
+CAS and Owner Lease acquisition. The Worker recovers the exact pre-Route
+record, ACKs it on the original guarded source, sends the post-barrier record
+with its explicit physical partition, and admits the source runtime only when
+the connection-generation proof still matches. Two `WorkerShardRuntime`
+instances share one `SharedRocksDbResources`, one
+`WorkClassExecutionRegistry` and one `WorkerShardFleetRuntime`; source turns
+are round-robin while Assignment and Owner authority remain per shard. Each
+runtime drains its final checkpoint before exact Assignment withdrawal.
+
+The source-bound run at Delay `c2003627` passed against Pulsar
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. This closes the Pulsar native
+two-shard Worker source composition for one P1 Broker. It deliberately does
+not imply Pulsar multi-Broker failover, multiple Worker processes,
+scheduler/placement churn, raw chaos completeness or V1 release approval.

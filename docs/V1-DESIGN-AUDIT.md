@@ -10282,3 +10282,31 @@ processes, the full raw crash/chaos matrix or V1 release approval. Exact
 post-run Docker checks found no containers, networks, volumes or matching
 temporary images for either isolated project; reusable base images were kept
 and no global Docker prune was used.
+
+## 2026-08-17 Pulsar native multi-shard Worker fleet audit
+
+The current source lock is Delay `c2003627`, Pulsar
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`, and
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. The real P1 run used image
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+Pulsar Compose project `nereus-delay-pulsar-e2e-1786896605-51513` on
+`19863,19864`, and Oxia project
+`nereus-delay-pulsar-oxia-e2e-1786896605-51513` at `127.0.0.1:16657`.
+
+The implementation ran one signed two-partition Route with two physical
+guarded SUBSCRIBE barriers, two session-bound Assignment publications and
+Owner Leases, then admitted two native source consumers to one
+`WorkerShardFleetRuntime`. Both partitions crossed recovery, source apply/ACK,
+final checkpoint and exact Assignment withdrawal. The run marker was:
+
+```text
+Pulsar signed Route -> two guarded SUBSCRIBE barriers -> Oxia multi-shard Assignment/Owner -> one Worker fleet -> RocksDB apply/ACK/checkpoint smoke passed: subscribePartitions=2, routeRevision=1, assignmentRevisions=[1, 1], workers=[pulsar-route-worker-b, pulsar-route-worker-a], sourceBarriers=[9/0, 10/0]
+```
+
+This is a source-bound Pulsar native multi-shard Worker receipt for two
+physical partitions on one real P1 Broker. It supersedes the prior Pulsar
+placement-only boundary for this scope, but does not prove Pulsar
+multi-Broker failover, multiple Worker processes, the raw crash/chaos matrix or
+V1 release approval. Exact post-run Docker checks found no containers,
+networks, volumes or matching temporary P1/Oxia images; reusable base images
+were retained and no global Docker prune was used.

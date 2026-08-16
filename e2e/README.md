@@ -3372,3 +3372,36 @@ chaos completeness or V1 release readiness. The run used isolated Kafka and
 Oxia Compose projects; post-run checks found no containers, networks, volumes
 or matching temporary images. Reusable base images remain and no global Docker
 prune is used.
+
+## Pulsar native multi-shard Worker fleet
+
+Run the source-bound Pulsar two-shard Worker path with the real P1 Broker and
+real Oxia authority:
+
+```bash
+NEREUS_DELAY_PULSAR_WITH_OXIA=1 \
+NEREUS_DELAY_PULSAR_MULTI_SHARD_ONLY=1 \
+NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-multishard-20260817-r2 \
+GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-multishard-20260817-r2 \
+  bash e2e/run-pulsar-real-client-e2e.sh
+```
+
+At Delay `c2003627`, Pulsar
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`
+and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, the runner published one
+signed two-partition Route, crossed two guarded SUBSCRIBE barriers, admitted
+two real Oxia Assignment/Owner paths and attached two native guarded source
+consumers to one `WorkerShardFleetRuntime`. The current receipt is:
+
+```text
+Pulsar signed Route -> two guarded SUBSCRIBE barriers -> Oxia multi-shard Assignment/Owner -> one Worker fleet -> RocksDB apply/ACK/checkpoint smoke passed: subscribePartitions=2, routeRevision=1, assignmentRevisions=[1, 1], workers=[pulsar-route-worker-b, pulsar-route-worker-a], sourceBarriers=[9/0, 10/0]
+Pulsar native multi-shard Worker fleet E2E passed: one signed Route covered two guarded SUBSCRIBE barriers, two real Oxia Assignment/Owner Lease CAS paths admitted two native source consumers, one fair fleet applied/ACKed both partitions, and both final checkpoints/assignments were released.
+```
+
+This is positive source-bound Pulsar evidence for two native Worker shards on
+one real P1 Broker, including per-shard recovery/apply/ACK/checkpoint and exact
+withdrawal. It does not claim Pulsar multi-Broker failover, multiple Worker
+processes, raw chaos completeness or V1 release readiness. The isolated
+Pulsar/Oxia Compose projects left no containers, networks, volumes or matching
+temporary images; reusable base images remain and no global Docker prune is
+used.

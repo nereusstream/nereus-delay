@@ -12529,3 +12529,52 @@ production multi-shard runtime, the complete chaos matrix or V1 release
 evidence. Exact post-run checks found no containers, networks, volumes or
 temporary Kafka/Oxia images for either isolated project; base images were not
 globally pruned.
+
+## 2026-08-17 Pulsar native multi-shard Worker fleet receipt
+
+The source-bound real P1 rerun used Delay `c2003627`, Pulsar
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+Pulsar distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
+artifact SHA-256 values `57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`, and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, P1 image
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`:
+
+```bash
+NEREUS_DELAY_PULSAR_WITH_OXIA=1 \
+NEREUS_DELAY_PULSAR_MULTI_SHARD_ONLY=1 \
+NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-multishard-20260817-r2 \
+GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-multishard-20260817-r2 \
+  bash e2e/run-pulsar-real-client-e2e.sh
+```
+
+The isolated Pulsar Compose project was
+`nereus-delay-pulsar-e2e-1786896605-51513`, with broker/web ports
+`19863,19864`; its isolated Oxia project was
+`nereus-delay-pulsar-oxia-e2e-1786896605-51513` at `127.0.0.1:16657`. The
+real partitioned topic base was
+`persistent://public/default/p1-route-worker-51513-6e75a717-d79c-41f3-bd8e-06aaa2f0813c`.
+The runner published one signed two-partition Route, captured two independent
+guarded SUBSCRIBE barriers, crossed two real Oxia Assignment/Owner Lease CAS
+paths, and admitted both native source runtimes to one
+`WorkerShardFleetRuntime`.
+
+The source-bound output was:
+
+```text
+Pulsar signed Route -> two guarded SUBSCRIBE barriers -> Oxia multi-shard Assignment/Owner -> one Worker fleet -> RocksDB apply/ACK/checkpoint smoke passed: subscribePartitions=2, routeRevision=1, assignmentRevisions=[1, 1], workers=[pulsar-route-worker-b, pulsar-route-worker-a], sourceBarriers=[9/0, 10/0]
+Pulsar native multi-shard Worker fleet E2E passed: one signed Route covered two guarded SUBSCRIBE barriers, two real Oxia Assignment/Owner Lease CAS paths admitted two native source consumers, one fair fleet applied/ACKed both partitions, and both final checkpoints/assignments were released.
+```
+
+This closes the source-bound Pulsar native two-shard Worker composition for a
+single P1 Broker: per-shard guarded source identity, signed barrier, recovery,
+Owner Lease, source apply/ACK, shared-fleet fairness, final checkpoint and
+exact Assignment withdrawal are exercised against real Pulsar and real Oxia.
+It does not promote Pulsar multi-Broker failover, multiple Worker processes,
+raw crash/chaos completeness or V1 release readiness. The run-created P1 image
+and Oxia image (`sha256:a027689fe6948dd46d5ae8891ba8dfe0e54d384ad4ee54922d012418c225db4a`)
+were removed by exact Compose cleanup; post-run checks found no containers,
+networks, volumes or matching temporary images, and no global Docker prune was
+used.
