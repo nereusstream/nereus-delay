@@ -7,6 +7,7 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.ReadyCertificateV1;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
+import io.nereusstream.delay.protocol.SystemMutation;
 import io.nereusstream.delay.scheduler.SchedulerBudget;
 import io.nereusstream.delay.scheduler.ScheduleWorkItem;
 import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
@@ -678,12 +679,72 @@ public final class WorkerShardRuntime implements AutoCloseable {
                 .orElseThrow();
         final PublishAdmissionWorkClassExecutor.AdmissionHandoffResult admissionResult = admission.result()
                 .orElseThrow(() -> new IllegalStateException("Publish Admission task completed without a result"));
+        if (admissionResult.kind() == PublishAdmissionWorkClassExecutor.ResultKind.UNKNOWN) {
+            final UnknownAdmissionResolution recovery = recoverUnknownPublishAdmission(admission.mutation(),
+                    sourceBudget, maxSourceTurns, ownerClock);
+            if (recovery.position() == null) {
+                final SourceBoundPhysicalPublishTurn blocked = recovery.failure() == null
+                        ? SourceBoundPhysicalPublishTurn.sourceTurnLimit(recovery.sourceTurns(),
+                        recovery.lastSourceTurn())
+                        : SourceBoundPhysicalPublishTurn.sourceApplyBlocked(recovery.sourceTurns(),
+                        recovery.lastSourceTurn(), recovery.failure());
+                return new DueClaimPublishPhysicalTurn(dueClaimPublish, Optional.of(blocked));
+            }
+            return new DueClaimPublishPhysicalTurn(dueClaimPublish, Optional.of(runSourceBoundPhysicalPublish(
+                    admission.mutation().logicalOperationIdentity(), recovery.position(), sourceBudget,
+                    Math.max(1, maxSourceTurns - recovery.sourceTurns()), payloadProvider, ownerClock)));
+        }
         if (admissionResult.kind() != PublishAdmissionWorkClassExecutor.ResultKind.ENQUEUED) {
             return new DueClaimPublishPhysicalTurn(dueClaimPublish, Optional.empty());
         }
         return new DueClaimPublishPhysicalTurn(dueClaimPublish, Optional.of(runSourceBoundPhysicalPublish(
                 admission.mutation().logicalOperationIdentity(), admissionResult.sourcePosition(), sourceBudget,
                 maxSourceTurns, payloadProvider, ownerClock)));
+    }
+
+    /**
+     * Resolves an uncertain Publish Admission by replaying the exact mutation
+     * from the assigned source.  A source connection-generation change can
+     * make the append evidence UNKNOWN after the broker accepted the bytes;
+     * retrying the append would create a second logical record, so only an
+     * exact source mutation match may reopen the physical handoff.
+     */
+    private synchronized UnknownAdmissionResolution recoverUnknownPublishAdmission(
+            final SystemMutation expectedMutation,
+            final SchedulerBudget sourceBudget,
+            final int maxSourceTurns,
+            final LongSupplier ownerClock) {
+        Objects.requireNonNull(expectedMutation, "expectedMutation");
+        Objects.requireNonNull(sourceBudget, "sourceBudget");
+        Objects.requireNonNull(ownerClock, "ownerClock");
+        SourceApplyCoordinator.TurnResult lastSourceTurn = null;
+        for (int sourceTurns = 0; sourceTurns < maxSourceTurns; sourceTurns++) {
+            try {
+                lastSourceTurn = runSourceTurn(sourceBudget, ownerClock);
+            } catch (RuntimeException | Error failure) {
+                return new UnknownAdmissionResolution(null, sourceTurns, lastSourceTurn, failure);
+            }
+            if (lastSourceTurn.status() == SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED
+                    && lastSourceTurn.entry() instanceof SourceReplayMutation replayed
+                    && Arrays.equals(expectedMutation.encodeFrame(), replayed.mutation().encodeFrame())) {
+                return new UnknownAdmissionResolution(replayed.position(), sourceTurns + 1, lastSourceTurn, null);
+            }
+            if (lastSourceTurn.status() == SourceApplyCoordinator.TurnStatus.WAITING_FOR_SOURCE
+                    || lastSourceTurn.status() == SourceApplyCoordinator.TurnStatus.WAITING_FOR_WORK_CLASS
+                    || lastSourceTurn.status() == SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED) {
+                continue;
+            }
+            final Throwable failure = lastSourceTurn.failure() == null
+                    ? new IllegalStateException("source replay stopped before the exact uncertain Publish Admission")
+                    : lastSourceTurn.failure();
+            return new UnknownAdmissionResolution(null, sourceTurns + 1, lastSourceTurn, failure);
+        }
+        return new UnknownAdmissionResolution(null, maxSourceTurns, lastSourceTurn, null);
+    }
+
+    private record UnknownAdmissionResolution(SourcePosition position, int sourceTurns,
+                                              SourceApplyCoordinator.TurnResult lastSourceTurn,
+                                              Throwable failure) {
     }
 
     private static boolean sameSourcePosition(final SourcePosition first, final SourcePosition second) {

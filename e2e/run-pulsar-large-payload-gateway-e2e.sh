@@ -18,6 +18,8 @@ image_context="$(mktemp -d -t nereus-delay-pulsar-large-image.XXXXXX)"
 runtime_dir="$(mktemp -d -t nereus-delay-pulsar-large-runtime.XXXXXX)"
 tls_dir="$(mktemp -d -t nereus-delay-pulsar-large-tls.XXXXXX)"
 receipt_log="$(mktemp -t nereus-delay-pulsar-large-receipt.XXXXXX).log"
+failover_mode="${NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER:-0}"
+failover_marker="${runtime_dir}/gateway-commit.failover.ready"
 
 base_port=$((29100 + ($$ % 300)))
 broker_1_port="${PULSAR_LARGE_BROKER_1_PORT:-${base_port}}"
@@ -32,6 +34,10 @@ source_topic="${PULSAR_LARGE_PAYLOAD_TOPIC:-pulsar-large-payload-source}"
 destination_topic="${NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_DESTINATION_TOPIC:-pulsar-large-payload-destination-${compose_project##*-}}"
 service_url="pulsar://127.0.0.1:${broker_1_port}"
 admin_url="http://127.0.0.1:${web_1_port}"
+admin_url_failover="http://127.0.0.1:${web_2_port}"
+if [[ "${failover_mode}" == "1" ]]; then
+  service_url="pulsar://127.0.0.1:${broker_1_port},127.0.0.1:${broker_2_port}"
+fi
 tarball="${NEREUS_DELAY_PULSAR_TARBALL:-${pulsar_dir}/distribution/server/build/distributions/apache-pulsar-5.0.0-M1-bin.tar.gz}"
 pulsar_client_cp="${pulsar_dir}/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:${pulsar_dir}/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:${pulsar_dir}/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar"
 IFS=: read -r -a pulsar_client_artifacts <<< "${pulsar_client_cp}"
@@ -46,6 +52,10 @@ minio_endpoint="http://127.0.0.1:${minio_port}"
 
 if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
   echo "docker and docker compose are required" >&2
+  exit 1
+fi
+if [[ "${failover_mode}" != "0" && "${failover_mode}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER must be 0 or 1" >&2
   exit 1
 fi
 for command_name in curl openssl shasum; do
@@ -90,14 +100,15 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 wait_for_admin() {
+  local url="${1:-${admin_url}}"
   local deadline=$((SECONDS + 180))
   while (( SECONDS < deadline )); do
-    if curl --silent --fail "${admin_url}/admin/v2/clusters" >/dev/null 2>&1; then
+    if curl --silent --fail "${url}/admin/v2/clusters" >/dev/null 2>&1; then
       return 0
     fi
     sleep 2
   done
-  echo "Pulsar large-payload broker did not become ready" >&2
+  echo "Pulsar large-payload broker did not become ready: ${url}" >&2
   "${compose[@]} ps" >&2 || true
   "${compose[@]} logs pulsar-broker-1 pulsar-broker-2" >&2 || true
   return 1
@@ -172,7 +183,10 @@ export NEREUS_DELAY_MINIO_SECRET_KEY="${minio_secret_key}"
 
 generate_tls_material
 "${compose[@]}" up --build --detach
-wait_for_admin
+wait_for_admin "${admin_url}"
+if [[ "${failover_mode}" == "1" ]]; then
+  wait_for_admin "${admin_url_failover}"
+fi
 wait_for_oxia
 wait_for_minio
 curl --silent --show-error --fail --aws-sigv4 "aws:amz:${minio_region}:s3" \
@@ -194,33 +208,86 @@ echo "Pulsar service/admin: ${service_url}/${admin_url}"
 echo "Oxia/MinIO/Gateway: 127.0.0.1:${oxia_port}/127.0.0.1:${minio_port}/127.0.0.1:${gateway_port}"
 echo "Destination topic: ${destination_topic}"
 
-set +e
-NEREUS_DELAY_OXIA_ENDPOINT="127.0.0.1:${oxia_port}" \
-NEREUS_DELAY_OXIA_NAMESPACE=default \
-NEREUS_DELAY_MINIO_ENDPOINT="${minio_endpoint}" \
-NEREUS_DELAY_MINIO_ACCESS_KEY="${minio_access_key}" \
-NEREUS_DELAY_MINIO_SECRET_KEY="${minio_secret_key}" \
-NEREUS_DELAY_MINIO_BUCKET="${minio_bucket}" \
-NEREUS_DELAY_MINIO_REGION="${minio_region}" \
-NEREUS_DELAY_GATEWAY_PORT="${gateway_port}" \
-NEREUS_DELAY_GATEWAY_SERVER_CERT="${tls_dir}/server.crt" \
-NEREUS_DELAY_GATEWAY_SERVER_KEY="${tls_dir}/server.key" \
-NEREUS_DELAY_GATEWAY_CA_CERT="${tls_dir}/ca.crt" \
-NEREUS_DELAY_GATEWAY_CLIENT_CERT="${tls_dir}/client.crt" \
-NEREUS_DELAY_GATEWAY_CLIENT_KEY="${tls_dir}/client.key" \
-NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_DESTINATION_TOPIC="${destination_topic}" \
-NEREUS_DELAY_PULSAR_LISTENER_NAME=external \
-GRADLE_USER_HOME="${gradle_user_home}" \
-  "${delay_dir}/gradlew" runRealPulsarLargePayloadGatewaySmoke \
-    -PpulsarClientClasspath="${pulsar_client_cp}" \
-    -PpulsarRuntimeDir="${runtime_dir}/lib" \
-    -PpulsarServiceUrl="${service_url}" \
-    -PpulsarAdminUrl="${admin_url}" \
-    -PpulsarLargePayloadTopic="${source_topic}" \
-    --no-daemon --console=plain 2>&1 | tee "${receipt_log}"
-smoke_status=${PIPESTATUS[0]}
-set -e
+smoke_environment=(
+  "NEREUS_DELAY_OXIA_ENDPOINT=127.0.0.1:${oxia_port}"
+  "NEREUS_DELAY_OXIA_NAMESPACE=default"
+  "NEREUS_DELAY_MINIO_ENDPOINT=${minio_endpoint}"
+  "NEREUS_DELAY_MINIO_ACCESS_KEY=${minio_access_key}"
+  "NEREUS_DELAY_MINIO_SECRET_KEY=${minio_secret_key}"
+  "NEREUS_DELAY_MINIO_BUCKET=${minio_bucket}"
+  "NEREUS_DELAY_MINIO_REGION=${minio_region}"
+  "NEREUS_DELAY_GATEWAY_PORT=${gateway_port}"
+  "NEREUS_DELAY_GATEWAY_SERVER_CERT=${tls_dir}/server.crt"
+  "NEREUS_DELAY_GATEWAY_SERVER_KEY=${tls_dir}/server.key"
+  "NEREUS_DELAY_GATEWAY_CA_CERT=${tls_dir}/ca.crt"
+  "NEREUS_DELAY_GATEWAY_CLIENT_CERT=${tls_dir}/client.crt"
+  "NEREUS_DELAY_GATEWAY_CLIENT_KEY=${tls_dir}/client.key"
+  "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_DESTINATION_TOPIC=${destination_topic}"
+  "NEREUS_DELAY_PULSAR_LISTENER_NAME=external"
+  "GRADLE_USER_HOME=${gradle_user_home}"
+)
+if [[ "${failover_mode}" == "1" ]]; then
+  smoke_environment+=("NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER_MARKER=${failover_marker}")
+fi
+smoke_arguments=(
+  runRealPulsarLargePayloadGatewaySmoke
+  "-PpulsarClientClasspath=${pulsar_client_cp}"
+  "-PpulsarRuntimeDir=${runtime_dir}/lib"
+  "-PpulsarServiceUrl=${service_url}"
+  "-PpulsarAdminUrl=${admin_url}"
+  "-PpulsarLargePayloadTopic=${source_topic}"
+  --no-daemon
+  --console=plain
+)
+
+if [[ "${failover_mode}" == "1" ]]; then
+  set +e
+  env "${smoke_environment[@]}" "${delay_dir}/gradlew" "${smoke_arguments[@]}" \
+    >"${receipt_log}" 2>&1 &
+  smoke_pid=$!
+  set -e
+  failover_deadline=$((SECONDS + 180))
+  while [[ ! -f "${failover_marker}" ]]; do
+    if ! kill -0 "${smoke_pid}" >/dev/null 2>&1; then
+      set +e
+      wait "${smoke_pid}"
+      smoke_status=$?
+      set -e
+      cat "${receipt_log}"
+      exit "${smoke_status:-1}"
+    fi
+    if (( SECONDS >= failover_deadline )); then
+      kill "${smoke_pid}" >/dev/null 2>&1 || true
+      set +e
+      wait "${smoke_pid}"
+      smoke_status=$?
+      set -e
+      cat "${receipt_log}"
+      echo "Pulsar Gateway large-payload failover cut marker was not reached" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  echo "Pulsar Gateway large-payload failover cut: stopping broker-1"
+  "${compose[@]}" stop pulsar-broker-1
+  touch "${failover_marker}.release"
+  set +e
+  wait "${smoke_pid}"
+  smoke_status=$?
+  set -e
+  cat "${receipt_log}"
+else
+  set +e
+  env "${smoke_environment[@]}" "${delay_dir}/gradlew" "${smoke_arguments[@]}" \
+    2>&1 | tee "${receipt_log}"
+  smoke_status=${PIPESTATUS[0]}
+  set -e
+fi
 if [[ "${smoke_status}" != 0 ]]; then
   exit "${smoke_status}"
 fi
-echo "Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed"
+if [[ "${failover_mode}" == "1" ]]; then
+  echo "Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload multi-Broker failover E2E passed: broker-1 stopped after Gateway Commit/readback and the same source-applied physical Publish completed through broker-2"
+else
+  echo "Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed"
+fi

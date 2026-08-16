@@ -40,7 +40,6 @@ import io.nereusstream.delay.ownership.OwnedDelayShard;
 import io.nereusstream.delay.ownership.ReplayTurnBudget;
 import io.nereusstream.delay.ownership.RouteWorkerAssignmentCoordinator;
 import io.nereusstream.delay.ownership.ShardLifecycleState;
-import io.nereusstream.delay.ownership.SourceAssignment;
 import io.nereusstream.delay.ownership.SourceReplayCursor;
 import io.nereusstream.delay.ownership.SourceReplayEntry;
 import io.nereusstream.delay.ownership.SourceReplayMutation;
@@ -60,7 +59,6 @@ import io.nereusstream.delay.protocol.CapacityDimensionV1;
 import io.nereusstream.delay.protocol.CapacityVectorV1;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.CommandQueuedReceiptV1;
-import io.nereusstream.delay.protocol.CommandCodec;
 import io.nereusstream.delay.protocol.CommandId;
 import io.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
 import io.nereusstream.delay.protocol.ControlRef;
@@ -490,6 +488,29 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
     private static String configured(final String name, final String fallback) {
         final String value = System.getenv(name);
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private static void signalFailoverCut() throws Exception {
+        final String marker = System.getenv("NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER_MARKER");
+        if (marker == null || marker.isBlank()) {
+            return;
+        }
+        final Path markerPath = Path.of(marker);
+        final Path parent = markerPath.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+        Files.write(markerPath, Bytes.utf8("gateway-commit-complete\n"));
+        System.out.println("Pulsar Gateway large-payload failover cut marker written after Commit/readback");
+        final Path releasePath = Path.of(marker + ".release");
+        final long deadline = System.currentTimeMillis() + 180_000;
+        while (!Files.exists(releasePath)) {
+            if (System.currentTimeMillis() >= deadline) {
+                throw new IllegalStateException("Pulsar Gateway large-payload failover cut was not released");
+            }
+            TimeUnit.MILLISECONDS.sleep(100);
+        }
+        System.out.println("Pulsar Gateway large-payload failover cut release acknowledged after broker-1 stop");
     }
 
     private static String encode(final byte[] value) {
@@ -1083,6 +1104,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                                         if (!Arrays.equals(objectPayload, payload)) {
                                             throw new IllegalStateException("Pulsar Worker Object Store readback did not match the committed payload");
                                         }
+                                        signalFailoverCut();
                                         final LaneRecord physicalLane = Optional.ofNullable(
                                                 delayShard.getLane(message.laneId())).orElseThrow(
                                                 () -> new IllegalStateException(
