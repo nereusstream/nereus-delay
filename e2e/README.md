@@ -3048,3 +3048,42 @@ production cross-record transaction, source-ordered delete confirmation,
 response-loss retry, multi-shard runtime, raw chaos and V1 release gates remain
 open. The runner removes its exact containers, network, volume and temporary
 Oxia image; the locked MinIO base image remains for reuse.
+
+## Kafka Broker SIGKILL Worker recovery receipt
+
+The focused Broker process-crash mode uses a real three-Broker KRaft cluster,
+real Oxia Worker authority, and a same-topic survivor resume:
+
+```bash
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_ONLY=1 \
+NEREUS_DELAY_KAFKA_OXIA_PORT=16679 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/Users/liusinan/.gradle \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The source-bound run was Delay
+`2a560a9d3f288b08bd02e139c52f4cfe6fda8ff3`, Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, and projects
+`nereus-delay-kafka-e2e-1786888793-51634` /
+`nereus-delay-kafka-oxia-e2e-1786888793-51634`.
+
+The runner killed `kafka-1` with `SIGKILL` after guarded Worker preparation,
+resumed the same topic through `kafka-2,kafka-3` with real Oxia authority, and
+started `kafka-1` again. It printed:
+
+```text
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, source-applied physical publish with typed KAFKA_TRANSACTIONAL_RECEIPT Outcome and payload readback, and final checkpoint
+Kafka Worker authority smoke passed: real Oxia session-bound lease
+Kafka Broker process-crash recovery E2E passed: kafka-1 was SIGKILLed after guarded Worker preparation, the same topic resumed through kafka-2/kafka-3 with real Oxia authority, and kafka-1 rejoined afterward.
+```
+
+This is a bounded Broker-process recovery receipt, not raw network/proxy/socket
+chaos, controller/coordinator leader-failover evidence, Worker crash recovery,
+production multi-shard runtime or V1 release readiness. Exact post-run checks
+found no containers, networks, volumes or temporary Kafka/Oxia images for the
+two isolated projects.

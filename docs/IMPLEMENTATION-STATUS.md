@@ -12105,3 +12105,50 @@ source-ordered delete confirmation, response-loss retry, multi-shard runtime,
 raw chaos or V1 release readiness. The runner removed the exact project
 containers, network, volume and temporary Oxia image while retaining the
 locked MinIO base image.
+
+## 2026-08-16 Kafka Broker SIGKILL Worker recovery receipt
+
+Delay implementation commit
+`2a560a9d3f288b08bd02e139c52f4cfe6fda8ff3` adds the focused
+`NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_ONLY=1` mode to the real Kafka client
+runner. It prepares the guarded Worker against a real three-Broker KRaft
+cluster, kills `kafka-1` with `SIGKILL`, resumes the same Worker topic through
+`kafka-2,kafka-3` with real Oxia authority, and starts `kafka-1` again before
+returning.
+
+The source-bound command was:
+
+```bash
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_ONLY=1 \
+NEREUS_DELAY_KAFKA_OXIA_PORT=16679 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/Users/liusinan/.gradle \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The run locked Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image ID
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, Kafka Compose project
+`nereus-delay-kafka-e2e-1786888793-51634` on ports `19226,19227,19228`, and
+Oxia project `nereus-delay-kafka-oxia-e2e-1786888793-51634` on port `16679`.
+
+The source-bound output included:
+
+```text
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, source-applied physical publish with typed KAFKA_TRANSACTIONAL_RECEIPT Outcome and payload readback, and final checkpoint
+Kafka Worker authority smoke passed: real Oxia session-bound lease
+Kafka Broker process-crash recovery E2E passed: kafka-1 was SIGKILLed after guarded Worker preparation, the same topic resumed through kafka-2/kafka-3 with real Oxia authority, and kafka-1 rejoined afterward.
+```
+
+This closes the bounded real-Broker Broker-process cut for the Worker path:
+the preparation and resume used the same topic and real Oxia assignment/Owner
+authority, while the final restart proved that the killed Broker could rejoin.
+The runner's exact-name checks found no containers, networks, volumes or
+temporary Kafka/Oxia images for either isolated project. This is not a raw
+network/proxy/socket cut, a consumer-coordinator or controller-leader
+failover receipt, a Worker crash during apply/publish, a production
+multi-shard runtime, a full chaos matrix or V1 release evidence.

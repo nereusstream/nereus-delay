@@ -6539,3 +6539,39 @@ only a local ownership-horizon observation; it is not a provider-side
 quiescence or consistency certificate. RecoveryPin/cross-record transaction,
 source-ordered delete confirmation, response-loss retry, multi-shard runtime,
 raw chaos and release gates remain explicit boundaries.
+
+### 2026-08-16 Kafka Broker SIGKILL Worker recovery receipt
+
+Delay commit `2a560a9d3f288b08bd02e139c52f4cfe6fda8ff3` adds a focused real
+Broker process-crash mode to `e2e/run-kafka-real-client-e2e.sh`:
+
+```bash
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_ONLY=1 \
+NEREUS_DELAY_KAFKA_OXIA_PORT=16679 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/Users/liusinan/.gradle \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The receipt binds K1
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, and isolated projects
+`nereus-delay-kafka-e2e-1786888793-51634` /
+`nereus-delay-kafka-oxia-e2e-1786888793-51634`.
+
+The runner performs Worker preparation, sends `SIGKILL` to `kafka-1`, resumes
+the same topic through the survivor bootstrap, and starts `kafka-1` again. It
+reported:
+
+```text
+Kafka Worker authority smoke passed: real Oxia session-bound lease
+Kafka Broker process-crash recovery E2E passed: kafka-1 was SIGKILLed after guarded Worker preparation, the same topic resumed through kafka-2/kafka-3 with real Oxia authority, and kafka-1 rejoined afterward.
+```
+
+The boundary is deliberately narrower than a production chaos PASS: no raw
+network/proxy/socket fault, coordinator/controller leader proof, Worker
+apply/publish crash, production multi-shard runtime or V1 release gate is
+claimed. Exact Compose resource and temporary image cleanup passed.

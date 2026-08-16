@@ -9998,6 +9998,38 @@ does not close production cross-record Owner/Intent/Catalog transaction,
 RecoveryPin competition, remote provider quiescence/consistency, delete
 confirmation mutation, raw chaos, multi-shard runtime or the V1 release gate.
 
+## 2026-08-16 Kafka Broker SIGKILL Worker recovery audit
+
+Delay commit `2a560a9d3f288b08bd02e139c52f4cfe6fda8ff3` adds the focused
+`NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_ONLY=1` runner branch. The live run
+used K1
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image ID
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, Kafka project
+`nereus-delay-kafka-e2e-1786888793-51634`, Oxia project
+`nereus-delay-kafka-oxia-e2e-1786888793-51634`, and ports
+`19226,19227,19228/16679`.
+
+The real three-Broker KRaft harness first completed the guarded Worker
+preparation with real Oxia session-bound authority, executed
+`docker compose kill --signal KILL kafka-1`, resumed the same Worker topic
+against the survivor bootstrap `kafka-2,kafka-3`, and then started and waited
+for `kafka-1` to rejoin. The receipt was:
+
+```text
+Kafka Broker process-crash recovery E2E passed: kafka-1 was SIGKILLed after guarded Worker preparation, the same topic resumed through kafka-2/kafka-3 with real Oxia authority, and kafka-1 rejoined afterward.
+```
+
+This is positive evidence for the narrow Broker-process recovery boundary, not
+evidence of graceful-stop semantics, raw packet/socket/proxy loss,
+controller/coordinator leader-failover correctness, Worker crash recovery,
+production multi-shard ownership, the complete chaos matrix or the V1 release
+gate. Exact post-run cleanup found no resources or temporary images for the
+two named Compose projects.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
