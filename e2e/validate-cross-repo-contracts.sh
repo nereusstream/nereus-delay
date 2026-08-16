@@ -1086,7 +1086,7 @@ require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3Compa
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
     "sweepsExactCheckpointPrefixVersionsAndProvesEmptyAfterward"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleMinioRealSmokeTest.java" \
-    "CheckpointPrefixSweepResult swept"
+    "CheckpointReapingSweepResult reaping"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Bounded checkpoint prefix sweep provider seam"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
@@ -1117,6 +1117,8 @@ require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "REAPING-to-prefix sweep coordination slice"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "b9fcd2aa846329ed13986b122d287375a441b2fd"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "83bf17cea70b37fa42a507832693a0c43ed4d9fb"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "Delay checkpoint REAPING sweep coordination slice"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
