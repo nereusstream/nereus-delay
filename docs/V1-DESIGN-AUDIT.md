@@ -11131,3 +11131,29 @@ ZooKeeper/BookKeeper storage failover, Gateway-plus-Broker combined failover,
 multi-shard chaos completeness or V1 release evidence. Exact postchecks found
 no project resources, dangling images, P1 image or temporary Oxia image; no
 global Docker prune was used.
+
+## 2026-08-17 Current-source V1 release-gate re-audit after fault receipts
+
+The current audit locks Delay to
+e2621105c868b6d63cfc970f22f07634d9233eea (protocol activation codec
+implementation 99049c6f), K1 to
+nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9,
+P1 to nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7,
+and Oxia to 37a17bef17202d5fd6e23282da5fd26d94865484. Current full check and
+the cross-repo contract validator pass.
+
+Audit result: NOT READY. The current bounded evidence now includes Kafka K2
+commit-response loss, native two-shard Worker fleet, Broker network partition,
+guarded Fetch response loss/LSO, retention-floor recovery, and Pulsar
+two-Broker process-crash Worker failover, in addition to the existing real
+Gateway/Oxia/Worker/MinIO large-payload receipts. These receipts strengthen
+Gates 2--4 and 10 but do not turn them into full matrix or rollout PASS.
+
+Gates 1--4 and 10 remain PARTIAL; Gates 5--7 and 9 remain OPEN because
+source-locked benchmark/capacity/SLO campaigns, certified soak, release-
+candidate fresh-process external-authorization/disaster drills and the full
+operations artifact are still absent. Gate 8 remains PARTIAL: the strict
+Registry wire codec now exists, but authenticated source-ordered activation
+state, eligible-reader assignment, writer-before-reader cutover,
+downgrade/release artifact and corresponding authority are not implemented.
+No bounded E2E receipt is reinterpreted as V1 release approval.
