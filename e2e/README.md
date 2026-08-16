@@ -4478,3 +4478,44 @@ topic. It does not cover raw network/socket cuts, controller or storage
 failover, Gateway-plus-Broker combined failover, multi-shard chaos or release
 readiness. Exact postchecks found no project containers, networks, volumes,
 P1 image or temporary Oxia image; no global Docker prune was used.
+
+## Bounded local capacity and SLO probe
+
+`run-bounded-capacity-slo-probe.sh` is the first source-locked evidence
+producer for the benchmark/capacity/SLO closure work. It requires a clean Delay
+worktree, records the exact `HEAD`, uses no Docker, writes three bounded
+payload sizes (256, 4096 and 65536 bytes) through real synchronous RocksDB
+`WriteBatch` calls, verifies readback after each run, persists bounded SLO
+Start/Final records through `SloObservationOutboxStore`, scans the outbox,
+persists the collector projection and verifies both the Store and collector
+after a fresh reopen. The report is JSON and remains `PARTIAL` by design.
+
+Run it with:
+
+```bash
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-capacity-gradle \
+  bash e2e/run-bounded-capacity-slo-probe.sh
+```
+
+The current-source receipt used Delay
+`nereus/delay-full-implementation-v1@5248326726f89b761facbe7d872cf36abcc4a181`,
+16 records per payload size and 24 SLO samples. It passed with `BUILD SUCCESSFUL`
+and produced
+`/var/folders/vk/l_r0z80j1dj93fsrjx3zqv4r0000gn/T//nereus-delay-capacity.p2hcUY/bounded-capacity-slo-probe.json`:
+
+```text
+payload 256: 16 records, 4096 input bytes, 16 readback records
+payload 4096: 16 records, 65536 input bytes, 16 readback records
+payload 65536: 16 records, 1048576 input bytes, 16 readback records
+SLO: 24 durable Start/Final samples, 24 exported records, 12528 encoded bytes
+reopen: Store payload/SLO readback=true, persistent collector=true
+```
+
+The host is Darwin, so `WorkerRuntimeResourceProbe` correctly reported
+`UNAVAILABLE` because the test JVM had no explicit `MaxDirectMemorySize` and
+the host does not expose the Linux procfs/cgroup authority expected by that
+probe. Host observations must not be substituted for certified cgroup, rlimit,
+RSS, FD or disk envelope values. This receipt therefore does not close Gates 5
+or 6, and it does not cover broker batching/linger, 1M/10M/100M records, Lane
+distributions, multi-Worker placement, checkpoint restore throughput, or the
+long-cycle soak required by Gate 7.

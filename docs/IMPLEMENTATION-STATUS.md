@@ -14562,3 +14562,40 @@ gates, benchmark/capacity/SLO artifacts, soak, authenticated activation-state
 cutover and rollout proof remain open. Gates 2, 3 and 10 remain `PARTIAL`;
 Gates 5, 6, 7 and 9 remain `OPEN`, Gate 8 remains `PARTIAL`, and overall V1
 remains `NOT READY`.
+
+## 2026-08-17 Source-locked bounded capacity/SLO probe
+
+Commit `5248326726f89b761facbe7d872cf36abcc4a181` adds
+`e2e/run-bounded-capacity-slo-probe.sh` and the focused
+`BoundedCapacitySloProbeTest`. The runner requires a clean Delay worktree,
+records its exact `HEAD`, uses no Docker, and writes a JSON evidence artifact.
+The test exercises the real synchronous RocksDB `ShardStore.write` boundary at
+three payload sizes (`256`, `4096`, `65536` bytes), verifies every bounded
+payload readback, persists 24 exact SLO Start/Final projections through the
+limited `SloObservationOutboxStore`, exports the bounded scan, persists the
+collector projection through atomic file replacement, then reopens both the
+Store and collector and checks canonical bytes again.
+
+The current-source run used Delay
+`nereus/delay-full-implementation-v1@5248326726f89b761facbe7d872cf36abcc4a181`,
+16 records per payload size, 24 SLO samples, and a separate Gradle user home.
+It passed with `BUILD SUCCESSFUL in 1m 13s`; the artifact was
+`/var/folders/vk/l_r0z80j1dj93fsrjx3zqv4r0000gn/T//nereus-delay-capacity.p2hcUY/bounded-capacity-slo-probe.json`.
+The receipt recorded 4096, 65536 and 1048576 input bytes for the three payload
+runs, 24 durable Start/Final samples, 24 exported samples and 12528 encoded
+outbox bytes. Fresh Store payload/SLO readback and persistent collector reopen
+both passed.
+
+This is the first real bounded local capacity/SLO evidence producer, not a
+benchmark or release certification. The run host is Darwin; the authoritative
+`WorkerRuntimeResourceProbe` reported `UNAVAILABLE` because the test JVM had no
+explicit `MaxDirectMemorySize` and Linux procfs/cgroup authority was absent.
+That fail-closed result is retained rather than replaced with guessed host
+values. Gate 5 remains `OPEN` because the required source-locked campaign
+matrix still lacks Broker batching/linger, command and payload size
+dimensions, 1M/10M/100M records, Lane distributions, shard/Worker scaling,
+compaction/checkpoint/restore and inline/object comparisons. Gate 6 remains
+`OPEN` because certified RSS/cgroup/FD/disk/temp, reserve/fairness,
+adapter/zombie and durable SLO collector capacity artifacts are not complete.
+Gate 7 remains `OPEN` because this bounded run is not a long-cycle soak. No
+focused probe result changes the V1 `NOT READY` classification.

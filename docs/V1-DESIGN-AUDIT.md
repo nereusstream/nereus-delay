@@ -11646,3 +11646,36 @@ expiry, Object Store 5xx/timeout/config drift, target-isolation gates,
 benchmark/capacity/SLO artifacts, soak, authenticated activation-state /
 cutover and rollout proof. Gates 2, 3 and 10 remain `PARTIAL`; Gates 5, 6, 7
 and 9 remain `OPEN`, Gate 8 remains `PARTIAL`, and V1 remains `NOT READY`.
+
+## 2026-08-17 Bounded capacity/SLO evidence audit
+
+Delay commit `5248326726f89b761facbe7d872cf36abcc4a181` adds a clean-worktree,
+source-locked runner and focused receipt producer for the next release
+blocker. The current run used 16 records at each payload size `256`, `4096`
+and `65536` bytes, plus 24 SLO samples. Real synchronous RocksDB writes and
+readback passed for all 48 payload records. The same run durably wrote and
+merged 24 SLO Start/Final records, exported 24 records with 12528 encoded
+bytes, persisted the collector projection and verified exact canonical bytes
+after fresh Store and collector reopen. No Docker image or container was used.
+
+The JSON artifact is
+`/var/folders/vk/l_r0z80j1dj93fsrjx3zqv4r0000gn/T//nereus-delay-capacity.p2hcUY/bounded-capacity-slo-probe.json`.
+Its explicit status is `PARTIAL`, not `PASS`: on the Darwin host,
+`WorkerRuntimeResourceProbe` failed closed with
+`MaxDirectMemorySize is not explicitly bounded`, and the Linux procfs/cgroup
+authority expected by the production probe was unavailable. This is preserved
+as an authority gap; host-local values are not promoted into certified
+RSS/cgroup/FD/disk limits.
+
+Audit conclusion: this closes a reusable bounded evidence path for real local
+Store throughput/readback, durable SLO outbox accounting and collector restart
+continuity. Gate 5 remains `OPEN` because the required source-locked campaign
+still lacks command/payload/batch/linger, 1M/10M/100M record, uniform/burst/
+Zipf Lane, ordered/strong capability, healthy/bad target, shard/Worker,
+one-DB overhead, WAL/FD/open, compaction/checkpoint, local-loss restore,
+query/long-poll and inline/object matrices. Gate 6 remains `OPEN` because the
+certified memory/RSS/cgroup, FD/file, disk/temp, reserve, adapter/zombie,
+fairness, durable SLO outbox/collector and conservative merge envelope is not
+yet complete. Gate 7 remains `OPEN` because this is not a long-cycle soak;
+the remaining §23.3 fault matrix, authenticated activation/cutover, rollout
+and V1 release gates are unchanged.
