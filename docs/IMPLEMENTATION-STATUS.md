@@ -11510,3 +11510,55 @@ the trust activation itself is source-ordered on real Kafka, and the final
 checkpoint is local rather than an Object Store checkpoint publication. Multi-
 shard placement, Kafka response-loss/LSO/retention recovery, Pulsar
 multi-Broker failover, raw crash/chaos and the V1 release gates remain open.
+
+## 2026-08-16 Pulsar multi-Broker Worker failover live receipt
+
+The checked-in `e2e/run-pulsar-multi-broker-failover-e2e.sh` was rerun with
+real Oxia authority:
+
+```bash
+NEREUS_DELAY_PULSAR_WITH_OXIA=1 \
+NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-multi-live-gradle \
+  ./e2e/run-pulsar-multi-broker-failover-e2e.sh
+```
+
+The current Delay source is
+`nereus/delay-full-implementation-v1@afbb2e30511b53b2f44adc620767685753acb48e`.
+The receipt is locked to P1
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3`,
+`pulsar-client-original` SHA-256
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`pulsar-client-api` SHA-256
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`,
+`pulsar-common` SHA-256
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`,
+P1 image ID
+`sha256:4faa8217a39de36a030e449473fc07f4cd04553477f4f2e84c5d799720989cf0`,
+and Oxia source `37a17bef17202d5fd6e23282da5fd26d94865484`. The isolated
+Compose project was `nereus-delay-pulsar-multi-e2e-1786873557-57433`, with
+broker-1 host ports `21933`/`21934`, broker-2 host ports `21935`/`21936`, and
+Oxia port `16663`.
+
+The run stopped broker-1 after the first Worker preparation, resumed the same
+topic Worker through broker-2, and then completed the source-applied physical
+publish and final drain:
+
+```text
+Pulsar Worker assignment publication/acceptance passed: revision=1, worker=pulsar-worker, authority=real Oxia session-bound
+Pulsar Worker source-applied physical publish passed: Admission source ledger=4/2, typed PULSAR_SEND_ACK target ledger/entry=5/0, Outcome source ledger=4/3, exact payload readback
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=3/0, active apply ledger/entry=4/0, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
+Pulsar Worker authority smoke passed: real Oxia session-bound lease
+Pulsar multi-Broker failover E2E passed: same-topic guarded Worker resumed through broker-2 after broker-1 stop, applied the source record, completed provider-driven physical Publish, ACKed the source and released its final checkpoint and owner assignment.
+```
+
+This is current positive evidence for a bounded two-Broker P1 Worker
+failover, with real Oxia Assignment/Owner authority, guarded SUBSCRIBE,
+RocksDB apply, source ACK, provider-driven destination publish and final
+checkpoint release. The topology still has one ZooKeeper and one BookKeeper;
+it contains no Gateway ingress, no raw network/proxy/process cut, no Pulsar
+D3 completion, no catalog-driven multi-shard placement, and no combined
+Gateway-to-destination production-authority receipt. Oxia failover/partition,
+crash/response-loss, checkpoint publication/quiescence and the V1 release
+gates remain open.
