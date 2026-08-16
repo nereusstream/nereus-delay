@@ -3443,6 +3443,45 @@ project was `nereus-delay-kafka-oxia-e2e-1786896942-56285`; post-run checks
 found no containers, networks, volumes or matching temporary images, reusable
 base images were retained and no global Docker prune was used.
 
+## Kafka Worker durable-apply-before-ACK process-cut receipt (current source)
+
+Run the current-source Worker ACK process cut:
+
+```bash
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+NEREUS_DELAY_KAFKA_WORKER_ACK_PROCESS_CRASH_ONLY=1 \
+KAFKA_BROKER_1_PORT=19661 \
+KAFKA_BROKER_2_PORT=19662 \
+KAFKA_BROKER_3_PORT=19663 \
+NEREUS_DELAY_KAFKA_OXIA_PORT=16763 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-worker-ack-crash-20260817 \
+GRADLE_USER_HOME=/tmp/nereus-delay-kafka-worker-ack-crash-20260817 \
+KAFKA_DELAY_WORKER_ACK_PROCESS_CRASH_TOPIC=nereus-delay-worker-ack-crash-live-20260817 \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+At Delay `ade0c813bb8919793eecdd2e07cf76073432237f`, Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`
+and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, the first Worker JVM
+reached a gate after the local WriteBatch was durable and before Kafka
+`commitSync`; the harness SIGKILLed it and a fresh JVM reopened the exact Store
+root under the real Oxia lease. The receipt was:
+
+```text
+Kafka Worker ACK process-crash cut reached: pid=65541, storeWriteBatchDurable=true, kafkaCommitSyncStarted=false
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, and final checkpoint
+Kafka Worker ACK process-crash recovery E2E passed: the Worker Store WriteBatch was durable before SIGKILL and before Kafka commitSync ACK, and a fresh JVM replayed the exact source record through real Oxia authority, dedupe, ACK and final checkpoint.
+```
+
+This is a bounded Worker process-cut receipt for durable apply before source
+ACK. It does not claim destination-publish crash recovery, raw network chaos,
+controller/coordinator failover, production multi-shard fault coverage or V1
+release readiness. The exact Kafka project was
+`nereus-delay-kafka-e2e-1786897528-64796` and exact Oxia project was
+`nereus-delay-kafka-oxia-e2e-1786897528-64796`; post-run checks found no
+containers, networks, volumes or matching temporary images, reusable base
+images were retained and no global Docker prune was used.
+
 ## Kafka raw TCP Broker endpoint-cut Worker recovery receipt (current source)
 
 Run the current-source raw TCP endpoint-cut slice:

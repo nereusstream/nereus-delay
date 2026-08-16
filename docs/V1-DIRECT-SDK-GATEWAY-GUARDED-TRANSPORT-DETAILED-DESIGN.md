@@ -6864,3 +6864,27 @@ The current source-bound run locks Delay to
 fault/handoff boundary, not automatic controller/coordinator failover,
 Broker crash recovery, Docker network partition, destination egress under
 the cut, multi-shard chaos or the V1 release gate.
+
+## 2026-08-17 Current Kafka Worker durable-apply-before-ACK implementation note
+
+The focused `NEREUS_DELAY_KAFKA_WORKER_ACK_PROCESS_CRASH_ONLY=1` path runs the
+real Worker against a three-Broker KRaft cluster and real Oxia. The first JVM
+opens the guarded source, applies the record through the local RocksDB
+WriteBatch, reaches a cut gate only after the Store reports durability and
+before the guarded Kafka `commitSync` begins, and publishes its PID for the
+harness.
+
+The runner then sends SIGKILL and starts a fresh JVM against the same isolated
+Store root and source topic. The successor must reacquire the session-bound
+Oxia Assignment/Owner authority, replay the still-uncommitted source record,
+deduplicate the durable local apply, commit the source ACK and release the
+final checkpoint. This keeps the Store durability-before-ACK invariant
+explicit instead of treating a process restart as generic success.
+
+The current source-bound run locks Delay to
+`ade0c813bb8919793eecdd2e07cf76073432237f`, K1 to
+`05849884ca81fad767fda058444d1e17c7f9cbf9` and Oxia to
+`37a17bef17202d5fd6e23282da5fd26d94865484`. It remains a bounded Worker
+process-cut contract and does not imply destination-publish crash recovery,
+raw network chaos, controller/coordinator failover, production multi-shard
+fault coverage or V1 release readiness.

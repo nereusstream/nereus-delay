@@ -10364,3 +10364,28 @@ coordinator failover, Broker crash recovery, Docker network partition,
 destination egress under the cut, multi-shard chaos or V1 release approval.
 Exact project and image checks found no post-run containers, networks, volumes
 or matching temporary images; no global Docker prune was used.
+
+## 2026-08-17 Current-source Kafka Worker durable-apply-before-ACK audit
+
+The current-source receipt locks Delay to
+`ade0c813bb8919793eecdd2e07cf76073432237f`, Kafka to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+and Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. The real three-Broker
+KRaft run used Kafka project `nereus-delay-kafka-e2e-1786897528-64796` on
+`19661,19662,19663`, Oxia project
+`nereus-delay-kafka-oxia-e2e-1786897528-64796` at `127.0.0.1:16763`, and source
+topic `nereus-delay-worker-ack-crash-live-20260817`.
+
+The Worker cut gate proved `storeWriteBatchDurable=true` while
+`kafkaCommitSyncStarted=false`, after which the harness sent SIGKILL to the
+first JVM. A fresh JVM reopened the same isolated Store root, reacquired the
+real Oxia session-bound lease, replayed the exact source record, deduplicated
+the durable local apply, completed the Kafka ACK and released the final
+checkpoint.
+
+This is positive current-source evidence for the durable-apply-before-source-
+ACK process-cut contract. It is not destination-publish crash evidence, raw
+packet/proxy/socket or Docker-network chaos, controller/coordinator failover,
+multi-shard fault coverage or V1 release approval. Exact project and image
+checks found no post-run containers, networks, volumes or matching temporary
+images; no global Docker prune was used.

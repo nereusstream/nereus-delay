@@ -2127,6 +2127,16 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "2026-08-17 Current Kafka raw TCP Broker endpoint-cut implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Kafka raw TCP Broker endpoint-cut Worker recovery receipt (current source)"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "2026-08-17 Current-source Kafka Worker durable-apply-before-ACK receipt"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "ade0c813bb8919793eecdd2e07cf76073432237f"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "2026-08-17 Current-source Kafka Worker durable-apply-before-ACK audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "2026-08-17 Current Kafka Worker durable-apply-before-ACK implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Kafka Worker durable-apply-before-ACK process-cut receipt (current source)"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"
