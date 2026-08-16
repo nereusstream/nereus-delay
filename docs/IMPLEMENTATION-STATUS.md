@@ -13256,3 +13256,58 @@ not claim external secret-manager resolution or a provider upload after
 renewal. Exact post-run checks found no project resources, MinIO container or
 temporary Oxia image; the locked MinIO base was retained and no global Docker
 prune was used.
+
+## 2026-08-17 Current-source Pulsar Worker Publish Admission response-loss receipt
+
+The current-source rerun locks Delay to
+`ef8ad3fcdb0765565b93036f901a45781f163bb0` (implementation behavior in this
+tree is unchanged from `e6d28a5b0fecc6c20daded998b1d324990fe95c2`), P1 to
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+the P1 distribution SHA-256 to
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, the
+P1 client artifacts to
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394` and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, the
+P1 image ID to
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+and Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. The source-bound
+command was:
+
+```bash
+NEREUS_DELAY_PULSAR_WITH_OXIA=1 \
+NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS=1 \
+NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS_ONLY=1 \
+NEREUS_DELAY_PULSAR_OXIA_PORT=29410 \
+PULSAR_BROKER_PORT=29400 \
+PULSAR_WEB_PORT=29401 \
+NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-worker-admission-response-loss-oxia-20260817-r1 \
+  bash e2e/run-pulsar-real-client-e2e.sh
+```
+
+The isolated Pulsar project was
+`nereus-delay-pulsar-e2e-1786901196-18866` on broker/web ports `29400/29401`;
+the Oxia project was
+`nereus-delay-pulsar-oxia-e2e-1786901196-18866` on port `29410`. The focused
+real-service task passed with `BUILD SUCCESSFUL`, zero test failures/errors,
+and emitted:
+
+```text
+Pulsar Worker Publish Admission response-loss E2E passed: the real Shard Log mutation was persisted, its append response was discarded, and exact source replay recovered the PUBLISHING admission.
+```
+
+This refreshes the current-source bounded real-Broker/real-Oxia branch:
+the guarded Shard Log mutation exists durably even though its append response
+is discarded, source replay resolves the exact mutation identity, and the
+Worker continues from `PUBLISHING` without appending a retry mutation. It is
+controlled client-side response loss after real persistence, not raw socket
+loss, process/Broker crash recovery, multi-Broker failover, multi-shard
+placement, checkpoint REAPING or V1 release evidence.
+
+The runner's exact cleanup removed the temporary P1 image
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`
+and run-created Oxia image
+`sha256:fb4ef2e60386870ff19076357e35d59c7006476bf63eb9c1fecc3f5b2a89f074`.
+Postchecks found no containers, networks, volumes or matching images for
+either isolated project; the reusable locked MinIO base was untouched and no
+global Docker prune was used.

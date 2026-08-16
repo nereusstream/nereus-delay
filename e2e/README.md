@@ -3932,3 +3932,43 @@ and rejects a live adapter renewal after Head rotation. It does not claim
 external secret-manager resolution or a provider upload after renewal. The
 runner removed its project resources, MinIO container and temporary Oxia
 image; the locked MinIO base remained and no global Docker prune was used.
+
+## Pulsar Worker Publish Admission response-loss (current source)
+
+Run the focused real P1 Broker + real Oxia response-loss cut with:
+
+```bash
+NEREUS_DELAY_PULSAR_WITH_OXIA=1 \
+NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS=1 \
+NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS_ONLY=1 \
+NEREUS_DELAY_PULSAR_OXIA_PORT=29410 \
+PULSAR_BROKER_PORT=29400 \
+PULSAR_WEB_PORT=29401 \
+NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-worker-admission-response-loss-oxia-20260817-r1 \
+  bash e2e/run-pulsar-real-client-e2e.sh
+```
+
+The current-source receipt locks Delay to
+`ef8ad3fcdb0765565b93036f901a45781f163bb0`, P1 to
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+the P1 distribution to
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and
+Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. The isolated projects
+were `nereus-delay-pulsar-e2e-1786901196-18866` and
+`nereus-delay-pulsar-oxia-e2e-1786901196-18866`, using Pulsar
+`29400/29401` and Oxia `29410`.
+
+The focused task passed with `BUILD SUCCESSFUL`, zero failures and zero
+errors:
+
+```text
+Pulsar Worker Publish Admission response-loss E2E passed: the real Shard Log mutation was persisted, its append response was discarded, and exact source replay recovered the PUBLISHING admission.
+```
+
+This is controlled client-side response loss after real Pulsar persistence.
+Exact source replay resolves the same admission identity and continues
+`PUBLISHING`; no retry mutation is appended. It is not raw socket loss or
+process/Broker crash evidence and does not close multi-Broker, multi-shard,
+REAPING, full chaos or V1 release gates. Exact postchecks found no project
+containers, networks, volumes or matching P1/Oxia images. The locked MinIO
+base remained and no global Docker prune was used.

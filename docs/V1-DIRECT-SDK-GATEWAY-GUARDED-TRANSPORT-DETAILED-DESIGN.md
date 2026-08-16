@@ -7173,3 +7173,34 @@ fence composition. It does not claim external secret-manager resolution,
 source-ordered trust-set publication, multi-process renewal ownership or a
 provider operation after renewal. The run-created Oxia image was removed;
 the locked MinIO image was retained and no global Docker prune was used.
+
+### 2026-08-17 Current-source Pulsar Worker Publish Admission response-loss implementation note
+
+The current-source real-service cut locks Delay to
+`ef8ad3fcdb0765565b93036f901a45781f163bb0`, P1 to
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, and Oxia to
+`37a17bef17202d5fd6e23282da5fd26d94865484`. It uses the P1 distribution
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3` and the
+real-service project pair
+`nereus-delay-pulsar-e2e-1786901196-18866` /
+`nereus-delay-pulsar-oxia-e2e-1786901196-18866`.
+
+The focused harness wraps only the real guarded Shard Log mutation append:
+the broker persists the admission mutation, the client discards the first
+local `PERSISTED` response, and the Worker must retain the exact identity as
+`UNKNOWN` until source replay finds the durable mutation. A successful replay
+opens the existing physical publish path; it cannot append a retry mutation
+under a new identity. The current receipt is:
+
+```text
+Pulsar Worker Publish Admission response-loss E2E passed: the real Shard Log mutation was persisted, its append response was discarded, and exact source replay recovered the PUBLISHING admission.
+```
+
+This is the production-shaped response-loss rule for the bounded slice. The
+test intentionally does not claim raw TCP packet loss, process/Broker crash,
+multi-Broker failover, multi-shard placement, REAPING or release-gate
+coverage. Exact project cleanup removed the temporary P1 image
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`
+and Oxia image
+`sha256:fb4ef2e60386870ff19076357e35d59c7006476bf63eb9c1fecc3f5b2a89f074`;
+the locked MinIO base was retained and no global Docker prune was used.
