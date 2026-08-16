@@ -11679,3 +11679,11 @@ fairness, durable SLO outbox/collector and conservative merge envelope is not
 yet complete. Gate 7 remains `OPEN` because this is not a long-cycle soak;
 the remaining §23.3 fault matrix, authenticated activation/cutover, rollout
 and V1 release gates are unchanged.
+
+Post-documentation verification passed at Delay
+`2e8908a860dd066bdcd44d3ff8b20c2116aa3a7c`: full
+`./gradlew check --no-daemon --console=plain --quiet` and
+`bash e2e/validate-cross-repo-contracts.sh` both exited `0`. The audit locks
+remain Kafka K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.

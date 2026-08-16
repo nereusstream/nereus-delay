@@ -14599,3 +14599,11 @@ compaction/checkpoint/restore and inline/object comparisons. Gate 6 remains
 adapter/zombie and durable SLO collector capacity artifacts are not complete.
 Gate 7 remains `OPEN` because this bounded run is not a long-cycle soak. No
 focused probe result changes the V1 `NOT READY` classification.
+
+After the documentation commit, the current Delay source
+`2e8908a860dd066bdcd44d3ff8b20c2116aa3a7c` passed the full
+`./gradlew check --no-daemon --console=plain --quiet` and
+`bash e2e/validate-cross-repo-contracts.sh`. The cross-repository audit kept
+Kafka K1 at `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1 at
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia at
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
