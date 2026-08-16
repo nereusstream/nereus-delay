@@ -6097,3 +6097,21 @@ and the full `./gradlew check` passed with 1538 tests, 24 skips, zero failures
 and zero errors. This closes only local sticky-queued projection integrity;
 distributed authority, transport delivery, failover, chaos and release gates
 remain open.
+
+### 2026-08-16 Pulsar managed SEND evidence identity fence implementation note
+
+Delay commit `4ed28c89f6cf9e20c12f1ee226752327f05f7953` closes the opt-in
+Pulsar managed-SEND evidence binding gap. Before constructing a `PERSISTED`
+`PulsarSendResult`, `PulsarClientArtifactSendTransport` now compares the
+`GuardedSendSuccessEvidence` attestation with the exact producer guard,
+physical topic and partition, and compares evidence ledger/entry/timestamp
+with the returned `MessageIdAdv` and `GuardedMessageId` values. A mismatch is
+`UNKNOWN/INTEGRITY_ERROR`, never a queued receipt.
+
+The source-locked `compileRealPulsar` task passed against the P1 worktree
+classes/JARs, and `runRealPulsarSmoke` passed with
+`persisted=PERSISTED, mismatch=UNKNOWN, rejection=DEFINITIVELY_NOT_PERSISTED`.
+The smoke's mismatched-ledger regression would have been accepted as
+`PERSISTED` before this fence. This closes only the local opt-in SEND evidence
+projection; Broker rollout, multi-broker failover, source/ACK integration,
+Worker production wiring and release gates remain open.

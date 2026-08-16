@@ -9482,6 +9482,22 @@ skips and zero failures/errors. This closes only local sticky-queued projection
 integrity; it does not establish distributed Gateway authority, transport
 delivery, Broker failover, raw chaos or V1 release readiness.
 
+## 2026-08-16 Pulsar managed SEND evidence identity fence audit
+
+Delay commit `4ed28c89f6cf9e20c12f1ee226752327f05f7953` closes an opt-in
+real-client evidence mismatch that could otherwise produce a false positive
+`PERSISTED` result. The SEND transport now binds
+`GuardedSendSuccessEvidence.attestation()` to the expected guard, exact
+physical topic and partition, then binds evidence ledger/entry/timestamp to
+the returned native MessageId and broker timestamp. Contradictory evidence is
+classified as `UNKNOWN/INTEGRITY_ERROR`.
+
+The source-locked `compileRealPulsar` task and `runRealPulsarSmoke` passed; the
+smoke records `persisted=PERSISTED, mismatch=UNKNOWN,
+rejection=DEFINITIVELY_NOT_PERSISTED`. This is local opt-in binding evidence
+only. It does not establish Broker rollout, multi-broker failover, source/ACK
+integration, Worker production wiring or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
