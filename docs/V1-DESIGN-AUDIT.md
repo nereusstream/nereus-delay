@@ -9213,6 +9213,26 @@ This closes only local connect-input/resource-ordering validation. It does not
 establish Oxia session recovery, Route transactionality, placement/source
 ownership, raw chaos, failover or V1 release readiness.
 
+## 2026-08-16 Worker monitor teardown retry boundary audit
+
+Delay commit `2f7d9d667547380355a27517ea2c1e4941962693` repairs the monitor
+side of the shared-resource cleanup invariant. Both
+`WorkerRuntimeResourceMonitor` and `WorkerRocksDbUsageMonitor` set their close
+fence before teardown but retain a separate completion state; cancellation and
+executor shutdown are attempted independently, and a failed shutdown leaves a
+later explicit close able to retry the executor.
+
+`WorkerRuntimeResourceMonitorTest.closeRetriesExecutorShutdownAfterTheFirstFailure`
+and
+`WorkerRocksDbUsageMonitorTest.closeRetriesExecutorShutdownAfterTheFirstFailure`
+force the first injected `shutdownNow()` call to fail and require the second
+monitor close to invoke shutdown again. The deterministic monitor suites
+passed 12 tests with zero failures/skips/errors.
+
+This closes only local Worker monitor teardown retryability. It does not turn
+a failed native process into safe recovery or provide production resource,
+Owner/Oxia, raw chaos, failover or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

@@ -11036,3 +11036,28 @@ The deterministic Route session construction suite passed 1 test, including
 the local connect-input/resource-ordering boundary; it does not establish
 Oxia session recovery, Route transactionality, placement/source ownership,
 chaos/failover or V1 release evidence.
+
+## 2026-08-16 Worker monitor teardown retry boundary
+
+Delay commit `2f7d9d667547380355a27517ea2c1e4941962693` makes both Worker
+resource monitors retryable across executor teardown failures. The runtime
+envelope monitor and RocksDB usage monitor fence new polling when close starts,
+attempt scheduled-probe cancellation and executor shutdown independently, keep
+the first `RuntimeException` or `Error` with later failures suppressed, and
+record close completion only after teardown succeeds. A shared-resource owner
+retry can therefore reach an executor whose first shutdown attempt failed.
+
+The focused receipt is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.WorkerRuntimeResourceMonitorTest \
+  --tests io.nereusstream.delay.store.WorkerRocksDbUsageMonitorTest \
+  --no-daemon --console=plain
+```
+
+The deterministic monitor suites passed 12 tests, including
+`closeRetriesExecutorShutdownAfterTheFirstFailure` in both monitor classes.
+This closes only local Worker monitor teardown retryability; it does not turn
+a failed native process into safe recovery or provide production resource,
+Owner/Oxia, chaos/failover or V1 release evidence.

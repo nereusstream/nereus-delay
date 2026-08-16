@@ -1595,6 +1595,24 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Route connect prefix validation boundary implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Route connect prefix validation receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/WorkerRuntimeResourceMonitor.java" \
+    "private boolean closeCompleted"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/WorkerRocksDbUsageMonitor.java" \
+    "private boolean closeCompleted"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/WorkerRuntimeResourceMonitorTest.java" \
+    "closeRetriesExecutorShutdownAfterTheFirstFailure"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/WorkerRocksDbUsageMonitorTest.java" \
+    "closeRetriesExecutorShutdownAfterTheFirstFailure"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Worker monitor teardown retry boundary"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "2f7d9d667547380355a27517ea2c1e4941962693"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Worker monitor teardown retry boundary audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Worker monitor teardown retry boundary implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Worker monitor teardown retry receipt"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPublicationCoordinator.java" \
     "intentIsAtomic || catalogIsAtomic"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointUploadCoordinatorTest.java" \

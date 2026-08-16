@@ -2348,3 +2348,25 @@ The deterministic Route session construction suite passed 1 test, including
 proves only local connect-input/resource-ordering validation; it does not
 prove Oxia recovery, Route transactionality, placement/source ownership,
 chaos, failover or V1 release readiness.
+
+## Worker monitor teardown retry receipt
+
+Delay commit `2f7d9d667547380355a27517ea2c1e4941962693` keeps both Worker
+resource monitors fenced but retryable during executor teardown. The first
+injected `shutdownNow()` failure is retained while cancellation/shutdown
+actions continue; a second explicit monitor close reaches the executor again.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.WorkerRuntimeResourceMonitorTest \
+  --tests io.nereusstream.delay.store.WorkerRocksDbUsageMonitorTest \
+  --no-daemon --console=plain
+```
+
+The deterministic monitor suites passed 12 tests, including the shutdown
+retry regression in both monitor classes. This receipt proves only local
+Worker monitor teardown retryability; it does not prove native process
+recovery, production resource authority, Owner/Oxia, chaos, failover or V1
+release readiness.

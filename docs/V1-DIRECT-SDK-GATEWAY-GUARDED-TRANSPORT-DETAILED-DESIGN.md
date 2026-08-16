@@ -5863,3 +5863,21 @@ passed in the 1-test deterministic Route session construction suite. This
 note closes only local input/resource-ordering validation; session recovery,
 Route transactionality, placement/source authority, chaos, failover and
 release gates remain open.
+
+### 2026-08-16 Worker monitor teardown retry boundary implementation note
+
+Delay commit `2f7d9d667547380355a27517ea2c1e4941962693` aligns both Worker
+monitor close paths with the shared-resource retry contract. Each monitor sets
+its `closed` fence before invoking `ScheduledFuture.cancel` and
+`ScheduledExecutorService.shutdownNow`, aggregates failures across those
+independent actions and sets `closeCompleted` only after all actions succeed.
+If the injected or platform executor rejects the first shutdown, a later owner
+close can retry it while polling remains fenced.
+
+The two monitor regressions
+`WorkerRuntimeResourceMonitorTest.closeRetriesExecutorShutdownAfterTheFirstFailure`
+and
+`WorkerRocksDbUsageMonitorTest.closeRetriesExecutorShutdownAfterTheFirstFailure`
+passed in the 12-test deterministic monitor suites. This note closes only
+local monitor teardown retryability; native process recovery, production
+resource authority, Owner/Oxia, chaos, failover and release gates remain open.
