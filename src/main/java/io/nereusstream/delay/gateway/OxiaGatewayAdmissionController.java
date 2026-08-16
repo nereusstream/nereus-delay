@@ -350,8 +350,8 @@ public final class OxiaGatewayAdmissionController implements GatewayAdmissionCon
         @Override
         public synchronized void close() {
             if (!closed) {
-                closed = true;
                 owner.release(tenantScopeHash, lease);
+                closed = true;
             }
         }
     }

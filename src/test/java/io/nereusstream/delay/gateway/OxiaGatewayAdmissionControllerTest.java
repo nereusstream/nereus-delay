@@ -116,6 +116,25 @@ class OxiaGatewayAdmissionControllerTest {
         second.close();
     }
 
+    @Test
+    void leaseCloseRemainsRetryableAfterReleaseCasDoesNotConverge() {
+        final FakeGatewayClient client = new FakeGatewayClient();
+        final OxiaGatewayAdmissionController controller = new OxiaGatewayAdmissionController(client,
+                "/nereus/gateway", () -> 100,
+                new OxiaGatewayAdmissionController.Limits(1, 100, 1, 1, 1_000, 4));
+        final AuthenticatedTenantContext tenant = tenant(50);
+        final GatewayAdmissionLease lease = reserve(controller, tenant, GatewayIngressOperationV1.SCHEDULE, 10);
+        client.releaseFailures = 5;
+
+        assertThrows(IllegalStateException.class, lease::close);
+        assertEquals(1, client.leases(tenant).size());
+
+        lease.close();
+        lease.close();
+
+        assertEquals(0, client.leases(tenant).size());
+    }
+
     private static GatewayAdmissionLease reserve(final OxiaGatewayAdmissionController controller,
                                                  final AuthenticatedTenantContext tenant,
                                                  final GatewayIngressOperationV1 operation,
@@ -155,6 +174,7 @@ class OxiaGatewayAdmissionControllerTest {
         private final Map<String, Stored> records = new TreeMap<>();
         private long nextVersion = 1;
         private boolean loseNextPutResponse;
+        private int releaseFailures;
 
         @Override
         public GetResult get(final String key) {
@@ -174,6 +194,10 @@ class OxiaGatewayAdmissionControllerTest {
             if (expected != null && expected.versionId() != OptionVersionId.KEY_NOT_EXISTS
                     && (existing == null || existing.version().versionId() != expected.versionId())) {
                 throw new UnexpectedVersionIdException(key, expected.versionId());
+            }
+            if (releaseFailures > 0 && expected != null && expected.versionId() != OptionVersionId.KEY_NOT_EXISTS) {
+                releaseFailures--;
+                throw new IllegalStateException("simulated admission release CAS failure");
             }
             final Version version = new Version(nextVersion++, 0, 0, 0, Optional.empty(), Optional.empty());
             records.put(key, new Stored(Bytes.copy(value), version));
