@@ -18,9 +18,11 @@ import java.text.Normalizer;
 import java.time.Duration;
 import java.security.SecureRandom;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * Session-fenced Oxia record surface for Route publication and cache reads.
@@ -214,27 +216,57 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
     @Override
     public synchronized GetResult get(final String key) {
         requireSession();
-        return delegate.get(key);
+        try {
+            final GetResult result = delegate.get(key);
+            requireSession();
+            return result;
+        } catch (RuntimeException failure) {
+            requireSession();
+            throw failure;
+        }
     }
 
     @Override
     public synchronized CloseableIterable<GetResult> rangeScan(final String startKeyInclusive,
                                                                 final String endKeyExclusive) {
         requireSession();
-        return delegate.rangeScan(startKeyInclusive, endKeyExclusive);
+        try {
+            final CloseableIterable<GetResult> result = delegate.rangeScan(startKeyInclusive, endKeyExclusive);
+            requireSession();
+            return new SessionBoundIterable<>(result, this::requireSession);
+        } catch (RuntimeException failure) {
+            requireSession();
+            throw failure;
+        }
     }
 
     @Override
     public synchronized void notifications(final Consumer<Notification> consumer) {
         requireSession();
-        notificationDelegate.notifications(consumer);
+        try {
+            notificationDelegate.notifications(consumer);
+            requireSession();
+        } catch (RuntimeException failure) {
+            requireSession();
+            throw failure;
+        }
     }
 
     @Override
     public synchronized PutResult put(final String key, final byte[] value, final Set<PutOption> options)
             throws UnexpectedVersionIdException, KeyAlreadyExistsException {
         requireSession();
-        return delegate.put(key, value, options);
+        try {
+            final PutResult result = delegate.put(key, value, options);
+            requireSession();
+            return result;
+        } catch (KeyAlreadyExistsException | UnexpectedVersionIdException expectedCasRace) {
+            requireSession();
+            throw expectedCasRace;
+        } catch (RuntimeException failure) {
+            requireSession();
+            throw failure;
+        }
     }
 
     @Override
@@ -252,7 +284,7 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
         }
     }
 
-    private void requireSession() {
+    private synchronized void requireSession() {
         requireNotClosed();
         if (!started) {
             throw new IllegalStateException("Oxia Route authority session is not started");
@@ -357,6 +389,69 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
 
         private SessionFenceException(final String message) {
             super(message);
+        }
+    }
+
+    /** Keeps a range scan fenced while its lazy iterator consumes Oxia data. */
+    private static final class SessionBoundIterable<T> implements CloseableIterable<T> {
+        private final CloseableIterable<T> delegate;
+        private final Runnable sessionCheck;
+
+        private SessionBoundIterable(final CloseableIterable<T> delegate, final Runnable sessionCheck) {
+            this.delegate = Objects.requireNonNull(delegate, "delegate");
+            this.sessionCheck = Objects.requireNonNull(sessionCheck, "sessionCheck");
+        }
+
+        @Override
+        public Iterator<T> iterator() {
+            sessionCheck.run();
+            try {
+                final Iterator<T> iterator = delegate.iterator();
+                sessionCheck.run();
+                return new Iterator<>() {
+                    @Override
+                    public boolean hasNext() {
+                        return around(iterator::hasNext);
+                    }
+
+                    @Override
+                    public T next() {
+                        return around(iterator::next);
+                    }
+
+                    @Override
+                    public void remove() {
+                        sessionCheck.run();
+                        try {
+                            iterator.remove();
+                            sessionCheck.run();
+                        } catch (RuntimeException failure) {
+                            sessionCheck.run();
+                            throw failure;
+                        }
+                    }
+                };
+            } catch (RuntimeException failure) {
+                sessionCheck.run();
+                throw failure;
+            }
+        }
+
+        @Override
+        public void close() {
+            delegate.close();
+        }
+
+        private <R> R around(final Supplier<R> action) {
+            sessionCheck.run();
+            try {
+                final R result = action.get();
+                sessionCheck.run();
+                return result;
+            } catch (RuntimeException failure) {
+                sessionCheck.run();
+                throw failure;
+            }
         }
     }
 

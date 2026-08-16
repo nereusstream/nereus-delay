@@ -96,6 +96,24 @@ class OxiaSignedRouteSnapshotProviderTest {
     }
 
     @Test
+    void sessionFenceRejectsACommittedRouteHeadAfterTheMarkerChanges() throws Exception {
+        final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final FakeRouteClient client = new FakeRouteClient();
+        final OxiaRouteAuthoritySession session = new OxiaRouteAuthoritySession(client, "/nereus/route");
+        final OxiaSignedRouteSnapshotPublisher publisher = new OxiaSignedRouteSnapshotPublisher(session,
+                "/nereus/route", keys.getPublic());
+        try {
+            client.expireAfterNextHeadPut();
+            assertThrows(IllegalStateException.class, () -> publisher.publish(hint(),
+                    snapshot(keys, new RouteIncarnation(bytes(16, 31)), RouteLifecycleV1.ACTIVE_FOR_NEW, 1), 0));
+            assertEquals(1, OxiaRouteSnapshotHeadV1.decode(client.get("/nereus/route/head").value())
+                    .publishedRevision());
+        } finally {
+            session.close();
+        }
+    }
+
+    @Test
     void publisherHeadCasAndNotificationRebuildAnExactRouteCache() throws Exception {
         final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final FakeRouteClient client = new FakeRouteClient();
@@ -226,6 +244,7 @@ class OxiaSignedRouteSnapshotProviderTest {
         private long nextVersion = 1;
         private long nextSessionId = 7;
         private boolean failNextEphemeralPutAfterCommit;
+        private Runnable afterNextHeadPut;
 
         @Override
         public GetResult get(final String key) {
@@ -290,6 +309,11 @@ class OxiaSignedRouteSnapshotProviderTest {
                 failNextEphemeralPutAfterCommit = false;
                 throw new IllegalStateException("simulated Route session put response loss");
             }
+            if (!ephemeral && key.endsWith("/head") && afterNextHeadPut != null) {
+                final Runnable callback = afterNextHeadPut;
+                afterNextHeadPut = null;
+                callback.run();
+            }
             return new PutResult(key, version);
         }
 
@@ -307,6 +331,10 @@ class OxiaSignedRouteSnapshotProviderTest {
 
         void failNextEphemeralPutAfterCommit() {
             failNextEphemeralPutAfterCommit = true;
+        }
+
+        void expireAfterNextHeadPut() {
+            afterNextHeadPut = this::expireEphemeralRecords;
         }
 
         @Override
