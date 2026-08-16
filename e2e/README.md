@@ -2192,3 +2192,30 @@ The deterministic Recovery Catalog and Publication suites passed. This
 correction proves only the per-record Recovery Pin session fence and does not
 prove Catalog/Pin/Upload-Intent transactionality, Owner/session recovery,
 provider evidence, source ordering, chaos or V1 release readiness.
+
+## Oxia Route notification reconnect session fence receipt
+
+Delay commit `de203e4dc14de32746ce73da75381843152af922` adds the current
+session-marker fence to `OxiaRouteAuthoritySession.reconnectNotifications`.
+Replacement notification registration is checked before the replacement is
+created and immediately before and after the callback is registered. A marker
+change after registration closes the replacement client, restores the previous
+client reference and returns a failed operation instead of exposing a stale
+reconnect as successful.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.route.OxiaSignedRouteSnapshotProviderTest \
+  --tests io.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest \
+  --tests io.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest \
+  --no-daemon --console=plain
+```
+
+The deterministic Route provider/session suite passed 8 tests. Four real Route
+authority methods and one real Route-worker method were skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was not configured. This receipt proves only the
+replacement notification registration fence; it does not prove automatic
+reconnect, event/head transactionality, multi-node failover, placement/source
+ownership, raw chaos or V1 release readiness.

@@ -9060,6 +9060,26 @@ session fencing; no Catalog/Pin/Upload-Intent transaction, Owner/session
 recovery, provider evidence, source ordering, chaos or V1 release readiness is
 claimed.
 
+## 2026-08-16 Oxia Route notification reconnect session fence audit
+
+Delay commit `de203e4dc14de32746ce73da75381843152af922` closes the missing
+session-boundary path in `OxiaRouteAuthoritySession.reconnectNotifications`.
+The current Route marker is checked before replacement-client creation and
+again immediately before and after replacement notification registration. If
+the registration commits and the marker then changes, the replacement client
+is closed, the previous client reference is restored and the call fails closed.
+
+`OxiaSignedRouteSnapshotProviderTest.notificationReconnectRequiresTheCurrentSessionBeforeRegistration`
+covers the pre-registration fence, and
+`OxiaSignedRouteSnapshotProviderTest.notificationReconnectRejectsACommittedRegistrationAfterTheMarkerChanges`
+covers the committed-registration/marker-loss boundary. The deterministic
+Route provider/session suite passed 8 tests; four real Route authority methods
+and one real Route-worker method were skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was unset. This audit closes only replacement
+notification registration fencing. It does not establish event/head
+transactionality, automatic reconnect, multi-node failover,
+placement/source ownership, raw chaos or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

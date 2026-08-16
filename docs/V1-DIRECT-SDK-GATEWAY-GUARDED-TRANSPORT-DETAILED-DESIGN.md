@@ -5735,3 +5735,24 @@ passed with the full Gradle test task. This is a constructor-time wiring fence
 only; it does not claim a three-record Intent/Catalog/Pin transaction, Owner or
 session recovery, provider evidence, source ordering, chaos or release
 readiness.
+
+### 2026-08-16 Oxia Route notification reconnect session fence implementation note
+
+Delay commit `de203e4dc14de32746ce73da75381843152af922` closes the missing
+session fence around the replacement notification path in
+`OxiaRouteAuthoritySession.reconnectNotifications`. The current Route marker
+is required before replacement-client creation and immediately before
+registration; it is checked again after registration. If marker loss follows a
+committed registration, the replacement client is closed, the previous client
+reference is restored and the call fails closed.
+
+`OxiaSignedRouteSnapshotProviderTest.notificationReconnectRequiresTheCurrentSessionBeforeRegistration`
+and
+`OxiaSignedRouteSnapshotProviderTest.notificationReconnectRejectsACommittedRegistrationAfterTheMarkerChanges`
+cover the pre-registration and committed-registration/marker-loss boundaries.
+The deterministic Route provider/session suite passed 8 tests; the opt-in real
+Route authority and Route-worker methods were skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was not configured. This is replacement
+notification registration fencing, not automatic reconnect, event/head
+transactionality, multi-node failover, placement/source ownership, raw chaos or
+release evidence.

@@ -1461,6 +1461,12 @@ require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaRou
     "lazy iterator consumes Oxia data"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
     "sessionFenceRejectsACommittedRouteHeadAfterTheMarkerChanges"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaRouteAuthoritySession.java" \
+    "notificationDelegate.notifications(consumer);"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
+    "notificationReconnectRequiresTheCurrentSessionBeforeRegistration"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
+    "notificationReconnectRejectsACommittedRegistrationAfterTheMarkerChanges"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaRealRouteAuthoritySmokeTest.java" \
     "OxiaRouteAuthoritySession.connect("
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
@@ -1473,6 +1479,16 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Oxia Route authority session-bound I/O fence implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Oxia Route authority session-bound I/O fence receipt"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Oxia Route notification reconnect session fence"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "de203e4dc14de32746ce73da75381843152af922"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Oxia Route notification reconnect session fence audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Oxia Route notification reconnect session fence implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Oxia Route notification reconnect session fence receipt"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPublicationCoordinator.java" \
     "intentIsAtomic || catalogIsAtomic"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointUploadCoordinatorTest.java" \
