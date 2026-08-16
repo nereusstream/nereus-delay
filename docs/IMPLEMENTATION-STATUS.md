@@ -14503,3 +14503,62 @@ overall V1 remains `NOT READY`. The remaining release blockers are the full
 §23.3 fault matrix, benchmark/capacity and SLO artifacts, certified soak,
 authenticated activation-state/cutover evidence, and operational rollout
 proof.
+
+## 2026-08-17 Current-source expanded broker-failover matrix: twelve-cell PASS
+
+After the ten-cell response-loss run, the bounded matrix added Kafka Broker
+network partition and Pulsar two-Broker Worker process crash/failover. The
+first twelve-cell attempt exposed a harness-only resume mutation: the
+survivor leaders had converged, but the Worker `resume` path tried to create an
+already-existing topic through the disconnected controller. `ea88bc48` made
+Worker `resume` read-only for existing topics; normal `run`/`prepare` creation
+remains unchanged. The final coherent current-source run at
+`ea88bc488dd7b209c33d1ab17cde613584430fca` completed with
+`matrix_status=0` and all twelve result files equal to `0`. Its artifact is
+`/var/folders/vk/l_r0z80j1dj93fsrjx3zqv4r0000gn/T/nereus-delay-broker-chaos-final.XXXXXX.3emvLopbKS`.
+
+The Kafka K1, Pulsar P1 and Oxia locks remained
+`05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, and
+`37a17bef17202d5fd6e23282da5fd26d94865484`; the K1 client SHA-256,
+K1 image, P1 distribution SHA-256, P1 image and MinIO digest remained
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`,
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`,
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+and `sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+| Bounded cell | Exact runtime placement | Receipt |
+|---|---|---|
+| Kafka Broker process crash | Kafka `31200/31201/31202`, Oxia `31210`; projects `nereus-delay-kafka-e2e-1786917649-32636` / `nereus-delay-kafka-oxia-e2e-1786917649-32636` | Broker-1 SIGKILL recovery through Kafka survivors, real Oxia authority, typed transactional receipt, exact payload readback and Broker-1 rejoin. |
+| Kafka Worker ACK process crash | Kafka `31220/31221/31222`, Oxia `31230`; projects `nereus-delay-kafka-e2e-1786917689-33194` / `nereus-delay-kafka-oxia-e2e-1786917689-33194` | Store `WriteBatch` durable before SIGKILL and before `commitSync`; fresh-JVM replay, dedupe, ACK and final checkpoint. |
+| Kafka Broker raw TCP cut | Kafka `31240/31241/31242`, Oxia `31250`; projects `nereus-delay-kafka-e2e-1786917725-33694` / `nereus-delay-kafka-oxia-e2e-1786917725-33694` | Explicit Broker-2 source/coordinator placement, deterministic raw proxy rejection of Broker-1, then fresh Worker source apply/ACK/checkpoint. |
+| Kafka Broker network partition | Kafka `31400/31401/31402`, Oxia `31410`; projects `nereus-delay-kafka-e2e-1786917765-34248` / `nereus-delay-kafka-oxia-e2e-1786917765-34248` | Broker-1 stayed alive but lost the Compose network; survivor leaders converged to source `2`, destination `2`, receipt `3`; fresh Worker completed apply/ACK/checkpoint and Broker-1 reconnected. |
+| Pulsar Worker process crash | broker/web `31260/31261`, Oxia `31270`; projects `nereus-delay-pulsar-e2e-1786917835-35093` / `nereus-delay-pulsar-oxia-e2e-1786917835-35093` | Fresh Worker reopened the exact Store, reacquired real Oxia authority, replayed and ACKed the unACKed source record, and published the final checkpoint. |
+| Pulsar two-Broker process crash | broker-1/web-1 `31420/31421`, broker-2/web-2 `31422/31423`, Oxia `31430`; projects `nereus-delay-pulsar-multi-e2e-1786917871-35566` / `nereus-delay-pulsar-multi-oxia-e2e-1786917871-35566` | Broker-1 was SIGKILLed after guarded Worker preparation; the same topic resumed through Broker-2 with real Oxia authority and Broker-1 rejoined. |
+| Pulsar Publish Admission response loss | broker/web `31280/31281`, Oxia `31290`; projects `nereus-delay-pulsar-e2e-1786917969-36638` / `nereus-delay-pulsar-oxia-e2e-1786917969-36638` | Discarded Shard Log append response recovered from the exact source mutation; `PUBLISHING` replay, typed `PULSAR_SEND_ACK` and payload readback passed. |
+| Checkpoint REAPING | Oxia `31300`, MinIO `31301`; project `nereus-delay-oxia-minio-checkpoint-e2e-1786917996-36985` | Real Oxia Intent/Catalog/Owner authority and real MinIO immutable objects passed checkpoint publication and REAPING. |
+| Kafka source Fetch response loss | Kafka `31320/31321/31322`; project `nereus-delay-kafka-e2e-1786918014-37242` | `responseDiscardedAfterFetch=true`, replay offset `0`, second offset `1`, Fetch LSO `2`, committed after replay `2`; read-committed Fetch v13 recovery passed. |
+| Kafka source retention floor | Kafka `31340/31341/31342`; project `nereus-delay-kafka-e2e-1786918031-37471` | `oldOffset=0`, retention floor `20`, end offset `21`, stale offset rejected, floor fetch `20`, Fetch LSO `21`; guarded floor read passed. |
+| Pulsar destination SEND response loss | broker/web `31360/31361`, Oxia `31370`; projects `nereus-delay-pulsar-e2e-1786918072-37958` / `nereus-delay-pulsar-oxia-e2e-1786918072-37958` | Real SEND persisted the exact payload after local response loss; typed `PULSAR_SEND_ACK` resolved `PUBLISHED` and guarded readback matched. |
+| Pulsar source ACK response loss | broker/web `31380/31381`, Oxia `31390`; projects `nereus-delay-pulsar-e2e-1786918093-38247` / `nereus-delay-pulsar-oxia-e2e-1786918093-38247` | Real ACK acceptance preceded discarded response; the same source record was ACKed on the next bounded turn and final checkpoint completed. |
+
+The final `./gradlew check --no-daemon --console=plain --quiet` and
+`./e2e/validate-cross-repo-contracts.sh` both passed at this source lock.
+Post-run Docker inspection found no related containers, networks, volumes or
+per-run Kafka/Pulsar/Oxia image references. Only the locked Oxia base
+`nereus/oxia-o1:37a17bef1720` (local ID
+`sha256:5aa715e4f19091931743e5af489af5f8d6ee15efcce6430a908c6f65cc6d6516`)
+and locked MinIO base (local ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`)
+remain among related images; no global Docker prune or unrelated image
+deletion was performed.
+
+This twelve-cell set is a stronger bounded Gate 2/3/10 delta, not the full
+§23.3 matrix or release certification. Long GC pause, half-open behavior,
+ENOSPC, fsync error, SST corruption, controller/coordinator/storage cuts,
+Oxia session expiry, Object Store 5xx/timeout/config drift, target-isolation
+gates, benchmark/capacity/SLO artifacts, soak, authenticated activation-state
+cutover and rollout proof remain open. Gates 2, 3 and 10 remain `PARTIAL`;
+Gates 5, 6, 7 and 9 remain `OPEN`, Gate 8 remains `PARTIAL`, and overall V1
+remains `NOT READY`.
