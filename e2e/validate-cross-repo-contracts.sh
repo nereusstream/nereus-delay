@@ -2226,7 +2226,7 @@ require_file_text "$delay_root/e2e/README.md" \
 require_file_text "$delay_root/e2e/run-oxia-minio-checkpoint-e2e.sh" \
     "OxiaRealCheckpointReapingSmokeTest.realOxiaOwnerAbandonmentReapsExactMinioCheckpointPrefix"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaRouteAuthoritySession.java" \
-    "old marker may still be visible after the session was lost"
+    "The old marker may still be visible after the session was"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
     "explicitSessionReconnectRotatesMarkerWhenTheOldMarkerIsStillReadable"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
