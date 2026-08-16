@@ -41,6 +41,7 @@ source_ack_response_loss_only="${NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS_ONL
 fetch_response_loss_only="${NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ONLY:-0}"
 retention_floor_only="${NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ONLY:-0}"
 process_crash_only="${NEREUS_DELAY_KAFKA_PROCESS_CRASH_ONLY:-0}"
+worker_process_crash_only="${NEREUS_DELAY_KAFKA_WORKER_PROCESS_CRASH_ONLY:-0}"
 broker_process_crash_only="${NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_ONLY:-0}"
 broker_network_partition_only="${NEREUS_DELAY_KAFKA_BROKER_NETWORK_PARTITION_ONLY:-0}"
 oxia_checkout="${NEREUS_DELAY_KAFKA_OXIA_CHECKOUT:-${delay_dir}/../../oxia}"
@@ -106,6 +107,10 @@ if [[ "${process_crash_only}" != "0" && "${process_crash_only}" != "1" ]]; then
   echo "NEREUS_DELAY_KAFKA_PROCESS_CRASH_ONLY must be 0 or 1" >&2
   exit 1
 fi
+if [[ "${worker_process_crash_only}" != "0" && "${worker_process_crash_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_WORKER_PROCESS_CRASH_ONLY must be 0 or 1" >&2
+  exit 1
+fi
 if [[ "${broker_process_crash_only}" != "0" && "${broker_process_crash_only}" != "1" ]]; then
   echo "NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_ONLY must be 0 or 1" >&2
   exit 1
@@ -116,6 +121,10 @@ if [[ "${broker_network_partition_only}" != "0" && "${broker_network_partition_o
 fi
 if [[ "${broker_process_crash_only}" == "1" && "${with_oxia}" != "1" ]]; then
   echo "NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_ONLY requires NEREUS_DELAY_KAFKA_WITH_OXIA=1" >&2
+  exit 1
+fi
+if [[ "${worker_process_crash_only}" == "1" && "${with_oxia}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_WORKER_PROCESS_CRASH_ONLY requires NEREUS_DELAY_KAFKA_WITH_OXIA=1" >&2
   exit 1
 fi
 if [[ "${broker_network_partition_only}" == "1" && "${with_oxia}" != "1" ]]; then
@@ -230,6 +239,19 @@ if [[ "${broker_process_crash_only}" == "1" && ("${route_failover_only}" == "1"
   echo "Kafka Broker process-crash-only mode is mutually exclusive with other focused modes" >&2
   exit 1
 fi
+if [[ "${worker_process_crash_only}" == "1" && ("${route_failover_only}" == "1"
+        || "${k2_failover_only}" == "1" || "${k2_response_loss_only}" == "1"
+        || "${worker_destination_response_loss_only}" == "1"
+        || "${source_ack_response_loss_only}" == "1"
+        || "${fetch_response_loss_only}" == "1"
+        || "${retention_floor_only}" == "1" || "${process_crash_only}" == "1"
+        || "${broker_process_crash_only}" == "1" || "${broker_network_partition_only}" == "1"
+        || "${route_failover}" == "1" || "${k2_failover}" == "1"
+        || "${k2_response_loss}" == "1" || "${worker_destination_response_loss}" == "1"
+        || "${source_ack_response_loss}" == "1") ]]; then
+  echo "Kafka Worker process-crash-only mode is mutually exclusive with other focused modes" >&2
+  exit 1
+fi
 if [[ "${broker_network_partition_only}" == "1" && ("${route_failover_only}" == "1"
         || "${k2_failover_only}" == "1" || "${k2_response_loss_only}" == "1"
         || "${worker_destination_response_loss_only}" == "1"
@@ -261,8 +283,18 @@ k2_failover_log="${k2_failover_dir}/k2.log"
 k2_failover_pid=""
 process_crash_dir="$(mktemp -d -t nereus-delay-kafka-process-crash.XXXXXX)"
 process_crash_log="${process_crash_dir}/crash.log"
+worker_process_crash_dir="$(mktemp -d -t nereus-delay-kafka-worker-process-crash.XXXXXX)"
+worker_process_crash_log="${worker_process_crash_dir}/crash.log"
+worker_process_crash_resume_log="${worker_process_crash_dir}/resume.log"
+worker_process_crash_gate="${worker_process_crash_dir}/release"
+worker_process_crash_pid_file="${worker_process_crash_dir}/worker.pid"
+worker_process_crash_launcher_pid=""
 
 cleanup() {
+  if [[ -n "${worker_process_crash_launcher_pid}" ]]; then
+    kill "${worker_process_crash_launcher_pid}" >/dev/null 2>&1 || true
+    wait "${worker_process_crash_launcher_pid}" >/dev/null 2>&1 || true
+  fi
   if [[ -n "${k2_failover_pid}" ]]; then
     kill "${k2_failover_pid}" >/dev/null 2>&1 || true
     wait "${k2_failover_pid}" >/dev/null 2>&1 || true
@@ -276,6 +308,7 @@ cleanup() {
   rm -rf "${route_failover_dir}"
   rm -rf "${k2_failover_dir}"
   rm -rf "${process_crash_dir}"
+  rm -rf "${worker_process_crash_dir}"
 }
 trap cleanup EXIT INT TERM
 
@@ -620,6 +653,77 @@ if [[ "${broker_process_crash_only}" == "1" ]]; then
   "${compose[@]}" start kafka-1
   wait_for_broker kafka-1
   echo "Kafka Broker process-crash recovery E2E passed: kafka-1 was SIGKILLed after guarded Worker preparation, the same topic resumed through kafka-2/kafka-3 with real Oxia authority, and kafka-1 rejoined afterward."
+  exit 0
+fi
+
+if [[ "${worker_process_crash_only}" == "1" ]]; then
+  start_oxia
+  worker_process_crash_topic="${KAFKA_DELAY_WORKER_PROCESS_CRASH_TOPIC:-${worker_topic}-worker-process-crash}"
+  export NEREUS_DELAY_KAFKA_WORKER_ROOT="${worker_process_crash_dir}/state"
+  export NEREUS_DELAY_KAFKA_WORKER_CRASH_GATE="${worker_process_crash_gate}"
+  export NEREUS_DELAY_KAFKA_WORKER_CRASH_PID_FILE="${worker_process_crash_pid_file}"
+  rm -f "${worker_process_crash_gate}" "${worker_process_crash_pid_file}"
+  set +e
+  run_worker_smoke "${bootstrap_all}" "${worker_process_crash_topic}" crash-wait "" \
+    >"${worker_process_crash_log}" 2>&1 &
+  worker_process_crash_launcher_pid=$!
+  set -e
+  crash_gate_deadline=$((SECONDS + 180))
+  while (( SECONDS < crash_gate_deadline )); do
+    if [[ -f "${worker_process_crash_gate}" && -s "${worker_process_crash_pid_file}" ]]; then
+      break
+    fi
+    if ! kill -0 "${worker_process_crash_launcher_pid}" >/dev/null 2>&1; then
+      wait "${worker_process_crash_launcher_pid}" || true
+      cat "${worker_process_crash_log}" >&2
+      echo "Kafka Worker process-crash JVM exited before its cut gate" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  if [[ ! -f "${worker_process_crash_gate}" || ! -s "${worker_process_crash_pid_file}" ]]; then
+    cat "${worker_process_crash_log}" >&2
+    echo "Kafka Worker process-crash JVM did not reach its cut gate" >&2
+    exit 1
+  fi
+  worker_process_pid="$(<"${worker_process_crash_pid_file}")"
+  if ! kill -0 "${worker_process_pid}" >/dev/null 2>&1; then
+    cat "${worker_process_crash_log}" >&2
+    echo "Kafka Worker process-crash JVM PID is not alive at the cut gate" >&2
+    exit 1
+  fi
+  cat "${worker_process_crash_log}"
+  kill -KILL "${worker_process_pid}"
+  rm -f "${worker_process_crash_gate}"
+  set +e
+  wait "${worker_process_crash_launcher_pid}"
+  worker_process_crash_status=$?
+  set -e
+  worker_process_crash_launcher_pid=""
+  if [[ "${worker_process_crash_status}" == "0" ]]; then
+    echo "Kafka Worker process-crash JVM unexpectedly returned success after SIGKILL" >&2
+    exit 1
+  fi
+  for attempt in $(seq 1 90); do
+    set +e
+    run_worker_smoke "${bootstrap_all}" "${worker_process_crash_topic}" resume "" \
+      >"${worker_process_crash_resume_log}" 2>&1
+    resume_status=$?
+    set -e
+    if [[ "${resume_status}" == "0" ]]; then
+      cat "${worker_process_crash_resume_log}"
+      break
+    fi
+    if [[ "${attempt}" == "90" ]]; then
+      cat "${worker_process_crash_resume_log}" >&2
+      echo "Kafka Worker process-crash recovery did not reacquire the real Oxia lease" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  rg -F --quiet "Kafka Worker vertical smoke passed" "${worker_process_crash_resume_log}" \
+    || { cat "${worker_process_crash_resume_log}" >&2; exit 1; }
+  echo "Kafka Worker process-crash recovery E2E passed: a real Worker JVM was SIGKILLed after opening the guarded source/runtime with the next record unACKed, and a fresh JVM reopened the exact local Store, reacquired the real Oxia lease, replayed and ACKed the source record, and published the final checkpoint."
   exit 0
 fi
 

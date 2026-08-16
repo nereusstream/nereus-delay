@@ -120,6 +120,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.nio.ByteBuffer;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -155,12 +156,13 @@ public final class KafkaClientArtifactWorkerSmoke {
     public static void main(final String[] arguments) throws Exception {
         if (arguments.length != 2 && arguments.length != 3 && arguments.length != 4) {
             throw new IllegalArgumentException("usage: <bootstrap-server> <worker-topic> "
-                    + "[run|prepare|resume] [destination-topic]");
+                    + "[run|prepare|resume|crash-wait] [destination-topic]");
         }
         final String bootstrap = arguments[0];
         final String mode = arguments.length >= 3 ? arguments[2] : "run";
         final String destinationPhysicalTopic = arguments.length >= 4 ? arguments[3] : null;
-        if (!mode.equals("run") && !mode.equals("prepare") && !mode.equals("resume")) {
+        if (!mode.equals("run") && !mode.equals("prepare") && !mode.equals("resume")
+                && !mode.equals("crash-wait")) {
             throw new IllegalArgumentException("unknown Worker smoke mode: " + mode);
         }
         final String topic = mode.equals("run") ? arguments[1] + "-" + UUID.randomUUID() : arguments[1];
@@ -221,7 +223,7 @@ public final class KafkaClientArtifactWorkerSmoke {
                         ownerNow, LEASE_DURATION_MS).orElseThrow();
                 final KeyPair verificationKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
                 final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshot(shard);
-                final Path root = Files.createTempDirectory("nereus-delay-kafka-worker-");
+                    final Path root = configuredWorkerRoot();
                 try {
                     final ShardStoreConfig storeConfig = ShardStoreConfig.defaults(root);
                     try (SharedRocksDbResources resources = new SharedRocksDbResources(storeConfig);
@@ -270,6 +272,7 @@ public final class KafkaClientArtifactWorkerSmoke {
                                     Duration.ofMillis(250), assignment, workClasses, ownedShard, store, resources,
                                     authority, verificationKey.getPublic(), null, null, null, null,
                                     physicalBridge == null ? null : physicalBridge.executor());
+                            awaitWorkerProcessCrashCutIfRequested(mode);
                             final io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult result =
                                     runUntilApplied(runtime);
                             if (result.status()
@@ -359,6 +362,43 @@ public final class KafkaClientArtifactWorkerSmoke {
         return new ShardId(new RouteIncarnation(java.util.Arrays.copyOf(
                 Bytes.sha256(Bytes.utf8("nereus-delay-kafka-worker-restart/" + topic)),
                 RouteIncarnation.LENGTH)), 0);
+    }
+
+    private static Path configuredWorkerRoot() throws Exception {
+        final String configured = System.getenv("NEREUS_DELAY_KAFKA_WORKER_ROOT");
+        if (configured == null || configured.isBlank()) {
+            return Files.createTempDirectory("nereus-delay-kafka-worker-");
+        }
+        return Files.createDirectories(Path.of(configured));
+    }
+
+    /**
+     * Holds a real Worker JVM after it has opened the source and local Store but
+     * before it can ACK the next source record.  The E2E harness kills the PID
+     * written here, then starts a fresh JVM against the same exact root.
+     */
+    private static void awaitWorkerProcessCrashCutIfRequested(final String mode) throws Exception {
+        if (!mode.equals("crash-wait")) {
+            return;
+        }
+        final String gatePath = System.getenv("NEREUS_DELAY_KAFKA_WORKER_CRASH_GATE");
+        final String pidPath = System.getenv("NEREUS_DELAY_KAFKA_WORKER_CRASH_PID_FILE");
+        if (gatePath == null || gatePath.isBlank() || pidPath == null || pidPath.isBlank()) {
+            throw new IllegalArgumentException(
+                    "crash-wait requires NEREUS_DELAY_KAFKA_WORKER_CRASH_GATE and PID_FILE");
+        }
+        final Path gate = Path.of(gatePath);
+        final Path pid = Path.of(pidPath);
+        Files.createDirectories(gate.toAbsolutePath().getParent());
+        Files.writeString(pid, Long.toString(ProcessHandle.current().pid()) + "\n",
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        Files.writeString(gate, "worker-source-runtime-ready\n",
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        System.out.println("Kafka Worker process-crash cut reached: pid=" + ProcessHandle.current().pid()
+                + ", sourceRuntimeReady=true, nextSourceRecordUnacked=true");
+        while (Files.exists(gate)) {
+            Thread.sleep(100);
+        }
     }
 
     private static WorkerAssignment publishAssignment(final WorkerAssignmentAuthority authority,
