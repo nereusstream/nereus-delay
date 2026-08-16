@@ -92,6 +92,16 @@ run_cell kafka-broker-tcp-cut env \
   NEREUS_DELAY_KAFKA_OXIA_PORT=31250 \
   "${script_dir}/run-kafka-real-client-e2e.sh"
 
+run_cell kafka-broker-network-partition env \
+  NEREUS_DELAY_KAFKA_CHECKOUT="${kafka_dir}" \
+  NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
+  NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+  NEREUS_DELAY_KAFKA_BROKER_NETWORK_PARTITION_ONLY=1 \
+  NEREUS_DELAY_KAFKA_GRADLE_USER_HOME="${matrix_gradle_home}" \
+  KAFKA_BROKER_1_PORT=31400 KAFKA_BROKER_2_PORT=31401 KAFKA_BROKER_3_PORT=31402 \
+  NEREUS_DELAY_KAFKA_OXIA_PORT=31410 \
+  "${script_dir}/run-kafka-real-client-e2e.sh"
+
 run_cell pulsar-worker-process-crash env \
   NEREUS_DELAY_PULSAR_CHECKOUT="${pulsar_dir}" \
   NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
@@ -102,6 +112,17 @@ run_cell pulsar-worker-process-crash env \
   PULSAR_BROKER_PORT=31260 PULSAR_WEB_PORT=31261 \
   NEREUS_DELAY_PULSAR_OXIA_PORT=31270 \
   "${script_dir}/run-pulsar-real-client-e2e.sh"
+
+run_cell pulsar-multi-broker-process-crash env \
+  NEREUS_DELAY_PULSAR_CHECKOUT="${pulsar_dir}" \
+  NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
+  NEREUS_DELAY_PULSAR_WITH_OXIA=1 \
+  NEREUS_DELAY_PULSAR_MULTI_BROKER_PROCESS_CRASH=1 \
+  NEREUS_DELAY_PULSAR_GRADLE_USER_HOME="${matrix_gradle_home}" \
+  PULSAR_BROKER_1_PORT=31420 PULSAR_WEB_1_PORT=31421 \
+  PULSAR_BROKER_2_PORT=31422 PULSAR_WEB_2_PORT=31423 \
+  NEREUS_DELAY_PULSAR_OXIA_PORT=31430 \
+  "${script_dir}/run-pulsar-multi-broker-failover-e2e.sh"
 
 run_cell pulsar-worker-admission-response-loss env \
   NEREUS_DELAY_PULSAR_CHECKOUT="${pulsar_dir}" \
