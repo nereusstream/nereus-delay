@@ -521,6 +521,12 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
                     objectBytesLimit(limits.maxIndividualFileBytes()));
             return;
         }
+        if (isAmbiguousProviderStatus(response.statusCode())) {
+            verifyAfterAmbiguousPut(key, expectedLength, expectedChecksum,
+                    objectBytesLimit(limits.maxIndividualFileBytes()),
+                    unexpectedStatus("PUT", key, response.statusCode()));
+            return;
+        }
         throw unexpectedStatus("PUT", key, response.statusCode());
     }
 
@@ -540,12 +546,16 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         if (isAlreadyExists(response.statusCode())) {
             return verifyRemoteFile(key, bytes.length, checksum, objectBytesLimit(maxBytes));
         }
+        if (isAmbiguousProviderStatus(response.statusCode())) {
+            return verifyAfterAmbiguousPut(key, bytes.length, checksum, objectBytesLimit(maxBytes),
+                    unexpectedStatus("PUT", key, response.statusCode()));
+        }
         throw unexpectedStatus("PUT", key, response.statusCode());
     }
 
     private String verifyAfterAmbiguousPut(final String key, final long expectedLength,
                                            final byte[] expectedChecksum, final long maxBytes,
-                                           final TransportFailure original) {
+                                           final RuntimeException original) {
         try {
             return verifyRemoteFile(key, expectedLength, expectedChecksum, maxBytes);
         } catch (RemoteObjectMissing missing) {
@@ -1118,6 +1128,16 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
 
     private static boolean isAlreadyExists(final int status) {
         return status == 409 || status == 412;
+    }
+
+    /**
+     * A provider 5xx after accepting a conditional PUT does not prove that the
+     * immutable object is absent.  The exact read-back below either resolves
+     * the operation to the committed version or preserves the failure for an
+     * explicit retry/reaping decision.
+     */
+    private static boolean isAmbiguousProviderStatus(final int status) {
+        return status >= 500 && status < 600;
     }
 
     private static IllegalStateException unexpectedStatus(final String method, final String key, final int status) {

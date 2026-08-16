@@ -255,11 +255,81 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
         }
     }
 
+    @Test
+    void resolvesProviderFiveHundredAfterCommitByExactReadback() throws Exception {
+        try (FakeS3Server server = new FakeS3Server()) {
+            server.failFirstManifestPutStatus = 503;
+            server.failFirstManifestPutAfterStore = true;
+            final Fixture fixture = fixture(server.endpoint());
+            final S3CompatibleCheckpointObjectStoreAdapter adapter = adapter(fixture.profile(), server.endpoint());
+            final CheckpointUploadRequest request = new CheckpointUploadRequest(fixture.pending(), fixture.manifest(),
+                    fixture.checkpointDirectory(), fixture.manifest().canonicalJsonBytes());
+
+            final CheckpointResourceV1 resource = adapter.upload(request);
+
+            assertTrue(server.manifestPutFailureInjected);
+            assertEquals(503, server.requests.stream().filter(item -> item.method().equals("PUT"))
+                    .filter(item -> item.path().endsWith("/manifest.json")).findFirst().orElseThrow().status());
+            assertTrue(server.requests.stream().anyMatch(item -> item.method().equals("GET")
+                    && item.path().contains("/manifest.json")));
+            assertFalse(resource.immutableVersion().length == 0);
+            assertEquals(3, server.objects.size());
+        }
+    }
+
+    @Test
+    void providerFiveHundredWithoutObjectRemainsFailClosedAndUncertain() throws Exception {
+        try (FakeS3Server server = new FakeS3Server()) {
+            server.failFirstManifestPutStatus = 503;
+            final Fixture fixture = fixture(server.endpoint());
+            final S3CompatibleCheckpointObjectStoreAdapter adapter = adapter(fixture.profile(), server.endpoint());
+            final CheckpointUploadRequest request = new CheckpointUploadRequest(fixture.pending(), fixture.manifest(),
+                    fixture.checkpointDirectory(), fixture.manifest().canonicalJsonBytes());
+
+            final IllegalStateException failure = assertThrows(IllegalStateException.class,
+                    () -> adapter.upload(request));
+
+            assertTrue(failure.getMessage().contains("HTTP 503"));
+            assertTrue(server.manifestPutFailureInjected);
+            assertEquals(2, server.objects.size(), "partial immutable objects remain for exact intent reaping");
+            final ObjectStoreProviderOwnershipTracker.Observation observation =
+                    adapter.providerOwnershipObservation();
+            assertEquals(0, observation.activeOperationCount());
+            assertTrue(observation.uncertainUntilEpochMs() > CLOCK.millis());
+        }
+    }
+
+    @Test
+    void timeoutAfterProviderCommitIsResolvedByExactReadback() throws Exception {
+        try (FakeS3Server server = new FakeS3Server()) {
+            server.timeoutFirstManifestPutResponse = true;
+            final Fixture fixture = fixture(server.endpoint());
+            final S3CompatibleCheckpointObjectStoreAdapter adapter = adapter(fixture.profile(), server.endpoint(),
+                    java.time.Duration.ofMillis(100));
+            final CheckpointUploadRequest request = new CheckpointUploadRequest(fixture.pending(), fixture.manifest(),
+                    fixture.checkpointDirectory(), fixture.manifest().canonicalJsonBytes());
+
+            final CheckpointResourceV1 resource = adapter.upload(request);
+
+            assertTrue(server.manifestPutResponseTimedOut);
+            assertTrue(server.requests.stream().anyMatch(item -> item.method().equals("GET")
+                    && item.path().contains("/manifest.json")));
+            assertFalse(resource.immutableVersion().length == 0);
+            assertEquals(3, server.objects.size());
+        }
+    }
+
     private S3CompatibleCheckpointObjectStoreAdapter adapter(final ProfileSemanticEnvelopeV1 profile,
                                                               final URI endpoint) {
+        return adapter(profile, endpoint, java.time.Duration.ofSeconds(10));
+    }
+
+    private S3CompatibleCheckpointObjectStoreAdapter adapter(final ProfileSemanticEnvelopeV1 profile,
+                                                              final URI endpoint,
+                                                              final java.time.Duration requestTimeout) {
         return new S3CompatibleCheckpointObjectStoreAdapter(profile, endpoint, REGION, BUCKET, ACCESS_KEY,
                 SECRET_KEY, null, LIMITS, java.net.http.HttpClient.newHttpClient(), CLOCK,
-                java.time.Duration.ofSeconds(10));
+                requestTimeout);
     }
 
     private Fixture fixture(final URI endpoint) throws Exception {
@@ -325,6 +395,11 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
         private volatile boolean manifestPutResponseDropped;
         private volatile boolean omitVersionHeaders;
         private volatile boolean omitDeleteVersionHeaders;
+        private volatile int failFirstManifestPutStatus;
+        private volatile boolean failFirstManifestPutAfterStore;
+        private volatile boolean manifestPutFailureInjected;
+        private volatile boolean timeoutFirstManifestPutResponse;
+        private volatile boolean manifestPutResponseTimedOut;
 
         private FakeS3Server() throws IOException {
             serverSocket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
@@ -384,6 +459,15 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
 
         private void handlePut(final ParsedRequest request, final OutputStream output, final Socket socket)
                 throws IOException {
+            final boolean manifest = request.path().endsWith("/manifest.json");
+            if (manifest && failFirstManifestPutStatus != 0 && !manifestPutFailureInjected
+                    && !failFirstManifestPutAfterStore) {
+                manifestPutFailureInjected = true;
+                final int status = failFirstManifestPutStatus;
+                record(request, status);
+                respond(output, status, new byte[0], null, requestId(request));
+                return;
+            }
             final StoredObject existing = objects.get(request.path());
             if (existing != null) {
                 record(request, 412);
@@ -392,8 +476,25 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
             }
             final String version = version(request.body());
             objects.put(request.path(), new StoredObject(request.body(), version));
+            if (manifest && failFirstManifestPutStatus != 0 && !manifestPutFailureInjected) {
+                manifestPutFailureInjected = true;
+                final int status = failFirstManifestPutStatus;
+                record(request, status);
+                respond(output, status, new byte[0], version, requestId(request));
+                return;
+            }
+            if (manifest && timeoutFirstManifestPutResponse && !manifestPutResponseTimedOut) {
+                manifestPutResponseTimedOut = true;
+                record(request, 200);
+                try {
+                    Thread.sleep(1_000);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+                return;
+            }
             if (dropFirstManifestPutResponse && !manifestPutResponseDropped
-                    && request.path().endsWith("/manifest.json")) {
+                    && manifest) {
                 manifestPutResponseDropped = true;
                 record(request, 200);
                 socket.close();
@@ -485,7 +586,8 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
                              final String version, final String requestId) throws IOException {
             final String reason = status == 200 ? "OK" : status == 204 ? "No Content"
                     : status == 404 ? "Not Found" : status == 409 ? "Conflict"
-                    : status == 412 ? "Precondition Failed" : "Method Not Allowed";
+                    : status == 412 ? "Precondition Failed" : status == 503 ? "Service Unavailable"
+                    : status == 500 ? "Internal Server Error" : "Method Not Allowed";
             final StringBuilder headers = new StringBuilder()
                     .append("HTTP/1.1 ").append(status).append(' ').append(reason).append("\r\n")
                     .append("Content-Length: ").append(body.length).append("\r\n")
