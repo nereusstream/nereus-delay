@@ -92,7 +92,7 @@ cleanup() {
     "${compose[@]} ps" >&2 || true
     "${compose[@]} logs --no-color" >&2 || true
   fi
-  "${compose[@]} down --volumes --remove-orphans --rmi local" >/dev/null 2>&1 || true
+  "${compose[@]}" down --volumes --remove-orphans --rmi local >/dev/null 2>&1 || true
   docker image rm "${image}" >/dev/null 2>&1 || true
   docker image rm "${oxia_image}" >/dev/null 2>&1 || true
   rm -rf "${image_context}" "${runtime_dir}" "${tls_dir}"
