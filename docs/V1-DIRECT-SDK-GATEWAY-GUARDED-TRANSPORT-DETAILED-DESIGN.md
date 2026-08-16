@@ -5162,3 +5162,24 @@ download restore, with JUnit `tests=1 skipped=0 failures=0 errors=0` and
 endpoint. It does not create a generic provider conformance claim or close
 credential-authority renewal/rotation, version-aware deletion, consistency
 attestation, cross-provider behavior, chaos, failover or release gates.
+
+### 2026-08-16 Exact Object Store provider-version implementation note
+
+The mandatory V1 Object Store Profile bit
+`requireExactVersionDelete()` now controls a fail-closed response check in
+`S3CompatibleCheckpointObjectStoreAdapter`. PUT success, immutable conflict
+reread and every bounded GET require `x-amz-version-id`; the old
+`sha256-*` content identity remains only as an unreachable compatibility
+fallback for a profile that could permit it, while V1 Profile construction
+does not permit that unsafe branch. The local fake-provider regression proves
+that omitted version headers are rejected before the adapter can claim an
+exact provider identity.
+
+The MinIO harness enables bucket versioning before running the same adapter.
+The source-locked run returned provider manifest version
+`780f1e1f-c7da-4dc1-ae4e-a7b9be4f801c` and passed JUnit
+`tests=1 skipped=0 failures=0 errors=0`. This establishes the provider-version
+response prerequisite for a later exact delete implementation; it does not
+itself authorize deletion, remove the complete checkpoint object set, prove
+Recovery Floor/Pin release, or close provider consistency, rotation, chaos,
+failover or release gates.

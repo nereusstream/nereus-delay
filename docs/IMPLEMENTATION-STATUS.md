@@ -10026,3 +10026,31 @@ claim generic S3 or other provider compatibility, Object Store credential
 authority/renewal or rotation, provider version-aware deletion, consistency
 attestation, external secret management, process/network chaos, multi-node
 failover, or V1 release evidence.
+
+## 2026-08-16 Exact Object Store provider-version boundary
+
+Delay commits `b971cd3f` and `2981a269` make the mandatory
+`ObjectStoreProfileSemanticV1.requireExactVersionDelete()` requirement
+fail-closed in `S3CompatibleCheckpointObjectStoreAdapter`: successful,
+conflict-reread and download GET responses must carry `x-amz-version-id`; the
+adapter no longer treats a missing provider version as a production-safe
+content-hash substitute. `S3CompatibleCheckpointObjectStoreAdapterTest`
+adds `rejectsProviderThatOmitsExactVersionHeaders`, while the real MinIO
+harness enables bucket versioning before running the adapter.
+
+The real run used container
+`nereus-delay-minio-e2e-1786840003-88209`, endpoint
+`http://127.0.0.1:64830`, bucket
+`nereus-delay-checkpoints-1786840003-88209`, MinIO image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`
+and repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The JUnit report recorded `tests=1 skipped=0 failures=0 errors=0` and
+`MinIO checkpoint manifest provider version=780f1e1f-c7da-4dc1-ae4e-a7b9be4f801c`;
+the harness ended with `BUILD SUCCESSFUL`.
+
+This closes the exact provider-version response boundary for the locked
+MinIO adapter path. It does not yet implement version-aware deletion of the
+complete checkpoint object set, deletion authorization from retire intent and
+Recovery Floor/Pin, provider consistency attestation, credential rotation,
+cross-provider behavior, chaos, failover or V1 release evidence.

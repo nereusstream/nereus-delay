@@ -1486,3 +1486,29 @@ one-provider bounded evidence, not generic S3 compatibility, credential
 authority/renewal/rotation, provider deletion/versioning, consistency
 attestation, network/process chaos, multi-node failover or V1 release
 evidence.
+
+## Exact provider-version MinIO receipt
+
+The MinIO harness enables bucket versioning before it creates the checkpoint.
+The adapter now requires `x-amz-version-id` for every successful or reread
+object response because the frozen Object Store Profile requires exact
+version deletion. The local negative test
+`S3CompatibleCheckpointObjectStoreAdapterTest.rejectsProviderThatOmitsExactVersionHeaders`
+proves that a provider without this header fails closed instead of producing a
+`sha256-*` production identity.
+
+The source-locked run used Delay implementation `b971cd3f` plus test receipt
+`2981a269`, container `nereus-delay-minio-e2e-1786840003-88209`, endpoint
+`http://127.0.0.1:64830`, bucket
+`nereus-delay-checkpoints-1786840003-88209`, image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`
+and image digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The JUnit report recorded `tests=1 skipped=0 failures=0 errors=0` and
+`MinIO checkpoint manifest provider version=780f1e1f-c7da-4dc1-ae4e-a7b9be4f801c`;
+the run ended with `BUILD SUCCESSFUL`.
+
+This receipt proves only exact provider-version response identity for the
+locked MinIO path. Full version-aware checkpoint deletion, source-ordered
+retire/delete authority, Recovery Floor/Pin release, provider consistency,
+credential rotation, chaos, failover and V1 release evidence remain open.

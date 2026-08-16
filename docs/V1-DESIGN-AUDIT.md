@@ -4667,6 +4667,7 @@ the guarded Broker rollout attestation remains external evidence.
 | Delay local implementation slice | `nereus/delay-full-implementation-v1@d9b713a9159a8b2672a2b0aea5bd5243ca798c3e` (latest runtime slice: the single-record Oxia Profile catalog requires an immutable credential-attestation trust set during publication, rotation, canonical decode/reopen and bounded lease issuance; the verified material cache now installs only exact Object Store Profile/generation/binding/reference/fingerprint values after trust-set and scope checks, returns null on miss and atomically preserves its previous snapshot on failed replacement; the renewable S3 adapter renews only inside an explicit window, rechecks the exact same Head/Binding/material fingerprint, atomically replaces the local gate after a protected lease reread and rejects Head generation rotation as a quiescence boundary; exact verifier tuple, Ed25519 signature and retained key window are checked before the existing activation composition resolves Head/Binding/Protection once, obtains private Object Store material through a resolver/cache and constructs the lease-gated S3 adapter; Provider calls do not reread Oxia unless renewal is due; it builds on the exact CAS/response-loss and real single-node Oxia Profile smoke plus the S3-compatible checkpoint adapter/local lease gate and source-bound Kafka/Pulsar physical Publish/Outcome, Gateway/Oxia response-loss, real multi-node Oxia Gateway failover and bounded Kafka/Pulsar Worker failover slices; external secret-manager resolution/source-ordered refresh, trust-set publication, secret/actor authority, source ordering, retained-generation GC, cross-record session transactions, scheduled multi-process renewal ownership, multi-node failover for this authority, provider quiescence, raw network/process cuts, production placement/eligibility and release gates remain open) |
 | Delay current implementation head | `nereus/delay-full-implementation-v1@49bf68d8c2f1dface24df1f5af0cb5e4269b2632` (current branch head; commit `49bf68d8` preserves the historical audit provenance while retaining the locked MinIO provider smoke and validator; implementation source is `31ba5661`; the prior verified-cache/runtime slice is `d9b713a9159a8b2672a2b0aea5bd5243ca798c3e`; historical bounded Pulsar Route/Worker receipt remains provenance at `nereus/delay-full-implementation-v1@bf858b089b927fcf65129214d8ed5a7fc5300deb`; bounded Kafka/Pulsar Route/Worker assignment, failover, physical Publish/typed Outcome and Gateway/Oxia response-loss receipts remain recorded; external secret-manager resolution/source-ordered refresh, trust-set publication, secret/actor authority, catalog-driven multi-shard placement, native eligibility, production Worker authority, scheduled renewal ownership, raw chaos and release gates remain open) |
 | Delay MinIO provider smoke slice | `nereus/delay-full-implementation-v1@31ba5661` (`S3CompatibleMinioRealSmokeTest` plus `e2e/run-minio-real-e2e.sh`; the harness locks the local MinIO image tag/repository digest, creates only its own temporary bucket through curl SigV4, runs the real adapter with `--rerun-tasks`, and removes only its own container; the receipt proves one MinIO endpoint's immutable checkpoint upload/idempotent retry/download path, while generic S3/provider breadth, credential authority/renewal, deletion, chaos and release gates remain open) |
+| Delay exact provider-version slice | `nereus/delay-full-implementation-v1@2981a269` (implementation `b971cd3f` makes missing `x-amz-version-id` fail closed for the mandatory exact-version Object Store Profile; the versioned MinIO receipt records provider manifest version `780f1e1f-c7da-4dc1-ae4e-a7b9be4f801c`; complete version-aware deletion, retire/Floor/Pin authority, provider consistency and release gates remain open) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
@@ -8419,6 +8420,34 @@ MinIO. This is bounded one-provider evidence only. Generic S3/provider
 compatibility, credential authority/renewal/rotation, provider deletion and
 consistency attestation, cross-record failover, chaos and V1 release readiness
 remain open.
+
+## 2026-08-16 Exact Object Store provider-version audit
+
+Delay commits `b971cd3f` and `2981a269` make the mandatory exact-version
+deletion profile requirement fail closed in
+`S3CompatibleCheckpointObjectStoreAdapter`. Successful PUTs, conflict or
+ambiguous-response rereads and download GETs now require the provider's
+`x-amz-version-id`; a missing header cannot become a `sha256-*` production
+identity. The focused negative test is
+`S3CompatibleCheckpointObjectStoreAdapterTest.rejectsProviderThatOmitsExactVersionHeaders`.
+
+The source-locked MinIO run used container
+`nereus-delay-minio-e2e-1786840003-88209`, host endpoint
+`http://127.0.0.1:64830`, bucket
+`nereus-delay-checkpoints-1786840003-88209`, image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`
+and repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+Its JUnit report recorded `tests=1 skipped=0 failures=0 errors=0`, system-out
+recorded provider version
+`780f1e1f-c7da-4dc1-ae4e-a7b9be4f801c`, and the run ended with
+`BUILD SUCCESSFUL`.
+
+This is exact provider-version evidence for the locked MinIO path. It does
+not establish complete version-aware checkpoint deletion, source-ordered
+retire/delete authorization, Recovery Floor/Pin release, provider
+consistency, credential rotation, cross-provider compatibility, chaos,
+failover or V1 release readiness.
 
 ## Final gate
 

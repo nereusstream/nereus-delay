@@ -989,6 +989,22 @@ require_file_text "$delay_root/e2e/README.md" \
     "MinIO S3-compatible checkpoint real-service receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "Dockerized MinIO S3-compatible checkpoint smoke passed"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+    "responseVersionOrFallback"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
+    "rejectsProviderThatOmitsExactVersionHeaders"
+require_file_text "$delay_root/e2e/run-minio-real-e2e.sh" \
+    "<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Exact Object Store provider-version boundary"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Delay exact provider-version slice"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Exact Object Store provider-version implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Exact provider-version MinIO receipt"
+require_file_text "$delay_root/e2e/README.md" \
+    "780f1e1f-c7da-4dc1-ae4e-a7b9be4f801c"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"
