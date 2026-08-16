@@ -1104,7 +1104,7 @@ require_file_text "$delay_root/e2e/README.md" \
 require_file_text "$delay_root/e2e/README.md" \
     "f905db1e-1a7e-455c-bb32-5fa90bb7ed1f"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointReapingSweepCoordinator.java" \
-    "beginReaping(expectedPending, evidence, catalog)"
+    "quiescence.reapingEvidence(), catalog"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointReapingSweepResult.java" \
     "requires a REAPING intent"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointReapingSweepCoordinatorTest.java" \
@@ -1143,6 +1143,8 @@ require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Checkpoint REAPING quiescence proof gate"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "7b8b73885c5ec26dfc96c1b5b8a1a6ab8ec0d1d9"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "065a233a48f07ee561e78d4d35fa35f82b8af0da"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "Delay checkpoint REAPING quiescence proof slice"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
