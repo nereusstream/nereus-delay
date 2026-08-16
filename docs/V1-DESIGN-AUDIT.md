@@ -9498,6 +9498,22 @@ rejection=DEFINITIVELY_NOT_PERSISTED`. This is local opt-in binding evidence
 only. It does not establish Broker rollout, multi-broker failover, source/ACK
 integration, Worker production wiring or V1 release readiness.
 
+## 2026-08-16 Kafka client metadata identity fence audit
+
+Delay commit `1ab1d53fa4e14235fbb510035f2afaeea1ff3605` closes the matching
+opt-in Kafka client gap. Direct produce now rejects a successful callback when
+native `RecordMetadata.topic()` or `partition()` differs from the pinned
+request. K2 validates the same metadata identity separately for the target and
+receipt before committing the transaction result, so a contradictory callback
+cannot become `PUBLISHED`.
+
+The source-locked `compileRealKafka` task passed against the K1 client artifact
+`kafka-clients-4.4.0-SNAPSHOT.jar`. No local Kafka broker was listening, so
+broker-dependent smoke was not run. This is local opt-in identity evidence
+only; it does not establish Broker rollout, multi-broker failover,
+read-committed receipt authority, source/ACK integration, Worker production
+wiring or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

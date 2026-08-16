@@ -6115,3 +6115,20 @@ The smoke's mismatched-ledger regression would have been accepted as
 `PERSISTED` before this fence. This closes only the local opt-in SEND evidence
 projection; Broker rollout, multi-broker failover, source/ACK integration,
 Worker production wiring and release gates remain open.
+
+### 2026-08-16 Kafka client metadata identity fence implementation note
+
+Delay commit `1ab1d53fa4e14235fbb510035f2afaeea1ff3605` closes the symmetric
+opt-in K1 binding gap for native response metadata. The ordinary
+`KafkaClientArtifactProduceTransport` now requires the returned
+`RecordMetadata.topic()` and `partition()` to equal the pinned request before
+it can return `PERSISTED`. The K2 transactional destination binding applies
+the same check independently to both the business target and keyed receipt
+metadata before `PUBLISHED` can be reached.
+
+The source-locked `compileRealKafka` task passed against the K1 client artifact
+`kafka-clients-4.4.0-SNAPSHOT.jar`. No Kafka broker was listening in the local
+environment, so the broker-dependent K1/K2 smoke was not run. This closes only
+the local opt-in metadata-to-guard identity projection; Kafka Broker rollout,
+multi-broker failover, read-committed receipt authority, source/ACK
+integration, Worker production wiring and release gates remain open.

@@ -11408,3 +11408,19 @@ The source-locked `compileRealPulsar` task passed, and
 only local opt-in SEND evidence binding; it does not establish Broker rollout,
 multi-broker failover, source/ACK integration, Worker production wiring or V1
 release evidence.
+
+## 2026-08-16 Kafka client metadata identity fence
+
+Delay commit `1ab1d53fa4e14235fbb510035f2afaeea1ff3605` tightens both opt-in
+`realKafka` success boundaries. The direct produce transport now requires
+native `RecordMetadata.topic()` and `partition()` to match the pinned request
+before returning `PERSISTED`. The K2 transactional destination transport
+requires the same exact identity for both target and receipt callbacks before
+committing a `PUBLISHED` result.
+
+The source-locked `compileRealKafka` task passed against the K1
+`kafka-clients-4.4.0-SNAPSHOT.jar`. No local Kafka broker was listening, so
+broker-dependent K1/K2 smoke was not run. This closes only local opt-in
+metadata-to-guard identity binding; it does not establish Broker rollout,
+multi-broker failover, read-committed receipt authority, source/ACK
+integration, Worker production wiring or V1 release evidence.
