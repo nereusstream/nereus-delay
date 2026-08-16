@@ -1876,3 +1876,34 @@ single-pin record/CAS boundary and its local response-loss tests; it does not
 prove an Oxia cross-record transaction, Owner/session-loss authority,
 multi-worker activation, provider deletion, GC authorization, chaos,
 failover or V1 release readiness.
+
+## Atomic publication Recovery Pin CAS receipt
+
+Delay commit `04976375` composes the shared
+`OxiaSessionBoundRecoveryPinStore` into the atomic publication authority.
+`OxiaSyncCheckpointPublicationBackend` keeps PUBLISHED Upload Intent plus
+Catalog manifest in its one canonical `/publication` CAS record and stores
+the active pin in a separate `/recovery-pin` ephemeral record. The
+identity-bearing constructor supplies the connected Oxia session digest;
+create validates the current publication catalog projection, exact key/version
+and session-derived digest, rereads canonical bytes and rechecks catalog
+generation. Release uses exact version CAS and exact absence reread.
+
+The local regression is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.OxiaSyncRecoveryCatalogBackendTest \
+  --tests io.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackendTest \
+  --tests io.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
+  --tests io.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest \
+  --no-daemon --console=plain
+```
+
+JUnit recorded 17 deterministic Recovery Catalog tests and 4 deterministic
+atomic-publication tests with zero failures; the four real-service methods
+were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was not configured, and the
+full check returned 0. This receipt proves reusable single-pin record/CAS
+semantics only. It does not prove an atomic Intent/Catalog/Pin transaction,
+Owner/session-loss authority, provider completion, GC authorization, chaos,
+failover or V1 release readiness.

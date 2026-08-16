@@ -8784,6 +8784,31 @@ GC release. The opt-in real-service smoke is wired to the same session
 identity constructor but was skipped in this run because
 `NEREUS_DELAY_OXIA_ENDPOINT` was unset.
 
+## 2026-08-16 Atomic publication Recovery Pin CAS audit
+
+Delay commit `04976375` composes the shared
+`OxiaSessionBoundRecoveryPinStore` into `OxiaSyncCheckpointPublicationBackend`.
+The publication record still atomically CASes the PUBLISHED Upload Intent
+and Catalog manifest together, while the active `RecoveryPinV1` is a sibling
+ephemeral record bound to the connected Oxia session. The identity-bearing
+publication constructor is required for pin create/release; the existing
+constructor remains catalog/publication-only and fails closed for those calls.
+
+The callback validates the pin against the current publication record's
+catalog projection on every CAS attempt. The shared store then validates
+exact key, canonical value, non-null Oxia version, version-derived session
+digest and singleton `IfRecordDoesNotExist`/`AsEphemeralRecord` semantics;
+post-CAS catalog-generation reread and exact-version delete/absence reread
+retain the response-loss boundary. Four publication-backend tests passed in
+addition to the 17 recovery-catalog tests; the full Gradle check returned 0.
+
+This closes reuse of the single-pin record contract across both local Oxia
+authorities. It does not serialize the pin into `PublicationState` and does
+not provide the missing cross-record Intent/Catalog/Pin transaction, Owner
+session-loss authority, provider evidence, source ordering or GC lifecycle
+authorization. The two opt-in real publication smoke methods were skipped
+because `NEREUS_DELAY_OXIA_ENDPOINT` was unset.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

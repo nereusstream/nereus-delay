@@ -5467,3 +5467,28 @@ write can still race between those checks, and upload-intent/catalog/pin
 activation remains a production authority boundary. The implementation does
 not issue Owner Lease/session-loss attestations, provider proofs, Source Log
 positions or GC authorization.
+
+### 2026-08-16 Atomic publication Recovery Pin CAS implementation note
+
+Delay commit `04976375` reuses `OxiaSessionBoundRecoveryPinStore` from the
+atomic publication authority. `OxiaSyncCheckpointPublicationBackend` keeps
+its combined Upload Intent plus Recovery Catalog state in the existing
+canonical `/publication` record and places `RecoveryPinV1` at a sibling
+`/recovery-pin` key. The identity-bearing constructor passes the connected
+Oxia session digest into the pin store; the legacy catalog/publication
+constructor remains deliberately pin-ineligible.
+
+The publication callback validates the pin against a fresh
+`RecoveryCatalog.fromSnapshot` projection before each CAS attempt, while the
+pin store validates the exact ephemeral key, canonical bytes, Oxia version and
+version-derived session identity. The final catalog-generation reread is
+required after the pin CAS, and exact-version release accepts a lost response
+only after proving the sibling record absent. This makes the same local pin
+semantics available to `CheckpointReapingGuard` and restore callers when the
+atomic publication authority is their catalog backend.
+
+The sibling record does not become part of `PublicationState`, and the
+before/after generation checks are not a multi-record Oxia transaction. The
+implementation therefore still requires a higher-level Owner/session,
+Intent/Catalog/Pin activation authority and does not provide provider,
+source-order or GC lifecycle authorization.

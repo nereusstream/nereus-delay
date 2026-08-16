@@ -10508,3 +10508,41 @@ behavior. This closes only the single-pin Oxia record seam. Production
 cross-record Owner/session/catalog activation, source-ordered GC, provider
 attestation, multi-worker coordination, chaos, failover and V1 release gates
 remain open.
+
+## 2026-08-16 Atomic publication Recovery Pin CAS
+
+Delay commit `04976375` extracts the exact session-bound ephemeral pin record
+logic into `OxiaSessionBoundRecoveryPinStore` and composes it into
+`OxiaSyncCheckpointPublicationBackend`. The publication authority still keeps
+the PUBLISHED Upload Intent and Recovery Catalog manifest in one canonical
+version-CAS record; its Recovery Pin now lives at a separate sibling key with
+the same `IfRecordDoesNotExist`/`AsEphemeralRecord`, exact session digest,
+canonical reread and exact-version release rules used by the catalog backend.
+
+The publication backend's four-argument constructor requires the session
+identity from the connected Oxia client. Its catalog-only constructor remains
+valid for publication/Floor operations but fails closed for pin create/release
+without that identity. Pin validation is performed against the current
+publication record's catalog projection before the ephemeral CAS and against
+the current catalog generation after it; no pin bytes are inserted into the
+publication snapshot, so this does not claim a three-way atomic
+Intent/Catalog/Pin transaction.
+
+The focused regression is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.OxiaSyncRecoveryCatalogBackendTest \
+  --tests io.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackendTest \
+  --tests io.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
+  --tests io.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest \
+  --no-daemon --console=plain
+```
+
+The deterministic catalog and publication suites passed 17 and 4 tests. The
+two real publication smoke methods and the real recovery smoke methods were
+skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was not configured; the full
+`./gradlew check --no-daemon --console=plain --quiet` returned 0. This closes
+the reusable single-pin record composition across both local Oxia authorities,
+not cross-record Owner/session/catalog activation, provider attestation,
+multi-worker coordination, chaos, failover or V1 release gates.
