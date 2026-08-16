@@ -11792,3 +11792,46 @@ renewal, multi-node authority failover, provider-side quiescence/attestation,
 source-ordered credential refresh or V1 release approval. Exact cleanup found
 no project resources or temporary Oxia image; only the locked Oxia and MinIO
 bases remain, with no global Docker prune or unrelated image deletion.
+
+## 2026-08-17 Current-source large-payload Broker failover audit
+
+Audit result: PASS for the bounded four-cell large-payload Broker failover
+extension. Kafka process crash and network partition used Delay
+`5e721b878bcd2ef81f53a035f0aa74b14220fb9e`; Pulsar process crash used the same
+source; the final Pulsar network partition used Delay
+`3536cd42fa6234fe461bf4beb687375463814daa` after the runner-only inactive-topic
+preservation fix. K1 was
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1 was
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia was
+`37a17bef17202d5fd6e23282da5fd26d94865484`, and MinIO was pinned to digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+The four successful receipts were:
+
+| Cell | Evidence boundary |
+|---|---|
+| Kafka process crash | Project `nereus-delay-large-payload-e2e-1786921218-80232`, ports `31510/31511/31512`, `31520/31521/31522`; broker-1 SIGKILL after Commit/readback, same source-applied physical Publish through survivors, broker-1 rejoin, exact payload/idempotency. |
+| Kafka network partition | Project `nereus-delay-large-payload-e2e-1786921333-81544`, ports `31530/31531/31532`, `31540/31541/31542`; broker-1 alive but disconnected from the exact Compose network, survivor publish/readback and broker-1 rejoin. |
+| Pulsar process crash | Project `nereus-delay-pulsar-large-e2e-1786921578-84131`, broker/web `31550/31551` and `31552/31553`, Oxia/MinIO/Gateway `31560/31561/31562`; broker-1 SIGKILL, broker-2 source-applied publish, P1 typed receipt and exact payload readback, broker-1 rejoin. |
+| Pulsar network partition | Project `nereus-delay-pulsar-large-e2e-1786922018-88960`, broker/web `31590/31591` and `31592/31593`, Oxia/MinIO/Gateway `31600/31601/31602`; broker-1 alive but disconnected, broker-2 completed source-applied publish, exact readback and broker-1 rejoin. |
+
+The first Pulsar network attempt, project
+`nereus-delay-pulsar-large-e2e-1786921724-85688`, is not evidence of a product
+PASS: the 75-second cut allowed inactive-topic deletion to remove the guarded
+destination, after which auto-creation without the tuple was correctly rejected
+by P1 with `ResourceIncarnationMismatch`. The exact resources were cleaned;
+`3536cd42` changed the cluster E2E entrypoint default to preserve inactive
+guarded destinations during this bounded handoff window, and the fresh rerun
+passed. This preserves the fail-closed contract and does not turn an unguarded
+recreated topic into an accepted destination.
+
+The receipts strengthen the bounded failover portions of Gates 2, 3 and 10,
+but are not a full §23.3 or V1 release PASS. They do not cover controller,
+coordinator or BookKeeper/storage cuts, long GC/half-open/ENOSPC/fsync/SST,
+Oxia session expiry, Object Store failure injection, target isolation,
+multi-shard placement, soak, benchmark/capacity certification, authenticated
+activation/cutover or rollout proof. Gates 2, 3 and 10 remain `PARTIAL`; Gates
+5, 6, 7 and 9 remain `OPEN`; Gate 8 remains `PARTIAL`; V1 remains `NOT READY`.
+Final Docker inspection found no exact-project containers, networks, volumes or
+temporary broker/Oxia images. Only the locked Oxia and MinIO bases remain; no
+global Docker prune or unrelated image deletion was performed.

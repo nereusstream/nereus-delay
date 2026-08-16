@@ -14744,3 +14744,59 @@ authority failover, provider-side quiescence/attestation or release readiness.
 Exact postchecks found no project containers, network, volumes or temporary
 Oxia image. Only the locked Oxia and MinIO bases remain; no global Docker
 prune or unrelated image deletion was performed.
+
+## 2026-08-17 Current-source large-payload Broker failover receipts
+
+The bounded production-authority chain was extended with four current-source
+Broker failover cuts. Every successful cell exercised a real 1 MiB payload,
+Gateway mTLS/JWT Prepare/Commit, real Oxia Route/Assignment/Owner authority,
+Worker source apply and typed destination evidence, exact MinIO payload and
+checkpoint readback, and the same source-applied physical Publish after the
+Broker cut. The Kafka process-crash and network-partition runs used Delay
+`5e721b878bcd2ef81f53a035f0aa74b14220fb9e`; the Pulsar process-crash run used
+the same source, and the final Pulsar network-partition run used Delay
+`3536cd42fa6234fe461bf4beb687375463814daa` because that source contains the
+bounded runner fix described below.
+
+All runs used Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, image
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+Pulsar P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7`, distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, and locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+| Cell | Exact runtime placement | Receipt |
+|---|---|---|
+| Kafka Broker process crash | Project `nereus-delay-large-payload-e2e-1786921218-80232`; Kafka `31510/31511/31512`, Oxia `31520`, MinIO `31521`, Gateway `31522` | `BUILD SUCCESSFUL in 1m 8s`; broker-1 was SIGKILLed after Gateway Commit/readback, the same source-applied physical Publish completed through broker-2/broker-3, and broker-1 rejoined. Exact payload readback and `exactGatewayIdempotency=true` also passed. |
+| Kafka Broker network partition | Project `nereus-delay-large-payload-e2e-1786921333-81544`; Kafka `31530/31531/31532`, Oxia `31540`, MinIO `31541`, Gateway `31542` | `BUILD SUCCESSFUL in 1m 39s`; broker-1 stayed alive but lost its exact Compose network endpoint after Gateway Commit/readback, the same source-applied physical Publish completed through broker-2/broker-3, and broker-1 rejoined. |
+| Pulsar Broker process crash | Project `nereus-delay-pulsar-large-e2e-1786921578-84131`; broker/web `31550/31551` and `31552/31553`, Oxia `31560`, MinIO `31561`, Gateway `31562`; P1 image `sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de` | `BUILD SUCCESSFUL in 1m 49s`; broker-1 was SIGKILLed after Gateway Commit/readback, the same source-applied physical Publish completed through broker-2, and broker-1 rejoined. Typed `PULSAR_SEND_ACK` and exact 1 MiB destination readback passed. |
+| Pulsar Broker network partition | Project `nereus-delay-pulsar-large-e2e-1786922018-88960`; broker/web `31590/31591` and `31592/31593`, Oxia `31600`, MinIO `31601`, Gateway `31602`; P1 image `sha256:a2c76925f2504337a55c1b88d0a83cc80147d563189041514b63bc1e347cf9d3` | `BUILD SUCCESSFUL in 2m 22s`; broker-1 stayed alive but lost its exact Compose network endpoint after Gateway Commit/readback, the same source-applied physical Publish completed through broker-2, and broker-1 rejoined. The receipt reported source apply `ledger=3/4`, outcome `ledger=3/5`, and exact authority readback. |
+
+The first Pulsar network-partition attempt was deliberately not promoted to
+PASS. Project `nereus-delay-pulsar-large-e2e-1786921724-85688` waited 75 seconds
+with inactive-topic deletion enabled; the pre-provisioned guarded destination
+was deleted and auto-created without its guard, so broker-2 correctly returned
+`TopicResourceGuardException: The expected topic resource incarnation is not
+current`. The exact failed project resources were cleaned. Commit
+`3536cd42fa6234fe461bf4beb687375463814daa` changed only the P1 cluster E2E
+entrypoint to keep inactive-topic deletion disabled by default during the
+bounded handoff window, preserving the pre-provisioned guard tuple without
+weakening guarded producer validation. The rerun above passed with no related
+containers, networks, volumes or per-run Kafka/Pulsar/Oxia images left behind.
+
+Across the final postchecks, the only related images retained were the locked
+Oxia base `nereus/oxia-o1:37a17bef1720` (local ID
+`sha256:5aa715e4f19091931743e5af489af5f8d6ee15efcce6430a908c6f65cc6d6516`)
+and locked MinIO base (local ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`).
+No global Docker prune or unrelated image deletion was performed.
+
+These four cells strengthen the bounded Gateway/Broker/Worker/Object Store
+authority chain and the failover portion of Gates 2, 3 and 10, but do not
+close them. They remain `PARTIAL`; Gates 5, 6, 7 and 9 remain `OPEN`, Gate 8
+remains `PARTIAL`, and V1 remains `NOT READY`. Controller/coordinator/storage
+failover, long GC/half-open/ENOSPC/fsync/SST, Oxia session expiry, Object Store
+5xx/timeout/config drift, target isolation, multi-shard placement, benchmark,
+soak, authenticated activation/cutover and rollout proof remain open.

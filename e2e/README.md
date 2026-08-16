@@ -4649,3 +4649,91 @@ project resources or temporary Oxia image. The locked Oxia and MinIO bases
 remain intentionally retained. This is bounded renewal/fencing evidence, not
 external secret-manager, provider-side quiescence/attestation, multi-node
 failover or V1 release certification.
+
+## Current-source large-payload Broker failover matrix
+
+The large-payload Gateway runner also supports bounded Broker process-crash and
+network-partition cuts. Each command below uses an isolated K1/P1 checkout,
+real Oxia, real MinIO and a unique topic/project. The failover cut is injected
+only after Gateway Commit/readback; the receipt then requires the same
+source-applied physical Publish, typed destination evidence, exact payload
+readback and Broker rejoin.
+
+Kafka process crash:
+
+```bash
+NEREUS_DELAY_KAFKA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1 \
+NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia \
+NEREUS_DELAY_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-large-payload-kafka-crash-20260817-r1 \
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_FAILOVER=1 \
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_PROCESS_CRASH=1 \
+KAFKA_LARGE_PAYLOAD_BROKER_1_PORT=31510 KAFKA_LARGE_PAYLOAD_BROKER_2_PORT=31511 \
+KAFKA_LARGE_PAYLOAD_BROKER_3_PORT=31512 NEREUS_DELAY_LARGE_PAYLOAD_OXIA_PORT=31520 \
+NEREUS_DELAY_LARGE_PAYLOAD_MINIO_PORT=31521 NEREUS_DELAY_LARGE_PAYLOAD_GATEWAY_PORT=31522 \
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_TOPIC=nereus-delay-large-payload-kafka-crash-20260817 \
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_DESTINATION_TOPIC=nereus-delay-large-destination-kafka-crash-20260817 \
+  bash e2e/run-large-payload-gateway-e2e.sh
+```
+
+Kafka network partition uses the same runner with
+`NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_NETWORK_PARTITION=1` and ports
+`31530/31531/31532`, Oxia `31540`, MinIO `31541`, Gateway `31542`. The current
+receipts were projects `nereus-delay-large-payload-e2e-1786921218-80232` and
+`nereus-delay-large-payload-e2e-1786921333-81544`, both using Delay
+`5e721b878bcd2ef81f53a035f0aa74b14220fb9e`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, K1 image
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, and MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+Both passed with exact payload readback and survivor completion; the network
+receipt also recorded `BUILD SUCCESSFUL in 1m 39s`.
+
+Pulsar process crash:
+
+```bash
+NEREUS_DELAY_PULSAR_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1 \
+NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-large-crash-20260817-r1 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER=1 NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_PROCESS_CRASH=1 \
+PULSAR_LARGE_BROKER_1_PORT=31550 PULSAR_LARGE_WEB_1_PORT=31551 \
+PULSAR_LARGE_BROKER_2_PORT=31552 PULSAR_LARGE_WEB_2_PORT=31553 \
+NEREUS_DELAY_PULSAR_LARGE_OXIA_PORT=31560 NEREUS_DELAY_PULSAR_LARGE_MINIO_PORT=31561 \
+NEREUS_DELAY_PULSAR_LARGE_GATEWAY_PORT=31562 \
+PULSAR_LARGE_PAYLOAD_TOPIC=nereus-delay-pulsar-large-crash-20260817 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_DESTINATION_TOPIC=nereus-delay-pulsar-destination-crash-20260817 \
+  bash e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+Pulsar network partition uses the same runner with
+`NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_NETWORK_PARTITION=1` and ports
+`31590/31591`, `31592/31593`, Oxia `31600`, MinIO `31601`, Gateway `31602`.
+The final current-source project was
+`nereus-delay-pulsar-large-e2e-1786922018-88960`; it used Delay
+`3536cd42fa6234fe461bf4beb687375463814daa`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1 distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1 image
+`sha256:a2c76925f2504337a55c1b88d0a83cc80147d563189041514b63bc1e347cf9d3`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, and the same locked MinIO
+digest. It passed with `BUILD SUCCESSFUL in 2m 22s`, source apply
+`ledger=3/4`, outcome `ledger=3/5`, exact payload readback and broker-1 rejoin.
+
+The first Pulsar network attempt, project
+`nereus-delay-pulsar-large-e2e-1786921724-85688`, is explicitly not a PASS:
+the 75-second handoff wait let inactive-topic deletion remove the
+pre-provisioned guarded destination, so auto-creation on broker-2 was rejected
+with `TopicResourceGuardException`. Commit `3536cd42` makes the P1 cluster E2E
+entrypoint disable inactive-topic deletion by default during this bounded
+handoff window. That keeps the exact guard tuple alive and preserves fail-closed
+guarded producer validation; it does not add a retry or allow an unguarded
+destination.
+
+Every successful runner removed its exact Compose containers, networks, volumes
+and temporary K1/P1/Oxia images. Final related-image inspection retained only
+`nereus/oxia-o1:37a17bef1720` (local ID
+`sha256:5aa715e4f19091931743e5af489af5f8d6ee15efcce6430a908c6f65cc6d6516`)
+and the locked MinIO base (local ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`).
+No global Docker prune or unrelated image deletion was performed. These are
+bounded one-physical-partition failover receipts, not controller/coordinator/
+BookKeeper storage failover, full §23.3 completion or V1 release approval.
