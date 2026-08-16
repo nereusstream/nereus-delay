@@ -9,6 +9,7 @@ import io.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
 import io.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
 
 import java.io.ByteArrayOutputStream;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -43,6 +44,10 @@ import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 
+import javax.xml.stream.XMLInputFactory;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamReader;
+
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
@@ -67,7 +72,8 @@ import javax.crypto.spec.SecretKeySpec;
  * authority inputs.</p>
  */
 public final class S3CompatibleCheckpointObjectStoreAdapter
-        implements CheckpointUploadAdapter, CheckpointDownloadAdapter, CheckpointDeleteAdapter {
+        implements CheckpointUploadAdapter, CheckpointDownloadAdapter, CheckpointDeleteAdapter,
+        CheckpointPrefixSweepAdapter {
     private static final String SERVICE = "s3";
     private static final String TERMINATOR = "aws4_request";
     private static final String ENDPOINT_DOMAIN = "nereus-delay-s3-endpoint-v1\0";
@@ -309,6 +315,28 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
     }
 
     @Override
+    public synchronized CheckpointPrefixSweepResult sweep(final CheckpointPrefixSweepRequest request) {
+        Objects.requireNonNull(request, "request");
+        requireCredentialGate();
+        if (!request.objectStoreProfile().equals(profile.ref())) {
+            throw new IllegalArgumentException("checkpoint prefix sweep uses a different Object Store Profile");
+        }
+        final String prefix = checkpointPrefix(request.recoveryLineageId(), request.checkpointId());
+        final VersionList initial = listVersions(prefix, request.maxVersions());
+        final List<DeleteOperation> operations = new ArrayList<>(initial.entries().size());
+        for (VersionedObject entry : initial.entries()) {
+            operations.add(deleteObject(entry.key(), entry.version()));
+        }
+        final VersionList finalListing = listVersions(prefix, request.maxVersions());
+        if (!finalListing.entries().isEmpty()) {
+            throw new IllegalStateException("checkpoint prefix sweep did not prove an empty prefix: " + prefix);
+        }
+        return new CheckpointPrefixSweepResult(initial.entries().size(), operations.size(),
+                aggregateSweepRequestIds(initial.evidence(), operations, finalListing.evidence()),
+                aggregateSweepResponses(initial.evidence(), operations, finalListing.evidence()));
+    }
+
+    @Override
     public synchronized Path download(final CheckpointDownloadRequest request, final Path targetDirectory) {
         Objects.requireNonNull(request, "request");
         requireCredentialGate();
@@ -543,6 +571,126 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         }
     }
 
+    private VersionList listVersions(final String prefix, final int maxVersions) {
+        final String query = "prefix=" + encodeSegment(prefix) + "&versions=";
+        final HttpResponse<InputStream> response = sendBucket("GET", query, EMPTY_SHA256,
+                HttpRequest.BodyPublishers.noBody(), Map.of(), HttpResponse.BodyHandlers.ofInputStream());
+        if (!isSuccess(response.statusCode())) {
+            closeQuietly(response.body());
+            throw unexpectedStatus("GET", "?" + query, response.statusCode());
+        }
+        try (InputStream input = response.body()) {
+            final ByteArrayOutputStream output = new ByteArrayOutputStream();
+            consume(input, output, -1, listResponseLimit(maxVersions));
+            final byte[] bytes = output.toByteArray();
+            final ProviderResponseEvidence evidence = responseEvidence("GET", prefix, response.statusCode(), null,
+                    sha256(bytes), response);
+            final List<VersionedObject> entries = parseVersionList(bytes, maxVersions);
+            final String requiredPrefix = prefix + "/";
+            if (entries.stream().anyMatch(entry -> !entry.key().startsWith(requiredPrefix))) {
+                throw new IllegalStateException("checkpoint version listing escaped its exact prefix: " + prefix);
+            }
+            return new VersionList(entries, evidence);
+        } catch (IOException failure) {
+            throw new IllegalStateException("cannot read checkpoint prefix version listing: " + prefix, failure);
+        }
+    }
+
+    private long listResponseLimit(final int maxVersions) {
+        try {
+            final long estimated = Math.multiplyExact((long) maxVersions, 2_048L);
+            return objectBytesLimit(Math.max(64 * 1024L, estimated));
+        } catch (ArithmeticException overflow) {
+            throw new IllegalArgumentException("checkpoint prefix listing bound overflow", overflow);
+        }
+    }
+
+    private static List<VersionedObject> parseVersionList(final byte[] encoded, final int maxVersions) {
+        final XMLInputFactory factory = XMLInputFactory.newFactory();
+        factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
+        factory.setProperty("javax.xml.stream.isSupportingExternalEntities", false);
+        final List<VersionedObject> result = new ArrayList<>();
+        final java.util.Set<String> identities = new java.util.HashSet<>();
+        boolean truncated = false;
+        String entryKind = null;
+        String key = null;
+        String version = null;
+        String activeText = null;
+        final StringBuilder text = new StringBuilder();
+        try {
+            final XMLStreamReader reader = factory.createXMLStreamReader(new ByteArrayInputStream(encoded));
+            try {
+                while (reader.hasNext()) {
+                    final int event = reader.next();
+                    if (event == XMLStreamReader.START_ELEMENT) {
+                        final String name = reader.getLocalName();
+                        if (name.equals("Version") || name.equals("DeleteMarker")) {
+                            if (entryKind != null) {
+                                throw new IllegalArgumentException("nested version listing entry");
+                            }
+                            entryKind = name;
+                            key = null;
+                            version = null;
+                        } else if (name.equals("Key") || name.equals("VersionId")
+                                || name.equals("IsTruncated")) {
+                            activeText = name;
+                            text.setLength(0);
+                        }
+                    } else if ((event == XMLStreamReader.CHARACTERS || event == XMLStreamReader.CDATA)
+                            && activeText != null) {
+                        text.append(reader.getText());
+                    } else if (event == XMLStreamReader.END_ELEMENT) {
+                        final String name = reader.getLocalName();
+                        if (activeText != null && activeText.equals(name)) {
+                            final String value = text.toString().trim();
+                            if (name.equals("Key")) {
+                                key = value;
+                            } else if (name.equals("VersionId")) {
+                                version = value;
+                            } else if (name.equals("IsTruncated")) {
+                                if (value.equals("true")) {
+                                    truncated = true;
+                                } else if (!value.equals("false")) {
+                                    throw new IllegalArgumentException("invalid ListObjectVersions IsTruncated");
+                                }
+                            }
+                            activeText = null;
+                            text.setLength(0);
+                        }
+                        if (entryKind != null && entryKind.equals(name)) {
+                            if (key == null || key.isEmpty() || version == null || version.isEmpty()) {
+                                throw new IllegalArgumentException("checkpoint version listing entry is incomplete");
+                            }
+                            canonicalObjectKey(key);
+                            canonicalText(version, "provider version");
+                            if (!identities.add(key + "\0" + version)) {
+                                throw new IllegalArgumentException("duplicate checkpoint version listing entry");
+                            }
+                            result.add(new VersionedObject(key, version));
+                            if (result.size() > maxVersions) {
+                                throw new IllegalStateException("checkpoint prefix version listing exceeds bound");
+                            }
+                            entryKind = null;
+                            key = null;
+                            version = null;
+                        }
+                    }
+                }
+                if (entryKind != null || activeText != null || reader.hasNext()) {
+                    throw new IllegalArgumentException("truncated checkpoint version listing");
+                }
+            } finally {
+                reader.close();
+            }
+        } catch (XMLStreamException failure) {
+            throw new IllegalStateException("cannot parse checkpoint prefix version listing", failure);
+        }
+        if (truncated) {
+            throw new IllegalStateException("checkpoint prefix version listing is truncated");
+        }
+        return List.copyOf(result);
+    }
+
     private DeleteOperation deleteObject(final String key, final String versionId) {
         final String exactVersion = canonicalText(versionId, "provider version");
         final HttpResponse<Void> response;
@@ -572,6 +720,41 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
                 Bytes.u32be(response.statusCode()), Bytes.lp32(Bytes.utf8(responseVersion)),
                 Bytes.lp32(Bytes.utf8(requestId)), Bytes.lp32(Bytes.utf8(secondaryRequestId)));
         return new DeleteOperation(requestIdHash, responseHash);
+    }
+
+    private static byte[] aggregateSweepRequestIds(final ProviderResponseEvidence initialListing,
+                                                    final List<DeleteOperation> operations,
+                                                    final ProviderResponseEvidence finalListing) {
+        final byte[][] fields = new byte[operations.size() + 3][];
+        fields[0] = Bytes.utf8("nereus-delay-s3-prefix-sweep-request-ids-v1\0");
+        fields[1] = requireRequestIdHash(initialListing, "initial version listing");
+        for (int index = 0; index < operations.size(); index++) {
+            fields[index + 2] = operations.get(index).requestIdHash();
+        }
+        fields[fields.length - 1] = requireRequestIdHash(finalListing, "final version listing");
+        return Bytes.sha256(fields);
+    }
+
+    private static byte[] aggregateSweepResponses(final ProviderResponseEvidence initialListing,
+                                                  final List<DeleteOperation> operations,
+                                                  final ProviderResponseEvidence finalListing) {
+        final byte[][] fields = new byte[operations.size() + 3][];
+        fields[0] = Bytes.utf8("nereus-delay-s3-prefix-sweep-responses-v1\0");
+        fields[1] = Bytes.lp32(initialListing.responseHash());
+        for (int index = 0; index < operations.size(); index++) {
+            fields[index + 2] = Bytes.lp32(operations.get(index).responseHash());
+        }
+        fields[fields.length - 1] = Bytes.lp32(finalListing.responseHash());
+        return Bytes.sha256(fields);
+    }
+
+    private static byte[] requireRequestIdHash(final ProviderResponseEvidence evidence,
+                                                final String operation) {
+        final byte[] requestIdHash = evidence.requestIdHash();
+        if (requestIdHash == null) {
+            throw new IllegalStateException("S3 " + operation + " omitted provider request ID");
+        }
+        return Bytes.lp32(requestIdHash);
     }
 
     private static byte[] aggregateDeleteRequestIds(final List<DeleteOperation> operations) {
@@ -646,7 +829,20 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
                                      final Map<String, String> extraHeaders,
                                      final String versionId,
                                      final HttpResponse.BodyHandler<T> handler) {
-        final URI uri = objectUri(key, versionId);
+        return sendUri(method, key, objectUri(key, versionId), payloadHash, body, extraHeaders, handler);
+    }
+
+    private <T> HttpResponse<T> sendBucket(final String method, final String query, final String payloadHash,
+                                           final HttpRequest.BodyPublisher body,
+                                           final Map<String, String> extraHeaders,
+                                           final HttpResponse.BodyHandler<T> handler) {
+        return sendUri(method, "bucket?" + query, bucketUri(query), payloadHash, body, extraHeaders, handler);
+    }
+
+    private <T> HttpResponse<T> sendUri(final String method, final String operation, final URI uri,
+                                        final String payloadHash, final HttpRequest.BodyPublisher body,
+                                        final Map<String, String> extraHeaders,
+                                        final HttpResponse.BodyHandler<T> handler) {
         final Instant now = clock.instant().truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
         final String amzDate = AMZ_DATE.format(now);
         final String shortDate = SHORT_DATE.format(now);
@@ -689,12 +885,12 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         try {
             return client.send(builder.build(), handler);
         } catch (IOException failure) {
-            throw new TransportFailure("S3 request failed: " + method + " " + key, failure);
+            throw new TransportFailure("S3 request failed: " + method + " " + operation, failure);
         } catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
-            throw new TransportFailure("S3 request interrupted: " + method + " " + key, failure);
+            throw new TransportFailure("S3 request interrupted: " + method + " " + operation, failure);
         } catch (CompletionException failure) {
-            throw new TransportFailure("S3 request failed: " + method + " " + key, failure);
+            throw new TransportFailure("S3 request failed: " + method + " " + operation, failure);
         }
     }
 
@@ -717,9 +913,25 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         return URI.create(endpoint.getScheme() + "://" + endpoint.getRawAuthority() + path + query);
     }
 
+    private URI bucketUri(final String query) {
+        final StringBuilder path = new StringBuilder(endpoint.getRawPath() == null
+                ? "" : endpoint.getRawPath());
+        while (path.length() > 0 && path.charAt(path.length() - 1) == '/') {
+            path.deleteCharAt(path.length() - 1);
+        }
+        path.append('/').append(encodeSegment(bucket));
+        return URI.create(endpoint.getScheme() + "://" + endpoint.getRawAuthority() + path + "?" + query);
+    }
+
     private static String checkpointPrefix(final CheckpointManifest manifest) {
         return "checkpoints/" + Bytes.hex(manifest.recoveryLineageId()) + "/"
                 + Bytes.hex(manifest.checkpointId());
+    }
+
+    private static String checkpointPrefix(final byte[] recoveryLineageId, final byte[] checkpointId) {
+        Bytes.requireLength(recoveryLineageId, 16, "recoveryLineageId");
+        Bytes.requireLength(checkpointId, 16, "checkpointId");
+        return "checkpoints/" + Bytes.hex(recoveryLineageId) + "/" + Bytes.hex(checkpointId);
     }
 
     private static String objectKey(final String prefix, final CheckpointManifest.FileEntry file) {
@@ -1097,6 +1309,20 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         @Override
         public byte[] responseHash() {
             return Bytes.copy(responseHash);
+        }
+    }
+
+    private record VersionedObject(String key, String version) {
+        private VersionedObject {
+            canonicalObjectKey(key);
+            canonicalText(version, "provider version");
+        }
+    }
+
+    private record VersionList(List<VersionedObject> entries, ProviderResponseEvidence evidence) {
+        private VersionList {
+            entries = List.copyOf(entries);
+            Objects.requireNonNull(evidence, "evidence");
         }
     }
 

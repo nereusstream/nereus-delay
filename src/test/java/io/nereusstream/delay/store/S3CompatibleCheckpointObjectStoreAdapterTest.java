@@ -161,6 +161,28 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
     }
 
     @Test
+    void sweepsExactCheckpointPrefixVersionsAndProvesEmptyAfterward() throws Exception {
+        try (FakeS3Server server = new FakeS3Server()) {
+            final Fixture fixture = fixture(server.endpoint());
+            final S3CompatibleCheckpointObjectStoreAdapter adapter = adapter(fixture.profile(), server.endpoint());
+            final CheckpointUploadRequest request = new CheckpointUploadRequest(fixture.pending(), fixture.manifest(),
+                    fixture.checkpointDirectory(), fixture.manifest().canonicalJsonBytes());
+            adapter.upload(request);
+
+            final CheckpointPrefixSweepResult result = adapter.sweep(new CheckpointPrefixSweepRequest(
+                    fixture.profile().ref(), fixture.manifest().recoveryLineageId(),
+                    fixture.manifest().checkpointId(), 100));
+
+            assertEquals(3, result.listedVersionCount());
+            assertEquals(3, result.deletedVersionCount());
+            assertTrue(result.emptyAfterSweep());
+            assertTrue(server.objects.isEmpty());
+            assertTrue(server.requests.stream().anyMatch(item -> item.method().equals("GET")
+                    && item.path().contains("?prefix=checkpoints%2F") && item.path().contains("&versions=")));
+        }
+    }
+
+    @Test
     void rejectsImmutableObjectConflictAfterIfNoneMatchPrecondition() throws Exception {
         try (FakeS3Server server = new FakeS3Server()) {
             final Fixture fixture = fixture(server.endpoint());
@@ -321,7 +343,11 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
                 if (parsed.method().equals("PUT")) {
                     handlePut(parsed, output, socket);
                 } else if (parsed.method().equals("GET")) {
-                    handleGet(parsed, output);
+                    if (queryValue(parsed.path(), "versions") != null) {
+                        handleListVersions(parsed, output);
+                    } else {
+                        handleGet(parsed, output);
+                    }
                 } else if (parsed.method().equals("DELETE")) {
                     handleDelete(parsed, output);
                 } else {
@@ -371,6 +397,23 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
             }
             record(request, 200);
             respond(output, 200, object.body(), omitVersionHeaders ? null : object.version(), requestId(request));
+        }
+
+        private void handleListVersions(final ParsedRequest request, final OutputStream output) throws IOException {
+            final String encodedPrefix = queryValue(request.path(), "prefix");
+            final String prefix = java.net.URLDecoder.decode(encodedPrefix == null ? "" : encodedPrefix,
+                    StandardCharsets.UTF_8);
+            final String objectPrefix = pathWithoutQuery(request.path()) + "/" + prefix;
+            final StringBuilder body = new StringBuilder("<ListVersionsResult><IsTruncated>false</IsTruncated>");
+            objects.entrySet().stream().filter(entry -> entry.getKey().startsWith(objectPrefix))
+                    .sorted(Map.Entry.comparingByKey()).forEach(entry -> body.append("<Version><Key>")
+                            .append(entry.getKey().substring(pathWithoutQuery(request.path()).length() + 1))
+                            .append("</Key><VersionId>").append(entry.getValue().version())
+                            .append("</VersionId></Version>"));
+            body.append("</ListVersionsResult>");
+            final byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
+            record(request, 200);
+            respond(output, 200, bytes, null, requestId(request));
         }
 
         private void handleDelete(final ParsedRequest request, final OutputStream output) throws IOException {

@@ -75,6 +75,16 @@ class S3CompatibleMinioRealSmokeTest {
         assertThrows(IllegalStateException.class,
                 () -> adapter.download(new CheckpointDownloadRequest(fixture.manifest(), first),
                         tempDir.resolve("deleted")));
+
+        final CheckpointResourceV1 sweptResource = adapter.upload(request);
+        final CheckpointPrefixSweepResult swept = adapter.sweep(new CheckpointPrefixSweepRequest(
+                fixture.profile().ref(), fixture.manifest().recoveryLineageId(), fixture.manifest().checkpointId(), 100));
+        assertEquals(3, swept.listedVersionCount());
+        assertEquals(3, swept.deletedVersionCount());
+        assertTrue(swept.emptyAfterSweep());
+        assertThrows(IllegalStateException.class,
+                () -> adapter.download(new CheckpointDownloadRequest(fixture.manifest(), sweptResource),
+                        tempDir.resolve("swept")));
     }
 
     private Fixture fixture(final URI endpoint, final String region, final String bucket,
