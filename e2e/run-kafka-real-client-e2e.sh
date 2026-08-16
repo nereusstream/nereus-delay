@@ -39,6 +39,7 @@ worker_destination_response_loss_only="${NEREUS_DELAY_KAFKA_WORKER_DESTINATION_R
 source_ack_response_loss="${NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS:-0}"
 source_ack_response_loss_only="${NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS_ONLY:-0}"
 fetch_response_loss_only="${NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ONLY:-0}"
+retention_floor_only="${NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ONLY:-0}"
 oxia_checkout="${NEREUS_DELAY_KAFKA_OXIA_CHECKOUT:-${delay_dir}/../../oxia}"
 oxia_port="${NEREUS_DELAY_KAFKA_OXIA_PORT:-$((16650 + ($$ % 100)))}"
 oxia_compose_project="nereus-delay-kafka-oxia-e2e-$(date +%s)-$$"
@@ -92,6 +93,10 @@ if [[ "${source_ack_response_loss_only}" != "0" && "${source_ack_response_loss_o
 fi
 if [[ "${fetch_response_loss_only}" != "0" && "${fetch_response_loss_only}" != "1" ]]; then
   echo "NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ONLY must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${retention_floor_only}" != "0" && "${retention_floor_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ONLY must be 0 or 1" >&2
   exit 1
 fi
 if [[ "${route_failover}" == "1" && "${with_oxia}" != "1" ]]; then
@@ -169,8 +174,16 @@ fi
 if [[ "${fetch_response_loss_only}" == "1" && ("${route_failover_only}" == "1"
         || "${k2_failover_only}" == "1" || "${k2_response_loss_only}" == "1"
         || "${worker_destination_response_loss_only}" == "1"
-        || "${source_ack_response_loss_only}" == "1") ]]; then
+        || "${source_ack_response_loss_only}" == "1"
+        || "${retention_floor_only}" == "1") ]]; then
   echo "Kafka Fetch response-loss-only mode is mutually exclusive with other focused modes" >&2
+  exit 1
+fi
+if [[ "${retention_floor_only}" == "1" && ("${route_failover_only}" == "1"
+        || "${k2_failover_only}" == "1" || "${k2_response_loss_only}" == "1"
+        || "${worker_destination_response_loss_only}" == "1"
+        || "${source_ack_response_loss_only}" == "1") ]]; then
+  echo "Kafka retention-floor-only mode is mutually exclusive with other focused modes" >&2
   exit 1
 fi
 
@@ -431,6 +444,9 @@ export KAFKA_K1_IMAGE="${image}"
 export KAFKA_BROKER_1_PORT="${broker_1_port}"
 export KAFKA_BROKER_2_PORT="${broker_2_port}"
 export KAFKA_BROKER_3_PORT="${broker_3_port}"
+if [[ "${retention_floor_only}" == "1" ]]; then
+  export KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS=1000
+fi
 
 echo "K1 checkout: $(git -C "${kafka_dir}" rev-parse HEAD)"
 echo "K1 client jar: ${client_jar}"
@@ -489,6 +505,17 @@ if [[ "${fetch_response_loss_only}" == "1" ]]; then
     -PkafkaFetchResponseLossTopic="${fetch_response_loss_topic}" \
     --no-daemon --console=plain
   echo "Kafka source Fetch response-loss E2E passed: real read_committed Fetch v13 response was discarded before ACK, exact source replay and LSO coverage were recovered."
+  exit 0
+fi
+
+if [[ "${retention_floor_only}" == "1" ]]; then
+  retention_floor_topic="${KAFKA_DELAY_RETENTION_FLOOR_TOPIC:-${source_topic}-retention-floor}"
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaRetentionFloorSmoke \
+    -PkafkaClientJar="${client_jar}" \
+    -PkafkaBootstrap="${bootstrap_all}" \
+    -PkafkaRetentionFloorTopic="${retention_floor_topic}" \
+    --no-daemon --console=plain
+  echo "Kafka source retention-floor E2E passed: real Broker retention advanced the earliest offset, stale source offset was rejected, and the current floor remained readable through guarded Fetch v13 with LSO."
   exit 0
 fi
 

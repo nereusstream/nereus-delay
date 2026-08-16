@@ -355,6 +355,8 @@ require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transpo
     "KafkaClientArtifactRecoverySourceCursor"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactFetchResponseLossSmoke.java" \
     "Kafka source Fetch response-loss smoke passed"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactRetentionFloorSmoke.java" \
+    "Kafka source retention-floor smoke passed"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Kafka source Fetch response-loss receipt"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
@@ -583,10 +585,18 @@ require_file_text "$delay_root/build.gradle" \
     "runRealKafkaWorkerSmoke"
 require_file_text "$delay_root/build.gradle" \
     "runRealKafkaFetchResponseLossSmoke"
+require_file_text "$delay_root/build.gradle" \
+    "runRealKafkaRetentionFloorSmoke"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "runRealKafkaWorkerSmoke"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ONLY"
+require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
+    "NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ONLY"
+require_file_text "$delay_root/e2e/docker-compose.kafka.yml" \
+    "KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS"
+require_file_text "$delay_root/e2e/kafka-k1-entrypoint.sh" \
+    "log.retention.check.interval.ms"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "bootstrap_survivors"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \

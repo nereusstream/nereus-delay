@@ -155,6 +155,23 @@ tasks.register('runRealKafkaFetchResponseLossSmoke', JavaExec) {
     args findProperty('kafkaBootstrap'), findProperty('kafkaFetchResponseLossTopic')
 }
 
+tasks.register('runRealKafkaRetentionFloorSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the Kafka retention-floor and guarded Fetch recovery smoke.'
+    dependsOn tasks.named('compileRealKafka')
+    if (realKafkaClientJar == null || findProperty('kafkaBootstrap') == null
+            || findProperty('kafkaRetentionFloorTopic') == null) {
+        doFirst {
+            throw new GradleException(
+                    'runRealKafkaRetentionFloorSmoke requires -PkafkaClientJar=... -PkafkaBootstrap=host:port '
+                            + '-PkafkaRetentionFloorTopic=name')
+        }
+    }
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactRetentionFloorSmoke'
+    args findProperty('kafkaBootstrap'), findProperty('kafkaRetentionFloorTopic')
+}
+
 tasks.register('runRealKafkaMutationSmoke', JavaExec) {
     group = 'verification'
     description = 'Runs guarded signed System Mutation append/replay/ACK against an explicitly supplied broker.'

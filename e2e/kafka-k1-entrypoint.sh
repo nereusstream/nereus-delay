@@ -29,6 +29,7 @@ printf '%s\n' \
   "min.insync.replicas=${KAFKA_MIN_INSYNC_REPLICAS:-2}" \
   "auto.create.topics.enable=${KAFKA_AUTO_CREATE_TOPICS_ENABLE:-false}" \
   "log.message.timestamp.type=${KAFKA_LOG_MESSAGE_TIMESTAMP_TYPE:-LogAppendTime}" \
+  "log.retention.check.interval.ms=${KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS:-300000}" \
   "message.max.bytes=${KAFKA_MESSAGE_MAX_BYTES:-1000012}" \
   "replica.fetch.max.bytes=${KAFKA_REPLICA_FETCH_MAX_BYTES:-1048576}" \
   >"${config_file}"
