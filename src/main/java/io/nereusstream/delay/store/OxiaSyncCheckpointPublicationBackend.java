@@ -1,5 +1,6 @@
 package io.nereusstream.delay.store;
 
+import io.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.CheckpointResourceV1;
@@ -71,6 +72,14 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
         this(new SyncRecordClient(client, null), keyPrefix, manifestLimits);
     }
 
+    /** Creates a publication authority fenced to the exact ephemeral session of a handle. */
+    public OxiaSyncCheckpointPublicationBackend(final OxiaSyncOwnerLeaseBackend.ClientHandle handle,
+                                                final String keyPrefix,
+                                                final CheckpointManifestLimits manifestLimits) {
+        this(new SyncRecordClient(Objects.requireNonNull(handle, "handle").client(), handle.sessionIdentity()),
+                keyPrefix, manifestLimits, handle.backend()::assertConnectedSession);
+    }
+
     /**
      * Creates an authority whose Recovery Pin operations use the exact
      * session identity supplied by the connected Oxia client owner.
@@ -86,7 +95,17 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
     OxiaSyncCheckpointPublicationBackend(final RecordClient client,
                                          final String keyPrefix,
                                          final CheckpointManifestLimits manifestLimits) {
-        this.client = Objects.requireNonNull(client, "client");
+        this(client, keyPrefix, manifestLimits, () -> {
+        });
+    }
+
+    /** Package-private constructor used to exercise the session fence. */
+    OxiaSyncCheckpointPublicationBackend(final RecordClient client,
+                                         final String keyPrefix,
+                                         final CheckpointManifestLimits manifestLimits,
+                                         final Runnable sessionCheck) {
+        this.client = new SessionBoundRecordClient(Objects.requireNonNull(client, "client"),
+                Objects.requireNonNull(sessionCheck, "sessionCheck"));
         final String canonicalPrefix = canonicalKeyPrefix(keyPrefix);
         this.recordKey = canonicalPrefix + RECORD_SUFFIX;
         this.pinStore = new OxiaSessionBoundRecoveryPinStore(client, canonicalPrefix + PIN_SUFFIX);
@@ -620,6 +639,75 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
         @Override
         public byte[] sessionIdentity() {
             return sessionIdentity == null ? null : Bytes.copy(sessionIdentity);
+        }
+    }
+
+    /**
+     * Checks the caller's Oxia session around every publication-record
+     * operation. A publication CAS whose response is lost after the marker
+     * disappears is therefore never reported as a successful intent/catalog
+     * transition.
+     */
+    private static final class SessionBoundRecordClient implements RecordClient {
+        private final RecordClient delegate;
+        private final Runnable sessionCheck;
+
+        private SessionBoundRecordClient(final RecordClient delegate, final Runnable sessionCheck) {
+            this.delegate = delegate;
+            this.sessionCheck = sessionCheck;
+        }
+
+        @Override
+        public GetResult get(final String key) {
+            sessionCheck.run();
+            try {
+                final GetResult result = delegate.get(key);
+                sessionCheck.run();
+                return result;
+            } catch (RuntimeException failure) {
+                sessionCheck.run();
+                throw failure;
+            }
+        }
+
+        @Override
+        public PutResult put(final String key, final byte[] value, final Set<PutOption> options)
+                throws UnexpectedVersionIdException, KeyAlreadyExistsException {
+            sessionCheck.run();
+            try {
+                final PutResult result = delegate.put(key, value, options);
+                sessionCheck.run();
+                return result;
+            } catch (KeyAlreadyExistsException | UnexpectedVersionIdException expectedCasRace) {
+                sessionCheck.run();
+                throw expectedCasRace;
+            } catch (RuntimeException failure) {
+                sessionCheck.run();
+                throw failure;
+            }
+        }
+
+        @Override
+        public boolean delete(final String key, final Set<DeleteOption> options)
+                throws UnexpectedVersionIdException {
+            sessionCheck.run();
+            try {
+                final boolean deleted = delegate.delete(key, options);
+                sessionCheck.run();
+                return deleted;
+            } catch (UnexpectedVersionIdException expectedCasRace) {
+                sessionCheck.run();
+                throw expectedCasRace;
+            } catch (RuntimeException failure) {
+                sessionCheck.run();
+                throw failure;
+            }
+        }
+
+        @Override
+        public byte[] sessionIdentity() {
+            final byte[] identity = delegate.sessionIdentity();
+            return identity == null ? null : Bytes.copy(identity);
         }
     }
 

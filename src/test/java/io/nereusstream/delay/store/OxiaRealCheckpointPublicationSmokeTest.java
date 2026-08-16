@@ -99,8 +99,7 @@ class OxiaRealCheckpointPublicationSmokeTest {
             });
 
             final OxiaSyncCheckpointPublicationBackend publicationBackend =
-                    new OxiaSyncCheckpointPublicationBackend(client.client(), prefix + "/publication", LIMITS,
-                            client.sessionIdentity());
+                    new OxiaSyncCheckpointPublicationBackend(client, prefix + "/publication", LIMITS);
             final CheckpointManifest parent = parentManifest(store, shard, lineage, owner, controlSnapshot,
                     parentPosition);
             assertEquals(1, publicationBackend.publish(parent, 0).catalogGeneration());
@@ -161,7 +160,7 @@ class OxiaRealCheckpointPublicationSmokeTest {
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle owner = client(endpoint, prefix + "/owner")) {
             final OxiaSyncCheckpointPublicationBackend backend = new OxiaSyncCheckpointPublicationBackend(
-                    owner.client(), prefix + "/publication", LIMITS, owner.sessionIdentity());
+                    owner, prefix + "/publication", LIMITS);
             assertEquals(1, backend.publish(manifest, 0).catalogGeneration());
             final RecoveryFloorRefV1 floor = backend.advanceFloor(manifest.checkpointId(), 1, List.of());
             final RecoveryPinV1 pin = recoveryPin(shard, manifest, floor, owner.sessionIdentity());
@@ -172,7 +171,7 @@ class OxiaRealCheckpointPublicationSmokeTest {
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle replacement = client(endpoint, prefix + "/replacement")) {
             final OxiaSyncCheckpointPublicationBackend reopened = new OxiaSyncCheckpointPublicationBackend(
-                    replacement.client(), prefix + "/publication", LIMITS, replacement.sessionIdentity());
+                    replacement, prefix + "/publication", LIMITS);
             assertTrue(reopened.activeRecoveryPin().isEmpty());
         }
     }

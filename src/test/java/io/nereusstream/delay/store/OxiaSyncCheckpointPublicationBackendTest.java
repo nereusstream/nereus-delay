@@ -32,6 +32,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -85,6 +86,28 @@ class OxiaSyncCheckpointPublicationBackendTest {
         assertEquals(CheckpointUploadStateV1.PUBLISHED, published.state());
         assertEquals(published, backend.current(pending).orElseThrow());
         assertEquals(3, records.putCount);
+    }
+
+    @Test
+    void sessionFenceRejectsACommittedPublicationAfterTheMarkerChanges() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final AtomicBoolean sessionAlive = new AtomicBoolean(true);
+        final OxiaSyncCheckpointPublicationBackend backend = new OxiaSyncCheckpointPublicationBackend(records,
+                "delay/publication-fenced", LIMITS, () -> {
+                    if (!sessionAlive.get()) {
+                        throw new IllegalStateException("simulated Oxia session fence");
+                    }
+                });
+        final CheckpointUploadIntentV1 pending = pending(5, null);
+        final CheckpointManifest manifest = parentManifest(pending);
+        records.afterPut = () -> sessionAlive.set(false);
+
+        assertThrows(IllegalStateException.class, () -> backend.publish(manifest, 0));
+
+        final OxiaSyncCheckpointPublicationBackend reopened = new OxiaSyncCheckpointPublicationBackend(records,
+                "delay/publication-fenced", LIMITS);
+        assertArrayEquals(manifest.canonicalJsonBytes(),
+                reopened.manifest(manifest.checkpointId()).orElseThrow().canonicalJsonBytes());
     }
 
     @Test
@@ -223,6 +246,8 @@ class OxiaSyncCheckpointPublicationBackendTest {
         private long nextVersion = 1;
         private int putCount;
         private boolean failNextPutAfterCommit;
+        private Runnable afterPut = () -> {
+        };
 
         @Override
         public byte[] sessionIdentity() {
@@ -254,6 +279,7 @@ class OxiaSyncCheckpointPublicationBackendTest {
                     Optional.of("fake-publication-session"));
             records.put(key, new GetResult(key, Bytes.copy(value), version));
             putCount++;
+            afterPut.run();
             if (failNextPutAfterCommit) {
                 failNextPutAfterCommit = false;
                 throw new IllegalStateException("simulated response loss");
