@@ -1103,6 +1103,30 @@ require_file_text "$delay_root/e2e/README.md" \
     "Checkpoint prefix sweep receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "f905db1e-1a7e-455c-bb32-5fa90bb7ed1f"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointReapingSweepCoordinator.java" \
+    "beginReaping(expectedPending, evidence, catalog)"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointReapingSweepResult.java" \
+    "requires a REAPING intent"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointReapingSweepCoordinatorTest.java" \
+    "responseLossLeavesReapingStateAndRetryUsesTheSamePrefix"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointReapingSweepCoordinatorTest.java" \
+    "catalogProtectionPreventsProviderSweep"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleMinioRealSmokeTest.java" \
+    "CheckpointReapingSweepResult reaping"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "REAPING-to-prefix sweep coordination slice"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "b9fcd2aa846329ed13986b122d287375a441b2fd"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Delay checkpoint REAPING sweep coordination slice"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Checkpoint REAPING sweep coordination audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "REAPING-to-prefix sweep coordination implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Checkpoint REAPING sweep coordination receipt"
+require_file_text "$delay_root/e2e/README.md" \
+    "f5404da4-4944-4581-a75d-80dccdad92c3"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

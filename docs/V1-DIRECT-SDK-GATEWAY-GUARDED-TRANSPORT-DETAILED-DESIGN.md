@@ -5269,3 +5269,29 @@ This seam is intentionally not a lifecycle authority: external REAPING
 state, source ordering, retire-intent validation, Recovery Floor/Pin/Owner
 authorization, provider consistency/quiescence and multi-page reaper policy
 remain outside it.
+
+### 2026-08-16 REAPING-to-prefix sweep coordination implementation note
+
+Delay commit `b9fcd2aa846329ed13986b122d287375a441b2fd` composes the existing
+intent CAS and provider seam without widening either authority. The
+`CheckpointReapingSweepCoordinator` requires `PENDING_UPLOAD`, calls the
+catalog/pin-guarded `beginReaping` transition, rereads the exact REAPING value
+through `CheckpointUploadIntentAuthority.current`, and only then invokes the
+prefix sweep. Its result retains the exact REAPING intent alongside the
+provider receipt. A response-loss retry therefore cannot fall back to a
+deadline-only or name-only delete: it must reread the same REAPING identity
+and the provider must prove the prefix empty again.
+
+The focused coordinator tests and the locked MinIO run passed. The MinIO run
+used container `nereus-delay-minio-e2e-1786843326-27711`, endpoint
+`http://127.0.0.1:58388`, bucket
+`nereus-delay-checkpoints-1786843326-27711`, image repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`,
+and provider manifest version `f5404da4-4944-4581-a75d-80dccdad92c3`; JUnit
+recorded `tests=1 skipped=0 failures=0 errors=0` and the harness ended with
+`BUILD SUCCESSFUL`.
+
+The composition still requires external proof of old-Owner abandonment or
+session loss, provider-owned request quiescence, source-ordered retire and
+delete confirmation, and Recovery Floor/Pin/Owner transactions. It does not
+claim those authority or release gates.

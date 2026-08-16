@@ -10211,3 +10211,47 @@ source-ordered retire authorization, Recovery Floor/Pin/Owner checks,
 multi-page listing policy, provider consistency/quiescence, credential
 rotation, generic provider compatibility, chaos, failover or V1 release
 evidence.
+
+## 2026-08-16 REAPING-to-prefix sweep coordination slice
+
+Delay commit `b9fcd2aa846329ed13986b122d287375a441b2fd` adds
+`CheckpointReapingSweepCoordinator` and `CheckpointReapingSweepResult`. The
+coordinator requires a PENDING_UPLOAD identity, first invokes the exact
+`beginReaping(expectedPending, evidence, catalog)` CAS, rereads the returned
+REAPING successor before provider I/O, and derives the sweep request only from
+that immutable intent. A provider response loss leaves the durable REAPING
+state in place; retrying with the same pending identity and trusted evidence
+reuses the same prefix and accepts the provider's final-empty result. A
+catalog/pin protection decision therefore blocks the provider call before any
+prefix listing.
+
+The focused regression is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.CheckpointReapingSweepCoordinatorTest \
+  --no-daemon --console=plain
+```
+
+It passed with `BUILD SUCCESSFUL`; the test covers CAS-before-provider order,
+response-loss retry from REAPING and catalog protection before the sweep. The
+full `./gradlew check --no-daemon --console=plain --quiet` returned 0.
+
+The locked MinIO rerun used container
+`nereus-delay-minio-e2e-1786843326-27711`, endpoint
+`http://127.0.0.1:58388`, bucket
+`nereus-delay-checkpoints-1786843326-27711`, the locked image at repository
+digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+and image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`.
+JUnit recorded `tests=1 skipped=0 failures=0 errors=0`, system-out recorded
+manifest provider version `f5404da4-4944-4581-a75d-80dccdad92c3`, and the
+harness ended with `BUILD SUCCESSFUL` after the coordinator-driven final
+empty-prefix proof.
+
+This closes only the bounded local REAPING-to-provider composition. It does
+not establish old-Owner abandonment or session-loss authority, provider
+ownership/quiescence horizons, external `RESOURCE_DELETE_CONFIRMED_V1`,
+Recovery Floor/Pin/Owner transactions, multi-page policy, generic provider
+compatibility, chaos, failover or V1 release evidence.

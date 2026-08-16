@@ -4672,6 +4672,7 @@ the guarded Broker rollout attestation remains external evidence.
 | Delay exact checkpoint object-set deletion slice | `nereus/delay-full-implementation-v1@3bfe030a` (the S3-compatible adapter preflights every manifest/file identity, captures provider versions, deletes files by exact `versionId` and the catalog-bound manifest last, and requires matching delete response version plus provider request ID; the locked MinIO receipt records `e223584d-2863-45a1-8471-9b378c0899c5`; `ALREADY_ABSENT` reconciliation, final prefix sweep and retire/Floor/Pin authority remain open) |
 | Delay checkpoint delete retry-convergence slice | `nereus/delay-full-implementation-v1@220fc98a` (404 presence probes now carry provider request/response evidence; partial response loss resumes from the remaining verified object set and a completely absent set returns `ALREADY_ABSENT`; final prefix sweep and retire/Floor/Pin authority remain open) |
 | Delay checkpoint prefix sweep slice | `nereus/delay-full-implementation-v1@c32a98f328400c71346b98188930a6efa80da7c9` (bounded one-page `ListObjectVersions` over the exact checkpoint prefix, secure/version-complete parsing, exact-version deletes and a final empty-prefix listing; the locked MinIO receipt records `f905db1e-1a7e-455c-bb32-5fa90bb7ed1f`; external REAPING/Floor/Pin/Owner authorization and lifecycle state transition remain open) |
+| Delay checkpoint REAPING sweep coordination slice | `nereus/delay-full-implementation-v1@b9fcd2aa846329ed13986b122d287375a441b2fd` (exact PENDING_UPLOAD -> REAPING CAS and successor reread precede the provider sweep; response loss retries the same REAPING identity/prefix; the locked MinIO receipt records `f5404da4-4944-4581-a75d-80dccdad92c3`; old-Owner/session authority, quiescence and external delete confirmation remain open) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
@@ -8567,6 +8568,35 @@ perform the external REAPING transition, source-ordered retire, Recovery
 Floor/Pin/Owner checks, multi-page continuation, provider consistency or
 quiescence, credential rotation, generic provider compatibility, chaos,
 failover or V1 release readiness.
+
+## 2026-08-16 Checkpoint REAPING sweep coordination audit
+
+Delay commit `b9fcd2aa846329ed13986b122d287375a441b2fd` adds the bounded
+`CheckpointReapingSweepCoordinator`. It accepts only a PENDING_UPLOAD intent,
+uses the existing exact `beginReaping` CAS with trusted evidence and the
+catalog/pin guard, rereads the exact REAPING successor immediately before
+provider I/O, and derives the `CheckpointPrefixSweepRequest` from that
+successor. If the provider response is lost, the durable REAPING state is
+retained and the same pending identity/evidence can retry the same prefix;
+catalog protection is proven to block provider invocation.
+
+`CheckpointReapingSweepCoordinatorTest` covers CAS-before-provider order,
+response-loss retry and catalog protection. The source-locked MinIO run used
+container `nereus-delay-minio-e2e-1786843326-27711`, endpoint
+`http://127.0.0.1:58388`, bucket
+`nereus-delay-checkpoints-1786843326-27711`, image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`
+and repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+JUnit recorded `tests=1 skipped=0 failures=0 errors=0`, system-out recorded
+manifest provider version `f5404da4-4944-4581-a75d-80dccdad92c3`, and the
+harness ended with `BUILD SUCCESSFUL`.
+
+This is a local orchestration composition, not the missing lifecycle
+authority. Old-Owner abandonment/session loss, provider ownership and
+quiescence horizons, source-ordered retire/delete confirmation, Recovery
+Floor/Pin/Owner transactions, multi-page policy, provider breadth, chaos,
+failover and V1 release readiness remain open.
 
 ## Final gate
 
