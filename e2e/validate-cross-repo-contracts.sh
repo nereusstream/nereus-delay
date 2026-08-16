@@ -1779,6 +1779,20 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway operation/prepared binding implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Gateway operation/prepared binding receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayAuditEventV1.java" \
+    "Gateway audit outcome hash must match the completed phase"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayAuditSinkTest.java" \
+    "auditOutcomeDigestIsPresentOnlyForCompletedEvents"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Gateway audit phase evidence"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "745da182c72af27dff09a8fb55db6cc15a4f20e3"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Gateway audit phase evidence audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Gateway audit phase evidence implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Gateway audit phase evidence receipt"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPublicationCoordinator.java" \
     "intentIsAtomic || catalogIsAtomic"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointUploadCoordinatorTest.java" \

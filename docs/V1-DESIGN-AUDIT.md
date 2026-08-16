@@ -9415,6 +9415,22 @@ skips and zero failures/errors. This closes only local operation/prepared
 semantic binding; it does not establish distributed Gateway authority,
 transport delivery, Broker failover, raw chaos or V1 release readiness.
 
+## 2026-08-16 Gateway audit phase evidence audit
+
+Delay commit `745da182c72af27dff09a8fb55db6cc15a4f20e3` closes the local
+phase/digest union gap in `GatewayAuditEventV1`: a `COMPLETED` event must
+carry `outcomeHash`, and `RECEIVED` or `FAILED` events must not carry one.
+The constructor rejects both digest-only non-completed events and completed
+events without an outcome digest before they are persisted by the Oxia audit
+sink.
+
+`OxiaGatewayAuditSinkTest.auditOutcomeDigestIsPresentOnlyForCompletedEvents`
+passed in the focused 4-test audit suite with zero failures/skips/errors; the
+full `./gradlew check` passed 1538 tests with 24 skips and zero
+failures/errors. This closes only local audit phase/digest shape validation;
+it does not establish distributed Gateway authority, transport delivery,
+Broker failover, raw chaos or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

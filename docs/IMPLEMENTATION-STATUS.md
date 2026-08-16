@@ -11321,3 +11321,25 @@ the full `./gradlew check` passed 1537 tests with 24 skips and zero
 failures/errors. This closes only local operation/prepared semantic binding;
 it does not establish distributed Gateway authority, transport delivery,
 Broker failover, raw chaos or V1 release evidence.
+
+## 2026-08-16 Gateway audit phase evidence
+
+Delay commit `745da182c72af27dff09a8fb55db6cc15a4f20e3` makes the
+`GatewayAuditEventV1` phase/digest union explicit: `COMPLETED` must carry an
+`outcomeHash`, while `RECEIVED` and `FAILED` must omit it. Digest-only audit
+shapes are rejected during construction before the event can reach the Oxia
+audit sink.
+
+The focused receipt is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.gateway.OxiaGatewayAuditSinkTest \
+  --no-daemon --console=plain
+```
+
+The focused audit suite passed 4 tests with zero failures/skips/errors; the
+full `./gradlew check` passed 1538 tests with 24 skips and zero
+failures/errors. This closes only local audit phase/digest shape validation;
+it does not establish distributed Gateway authority, transport delivery,
+Broker failover, raw chaos or V1 release evidence.

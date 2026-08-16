@@ -6035,3 +6035,16 @@ and the Gateway gRPC/schedule suites passed 10 focused tests. The full
 `./gradlew check` passed 1537 tests with 24 skips and zero failures/errors.
 This closes only local operation/prepared binding; transport delivery,
 distributed authority, failover, chaos and release gates remain open.
+
+### 2026-08-16 Gateway audit phase evidence implementation note
+
+Delay commit `745da182c72af27dff09a8fb55db6cc15a4f20e3` makes the
+`GatewayAuditEventV1` phase/digest union fail closed. `COMPLETED` events must
+carry the outcome digest, while `RECEIVED` and `FAILED` events must leave the
+digest absent; impossible combinations now fail during record construction.
+
+`OxiaGatewayAuditSinkTest.auditOutcomeDigestIsPresentOnlyForCompletedEvents`
+passed in the focused 4-test audit suite. The full `./gradlew check` passed
+1538 tests with 24 skips and zero failures/errors. This closes only local
+audit phase/digest shape validation; distributed authority, transport
+delivery, failover, chaos and release gates remain open.
