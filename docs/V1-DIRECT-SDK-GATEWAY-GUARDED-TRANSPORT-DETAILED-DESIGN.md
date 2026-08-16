@@ -6988,3 +6988,65 @@ This refreshes the explicit two-Broker Worker failover contract. It does not
 claim controller/coordinator failover, raw socket/network cuts, multiple
 independent Broker processes beyond this cluster, Gateway ingress,
 multi-shard production placement, the full chaos matrix or V1 release gates.
+
+## 2026-08-17 Current Kafka Large-payload production-authority implementation note
+
+The current source-bound composition locks Delay to
+`f3adc8cba4c78479f2daa883f0605136dc085f50`, K1 to
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, K1 client artifacts to
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, and
+Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. It uses the locked MinIO
+digest `sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+and the real three-Broker KRaft project
+`nereus-delay-large-payload-e2e-1786898894-84130`.
+
+The implementation path is now source-bound end to end: Gateway mTLS/RS256-
+JWT admission creates the real Oxia-backed Route/Assignment/Owner authority;
+the Worker consumes guarded Kafka Fetch evidence, uploads and attests the
+large payload through versioned MinIO, publishes the physical Kafka
+destination with typed `KAFKA_TRANSACTIONAL_RECEIPT` evidence, then appends
+the source-applied Outcome and final checkpoint. The current receipt was:
+
+```text
+Kafka Worker source-applied physical publish passed: Admission source offset=4, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=0, Outcome source offset=5, exact payload readback
+Kafka + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: activationOffset=0, barrierOffset=2, prepareOffset=KafkaSourcePosition[shardId=ShardId[routeIncarnation=0a18766bd5b24b43ae29a62e8b7e8df1, partition=0], authenticatedClusterId=MkU3OEVBNTcwNTJENDM2Qk, nativeTopicUuid=81c2e553-92d4-4ba7-954a-83fb227d3cce, offset=2, leaderEpoch=null, brokerLogAppendTimeEpochMs=1786898913930], commitOffset=KafkaSourcePosition[shardId=ShardId[routeIncarnation=0a18766bd5b24b43ae29a62e8b7e8df1, partition=0], authenticatedClusterId=MkU3OEVBNTcwNTJENDM2Qk, nativeTopicUuid=81c2e553-92d4-4ba7-954a-83fb227d3cce, offset=3, leaderEpoch=null, brokerLogAppendTimeEpochMs=1786898914695], providerVersion=295e66ce-feec-467c-a7cf-6db22e473dbf, exactGatewayIdempotency=true
+Kafka + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload + Kafka destination authority E2E passed
+```
+
+The contract remains bounded to one physical source partition and the local
+semantic trust resolver seam; it does not promote checkpoint REAPING/GC,
+external credential-provider authority, full response-loss/chaos coverage or
+V1 release readiness.
+
+## 2026-08-17 Current Pulsar Gateway large-payload multi-Broker failover implementation note
+
+The current failover composition locks Delay to
+`f3adc8cba4c78479f2daa883f0605136dc085f50`, P1 to
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, the P1 distribution to
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and the
+P1 image to
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`.
+The real two-Broker project is
+`nereus-delay-pulsar-large-e2e-1786898952-84840`; real Oxia is at `29210`,
+MinIO at `29211`, and Gateway at `29212`.
+
+The failover contract is source-applied and authority-bound. After the first
+Gateway Commit/readback, the harness stops broker-1. The old Owner is fenced,
+quiesced and released; only then does the successor coordinator publish the
+digest-bound Assignment and acquire the successor Owner Lease. The fresh
+Worker reconnects through broker-2, validates guarded SUBSCRIBE evidence,
+applies the exact large payload, publishes the physical destination with
+typed `PULSAR_SEND_ACK`, appends the source Outcome and releases the final
+checkpoint. The source-bound receipt was:
+
+```text
+Pulsar source reactivation successor accepted: oldGeneration=2, newGeneration=3, assignmentRevision=2, ownerEpoch=2
+Pulsar Worker source-applied physical publish passed: Admission source ledger=5/0, typed PULSAR_SEND_ACK target ledger/entry=7/0, Outcome source ledger=5/1, exact payload readback
+Pulsar + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: prepare=2/2, commit=2/3, exactGatewayIdempotency=true, sourceRecords=6
+Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload multi-Broker failover E2E passed: broker-1 stopped after Gateway Commit/readback and the same source-applied physical Publish completed through broker-2
+```
+
+This proves the bounded external-stop reactivation path, not automatic
+Pulsar controller/coordinator leader failover, more than one physical source
+partition, Profile/Oxia external credential authority, checkpoint REAPING/GC,
+the complete chaos matrix or V1 release gates.

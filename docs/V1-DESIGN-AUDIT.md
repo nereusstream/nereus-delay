@@ -10486,3 +10486,68 @@ Docker-network chaos, controller/coordinator automatic failover,
 multi-shard fault coverage or V1 release approval. Exact project and image
 checks found no post-run containers, networks, volumes or matching temporary
 images; no global Docker prune was used.
+
+## 2026-08-17 Current-source Kafka Large-payload production-authority audit
+
+The source-bound audit locks Delay to
+`f3adc8cba4c78479f2daa883f0605136dc085f50`, K1 to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`, and the locked MinIO
+digest to
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The isolated project was
+`nereus-delay-large-payload-e2e-1786898894-84130`; resolved ports were Kafka
+`25130,25131,25132`, Oxia `26100`, MinIO `27100` and Gateway `28100`.
+
+The real three-Broker source and destination path passed typed Kafka receipt
+validation, Oxia authority, Gateway mTLS/RS256-JWT admission, Worker source
+apply/ACK, versioned MinIO payload proof and exact destination readback. The
+source-bound markers included:
+
+```text
+Kafka Worker source-applied physical publish passed: Admission source offset=4, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=0, Outcome source offset=5, exact payload readback
+Kafka + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: activationOffset=0, barrierOffset=2, prepareOffset=KafkaSourcePosition[shardId=ShardId[routeIncarnation=0a18766bd5b24b43ae29a62e8b7e8df1, partition=0], authenticatedClusterId=MkU3OEVBNTcwNTJENDM2Qk, nativeTopicUuid=81c2e553-92d4-4ba7-954a-83fb227d3cce, offset=2, leaderEpoch=null, brokerLogAppendTimeEpochMs=1786898913930], commitOffset=KafkaSourcePosition[shardId=ShardId[routeIncarnation=0a18766bd5b24b43ae29a62e8b7e8df1, partition=0], authenticatedClusterId=MkU3OEVBNTcwNTJENDM2Qk, nativeTopicUuid=81c2e553-92d4-4ba7-954a-83fb227d3cce, offset=3, leaderEpoch=null, brokerLogAppendTimeEpochMs=1786898914695], providerVersion=295e66ce-feec-467c-a7cf-6db22e473dbf, exactGatewayIdempotency=true
+Kafka + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload + Kafka destination authority E2E passed
+```
+
+Audit result: PASS for this current-source production-authority slice. It is
+not a V1 release PASS: the source is one physical partition, the local
+semantic trust resolver seam remains, and checkpoint REAPING/GC, external
+credential authority, full fault matrix and release gates are not closed.
+Exact post-run checks found no project resources or temporary Kafka/Oxia
+images; the reusable locked MinIO base remained and no global Docker prune was
+used.
+
+## 2026-08-17 Current-source Pulsar Gateway large-payload multi-Broker failover audit
+
+The source-bound audit locks Delay to
+`f3adc8cba4c78479f2daa883f0605136dc085f50`, P1 to
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1 distribution to
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1
+image to
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+and Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. The isolated project
+was `nereus-delay-pulsar-large-e2e-1786898952-84840` on
+`29200,29201,29202,29203`, with Oxia `29210`, MinIO `29211` and Gateway
+`29212`.
+
+After Gateway Commit/readback, the harness stopped broker-1. The successor
+Worker fenced the old Owner, acquired the digest-bound successor Assignment
+and Owner Lease through real Oxia, reconnected via broker-2, and completed
+guarded SUBSCRIBE, RocksDB apply, physical destination publish, typed
+`PULSAR_SEND_ACK`, source ACK and final checkpoint. The receipt was:
+
+```text
+Pulsar source reactivation successor accepted: oldGeneration=2, newGeneration=3, assignmentRevision=2, ownerEpoch=2
+Pulsar Worker source-applied physical publish passed: Admission source ledger=5/0, typed PULSAR_SEND_ACK target ledger/entry=7/0, Outcome source ledger=5/1, exact payload readback
+Pulsar + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: prepare=2/2, commit=2/3, exactGatewayIdempotency=true, sourceRecords=6
+Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload multi-Broker failover E2E passed: broker-1 stopped after Gateway Commit/readback and the same source-applied physical Publish completed through broker-2
+```
+
+Audit result: PASS for this bounded current-source two-Broker Gateway failover
+slice. Boundary remains explicit: one physical source partition, one
+ZooKeeper/BookKeeper pair, an external harness stop rather than automatic
+controller/coordinator leader failover, and no closure of Profile/Oxia
+credential authority, checkpoint REAPING/GC, full chaos or V1 release
+approval. Exact post-run checks found no project resources, P1 image or Oxia
+image; the locked MinIO base remained and no global Docker prune was used.

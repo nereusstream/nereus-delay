@@ -2183,6 +2183,34 @@ require_file_text "$delay_root/e2e/README.md" \
     "Pulsar multi-Broker Worker failover receipt (current source)"
 require_file_text "$delay_root/e2e/run-pulsar-multi-broker-failover-e2e.sh" \
     "Pulsar multi-Broker failover E2E passed"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "2026-08-17 Current-source Kafka Large-payload production-authority receipt"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "nereus-delay-large-payload-e2e-1786898894-84130"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "providerVersion=295e66ce-feec-467c-a7cf-6db22e473dbf"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "2026-08-17 Current-source Pulsar Gateway large-payload multi-Broker failover receipt"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "nereus-delay-pulsar-large-e2e-1786898952-84840"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Pulsar source reactivation successor accepted: oldGeneration=2, newGeneration=3"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "2026-08-17 Current-source Kafka Large-payload production-authority audit"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "2026-08-17 Current-source Pulsar Gateway large-payload multi-Broker failover audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "2026-08-17 Current Kafka Large-payload production-authority implementation note"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "2026-08-17 Current Pulsar Gateway large-payload multi-Broker failover implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Kafka current-source Large-payload Gateway-to-destination authority"
+require_file_text "$delay_root/e2e/README.md" \
+    "Pulsar Gateway large-payload multi-Broker failover receipt (current source)"
+require_file_text "$delay_root/e2e/run-large-payload-gateway-e2e.sh" \
+    "KAFKA_LARGE_PAYLOAD_BROKER_1_PORT"
+require_file_text "$delay_root/e2e/run-pulsar-large-payload-gateway-e2e.sh" \
+    "PULSAR_LARGE_BROKER_2_PORT"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

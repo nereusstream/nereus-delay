@@ -3691,3 +3691,77 @@ readiness. Exact post-run checks found no P1/Oxia project containers,
 networks or volumes and no matching P1 image; the run-created Oxia image tag
 and ID were explicitly removed, reusable base images were retained and no
 global Docker prune was run.
+
+## Kafka current-source Large-payload Gateway-to-destination authority
+
+Run the current-source Kafka production-authority composition with:
+
+```bash
+NEREUS_DELAY_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-large-payload-gradle \
+KAFKA_LARGE_PAYLOAD_BROKER_1_PORT=25130 \
+KAFKA_LARGE_PAYLOAD_BROKER_2_PORT=25131 \
+KAFKA_LARGE_PAYLOAD_BROKER_3_PORT=25132 \
+NEREUS_DELAY_LARGE_PAYLOAD_OXIA_PORT=26100 \
+NEREUS_DELAY_LARGE_PAYLOAD_MINIO_PORT=27100 \
+NEREUS_DELAY_LARGE_PAYLOAD_GATEWAY_PORT=28100 \
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_TOPIC=nereus-delay-large-payload-live-20260817-r2 \
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_DESTINATION_TOPIC=nereus-delay-large-payload-destination-live-20260817-r2 \
+  bash e2e/run-large-payload-gateway-e2e.sh
+```
+
+The current-source receipt locks Delay to
+`f3adc8cba4c78479f2daa883f0605136dc085f50`, K1 to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+and the isolated project to
+`nereus-delay-large-payload-e2e-1786898894-84130`. The real Kafka/Oxia/Gateway/
+MinIO path passed:
+
+```text
+Kafka Worker source-applied physical publish passed: Admission source offset=4, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=0, Outcome source offset=5, exact payload readback
+Kafka + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: activationOffset=0, barrierOffset=2, prepareOffset=KafkaSourcePosition[shardId=ShardId[routeIncarnation=0a18766bd5b24b43ae29a62e8b7e8df1, partition=0], authenticatedClusterId=MkU3OEVBNTcwNTJENDM2Qk, nativeTopicUuid=81c2e553-92d4-4ba7-954a-83fb227d3cce, offset=2, leaderEpoch=null, brokerLogAppendTimeEpochMs=1786898913930], commitOffset=KafkaSourcePosition[shardId=ShardId[routeIncarnation=0a18766bd5b24b43ae29a62e8b7e8df1, partition=0], authenticatedClusterId=MkU3OEVBNTcwNTJENDM2Qk, nativeTopicUuid=81c2e553-92d4-4ba7-954a-83fb227d3cce, offset=3, leaderEpoch=null, brokerLogAppendTimeEpochMs=1786898914695], providerVersion=295e66ce-feec-467c-a7cf-6db22e473dbf, exactGatewayIdempotency=true
+Kafka + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload + Kafka destination authority E2E passed
+```
+
+This is one physical source partition and bounded production-authority
+evidence, not the V1 release gate. Exact post-run checks found no project
+containers, networks, volumes or temporary Kafka/Oxia images; the locked
+MinIO base image was retained and no global Docker prune was run.
+
+## Pulsar Gateway large-payload multi-Broker failover receipt (current source)
+
+Run the current-source combined Gateway/Oxia/Worker/MinIO failover slice with:
+
+```bash
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER=1 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-large-payload-gradle \
+PULSAR_LARGE_BROKER_1_PORT=29200 \
+PULSAR_LARGE_WEB_1_PORT=29201 \
+PULSAR_LARGE_BROKER_2_PORT=29202 \
+PULSAR_LARGE_WEB_2_PORT=29203 \
+NEREUS_DELAY_PULSAR_LARGE_OXIA_PORT=29210 \
+NEREUS_DELAY_PULSAR_LARGE_MINIO_PORT=29211 \
+NEREUS_DELAY_PULSAR_LARGE_GATEWAY_PORT=29212 \
+PULSAR_LARGE_PAYLOAD_TOPIC=nereus-delay-pulsar-large-payload-live-20260817-r1 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_DESTINATION_TOPIC=nereus-delay-pulsar-large-destination-live-20260817-r1 \
+  bash e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+The current-source receipt locks Delay to
+`f3adc8cba4c78479f2daa883f0605136dc085f50`, P1 to
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+and the isolated project to
+`nereus-delay-pulsar-large-e2e-1786898952-84840`. The receipt was:
+
+```text
+Pulsar source reactivation successor accepted: oldGeneration=2, newGeneration=3, assignmentRevision=2, ownerEpoch=2
+Pulsar Worker source-applied physical publish passed: Admission source ledger=5/0, typed PULSAR_SEND_ACK target ledger/entry=7/0, Outcome source ledger=5/1, exact payload readback
+Pulsar + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: prepare=2/2, commit=2/3, exactGatewayIdempotency=true, sourceRecords=6
+Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload multi-Broker failover E2E passed: broker-1 stopped after Gateway Commit/readback and the same source-applied physical Publish completed through broker-2
+```
+
+This is bounded two-Broker, one-physical-source-partition reactivation
+evidence. The stop is a harness action, not automatic controller/coordinator
+leader failover; Profile/Oxia credential authority, checkpoint REAPING/GC, the
+full chaos matrix and V1 release readiness remain open. Exact post-run checks
+found no P1/Oxia project containers, networks, volumes or temporary images;
+the locked MinIO base image was retained and no global Docker prune was run.
