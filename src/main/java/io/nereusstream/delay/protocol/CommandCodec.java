@@ -9,6 +9,7 @@ public final class CommandCodec {
     }
 
     public static byte[] encodeEnvelope(final PreparedCommand command) {
+        requireManagedV1Tuple(command);
         final byte[] client = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, 1);
             CanonicalProtobuf.bytes(output, 2, command.commandId().bytes());
@@ -85,7 +86,8 @@ public final class CommandCodec {
         if (!shardId.equals(messageId.routingId().shardId())) {
             throw new IllegalArgumentException("command and message route mismatch");
         }
-        return new PreparedCommand(shardId, commandId, messageId, type, retryUntil, body, hash);
+        return new PreparedCommand(shardId, commandId, messageId, type, ProtocolTupleV1.managedCommandV1(), retryUntil,
+                body, hash);
     }
 
     /** Decodes and validates the Registry-shaped Schedule/Prepare body branches. */
@@ -105,6 +107,7 @@ public final class CommandCodec {
     }
 
     private static void validateV1Body(final PreparedCommand command) {
+        requireManagedV1Tuple(command);
         switch (command.type()) {
             case SCHEDULE -> {
                 final ScheduleCommandBodyV1 body = ScheduleCommandBodyV1.decode(command.canonicalBody());
@@ -173,5 +176,11 @@ public final class CommandCodec {
     private static byte[] requireBytes(final CanonicalProtobuf.Reader.Field field, final int number) {
         requireWire(field, number, 2);
         return field.rawValue();
+    }
+
+    private static void requireManagedV1Tuple(final PreparedCommand command) {
+        if (!ProtocolTupleV1.managedCommandV1().equals(command.protocolTuple())) {
+            throw new IllegalArgumentException("CommandCodec does not downgrade an unsupported protocol tuple");
+        }
     }
 }

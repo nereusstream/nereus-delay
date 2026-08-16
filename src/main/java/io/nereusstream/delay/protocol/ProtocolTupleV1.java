@@ -27,6 +27,11 @@ public final class ProtocolTupleV1 {
         this.bodyVersion = positiveUint32(bodyVersion, "bodyVersion");
     }
 
+    /** The currently managed Client Command tuple. */
+    public static ProtocolTupleV1 managedCommandV1() {
+        return new ProtocolTupleV1(1, 1, CLIENT_COMMAND, 1, 1);
+    }
+
     public long framingVersion() {
         return framingVersion;
     }

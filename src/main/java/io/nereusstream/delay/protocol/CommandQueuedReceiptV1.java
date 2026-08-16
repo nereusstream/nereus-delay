@@ -461,6 +461,9 @@ public final class CommandQueuedReceiptV1 {
         /** Projects only a Registry-shaped command; compatibility bodies fail closed. */
         public static PreparedCommandRef from(final PreparedCommand command) {
             Objects.requireNonNull(command, "command");
+            if (!ProtocolTupleV1.managedCommandV1().equals(command.protocolTuple())) {
+                throw new IllegalArgumentException("PreparedCommandRef does not downgrade a protocol tuple");
+            }
             return new PreparedCommandRef(command.shardId(), command.commandId(), command.delayMessageId(),
                     command.type(), ProtocolTuple.managedCommandV1(), command.commandHash(),
                     command.retryUntilEpochMs(), Bytes.sha256(CommandCodec.encodeFrameV1(command)));

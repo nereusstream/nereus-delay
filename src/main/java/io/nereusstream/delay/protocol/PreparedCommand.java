@@ -10,6 +10,7 @@ public final class PreparedCommand {
     private final CommandId commandId;
     private final DelayMessageId delayMessageId;
     private final CommandType type;
+    private final ProtocolTupleV1 protocolTuple;
     private final long retryUntilEpochMs;
     private final byte[] canonicalBody;
     private final byte[] commandHash;
@@ -17,10 +18,21 @@ public final class PreparedCommand {
     public PreparedCommand(final ShardId shardId, final CommandId commandId, final DelayMessageId delayMessageId,
                            final CommandType type, final long retryUntilEpochMs, final byte[] canonicalBody,
                            final byte[] commandHash) {
+        this(shardId, commandId, delayMessageId, type, ProtocolTupleV1.managedCommandV1(), retryUntilEpochMs,
+                canonicalBody, commandHash);
+    }
+
+    public PreparedCommand(final ShardId shardId, final CommandId commandId, final DelayMessageId delayMessageId,
+                           final CommandType type, final ProtocolTupleV1 protocolTuple,
+                           final long retryUntilEpochMs, final byte[] canonicalBody, final byte[] commandHash) {
         this.shardId = Objects.requireNonNull(shardId, "shardId");
         this.commandId = Objects.requireNonNull(commandId, "commandId");
         this.delayMessageId = Objects.requireNonNull(delayMessageId, "delayMessageId");
         this.type = Objects.requireNonNull(type, "type");
+        this.protocolTuple = Objects.requireNonNull(protocolTuple, "protocolTuple");
+        if (protocolTuple.recordKind() != ProtocolTupleV1.CLIENT_COMMAND) {
+            throw new IllegalArgumentException("PreparedCommand requires a Client Command protocol tuple");
+        }
         if (!commandId.routingId().shardId().equals(shardId) || !delayMessageId.routingId().shardId().equals(shardId)) {
             throw new IllegalArgumentException("command identities do not belong to shard");
         }
@@ -30,7 +42,8 @@ public final class PreparedCommand {
         this.retryUntilEpochMs = retryUntilEpochMs;
         this.canonicalBody = Bytes.copy(Objects.requireNonNull(canonicalBody, "canonicalBody"));
         Bytes.requireLength(commandHash, 32, "commandHash");
-        final byte[] expected = CommandHash.compute(type, commandId, delayMessageId, retryUntilEpochMs, this.canonicalBody);
+        final byte[] expected = CommandHash.compute(protocolTuple, type, commandId, delayMessageId,
+                retryUntilEpochMs, this.canonicalBody);
         if (!Bytes.constantTimeEquals(expected, commandHash)) {
             throw new IllegalArgumentException("command hash mismatch");
         }
@@ -180,8 +193,17 @@ public final class PreparedCommand {
     public static PreparedCommand create(final ShardId shardId, final CommandId commandId,
                                          final DelayMessageId messageId, final CommandType type,
                                          final long retryUntilEpochMs, final byte[] body) {
-        final byte[] hash = CommandHash.compute(type, commandId, messageId, retryUntilEpochMs, body);
-        return new PreparedCommand(shardId, commandId, messageId, type, retryUntilEpochMs, body, hash);
+        return create(shardId, commandId, messageId, type, ProtocolTupleV1.managedCommandV1(), retryUntilEpochMs,
+                body);
+    }
+
+    /** Creates a command under an explicitly selected Client Command tuple. */
+    public static PreparedCommand create(final ShardId shardId, final CommandId commandId,
+                                         final DelayMessageId messageId, final CommandType type,
+                                         final ProtocolTupleV1 protocolTuple, final long retryUntilEpochMs,
+                                         final byte[] body) {
+        final byte[] hash = CommandHash.compute(protocolTuple, type, commandId, messageId, retryUntilEpochMs, body);
+        return new PreparedCommand(shardId, commandId, messageId, type, protocolTuple, retryUntilEpochMs, body, hash);
     }
 
     public ShardId shardId() {
@@ -198,6 +220,10 @@ public final class PreparedCommand {
 
     public CommandType type() {
         return type;
+    }
+
+    public ProtocolTupleV1 protocolTuple() {
+        return protocolTuple;
     }
 
     public long retryUntilEpochMs() {
@@ -219,6 +245,7 @@ public final class PreparedCommand {
         }
         return shardId.equals(that.shardId) && commandId.equals(that.commandId)
                 && delayMessageId.equals(that.delayMessageId) && type == that.type
+                && protocolTuple.equals(that.protocolTuple)
                 && retryUntilEpochMs == that.retryUntilEpochMs
                 && Arrays.equals(canonicalBody, that.canonicalBody)
                 && Arrays.equals(commandHash, that.commandHash);
@@ -226,7 +253,7 @@ public final class PreparedCommand {
 
     @Override
     public int hashCode() {
-        return Objects.hash(shardId, commandId, delayMessageId, type, retryUntilEpochMs,
+        return Objects.hash(shardId, commandId, delayMessageId, type, protocolTuple, retryUntilEpochMs,
                 Arrays.hashCode(canonicalBody), Arrays.hashCode(commandHash));
     }
 }

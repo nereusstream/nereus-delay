@@ -594,7 +594,8 @@ public final class DelayShard {
             }
             if (order == 0) {
                 final CommandDedupeRecord prior = readCommandDedupe(command.commandId());
-                if (prior != null && Bytes.constantTimeEquals(prior.commandHash(), command.commandHash())) {
+                if (prior != null && prior.protocolTuple().equals(command.protocolTuple())
+                        && Bytes.constantTimeEquals(prior.commandHash(), command.commandHash())) {
                     final PositionAudit audit = readPositionAudit(sourcePosition);
                     if (audit == null || audit.commandId() == null
                             || !audit.commandId().equals(command.commandId())) {
@@ -648,7 +649,8 @@ public final class DelayShard {
         }
         final CommandDedupeRecord prior = readCommandDedupe(command.commandId());
         if (prior != null) {
-            if (!Bytes.constantTimeEquals(prior.commandHash(), command.commandHash())) {
+            if (!prior.protocolTuple().equals(command.protocolTuple())
+                    || !Bytes.constantTimeEquals(prior.commandHash(), command.commandHash())) {
                 final CommandResult conflict = rejected(StableCode.COMMAND_ID_CONFLICT, sourcePosition, -1, 0, null);
                 persistCommandOnly(command, sourcePosition);
                 return conflict;
@@ -7924,7 +7926,7 @@ public final class DelayShard {
                 putReadyProjection(batch, projection);
             }
             batch.putValue(ColumnFamily.DEDUPE, 1, KeyCodec.dedupeCommand(command.commandId()),
-                    new CommandDedupeRecord(command.commandHash(), result).encode());
+                    new CommandDedupeRecord(command.protocolTuple(), command.commandHash(), result).encode());
             batch.putValue(ColumnFamily.DEDUPE, 2, KeyCodec.dedupeResult(command.commandId()), result.encode());
             batch.putValue(ColumnFamily.DEDUPE, DEDUPE_POSITION_VALUE_TYPE,
                     KeyCodec.dedupePosition(position.canonicalBytes()),
