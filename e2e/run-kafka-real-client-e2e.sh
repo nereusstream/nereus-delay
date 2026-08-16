@@ -509,6 +509,22 @@ start_broker_tcp_fault_proxy() {
   return 1
 }
 
+probe_broker_tcp_pre_cut_forward() {
+  local deadline=$((SECONDS + 10))
+  while (( SECONDS < deadline )); do
+    # Establish a deterministic pre-cut relay receipt before the Worker smoke;
+    # Kafka may otherwise choose Broker 2 or Broker 3 from the bootstrap list.
+    (echo > "/dev/tcp/127.0.0.1/${broker_1_port}") >/dev/null 2>&1 || true
+    if [[ -s "${broker_tcp_pre_cut_file}" ]]; then
+      return 0
+    fi
+    sleep 1
+  done
+  cat "${broker_tcp_cut_log}" >&2
+  echo "Kafka raw TCP fault proxy did not forward the deterministic pre-cut endpoint probe" >&2
+  return 1
+}
+
 probe_broker_tcp_cut_rejection() {
   local deadline=$((SECONDS + 10))
   while (( SECONDS < deadline )); do
@@ -988,6 +1004,7 @@ if [[ "${broker_tcp_cut_only}" == "1" ]]; then
   start_oxia
   broker_tcp_cut_topic="${KAFKA_DELAY_BROKER_TCP_CUT_TOPIC:-${worker_topic}-broker-tcp-cut}"
   broker_tcp_cut_group="${broker_tcp_cut_topic}-group"
+  probe_broker_tcp_pre_cut_forward
   run_worker_smoke "${bootstrap_all}" "${broker_tcp_cut_topic}" prepare
   if [[ ! -s "${broker_tcp_pre_cut_file}" ]]; then
     cat "${broker_tcp_cut_log}" >&2
