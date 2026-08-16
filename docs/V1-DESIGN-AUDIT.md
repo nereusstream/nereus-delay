@@ -9532,6 +9532,37 @@ V1 release readiness remain open. Follow-up commit
 `df2d021fc7e8c5586b062870325efa71835b6d3b` retains the explicit K2 owner
 check required by the cross-repository contract audit.
 
+## 2026-08-16 Large-payload production-authority vertical harness audit
+
+Delay commit `44657691` adds the opt-in
+`KafkaClientArtifactLargePayloadGatewaySmoke` and
+`runRealKafkaLargePayloadGatewaySmoke`. Its intended source-locked composition
+is Kafka K1 guarded source/command ingress, a real Oxia Route/Assignment/Owner
+authority, the real mTLS/RS256 Gateway network and Oxia admission/idempotency/
+audit records, the Worker source-apply path, and a versioned S3-compatible
+Object Store adapter. The positive assertions cover the source-ordered trust
+activation before the Route barrier, Gateway Prepare at the first post-barrier
+offset, Worker `RESERVED` persistence, receipt-bound upload-handle issuance,
+provider-issued immutable payload attestation, Gateway Commit, Worker
+`COMMITTED`/`SCHEDULED` persistence with the exact Object Store proof, provider
+readback, exact duplicate Prepare replay and final checkpoint/Owner release.
+
+The static receipt passed `./gradlew check` with 1540 tests, 24 skips and zero
+failures/errors, and passed the source-locked `compileRealKafka` task against
+the K1 `kafka-clients-4.4.0-SNAPSHOT.jar`. The real-service JavaExec was not
+run in this workspace because the required Kafka, Oxia, MinIO and Gateway TLS
+inputs are absent. Therefore this entry is a compile/composition receipt, not
+a live Kafka+Oxia+Gateway+Worker+MinIO PASS.
+
+The boundary is intentional. The trust activation is a real Kafka source
+record and the Worker recovers it before the barrier, but the harness uses
+`InMemoryPayloadProofTrustSetCatalog` for the exact local semantic resolver;
+production Profile/trust-catalog publication and credential authority are not
+claimed. The combined vertical ends at Worker Commit and Object Store
+readback, so the existing Kafka/Pulsar destination egress receipts remain
+separate. Multi-shard placement, Kafka response-loss/LSO/retention recovery,
+Pulsar multi-Broker failover, raw chaos and V1 release readiness remain open.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
