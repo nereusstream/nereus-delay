@@ -23,6 +23,7 @@ compose=(docker compose -p "${compose_project}" -f "${compose_file}")
 oxia_compose_file="${script_dir}/docker-compose.oxia.yml"
 oxia_compose=(docker compose -p "${oxia_project}" -f "${oxia_compose_file}")
 image="nereus-delay-pulsar-p1:${compose_project}"
+oxia_image="${oxia_project}-oxia"
 image_context="$(mktemp -d -t nereus-delay-p1-image.XXXXXX)"
 runtime_dir="$(mktemp -d -t nereus-delay-p1-runtime.XXXXXX)"
 base_port=$((19650 + ($$ % 300)))
@@ -84,6 +85,7 @@ cleanup() {
     "${oxia_compose[@]}" down --remove-orphans >/dev/null 2>&1 || true
   fi
   docker image rm "${image}" >/dev/null 2>&1 || true
+  docker image rm "${oxia_image}" >/dev/null 2>&1 || true
   rm -rf "${image_context}"
   rm -rf "${runtime_dir}"
 }
