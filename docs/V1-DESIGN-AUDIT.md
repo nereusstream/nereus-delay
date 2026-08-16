@@ -8696,6 +8696,12 @@ chaos, failover or V1 release gates.
 
 The historical bounded Pulsar Route/Worker receipt remains provenance at
 `nereus/delay-full-implementation-v1@bf858b089b927fcf65129214d8ed5a7fc5300deb`.
+Earlier source-lock provenance remains recorded for the Delay implementation
+composition at `d9b713a9159a8b2672a2b0aea5bd5243ca798c3e`, manifest-version
+readback at `87b44d77344e564b46d9c5515472a581cad733ba`, exact object-set
+deletion at `fecfd1cf7283a007efb7c8618bb8ae1f6f468bd8`, delete
+retry-convergence at `660a3d0c4d909dd02e412f0153dd9e701c27bbdd`, and prefix
+sweep receipt at `e0402eef46026c2ee91e4fe59337bb0e40cac723`.
 
 ## Final gate
 
