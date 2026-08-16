@@ -353,6 +353,8 @@ require_file_text "$kafka_checkout/clients/src/main/java/org/apache/kafka/client
     "fetchResponseBodySha256"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactSourceSmoke.java" \
     "KafkaClientArtifactRecoverySourceCursor"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactFetchResponseLossSmoke.java" \
+    "Kafka source Fetch response-loss smoke passed"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "Kafka Worker vertical smoke passed"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
@@ -569,8 +571,12 @@ require_file_text "$delay_root/e2e/README.md" \
     "BUILD SUCCESSFUL in 11s"
 require_file_text "$delay_root/build.gradle" \
     "runRealKafkaWorkerSmoke"
+require_file_text "$delay_root/build.gradle" \
+    "runRealKafkaFetchResponseLossSmoke"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "runRealKafkaWorkerSmoke"
+require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
+    "NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ONLY"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "bootstrap_survivors"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \

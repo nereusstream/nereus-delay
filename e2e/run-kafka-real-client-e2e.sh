@@ -38,6 +38,7 @@ worker_destination_response_loss="${NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPON
 worker_destination_response_loss_only="${NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS_ONLY:-0}"
 source_ack_response_loss="${NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS:-0}"
 source_ack_response_loss_only="${NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS_ONLY:-0}"
+fetch_response_loss_only="${NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ONLY:-0}"
 oxia_checkout="${NEREUS_DELAY_KAFKA_OXIA_CHECKOUT:-${delay_dir}/../../oxia}"
 oxia_port="${NEREUS_DELAY_KAFKA_OXIA_PORT:-$((16650 + ($$ % 100)))}"
 oxia_compose_project="nereus-delay-kafka-oxia-e2e-$(date +%s)-$$"
@@ -87,6 +88,10 @@ if [[ "${source_ack_response_loss}" != "0" && "${source_ack_response_loss}" != "
 fi
 if [[ "${source_ack_response_loss_only}" != "0" && "${source_ack_response_loss_only}" != "1" ]]; then
   echo "NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS_ONLY must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${fetch_response_loss_only}" != "0" && "${fetch_response_loss_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ONLY must be 0 or 1" >&2
   exit 1
 fi
 if [[ "${route_failover}" == "1" && "${with_oxia}" != "1" ]]; then
@@ -159,6 +164,13 @@ if [[ "${source_ack_response_loss_only}" == "1" && "${k2_response_loss_only}" ==
 fi
 if [[ "${source_ack_response_loss_only}" == "1" && "${worker_destination_response_loss_only}" == "1" ]]; then
   echo "Kafka Worker destination and source ACK response-loss-only modes are mutually exclusive" >&2
+  exit 1
+fi
+if [[ "${fetch_response_loss_only}" == "1" && ("${route_failover_only}" == "1"
+        || "${k2_failover_only}" == "1" || "${k2_response_loss_only}" == "1"
+        || "${worker_destination_response_loss_only}" == "1"
+        || "${source_ack_response_loss_only}" == "1") ]]; then
+  echo "Kafka Fetch response-loss-only mode is mutually exclusive with other focused modes" >&2
   exit 1
 fi
 
@@ -466,6 +478,17 @@ if [[ "${source_ack_response_loss_only}" == "1" ]]; then
   response_loss_source_topic="${KAFKA_DELAY_SOURCE_ACK_RESPONSE_LOSS_TOPIC:-${worker_topic}-source-ack-response-loss}"
   run_worker_smoke "${bootstrap_all}" "${response_loss_source_topic}" run ""
   echo "Kafka Worker source ACK response-loss E2E passed: real commitSync ACK response loss was retried on the same source record and the bounded Worker vertical completed."
+  exit 0
+fi
+
+if [[ "${fetch_response_loss_only}" == "1" ]]; then
+  fetch_response_loss_topic="${KAFKA_DELAY_FETCH_RESPONSE_LOSS_TOPIC:-${source_topic}-fetch-response-loss}"
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaFetchResponseLossSmoke \
+    -PkafkaClientJar="${client_jar}" \
+    -PkafkaBootstrap="${bootstrap_all}" \
+    -PkafkaFetchResponseLossTopic="${fetch_response_loss_topic}" \
+    --no-daemon --console=plain
+  echo "Kafka source Fetch response-loss E2E passed: real read_committed Fetch v13 response was discarded before ACK, exact source replay and LSO coverage were recovered."
   exit 0
 fi
 
