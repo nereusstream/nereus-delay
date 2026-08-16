@@ -29,7 +29,9 @@ import java.util.Set;
  * idempotent only after that exact reread.</p>
  *
  * <p>This backend deliberately does not add actor authorization or source
- * ordering; those remain required by the surrounding Control authority.</p>
+ * ordering; those remain required by the surrounding Control authority. The
+ * handle-bound constructor additionally fences every record I/O to the exact
+ * ephemeral Oxia session.</p>
  */
 public final class OxiaSyncControlTargetRegistrationBackend
         implements OxiaControlTargetRegistrationAuthority.CasBackend {
@@ -45,9 +47,24 @@ public final class OxiaSyncControlTargetRegistrationBackend
         this(new SyncRecordClient(client), keyPrefix);
     }
 
+    /** Creates a backend fenced to the exact ephemeral session of a handle. */
+    public OxiaSyncControlTargetRegistrationBackend(final OxiaSyncOwnerLeaseBackend.ClientHandle handle,
+                                                    final String keyPrefix) {
+        this(new SyncRecordClient(Objects.requireNonNull(handle, "handle").client()), keyPrefix,
+                handle.backend()::assertConnectedSession);
+    }
+
     /** Package-private constructor used by deterministic CAS tests. */
     OxiaSyncControlTargetRegistrationBackend(final RecordClient client, final String keyPrefix) {
-        this.client = Objects.requireNonNull(client, "client");
+        this(client, keyPrefix, () -> {
+        });
+    }
+
+    /** Package-private constructor used to exercise the session fence. */
+    OxiaSyncControlTargetRegistrationBackend(final RecordClient client, final String keyPrefix,
+                                             final Runnable sessionCheck) {
+        this.client = new SessionBoundRecordClient(Objects.requireNonNull(client, "client"),
+                Objects.requireNonNull(sessionCheck, "sessionCheck"));
         this.keyPrefix = canonicalKeyPrefix(keyPrefix);
     }
 
@@ -247,6 +264,51 @@ public final class OxiaSyncControlTargetRegistrationBackend
         public PutResult put(final String key, final byte[] value, final Set<PutOption> options)
                 throws UnexpectedVersionIdException, KeyAlreadyExistsException {
             return delegate.put(key, value, options);
+        }
+    }
+
+    /**
+     * Checks the caller's Oxia session around every record operation. A
+     * successful registration whose response is lost after the marker
+     * disappears is therefore never reported as recorded.
+     */
+    private static final class SessionBoundRecordClient implements RecordClient {
+        private final RecordClient delegate;
+        private final Runnable sessionCheck;
+
+        private SessionBoundRecordClient(final RecordClient delegate, final Runnable sessionCheck) {
+            this.delegate = delegate;
+            this.sessionCheck = sessionCheck;
+        }
+
+        @Override
+        public GetResult get(final String key) {
+            sessionCheck.run();
+            try {
+                final GetResult result = delegate.get(key);
+                sessionCheck.run();
+                return result;
+            } catch (RuntimeException failure) {
+                sessionCheck.run();
+                throw failure;
+            }
+        }
+
+        @Override
+        public PutResult put(final String key, final byte[] value, final Set<PutOption> options)
+                throws UnexpectedVersionIdException, KeyAlreadyExistsException {
+            sessionCheck.run();
+            try {
+                final PutResult result = delegate.put(key, value, options);
+                sessionCheck.run();
+                return result;
+            } catch (KeyAlreadyExistsException | UnexpectedVersionIdException expectedCasRace) {
+                sessionCheck.run();
+                throw expectedCasRace;
+            } catch (RuntimeException failure) {
+                sessionCheck.run();
+                throw failure;
+            }
         }
     }
 }
