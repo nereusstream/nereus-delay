@@ -42,13 +42,13 @@ class OxiaRealControlAuthoritySmokeTest {
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle client = connect(endpoint, prefix + "/client")) {
             final OxiaSyncControlOperationBackend backend =
-                    new OxiaSyncControlOperationBackend(client.client(), prefix + "/operation");
+                    new OxiaSyncControlOperationBackend(client, prefix + "/operation");
             assertEquals(ControlOperationQueryResultV1.CURRENT,
                     backend.register(receipt, initial).resultKind());
             assertEquals(ControlOperationQueryResultV1.CURRENT,
                     backend.advance(receipt, 1, next).resultKind());
             final OxiaSyncControlOperationBackend reopened =
-                    new OxiaSyncControlOperationBackend(client.client(), prefix + "/operation");
+                    new OxiaSyncControlOperationBackend(client, prefix + "/operation");
             assertEquals(next, reopened.query(receipt, 2_000).current());
         }
     }

@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -64,6 +65,27 @@ class OxiaSyncControlOperationBackendTest {
         assertEquals(ControlOperationQueryResultV1.CURRENT,
                 backend.advance(receipt, 1, next).resultKind());
         assertEquals(next, backend.query(receipt, 2_000).current());
+    }
+
+    @Test
+    void sessionFenceRejectsACommittedWriteAfterTheMarkerChanges() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final AtomicBoolean sessionAlive = new AtomicBoolean(true);
+        final OxiaSyncControlOperationBackend backend = new OxiaSyncControlOperationBackend(records, "delay/fenced",
+                () -> {
+                    if (!sessionAlive.get()) {
+                        throw new IllegalStateException("simulated Oxia session fence");
+                    }
+                });
+        final ControlOperationReceiptV1 receipt = receipt(6, 4_000);
+        final CurrentControlOperationV1 initial = current(receipt, 1, ControlOperationStateV1.PENDING);
+        records.afterPut = () -> sessionAlive.set(false);
+
+        assertThrows(IllegalStateException.class, () -> backend.register(receipt, initial));
+        assertEquals(1, records.putCount);
+
+        final OxiaSyncControlOperationBackend reopened = new OxiaSyncControlOperationBackend(records, "delay/fenced");
+        assertEquals(initial, reopened.query(receipt, 2_000).current());
     }
 
     @Test
@@ -123,6 +145,8 @@ class OxiaSyncControlOperationBackendTest {
         private long nextVersion = 1;
         private int putCount;
         private boolean failNextPutAfterCommit;
+        private Runnable afterPut = () -> {
+        };
 
         @Override
         public GetResult get(final String key) {
@@ -150,6 +174,7 @@ class OxiaSyncControlOperationBackendTest {
             final Version version = new Version(nextVersion++, 0, 0, 1, Optional.empty(), Optional.empty());
             records.put(key, new GetResult(key, Bytes.copy(value), version));
             putCount++;
+            afterPut.run();
             if (failNextPutAfterCommit) {
                 failNextPutAfterCommit = false;
                 throw new IllegalStateException("simulated response loss");

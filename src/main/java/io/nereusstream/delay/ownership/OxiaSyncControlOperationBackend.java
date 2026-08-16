@@ -27,8 +27,10 @@ import java.util.Set;
  * retry is accepted only after an exact reread of the requested successor;
  * this backend never reconstructs a target set from a partial response.</p>
  *
- * <p>Authenticated actor/scope authorization, source-ordered registration and
- * cross-record session fencing remain above this record surface.  The
+ * <p>Authenticated actor/scope authorization and source-ordered registration
+ * remain above this record surface.  The handle-bound constructor additionally
+ * fences every record I/O to the exact ephemeral Oxia session.  Cross-record
+ * transactions remain above this record surface.  The
  * {@link OxiaControlOperationAuthority} adapter validates the response
  * projection before exposing it to callers.</p>
  */
@@ -46,9 +48,24 @@ public final class OxiaSyncControlOperationBackend implements OxiaControlOperati
         this(new SyncRecordClient(client), keyPrefix);
     }
 
+    /** Creates a backend fenced to the exact ephemeral session of a handle. */
+    public OxiaSyncControlOperationBackend(final OxiaSyncOwnerLeaseBackend.ClientHandle handle,
+                                           final String keyPrefix) {
+        this(new SyncRecordClient(Objects.requireNonNull(handle, "handle").client()), keyPrefix,
+                handle.backend()::assertConnectedSession);
+    }
+
     /** Package-private constructor used by deterministic CAS tests. */
     OxiaSyncControlOperationBackend(final RecordClient client, final String keyPrefix) {
-        this.client = Objects.requireNonNull(client, "client");
+        this(client, keyPrefix, () -> {
+        });
+    }
+
+    /** Package-private constructor used to exercise the session fence. */
+    OxiaSyncControlOperationBackend(final RecordClient client, final String keyPrefix,
+                                    final Runnable sessionCheck) {
+        this.client = new SessionBoundRecordClient(Objects.requireNonNull(client, "client"),
+                Objects.requireNonNull(sessionCheck, "sessionCheck"));
         this.keyPrefix = canonicalKeyPrefix(keyPrefix);
     }
 
@@ -330,6 +347,51 @@ public final class OxiaSyncControlOperationBackend implements OxiaControlOperati
         public PutResult put(final String key, final byte[] value, final Set<PutOption> options)
                 throws UnexpectedVersionIdException, KeyAlreadyExistsException {
             return delegate.put(key, value, options);
+        }
+    }
+
+    /**
+     * Checks the caller's Oxia session around every record operation. A
+     * successful CAS whose response is lost after the marker disappears is
+     * therefore never converted into a guessed operation result.
+     */
+    private static final class SessionBoundRecordClient implements RecordClient {
+        private final RecordClient delegate;
+        private final Runnable sessionCheck;
+
+        private SessionBoundRecordClient(final RecordClient delegate, final Runnable sessionCheck) {
+            this.delegate = delegate;
+            this.sessionCheck = sessionCheck;
+        }
+
+        @Override
+        public GetResult get(final String key) {
+            sessionCheck.run();
+            try {
+                final GetResult result = delegate.get(key);
+                sessionCheck.run();
+                return result;
+            } catch (RuntimeException failure) {
+                sessionCheck.run();
+                throw failure;
+            }
+        }
+
+        @Override
+        public PutResult put(final String key, final byte[] value, final Set<PutOption> options)
+                throws UnexpectedVersionIdException, KeyAlreadyExistsException {
+            sessionCheck.run();
+            try {
+                final PutResult result = delegate.put(key, value, options);
+                sessionCheck.run();
+                return result;
+            } catch (KeyAlreadyExistsException | UnexpectedVersionIdException expectedCasRace) {
+                sessionCheck.run();
+                throw expectedCasRace;
+            } catch (RuntimeException failure) {
+                sessionCheck.run();
+                throw failure;
+            }
         }
     }
 }
