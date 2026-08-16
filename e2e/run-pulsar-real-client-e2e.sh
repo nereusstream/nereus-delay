@@ -17,6 +17,8 @@ worker_destination_response_loss="${NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPO
 worker_destination_response_loss_only="${NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS_ONLY:-0}"
 worker_admission_response_loss="${NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS:-0}"
 worker_admission_response_loss_only="${NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS_ONLY:-0}"
+worker_process_crash="${NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH:-0}"
+worker_process_crash_only="${NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_ONLY:-0}"
 multi_shard_only="${NEREUS_DELAY_PULSAR_MULTI_SHARD_ONLY:-0}"
 oxia_checkout="${NEREUS_DELAY_OXIA_CHECKOUT:-${delay_dir}/../../oxia}"
 compose_project="nereus-delay-pulsar-e2e-$(date +%s)-$$"
@@ -93,6 +95,18 @@ if [[ "${worker_admission_response_loss_only}" == "1" && "${worker_admission_res
   echo "NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS_ONLY requires NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS=1" >&2
   exit 1
 fi
+if [[ "${worker_process_crash}" != "0" && "${worker_process_crash}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${worker_process_crash_only}" != "0" && "${worker_process_crash_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_ONLY must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${worker_process_crash_only}" == "1" && "${worker_process_crash}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_ONLY requires NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH=1" >&2
+  exit 1
+fi
 if [[ "${multi_shard_only}" != "0" && "${multi_shard_only}" != "1" ]]; then
   echo "NEREUS_DELAY_PULSAR_MULTI_SHARD_ONLY must be 0 or 1" >&2
   exit 1
@@ -121,6 +135,18 @@ if [[ "${multi_shard_only}" == "1" && "${focused_response_loss_count}" != "0" ]]
   echo "NEREUS_DELAY_PULSAR_MULTI_SHARD_ONLY cannot be combined with response-loss focused mode" >&2
   exit 1
 fi
+if [[ "${worker_process_crash_only}" == "1" && "${with_oxia}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_ONLY requires NEREUS_DELAY_PULSAR_WITH_OXIA=1" >&2
+  exit 1
+fi
+if [[ "${worker_process_crash_only}" == "1" && "${focused_response_loss_count}" != "0" ]]; then
+  echo "NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_ONLY cannot be combined with response-loss focused mode" >&2
+  exit 1
+fi
+if [[ "${worker_process_crash_only}" == "1" && "${multi_shard_only}" == "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_ONLY cannot be combined with multi-shard mode" >&2
+  exit 1
+fi
 
 cleanup() {
   "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
@@ -131,6 +157,9 @@ cleanup() {
   docker image rm "${oxia_image}" >/dev/null 2>&1 || true
   rm -rf "${image_context}"
   rm -rf "${runtime_dir}"
+  if [[ -n "${worker_process_crash_dir:-}" ]]; then
+    rm -rf "${worker_process_crash_dir}"
+  fi
 }
 trap cleanup EXIT INT TERM
 
@@ -229,6 +258,7 @@ fi
 run_focused_worker_smoke() {
   local worker_topic="$1"
   local worker_destination="$2"
+  local worker_mode="${3:-run}"
   local worker_environment=(env "GRADLE_USER_HOME=${gradle_user_home}")
   local worker_gradle_args=(
     -PpulsarClientClasspath="${pulsar_client_cp}"
@@ -236,7 +266,7 @@ run_focused_worker_smoke() {
     -PpulsarServiceUrl="${service_url}"
     -PpulsarAdminUrl="${admin_url}"
     -PpulsarTopic="${worker_topic}"
-    -PpulsarWorkerMode=run
+    -PpulsarWorkerMode="${worker_mode}"
     -PpulsarWorkerDestinationTopic="${worker_destination}"
   )
   if [[ "${with_oxia}" == "1" ]]; then
@@ -269,6 +299,80 @@ if [[ "${multi_shard_only}" == "1" ]]; then
   export NEREUS_DELAY_PULSAR_ROUTE_WORKER_SHARDS=2
   run_route_worker_smoke
   echo "Pulsar native multi-shard Worker fleet E2E passed: one signed Route covered two guarded SUBSCRIBE barriers, two real Oxia Assignment/Owner Lease CAS paths admitted two native source consumers, one fair fleet applied/ACKed both partitions, and both final checkpoints/assignments were released."
+  exit 0
+fi
+
+if [[ "${worker_process_crash_only}" == "1" ]]; then
+  worker_process_crash_dir="$(mktemp -d -t nereus-delay-pulsar-worker-process-crash.XXXXXX)"
+  worker_process_crash_gate="${worker_process_crash_dir}/cut"
+  worker_process_crash_pid_file="${worker_process_crash_dir}/pid"
+  worker_process_crash_log="${worker_process_crash_dir}/crash.log"
+  worker_process_crash_resume_log="${worker_process_crash_dir}/resume.log"
+  worker_process_crash_root="${worker_process_crash_dir}/state"
+  export NEREUS_DELAY_PULSAR_WORKER_ROOT="${worker_process_crash_root}"
+  export NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_GATE="${worker_process_crash_gate}"
+  export NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_PID_FILE="${worker_process_crash_pid_file}"
+  rm -f "${worker_process_crash_gate}" "${worker_process_crash_pid_file}"
+  run_focused_worker_smoke "${topic}" "" prepare
+  set +e
+  run_focused_worker_smoke "${topic}" "" crash-wait >"${worker_process_crash_log}" 2>&1 &
+  worker_process_crash_launcher_pid=$!
+  set -e
+  crash_gate_deadline=$((SECONDS + 180))
+  while (( SECONDS < crash_gate_deadline )); do
+    if [[ -f "${worker_process_crash_gate}" && -s "${worker_process_crash_pid_file}" ]]; then
+      break
+    fi
+    if ! kill -0 "${worker_process_crash_launcher_pid}" >/dev/null 2>&1; then
+      wait "${worker_process_crash_launcher_pid}" || true
+      cat "${worker_process_crash_log}" >&2
+      echo "Pulsar Worker process-crash JVM exited before its cut gate" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  if [[ ! -f "${worker_process_crash_gate}" || ! -s "${worker_process_crash_pid_file}" ]]; then
+    cat "${worker_process_crash_log}" >&2
+    echo "Pulsar Worker process-crash JVM did not reach its cut gate" >&2
+    exit 1
+  fi
+  worker_process_pid="$(<"${worker_process_crash_pid_file}")"
+  if ! kill -0 "${worker_process_pid}" >/dev/null 2>&1; then
+    cat "${worker_process_crash_log}" >&2
+    echo "Pulsar Worker process-crash JVM PID is not alive at the cut gate" >&2
+    exit 1
+  fi
+  cat "${worker_process_crash_log}"
+  kill -KILL "${worker_process_pid}"
+  rm -f "${worker_process_crash_gate}"
+  set +e
+  wait "${worker_process_crash_launcher_pid}"
+  worker_process_crash_status=$?
+  set -e
+  worker_process_crash_launcher_pid=""
+  if [[ "${worker_process_crash_status}" == "0" ]]; then
+    echo "Pulsar Worker process-crash JVM unexpectedly returned success after SIGKILL" >&2
+    exit 1
+  fi
+  for attempt in $(seq 1 90); do
+    set +e
+    run_focused_worker_smoke "${topic}" "" resume >"${worker_process_crash_resume_log}" 2>&1
+    resume_status=$?
+    set -e
+    if [[ "${resume_status}" == "0" ]]; then
+      cat "${worker_process_crash_resume_log}"
+      break
+    fi
+    if [[ "${attempt}" == "90" ]]; then
+      cat "${worker_process_crash_resume_log}" >&2
+      echo "Pulsar Worker process-crash recovery did not reacquire the real Oxia lease" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  rg -F --quiet "Pulsar Worker vertical smoke passed" "${worker_process_crash_resume_log}" \
+    || { cat "${worker_process_crash_resume_log}" >&2; exit 1; }
+  echo "Pulsar Worker process-crash recovery E2E passed: a real Worker JVM was SIGKILLed after opening the guarded source/runtime with the next record unACKed, and a fresh JVM reopened the exact local Store, reacquired the real Oxia lease, replayed and ACKed the source record, and published the final checkpoint."
   exit 0
 fi
 

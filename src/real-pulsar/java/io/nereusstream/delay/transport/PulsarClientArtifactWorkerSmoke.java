@@ -151,13 +151,14 @@ public final class PulsarClientArtifactWorkerSmoke {
     public static void main(final String[] arguments) throws Exception {
         if (arguments.length != 3 && arguments.length != 4 && arguments.length != 5) {
             throw new IllegalArgumentException("usage: <service-url> <admin-url> <topic> "
-                    + "[run|prepare|resume] [destination-topic]");
+                    + "[run|prepare|resume|crash-wait] [destination-topic]");
         }
         final String serviceUrl = arguments[0];
         final String adminUrl = arguments[1];
         final String mode = arguments.length >= 4 ? arguments[3] : "run";
         final String destinationTopic = arguments.length == 5 && !arguments[4].isBlank() ? arguments[4] : null;
-        if (!mode.equals("run") && !mode.equals("prepare") && !mode.equals("resume")) {
+        if (!mode.equals("run") && !mode.equals("prepare") && !mode.equals("resume")
+                && !mode.equals("crash-wait")) {
             throw new IllegalArgumentException("unknown Worker smoke mode: " + mode);
         }
         final String topic = mode.equals("run") ? arguments[2] + "-worker-" + UUID.randomUUID() : arguments[2];
@@ -167,7 +168,7 @@ public final class PulsarClientArtifactWorkerSmoke {
         final HttpClient admin = HttpClient.newBuilder()
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
-        createTopic(admin, adminUrl, topic, mode.equals("resume"));
+        createTopic(admin, adminUrl, topic, mode.equals("resume") || mode.equals("crash-wait"));
         if (destinationTopic != null && !mode.equals("prepare")) {
             createTopic(admin, adminUrl, destinationTopic, false, DESTINATION_INCARNATION,
                     DESTINATION_CREATION_TIMESTAMP);
@@ -182,7 +183,8 @@ public final class PulsarClientArtifactWorkerSmoke {
                 if (mode.equals("prepare")) {
                     prepareWorkerRecord(client, physicalTopic);
                 } else {
-                    runWorker(client, physicalTopic, !mode.equals("resume"), destinationPhysicalTopic);
+                    runWorker(client, physicalTopic, mode.equals("run"), mode.equals("crash-wait"),
+                            destinationPhysicalTopic);
                 }
             }
         } finally {
@@ -204,7 +206,8 @@ public final class PulsarClientArtifactWorkerSmoke {
     }
 
     private static void runWorker(final PulsarClient client, final String physicalTopic,
-                                  final boolean seedRecovery, final String destinationPhysicalTopic)
+                                  final boolean seedRecovery, final boolean waitForProcessCrash,
+                                  final String destinationPhysicalTopic)
             throws Exception {
         final TopicResourceGuard guard = new TopicResourceGuard(CLUSTER, INCARNATION, CREATION_TIMESTAMP);
         final ShardId shard = seedRecovery ? new ShardId(RouteIncarnation.random(), 0) : restartShard(physicalTopic);
@@ -246,7 +249,7 @@ public final class PulsarClientArtifactWorkerSmoke {
             final WorkClassExecutionRegistry workClasses = workClasses();
             final KeyPair verificationKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
             final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshot(shard);
-            final Path root = Files.createTempDirectory("nereus-delay-pulsar-worker-");
+            final Path root = workerStoreRoot();
             boolean runtimeDrained = false;
             try {
                 final ShardStoreConfig storeConfig = ShardStoreConfig.defaults(root);
@@ -259,6 +262,10 @@ public final class PulsarClientArtifactWorkerSmoke {
                     final OwnerIdentityV1 ownerIdentity = new OwnerIdentityV1(bytes(16, 70), bytes(16, 71),
                             lease.ownerEpoch(), Bytes.sha256(Bytes.utf8("pulsar-worker-fencing")));
                     final OwnedDelayShard ownedShard = new OwnedDelayShard(delayShard, lease, ownerIdentity);
+
+                    if (waitForProcessCrash) {
+                        awaitWorkerProcessCrashGate(root);
+                    }
 
                     try (PulsarClientArtifactRecoverySourceCursor recovery =
                                  new PulsarClientArtifactRecoverySourceCursor(nativeConsumer, guard, assignment,
@@ -1315,6 +1322,36 @@ public final class PulsarClientArtifactWorkerSmoke {
     private static String configured(final String name, final String fallback) {
         final String value = System.getenv(name);
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private static Path workerStoreRoot() throws Exception {
+        final String configuredRoot = System.getenv("NEREUS_DELAY_PULSAR_WORKER_ROOT");
+        if (configuredRoot == null || configuredRoot.isBlank()) {
+            return Files.createTempDirectory("nereus-delay-pulsar-worker-");
+        }
+        final Path root = Path.of(configuredRoot).toAbsolutePath().normalize();
+        Files.createDirectories(root);
+        return root;
+    }
+
+    private static void awaitWorkerProcessCrashGate(final Path root) throws Exception {
+        final String gate = System.getenv("NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_GATE");
+        final String pidFile = System.getenv("NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_PID_FILE");
+        if (gate == null || gate.isBlank() || pidFile == null || pidFile.isBlank()) {
+            throw new IllegalStateException(
+                    "Pulsar Worker crash-wait requires process-crash gate and PID file paths");
+        }
+        final Path gatePath = Path.of(gate).toAbsolutePath().normalize();
+        final Path pidPath = Path.of(pidFile).toAbsolutePath().normalize();
+        Files.deleteIfExists(gatePath);
+        Files.deleteIfExists(pidPath);
+        Files.createFile(gatePath);
+        Files.writeString(pidPath, Long.toString(ProcessHandle.current().pid()));
+        System.out.println("Pulsar Worker process-crash cut reached: sourceRuntimeReady=true, "
+                + "nextSourceRecordUnacked=true, storeRoot=" + root);
+        while (Files.exists(gatePath)) {
+            Thread.sleep(50L);
+        }
     }
 
     private static io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult runUntilApplied(
