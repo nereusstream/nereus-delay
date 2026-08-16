@@ -395,6 +395,10 @@ require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Kafka Worker JVM SIGKILL recovery receipt"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "d35dce96"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Kafka Worker durable-apply-before-ACK SIGKILL receipt"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "2cfc207f"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "Kafka source Fetch response-loss audit"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
@@ -407,6 +411,8 @@ require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "Kafka Broker network-partition Worker recovery audit"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "Kafka Worker JVM SIGKILL recovery audit"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Kafka Worker durable-apply-before-ACK SIGKILL audit"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "Kafka source Fetch response-loss receipt"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
@@ -419,6 +425,8 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Kafka Broker network-partition Worker recovery receipt"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "Kafka Worker JVM SIGKILL recovery receipt"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Kafka Worker durable-apply-before-ACK SIGKILL receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "Kafka source Fetch response-loss receipt"
 require_file_text "$delay_root/e2e/README.md" \
@@ -431,6 +439,8 @@ require_file_text "$delay_root/e2e/README.md" \
     "Kafka Broker network-partition Worker recovery receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "Kafka Worker JVM SIGKILL recovery receipt"
+require_file_text "$delay_root/e2e/README.md" \
+    "Kafka Worker durable-apply-before-ACK SIGKILL recovery receipt"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "Kafka Worker vertical smoke passed"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \

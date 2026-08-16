@@ -3170,3 +3170,51 @@ packet/proxy/socket chaos, controller/coordinator leader failover,
 production multi-shard runtime or V1 release readiness. The named Compose
 containers, networks, volumes and temporary images were absent after cleanup;
 base images were retained and no global `docker prune` was run.
+
+## Kafka Worker durable-apply-before-ACK SIGKILL recovery receipt
+
+The focused ACK-boundary cut uses Delay `2cfc207f`, a real three-Broker K1
+cluster and real Oxia. The first Worker JVM opens the guarded source/runtime and
+reaches a test-only gate after its local RocksDB WriteBatch is durable but
+before Kafka `commitSync` starts. The harness sends `SIGKILL` to the exact
+recorded PID, then starts a fresh JVM against the same local Store root and
+source topic. The replacement reacquires the real Oxia lease, replays and
+deduplicates the source record, ACKs it and publishes the final checkpoint.
+
+Run command:
+
+```bash
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+NEREUS_DELAY_KAFKA_WORKER_ACK_PROCESS_CRASH_ONLY=1 \
+NEREUS_DELAY_KAFKA_OXIA_PORT=16719 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-worker-ack-process-crash-gradle-20260816 \
+KAFKA_DELAY_WORKER_ACK_PROCESS_CRASH_TOPIC=nereus-delay-worker-ack-crash-live-20260816 \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The live receipt used K1
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, projects
+`nereus-delay-kafka-e2e-1786890684-77735` /
+`nereus-delay-kafka-oxia-e2e-1786890684-77735`, ports
+`19327,19328,19329/16719`, and temporary Oxia image
+`sha256:6b8082d3b205230306c243b332a02c1c9d3ecd9c4286ae22b90743a0fc80d26c`.
+
+It reported:
+
+```text
+Kafka Worker ACK process-crash cut reached: pid=78620, storeWriteBatchDurable=true, kafkaCommitSyncStarted=false
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, and final checkpoint
+Kafka Worker authority smoke passed: real Oxia session-bound lease
+Kafka Worker ACK process-crash recovery E2E passed: the Worker Store WriteBatch was durable before SIGKILL and before Kafka commitSync ACK, and a fresh JVM replayed the exact source record through real Oxia authority, dedupe, ACK and final checkpoint.
+```
+
+This receipt is limited to the Store-durable-before-source-ACK Worker replay
+boundary. It does not prove a crash during destination publish, raw
+packet/proxy/socket chaos, controller/coordinator leader failover, production
+multi-shard runtime or V1 release readiness. The named Compose containers,
+networks, volumes and temporary images were absent after exact cleanup; base
+images were retained and no global `docker prune` was run.
