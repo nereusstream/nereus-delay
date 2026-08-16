@@ -5560,6 +5560,14 @@ sees drained local admission accounting; the healthy-lane regression
 `BoundedDestinationPublishAdapterTest.blockingDelegateCallDoesNotBlockHealthyLane`
 covers this ordering.
 
+The large-payload row also has a source-bound live vertical now: Delay
+`ca9e9623`, three real Kafka brokers, Oxia `37a17bef`, mTLS/RS256 Gateway,
+Worker source apply and versioned MinIO all passed through Gateway Prepare,
+upload/attestation and Commit, including exact duplicate idempotency and final
+Owner/Assignment release. This is one source partition and ends at Worker
+Commit/Object Store readback; combined destination egress, multi-shard
+placement, raw failure matrix and release evidence remain open.
+
 | Area | Status | Evidence |
 |---|---|---|
 | Shared Semantic Core and signed immutable RouteSnapshot | Partial (local deterministic core plus Oxia event/head-CAS authority composition; bounded Kafka and Pulsar activation/failover proofs added; production gates open) | `RouteSnapshotV1`, `DefaultDelaySemanticCore`, `InMemorySignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotPublisher`, `RouteSnapshotCompatibilityV1`, `DefaultDelayClient`, `RouteBoundSubmissionTransportPlanResolver`, `RouteSnapshotV1Test`, `DefaultDelaySemanticCoreTest`, `InMemorySignedRouteSnapshotProviderTest`, `OxiaSignedRouteSnapshotProviderTest`, `OxiaRealRouteAuthoritySmokeTest`, `KafkaClientArtifactRouteWorkerSmoke`, `PulsarClientArtifactRouteWorkerSmoke`; canonical signature/digest, contiguous replay, head CAS, notification refresh with an isolated watch client, same-incarnation immutable-drift quarantine, tenant-scoped historical resolution, explicit-refresh real Oxia publication and zero-I/O preparation are covered. Bounded real Kafka Fetch v13/LSO and Pulsar guarded SUBSCRIBE/position proofs now feed signed Route barriers, real Oxia Route publication and route-bound Worker assignment; Kafka and Pulsar now add bounded multi-Broker Worker failover, and Gateway adds a real multi-node Oxia DataServer leader-stop reread. Kafka additionally proves bounded Worker Store apply, source ACK, final local checkpoint and owner/assignment release. A bounded Oxia restart/session-rotation reset now reopens the provider notification client and resumes the next signed revision; native eligibility authority, catalog-driven multi-shard placement, package split and production cross-entry gate remain open |
@@ -5570,7 +5578,7 @@ covers this ordering.
 | Queued receipt Route-policy boundary | Implemented (local strict adapter seam; Route authority pending) | `QueuedReceiptQueryPolicy`, `PolicyBoundWireCommandIngressAdapter`, `PinnedKafkaCommandIngress`, `PinnedPulsarCommandIngress`, `PreparedSubmissionAdapter`, `EmbeddedDelayService`, `AdapterIngressTest`, `NativeSubmissionAdapterTest`; strict paths derive `receipt_query_until` from authenticated Broker persistence time with checked addition, reject missing/drifting policy snapshots before transport ownership, and retain post-persistence overflow as `ENQUEUE_UNCERTAIN`/integrity evidence; absolute-boundary overloads are compatibility-only and checked against a bound policy; Route policy publication, source-time authority and concrete production transports remain release blockers |
 | Full command-result retention boundary | Implemented (local strict query seam; retention authority pending) | `CommandResultRetentionPolicy`, `DelayClient`, `EmbeddedDelayService`, `BoundedLocalQueryProjector`, `EmbeddedDelayServiceTest.embeddedQueryDerivesFullResultRetentionFromAppliedSourceTime`, `CommandResultRetentionPolicyTest`; strict query/await/applied-receipt projections derive `full_result_retain_until` from the applied Source Position Broker persistence time with checked addition, while absolute-boundary overloads remain compatibility-only; policy publication, source-time authority and production query routing remain release blockers |
 | Strict typed Claim runtime binding | Implemented (local Message plus durable V1 command/Lane-tuple binding and public-API fence; live authority pending) | `DelayShard.claimForPublishV1`, `DelayShard.resolveClaimMaterializationV1`, `V1ScheduleBinding.requireClaimLaneProjection`, `CanonicalLaneTupleV1`, `CanonicalLaneTupleV1Test`, `DelayShardTest.physicalGcMutationPrimitivesAreNotPublicProductionApis`, `DelayShardTest.registryPrepareCannotDowngradeTrustSetAuthorityWithLegacyCommitBody`, `ClaimMaterializationRuntimeTest`; strict Claim entrypoint binds message identity, generation, delivery window, timeline `actionAt` and inline/object payload reference before persistence, then, when a `V1ScheduleBinding` exists, exactly rebinds Destination Profile, business metadata, delivery window and the original Schedule payload branch or Prepare Object Store Profile/length/SHA-256. The public materializer derives that same projection from the accepted binding, current durable Message and canonical Lane tuple, including the committed Prepare proof identity, and the Claim executor/Worker command runtime expose a derived-materialization overload. It also parses the exact durable canonical Lane tuple and requires byte-identical Destination/Capability Profiles, Kafka/Pulsar Broker target resource and physical partition; same-hash foreign Profile identities, target or partition drift are rejected before Claim state changes. The legacy byte-array primitive is package-local and reachable across packages only from the test-classpath bridge. Live Profile/credential/resource authority, Object Store fetch, Adapter serialization/size certification, channel lease, Producer ownership, Publish materialization and crash recovery remain release blockers |
-| Large-payload production-authority vertical | Partial (opt-in real-service composition is compile-verified; live receipt not run) | `KafkaClientArtifactLargePayloadGatewaySmoke`, `runRealKafkaLargePayloadGatewaySmoke`, `S3CompatiblePayloadObjectStore`, `GatewayPayloadStoreAuthority`; the harness composes real Kafka guarded source/command ingress, real Oxia Route/Assignment/Owner/Gateway records, mTLS/JWT Gateway RPCs, Worker Prepare/Commit apply, versioned S3-compatible payload upload/attestation/readback and exact Gateway idempotency. The source-ordered trust activation is a real Kafka record, while the harness's semantic trust resolver remains an exact in-memory test seam; Profile/Oxia credential-catalog authority, destination egress in this combined run, multi-shard placement, fault/chaos and release gates remain open |
+| Large-payload production-authority vertical | Partial (source-bound live Gateway/Oxia/Kafka/Worker/MinIO control/object path through Worker Commit; combined destination and release gates open) | `KafkaClientArtifactLargePayloadGatewaySmoke`, `runRealKafkaLargePayloadGatewaySmoke`, `e2e/run-large-payload-gateway-e2e.sh`, `e2e/docker-compose.large-payload.yml`, `S3CompatiblePayloadObjectStore`, `GatewayPayloadStoreAuthority`; the receipt composes three real Kafka brokers, real Oxia Route/Assignment/Owner/Gateway records, mTLS/JWT Gateway RPCs, Worker Prepare/Commit apply, versioned MinIO payload upload/attestation/readback, exact Gateway idempotency and final Owner/Assignment release. The source-ordered trust activation is a real Kafka record, while the harness's semantic trust resolver remains an exact in-memory test seam; the source topic has one partition and the final checkpoint is local. Profile/Oxia credential-catalog authority, combined Kafka/Pulsar destination egress, multi-shard placement, fault/chaos and release gates remain open |
 | Gradle Java 21 build | Implemented | `gradle compileJava`, `gradle test` |
 | Self-routing IDs and CRC32C | Implemented | `ProtocolCodecTest` |
 | `commandId + commandHash` prepared before I/O | Implemented | `PreparedCommand`, `CommandHash`, `ProtocolCodecTest` |
@@ -11446,47 +11454,59 @@ establish live read-committed/Pulsar reread authority, Broker rollout or
 failover, source/ACK integration, Worker production wiring or V1 release
 evidence.
 
-## 2026-08-16 Large-payload Gateway/Oxia/Kafka/Worker/MinIO vertical harness
+## 2026-08-16 Large-payload Gateway/Oxia/Kafka/Worker/MinIO vertical live receipt
 
-Delay commit `44657691` adds the opt-in
-`KafkaClientArtifactLargePayloadGatewaySmoke` and the Gradle task
-`runRealKafkaLargePayloadGatewaySmoke`. The harness is the first composed
-production-authority path for the large-payload control flow: a real Kafka
-topic is created with one partition and replication factor three; a
-source-ordered trust activation and a pre-route record are Fetch-read with
-guarded evidence; the Route is published and refreshed through real Oxia; the
-Worker assignment and Owner Lease are accepted through real Oxia; and the
-authenticated Gateway is started with mTLS plus RS256/JWT tenant binding.
+Delay commit `ca9e9623b082f1c7df575e7316fb806226860ee5` adds the isolated
+`e2e/run-large-payload-gateway-e2e.sh` and
+`e2e/docker-compose.large-payload.yml` harness, plus the source-set smoke
+`KafkaClientArtifactLargePayloadGatewaySmoke`. The live run creates a
+three-node KRaft Kafka cluster with one replicated source topic partition,
+publishes the source-ordered trust activation and pre-route record, verifies
+guarded Fetch evidence, publishes and refreshes the signed Route through real
+Oxia, accepts Worker Assignment and Owner Lease through real Oxia, and exposes
+the Gateway over mTLS plus RS256/JWT tenant binding.
 
-The Gateway Prepare RPC queues at the post-barrier Kafka offset and the real
-Worker applies it to a `RESERVED` reservation. The harness then issues the
-receipt-bound upload handle through Gateway, uploads a 1 MiB-plus payload to a
-versioned S3-compatible Object Store, obtains a provider-issued immutable
-attestation, and sends Commit through Gateway. The Worker applies Commit to
-`COMMITTED`/`SCHEDULED`, persists the exact Object Store version/proof
-identity, and reads the bytes back from the provider. A duplicate Prepare
-returns byte-identical Gateway response bytes without appending another Kafka
-record. The final Worker drain also requires a checkpoint and exact Oxia
-Owner/assignment release.
-
-Static verification for the slice passed:
+The source-bound command passed on 2026-08-16:
 
 ```bash
-./gradlew check --no-daemon --console=plain
-./gradlew compileRealKafka \
-  -PkafkaClientJar=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar \
-  --no-daemon --console=plain
+./e2e/run-large-payload-gateway-e2e.sh
 ```
 
-The full check passed with 1540 tests, 24 skips, zero failures and zero
-errors; `compileRealKafka` passed against the locked K1 client artifact. This
-is not a live-service PASS: the current workspace has no Kafka/Oxia/MinIO or
-Gateway TLS environment for the opt-in task, so
-`runRealKafkaLargePayloadGatewaySmoke` was not run. The harness deliberately
-keeps `InMemoryPayloadProofTrustSetCatalog` as its local semantic resolver;
-Kafka proves the source ordering and barrier of the trust activation, not a
-production Profile/trust-catalog publication transaction. The combined run
-also stops after Worker Commit and Object Store readback; Kafka/Pulsar
-destination egress remains covered by separate vertical receipts. Multi-shard
-placement, response-loss/LSO/retention recovery, chaos and the V1 release
-gates remain open.
+The receipt is locked to Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, and Delay
+`ca9e9623b082f1c7df575e7316fb806226860ee5`. It used the locked MinIO image
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z` at repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+and image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`.
+The isolated Compose project was
+`nereus-delay-large-payload-e2e-1786873193-51922`, with Kafka host ports
+`25422,25423,25424`, Oxia `26422`, MinIO `27422`, and Gateway `28422`.
+
+The run reported:
+
+```text
+Kafka + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: activationOffset=0, barrierOffset=2, prepareOffset=KafkaSourcePosition[... offset=2 ...], commitOffset=KafkaSourcePosition[... offset=3 ...], providerVersion=5777ce46-f28c-4a68-ab76-71241ab5fd43, exactGatewayIdempotency=true
+BUILD SUCCESSFUL in 11s
+```
+
+The positive path is now real through Gateway Prepare, Worker `RESERVED`,
+receipt-bound upload-handle issuance, a 1 MiB + 4 KiB payload upload to
+versioned MinIO, provider-issued immutable attestation, Gateway Commit, Worker
+`COMMITTED`/`SCHEDULED`, exact Object Store proof/readback, byte-identical
+duplicate Prepare without an extra Kafka record, final local checkpoint and
+exact Oxia Owner/Assignment release. The current receipt proves the complete
+large-payload control/object path up to Worker Commit; it does not promote the
+separate Kafka/Pulsar destination egress receipts into one combined Gateway
+destination chain.
+
+The boundary remains explicit: the source topic is one partition, the harness
+uses `InMemoryPayloadProofTrustSetCatalog` for local semantic resolution while
+the trust activation itself is source-ordered on real Kafka, and the final
+checkpoint is local rather than an Object Store checkpoint publication. Multi-
+shard placement, Kafka response-loss/LSO/retention recovery, Pulsar
+multi-Broker failover, raw crash/chaos and the V1 release gates remain open.

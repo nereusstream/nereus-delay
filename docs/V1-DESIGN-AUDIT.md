@@ -4664,6 +4664,7 @@ the guarded Broker rollout attestation remains external evidence.
 
 | 依赖 | 审计锁 |
 |---|---|
+| Delay current live large-payload authority receipt | `nereus/delay-full-implementation-v1@ca9e9623b082f1c7df575e7316fb806226860ee5` (supersedes the historical receipt row below; source-bound live three-node Kafka + real Oxia + mTLS/RS256 Gateway + Worker + versioned MinIO receipt; provider version `5777ce46-f28c-4a68-ab76-71241ab5fd43`; one source partition and local trust-catalog semantic resolution are explicit boundaries; multi-shard placement, combined destination egress, raw fault matrix and release gates remain open) |
 | Delay local implementation slice | `nereus/delay-full-implementation-v1@d9b713a9159a8b2672a2b0aea5bd5243ca798c3e` (latest runtime slice: the single-record Oxia Profile catalog requires an immutable credential-attestation trust set during publication, rotation, canonical decode/reopen and bounded lease issuance; the verified material cache now installs only exact Object Store Profile/generation/binding/reference/fingerprint values after trust-set and scope checks, returns null on miss and atomically preserves its previous snapshot on failed replacement; the renewable S3 adapter renews only inside an explicit window, rechecks the exact same Head/Binding/material fingerprint, atomically replaces the local gate after a protected lease reread and rejects Head generation rotation as a quiescence boundary; exact verifier tuple, Ed25519 signature and retained key window are checked before the existing activation composition resolves Head/Binding/Protection once, obtains private Object Store material through a resolver/cache and constructs the lease-gated S3 adapter; Provider calls do not reread Oxia unless renewal is due; it builds on the exact CAS/response-loss and real single-node Oxia Profile smoke plus the S3-compatible checkpoint adapter/local lease gate and source-bound Kafka/Pulsar physical Publish/Outcome, Gateway/Oxia response-loss, real multi-node Oxia Gateway failover and bounded Kafka/Pulsar Worker failover slices; external secret-manager resolution/source-ordered refresh, trust-set publication, secret/actor authority, source ordering, retained-generation GC, cross-record session transactions, scheduled multi-process renewal ownership, multi-node failover for this authority, provider quiescence, raw network/process cuts, production placement/eligibility and release gates remain open) |
 | Delay current implementation head | `nereus/delay-full-implementation-v1@0868119c` (current receipt head; commit `0868119c` records the Large-payload Gateway/Oxia/Kafka/Worker/MinIO vertical harness receipt; implementation source is `44657691`, predecessor current Gateway/Kafka evidence receipt is `cfc3e8f0e9ab011846badfe02f8583403419a3d8` with implementation source `df2d021fc7e8c5586b062870325efa71835b6d3b`, predecessor recovered publish evidence identity fence receipt is `435ec3a65eaf88aa34adfd319d98621b1ab12911` with implementation source `c6b6a5f9b52e8f5c358e047218ee606ea58aed3f`, predecessor Kafka client metadata identity fence receipt is `a8dcd5254fbde85a4c51d8c7b13d473859bbff5d` with implementation source `1ab1d53fa4e14235fbb510035f2afaeea1ff3605`, predecessor Pulsar managed SEND evidence identity fence receipt is `9de24f3b6333803238c7a8d032f3097275c7c8ae` with implementation source `4ed28c89f6cf9e20c12f1ee226752327f05f7953`, predecessor Gateway queued aggregate tail fence receipt is `f81c9782fbeae4d1919348e0c9fb962abd7aa5f2` with implementation source `5b4d99e39725b79ae2c1aad6de9009b8df546ab5`, predecessor Gateway attempt timing/retry shape receipt is `4515f9c9d39ed8be6faad9e43e549e919e805765` with implementation source `e0d5bc9761fea57103518819165d54eb60662b99`, predecessor Gateway active attempt tail fence receipt is `554cf4cc34131c17d83943fb985e51116eab6ccb` with implementation source `a1a85f99471743c48126943fad92fbb80ce6be34`, predecessor Gateway audit phase evidence receipt is `a4a9e63ef807b9bce6a7c9488c885564eec9a4d3` with implementation source `745da182c72af27dff09a8fb55db6cc15a4f20e3`, predecessor Gateway operation/prepared binding receipt is `1392eeab354a4cc8970c6120c7cfb8d667d5e632` with implementation source `f27800424a7cde3b8496b4fbbb4d4586cbeb07ca`, predecessor Gateway retry evidence hash binding receipt is `ee243d65028911197d3ba4f429761c436069be01` with implementation source `5e1bd9f6b3e2bcf24972e7b9ecdd78db49520734`, predecessor Gateway stored evidence binding receipt is `ac1f09af2e8d7390705d9c88c3c69287828c8628` with implementation source `380e279725e9ac5d31f98ad49ee711cd15c5b25c`, predecessor Gateway attempt projection integrity receipt is `ccbaf45ec1e74541e80c2a123c0dba63f1a111a2` with implementation source `52c6ed1c604a98b56668e510a3cf84ad364ec9cc`, predecessor Gateway prepared-expiry fence receipt is `634cc8c0c46daedfd2725ae0a27d7b6c5f7d3f0a` with implementation source `66508783f5e8230ace8bae37ff04c28dfb353653`, predecessor Gateway idempotency evidence monotonicity receipt is `2708ee9e36bd7a14d5eb6e1d0e1ff5ac895bc71c` with implementation source `b19f998ffe811d0a6dee1051491eae6c61131712`, predecessor Gateway admission lease release retry receipt is `ed612260` with implementation source `d5384b954e4d99ad291b2aea004910e1b1666ec8`, predecessor Owner connect prefix validation receipt is `c14f69247754f9702b097d7dc3b6a834453af675` with implementation source `499e8439f2fe0f1b1c1114dbfd1bb7e55a06c43c`, predecessor Guarded Pulsar transport teardown aggregation receipt is `9cf460e910f920fb275d9f66537e094014a1ae05` with implementation source `9d164037f9ba3832cd1f83846813b44de18967ab`, predecessor in-memory command transport registry teardown retry receipt is `0d7497dffe9e1af935f1102a194659ceddbe71da` with implementation source `0378e9a7585397e6f5e71a301f58c6d00835f2a0`, predecessor Worker monitor teardown retry receipt is `b577c2b53b798bc2ce857d2bd8bb01aadc29e4ea` with implementation source `2f7d9d667547380355a27517ea2c1e4941962693`, predecessor Route connect prefix validation receipt is `0864a9d86295df512f230571d713ef787439fd12` with implementation source `4da7bcf46b0ab9350adebf1f614590851a1fadd8`, predecessor Direct SDK client teardown retry receipt is `2ee753b4b01b9eb55471e8ab69de5a0e492de47f` with implementation source `677026b33bcb7aacc5e3e8b2338f4167eaf0d952`, predecessor Route client teardown retry receipt is `eae1d2195ac617eedc667fc4631eafd9fc4dbe7f` with implementation source `9f24b2f38ba4f21962bebdaa2455d7f86ba0cd1b`, predecessor Worker source close retry receipt is `c82642d68cad2fdd558e8e5ab41e8510e4a968c1` with implementation source `874fccb4fc521ad51b7954236ec5e37c1591e011`, predecessor fleet and Route resource close aggregation receipt is `2a43c78cc0bdfbc4ae319cdb971be70d065f9a77` with implementation source `eb47cb807ceb45d68a9f8db5f53ef3a7cc6ead4e`, predecessor initial Route watch recovery receipt is `aeaa87be52cafeaffaa05e6f0b646b16a3ad3e27` with implementation source `22780082d24e2011d44ead6ca62c38251a03633b`, predecessor Route provider start-retry receipt is `2ea88d5a4ee8c1d3ba283bd6eed1fb3bba549040` with implementation source `d241246eefc284fea9719c8e162afa8e2a8e4828`, predecessor Route notification reconnect receipt is `7558dcbd154f505e1c6378631c4547168b6cbb22` with implementation source `de203e4dc14de32746ce73da75381843152af922`, predecessor Route authority session-bound receipt is `8ac9c03b92b327b1c371f59cfb173d7a77f23124` with implementation source `57e466786aea596cfdbd75020e48310415da0335`, predecessor Recovery Pin wiring receipt is `4fbae7e7984262ed97949fadc9a24d44601316fb` with implementation source `f0e45cbdf6eb30d730c6678e71c4c19d34e06072`, predecessor atomic publication authority pairing receipt is `21290feae32927297b1641decc44c70ea21a492e` with implementation source `920197ad41aaa6f0b88871f5ddf631f6899a53d3`, predecessor Owner Lease session-bound receipt is `65b30118f7dc2e4729c4472d32e9c382de9cd751` with implementation source `7a76a3af61ea16bceb81cc566462c078ca8de2a5`, predecessor Worker assignment session-bound receipt is `b68bc045f1b38a89a9377d4df0a4414fffd966b9` with implementation source `cca59a92df395c11cfdda23d24bb27a8b5269cca`, predecessor Checkpoint Upload Intent session-bound receipt is `2a68c3eee6fcc2618994463972f6bfedef9b98d4` with implementation source `0a1e6020290ae6a5759d6dad7bad4f0ccd677830`, predecessor Checkpoint Publication session-bound receipt is `c6b3612d7e919f86f883c006d41f745db080a607` with implementation source `ffe0e5e15894ba377248068258444a1484bfb7f2`, predecessor Recovery Catalog session-bound receipt is `d5317749c33216877530c87721b415fb92ad7898` with implementation source `f04f58d15588662b71be68809e1a11a627baf540`, and earlier source locks remain recorded below; certified external Owner/session authority, provider quiescence attestation, REAPING/Floor/Pin/Owner authorization, source-ordered retire/delete confirmation, secret-manager resolution/source-ordered refresh, trust-set publication, secret/actor authority, catalog-driven multi-shard placement, native eligibility, production Worker authority, scheduled renewal ownership, raw chaos and release gates remain open) |
 | Delay historical source-lock anchors | Historical provenance retained but not current: Recovery Pin correction `4fbae7e7984262ed97949fadc9a24d44601316fb` / `dbe8ae91` / `f0e45cbdf6eb30d730c6678e71c4c19d34e06072`; atomic publication pairing `21290feae32927297b1641decc44c70ea21a492e` / `920197ad41aaa6f0b88871f5ddf631f6899a53d3`; Owner Lease `65b30118f7dc2e4729c4472d32e9c382de9cd751` / `7a76a3af61ea16bceb81cc566462c078ca8de2a5`; Worker assignment `b68bc045f1b38a89a9377d4df0a4414fffd966b9` / `cca59a92df395c11cfdda23d24bb27a8b5269cca`; Upload Intent `2a68c3eee6fcc2618994463972f6bfedef9b98d4` / `0a1e6020290ae6a5759d6dad7bad4f0ccd677830`; Publication `c6b3612d7e919f86f883c006d41f745db080a607` / `ffe0e5e15894ba377248068258444a1484bfb7f2`; Recovery Catalog `d5317749c33216877530c87721b415fb92ad7898` / `f04f58d15588662b71be68809e1a11a627baf540`; credential Profile `1b33f2715d700c0128f1bce6bc3fa6b2b268a8c9` / `89020c97c29f99d98f7f3259ab7b27131644adcd`; Control Target Registration `5e48d1d4aa8467a2047b86b0c5b94d2057c1c42e` / `50435a1364d2e8f7d823cc05faa18e4766f5cbd6`; Control Operation `cd1b880901a329dc4c011edafb29bbe9ba0ee111` / `cc8001b528bb9943a2f683c6ad14728c426cb8f2`; atomic Recovery Pin `58ab9cb4f83b858ab2251c51e37fd61fe39df38f` / `04976375`; Recovery Pin `d4b8f6811ed96d0ea93656c6e78ee9527ea5888f` / `dedd03a94fb2ab1e8d12f19ba993408646426578`; source-ordered GC `d3aa4dc32dcffb448e0667890cc9f8f46f9e21f7` / `b225cef9`; temporal evidence `32bfa4abec90f1857efa7390f3b0b3941c8eaf93` / `a26c6816`; composition `1c7c362213d74fe6542b17da3727b3d9f8f50088` / `70e5f0da`; provider horizon `fa9a5affa1a1ffde47a7def2a312b83849bde848` / `cc97c7654cb19f88c69045cd3c33a4d970a9fed3`; MinIO manifest `1b904a10-2104-46eb-a6fd-0bd2afe24524`; Owner proof `410d17edc81cb7885333bb9f1f728db2ece7b454` / `44cd3230709f5e87742cd94cd9a8b7bce314a184`; quiescence `065a233a48f07ee561e78d4d35fa35f82b8af0da` / `7b8b73885c5ec26dfc96c1b5b8a1a6ab8ec0d1d9`. |
@@ -9532,36 +9533,56 @@ V1 release readiness remain open. Follow-up commit
 `df2d021fc7e8c5586b062870325efa71835b6d3b` retains the explicit K2 owner
 check required by the cross-repository contract audit.
 
-## 2026-08-16 Large-payload production-authority vertical harness audit
+## 2026-08-16 Large-payload production-authority vertical live audit
 
-Delay commit `44657691` adds the opt-in
-`KafkaClientArtifactLargePayloadGatewaySmoke` and
-`runRealKafkaLargePayloadGatewaySmoke`. Its intended source-locked composition
-is Kafka K1 guarded source/command ingress, a real Oxia Route/Assignment/Owner
-authority, the real mTLS/RS256 Gateway network and Oxia admission/idempotency/
-audit records, the Worker source-apply path, and a versioned S3-compatible
-Object Store adapter. The positive assertions cover the source-ordered trust
-activation before the Route barrier, Gateway Prepare at the first post-barrier
-offset, Worker `RESERVED` persistence, receipt-bound upload-handle issuance,
-provider-issued immutable payload attestation, Gateway Commit, Worker
-`COMMITTED`/`SCHEDULED` persistence with the exact Object Store proof, provider
-readback, exact duplicate Prepare replay and final checkpoint/Owner release.
+Delay commit `ca9e9623b082f1c7df575e7316fb806226860ee5` adds the isolated
+`e2e/run-large-payload-gateway-e2e.sh` and
+`e2e/docker-compose.large-payload.yml` harness, plus the
+`KafkaClientArtifactLargePayloadGatewaySmoke` source-set smoke. The
+source-locked composition is Kafka K1 guarded source/command ingress, real
+Oxia Route/Assignment/Owner authority, a real mTLS/RS256 Gateway network with
+Oxia admission/idempotency/audit records, the Worker source-apply path, and a
+versioned MinIO Object Store.
 
-The static receipt passed `./gradlew check` with 1540 tests, 24 skips and zero
-failures/errors, and passed the source-locked `compileRealKafka` task against
-the K1 `kafka-clients-4.4.0-SNAPSHOT.jar`. The real-service JavaExec was not
-run in this workspace because the required Kafka, Oxia, MinIO and Gateway TLS
-inputs are absent. Therefore this entry is a compile/composition receipt, not
-a live Kafka+Oxia+Gateway+Worker+MinIO PASS.
+The source-bound live command passed:
 
-The boundary is intentional. The trust activation is a real Kafka source
-record and the Worker recovers it before the barrier, but the harness uses
-`InMemoryPayloadProofTrustSetCatalog` for the exact local semantic resolver;
-production Profile/trust-catalog publication and credential authority are not
-claimed. The combined vertical ends at Worker Commit and Object Store
-readback, so the existing Kafka/Pulsar destination egress receipts remain
-separate. Multi-shard placement, Kafka response-loss/LSO/retention recovery,
-Pulsar multi-Broker failover, raw chaos and V1 release readiness remain open.
+```bash
+./e2e/run-large-payload-gateway-e2e.sh
+```
+
+The receipt is locked to Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, Delay
+`ca9e9623b082f1c7df575e7316fb806226860ee5`, and locked MinIO repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+(image ID `sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`).
+The isolated Compose project was
+`nereus-delay-large-payload-e2e-1786873193-51922`, with Kafka host ports
+`25422,25423,25424`, Oxia `26422`, MinIO `27422`, and Gateway `28422`.
+
+The receipt reported `activationOffset=0`, `barrierOffset=2`, a Prepare
+`KafkaSourcePosition` at offset `2`, a Commit `KafkaSourcePosition` at offset
+`3`, provider version
+`5777ce46-f28c-4a68-ab76-71241ab5fd43`, and
+`exactGatewayIdempotency=true`, followed by `BUILD SUCCESSFUL`. The positive
+assertions cover source-ordered trust activation and guarded barrier Fetch,
+Gateway Prepare, Worker `RESERVED`, receipt-bound upload-handle issuance, a
+1 MiB + 4 KiB versioned-MinIO upload, provider-issued immutable attestation,
+Gateway Commit, Worker `COMMITTED`/`SCHEDULED`, exact Object Store
+proof/readback, byte-identical duplicate Prepare without an extra Kafka
+record, final local checkpoint and exact Oxia Owner/Assignment release.
+
+This is a live production-authority large-payload control/object path through
+Worker Commit, not a full V1 release PASS. The source topic has one partition;
+`InMemoryPayloadProofTrustSetCatalog` remains the local semantic resolver even
+though the trust activation is source-ordered on real Kafka; and the final
+checkpoint is local rather than Object Store checkpoint publication. The
+separate Kafka/Pulsar destination egress receipts remain separate. Multi-shard
+placement, Kafka response-loss/LSO/retention recovery, Pulsar multi-Broker
+failover, raw chaos and V1 release readiness remain open.
 
 ## Final gate
 
