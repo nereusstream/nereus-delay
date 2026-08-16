@@ -10310,3 +10310,30 @@ multi-Broker failover, multiple Worker processes, the raw crash/chaos matrix or
 V1 release approval. Exact post-run Docker checks found no containers,
 networks, volumes or matching temporary P1/Oxia images; reusable base images
 were retained and no global Docker prune was used.
+
+## 2026-08-17 Current-source Kafka Broker network-partition Worker recovery audit
+
+The current-source receipt locks Delay to
+`35745db08672f1bf2e3178419422a46741da20d1`, Kafka to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+and Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. The real three-Broker
+KRaft run used Kafka project `nereus-delay-kafka-e2e-1786896942-56285`,
+effective ports `19377,19378,19379`, Oxia project
+`nereus-delay-kafka-oxia-e2e-1786896942-56285` at `127.0.0.1:16761`, and source
+topic `nereus-delay-broker-network-partition-20260817`.
+
+After the guarded Worker preparation, the harness disconnected the live
+`kafka-1` container from the Compose network without stopping its process. A
+real Kafka Admin client verified survivor leaders
+`{source=2, destination=3, receipt=2}`. The same guarded source then resumed
+through `kafka-2,kafka-3`, reacquired the real Oxia session-bound authority,
+performed the source apply and commitSync ACK, released the final checkpoint,
+and reconnected `kafka-1`.
+
+This is positive evidence for the current bounded Docker-network partition and
+source-Worker recovery contract. It is not evidence for destination egress
+during the survivor window, raw packet/proxy/socket chaos, automatic
+controller/coordinator failover beyond the topic-leader check, multi-shard
+chaos completeness or V1 release approval. Exact project and image checks
+found no post-run containers, networks, volumes or matching temporary images;
+no global Docker prune was used.

@@ -3405,3 +3405,40 @@ processes, raw chaos completeness or V1 release readiness. The isolated
 Pulsar/Oxia Compose projects left no containers, networks, volumes or matching
 temporary images; reusable base images remain and no global Docker prune is
 used.
+
+## Kafka Broker network-partition Worker recovery receipt (current source)
+
+Run the current-source Kafka Broker network-partition cut with real Oxia:
+
+```bash
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+NEREUS_DELAY_KAFKA_BROKER_NETWORK_PARTITION_ONLY=1 \
+NEREUS_DELAY_KAFKA_OXIA_PORT=16761 \
+KAFKA_DELAY_BROKER_NETWORK_PARTITION_TOPIC=nereus-delay-broker-network-partition-20260817 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-network-partition-20260817 \
+GRADLE_USER_HOME=/tmp/nereus-delay-kafka-network-partition-20260817 \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+At Delay `35745db08672f1bf2e3178419422a46741da20d1`, Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`
+and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, the real three-Broker
+KRaft run disconnected live `kafka-1` from the Compose network, verified
+survivor topic leaders through the Admin API, resumed the same guarded Worker
+source through `kafka-2,kafka-3`, and reconnected `kafka-1`. The current output
+was:
+
+```text
+Kafka survivor topic leader recovery passed: leaders={nereus-delay-broker-network-partition-20260817=2, nereus-delay-worker-destination-topic=3, nereus-delay-worker-destination-topic-receipt=2}
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, and final checkpoint
+Kafka Broker network-partition recovery E2E passed: kafka-1 stayed alive but was disconnected from the Compose network after guarded Worker preparation, the same topic resumed through kafka-2/kafka-3 with real Oxia Worker authority and source apply/ACK/checkpoint, and kafka-1 reconnected afterward.
+```
+
+This is a bounded real Docker-network partition receipt for source Worker
+recovery. It does not claim destination egress during the survivor window, raw
+packet/proxy/socket chaos, controller/coordinator failover beyond the topic
+leader check, production multi-shard chaos or V1 release readiness. The exact
+Kafka project was `nereus-delay-kafka-e2e-1786896942-56285` and the exact Oxia
+project was `nereus-delay-kafka-oxia-e2e-1786896942-56285`; post-run checks
+found no containers, networks, volumes or matching temporary images, reusable
+base images were retained and no global Docker prune was used.

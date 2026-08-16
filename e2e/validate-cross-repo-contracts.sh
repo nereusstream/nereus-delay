@@ -2107,6 +2107,16 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "2026-08-17 Pulsar native multi-shard Worker fleet implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Pulsar native multi-shard Worker fleet"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "2026-08-17 Current-source Kafka Broker network-partition Worker recovery receipt"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "35745db08672f1bf2e3178419422a46741da20d1"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "2026-08-17 Current-source Kafka Broker network-partition Worker recovery audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "2026-08-17 Current Kafka Broker network-partition implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Kafka Broker network-partition Worker recovery receipt (current source)"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

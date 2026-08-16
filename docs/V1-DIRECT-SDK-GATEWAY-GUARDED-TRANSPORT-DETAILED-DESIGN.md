@@ -6815,3 +6815,27 @@ The source-bound run at Delay `c2003627` passed against Pulsar
 two-shard Worker source composition for one P1 Broker. It deliberately does
 not imply Pulsar multi-Broker failover, multiple Worker processes,
 scheduler/placement churn, raw chaos completeness or V1 release approval.
+
+## 2026-08-17 Current Kafka Broker network-partition implementation note
+
+The existing Kafka real-client runner exposes
+`NEREUS_DELAY_KAFKA_BROKER_NETWORK_PARTITION_ONLY=1` as a focused source
+recovery cut. It first opens the guarded Worker source and persists one
+record, then removes only the live `kafka-1` container's membership from the
+three-Broker Compose network. `KafkaClientArtifactSurvivorLeaderRecoverySmoke`
+uses the survivor bootstrap list and the real Admin API to verify source,
+destination and receipt topic leaders before the Worker is resumed.
+
+The resumed Worker uses the same exact source topic and real Oxia
+Assignment/Owner authority, recovers the unacknowledged record, applies it,
+commits the guarded Kafka ACK and final checkpoint, and only then does the
+runner reconnect and readiness-check `kafka-1`. The current source-bound run
+locks Delay to `35745db08672f1bf2e3178419422a46741da20d1`, K1 to
+`05849884ca81fad767fda058444d1e17c7f9cbf9` and Oxia to
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+This is deliberately a bounded Docker-network membership cut. It does not
+turn the topic-leader check into controller/coordinator failover evidence and
+does not cover physical destination publish during the partition, raw
+packet/proxy/socket injection, production multi-shard fault coverage or the
+V1 release gate.
