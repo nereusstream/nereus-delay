@@ -2872,6 +2872,43 @@ multi-shard, checkpoint REAPING, chaos or V1 release evidence. The runner's
 exact cleanup checks found no containers, images, volumes or networks for the
 isolated projects.
 
+## Route-driven multi-shard Worker placement with real Oxia
+
+The real Oxia Route/Assignment smoke also covers two Route partitions and two
+workers. It publishes partition 0 to `worker-a`, reflects that committed
+capacity before placing partition 1 on `worker-b`, rereads both exact
+assignment records through the signed Route projection, and withdraws both
+records by identity.
+
+Run it with:
+
+```bash
+NEREUS_DELAY_OXIA_E2E_PORT=16659 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-multishard-20260816 \
+  bash e2e/run-oxia-real-service.sh
+```
+
+The source-bound run was Delay `e629a404`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, project
+`nereus-delay-v1-oxia-e2e-1786887413-34183`, endpoint `127.0.0.1:16659`, and
+temporary image
+`sha256:e05630a933783a3925150ad1a1ca38869249d06a9983a6a7c4ed1e0bef98c460`.
+The test XML recorded two tests with zero skips/failures/errors:
+
+```text
+Oxia signed Route -> Worker assignment smoke passed: routeRevision=1, assignmentRevision=1, session-bound CAS
+Oxia signed Route -> multi-shard Worker placement smoke passed: routeRevision=1, shards=2, workers=2, session-bound CAS
+BUILD SUCCESSFUL in 1m 20s
+Dockerized Oxia real-service smoke passed for 37a17bef17202d5fd6e23282da5fd26d94865484
+```
+
+This is positive evidence for real Oxia Route-driven multi-shard placement and
+per-shard assignment CAS. It is not a full two-shard native Kafka/Pulsar
+Worker runtime receipt: per-shard source ownership, Owner Lease/catch-up/ACK,
+scheduler fairness, raw chaos and V1 release readiness remain open. The exact
+temporary Oxia image was removed after the run; no project container/network
+remained.
+
 ## Kafka source Fetch response-loss receipt
 
 The focused source fault mode composes the locked K1 client with a real

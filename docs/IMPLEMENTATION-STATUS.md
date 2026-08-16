@@ -11890,6 +11890,42 @@ multi-shard placement, checkpoint REAPING or V1 release evidence. Exact-name
 post-run checks found no containers, images, volumes or networks for either
 isolated Compose project.
 
+## 2026-08-16 Route-driven multi-shard Worker placement with real Oxia
+
+Delay commit `nereus/delay-full-implementation-v1@e629a404` extends the real
+Oxia Route-to-Worker assignment smoke from one partition to two Route policies
+and two independently CASed assignment records. The placement input first
+selects `worker-a` for partition 0; the second input reflects that committed
+capacity and selects `worker-b` for partition 1. Both assignments are reread
+through the signed Route projection and withdrawn by exact identity.
+
+The source-bound command was:
+
+```bash
+NEREUS_DELAY_OXIA_E2E_PORT=16659 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-multishard-20260816 \
+  bash e2e/run-oxia-real-service.sh
+```
+
+The run used Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
+`nereus-delay-v1-oxia-e2e-1786887413-34183`, host endpoint `127.0.0.1:16659`,
+and temporary build image ID
+`sha256:e05630a933783a3925150ad1a1ca38869249d06a9983a6a7c4ed1e0bef98c460`.
+The test result XML recorded two tests with zero skips/failures/errors:
+
+```text
+Oxia signed Route -> Worker assignment smoke passed: routeRevision=1, assignmentRevision=1, session-bound CAS
+Oxia signed Route -> multi-shard Worker placement smoke passed: routeRevision=1, shards=2, workers=2, session-bound CAS
+BUILD SUCCESSFUL in 1m 20s
+Dockerized Oxia real-service smoke passed for 37a17bef17202d5fd6e23282da5fd26d94865484
+```
+
+The exact temporary Oxia image was removed after the Compose trap had removed
+the container and network. This advances Route/Assignment multi-shard
+authority evidence only; it does not prove two native Kafka/Pulsar source
+consumers, per-shard Owner Lease/catch-up/ACK, production multi-shard Worker
+scheduling, raw chaos or V1 release readiness.
+
 ## 2026-08-16 Kafka source Fetch response-loss receipt
 
 Delay implementation commit

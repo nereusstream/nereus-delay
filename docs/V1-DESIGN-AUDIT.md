@@ -9946,6 +9946,29 @@ placement, checkpoint REAPING and the remaining chaos/release gates stay open.
 The runner removed its exact temporary containers, images, volumes and
 networks.
 
+## 2026-08-16 Route-driven multi-shard Worker placement audit
+
+Delay commit `e629a404` extends the real Oxia Route/Assignment smoke to two
+Route partitions and two worker candidates. The first placement consumes
+`worker-a`'s one-shard capacity; the second placement observes that committed
+capacity and selects `worker-b`. Each assignment is stored under its exact
+`ShardId`, reread through the signed Route projection and withdrawn by exact
+CAS identity.
+
+The live run used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, project
+`nereus-delay-v1-oxia-e2e-1786887413-34183`, endpoint `127.0.0.1:16659`, and
+temporary image
+`sha256:e05630a933783a3925150ad1a1ca38869249d06a9983a6a7c4ed1e0bef98c460`.
+Two tests executed with zero skips/failures/errors and emitted
+`shards=2, workers=2, session-bound CAS`. The exact temporary image was
+removed after the run.
+
+This is positive evidence for Route-driven multi-shard placement and durable
+per-shard assignment authority. It remains below a production multi-shard
+Worker PASS: native source ownership, per-shard Owner Lease/catch-up/ACK,
+shared scheduler fairness, raw failure matrix and release gates remain open.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

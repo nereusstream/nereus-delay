@@ -4957,6 +4957,40 @@ composition; it does not establish raw socket/process/Broker chaos,
 multi-Broker source reactivation, combined Gateway failover, multi-shard
 placement, checkpoint REAPING or V1 release activation.
 
+### 2026-08-16 Route-driven multi-shard Worker placement receipt
+
+Delay commit `e629a404` extends the real Oxia Route-to-Worker assignment
+composition to two Route partitions. The first placement selects `worker-a`
+with one available DB slot; the second placement consumes the reflected
+committed capacity and selects `worker-b`. The assignment authority writes one
+exact revision-CAS record per `ShardId`; the smoke rereads both through the
+signed Route projection and withdraws both exact publications.
+
+The source-bound run used:
+
+```bash
+NEREUS_DELAY_OXIA_E2E_PORT=16659 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-multishard-20260816 \
+  bash e2e/run-oxia-real-service.sh
+```
+
+It locked Oxia to
+`37a17bef17202d5fd6e23282da5fd26d94865484`, project
+`nereus-delay-v1-oxia-e2e-1786887413-34183`, endpoint `127.0.0.1:16659`, and
+temporary image
+`sha256:e05630a933783a3925150ad1a1ca38869249d06a9983a6a7c4ed1e0bef98c460`.
+The result XML recorded two executed tests with no skips/failures/errors:
+
+```text
+Oxia signed Route -> multi-shard Worker placement smoke passed: routeRevision=1, shards=2, workers=2, session-bound CAS
+BUILD SUCCESSFUL in 1m 20s
+```
+
+This closes only the Route/Assignment authority slice. It does not widen the
+accepted design into a caller-created multi-shard runtime: native source
+ownership, per-shard Owner Lease and catch-up, scheduler/Store/ACK wiring,
+multi-Broker reactivation, raw chaos and release gates remain separate.
+
 ## Kafka Worker destination response-loss receipt
 
 Run the focused Kafka Worker physical-publish cut with:
