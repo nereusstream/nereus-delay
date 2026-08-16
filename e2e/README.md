@@ -1987,3 +1987,29 @@ This receipt proves only the single-record Profile session fence; secret
 resolution, source/actor authority, retained-generation GC, cross-record
 transactions, automatic reconnect, provider rotation/quiescence, chaos and
 V1 release gates remain open.
+
+## Oxia Recovery Catalog session-bound CAS receipt
+
+Delay commit `f04f58d15588662b71be68809e1a11a627baf540` adds the
+`OxiaSyncRecoveryCatalogBackend(ClientHandle, ...)` path. It checks the exact
+connected Oxia session marker before and after every catalog read/version CAS
+write and sibling Recovery Pin read/exact-version delete. A marker change
+after a committed catalog or pin operation prevents a guessed publication,
+Floor advance or pin-release success.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.OxiaSyncRecoveryCatalogBackendTest \
+  --tests io.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
+  --no-daemon --console=plain
+```
+
+The deterministic Recovery Catalog suite passed 18 tests. The three
+real-service methods were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was not
+configured, and the full `./gradlew check --no-daemon --console=plain --quiet`
+returned 0. This receipt proves only catalog-wide single-record session
+fencing; Catalog/Pin/Upload-Intent transactionality, source ordering,
+Owner/session recovery, provider publication/deletion, chaos and V1 release
+gates remain open.

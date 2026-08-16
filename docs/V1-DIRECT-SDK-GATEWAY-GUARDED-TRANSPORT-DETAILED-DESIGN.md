@@ -5564,3 +5564,25 @@ surface. This note does not claim secret-manager resolution, source-ordered
 Profile publication, actor/target authorization, retained-generation GC,
 cross-record Owner/Route/session transactionality, automatic reconnect,
 provider rotation/quiescence, chaos or release readiness.
+
+### 2026-08-16 Oxia Recovery Catalog session-bound CAS implementation note
+
+Delay commit `f04f58d15588662b71be68809e1a11a627baf540` adds a
+`ClientHandle` constructor to `OxiaSyncRecoveryCatalogBackend`. The canonical
+catalog record and the sibling `RecoveryPinV1` record now share a session-bound
+record wrapper: every catalog `get`/version-CAS `put` and pin `get`/exact
+version `delete` checks the connected Oxia marker before and after the call.
+Response-loss handling therefore cannot reinterpret a committed catalog or pin
+operation as success after the marker changes.
+
+The deterministic regression commits a manifest, fences the session before the
+catalog put response returns, asserts failure, and reopens the exact manifest
+through the explicit unbound test seam. Eighteen Recovery Catalog tests
+passed; the three real-service methods were skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was not configured, and the full Gradle check
+returned 0.
+
+The unbound constructor remains an explicit external/test seam. This note does
+not claim Catalog/Pin/Upload-Intent transactionality, source-ordered
+activation, Owner/session recovery, immutable Object Store publication,
+provider deletion, source/evidence replay, chaos or release readiness.

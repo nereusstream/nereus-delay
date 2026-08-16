@@ -8883,6 +8883,31 @@ Profile publication, actor/target authorization, retained-generation GC,
 cross-record Owner/Route/session transactions, automatic session reconnect,
 provider rotation/quiescence, chaos evidence or V1 release readiness.
 
+## 2026-08-16 Oxia Recovery Catalog session-bound CAS audit
+
+Delay commit `f04f58d15588662b71be68809e1a11a627baf540` adds the
+session-bound `ClientHandle` constructor to `OxiaSyncRecoveryCatalogBackend`.
+Its private record wrapper checks the connected Oxia session marker before and
+after every catalog `get` and version-CAS `put`, and also wraps the sibling
+Recovery Pin `get` and exact-version `delete` operations. Catalog publication,
+scalar/typed Floor advance, read-only recovery validation, pin creation and
+pin release therefore cannot report success after the connected marker is
+absent or changed.
+
+`OxiaSyncRecoveryCatalogBackendTest.sessionFenceRejectsACommittedCatalogPublicationAfterTheMarkerChanges`
+commits the catalog snapshot in the fake service, fences the session before
+the put response returns, asserts the backend fails, and then reopens the exact
+manifest through the explicit unbound deterministic seam. The deterministic
+Recovery Catalog suite passed 18 tests, the three real-service methods were
+skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset, and the full Gradle
+check returned 0.
+
+This audit closes catalog-wide single-record I/O/session fencing only. It does
+not establish an atomic Catalog/RecoveryPin/Upload-Intent transaction,
+source-ordered activation, Owner/session recovery, immutable Object Store
+publication, provider deletion, source/evidence replay, chaos evidence or V1
+release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
