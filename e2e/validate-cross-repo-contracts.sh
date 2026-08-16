@@ -983,6 +983,8 @@ require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "Delay MinIO provider smoke slice"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "87b44d77344e564b46d9c5515472a581cad733ba"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "fecfd1cf7283a007efb7c8618bb8ae1f6f468bd8"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "MinIO S3-compatible checkpoint provider implementation note"
 require_file_text "$delay_root/e2e/README.md" \
