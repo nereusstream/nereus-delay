@@ -1530,3 +1530,44 @@ This is manifest readback evidence only. File-object version capture,
 complete version-aware checkpoint deletion, source-ordered retire/delete
 authority, Recovery Floor/Pin release, provider consistency, credential
 rotation, chaos, failover and V1 release evidence remain open.
+
+## Exact checkpoint object-set deletion receipt
+
+`CheckpointDeleteAdapter` is the direct provider boundary for deleting one
+catalog-bound checkpoint. The S3-compatible implementation preflights the
+exact manifest/resource identity and every deterministic file object's
+length/SHA-256, captures the provider version for each object, deletes the
+files by signed `versionId` and deletes the catalog-bound manifest version
+last. It requires a matching `x-amz-version-id` and nonblank
+`x-amz-request-id` on every successful DELETE, and returns aggregate request
+and response hashes only after the complete set succeeds.
+
+The focused regression is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
+  --no-daemon --console=plain
+```
+
+The locked real-provider run was:
+
+```text
+./e2e/run-minio-real-e2e.sh
+```
+
+It used container `nereus-delay-minio-e2e-1786841029-825`, endpoint
+`http://127.0.0.1:51386`, bucket
+`nereus-delay-checkpoints-1786841029-825`, MinIO image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`
+and repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The JUnit report recorded `tests=1 skipped=0 failures=0 errors=0`, system-out
+recorded manifest provider version
+`e223584d-2863-45a1-8471-9b378c0899c5`, and the harness ended with
+`BUILD SUCCESSFUL` after the post-delete restore read failed as expected.
+
+This is one locked MinIO provider's direct deletion evidence. It does not
+close `ALREADY_ABSENT` partial-reconciliation, final prefix sweeps,
+retire/Floor/Pin authorization, provider consistency/quiescence, credential
+rotation, generic provider compatibility, chaos, failover or release gates.

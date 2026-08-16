@@ -10078,3 +10078,52 @@ This closes exact catalog-version readback for the manifest object. File
 object provider-version capture, complete version-aware checkpoint deletion,
 retire/Floor/Pin authorization, provider consistency, credential rotation,
 chaos, failover and V1 release evidence remain open.
+
+## 2026-08-16 Exact checkpoint object-set deletion slice
+
+Delay commit `3bfe030a` adds `CheckpointDeleteAdapter`,
+`CheckpointDeleteRequest` and `CheckpointDeleteResult`. The S3-compatible
+adapter now validates the complete catalog-bound manifest/resource identity,
+reads and hashes every file object before any delete, captures each current
+provider version, and then issues exact-version `DELETE` requests for every
+file followed by the exact catalog-bound manifest version. A successful
+delete requires both the returned `x-amz-version-id` to equal the requested
+version and a provider `x-amz-request-id`; transport ambiguity, non-2xx
+status, missing identity headers or a response-version mismatch fail closed.
+The result retains domain-separated aggregate request-ID and response hashes
+and can project the canonical `DELETED` external evidence shape. The manifest
+is deliberately deleted last, so a preflight identity mismatch cannot remove
+any checkpoint object.
+
+The focused local regression is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
+  --no-daemon --console=plain
+```
+
+It passed with `BUILD SUCCESSFUL`; the test covers exact `versionId` paths,
+manifest-last deletion, response-version omission and post-delete restore
+failure. The full `./gradlew check --no-daemon --console=plain --quiet` also
+returned 0.
+
+The real MinIO run used container
+`nereus-delay-minio-e2e-1786841029-825`, endpoint `http://127.0.0.1:51386`,
+bucket `nereus-delay-checkpoints-1786841029-825`, the locked image
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z` at repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+and image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`.
+The JUnit report recorded `tests=1 skipped=0 failures=0 errors=0`, system-out
+recorded manifest provider version
+`e223584d-2863-45a1-8471-9b378c0899c5`, and the harness ended with
+`BUILD SUCCESSFUL` after deleting the checkpoint objects and verifying that
+the exact manifest readback no longer succeeds.
+
+This closes the bounded direct S3-compatible exact object-set delete path for
+one locked MinIO provider. It does not establish `ALREADY_ABSENT` partial-
+reconciliation, final-prefix sweeping, source-ordered retire authorization,
+Recovery Floor/Pin release, provider consistency/quiescence, credential
+rotation, generic cross-provider compatibility, chaos, failover or V1 release
+evidence.

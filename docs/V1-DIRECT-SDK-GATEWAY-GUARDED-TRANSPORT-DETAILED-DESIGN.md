@@ -5199,3 +5199,25 @@ response prerequisite for a later exact delete implementation; it does not
 itself authorize deletion, remove the complete checkpoint object set, prove
 Recovery Floor/Pin release, or close provider consistency, rotation, chaos,
 failover or release gates.
+
+### 2026-08-16 Exact checkpoint object-set deletion implementation note
+
+Delay commit `3bfe030a` adds a narrow delete adapter for a catalog-bound
+checkpoint resource. `S3CompatibleCheckpointObjectStoreAdapter.delete`
+validates the supplied manifest/resource pair, preflights the exact manifest
+version and every deterministic file object by bounded length/SHA-256, then
+deletes each captured provider version with a signed S3 `versionId` query;
+the manifest is the final delete operation. Every successful DELETE must
+return the requested `x-amz-version-id` and a nonblank
+`x-amz-request-id`. The adapter returns only a `DELETED`
+`CheckpointDeleteResult` after all operations succeed, with domain-separated
+aggregate request-ID and response hashes for the external evidence bridge.
+The local fake provider covers exact paths, manifest-last order and a missing
+delete version response; the real MinIO path exercises the same versioned
+bucket and SigV4 request shape.
+
+This is direct provider deletion evidence only. `ALREADY_ABSENT` reconciliation
+after partial deletion, final prefix sweeps, retire-intent/Floor/Pin
+authorization, provider consistency/quiescence, credential rotation,
+multi-provider behavior, chaos, failover and release gates remain external
+boundaries.

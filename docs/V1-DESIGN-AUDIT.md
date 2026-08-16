@@ -4669,6 +4669,7 @@ the guarded Broker rollout attestation remains external evidence.
 | Delay MinIO provider smoke slice | `nereus/delay-full-implementation-v1@31ba5661` (`S3CompatibleMinioRealSmokeTest` plus `e2e/run-minio-real-e2e.sh`; the harness locks the local MinIO image tag/repository digest, creates only its own temporary bucket through curl SigV4, runs the real adapter with `--rerun-tasks`, and removes only its own container; the receipt proves one MinIO endpoint's immutable checkpoint upload/idempotent retry/download path, while generic S3/provider breadth, credential authority/renewal, deletion, chaos and release gates remain open) |
 | Delay exact provider-version slice | `nereus/delay-full-implementation-v1@2981a269` (implementation `b971cd3f` makes missing `x-amz-version-id` fail closed for the mandatory exact-version Object Store Profile; the versioned MinIO receipt records provider manifest version `780f1e1f-c7da-4dc1-ae4e-a7b9be4f801c`; complete version-aware deletion, retire/Floor/Pin authority, provider consistency and release gates remain open) |
 | Delay exact manifest-version readback slice | `nereus/delay-full-implementation-v1@d7f51441` (download signs and requests the catalog-bound manifest `versionId` and rejects a different response version; the real MinIO receipt records `ac201fe8-ba70-4bcb-a49c-a75a6657be55`; complete object-set deletion and GC authority remain open) |
+| Delay exact checkpoint object-set deletion slice | `nereus/delay-full-implementation-v1@3bfe030a` (the S3-compatible adapter preflights every manifest/file identity, captures provider versions, deletes files by exact `versionId` and the catalog-bound manifest last, and requires matching delete response version plus provider request ID; the locked MinIO receipt records `e223584d-2863-45a1-8471-9b378c0899c5`; `ALREADY_ABSENT` reconciliation, final prefix sweep and retire/Floor/Pin authority remain open) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
@@ -8471,6 +8472,39 @@ object version capture, complete version-aware checkpoint deletion,
 source-ordered retire/delete authorization, Recovery Floor/Pin release,
 provider consistency, credential rotation, chaos, failover or V1 release
 readiness.
+
+## 2026-08-16 Exact checkpoint object-set deletion audit
+
+Delay commit `3bfe030a` adds the direct provider delete boundary through
+`CheckpointDeleteAdapter`, `CheckpointDeleteRequest` and
+`CheckpointDeleteResult`. Before any delete, the S3-compatible adapter
+validates the catalog-bound manifest/resource identity, fetches the exact
+manifest provider version, streams and hashes every deterministic file object,
+and records each current provider version. It then signs one exact
+`versionId` DELETE per file and deletes the manifest version last. A successful
+operation requires the provider response version to equal the requested
+version and requires a nonblank `x-amz-request-id`; aggregate request-ID and
+response hashes are retained for the canonical external delete evidence.
+Missing version headers, request IDs, transport ambiguity, non-2xx status or
+response-version drift fail closed.
+
+The focused fake-provider test covers exact version query paths,
+manifest-last ordering, complete object-set removal and an omitted delete
+version response. The locked MinIO run used container
+`nereus-delay-minio-e2e-1786841029-825`, endpoint `http://127.0.0.1:51386`,
+bucket `nereus-delay-checkpoints-1786841029-825`, image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`
+and repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+JUnit recorded `tests=1 skipped=0 failures=0 errors=0`, system-out recorded
+manifest provider version `e223584d-2863-45a1-8471-9b378c0899c5`, and the
+harness ended with `BUILD SUCCESSFUL`.
+
+This is bounded direct deletion evidence for one locked MinIO provider. It
+does not establish `ALREADY_ABSENT` reconciliation after partial deletion,
+final empty-prefix sweeping, source-ordered retire authorization, Recovery
+Floor/Pin release, provider consistency/quiescence, credential rotation,
+generic cross-provider compatibility, chaos, failover or release readiness.
 
 ## Final gate
 
