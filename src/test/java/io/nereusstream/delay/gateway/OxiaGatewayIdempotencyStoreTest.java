@@ -136,6 +136,30 @@ class OxiaGatewayIdempotencyStoreTest {
                 nonFinalStartedKey, GatewayOperationKindV1.SCHEDULE, new Digest32(bytes(32, 35)),
                 prepared.canonicalBytes(), GatewayIdempotencyPhaseV1.ACTIVE,
                 List.of(nonFinalStarted, laterUncertainAttempt), laterUncertain.canonicalBytes(), 100, 200, 3));
+
+        final Digest32 queuedTailKey = new Digest32(bytes(32, 43));
+        final PhysicalEnqueueAttemptId queuedTailFirstId = PhysicalEnqueueAttemptId.require(bytes(16, 44));
+        final PhysicalEnqueueAttemptId queuedTailSecondId = PhysicalEnqueueAttemptId.require(bytes(16, 45));
+        final PhysicalEnqueueAttemptId queuedTailRetryId = PhysicalEnqueueAttemptId.require(bytes(16, 46));
+        final SubmissionOutcomeMessageV1 queuedTailUncertain = GatewayOutcomeSupport.uncertain(prepared,
+                queuedTailFirstId);
+        final SubmissionOutcomeMessageV1 queuedTailQueued = queued(prepared, queuedTailSecondId);
+        final GatewayPhysicalAttemptV1 queuedTailFirst = new GatewayPhysicalAttemptV1(1, queuedTailFirstId,
+                GatewayPhysicalAttemptStateV1.UNCERTAIN, queuedTailUncertain.canonicalBytes(), 100, 120, 2, 110);
+        final GatewayPhysicalAttemptV1 queuedTailSecond = new GatewayPhysicalAttemptV1(2, queuedTailSecondId,
+                GatewayPhysicalAttemptStateV1.QUEUED, queuedTailQueued.canonicalBytes(), 121, 140,
+                queuedTailRetryId, GatewayIdempotencyHashV1.retryRequestHash(queuedTailKey, queuedTailFirstId,
+                        queuedTailRetryId), 3, 130);
+        final GatewayPhysicalAttemptV1 queuedTailStarted = new GatewayPhysicalAttemptV1(3,
+                PhysicalEnqueueAttemptId.require(bytes(16, 47)), GatewayPhysicalAttemptStateV1.STARTED, null,
+                141, 160, PhysicalEnqueueAttemptId.require(bytes(16, 48)),
+                GatewayIdempotencyHashV1.retryRequestHash(queuedTailKey, queuedTailFirstId,
+                        PhysicalEnqueueAttemptId.require(bytes(16, 48))), 4, 150);
+        assertThrows(IllegalArgumentException.class, () -> new GatewayIdempotencyRecordV1(
+                queuedTailKey, GatewayOperationKindV1.SCHEDULE, new Digest32(bytes(32, 49)),
+                prepared.canonicalBytes(), GatewayIdempotencyPhaseV1.ACTIVE,
+                List.of(queuedTailFirst, queuedTailSecond, queuedTailStarted), queuedTailQueued.canonicalBytes(),
+                100, 200, 4));
     }
 
     @Test

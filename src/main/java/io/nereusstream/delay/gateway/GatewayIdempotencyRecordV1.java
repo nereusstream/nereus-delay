@@ -373,10 +373,14 @@ public final class GatewayIdempotencyRecordV1 {
         final Set<PhysicalEnqueueAttemptId> retryIds = new HashSet<>();
         boolean hasStarted = false;
         int startedCount = 0;
+        boolean queuedSeen = false;
         for (int index = 0; index < attempts.size(); index++) {
             final GatewayPhysicalAttemptV1 attempt = attempts.get(index);
             if (attempt.attemptNo() != index + 1) {
                 throw new IllegalArgumentException("Gateway attempts are not source ordered");
+            }
+            if (queuedSeen) {
+                throw new IllegalArgumentException("Gateway queued attempt must be the final attempt");
             }
             if (!physicalIds.add(attempt.physicalAttemptId())) {
                 throw new IllegalArgumentException("Gateway physical attempt identity is duplicated");
@@ -390,6 +394,9 @@ public final class GatewayIdempotencyRecordV1 {
                     throw new IllegalArgumentException("Gateway STARTED attempt must be the final attempt");
                 }
                 hasStarted = true;
+            }
+            if (attempt.state() == GatewayPhysicalAttemptStateV1.QUEUED) {
+                queuedSeen = true;
             }
         }
         if (startedCount > 1) {
