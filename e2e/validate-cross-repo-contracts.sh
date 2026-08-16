@@ -1280,7 +1280,7 @@ require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSes
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSessionBoundRecoveryPinStore.java" \
     "DeleteOption.IfVersionIdEquals"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackend.java" \
-    "new OxiaSessionBoundRecoveryPinStore(client, canonicalPrefix + PIN_SUFFIX)"
+    "new OxiaSessionBoundRecoveryPinStore(this.client, canonicalPrefix + PIN_SUFFIX)"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackendTest.java" \
     "recoveryPinUsesAnEphemeralSingletonCasAndExactRereadRelease"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackendTest.java" \
