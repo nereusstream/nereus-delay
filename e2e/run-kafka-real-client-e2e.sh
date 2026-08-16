@@ -40,6 +40,7 @@ source_ack_response_loss="${NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS:-0}"
 source_ack_response_loss_only="${NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS_ONLY:-0}"
 fetch_response_loss_only="${NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ONLY:-0}"
 retention_floor_only="${NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ONLY:-0}"
+process_crash_only="${NEREUS_DELAY_KAFKA_PROCESS_CRASH_ONLY:-0}"
 oxia_checkout="${NEREUS_DELAY_KAFKA_OXIA_CHECKOUT:-${delay_dir}/../../oxia}"
 oxia_port="${NEREUS_DELAY_KAFKA_OXIA_PORT:-$((16650 + ($$ % 100)))}"
 oxia_compose_project="nereus-delay-kafka-oxia-e2e-$(date +%s)-$$"
@@ -97,6 +98,10 @@ if [[ "${fetch_response_loss_only}" != "0" && "${fetch_response_loss_only}" != "
 fi
 if [[ "${retention_floor_only}" != "0" && "${retention_floor_only}" != "1" ]]; then
   echo "NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ONLY must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${process_crash_only}" != "0" && "${process_crash_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_PROCESS_CRASH_ONLY must be 0 or 1" >&2
   exit 1
 fi
 if [[ "${route_failover}" == "1" && "${with_oxia}" != "1" ]]; then
@@ -186,6 +191,15 @@ if [[ "${retention_floor_only}" == "1" && ("${route_failover_only}" == "1"
   echo "Kafka retention-floor-only mode is mutually exclusive with other focused modes" >&2
   exit 1
 fi
+if [[ "${process_crash_only}" == "1" && ("${route_failover_only}" == "1"
+        || "${k2_failover_only}" == "1" || "${k2_response_loss_only}" == "1"
+        || "${worker_destination_response_loss_only}" == "1"
+        || "${source_ack_response_loss_only}" == "1"
+        || "${fetch_response_loss_only}" == "1"
+        || "${retention_floor_only}" == "1") ]]; then
+  echo "Kafka process-crash-only mode is mutually exclusive with other focused modes" >&2
+  exit 1
+fi
 
 if [[ "${worker_destination_response_loss}" == "1" ]]; then
   export NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS=1
@@ -202,6 +216,8 @@ k2_failover_gate="${k2_failover_dir}/release"
 k2_failover_ready="${k2_failover_dir}/ready"
 k2_failover_log="${k2_failover_dir}/k2.log"
 k2_failover_pid=""
+process_crash_dir="$(mktemp -d -t nereus-delay-kafka-process-crash.XXXXXX)"
+process_crash_log="${process_crash_dir}/crash.log"
 
 cleanup() {
   if [[ -n "${k2_failover_pid}" ]]; then
@@ -216,6 +232,7 @@ cleanup() {
   rm -rf "${image_context}"
   rm -rf "${route_failover_dir}"
   rm -rf "${k2_failover_dir}"
+  rm -rf "${process_crash_dir}"
 }
 trap cleanup EXIT INT TERM
 
@@ -516,6 +533,37 @@ if [[ "${retention_floor_only}" == "1" ]]; then
     -PkafkaRetentionFloorTopic="${retention_floor_topic}" \
     --no-daemon --console=plain
   echo "Kafka source retention-floor E2E passed: real Broker retention advanced the earliest offset, stale source offset was rejected, and the current floor remained readable through guarded Fetch v13 with LSO."
+  exit 0
+fi
+
+if [[ "${process_crash_only}" == "1" ]]; then
+  process_crash_topic="${KAFKA_DELAY_PROCESS_CRASH_TOPIC:-${source_topic}-process-crash}"
+  set +e
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaProcessCrashRecoverySmoke \
+    -PkafkaClientJar="${client_jar}" \
+    -PkafkaBootstrap="${bootstrap_all}" \
+    -PkafkaProcessCrashTopic="${process_crash_topic}" \
+    -PkafkaProcessCrashMode=crash \
+    --no-daemon --console=plain >"${process_crash_log}" 2>&1
+  crash_status=$?
+  set -e
+  if [[ "${crash_status}" == "0" ]]; then
+    cat "${process_crash_log}" >&2
+    echo "Kafka process-crash cut unexpectedly returned success" >&2
+    exit 1
+  fi
+  rg -F --quiet "exit value 86" "${process_crash_log}" \
+    || { cat "${process_crash_log}" >&2; echo "Kafka process-crash cut did not halt with exit 86" >&2; exit 1; }
+  rg -F --quiet "Kafka source process-crash cut reached" "${process_crash_log}" \
+    || { cat "${process_crash_log}" >&2; exit 1; }
+  rg -F "Kafka source process-crash cut reached" "${process_crash_log}"
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaProcessCrashRecoverySmoke \
+    -PkafkaClientJar="${client_jar}" \
+    -PkafkaBootstrap="${bootstrap_all}" \
+    -PkafkaProcessCrashTopic="${process_crash_topic}" \
+    -PkafkaProcessCrashMode=resume \
+    --no-daemon --console=plain
+  echo "Kafka source process-crash recovery E2E passed: the crashed JVM fetched exact guarded records without ACK, and a fresh same-group process replayed offsets 0 and 1 before committing offset 2."
   exit 0
 fi
 

@@ -357,6 +357,8 @@ require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transpo
     "Kafka source Fetch response-loss smoke passed"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactRetentionFloorSmoke.java" \
     "Kafka source retention-floor smoke passed"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactProcessCrashRecoverySmoke.java" \
+    "Kafka source process-crash recovery smoke passed"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Kafka source Fetch response-loss receipt"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
@@ -365,18 +367,26 @@ require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Kafka source retention-floor receipt"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "nereus-delay-kafka-e2e-1786880647-45643"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Kafka source process-crash recovery receipt"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "Kafka source Fetch response-loss audit"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "Kafka source retention-floor audit"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Kafka source process-crash recovery audit"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "Kafka source Fetch response-loss receipt"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "Kafka source retention-floor receipt"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Kafka source process-crash recovery receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "Kafka source Fetch response-loss receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "Kafka source retention-floor receipt"
+require_file_text "$delay_root/e2e/README.md" \
+    "Kafka source process-crash recovery receipt"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "Kafka Worker vertical smoke passed"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
@@ -597,12 +607,16 @@ require_file_text "$delay_root/build.gradle" \
     "runRealKafkaFetchResponseLossSmoke"
 require_file_text "$delay_root/build.gradle" \
     "runRealKafkaRetentionFloorSmoke"
+require_file_text "$delay_root/build.gradle" \
+    "runRealKafkaProcessCrashRecoverySmoke"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "runRealKafkaWorkerSmoke"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ONLY"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ONLY"
+require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
+    "NEREUS_DELAY_KAFKA_PROCESS_CRASH_ONLY"
 require_file_text "$delay_root/e2e/docker-compose.kafka.yml" \
     "KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS"
 require_file_text "$delay_root/e2e/kafka-k1-entrypoint.sh" \

@@ -172,6 +172,25 @@ tasks.register('runRealKafkaRetentionFloorSmoke', JavaExec) {
     args findProperty('kafkaBootstrap'), findProperty('kafkaRetentionFloorTopic')
 }
 
+tasks.register('runRealKafkaProcessCrashRecoverySmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the Kafka process-crash source replay and same-group recovery smoke.'
+    dependsOn tasks.named('compileRealKafka')
+    if (realKafkaClientJar == null || findProperty('kafkaBootstrap') == null
+            || findProperty('kafkaProcessCrashTopic') == null || findProperty('kafkaProcessCrashMode') == null) {
+        doFirst {
+            throw new GradleException(
+                    'runRealKafkaProcessCrashRecoverySmoke requires -PkafkaClientJar=... '
+                            + '-PkafkaBootstrap=host:port -PkafkaProcessCrashTopic=name '
+                            + '-PkafkaProcessCrashMode=crash|resume')
+        }
+    }
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactProcessCrashRecoverySmoke'
+    args findProperty('kafkaBootstrap'), findProperty('kafkaProcessCrashTopic'),
+            findProperty('kafkaProcessCrashMode')
+}
+
 tasks.register('runRealKafkaMutationSmoke', JavaExec) {
     group = 'verification'
     description = 'Runs guarded signed System Mutation append/replay/ACK against an explicitly supplied broker.'
