@@ -146,7 +146,8 @@ NEREUS_DELAY_MINIO_REGION="$minio_region" \
 GRADLE_USER_HOME="$gradle_user_home" \
     "$delay_root/gradlew" test \
         --tests io.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.workerCheckpointRuntimePublishesToRealMinioAndOxia \
+        --tests io.nereusstream.delay.store.OxiaRealCheckpointReapingSmokeTest.realOxiaOwnerAbandonmentReapsExactMinioCheckpointPrefix \
         --rerun-tasks \
         --no-daemon --console=plain
 
-echo "Oxia + MinIO Worker checkpoint publication E2E passed: real Oxia Intent/Catalog authority and real MinIO immutable objects"
+echo "Oxia + MinIO Worker checkpoint publication and REAPING E2E passed: real Oxia Intent/Catalog/Owner authority and real MinIO immutable objects"
