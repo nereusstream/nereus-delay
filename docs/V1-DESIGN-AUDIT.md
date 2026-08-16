@@ -11173,3 +11173,36 @@ source-ordered activation projection or `DelayShard` application was added;
 there is no new activation metadata key, eligible-reader assignment,
 writer-before-reader cutover, downgrade path, or release artifact. Gate 8
 therefore remains `PARTIAL`, and the V1 release result remains `NOT READY`.
+
+## 2026-08-17 Current-source Pulsar large-payload Broker process-crash failover audit
+
+The current-source receipt locks Delay to
+`5c74666bcf1dd669aa9d3b78d5f6cb1da8eb395b`, P1 to
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1
+distribution SHA-256 to
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1 image
+to `sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`, and MinIO to the locked
+digest `sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The exact Compose project was `nereus-delay-pulsar-large-e2e-1786911615-56592`
+on Pulsar `30830/30831,30832/30833`, Oxia `30840`, MinIO `30841`, and Gateway
+`30842`.
+
+Audit result: PASS for the bounded current-source Gateway-authority large
+payload Broker process-crash failover slice. After Gateway Commit/readback,
+Broker-1 was externally `SIGKILL`ed. Broker-2 then completed the same
+source-applied physical Publish with typed `PULSAR_SEND_ACK`, exact payload
+readback and MinIO-backed checkpoint; Broker-1 rejoined afterward:
+
+```text
+Pulsar Worker source-applied physical publish passed: Admission source ledger=2/4, typed PULSAR_SEND_ACK target ledger/entry=6/0, Outcome source ledger=2/5, exact payload readback
+Pulsar + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: prepare=2/2, commit=2/3, exactGatewayIdempotency=true, sourceRecords=6
+Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload Broker process-crash failover E2E passed: broker-1 was SIGKILLed after Gateway Commit/readback, the same source-applied physical Publish completed through broker-2, and broker-1 rejoined afterward
+BUILD SUCCESSFUL in 1m 14s
+```
+
+The runner's exact cleanup removed the project containers, networks, volumes,
+temporary P1/Oxia images and staging directories. The locked MinIO base image
+was retained. This receipt does not establish raw socket loss, BookKeeper or
+controller failover, multi-shard large-payload placement, REAPING, soak,
+benchmark/capacity evidence, the full chaos matrix or V1 release readiness.
