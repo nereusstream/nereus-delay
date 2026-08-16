@@ -14800,3 +14800,57 @@ remains `PARTIAL`, and V1 remains `NOT READY`. Controller/coordinator/storage
 failover, long GC/half-open/ENOSPC/fsync/SST, Oxia session expiry, Object Store
 5xx/timeout/config drift, target isolation, multi-shard placement, benchmark,
 soak, authenticated activation/cutover and rollout proof remain open.
+
+## 2026-08-17 Current-source Object Store ambiguous PUT fault slice
+
+Delay source `5b64004b6a4fe2b07ac67b504be05cd57b10b2e2` now treats an S3/S3-compatible
+conditional PUT HTTP 5xx as an ambiguous provider result. The adapter performs
+an exact immutable GET before deciding the local outcome: a matching object
+resolves to the provider version and continues the same upload; a missing
+object rethrows the original 5xx, retains the partial immutable objects for
+the exact Upload Intent/reaping path, and closes local provider ownership with
+the configured uncertainty horizon. Transport timeout/response-loss uses the
+same read-back boundary. Endpoint and credential-scope drift remains rejected
+before the first HTTP request.
+
+The focused command was:
+
+```bash
+GRADLE_USER_HOME=/tmp/nereus-delay-object-store-faults-20260817-r1 \
+  ./gradlew test \
+    --tests io.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
+    --no-daemon --console=plain
+```
+
+All 12 tests passed with `BUILD SUCCESSFUL in 1m`, including 503-after-commit
+read-back, 503-before-commit fail-closed/uncertainty, timeout-after-commit
+read-back, response-loss, exact-version delete/reaping, immutable conflict and
+Profile endpoint/credential drift. The same source then passed the full
+`./gradlew check --no-daemon --console=plain --quiet` and
+`bash e2e/validate-cross-repo-contracts.sh`; the audit retained Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+After the adapter change, the real normal-path Oxia + MinIO checkpoint harness
+also passed all three selected real-service tests with `BUILD SUCCESSFUL in
+1m 13s`: Worker checkpoint publication, checkpoint REAPING and credential
+renewal. It used project
+`nereus-delay-oxia-minio-checkpoint-e2e-1786923070-2608`, Oxia port `31610`,
+MinIO port `31611`, bucket `nereus-delay-checkpoints-1786923070-2608`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and MinIO
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The runner removed the exact project container/network/volume and temporary
+Oxia image; postchecks found no matching resources or dangling images. The
+related retained images are only the locked Oxia base
+`nereus/oxia-o1:37a17bef1720` (local ID `sha256:5aa715e4f190`) and the locked
+MinIO base (local ID `sha256:8f08aee61480`). No global Docker prune or unrelated
+image deletion was performed.
+
+This slice proves the adapter's local 5xx/timeout/config-drift semantics and a
+post-change real-provider regression. It does not yet inject 5xx/timeout or
+credential/config failure into a real MinIO data-plane during a Worker
+publication, and therefore does not close the production Object Store fault
+matrix or promote Gates 2/3/10 or V1 release readiness. Those external fault
+cells, target isolation, the remaining §23.3 cuts, benchmark/soak and release
+proof remain open.

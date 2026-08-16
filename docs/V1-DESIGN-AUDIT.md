@@ -11835,3 +11835,38 @@ activation/cutover or rollout proof. Gates 2, 3 and 10 remain `PARTIAL`; Gates
 Final Docker inspection found no exact-project containers, networks, volumes or
 temporary broker/Oxia images. Only the locked Oxia and MinIO bases remain; no
 global Docker prune or unrelated image deletion was performed.
+
+## 2026-08-17 Current-source Object Store ambiguous PUT fault audit
+
+Audit result: PASS for the local adapter fault-semantics slice at Delay
+`5b64004b6a4fe2b07ac67b504be05cd57b10b2e2`. A conditional PUT receiving HTTP
+5xx is now treated as potentially committed: exact immutable GET read-back
+resolves the same object/version when present. When the object is absent, the
+original 5xx remains a fail-closed failure, partial objects remain available
+to the exact Upload Intent/reaping path, and local provider ownership retains
+its uncertainty horizon. Timeout/response-loss follows the same ambiguous
+read-back branch; endpoint and credential-scope drift is rejected before HTTP.
+
+The focused `S3CompatibleCheckpointObjectStoreAdapterTest` run passed all 12
+tests. It covers 503-after-commit, 503-before-commit, timeout-after-commit,
+response-loss, exact-version delete/reaping, immutable conflict and Profile
+drift. The source also passed full Gradle `check` and the cross-repository
+contract audit with K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The post-change real-provider regression passed the three selected Oxia +
+MinIO tests (`BUILD SUCCESSFUL in 1m 13s`) in project
+`nereus-delay-oxia-minio-checkpoint-e2e-1786923070-2608`, using ports
+`31610/31611`, MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`,
+and the same Oxia source lock. Exact cleanup found no project resource,
+temporary Oxia image or dangling image; only the locked Oxia/MinIO bases were
+retained.
+
+This audit is intentionally bounded. The fake provider's 5xx/timeout cells are
+local deterministic fault injection, while the real MinIO run is a normal-path
+regression. No production Worker run has yet injected a real MinIO 5xx/timeout
+or credential/config failure, so Object Store external fault authority remains
+open. Gates 2, 3 and 10 remain `PARTIAL`; Gates 5, 6, 7 and 9 remain `OPEN`;
+Gate 8 remains `PARTIAL`; V1 remains `NOT READY`.

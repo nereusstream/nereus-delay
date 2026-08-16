@@ -4737,3 +4737,45 @@ and the locked MinIO base (local ID
 No global Docker prune or unrelated image deletion was performed. These are
 bounded one-physical-partition failover receipts, not controller/coordinator/
 BookKeeper storage failover, full §23.3 completion or V1 release approval.
+
+## Current-source Object Store ambiguous PUT fault slice
+
+The adapter's deterministic fault boundary can be run without Docker:
+
+```bash
+GRADLE_USER_HOME=/tmp/nereus-delay-object-store-faults-20260817-r1 \
+  ./gradlew test \
+    --tests io.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
+    --no-daemon --console=plain
+```
+
+At Delay `5b64004b6a4fe2b07ac67b504be05cd57b10b2e2`, all 12 tests passed. The
+fake S3 provider injects a 503 after storing the exact object, a 503 before
+storing it, and a response timeout after storing it. The adapter exact-reads
+the object before resolving a 5xx/timeout; an absent object remains a failure
+with local uncertainty and no invented success. The same test class retains
+the endpoint/credential-scope drift-before-HTTP assertion.
+
+For post-change real-provider regression, use the normal Oxia + MinIO runner:
+
+```bash
+NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia \
+NEREUS_DELAY_OXIA_CHECKPOINT_E2E_PORT=31610 \
+NEREUS_DELAY_MINIO_CHECKPOINT_E2E_PORT=31611 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-minio-fault-regression-20260817-r1 \
+  bash e2e/run-oxia-minio-checkpoint-e2e.sh
+```
+
+The current run used project
+`nereus-delay-oxia-minio-checkpoint-e2e-1786923070-2608`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, and MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The three selected real-service tests passed in `1m 13s`; exact postchecks
+found no project resources, temporary Oxia image or dangling image. Only the
+locked Oxia and MinIO base images were retained, and no global Docker prune or
+unrelated image deletion was used.
+
+The local tests are not a real MinIO fault-injection receipt. A production
+Worker run with real MinIO 5xx/timeout or credential/config failure injection
+is still required before closing that §23.3/Object Store authority cell or
+the V1 release gate.
