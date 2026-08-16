@@ -191,6 +191,23 @@ tasks.register('runRealKafkaProcessCrashRecoverySmoke', JavaExec) {
             findProperty('kafkaProcessCrashMode')
 }
 
+tasks.register('runRealKafkaSurvivorLeaderRecoverySmoke', JavaExec) {
+    group = 'verification'
+    description = 'Waits for real survivor Brokers to elect topic leaders after a Broker network partition.'
+    dependsOn tasks.named('compileRealKafka')
+    if (realKafkaClientJar == null || findProperty('kafkaBootstrap') == null
+            || findProperty('kafkaSurvivorTopics') == null) {
+        doFirst {
+            throw new GradleException(
+                    'runRealKafkaSurvivorLeaderRecoverySmoke requires -PkafkaClientJar=... '
+                            + '-PkafkaBootstrap=host:port -PkafkaSurvivorTopics=topic[,topic...]')
+        }
+    }
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactSurvivorLeaderRecoverySmoke'
+    args findProperty('kafkaBootstrap'), findProperty('kafkaSurvivorTopics')
+}
+
 tasks.register('runRealKafkaMutationSmoke', JavaExec) {
     group = 'verification'
     description = 'Runs guarded signed System Mutation append/replay/ACK against an explicitly supplied broker.'
