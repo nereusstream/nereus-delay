@@ -1471,6 +1471,10 @@ require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaSig
     "health == RouteCacheHealth.HEALTHY"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
     "startRetriesNotificationRegistrationAfterACommittedRegistrationIsFenced"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProvider.java" \
+    "client.notifications(this::onNotification);"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
+    "refreshAfterAnInitialRouteGapRestoresTheNotificationStream"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaRealRouteAuthoritySmokeTest.java" \
     "OxiaRouteAuthoritySession.connect("
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
@@ -1503,6 +1507,16 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Oxia Route provider start retry after notification fence implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Oxia Route provider start retry after notification fence receipt"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Oxia Route initial-refresh notification restoration"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "22780082d24e2011d44ead6ca62c38251a03633b"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Oxia Route initial-refresh notification restoration audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Oxia Route initial-refresh notification restoration implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Oxia Route initial-refresh notification restoration receipt"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPublicationCoordinator.java" \
     "intentIsAtomic || catalogIsAtomic"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointUploadCoordinatorTest.java" \

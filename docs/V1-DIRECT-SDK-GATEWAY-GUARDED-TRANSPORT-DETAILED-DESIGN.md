@@ -5773,3 +5773,20 @@ with a replacement notification registration. Nine deterministic Route
 provider/session tests passed. This is a retry state transition after a fenced
 registration, not transparent automatic reconnect, event/head transactionality,
 multi-node failover, placement/source ownership, raw chaos or release evidence.
+
+### 2026-08-16 Oxia Route initial-refresh notification restoration implementation note
+
+Delay commit `22780082d24e2011d44ead6ca62c38251a03633b` closes the initial
+subscription gap in `OxiaSignedRouteSnapshotProvider.refresh()`. When the
+provider has not completed `start()` because the first Route replay failed,
+`refresh()` now rebuilds the exact authority cache and registers the initial
+notification callback before returning. The provider records the started
+subscription before registration so a response-loss marker fence is handled
+by the replacement path on the next explicit retry.
+
+`OxiaSignedRouteSnapshotProviderTest.refreshAfterAnInitialRouteGapRestoresTheNotificationStream`
+forces a missing event, repairs the event/head pair and requires revision 2
+plus one initial registration. Ten deterministic Route provider/session tests
+passed. This is initial-refresh subscription restoration, not transparent
+automatic reconnect, event/head transactionality, multi-node failover,
+placement/source ownership, raw chaos or release evidence.

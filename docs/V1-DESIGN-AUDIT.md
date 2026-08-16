@@ -9099,6 +9099,23 @@ establish transparent automatic reconnect, event/head transactionality,
 multi-node failover, placement/source ownership, raw chaos or V1 release
 readiness.
 
+## 2026-08-16 Oxia Route initial-refresh notification restoration audit
+
+Delay commit `22780082d24e2011d44ead6ca62c38251a03633b` closes the provider
+subscription gap after an incomplete first start. If the first Route replay
+fails before the provider is marked started, a later `refresh()` now rebuilds
+the cache and registers the initial notification callback before returning.
+The started state is set before registration so a post-registration marker
+fence is recovered through the existing replacement path on the next retry.
+
+`OxiaSignedRouteSnapshotProviderTest.refreshAfterAnInitialRouteGapRestoresTheNotificationStream`
+forces the missing-event failure, repairs the exact event/head pair and
+requires revision 2 plus one notification registration after `refresh()`. The
+deterministic Route provider/session suite passed 10 tests. This audit closes
+only initial-refresh notification restoration; it does not establish
+transparent automatic reconnect, event/head transactionality, multi-node
+failover, placement/source ownership, raw chaos or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

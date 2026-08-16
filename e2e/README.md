@@ -2235,3 +2235,17 @@ passed as part of the 9-test Route provider/session suite. The receipt proves
 only this retry state transition after a fenced registration; it does not prove
 transparent automatic reconnect, event/head transactionality, multi-node
 failover, placement/source ownership, raw chaos or V1 release readiness.
+
+## Oxia Route initial-refresh notification restoration receipt
+
+Delay commit `22780082d24e2011d44ead6ca62c38251a03633b` closes the gap where a
+provider whose first Route replay failed could later rebuild a healthy cache
+without registering a notification stream. `refresh()` now establishes the
+initial callback after the repaired authority replay; a later registration
+fence uses the replacement path on the next explicit retry.
+
+`OxiaSignedRouteSnapshotProviderTest.refreshAfterAnInitialRouteGapRestoresTheNotificationStream`
+passed as part of the 10-test Route provider/session suite. This receipt proves
+only initial-refresh notification restoration; it does not prove transparent
+automatic reconnect, event/head transactionality, multi-node failover,
+placement/source ownership, raw chaos or V1 release readiness.
