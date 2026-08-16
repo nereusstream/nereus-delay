@@ -1467,6 +1467,10 @@ require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaSig
     "notificationReconnectRequiresTheCurrentSessionBeforeRegistration"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
     "notificationReconnectRejectsACommittedRegistrationAfterTheMarkerChanges"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProvider.java" \
+    "health == RouteCacheHealth.HEALTHY"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
+    "startRetriesNotificationRegistrationAfterACommittedRegistrationIsFenced"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaRealRouteAuthoritySmokeTest.java" \
     "OxiaRouteAuthoritySession.connect("
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
@@ -1489,6 +1493,16 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Oxia Route notification reconnect session fence implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Oxia Route notification reconnect session fence receipt"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Oxia Route provider start retry after notification fence"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "d241246eefc284fea9719c8e162afa8e2a8e4828"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Oxia Route provider start retry after notification fence audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Oxia Route provider start retry after notification fence implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Oxia Route provider start retry after notification fence receipt"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPublicationCoordinator.java" \
     "intentIsAtomic || catalogIsAtomic"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointUploadCoordinatorTest.java" \

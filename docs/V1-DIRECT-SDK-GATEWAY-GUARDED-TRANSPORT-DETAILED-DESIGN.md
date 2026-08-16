@@ -5756,3 +5756,20 @@ Route authority and Route-worker methods were skipped because
 notification registration fencing, not automatic reconnect, event/head
 transactionality, multi-node failover, placement/source ownership, raw chaos or
 release evidence.
+
+### 2026-08-16 Oxia Route provider start retry after notification fence implementation note
+
+Delay commit `d241246eefc284fea9719c8e162afa8e2a8e4828` fixes the provider
+state left after a replacement notification registration commits and the Route
+session fence rejects its post-call response. `start()` now completes without
+work only for a healthy started cache; a non-healthy started cache enters the
+explicit `refresh()` path, which reconnects the Route session, replaces the
+notification client and rebuilds the signed Route cache before returning
+success.
+
+`OxiaSignedRouteSnapshotProviderTest.startRetriesNotificationRegistrationAfterACommittedRegistrationIsFenced`
+covers the failed first start, `WATCH_GAP` state and successful second start
+with a replacement notification registration. Nine deterministic Route
+provider/session tests passed. This is a retry state transition after a fenced
+registration, not transparent automatic reconnect, event/head transactionality,
+multi-node failover, placement/source ownership, raw chaos or release evidence.

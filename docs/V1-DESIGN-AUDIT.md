@@ -9081,6 +9081,24 @@ notification registration fencing. It does not establish event/head
 transactionality, automatic reconnect, multi-node failover,
 placement/source ownership, raw chaos or V1 release readiness.
 
+## 2026-08-16 Oxia Route provider start retry after notification fence audit
+
+Delay commit `d241246eefc284fea9719c8e162afa8e2a8e4828` fixes the provider
+state transition after a notification registration commits and the connected
+Route marker is then fenced. A started provider now returns immediately only
+when its cache is healthy; a non-healthy started provider reuses explicit
+`refresh()`, which reconnects the session, replaces the notification client
+and rebuilds the signed Route cache.
+
+`OxiaSignedRouteSnapshotProviderTest.startRetriesNotificationRegistrationAfterACommittedRegistrationIsFenced`
+forces the post-registration marker loss, verifies the first start fails with
+`WATCH_GAP`, then requires the next `start()` to restore `HEALTHY` state and a
+replacement registration. The deterministic Route provider/session suite
+passed 9 tests. This audit closes only the retry state transition; it does not
+establish transparent automatic reconnect, event/head transactionality,
+multi-node failover, placement/source ownership, raw chaos or V1 release
+readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
