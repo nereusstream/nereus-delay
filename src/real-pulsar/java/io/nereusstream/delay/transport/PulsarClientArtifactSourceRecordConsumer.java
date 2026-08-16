@@ -67,19 +67,28 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
         if (inFlight != null) {
             throw new IllegalStateException("previous Pulsar source record has not been ACKED");
         }
-        final SourceConnectionProof beforeReceive;
+        final SourceConnectionProof beforeReceive = currentProofOrEmpty().orElse(null);
+        if (beforeReceive == null) {
+            return Optional.empty();
+        }
         final Message<byte[]> message;
         if (buffered != null) {
-            beforeReceive = requireProof();
             if (!beforeReceive.equals(bufferedProof)) {
-                throw new IllegalStateException("buffered Pulsar source record crossed a connection generation");
+                // The old connection was closed before this unacknowledged message
+                // could be committed.  Drop the local handle and let the broker
+                // redeliver it on the new guarded SUBSCRIBE connection.
+                buffered = null;
+                bufferedProof = null;
+                return Optional.empty();
             }
             message = buffered;
         } else {
-            beforeReceive = requireProof();
             try {
                 message = consumer.receive(receiveTimeoutMs, TimeUnit.MILLISECONDS);
             } catch (PulsarClientException failure) {
+                if (currentProofOrEmpty().isEmpty()) {
+                    return Optional.empty();
+                }
                 throw new IllegalStateException("Pulsar guarded source receive failed", failure);
             }
         }
@@ -87,9 +96,14 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
             return Optional.empty();
         }
         try {
-            final SourceConnectionProof afterReceive = requireProof();
-            if (!beforeReceive.equals(afterReceive)) {
-                throw new IllegalStateException("Pulsar source connection proof changed during receive");
+            final SourceConnectionProof afterReceive = currentProofOrEmpty().orElse(null);
+            if (afterReceive == null || !beforeReceive.equals(afterReceive)) {
+                // A connection switch may race with receive().  The message has
+                // not been ACKed, so its replay on the new guarded connection is
+                // the only safe authority; do not carry an old proof across it.
+                buffered = null;
+                bufferedProof = null;
+                return Optional.empty();
             }
             final SourceReplayEntry entry = decodeReplayRecord(message, shard, physicalTopic,
                     afterReceive.attestation(), afterReceive.generation(), afterReceive.digest());
@@ -213,10 +227,15 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
     }
 
     private SourceConnectionProof requireProof() {
+        return currentProofOrEmpty().orElseThrow(
+                () -> new IllegalStateException("Pulsar guarded source has no current connection proof"));
+    }
+
+    private Optional<SourceConnectionProof> currentProofOrEmpty() {
         final Optional<TopicResourceGuardAttestation> attestation = consumer.resourceGuardAttestation();
         final long generation = consumer.connectionGeneration();
         if (attestation.isEmpty() || generation == 0) {
-            throw new IllegalStateException("Pulsar guarded source has no current connection proof");
+            return Optional.empty();
         }
         final TopicResourceGuardAttestation current = attestation.get();
         final TopicResourceGuard observed = new TopicResourceGuard(current.authenticatedClusterId(),
@@ -225,7 +244,7 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
                 || current.partition() != Math.max(0, shard.partition())) {
             throw new IllegalStateException("Pulsar guarded source returned foreign connection proof");
         }
-        return new SourceConnectionProof(generation, current, attestationDigest(current));
+        return Optional.of(new SourceConnectionProof(generation, current, attestationDigest(current)));
     }
 
     static byte[] requireData(final Message<byte[]> message) {
