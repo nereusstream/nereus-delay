@@ -735,6 +735,16 @@ require_file_text "$delay_root/e2e/run-pulsar-large-payload-gateway-e2e.sh" \
 require_file_text "$delay_root/e2e/docker-compose.pulsar-large-payload-infra.yml" \
     "NEREUS_DELAY_PULSAR_LARGE_OXIA_PORT"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Pulsar Large-payload Gateway-to-destination authority receipt"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "nereus-delay-pulsar-large-e2e-1786879186-27914"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Pulsar Large-payload Gateway-to-destination authority audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Pulsar Large-payload Gateway-to-destination authority receipt"
+require_file_text "$delay_root/e2e/README.md" \
+    "Pulsar large-payload Gateway-to-destination authority E2E receipt"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "cb309d82"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "Admission source ledger=22/3"

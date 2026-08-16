@@ -2660,3 +2660,42 @@ skips and zero failures/errors. This receipt proves only local physical-
 attempt temporal/retry-shape validation; it does not prove distributed
 Gateway authority, transport delivery, Broker failover, chaos or V1 release
 readiness.
+
+## Pulsar large-payload Gateway-to-destination authority E2E receipt
+
+The checked-in `run-pulsar-large-payload-gateway-e2e.sh` composes the Delay
+Pulsar P1 binding with a real two-Broker Pulsar topology, real Oxia, Gateway
+mTLS/JWT, Worker source apply/ACK and a locked versioned MinIO service. Run it
+from the Delay worktree with:
+
+```bash
+bash e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+The source-bound receipt passed at Delay
+`accdc7074bfd38aed2cfd7c696a8c3ff62a972ba`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1 distribution
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1
+image `sha256:4faa8217a39de36a030e449473fc07f4cd04553477f4f2e84c5d799720989cf0`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, and MinIO
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+Its isolated Compose project was
+`nereus-delay-pulsar-large-e2e-1786879186-27914`; the destination was
+`pulsar-large-payload-destination-27914`.
+
+The positive output was:
+
+```text
+Pulsar Worker source-applied physical publish passed: Admission source ledger=2/4, typed PULSAR_SEND_ACK target ledger/entry=3/0, Outcome source ledger=2/5, exact payload readback
+Pulsar + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: prepare=2/2, commit=2/3, exactGatewayIdempotency=true, sourceRecords=6
+BUILD SUCCESSFUL
+Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed
+```
+
+This proves the bounded real chain through versioned MinIO upload/attestation,
+exact 1 MiB + 4 KiB destination readback (`1,052,672` bytes), duplicate
+Prepare byte identity, typed Pulsar SEND evidence, source `PUBLISH_OUTCOME`,
+final local checkpoint and Oxia Owner release. It does not cover combined
+Gateway-plus-multi-Broker failover, multi-shard placement, raw
+crash/network/proxy/process chaos, Kafka LSO/retention recovery, Object Store
+checkpoint publication or V1 release readiness.

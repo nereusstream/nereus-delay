@@ -9680,6 +9680,53 @@ does not cover raw network/proxy/process cuts, full Pulsar D3, Oxia
 failover/partition, catalog-driven multi-shard placement, checkpoint
 publication/quiescence or the remaining crash/response-loss matrix.
 
+## 2026-08-16 Pulsar Large-payload Gateway-to-destination authority audit
+
+Delay implementation commit
+`accdc7074bfd38aed2cfd7c696a8c3ff62a972ba` adds the isolated
+`PulsarClientArtifactLargePayloadGatewaySmoke` production-authority
+composition and its `runRealPulsarLargePayloadGatewaySmoke` task. The source-
+locked command was:
+
+```bash
+bash e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+The receipt locked Delay to `accdc7074bfd38aed2cfd7c696a8c3ff62a972ba`, P1
+to `0a2536484cd3932801a98dc88ff112b2df88a1c7`, the P1 distribution to
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1
+image to
+`sha256:4faa8217a39de36a030e449473fc07f4cd04553477f4f2e84c5d799720989cf0`,
+Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`, and MinIO to
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The isolated Compose project was
+`nereus-delay-pulsar-large-e2e-1786879186-27914` with Pulsar service/admin
+ports `29114/29115`, broker-2 `29116/29117`, Oxia `29124`, MinIO `29125` and
+Gateway `29126`.
+
+The live output was:
+
+```text
+Pulsar Worker source-applied physical publish passed: Admission source ledger=2/4, typed PULSAR_SEND_ACK target ledger/entry=3/0, Outcome source ledger=2/5, exact payload readback
+Pulsar + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: prepare=2/2, commit=2/3, exactGatewayIdempotency=true, sourceRecords=6
+BUILD SUCCESSFUL
+Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed
+```
+
+This closes the positive combined chain through real Pulsar, Oxia
+Route/Assignment/Owner, Gateway mTLS/JWT, Worker source apply/ACK, versioned
+MinIO upload/attestation/readback, due/Claim/Publish Admission/
+`PUBLISHING`, typed `PULSAR_SEND_ACK`, source `PUBLISH_OUTCOME`, `PUBLISHED`,
+exact 1 MiB + 4 KiB destination readback and final local checkpoint/Owner
+release. It also proves exact duplicate Gateway Prepare bytes and a six-record
+source log, so the idempotent retry did not append a second command.
+
+The audit remains bounded: one physical source partition, one ZooKeeper and
+one BookKeeper; no combined Gateway-plus-multi-Broker failover cut, no
+multi-shard placement, no raw crash/network/proxy/process chaos, no Kafka
+response-loss/LSO/retention recovery, no Object Store checkpoint publication
+and no V1 release approval.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

@@ -6152,3 +6152,49 @@ the explicit K2 owner check required by the cross-repository contract audit.
 This closes only local recovered-evidence binding; read-committed or
 Pulsar reread authority, Broker rollout/failover, source/ACK integration,
 Worker production wiring and release gates remain open.
+
+### 2026-08-16 Pulsar Large-payload Gateway-to-destination authority receipt
+
+Delay implementation commit
+`accdc7074bfd38aed2cfd7c696a8c3ff62a972ba` adds the source-bound
+`PulsarClientArtifactLargePayloadGatewaySmoke` path and the isolated runner
+`e2e/run-pulsar-large-payload-gateway-e2e.sh`. The receipt command was:
+
+```bash
+bash e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+The run locked P1
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+its distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1
+image `sha256:4faa8217a39de36a030e449473fc07f4cd04553477f4f2e84c5d799720989cf0`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, and the locked MinIO image
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The isolated Compose project was
+`nereus-delay-pulsar-large-e2e-1786879186-27914` with service/admin
+`29114/29115`, broker-2 `29116/29117`, Oxia `29124`, MinIO `29125`, Gateway
+`29126`, and destination `pulsar-large-payload-destination-27914`.
+
+The source-bound output was:
+
+```text
+Pulsar Worker source-applied physical publish passed: Admission source ledger=2/4, typed PULSAR_SEND_ACK target ledger/entry=3/0, Outcome source ledger=2/5, exact payload readback
+Pulsar + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: prepare=2/2, commit=2/3, exactGatewayIdempotency=true, sourceRecords=6
+BUILD SUCCESSFUL
+Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed
+```
+
+This receipt binds the production path from real Gateway mTLS/JWT and Oxia
+admission/idempotency/audit through source-ordered Worker apply, versioned
+MinIO upload/attestation/readback, due/Claim/Publish Admission/
+`PUBLISHING`, typed Pulsar destination evidence, source outcome application and
+exact 1 MiB + 4 KiB destination bytes. The Worker released its final local
+checkpoint and Oxia Owner; the duplicate Prepare returned identical bytes
+without a sixth-plus command append beyond the expected six source records.
+
+This is not a release claim. The harness has one physical source partition,
+one ZooKeeper and one BookKeeper and does not combine the Gateway path with
+the separate multi-Broker failover cut. Multi-shard placement, raw
+crash/network/proxy/process chaos, Kafka LSO/retention recovery, Object Store
+checkpoint publication and V1 release gates remain open.
