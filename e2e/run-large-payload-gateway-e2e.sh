@@ -30,6 +30,10 @@ client_jar="${NEREUS_DELAY_KAFKA_CLIENT_JAR:-${kafka_dir}/clients/build/libs/kaf
 bootstrap="127.0.0.1:${kafka_broker_1_port},127.0.0.1:${kafka_broker_2_port},127.0.0.1:${kafka_broker_3_port}"
 topic="${NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_TOPIC:-nereus-delay-large-payload}"
 destination_topic="${NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_DESTINATION_TOPIC:-}"
+failover_mode="${NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_FAILOVER:-0}"
+process_crash_mode="${NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_PROCESS_CRASH:-0}"
+network_partition_mode="${NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_NETWORK_PARTITION:-0}"
+network_partition_handoff_wait_seconds="${NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_NETWORK_PARTITION_HANDOFF_WAIT_SECONDS:-45}"
 
 minio_image="quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z"
 minio_digest="sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
@@ -39,6 +43,8 @@ minio_secret_key="${NEREUS_DELAY_MINIO_SECRET_KEY:-nereus-delay-large-secret}"
 minio_bucket="${NEREUS_DELAY_MINIO_BUCKET:-nereus-delay-large-payload-$(date +%s)-$$}"
 minio_endpoint="http://127.0.0.1:${minio_port}"
 oxia_endpoint="127.0.0.1:${oxia_port}"
+failover_ready="${tls_dir}/kafka-large-payload-failover.ready"
+failover_release="${failover_ready}.release"
 
 if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
   echo "docker and docker compose are required" >&2
@@ -50,6 +56,29 @@ for command_name in curl openssl shasum; do
     exit 1
   fi
 done
+
+for mode in "${failover_mode}" "${process_crash_mode}" "${network_partition_mode}"; do
+  if [[ "${mode}" != "0" && "${mode}" != "1" ]]; then
+    echo "large-payload fault modes must be 0 or 1" >&2
+    exit 1
+  fi
+done
+if [[ "${process_crash_mode}" == "1" && "${failover_mode}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_PROCESS_CRASH requires NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_FAILOVER=1" >&2
+  exit 1
+fi
+if [[ "${network_partition_mode}" == "1" && "${failover_mode}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_NETWORK_PARTITION requires NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_FAILOVER=1" >&2
+  exit 1
+fi
+if [[ "${process_crash_mode}" == "1" && "${network_partition_mode}" == "1" ]]; then
+  echo "large-payload process crash and network partition modes are mutually exclusive" >&2
+  exit 1
+fi
+if [[ ! "${network_partition_handoff_wait_seconds}" =~ ^[0-9]+$ ]]; then
+  echo "NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_NETWORK_PARTITION_HANDOFF_WAIT_SECONDS must be a non-negative integer" >&2
+  exit 1
+fi
 
 if [[ ! "${minio_bucket}" =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ ]]; then
   echo "NEREUS_DELAY_MINIO_BUCKET is not a canonical S3 bucket name: ${minio_bucket}" >&2
@@ -221,33 +250,122 @@ echo "MinIO endpoint/bucket: ${minio_endpoint}/${minio_bucket}"
 echo "Gateway port: ${gateway_port}"
 echo "Kafka destination topic: ${destination_topic:-<disabled>}"
 
-set +e
-NEREUS_DELAY_OXIA_ENDPOINT="${oxia_endpoint}" \
-NEREUS_DELAY_OXIA_NAMESPACE=default \
-NEREUS_DELAY_MINIO_ENDPOINT="${minio_endpoint}" \
-NEREUS_DELAY_MINIO_ACCESS_KEY="${minio_access_key}" \
-NEREUS_DELAY_MINIO_SECRET_KEY="${minio_secret_key}" \
-NEREUS_DELAY_MINIO_BUCKET="${minio_bucket}" \
-NEREUS_DELAY_MINIO_REGION="${minio_region}" \
-NEREUS_DELAY_GATEWAY_PORT="${gateway_port}" \
-NEREUS_DELAY_GATEWAY_SERVER_CERT="${tls_dir}/server.crt" \
-NEREUS_DELAY_GATEWAY_SERVER_KEY="${tls_dir}/server.key" \
-NEREUS_DELAY_GATEWAY_CA_CERT="${tls_dir}/ca.crt" \
-NEREUS_DELAY_GATEWAY_CLIENT_CERT="${tls_dir}/client.crt" \
-NEREUS_DELAY_GATEWAY_CLIENT_KEY="${tls_dir}/client.key" \
-GRADLE_USER_HOME="${gradle_user_home}" \
-  "${delay_dir}/gradlew" runRealKafkaLargePayloadGatewaySmoke \
-    -PkafkaClientJar="${client_jar}" \
-    -PkafkaBootstrap="${bootstrap}" \
-    -PkafkaLargePayloadTopic="${topic}" \
-    --no-daemon --console=plain 2>&1 | tee "${receipt_log}"
-smoke_status=${PIPESTATUS[0]}
-set -e
+smoke_environment=(
+  "NEREUS_DELAY_OXIA_ENDPOINT=${oxia_endpoint}"
+  "NEREUS_DELAY_OXIA_NAMESPACE=default"
+  "NEREUS_DELAY_MINIO_ENDPOINT=${minio_endpoint}"
+  "NEREUS_DELAY_MINIO_ACCESS_KEY=${minio_access_key}"
+  "NEREUS_DELAY_MINIO_SECRET_KEY=${minio_secret_key}"
+  "NEREUS_DELAY_MINIO_BUCKET=${minio_bucket}"
+  "NEREUS_DELAY_MINIO_REGION=${minio_region}"
+  "NEREUS_DELAY_GATEWAY_PORT=${gateway_port}"
+  "NEREUS_DELAY_GATEWAY_SERVER_CERT=${tls_dir}/server.crt"
+  "NEREUS_DELAY_GATEWAY_SERVER_KEY=${tls_dir}/server.key"
+  "NEREUS_DELAY_GATEWAY_CA_CERT=${tls_dir}/ca.crt"
+  "NEREUS_DELAY_GATEWAY_CLIENT_CERT=${tls_dir}/client.crt"
+  "NEREUS_DELAY_GATEWAY_CLIENT_KEY=${tls_dir}/client.key"
+  "GRADLE_USER_HOME=${gradle_user_home}"
+)
+if [[ "${failover_mode}" == "1" ]]; then
+  smoke_environment+=(
+    "NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_FAILOVER_READY=${failover_ready}"
+    "NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_FAILOVER_RELEASE=${failover_release}"
+  )
+fi
+smoke_command=(
+  "${delay_dir}/gradlew" runRealKafkaLargePayloadGatewaySmoke
+  "-PkafkaClientJar=${client_jar}"
+  "-PkafkaBootstrap=${bootstrap}"
+  "-PkafkaLargePayloadTopic=${topic}"
+  --no-daemon --console=plain
+)
+
+if [[ "${failover_mode}" == "1" ]]; then
+  set +e
+  env "${smoke_environment[@]}" "${smoke_command[@]}" >"${receipt_log}" 2>&1 &
+  smoke_pid=$!
+  set -e
+  failover_deadline=$((SECONDS + 180))
+  while [[ ! -f "${failover_ready}" ]]; do
+    if ! kill -0 "${smoke_pid}" >/dev/null 2>&1; then
+      set +e
+      wait "${smoke_pid}"
+      smoke_status=$?
+      set -e
+      cat "${receipt_log}"
+      exit "${smoke_status:-1}"
+    fi
+    if (( SECONDS >= failover_deadline )); then
+      kill "${smoke_pid}" >/dev/null 2>&1 || true
+      set +e
+      wait "${smoke_pid}"
+      smoke_status=$?
+      set -e
+      cat "${receipt_log}"
+      echo "Kafka large-payload Broker cut marker was not reached" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  if [[ "${process_crash_mode}" == "1" ]]; then
+    echo "Kafka large-payload failover cut: SIGKILLing kafka-1"
+    "${compose[@]}" kill --signal KILL kafka-1
+  else
+    network_name="$(docker network ls \
+      --filter "label=com.docker.compose.project=${compose_project}" \
+      --filter 'label=com.docker.compose.network=default' \
+      --format '{{.Name}}' | head -n 1)"
+    kafka_1_container="$("${compose[@]}" ps -q kafka-1)"
+    if [[ -z "${network_name}" || -z "${kafka_1_container}" ]]; then
+      echo "Kafka large-payload network partition could not resolve the exact network/container" >&2
+      exit 1
+    fi
+    echo "Kafka large-payload failover cut: disconnecting kafka-1 from ${network_name}"
+    docker network disconnect "${network_name}" "${kafka_1_container}"
+    if docker network inspect --format '{{json .Containers}}' "${network_name}" \
+        | rg -F --quiet "${kafka_1_container}"; then
+      echo "Kafka large-payload network partition did not disconnect kafka-1" >&2
+      exit 1
+    fi
+    echo "Kafka large-payload network partition: waiting ${network_partition_handoff_wait_seconds}s for broker handoff"
+    sleep "${network_partition_handoff_wait_seconds}"
+  fi
+  touch "${failover_release}"
+  set +e
+  wait "${smoke_pid}"
+  smoke_status=$?
+  set -e
+  cat "${receipt_log}"
+else
+  set +e
+  env "${smoke_environment[@]}" "${smoke_command[@]}" 2>&1 | tee "${receipt_log}"
+  smoke_status=${PIPESTATUS[0]}
+  set -e
+fi
 if [[ "${smoke_status}" != 0 ]]; then
   exit "${smoke_status}"
 fi
 
-if [[ -n "${destination_topic}" ]]; then
+if [[ "${failover_mode}" == "1" && "${process_crash_mode}" == "1" ]]; then
+  "${compose[@]}" start kafka-1
+  wait_for_kafka
+  echo "Kafka + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload Broker process-crash failover E2E passed: kafka-1 was SIGKILLed after Gateway Commit/readback, the same source-applied physical Publish completed through kafka-2/kafka-3, and kafka-1 rejoined afterward"
+elif [[ "${failover_mode}" == "1" ]]; then
+  network_name="$(docker network ls \
+    --filter "label=com.docker.compose.project=${compose_project}" \
+    --filter 'label=com.docker.compose.network=default' \
+    --format '{{.Name}}' | head -n 1)"
+  kafka_1_container="$("${compose[@]}" ps -q kafka-1)"
+  test -n "${network_name}" && test -n "${kafka_1_container}"
+  docker network connect "${network_name}" "${kafka_1_container}"
+  if ! docker network inspect --format '{{json .Containers}}' "${network_name}" \
+      | rg -F --quiet "${kafka_1_container}"; then
+    echo "Kafka large-payload network partition did not reconnect kafka-1" >&2
+    exit 1
+  fi
+  wait_for_kafka
+  echo "Kafka + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload Broker network-partition failover E2E passed: kafka-1 stayed alive but lost its exact Compose network endpoint after Gateway Commit/readback, the same source-applied physical Publish completed through kafka-2/kafka-3, and kafka-1 rejoined afterward"
+elif [[ -n "${destination_topic}" ]]; then
   echo "Kafka + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload + Kafka destination authority E2E passed"
 else
   echo "Kafka + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed"

@@ -497,6 +497,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                                 if (!commitReceipt.command().commandType().name().equals("COMMIT_LARGE_SCHEDULE")) {
                                     throw new IllegalStateException("Commit receipt does not identify COMMIT_LARGE_SCHEDULE");
                                 }
+                                awaitConfiguredBrokerCut();
                                 if (physicalLaneId != null) {
                                     final LaneRecord physicalLane = Optional.ofNullable(
                                             delayShard.getLane(physicalLaneId)).orElseThrow(
@@ -1133,6 +1134,35 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
             throw new IllegalArgumentException(name + " is not a regular file: " + path);
         }
         return path;
+    }
+
+    private static void awaitConfiguredBrokerCut() throws Exception {
+        final String readyValue = configuredNullable("NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_FAILOVER_READY");
+        final String releaseValue = configuredNullable("NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_FAILOVER_RELEASE");
+        if (readyValue == null && releaseValue == null) {
+            return;
+        }
+        if (readyValue == null || releaseValue == null) {
+            throw new IllegalArgumentException("large-payload Broker cut requires both ready and release paths");
+        }
+        final Path ready = Path.of(readyValue);
+        final Path release = Path.of(releaseValue);
+        Files.deleteIfExists(ready);
+        Files.deleteIfExists(release);
+        Files.createFile(ready);
+        final long timeoutSeconds = Long.parseLong(configured(
+                "NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_FAILOVER_TIMEOUT_SECONDS", "180"));
+        if (timeoutSeconds <= 0) {
+            throw new IllegalArgumentException(
+                    "NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_FAILOVER_TIMEOUT_SECONDS must be positive");
+        }
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSeconds);
+        while (!Files.exists(release)) {
+            if (System.nanoTime() >= deadline) {
+                throw new IllegalStateException("large-payload Broker cut release was not observed: " + release);
+            }
+            Thread.sleep(100);
+        }
     }
 
     private static String configured(final String name, final String fallback) {
