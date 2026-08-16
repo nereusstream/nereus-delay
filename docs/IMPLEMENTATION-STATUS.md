@@ -14354,3 +14354,33 @@ absent. This is a focused Worker ACK recovery receipt; it does not establish
 Gateway/mTLS/MinIO large-payload authority, Broker process/network failover,
 raw socket loss, REAPING, soak, benchmark/capacity evidence, the full chaos
 matrix or V1 release readiness.
+
+## 2026-08-17 Incremental V1 release-gate delta after Worker ACK crash receipt
+
+The current documentation/source lock is
+`27a46f8fd745cc2b007a891fc66ac8f992aab041`; the exercised Worker code path
+remains the current implementation from
+`d63285ff5232bf92f6b947becaed5456a9c68b66`. The current cross-repository
+contract audit passed with Kafka K1
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+Pulsar P1
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The current-source Worker ACK process-crash cut adds a fresh-process receipt
+for the exact boundary `storeWriteBatchDurable=true` and
+`kafkaCommitSyncStarted=false`, followed by real Oxia replay, dedupe, ACK and
+final checkpoint. It strengthens Gate 2's Worker ACK recovery evidence, but
+does not change the release classification:
+
+| §23.5 gate | Current status after this delta | Boundary retained |
+|---|---|---|
+| 2. Fresh-process correctness cuts | PARTIAL | Worker ACK crash recovery is now current-source evidenced; the complete crash/chaos matrix remains open. |
+| 3. Real Kafka/Pulsar/Oxia/Object gates | PARTIAL | The cut uses real Kafka and Oxia authority, but is not a Gateway/mTLS/MinIO large-payload receipt and does not close external failover or rollout. |
+| 5. Required benchmark configurations | OPEN | No source-locked benchmark campaign artifact exists. |
+| 6. Capacity artifacts and SLO catalog | OPEN | Required resource, fairness and durable SLO artifacts remain incomplete. |
+| 7. Soak | OPEN | No certified long-cycle soak with zero unexplained drift exists. |
+| 9. Operations runbook | OPEN | The runbook remains draft with bounded local drills only. |
+
+Overall V1 remains NOT READY; no focused Worker receipt is promoted to a
+release PASS.
