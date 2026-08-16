@@ -4779,3 +4779,44 @@ The local tests are not a real MinIO fault-injection receipt. A production
 Worker run with real MinIO 5xx/timeout or credential/config failure injection
 is still required before closing that §23.3/Object Store authority cell or
 the V1 release gate.
+
+## Current-source real MinIO provider-fault E2E
+
+The committed runner starts the locked MinIO base, places a deterministic
+HTTP proxy in front of it, and runs four real adapter tests:
+
+```bash
+NEREUS_DELAY_MINIO_FAULT_MINIO_PORT=31651 \
+NEREUS_DELAY_MINIO_FAULT_PROXY_PORT=31652 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-minio-fault-real-20260817-r1 \
+  bash e2e/run-minio-fault-e2e.sh
+```
+
+The runner supports these proxy modes for the first manifest PUT:
+
+- `PUT_503_AFTER_COMMIT`: real MinIO commits, then the proxy returns HTTP 503;
+  exact immutable GET must resolve the provider version.
+- `PUT_503_BEFORE_COMMIT`: the proxy returns HTTP 503 without forwarding; the
+  adapter must remain fail-closed.
+- `PUT_TIMEOUT_AFTER_COMMIT`: real MinIO commits, then the proxy holds the
+  response beyond the adapter timeout; exact immutable GET must resolve it.
+- credential configuration drift: the adapter sends a wrong secret to real
+  MinIO and must receive HTTP 403.
+
+At Delay `ef794947c16557a9f677e51d39413c25b8f1d479`, the run passed with
+`BUILD SUCCESSFUL in 16s`. The exact project/container was
+`nereus-delay-minio-fault-e2e-1786924060-14028`; bucket
+`1786924060-fault-14028`; MinIO/proxy ports `31651/31652`; and MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The runner removed the exact container and proxy, and postchecks found no
+matching network, volume, listener, dangling image or Python cache. No new
+Docker image was built; the locked MinIO base remains intentionally retained.
+No global Docker prune or unrelated image deletion was performed.
+
+The previous fresh-Gradle-home attempt failed before test execution during an
+`os-maven-plugin-1.7.1.jar` TLS handshake and is not a PASS receipt; its exact
+resources were cleaned. This E2E proves real MinIO provider behavior through
+the adapter boundary. It does not yet drive the fault proxy through the full
+Gateway/Oxia/Worker large-payload Checkpoint Intent/Catalog/REAPING production
+chain, so the production Object Store fault matrix and V1 release gate remain
+open.

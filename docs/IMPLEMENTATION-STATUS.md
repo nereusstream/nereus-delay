@@ -14854,3 +14854,55 @@ publication, and therefore does not close the production Object Store fault
 matrix or promote Gates 2/3/10 or V1 release readiness. Those external fault
 cells, target isolation, the remaining §23.3 cuts, benchmark/soak and release
 proof remain open.
+
+## 2026-08-17 Current-source real MinIO provider-fault receipt
+
+Delay source `ef794947c16557a9f677e51d39413c25b8f1d479` now includes a
+deterministic HTTP fault proxy in front of a real MinIO container. The
+source-locked command was:
+
+```bash
+NEREUS_DELAY_MINIO_FAULT_MINIO_PORT=31651 \
+NEREUS_DELAY_MINIO_FAULT_PROXY_PORT=31652 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-minio-fault-real-20260817-r1 \
+  bash e2e/run-minio-fault-e2e.sh
+```
+
+The run used project/container
+`nereus-delay-minio-fault-e2e-1786924060-14028`, MinIO port `31651`, fault
+proxy port `31652`, bucket `1786924060-fault-14028`, and the locked image
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z` at digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+(local image ID `sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`).
+All four selected real-service tests passed with `BUILD SUCCESSFUL in 16s`:
+
+- HTTP 503 after the real MinIO PUT committed: exact immutable GET read-back
+  resolved the provider version, followed by exact delete.
+- HTTP 503 before commit: the adapter remained fail-closed and retained the
+  original `HTTP 503` failure.
+- Response timeout after the real MinIO PUT committed: exact immutable GET
+  read-back resolved the provider version, followed by exact delete.
+- Drifted real MinIO credentials: the provider rejected the request with
+  `HTTP 403`.
+
+The immediately preceding fresh-Gradle-home invocation at project
+`nereus-delay-minio-fault-e2e-1786923733-9412` did not execute tests because
+Gradle could not download `os-maven-plugin-1.7.1.jar` after a remote TLS
+handshake termination. Its exact container/proxy resources were cleaned, and
+it is not a PASS receipt.
+
+The proxy forwards signed requests to the real MinIO data plane and injects
+only the first manifest PUT for each selected mode. Exact postchecks after
+the source-locked pass found no matching container, network, volume,
+listener, dangling image or Python cache. No new Docker image was built; the
+locked MinIO base was retained for future source-locked runs. No global Docker
+prune or unrelated image deletion was performed.
+
+This closes the bounded real-provider adapter fault slice, but it is not yet a
+full Worker/Gateway/Oxia production publication under injected provider fault:
+the proxy is exercised by the real MinIO adapter tests, not by the complete
+large-payload Worker Checkpoint Intent/Catalog/REAPING chain. Production
+Worker-level 5xx/timeout/config-drift authority, target isolation, the
+remaining §23.3 cuts, benchmark/soak and release proof remain open. Gates 2,
+3 and 10 remain `PARTIAL`; Gates 5, 6, 7 and 9 remain `OPEN`; Gate 8 remains
+`PARTIAL`; V1 remains `NOT READY`.

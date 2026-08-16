@@ -11870,3 +11870,36 @@ regression. No production Worker run has yet injected a real MinIO 5xx/timeout
 or credential/config failure, so Object Store external fault authority remains
 open. Gates 2, 3 and 10 remain `PARTIAL`; Gates 5, 6, 7 and 9 remain `OPEN`;
 Gate 8 remains `PARTIAL`; V1 remains `NOT READY`.
+
+## 2026-08-17 Current-source real MinIO provider-fault audit
+
+Audit result: PASS for the bounded real-provider Object Store adapter fault
+slice at Delay
+`ef794947c16557a9f677e51d39413c25b8f1d479`. The source-locked runner used a
+real MinIO container with digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+and a local deterministic proxy. Project
+`nereus-delay-minio-fault-e2e-1786924060-14028` used MinIO/proxy ports
+`31651/31652` and bucket `1786924060-fault-14028`.
+
+The four selected real-service tests passed with
+`BUILD SUCCESSFUL in 16s`: post-commit HTTP 503 exact read-back, pre-commit
+HTTP 503 fail-closed behavior, post-commit response-timeout exact read-back,
+and real MinIO credential drift rejected with HTTP 403. The proxy preserved
+the SigV4-signed Host while forwarding to real MinIO, so the receipt covers
+provider-side behavior rather than only a fake S3 implementation.
+
+An earlier fresh-Gradle-home invocation failed before test execution while
+downloading `os-maven-plugin-1.7.1.jar` after a remote TLS handshake
+termination. Its exact resources were cleaned and it is not promoted as
+evidence. The source-locked pass left no matching container, network, volume,
+listener, dangling image or Python cache. No new Docker image was built; only
+the locked MinIO base was retained, with no global prune or unrelated deletion.
+
+This is a real-provider adapter-level PASS, not a full production Worker
+fault-injection PASS. The proxy is not yet driven through the complete
+Gateway/Oxia/Worker Checkpoint Intent/Catalog/REAPING publication under an
+injected MinIO fault. Therefore the external Object Store authority cell,
+Gates 2/3/10 promotion, the remaining §23.3 cuts and V1 release readiness
+remain open: Gates 2, 3 and 10 are `PARTIAL`; Gates 5, 6, 7 and 9 are `OPEN`;
+Gate 8 is `PARTIAL`; V1 is `NOT READY`.
