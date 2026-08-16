@@ -13311,3 +13311,86 @@ and run-created Oxia image
 Postchecks found no containers, networks, volumes or matching images for
 either isolated project; the reusable locked MinIO base was untouched and no
 global Docker prune was used.
+
+## 2026-08-17 Current-source Pulsar Worker source ACK response-loss receipt
+
+The current-source rerun uses Delay
+`75f451758c30c6eafc50b252bffdcef22f0137b4`, P1
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+the P1 distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, the
+same client artifact SHA-256 values recorded above, P1 image
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. The source-bound command
+was:
+
+```bash
+NEREUS_DELAY_PULSAR_WITH_OXIA=1 \
+NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS=1 \
+NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_ONLY=1 \
+NEREUS_DELAY_PULSAR_OXIA_PORT=29430 \
+PULSAR_BROKER_PORT=29420 \
+PULSAR_WEB_PORT=29421 \
+NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-worker-source-ack-response-loss-oxia-20260817-r1 \
+  bash e2e/run-pulsar-real-client-e2e.sh
+```
+
+The isolated projects were `nereus-delay-pulsar-e2e-1786901489-23214` and
+`nereus-delay-pulsar-oxia-e2e-1786901489-23214`, using Pulsar `29420/29421`
+and Oxia `29430`. The real Worker task passed with `BUILD SUCCESSFUL`, zero
+failures/errors, and emitted:
+
+```text
+Pulsar Worker source ACK response-loss E2E passed: real ACK response loss was retried on the same source record and the bounded Worker vertical completed.
+```
+
+The focused smoke proves the real ACK was accepted before its local response
+was discarded; the next bounded Worker turn ACKed the same source record and
+completed the vertical without a second physical publish. This is controlled
+client-side response loss, not raw socket loss, process/Broker crash
+recovery, multi-Broker failover, multi-shard placement, checkpoint REAPING or
+V1 release evidence.
+
+The exact runner cleanup removed P1 image
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`
+and run-created Oxia image
+`sha256:e4dd8a04d8a9018a9f2a1f21aef4a66c6fe886fe1da9d`. Postchecks found no
+containers, networks, volumes or matching images; the locked MinIO base was
+untouched and no global Docker prune was used.
+
+## 2026-08-17 Current-source Pulsar guarded destination SEND response-loss receipt
+
+The current-source P1 rerun uses Delay
+`75f451758c30c6eafc50b252bffdcef22f0137b4`, P1
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+the P1 distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, the
+same three client artifact SHA-256 values, and P1 image
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`.
+The focused command was:
+
+```bash
+NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS=1 \
+NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_ONLY=1 \
+PULSAR_BROKER_PORT=29440 \
+PULSAR_WEB_PORT=29441 \
+NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-destination-response-loss-20260817-r1 \
+  bash e2e/run-pulsar-real-client-e2e.sh
+```
+
+The isolated project was `nereus-delay-pulsar-e2e-1786901571-24129` on
+Pulsar `29440/29441`. It passed with `BUILD SUCCESSFUL`, zero
+failures/errors, and emitted:
+
+```text
+Pulsar destination committed response-loss E2E passed: real SEND response loss resolved through typed PULSAR_SEND_ACK evidence and exact guarded payload readback.
+```
+
+This is the bounded real-P1 destination proof: the guarded SEND persisted the
+exact payload, the local response was discarded, and typed `PULSAR_SEND_ACK`
+evidence resolved the physical publish. It does not claim Worker/Oxia
+authority, raw socket loss, process/Broker crash recovery, multi-Broker
+failover, multi-shard placement, checkpoint REAPING or V1 release evidence.
+The exact runner cleanup removed the temporary P1 image; postchecks found no
+project containers, networks, volumes or matching image. The locked MinIO
+base was untouched and no global Docker prune was used.

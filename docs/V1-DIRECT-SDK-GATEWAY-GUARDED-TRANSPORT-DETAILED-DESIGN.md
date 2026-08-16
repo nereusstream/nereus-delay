@@ -7204,3 +7204,49 @@ coverage. Exact project cleanup removed the temporary P1 image
 and Oxia image
 `sha256:fb4ef2e60386870ff19076357e35d59c7006476bf63eb9c1fecc3f5b2a89f074`;
 the locked MinIO base was retained and no global Docker prune was used.
+
+### 2026-08-17 Current-source Pulsar Worker source ACK response-loss implementation note
+
+The real-P1/real-Oxia focused cut uses Delay
+`75f451758c30c6eafc50b252bffdcef22f0137b4`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1 distribution
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. The projects were
+`nereus-delay-pulsar-e2e-1786901489-23214` /
+`nereus-delay-pulsar-oxia-e2e-1786901489-23214`.
+
+The source ACK wrapper makes the uncertainty boundary explicit: real Pulsar
+accepts the source ACK, the local response is discarded, and the Worker
+reuses the same Source Position on the next bounded turn. The current receipt
+is:
+
+```text
+Pulsar Worker source ACK response-loss E2E passed: real ACK response loss was retried on the same source record and the bounded Worker vertical completed.
+```
+
+The slice does not claim raw socket, process/Broker crash, multi-Broker or
+multi-shard fault coverage. Exact cleanup removed the temporary P1 image
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`
+and Oxia image
+`sha256:e4dd8a04d8a9018a9f2a1f21aef4a66c6fe886fe1da9d`.
+
+### 2026-08-17 Current-source Pulsar guarded destination SEND response-loss implementation note
+
+The P1-only focused cut uses Delay
+`75f451758c30c6eafc50b252bffdcef22f0137b4`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1 distribution
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and
+project `nereus-delay-pulsar-e2e-1786901571-24129`.
+
+Real guarded SEND persisted the exact payload, the first local response was
+discarded, and the typed `PULSAR_SEND_ACK` evidence resolved the same
+physical publish:
+
+```text
+Pulsar destination committed response-loss E2E passed: real SEND response loss resolved through typed PULSAR_SEND_ACK evidence and exact guarded payload readback.
+```
+
+This is bounded transport evidence, not Worker/Oxia authority, raw socket,
+process/Broker crash, multi-Broker, multi-shard, REAPING or V1 release
+evidence. The exact temporary P1 image was removed; the locked MinIO base was
+retained and no global Docker prune was used.

@@ -10710,3 +10710,55 @@ multi-Broker failover, multi-shard placement, checkpoint REAPING, the full
 chaos matrix or V1 release readiness. Exact postchecks found no project
 containers, networks, volumes or matching P1/Oxia images. The locked MinIO
 base remained and no global Docker prune was used.
+
+## 2026-08-17 Current-source Pulsar Worker source ACK response-loss audit
+
+The current-source audit locks Delay to
+`75f451758c30c6eafc50b252bffdcef22f0137b4`, P1 to
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1 distribution to
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1
+image to
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+and Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. Projects were
+`nereus-delay-pulsar-e2e-1786901489-23214` and
+`nereus-delay-pulsar-oxia-e2e-1786901489-23214` on `29420/29421` and `29430`.
+
+Audit result: PASS for the bounded current-source Worker source-ACK
+response-loss slice. Real Pulsar accepted the ACK before the client discarded
+the local response; the next bounded Worker turn retried the same source
+record and completed without a second physical publish:
+
+```text
+Pulsar Worker source ACK response-loss E2E passed: real ACK response loss was retried on the same source record and the bounded Worker vertical completed.
+```
+
+This is not raw socket loss, process/Broker crash recovery, multi-Broker
+failover, multi-shard placement, REAPING, full chaos or V1 release evidence.
+Exact postchecks found no project resources or matching P1/Oxia images; the
+locked MinIO base remained and no global Docker prune was used.
+
+## 2026-08-17 Current-source Pulsar guarded destination SEND response-loss audit
+
+The current-source P1 audit locks Delay to
+`75f451758c30c6eafc50b252bffdcef22f0137b4`, P1 to
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1 distribution to
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and
+P1 image to
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`.
+The isolated project was `nereus-delay-pulsar-e2e-1786901571-24129` on
+`29440/29441`.
+
+Audit result: PASS for the bounded current-source guarded destination
+response-loss slice. The exact payload was persisted by real SEND, the local
+response was discarded, and typed `PULSAR_SEND_ACK` evidence resolved the
+physical publish:
+
+```text
+Pulsar destination committed response-loss E2E passed: real SEND response loss resolved through typed PULSAR_SEND_ACK evidence and exact guarded payload readback.
+```
+
+This does not establish Worker/Oxia authority, raw socket loss,
+process/Broker crash recovery, multi-Broker failover, multi-shard placement,
+REAPING, full chaos or V1 release readiness. Exact postchecks found no project
+resources or matching P1 image; the locked MinIO base remained and no global
+Docker prune was used.
