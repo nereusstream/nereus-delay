@@ -140,7 +140,7 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
                 started.physicalAttemptId());
         final GatewayIdempotencyRecordV1 recovered = current.record().withOutcome(
                 new GatewayIdempotencyRecordV1.PhysicalEnqueueAttemptIdMatch(started.physicalAttemptId()),
-                uncertain.canonicalBytes(), GatewayPhysicalAttemptStateV1.UNCERTAIN);
+                uncertain, GatewayPhysicalAttemptStateV1.UNCERTAIN);
         try {
             put(current.key(), recovered, Set.of(PutOption.IfVersionIdEquals(current.versionId())));
         } catch (RuntimeException raceOrResponseLoss) {
@@ -182,9 +182,14 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
             return new GatewayIdempotencyStore.RetryStart(current.record(), null,
                     GatewayIdempotencyStore.RetryState.NOT_RETRYABLE);
         }
-        final GatewayPhysicalAttemptV1 prior = current.record().attempts()
-                .get(current.record().attempts().size() - 1);
-        if (prior.state() != GatewayPhysicalAttemptStateV1.UNCERTAIN
+        GatewayPhysicalAttemptV1 prior = null;
+        for (int index = current.record().attempts().size() - 1; index >= 0; index--) {
+            if (current.record().attempts().get(index).state() == GatewayPhysicalAttemptStateV1.UNCERTAIN) {
+                prior = current.record().attempts().get(index);
+                break;
+            }
+        }
+        if (prior == null
                 || !prior.physicalAttemptId().equals(expectedPrior)) {
             return new GatewayIdempotencyStore.RetryStart(current.record(), null,
                     GatewayIdempotencyStore.RetryState.STALE_PRECONDITION);
@@ -219,14 +224,18 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
     public synchronized GatewayIdempotencyRecordV1 finish(final Digest32 keyHash,
                                                            final PhysicalEnqueueAttemptId attemptId,
                                                            final SubmissionOutcomeMessageV1 outcome) {
+        Objects.requireNonNull(attemptId, "attemptId");
         Objects.requireNonNull(outcome, "outcome");
         final Entry current = require(keyHash);
         current.record().attempts().stream().filter(item -> item.physicalAttemptId().equals(attemptId)).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Gateway attempt does not belong to record"));
         final GatewayPhysicalAttemptStateV1 state = stateFor(outcome);
         final GatewayIdempotencyRecordV1 next = current.record().withOutcome(
-                new GatewayIdempotencyRecordV1.PhysicalEnqueueAttemptIdMatch(attemptId), outcome.canonicalBytes(),
+                new GatewayIdempotencyRecordV1.PhysicalEnqueueAttemptIdMatch(attemptId), outcome,
                 state);
+        if (next == current.record()) {
+            return next;
+        }
         try {
             put(current.key(), next, Set.of(PutOption.IfVersionIdEquals(current.versionId())));
             return next;

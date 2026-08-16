@@ -61,7 +61,7 @@ public final class InMemoryGatewayIdempotencyStore implements GatewayIdempotency
                             started.physicalAttemptId());
                     final GatewayIdempotencyRecordV1 recovered = current.withOutcome(
                             new GatewayIdempotencyRecordV1.PhysicalEnqueueAttemptIdMatch(
-                                    started.physicalAttemptId()), uncertain.canonicalBytes(),
+                                    started.physicalAttemptId()), uncertain,
                             GatewayPhysicalAttemptStateV1.UNCERTAIN);
                     records.put(keyHash, recovered);
                     return new AttemptStart(recovered, null);
@@ -112,8 +112,14 @@ public final class InMemoryGatewayIdempotencyStore implements GatewayIdempotency
         if (!uncertain || current.attempts().isEmpty()) {
             return new RetryStart(current, null, RetryState.NOT_RETRYABLE);
         }
-        final GatewayPhysicalAttemptV1 prior = current.attempts().get(current.attempts().size() - 1);
-        if (prior.state() != GatewayPhysicalAttemptStateV1.UNCERTAIN
+        GatewayPhysicalAttemptV1 prior = null;
+        for (int index = current.attempts().size() - 1; index >= 0; index--) {
+            if (current.attempts().get(index).state() == GatewayPhysicalAttemptStateV1.UNCERTAIN) {
+                prior = current.attempts().get(index);
+                break;
+            }
+        }
+        if (prior == null
                 || !prior.physicalAttemptId().equals(expectedPriorAttemptId)) {
             return new RetryStart(current, null, RetryState.STALE_PRECONDITION);
         }
@@ -145,7 +151,7 @@ public final class InMemoryGatewayIdempotencyStore implements GatewayIdempotency
                 started.physicalAttemptId());
         final GatewayIdempotencyRecordV1 recovered = current.withOutcome(
                 new GatewayIdempotencyRecordV1.PhysicalEnqueueAttemptIdMatch(started.physicalAttemptId()),
-                uncertain.canonicalBytes(), GatewayPhysicalAttemptStateV1.UNCERTAIN);
+                uncertain, GatewayPhysicalAttemptStateV1.UNCERTAIN);
         records.put(keyHash, recovered);
         return recovered;
     }
@@ -168,7 +174,7 @@ public final class InMemoryGatewayIdempotencyStore implements GatewayIdempotency
             case NATIVE_ENQUEUE_UNCERTAIN -> GatewayPhysicalAttemptStateV1.UNCERTAIN;
         };
         final GatewayIdempotencyRecordV1 next = current.withOutcome(
-                new GatewayIdempotencyRecordV1.PhysicalEnqueueAttemptIdMatch(attemptId), outcome.canonicalBytes(),
+                new GatewayIdempotencyRecordV1.PhysicalEnqueueAttemptIdMatch(attemptId), outcome,
                 state);
         records.put(keyHash, next);
         return next;

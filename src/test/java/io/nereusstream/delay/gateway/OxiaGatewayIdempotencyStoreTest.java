@@ -4,9 +4,12 @@ import io.nereusstream.delay.adapter.WireIngressOutcomeSupport;
 import io.nereusstream.delay.protocol.AdapterMetadataV1;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CommandCodec;
+import io.nereusstream.delay.protocol.CommandQueuedReceiptV1;
 import io.nereusstream.delay.protocol.DelayMessageId;
 import io.nereusstream.delay.protocol.DeliveryMode;
+import io.nereusstream.delay.protocol.EnqueueOutcomeMessageV1;
 import io.nereusstream.delay.protocol.KafkaMetadataV1;
+import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.OrderingMode;
 import io.nereusstream.delay.protocol.PayloadCommitProofV1;
 import io.nereusstream.delay.protocol.PayloadReservationReceiptV1;
@@ -39,11 +42,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class OxiaGatewayIdempotencyStoreTest {
     @Test
@@ -165,6 +170,127 @@ class OxiaGatewayIdempotencyStoreTest {
         assertEquals(GatewayPhysicalAttemptStateV1.UNCERTAIN,
                 recovered.record().attempts().get(1).state());
         assertNotNull(recovered.record().aggregateOutcomeBytes());
+    }
+
+    @Test
+    void lateQueuedEvidencePromotesUncertainWithoutChangingItsAttemptIdentity() {
+        final TrustedClock clock = () -> 100;
+        final FakeGatewayClient client = new FakeGatewayClient();
+        final OxiaGatewayIdempotencyStore store = new OxiaGatewayIdempotencyStore(client, "/nereus/gateway",
+                clock, 10, 20);
+        final PreparedSubmissionV1 prepared = prepared();
+        final Digest32 keyHash = new Digest32(bytes(32, 41));
+        store.prepareIfAbsent(keyHash, GatewayOperationKindV1.SCHEDULE, new Digest32(bytes(32, 42)), prepared, 800);
+
+        final GatewayIdempotencyStore.AttemptStart started = store.startAttempt(keyHash);
+        final PhysicalEnqueueAttemptId attemptId = started.permit().physicalAttemptId();
+        final SubmissionOutcomeMessageV1 uncertain = GatewayOutcomeSupport.uncertain(prepared, attemptId);
+        store.finish(keyHash, attemptId, uncertain);
+
+        final SubmissionOutcomeMessageV1 queued = queued(prepared, attemptId);
+        final GatewayIdempotencyRecordV1 promoted = store.finish(keyHash, attemptId, queued);
+
+        assertEquals(GatewayIdempotencyPhaseV1.QUIESCENT, promoted.phase());
+        assertEquals(GatewayPhysicalAttemptStateV1.QUEUED, promoted.attempts().get(0).state());
+        assertEquals(io.nereusstream.delay.protocol.EnqueueOutcomeKindV1.QUEUED,
+                SubmissionOutcomeMessageV1.decode(promoted.aggregateOutcomeBytes()).managed().kind());
+        final byte[] beforeIdempotentRetry = promoted.canonicalBytes();
+        assertArrayEquals(beforeIdempotentRetry, store.finish(keyHash, attemptId, queued).canonicalBytes());
+    }
+
+    @Test
+    void lateOldAttemptEvidenceCannotRegressTheNewestRetryAggregate() {
+        final TrustedClock clock = () -> 100;
+        final FakeGatewayClient client = new FakeGatewayClient();
+        final OxiaGatewayIdempotencyStore store = new OxiaGatewayIdempotencyStore(client, "/nereus/gateway",
+                clock, 10, 20);
+        final PreparedSubmissionV1 prepared = prepared();
+        final Digest32 keyHash = new Digest32(bytes(32, 51));
+        store.prepareIfAbsent(keyHash, GatewayOperationKindV1.SCHEDULE, new Digest32(bytes(32, 52)), prepared, 800);
+
+        final GatewayIdempotencyStore.AttemptStart first = store.startAttempt(keyHash);
+        final PhysicalEnqueueAttemptId firstId = first.permit().physicalAttemptId();
+        final SubmissionOutcomeMessageV1 firstUncertain = GatewayOutcomeSupport.uncertain(prepared, firstId);
+        store.finish(keyHash, firstId, firstUncertain);
+        final PhysicalEnqueueAttemptId retryRequestId = PhysicalEnqueueAttemptId.require(bytes(16, 53));
+        final GatewayIdempotencyStore.RetryStart retry = store.startRetry(keyHash, firstId, retryRequestId);
+        final PhysicalEnqueueAttemptId retryId = retry.permit().physicalAttemptId();
+        final SubmissionOutcomeMessageV1 retryUncertain = GatewayOutcomeSupport.uncertain(prepared, retryId);
+        final GatewayIdempotencyRecordV1 newest = store.finish(keyHash, retryId, retryUncertain);
+
+        final byte[] beforeLateEvidence = newest.canonicalBytes();
+        assertArrayEquals(beforeLateEvidence, store.finish(keyHash, firstId, firstUncertain).canonicalBytes());
+        assertArrayEquals(beforeLateEvidence, store.exact(keyHash).canonicalBytes());
+    }
+
+    @Test
+    void retryUsesTheHighestUnresolvedAttemptWhenANewerAttemptIsDefinitive() {
+        final TrustedClock clock = () -> 100;
+        final FakeGatewayClient client = new FakeGatewayClient();
+        final OxiaGatewayIdempotencyStore store = new OxiaGatewayIdempotencyStore(client, "/nereus/gateway",
+                clock, 10, 20);
+        final PreparedSubmissionV1 prepared = prepared();
+        final Digest32 keyHash = new Digest32(bytes(32, 55));
+        store.prepareIfAbsent(keyHash, GatewayOperationKindV1.SCHEDULE, new Digest32(bytes(32, 56)), prepared, 800);
+
+        final GatewayIdempotencyStore.AttemptStart first = store.startAttempt(keyHash);
+        final PhysicalEnqueueAttemptId firstId = first.permit().physicalAttemptId();
+        store.finish(keyHash, firstId, GatewayOutcomeSupport.uncertain(prepared, firstId));
+        final PhysicalEnqueueAttemptId firstRetryRequestId = PhysicalEnqueueAttemptId.require(bytes(16, 57));
+        final GatewayIdempotencyStore.RetryStart retry = store.startRetry(keyHash, firstId, firstRetryRequestId);
+        final PhysicalEnqueueAttemptId retryId = retry.permit().physicalAttemptId();
+        store.finish(keyHash, retryId, GatewayOutcomeSupport.localDefinite(prepared,
+                io.nereusstream.delay.protocol.StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED));
+
+        final PhysicalEnqueueAttemptId secondRetryRequestId = PhysicalEnqueueAttemptId.require(bytes(16, 58));
+        final GatewayIdempotencyStore.RetryStart secondRetry = store.startRetry(keyHash, firstId,
+                secondRetryRequestId);
+
+        assertEquals(GatewayIdempotencyStore.RetryState.STARTED, secondRetry.state());
+        assertNotNull(secondRetry.permit());
+        assertEquals(3, secondRetry.record().attempts().size());
+    }
+
+    @Test
+    void conflictingTerminalEvidenceAndForeignAttemptIdentityAreRejectedWithoutOverwrite() {
+        final TrustedClock clock = () -> 100;
+        final FakeGatewayClient client = new FakeGatewayClient();
+        final OxiaGatewayIdempotencyStore store = new OxiaGatewayIdempotencyStore(client, "/nereus/gateway",
+                clock, 10, 20);
+        final PreparedSubmissionV1 prepared = prepared();
+        final Digest32 keyHash = new Digest32(bytes(32, 61));
+        store.prepareIfAbsent(keyHash, GatewayOperationKindV1.SCHEDULE, new Digest32(bytes(32, 62)), prepared, 800);
+
+        final GatewayIdempotencyStore.AttemptStart started = store.startAttempt(keyHash);
+        final PhysicalEnqueueAttemptId attemptId = started.permit().physicalAttemptId();
+        final SubmissionOutcomeMessageV1 uncertain = GatewayOutcomeSupport.uncertain(prepared, attemptId);
+        store.finish(keyHash, attemptId, uncertain);
+        final GatewayIdempotencyRecordV1 promoted = store.finish(keyHash, attemptId, queued(prepared, attemptId));
+
+        assertThrows(IllegalStateException.class,
+                () -> store.finish(keyHash, attemptId, queued(prepared, attemptId, 4)));
+        assertThrows(IllegalStateException.class, () -> store.finish(keyHash, attemptId,
+                GatewayOutcomeSupport.uncertain(prepared, PhysicalEnqueueAttemptId.require(bytes(16, 63)))));
+        assertArrayEquals(promoted.canonicalBytes(), store.exact(keyHash).canonicalBytes());
+    }
+
+    private static SubmissionOutcomeMessageV1 queued(final PreparedSubmissionV1 prepared,
+                                                      final PhysicalEnqueueAttemptId attemptId) {
+        return queued(prepared, attemptId, 3);
+    }
+
+    private static SubmissionOutcomeMessageV1 queued(final PreparedSubmissionV1 prepared,
+                                                      final PhysicalEnqueueAttemptId attemptId, final long offset) {
+        final PreparedCommand command = CommandCodec.decodeFrameV1(prepared.managedFrame());
+        final UUID topic = UUID.nameUUIDFromBytes(Bytes.utf8("gateway-late-queued-topic"));
+        final KafkaSourcePosition source = new KafkaSourcePosition(command.shardId(), "gateway", topic, offset, null,
+                100);
+        final CommandQueuedReceiptV1.KafkaQueuedAck ack = new CommandQueuedReceiptV1.KafkaQueuedAck("gateway", topic,
+                command.shardId().partition(), offset, null, 100,
+                Bytes.sha256(Bytes.utf8("gateway-late-queued-ack-" + offset)));
+        final CommandQueuedReceiptV1 receipt = CommandQueuedReceiptV1.create(command, source, ack, 5_000,
+                attemptId.bytes());
+        return SubmissionOutcomeMessageV1.managed(EnqueueOutcomeMessageV1.queued(receipt));
     }
 
     private static PreparedSubmissionV1 prepared() {

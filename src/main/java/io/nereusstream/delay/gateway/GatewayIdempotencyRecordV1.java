@@ -2,9 +2,18 @@ package io.nereusstream.delay.gateway;
 
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
+import io.nereusstream.delay.protocol.CommandCodec;
+import io.nereusstream.delay.protocol.CommandQueuedReceiptV1;
+import io.nereusstream.delay.protocol.EnqueueOutcomeKindV1;
+import io.nereusstream.delay.protocol.NativePreparedRefV1;
+import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.protocol.PreparedSubmissionV1;
+import io.nereusstream.delay.protocol.SubmissionOutcomeKindV1;
+import io.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
 import io.nereusstream.delay.transport.Digest32;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
@@ -164,30 +173,199 @@ public final class GatewayIdempotencyRecordV1 {
         next.add(Objects.requireNonNull(attempt, "attempt"));
         return new GatewayIdempotencyRecordV1(gatewayKeyHash, operation, requestBodyHash,
                 preparedSubmissionBytes, GatewayIdempotencyPhaseV1.ACTIVE, next, null,
-                createdAtEpochMs, retainUntilEpochMs, revision + 1);
+                createdAtEpochMs, retainUntilEpochMs, checkedIncrement(revision));
     }
 
     GatewayIdempotencyRecordV1 withOutcome(final PhysicalEnqueueAttemptIdMatch match,
-                                           final byte[] outcomeBytes, final GatewayPhysicalAttemptStateV1 state) {
+                                           final SubmissionOutcomeMessageV1 outcome,
+                                           final GatewayPhysicalAttemptStateV1 state) {
+        Objects.requireNonNull(match, "match");
+        final PhysicalEnqueueAttemptIdMatch checkedMatch = match;
+        final SubmissionOutcomeMessageV1 checkedOutcome = Objects.requireNonNull(outcome, "outcome");
+        final GatewayPhysicalAttemptStateV1 checkedState = Objects.requireNonNull(state, "state");
+        validateOutcome(checkedOutcome, checkedMatch.id());
+        final byte[] outcomeBytes = checkedOutcome.canonicalBytes();
         final List<GatewayPhysicalAttemptV1> next = new ArrayList<>(attempts.size());
         boolean found = false;
-        for (GatewayPhysicalAttemptV1 attempt : attempts) {
-            if (attempt.physicalAttemptId().equals(match.id())) {
+        GatewayPhysicalAttemptV1 currentAttempt = null;
+        for (int index = 0; index < attempts.size(); index++) {
+            final GatewayPhysicalAttemptV1 attempt = attempts.get(index);
+            if (attempt.physicalAttemptId().equals(checkedMatch.id())) {
                 found = true;
-                next.add(new GatewayPhysicalAttemptV1(attempt.attemptNo(), attempt.physicalAttemptId(), state,
-                        outcomeBytes, attempt.startedAtEpochMs(), attempt.uncertaintyAtEpochMs(),
-                        attempt.retryRequestId(), attempt.retryRequestHash(),
-                        attempt.revision() + 1, attempt.ownershipNotAfterEpochMs()));
-            } else {
-                next.add(attempt);
+                currentAttempt = attempt;
+                break;
             }
         }
         if (!found) {
             throw new IllegalArgumentException("Gateway attempt is not part of the record");
         }
+        final byte[] currentOutcomeBytes = currentAttempt.outcomeBytes();
+        if (currentAttempt.state() != GatewayPhysicalAttemptStateV1.STARTED) {
+            if (Arrays.equals(currentOutcomeBytes, outcomeBytes)) {
+                return this;
+            }
+            if (currentAttempt.state() != GatewayPhysicalAttemptStateV1.UNCERTAIN
+                    || (checkedState != GatewayPhysicalAttemptStateV1.QUEUED
+                    && checkedState != GatewayPhysicalAttemptStateV1.DEFINITELY_NOT_QUEUED)) {
+                throw new IllegalStateException("Gateway attempt terminal evidence conflict");
+            }
+        }
+        for (GatewayPhysicalAttemptV1 attempt : attempts) {
+            if (attempt.physicalAttemptId().equals(checkedMatch.id())) {
+                next.add(new GatewayPhysicalAttemptV1(attempt.attemptNo(), attempt.physicalAttemptId(), state,
+                        outcomeBytes, attempt.startedAtEpochMs(), attempt.uncertaintyAtEpochMs(),
+                        attempt.retryRequestId(), attempt.retryRequestHash(),
+                        checkedIncrement(attempt.revision()), attempt.ownershipNotAfterEpochMs()));
+            } else {
+                next.add(attempt);
+            }
+        }
+        final Aggregate aggregate = aggregate(next, aggregateOutcomeBytes);
         return new GatewayIdempotencyRecordV1(gatewayKeyHash, operation, requestBodyHash,
-                preparedSubmissionBytes, GatewayIdempotencyPhaseV1.QUIESCENT, next, outcomeBytes, createdAtEpochMs,
-                retainUntilEpochMs, revision + 1);
+                preparedSubmissionBytes, aggregate.phase(), next, aggregate.outcomeBytes(), createdAtEpochMs,
+                retainUntilEpochMs, checkedIncrement(revision));
+    }
+
+    private void validateOutcome(final SubmissionOutcomeMessageV1 outcome,
+                                 final io.nereusstream.delay.transport.PhysicalEnqueueAttemptId attemptId) {
+        Objects.requireNonNull(attemptId, "attemptId");
+        final PreparedSubmissionV1 prepared;
+        try {
+            prepared = PreparedSubmissionV1.decode(preparedSubmissionBytes);
+        } catch (RuntimeException malformed) {
+            throw new IllegalStateException("Gateway prepared submission is malformed", malformed);
+        }
+        if (prepared.isManaged() != (outcome.kind() == SubmissionOutcomeKindV1.MANAGED)) {
+            throw new IllegalStateException("Gateway outcome branch does not match prepared submission");
+        }
+        if (prepared.isManaged()) {
+            final PreparedCommand command = CommandCodec.decodeFrameV1(prepared.managedFrame());
+            final CommandQueuedReceiptV1.PreparedCommandRef expected = CommandQueuedReceiptV1.PreparedCommandRef.from(
+                    command);
+            final var managed = outcome.managed();
+            switch (managed.kind()) {
+                case QUEUED -> {
+                    if (!expected.equals(managed.queued().command())) {
+                        throw new IllegalStateException("Gateway queued outcome does not match prepared command");
+                    }
+                    requireAttemptId(attemptId, managed.queued().physicalEnqueueAttemptId());
+                }
+                case DEFINITELY_NOT_QUEUED -> {
+                    if (!expected.equals(managed.definitelyNotQueued().command())) {
+                        throw new IllegalStateException("Gateway definite outcome does not match prepared command");
+                    }
+                }
+                case ENQUEUE_UNCERTAIN -> {
+                    if (!expected.equals(managed.uncertain().command())) {
+                        throw new IllegalStateException("Gateway uncertain outcome does not match prepared command");
+                    }
+                    requireAttemptId(attemptId, managed.uncertain().physicalEnqueueAttemptId());
+                }
+            }
+            return;
+        }
+        final NativePreparedRefV1 expected = prepared.nativePrepared().preparedRef();
+        switch (outcome.kind()) {
+            case NATIVE_RECEIPT -> {
+                if (!expected.equals(outcome.nativeReceipt().prepared())) {
+                    throw new IllegalStateException("Gateway native receipt does not match prepared delivery");
+                }
+                requireAttemptId(attemptId, outcome.nativeReceipt().physicalEnqueueAttemptId());
+            }
+            case NATIVE_DEFINITELY_NOT_QUEUED -> {
+                if (!expected.equals(outcome.nativeDefinitelyNotQueued().nativePrepared())) {
+                    throw new IllegalStateException("Gateway native definite outcome does not match prepared delivery");
+                }
+            }
+            case NATIVE_ENQUEUE_UNCERTAIN -> {
+                if (!expected.equals(outcome.nativeUncertain().nativePrepared())) {
+                    throw new IllegalStateException("Gateway native uncertain outcome does not match prepared delivery");
+                }
+                requireAttemptId(attemptId, outcome.nativeUncertain().physicalEnqueueAttemptId());
+            }
+            case MANAGED -> throw new IllegalStateException("Gateway managed outcome does not match native delivery");
+        }
+    }
+
+    private static void requireAttemptId(
+            final io.nereusstream.delay.transport.PhysicalEnqueueAttemptId expected, final byte[] actual) {
+        if (!Arrays.equals(expected.bytes(), actual)) {
+            throw new IllegalStateException("Gateway outcome physical attempt identity mismatch");
+        }
+    }
+
+    private static Aggregate aggregate(final List<GatewayPhysicalAttemptV1> attempts,
+                                       final byte[] previousAggregateBytes) {
+        byte[] queuedAggregate = null;
+        if (previousAggregateBytes != null) {
+            final SubmissionOutcomeMessageV1 previous = decodeAggregate(previousAggregateBytes);
+            if (isQueued(previous)) {
+                if (attempts.stream().noneMatch(attempt -> attempt.state() == GatewayPhysicalAttemptStateV1.QUEUED)) {
+                    throw new IllegalStateException("Gateway queued aggregate has no queued attempt");
+                }
+                queuedAggregate = Bytes.copy(previousAggregateBytes);
+            }
+        }
+        GatewayPhysicalAttemptV1 latestUncertain = null;
+        GatewayPhysicalAttemptV1 latestDefinite = null;
+        boolean hasStarted = false;
+        for (GatewayPhysicalAttemptV1 attempt : attempts) {
+            if (attempt.state() == GatewayPhysicalAttemptStateV1.QUEUED) {
+                if (queuedAggregate == null) {
+                    queuedAggregate = requireOutcomeBytes(attempt);
+                }
+            } else if (attempt.state() == GatewayPhysicalAttemptStateV1.STARTED) {
+                hasStarted = true;
+            } else if (attempt.state() == GatewayPhysicalAttemptStateV1.UNCERTAIN) {
+                latestUncertain = attempt;
+            } else if (attempt.state() == GatewayPhysicalAttemptStateV1.DEFINITELY_NOT_QUEUED) {
+                latestDefinite = attempt;
+            }
+        }
+        final GatewayIdempotencyPhaseV1 phase = hasStarted
+                ? GatewayIdempotencyPhaseV1.ACTIVE : GatewayIdempotencyPhaseV1.QUIESCENT;
+        if (queuedAggregate != null) {
+            return new Aggregate(phase, queuedAggregate);
+        }
+        if (hasStarted) {
+            return new Aggregate(phase, null);
+        }
+        if (latestUncertain != null) {
+            return new Aggregate(phase, requireOutcomeBytes(latestUncertain));
+        }
+        return new Aggregate(phase, latestDefinite == null ? null : requireOutcomeBytes(latestDefinite));
+    }
+
+    private static byte[] requireOutcomeBytes(final GatewayPhysicalAttemptV1 attempt) {
+        final byte[] bytes = attempt.outcomeBytes();
+        if (bytes == null) {
+            throw new IllegalStateException("Gateway terminal attempt has no outcome bytes");
+        }
+        return bytes;
+    }
+
+    private static SubmissionOutcomeMessageV1 decodeAggregate(final byte[] bytes) {
+        try {
+            return SubmissionOutcomeMessageV1.decode(bytes);
+        } catch (RuntimeException malformed) {
+            throw new IllegalStateException("Gateway aggregate outcome is malformed", malformed);
+        }
+    }
+
+    private static boolean isQueued(final SubmissionOutcomeMessageV1 outcome) {
+        return outcome.kind() == SubmissionOutcomeKindV1.NATIVE_RECEIPT
+                || outcome.kind() == SubmissionOutcomeKindV1.MANAGED
+                && outcome.managed().kind() == EnqueueOutcomeKindV1.QUEUED;
+    }
+
+    private static long checkedIncrement(final long value) {
+        if (value <= 0 || value == Long.MAX_VALUE) {
+            throw new IllegalStateException("Gateway idempotency revision is exhausted");
+        }
+        return value + 1;
+    }
+
+    private record Aggregate(GatewayIdempotencyPhaseV1 phase, byte[] outcomeBytes) {
     }
 
     private byte[] canonicalWithoutDigest() {

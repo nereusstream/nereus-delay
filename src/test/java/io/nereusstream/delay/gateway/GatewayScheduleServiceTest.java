@@ -120,7 +120,11 @@ class GatewayScheduleServiceTest {
         assertEquals(io.nereusstream.delay.protocol.EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN,
                 uncertain.submissionOutcome().managed().kind());
         assertTrue(retried.hasSubmissionOutcome());
-        assertArrayEquals(retried.submissionOutcome().canonicalBytes(), repeated.submissionOutcome().canonicalBytes());
+        assertEquals(io.nereusstream.delay.protocol.EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED,
+                retried.submissionOutcome().managed().kind());
+        assertArrayEquals(uncertain.submissionOutcome().canonicalBytes(), repeated.submissionOutcome().canonicalBytes());
+        assertEquals(io.nereusstream.delay.protocol.EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN,
+                repeated.submissionOutcome().managed().kind());
         assertEquals(2, coordinator.calls);
         assertEquals(2, store.exact(keyHash).attempts().size());
     }
