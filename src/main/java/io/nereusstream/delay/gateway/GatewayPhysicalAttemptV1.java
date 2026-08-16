@@ -36,12 +36,19 @@ public final class GatewayPhysicalAttemptV1 {
                                     final PhysicalEnqueueAttemptId retryRequestId,
                                     final io.nereusstream.delay.transport.Digest32 retryRequestHash,
                                     final long revision, final long ownershipNotAfterEpochMs) {
-        if (attemptNo <= 0 || startedAtEpochMs < 0 || uncertaintyAtEpochMs < startedAtEpochMs || revision <= 0
-                || ownershipNotAfterEpochMs < startedAtEpochMs || ownershipNotAfterEpochMs > uncertaintyAtEpochMs) {
+        if (attemptNo <= 0 || startedAtEpochMs < 0 || uncertaintyAtEpochMs <= startedAtEpochMs || revision <= 0
+                || ownershipNotAfterEpochMs <= startedAtEpochMs
+                || ownershipNotAfterEpochMs > uncertaintyAtEpochMs) {
             throw new IllegalArgumentException("invalid Gateway physical attempt bounds");
         }
         if ((retryRequestId == null) != (retryRequestHash == null)) {
             throw new IllegalArgumentException("retry request id/hash must be present together");
+        }
+        if (attemptNo == 1 && retryRequestId != null) {
+            throw new IllegalArgumentException("Gateway first attempt must not carry retry identity");
+        }
+        if (attemptNo > 1 && retryRequestId == null) {
+            throw new IllegalArgumentException("Gateway retry attempt must carry retry identity");
         }
         this.attemptNo = attemptNo;
         this.physicalAttemptId = Objects.requireNonNull(physicalAttemptId, "physicalAttemptId");

@@ -91,18 +91,31 @@ class OxiaGatewayIdempotencyStoreTest {
         final GatewayPhysicalAttemptV1 first = new GatewayPhysicalAttemptV1(1, attemptId,
                 GatewayPhysicalAttemptStateV1.UNCERTAIN, uncertain.canonicalBytes(), 100, 120, 2, 110);
         final GatewayPhysicalAttemptV1 duplicate = new GatewayPhysicalAttemptV1(2, attemptId,
-                GatewayPhysicalAttemptStateV1.UNCERTAIN, uncertain.canonicalBytes(), 100, 120, 3, 110);
+                GatewayPhysicalAttemptStateV1.UNCERTAIN, uncertain.canonicalBytes(), 100, 120,
+                PhysicalEnqueueAttemptId.require(bytes(16, 36)), new Digest32(bytes(32, 37)), 3, 110);
         assertThrows(IllegalArgumentException.class, () -> new GatewayIdempotencyRecordV1(
                 new Digest32(bytes(32, 8)), GatewayOperationKindV1.SCHEDULE, new Digest32(bytes(32, 9)),
                 prepared.canonicalBytes(), GatewayIdempotencyPhaseV1.QUIESCENT, List.of(first, duplicate),
                 uncertain.canonicalBytes(), 100, 200, 3));
+
+        assertThrows(IllegalArgumentException.class, () -> new GatewayPhysicalAttemptV1(1, attemptId,
+                GatewayPhysicalAttemptStateV1.STARTED, null, 100, 100, 2, 110));
+        assertThrows(IllegalArgumentException.class, () -> new GatewayPhysicalAttemptV1(1, attemptId,
+                GatewayPhysicalAttemptStateV1.STARTED, null, 100, 120, 2, 100));
+        assertThrows(IllegalArgumentException.class, () -> new GatewayPhysicalAttemptV1(1, attemptId,
+                GatewayPhysicalAttemptStateV1.STARTED, null, 100, 120,
+                PhysicalEnqueueAttemptId.require(bytes(16, 38)), new Digest32(bytes(32, 39)), 2, 110));
+        assertThrows(IllegalArgumentException.class, () -> new GatewayPhysicalAttemptV1(2,
+                PhysicalEnqueueAttemptId.require(bytes(16, 40)), GatewayPhysicalAttemptStateV1.STARTED,
+                null, 100, 120, 2, 110));
 
         final PhysicalEnqueueAttemptId firstStartedId = PhysicalEnqueueAttemptId.require(bytes(16, 27));
         final PhysicalEnqueueAttemptId secondStartedId = PhysicalEnqueueAttemptId.require(bytes(16, 28));
         final GatewayPhysicalAttemptV1 firstStarted = new GatewayPhysicalAttemptV1(1, firstStartedId,
                 GatewayPhysicalAttemptStateV1.STARTED, null, 100, 120, 2, 110);
         final GatewayPhysicalAttemptV1 secondStarted = new GatewayPhysicalAttemptV1(2, secondStartedId,
-                GatewayPhysicalAttemptStateV1.STARTED, null, 121, 140, 3, 130);
+                GatewayPhysicalAttemptStateV1.STARTED, null, 121, 140,
+                PhysicalEnqueueAttemptId.require(bytes(16, 41)), new Digest32(bytes(32, 42)), 3, 130);
         assertThrows(IllegalArgumentException.class, () -> new GatewayIdempotencyRecordV1(
                 new Digest32(bytes(32, 29)), GatewayOperationKindV1.SCHEDULE, new Digest32(bytes(32, 30)),
                 prepared.canonicalBytes(), GatewayIdempotencyPhaseV1.ACTIVE,
