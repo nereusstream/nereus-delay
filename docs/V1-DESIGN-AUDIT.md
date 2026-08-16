@@ -9397,6 +9397,24 @@ tests with 24 skips and zero failures/errors. This closes only local retry
 evidence hash binding; it does not establish distributed Gateway authority,
 transport delivery, Broker failover, raw chaos or V1 release readiness.
 
+## 2026-08-16 Gateway operation/prepared binding audit
+
+Delay commit `f27800424a7cde3b8496b4fbbb4d4586cbeb07ca` closes the semantic
+gap between the record operation tag and its frozen prepared bytes. The
+record validator maps each managed `CommandType` to the matching
+`GatewayOperationKindV1`, and rejects every other pairing. Native prepared
+bytes are limited to the Schedule operation because the native AUTO_FAST
+composition is produced only from Schedule preparation.
+
+The regression in
+`OxiaGatewayIdempotencyStoreTest.gatewayProjectionRejectsImpossibleAttemptAndRecordShapes`
+rejects a Schedule prepared command stored under `CANCEL`. The focused
+Gateway gRPC and schedule suites passed 10 tests with zero
+failures/skips/errors; the full `./gradlew check` passed 1537 tests with 24
+skips and zero failures/errors. This closes only local operation/prepared
+semantic binding; it does not establish distributed Gateway authority,
+transport delivery, Broker failover, raw chaos or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

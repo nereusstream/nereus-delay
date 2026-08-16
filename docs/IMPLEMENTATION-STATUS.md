@@ -11296,3 +11296,28 @@ failures/skips/errors, including the retry-hash mismatch branch in
 This closes only local retry-evidence hash binding; it does not establish
 distributed Gateway authority, transport delivery, Broker failover, raw chaos
 or V1 release evidence.
+
+## 2026-08-16 Gateway operation/prepared binding
+
+Delay commit `f27800424a7cde3b8496b4fbbb4d4586cbeb07ca` binds the durable
+Gateway operation field to the stored prepared submission. Managed records
+must map `SCHEDULE`, `PREPARE_LARGE_SCHEDULE`, `COMMIT_LARGE_SCHEDULE`,
+`CANCEL` and `RESCHEDULE` one-to-one to the corresponding prepared command
+type; a native prepared submission is accepted only for `SCHEDULE`. A record
+with a valid prepared codec but a mismatched operation is rejected before
+attempt or outcome processing.
+
+The focused receipt is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.gateway.GatewayGrpcServiceTest \
+  --tests io.nereusstream.delay.gateway.GatewayScheduleServiceTest \
+  --no-daemon --console=plain
+```
+
+The focused Gateway suites passed 10 tests with zero failures/skips/errors;
+the full `./gradlew check` passed 1537 tests with 24 skips and zero
+failures/errors. This closes only local operation/prepared semantic binding;
+it does not establish distributed Gateway authority, transport delivery,
+Broker failover, raw chaos or V1 release evidence.

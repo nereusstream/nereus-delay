@@ -6021,3 +6021,17 @@ passed in the 11-test deterministic idempotency suite. The full
 `./gradlew check` passed 1537 tests with 24 skips and zero failures/errors.
 This closes only local retry-evidence hash binding; transport delivery,
 distributed authority, failover, chaos and release gates remain open.
+
+### 2026-08-16 Gateway operation/prepared binding implementation note
+
+Delay commit `f27800424a7cde3b8496b4fbbb4d4586cbeb07ca` makes the stored
+Gateway operation tag a checked projection of prepared bytes. Managed command
+types map one-to-one to the five Gateway operations; native prepared delivery
+is restricted to Schedule. A canonical record with valid branch and digest
+bytes but a mismatched operation now fails during construction/decode.
+
+`OxiaGatewayIdempotencyStoreTest.gatewayProjectionRejectsImpossibleAttemptAndRecordShapes`
+and the Gateway gRPC/schedule suites passed 10 focused tests. The full
+`./gradlew check` passed 1537 tests with 24 skips and zero failures/errors.
+This closes only local operation/prepared binding; transport delivery,
+distributed authority, failover, chaos and release gates remain open.

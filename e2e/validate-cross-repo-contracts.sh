@@ -1761,6 +1761,24 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway retry evidence hash binding implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Gateway retry evidence hash binding receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
+    "Gateway operation does not match prepared submission"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
+    "GatewayOperationKindV1.CANCEL"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/GatewayGrpcServiceTest.java" \
+    "PreparedCommand.prepareLargeV1"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/GatewayScheduleServiceTest.java" \
+    "PreparedCommand.rescheduleV1"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Gateway operation/prepared binding"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "f27800424a7cde3b8496b4fbbb4d4586cbeb07ca"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Gateway operation/prepared binding audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Gateway operation/prepared binding implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Gateway operation/prepared binding receipt"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPublicationCoordinator.java" \
     "intentIsAtomic || catalogIsAtomic"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointUploadCoordinatorTest.java" \

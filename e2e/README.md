@@ -2572,3 +2572,27 @@ failures/skips/errors. The full `./gradlew check` passed 1537 tests with 24
 skips and zero failures/errors. This receipt proves only local retry-evidence
 hash binding; it does not prove distributed Gateway authority, transport
 delivery, Broker failover, chaos or V1 release readiness.
+
+## Gateway operation/prepared binding receipt
+
+Delay commit `f27800424a7cde3b8496b4fbbb4d4586cbeb07ca` binds the stored
+Gateway operation to the prepared command type. Managed command types map to
+the matching Schedule, PrepareLarge, CommitLarge, Cancel or Reschedule
+operation; native prepared delivery is accepted only for Schedule. A
+canonical but mismatched operation record is rejected before durable attempt
+processing.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.gateway.GatewayGrpcServiceTest \
+  --tests io.nereusstream.delay.gateway.GatewayScheduleServiceTest \
+  --no-daemon --console=plain
+```
+
+The focused Gateway suites passed 10 tests with zero failures/skips/errors.
+The full `./gradlew check` passed 1537 tests with 24 skips and zero
+failures/errors. This receipt proves only local operation/prepared binding;
+it does not prove distributed Gateway authority, transport delivery, Broker
+failover, chaos or V1 release readiness.
