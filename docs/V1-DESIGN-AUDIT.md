@@ -11245,6 +11245,41 @@ partition during large-payload egress, multi-shard large-payload placement,
 REAPING, soak, benchmark/capacity evidence, the full chaos matrix or V1
 release readiness.
 
+## 2026-08-17 Current-source Pulsar native multi-shard Worker fleet audit
+
+The current-source receipt locks Delay to
+`10ed7b29b9b2a30d397acfec152c187a29bac1f0`, P1 to
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1
+distribution SHA-256 to
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, the
+P1 client artifacts to
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`, and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, P1
+image to `sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+and Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. The exact projects were
+`nereus-delay-pulsar-e2e-1786912126-62118` and
+`nereus-delay-pulsar-oxia-e2e-1786912126-62118` on Pulsar `30890/30891` and
+Oxia `30900`.
+
+Audit result: PASS for the bounded current-source native two-shard Worker
+fleet slice. One signed Route covered two guarded SUBSCRIBE barriers; two real
+Oxia Assignment/Owner Lease CAS paths admitted two native source consumers;
+one fair fleet applied and ACKed both partitions and released both final
+checkpoints and assignments:
+
+```text
+Pulsar signed Route -> two guarded SUBSCRIBE barriers -> Oxia multi-shard Assignment/Owner -> one Worker fleet -> RocksDB apply/ACK/checkpoint smoke passed: subscribePartitions=2, routeRevision=1, assignmentRevisions=[1, 1], workers=[pulsar-route-worker-b, pulsar-route-worker-a], sourceBarriers=[10/0, 9/0]
+Pulsar native multi-shard Worker fleet E2E passed: one signed Route covered two guarded SUBSCRIBE barriers, two real Oxia Assignment/Owner Lease CAS paths admitted two native source consumers, one fair fleet applied/ACKed both partitions, and both final checkpoints/assignments were released.
+BUILD SUCCESSFUL in 12s
+```
+
+The exact runner cleanup removed both Compose projects, their containers,
+networks, volumes, temporary P1/Oxia images and staging directories. This is a
+single-Broker multi-shard placement receipt; it does not establish
+multi-Broker failover, multi-shard large-payload egress, arbitrary placement
+chaos, REAPING, soak, benchmark/capacity evidence or V1 release readiness.
+
 ## 2026-08-17 Current-source Pulsar large-payload Broker network-partition failover audit
 
 The current-source receipt locks Delay to
