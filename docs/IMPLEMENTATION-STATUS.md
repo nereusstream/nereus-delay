@@ -10950,3 +10950,25 @@ suite passed 11 tests, with zero failures/skips/errors. This is local close
 failure aggregation only; it does not relax the per-shard owner-drain
 ordering, add automatic Oxia session recovery, establish Route transactionality
 or placement authority, or provide chaos/failover/release evidence.
+
+## 2026-08-16 Worker source close retry boundary
+
+Delay commit `874fccb4fc521ad51b7954236ec5e37c1591e011` keeps
+`WorkerSourceApplyLoop` retryable until its native `SourceRecordConsumer.close()`
+returns successfully. A consumer close failure no longer leaves the loop
+marked closed, so the same owner-drain boundary can retry native teardown
+instead of promoting a partial release to terminal source closure.
+
+The focused receipt is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.ownership.SourceApplyCoordinatorTest \
+  --no-daemon --console=plain
+```
+
+The deterministic source/apply suite passed 8 tests, including
+`workerSourceLoopRetriesNativeCloseAfterAReleaseFailure`. This is local
+source lifecycle retryability only; it does not bypass pending-ACK protection,
+change owner-drain ordering, establish Broker reconnect/ACK evidence, or
+provide crash/chaos/failover/release evidence.

@@ -9138,6 +9138,23 @@ mandatory; no automatic Oxia session retry, Route event/head transactionality,
 placement/source ownership, raw chaos, failover or V1 release readiness is
 claimed.
 
+## 2026-08-16 Worker source close retry boundary audit
+
+Delay commit `874fccb4fc521ad51b7954236ec5e37c1591e011` fixes the source-loop
+teardown state transition. `WorkerSourceApplyLoop.close()` now marks the loop
+closed only after the native `SourceRecordConsumer.close()` succeeds. If the
+native close throws, the loop remains open for the exact owner-drain retry and
+cannot be mistaken for a completed source teardown.
+
+`SourceApplyCoordinatorTest.workerSourceLoopRetriesNativeCloseAfterAReleaseFailure`
+forces the first native close to fail, verifies one attempted call, retries the
+same loop close successfully and confirms later source turns are fenced. The
+focused source/apply suite passed 8 tests with zero failures/skips/errors.
+
+This closes only local source close retryability. Pending ACK and owner-drain
+ordering remain mandatory; Broker reconnect/ACK durability, crash/chaos,
+failover, production ownership and V1 release readiness are not claimed.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

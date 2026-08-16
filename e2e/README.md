@@ -2272,3 +2272,23 @@ tests, with zero failures/skips/errors. This is deterministic local teardown
 evidence only; it does not prove owner-drain bypass, automatic Oxia recovery,
 Route transactionality, placement/source ownership, chaos, failover or V1
 release readiness.
+
+## Worker source close retry receipt
+
+Delay commit `874fccb4fc521ad51b7954236ec5e37c1591e011` keeps the source loop
+open when its native `SourceRecordConsumer.close()` fails, allowing the exact
+owner-drain close boundary to retry. The loop becomes closed only after a
+successful native close.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.ownership.SourceApplyCoordinatorTest \
+  --no-daemon --console=plain
+```
+
+The deterministic source/apply suite passed 8 tests, including the native
+close-failure retry regression. This is local lifecycle evidence only; it does
+not prove pending-ACK bypass, Broker reconnect/ACK durability, crash/chaos,
+failover or V1 release readiness.

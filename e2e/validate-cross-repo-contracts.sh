@@ -1535,6 +1535,20 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "fleet and Route resource close aggregation implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Fleet and Route resource close aggregation receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerSourceApplyLoop.java" \
+    "native close failure leaves the"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/ownership/SourceApplyCoordinatorTest.java" \
+    "workerSourceLoopRetriesNativeCloseAfterAReleaseFailure"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Worker source close retry boundary"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "874fccb4fc521ad51b7954236ec5e37c1591e011"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Worker source close retry boundary audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Worker source close retry boundary implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Worker source close retry receipt"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPublicationCoordinator.java" \
     "intentIsAtomic || catalogIsAtomic"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointUploadCoordinatorTest.java" \

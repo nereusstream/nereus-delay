@@ -5805,3 +5805,16 @@ The focused command passed 2 fleet tests and 11 Route provider/session tests.
 This is retryable local teardown reporting only: owner drain ordering remains
 required, and no Route transactionality, automatic session recovery,
 placement/source authority, chaos, failover or release evidence is inferred.
+
+### 2026-08-16 Worker source close retry boundary implementation note
+
+Delay commit `874fccb4fc521ad51b7954236ec5e37c1591e011` makes the source-loop
+close state retryable. `WorkerSourceApplyLoop.close()` invokes the native
+`SourceRecordConsumer.close()` before setting its closed flag; a thrown native
+close therefore leaves the loop available for the same owner-drain retry and
+does not turn partial resource release into a terminal source state.
+
+`SourceApplyCoordinatorTest.workerSourceLoopRetriesNativeCloseAfterAReleaseFailure`
+passed in the 8-test deterministic source/apply suite. The note closes only
+local source teardown retryability; pending-ACK/owner-drain ordering, Broker
+reconnect/ACK evidence, crash/chaos, failover and release gates remain open.
