@@ -6132,3 +6132,21 @@ environment, so the broker-dependent K1/K2 smoke was not run. This closes only
 the local opt-in metadata-to-guard identity projection; Kafka Broker rollout,
 multi-broker failover, read-committed receipt authority, source/ACK
 integration, Worker production wiring and release gates remain open.
+
+### 2026-08-16 recovered publish evidence identity fence implementation note
+
+Delay commit `c6b6a5f9b52e8f5c358e047218ee606ea58aed3f` closes the provider
+recovery promotion gap for the opt-in K2 and Pulsar destination bindings.
+`KafkaTransactionalPublishEvidence.requireExactBinding` now checks the
+read-committed cursor channel, receipt offset, prepared hash, target resource
+and partition, transactional identity and exact receipt-record hash before K2
+can return `PUBLISHED`. `PulsarSendAckEvidence.requireExactBinding` applies
+the corresponding exact target, partition, prepared hash, producer hash and
+broker-persistence-time checks before an uncertain SEND can be promoted.
+
+The provider remains responsible for the live Fetch/reread proof; the
+transport now owns the final request/evidence identity fence. The focused
+evidence tests and source-locked `compileRealKafka`/`compileRealPulsar` tasks
+passed. This closes only local recovered-evidence binding; read-committed or
+Pulsar reread authority, Broker rollout/failover, source/ACK integration,
+Worker production wiring and release gates remain open.

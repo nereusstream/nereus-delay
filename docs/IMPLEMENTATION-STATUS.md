@@ -11424,3 +11424,21 @@ broker-dependent K1/K2 smoke was not run. This closes only local opt-in
 metadata-to-guard identity binding; it does not establish Broker rollout,
 multi-broker failover, read-committed receipt authority, source/ACK
 integration, Worker production wiring or V1 release evidence.
+
+## 2026-08-16 recovered publish evidence identity fence
+
+Delay commit `c6b6a5f9b52e8f5c358e047218ee606ea58aed3f` tightens the
+source-locked provider recovery paths. K2 recovery evidence must bind its
+read-committed cursor, receipt offset, prepared hash, target resource and
+partition, transactional identity and receipt-record hash to the exact
+request. Pulsar destination recovery evidence must bind its target resource,
+partition, prepared hash, producer identity hash, publish attempt and broker
+persistence time. Contradictory typed evidence remains `UNKNOWN` and cannot
+become `PUBLISHED` merely because its owner ID is valid.
+
+The focused Kafka/Pulsar evidence tests passed, as did the source-locked
+`compileRealKafka` and `compileRealPulsar` tasks against the locked K1/P1
+artifacts. This closes only local recovered-evidence identity binding; it does
+not establish live read-committed/Pulsar reread authority, Broker rollout or
+failover, source/ACK integration, Worker production wiring or V1 release
+evidence.

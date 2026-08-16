@@ -9514,6 +9514,22 @@ only; it does not establish Broker rollout, multi-broker failover,
 read-committed receipt authority, source/ACK integration, Worker production
 wiring or V1 release readiness.
 
+## 2026-08-16 recovered publish evidence identity fence audit
+
+Delay commit `c6b6a5f9b52e8f5c358e047218ee606ea58aed3f` closes a false-positive
+promotion path after destination response loss. K2 provider evidence is now
+checked against the exact cursor channel, receipt offset, prepared hash,
+target resource/partition, transactional identity and receipt bytes. Pulsar
+provider evidence is checked against the exact target/partition, prepared
+hash, producer identity hash, publish attempt and broker persistence time.
+Owner identity alone is therefore insufficient to return `PUBLISHED`.
+
+The focused evidence tests and source-locked K1/P1 compile tasks passed. No
+Broker was listening for the external smoke, so this remains local
+recovered-evidence binding only; live read-committed/Pulsar reread authority,
+Broker rollout/failover, source/ACK integration, Worker production wiring and
+V1 release readiness remain open.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
