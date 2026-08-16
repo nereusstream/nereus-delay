@@ -4676,6 +4676,7 @@ the guarded Broker rollout attestation remains external evidence.
 | Delay checkpoint REAPING quiescence proof slice | `nereus/delay-full-implementation-v1@7b8b73885c5ec26dfc96c1b5b8a1a6ab8ec0d1d9` (immutable proof binds pending/reaping evidence, enforces the provider-lifetime plus trusted-clock-width horizon, and requires old-owner/provider closure horizons before the coordinator calls the provider; the locked MinIO receipt records `9c4dcab9-c03c-4860-81de-07e62302d30e`; external attestation issuers, Owner/session loss and delete confirmation remain open) |
 | Delay checkpoint REAPING Owner proof slice | `nereus/delay-full-implementation-v1@44cd3230709f5e87742cd94cd9a8b7bce314a184` (typed proof binds pending/Owner/Store/session lease identity, distinguishes explicit abandonment from a recorded lease no longer current, and requires trusted UTC after the upload deadline; the locked MinIO receipt records `ea89d80e-e63e-4980-b225-94b070d3c36b`; the issuer is local composition, not the production cross-record intent/Owner/catalog authority) |
 | Delay Object Store provider ownership horizon slice | `nereus/delay-full-implementation-v1@cc97c7654cb19f88c69045cd3c33a4d970a9fed3` (local tracker spans complete upload/download/delete/sweep operations, retains response-loss uncertainty through a bounded horizon, fences new operations and rechecks the credential-use lease before each HTTP send; the locked MinIO receipt records `1b904a10-2104-46eb-a6fd-0bd2afe24524`; remote provider execution/quiescence attestation remains external) |
+| Delay checkpoint delete-confirmation composition slice | `nereus/delay-full-implementation-v1@70e5f0da` (pure local `CheckpointDeleteConfirmationComposer` binds `CheckpointDeleteResult` to the exact durable checkpoint retire identity, requires confirmation earliest time at or after the observation latest time, and composes a signed `RESOURCE_DELETE_CONFIRMED_V1`; provider-side deletion, retire/Floor/Pin/Owner authorization, Shard Log append and mutation apply remain external) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
@@ -8705,6 +8706,25 @@ sweep receipt at `e0402eef46026c2ee91e4fe59337bb0e40cac723`; the earlier
 REAPING coordination implementation/source pair remains
 `83bf17cea70b37fa42a507832693a0c43ed4d9fb` and
 `b9fcd2aa846329ed13986b122d287375a441b2fd`.
+
+## 2026-08-16 Checkpoint delete-confirmed source mutation composition audit
+
+Delay commit `70e5f0da` adds the local
+`CheckpointDeleteConfirmationComposer`. The composer consumes only the
+durable retire-intent record and the typed provider result; it fails closed
+unless the checkpoint's complete `ExactResourceIdentity` bytes and
+domain-separated hash match, the outcome-specific immutable version is
+valid, and the confirmation interval begins no earlier than the observation
+interval's latest bound. It then derives the Shard subject from the retire
+Source Position and signs the canonical `RESOURCE_DELETE_CONFIRMED_V1`
+mutation whose logical identity is the retire mutation ID.
+
+The focused composer test passed 4 tests, and the full
+`./gradlew check --no-daemon --console=plain --quiet` returned 0. This is
+strictly local evidence-to-mutation composition. It does not prove the
+provider performed the delete, authorize the retire intent, evaluate
+Recovery Floor/Pin/Owner coverage, append or apply the source mutation, or
+promote the GC lifecycle to PASS.
 
 ## Final gate
 

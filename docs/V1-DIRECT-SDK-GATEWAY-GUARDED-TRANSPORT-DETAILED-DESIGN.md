@@ -5382,3 +5382,29 @@ quiescence or consistency attestation. Remote request execution,
 cross-record lifecycle authority, source-ordered delete confirmation,
 Floor/Pin/Owner transactions, provider breadth, chaos, failover and release
 gates remain open.
+
+### 2026-08-16 Checkpoint delete-confirmation mutation composition implementation note
+
+Delay commit `70e5f0da` adds `CheckpointDeleteConfirmationComposer` as the next
+local boundary after the provider adapter receipt. It accepts the exact
+durable `ResourceRetireIntentRecord` and `CheckpointDeleteResult`, compares
+the full checkpoint `ExactResourceIdentity` canonical bytes and hash, adapts
+the provider request/response result into `ExternalDeleteEvidence`, and
+requires the trusted confirmation interval to begin no earlier than the
+trusted provider-observation interval ends. It derives the mutation shard
+from the retire intent's applied Source Position, emits the canonical common
+body plus `RetireIntentRef`, outcome, evidence and `confirmedAt`, verifies the
+nested body before signing, and uses the retire mutation ID as the registered
+logical identity.
+
+This is an evidence-to-mutation composer, not a lifecycle transaction. The
+service author and Ed25519 signature authenticate the composed mutation, but
+the composer does not perform provider deletion, establish remote provider
+completion, authorize the retire intent, evaluate Recovery Floor/Pin/Owner
+coverage, append to or apply the Shard Log, or release any protection. The
+existing `GcWorkClassExecutor` and `DelayShard` boundaries therefore remain
+the callers' explicit source-order and ownership gates.
+
+The focused `CheckpointDeleteConfirmationComposerTest` covers DELETED,
+ALREADY_ABSENT, exact-identity mismatch and an observation/confirmation
+interval overlap; all four tests passed, as did the full Gradle check.

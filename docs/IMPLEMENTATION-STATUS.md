@@ -10405,3 +10405,34 @@ quiescence attestation: remote request completion, provider consistency,
 certified REAPING provider evidence, source-ordered delete confirmation,
 Recovery Floor/Pin/Owner transactions, provider breadth, chaos, failover and
 V1 release evidence remain external boundaries.
+
+## 2026-08-16 Checkpoint delete-confirmation mutation composer
+
+Delay commit `70e5f0da` adds the pure local
+`CheckpointDeleteConfirmationComposer`. Given an already-applied
+`ResourceRetireIntentRecord`, a `CheckpointDeleteResult`, trusted observation
+and confirmation intervals, a retry horizon, a canonical service author and
+an Ed25519 key, it composes a signed `RESOURCE_DELETE_CONFIRMED_V1` mutation.
+The composer requires a CHECKPOINT intent, compares the provider's complete
+`CheckpointResourceV1.exactResourceCanonicalBytes()` with the durable retire
+identity byte-for-byte, recomputes the identity hash, preserves the outcome-
+specific immutable-version rule, and requires the confirmation interval's
+earliest time to be at least the observation interval's latest time. The
+mutation subject is derived from the retire intent's applied Source Position;
+its intent reference, provider evidence and confirmation time are canonical
+and the mutation logical identity is the retire mutation ID.
+
+The focused regression is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.CheckpointDeleteConfirmationComposerTest \
+  --no-daemon --console=plain
+```
+
+It passed with 4 tests and `BUILD SUCCESSFUL`; the full
+`./gradlew check --no-daemon --console=plain --quiet` also returned 0. This
+slice only composes a source-log mutation. It does not authorize the retire
+intent, prove provider-side deletion, advance a Recovery Floor, release a
+Pin, fence a GC Owner, append to the Shard Log, or apply the mutation; those
+remain external lifecycle and source-order boundaries.

@@ -1213,6 +1213,26 @@ require_file_text "$delay_root/e2e/README.md" \
     "Checkpoint provider-owned request horizon ledger receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "1b904a10-2104-46eb-a6fd-0bd2afe24524"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointDeleteConfirmationComposer.java" \
+    "does not authorize"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointDeleteConfirmationComposer.java" \
+    "confirmedAt.requireEarliestAtLeast(observedAt.latestEpochMs())"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointDeleteConfirmationComposerTest.java" \
+    "composesSignedDeletedConfirmationFromExactProviderReceipt"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Checkpoint delete-confirmation mutation composer"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "70e5f0da"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Delay checkpoint delete-confirmation composition slice"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Checkpoint delete-confirmed source mutation composition audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Checkpoint delete-confirmation mutation composition implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Checkpoint delete-confirmation mutation composition receipt"
+require_file_text "$delay_root/e2e/README.md" \
+    "io.nereusstream.delay.store.CheckpointDeleteConfirmationComposerTest"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

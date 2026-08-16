@@ -1789,3 +1789,29 @@ only. It does not attest remote provider request completion or provider
 quiescence and does not close certified REAPING provider evidence,
 source-ordered delete confirmation, Recovery Floor/Pin/Owner transactions,
 provider breadth, chaos, failover or V1 release gates.
+
+## Checkpoint delete-confirmation mutation composition receipt
+
+Delay commit `70e5f0da` adds the pure local
+`CheckpointDeleteConfirmationComposer`. It binds a complete
+`CheckpointDeleteResult` to the exact canonical identity and identity hash in
+an already-applied `ResourceRetireIntentRecord`, preserves the
+`DELETED`/`ALREADY_ABSENT` evidence rules, and requires the trusted
+confirmation interval to start at or after the observation interval's latest
+bound. It derives the mutation shard from the retire Source Position and
+signs the canonical `RESOURCE_DELETE_CONFIRMED_V1` body using the service
+author and retire mutation ID.
+
+The focused regression was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.CheckpointDeleteConfirmationComposerTest \
+  --no-daemon --console=plain
+```
+
+JUnit recorded `tests=4 skipped=0 failures=0 errors=0`, and the full
+`./gradlew check --no-daemon --console=plain --quiet` returned 0. This is a
+local composition receipt only: it does not claim provider-side deletion,
+GC Owner/Floor/Pin authorization, Shard Log append, mutation apply, or V1
+release readiness.
