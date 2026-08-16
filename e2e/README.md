@@ -1993,9 +1993,9 @@ V1 release gates remain open.
 Delay commit `f04f58d15588662b71be68809e1a11a627baf540` adds the
 `OxiaSyncRecoveryCatalogBackend(ClientHandle, ...)` path. It checks the exact
 connected Oxia session marker before and after every catalog read/version CAS
-write and sibling Recovery Pin read/exact-version delete. A marker change
-after a committed catalog or pin operation prevents a guessed publication,
-Floor advance or pin-release success.
+write. The original receipt's pin store still received the raw record client,
+so pin session identity and ephemeral CAS were covered, but current-marker
+fencing of pin I/O was not proven by that source revision.
 
 The focused receipt command was:
 
@@ -2009,7 +2009,7 @@ The focused receipt command was:
 The deterministic Recovery Catalog suite passed 18 tests. The three
 real-service methods were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was not
 configured, and the full `./gradlew check --no-daemon --console=plain --quiet`
-returned 0. This receipt proves only catalog-wide single-record session
+returned 0. This receipt proves only catalog-record single-record session
 fencing; Catalog/Pin/Upload-Intent transactionality, source ordering,
 Owner/session recovery, provider publication/deletion, chaos and V1 release
 gates remain open.
@@ -2170,3 +2170,25 @@ The focused checkpoint coordinator suite passed. This receipt proves only
 constructor-time authority pairing; it does not prove an Intent/Catalog/Pin
 multi-record transaction, provider evidence, Owner/session recovery, source
 ordering, chaos or V1 release readiness.
+
+## Recovery Pin session-fenced client wiring correction receipt
+
+Delay commit `f0e45cbdf6eb30d730c6678e71c4c19d34e06072` passes the
+session-wrapped catalog/publication `RecordClient` into
+`OxiaSessionBoundRecoveryPinStore` in both Oxia authorities. Pin reads,
+ephemeral creates and exact-version releases now check the connected marker
+before and after the operation.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.OxiaSyncRecoveryCatalogBackendTest \
+  --tests io.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackendTest \
+  --no-daemon --console=plain
+```
+
+The deterministic Recovery Catalog and Publication suites passed. This
+correction proves only the per-record Recovery Pin session fence and does not
+prove Catalog/Pin/Upload-Intent transactionality, Owner/session recovery,
+provider evidence, source ordering, chaos or V1 release readiness.

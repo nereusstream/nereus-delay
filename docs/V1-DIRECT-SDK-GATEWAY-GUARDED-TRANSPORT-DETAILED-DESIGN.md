@@ -5569,11 +5569,10 @@ provider rotation/quiescence, chaos or release readiness.
 
 Delay commit `f04f58d15588662b71be68809e1a11a627baf540` adds a
 `ClientHandle` constructor to `OxiaSyncRecoveryCatalogBackend`. The canonical
-catalog record and the sibling `RecoveryPinV1` record now share a session-bound
-record wrapper: every catalog `get`/version-CAS `put` and pin `get`/exact
-version `delete` checks the connected Oxia marker before and after the call.
-Response-loss handling therefore cannot reinterpret a committed catalog or pin
-operation as success after the marker changes.
+catalog record uses a session-bound record wrapper for every catalog
+`get`/version-CAS `put`. The original pin-store construction still received
+the raw record client, so pin session-identity bytes and ephemeral CAS were
+covered, but current-marker fencing of pin I/O was not proven by that commit.
 
 The deterministic regression commits a manifest, fences the session before the
 catalog put response returns, asserts failure, and reopens the exact manifest
@@ -5586,6 +5585,23 @@ The unbound constructor remains an explicit external/test seam. This note does
 not claim Catalog/Pin/Upload-Intent transactionality, source-ordered
 activation, Owner/session recovery, immutable Object Store publication,
 provider deletion, source/evidence replay, chaos or release readiness.
+
+### 2026-08-16 Recovery Pin session-fenced client wiring correction implementation note
+
+Delay commit `f0e45cbdf6eb30d730c6678e71c4c19d34e06072` passes the
+already session-wrapped catalog/publication record client into
+`OxiaSessionBoundRecoveryPinStore` in both Oxia authorities. Pin `get`,
+`AsEphemeralRecord` `put` and exact-version `delete` now check the connected
+marker before and after the client operation, including response-loss paths.
+
+`OxiaSyncRecoveryCatalogBackendTest` and
+`OxiaSyncCheckpointPublicationBackendTest` add create/release regressions for
+both authorities. The focused Recovery Catalog and Publication suites passed;
+the tests prove that a committed pin operation is fenced after marker loss
+while an unbound reread observes the exact durable result. This corrects only
+the per-record pin I/O session fence and does not claim a Catalog/Pin/
+Upload-Intent transaction, Owner/session recovery, provider evidence, source
+ordering, chaos or release readiness.
 
 ### 2026-08-16 Oxia Checkpoint Publication session-bound CAS implementation note
 

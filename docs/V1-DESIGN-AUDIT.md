@@ -8888,11 +8888,10 @@ provider rotation/quiescence, chaos evidence or V1 release readiness.
 Delay commit `f04f58d15588662b71be68809e1a11a627baf540` adds the
 session-bound `ClientHandle` constructor to `OxiaSyncRecoveryCatalogBackend`.
 Its private record wrapper checks the connected Oxia session marker before and
-after every catalog `get` and version-CAS `put`, and also wraps the sibling
-Recovery Pin `get` and exact-version `delete` operations. Catalog publication,
-scalar/typed Floor advance, read-only recovery validation, pin creation and
-pin release therefore cannot report success after the connected marker is
-absent or changed.
+after every catalog `get` and version-CAS `put`. The original pin-store
+construction still received the raw record client, so the pin's session
+identity digest and ephemeral CAS were covered, but current-marker fencing of
+pin `get`/put/delete was not proven by that commit.
 
 `OxiaSyncRecoveryCatalogBackendTest.sessionFenceRejectsACommittedCatalogPublicationAfterTheMarkerChanges`
 commits the catalog snapshot in the fake service, fences the session before
@@ -8902,7 +8901,7 @@ Recovery Catalog suite passed 18 tests, the three real-service methods were
 skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset, and the full Gradle
 check returned 0.
 
-This audit closes catalog-wide single-record I/O/session fencing only. It does
+This audit closes catalog-record single-record I/O/session fencing only. It does
 not establish an atomic Catalog/RecoveryPin/Upload-Intent transaction,
 source-ordered activation, Owner/session recovery, immutable Object Store
 publication, provider deletion, source/evidence replay, chaos evidence or V1
@@ -9041,6 +9040,25 @@ the constructor-time authority identity fence; the single-record publication
 boundary remains subject to its existing provider, Owner/session, source,
 chaos and release limitations, and no Intent/Catalog/Pin multi-record
 transaction is claimed.
+
+## 2026-08-16 Recovery Pin session-fenced client wiring correction audit
+
+Delay commit `f0e45cbdf6eb30d730c6678e71c4c19d34e06072` corrects both Oxia
+authority constructors: `OxiaSessionBoundRecoveryPinStore` now receives the
+already session-wrapped catalog/publication `RecordClient`. Pin `get`,
+`AsEphemeralRecord` `put` and exact-version `delete` therefore check the
+connected marker before and after the operation, including response-loss
+handling.
+
+`OxiaSyncRecoveryCatalogBackendTest` and
+`OxiaSyncCheckpointPublicationBackendTest` each add create and release tests.
+The focused Recovery Catalog and Publication suites passed. These tests also
+correct the scope of the earlier `f04f58d1` catalog receipt: that receipt did
+not prove the pin I/O marker fence because the pin store still used the raw
+client at that source revision. This correction closes only per-record pin
+session fencing; no Catalog/Pin/Upload-Intent transaction, Owner/session
+recovery, provider evidence, source ordering, chaos or V1 release readiness is
+claimed.
 
 ## Final gate
 

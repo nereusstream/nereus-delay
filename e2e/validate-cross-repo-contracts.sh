@@ -1487,6 +1487,24 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Atomic checkpoint publication authority pairing fence implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Atomic checkpoint publication authority pairing fence receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackend.java" \
+    "new OxiaSessionBoundRecoveryPinStore(this.client"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackend.java" \
+    "new OxiaSessionBoundRecoveryPinStore(this.client"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackendTest.java" \
+    "sessionFenceRejectsACommittedRecoveryPinAfterTheMarkerChanges"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackendTest.java" \
+    "sessionFenceRejectsACommittedPublicationRecoveryPinAfterTheMarkerChanges"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Recovery Pin session-fenced client wiring correction"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "f0e45cbdf6eb30d730c6678e71c4c19d34e06072"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Recovery Pin session-fenced client wiring correction audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Recovery Pin session-fenced client wiring correction implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Recovery Pin session-fenced client wiring correction receipt"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"
