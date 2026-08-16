@@ -96,6 +96,32 @@ class GcWorkClassExecutorTest {
         }
     }
 
+    @Test
+    void typedDeleteConfirmationHandoffRequiresReturnedSourceAfterRetire() throws Exception {
+        final Fixture fixture = fixture("source-order");
+        try (fixture) {
+            final SystemMutation retire = retireMutation(fixture, 3);
+            final ResourceRetireIntentRecord intent = retireRecord(fixture, retire);
+            final SystemMutation confirmation = deleteConfirmation(fixture, retire);
+            final AtomicAppender appender = new AtomicAppender(fixture);
+            final GcWorkClassExecutor executor = new GcWorkClassExecutor(fixture.workClasses,
+                    fixture.owned, fixture.authority, appender);
+
+            appender.next = ShardLogMutationAppender.AppendOutcome.persisted(fixture.position(2));
+            final GcWorkClassExecutor.Submission persisted = executor.submitDeleteConfirmation(confirmation,
+                    intent, () -> 101);
+            fixture.workClasses.runTurn(new SchedulerBudget(1, 1_000_000, 1_000));
+            assertEquals(GcWorkClassExecutor.ResultKind.PERSISTED, persisted.result().orElseThrow().kind());
+
+            appender.next = ShardLogMutationAppender.AppendOutcome.persisted(fixture.position(1));
+            final GcWorkClassExecutor.Submission regressed = executor.submitDeleteConfirmation(confirmation,
+                    intent, () -> 101);
+            fixture.workClasses.runTurn(new SchedulerBudget(1, 1_000_000, 1_000));
+            assertEquals(GcWorkClassExecutor.ResultKind.UNKNOWN, regressed.result().orElseThrow().kind());
+            assertEquals(ShardLifecycleState.FENCED, fixture.owned.state());
+        }
+    }
+
     private Fixture fixture(final String name) throws Exception {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 47);
         final UUID topic = UUID.randomUUID();
@@ -167,6 +193,14 @@ class GcWorkClassExecutorTest {
         return SystemMutation.signed(fixture.shard, SystemMutationType.RESOURCE_DELETE_CONFIRMED, 9_000,
                 retire.systemMutationId(), body, serviceAuthor().canonicalBytes(), 1,
                 KeyPairGeneratorHolder.KEY_PAIR.getPrivate());
+    }
+
+    private static ResourceRetireIntentRecord retireRecord(final Fixture fixture, final SystemMutation retire) {
+        final ResourceRetireIntentBody parsed = ResourceRetireIntentBody.decode(retire.canonicalBody());
+        return new ResourceRetireIntentRecord(retire.systemMutationId(), retire.mutationHash(),
+                parsed.resourceKind(), parsed.resource().canonicalBytes(), parsed.resource().identityHash(),
+                parsed.expectedResourceStateVersion(), 1, parsed.protections().canonicalBytes(),
+                fixture.position(1).canonicalBytes());
     }
 
     private static final class KeyPairGeneratorHolder {
