@@ -1455,6 +1455,24 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Oxia Owner Lease session-bound CAS implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Oxia Owner Lease session-bound CAS receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaRouteAuthoritySession.java" \
+    "SessionBoundIterable"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaRouteAuthoritySession.java" \
+    "lazy iterator consumes Oxia data"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
+    "sessionFenceRejectsACommittedRouteHeadAfterTheMarkerChanges"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaRealRouteAuthoritySmokeTest.java" \
+    "OxiaRouteAuthoritySession.connect("
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Oxia Route authority session-bound I/O fence"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "57e466786aea596cfdbd75020e48310415da0335"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Oxia Route authority session-bound I/O fence audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Oxia Route authority session-bound I/O fence implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Oxia Route authority session-bound I/O fence receipt"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

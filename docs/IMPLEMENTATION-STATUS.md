@@ -5648,6 +5648,7 @@ covers this ordering.
 | Kafka/Pulsar ingress and target adapters | In progress (identity-pinned transport SPI) | release blocker until concrete pinned transports, authenticated non-persistence classifiers/proofs, target publish/evidence channels, production response evidence and real-broker tests exist |
 | Oxia Worker assignment CAS session fence | In progress (route-bound assignment record with handle-bound before/after I/O fence) | `OxiaSyncWorkerAssignmentBackend` checks the connected Oxia session marker before and after every assignment-record get/put/delete, so a committed desired-assignment CAS is not reported as success after marker loss; `OxiaSyncWorkerAssignmentBackendTest.sessionFenceRejectsACommittedAssignmentAfterTheMarkerChanges` covers the boundary. Assignment/Owner/Route transactionality, placement authority, session recovery, chaos and release gates remain open |
 | Oxia Owner Lease CAS session fence | In progress (ephemeral owner epoch/lease records with handle-bound before/after I/O fence) | `OxiaSyncOwnerLeaseBackend` wraps every durable owner-epoch and ephemeral lease get/put/delete with the connected Oxia session marker, so a committed lease whose response or exact reread is fenced is not reported as successful; `OxiaSyncOwnerLeaseBackendTest.sessionFenceRejectsACommittedLeaseAfterTheMarkerChanges` covers the boundary. Assignment/Owner/Route transactionality, placement authority, automatic session recovery, chaos and release gates remain open |
+| Oxia Route authority session I/O fence | In progress (session-bound Route record/watch surface with before/after synchronous and lazy range fences) | `OxiaRouteAuthoritySession` checks the exact marker before and after Route get/put/notification registration and range-scan creation, and its lazy range iterator fences each `hasNext`/`next`/`remove`; `OxiaSignedRouteSnapshotProviderTest.sessionFenceRejectsACommittedRouteHeadAfterTheMarkerChanges` covers a durable head CAS whose marker disappears before the response returns. Route event/head transactionality, automatic reconnect, multi-node failover, placement/source ownership, chaos and release gates remain open |
 | Recovery Set/Floor, catalog and restore replay | In progress (typed and crash-durable local catalog/Floor subset; single-record Oxia catalog CAS backend with session-bound I/O constructor) | release blocker; `OxiaSyncRecoveryCatalogBackend` stores one shard's manifest/resource/scalar-Floor/typed-Floor snapshot with canonical decode and version CAS, validates reusable local Store lineage/Floor/install projections against that snapshot, and its handle-bound constructor fences catalog and sibling Recovery Pin record I/O before/after every operation. Upload-intent/catalog/pin transactionality, immutable Object Store publication, source/evidence replay and activation CAS remain |
 | Checkpoint Upload Intent + Recovery Catalog publication authority | In progress (single-record atomic publication plus handle-bound Oxia session fence) | `OxiaSyncCheckpointPublicationBackend` keeps the PUBLISHED Upload Intent and Recovery Catalog manifest projection in one canonical `/publication` record with version CAS; its `ClientHandle` constructor checks the connected session marker before and after every canonical publication-record read/write, and the deterministic response-loss regression proves a committed value is not reported as success after the marker changes. The sibling ephemeral Recovery Pin remains a separate record; cross-record Intent/Catalog/Pin transactionality, immutable Object Store/provider evidence, source/evidence replay, Owner/session recovery, chaos and release gates remain |
 | Oxia credential Profile catalog, Head, Protection and bounded use lease | Implemented (single-record CAS plus trust-set-gated activation, verified material cache, same-generation renewal composition and session-bound I/O constructor; control/source/provider authority pending) | `OxiaSyncProfileCatalogBackend`, `CredentialProfileAuthority`, `CredentialAttestationTrustSet`, `OxiaObjectStoreCredentialLeaseActivator`, `VerifiedCredentialMaterialCache`, `RenewableS3CompatibleCheckpointObjectStoreAdapter`, `OxiaSyncProfileCatalogBackendTest`, `CredentialAttestationTrustSetTest`, `VerifiedCredentialMaterialCacheTest`, `OxiaObjectStoreCredentialLeaseActivatorTest`, `RenewableS3CompatibleCheckpointObjectStoreAdapterTest`, `OxiaRealProfileCatalogSmokeTest`; one canonical Oxia record per Profile version stores the exact semantic Profile, immutable generations, mutable Head and every Protection projection with a final digest. Generation-1 publication and `RotateEquivalentSecretRequestV1` use idempotent exact version CAS; `issueCredentialUseLease` compares the current Head/binding/fingerprint, checks attestation scope/age, verifies the exact verifier tuple/signature and retained key window, bounds the lease TTL, raises the relevant managed-channel or Object Store protection horizon monotonically in the same CAS, and returns a lease bound to the resulting protection revision. Persisted bindings are reverified on canonical decode/reopen, so an untrusted attestation cannot be activated from old Oxia bytes. `VerifiedCredentialMaterialCache` installs only exact Profile/generation/binding/reference/fingerprint material after trust-set verification and returns null on a cache miss; the renewable S3 adapter automatically renews only inside an explicit window, re-resolves the exact same Profile/Head/Binding/material fingerprint, atomically replaces the local gate after a protected lease reread, and rejects Head generation rotation as a quiescence boundary; Provider calls themselves do not reread Oxia except during due renewal. Response loss is accepted only after an exact reread, and the handle-bound Profile backend checks the connected session marker before and after every record I/O. The Dockerized real-service trust-set smoke passed against Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`; external secret-manager resolution/source-ordered refresh, actor/source ordering, retained-generation quota/GC, cross-record Owner/Route/session transactions, multi-node failover for this authority, provider credential rotation/quiescence, real Object Store and release gates remain pending |
@@ -10780,3 +10781,32 @@ This closes only the per-record owner epoch/lease I/O session fence. It does
 not establish Assignment/Owner/Route transactionality, placement authority,
 automatic session recovery, source ordering, raw chaos, failover or V1
 release readiness.
+
+## 2026-08-16 Oxia Route authority session-bound I/O fence
+
+Delay commit `57e466786aea596cfdbd75020e48310415da0335` strengthens the
+`OxiaRouteAuthoritySession` record/watch surface. The session now checks the
+exact ephemeral marker before and after synchronous `get`, `put`, notification
+registration and range-scan creation. A private `SessionBoundIterable` also
+checks before and after each lazy range iterator `hasNext`, `next` and
+`remove`, so a Route cache cannot keep consuming authority data after marker
+loss. A signed Route head that commits before marker loss is not reported as a
+successful publication when the head response is fenced.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.route.OxiaSignedRouteSnapshotProviderTest \
+  --tests io.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest \
+  --tests io.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest \
+  --no-daemon --console=plain
+```
+
+The deterministic Route provider/session suite passed 6 tests. Four real Route
+authority methods and one real Route-worker method were skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was not configured; the full
+`./gradlew check --no-daemon --console=plain --quiet` returned 0. This closes
+only per-operation Route session fencing and lazy range consumption. Route
+event/head transactionality, automatic reconnect, multi-node failover,
+placement/source ownership, raw chaos and V1 release readiness remain open.

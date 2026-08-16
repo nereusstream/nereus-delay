@@ -5678,3 +5678,27 @@ configured, and the full Gradle check returned 0.
 This is a per-record epoch/lease session fence, not an Assignment/Owner/Route
 transaction or placement authority. Session recovery, source ordering, raw
 chaos, failover and release evidence remain outside this receipt.
+
+### 2026-08-16 Oxia Route authority session-bound I/O fence implementation note
+
+Delay commit `57e466786aea596cfdbd75020e48310415da0335` strengthens the
+`OxiaRouteAuthoritySession` record/watch surface. Synchronous Route `get` and
+`put`, notification registration and range-scan creation now check the exact
+ephemeral marker before and after the delegated call. Range scans are wrapped
+by a private `SessionBoundIterable` whose lazy iterator checks before and after
+each `hasNext`, `next` and `remove`, so a provider cannot continue consuming a
+stale authority stream after marker loss. A committed Route head whose marker
+disappears before the response is therefore fenced rather than returned as a
+successful publication.
+
+The deterministic regression commits the fake Route head, expires the marker
+before the head response returns, asserts failure and rereads the exact head
+through the raw fake seam. Six Route provider/session tests passed; four real
+Route authority methods and one real Route-worker method were skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was not configured, and the full Gradle check
+returned 0.
+
+This is per-operation Route session fencing and lazy range protection, not an
+event/head transaction or automatic reconnect authority. Multi-node failover,
+placement/source ownership, raw chaos and release evidence remain outside
+this receipt.

@@ -9001,6 +9001,29 @@ not establish Assignment/Owner/Route transactionality, placement authority,
 automatic session recovery, source ordering, raw chaos, failover or V1
 release readiness.
 
+## 2026-08-16 Oxia Route authority session-bound I/O fence audit
+
+Delay commit `57e466786aea596cfdbd75020e48310415da0335` strengthens the
+`OxiaRouteAuthoritySession` record/watch surface. Synchronous Route `get` and
+`put`, notification registration and range-scan creation now check the exact
+ephemeral marker before and after the delegated call. A private
+`SessionBoundIterable` checks the marker around each lazy range iterator
+`hasNext`, `next` and `remove`. A Route head that commits before marker loss
+therefore fails closed when the head response is fenced instead of being
+exposed as a successful publication.
+
+`OxiaSignedRouteSnapshotProviderTest.sessionFenceRejectsACommittedRouteHeadAfterTheMarkerChanges`
+commits the fake Route head, expires the marker before the head response
+returns, asserts failure and rereads the exact head through the raw fake seam.
+The deterministic Route provider/session suite passed 6 tests, four real Route
+authority methods and one real Route-worker method were skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was unset, and the full Gradle check returned 0.
+
+This audit closes only per-operation Route session fencing and lazy range
+protection. It does not establish event/head transactionality, automatic
+reconnect, multi-node failover, placement/source ownership, raw chaos or V1
+release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

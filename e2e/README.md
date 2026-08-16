@@ -2124,3 +2124,31 @@ This receipt proves only the per-record owner epoch/lease session fence; it
 does not prove Assignment/Owner/Route transactionality, placement authority,
 automatic session recovery, source ordering, chaos, failover or V1 release
 readiness.
+
+## Oxia Route authority session-bound I/O fence receipt
+
+Delay commit `57e466786aea596cfdbd75020e48310415da0335` strengthens the
+`OxiaRouteAuthoritySession` record/watch surface. Route `get`, `put`,
+notification registration and range-scan creation check the exact ephemeral
+marker before and after the delegated call; lazy range iteration checks the
+marker around each `hasNext`, `next` and `remove`. A committed Route head
+followed by marker loss is fenced instead of being returned as a guessed
+publication result.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.route.OxiaSignedRouteSnapshotProviderTest \
+  --tests io.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest \
+  --tests io.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest \
+  --no-daemon --console=plain
+```
+
+The deterministic Route provider/session suite passed 6 tests. Four real Route
+authority methods and one real Route-worker method were skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was not configured, and the full
+`./gradlew check --no-daemon --console=plain --quiet` returned 0. This receipt
+proves only per-operation Route session fencing and lazy range protection; it
+does not prove event/head transactionality, automatic reconnect, multi-node
+failover, placement/source ownership, chaos or V1 release readiness.
