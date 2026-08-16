@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -129,6 +130,32 @@ class WorkerRocksDbUsageMonitorTest {
         } finally {
             store.close();
             resources.close();
+        }
+    }
+
+    @Test
+    void closeRetriesExecutorShutdownAfterTheFirstFailure() {
+        final AtomicInteger shutdownCalls = new AtomicInteger();
+        final ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1) {
+            @Override
+            public List<Runnable> shutdownNow() {
+                if (shutdownCalls.incrementAndGet() == 1) {
+                    throw new IllegalStateException("simulated RocksDB usage monitor shutdown failure");
+                }
+                return super.shutdownNow();
+            }
+        };
+        final WorkerRocksDbUsageMonitor monitor = new WorkerRocksDbUsageMonitor(Duration.ofSeconds(1),
+                List::of, ignored -> { }, executor);
+        try {
+            assertThrows(IllegalStateException.class, monitor::close);
+            assertTrue(monitor.isClosed());
+
+            monitor.close();
+
+            assertEquals(2, shutdownCalls.get());
+        } finally {
+            executor.shutdownNow();
         }
     }
 

@@ -7,13 +7,16 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class WorkerRuntimeResourceMonitorTest {
@@ -107,6 +110,32 @@ class WorkerRuntimeResourceMonitorTest {
         assertSame(first, resources.startRuntimeResourceMonitor(Duration.ofHours(1)));
         resources.close();
         assertTrue(first.isClosed());
+    }
+
+    @Test
+    void closeRetriesExecutorShutdownAfterTheFirstFailure() {
+        final AtomicInteger shutdownCalls = new AtomicInteger();
+        final ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1) {
+            @Override
+            public List<Runnable> shutdownNow() {
+                if (shutdownCalls.incrementAndGet() == 1) {
+                    throw new IllegalStateException("simulated runtime monitor shutdown failure");
+                }
+                return super.shutdownNow();
+            }
+        };
+        final WorkerRuntimeResourceMonitor monitor = new WorkerRuntimeResourceMonitor(Duration.ofSeconds(1),
+                () -> null, ignored -> { }, ignored -> { }, executor);
+        try {
+            assertThrows(IllegalStateException.class, monitor::close);
+            assertTrue(monitor.isClosed());
+
+            monitor.close();
+
+            assertEquals(2, shutdownCalls.get());
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     private static WorkerResourceEnvelope envelope(final long maxProcessRssBytes) {

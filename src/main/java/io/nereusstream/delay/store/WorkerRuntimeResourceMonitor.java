@@ -31,6 +31,7 @@ public final class WorkerRuntimeResourceMonitor implements AutoCloseable {
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicReference<Throwable> lastFailure = new AtomicReference<>();
     private ScheduledFuture<?> scheduledProbe;
+    private boolean closeCompleted;
 
     /** Starts a daemon monitor for the supplied Worker resource envelope. */
     public static WorkerRuntimeResourceMonitor start(final Path rootPath,
@@ -103,14 +104,48 @@ public final class WorkerRuntimeResourceMonitor implements AutoCloseable {
 
     @Override
     public synchronized void close() {
-        if (!closed.compareAndSet(false, true)) {
+        if (closeCompleted) {
             return;
         }
+        closed.set(true);
+        Throwable closeFailure = null;
         if (scheduledProbe != null) {
-            scheduledProbe.cancel(false);
-            scheduledProbe = null;
+            try {
+                scheduledProbe.cancel(false);
+                scheduledProbe = null;
+            } catch (RuntimeException | Error failure) {
+                closeFailure = appendCloseFailure(closeFailure, failure);
+            }
         }
-        executor.shutdownNow();
+        try {
+            executor.shutdownNow();
+        } catch (RuntimeException | Error failure) {
+            closeFailure = appendCloseFailure(closeFailure, failure);
+        }
+        if (closeFailure != null) {
+            throwUnchecked(closeFailure);
+        }
+        closeCompleted = true;
+    }
+
+    private static Throwable appendCloseFailure(final Throwable first, final Throwable failure) {
+        if (first == null) {
+            return failure;
+        }
+        if (failure != first) {
+            first.addSuppressed(failure);
+        }
+        return first;
+    }
+
+    private static void throwUnchecked(final Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error errorFailure) {
+            throw errorFailure;
+        }
+        throw new IllegalStateException("unexpected checked teardown failure", failure);
     }
 
     private void runScheduledProbe() {
