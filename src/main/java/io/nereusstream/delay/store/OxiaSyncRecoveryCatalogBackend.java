@@ -103,7 +103,7 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
                 Objects.requireNonNull(sessionCheck, "sessionCheck"));
         final String canonicalPrefix = canonicalKeyPrefix(keyPrefix);
         this.recordKey = canonicalPrefix + RECORD_SUFFIX;
-        this.pinStore = new OxiaSessionBoundRecoveryPinStore(client, canonicalPrefix + PIN_SUFFIX);
+        this.pinStore = new OxiaSessionBoundRecoveryPinStore(this.client, canonicalPrefix + PIN_SUFFIX);
         this.manifestLimits = Objects.requireNonNull(manifestLimits, "manifestLimits");
     }
 

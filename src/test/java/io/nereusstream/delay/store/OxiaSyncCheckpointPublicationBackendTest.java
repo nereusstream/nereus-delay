@@ -153,6 +153,64 @@ class OxiaSyncCheckpointPublicationBackendTest {
         assertTrue(reopened.activeRecoveryPin().isEmpty());
     }
 
+    @Test
+    void sessionFenceRejectsACommittedPublicationRecoveryPinAfterTheMarkerChanges() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final OxiaSyncCheckpointPublicationBackend unbound = new OxiaSyncCheckpointPublicationBackend(records,
+                "delay/fenced-publication-pin-create", LIMITS);
+        final CheckpointUploadIntentV1 pending = pending(6, null);
+        final CheckpointManifest manifest = parentManifest(pending);
+        unbound.publish(manifest, 0);
+        final RecoveryFloorRefV1 floor = unbound.advanceFloor(manifest.checkpointId(), 1,
+                java.util.List.<io.nereusstream.delay.protocol.EvidenceCursorV1>of());
+        final RecoveryPinV1 pin = pin(manifest, floor, 83, 84);
+
+        final AtomicBoolean sessionAlive = new AtomicBoolean(true);
+        final OxiaSyncCheckpointPublicationBackend fenced = new OxiaSyncCheckpointPublicationBackend(records,
+                "delay/fenced-publication-pin-create", LIMITS, () -> {
+                    if (!sessionAlive.get()) {
+                        throw new IllegalStateException("simulated Oxia session fence");
+                    }
+                });
+        records.afterPut = () -> sessionAlive.set(false);
+
+        assertThrows(IllegalStateException.class, () -> fenced.createRecoveryPin(pin));
+
+        final OxiaSyncCheckpointPublicationBackend reopened = new OxiaSyncCheckpointPublicationBackend(records,
+                "delay/fenced-publication-pin-create", LIMITS);
+        assertEquals(pin, reopened.activeRecoveryPin().orElseThrow());
+        reopened.releaseRecoveryPin(pin);
+    }
+
+    @Test
+    void sessionFenceRejectsACommittedPublicationRecoveryPinReleaseAfterTheMarkerChanges() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final OxiaSyncCheckpointPublicationBackend unbound = new OxiaSyncCheckpointPublicationBackend(records,
+                "delay/fenced-publication-pin-release", LIMITS);
+        final CheckpointUploadIntentV1 pending = pending(7, null);
+        final CheckpointManifest manifest = parentManifest(pending);
+        unbound.publish(manifest, 0);
+        final RecoveryFloorRefV1 floor = unbound.advanceFloor(manifest.checkpointId(), 1,
+                java.util.List.<io.nereusstream.delay.protocol.EvidenceCursorV1>of());
+        final RecoveryPinV1 pin = pin(manifest, floor, 85, 86);
+        unbound.createRecoveryPin(pin);
+
+        final AtomicBoolean sessionAlive = new AtomicBoolean(true);
+        final OxiaSyncCheckpointPublicationBackend fenced = new OxiaSyncCheckpointPublicationBackend(records,
+                "delay/fenced-publication-pin-release", LIMITS, () -> {
+                    if (!sessionAlive.get()) {
+                        throw new IllegalStateException("simulated Oxia session fence");
+                    }
+                });
+        records.afterDelete = () -> sessionAlive.set(false);
+
+        assertThrows(IllegalStateException.class, () -> fenced.releaseRecoveryPin(pin));
+
+        final OxiaSyncCheckpointPublicationBackend reopened = new OxiaSyncCheckpointPublicationBackend(records,
+                "delay/fenced-publication-pin-release", LIMITS);
+        assertTrue(reopened.activeRecoveryPin().isEmpty());
+    }
+
     private static CheckpointUploadIntentV1 pending(final int seed, final CheckpointManifest parent) {
         final ShardId shard = new ShardId(new RouteIncarnation(id16(seed + 1)), seed);
         return new CheckpointUploadIntentV1(new ShardSubjectV1(shard), id16(seed + 2), id16(seed + 3),
@@ -248,6 +306,8 @@ class OxiaSyncCheckpointPublicationBackendTest {
         private boolean failNextPutAfterCommit;
         private Runnable afterPut = () -> {
         };
+        private Runnable afterDelete = () -> {
+        };
 
         @Override
         public byte[] sessionIdentity() {
@@ -304,6 +364,7 @@ class OxiaSyncCheckpointPublicationBackendTest {
                         ? OptionVersionId.KEY_NOT_EXISTS : current.version().versionId());
             }
             records.remove(key);
+            afterDelete.run();
             return true;
         }
     }

@@ -105,6 +105,61 @@ class OxiaSyncRecoveryCatalogBackendTest {
     }
 
     @Test
+    void sessionFenceRejectsACommittedRecoveryPinAfterTheMarkerChanges() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final AtomicBoolean sessionAlive = new AtomicBoolean(true);
+        final OxiaSyncRecoveryCatalogBackend backend = new OxiaSyncRecoveryCatalogBackend(records,
+                "delay/fenced-pin-create", LIMITS, () -> {
+                    if (!sessionAlive.get()) {
+                        throw new IllegalStateException("simulated Oxia session fence");
+                    }
+                });
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 15);
+        final CheckpointManifest manifest = manifest(shard, id16(16), id16(17), 0, 1, 1, null);
+        backend.publish(manifest, 0);
+        final RecoveryFloorRefV1 floor = backend.advanceFloor(manifest.checkpointId(), 1,
+                java.util.List.<EvidenceCursorV1>of());
+        final RecoveryPinV1 pin = pin(shard, manifest, floor, fakeSessionIdentity(), 18, 19);
+        records.afterPut = () -> sessionAlive.set(false);
+
+        assertThrows(IllegalStateException.class, () -> backend.createRecoveryPin(pin));
+
+        final OxiaSyncRecoveryCatalogBackend reopened = new OxiaSyncRecoveryCatalogBackend(records,
+                "delay/fenced-pin-create", LIMITS);
+        assertEquals(pin, reopened.activeRecoveryPin().orElseThrow());
+        reopened.releaseRecoveryPin(pin);
+    }
+
+    @Test
+    void sessionFenceRejectsACommittedRecoveryPinReleaseAfterTheMarkerChanges() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final OxiaSyncRecoveryCatalogBackend unbound = new OxiaSyncRecoveryCatalogBackend(records,
+                "delay/fenced-pin-release", LIMITS);
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 16);
+        final CheckpointManifest manifest = manifest(shard, id16(20), id16(21), 0, 1, 1, null);
+        unbound.publish(manifest, 0);
+        final RecoveryFloorRefV1 floor = unbound.advanceFloor(manifest.checkpointId(), 1,
+                java.util.List.<EvidenceCursorV1>of());
+        final RecoveryPinV1 pin = pin(shard, manifest, floor, fakeSessionIdentity(), 22, 23);
+        unbound.createRecoveryPin(pin);
+
+        final AtomicBoolean sessionAlive = new AtomicBoolean(true);
+        final OxiaSyncRecoveryCatalogBackend fenced = new OxiaSyncRecoveryCatalogBackend(records,
+                "delay/fenced-pin-release", LIMITS, () -> {
+                    if (!sessionAlive.get()) {
+                        throw new IllegalStateException("simulated Oxia session fence");
+                    }
+                });
+        records.afterDelete = () -> sessionAlive.set(false);
+
+        assertThrows(IllegalStateException.class, () -> fenced.releaseRecoveryPin(pin));
+
+        final OxiaSyncRecoveryCatalogBackend reopened = new OxiaSyncRecoveryCatalogBackend(records,
+                "delay/fenced-pin-release", LIMITS);
+        assertTrue(reopened.activeRecoveryPin().isEmpty());
+    }
+
+    @Test
     void responseLossWithWrongRereadRecordIdentityDoesNotBecomeSuccess() {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncRecoveryCatalogBackend backend = new OxiaSyncRecoveryCatalogBackend(records, "delay/wrong-key",
@@ -402,6 +457,8 @@ class OxiaSyncRecoveryCatalogBackendTest {
         private boolean returnWrongKeyOnNextGet;
         private Runnable afterPut = () -> {
         };
+        private Runnable afterDelete = () -> {
+        };
 
         private FakeRecordClient() {
             this(fakeSessionIdentity());
@@ -473,6 +530,7 @@ class OxiaSyncRecoveryCatalogBackendTest {
                         ? OptionVersionId.KEY_NOT_EXISTS : current.version().versionId());
             }
             records.remove(key);
+            afterDelete.run();
             if (failNextDeleteAfterCommit) {
                 failNextDeleteAfterCommit = false;
                 throw new IllegalStateException("simulated delete response loss");
