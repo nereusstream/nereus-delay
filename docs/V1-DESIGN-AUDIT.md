@@ -9448,6 +9448,23 @@ skips and zero failures/errors. This closes only local active-attempt
 projection integrity; it does not establish distributed Gateway authority,
 transport delivery, Broker failover, raw chaos or V1 release readiness.
 
+## 2026-08-16 Gateway attempt timing/retry shape audit
+
+Delay commit `e0d5bc9761fea57103518819165d54eb60662b99` closes the local
+physical-attempt field-shape gap. A valid attempt now has strictly positive
+time distance from start to uncertainty and ownership expiry, keeps ownership
+expiry at or before uncertainty, omits retry identity on attempt 1, and
+requires retry identity on every later attempt.
+
+The timing-bound and retry-presence regressions in
+`OxiaGatewayIdempotencyStoreTest.gatewayProjectionRejectsImpossibleAttemptAndRecordShapes`
+passed in the 11-test deterministic idempotency suite with zero
+failures/skips/errors. The full `./gradlew check` passed 1538 tests with 24
+skips and zero failures/errors. This closes only local physical-attempt
+temporal/retry-shape validation; it does not establish distributed Gateway
+authority, transport delivery, Broker failover, raw chaos or V1 release
+readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

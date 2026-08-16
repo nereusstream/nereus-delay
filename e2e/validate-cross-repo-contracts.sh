@@ -1809,6 +1809,22 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway active attempt tail fence implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Gateway active attempt tail fence receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayPhysicalAttemptV1.java" \
+    "Gateway first attempt must not carry retry identity"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayPhysicalAttemptV1.java" \
+    "Gateway retry attempt must carry retry identity"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayPhysicalAttemptV1.java" \
+    "invalid Gateway physical attempt bounds"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Gateway attempt timing/retry shape"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "e0d5bc9761fea57103518819165d54eb60662b99"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Gateway attempt timing/retry shape audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Gateway attempt timing/retry shape implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Gateway attempt timing/retry shape receipt"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPublicationCoordinator.java" \
     "intentIsAtomic || catalogIsAtomic"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointUploadCoordinatorTest.java" \

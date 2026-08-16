@@ -11360,3 +11360,19 @@ The full `./gradlew check` passed 1538 tests with 24 skips and zero
 failures/errors. This closes only local active-attempt projection integrity;
 it does not establish distributed Gateway authority, transport delivery,
 Broker failover, raw chaos or V1 release evidence.
+
+## 2026-08-16 Gateway attempt timing/retry shape
+
+Delay commit `e0d5bc9761fea57103518819165d54eb60662b99` makes each durable
+Gateway physical attempt obey the Registry temporal and retry-shape rules:
+`uncertaintyAtEpochMs` and `ownershipNotAfterEpochMs` are strictly after the
+start, ownership expiry is no later than uncertainty, the first attempt has
+no retry identity, and every later attempt carries a retry ID/hash pair.
+
+The deterministic idempotency suite passed 11 tests with zero
+failures/skips/errors, including zero/equal time-bound and malformed retry
+identity regressions. The full `./gradlew check` passed 1538 tests with 24
+skips and zero failures/errors. This closes only local physical-attempt
+temporal/retry-shape validation; it does not establish distributed Gateway
+authority, transport delivery, Broker failover, raw chaos or V1 release
+evidence.

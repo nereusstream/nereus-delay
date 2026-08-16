@@ -2638,3 +2638,25 @@ failures/skips/errors. The full `./gradlew check` passed 1538 tests with 24
 skips and zero failures/errors. This receipt proves only local active-attempt
 projection integrity; it does not prove distributed Gateway authority,
 transport delivery, Broker failover, chaos or V1 release readiness.
+
+## Gateway attempt timing/retry shape receipt
+
+Delay commit `e0d5bc9761fea57103518819165d54eb60662b99` enforces the physical
+attempt timing and retry identity union: both time boundaries must be after
+the start, ownership expiry must not exceed uncertainty, the first attempt
+must omit retry identity, and later attempts must carry it.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest \
+  --no-daemon --console=plain
+```
+
+The deterministic idempotency suite passed 11 tests with zero
+failures/skips/errors. The full `./gradlew check` passed 1538 tests with 24
+skips and zero failures/errors. This receipt proves only local physical-
+attempt temporal/retry-shape validation; it does not prove distributed
+Gateway authority, transport delivery, Broker failover, chaos or V1 release
+readiness.
