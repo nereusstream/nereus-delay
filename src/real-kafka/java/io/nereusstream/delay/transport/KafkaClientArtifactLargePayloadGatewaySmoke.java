@@ -99,6 +99,7 @@ import io.nereusstream.delay.protocol.RoutingHashVersionV1;
 import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.ShardSubjectV1;
+import io.nereusstream.delay.protocol.StableErrorV1;
 import io.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
 import io.nereusstream.delay.protocol.SystemMutation;
 import io.nereusstream.delay.protocol.SystemMutationType;
@@ -360,7 +361,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                                 new OxiaGatewayAdmissionController.Limits(4, 8_000_000, 2, 2, 30_000, 8));
                         final OxiaGatewayIdempotencyStore idempotency = new OxiaGatewayIdempotencyStore(
                                 idempotencyHandle, gatewayPrefix + "/idempotency", System::currentTimeMillis,
-                                30_000, 10_000);
+                                10_000, 30_000);
                         final OxiaGatewayAuditSink audit = new OxiaGatewayAuditSink(auditHandle,
                                 gatewayPrefix + "/audit");
                         final GatewayScheduleService schedule = new GatewayScheduleService(core, idempotency,
@@ -643,7 +644,11 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
     private static CommandQueuedReceiptV1 requireQueued(final GatewaySubmissionOutcomeV1 response,
                                                          final String operation, final long expectedOffset) {
         if (!response.hasSubmissionOutcomeNdr1()) {
-            throw new IllegalStateException(operation + " returned a preparation error instead of a queued outcome");
+            final StableErrorV1 error = StableErrorV1.decode(response.getPreparationErrorV1().toByteArray());
+            throw new IllegalStateException(operation + " returned preparation error: stage=" + error.stage()
+                    + ", code=" + error.code() + ", retryability=" + error.retryability()
+                    + ", retryAtEpochMs=" + error.retryAtEpochMs()
+                    + ", diagnosticCode=" + error.diagnosticCode());
         }
         final SubmissionOutcomeMessageV1 outcome = SubmissionOutcomeMessageV1.decode(
                 response.getSubmissionOutcomeNdr1().toByteArray());
@@ -680,7 +685,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 .setReservationTtlMs(120_000)
                 .setPayloadProofTrustSetRefV1(ByteString.copyFrom(trustSet.canonicalBytes()))
                 .setObjectStoreProfileRefV1(ByteString.copyFrom(objectStoreProfile.canonicalBytes()))
-                .setRetryUntilEpochMs(System.currentTimeMillis() + 180_000)
+                .setRetryUntilEpochMs(System.currentTimeMillis() + 120_000)
                 .build();
     }
 
@@ -690,7 +695,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 .setIdempotencyKey(ByteString.copyFrom(bytes(16, 81)))
                 .setPayloadReservationReceiptV1(ByteString.copyFrom(receipt.payload()))
                 .setPayloadCommitProofV1(ByteString.copyFrom(proof.canonicalBytes()))
-                .setRetryUntilEpochMs(System.currentTimeMillis() + 180_000)
+                .setRetryUntilEpochMs(System.currentTimeMillis() + 120_000)
                 .build();
     }
 
@@ -812,7 +817,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 new io.nereusstream.delay.protocol.KafkaIngressRouteResourceV1(clusterId, topic, topicId, 1),
                 RoutingHashVersionV1.ROUTING_HASH_V1,
                 new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1), 1, List.of(policy),
-                100, 200, 1 << 20, 4 << 10, 10, 8 << 20, 500, now - 1_000, now + 180_000,
+                100, 200, 1 << 20, 2 << 20, 10, 8 << 20, 180_000, now - 1_000, now + 300_000,
                 new IngressCredentialBindingRefV1(bytes(32, 40), 1, bytes(32, 41), bytes(32, 42), bytes(32, 43)),
                 Bytes.sha256(Bytes.utf8("large-payload-route-prerequisite")), issuedAt, 1,
                 signingKeys.getPrivate());
