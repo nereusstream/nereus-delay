@@ -1672,7 +1672,7 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
 require_file_text "$delay_root/e2e/README.md" \
     "Gateway admission lease release retry receipt"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
-    "Gateway terminal evidence conflict"
+    "Gateway attempt terminal evidence conflict"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/OxiaGatewayIdempotencyStore.java" \
     "if (next == current.record())"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
