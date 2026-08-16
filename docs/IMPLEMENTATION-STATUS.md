@@ -13968,3 +13968,57 @@ not disk ENOSPC, raw socket/coordinator chaos, multi-shard placement or V1
 release evidence. Exact postchecks found no project containers, networks,
 volumes, dangling images or temporary K1 image; no global Docker prune was
 used.
+
+## 2026-08-17 Current-source Pulsar multi-Broker process-crash failover receipt
+
+The current-source rerun locks Delay to
+`e690ee06951bfcf6a614fee82c9d772873bedf0b`, P1 to
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
+artifact SHA-256 values
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394` and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, P1
+image `sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, and the run-created Oxia
+image `sha256:2deda8d5a7d900bedf0eb9c0afbc86d973daf35a12a4ff49156019bc881c207c`.
+The isolated Pulsar project was `nereus-delay-pulsar-multi-e2e-1786910460-40274`
+on `30810/30811,30812/30813`; the Oxia project was
+`nereus-delay-pulsar-multi-oxia-e2e-1786910460-40274` on `30820`.
+
+The source-bound command was:
+
+```bash
+NEREUS_DELAY_PULSAR_WITH_OXIA=1 \
+NEREUS_DELAY_PULSAR_MULTI_BROKER_PROCESS_CRASH=1 \
+NEREUS_DELAY_PULSAR_OXIA_PORT=30820 \
+PULSAR_BROKER_1_PORT=30810 \
+PULSAR_WEB_1_PORT=30811 \
+PULSAR_BROKER_2_PORT=30812 \
+PULSAR_WEB_2_PORT=30813 \
+PULSAR_DELAY_MULTI_BROKER_RESTART_TOPIC=p1-multi-worker-20260817-r1 \
+PULSAR_DELAY_MULTI_BROKER_DESTINATION_TOPIC=p1-multi-destination-20260817-r1 \
+NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-multi-broker-20260817-r1 \
+  bash e2e/run-pulsar-multi-broker-failover-e2e.sh
+```
+
+The run completed with both Worker invocations reporting `BUILD SUCCESSFUL`
+and printed:
+
+```text
+Pulsar Worker restart preparation passed: one guarded record persisted before broker restart
+Pulsar Worker assignment publication/acceptance passed: revision=1, worker=pulsar-worker, authority=real Oxia session-bound
+Pulsar Worker source-applied physical publish passed: Admission source ledger=3/3, typed PULSAR_SEND_ACK target ledger/entry=4/0, Outcome source ledger=3/4, exact payload readback
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=3/0, active apply ledger/entry=3/1, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
+Pulsar Worker authority smoke passed: real Oxia session-bound lease
+Pulsar Broker process-crash failover E2E passed: broker-1 was SIGKILLed after guarded Worker preparation, the same topic resumed through broker-2 with real Oxia authority, and broker-1 rejoined afterward.
+```
+
+This closes the bounded current-source two-Broker/one-ZooKeeper/one-BookKeeper
+Pulsar process-crash Worker failover cut for one physical source topic. It does
+not establish raw network/socket cuts, controller/coordinator or
+ZooKeeper/BookKeeper storage failover, Gateway-plus-Broker combined failover,
+multi-shard chaos completeness or V1 release readiness. Exact postchecks found
+no project containers, networks, volumes, dangling images, P1 image or
+run-created Oxia image; no global Docker prune was used.

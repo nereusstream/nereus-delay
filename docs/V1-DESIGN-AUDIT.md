@@ -11093,3 +11093,41 @@ Kafka source retention-floor E2E passed: real Broker retention advanced the earl
 This is not disk ENOSPC, raw socket/coordinator chaos, multi-shard placement or
 V1 release evidence. Exact postchecks found no project resources, dangling
 images or temporary K1 image; no global Docker prune was used.
+
+## 2026-08-17 Current-source Pulsar multi-Broker process-crash failover audit
+
+The current-source audit locks Delay to
+`e690ee06951bfcf6a614fee82c9d772873bedf0b`, P1 to
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
+artifact SHA-256 values
+`57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394` and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, P1
+image `sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, and temporary Oxia image
+`sha256:2deda8d5a7d900bedf0eb9c0afbc86d973daf35a12a4ff49156019bc881c207c`.
+The exact projects were `nereus-delay-pulsar-multi-e2e-1786910460-40274` and
+`nereus-delay-pulsar-multi-oxia-e2e-1786910460-40274` on
+`30810/30811,30812/30813` and `30820`.
+
+Audit result: PASS for the bounded current-source two-Broker Pulsar
+process-crash failover slice. After one guarded record was durably prepared,
+Broker-1 was externally `SIGKILL`ed. A fresh Worker connected through Broker-2,
+reacquired real Oxia session-bound Assignment/Owner authority, performed
+guarded SUBSCRIBE, RocksDB apply, typed `PULSAR_SEND_ACK` destination publish,
+source ACK and final checkpoint; Broker-1 then rejoined:
+
+```text
+Pulsar Worker restart preparation passed: one guarded record persisted before broker restart
+Pulsar Worker source-applied physical publish passed: Admission source ledger=3/3, typed PULSAR_SEND_ACK target ledger/entry=4/0, Outcome source ledger=3/4, exact payload readback
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=3/0, active apply ledger/entry=3/1, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
+Pulsar Broker process-crash failover E2E passed: broker-1 was SIGKILLed after guarded Worker preparation, the same topic resumed through broker-2 with real Oxia authority, and broker-1 rejoined afterward.
+```
+
+This is not raw network/socket loss, controller/coordinator or
+ZooKeeper/BookKeeper storage failover, Gateway-plus-Broker combined failover,
+multi-shard chaos completeness or V1 release evidence. Exact postchecks found
+no project resources, dangling images, P1 image or temporary Oxia image; no
+global Docker prune was used.
