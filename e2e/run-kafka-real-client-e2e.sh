@@ -30,6 +30,7 @@ k2_receipt_topic="${KAFKA_DELAY_E2E_K2_RECEIPT_TOPIC:-nereus-delay-k2-receipt}"
 with_oxia="${NEREUS_DELAY_KAFKA_WITH_OXIA:-0}"
 route_failover="${NEREUS_DELAY_KAFKA_ROUTE_FAILOVER:-0}"
 route_failover_only="${NEREUS_DELAY_KAFKA_ROUTE_FAILOVER_ONLY:-0}"
+multi_shard_only="${NEREUS_DELAY_KAFKA_MULTI_SHARD_ONLY:-0}"
 k2_failover="${NEREUS_DELAY_KAFKA_K2_FAILOVER:-0}"
 k2_failover_only="${NEREUS_DELAY_KAFKA_K2_FAILOVER_ONLY:-0}"
 k2_response_loss="${NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS:-0}"
@@ -68,6 +69,10 @@ if [[ "${route_failover}" != "0" && "${route_failover}" != "1" ]]; then
 fi
 if [[ "${route_failover_only}" != "0" && "${route_failover_only}" != "1" ]]; then
   echo "NEREUS_DELAY_KAFKA_ROUTE_FAILOVER_ONLY must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${multi_shard_only}" != "0" && "${multi_shard_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_MULTI_SHARD_ONLY must be 0 or 1" >&2
   exit 1
 fi
 if [[ "${k2_failover}" != "0" && "${k2_failover}" != "1" ]]; then
@@ -164,6 +169,14 @@ if [[ "${route_failover_only}" == "1" && "${with_oxia}" != "1" ]]; then
 fi
 if [[ "${route_failover_only}" == "1" && "${route_failover}" != "1" ]]; then
   echo "NEREUS_DELAY_KAFKA_ROUTE_FAILOVER_ONLY requires NEREUS_DELAY_KAFKA_ROUTE_FAILOVER=1" >&2
+  exit 1
+fi
+if [[ "${multi_shard_only}" == "1" && "${with_oxia}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_MULTI_SHARD_ONLY requires NEREUS_DELAY_KAFKA_WITH_OXIA=1" >&2
+  exit 1
+fi
+if [[ "${multi_shard_only}" == "1" && ("${route_failover}" == "1" || "${route_failover_only}" == "1") ]]; then
+  echo "NEREUS_DELAY_KAFKA_MULTI_SHARD_ONLY cannot be combined with accepted-route failover mode" >&2
   exit 1
 fi
 if [[ "${k2_failover_only}" == "1" && "${k2_failover}" != "1" ]]; then
@@ -674,6 +687,14 @@ if [[ "${route_failover_only}" == "1" ]]; then
   start_oxia
   run_route_worker_smoke "${bootstrap_all}"
   echo "Kafka accepted-route broker failover E2E passed: Route-bound Worker applied and ACKed after broker-1 failover, then released its final checkpoint and Oxia assignment."
+  exit 0
+fi
+
+if [[ "${multi_shard_only}" == "1" ]]; then
+  start_oxia
+  export NEREUS_DELAY_KAFKA_ROUTE_WORKER_SHARDS=2
+  run_route_worker_smoke "${bootstrap_all}"
+  echo "Kafka native multi-shard Worker fleet E2E passed: one signed Route covered two guarded Fetch barriers, two real Oxia Assignment/Owner Lease CAS paths admitted two native source consumers, one fair fleet applied/ACKed both partitions, and both final checkpoints/assignments were released."
   exit 0
 fi
 

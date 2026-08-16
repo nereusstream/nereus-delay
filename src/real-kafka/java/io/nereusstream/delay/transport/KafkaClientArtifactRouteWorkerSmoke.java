@@ -20,6 +20,7 @@ import io.nereusstream.delay.ownership.SourceReplaySuccessor;
 import io.nereusstream.delay.ownership.WorkerAssignment;
 import io.nereusstream.delay.ownership.WorkerAssignmentAuthority;
 import io.nereusstream.delay.ownership.WorkerAssignmentCoordinator;
+import io.nereusstream.delay.ownership.WorkerShardFleetRuntime;
 import io.nereusstream.delay.ownership.WorkerShardRuntime;
 import io.nereusstream.delay.protocol.ActivationBarrierV1;
 import io.nereusstream.delay.protocol.AdapterKindV1;
@@ -97,10 +98,13 @@ import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -121,6 +125,10 @@ public final class KafkaClientArtifactRouteWorkerSmoke {
             throw new IllegalArgumentException("usage: <bootstrap-server> <route-topic>");
         }
         final String oxiaEndpoint = configuredRequired("NEREUS_DELAY_OXIA_ENDPOINT");
+        if ("2".equals(configured("NEREUS_DELAY_KAFKA_ROUTE_WORKER_SHARDS", "1"))) {
+            runMultiShard(arguments[0], arguments[1], oxiaEndpoint);
+            return;
+        }
         final String bootstrap = arguments[0];
         final String topic = arguments[1] + "-" + UUID.randomUUID();
         final Map<String, Object> adminConfiguration = Map.of(
@@ -303,6 +311,258 @@ public final class KafkaClientArtifactRouteWorkerSmoke {
                                 workerConsumer.close();
                             }
                         }
+                    }
+                } finally {
+                    deleteTree(root);
+                }
+            }
+        }
+    }
+
+    /**
+     * Real multi-shard Route/Assignment/Owner/Worker proof.  The Route is
+     * published once with two signed Kafka partition barriers; each barrier
+     * then crosses its own Oxia Assignment CAS and Owner Lease before two
+     * native guarded source consumers are admitted to one fair Worker fleet.
+     */
+    private static void runMultiShard(final String bootstrap, final String topicPrefix,
+                                      final String oxiaEndpoint) throws Exception {
+        final int shardCount = 2;
+        final String topic = topicPrefix + "-" + UUID.randomUUID();
+        final Map<String, Object> adminConfiguration = Map.of(
+                AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap,
+                AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, 10_000);
+
+        try (Admin admin = Admin.create(adminConfiguration)) {
+            ensureTopic(admin, topic, shardCount);
+            final String clusterId = admin.describeCluster().clusterId().get(10, TimeUnit.SECONDS);
+            final Uuid topicId = describe(admin, topic).topicId();
+            final UUID nativeTopicId = toUuid(topicId);
+            final RouteIncarnation routeIncarnation = RouteIncarnation.random();
+            final List<RouteShardProbe> probes = new ArrayList<>(shardCount);
+            for (int partition = 0; partition < shardCount; partition++) {
+                final ShardId shard = new ShardId(routeIncarnation, partition);
+                final PreparedCommand beforeRoute = command(shard, "route-multi-before-" + partition);
+                final PreparedCommand afterRoute = command(shard, "route-multi-after-" + partition);
+                append(bootstrap, clusterId, topic, topicId, beforeRoute, partition, 0);
+                final GuardedFetchEvidence evidence = fetchEvidence(bootstrap, clusterId, topic, nativeTopicId,
+                        shard);
+                final long barrierOffset = Math.addExact(evidence.lastRecordOffset(), 1);
+                if (evidence.firstRecordOffset() != 0 || evidence.lastRecordOffset() != 0
+                        || evidence.lastStableOffset() < barrierOffset) {
+                    throw new IllegalStateException("Kafka multi-shard Fetch proof did not establish partition "
+                            + partition + " LSO barrier: " + evidence);
+                }
+                probes.add(new RouteShardProbe(shard, beforeRoute, afterRoute, evidence, barrierOffset));
+            }
+
+            final KeyPair signingKeys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+            final RouteSelectionHint hint = new RouteSelectionHint(AdapterKindV1.KAFKA, Bytes.utf8("primary"));
+            final AuthenticatedTenantContext tenant = new AuthenticatedTenantContext(
+                    bytes(32, 1), bytes(32, 2), bytes(32, 3));
+            final String namespace = configured("NEREUS_DELAY_OXIA_NAMESPACE", "default");
+            final String routePrefix = "nereus-delay/kafka-route-worker-multi/" + UUID.randomUUID();
+            final String assignmentPrefix = "nereus-delay/kafka-route-worker-multi-assignment/"
+                    + UUID.randomUUID();
+            try (OxiaRouteAuthoritySession publisherSession = OxiaRouteAuthoritySession.connect(
+                         oxiaEndpoint, namespace, "nereus-delay-kafka-route-multi-publisher-" + UUID.randomUUID(),
+                         Duration.ofSeconds(15), routePrefix);
+                 OxiaRouteAuthoritySession providerSession = OxiaRouteAuthoritySession.connect(
+                         oxiaEndpoint, namespace, "nereus-delay-kafka-route-multi-provider-" + UUID.randomUUID(),
+                         Duration.ofSeconds(15), routePrefix);
+                 OxiaSyncOwnerLeaseBackend.ClientHandle assignmentHandle =
+                         OxiaSyncOwnerLeaseBackend.connectUnchecked(
+                                 oxiaEndpoint, namespace, "nereus-delay-kafka-route-multi-assignment-"
+                                         + UUID.randomUUID(), Duration.ofSeconds(15), assignmentPrefix)) {
+                final RouteSnapshotV1 snapshot = multiRouteSnapshot(clusterId, topic, nativeTopicId,
+                        routeIncarnation, probes, signingKeys);
+                final OxiaSignedRouteSnapshotPublisher publisher = new OxiaSignedRouteSnapshotPublisher(
+                        publisherSession, routePrefix, signingKeys.getPublic());
+                final OxiaSignedRouteSnapshotProvider provider = new OxiaSignedRouteSnapshotProvider(
+                        providerSession, routePrefix, signingKeys.getPublic(), System::currentTimeMillis);
+                final long routeRevision = publisher.publish(hint, snapshot, 0).revision();
+                provider.refresh().toCompletableFuture().join();
+
+                final WorkerAssignmentAuthority assignmentAuthority = new OxiaSyncWorkerAssignmentBackend(
+                        assignmentHandle, assignmentPrefix);
+                final RouteWorkerAssignmentCoordinator coordinator = new RouteWorkerAssignmentCoordinator(provider,
+                        new WorkerAssignmentCoordinator(new WorkerPlacementPolicy(
+                                new WorkerPlacementPolicy.Configuration(1_000, 0, 0, 0, 0)), assignmentAuthority));
+                final OxiaOwnerLeaseStore ownerAuthority = new OxiaOwnerLeaseStore(assignmentHandle.backend());
+                final List<MultiShardAdmission> admissions = new ArrayList<>(shardCount);
+                final Set<String> assignedWorkers = new HashSet<>();
+                for (RouteShardProbe probe : probes) {
+                    final String expectedWorker = "kafka-route-worker-" + (char) ('a' + probe.shard().partition());
+                    final RouteWorkerAssignmentCoordinator.RoutePlacementResult placement = coordinator.placeActive(
+                            tenant, hint, placementRequest(System.currentTimeMillis(), probe.shard().partition(),
+                                    expectedWorker));
+                    final WorkerAssignment accepted = coordinator.requireAccepted(tenant,
+                            placement.publication().revision(), placement.publication().assignment());
+                    requireRouteAssignment(accepted, snapshot, clusterId, nativeTopicId, probe.barrierOffset());
+                    if (!expectedWorker.equals(accepted.workerId())) {
+                        throw new IllegalStateException("Kafka multi-shard placement selected unexpected Worker: "
+                                + "partition=" + probe.shard().partition() + ", expected=" + expectedWorker
+                                + ", actual=" + accepted.workerId());
+                    }
+                    final OwnerLease lease = ownerAuthority.acquire(accepted.sourceAssignment(), expectedWorker,
+                            assignmentHandle.sessionIdentity(), System.currentTimeMillis(), 60_000).orElseThrow();
+                    if (!assignedWorkers.add(accepted.workerId())) {
+                        throw new IllegalStateException("Kafka multi-shard placement reused a Worker identity: "
+                                + accepted.workerId());
+                    }
+                    admissions.add(new MultiShardAdmission(probe, placement.publication(), accepted, lease));
+                }
+                if (assignedWorkers.size() != shardCount) {
+                    throw new IllegalStateException("Kafka multi-shard placement did not span two Worker identities");
+                }
+
+                final WorkClassExecutionRegistry workClasses = workClasses();
+                final KeyPair verificationKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+                final Path root = Files.createTempDirectory("nereus-delay-kafka-route-worker-multi-");
+                final List<ShardStore> stores = new ArrayList<>(shardCount);
+                final List<WorkerShardRuntime> runtimes = new ArrayList<>(shardCount);
+                final List<String> workerGroups = new ArrayList<>(shardCount);
+                WorkerShardFleetRuntime fleet = null;
+                boolean drained = false;
+                try {
+                    final ShardStoreConfig storeConfig = ShardStoreConfig.defaults(root);
+                    final SharedRocksDbResources resources = new SharedRocksDbResources(storeConfig);
+                    try {
+                        resources.bindWorkClassExecutionRegistry(workClasses);
+                        for (int index = 0; index < admissions.size(); index++) {
+                            final MultiShardAdmission admission = admissions.get(index);
+                            final ShardId shard = admission.probe().shard();
+                            final ShardStore store = ShardStore.open(storeConfig, shard, resources);
+                            stores.add(store);
+                            final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshot(shard);
+                            store.recordControlSnapshot(controlSnapshot);
+                            final DelayShard delayShard = new DelayShard(store, DelayShardConfig.defaults(), null, null,
+                                    scheduleResolver());
+                            final OwnedDelayShard ownedShard = new OwnedDelayShard(delayShard, admission.lease(),
+                                    new OwnerIdentityV1(bytes(16, 70 + index), bytes(16, 90 + index),
+                                            admission.lease().ownerEpoch(), Bytes.sha256(Bytes.utf8(
+                                                    "kafka-route-worker-multi-fencing-" + index))));
+                            recoverRouteRecord(admission.assignment(), ownerAuthority, ownedShard,
+                                    firstRouteRecord(bootstrap, clusterId, topic, nativeTopicId, shard,
+                                            admission.probe().beforeRoute()), verificationKey, controlSnapshot,
+                                    workClasses);
+                            if (ownedShard.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
+                                    || !(ownedShard.lastCatchupPosition()
+                                    instanceof io.nereusstream.delay.protocol.KafkaSourcePosition recovered)
+                                    || recovered.offset() != 0 || !recovered.shardId().equals(shard)) {
+                                throw new IllegalStateException("Kafka multi-shard recovery did not apply partition "
+                                        + shard.partition() + " pre-Route record");
+                            }
+                            ackFirstRouteRecord(bootstrap, clusterId, topic, nativeTopicId, shard,
+                                    admission.probe().beforeRoute(), admin);
+                            append(bootstrap, clusterId, topic, topicId, admission.probe().afterRoute(),
+                                    shard.partition(), admission.probe().barrierOffset());
+                            final String workerGroup = "nereus-delay-route-worker-multi-" + shard.partition() + "-"
+                                    + UUID.randomUUID();
+                            workerGroups.add(workerGroup);
+                            final GuardedConsumer<byte[], byte[]> workerConsumer = workerConsumer(bootstrap,
+                                    workerGroup, clusterId, topic, nativeTopicId, shard);
+                            runtimes.add(KafkaClientArtifactWorkerSourceFactory.create(workerConsumer, topic,
+                                    POLL_TIMEOUT, admission.assignment().sourceAssignment(), workClasses, ownedShard,
+                                    store, resources, ownerAuthority, verificationKey.getPublic()));
+                        }
+                        fleet = new WorkerShardFleetRuntime(workClasses, resources, runtimes);
+                        final Set<ShardId> pending = new HashSet<>(fleet.shardIds());
+                        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+                        while (!pending.isEmpty() && System.nanoTime() < deadline) {
+                            final WorkerShardFleetRuntime.SourceTurn turn = fleet.runNextSourceTurn(
+                                    new SchedulerBudget(1, 1_000_000, TimeUnit.SECONDS.toNanos(2)),
+                                    System::currentTimeMillis);
+                            if (turn.result().status()
+                                    == io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus
+                                    .APPLIED_AND_ACKED) {
+                                pending.remove(turn.shardId());
+                            } else if (turn.result().status()
+                                    != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus
+                                    .WAITING_FOR_SOURCE
+                                    && turn.result().status()
+                                    != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus
+                                    .WAITING_FOR_WORK_CLASS) {
+                                throw new IllegalStateException("Kafka multi-shard Worker source turn failed: shard="
+                                        + turn.shardId() + ", status=" + turn.result().status(),
+                                        turn.result().failure());
+                            }
+                        }
+                        if (!pending.isEmpty()) {
+                            throw new IllegalStateException("Kafka multi-shard Worker source apply timed out: "
+                                    + pending);
+                        }
+                        for (int index = 0; index < admissions.size(); index++) {
+                            final MultiShardAdmission admission = admissions.get(index);
+                            final ShardId shard = admission.probe().shard();
+                            final ShardStore store = stores.get(index);
+                            if (!(store.appliedShardLogPosition()
+                                    instanceof io.nereusstream.delay.protocol.KafkaSourcePosition applied)
+                                    || applied.offset() != admission.probe().barrierOffset()
+                                    || !applied.shardId().equals(shard)
+                                    || !applied.authenticatedClusterId().equals(clusterId)
+                                    || !applied.nativeTopicUuid().equals(nativeTopicId)) {
+                                throw new IllegalStateException("Kafka multi-shard Store did not persist partition "
+                                        + shard.partition() + " post-barrier position");
+                            }
+                            requireCommittedOffset(admin, workerGroups.get(index), topic, shard.partition(),
+                                    admission.probe().barrierOffset() + 1);
+                        }
+                        for (int index = 0; index < runtimes.size(); index++) {
+                            final MultiShardAdmission admission = admissions.get(index);
+                            final ShardId shard = admission.probe().shard();
+                            final Path checkpointPath = root.resolve("route-worker-multi-final-checkpoint-"
+                                    + shard.partition());
+                            final byte[] checkpointId = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8(
+                                    "kafka-route-worker-multi-final-checkpoint-" + shard.partition())), 16);
+                            final var drain = runtimes.get(index).drain(
+                                    new io.nereusstream.delay.ownership.OwnerDrainCoordinator.DrainRequest(
+                                            System.currentTimeMillis() + 30_000, 0, checkpointPath, checkpointId),
+                                    System::currentTimeMillis, () -> { });
+                            if (drain.pendingCheckpointTask() != null || drain.finalCheckpointPath() == null
+                                    || !Files.isDirectory(checkpointPath)
+                                    || CheckpointFileInventory.collect(checkpointPath).isEmpty()
+                                    || !ownerAuthority.current(shard).isEmpty()) {
+                                throw new IllegalStateException("Kafka multi-shard drain did not complete partition "
+                                        + shard.partition() + " checkpoint/lease release");
+                            }
+                        }
+                        fleet.close();
+                        for (MultiShardAdmission admission : admissions) {
+                            if (!assignmentAuthority.withdraw(admission.publication())) {
+                                throw new IllegalStateException("Kafka multi-shard assignment was not withdrawn exactly: "
+                                        + admission.probe().shard());
+                            }
+                        }
+                        drained = true;
+                        provider.close();
+                        System.out.println("Kafka signed Route -> two guarded Fetch barriers -> Oxia multi-shard "
+                                + "Assignment/Owner -> one Worker fleet -> RocksDB apply/ACK/checkpoint smoke "
+                                + "passed: fetchPartitions=" + shardCount + ", routeRevision="
+                                + routeRevision + ", assignmentRevisions="
+                                + admissions.stream().map(admission -> admission.publication().revision()).toList()
+                                + ", workers=" + assignedWorkers + ", sourceBarriers="
+                                + probes.stream().map(RouteShardProbe::barrierOffset).toList());
+                    } finally {
+                        if (fleet != null && !drained) {
+                            try {
+                                fleet.close();
+                            } catch (RuntimeException | Error ignored) {
+                                // Preserve the primary multi-shard failure; the
+                                // process-scoped Oxia session still fences the
+                                // temporary authority on teardown.
+                            }
+                        }
+                        for (ShardStore store : stores) {
+                            try {
+                                store.close();
+                            } catch (RuntimeException | Error ignored) {
+                                // The normal successful path closes Stores via
+                                // owner drain; retries remain bounded to this
+                                // short-lived E2E process.
+                            }
+                        }
+                        resources.close();
                     }
                 } finally {
                     deleteTree(root);
@@ -532,6 +792,33 @@ public final class KafkaClientArtifactRouteWorkerSmoke {
         }
     }
 
+    private static RouteSnapshotV1 multiRouteSnapshot(final String clusterId, final String topic,
+                                                       final UUID topicId, final RouteIncarnation incarnation,
+                                                       final List<RouteShardProbe> probes,
+                                                       final KeyPair signingKeys) {
+        final long now = System.currentTimeMillis();
+        final BrokerResourceIdentityV1 broker = BrokerResourceIdentityV1.kafka(
+                new KafkaBrokerResourceIdentityV1(clusterId, topicId));
+        final List<RoutePartitionPolicyV1> policies = probes.stream().map(probe -> {
+            final GuardedFetchEvidence evidence = probe.fetchEvidence();
+            final byte[] guardDigest = Bytes.sha256(Bytes.utf8("nereus-delay-kafka-route-fetch-proof-v1\0"),
+                    evidence.fetchResponseBodySha256());
+            return new RoutePartitionPolicyV1(probe.shard().partition(),
+                    ActivationBarrierV1.kafka(broker, probe.shard().partition(), probe.barrierOffset(),
+                            evidence.lastStableOffset()), zeroQuota(), 1, guardDigest);
+        }).toList();
+        final TrustedUtcIntervalEvidence issuedAt = new TrustedUtcIntervalEvidence(now - 100, now,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("kafka-route-clock"),
+                1, 1, 1, Bytes.sha256(Bytes.utf8("kafka-route-issued-at")), 0, null);
+        return RouteSnapshotV1.create(incarnation, bytes(32, 1), bytes(32, 2), RouteLifecycleV1.ACTIVE_FOR_NEW,
+                now + 30_000, new KafkaIngressRouteResourceV1(clusterId, topic, topicId, probes.size()),
+                RoutingHashVersionV1.ROUTING_HASH_V1,
+                new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1), 1, policies,
+                100, 200, 1024, 4096, 10, 8192, 500, now - 1_000, now + 60_000,
+                new IngressCredentialBindingRefV1(bytes(32, 40), 1, bytes(32, 41), bytes(32, 42), bytes(32, 43)),
+                Bytes.sha256(Bytes.utf8("kafka-route-prerequisite")), issuedAt, 1, signingKeys.getPrivate());
+    }
+
     private static RouteSnapshotV1 routeSnapshot(final String clusterId, final String topic,
                                                   final UUID topicId, final RouteIncarnation incarnation,
                                                   final GuardedFetchEvidence evidence, final KeyPair signingKeys) {
@@ -557,10 +844,16 @@ public final class KafkaClientArtifactRouteWorkerSmoke {
     }
 
     private static RouteWorkerAssignmentCoordinator.PlacementRequest placementRequest(final long now) {
-        return new RouteWorkerAssignmentCoordinator.PlacementRequest(0,
-                Bytes.sha256(Bytes.utf8("kafka-route-worker-assignment")), 1,
-                Bytes.sha256(Bytes.utf8("kafka-route-worker-capacity")), 1,
-                List.of(new WorkerPlacementPolicy.WorkerCandidate("kafka-route-worker", capacity(2),
+        return placementRequest(now, 0, "kafka-route-worker");
+    }
+
+    private static RouteWorkerAssignmentCoordinator.PlacementRequest placementRequest(final long now,
+                                                                                        final int partition,
+                                                                                        final String workerId) {
+        return new RouteWorkerAssignmentCoordinator.PlacementRequest(partition,
+                Bytes.sha256(Bytes.utf8("kafka-route-worker-assignment-" + partition + "-" + workerId)), 1,
+                Bytes.sha256(Bytes.utf8("kafka-route-worker-capacity-" + partition + "-" + workerId)), 1,
+                List.of(new WorkerPlacementPolicy.WorkerCandidate(workerId, capacity(2),
                         CapacityVectorV1.empty(), 0, 16, 0, 16, WorkerLoadVector.empty(), WorkerLoadVector.empty(),
                         now, true, 0)), capacity(1), CapacityVectorV1.empty(), CapacityVectorV1.empty(), null,
                 now, 0, 0);
@@ -580,6 +873,15 @@ public final class KafkaClientArtifactRouteWorkerSmoke {
     private static void append(final String bootstrap, final String clusterId, final String topic,
                                final Uuid topicId, final PreparedCommand command, final long expectedOffset)
             throws Exception {
+        append(bootstrap, clusterId, topic, topicId, command, 0, expectedOffset);
+    }
+
+    private static void append(final String bootstrap, final String clusterId, final String topic,
+                               final Uuid topicId, final PreparedCommand command, final int partition,
+                               final long expectedOffset) throws Exception {
+        if (partition < 0) {
+            throw new IllegalArgumentException("Kafka Route append partition must be non-negative");
+        }
         final Map<String, Object> configuration = new HashMap<>();
         configuration.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
         configuration.put(ProducerConfig.ACKS_CONFIG, "all");
@@ -590,9 +892,9 @@ public final class KafkaClientArtifactRouteWorkerSmoke {
         try (KafkaProducer<byte[], byte[]> producer = new KafkaProducer<>(configuration,
                 new ByteArraySerializer(), new ByteArraySerializer())) {
             final GuardedProducer<byte[], byte[]> guarded = (GuardedProducer<byte[], byte[]>) producer;
-            final var metadata = guarded.sendGuarded(new ProducerRecord<>(topic, 0, null,
+            final var metadata = guarded.sendGuarded(new ProducerRecord<>(topic, partition, null,
                     io.nereusstream.delay.protocol.CommandCodec.encodeFrameV1(command)),
-                    new org.apache.kafka.clients.producer.ProducerResourceGuard(clusterId, topic, topicId, 0))
+                    new org.apache.kafka.clients.producer.ProducerResourceGuard(clusterId, topic, topicId, partition))
                     .get(10, TimeUnit.SECONDS);
             if (metadata.recordMetadata().offset() != expectedOffset) {
                 throw new IllegalStateException("Kafka Route smoke append offset mismatch: expected="
@@ -657,14 +959,26 @@ public final class KafkaClientArtifactRouteWorkerSmoke {
     }
 
     private static void ensureTopic(final Admin admin, final String topic) throws Exception {
+        ensureTopic(admin, topic, 1);
+    }
+
+    private static void ensureTopic(final Admin admin, final String topic, final int partitions) throws Exception {
+        if (partitions <= 0) {
+            throw new IllegalArgumentException("Kafka Route topic partition count must be positive");
+        }
         try {
-            if (describe(admin, topic) != null) {
+            final TopicDescription existing = describe(admin, topic);
+            if (existing != null) {
+                if (existing.partitions().size() != partitions) {
+                    throw new IllegalStateException("Kafka Route topic partition count mismatch: expected="
+                            + partitions + ", actual=" + existing.partitions().size());
+                }
                 return;
             }
         } catch (Exception missing) {
             // Create below.
         }
-        final NewTopic newTopic = new NewTopic(topic, 1, (short) 3);
+        final NewTopic newTopic = new NewTopic(topic, partitions, (short) 3);
         newTopic.configs(Map.of("message.timestamp.type", "LogAppendTime"));
         admin.createTopics(List.of(newTopic)).all().get(10, TimeUnit.SECONDS);
         for (int attempt = 0; attempt < 30; attempt++) {
@@ -726,6 +1040,15 @@ public final class KafkaClientArtifactRouteWorkerSmoke {
 
     private record SourceObservation(String groupId, SourceRecordConsumer.PolledSourceRecord record,
                                      io.nereusstream.delay.protocol.KafkaSourcePosition position) {
+    }
+
+    private record RouteShardProbe(ShardId shard, PreparedCommand beforeRoute, PreparedCommand afterRoute,
+                                   GuardedFetchEvidence fetchEvidence, long barrierOffset) {
+    }
+
+    private record MultiShardAdmission(RouteShardProbe probe,
+                                       WorkerAssignmentAuthority.Publication publication,
+                                       WorkerAssignment assignment, OwnerLease lease) {
     }
 
 }
