@@ -8694,6 +8694,9 @@ quiescence, and it does not close certified REAPING provider evidence,
 source-ordered deletion, Floor/Pin/Owner transactions, provider breadth,
 chaos, failover or V1 release gates.
 
+The historical bounded Pulsar Route/Worker receipt remains provenance at
+`nereus/delay-full-implementation-v1@bf858b089b927fcf65129214d8ed5a7fc5300deb`.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
