@@ -4670,6 +4670,7 @@ the guarded Broker rollout attestation remains external evidence.
 | Delay exact provider-version slice | `nereus/delay-full-implementation-v1@2981a269` (implementation `b971cd3f` makes missing `x-amz-version-id` fail closed for the mandatory exact-version Object Store Profile; the versioned MinIO receipt records provider manifest version `780f1e1f-c7da-4dc1-ae4e-a7b9be4f801c`; complete version-aware deletion, retire/Floor/Pin authority, provider consistency and release gates remain open) |
 | Delay exact manifest-version readback slice | `nereus/delay-full-implementation-v1@d7f51441` (download signs and requests the catalog-bound manifest `versionId` and rejects a different response version; the real MinIO receipt records `ac201fe8-ba70-4bcb-a49c-a75a6657be55`; complete object-set deletion and GC authority remain open) |
 | Delay exact checkpoint object-set deletion slice | `nereus/delay-full-implementation-v1@3bfe030a` (the S3-compatible adapter preflights every manifest/file identity, captures provider versions, deletes files by exact `versionId` and the catalog-bound manifest last, and requires matching delete response version plus provider request ID; the locked MinIO receipt records `e223584d-2863-45a1-8471-9b378c0899c5`; `ALREADY_ABSENT` reconciliation, final prefix sweep and retire/Floor/Pin authority remain open) |
+| Delay checkpoint delete retry-convergence slice | `nereus/delay-full-implementation-v1@220fc98a` (404 presence probes now carry provider request/response evidence; partial response loss resumes from the remaining verified object set and a completely absent set returns `ALREADY_ABSENT`; final prefix sweep and retire/Floor/Pin authority remain open) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
@@ -8505,6 +8506,35 @@ does not establish `ALREADY_ABSENT` reconciliation after partial deletion,
 final empty-prefix sweeping, source-ordered retire authorization, Recovery
 Floor/Pin release, provider consistency/quiescence, credential rotation,
 generic cross-provider compatibility, chaos, failover or release readiness.
+
+## 2026-08-16 Checkpoint delete retry-convergence audit
+
+Delay commit `220fc98a` closes the response-loss retry seam for the bounded
+checkpoint object-set adapter. Manifest and file GET probes now retain
+provider request-ID/response hashes, and a missing exact file is a known
+absence rather than an instruction to issue a name-based delete. A manifest
+that remains present allows deletion of the remaining verified file versions
+followed by the manifest; when the manifest and every file are absent, the
+adapter returns `ALREADY_ABSENT` only after all absence probes provide request
+IDs and response hashes. A manifest-absent/file-present mixed state remains
+rejected.
+
+The local regression intentionally drops the first delete response after the
+fake provider removes that version, then proves completion on retry and
+`ALREADY_ABSENT` on the following retry. The locked MinIO rerun used container
+`nereus-delay-minio-e2e-1786841861-10565`, endpoint `http://127.0.0.1:54320`,
+bucket `nereus-delay-checkpoints-1786841861-10565`, image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`
+and repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+JUnit recorded `tests=1 skipped=0 failures=0 errors=0`, system-out recorded
+manifest provider version `1a81631c-3bd9-41e6-a132-8abe1da7ea2e`, and the
+harness ended with `BUILD SUCCESSFUL`.
+
+This closes bounded direct delete retry convergence. Final empty-prefix
+sweeping, source-ordered retire authorization, Recovery Floor/Pin release,
+provider consistency/quiescence, credential rotation, generic provider
+compatibility, chaos, failover and release readiness remain open.
 
 ## Final gate
 

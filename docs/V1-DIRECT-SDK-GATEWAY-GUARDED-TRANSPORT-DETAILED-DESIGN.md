@@ -5221,3 +5221,24 @@ after partial deletion, final prefix sweeps, retire-intent/Floor/Pin
 authorization, provider consistency/quiescence, credential rotation,
 multi-provider behavior, chaos, failover and release gates remain external
 boundaries.
+
+### 2026-08-16 Checkpoint delete retry-convergence implementation note
+
+Delay commit `220fc98a` extends the exact delete boundary with bounded
+presence/absence probes. A missing exact manifest or file is represented by a
+provider response-evidence projection rather than an untyped exception. When
+all manifest/file objects are absent, the adapter returns
+`ResourceDeleteConfirmedBody.DeleteOutcome.ALREADY_ABSENT` and hashes every
+probe request ID and response. When only file objects are absent, the adapter
+retains the manifest identity, deletes the remaining verified file versions,
+and then deletes the manifest exact version. A manifest-absent/file-present
+combination remains fail closed because it cannot prove the pinned complete
+resource identity through this bounded adapter.
+
+The focused regression simulates a DELETE response loss after the provider
+has removed the first file, retries to complete the remaining set, and then
+retries once more to obtain `ALREADY_ABSENT`. The locked MinIO test continued
+to pass against the versioned bucket. Final prefix sweeping, retire/Floor/Pin
+authorization, provider consistency/quiescence, credential rotation,
+multi-provider behavior, chaos, failover and release gates remain external
+boundaries.

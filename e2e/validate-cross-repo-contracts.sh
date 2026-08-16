@@ -1049,6 +1049,26 @@ require_file_text "$delay_root/e2e/README.md" \
     "Exact checkpoint object-set deletion receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "e223584d-2863-45a1-8471-9b378c0899c5"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+    "aggregateProbeRequestIds"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+    "RemoteObjectObservation"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
+    "deleteRetryConvergesAfterPartialResponseLossAndReportsAlreadyAbsent"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Checkpoint delete retry-convergence slice"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "220fc98a"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Delay checkpoint delete retry-convergence slice"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Checkpoint delete retry-convergence audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Checkpoint delete retry-convergence implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Checkpoint delete retry-convergence receipt"
+require_file_text "$delay_root/e2e/README.md" \
+    "1a81631c-3bd9-41e6-a132-8abe1da7ea2e"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

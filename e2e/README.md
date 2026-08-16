@@ -1571,3 +1571,36 @@ This is one locked MinIO provider's direct deletion evidence. It does not
 close `ALREADY_ABSENT` partial-reconciliation, final prefix sweeps,
 retire/Floor/Pin authorization, provider consistency/quiescence, credential
 rotation, generic provider compatibility, chaos, failover or release gates.
+
+## Checkpoint delete retry-convergence receipt
+
+Delete probes now retain provider request-ID/response evidence for exact
+manifest and file GETs. A retry after a partial response loss deletes only
+the remaining verified file versions and the manifest exact version last; a
+retry after the complete object set is absent returns `ALREADY_ABSENT` with
+the absence-probe aggregates. A manifest-absent/file-present mixed state is
+rejected.
+
+The local regression is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
+  --no-daemon --console=plain
+```
+
+The source-locked implementation is Delay commit `220fc98a`. The MinIO
+rerun used container `nereus-delay-minio-e2e-1786841861-10565`, endpoint
+`http://127.0.0.1:54320`, bucket
+`nereus-delay-checkpoints-1786841861-10565`, image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`
+and repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+JUnit recorded `tests=1 skipped=0 failures=0 errors=0`, system-out recorded
+manifest provider version `1a81631c-3bd9-41e6-a132-8abe1da7ea2e`, and the
+harness ended with `BUILD SUCCESSFUL`.
+
+This closes direct delete retry convergence for the locked provider seam. It
+does not close final prefix sweeping, source-ordered retire/Floor/Pin
+authorization, provider consistency/quiescence, credential rotation,
+generic provider compatibility, chaos, failover or release gates.

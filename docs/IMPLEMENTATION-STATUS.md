@@ -10127,3 +10127,39 @@ reconciliation, final-prefix sweeping, source-ordered retire authorization,
 Recovery Floor/Pin release, provider consistency/quiescence, credential
 rotation, generic cross-provider compatibility, chaos, failover or V1 release
 evidence.
+
+## 2026-08-16 Checkpoint delete retry-convergence slice
+
+Delay commit `220fc98a` makes the direct checkpoint delete adapter converge
+after provider response loss. Delete preflight now records bounded GET
+presence/absence evidence with domain-separated request-ID and response
+hashes. If the exact manifest and every deterministic file object are already
+absent, the adapter returns `ALREADY_ABSENT` with those probe aggregates. If
+only some file objects are absent, it deletes the remaining verified file
+versions and the manifest exact version last; an absent manifest with a live
+file object remains a fail-closed mixed state. This means a response loss
+after a file delete or after the final manifest delete can be retried without
+blindly deleting by name or fabricating a `DELETED` result.
+
+`S3CompatibleCheckpointObjectStoreAdapterTest.deleteRetryConvergesAfterPartialResponseLossAndReportsAlreadyAbsent`
+covers both paths: the fake provider removes the first object while omitting
+the delete version response, the next invocation completes the remaining
+object set, and a further invocation returns `ALREADY_ABSENT`. The full
+`./gradlew check --no-daemon --console=plain --quiet` returned 0.
+
+The locked MinIO rerun used container
+`nereus-delay-minio-e2e-1786841861-10565`, endpoint `http://127.0.0.1:54320`,
+bucket `nereus-delay-checkpoints-1786841861-10565`, the locked image at
+repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+and image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`.
+JUnit recorded `tests=1 skipped=0 failures=0 errors=0`, system-out recorded
+manifest provider version `1a81631c-3bd9-41e6-a132-8abe1da7ea2e`, and the
+harness ended with `BUILD SUCCESSFUL`.
+
+This closes direct delete response-loss convergence for the bounded adapter.
+It does not establish final empty-prefix sweeping, source-ordered retire
+authorization, Recovery Floor/Pin release, provider consistency/quiescence,
+credential rotation, generic cross-provider compatibility, chaos, failover
+or V1 release evidence.
