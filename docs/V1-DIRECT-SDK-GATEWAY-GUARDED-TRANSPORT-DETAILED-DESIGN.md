@@ -5881,3 +5881,16 @@ and
 passed in the 12-test deterministic monitor suites. This note closes only
 local monitor teardown retryability; native process recovery, production
 resource authority, Owner/Oxia, chaos, failover and release gates remain open.
+
+### 2026-08-16 In-memory command transport registry teardown retry implementation note
+
+Delay commit `0378e9a7585397e6f5e71a301f58c6d00835f2a0` keeps the deterministic
+command transport registry fenced but retryable. Its close path snapshots
+entries, attempts every registered transport, removes successful entries only,
+and sets `closeCompleted` after the map is drained; a failed transport remains
+owned for the next explicit close while successful siblings are not repeated.
+
+`InMemoryCommandTransportRegistryTest.closeRetriesOnlyTheTransportThatFailedTheFirstTeardown`
+passed in the 1-test deterministic registry suite. This note closes only local
+registry teardown retryability; production Kafka/Pulsar client lifecycle,
+transport delivery, Broker failover, chaos and release gates remain open.

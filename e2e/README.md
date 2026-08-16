@@ -2370,3 +2370,24 @@ retry regression in both monitor classes. This receipt proves only local
 Worker monitor teardown retryability; it does not prove native process
 recovery, production resource authority, Owner/Oxia, chaos, failover or V1
 release readiness.
+
+## In-memory command transport registry teardown retry receipt
+
+Delay commit `0378e9a7585397e6f5e71a301f58c6d00835f2a0` fences the deterministic
+transport registry immediately while preserving failed child transports for
+an explicit retry. Successful transports are removed after their first close;
+the next registry close reaches only the still-owned failure.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.transport.InMemoryCommandTransportRegistryTest \
+  --no-daemon --console=plain
+```
+
+The deterministic registry suite passed 1 test,
+`closeRetriesOnlyTheTransportThatFailedTheFirstTeardown`. This receipt proves
+only local registry teardown retryability; it does not prove production
+Kafka/Pulsar client lifecycle, transport delivery, Broker failover, chaos or
+V1 release readiness.

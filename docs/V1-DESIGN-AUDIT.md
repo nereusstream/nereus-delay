@@ -9233,6 +9233,24 @@ This closes only local Worker monitor teardown retryability. It does not turn
 a failed native process into safe recovery or provide production resource,
 Owner/Oxia, raw chaos, failover or V1 release readiness.
 
+## 2026-08-16 In-memory command transport registry teardown retry audit
+
+Delay commit `0378e9a7585397e6f5e71a301f58c6d00835f2a0` repairs the local
+registry teardown state. `InMemoryCommandTransportRegistry` fences new
+registration and lookup immediately, attempts every snapshot entry, removes a
+transport only after its close succeeds, and leaves failed entries available
+for the next explicit close while retaining first/suppressed failure order.
+
+`InMemoryCommandTransportRegistryTest.closeRetriesOnlyTheTransportThatFailedTheFirstTeardown`
+forces one transport to fail once, verifies that a healthy sibling is not
+closed again, and requires the second registry close to reach the failed
+transport. The deterministic registry suite passed 1 test with zero
+failures/skips/errors.
+
+This closes only the local registry lifecycle. It does not establish
+production Kafka/Pulsar client teardown, transport delivery, Broker failover,
+raw chaos or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

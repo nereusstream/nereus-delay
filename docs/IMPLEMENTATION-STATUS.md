@@ -11061,3 +11061,27 @@ The deterministic monitor suites passed 12 tests, including
 This closes only local Worker monitor teardown retryability; it does not turn
 a failed native process into safe recovery or provide production resource,
 Owner/Oxia, chaos/failover or V1 release evidence.
+
+## 2026-08-16 In-memory command transport registry teardown retry
+
+Delay commit `0378e9a7585397e6f5e71a301f58c6d00835f2a0` makes
+`InMemoryCommandTransportRegistry.close()` retryable after a registered
+transport fails to close. The registry fences registration and lookup as soon
+as close begins, removes only transports whose close returned successfully,
+retains the first `RuntimeException` or `Error` with later failures
+suppressed, and records close completion only after every entry is gone. A
+later explicit close therefore retries only the still-owned failed transport.
+
+The focused receipt is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.transport.InMemoryCommandTransportRegistryTest \
+  --no-daemon --console=plain
+```
+
+The deterministic registry suite passed 1 test,
+`closeRetriesOnlyTheTransportThatFailedTheFirstTeardown`. This closes only
+the local registry lifecycle; it does not establish production Kafka/Pulsar
+client teardown, transport delivery, Broker failover, chaos or V1 release
+evidence.

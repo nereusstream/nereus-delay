@@ -1613,6 +1613,20 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Worker monitor teardown retry boundary implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Worker monitor teardown retry receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/transport/InMemoryCommandTransportRegistry.java" \
+    "private boolean closeCompleted"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/transport/InMemoryCommandTransportRegistryTest.java" \
+    "closeRetriesOnlyTheTransportThatFailedTheFirstTeardown"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "In-memory command transport registry teardown retry"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "0378e9a7585397e6f5e71a301f58c6d00835f2a0"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "In-memory command transport registry teardown retry audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "In-memory command transport registry teardown retry implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "In-memory command transport registry teardown retry receipt"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPublicationCoordinator.java" \
     "intentIsAtomic || catalogIsAtomic"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointUploadCoordinatorTest.java" \
