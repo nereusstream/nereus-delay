@@ -5611,3 +5611,26 @@ This is still one canonical publication record plus a separate ephemeral
 Recovery Pin record, not an Oxia multi-record Intent/Catalog/Pin transaction.
 Provider immutability/completion, source/evidence ordering, Owner/session
 recovery, raw chaos, failover and release gates remain outside this receipt.
+
+### 2026-08-16 Oxia Checkpoint Upload Intent session-bound CAS implementation note
+
+Delay commit `0a1e6020` adds a `ClientHandle` constructor to
+`OxiaSyncCheckpointUploadIntentBackend`. The separate `/intent` record keeps
+its existing canonical intent bytes and exact version CAS, while the
+handle-bound path composes a private `SessionBoundRecordClient` around every
+record read and write. The marker is checked before and after the Oxia call;
+therefore a committed PENDING_UPLOAD/PUBLISHED/REAPING successor whose
+response arrives after session loss cannot be reported as a successful intent
+transition.
+
+The deterministic regression commits the fake intent, fences the session
+before the put response returns, asserts the failure and then reopens the exact
+intent through the explicit unbound seam. Four Upload Intent tests passed; the
+three opt-in real recovery-authority methods were skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was not configured, and the full Gradle check
+returned 0.
+
+This remains an independent single-record compatibility authority. It does
+not provide the missing cross-record Intent/Catalog/Pin transaction, Owner or
+session recovery, provider completion/attestation, source/evidence ordering,
+raw chaos, failover or release evidence.

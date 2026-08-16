@@ -2042,3 +2042,31 @@ This receipt proves only the single canonical publication-record session
 fence; it does not prove an atomic Intent/Catalog/Pin transaction, provider
 completion, source/evidence replay, Owner/session recovery, chaos, failover or
 V1 release readiness.
+
+## Oxia Checkpoint Upload Intent session-bound CAS receipt
+
+Delay commit `0a1e6020` adds the
+`OxiaSyncCheckpointUploadIntentBackend(ClientHandle, ...)` path. The independent
+`/intent` record retains exact canonical intent and version-CAS semantics, but
+the handle-bound constructor checks the exact connected Oxia session marker
+before and after every read/write. A committed intent successor followed by
+marker loss is therefore fenced instead of being returned as a guessed
+create/publish/reaping success; the combined `/publication` authority remains
+a separate canonical record surface.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.OxiaSyncCheckpointUploadIntentBackendTest \
+  --tests io.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
+  --no-daemon --console=plain
+```
+
+The deterministic Upload Intent suite passed 4 tests. The three real-service
+methods were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was not configured,
+and the full `./gradlew check --no-daemon --console=plain --quiet` returned 0.
+This receipt proves only the independent upload-intent single-record session
+fence; it does not prove cross-record Intent/Catalog/Pin transactionality,
+Owner/session recovery, provider completion, source/evidence replay, chaos,
+failover or V1 release readiness.

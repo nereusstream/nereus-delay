@@ -1401,6 +1401,24 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Oxia Checkpoint Publication session-bound CAS implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Oxia Checkpoint Publication session-bound CAS receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSyncCheckpointUploadIntentBackend.java" \
+    "handle.backend()::assertConnectedSession"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSyncCheckpointUploadIntentBackend.java" \
+    "committed CAS whose response is lost after the marker"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaSyncCheckpointUploadIntentBackendTest.java" \
+    "sessionFenceRejectsACommittedIntentAfterTheMarkerChanges"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaRealRecoveryAuthoritySmokeTest.java" \
+    "new OxiaSyncCheckpointUploadIntentBackend(client, prefix + \"/intent\")"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Oxia Checkpoint Upload Intent session-bound CAS"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "0a1e6020"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Oxia Checkpoint Upload Intent session-bound CAS audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Oxia Checkpoint Upload Intent session-bound CAS implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Oxia Checkpoint Upload Intent session-bound CAS receipt"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"
