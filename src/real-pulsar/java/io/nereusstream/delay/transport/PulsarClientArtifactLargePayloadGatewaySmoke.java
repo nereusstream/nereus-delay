@@ -390,10 +390,38 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
             TimeUnit.MILLISECONDS.sleep(250);
         }
         // Partition metadata does not eagerly load the physical PersistentTopic.
-        // Materialize the exact partition through the normal create endpoint so
-        // the resource-controller endpoint can apply its ordered guard update.
-        createTopic(client, adminUrl, physicalTopic, incarnation, creationTimestamp);
+        // Ask the P1 admin surface to create any missing physical partitions before
+        // the resource-controller endpoint applies its ordered guard update. The
+        // normal non-partitioned create endpoint intentionally returns 409 for a
+        // partitioned topic and cannot be used as materialization.
+        createMissedPartitions(client, guardAdminUrls, topicBase);
         stampGuard(client, guardAdminUrls, physicalTopic, incarnation, creationTimestamp);
+    }
+
+    private static void createMissedPartitions(final HttpClient client, final List<String> adminUrls,
+                                               final String topicBase) throws Exception {
+        int lastStatus = -1;
+        String lastBody = "";
+        for (int attempt = 0; attempt < 120; attempt++) {
+            for (String adminUrl : adminUrls) {
+                final String path = adminUrl + "/admin/v2/persistent/public/default/"
+                        + topicBase + "/createMissedPartitions";
+                final HttpResponse<String> response = request(client, path, "POST", "");
+                lastStatus = response.statusCode();
+                lastBody = response.body();
+                if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                    return;
+                }
+                if (response.statusCode() != 307 && response.statusCode() != 404
+                        && response.statusCode() != 409 && response.statusCode() != 412
+                        && response.statusCode() != 503) {
+                    throw failure("materialize Pulsar large-payload physical partitions", response);
+                }
+            }
+            TimeUnit.MILLISECONDS.sleep(250);
+        }
+        throw new IllegalStateException("Pulsar large-payload physical partitions did not converge: "
+                + topicBase + " lastStatus=" + lastStatus + " lastBody=" + lastBody);
     }
 
     private static void createTopic(final HttpClient client, final String adminUrl, final String topic,
@@ -481,9 +509,14 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                                                 final String body) throws Exception {
         final HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(path))
                 .header("Content-Type", "application/json");
-        final HttpRequest request = "DELETE".equals(method)
-                ? builder.DELETE().build()
-                : builder.PUT(HttpRequest.BodyPublishers.ofString(body)).build();
+        final HttpRequest request;
+        if ("DELETE".equals(method)) {
+            request = builder.DELETE().build();
+        } else if ("POST".equals(method)) {
+            request = builder.POST(HttpRequest.BodyPublishers.ofString(body)).build();
+        } else {
+            request = builder.PUT(HttpRequest.BodyPublishers.ofString(body)).build();
+        }
         return client.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
