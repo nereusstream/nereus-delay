@@ -3861,7 +3861,9 @@ partial: tuple-bound command hashing and durable dedupe conflict evidence pass,
 but authenticated writer-before-reader assignment, cutover/downgrade and the
 release artifact remain open. Gates 5--7 and 9 remain open for benchmark
 matrix, capacity/SLO artifact, certified soak and operational
-restore/fence/DLQ/uncertain/disaster drills. Full chaos and external
+restore/fence/DLQ/uncertain/disaster drills; the repository now has a
+fail-closed runbook draft and bounded local drills, but no release-candidate
+operational certification. Full chaos and external
 credential/provider failover are also open; positive bounded receipts must not
 be used as release substitutes.
 

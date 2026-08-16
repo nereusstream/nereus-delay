@@ -10763,7 +10763,8 @@ remain readable, and unsupported current wire projections fail closed. Gates
 5--7 and 9 remain `OPEN`:
 required benchmark configurations, capacity/SLO artifacts, certified soak,
 restore/fence/DLQ/uncertain/disaster runbook drills have not been produced;
-Gate 8 still lacks authenticated writer-before-reader assignment,
+the new runbook draft and bounded local drills do not replace those
+release-candidate drills. Gate 8 still lacks authenticated writer-before-reader assignment,
 cutover/downgrade and a release artifact. This is a release audit boundary,
 not a reason to reinterpret the existing positive slices as V1 approval.
 

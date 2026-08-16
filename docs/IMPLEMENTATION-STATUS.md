@@ -9206,6 +9206,29 @@ real Oxia authority smoke boundary; source-ordered Profile/trust publication,
 external secret-manager resolution, multi-node authority failover, provider
 rotation/quiescence, full chaos and V1 release gates remain open.
 
+## 2026-08-17 V1 operations runbook draft and bounded local drills
+
+`docs/V1-OPERATIONS-RUNBOOK.md` now defines the fail-closed procedures and
+receipt fields for restore, Owner/channel fencing, Dead Letter replay,
+`UNCERTAIN` resolution and the disaster continuity boundary. It explicitly
+forbids direct Store/Oxia/Broker/Object Store mutation and remains
+`DRAFT / NOT CERTIFIED`.
+
+The bounded local drill command ran against the current Delay source after the
+tuple-bound dedupe implementation:
+
+```text
+CheckpointRestoreCoordinatorTest + RecoveryCatalogTest + ShardStoreTest
+OwnerLeaseTest + OwnerRecoveryCoordinatorTest
+DelayShardTest replay/uncertain-resolution cases named by the runbook
+BUILD SUCCESSFUL in 25s
+```
+
+This is useful state-machine and local recovery evidence, not a release-
+candidate operational drill. External operator authorization, fresh-process
+restore/fence, real provider disaster continuity and signed incident receipts
+remain open; Gate 9 therefore stays `OPEN`.
+
 ## 2026-08-17 Current-source Kafka + Pulsar large-payload authority revalidation after tuple-bound dedupe
 
 The current-source revalidation uses Delay
@@ -9308,7 +9331,7 @@ evidence, not a V1 release claim.
 | 6. Capacity artifacts and SLO catalog | OPEN | Required memory/RSS/cgroup, FD/file, disk/temp, reserve, adapter/zombie, fairness formulas and durable SLO denominator evidence are not complete. |
 | 7. Soak | OPEN | No certified soak spans the longest checkpoint/floor, retry, uncertainty and GC cycles with zero unexplained gaps/drift. |
 | 8. Upgrade/downgrade | PARTIAL | Tuple-bound command hash, durable v2 dedupe, legacy v1 read and same-command/different-tuple conflict tests pass; writer-before-reader, eligible-reader assignment, cutover/downgrade and release artifact remain open. |
-| 9. Operations runbook | OPEN | Restore, fence, DLQ replay, uncertain override and disaster-boundary drills are not complete. |
+| 9. Operations runbook | OPEN | A fail-closed draft and bounded local restore/fence/DLQ/uncertain drills now exist; release-candidate fresh-process, external-authorization and disaster-continuity drills are not complete. |
 | 10. Kafka/Pulsar patch distribution gate | PARTIAL | K1/P1 source locks, binary digests, guarded receipts and delete/recreate/failover evidence exist; full Broker rollout, typed rejection/delete-recreate cut matrix and stock/name-fallback exclusion are not release-certified. |
 
 Release status therefore remains `NOT READY`. The next promotion requires
