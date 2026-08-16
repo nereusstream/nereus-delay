@@ -58,6 +58,17 @@ class OxiaGatewayAuditSinkTest {
         assertThrows(IllegalStateException.class, () -> sink.record(event));
     }
 
+    @Test
+    void auditOutcomeDigestIsPresentOnlyForCompletedEvents() {
+        final Digest32 operation = new Digest32(bytes(32, 4));
+        assertThrows(IllegalArgumentException.class, () -> new GatewayAuditEventV1(
+                GatewayIngressOperationV1.SCHEDULE, operation, operation, GatewayAuditPhaseV1.RECEIVED,
+                operation, 40));
+        assertThrows(IllegalArgumentException.class, () -> new GatewayAuditEventV1(
+                GatewayIngressOperationV1.SCHEDULE, operation, operation, GatewayAuditPhaseV1.COMPLETED,
+                null, 40));
+    }
+
     private static GatewayAuditEventV1 event(final long observedAt, final GatewayAuditPhaseV1 phase) {
         return new GatewayAuditEventV1(GatewayIngressOperationV1.SCHEDULE,
                 new Digest32(bytes(32, 1)), new Digest32(bytes(32, 2)), phase,

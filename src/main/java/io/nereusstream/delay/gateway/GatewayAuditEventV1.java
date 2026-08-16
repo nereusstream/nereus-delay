@@ -18,6 +18,9 @@ public record GatewayAuditEventV1(GatewayIngressOperationV1 operation, Digest32 
         Objects.requireNonNull(gatewayKeyHash, "gatewayKeyHash");
         Objects.requireNonNull(requestBodyHash, "requestBodyHash");
         Objects.requireNonNull(phase, "phase");
+        if ((phase == GatewayAuditPhaseV1.COMPLETED) != (outcomeHash != null)) {
+            throw new IllegalArgumentException("Gateway audit outcome hash must match the completed phase");
+        }
         if (observedAtEpochMs < 0) {
             throw new IllegalArgumentException("observedAtEpochMs must be non-negative");
         }
