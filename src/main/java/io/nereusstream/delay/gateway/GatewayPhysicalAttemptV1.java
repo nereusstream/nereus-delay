@@ -46,6 +46,9 @@ public final class GatewayPhysicalAttemptV1 {
         this.attemptNo = attemptNo;
         this.physicalAttemptId = Objects.requireNonNull(physicalAttemptId, "physicalAttemptId");
         this.state = Objects.requireNonNull(state, "state");
+        if ((this.state == GatewayPhysicalAttemptStateV1.STARTED) != (outcomeBytes == null)) {
+            throw new IllegalArgumentException("Gateway STARTED attempt must not carry terminal evidence");
+        }
         this.outcomeBytes = outcomeBytes == null ? null : Bytes.copy(outcomeBytes);
         this.startedAtEpochMs = startedAtEpochMs;
         this.uncertaintyAtEpochMs = uncertaintyAtEpochMs;

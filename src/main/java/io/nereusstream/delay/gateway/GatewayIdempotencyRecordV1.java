@@ -11,11 +11,14 @@ import io.nereusstream.delay.protocol.PreparedSubmissionV1;
 import io.nereusstream.delay.protocol.SubmissionOutcomeKindV1;
 import io.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
 import io.nereusstream.delay.transport.Digest32;
+import io.nereusstream.delay.transport.PhysicalEnqueueAttemptId;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /** Immutable in-memory form of the Gateway single-value idempotency record. */
 public final class GatewayIdempotencyRecordV1 {
@@ -48,9 +51,13 @@ public final class GatewayIdempotencyRecordV1 {
         if (phase == null || createdAtEpochMs < 0 || retainUntilEpochMs < createdAtEpochMs || revision <= 0) {
             throw new IllegalArgumentException("invalid Gateway idempotency record bounds");
         }
+        final List<GatewayPhysicalAttemptV1> copiedAttempts = List.copyOf(
+                new ArrayList<>(Objects.requireNonNull(attempts, "attempts")));
+        final byte[] copiedAggregate = aggregateOutcomeBytes == null ? null : Bytes.copy(aggregateOutcomeBytes);
+        validateProjection(phase, copiedAttempts, copiedAggregate);
         this.phase = phase;
-        this.attempts = List.copyOf(new ArrayList<>(Objects.requireNonNull(attempts, "attempts")));
-        this.aggregateOutcomeBytes = aggregateOutcomeBytes == null ? null : Bytes.copy(aggregateOutcomeBytes);
+        this.attempts = copiedAttempts;
+        this.aggregateOutcomeBytes = copiedAggregate;
         this.createdAtEpochMs = createdAtEpochMs;
         this.retainUntilEpochMs = retainUntilEpochMs;
         this.revision = revision;
@@ -356,6 +363,39 @@ public final class GatewayIdempotencyRecordV1 {
         return outcome.kind() == SubmissionOutcomeKindV1.NATIVE_RECEIPT
                 || outcome.kind() == SubmissionOutcomeKindV1.MANAGED
                 && outcome.managed().kind() == EnqueueOutcomeKindV1.QUEUED;
+    }
+
+    private static void validateProjection(final GatewayIdempotencyPhaseV1 phase,
+                                           final List<GatewayPhysicalAttemptV1> attempts,
+                                           final byte[] aggregateBytes) {
+        final Set<PhysicalEnqueueAttemptId> physicalIds = new HashSet<>();
+        final Set<PhysicalEnqueueAttemptId> retryIds = new HashSet<>();
+        boolean hasStarted = false;
+        for (int index = 0; index < attempts.size(); index++) {
+            final GatewayPhysicalAttemptV1 attempt = attempts.get(index);
+            if (attempt.attemptNo() != index + 1) {
+                throw new IllegalArgumentException("Gateway attempts are not source ordered");
+            }
+            if (!physicalIds.add(attempt.physicalAttemptId())) {
+                throw new IllegalArgumentException("Gateway physical attempt identity is duplicated");
+            }
+            if (attempt.retryRequestId() != null && !retryIds.add(attempt.retryRequestId())) {
+                throw new IllegalArgumentException("Gateway retry request identity is duplicated");
+            }
+            hasStarted |= attempt.state() == GatewayPhysicalAttemptStateV1.STARTED;
+        }
+        final GatewayIdempotencyPhaseV1 expectedPhase = attempts.isEmpty()
+                ? GatewayIdempotencyPhaseV1.PREPARED
+                : hasStarted ? GatewayIdempotencyPhaseV1.ACTIVE : GatewayIdempotencyPhaseV1.QUIESCENT;
+        if (phase != expectedPhase) {
+            throw new IllegalArgumentException("Gateway idempotency phase does not match attempts");
+        }
+        if (attempts.isEmpty() && aggregateBytes != null) {
+            throw new IllegalArgumentException("Gateway prepared record cannot carry an aggregate");
+        }
+        if (!attempts.isEmpty() && !hasStarted && aggregateBytes == null) {
+            throw new IllegalArgumentException("Gateway quiescent record must carry an aggregate");
+        }
     }
 
     private static long checkedIncrement(final long value) {

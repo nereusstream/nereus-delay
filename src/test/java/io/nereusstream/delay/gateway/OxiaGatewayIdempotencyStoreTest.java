@@ -72,6 +72,30 @@ class OxiaGatewayIdempotencyStoreTest {
     }
 
     @Test
+    void gatewayProjectionRejectsImpossibleAttemptAndRecordShapes() {
+        final PhysicalEnqueueAttemptId attemptId = PhysicalEnqueueAttemptId.require(bytes(16, 4));
+        assertThrows(IllegalArgumentException.class, () -> new GatewayPhysicalAttemptV1(1, attemptId,
+                GatewayPhysicalAttemptStateV1.STARTED, bytes(1, 5), 100, 120, 2, 110));
+        assertThrows(IllegalArgumentException.class, () -> new GatewayPhysicalAttemptV1(1, attemptId,
+                GatewayPhysicalAttemptStateV1.UNCERTAIN, null, 100, 120, 2, 110));
+
+        final PreparedSubmissionV1 prepared = prepared();
+        assertThrows(IllegalArgumentException.class, () -> new GatewayIdempotencyRecordV1(
+                new Digest32(bytes(32, 6)), GatewayOperationKindV1.SCHEDULE, new Digest32(bytes(32, 7)),
+                prepared.canonicalBytes(), GatewayIdempotencyPhaseV1.QUIESCENT, List.of(), null, 100, 200, 1));
+
+        final SubmissionOutcomeMessageV1 uncertain = GatewayOutcomeSupport.uncertain(prepared, attemptId);
+        final GatewayPhysicalAttemptV1 first = new GatewayPhysicalAttemptV1(1, attemptId,
+                GatewayPhysicalAttemptStateV1.UNCERTAIN, uncertain.canonicalBytes(), 100, 120, 2, 110);
+        final GatewayPhysicalAttemptV1 duplicate = new GatewayPhysicalAttemptV1(2, attemptId,
+                GatewayPhysicalAttemptStateV1.UNCERTAIN, uncertain.canonicalBytes(), 100, 120, 3, 110);
+        assertThrows(IllegalArgumentException.class, () -> new GatewayIdempotencyRecordV1(
+                new Digest32(bytes(32, 8)), GatewayOperationKindV1.SCHEDULE, new Digest32(bytes(32, 9)),
+                prepared.canonicalBytes(), GatewayIdempotencyPhaseV1.QUIESCENT, List.of(first, duplicate),
+                uncertain.canonicalBytes(), 100, 200, 3));
+    }
+
+    @Test
     void oxiaStoreReopensExactRecordAndDoesNotRecreatePermitAfterResponseLoss() {
         final TrustedClock clock = () -> 100;
         final FakeGatewayClient client = new FakeGatewayClient();
