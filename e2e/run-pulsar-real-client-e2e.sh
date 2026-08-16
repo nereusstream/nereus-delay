@@ -17,6 +17,7 @@ worker_destination_response_loss="${NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPO
 worker_destination_response_loss_only="${NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS_ONLY:-0}"
 worker_admission_response_loss="${NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS:-0}"
 worker_admission_response_loss_only="${NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS_ONLY:-0}"
+multi_shard_only="${NEREUS_DELAY_PULSAR_MULTI_SHARD_ONLY:-0}"
 oxia_checkout="${NEREUS_DELAY_OXIA_CHECKOUT:-${delay_dir}/../../oxia}"
 compose_project="nereus-delay-pulsar-e2e-$(date +%s)-$$"
 oxia_project="nereus-delay-pulsar-oxia-e2e-${compose_project#nereus-delay-pulsar-e2e-}"
@@ -92,6 +93,10 @@ if [[ "${worker_admission_response_loss_only}" == "1" && "${worker_admission_res
   echo "NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS_ONLY requires NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS=1" >&2
   exit 1
 fi
+if [[ "${multi_shard_only}" != "0" && "${multi_shard_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_MULTI_SHARD_ONLY must be 0 or 1" >&2
+  exit 1
+fi
 focused_response_loss_modes=(
   "${destination_response_loss_only}"
   "${source_ack_response_loss_only}"
@@ -106,6 +111,14 @@ for focused_response_loss_mode in "${focused_response_loss_modes[@]}"; do
 done
 if (( focused_response_loss_count > 1 )); then
   echo "Pulsar response-loss focused modes are mutually exclusive" >&2
+  exit 1
+fi
+if [[ "${multi_shard_only}" == "1" && "${with_oxia}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_MULTI_SHARD_ONLY requires NEREUS_DELAY_PULSAR_WITH_OXIA=1" >&2
+  exit 1
+fi
+if [[ "${multi_shard_only}" == "1" && "${focused_response_loss_count}" != "0" ]]; then
+  echo "NEREUS_DELAY_PULSAR_MULTI_SHARD_ONLY cannot be combined with response-loss focused mode" >&2
   exit 1
 fi
 
@@ -236,6 +249,29 @@ run_focused_worker_smoke() {
     --no-daemon --console=plain
 }
 
+run_route_worker_smoke() {
+  if [[ "${with_oxia}" != "1" ]]; then
+    return 0
+  fi
+  local route_environment=(env "GRADLE_USER_HOME=${gradle_user_home}"
+    "NEREUS_DELAY_OXIA_ENDPOINT=127.0.0.1:${oxia_port}")
+  "${route_environment[@]}" ./gradlew runRealPulsarRouteWorkerSmoke \
+    -PpulsarClientClasspath="${pulsar_client_cp}" \
+    -PpulsarRuntimeDir="${runtime_dir}/lib" \
+    -PpulsarServiceUrl="${service_url}" \
+    -PpulsarAdminUrl="${admin_url}" \
+    -PpulsarRouteWorkerTopic="${route_worker_topic}" \
+    -PpulsarWithOxia=true \
+    --no-daemon --console=plain
+}
+
+if [[ "${multi_shard_only}" == "1" ]]; then
+  export NEREUS_DELAY_PULSAR_ROUTE_WORKER_SHARDS=2
+  run_route_worker_smoke
+  echo "Pulsar native multi-shard Worker fleet E2E passed: one signed Route covered two guarded SUBSCRIBE barriers, two real Oxia Assignment/Owner Lease CAS paths admitted two native source consumers, one fair fleet applied/ACKed both partitions, and both final checkpoints/assignments were released."
+  exit 0
+fi
+
 if [[ "${destination_response_loss_only}" == "1" ]]; then
   GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealPulsarDestinationSmoke \
     -PpulsarClientClasspath="${pulsar_client_cp}" \
@@ -319,22 +355,6 @@ run_mutation_worker_smoke() {
 }
 
 run_mutation_worker_smoke "${mutation_worker_topic}"
-
-run_route_worker_smoke() {
-  if [[ "${with_oxia}" != "1" ]]; then
-    return 0
-  fi
-  local route_environment=(env "GRADLE_USER_HOME=${gradle_user_home}"
-    "NEREUS_DELAY_OXIA_ENDPOINT=127.0.0.1:${oxia_port}")
-  "${route_environment[@]}" ./gradlew runRealPulsarRouteWorkerSmoke \
-    -PpulsarClientClasspath="${pulsar_client_cp}" \
-    -PpulsarRuntimeDir="${runtime_dir}/lib" \
-    -PpulsarServiceUrl="${service_url}" \
-    -PpulsarAdminUrl="${admin_url}" \
-    -PpulsarRouteWorkerTopic="${route_worker_topic}" \
-    -PpulsarWithOxia=true \
-    --no-daemon --console=plain
-}
 
 run_route_worker_smoke
 
