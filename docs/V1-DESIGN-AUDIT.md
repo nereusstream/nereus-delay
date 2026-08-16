@@ -8628,6 +8628,41 @@ provider quiescence attestation, source-ordered delete confirmation,
 Recovery Floor/Pin/Owner transactions, provider breadth, chaos, failover and
 release readiness remain open.
 
+## 2026-08-16 Checkpoint REAPING Owner proof audit
+
+Delay commit `44cd3230709f5e87742cd94cd9a8b7bce314a184` adds
+`CheckpointReapingOwnerProof`, `CheckpointReapingOwnerProofGuard` and
+`CheckpointReapingOwnerProofIssuer`. The typed proof carries the exact
+pending intent digest, Owner identity, Store Incarnation and a complete
+session-bound recorded `OwnerLease`; its closed kind is either
+`EXACT_OWNER_EXPLICIT_ABANDON` or `RECORDED_OWNER_NOT_CURRENT`. The issuer
+uses the Oxia Owner Lease adapter for exact release/reread or current-lease
+replacement observation and requires trusted UTC at or after the upload
+deadline. The coordinator consumes the proof before entering REAPING, and
+the quiescence guard binds the old-owner evidence digest to its canonical
+proof digest.
+
+Focused Owner-proof/coordinator tests passed with 3 and 6 tests respectively;
+the full `./gradlew check --no-daemon --console=plain --quiet` returned 0.
+The source-locked MinIO rerun used container
+`nereus-delay-minio-e2e-1786845031-48170`, endpoint
+`http://127.0.0.1:62715`, bucket
+`nereus-delay-checkpoints-1786845031-48170`, image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`
+and repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+JUnit recorded `tests=1 skipped=0 failures=0 errors=0`, provider manifest
+version `ea89d80e-e63e-4980-b225-94b070d3c36b`, and `BUILD SUCCESSFUL`.
+
+This closes only the local typed Owner-proof composition and its binding to
+the provider-call gate. The proof issuer is not the production cross-record
+intent/Owner/catalog transaction; certified external session-loss authority,
+provider quiescence, source-ordered delete confirmation, Floor/Pin/Owner
+transactions, provider breadth, chaos, failover and release readiness remain
+open.
+
+| Delay checkpoint REAPING Owner proof slice | `nereus/delay-full-implementation-v1@44cd3230709f5e87742cd94cd9a8b7bce314a184` (typed proof binds pending/Owner/Store/session lease identity, distinguishes explicit abandonment from a recorded lease no longer current, and requires trusted UTC after the upload deadline; the focused and locked MinIO receipts passed; the issuer is local composition, not the production cross-record intent/Owner/catalog authority) |
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

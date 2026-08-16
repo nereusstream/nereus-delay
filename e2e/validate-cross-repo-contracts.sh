@@ -1155,6 +1155,34 @@ require_file_text "$delay_root/e2e/README.md" \
     "Checkpoint REAPING quiescence proof receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "9c4dcab9-c03c-4860-81de-07e62302d30e"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointReapingOwnerProof.java" \
+    "EXACT_OWNER_EXPLICIT_ABANDON"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointReapingOwnerProof.java" \
+    "recordedLease"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointReapingOwnerProofGuard.java" \
+    "OWNER_PROOF_DEADLINE_NOT_CLOSED"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointReapingOwnerProofIssuer.java" \
+    "explicitOwnerAbandon"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointReapingSweepCoordinator.java" \
+    "CheckpointReapingOwnerProof ownerProof"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointReapingOwnerProofIssuerTest.java" \
+    "anotherActorCanProveTheRecordedLeaseWasReplaced"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointReapingSweepCoordinatorTest.java" \
+    "quiescenceReceiptMustBindTheExactOwnerProof"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Checkpoint REAPING Owner proof gate"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "44cd3230709f5e87742cd94cd9a8b7bce314a184"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Delay checkpoint REAPING Owner proof slice"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Checkpoint REAPING Owner proof audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "REAPING Owner proof implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Checkpoint REAPING Owner proof receipt"
+require_file_text "$delay_root/e2e/README.md" \
+    "ea89d80e-e63e-4980-b225-94b070d3c36b"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

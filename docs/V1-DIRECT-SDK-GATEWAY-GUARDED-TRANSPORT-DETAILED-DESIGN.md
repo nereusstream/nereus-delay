@@ -5321,3 +5321,33 @@ The proof is a local contract for external evidence, not an evidence issuer:
 Owner/session loss detection, provider quiescence attestation, source-ordered
 delete confirmation, Floor/Pin/Owner transactions, provider breadth, chaos,
 failover and release gates remain outside this implementation.
+
+### 2026-08-16 REAPING Owner proof implementation note
+
+Delay commit `44cd3230709f5e87742cd94cd9a8b7bce314a184` adds a typed
+`CheckpointReapingOwnerProof` boundary. Its canonical evidence binds the
+pending intent digest, exact `OwnerIdentityV1`, source Store Incarnation and
+the complete session-bound recorded `OwnerLease`, including its assignment,
+session, token, epoch and lifecycle state. The closed proof kind separates
+`EXACT_OWNER_EXPLICIT_ABANDON` from `RECORDED_OWNER_NOT_CURRENT`; the issuer
+uses `OxiaOwnerLeaseStore.release` plus an absence reread for the first and a
+current-lease reread for the second. Both paths require trusted UTC at or
+after the pending upload deadline.
+
+`CheckpointReapingSweepCoordinator` consumes the proof before its
+PENDING_UPLOAD to REAPING CAS. The existing quiescence proof must carry the
+typed proof digest and an old-owner closure interval no earlier than the
+Owner observation. This prevents an opaque caller digest from being silently
+treated as an Owner/session proof while preserving the external authority
+boundary: the issuer does not implement the production atomic intent,
+Owner/session and catalog transaction, and it does not attest provider
+ownership or source-ordered deletion.
+
+The focused issuer/coordinator tests and the locked MinIO real smoke passed;
+the MinIO run used container `nereus-delay-minio-e2e-1786845031-48170`,
+endpoint `http://127.0.0.1:62715`, bucket
+`nereus-delay-checkpoints-1786845031-48170`, image repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`,
+and provider manifest version `ea89d80e-e63e-4980-b225-94b070d3c36b`;
+JUnit recorded `tests=1 skipped=0 failures=0 errors=0` and the harness ended
+with `BUILD SUCCESSFUL`.

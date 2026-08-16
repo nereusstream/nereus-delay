@@ -10300,3 +10300,56 @@ does not implement Owner/session loss detection, provider quiescence
 attestation, source-ordered delete confirmation, Recovery Floor/Pin/Owner
 transactions, multi-page policy, provider breadth, chaos, failover or V1
 release evidence.
+
+## 2026-08-16 Checkpoint REAPING Owner proof gate
+
+Delay commit `44cd3230709f5e87742cd94cd9a8b7bce314a184` adds the typed
+`CheckpointReapingOwnerProof`, pure `CheckpointReapingOwnerProofGuard` and
+`CheckpointReapingOwnerProofIssuer`. The proof binds the exact pending intent
+digest, protocol Owner identity, Store Incarnation and complete
+session-bound `OwnerLease` identity. It distinguishes an exact Owner
+abandonment from an observation that the recorded Owner lease is no longer
+current, and both forms require trusted UTC to prove the upload deadline has
+closed. The issuer's explicit-abandon path calls the Oxia lease adapter's
+exact release and rereads absence; the not-current path rereads the authority
+and retains a replacement lease when one is observed.
+
+`CheckpointReapingSweepCoordinator` now requires this Owner proof before the
+PENDING_UPLOAD to REAPING CAS. `CheckpointReapingQuiescenceGuard` binds the
+quiescence receipt's old-owner evidence digest to the typed proof and rejects
+an old-owner closure interval earlier than the proof observation. The proof
+issuer is a local composition boundary: it does not implement the production
+cross-record Oxia transaction that atomically compares the upload intent,
+Owner Lease/session and catalog.
+
+The focused regression is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.CheckpointReapingOwnerProofIssuerTest \
+  --tests io.nereusstream.delay.store.CheckpointReapingSweepCoordinatorTest \
+  --rerun-tasks --no-daemon --console=plain
+```
+
+It passed with `BUILD SUCCESSFUL` (`CheckpointReapingOwnerProofIssuerTest`
+3 tests and `CheckpointReapingSweepCoordinatorTest` 6 tests); the full
+`./gradlew check --no-daemon --console=plain --quiet` also returned 0.
+
+The locked MinIO rerun used container
+`nereus-delay-minio-e2e-1786845031-48170`, endpoint
+`http://127.0.0.1:62715`, bucket
+`nereus-delay-checkpoints-1786845031-48170`, the locked image at repository
+digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+and image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`.
+JUnit recorded `tests=1 skipped=0 failures=0 errors=0`, system-out recorded
+manifest provider version `ea89d80e-e63e-4980-b225-94b070d3c36b`, and the
+harness ended with `BUILD SUCCESSFUL`.
+
+This closes the local typed Owner-proof and provider-call ordering boundary
+for the locked MinIO path. Certified external Owner/session loss authority,
+the production cross-record transaction, provider ownership/quiescence
+attestation, source-ordered delete confirmation, Recovery Floor/Pin/Owner
+transactions, multi-page policy, provider breadth, chaos, failover and V1
+release evidence remain open.
