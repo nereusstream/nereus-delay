@@ -48,7 +48,6 @@ public final class InMemoryPayloadObjectStore {
     private static final byte[] CAPABILITY_DOMAIN = Bytes.utf8("nereus-delay-local-upload-capability-v1\0");
     private static final byte[] CONTAINER_PREFIX = Bytes.utf8("nereus-delay-local/");
     private static final byte[] OBJECT_KEY_PREFIX = Bytes.utf8("reservation/");
-    private static final byte[] OBJECT_VERSION_PREFIX = Bytes.utf8("sha256-");
 
     private final ProfileSemanticEnvelopeV1 profile;
     private final ObjectStoreProfileSemanticV1 objectStore;
@@ -331,8 +330,9 @@ public final class InMemoryPayloadObjectStore {
         final byte[] payloadHash = Bytes.sha256(payload);
         final byte[] container = containerFor(profile);
         final byte[] objectKey = objectKeyFor(state.reservation);
-        final byte[] immutableVersion = Bytes.concat(OBJECT_VERSION_PREFIX, Bytes.utf8(Bytes.hex(payloadHash)));
-        final byte[] etag = payloadHash;
+        final byte[] immutableVersion = payloadBackend.immutableObjectVersion(objectIdentity(state.reservation),
+                payloadHash);
+        final byte[] etag = payloadBackend.etag(objectIdentity(state.reservation), payloadHash);
         state.proof = PayloadCommitProofV1.signed(state.reservation.reservationId(), tenantRoutingScope,
                 state.reservation.shardId().routeIncarnation().bytes(), state.reservation.shardId().partition(),
                 state.reservation.delayMessageId(), profile.ref(), trustSet.version(), proofKeyVersion, container,
