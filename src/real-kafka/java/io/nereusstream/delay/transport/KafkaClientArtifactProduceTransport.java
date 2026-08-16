@@ -76,6 +76,8 @@ public final class KafkaClientArtifactProduceTransport implements PinnedKafkaCom
                 request.nativeTopicUuid().getLeastSignificantBits()).equals(evidence.expectedTopicId())
                 || request.partition() != evidence.partition()
                 || evidence.errorCode() != 0
+                || !request.canonicalPhysicalTopic().equals(metadata.recordMetadata().topic())
+                || request.partition() != metadata.recordMetadata().partition()
                 || metadata.recordMetadata().offset() < 0
                 || evidence.logAppendTimeMs() < -1) {
             return KafkaProduceResult.unknown(io.nereusstream.delay.protocol.StableCode.INTEGRITY_ERROR.wireValue(),

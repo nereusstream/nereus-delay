@@ -216,6 +216,8 @@ public final class KafkaClientArtifactTransactionalDestinationTransport
 
     private static boolean valid(final GuardedRecordMetadata metadata, final ProducerResourceGuard guard) {
         if (metadata == null || !guard.equals(metadata.resourceGuard()) || metadata.recordMetadata() == null
+                || !guard.canonicalTopic().equals(metadata.recordMetadata().topic())
+                || guard.partition() != metadata.recordMetadata().partition()
                 || metadata.recordMetadata().offset() < 0 || metadata.responseEvidence() == null) {
             return false;
         }
