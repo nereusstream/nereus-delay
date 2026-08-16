@@ -24,9 +24,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 
@@ -92,6 +97,118 @@ class S3CompatibleMinioRealSmokeTest {
         assertThrows(IllegalStateException.class,
                 () -> adapter.download(new CheckpointDownloadRequest(fixture.manifest(), sweptResource),
                         tempDir.resolve("swept")));
+    }
+
+    @Test
+    void realMinioFiveHundredAfterCommitResolvesByExactReadback() throws Exception {
+        final String endpoint = required("NEREUS_DELAY_MINIO_ENDPOINT");
+        final String controlEndpoint = required("NEREUS_DELAY_MINIO_FAULT_CONTROL");
+        final String accessKey = required("NEREUS_DELAY_MINIO_ACCESS_KEY");
+        final String secretKey = required("NEREUS_DELAY_MINIO_SECRET_KEY");
+        final String bucket = required("NEREUS_DELAY_MINIO_BUCKET");
+        final String region = valueOrDefault("NEREUS_DELAY_MINIO_REGION", DEFAULT_REGION);
+        final Fixture fixture = fixture(URI.create(endpoint), region, bucket, accessKey);
+
+        setFaultMode(controlEndpoint, "PUT_503_AFTER_COMMIT");
+        try {
+            final S3CompatibleCheckpointObjectStoreAdapter adapter = adapter(fixture, accessKey, secretKey,
+                    Duration.ofSeconds(5));
+            final CheckpointResourceV1 resource = adapter.upload(new CheckpointUploadRequest(fixture.pending(),
+                    fixture.manifest(), fixture.checkpointDirectory(), fixture.manifest().canonicalJsonBytes()));
+
+            final String providerVersion = new String(resource.immutableVersion(), StandardCharsets.UTF_8);
+            assertFalse(providerVersion.startsWith("sha256-"));
+            assertEquals(ResourceDeleteConfirmedBody.DeleteOutcome.DELETED,
+                    adapter.delete(new CheckpointDeleteRequest(fixture.manifest(), resource)).outcome());
+        } finally {
+            setFaultMode(controlEndpoint, "NONE");
+        }
+    }
+
+    @Test
+    void realMinioFiveHundredBeforeCommitRemainsFailClosed() throws Exception {
+        final String endpoint = required("NEREUS_DELAY_MINIO_ENDPOINT");
+        final String controlEndpoint = required("NEREUS_DELAY_MINIO_FAULT_CONTROL");
+        final String accessKey = required("NEREUS_DELAY_MINIO_ACCESS_KEY");
+        final String secretKey = required("NEREUS_DELAY_MINIO_SECRET_KEY");
+        final String bucket = required("NEREUS_DELAY_MINIO_BUCKET");
+        final String region = valueOrDefault("NEREUS_DELAY_MINIO_REGION", DEFAULT_REGION);
+        final Fixture fixture = fixture(URI.create(endpoint), region, bucket, accessKey);
+
+        setFaultMode(controlEndpoint, "PUT_503_BEFORE_COMMIT");
+        try {
+            final S3CompatibleCheckpointObjectStoreAdapter adapter = adapter(fixture, accessKey, secretKey,
+                    Duration.ofSeconds(5));
+            final IllegalStateException failure = assertThrows(IllegalStateException.class,
+                    () -> adapter.upload(new CheckpointUploadRequest(fixture.pending(), fixture.manifest(),
+                            fixture.checkpointDirectory(), fixture.manifest().canonicalJsonBytes())));
+            assertTrue(failure.getMessage().contains("HTTP 503"));
+        } finally {
+            setFaultMode(controlEndpoint, "NONE");
+        }
+    }
+
+    @Test
+    void realMinioTimeoutAfterCommitResolvesByExactReadback() throws Exception {
+        final String endpoint = required("NEREUS_DELAY_MINIO_ENDPOINT");
+        final String controlEndpoint = required("NEREUS_DELAY_MINIO_FAULT_CONTROL");
+        final String accessKey = required("NEREUS_DELAY_MINIO_ACCESS_KEY");
+        final String secretKey = required("NEREUS_DELAY_MINIO_SECRET_KEY");
+        final String bucket = required("NEREUS_DELAY_MINIO_BUCKET");
+        final String region = valueOrDefault("NEREUS_DELAY_MINIO_REGION", DEFAULT_REGION);
+        final Fixture fixture = fixture(URI.create(endpoint), region, bucket, accessKey);
+
+        setFaultMode(controlEndpoint, "PUT_TIMEOUT_AFTER_COMMIT");
+        try {
+            final S3CompatibleCheckpointObjectStoreAdapter adapter = adapter(fixture, accessKey, secretKey,
+                    Duration.ofMillis(750));
+            final CheckpointResourceV1 resource = adapter.upload(new CheckpointUploadRequest(fixture.pending(),
+                    fixture.manifest(), fixture.checkpointDirectory(), fixture.manifest().canonicalJsonBytes()));
+
+            assertFalse(new String(resource.immutableVersion(), StandardCharsets.UTF_8).startsWith("sha256-"));
+            assertEquals(ResourceDeleteConfirmedBody.DeleteOutcome.DELETED,
+                    adapter.delete(new CheckpointDeleteRequest(fixture.manifest(), resource)).outcome());
+        } finally {
+            setFaultMode(controlEndpoint, "NONE");
+        }
+    }
+
+    @Test
+    void realMinioCredentialConfigurationDriftFailsClosed() throws Exception {
+        final String endpoint = required("NEREUS_DELAY_MINIO_ENDPOINT");
+        final String accessKey = required("NEREUS_DELAY_MINIO_ACCESS_KEY");
+        final String secretKey = required("NEREUS_DELAY_MINIO_SECRET_KEY");
+        final String bucket = required("NEREUS_DELAY_MINIO_BUCKET");
+        final String region = valueOrDefault("NEREUS_DELAY_MINIO_REGION", DEFAULT_REGION);
+        final Fixture fixture = fixture(URI.create(endpoint), region, bucket, accessKey);
+        final S3CompatibleCheckpointObjectStoreAdapter adapter = adapter(fixture, accessKey,
+                secretKey + "-drift", Duration.ofSeconds(5));
+
+        final IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> adapter.upload(new CheckpointUploadRequest(fixture.pending(), fixture.manifest(),
+                        fixture.checkpointDirectory(), fixture.manifest().canonicalJsonBytes())));
+        assertTrue(failure.getMessage().contains("HTTP 403"));
+    }
+
+    private static S3CompatibleCheckpointObjectStoreAdapter adapter(final Fixture fixture,
+                                                                    final String accessKey,
+                                                                    final String secretKey,
+                                                                    final Duration timeout) {
+        return new S3CompatibleCheckpointObjectStoreAdapter(fixture.profile(),
+                URI.create(required("NEREUS_DELAY_MINIO_ENDPOINT")),
+                valueOrDefault("NEREUS_DELAY_MINIO_REGION", DEFAULT_REGION),
+                required("NEREUS_DELAY_MINIO_BUCKET"), accessKey, secretKey, null, LIMITS,
+                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build(),
+                Clock.systemUTC(), timeout);
+    }
+
+    private static void setFaultMode(final String controlEndpoint, final String mode) throws Exception {
+        final HttpResponse<String> response = HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder(URI.create(controlEndpoint)).timeout(Duration.ofSeconds(5))
+                        .header("Content-Type", "text/plain")
+                        .POST(HttpRequest.BodyPublishers.ofString(mode))
+                        .build(), HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, response.statusCode(), "MinIO fault proxy control failed: " + response.body());
     }
 
     private Fixture fixture(final URI endpoint, final String region, final String bucket,
