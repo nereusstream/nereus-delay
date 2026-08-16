@@ -1427,3 +1427,25 @@ This is bounded same-generation, single-process renewal evidence. It does not
 prove scheduled multi-process renewal ownership, source-ordered rotation or
 provider quiescence, secret-manager resolution, multi-node Profile authority
 failover, real S3/MinIO, deletion, chaos or release readiness.
+
+## Verified credential material cache focused receipt
+
+The local cache-boundary regression is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.VerifiedCredentialMaterialCacheTest \
+  --tests io.nereusstream.delay.runtime.CredentialAttestationTrustSetTest \
+  --no-daemon --console=plain
+```
+
+Delay commit `d9b713a9159a8b2672a2b0aea5bd5243ca798c3e` adds
+`VerifiedCredentialMaterialCache`. The focused tests passed with `BUILD
+SUCCESSFUL`; they cover exact Profile/generation/binding/reference/fingerprint
+lookup, generation miss, fingerprint drift, foreign attestation rejection and
+atomic failed replacement. The full Gradle check passed.
+
+This is local verified-cache evidence only. It does not prove an external
+secret-manager reader, source-ordered cache refresh/publication, actor
+authorization, multi-node authority failover, credential rotation/quiescence,
+real S3/MinIO, chaos or release readiness.

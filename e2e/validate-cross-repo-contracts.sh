@@ -863,6 +863,10 @@ require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/Renewab
     "requires adapter quiescence"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/ObjectStoreCredentialUseLeaseGate.java" \
     "renewed Object Store credential lease moves expiry backwards"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/VerifiedCredentialMaterialCache.java" \
+    "CacheKey.from"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/VerifiedCredentialMaterialCache.java" \
+    "attestationTrustSet.verify"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
     "uploadsAndRestoresAfterManifestResponseLossWithBoundedSigV4Requests"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
@@ -889,6 +893,10 @@ require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/Renewab
     "renewsOnlyInsideWindowAndReplacesTheLocalGate"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/RenewableS3CompatibleCheckpointObjectStoreAdapterTest.java" \
     "refusesToRenewAcrossAHeadRotationBeforeProviderIo"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/VerifiedCredentialMaterialCacheTest.java" \
+    "resolvesOnlyTheExactVerifiedBindingAndSupportsRemoval"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/VerifiedCredentialMaterialCacheTest.java" \
+    "rejectsUntrustedOrFingerprintDriftAndKeepsPreviousSnapshotOnFailedReplace"
 require_file_text "$delay_root/e2e/run-oxia-real-service.sh" \
     "OxiaRealProfileCatalogSmokeTest"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
@@ -949,6 +957,16 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Same-generation Object Store lease renewal implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Same-generation Object Store lease renewal focused receipt"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Verified credential material cache slice"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "d9b713a9159a8b2672a2b0aea5bd5243ca798c3e"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Verified credential material cache audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Verified credential material cache implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Verified credential material cache focused receipt"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

@@ -5125,3 +5125,20 @@ It does not establish a scheduled multi-process renewal owner, source-ordered
 rotation/quiescence, secret-manager resolution, cross-record
 Owner/Route/session transactions, multi-node authority failover, real
 S3/MinIO consistency, deletion or release evidence.
+
+### 2026-08-16 Verified credential material cache implementation note
+
+`VerifiedCredentialMaterialCache` is the local verified-cache implementation
+for the activation resolver boundary. An install validates the exact Object
+Store Profile, binding generation/reference hash, authorization scope,
+configured `CredentialAttestationTrustSet` and resolved credential fingerprint
+before publishing a new immutable-view snapshot. The lookup key contains the
+Profile ref, generation, binding digest and secret-reference hash; cache miss
+returns null and never resolves another generation or performs Oxia, Vault or
+Provider I/O. Batch replacement validates all entries before publishing, so a
+drifted entry cannot partially replace the existing cache.
+
+This supplies the cache-side contract required by native/managed activation;
+an external secret-manager reader and source-ordered refresh/publication remain
+control-plane responsibilities, as do actor authorization, rotation
+quiescence and production availability evidence.

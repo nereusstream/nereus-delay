@@ -4664,8 +4664,8 @@ the guarded Broker rollout attestation remains external evidence.
 
 | 依赖 | 审计锁 |
 |---|---|
-| Delay local implementation slice | `nereus/delay-full-implementation-v1@8307d690351af1699a6a9cb69e2cfe9bfe26a4a2` (latest runtime slice: the single-record Oxia Profile catalog requires an immutable credential-attestation trust set during publication, rotation, canonical decode/reopen and bounded lease issuance; the renewable S3 adapter now renews only inside an explicit window, rechecks the exact same Head/Binding/material fingerprint, atomically replaces the local gate after a protected lease reread and rejects Head generation rotation as a quiescence boundary; exact verifier tuple, Ed25519 signature and retained key window are checked before the existing activation composition resolves Head/Binding/Protection once, obtains private Object Store material through an injected resolver and constructs the lease-gated S3 adapter; Provider calls do not reread Oxia unless renewal is due; it builds on the exact CAS/response-loss and real single-node Oxia Profile smoke plus the S3-compatible checkpoint adapter/local lease gate and source-bound Kafka/Pulsar physical Publish/Outcome, Gateway/Oxia response-loss, real multi-node Oxia Gateway failover and bounded Kafka/Pulsar Worker failover slices; source-ordered trust-set publication, secret/actor authority, source ordering, retained-generation GC, cross-record session transactions, scheduled multi-process renewal ownership, multi-node failover for this authority, provider quiescence, raw network/process cuts, production placement/eligibility and release gates remain open) |
-| Delay current implementation head | `nereus/delay-full-implementation-v1@9779bc435cb358e4c1e443c39843d26f3c5b6daa` (current branch head; code slice `8307d690351af1699a6a9cb69e2cfe9bfe26a4a2` adds same-generation Object Store lease renewal and this commit synchronizes its evidence/validator; historical bounded Pulsar Route/Worker receipt remains provenance at `nereus/delay-full-implementation-v1@bf858b089b927fcf65129214d8ed5a7fc5300deb`; bounded Kafka/Pulsar Route/Worker assignment, failover, physical Publish/typed Outcome and Gateway/Oxia response-loss receipts are recorded; source-ordered trust-set publication, secret/actor authority, catalog-driven multi-shard placement, native eligibility, production Worker authority, scheduled renewal ownership, raw chaos and release gates remain open) |
+| Delay local implementation slice | `nereus/delay-full-implementation-v1@d9b713a9159a8b2672a2b0aea5bd5243ca798c3e` (latest runtime slice: the single-record Oxia Profile catalog requires an immutable credential-attestation trust set during publication, rotation, canonical decode/reopen and bounded lease issuance; the verified material cache now installs only exact Object Store Profile/generation/binding/reference/fingerprint values after trust-set and scope checks, returns null on miss and atomically preserves its previous snapshot on failed replacement; the renewable S3 adapter renews only inside an explicit window, rechecks the exact same Head/Binding/material fingerprint, atomically replaces the local gate after a protected lease reread and rejects Head generation rotation as a quiescence boundary; exact verifier tuple, Ed25519 signature and retained key window are checked before the existing activation composition resolves Head/Binding/Protection once, obtains private Object Store material through a resolver/cache and constructs the lease-gated S3 adapter; Provider calls do not reread Oxia unless renewal is due; it builds on the exact CAS/response-loss and real single-node Oxia Profile smoke plus the S3-compatible checkpoint adapter/local lease gate and source-bound Kafka/Pulsar physical Publish/Outcome, Gateway/Oxia response-loss, real multi-node Oxia Gateway failover and bounded Kafka/Pulsar Worker failover slices; external secret-manager resolution/source-ordered refresh, trust-set publication, secret/actor authority, source ordering, retained-generation GC, cross-record session transactions, scheduled multi-process renewal ownership, multi-node failover for this authority, provider quiescence, raw network/process cuts, production placement/eligibility and release gates remain open) |
+| Delay current implementation head | `nereus/delay-full-implementation-v1@9779bc435cb358e4c1e443c39843d26f3c5b6daa` (temporary until the documentation commit below; code slice `d9b713a9159a8b2672a2b0aea5bd5243ca798c3e` adds the verified credential material cache and this row will be advanced to the docs-synchronization commit; historical bounded Pulsar Route/Worker receipt remains provenance at `nereus/delay-full-implementation-v1@bf858b089b927fcf65129214d8ed5a7fc5300deb`; bounded Kafka/Pulsar Route/Worker assignment, failover, physical Publish/typed Outcome and Gateway/Oxia response-loss receipts are recorded; external secret-manager resolution/source-ordered refresh, trust-set publication, secret/actor authority, catalog-driven multi-shard placement, native eligibility, production Worker authority, scheduled renewal ownership, raw chaos and release gates remain open) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
@@ -8366,6 +8366,34 @@ replacement. It does not prove a scheduled multi-process renewal owner,
 source-ordered rotation/quiescence, secret-manager resolution, cross-record
 Owner/Route/session transactions, multi-node authority failover, real
 S3/MinIO, provider consistency/deletion, chaos or V1 release readiness.
+
+## 2026-08-16 Verified credential material cache audit
+
+Delay runtime commit `d9b713a9159a8b2672a2b0aea5bd5243ca798c3e` adds
+`VerifiedCredentialMaterialCache`, the local cache implementation for the
+activation resolver seam. Cache installation checks the exact Object Store
+Profile and binding, authorization scope, configured attestation trust set and
+resolved fingerprint before private material is installed. The immutable-view
+snapshot is keyed by Profile ref, secret generation, binding digest and
+secret-reference hash; a miss is null and cannot select another generation or
+perform Oxia/Vault/Provider I/O. A failed exact install or batch replacement
+does not publish a partial snapshot.
+
+The deterministic regression is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.VerifiedCredentialMaterialCacheTest \
+  --tests io.nereusstream.delay.runtime.CredentialAttestationTrustSetTest \
+  --no-daemon --console=plain
+```
+
+It passed with `BUILD SUCCESSFUL`; the full Gradle check also passed. This
+closes only local verified-cache identity and fail-closed lookup. It does not
+prove an external secret-manager reader, source-ordered cache publication or
+refresh, actor authorization, cross-record Owner/Route/session transactions,
+multi-node authority failover, credential rotation/quiescence, real S3/MinIO,
+chaos or V1 release readiness.
 
 ## Final gate
 
