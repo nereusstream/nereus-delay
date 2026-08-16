@@ -373,6 +373,10 @@ require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "NEREUS_DELAY_KAFKA_WORKER_PROCESS_CRASH_ONLY"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "Kafka Worker process-crash recovery E2E passed"
+require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
+    "NEREUS_DELAY_KAFKA_WORKER_ACK_PROCESS_CRASH_ONLY"
+require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
+    "Kafka Worker ACK process-crash recovery E2E passed"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Kafka source Fetch response-loss receipt"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
@@ -443,6 +447,10 @@ require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transpo
     "NEREUS_DELAY_KAFKA_WORKER_CRASH_PID_FILE"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "NEREUS_DELAY_KAFKA_WORKER_ROOT"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+    "workerAckProcessCrashConsumer"
+require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+    "storeWriteBatchDurable=true"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "runSourceAppliedPhysicalPublish"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \

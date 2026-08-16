@@ -156,13 +156,13 @@ public final class KafkaClientArtifactWorkerSmoke {
     public static void main(final String[] arguments) throws Exception {
         if (arguments.length != 2 && arguments.length != 3 && arguments.length != 4) {
             throw new IllegalArgumentException("usage: <bootstrap-server> <worker-topic> "
-                    + "[run|prepare|resume|crash-wait] [destination-topic]");
+                    + "[run|prepare|resume|crash-wait|ack-crash-wait] [destination-topic]");
         }
         final String bootstrap = arguments[0];
         final String mode = arguments.length >= 3 ? arguments[2] : "run";
         final String destinationPhysicalTopic = arguments.length >= 4 ? arguments[3] : null;
         if (!mode.equals("run") && !mode.equals("prepare") && !mode.equals("resume")
-                && !mode.equals("crash-wait")) {
+                && !mode.equals("crash-wait") && !mode.equals("ack-crash-wait")) {
             throw new IllegalArgumentException("unknown Worker smoke mode: " + mode);
         }
         final String topic = mode.equals("run") ? arguments[1] + "-" + UUID.randomUUID() : arguments[1];
@@ -257,9 +257,15 @@ public final class KafkaClientArtifactWorkerSmoke {
                         final GuardedConsumer<byte[], byte[]> rawWorkerConsumer = workerConsumer(
                                 bootstrap, workerGroup, clusterId, topic, nativeTopicId, shard);
                         final AtomicBoolean sourceAckResponseLossObserved = new AtomicBoolean();
-                        final GuardedConsumer<byte[], byte[]> workerConsumer = hasSourceAckResponseLoss()
-                                ? sourceAckResponseLossConsumer(rawWorkerConsumer, sourceAckResponseLossObserved)
-                                : rawWorkerConsumer;
+                        final GuardedConsumer<byte[], byte[]> workerConsumer;
+                        if (mode.equals("ack-crash-wait")) {
+                            workerConsumer = workerAckProcessCrashConsumer(rawWorkerConsumer);
+                        } else if (hasSourceAckResponseLoss()) {
+                            workerConsumer = sourceAckResponseLossConsumer(rawWorkerConsumer,
+                                    sourceAckResponseLossObserved);
+                        } else {
+                            workerConsumer = rawWorkerConsumer;
+                        }
                         final PhysicalPublishBridge physicalBridge = physicalCommand == null ? null
                                 : createPhysicalPublishBridge(bootstrap, clusterId, topic, nativeTopicId, shard,
                                 physicalSchedulePosition, destinationPhysicalTopic, destinationTopicId,
@@ -396,6 +402,48 @@ public final class KafkaClientArtifactWorkerSmoke {
                 StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
         System.out.println("Kafka Worker process-crash cut reached: pid=" + ProcessHandle.current().pid()
                 + ", sourceRuntimeReady=true, nextSourceRecordUnacked=true");
+        while (Files.exists(gate)) {
+            Thread.sleep(100);
+        }
+    }
+
+    /**
+     * Places the OS-process cut after the local Worker WriteBatch has completed
+     * and immediately before the guarded Kafka commitSync ACK.
+     */
+    @SuppressWarnings("unchecked")
+    private static GuardedConsumer<byte[], byte[]> workerAckProcessCrashConsumer(
+            final GuardedConsumer<byte[], byte[]> delegate) {
+        return (GuardedConsumer<byte[], byte[]>) Proxy.newProxyInstance(
+                KafkaClientArtifactWorkerSmoke.class.getClassLoader(), new Class<?>[]{GuardedConsumer.class},
+                (proxy, method, arguments) -> {
+                    if (method.getName().equals("commitSync") && method.getParameterCount() == 1) {
+                        awaitWorkerAckProcessCrashCut();
+                    }
+                    try {
+                        return method.invoke(delegate, arguments);
+                    } catch (InvocationTargetException failure) {
+                        throw failure.getCause();
+                    }
+                });
+    }
+
+    private static void awaitWorkerAckProcessCrashCut() throws Exception {
+        final String gatePath = System.getenv("NEREUS_DELAY_KAFKA_WORKER_ACK_CRASH_GATE");
+        final String pidPath = System.getenv("NEREUS_DELAY_KAFKA_WORKER_ACK_CRASH_PID_FILE");
+        if (gatePath == null || gatePath.isBlank() || pidPath == null || pidPath.isBlank()) {
+            throw new IllegalArgumentException(
+                    "ack-crash-wait requires NEREUS_DELAY_KAFKA_WORKER_ACK_CRASH_GATE and PID_FILE");
+        }
+        final Path gate = Path.of(gatePath);
+        final Path pid = Path.of(pidPath);
+        Files.createDirectories(gate.toAbsolutePath().getParent());
+        Files.writeString(pid, Long.toString(ProcessHandle.current().pid()) + "\n",
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        Files.writeString(gate, "worker-store-durable-before-kafka-ack\n",
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        System.out.println("Kafka Worker ACK process-crash cut reached: pid=" + ProcessHandle.current().pid()
+                + ", storeWriteBatchDurable=true, kafkaCommitSyncStarted=false");
         while (Files.exists(gate)) {
             Thread.sleep(100);
         }
