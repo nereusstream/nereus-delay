@@ -80,6 +80,28 @@ class WorkerShardFleetRuntimeTest {
         }
     }
 
+    @Test
+    void closeAttemptsEveryShardAndRetainsTheFirstDrainFailure() throws Exception {
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("fleet-close-resources"));
+        final WorkClassExecutionRegistry workClasses = workClasses();
+        final InMemoryOwnerLeaseStore backend = new InMemoryOwnerLeaseStore();
+        final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             Fixture first = new Fixture(config, resources, workClasses, authority, backend, 1, "close-first", false);
+             Fixture second = new Fixture(config, resources, workClasses, authority, backend, 2, "close-second", false)) {
+            final WorkerShardFleetRuntime fleet = new WorkerShardFleetRuntime(workClasses, resources,
+                    List.of(first.runtime, second.runtime));
+
+            final IllegalStateException failure = assertThrows(IllegalStateException.class, fleet::close);
+
+            assertEquals("Worker shard runtime must complete owner drain before close", failure.getMessage());
+            assertEquals(1, failure.getSuppressed().length);
+            assertEquals("Worker shard runtime must complete owner drain before close",
+                    failure.getSuppressed()[0].getMessage());
+        }
+    }
+
     private static SchedulerBudget budget() {
         return new SchedulerBudget(1, 1_000_000, 1_000);
     }

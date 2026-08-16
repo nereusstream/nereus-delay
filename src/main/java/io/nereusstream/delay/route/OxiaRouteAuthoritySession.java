@@ -282,10 +282,45 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
         started = false;
         sessionVersion = null;
         sessionIdentity = null;
-        delegate.close();
-        if (notificationDelegate != delegate) {
-            notificationDelegate.close();
+        Throwable closeFailure = null;
+        try {
+            delegate.close();
+        } catch (RuntimeException | Error failure) {
+            // The watch client is an independent Oxia session.  Its close
+            // must still be attempted when the authority client reports a
+            // teardown failure, otherwise the watch session can be stranded.
+            closeFailure = appendCloseFailure(closeFailure, failure);
         }
+        if (notificationDelegate != delegate) {
+            try {
+                notificationDelegate.close();
+            } catch (RuntimeException | Error failure) {
+                closeFailure = appendCloseFailure(closeFailure, failure);
+            }
+        }
+        if (closeFailure != null) {
+            throwUnchecked(closeFailure);
+        }
+    }
+
+    private static Throwable appendCloseFailure(final Throwable first, final Throwable failure) {
+        if (first == null) {
+            return failure;
+        }
+        if (failure != first) {
+            first.addSuppressed(failure);
+        }
+        return first;
+    }
+
+    private static void throwUnchecked(final Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error errorFailure) {
+            throw errorFailure;
+        }
+        throw new IllegalStateException("unexpected checked teardown failure", failure);
     }
 
     private synchronized void requireSession() {

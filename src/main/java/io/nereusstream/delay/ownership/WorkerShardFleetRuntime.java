@@ -183,10 +183,41 @@ public final class WorkerShardFleetRuntime implements AutoCloseable {
         if (closed) {
             return;
         }
+        Throwable closeFailure = null;
         for (WorkerShardRuntime runtime : shards) {
-            runtime.close();
+            try {
+                runtime.close();
+            } catch (RuntimeException | Error failure) {
+                // Every admitted shard must get a close attempt.  A shard
+                // that still needs an owner-drain retry must not prevent a
+                // later shard from releasing its Store/source resources.
+                closeFailure = appendCloseFailure(closeFailure, failure);
+            }
+        }
+        if (closeFailure != null) {
+            throwUnchecked(closeFailure);
         }
         closed = true;
+    }
+
+    private static Throwable appendCloseFailure(final Throwable first, final Throwable failure) {
+        if (first == null) {
+            return failure;
+        }
+        if (failure != first) {
+            first.addSuppressed(failure);
+        }
+        return first;
+    }
+
+    private static void throwUnchecked(final Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error errorFailure) {
+            throw errorFailure;
+        }
+        throw new IllegalStateException("unexpected checked teardown failure", failure);
     }
 
     private Optional<IndexedRuntime> nextRuntime(final boolean scheduling, final boolean command,

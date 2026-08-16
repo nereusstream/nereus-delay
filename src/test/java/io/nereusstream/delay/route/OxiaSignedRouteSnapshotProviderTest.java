@@ -160,6 +160,21 @@ class OxiaSignedRouteSnapshotProviderTest {
     }
 
     @Test
+    void sessionCloseAttemptsTheIndependentWatchClientAfterAuthorityCloseFails() {
+        final FakeRouteClient authority = new FakeRouteClient();
+        final FakeRouteClient notification = new FakeRouteClient();
+        final OxiaRouteAuthoritySession session = new OxiaRouteAuthoritySession(authority, notification,
+                () -> new FakeRouteClient(), "/nereus/route");
+        authority.failClose();
+
+        final IllegalStateException failure = assertThrows(IllegalStateException.class, session::close);
+
+        assertEquals("simulated Route client close failure", failure.getMessage());
+        assertEquals(1, authority.closeCount());
+        assertEquals(1, notification.closeCount());
+    }
+
+    @Test
     void notificationReconnectRequiresTheCurrentSessionBeforeRegistration() {
         final FakeRouteClient authority = new FakeRouteClient();
         final FakeRouteClient previousNotificationClient = new FakeRouteClient();
@@ -349,6 +364,8 @@ class OxiaSignedRouteSnapshotProviderTest {
         private Runnable afterNextHeadPut;
         private Runnable afterNextNotifications;
         private int notificationRegistrations;
+        private int closeCalls;
+        private boolean failClose;
 
         @Override
         public GetResult get(final String key) {
@@ -455,11 +472,23 @@ class OxiaSignedRouteSnapshotProviderTest {
             return notificationRegistrations;
         }
 
+        void failClose() {
+            failClose = true;
+        }
+
+        int closeCount() {
+            return closeCalls;
+        }
+
         @Override
         public void close() {
+            closeCalls++;
             records.clear();
             ephemeralKeys.clear();
             watchers.clear();
+            if (failClose) {
+                throw new IllegalStateException("simulated Route client close failure");
+            }
         }
 
         private record Stored(byte[] value, Version version) {
