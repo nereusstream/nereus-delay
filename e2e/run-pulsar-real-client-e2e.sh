@@ -15,6 +15,8 @@ source_ack_response_loss="${NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS:-0}"
 source_ack_response_loss_only="${NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_ONLY:-0}"
 worker_destination_response_loss="${NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS:-0}"
 worker_destination_response_loss_only="${NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS_ONLY:-0}"
+worker_admission_response_loss="${NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS:-0}"
+worker_admission_response_loss_only="${NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS_ONLY:-0}"
 oxia_checkout="${NEREUS_DELAY_OXIA_CHECKOUT:-${delay_dir}/../../oxia}"
 compose_project="nereus-delay-pulsar-e2e-$(date +%s)-$$"
 oxia_project="nereus-delay-pulsar-oxia-e2e-${compose_project#nereus-delay-pulsar-e2e-}"
@@ -76,6 +78,34 @@ if [[ "${worker_destination_response_loss_only}" != "0" && "${worker_destination
 fi
 if [[ "${worker_destination_response_loss_only}" == "1" && "${worker_destination_response_loss}" != "1" ]]; then
   echo "NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS_ONLY requires NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS=1" >&2
+  exit 1
+fi
+if [[ "${worker_admission_response_loss}" != "0" && "${worker_admission_response_loss}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${worker_admission_response_loss_only}" != "0" && "${worker_admission_response_loss_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS_ONLY must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${worker_admission_response_loss_only}" == "1" && "${worker_admission_response_loss}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS_ONLY requires NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS=1" >&2
+  exit 1
+fi
+focused_response_loss_modes=(
+  "${destination_response_loss_only}"
+  "${source_ack_response_loss_only}"
+  "${worker_destination_response_loss_only}"
+  "${worker_admission_response_loss_only}"
+)
+focused_response_loss_count=0
+for focused_response_loss_mode in "${focused_response_loss_modes[@]}"; do
+  if [[ "${focused_response_loss_mode}" == "1" ]]; then
+    focused_response_loss_count=$((focused_response_loss_count + 1))
+  fi
+done
+if (( focused_response_loss_count > 1 )); then
+  echo "Pulsar response-loss focused modes are mutually exclusive" >&2
   exit 1
 fi
 
@@ -179,6 +209,9 @@ fi
 if [[ "${worker_destination_response_loss}" == "1" ]]; then
   export NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS=1
 fi
+if [[ "${worker_admission_response_loss}" == "1" ]]; then
+  export NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS=1
+fi
 
 run_focused_worker_smoke() {
   local worker_topic="$1"
@@ -224,6 +257,12 @@ fi
 if [[ "${worker_destination_response_loss_only}" == "1" ]]; then
   run_focused_worker_smoke "${topic}" "${worker_destination_topic}"
   echo "Pulsar Worker destination response-loss E2E passed: real SEND response loss resolved through typed PULSAR_SEND_ACK evidence and the source-applied Outcome completed."
+  exit 0
+fi
+
+if [[ "${worker_admission_response_loss_only}" == "1" ]]; then
+  run_focused_worker_smoke "${topic}" "${worker_destination_topic}"
+  echo "Pulsar Worker Publish Admission response-loss E2E passed: the real Shard Log mutation was persisted, its append response was discarded, and exact source replay recovered the PUBLISHING admission."
   exit 0
 fi
 

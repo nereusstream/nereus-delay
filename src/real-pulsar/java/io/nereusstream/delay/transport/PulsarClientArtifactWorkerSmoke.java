@@ -21,6 +21,7 @@ import io.nereusstream.delay.ownership.OwnerRecoveryTurn;
 import io.nereusstream.delay.ownership.OwnedDelayShard;
 import io.nereusstream.delay.ownership.PublishAdmissionWorkClassExecutor;
 import io.nereusstream.delay.ownership.ReplayTurnBudget;
+import io.nereusstream.delay.ownership.ShardLogMutationAppender;
 import io.nereusstream.delay.ownership.ShardLifecycleState;
 import io.nereusstream.delay.ownership.SourceAssignment;
 import io.nereusstream.delay.ownership.SourceReplayMutation;
@@ -79,6 +80,7 @@ import io.nereusstream.delay.protocol.ProtocolTupleV1;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.StableCode;
+import io.nereusstream.delay.protocol.SystemMutation;
 import io.nereusstream.delay.protocol.SystemMutationType;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.runtime.DelayShard;
@@ -484,6 +486,10 @@ public final class PulsarClientArtifactWorkerSmoke {
         final PulsarSourcePosition admissionPosition;
         if (admissionResult.kind()
                 == io.nereusstream.delay.ownership.PublishAdmissionWorkClassExecutor.ResultKind.ENQUEUED) {
+            if (bridge.admissionResponseLoss()) {
+                throw new IllegalStateException(
+                        "Pulsar Worker admission response-loss smoke did not produce UNKNOWN admission");
+            }
             if (!(admissionResult.sourcePosition() instanceof PulsarSourcePosition persistedAdmissionPosition)
                     || persistedAdmissionPosition.compareTo(physicalSchedulePosition) <= 0) {
                 throw new IllegalStateException("Pulsar Worker provider-driven Publish Admission was not source-bound: "
@@ -503,6 +509,15 @@ public final class PulsarClientArtifactWorkerSmoke {
             admissionPosition = recoveredAdmissionPosition;
             System.out.println("Pulsar Worker recovered UNKNOWN Publish Admission from exact source mutation: "
                     + admissionPosition);
+            if (bridge.admissionResponseLoss()) {
+                if (!bridge.admissionResponseLossObserved()) {
+                    throw new IllegalStateException(
+                            "Pulsar Worker admission response-loss wrapper did not discard a persisted response");
+                }
+                System.out.println("Pulsar Worker Publish Admission response-loss smoke passed: the real Shard Log "
+                        + "mutation was persisted, its local append response was discarded, and exact source replay "
+                        + "recovered the PUBLISHING admission");
+            }
         } else {
             throw new IllegalStateException("Pulsar Worker provider-driven Publish Admission was not source-bound: "
                     + admissionResult.kind());
@@ -746,6 +761,44 @@ public final class PulsarClientArtifactWorkerSmoke {
         return "1".equals(System.getenv("NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS"));
     }
 
+    private static boolean hasWorkerAdmissionResponseLoss() {
+        return "1".equals(System.getenv("NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS"));
+    }
+
+    /**
+     * Injects one client-side committed-response loss after the real guarded
+     * Shard Log producer has returned PERSISTED. The next mutation, normally
+     * PUBLISH_OUTCOME, is left untouched so this remains a bounded admission
+     * recovery exercise rather than a general source-write failure mode.
+     */
+    private static final class AdmissionResponseLossMutationAppender
+            implements ShardLogMutationAppender, AutoCloseable {
+        private final PulsarClientArtifactShardLogMutationAppender delegate;
+        private final AtomicBoolean responseLossObserved;
+
+        private AdmissionResponseLossMutationAppender(
+                final PulsarClientArtifactShardLogMutationAppender delegate,
+                final AtomicBoolean responseLossObserved) {
+            this.delegate = delegate;
+            this.responseLossObserved = responseLossObserved;
+        }
+
+        @Override
+        public AppendOutcome append(final SystemMutation mutation) {
+            final AppendOutcome result = delegate.append(mutation);
+            if (result.disposition() == AppendDisposition.PERSISTED
+                    && responseLossObserved.compareAndSet(false, true)) {
+                return AppendOutcome.unknown();
+            }
+            return result;
+        }
+
+        @Override
+        public void close() {
+            delegate.close();
+        }
+    }
+
     static PhysicalPublishBridge createPhysicalPublishBridge(
             final PulsarClient client,
             final GuardedConsumer<?> nativeConsumer,
@@ -859,10 +912,23 @@ public final class PulsarClientArtifactWorkerSmoke {
                 new PulsarTargetResource(CLUSTER, DESTINATION_INCARNATION, destinationPhysicalTopic,
                         DESTINATION_CREATION_TIMESTAMP, 0), transport);
         final String mutationProducerName = "pulsar-worker-mutation-" + UUID.randomUUID();
-        final PulsarClientArtifactShardLogMutationAppender appender = new PulsarClientArtifactShardLogMutationAppender(
+        final PulsarClientArtifactShardLogMutationAppender realAppender = new PulsarClientArtifactShardLogMutationAppender(
                 PulsarClientArtifactProducerFactory.create(client, CLUSTER, INCARNATION, sourcePhysicalTopic,
                         CREATION_TIMESTAMP, mutationProducerName), nativeConsumer, shard, CLUSTER, INCARNATION,
                 sourcePhysicalTopic, CREATION_TIMESTAMP, Duration.ofSeconds(20));
+        final boolean admissionResponseLoss = hasWorkerAdmissionResponseLoss();
+        final AtomicBoolean admissionResponseLossObserved = new AtomicBoolean();
+        final ShardLogMutationAppender appender;
+        final AutoCloseable appenderResource;
+        if (admissionResponseLoss) {
+            final AdmissionResponseLossMutationAppender wrapper = new AdmissionResponseLossMutationAppender(
+                    realAppender, admissionResponseLossObserved);
+            appender = wrapper;
+            appenderResource = wrapper;
+        } else {
+            appender = realAppender;
+            appenderResource = realAppender;
+        }
         final AuthorIdentity author = AuthorIdentity.owner(ownerIdentity.deploymentId(), ownerIdentity.workerRunId(),
                 ownerIdentity.ownerEpoch(), ownerIdentity.leaseFencingDigest());
         final WorkerPublishOutcomeMutationFactory outcomeFactory = new WorkerPublishOutcomeMutationFactory(
@@ -883,11 +949,13 @@ public final class PulsarClientArtifactWorkerSmoke {
                 workClasses, Runnable::run, outcomes,
                 (attempt, request, ownerClock) -> WorkerPhysicalPublishExecutor.Decision.allowed(), outcomeFactory,
                 ownedShard::fence);
-        return new PhysicalPublishBridge(executor, appender, laneId, laneIncarnation, destinationProfile,
+        return new PhysicalPublishBridge(executor, appender, appenderResource, laneId, laneIncarnation,
+                destinationProfile,
                 capabilityProfile, target, channel, readyCertificate, List.of(
                 EvidenceCursorV1.pulsar(laneId.bytes(), laneIncarnation, DESTINATION_INCARNATION, 0, 1, 0,
                         destinationPhysicalTopic, DESTINATION_CREATION_TIMESTAMP, 0, 0, 0, 1)),
-                destinationPhysicalTopic, destinationResponseLoss, responseEvidenceResolved);
+                destinationPhysicalTopic, destinationResponseLoss, responseEvidenceResolved,
+                admissionResponseLoss, admissionResponseLossObserved);
     }
 
     private static ChannelResourceIdentityV1 channel(final DestinationLaneId laneId, final byte[] laneIncarnation,
@@ -1067,7 +1135,8 @@ public final class PulsarClientArtifactWorkerSmoke {
 
     static final class PhysicalPublishBridge implements AutoCloseable {
         private final WorkerPhysicalPublishExecutor executor;
-        private final PulsarClientArtifactShardLogMutationAppender appender;
+        private final ShardLogMutationAppender appender;
+        private final AutoCloseable appenderResource;
         private final DestinationLaneId laneId;
         private final byte[] laneIncarnation;
         private final ProfileRefV1 destinationProfile;
@@ -1079,9 +1148,12 @@ public final class PulsarClientArtifactWorkerSmoke {
         private final String destinationPhysicalTopic;
         private final boolean destinationResponseLoss;
         private final AtomicBoolean destinationResponseEvidenceResolved;
+        private final boolean admissionResponseLoss;
+        private final AtomicBoolean admissionResponseLossObserved;
 
         private PhysicalPublishBridge(final WorkerPhysicalPublishExecutor executor,
-                                      final PulsarClientArtifactShardLogMutationAppender appender,
+                                      final ShardLogMutationAppender appender,
+                                      final AutoCloseable appenderResource,
                                       final DestinationLaneId laneId, final byte[] laneIncarnation,
                                       final ProfileRefV1 destinationProfile, final ProfileRefV1 capabilityProfile,
                                       final io.nereusstream.delay.protocol.BrokerResourceIdentityV1 targetResource,
@@ -1089,9 +1161,12 @@ public final class PulsarClientArtifactWorkerSmoke {
                                       final ReadyCertificateV1 readyCertificate,
                                       final List<EvidenceCursorV1> evidenceCursors,
                                       final String destinationPhysicalTopic, final boolean destinationResponseLoss,
-                                      final AtomicBoolean destinationResponseEvidenceResolved) {
+                                      final AtomicBoolean destinationResponseEvidenceResolved,
+                                      final boolean admissionResponseLoss,
+                                      final AtomicBoolean admissionResponseLossObserved) {
             this.executor = executor;
             this.appender = appender;
+            this.appenderResource = appenderResource;
             this.laneId = laneId;
             this.laneIncarnation = Bytes.copy(laneIncarnation);
             this.destinationProfile = destinationProfile;
@@ -1103,13 +1178,15 @@ public final class PulsarClientArtifactWorkerSmoke {
             this.destinationPhysicalTopic = destinationPhysicalTopic;
             this.destinationResponseLoss = destinationResponseLoss;
             this.destinationResponseEvidenceResolved = destinationResponseEvidenceResolved;
+            this.admissionResponseLoss = admissionResponseLoss;
+            this.admissionResponseLossObserved = admissionResponseLossObserved;
         }
 
         WorkerPhysicalPublishExecutor executor() {
             return executor;
         }
 
-        PulsarClientArtifactShardLogMutationAppender appender() {
+        ShardLogMutationAppender appender() {
             return appender;
         }
 
@@ -1157,6 +1234,14 @@ public final class PulsarClientArtifactWorkerSmoke {
             return destinationResponseEvidenceResolved.get();
         }
 
+        boolean admissionResponseLoss() {
+            return admissionResponseLoss;
+        }
+
+        boolean admissionResponseLossObserved() {
+            return admissionResponseLossObserved.get();
+        }
+
         @Override
         public void close() {
             RuntimeException failure = null;
@@ -1166,12 +1251,15 @@ public final class PulsarClientArtifactWorkerSmoke {
                 failure = closeFailure;
             }
             try {
-                appender.close();
-            } catch (RuntimeException closeFailure) {
+                appenderResource.close();
+            } catch (Exception closeFailure) {
+                final RuntimeException runtimeFailure = closeFailure instanceof RuntimeException
+                        ? (RuntimeException) closeFailure
+                        : new IllegalStateException("Pulsar Worker mutation appender close failed", closeFailure);
                 if (failure == null) {
-                    failure = closeFailure;
+                    failure = runtimeFailure;
                 } else {
-                    failure.addSuppressed(closeFailure);
+                    failure.addSuppressed(runtimeFailure);
                 }
             }
             if (failure != null) {
