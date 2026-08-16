@@ -8908,6 +8908,31 @@ source-ordered activation, Owner/session recovery, immutable Object Store
 publication, provider deletion, source/evidence replay, chaos evidence or V1
 release readiness.
 
+## 2026-08-16 Oxia Checkpoint Publication session-bound CAS audit
+
+Delay commit `ffe0e5e15894ba377248068258444a1484bfb7f2` adds the
+session-bound `ClientHandle` constructor to
+`OxiaSyncCheckpointPublicationBackend`. Its canonical `/publication` record
+now uses a private `SessionBoundRecordClient` that checks the connected Oxia
+session marker before and after every publication-record read or version CAS
+write. A committed combined Upload Intent/Catalog value whose response arrives
+after marker loss therefore cannot be returned as a successful publication;
+the explicit unbound constructors remain the narrow external/deterministic
+seams.
+
+`OxiaSyncCheckpointPublicationBackendTest.sessionFenceRejectsACommittedPublicationAfterTheMarkerChanges`
+commits the canonical value in the fake service, fences the marker before the
+put response returns, asserts failure, and reopens the exact manifest through
+the unbound seam. The deterministic Publication suite passed 5 tests, the two
+real-service methods were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was
+unset, and the full Gradle check returned 0.
+
+This audit closes only the single-record publication I/O/session boundary. The
+Recovery Pin remains a sibling ephemeral record and is not folded into the
+publication snapshot; no Intent/Catalog/Pin cross-record transaction,
+provider/source evidence, Owner/session recovery, chaos evidence or V1 release
+readiness is claimed.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

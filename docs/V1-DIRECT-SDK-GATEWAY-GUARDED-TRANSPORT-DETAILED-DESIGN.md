@@ -5586,3 +5586,28 @@ The unbound constructor remains an explicit external/test seam. This note does
 not claim Catalog/Pin/Upload-Intent transactionality, source-ordered
 activation, Owner/session recovery, immutable Object Store publication,
 provider deletion, source/evidence replay, chaos or release readiness.
+
+### 2026-08-16 Oxia Checkpoint Publication session-bound CAS implementation note
+
+Delay commit `ffe0e5e15894ba377248068258444a1484bfb7f2` adds a
+`ClientHandle` constructor to `OxiaSyncCheckpointPublicationBackend`. The
+canonical `/publication` record continues to hold the PUBLISHED Upload Intent
+and Recovery Catalog manifest projection in one Oxia version-CAS value, while
+the handle-bound path now composes a private `SessionBoundRecordClient` around
+that record. The wrapper checks the connected session marker before and after
+each publication-record `get` and `put` (and preserves the narrow delete/
+identity delegation surface used by the record client), so a committed CAS
+whose response arrives after session loss cannot be reported as a successful
+publication.
+
+The deterministic regression commits the combined publication value, fences
+the session before the put response returns, asserts the session failure and
+then reopens the exact manifest through the explicit unbound seam. Five
+Publication tests passed; the two opt-in real-service methods were skipped
+because `NEREUS_DELAY_OXIA_ENDPOINT` was not configured, and the full Gradle
+check returned 0.
+
+This is still one canonical publication record plus a separate ephemeral
+Recovery Pin record, not an Oxia multi-record Intent/Catalog/Pin transaction.
+Provider immutability/completion, source/evidence ordering, Owner/session
+recovery, raw chaos, failover and release gates remain outside this receipt.

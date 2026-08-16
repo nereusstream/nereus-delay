@@ -2013,3 +2013,32 @@ returned 0. This receipt proves only catalog-wide single-record session
 fencing; Catalog/Pin/Upload-Intent transactionality, source ordering,
 Owner/session recovery, provider publication/deletion, chaos and V1 release
 gates remain open.
+
+## Oxia Checkpoint Publication session-bound CAS receipt
+
+Delay commit `ffe0e5e15894ba377248068258444a1484bfb7f2` adds the
+`OxiaSyncCheckpointPublicationBackend(ClientHandle, ...)` path. The combined
+PUBLISHED Upload Intent and Recovery Catalog manifest remain in the canonical
+`/publication` record, while every publication-record read and version-CAS
+write on the handle-bound path checks the exact connected Oxia session marker
+before and after the call. If a committed CAS is followed by marker loss, the
+caller receives a fence failure instead of a guessed publication result; the
+sibling ephemeral Recovery Pin remains a separate session-identity-bound
+record.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackendTest \
+  --tests io.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest \
+  --no-daemon --console=plain
+```
+
+The deterministic Publication suite passed 5 tests. The two real-service
+methods were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was not configured,
+and the full `./gradlew check --no-daemon --console=plain --quiet` returned 0.
+This receipt proves only the single canonical publication-record session
+fence; it does not prove an atomic Intent/Catalog/Pin transaction, provider
+completion, source/evidence replay, Owner/session recovery, chaos, failover or
+V1 release readiness.
