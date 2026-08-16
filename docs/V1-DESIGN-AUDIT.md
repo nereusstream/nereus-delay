@@ -9344,6 +9344,21 @@ failures/errors. This closes only local prepared-expiry and replay ordering;
 it does not establish distributed Gateway authority, transport delivery,
 Broker failover, raw chaos or V1 release readiness.
 
+## 2026-08-16 Gateway attempt projection integrity fence audit
+
+Delay commit `52c6ed1c604a98b56668e510a3cf84ad364ec9cc` adds a fail-closed
+projection boundary for the one-value Gateway idempotency record. A physical
+attempt cannot be `STARTED` with terminal evidence or terminal without evidence;
+record construction and decode reject non-source-ordered attempts, duplicate
+physical/retry identities, phase/attempt disagreement and impossible aggregate
+presence.
+
+The deterministic idempotency suite passed 10 tests with zero
+failures/skips/errors, and the full `./gradlew check` passed 1536 tests with
+24 skips and zero failures/errors. This closes only local durable projection
+integrity; it does not establish distributed Gateway authority, transport
+delivery, Broker failover, raw chaos or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

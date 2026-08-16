@@ -1709,6 +1709,24 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway prepared-expiry fence and aggregate replay implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Gateway prepared-expiry fence and aggregate replay receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayPhysicalAttemptV1.java" \
+    "Gateway STARTED attempt must not carry terminal evidence"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
+    "Gateway physical attempt identity is duplicated"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
+    "Gateway idempotency phase does not match attempts"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
+    "gatewayProjectionRejectsImpossibleAttemptAndRecordShapes"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Gateway attempt projection integrity fence"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "52c6ed1c604a98b56668e510a3cf84ad364ec9cc"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Gateway attempt projection integrity fence audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Gateway attempt projection integrity fence implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Gateway attempt projection integrity fence receipt"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPublicationCoordinator.java" \
     "intentIsAtomic || catalogIsAtomic"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointUploadCoordinatorTest.java" \

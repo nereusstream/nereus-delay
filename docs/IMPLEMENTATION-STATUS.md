@@ -11215,3 +11215,29 @@ expiry fencing. The full `./gradlew check` passed 1535 tests with 24 skips
 and zero failures/errors. This closes local prepared-expiry and replay
 ordering only; it does not establish distributed Gateway authority,
 transport delivery, Broker failover, raw chaos or V1 release evidence.
+
+## 2026-08-16 Gateway attempt projection integrity fence
+
+Delay commit `52c6ed1c604a98b56668e510a3cf84ad364ec9cc` makes the durable
+Gateway attempt projection reject impossible shapes before they can be used.
+`GatewayPhysicalAttemptV1` now requires `STARTED` to have no terminal evidence
+and every terminal state to carry evidence. `GatewayIdempotencyRecordV1`
+requires source-ordered attempts, unique physical and retry identities, a
+phase consistent with the attempt states, and the correct presence of the
+aggregate for prepared/quiescent records.
+
+The focused receipt is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest \
+  --no-daemon --console=plain
+```
+
+The deterministic idempotency suite passed 10 tests with zero
+failures/skips/errors, including impossible attempt evidence, phase mismatch
+and duplicate physical identity rejection. The full `./gradlew check` passed
+1536 tests with 24 skips and zero failures/errors. This closes local durable
+projection integrity only; it does not establish distributed Gateway
+authority, transport delivery, Broker failover, raw chaos or V1 release
+evidence.

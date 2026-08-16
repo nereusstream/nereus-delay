@@ -5973,3 +5973,18 @@ the full `./gradlew check` passed 1535 tests with 24 skips and zero
 failures/errors. This note closes only prepared-expiry and aggregate-replay
 ordering; transport delivery, distributed authority, failover, chaos and
 release gates remain open.
+
+### 2026-08-16 Gateway attempt projection integrity fence implementation note
+
+Delay commit `52c6ed1c604a98b56668e510a3cf84ad364ec9cc` makes the persisted
+Gateway attempt projection fail closed before state-machine code consumes it.
+`GatewayPhysicalAttemptV1` couples evidence presence to the lifecycle state;
+`GatewayIdempotencyRecordV1` additionally checks source order, unique physical
+and retry identities, phase consistency and aggregate presence for prepared
+and quiescent records.
+
+The deterministic idempotency suite passed 10 tests with zero
+failures/skips/errors; the full `./gradlew check` passed 1536 tests with 24
+skips and zero failures/errors. This note closes only local projection
+integrity; transport delivery, distributed authority, failover, chaos and
+release gates remain open.
