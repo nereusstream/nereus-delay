@@ -116,8 +116,8 @@ test -n "$(find "${runtime_dir}/lib" -type f -name '*.jar' -print -quit)"
 cleanup() {
   local status=$?
   if [[ "${status}" != 0 ]]; then
-    "${compose[@]} ps" >&2 || true
-    "${compose[@]} logs --no-color" >&2 || true
+    "${compose[@]}" ps >&2 || true
+    "${compose[@]}" logs --no-color >&2 || true
   fi
   "${compose[@]}" down --volumes --remove-orphans --rmi local >/dev/null 2>&1 || true
   docker image rm "${image}" >/dev/null 2>&1 || true
@@ -138,8 +138,8 @@ wait_for_admin() {
     sleep 2
   done
   echo "Pulsar large-payload broker did not become ready: ${url}" >&2
-  "${compose[@]} ps" >&2 || true
-  "${compose[@]} logs pulsar-broker-1 pulsar-broker-2" >&2 || true
+  "${compose[@]}" ps >&2 || true
+  "${compose[@]}" logs pulsar-broker-1 pulsar-broker-2 >&2 || true
   return 1
 }
 

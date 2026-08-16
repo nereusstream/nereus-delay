@@ -486,22 +486,33 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                 + Long.toUnsignedString(creationTimestamp) + "\"}";
     }
 
-    private static void deletePartitionedTopic(final HttpClient client, final String adminUrl, final String topic) {
-        delete(client, adminUrl + "/admin/v2/persistent/public/default/" + topic + "/partitions?force=true");
+    private static void deletePartitionedTopic(final HttpClient client, final List<String> adminUrls,
+                                                final String topic) {
+        deleteAcrossAdmins(client, adminUrls,
+                "/admin/v2/persistent/public/default/" + topic + "/partitions?force=true");
     }
 
-    private static void deleteTopic(final HttpClient client, final String adminUrl, final String topic) {
-        delete(client, adminUrl + "/admin/v2/persistent/public/default/" + topic + "?force=true");
+    private static void deleteTopic(final HttpClient client, final List<String> adminUrls, final String topic) {
+        deleteAcrossAdmins(client, adminUrls, "/admin/v2/persistent/public/default/" + topic + "?force=true");
     }
 
-    private static void delete(final HttpClient client, final String path) {
-        try {
-            final HttpResponse<String> response = request(client, path, "DELETE", "");
-            if (response.statusCode() >= 300 && response.statusCode() != 404) {
-                System.err.println("Pulsar large-payload cleanup returned HTTP " + response.statusCode());
+    private static void deleteAcrossAdmins(final HttpClient client, final List<String> adminUrls,
+                                            final String suffix) {
+        Exception lastFailure = null;
+        for (String adminUrl : adminUrls) {
+            try {
+                final HttpResponse<String> response = request(client, adminUrl + suffix, "DELETE", "");
+                if (response.statusCode() < 300 || response.statusCode() == 404) {
+                    return;
+                }
+                lastFailure = new IllegalStateException("HTTP " + response.statusCode());
+            } catch (Exception failure) {
+                lastFailure = failure;
             }
-        } catch (Exception failure) {
-            System.err.println("Pulsar large-payload cleanup failed: " + failure.getMessage());
+        }
+        if (lastFailure != null) {
+            System.err.println("Pulsar large-payload cleanup failed across all admin endpoints: "
+                    + lastFailure.getMessage());
         }
     }
 
@@ -1482,8 +1493,8 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                 }
             }
         } finally {
-            deletePartitionedTopic(admin, adminUrl, sourceBase);
-            deleteTopic(admin, adminUrl, destinationName);
+            deletePartitionedTopic(admin, adminUrls, sourceBase);
+            deleteTopic(admin, adminUrls, destinationName);
         }
     }
 }
