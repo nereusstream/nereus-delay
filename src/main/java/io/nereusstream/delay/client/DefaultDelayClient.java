@@ -67,6 +67,7 @@ public final class DefaultDelayClient implements DelayClient {
     private final ClientOutbox outbox;
     private final CommandTransportRegistry transportRegistry;
     private final AtomicBoolean closed = new AtomicBoolean();
+    private boolean closeCompleted;
 
     private DefaultDelayClient(final Builder builder, final DelaySemanticCore semanticCore,
                                final SubmissionCoordinator submissions) {
@@ -316,39 +317,53 @@ public final class DefaultDelayClient implements DelayClient {
     }
 
     @Override
-    public void close() {
-        if (!closed.compareAndSet(false, true)) {
+    public synchronized void close() {
+        if (closeCompleted) {
             return;
         }
-        RuntimeException first = null;
+        closed.set(true);
+        Throwable first = null;
         try {
             outbox.close();
-        } catch (RuntimeException failure) {
-            first = failure;
+        } catch (RuntimeException | Error failure) {
+            first = appendCloseFailure(first, failure);
         }
         try {
             queryClient.close();
-        } catch (RuntimeException failure) {
-            if (first == null) {
-                first = failure;
-            } else {
-                first.addSuppressed(failure);
-            }
+        } catch (RuntimeException | Error failure) {
+            first = appendCloseFailure(first, failure);
         }
         if (transportRegistry != null) {
             try {
                 transportRegistry.close();
-            } catch (RuntimeException failure) {
-                if (first == null) {
-                    first = failure;
-                } else {
-                    first.addSuppressed(failure);
-                }
+            } catch (RuntimeException | Error failure) {
+                first = appendCloseFailure(first, failure);
             }
         }
         if (first != null) {
-            throw first;
+            throwUnchecked(first);
         }
+        closeCompleted = true;
+    }
+
+    private static Throwable appendCloseFailure(final Throwable first, final Throwable failure) {
+        if (first == null) {
+            return failure;
+        }
+        if (failure != first) {
+            first.addSuppressed(failure);
+        }
+        return first;
+    }
+
+    private static void throwUnchecked(final Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error errorFailure) {
+            throw errorFailure;
+        }
+        throw new IllegalStateException("unexpected checked teardown failure", failure);
     }
 
     private CompletionStage<SubmissionOutcomeMessageV1> submitInternal(final PreparedSubmissionV1 submission,

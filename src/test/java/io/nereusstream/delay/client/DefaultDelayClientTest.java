@@ -40,15 +40,20 @@ import io.nereusstream.delay.semantic.DelaySemanticCore;
 import io.nereusstream.delay.semantic.LargeSchedulePreparationV1;
 import io.nereusstream.delay.semantic.RouteSelectionHint;
 import io.nereusstream.delay.submission.SubmissionCoordinator;
+import io.nereusstream.delay.transport.CommandTransport;
+import io.nereusstream.delay.transport.CommandTransportKey;
+import io.nereusstream.delay.transport.CommandTransportRegistry;
 import io.nereusstream.delay.transport.PhysicalEnqueueAttemptId;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class DefaultDelayClientTest {
     @Test
@@ -83,6 +88,62 @@ class DefaultDelayClientTest {
                     outcome.managed().kind());
             assertArrayEquals(attempt.bytes(), outcome.managed().uncertain().physicalEnqueueAttemptId());
             assertEquals(StableCode.ENQUEUE_RESULT_UNCERTAIN, outcome.managed().uncertain().error().code());
+        }
+    }
+
+    @Test
+    void closeRetriesEveryChildAfterTheFirstCloseFailure() {
+        final AtomicInteger outboxCloseCalls = new AtomicInteger();
+        final AtomicInteger queryCloseCalls = new AtomicInteger();
+        final AtomicInteger transportCloseCalls = new AtomicInteger();
+        final ClientOutbox outbox = new ClientOutbox() {
+            @Override
+            public void close() {
+                if (outboxCloseCalls.incrementAndGet() == 1) {
+                    throw new IllegalStateException("simulated outbox close failure");
+                }
+            }
+        };
+        final UnsupportedQueryClient query = new UnsupportedQueryClient(queryCloseCalls::incrementAndGet);
+        final CommandTransportRegistry transports = new CommandTransportRegistry() {
+            @Override
+            public CommandTransport exact(final CommandTransportKey key) {
+                return null;
+            }
+
+            @Override
+            public void close() {
+                transportCloseCalls.incrementAndGet();
+            }
+        };
+        final SubmissionCoordinator coordinator = (tenant, prepared, permit) ->
+                CompletableFuture.failedFuture(new UnsupportedOperationException());
+        final DefaultDelayClient client = DefaultDelayClient.builder()
+                .tenantContext(tenant())
+                .defaultRoute(new RouteSelectionHint(AdapterKindV1.KAFKA, Bytes.utf8("primary")))
+                .semanticCore(new UnsupportedSemanticCore())
+                .submissionCoordinator(coordinator)
+                .queryClient(query)
+                .outbox(outbox)
+                .transportRegistry(transports)
+                .build();
+        try {
+            final IllegalStateException failure = assertThrows(IllegalStateException.class, client::close);
+
+            assertEquals("simulated outbox close failure", failure.getMessage());
+            assertEquals(1, outboxCloseCalls.get());
+            assertEquals(1, queryCloseCalls.get());
+            assertEquals(1, transportCloseCalls.get());
+
+            client.close();
+
+            assertEquals(2, outboxCloseCalls.get());
+            assertEquals(2, queryCloseCalls.get());
+            assertEquals(2, transportCloseCalls.get());
+        } finally {
+            if (outboxCloseCalls.get() < 2) {
+                client.close();
+            }
         }
     }
 
@@ -153,6 +214,21 @@ class DefaultDelayClientTest {
     }
 
     private static final class UnsupportedQueryClient implements QueryClient {
+        private final Runnable closeAction;
+
+        private UnsupportedQueryClient() {
+            this(() -> { });
+        }
+
+        private UnsupportedQueryClient(final Runnable closeAction) {
+            this.closeAction = closeAction;
+        }
+
+        @Override
+        public void close() {
+            closeAction.run();
+        }
+
         @Override
         public CompletionStage<CommandQueryResponseV1> getCommandResult(final CommandQueuedReceiptV1 receipt,
                                                                           final long nowEpochMs,
