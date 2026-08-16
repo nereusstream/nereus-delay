@@ -20,6 +20,7 @@ runtime_dir="$(mktemp -d -t nereus-delay-pulsar-large-runtime.XXXXXX)"
 tls_dir="$(mktemp -d -t nereus-delay-pulsar-large-tls.XXXXXX)"
 receipt_log="$(mktemp -t nereus-delay-pulsar-large-receipt.XXXXXX).log"
 failover_mode="${NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER:-0}"
+process_crash_mode="${NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_PROCESS_CRASH:-0}"
 failover_marker="${runtime_dir}/gateway-commit.failover.ready"
 
 base_port=$((29100 + ($$ % 300)))
@@ -57,6 +58,14 @@ if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>
 fi
 if [[ "${failover_mode}" != "0" && "${failover_mode}" != "1" ]]; then
   echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${process_crash_mode}" != "0" && "${process_crash_mode}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_PROCESS_CRASH must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${process_crash_mode}" == "1" && "${failover_mode}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_PROCESS_CRASH requires NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER=1" >&2
   exit 1
 fi
 for command_name in curl openssl shasum; do
@@ -105,7 +114,7 @@ wait_for_admin() {
   local url="${1:-${admin_url}}"
   local deadline=$((SECONDS + 180))
   while (( SECONDS < deadline )); do
-    if curl --silent --fail "${url}/admin/v2/clusters" >/dev/null 2>&1; then
+    if curl --silent --fail "${url}/admin/v2/brokers/ready" >/dev/null 2>&1; then
       return 0
     fi
     sleep 2
@@ -231,12 +240,16 @@ smoke_environment=(
 if [[ "${failover_mode}" == "1" ]]; then
   smoke_environment+=("NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER_MARKER=${failover_marker}")
 fi
+smoke_admin_url="${admin_url}"
+if [[ "${failover_mode}" == "1" ]]; then
+  smoke_admin_url="${admin_url_failover}"
+fi
 smoke_arguments=(
   runRealPulsarLargePayloadGatewaySmoke
   "-PpulsarClientClasspath=${pulsar_client_cp}"
   "-PpulsarRuntimeDir=${runtime_dir}/lib"
   "-PpulsarServiceUrl=${service_url}"
-  "-PpulsarAdminUrl=${admin_url}"
+  "-PpulsarAdminUrl=${smoke_admin_url}"
   "-PpulsarLargePayloadTopic=${source_topic}"
   --no-daemon
   --console=plain
@@ -270,8 +283,13 @@ if [[ "${failover_mode}" == "1" ]]; then
     fi
     sleep 1
   done
-  echo "Pulsar Gateway large-payload failover cut: stopping broker-1"
-  "${compose[@]}" stop pulsar-broker-1
+  if [[ "${process_crash_mode}" == "1" ]]; then
+    echo "Pulsar Gateway large-payload failover cut: SIGKILLing broker-1"
+    "${compose[@]}" kill --signal KILL pulsar-broker-1
+  else
+    echo "Pulsar Gateway large-payload failover cut: stopping broker-1"
+    "${compose[@]}" stop pulsar-broker-1
+  fi
   touch "${failover_marker}.release"
   set +e
   wait "${smoke_pid}"
@@ -288,7 +306,11 @@ fi
 if [[ "${smoke_status}" != 0 ]]; then
   exit "${smoke_status}"
 fi
-if [[ "${failover_mode}" == "1" ]]; then
+if [[ "${process_crash_mode}" == "1" ]]; then
+  "${compose[@]}" start pulsar-broker-1
+  wait_for_admin "${admin_url}"
+  echo "Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload Broker process-crash failover E2E passed: broker-1 was SIGKILLed after Gateway Commit/readback, the same source-applied physical Publish completed through broker-2, and broker-1 rejoined afterward"
+elif [[ "${failover_mode}" == "1" ]]; then
   echo "Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload multi-Broker failover E2E passed: broker-1 stopped after Gateway Commit/readback and the same source-applied physical Publish completed through broker-2"
 else
   echo "Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed"
