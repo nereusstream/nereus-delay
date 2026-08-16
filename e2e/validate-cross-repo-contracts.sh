@@ -2241,6 +2241,16 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "2026-08-17 Current Oxia Profile/Route authority and session-recovery implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Current-source Oxia Profile/Route authority and notification restart"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "2026-08-17 V1 release-gate audit (not release-ready)"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Release status therefore remains `NOT READY`"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "2026-08-17 V1 release-gate audit result"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "2026-08-17 V1 release-gate implementation boundary"
+require_file_text "$delay_root/e2e/README.md" \
+    "V1 release-gate audit (2026-08-17)"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

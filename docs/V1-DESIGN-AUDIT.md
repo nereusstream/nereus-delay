@@ -10604,3 +10604,21 @@ source-ordered Profile/trust publication, external secret-manager authority,
 multi-node Oxia failover, provider rotation/quiescence, full chaos or V1
 release approval. Exact post-run checks found no named resources or temporary
 Oxia images; no global Docker prune was used.
+
+## 2026-08-17 V1 release-gate audit result
+
+Source locks for this audit are Delay
+`2f5d512b80497336c92ba55358deb6075abc39f1`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Full local `check` and the
+cross-repo contract validator pass.
+
+Audit result: `NOT READY`. Gates 1--4 and 10 are bounded `PARTIAL`: the
+repository now has current-source real Kafka/Pulsar Gateway large-payload,
+Worker fault, Oxia authority and MinIO REAPING evidence, but not the complete
+all-language, clock-bound, rollout or chaos matrix. Gates 5--9 remain `OPEN`:
+required benchmark configurations, capacity/SLO artifacts, certified soak,
+upgrade/downgrade proof and restore/fence/DLQ/uncertain/disaster runbook
+drills have not been produced. This is a release audit boundary, not a reason
+to reinterpret the existing positive slices as V1 approval.

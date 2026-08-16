@@ -3841,3 +3841,18 @@ restart bug is fixed by `d521aeb41c13d396716f8ac726a63bf4f96db4db`, with
 deterministic coverage in `OxiaSignedRouteSnapshotProviderTest`. Exact
 post-run checks found no named containers/networks/volumes or temporary Oxia
 images; no global Docker prune was used.
+
+## V1 release-gate audit (2026-08-17)
+
+Current source locks are Delay
+`2f5d512b80497336c92ba55358deb6075abc39f1`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The full local check and
+cross-repo validator pass, but the release gate is `NOT READY`.
+
+Current real E2E evidence makes gates 1--4 and 10 partial only. Gates 5--9
+remain open for benchmark matrix, capacity/SLO artifact, certified soak,
+upgrade/downgrade proof and operational restore/fence/DLQ/uncertain/disaster
+drills. Full chaos and external credential/provider failover are also open;
+positive bounded receipts must not be used as release substitutes.

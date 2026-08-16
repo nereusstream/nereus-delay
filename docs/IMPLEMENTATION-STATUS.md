@@ -9206,6 +9206,33 @@ real Oxia authority smoke boundary; source-ordered Profile/trust publication,
 external secret-manager resolution, multi-node authority failover, provider
 rotation/quiescence, full chaos and V1 release gates remain open.
 
+## 2026-08-17 V1 release-gate audit (not release-ready)
+
+The audit is source-bound to Delay
+`2f5d512b80497336c92ba55358deb6075abc39f1`, Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+Pulsar `nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`
+and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. The current full local
+`./gradlew check --no-daemon --console=plain --quiet` and the cross-repo
+contract validator pass. That is necessary evidence, not a V1 release claim.
+
+| §23.5 gate | Current status | Evidence boundary |
+|---|---|---|
+| 1. Protocol/state/key golden tests | PARTIAL | Local Java canonical/property/model coverage and full check pass; all-language golden vectors are not certified. |
+| 2. Fresh-process correctness cuts | PARTIAL | Current Kafka Worker/Broker/network/TCP cuts, Pulsar Worker failover and Gateway large-payload cuts pass; the complete crash/chaos matrix is open. |
+| 3. Real Kafka/Pulsar/Oxia/Object gates | PARTIAL | Current-source Kafka/Pulsar large-payload authority plus real Oxia/MinIO checkpoint REAPING pass; provider failover, external credential authority and full rollout remain open. |
+| 4. No-early tests | PARTIAL | Focused activation/ACK/strict-guard tests exist; the complete Worker/target clock-bound and Pulsar strictness matrix is not release-certified. |
+| 5. Required benchmark configurations | OPEN | No source-locked benchmark campaign artifact covers the required size, burst, Lane, shard, compaction, restore and inline/object matrix. |
+| 6. Capacity artifacts and SLO catalog | OPEN | Required memory/RSS/cgroup, FD/file, disk/temp, reserve, adapter/zombie, fairness formulas and durable SLO denominator evidence are not complete. |
+| 7. Soak | OPEN | No certified soak spans the longest checkpoint/floor, retry, uncertainty and GC cycles with zero unexplained gaps/drift. |
+| 8. Upgrade/downgrade | OPEN | Writer-before-reader and same-bytes/different-version dedupe gates have no release artifact. |
+| 9. Operations runbook | OPEN | Restore, fence, DLQ replay, uncertain override and disaster-boundary drills are not complete. |
+| 10. Kafka/Pulsar patch distribution gate | PARTIAL | K1/P1 source locks, binary digests, guarded receipts and delete/recreate/failover evidence exist; full Broker rollout, typed rejection/delete-recreate cut matrix and stock/name-fallback exclusion are not release-certified. |
+
+Release status therefore remains `NOT READY`. The next promotion requires
+closing the OPEN rows with source-locked artifacts; no bounded E2E receipt may
+be promoted into benchmark, soak, upgrade, runbook or full-chaos PASS.
+
 ## 2026-08-16 source-applied Pulsar Worker physical Publish vertical
 
 Delay commit `cb309d82` wires the real P1 Worker smoke to a bounded physical

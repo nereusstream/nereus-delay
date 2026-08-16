@@ -7107,3 +7107,16 @@ The fix is scoped to explicit recovery; ordinary start/notification operation
 still preserves session fencing. External secret-manager resolution,
 source-ordered credential rotation, multi-node authority failover, provider
 quiescence, chaos and V1 release gates remain separate.
+
+## 2026-08-17 V1 release-gate implementation boundary
+
+At Delay `2f5d512b80497336c92ba55358deb6075abc39f1`, with K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, the implementation has crossed
+the real Gateway/Oxia/Broker/Worker/MinIO composition boundary. It has not
+crossed the release boundary. Protocol/fresh-process/real-service/no-early
+and patch-distribution gates are partial; benchmark, capacity/SLO, soak,
+upgrade/downgrade and runbook gates are open. The complete crash/chaos matrix,
+external credential authority/rotation, multi-node provider failover and
+source-locked release artifacts must be completed before any V1-ready claim.
