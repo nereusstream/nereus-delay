@@ -8756,6 +8756,34 @@ full Gradle check returned 0. This is only a local interpretation fence for
 an external append receipt; it does not allocate Source Positions, perform
 provider deletion, write/apply tombstones, or authorize the GC lifecycle.
 
+## 2026-08-16 Oxia Recovery Pin session-bound CAS audit
+
+Delay commit `dedd03a94fb2ab1e8d12f19ba993408646426578` adds the missing
+single-pin record seam to `OxiaSyncRecoveryCatalogBackend`. The durable
+catalog snapshot continues to encode only manifest/resource and scalar/typed
+Floor projections; an active `RecoveryPinV1` is held in a separate canonical
+Oxia record using `IfRecordDoesNotExist` and `AsEphemeralRecord`. The public
+identity-bearing constructor requires the session digest supplied by the
+connected Oxia client owner, while the catalog-only constructor fails closed
+for pin create/release.
+
+Create first validates the exact pin through the current local catalog
+projection and its observed generation, then validates the exact ephemeral
+put response, rereads canonical pin bytes and the Oxia version-derived
+session identity, and rechecks catalog generation. Release binds the complete
+pin value to an exact version delete and accepts a lost delete response only
+after an exact absent reread. The deterministic suite covers 17 tests,
+including singleton conflict, response loss, session binding and the
+catalog-only fail-closed boundary; the full Gradle check returned 0.
+
+This is a per-pin Oxia record and generation-fence slice, not a cross-record
+transaction. A catalog update can still race after the final generation read,
+and no claim is made for atomic upload-intent/catalog/pin activation, Owner
+Lease/session-loss attestation, multi-worker placement, provider deletion or
+GC release. The opt-in real-service smoke is wired to the same session
+identity constructor but was skipped in this run because
+`NEREUS_DELAY_OXIA_ENDPOINT` was unset.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

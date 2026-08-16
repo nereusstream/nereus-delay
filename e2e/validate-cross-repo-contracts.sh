@@ -1271,6 +1271,30 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Source-ordered GC confirmation handoff implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Source-ordered GC confirmation handoff receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackend.java" \
+    "PutOption.AsEphemeralRecord"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackend.java" \
+    "RecoveryPin create/release requires an identity-bearing connected Oxia session"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackend.java" \
+    "requireCatalogGeneration(requested.observedCatalogGeneration())"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackend.java" \
+    "DeleteOption.IfVersionIdEquals"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackendTest.java" \
+    "recoveryPinUsesAnEphemeralSingletonCasAndExactRereadRelease"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackendTest.java" \
+    "recoveryPinRequiresAnIdentityBearingCallerSession"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaRealRecoveryAuthoritySmokeTest.java" \
+    "recoveryPinIsSessionBoundAndExpiresWithTheRealOxiaSession"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Oxia session-bound Recovery Pin CAS"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "dedd03a94fb2ab1e8d12f19ba993408646426578"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Oxia Recovery Pin session-bound CAS audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Oxia Recovery Pin session-bound CAS implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Oxia Recovery Pin session-bound CAS receipt"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

@@ -5439,3 +5439,31 @@ This protects the meaning of the local handoff result without moving source
 position allocation into Delay. The appender, source assignment, provider
 delete, tombstone WriteBatch, source apply and lifecycle authorization remain
 separate authorities.
+
+### 2026-08-16 Oxia Recovery Pin session-bound CAS implementation note
+
+Delay commit `dedd03a94fb2ab1e8d12f19ba993408646426578` implements the next
+bounded Recovery Catalog seam without folding a second record into the
+catalog snapshot. `OxiaSyncRecoveryCatalogBackend` keeps manifest/resource
+and scalar/typed Floor state in its canonical version-CAS record, while
+`RecoveryPinV1` is encoded at a sibling recovery-pin key with Oxia's
+`IfRecordDoesNotExist` plus `AsEphemeralRecord` options. The caller supplies
+the session identity derived from the connected client session; the backend
+rejects catalog-only create/release calls and checks the identity encoded in
+the returned Oxia `Version`.
+
+The create path validates the pin through the local catalog projection,
+checks the requested catalog generation before the ephemeral CAS, validates
+the exact key/version/session response, rereads canonical pin bytes, and
+checks the catalog generation again. The release path compares the complete
+pin value, deletes with the exact returned version, and accepts response loss
+only after an exact absence reread. A separate `activeRecoveryPin` read
+validates key, value size, canonical `RecoveryPinV1` bytes, non-null Oxia
+version and the version-derived session digest before exposing the projection.
+
+The before/after generation checks close the obvious stale-generation race,
+but they are intentionally not an Oxia multi-record transaction. A catalog
+write can still race between those checks, and upload-intent/catalog/pin
+activation remains a production authority boundary. The implementation does
+not issue Owner Lease/session-loss attestations, provider proofs, Source Log
+positions or GC authorization.

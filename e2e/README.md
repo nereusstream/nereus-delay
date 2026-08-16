@@ -1847,3 +1847,32 @@ regressed-position cases; the full
 local interpretation fence for an external append receipt, not provider
 delete evidence, source position allocation, tombstone apply, lifecycle
 authorization or release evidence.
+
+## Oxia Recovery Pin session-bound CAS receipt
+
+Delay commit `dedd03a94fb2ab1e8d12f19ba993408646426578` adds a separate
+session-bound ephemeral Oxia record for the active `RecoveryPinV1`. The
+catalog record remains the single CAS authority for manifests/resources and
+scalar/typed Floor state. Pin create uses the exact canonical recovery-pin
+key with `IfRecordDoesNotExist` and `AsEphemeralRecord`, requires the caller's
+connected-session digest, validates the returned key/version/session metadata,
+and rereads the exact canonical pin bytes. It also checks the observed catalog
+generation before and after the pin CAS. Release uses exact version CAS and
+accepts response loss only after an exact absent reread.
+
+The local regression is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.OxiaSyncRecoveryCatalogBackendTest \
+  --tests io.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
+  --no-daemon --console=plain
+```
+
+The deterministic catalog suite passed 17 tests and the full check returned
+0. The real-service smoke methods were skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was not configured. This receipt proves only the
+single-pin record/CAS boundary and its local response-loss tests; it does not
+prove an Oxia cross-record transaction, Owner/session-loss authority,
+multi-worker activation, provider deletion, GC authorization, chaos,
+failover or V1 release readiness.

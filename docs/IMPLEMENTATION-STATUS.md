@@ -10469,3 +10469,42 @@ The focused handoff test covered both valid later and regressed positions; the
 full Gradle check returned 0. This is only a local interpretation fence for
 an external append receipt; it does not allocate Source Positions, perform
 provider deletion, write/apply tombstones, or authorize the GC lifecycle.
+
+## 2026-08-16 Oxia session-bound Recovery Pin CAS
+
+Delay commit `dedd03a94fb2ab1e8d12f19ba993408646426578` adds the Oxia-backed
+Recovery Pin record boundary to `OxiaSyncRecoveryCatalogBackend`. Catalog
+publication and scalar/typed Floor state remain in the one canonical catalog
+record; a pin is stored separately at the canonical recovery-pin key with
+`IfRecordDoesNotExist` and `AsEphemeralRecord`. Pin create/release therefore
+requires the caller to supply the exact session identity from its connected
+Oxia client. The catalog-only constructor deliberately fails closed for
+session-bound create/release instead of guessing that identity.
+
+Create validates the requested pin against the current catalog generation,
+performs the singleton ephemeral CAS, validates the returned key/version and
+session-derived identity, rereads the exact canonical pin bytes, and checks
+the catalog generation again. Release uses exact version CAS and an exact
+absence reread; response loss is accepted only when that reread proves the
+pin is gone. The separate pin record is not presented as a cross-record
+catalog/Floor transaction, and the implementation does not claim atomic
+upload-intent/catalog/pin activation.
+
+The focused regression is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.OxiaSyncRecoveryCatalogBackendTest \
+  --tests io.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
+  --no-daemon --console=plain
+```
+
+The deterministic catalog suite passed 17 tests. The real-service smoke
+methods were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was not configured;
+the full `./gradlew check --no-daemon --console=plain --quiet` returned 0.
+The local tests cover session metadata/digest binding, response-loss
+convergence, singleton conflict, exact release and catalog-only fail-closed
+behavior. This closes only the single-pin Oxia record seam. Production
+cross-record Owner/session/catalog activation, source-ordered GC, provider
+attestation, multi-worker coordination, chaos, failover and V1 release gates
+remain open.
