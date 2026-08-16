@@ -7250,3 +7250,24 @@ This is bounded transport evidence, not Worker/Oxia authority, raw socket,
 process/Broker crash, multi-Broker, multi-shard, REAPING or V1 release
 evidence. The exact temporary P1 image was removed; the locked MinIO base was
 retained and no global Docker prune was used.
+
+### 2026-08-17 Current-source Pulsar Worker JVM process-crash implementation note
+
+The focused runner at Delay
+`fdee96ca5e402bd725ff1454c1086b249e0ce8da` adds `crash-wait` and persistent
+`NEREUS_DELAY_PULSAR_WORKER_ROOT` support to the real Worker smoke. It creates
+the cut only after guarded source/runtime construction and before the next
+source record is consumed, writes the exact JVM PID, and waits on a file gate.
+The shell harness SIGKILLs that JVM, removes the gate, and runs `resume` with
+the same Store root. The real current-source receipt is:
+
+```text
+Pulsar Worker process-crash recovery E2E passed: a real Worker JVM was SIGKILLed after opening the guarded source/runtime with the next record unACKed, and a fresh JVM reopened the exact local Store, reacquired the real Oxia lease, replayed and ACKed the source record, and published the final checkpoint.
+```
+
+This proves one exact local-store crash/reopen sequence with real P1 Broker
+and Oxia Owner authority. It intentionally does not claim a crash during
+physical destination publish, raw network cuts, Broker/controller failover,
+multi-Worker placement, REAPING or full release-gate coverage. The runner
+removed its temporary P1/Oxia images and state; the locked MinIO base was
+retained and no global Docker prune was used.

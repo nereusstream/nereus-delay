@@ -13394,3 +13394,49 @@ failover, multi-shard placement, checkpoint REAPING or V1 release evidence.
 The exact runner cleanup removed the temporary P1 image; postchecks found no
 project containers, networks, volumes or matching image. The locked MinIO
 base was untouched and no global Docker prune was used.
+
+## 2026-08-17 Current-source Pulsar Worker JVM process-crash recovery receipt
+
+The new focused crash runner is implemented at Delay
+`fdee96ca5e402bd725ff1454c1086b249e0ce8da` and locks P1 to
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`, the
+P1 distribution SHA-256 to
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, the
+same three P1 client artifact SHA-256 values recorded above, P1 image
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. The source-bound command
+was:
+
+```bash
+NEREUS_DELAY_PULSAR_WITH_OXIA=1 \
+NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH=1 \
+NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_ONLY=1 \
+NEREUS_DELAY_PULSAR_OXIA_PORT=29470 \
+PULSAR_BROKER_PORT=29460 \
+PULSAR_WEB_PORT=29461 \
+NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-full-check-20260817 \
+  bash e2e/run-pulsar-real-client-e2e.sh
+```
+
+The isolated projects were `nereus-delay-pulsar-e2e-1786902001-29815` and
+`nereus-delay-pulsar-oxia-e2e-1786902001-29815`, using Pulsar `29460/29461`
+and Oxia `29470`; the successful run-created Oxia image was
+`sha256:ceb11c9560fe5850ae8459eb0487375ecc483e6d60266`. The runner first
+persisted one guarded source record, opened the Worker runtime and exact
+Store root, exposed the cut only while the next source record was unACKed,
+sent `SIGKILL` to the recorded Worker JVM, removed the cut gate and started a
+fresh JVM against the same Store root. The receipt was:
+
+```text
+Pulsar Worker process-crash recovery E2E passed: a real Worker JVM was SIGKILLed after opening the guarded source/runtime with the next record unACKed, and a fresh JVM reopened the exact local Store, reacquired the real Oxia lease, replayed and ACKed the source record, and published the final checkpoint.
+```
+
+This closes the bounded current-source single-Worker JVM crash/reopen path
+with real P1 Broker and real Oxia Owner authority. It does not close a crash
+during physical destination publish, raw socket/network cuts, Broker or
+controller failover, multi-Worker process placement, checkpoint REAPING,
+full chaos or V1 release evidence. The initial retry used a local dependency
+cache after an external Maven TLS handshake failure; the successful run and
+all postchecks were clean. Exact postchecks found no project resources,
+temporary P1/Oxia images or crash state; the locked MinIO base was untouched
+and no global Docker prune was used.

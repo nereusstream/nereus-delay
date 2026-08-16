@@ -10762,3 +10762,31 @@ process/Broker crash recovery, multi-Broker failover, multi-shard placement,
 REAPING, full chaos or V1 release readiness. Exact postchecks found no project
 resources or matching P1 image; the locked MinIO base remained and no global
 Docker prune was used.
+
+## 2026-08-17 Current-source Pulsar Worker JVM process-crash recovery audit
+
+The current-source audit locks Delay to
+`fdee96ca5e402bd725ff1454c1086b249e0ce8da`, P1 to
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1 distribution to
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1
+image to
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+and Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. Projects were
+`nereus-delay-pulsar-e2e-1786902001-29815` and
+`nereus-delay-pulsar-oxia-e2e-1786902001-29815` on `29460/29461` and `29470`.
+
+Audit result: PASS for the bounded current-source Worker JVM process-crash
+slice. The harness persisted one source record, opened the exact local Store
+and guarded source runtime, verified the next record was still unACKed, sent
+`SIGKILL` to that exact JVM, and resumed with a fresh JVM using the same Store
+root and real Oxia authority:
+
+```text
+Pulsar Worker process-crash recovery E2E passed: a real Worker JVM was SIGKILLed after opening the guarded source/runtime with the next record unACKed, and a fresh JVM reopened the exact local Store, reacquired the real Oxia lease, replayed and ACKed the source record, and published the final checkpoint.
+```
+
+This does not establish crash-during-destination-publish, raw socket/network
+chaos, Broker/controller failover, multi-Worker placement, REAPING, full
+chaos or V1 release readiness. Exact postchecks found no project resources,
+temporary P1/Oxia images or crash state; the locked MinIO base remained and
+no global Docker prune was used.

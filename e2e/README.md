@@ -4040,3 +4040,42 @@ after local SEND response loss. It does not claim Worker/Oxia authority, raw
 socket or process/Broker crash recovery, multi-Broker, multi-shard, REAPING or
 V1 release coverage. Exact project/image cleanup was empty; no global Docker
 prune was used.
+
+## Pulsar Worker JVM process-crash recovery (current source)
+
+Run the current-source real P1 Broker + real Oxia Worker crash cut with:
+
+```bash
+NEREUS_DELAY_PULSAR_WITH_OXIA=1 \
+NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH=1 \
+NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_ONLY=1 \
+NEREUS_DELAY_PULSAR_OXIA_PORT=29470 \
+PULSAR_BROKER_PORT=29460 \
+PULSAR_WEB_PORT=29461 \
+NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-full-check-20260817 \
+  bash e2e/run-pulsar-real-client-e2e.sh
+```
+
+The receipt locks Delay to
+`fdee96ca5e402bd725ff1454c1086b249e0ce8da`, P1 to
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+the P1 distribution to
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and
+Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. Projects were
+`nereus-delay-pulsar-e2e-1786902001-29815` and
+`nereus-delay-pulsar-oxia-e2e-1786902001-29815` on `29460/29461` and `29470`.
+
+The runner persisted one guarded record, opened the exact Store/runtime,
+SIGKILLed the JVM at `sourceRuntimeReady=true,
+nextSourceRecordUnacked=true`, then resumed with a fresh JVM and the same
+Store root:
+
+```text
+Pulsar Worker process-crash recovery E2E passed: a real Worker JVM was SIGKILLed after opening the guarded source/runtime with the next record unACKed, and a fresh JVM reopened the exact local Store, reacquired the real Oxia lease, replayed and ACKed the source record, and published the final checkpoint.
+```
+
+This is bounded Worker JVM crash/reopen evidence. It does not cover a crash
+during physical destination publish, raw socket/network chaos,
+Broker/controller failover, multi-Worker placement, REAPING or V1 release
+gates. Exact postchecks found no project resources, temporary images or crash
+state; no global Docker prune was used.
