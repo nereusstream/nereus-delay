@@ -265,7 +265,8 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         if (!Arrays.equals(resource.objectKey(), Bytes.utf8(expectedManifestKey))) {
             throw new IllegalArgumentException("checkpoint resource manifest key is not canonical");
         }
-        final RemoteBytes remoteManifest = getBytes(expectedManifestKey, limits.maxManifestBytes());
+        final String manifestVersion = decodeProviderVersion(resource.immutableVersion());
+        final RemoteBytes remoteManifest = getBytes(expectedManifestKey, limits.maxManifestBytes(), manifestVersion);
         if (!Arrays.equals(remoteManifest.bytes(), manifest.canonicalJsonBytes())
                 || !Arrays.equals(manifest.manifestSha256(), sha256(remoteManifest.bytes()))) {
             throw new IllegalStateException("remote checkpoint manifest differs from catalog manifest");
@@ -423,8 +424,13 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
     }
 
     private RemoteBytes getBytes(final String key, final long maxBytes) {
+        return getBytes(key, maxBytes, null);
+    }
+
+    private RemoteBytes getBytes(final String key, final long maxBytes, final String versionId) {
         final HttpResponse<InputStream> response = send("GET", key, EMPTY_SHA256,
-                HttpRequest.BodyPublishers.noBody(), Map.of(), HttpResponse.BodyHandlers.ofInputStream());
+                HttpRequest.BodyPublishers.noBody(), Map.of(), versionId,
+                HttpResponse.BodyHandlers.ofInputStream());
         if (response.statusCode() == 404) {
             closeQuietly(response.body());
             throw new IllegalStateException("remote checkpoint manifest is missing: " + key);
@@ -447,7 +453,15 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
                                      final HttpRequest.BodyPublisher body,
                                      final Map<String, String> extraHeaders,
                                      final HttpResponse.BodyHandler<T> handler) {
-        final URI uri = objectUri(key);
+        return send(method, key, payloadHash, body, extraHeaders, null, handler);
+    }
+
+    private <T> HttpResponse<T> send(final String method, final String key, final String payloadHash,
+                                     final HttpRequest.BodyPublisher body,
+                                     final Map<String, String> extraHeaders,
+                                     final String versionId,
+                                     final HttpResponse.BodyHandler<T> handler) {
+        final URI uri = objectUri(key, versionId);
         final Instant now = clock.instant().truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
         final String amzDate = AMZ_DATE.format(now);
         final String shortDate = SHORT_DATE.format(now);
@@ -468,7 +482,8 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
                 .map(entry -> entry.getKey() + ":" + canonicalHeaderValue(entry.getValue()) + "\n")
                 .reduce(new StringBuilder(), StringBuilder::append, StringBuilder::append).toString();
         final String signedHeaderNames = String.join(";", signedHeaders.keySet());
-        final String canonicalRequest = method + "\n" + uri.getRawPath() + "\n\n"
+        final String canonicalQuery = uri.getRawQuery() == null ? "" : uri.getRawQuery();
+        final String canonicalRequest = method + "\n" + uri.getRawPath() + "\n" + canonicalQuery + "\n"
                 + canonicalHeaders + "\n" + signedHeaderNames + "\n" + payloadHash;
         final String scope = shortDate + "/" + region + "/" + SERVICE + "/" + TERMINATOR;
         final String stringToSign = "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n"
@@ -499,6 +514,10 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
     }
 
     private URI objectUri(final String key) {
+        return objectUri(key, null);
+    }
+
+    private URI objectUri(final String key, final String versionId) {
         final String canonicalKey = canonicalObjectKey(key);
         final StringBuilder path = new StringBuilder(endpoint.getRawPath() == null
                 ? "" : endpoint.getRawPath());
@@ -509,7 +528,8 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         for (String segment : canonicalKey.split("/", -1)) {
             path.append('/').append(encodeSegment(segment));
         }
-        return URI.create(endpoint.getScheme() + "://" + endpoint.getRawAuthority() + path);
+        final String query = versionId == null ? "" : "?versionId=" + encodeVersionId(versionId);
+        return URI.create(endpoint.getScheme() + "://" + endpoint.getRawAuthority() + path + query);
     }
 
     private static String checkpointPrefix(final CheckpointManifest manifest) {
@@ -727,6 +747,19 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
             }
         }
         return value;
+    }
+
+    private static String decodeProviderVersion(final byte[] encoded) {
+        final String version = new String(Objects.requireNonNull(encoded, "provider version"),
+                java.nio.charset.StandardCharsets.UTF_8);
+        if (version.isBlank() || !Arrays.equals(Bytes.utf8(version), encoded)) {
+            throw new IllegalArgumentException("provider version is not canonical UTF-8 text");
+        }
+        return version;
+    }
+
+    private static String encodeVersionId(final String value) {
+        return encodeSegment(canonicalText(value, "provider version"));
     }
 
     private static String canonicalBucket(final String value) {

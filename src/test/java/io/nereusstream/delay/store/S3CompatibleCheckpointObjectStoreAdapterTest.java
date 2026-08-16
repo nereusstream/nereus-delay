@@ -84,7 +84,7 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
             assertEquals("sst-bytes", Files.readString(restored.resolve("000001.sst")));
             assertTrue(Files.isDirectory(restored));
             assertTrue(server.requests.stream().anyMatch(item -> item.method().equals("GET")
-                    && item.path().endsWith("/manifest.json")));
+                    && item.path().contains("/manifest.json?versionId=")));
         }
     }
 
@@ -287,14 +287,34 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
         }
 
         private void handleGet(final ParsedRequest request, final OutputStream output) throws IOException {
-            final StoredObject object = objects.get(request.path());
-            if (object == null) {
+            final StoredObject object = objects.get(pathWithoutQuery(request.path()));
+            final String requestedVersion = queryValue(request.path(), "versionId");
+            if (object == null || (requestedVersion != null && !requestedVersion.equals(object.version()))) {
                 record(request, 404);
                 respond(output, 404, new byte[0], null);
                 return;
             }
             record(request, 200);
             respond(output, 200, object.body(), omitVersionHeaders ? null : object.version());
+        }
+
+        private static String pathWithoutQuery(final String path) {
+            final int query = path.indexOf('?');
+            return query < 0 ? path : path.substring(0, query);
+        }
+
+        private static String queryValue(final String path, final String name) {
+            final int query = path.indexOf('?');
+            if (query < 0) {
+                return null;
+            }
+            for (String pair : path.substring(query + 1).split("&")) {
+                final int equals = pair.indexOf('=');
+                if (equals > 0 && pair.substring(0, equals).equals(name)) {
+                    return pair.substring(equals + 1);
+                }
+            }
+            return null;
         }
 
         private void respond(final OutputStream output, final int status, final byte[] body,
