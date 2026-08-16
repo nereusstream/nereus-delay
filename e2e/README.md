@@ -4621,3 +4621,31 @@ After completion, exact-name checks found no matrix containers, networks or
 volumes and no temporary broker/Pulsar/Oxia images. The locked Oxia and MinIO
 base images were retained for later source-locked runs; no global Docker
 prune or unrelated image deletion was performed.
+
+## Current-source Oxia + MinIO credential renewal
+
+The real Profile/Head/protection and renewable Object Store lease smoke can be
+run with:
+
+```bash
+NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia \
+NEREUS_DELAY_OXIA_CHECKPOINT_E2E_PORT=31500 \
+NEREUS_DELAY_MINIO_CHECKPOINT_E2E_PORT=31501 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-minio-renewal-20260817-r2 \
+  bash e2e/run-oxia-minio-checkpoint-e2e.sh
+```
+
+At Delay `7675ea75c8f51f07a0898986e529c9035ee51528`, the three selected
+real-service tests passed: checkpoint publication, checkpoint REAPING, and
+credential lease renewal. The exact renewal receipt was:
+
+```text
+Oxia + MinIO Object Store credential renewal E2E passed: real Profile Head/protection CAS renewed the exact lease and fenced the live adapter at secret rotation
+```
+
+The exact Compose project was
+`nereus-delay-oxia-minio-checkpoint-e2e-1786921039-77113`; postchecks found no
+project resources or temporary Oxia image. The locked Oxia and MinIO bases
+remain intentionally retained. This is bounded renewal/fencing evidence, not
+external secret-manager, provider-side quiescence/attestation, multi-node
+failover or V1 release certification.

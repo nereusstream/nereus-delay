@@ -14714,3 +14714,33 @@ injection, target-isolation gates, benchmark/capacity artifacts, soak,
 authenticated activation-state/cutover and rollout proof remain open. Gates
 2, 3 and 10 remain `PARTIAL`; Gates 5, 6, 7 and 9 remain `OPEN`; Gate 8
 remains `PARTIAL`; V1 remains `NOT READY`.
+
+## 2026-08-17 Current-source Oxia/MinIO credential renewal receipt
+
+The current Delay `7675ea75c8f51f07a0898986e529c9035ee51528` ran the real
+Oxia + MinIO checkpoint harness with Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and the locked MinIO image
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z` at digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The command used Oxia port `31500`, MinIO port `31501` and Gradle home
+`/tmp/nereus-delay-oxia-minio-renewal-20260817-r2`. Compose project and bucket
+were `nereus-delay-oxia-minio-checkpoint-e2e-1786921039-77113` and
+`nereus-delay-checkpoints-1786921039-77113`.
+
+All three selected real-service tests passed with zero failures/errors and
+`BUILD SUCCESSFUL in 1m 15s`:
+
+```text
+Oxia + MinIO Worker checkpoint publication passed: atomic Intent/Catalog=true, immutable object upload/download=true, checkpoint=00000000000000000000000000000003
+Oxia + MinIO checkpoint REAPING authority passed: real Owner abandonment=true, real Intent PENDING_UPLOAD->REAPING=true, exact-version prefix sweep=2, finalEmptyPrefix=true, localProviderOwnershipClosed=true
+Oxia + MinIO Object Store credential renewal E2E passed: real Profile Head/protection CAS renewed the exact lease and fenced the live adapter at secret rotation
+```
+
+The renewal receipt proves the real Profile Head/binding/protection/session
+composition, same-generation lease extension within the explicit renewal
+window, and fail-closed behavior after Head rotation. It does not prove
+external secret-manager resolution, provider upload after renewal, multi-node
+authority failover, provider-side quiescence/attestation or release readiness.
+Exact postchecks found no project containers, network, volumes or temporary
+Oxia image. Only the locked Oxia and MinIO bases remain; no global Docker
+prune or unrelated image deletion was performed.

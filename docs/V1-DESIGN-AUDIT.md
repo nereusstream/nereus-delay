@@ -11766,3 +11766,29 @@ retained; no global Docker prune or unrelated image deletion was performed.
 The receipt strengthens Gates 2, 3 and 10 but does not promote them to
 release PASS. Gates 5, 6, 7 and 9 remain `OPEN`, Gate 8 remains `PARTIAL`,
 and V1 remains `NOT READY`.
+
+## 2026-08-17 Current-source Oxia/MinIO credential renewal receipt
+
+Audit result: PASS for the bounded real Oxia Profile/Head/protection and
+Object Store lease-renewal slice at Delay
+`7675ea75c8f51f07a0898986e529c9035ee51528`. The runner used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`,
+project `nereus-delay-oxia-minio-checkpoint-e2e-1786921039-77113`, and ports
+`31500/31501`. The three selected real-service tests passed with zero
+failures/errors: checkpoint publication, checkpoint REAPING, and
+`OxiaRealObjectStoreCredentialRenewalSmokeTest`.
+
+The exact renewal receipt was:
+
+```text
+Oxia + MinIO Object Store credential renewal E2E passed: real Profile Head/protection CAS renewed the exact lease and fenced the live adapter at secret rotation
+```
+
+This confirms same-generation renewal inside the explicit window, protected
+lease reread and fail-closed fencing after Head generation rotation. It does
+not establish external secret-manager resolution, provider upload after
+renewal, multi-node authority failover, provider-side quiescence/attestation,
+source-ordered credential refresh or V1 release approval. Exact cleanup found
+no project resources or temporary Oxia image; only the locked Oxia and MinIO
+bases remain, with no global Docker prune or unrelated image deletion.
