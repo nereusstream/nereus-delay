@@ -1675,3 +1675,39 @@ This closes only the bounded REAPING-to-provider composition for the locked
 seam. External lifecycle authorization, provider ownership/quiescence,
 source-ordered retire/delete confirmation, Floor/Pin/Owner transactions,
 provider breadth, chaos, failover and release gates remain open.
+
+## Checkpoint REAPING quiescence proof receipt
+
+The coordinator now requires an immutable quiescence proof before its
+provider call. The proof binds the pending intent and reaping evidence,
+checks `requestQuiescenceHorizon >= maximumProviderOwnershipLifetime +
+maximumTrustedUtcIntervalWidth`, and requires the observed trusted interval
+to be after the reaping boundary and both old-owner/provider closure horizons.
+Opaque evidence digests identify those external attestations; this local
+slice does not issue them.
+
+The local regression is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.CheckpointReapingSweepCoordinatorTest \
+  --no-daemon --console=plain
+```
+
+The source-locked implementation is Delay commit
+`7b8b73885c5ec26dfc96c1b5b8a1a6ab8ec0d1d9`. The locked MinIO rerun used
+container `nereus-delay-minio-e2e-1786843920-34723`, endpoint
+`http://127.0.0.1:59954`, bucket
+`nereus-delay-checkpoints-1786843920-34723`, image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`
+and repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+JUnit recorded `tests=1 skipped=0 failures=0 errors=0`, system-out recorded
+manifest provider version `9c4dcab9-c03c-4860-81de-07e62302d30e`, and the
+harness ended with `BUILD SUCCESSFUL` after the proof-gated coordinator
+sweep.
+
+This closes only the local proof/ordering gate. External attestation issuers,
+Owner/session loss, provider quiescence, source-ordered delete confirmation,
+Floor/Pin/Owner transactions, provider breadth, chaos, failover and release
+gates remain open.

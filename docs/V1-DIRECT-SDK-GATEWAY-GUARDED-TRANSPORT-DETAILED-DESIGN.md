@@ -5295,3 +5295,29 @@ The composition still requires external proof of old-Owner abandonment or
 session loss, provider-owned request quiescence, source-ordered retire and
 delete confirmation, and Recovery Floor/Pin/Owner transactions. It does not
 claim those authority or release gates.
+
+### 2026-08-16 REAPING quiescence proof implementation note
+
+Delay commit `7b8b73885c5ec26dfc96c1b5b8a1a6ab8ec0d1d9` makes the provider
+handoff consume an explicit `CheckpointReapingQuiescenceProof`. The proof
+binds the pending intent digest and the exact `reapingStartedAt` evidence,
+requires the configured request-quiescence horizon to cover maximum provider
+ownership lifetime plus trusted-clock interval width, and carries separate
+opaque evidence digests for the certified old-owner local guard and provider
+request horizon. `CheckpointReapingQuiescenceGuard` rejects an unelapsed
+request boundary or either unclosed external horizon before the coordinator's
+current-intent reread and prefix listing.
+
+The focused proof-gate tests and locked MinIO run passed. The MinIO run used
+container `nereus-delay-minio-e2e-1786843920-34723`, endpoint
+`http://127.0.0.1:59954`, bucket
+`nereus-delay-checkpoints-1786843920-34723`, image repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`,
+and provider manifest version `9c4dcab9-c03c-4860-81de-07e62302d30e`; JUnit
+recorded `tests=1 skipped=0 failures=0 errors=0` and the harness ended with
+`BUILD SUCCESSFUL`.
+
+The proof is a local contract for external evidence, not an evidence issuer:
+Owner/session loss detection, provider quiescence attestation, source-ordered
+delete confirmation, Floor/Pin/Owner transactions, provider breadth, chaos,
+failover and release gates remain outside this implementation.

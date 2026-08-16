@@ -4673,6 +4673,7 @@ the guarded Broker rollout attestation remains external evidence.
 | Delay checkpoint delete retry-convergence slice | `nereus/delay-full-implementation-v1@220fc98a` (404 presence probes now carry provider request/response evidence; partial response loss resumes from the remaining verified object set and a completely absent set returns `ALREADY_ABSENT`; final prefix sweep and retire/Floor/Pin authority remain open) |
 | Delay checkpoint prefix sweep slice | `nereus/delay-full-implementation-v1@c32a98f328400c71346b98188930a6efa80da7c9` (bounded one-page `ListObjectVersions` over the exact checkpoint prefix, secure/version-complete parsing, exact-version deletes and a final empty-prefix listing; the locked MinIO receipt records `f905db1e-1a7e-455c-bb32-5fa90bb7ed1f`; external REAPING/Floor/Pin/Owner authorization and lifecycle state transition remain open) |
 | Delay checkpoint REAPING sweep coordination slice | `nereus/delay-full-implementation-v1@b9fcd2aa846329ed13986b122d287375a441b2fd` (exact PENDING_UPLOAD -> REAPING CAS and successor reread precede the provider sweep; response loss retries the same REAPING identity/prefix; the locked MinIO receipt records `f5404da4-4944-4581-a75d-80dccdad92c3`; old-Owner/session authority, quiescence and external delete confirmation remain open) |
+| Delay checkpoint REAPING quiescence proof slice | `nereus/delay-full-implementation-v1@7b8b73885c5ec26dfc96c1b5b8a1a6ab8ec0d1d9` (immutable proof binds pending/reaping evidence, enforces the provider-lifetime plus trusted-clock-width horizon, and requires old-owner/provider closure horizons before the coordinator calls the provider; the locked MinIO receipt records `9c4dcab9-c03c-4860-81de-07e62302d30e`; external attestation issuers, Owner/session loss and delete confirmation remain open) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
@@ -8597,6 +8598,35 @@ authority. Old-Owner abandonment/session loss, provider ownership and
 quiescence horizons, source-ordered retire/delete confirmation, Recovery
 Floor/Pin/Owner transactions, multi-page policy, provider breadth, chaos,
 failover and V1 release readiness remain open.
+
+## 2026-08-16 Checkpoint REAPING quiescence proof audit
+
+Delay commit `7b8b73885c5ec26dfc96c1b5b8a1a6ab8ec0d1d9` adds the immutable
+`CheckpointReapingQuiescenceProof` and pure
+`CheckpointReapingQuiescenceGuard`. The proof binds the exact pending intent
+digest and reaping evidence, limits every trusted-time interval, and rejects
+a configured request horizon shorter than the certified provider-ownership
+lifetime plus maximum trusted-clock width. Before prefix listing, the gate
+requires the observed trusted interval to be after the reaping boundary and
+after both old-owner local-guard and provider-ownership closure evidence.
+
+The focused regression covers provider-horizon rejection and the arithmetic
+bound; the locked MinIO run used container
+`nereus-delay-minio-e2e-1786843920-34723`, endpoint
+`http://127.0.0.1:59954`, bucket
+`nereus-delay-checkpoints-1786843920-34723`, image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`
+and repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+JUnit recorded `tests=1 skipped=0 failures=0 errors=0`, system-out recorded
+manifest provider version `9c4dcab9-c03c-4860-81de-07e62302d30e`, and the
+harness ended with `BUILD SUCCESSFUL`.
+
+This is a local proof gate only: the opaque old-owner/provider evidence
+digests still need certified external issuers. Owner/session loss detection,
+provider quiescence attestation, source-ordered delete confirmation,
+Recovery Floor/Pin/Owner transactions, provider breadth, chaos, failover and
+release readiness remain open.
 
 ## Final gate
 

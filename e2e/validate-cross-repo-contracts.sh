@@ -1129,6 +1129,30 @@ require_file_text "$delay_root/e2e/README.md" \
     "Checkpoint REAPING sweep coordination receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "f5404da4-4944-4581-a75d-80dccdad92c3"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointReapingQuiescenceProof.java" \
+    "maximumProviderOwnershipLifetimeMs"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointReapingQuiescenceProof.java" \
+    "requestQuiescenceHorizonMs < minimumHorizon"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointReapingQuiescenceGuard.java" \
+    "PROVIDER_OWNERSHIP_NOT_CLOSED"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointReapingQuiescenceGuard.java" \
+    "public static void require"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointReapingSweepCoordinatorTest.java" \
+    "providerOwnershipHorizonBlocksSweepAfterTheRequestWindow"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Checkpoint REAPING quiescence proof gate"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "7b8b73885c5ec26dfc96c1b5b8a1a6ab8ec0d1d9"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Delay checkpoint REAPING quiescence proof slice"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Checkpoint REAPING quiescence proof audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "REAPING quiescence proof implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Checkpoint REAPING quiescence proof receipt"
+require_file_text "$delay_root/e2e/README.md" \
+    "9c4dcab9-c03c-4860-81de-07e62302d30e"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"
