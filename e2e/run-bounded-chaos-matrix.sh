@@ -8,13 +8,14 @@ pulsar_dir="${NEREUS_DELAY_PULSAR_CHECKOUT:-${delay_dir}/../../pulsar-worktrees/
 oxia_dir="${NEREUS_DELAY_OXIA_CHECKOUT:-${delay_dir}/../../oxia}"
 artifact_dir="${NEREUS_DELAY_CHAOS_MATRIX_ARTIFACT_DIR:-$(mktemp -d -t nereus-delay-bounded-chaos.XXXXXX)}"
 mkdir -p "${artifact_dir}"
+matrix_gradle_home="${NEREUS_DELAY_CHAOS_MATRIX_GRADLE_USER_HOME:-${artifact_dir}/gradle-user-home}"
+mkdir -p "${matrix_gradle_home}"
 
 delay_base="2dfc3289ffdbe9cf9d7f4d0de1d701493d1b49a6"
 kafka_base="c300006a7705c240642db6950b5a95fec982bfc5"
 pulsar_base="8dae0236c0a0d405ed7f8303081080520fe91551"
 matrix_status=0
 declare -a cell_results=()
-declare -a observed_projects=()
 
 require_checkout() {
   local path="$1"
@@ -35,6 +36,7 @@ require_checkout "${pulsar_dir}" "nereus/delay-resource-guard-v1" "${pulsar_base
 require_checkout "${oxia_dir}" "main" "$(git -C "${oxia_dir}" rev-parse HEAD)" "Oxia"
 
 echo "Bounded chaos matrix artifact directory: ${artifact_dir}"
+echo "Matrix Gradle cache: ${matrix_gradle_home}"
 echo "Matrix scope: current-source focused cuts only; this is not a V1 release gate by itself."
 
 run_cell() {
@@ -65,7 +67,7 @@ run_cell kafka-broker-process-crash env \
   NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
   NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
   NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_ONLY=1 \
-  NEREUS_DELAY_KAFKA_GRADLE_USER_HOME="${artifact_dir}/kafka-broker-process-crash-gradle" \
+  NEREUS_DELAY_KAFKA_GRADLE_USER_HOME="${matrix_gradle_home}" \
   KAFKA_BROKER_1_PORT=31200 KAFKA_BROKER_2_PORT=31201 KAFKA_BROKER_3_PORT=31202 \
   NEREUS_DELAY_KAFKA_OXIA_PORT=31210 \
   "${script_dir}/run-kafka-real-client-e2e.sh"
@@ -75,7 +77,7 @@ run_cell kafka-worker-ack-process-crash env \
   NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
   NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
   NEREUS_DELAY_KAFKA_WORKER_ACK_PROCESS_CRASH_ONLY=1 \
-  NEREUS_DELAY_KAFKA_GRADLE_USER_HOME="${artifact_dir}/kafka-worker-ack-process-crash-gradle" \
+  NEREUS_DELAY_KAFKA_GRADLE_USER_HOME="${matrix_gradle_home}" \
   KAFKA_BROKER_1_PORT=31220 KAFKA_BROKER_2_PORT=31221 KAFKA_BROKER_3_PORT=31222 \
   NEREUS_DELAY_KAFKA_OXIA_PORT=31230 \
   "${script_dir}/run-kafka-real-client-e2e.sh"
@@ -85,7 +87,7 @@ run_cell kafka-broker-tcp-cut env \
   NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
   NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
   NEREUS_DELAY_KAFKA_BROKER_TCP_CUT_ONLY=1 \
-  NEREUS_DELAY_KAFKA_GRADLE_USER_HOME="${artifact_dir}/kafka-broker-tcp-cut-gradle" \
+  NEREUS_DELAY_KAFKA_GRADLE_USER_HOME="${matrix_gradle_home}" \
   KAFKA_BROKER_1_PORT=31240 KAFKA_BROKER_2_PORT=31241 KAFKA_BROKER_3_PORT=31242 \
   NEREUS_DELAY_KAFKA_OXIA_PORT=31250 \
   "${script_dir}/run-kafka-real-client-e2e.sh"
@@ -96,7 +98,7 @@ run_cell pulsar-worker-process-crash env \
   NEREUS_DELAY_PULSAR_WITH_OXIA=1 \
   NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH=1 \
   NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_ONLY=1 \
-  NEREUS_DELAY_PULSAR_GRADLE_USER_HOME="${artifact_dir}/pulsar-worker-process-crash-gradle" \
+  NEREUS_DELAY_PULSAR_GRADLE_USER_HOME="${matrix_gradle_home}" \
   PULSAR_BROKER_PORT=31260 PULSAR_WEB_PORT=31261 \
   NEREUS_DELAY_PULSAR_OXIA_PORT=31270 \
   "${script_dir}/run-pulsar-real-client-e2e.sh"
@@ -107,14 +109,14 @@ run_cell pulsar-worker-admission-response-loss env \
   NEREUS_DELAY_PULSAR_WITH_OXIA=1 \
   NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS=1 \
   NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS_ONLY=1 \
-  NEREUS_DELAY_PULSAR_GRADLE_USER_HOME="${artifact_dir}/pulsar-worker-admission-response-loss-gradle" \
+  NEREUS_DELAY_PULSAR_GRADLE_USER_HOME="${matrix_gradle_home}" \
   PULSAR_BROKER_PORT=31280 PULSAR_WEB_PORT=31281 \
   NEREUS_DELAY_PULSAR_OXIA_PORT=31290 \
   "${script_dir}/run-pulsar-real-client-e2e.sh"
 
 run_cell checkpoint-reaping env \
   NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
-  NEREUS_DELAY_E2E_GRADLE_USER_HOME="${artifact_dir}/checkpoint-reaping-gradle" \
+  NEREUS_DELAY_E2E_GRADLE_USER_HOME="${matrix_gradle_home}" \
   NEREUS_DELAY_OXIA_CHECKPOINT_E2E_PORT=31300 \
   NEREUS_DELAY_MINIO_CHECKPOINT_E2E_PORT=31301 \
   "${script_dir}/run-oxia-minio-checkpoint-e2e.sh"
