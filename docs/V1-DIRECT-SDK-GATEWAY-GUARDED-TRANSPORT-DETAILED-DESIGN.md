@@ -6231,6 +6231,43 @@ This establishes the bounded Fetch uncertainty rule with real Broker data:
 the response was discarded after the exact offset-0/1 batch and its LSO=2 had
 been received, a fresh same-group source consumer replayed offset 0, then
 source ACK committed offset 2. This is controlled client-side response loss;
-raw socket loss, retention-floor recovery, coordinator/process/Broker crash
-cuts, multi-shard placement, checkpoint publication and release gates remain
-outside this receipt.
+raw socket loss, coordinator/process/Broker crash cuts, multi-shard placement,
+checkpoint publication and release gates remain outside this receipt.
+
+### 2026-08-16 Kafka source retention-floor receipt
+
+Delay commit `d8dc5f45` adds
+`KafkaClientArtifactRetentionFloorSmoke`, the
+`runRealKafkaRetentionFloorSmoke` task and the opt-in mode:
+
+```bash
+NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ONLY=1 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-retention-floor-gradle-2 \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The source-bound receipt locks K1 to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+Delay `d8dc5f45`, and Compose project
+`nereus-delay-kafka-e2e-1786880647-45643` on `19235,19236,19237`.
+
+It prints:
+
+```text
+Kafka source retention-floor smoke passed: oldOffset=0, retentionFloor=20, endOffset=21, staleOffsetRejected=true, floorFetchOffset=20, fetchLso=21
+BUILD SUCCESSFUL
+Kafka source retention-floor E2E passed: real Broker retention advanced the earliest offset, stale source offset was rejected, and the current floor remained readable through guarded Fetch v13 with LSO.
+```
+
+The smoke produces twenty guarded records, waits for real Broker retention to
+advance the earliest offset from `0` to `20`, appends a current tail at offset
+`20`, and rejects a stale guarded Fetch as a typed
+`ConsumerResourceGuardException` carrying `OFFSET_OUT_OF_RANGE`. It then
+reads the floor record through guarded `read_committed` Fetch v13 with
+`lastStableOffset=21`. This is the source retention-floor contract; raw socket
+loss, disk-full behavior, consumer-coordinator/process/Broker crash recovery,
+multi-shard placement, checkpoint publication, chaos and release gates are
+separate obligations.

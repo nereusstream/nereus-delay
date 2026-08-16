@@ -2733,3 +2733,38 @@ same group replayed exact offset 0, then ACKed offsets 0 and 1 through group
 offset 2 with LSO 2. It does not cover raw socket loss, retention-floor
 recovery, coordinator/process/Broker crash cuts, multi-shard placement,
 checkpoint publication, chaos or V1 release readiness.
+
+## Kafka source retention-floor receipt
+
+The focused retention mode composes the locked K1 client with a real
+three-Broker KRaft cluster:
+
+```bash
+NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ONLY=1 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-retention-floor-gradle-2 \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The post-commit receipt passed at Delay `d8dc5f45`, Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+and Compose project `nereus-delay-kafka-e2e-1786880647-45643` on ports
+`19235,19236,19237`.
+
+It printed:
+
+```text
+Kafka source retention-floor smoke passed: oldOffset=0, retentionFloor=20, endOffset=21, staleOffsetRejected=true, floorFetchOffset=20, fetchLso=21
+BUILD SUCCESSFUL
+Kafka source retention-floor E2E passed: real Broker retention advanced the earliest offset, stale source offset was rejected, and the current floor remained readable through guarded Fetch v13 with LSO.
+```
+
+This closes the bounded real-Broker retention-floor recovery slice: twenty
+guarded records were produced, Broker retention advanced the earliest offset
+to `20`, a stale offset `0` Fetch failed closed with typed
+`OFFSET_OUT_OF_RANGE`, and the fresh floor record remained readable with LSO
+`21`. Raw socket loss, coordinator/process/Broker crash cuts, multi-shard
+placement, checkpoint publication, chaos and V1 release readiness remain
+outside this receipt.

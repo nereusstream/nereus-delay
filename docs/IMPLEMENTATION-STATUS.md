@@ -5568,6 +5568,11 @@ Owner/Assignment release. This is one source partition and ends at Worker
 Commit/Object Store readback; combined destination egress, multi-shard
 placement, raw failure matrix and release evidence remain open.
 
+The current Kafka source fault-matrix evidence additionally closes the
+controlled Fetch response-loss and retention-floor slices below. Those receipts
+do not promote raw network/process failure, multi-shard placement, checkpoint
+publication or release readiness.
+
 | Area | Status | Evidence |
 |---|---|---|
 | Shared Semantic Core and signed immutable RouteSnapshot | Partial (local deterministic core plus Oxia event/head-CAS authority composition; bounded Kafka and Pulsar activation/failover proofs added; production gates open) | `RouteSnapshotV1`, `DefaultDelaySemanticCore`, `InMemorySignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotPublisher`, `RouteSnapshotCompatibilityV1`, `DefaultDelayClient`, `RouteBoundSubmissionTransportPlanResolver`, `RouteSnapshotV1Test`, `DefaultDelaySemanticCoreTest`, `InMemorySignedRouteSnapshotProviderTest`, `OxiaSignedRouteSnapshotProviderTest`, `OxiaRealRouteAuthoritySmokeTest`, `KafkaClientArtifactRouteWorkerSmoke`, `PulsarClientArtifactRouteWorkerSmoke`; canonical signature/digest, contiguous replay, head CAS, notification refresh with an isolated watch client, same-incarnation immutable-drift quarantine, tenant-scoped historical resolution, explicit-refresh real Oxia publication and zero-I/O preparation are covered. Bounded real Kafka Fetch v13/LSO and Pulsar guarded SUBSCRIBE/position proofs now feed signed Route barriers, real Oxia Route publication and route-bound Worker assignment; Kafka and Pulsar now add bounded multi-Broker Worker failover, and Gateway adds a real multi-node Oxia DataServer leader-stop reread. Kafka additionally proves bounded Worker Store apply, source ACK, final local checkpoint and owner/assignment release. A bounded Oxia restart/session-rotation reset now reopens the provider notification client and resumes the next signed revision; native eligibility authority, catalog-driven multi-shard placement, package split and production cross-entry gate remain open |
@@ -11722,3 +11727,49 @@ response loss after a real Broker Fetch, not raw socket packet loss.
 Retention-floor recovery, consumer-coordinator/process/Broker crash cuts,
 multi-shard placement, Object Store checkpoint publication, raw chaos and the
 V1 release gates remain open.
+
+## 2026-08-16 Kafka source retention-floor receipt
+
+Delay implementation commit `d8dc5f45` adds the focused
+`KafkaClientArtifactRetentionFloorSmoke`, the
+`runRealKafkaRetentionFloorSmoke` Gradle task and the
+`NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ONLY=1` E2E mode. The source-bound
+command was:
+
+```bash
+NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ONLY=1 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-retention-floor-gradle-2 \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The post-commit receipt used Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image ID
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+and Delay `d8dc5f45`. The isolated Compose project was
+`nereus-delay-kafka-e2e-1786880647-45643` on broker ports
+`19235,19236,19237`; its dynamic source topic ended in
+`dba4b940-5dfb-424a-8370-5c1ebfd32650`.
+
+The source-bound output was:
+
+```text
+Kafka source retention-floor smoke passed: oldOffset=0, retentionFloor=20, endOffset=21, staleOffsetRejected=true, floorFetchOffset=20, fetchLso=21
+BUILD SUCCESSFUL
+Kafka source retention-floor E2E passed: real Broker retention advanced the earliest offset, stale source offset was rejected, and the current floor remained readable through guarded Fetch v13 with LSO.
+```
+
+This closes a bounded real three-Broker KRaft retention slice. The smoke
+produces twenty guarded source records, observes Broker retention advance the
+earliest offset from `0` to `20`, appends a fresh tail record at offset `20`,
+rejects a stale guarded Fetch at offset `0` as typed
+`ConsumerResourceGuardException` carrying `OFFSET_OUT_OF_RANGE`, and reads
+the current floor with `lastStableOffset=21`. The retention configuration is
+only a deterministic test acceleration; it is not a disk-full or raw socket
+fault injection.
+
+Consumer-coordinator/process/Broker crash cuts, raw network/proxy chaos,
+multi-shard placement, Object Store checkpoint publication and the V1 release
+gates remain open.
