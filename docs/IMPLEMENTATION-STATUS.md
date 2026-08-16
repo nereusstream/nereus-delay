@@ -11438,7 +11438,9 @@ become `PUBLISHED` merely because its owner ID is valid.
 
 The focused Kafka/Pulsar evidence tests passed, as did the source-locked
 `compileRealKafka` and `compileRealPulsar` tasks against the locked K1/P1
-artifacts. This closes only local recovered-evidence identity binding; it does
-not establish live read-committed/Pulsar reread authority, Broker rollout or
+artifacts. Follow-up commit `df2d021fc7e8c5586b062870325efa71835b6d3b` retains
+the explicit K2 owner check required by the cross-repository contract audit.
+This closes only local recovered-evidence identity binding; it does not
+establish live read-committed/Pulsar reread authority, Broker rollout or
 failover, source/ACK integration, Worker production wiring or V1 release
 evidence.

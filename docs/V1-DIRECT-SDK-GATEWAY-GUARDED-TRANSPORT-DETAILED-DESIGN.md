@@ -6147,6 +6147,8 @@ broker-persistence-time checks before an uncertain SEND can be promoted.
 The provider remains responsible for the live Fetch/reread proof; the
 transport now owns the final request/evidence identity fence. The focused
 evidence tests and source-locked `compileRealKafka`/`compileRealPulsar` tasks
-passed. This closes only local recovered-evidence binding; read-committed or
+passed. Follow-up commit `df2d021fc7e8c5586b062870325efa71835b6d3b` retains
+the explicit K2 owner check required by the cross-repository contract audit.
+This closes only local recovered-evidence binding; read-committed or
 Pulsar reread authority, Broker rollout/failover, source/ACK integration,
 Worker production wiring and release gates remain open.
