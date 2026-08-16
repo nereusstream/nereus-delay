@@ -21,6 +21,7 @@ import io.oxia.client.api.PutResult;
 import io.oxia.client.api.Version;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
+import io.oxia.client.api.options.DeleteOption;
 import io.oxia.client.api.options.PutOption;
 import io.oxia.client.api.options.defs.OptionVersionId;
 import org.junit.jupiter.api.Test;
@@ -34,6 +35,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class OxiaSyncRecoveryCatalogBackendTest {
     private static final CheckpointManifestLimits LIMITS = new CheckpointManifestLimits(
@@ -172,12 +174,56 @@ class OxiaSyncRecoveryCatalogBackendTest {
     }
 
     @Test
-    void uploadIntentAndPinTransactionAreNotPretendedToBeSingleRecordCas() {
+    void uploadIntentCasRemainsSeparateFromCatalogCas() {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncRecoveryCatalogBackend backend = new OxiaSyncRecoveryCatalogBackend(records, "delay/strict",
                 LIMITS);
         assertThrows(UnsupportedOperationException.class,
                 () -> backend.publishUploadedCheckpoint(null, null, 0));
+    }
+
+    @Test
+    void recoveryPinUsesAnEphemeralSingletonCasAndExactRereadRelease() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final OxiaSyncRecoveryCatalogBackend backend = new OxiaSyncRecoveryCatalogBackend(records, "delay/pin",
+                LIMITS);
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 11);
+        final CheckpointManifest manifest = manifest(shard, id16(60), id16(61), 0, 1, 1, null);
+        backend.publish(manifest, 0);
+        final RecoveryFloorRefV1 floor = backend.advanceFloor(manifest.checkpointId(), 1,
+                java.util.List.<EvidenceCursorV1>of());
+        final RecoveryPinV1 pin = pin(shard, manifest, floor, fakeSessionIdentity(), 62, 63);
+
+        records.failNextPutAfterCommit = true;
+        assertEquals(pin, backend.createRecoveryPin(pin));
+        assertEquals(pin, backend.activeRecoveryPin().orElseThrow());
+
+        final OxiaSyncRecoveryCatalogBackend reopened = new OxiaSyncRecoveryCatalogBackend(records, "delay/pin",
+                LIMITS);
+        assertEquals(pin, reopened.activeRecoveryPin().orElseThrow());
+        final RecoveryPinV1 conflicting = pin(shard, manifest, floor, fakeSessionIdentity(), 64, 65);
+        assertThrows(IllegalStateException.class, () -> reopened.createRecoveryPin(conflicting));
+
+        records.failNextDeleteAfterCommit = true;
+        reopened.releaseRecoveryPin(pin);
+        assertTrue(reopened.activeRecoveryPin().isEmpty());
+        assertThrows(IllegalStateException.class, () -> reopened.releaseRecoveryPin(pin));
+    }
+
+    @Test
+    void recoveryPinRequiresAnIdentityBearingCallerSession() {
+        final FakeRecordClient records = new FakeRecordClient(null);
+        final OxiaSyncRecoveryCatalogBackend catalogOnly = new OxiaSyncRecoveryCatalogBackend(records,
+                "delay/catalog-only", LIMITS);
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 12);
+        final CheckpointManifest manifest = manifest(shard, id16(66), id16(67), 0, 1, 1, null);
+        catalogOnly.publish(manifest, 0);
+        final RecoveryFloorRefV1 floor = catalogOnly.advanceFloor(manifest.checkpointId(), 1,
+                java.util.List.<EvidenceCursorV1>of());
+        final RecoveryPinV1 pin = pin(shard, manifest, floor, fakeSessionIdentity(), 68, 69);
+
+        assertThrows(IllegalStateException.class, () -> catalogOnly.createRecoveryPin(pin));
+        assertTrue(catalogOnly.activeRecoveryPin().isEmpty());
     }
 
     @Test
@@ -307,12 +353,43 @@ class OxiaSyncRecoveryCatalogBackendTest {
         return bytes;
     }
 
+    private static RecoveryPinV1 pin(final ShardId shard, final CheckpointManifest manifest,
+                                     final RecoveryFloorRefV1 floor, final byte[] sessionIdentity,
+                                     final int pinId, final int ownerId) {
+        final RecoveryCandidateRefV1 candidate = new RecoveryCandidateRefV1(
+                RecoveryCandidateKindV1.CATALOG_CHECKPOINT, manifest.recoveryLineageId(), manifest.checkpointId(),
+                manifest.manifestSha256(), null);
+        return new RecoveryPinV1(id16(pinId), new ShardSubjectV1(shard),
+                new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(ownerId)), candidate,
+                floor, floor.catalogGeneration(), sessionIdentity);
+    }
+
+    private static byte[] fakeSessionIdentity() {
+        return Bytes.sha256(Bytes.utf8("nereus-delay-oxia-session-identity-v1\0"), Bytes.u64be(101),
+                Bytes.lp32(Bytes.utf8("fake-recovery-session")));
+    }
+
     private static final class FakeRecordClient implements OxiaSyncRecoveryCatalogBackend.RecordClient {
         private final Map<String, GetResult> records = new HashMap<>();
+        private final byte[] sessionIdentity;
         private long nextVersion = 1;
         private int putCount;
         private boolean failNextPutAfterCommit;
+        private boolean failNextDeleteAfterCommit;
         private boolean returnWrongKeyOnNextGet;
+
+        private FakeRecordClient() {
+            this(fakeSessionIdentity());
+        }
+
+        private FakeRecordClient(final byte[] sessionIdentity) {
+            this.sessionIdentity = sessionIdentity == null ? null : Bytes.copy(sessionIdentity);
+        }
+
+        @Override
+        public byte[] sessionIdentity() {
+            return sessionIdentity == null ? null : Bytes.copy(sessionIdentity);
+        }
 
         @Override
         public GetResult get(final String key) {
@@ -342,7 +419,8 @@ class OxiaSyncRecoveryCatalogBackendTest {
                             current == null ? OptionVersionId.KEY_NOT_EXISTS : current.version().versionId());
                 }
             }
-            final Version version = new Version(nextVersion++, 0, 0, 1, Optional.empty(), Optional.empty());
+            final Version version = new Version(nextVersion++, 0, 0, 1, Optional.of(101L),
+                    Optional.of("fake-recovery-session"));
             records.put(key, new GetResult(key, Bytes.copy(value), version));
             putCount++;
             if (failNextPutAfterCommit) {
@@ -352,8 +430,33 @@ class OxiaSyncRecoveryCatalogBackendTest {
             return new PutResult(key, version);
         }
 
+        @Override
+        public boolean delete(final String key, final Set<DeleteOption> options)
+                throws UnexpectedVersionIdException {
+            final GetResult current = records.get(key);
+            if (current == null) {
+                return false;
+            }
+            final OptionVersionId condition = options.stream()
+                    .filter(OptionVersionId.class::isInstance)
+                    .map(OptionVersionId.class::cast)
+                    .findFirst().orElse(null);
+            if (condition != null && (current.version() == null
+                    || current.version().versionId() != condition.versionId())) {
+                throw new UnexpectedVersionIdException(key, current.version() == null
+                        ? OptionVersionId.KEY_NOT_EXISTS : current.version().versionId());
+            }
+            records.remove(key);
+            if (failNextDeleteAfterCommit) {
+                failNextDeleteAfterCommit = false;
+                throw new IllegalStateException("simulated delete response loss");
+            }
+            return true;
+        }
+
         private void putRaw(final String key, final byte[] value) {
-            final Version version = new Version(nextVersion++, 0, 0, 1, Optional.empty(), Optional.empty());
+            final Version version = new Version(nextVersion++, 0, 0, 1, Optional.of(101L),
+                    Optional.of("fake-recovery-session"));
             records.put(key, new GetResult(key, Bytes.copy(value), version));
         }
 
