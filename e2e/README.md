@@ -3318,3 +3318,24 @@ Kafka + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload + Kafka destinati
 The runner removes only the exact Compose project, its temporary networks,
 volumes and run-created Kafka/Oxia images; reusable base images remain and no
 global Docker prune is run.
+
+## Current Oxia Route-driven multi-shard placement
+
+Refresh the current real Oxia placement receipt with:
+
+```bash
+NEREUS_DELAY_OXIA_E2E_PORT=16659 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-multishard-20260816-current \
+  bash e2e/run-oxia-real-service.sh
+```
+
+The source lock is Delay `b059d99aef1793f56c4b33d4293ec141e20c4d96` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The run proves two signed Route
+partitions placed across two workers with session-bound Assignment CAS and
+exact withdrawal. It is not yet a two-native-source Worker fleet proof;
+per-shard source ownership/catch-up/ACK, scheduler fairness, raw chaos and
+V1 release readiness remain open.
+
+The runner's project/container/network cleanup was exact. Its run-created
+Oxia image required one explicit `docker image rm` after the runner, and was
+then absent; reusable base images remain and no global Docker prune is run.

@@ -12256,6 +12256,34 @@ evidence. Exact post-run checks found no containers, networks, volumes or
 temporary Kafka/Oxia images for either isolated project; base images were not
 globally pruned.
 
+## 2026-08-16 Current Oxia Route-driven multi-shard placement receipt
+
+The current-source rerun used Delay
+`b059d99aef1793f56c4b33d4293ec141e20c4d96` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`:
+
+```bash
+NEREUS_DELAY_OXIA_E2E_PORT=16659 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-multishard-20260816-current \
+  bash e2e/run-oxia-real-service.sh
+```
+
+The isolated Compose project was
+`nereus-delay-v1-oxia-e2e-1786894971-29820`, endpoint `127.0.0.1:16659`, and
+the temporary Oxia image was
+`sha256:01c76f33ffef8b9ca2e1e251a85f48d26b56035a360818ceeed14253ee064e05`.
+The selected real-service test XML recorded two tests with zero skips,
+failures or errors. The run passed the signed Route -> Worker assignment
+CAS and the two-shard/two-worker placement CAS.
+
+This refreshes current source evidence for real Oxia Route-driven placement
+only. It still does not prove two native Kafka/Pulsar source consumers,
+per-shard Owner Lease/catch-up/ACK, production multi-shard Worker scheduling,
+raw chaos or V1 release readiness. The exact temporary image was removed
+explicitly after the runner left it behind; post-cleanup checks found no
+container, network, volume or project image, and no global Docker prune was
+used.
+
 ## 2026-08-16 Kafka current Large-payload production-authority receipt
 
 The current-source rerun used Delay `eb8e4a9df859316253202ba3abfb48236bf64196`

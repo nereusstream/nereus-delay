@@ -6754,3 +6754,16 @@ This remains the one-partition destination-authority slice. The current live
 receipt is evidence for the Kafka path only; it does not collapse separately
 required response-loss/LSO/retention, raw crash/chaos, catalog-driven
 multi-shard or release-gate obligations into this smoke.
+
+## 2026-08-16 Current multi-shard placement implementation note
+
+The real Oxia placement harness remains intentionally below native Worker
+fleet authority. At Delay `b059d99aef1793f56c4b33d4293ec141e20c4d96`,
+`OxiaRealRouteWorkerAssignmentSmokeTest` placed two Route partitions on two
+workers after reflecting the first committed capacity, reread both signed
+assignments and withdrew each exact identity through session-bound CAS.
+
+The next production boundary is to bind each accepted assignment to a native
+Kafka/Pulsar source consumer, Owner Lease, catch-up, scheduler and source
+ACK/checkpoint lifecycle. Until that exists, the current evidence must remain
+“multi-shard placement authority”, not “multi-shard Worker production”.

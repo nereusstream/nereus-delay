@@ -10235,3 +10235,20 @@ the separate Kafka response-loss/LSO/retention slices into a single chaos
 matrix, and it does not close multi-shard placement or V1 release readiness.
 The exact run resources and temporary images were removed; reusable base
 images were retained and no global Docker prune was used.
+
+## 2026-08-16 Current Oxia Route-driven multi-shard placement audit
+
+The current-source receipt locks Delay to
+`b059d99aef1793f56c4b33d4293ec141e20c4d96` and Oxia to
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The real-service run used
+Compose project `nereus-delay-v1-oxia-e2e-1786894971-29820` and the selected
+`OxiaRealRouteWorkerAssignmentSmokeTest` suite passed two tests with zero
+skips, failures or errors.
+
+The receipt proves signed Route publication, capacity-reflecting placement of
+two Route partitions onto two workers, exact assignment rereads and
+session-bound CAS withdrawal. It remains assignment authority evidence, not a
+two-native-source Worker fleet receipt: source ownership, per-shard catch-up/
+ACK, scheduler fairness, raw chaos and V1 release readiness remain open. The
+run-created Oxia image was explicitly removed after exact Compose cleanup; no
+global Docker prune was used.
