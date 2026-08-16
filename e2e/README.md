@@ -2391,3 +2391,23 @@ The deterministic registry suite passed 1 test,
 only local registry teardown retryability; it does not prove production
 Kafka/Pulsar client lifecycle, transport delivery, Broker failover, chaos or
 V1 release readiness.
+
+## Guarded Pulsar transport teardown aggregation receipt
+
+Delay commit `9d164037f9ba3832cd1f83846813b44de18967ab` attempts both managed
+and native Pulsar sender closes after the close boundary is entered. A managed
+sender failure remains primary while the native sender is still attempted;
+the enclosing retry gate can then repeat the failed child.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.transport.GuardedTransportOwnershipTest \
+  --no-daemon --console=plain
+```
+
+The deterministic guarded transport suite passed 4 tests, including
+`pulsarCloseAttemptsNativeSenderAfterManagedSenderFailure`. This receipt proves
+only local Pulsar teardown aggregation; it does not prove native/managed
+Broker delivery, client authority, failover, chaos or V1 release readiness.

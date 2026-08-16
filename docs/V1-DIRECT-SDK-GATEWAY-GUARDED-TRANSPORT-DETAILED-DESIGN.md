@@ -5894,3 +5894,17 @@ owned for the next explicit close while successful siblings are not repeated.
 passed in the 1-test deterministic registry suite. This note closes only local
 registry teardown retryability; production Kafka/Pulsar client lifecycle,
 transport delivery, Broker failover, chaos and release gates remain open.
+
+### 2026-08-16 Guarded Pulsar transport teardown aggregation implementation note
+
+Delay commit `9d164037f9ba3832cd1f83846813b44de18967ab` makes the guarded
+Pulsar bridge attempt `managedSender.close()` and `nativeSender.close()` as
+independent teardown actions. The first failure is retained and later
+failures are suppressed; the enclosing pinned ingress/native adapter's
+retryable `CloseGuard` can therefore retry the failed sender after both child
+paths have been attempted.
+
+`GuardedTransportOwnershipTest.pulsarCloseAttemptsNativeSenderAfterManagedSenderFailure`
+passed in the 4-test deterministic guarded transport suite. This note closes
+only local teardown aggregation; native/managed Broker delivery, client
+authority, failover, chaos and release gates remain open.
