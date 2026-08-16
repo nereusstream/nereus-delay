@@ -14,6 +14,7 @@ compose_file="${script_dir}/docker-compose.pulsar-cluster.yml"
 infra_file="${script_dir}/docker-compose.pulsar-large-payload-infra.yml"
 compose=(docker compose -p "${compose_project}" -f "${compose_file}" -f "${infra_file}")
 image="nereus-delay-pulsar-p1-large:${compose_project}"
+oxia_image="${compose_project}-oxia"
 image_context="$(mktemp -d -t nereus-delay-pulsar-large-image.XXXXXX)"
 runtime_dir="$(mktemp -d -t nereus-delay-pulsar-large-runtime.XXXXXX)"
 tls_dir="$(mktemp -d -t nereus-delay-pulsar-large-tls.XXXXXX)"
@@ -93,6 +94,7 @@ cleanup() {
   fi
   "${compose[@]} down --volumes --remove-orphans --rmi local" >/dev/null 2>&1 || true
   docker image rm "${image}" >/dev/null 2>&1 || true
+  docker image rm "${oxia_image}" >/dev/null 2>&1 || true
   rm -rf "${image_context}" "${runtime_dir}" "${tls_dir}"
   echo "Pulsar large-payload E2E receipt log: ${receipt_log}" >&2
   exit "${status}"

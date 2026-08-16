@@ -76,6 +76,8 @@ import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.ShardSubjectV1;
 import io.nereusstream.delay.protocol.ProtocolTupleV1;
+import io.nereusstream.delay.protocol.SourcePosition;
+import io.nereusstream.delay.protocol.SourcePositionCodec;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.SystemMutationType;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
@@ -476,18 +478,38 @@ public final class PulsarClientArtifactWorkerSmoke {
                 () -> new IllegalStateException("provider-driven Worker turn did not queue Publish Admission"));
         final var admissionResult = admissionSubmission.result().orElseThrow(
                 () -> new IllegalStateException("provider-driven Publish Admission has no result"));
-        if (admissionResult.kind() != io.nereusstream.delay.ownership.PublishAdmissionWorkClassExecutor.ResultKind.ENQUEUED
-                || !(admissionResult.sourcePosition() instanceof PulsarSourcePosition admissionPosition)
-                || admissionPosition.compareTo(physicalSchedulePosition) <= 0) {
+        final WorkerShardRuntime.SourceBoundPhysicalPublishTurn physicalTurn =
+                dueClaimPublish.physicalTurn().orElseThrow(
+                        () -> new IllegalStateException("provider-driven Worker turn did not start physical publish"));
+        final PulsarSourcePosition admissionPosition;
+        if (admissionResult.kind()
+                == io.nereusstream.delay.ownership.PublishAdmissionWorkClassExecutor.ResultKind.ENQUEUED) {
+            if (!(admissionResult.sourcePosition() instanceof PulsarSourcePosition persistedAdmissionPosition)
+                    || persistedAdmissionPosition.compareTo(physicalSchedulePosition) <= 0) {
+                throw new IllegalStateException("Pulsar Worker provider-driven Publish Admission was not source-bound: "
+                        + admissionResult.kind());
+            }
+            admissionPosition = persistedAdmissionPosition;
+        } else if (admissionResult.kind()
+                == io.nereusstream.delay.ownership.PublishAdmissionWorkClassExecutor.ResultKind.UNKNOWN) {
+            final var recoveredAttempt = physicalTurn.attempt().orElseThrow(
+                    () -> new IllegalStateException("UNKNOWN Publish Admission did not recover a PUBLISHING attempt: "
+                            + physicalTurn.status() + "/" + physicalTurn.failure()));
+            final SourcePosition recoveredPosition = SourcePositionCodec.decode(recoveredAttempt.sourcePosition());
+            if (!(recoveredPosition instanceof PulsarSourcePosition recoveredAdmissionPosition)
+                    || recoveredAdmissionPosition.compareTo(physicalSchedulePosition) <= 0) {
+                throw new IllegalStateException("Pulsar Worker recovered UNKNOWN Publish Admission was not source-bound");
+            }
+            admissionPosition = recoveredAdmissionPosition;
+            System.out.println("Pulsar Worker recovered UNKNOWN Publish Admission from exact source mutation: "
+                    + admissionPosition);
+        } else {
             throw new IllegalStateException("Pulsar Worker provider-driven Publish Admission was not source-bound: "
                     + admissionResult.kind());
         }
         final PublishAdmissionBody admissionBody = PublishAdmissionBody.decode(
                 admissionResult.mutation().canonicalBody());
         final byte[] publishAttemptId = admissionBody.publishAttemptId();
-        final WorkerShardRuntime.SourceBoundPhysicalPublishTurn physicalTurn =
-                dueClaimPublish.physicalTurn().orElseThrow(
-                        () -> new IllegalStateException("provider-driven Worker turn did not start physical publish"));
         if (physicalTurn.status() != WorkerShardRuntime.SourceBoundPhysicalPublishStatus.PHYSICAL_SUBMITTED) {
             throw new IllegalStateException("source-applied PUBLISHING did not submit physical publish: "
                     + physicalTurn.status() + "/" + physicalTurn.failure());
