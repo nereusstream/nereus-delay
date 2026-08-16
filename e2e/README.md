@@ -1831,3 +1831,19 @@ full `./gradlew check --no-daemon --console=plain --quiet` remains the
 repository gate. This receipt is local evidence-shape coverage only and does
 not claim provider completion, deletion authorization, Floor/Pin/Owner
 transition, Shard Log append/apply, or release readiness.
+
+## Source-ordered GC confirmation handoff receipt
+
+Delay commit `b225cef9` adds a typed `GcWorkClassExecutor` handoff for
+`RESOURCE_DELETE_CONFIRMED_V1`. The handoff binds the nested retire reference
+to the exact `ResourceRetireIntentRecord` supplied by the caller and only
+returns `PERSISTED` when the external append result is strictly later than the
+retire Source Position on the same authenticated physical source. A regressed
+or foreign returned position becomes `UNKNOWN` and fences the local Owner.
+
+The focused `GcWorkClassExecutorTest` passed both the valid-later and
+regressed-position cases; the full
+`./gradlew check --no-daemon --console=plain --quiet` returned 0. This is a
+local interpretation fence for an external append receipt, not provider
+delete evidence, source position allocation, tombstone apply, lifecycle
+authorization or release evidence.

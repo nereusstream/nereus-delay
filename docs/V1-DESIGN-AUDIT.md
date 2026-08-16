@@ -4678,6 +4678,7 @@ the guarded Broker rollout attestation remains external evidence.
 | Delay Object Store provider ownership horizon slice | `nereus/delay-full-implementation-v1@cc97c7654cb19f88c69045cd3c33a4d970a9fed3` (local tracker spans complete upload/download/delete/sweep operations, retains response-loss uncertainty through a bounded horizon, fences new operations and rechecks the credential-use lease before each HTTP send; the locked MinIO receipt records `1b904a10-2104-46eb-a6fd-0bd2afe24524`; remote provider execution/quiescence attestation remains external) |
 | Delay checkpoint delete-confirmation composition slice | `nereus/delay-full-implementation-v1@70e5f0da` (pure local `CheckpointDeleteConfirmationComposer` binds `CheckpointDeleteResult` to the exact durable checkpoint retire identity, requires confirmation earliest time at or after the observation latest time, and composes a signed `RESOURCE_DELETE_CONFIRMED_V1`; provider-side deletion, retire/Floor/Pin/Owner authorization, Shard Log append and mutation apply remain external) |
 | Delay delete-confirmation temporal evidence fence slice | `nereus/delay-full-implementation-v1@a26c6816` (`ResourceDeleteConfirmedBody` and `ResourceDeleteConfirmedRecord` both require confirmation earliest time at or after the complete provider-observation interval, so manual/signed callers cannot bypass the composer; provider execution and lifecycle authorization remain external) |
+| Delay source-ordered GC confirmation handoff slice | `nereus/delay-full-implementation-v1@b225cef9` (typed `GcWorkClassExecutor.submitDeleteConfirmation` binds the exact retire record and reports `PERSISTED` only for a strictly later position in the same physical source; the executor does not append, apply, or authorize the lifecycle) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
@@ -8740,6 +8741,20 @@ construction, existing GC handoff fixtures and the checkpoint composer.
 This closes a local evidence-ordering bypass, not provider or lifecycle
 authority. It does not attest remote deletion, authorize retire/Floor/Pin/Owner
 state, append or apply the source mutation, or promote GC to PASS.
+
+## 2026-08-16 Source-ordered GC confirmation handoff audit
+
+Delay commit `b225cef9` adds a typed `GcWorkClassExecutor.submitDeleteConfirmation`
+boundary. It binds the confirmation body to the exact retire record supplied by
+the caller and interprets a persisted append as valid only when the returned
+Source Position is from the same authenticated physical source and is strictly
+later than the retire position. A regressed or foreign returned position
+fences the local Owner and is reported as UNKNOWN.
+
+The focused handoff test covered both valid later and regressed positions; the
+full Gradle check returned 0. This is only a local interpretation fence for
+an external append receipt; it does not allocate Source Positions, perform
+provider deletion, write/apply tombstones, or authorize the GC lifecycle.
 
 ## Final gate
 

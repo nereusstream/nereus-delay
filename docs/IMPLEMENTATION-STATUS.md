@@ -10454,3 +10454,18 @@ GC handoff and checkpoint composer tests; 26 tests passed. The full
 repository gate. This is a local evidence-shape invariant only; it does not
 attest provider execution, authorize deletion, advance Floor/Pin/Owner state,
 append or apply the source mutation, or provide release evidence.
+
+## 2026-08-16 Source-ordered GC confirmation handoff
+
+Delay commit `b225cef9` adds a typed
+`GcWorkClassExecutor.submitDeleteConfirmation` boundary. It binds the
+confirmation body to the exact retire record supplied by the caller and
+interprets a persisted append as valid only when the returned Source Position
+is from the same authenticated physical source and is strictly later than the
+retire position. A regressed or foreign returned position fences the local
+Owner and is reported as UNKNOWN.
+
+The focused handoff test covered both valid later and regressed positions; the
+full Gradle check returned 0. This is only a local interpretation fence for
+an external append receipt; it does not allocate Source Positions, perform
+provider deletion, write/apply tombstones, or authorize the GC lifecycle.

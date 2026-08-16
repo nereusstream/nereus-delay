@@ -5423,3 +5423,19 @@ strictly later confirmation interval.
 This fence protects evidence ordering only. It does not turn trusted time
 into provider-side completion, perform owner/Floor/Pin authorization, append
 or apply a source mutation, or close the external GC lifecycle transaction.
+
+### 2026-08-16 Source-ordered GC confirmation handoff implementation note
+
+Delay commit `b225cef9` adds a typed `GcWorkClassExecutor.submitDeleteConfirmation`
+entrypoint for the already-composed confirmation mutation. Before queueing, it
+matches the nested retire reference against the complete durable
+`ResourceRetireIntentRecord` identity fields and decodes the exact predecessor
+Source Position. After the external appender returns `PERSISTED`, the executor
+requires the returned position to have the same authenticated physical source
+identity and a strictly later source order; otherwise it fences the local
+Owner and returns an `UNKNOWN` handoff result.
+
+This protects the meaning of the local handoff result without moving source
+position allocation into Delay. The appender, source assignment, provider
+delete, tombstone WriteBatch, source apply and lifecycle authorization remain
+separate authorities.

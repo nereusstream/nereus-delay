@@ -1253,6 +1253,24 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Delete-confirmation temporal evidence fence implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Delete-confirmation temporal evidence fence receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/GcWorkClassExecutor.java" \
+    "submitDeleteConfirmation"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/GcWorkClassExecutor.java" \
+    "requireStrictlyAfter"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/ownership/GcWorkClassExecutorTest.java" \
+    "typedDeleteConfirmationHandoffRequiresReturnedSourceAfterRetire"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Source-ordered GC confirmation handoff"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "b225cef9"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Delay source-ordered GC confirmation handoff slice"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Source-ordered GC confirmation handoff audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Source-ordered GC confirmation handoff implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Source-ordered GC confirmation handoff receipt"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"
