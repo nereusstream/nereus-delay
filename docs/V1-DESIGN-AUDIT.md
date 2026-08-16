@@ -4662,6 +4662,14 @@ the guarded Broker rollout attestation remains external evidence.
 
 ## Source locks
 
+> Current-source override (2026-08-17): the older receipt rows in this
+> historical source-lock table remain immutable provenance. For the current
+> release decision, use the release-gate audit below: Delay
+> `f95c8a5468d6a1ee6df0bc1bd99000dc769d8797`, K1
+> `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+> `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+> `37a17bef17202d5fd6e23282da5fd26d94865484`.
+
 | 依赖 | 审计锁 |
 |---|---|
 | Delay current Kafka source process-crash recovery receipt | `nereus/delay-full-implementation-v1@2bcaff5e0c0b15b819cbc614c166c47e19571be3` (source-bound live three-Broker KRaft process-crash cut fetched exact offsets `0,1` with LSO `2` and no ACK/close, then a fresh same-group process replayed offsets `0,1` and committed group offset `2`; K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, client SHA-256 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`, Compose project `nereus-delay-kafka-e2e-1786881618-58469` on `19561,19562,19563`; raw network/proxy/socket, coordinator/Broker cuts, placement and release gates remain open) |

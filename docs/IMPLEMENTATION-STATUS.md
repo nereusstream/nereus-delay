@@ -9209,12 +9209,14 @@ rotation/quiescence, full chaos and V1 release gates remain open.
 ## 2026-08-17 V1 release-gate audit (not release-ready)
 
 The audit is source-bound to Delay
-`e6d28a5b0fecc6c20daded998b1d324990fe95c2`, Kafka
+`f95c8a5468d6a1ee6df0bc1bd99000dc769d8797`, Kafka
 `nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 Pulsar `nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`
-and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. The current full local
-`./gradlew check --no-daemon --console=plain --quiet` and the cross-repo
-contract validator pass. That is necessary evidence, not a V1 release claim.
+and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. At documentation
+commit `ea134e6acdd28f333e4d87444f020d6e2ca623f6`, the current full local
+`GRADLE_USER_HOME=/tmp/nereus-delay-full-check-20260817 ./gradlew check --no-daemon --console=plain --quiet`
+and `bash e2e/validate-cross-repo-contracts.sh` pass. That is necessary
+evidence, not a V1 release claim.
 
 | §23.5 gate | Current status | Evidence boundary |
 |---|---|---|

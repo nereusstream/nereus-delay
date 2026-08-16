@@ -7110,7 +7110,7 @@ quiescence, chaos and V1 release gates remain separate.
 
 ## 2026-08-17 V1 release-gate implementation boundary
 
-At Delay `e6d28a5b0fecc6c20daded998b1d324990fe95c2`, with K1
+At Delay `f95c8a5468d6a1ee6df0bc1bd99000dc769d8797`, with K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`, the implementation has crossed
