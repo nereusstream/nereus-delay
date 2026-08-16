@@ -9969,6 +9969,35 @@ per-shard assignment authority. It remains below a production multi-shard
 Worker PASS: native source ownership, per-shard Owner Lease/catch-up/ACK,
 shared scheduler fairness, raw failure matrix and release gates remain open.
 
+## 2026-08-16 Checkpoint REAPING real Oxia/MinIO audit
+
+Delay commit `d58ca4d7038c994c4415898b91362760a01896d0` adds the focused
+`OxiaRealCheckpointReapingSmokeTest` to the existing Oxia + MinIO checkpoint
+runner. The live command used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, MinIO repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`,
+MinIO image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`,
+temporary Oxia image ID
+`sha256:4eeadd3d26fd944bbd41cd15e8c51fe0ca4fca213775ff3d205f7d664b26a841`,
+and Compose project `nereus-delay-oxia-minio-checkpoint-e2e-1786888377-45712`.
+
+The two selected real-service methods each passed with zero skips, failures and
+errors. The REAPING output was:
+
+```text
+Oxia + MinIO checkpoint REAPING authority passed: real Owner abandonment=true, real Intent PENDING_UPLOAD->REAPING=true, exact-version prefix sweep=2, finalEmptyPrefix=true, localProviderOwnershipClosed=true
+```
+
+This is source-bound positive evidence for the bounded authority composition:
+real Owner Lease release/absence, real Intent CAS, catalog/pin necessary-state
+read, real MinIO exact-version prefix deletion and final empty listing. The
+test binds the provider proof to the uploader's local ownership observation but
+does not turn that observation into provider-side attestation. It therefore
+does not close production cross-record Owner/Intent/Catalog transaction,
+RecoveryPin competition, remote provider quiescence/consistency, delete
+confirmation mutation, raw chaos, multi-shard runtime or the V1 release gate.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

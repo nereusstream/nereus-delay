@@ -1251,6 +1251,22 @@ require_file_text "$delay_root/e2e/README.md" \
     "Checkpoint REAPING Owner proof receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "ea89d80e-e63e-4980-b225-94b070d3c36b"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaRealCheckpointReapingSmokeTest.java" \
+    "realOxiaOwnerAbandonmentReapsExactMinioCheckpointPrefix"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaRealCheckpointReapingSmokeTest.java" \
+    "real Intent PENDING_UPLOAD->REAPING=true"
+require_file_text "$delay_root/e2e/run-oxia-minio-checkpoint-e2e.sh" \
+    "OxiaRealCheckpointReapingSmokeTest.realOxiaOwnerAbandonmentReapsExactMinioCheckpointPrefix"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Checkpoint REAPING with real Oxia Owner and MinIO"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "d58ca4d7038c994c4415898b91362760a01896d0"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Checkpoint REAPING real Oxia/MinIO audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Checkpoint REAPING real Oxia/MinIO receipt"
+require_file_text "$delay_root/e2e/README.md" \
+    "Checkpoint REAPING with real Oxia and MinIO"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/ObjectStoreProviderOwnershipTracker.java" \
     "maximumProviderOwnershipLifetimeMs"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/ObjectStoreProviderOwnershipTracker.java" \

@@ -3014,3 +3014,37 @@ committed offset `2`. It does not cover raw network/proxy/socket loss,
 consumer-coordinator or Broker crash/leader-failover cuts, Worker crash during
 apply/publish, multi-shard placement, checkpoint publication, chaos or V1
 release readiness.
+
+## Checkpoint REAPING with real Oxia and MinIO
+
+The isolated checkpoint runner now executes the scheduled publication receipt
+and a bounded real REAPING handoff:
+
+```bash
+NEREUS_DELAY_OXIA_CHECKPOINT_E2E_PORT=16739 \
+NEREUS_DELAY_MINIO_CHECKPOINT_E2E_PORT=16749 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/Users/liusinan/.gradle \
+  bash e2e/run-oxia-minio-checkpoint-e2e.sh
+```
+
+The source-bound Delay commit is `d58ca4d7038c994c4415898b91362760a01896d0`;
+Oxia is `37a17bef17202d5fd6e23282da5fd26d94865484`; MinIO is locked to
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`;
+and the run used project `nereus-delay-oxia-minio-checkpoint-e2e-1786888377-45712`
+on `16739/16749`.
+
+The real REAPING method recorded:
+
+```text
+Oxia + MinIO checkpoint REAPING authority passed: real Owner abandonment=true, real Intent PENDING_UPLOAD->REAPING=true, exact-version prefix sweep=2, finalEmptyPrefix=true, localProviderOwnershipClosed=true
+```
+
+This closes the bounded real-Oxia Owner-abandonment/Intent-CAS to real-MinIO
+exact-version prefix-sweep path. The two deleted versions are the checkpoint
+file and manifest, and the adapter performs a final empty-prefix listing. The
+local provider-generation fence is evidence for the configured local horizon,
+not provider-side quiescence/consistency attestation. RecoveryPin competition,
+production cross-record transaction, source-ordered delete confirmation,
+response-loss retry, multi-shard runtime, raw chaos and V1 release gates remain
+open. The runner removes its exact containers, network, volume and temporary
+Oxia image; the locked MinIO base image remains for reuse.

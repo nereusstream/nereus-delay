@@ -12061,3 +12061,47 @@ The receipt does not cover raw network/proxy/socket loss,
 consumer-coordinator or Broker crash/leader-failover cuts, Worker crash during
 apply/publish, catalog-driven multi-shard placement, Object Store checkpoint
 publication, the broader chaos matrix or V1 release readiness.
+
+## 2026-08-16 Checkpoint REAPING with real Oxia Owner and MinIO
+
+Delay commit `d58ca4d7038c994c4415898b91362760a01896d0` adds
+`OxiaRealCheckpointReapingSmokeTest` and extends
+`e2e/run-oxia-minio-checkpoint-e2e.sh` to run both the real checkpoint
+publication and bounded REAPING receipts. The source-bound command was:
+
+```bash
+NEREUS_DELAY_OXIA_CHECKPOINT_E2E_PORT=16739 \
+NEREUS_DELAY_MINIO_CHECKPOINT_E2E_PORT=16749 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/Users/liusinan/.gradle \
+  bash e2e/run-oxia-minio-checkpoint-e2e.sh
+```
+
+The run locked Oxia to
+`37a17bef17202d5fd6e23282da5fd26d94865484`, MinIO to
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+with image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`,
+and used Compose project `nereus-delay-oxia-minio-checkpoint-e2e-1786888377-45712`
+on Oxia/MinIO ports `16739/16749`. The temporary Oxia build image was
+`sha256:4eeadd3d26fd944bbd41cd15e8c51fe0ca4fca213775ff3d205f7d664b26a841`.
+
+Both selected JUnit methods recorded `tests=1 skipped=0 failures=0 errors=0`:
+
+```text
+Oxia + MinIO Worker checkpoint publication passed: atomic Intent/Catalog=true, immutable object upload/download=true, checkpoint=00000000000000000000000000000003
+Oxia + MinIO checkpoint REAPING authority passed: real Owner abandonment=true, real Intent PENDING_UPLOAD->REAPING=true, exact-version prefix sweep=2, finalEmptyPrefix=true, localProviderOwnershipClosed=true
+BUILD SUCCESSFUL in 16s
+Oxia + MinIO Worker checkpoint publication and REAPING E2E passed: real Oxia Intent/Catalog/Owner authority and real MinIO immutable objects
+```
+
+The new receipt proves real Oxia session-bound Owner explicit abandonment and
+absence reread, real Oxia `PENDING_UPLOAD -> REAPING` Intent CAS with catalog
+protection reads, and real MinIO exact-version deletion of one checkpoint file
+plus its manifest followed by a final empty-prefix proof. The uploader's local
+provider-generation fence and zero-length test horizon are included as local
+ownership evidence; this does not claim provider-side quiescence/consistency
+attestation, a cross-record production transaction, RecoveryPin competition,
+source-ordered delete confirmation, response-loss retry, multi-shard runtime,
+raw chaos or V1 release readiness. The runner removed the exact project
+containers, network, volume and temporary Oxia image while retaining the
+locked MinIO base image.

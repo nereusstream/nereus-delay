@@ -6512,3 +6512,30 @@ source command identities and group, verifies exact replay at offsets `0` and
 source-cursor slice; raw network/proxy/socket loss, coordinator/Broker crash or
 leader failover, Worker apply/publish crash, multi-shard placement, checkpoint
 publication, the broader chaos matrix and V1 release gates remain open.
+
+### 2026-08-16 Checkpoint REAPING real Oxia/MinIO receipt
+
+Delay commit `d58ca4d7038c994c4415898b91362760a01896d0` adds
+`OxiaRealCheckpointReapingSmokeTest` to the locked
+`e2e/run-oxia-minio-checkpoint-e2e.sh` runner. The live invocation used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, versioned MinIO
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`,
+MinIO image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`,
+and Compose project `nereus-delay-oxia-minio-checkpoint-e2e-1786888377-45712`.
+
+The real-service result was:
+
+```text
+Oxia + MinIO checkpoint REAPING authority passed: real Owner abandonment=true, real Intent PENDING_UPLOAD->REAPING=true, exact-version prefix sweep=2, finalEmptyPrefix=true, localProviderOwnershipClosed=true
+```
+
+The test runs a real session-bound Owner Lease release and absence reread,
+creates the exact pending upload Intent through real Oxia, fences the uploader
+generation, then lets the coordinator win the `PENDING_UPLOAD -> REAPING` CAS
+and invoke a separate real MinIO adapter for the exact one-page version sweep.
+The final MinIO listing is empty. `localProviderOwnershipClosed` is deliberately
+only a local ownership-horizon observation; it is not a provider-side
+quiescence or consistency certificate. RecoveryPin/cross-record transaction,
+source-ordered delete confirmation, response-loss retry, multi-shard runtime,
+raw chaos and release gates remain explicit boundaries.
