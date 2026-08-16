@@ -1161,6 +1161,14 @@ public final class OwnedDelayShard {
         }
     }
 
+    /** Public adapter boundary for an externally coordinated source successor. */
+    public synchronized void markCatchingUpForReactivation(final OxiaOwnerLeaseStore authority,
+                                                            final SourceAssignment assignment,
+                                                            final SourceReplaySuccessor successor,
+                                                            final long nowEpochMs) {
+        markCatchingUp(authority, assignment, successor, nowEpochMs);
+    }
+
     private void validateCatchupAssignment(final SourceAssignment assignment) {
         if (!delegate.shardId().equals(assignment.shardId())) {
             throw new IllegalArgumentException("source assignment does not belong to shard");
@@ -1844,6 +1852,13 @@ public final class OwnedDelayShard {
         requireStrictActivationAuthority(authority);
         requireControlSnapshot(expected);
         activateForCommands(authority, nowEpochMs, true);
+    }
+
+    /** Public strict activation boundary for an externally coordinated source successor. */
+    public synchronized void activateForReactivation(final OxiaOwnerLeaseStore authority,
+                                                     final CompatibleControlSnapshotV1 expected,
+                                                     final long nowEpochMs) {
+        activateForCommandsWithControlSnapshot(authority, expected, nowEpochMs);
     }
 
     private void requireStrictActivationAuthority(final OxiaOwnerLeaseStore authority) {

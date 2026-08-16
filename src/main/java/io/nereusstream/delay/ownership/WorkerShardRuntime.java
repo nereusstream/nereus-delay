@@ -887,6 +887,25 @@ public final class WorkerShardRuntime implements AutoCloseable {
         throw new IllegalStateException("Worker shard runtime must complete owner drain before close");
     }
 
+    /**
+     * Closes only the old source runtime after an external Owner fence and
+     * before a source-assignment reactivation successor is published.
+     *
+     * <p>This is intentionally separate from normal drain: reactivation must
+     * preserve the Store and its durable source position while the old
+     * context-bound Owner is already FENCED. A pending source record is never
+     * discarded; the caller must first prove that the old source is idle.</p>
+     */
+    public synchronized void closeForOwnerReactivation() {
+        ensureNotTerminal();
+        if (sourceLoop.pendingEntry().isPresent()) {
+            throw new IllegalStateException("cannot reactivate with a pending source acknowledgement");
+        }
+        sourcePaused = true;
+        sourceLoop.close();
+        terminal = true;
+    }
+
     private void ensureSourceRunning() {
         ensureNotTerminal();
         if (sourcePaused) {

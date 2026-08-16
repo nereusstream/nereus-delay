@@ -37,9 +37,12 @@ import io.nereusstream.delay.ownership.OwnerLease;
 import io.nereusstream.delay.ownership.OwnerRecoveryCoordinator;
 import io.nereusstream.delay.ownership.OwnerRecoveryTurn;
 import io.nereusstream.delay.ownership.OwnedDelayShard;
+import io.nereusstream.delay.ownership.PulsarSourceReactivationCoordinator;
+import io.nereusstream.delay.ownership.PulsarSourceReactivationV1;
 import io.nereusstream.delay.ownership.ReplayTurnBudget;
 import io.nereusstream.delay.ownership.RouteWorkerAssignmentCoordinator;
 import io.nereusstream.delay.ownership.ShardLifecycleState;
+import io.nereusstream.delay.ownership.SourceAssignment;
 import io.nereusstream.delay.ownership.SourceReplayCursor;
 import io.nereusstream.delay.ownership.SourceReplayEntry;
 import io.nereusstream.delay.ownership.SourceReplayMutation;
@@ -490,6 +493,11 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         return value == null || value.isBlank() ? fallback : value;
     }
 
+    private static boolean failoverRequested() {
+        final String marker = System.getenv("NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER_MARKER");
+        return marker != null && !marker.isBlank();
+    }
+
     private static void signalFailoverCut() throws Exception {
         final String marker = System.getenv("NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER_MARKER");
         if (marker == null || marker.isBlank()) {
@@ -884,6 +892,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
             }
             final GuardedConsumer<byte[]> nativeConsumer = PulsarClientArtifactSourceConsumerFactory.create(
                     client, sourceGuard, sourcePhysicalTopic, "nereus-delay-pulsar-large-worker-" + UUID.randomUUID());
+            GuardedConsumer<byte[]> activeConsumer = nativeConsumer;
             final PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof proof =
                     PulsarClientArtifactRecoverySourcePositioner.seekAfter(nativeConsumer, sourceGuard,
                             sourcePhysicalTopic, shard, Optional.empty(), Duration.ofSeconds(5));
@@ -918,6 +927,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                     final WorkerAssignment accepted = routeCoordinator.requireAccepted(tenant,
                             placement.publication().revision(), placement.publication().assignment());
                     requireRouteAssignment(accepted, snapshot, beforeRoutePosition, proof);
+                    WorkerAssignmentAuthority.Publication activePublication = placement.publication();
 
                     final OxiaOwnerLeaseStore ownerAuthority = new OxiaOwnerLeaseStore(assignmentHandle.backend());
                     final OwnerLease lease = ownerAuthority.acquire(accepted.sourceAssignment(),
@@ -944,6 +954,9 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                                     new io.nereusstream.delay.protocol.OwnerIdentityV1(bytes(16, 70), bytes(16, 71),
                                             lease.ownerEpoch(), Bytes.sha256(Bytes.utf8("pulsar-large-worker-fence")));
                             final OwnedDelayShard ownedShard = new OwnedDelayShard(delayShard, lease, ownerIdentity);
+                            WorkerAssignment activeAssignment = accepted;
+                            OwnedDelayShard activeOwnedShard = ownedShard;
+                            io.nereusstream.delay.protocol.OwnerIdentityV1 activeOwnerIdentity = ownerIdentity;
                             recover(nativeConsumer, sourceGuard, accepted, ownerAuthority, ownedShard,
                                     activation, beforeRoute, controlKeys, controlSnapshot, workClasses, sourcePhysicalTopic);
                             if (ownedShard.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
@@ -1041,9 +1054,9 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                                         final PulsarSourcePosition preparePosition =
                                                 (PulsarSourcePosition) prepareReceipt.sourcePosition();
                                         final byte[] reservationId = reservationId(prepareReceipt);
-                                        runtime = PulsarClientArtifactWorkerSourceFactory.create(nativeConsumer,
-                                                sourceGuard, sourcePhysicalTopic, RECEIVE_TIMEOUT,
-                                                accepted.sourceAssignment(), workClasses, ownedShard, store, resources,
+                                runtime = PulsarClientArtifactWorkerSourceFactory.create(activeConsumer,
+                                        sourceGuard, sourcePhysicalTopic, RECEIVE_TIMEOUT,
+                                                activeAssignment.sourceAssignment(), workClasses, activeOwnedShard, store, resources,
                                                 ownerAuthority, controlKeys.getPublic(), null, null, null, null, null);
                                         requireApplied(runUntilApplied(runtime), "PrepareLargeSchedule");
                                         final var reservation = Optional.ofNullable(delayShard.getReservation(reservationId))
@@ -1105,19 +1118,115 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                                             throw new IllegalStateException("Pulsar Worker Object Store readback did not match the committed payload");
                                         }
                                         signalFailoverCut();
+                                        if (failoverRequested()) {
+                                            final GuardedConsumer<byte[]> successorConsumer =
+                                                    PulsarClientArtifactSourceConsumerFactory.create(client, sourceGuard,
+                                                            sourcePhysicalTopic,
+                                                            "nereus-delay-pulsar-large-reactivation-" + UUID.randomUUID());
+                                            boolean successorInstalled = false;
+                                            try {
+                                                final PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof successorProof =
+                                                        PulsarClientArtifactRecoverySourcePositioner.seekAfter(successorConsumer,
+                                                                sourceGuard, sourcePhysicalTopic, shard,
+                                                                Optional.of(commitPosition), Duration.ofSeconds(15));
+                                                final PulsarActivationBarrier oldBarrier =
+                                                        (PulsarActivationBarrier) activeAssignment.sourceAssignment()
+                                                                .activationBarrier();
+                                                final PulsarActivationBarrier successorBarrier = new PulsarActivationBarrier(
+                                                        shard, oldBarrier.brokerResourceIncarnation(), oldBarrier.physicalTopic(),
+                                                        oldBarrier.ledgerId(), oldBarrier.entryId(),
+                                                        oldBarrier.normalizedLastBatchIndex(), oldBarrier.batchSize(),
+                                                        successorProof.connectionGeneration(), successorProof.attestationDigest(),
+                                                        oldBarrier.empty());
+                                                final long successorAssignmentEpoch = Math.addExact(
+                                                        activeAssignment.sourceAssignment().assignmentEpoch(), 1);
+                                                final SourceAssignment successorSource = new SourceAssignment(shard,
+                                                        Bytes.sha256(Bytes.utf8(
+                                                                "nereus-delay-pulsar-source-reactivation-assignment-v1\0"),
+                                                                activeAssignment.sourceAssignment().assignmentId(),
+                                                                Bytes.u64be(successorAssignmentEpoch)),
+                                                        successorAssignmentEpoch, successorBarrier);
+                                                final WorkerAssignment successorAssignment = new WorkerAssignment(
+                                                        activeAssignment.workerId(), successorSource,
+                                                        Math.addExact(activeAssignment.placementEpoch(), 1),
+                                                        activeAssignment.capacityEnvelopeDigest(), snapshot.snapshotDigest());
+                                                final PulsarSourceReactivationV1 reactivation =
+                                                        new PulsarSourceReactivationV1(snapshot.snapshotDigest(),
+                                                                activeAssignment.sourceAssignment(), successorSource);
+                                                final PulsarSourceReactivationCoordinator reactivationCoordinator =
+                                                        new PulsarSourceReactivationCoordinator(provider,
+                                                                assignmentAuthority, ownerAuthority);
+                                                final PulsarSourceReactivationCoordinator.FencedPlan fencedPlan =
+                                                        reactivationCoordinator.fenceForReactivation(tenant,
+                                                                activePublication,
+                                                                ownerAuthority.current(shard).orElseThrow(), reactivation,
+                                                                System.currentTimeMillis());
+                                                final WorkerShardRuntime oldRuntime = runtime;
+                                                final OwnedDelayShard oldOwnedShard = activeOwnedShard;
+                                                oldOwnedShard.fence();
+                                                oldRuntime.closeForOwnerReactivation();
+                                                runtimeClosed = true;
+                                                final WorkerAssignmentAuthority.Publication successorPublication =
+                                                        reactivationCoordinator.publishSuccessor(fencedPlan,
+                                                                successorAssignment, () -> {
+                                                                    if (!oldRuntime.sourcePaused()
+                                                                            || oldRuntime.pendingSourceEntry().isPresent()) {
+                                                                        throw new IllegalStateException(
+                                                                                "old Pulsar Worker runtime is not quiescent");
+                                                                    }
+                                                                });
+                                                final OwnerLease successorLease = reactivationCoordinator.acquireSuccessor(
+                                                        fencedPlan, successorPublication, successorAssignment.workerId(),
+                                                        assignmentHandle.sessionIdentity(), System.currentTimeMillis(),
+                                                        LEASE_DURATION_MS);
+                                                final io.nereusstream.delay.protocol.OwnerIdentityV1 successorOwnerIdentity =
+                                                        new io.nereusstream.delay.protocol.OwnerIdentityV1(bytes(16, 70),
+                                                                bytes(16, 71), successorLease.ownerEpoch(),
+                                                                Bytes.sha256(Bytes.utf8(
+                                                                        "pulsar-large-worker-reactivation-fence"),
+                                                                        Bytes.u64beBits(successorLease.ownerEpoch())));
+                                                final OwnedDelayShard successorOwnedShard = new OwnedDelayShard(delayShard,
+                                                        successorLease, successorOwnerIdentity);
+                                                successorOwnedShard.markCatchingUpForReactivation(ownerAuthority, successorSource,
+                                                        strictPulsarFixtureSuccessor(), System.currentTimeMillis());
+                                                successorOwnedShard.activateForReactivation(ownerAuthority,
+                                                        controlSnapshot, System.currentTimeMillis());
+                                                activeAssignment = successorAssignment;
+                                                activePublication = successorPublication;
+                                                activeConsumer = successorConsumer;
+                                                activeOwnedShard = successorOwnedShard;
+                                                activeOwnerIdentity = successorOwnerIdentity;
+                                                successorInstalled = true;
+                                                System.out.println("Pulsar source reactivation successor accepted: oldGeneration="
+                                                        + oldBarrier.guardedSourceConnectionGeneration()
+                                                        + ", newGeneration=" + successorProof.connectionGeneration()
+                                                        + ", assignmentRevision=" + successorPublication.revision()
+                                                        + ", ownerEpoch=" + successorLease.ownerEpoch());
+                                            } finally {
+                                                if (!successorInstalled) {
+                                                    closeNative(successorConsumer);
+                                                }
+                                            }
+                                            runtime = PulsarClientArtifactWorkerSourceFactory.create(activeConsumer,
+                                                    sourceGuard, sourcePhysicalTopic, RECEIVE_TIMEOUT,
+                                                    activeAssignment.sourceAssignment(), workClasses, activeOwnedShard,
+                                                    store, resources, ownerAuthority, controlKeys.getPublic(), null, null,
+                                                    null, null, null);
+                                            runtimeClosed = false;
+                                        }
                                         final LaneRecord physicalLane = Optional.ofNullable(
                                                 delayShard.getLane(message.laneId())).orElseThrow(
                                                 () -> new IllegalStateException(
                                                         "Pulsar Worker did not persist the physical destination Lane"));
                                         physicalBridge = PulsarClientArtifactWorkerSmoke.createPhysicalPublishBridge(
-                                                client, nativeConsumer, sourcePhysicalTopic, shard, commitPosition,
-                                                destinationPhysicalTopic, store, ownedShard, ownerIdentity, ownerAuthority,
+                                                client, activeConsumer, sourcePhysicalTopic, shard, commitPosition,
+                                                destinationPhysicalTopic, store, activeOwnedShard, activeOwnerIdentity, ownerAuthority,
                                                 workClasses, controlKeys, destinationProfile(),
                                                 PulsarClientArtifactWorkerSmoke.capabilityProfile(), message.laneId(),
                                                 physicalLane.laneIncarnation(), WORK_CLASS_BYTES);
                                         runtime.bindPhysicalPublishExecutor(physicalBridge.executor());
                                         PulsarClientArtifactWorkerSmoke.runSourceAppliedPhysicalPublish(runtime,
-                                                delayShard, ownedShard, ownerIdentity, ownerAuthority, store, workClasses,
+                                                delayShard, activeOwnedShard, activeOwnerIdentity, ownerAuthority, store, workClasses,
                                                 controlKeys, physicalBridge, prepareReceipt.command().delayMessageId(), commitPosition,
                                                 client, objectPayload, WORK_CLASS_BYTES);
                                         final byte[] duplicate = gateway.prepareLargeSchedule(prepareRequest).toByteArray();
@@ -1145,7 +1254,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                                         runtime.close();
                                         runtimeClosed = true;
                                         runtimeDrained = true;
-                                        if (!assignmentAuthority.withdraw(placement.publication())) {
+                                        if (!assignmentAuthority.withdraw(activePublication)) {
                                             throw new IllegalStateException("Pulsar large-payload Worker assignment was not withdrawn exactly");
                                         }
                                         assignmentWithdrawn = true;
@@ -1174,14 +1283,14 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                             }
                         } finally {
                             if (!assignmentWithdrawn) {
-                                assignmentAuthority.withdraw(placement.publication());
+                                assignmentAuthority.withdraw(activePublication);
                             }
                             deleteTree(root);
                         }
                 }
             } finally {
                 if (!runtimeDrained) {
-                    closeNative(nativeConsumer);
+                    closeNative(activeConsumer);
                 }
             }
         } finally {
