@@ -1347,6 +1347,24 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Oxia Control Target Registration session-bound CAS implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Oxia Control Target Registration session-bound CAS receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/runtime/OxiaSyncProfileCatalogBackend.java" \
+    "handle.backend()::assertConnectedSession"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/runtime/OxiaSyncProfileCatalogBackend.java" \
+    "profile mutation whose response is lost after the marker disappears"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/runtime/OxiaSyncProfileCatalogBackendTest.java" \
+    "sessionFenceRejectsACommittedPublicationAfterTheMarkerChanges"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/runtime/OxiaRealProfileCatalogSmokeTest.java" \
+    "client, prefix + \"/catalog\", 5_000, 10_000"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Oxia credential Profile catalog session-bound CAS"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "89020c97c29f99d98f7f3259ab7b27131644adcd"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Oxia credential Profile catalog session-bound CAS audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Oxia credential Profile catalog session-bound CAS implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Oxia credential Profile catalog session-bound CAS receipt"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

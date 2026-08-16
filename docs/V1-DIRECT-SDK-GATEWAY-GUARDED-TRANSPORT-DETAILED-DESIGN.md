@@ -5541,3 +5541,26 @@ This is a single-record target-registry fence. It does not make Control
 Operation and target registration one Oxia transaction, and it does not add
 actor/scope authorization, source-ordered routing, automatic session
 reconnection, production query routing, chaos or release evidence.
+
+### 2026-08-16 Oxia credential Profile catalog session-bound CAS implementation note
+
+Delay commit `89020c97c29f99d98f7f3259ab7b27131644adcd` adds a
+`ClientHandle` constructor to `OxiaSyncProfileCatalogBackend`. The constructor
+binds the canonical Profile catalog record to the connected Oxia session marker
+through a private `SessionBoundRecordClient`. Every `get` and version-CAS
+`put` checks the marker before and after the client call, so publication,
+equivalent-secret rotation, protection-before-lease issuance, resolution and
+response-loss rereads cannot report success after session loss.
+
+The deterministic regression commits a generation-one Profile record, fences
+the session before the put response returns, asserts the backend fails, and
+then reopens the exact bytes through the explicit unbound test seam. Four
+Profile catalog tests passed; the real-service method was skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was not configured, and the full Gradle check
+returned 0.
+
+The unbound `SyncOxiaClient` constructor remains an explicit external/test
+surface. This note does not claim secret-manager resolution, source-ordered
+Profile publication, actor/target authorization, retained-generation GC,
+cross-record Owner/Route/session transactionality, automatic reconnect,
+provider rotation/quiescence, chaos or release readiness.

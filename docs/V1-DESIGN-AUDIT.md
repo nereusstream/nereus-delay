@@ -8860,6 +8860,29 @@ actor/scope authorization, source-ordered mutation routing, automatic session
 reconnection, production control-query routing, chaos evidence or V1 release
 readiness.
 
+## 2026-08-16 Oxia credential Profile catalog session-bound CAS audit
+
+Delay commit `89020c97c29f99d98f7f3259ab7b27131644adcd` adds the
+session-bound constructor to `OxiaSyncProfileCatalogBackend`. The private
+`SessionBoundRecordClient` checks the exact connected Oxia session marker
+before and after every Profile catalog read or version CAS write. This fences
+generation-one publication, equivalent-secret rotation, protection-before-use
+lease issuance, immutable binding/Head/Protection reads and response-loss
+rereads with the same session boundary.
+
+`OxiaSyncProfileCatalogBackendTest.sessionFenceRejectsACommittedPublicationAfterTheMarkerChanges`
+commits the canonical Profile record in the fake service, fences the session
+before the put response returns, asserts the backend fails, and then reopens
+the exact Profile through the explicit unbound deterministic seam. Four
+deterministic Profile tests passed; the real-service method was skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was unset, and the full Gradle check returned 0.
+
+This audit closes only the single-record Profile authority's Oxia I/O/session
+boundary. It does not establish secret-manager resolution, source-ordered
+Profile publication, actor/target authorization, retained-generation GC,
+cross-record Owner/Route/session transactions, automatic session reconnect,
+provider rotation/quiescence, chaos evidence or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

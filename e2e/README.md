@@ -1960,3 +1960,30 @@ configured, and the full `./gradlew check --no-daemon --console=plain --quiet`
 returned 0. This receipt proves only per-record session-bound CAS; atomic
 Control Operation plus target registration, actor/source authority, automatic
 session recovery, production routing, chaos and V1 release gates remain open.
+
+## Oxia credential Profile catalog session-bound CAS receipt
+
+Delay commit `89020c97c29f99d98f7f3259ab7b27131644adcd` adds the
+`OxiaSyncProfileCatalogBackend(ClientHandle, ...)` path. It checks the exact
+connected Oxia session marker before and after each Profile catalog read or
+version CAS write, covering publication, equivalent-secret rotation,
+protection-before-lease issuance, resolution and response-loss rereads. A
+marker change after a committed Profile write prevents a guessed publication,
+rotation or credential-lease success.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.runtime.OxiaSyncProfileCatalogBackendTest \
+  --tests io.nereusstream.delay.runtime.OxiaRealProfileCatalogSmokeTest \
+  --no-daemon --console=plain
+```
+
+The deterministic Profile catalog suite passed 4 tests. The real-service
+method was skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was not configured,
+and the full `./gradlew check --no-daemon --console=plain --quiet` returned 0.
+This receipt proves only the single-record Profile session fence; secret
+resolution, source/actor authority, retained-generation GC, cross-record
+transactions, automatic reconnect, provider rotation/quiescence, chaos and
+V1 release gates remain open.
