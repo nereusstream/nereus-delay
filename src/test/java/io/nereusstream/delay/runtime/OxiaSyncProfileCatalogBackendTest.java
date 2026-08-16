@@ -28,6 +28,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -81,6 +82,27 @@ class OxiaSyncProfileCatalogBackendTest {
 
         records.putRaw(profileKey("delay/profile-loss", fixture.profile()), new byte[]{0x08, 0x02});
         assertThrows(IllegalStateException.class, () -> backend.resolve(fixture.profile().ref()));
+    }
+
+    @Test
+    void sessionFenceRejectsACommittedPublicationAfterTheMarkerChanges() throws Exception {
+        final FakeRecordClient records = new FakeRecordClient();
+        final Fixture fixture = fixture();
+        final AtomicBoolean sessionAlive = new AtomicBoolean(true);
+        final OxiaSyncProfileCatalogBackend backend = new OxiaSyncProfileCatalogBackend(records,
+                "delay/profile-fenced", MAX_LEASE_TTL_MS, MAX_ATTESTATION_AGE_MS,
+                CredentialAttestationTrustSet.single(1, Bytes.utf8("verifier"), 1, fixture.keyPair().getPublic(),
+                        0, 20_000), () -> {
+                            if (!sessionAlive.get()) {
+                                throw new IllegalStateException("simulated Oxia session fence");
+                            }
+                        });
+        records.afterPut = () -> sessionAlive.set(false);
+
+        assertThrows(IllegalStateException.class, () -> backend.publish(fixture.profile(), fixture.binding()));
+
+        final OxiaSyncProfileCatalogBackend reopened = backend(records, "delay/profile-fenced", fixture.keyPair());
+        assertEquals(fixture.profile(), reopened.resolve(fixture.profile().ref()));
     }
 
     @Test
@@ -174,6 +196,8 @@ class OxiaSyncProfileCatalogBackendTest {
         private final Map<String, GetResult> records = new HashMap<>();
         private long nextVersion = 1;
         private boolean failNextPutAfterCommit;
+        private Runnable afterPut = () -> {
+        };
 
         @Override
         public GetResult get(final String key) {
@@ -196,6 +220,7 @@ class OxiaSyncProfileCatalogBackendTest {
             }
             final Version version = new Version(nextVersion++, 0, 0, 1, Optional.empty(), Optional.empty());
             records.put(key, new GetResult(key, Bytes.copy(value), version));
+            afterPut.run();
             if (failNextPutAfterCommit) {
                 failNextPutAfterCommit = false;
                 throw new IllegalStateException("simulated response loss");

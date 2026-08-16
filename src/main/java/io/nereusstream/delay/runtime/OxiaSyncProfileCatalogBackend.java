@@ -1,5 +1,6 @@
 package io.nereusstream.delay.runtime;
 
+import io.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CanonicalProtobuf;
 import io.nereusstream.delay.protocol.CredentialBindingHeadV1;
@@ -39,7 +40,8 @@ import java.util.TreeMap;
  * therefore use one version CAS each. The backend does not resolve private
  * material or authorize a control actor, but it does require every binding's
  * equivalence attestation to verify against the configured immutable trust
- * set.</p>
+ * set. The handle-bound constructor additionally fences every record I/O to
+ * the exact ephemeral Oxia session.</p>
  */
 public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAuthority {
     private static final int RECORD_VERSION = 1;
@@ -65,12 +67,33 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
                 attestationTrustSet);
     }
 
+    /** Creates a Profile catalog fenced to the exact ephemeral session of a handle. */
+    public OxiaSyncProfileCatalogBackend(final OxiaSyncOwnerLeaseBackend.ClientHandle handle,
+                                         final String keyPrefix, final long maximumLeaseTtlMs,
+                                         final long maximumAttestationAgeMs,
+                                         final CredentialAttestationTrustSet attestationTrustSet) {
+        this(new SyncRecordClient(Objects.requireNonNull(handle, "handle").client()), keyPrefix,
+                maximumLeaseTtlMs, maximumAttestationAgeMs, attestationTrustSet,
+                handle.backend()::assertConnectedSession);
+    }
+
     /** Package-private constructor used by deterministic CAS tests. */
     OxiaSyncProfileCatalogBackend(final RecordClient client, final String keyPrefix,
                                   final long maximumLeaseTtlMs,
                                   final long maximumAttestationAgeMs,
                                   final CredentialAttestationTrustSet attestationTrustSet) {
-        this.client = Objects.requireNonNull(client, "client");
+        this(client, keyPrefix, maximumLeaseTtlMs, maximumAttestationAgeMs, attestationTrustSet, () -> {
+        });
+    }
+
+    /** Package-private constructor used to exercise the session fence. */
+    OxiaSyncProfileCatalogBackend(final RecordClient client, final String keyPrefix,
+                                  final long maximumLeaseTtlMs,
+                                  final long maximumAttestationAgeMs,
+                                  final CredentialAttestationTrustSet attestationTrustSet,
+                                  final Runnable sessionCheck) {
+        this.client = new SessionBoundRecordClient(Objects.requireNonNull(client, "client"),
+                Objects.requireNonNull(sessionCheck, "sessionCheck"));
         this.keyPrefix = canonicalKeyPrefix(keyPrefix);
         if (maximumLeaseTtlMs <= 0 || maximumAttestationAgeMs <= 0) {
             throw new IllegalArgumentException("credential lease bounds must be positive");
@@ -630,6 +653,52 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
         public PutResult put(final String key, final byte[] value, final Set<PutOption> options)
                 throws UnexpectedVersionIdException, KeyAlreadyExistsException {
             return delegate.put(key, value, options);
+        }
+    }
+
+    /**
+     * Checks the caller's Oxia session around every record operation. A
+     * profile mutation whose response is lost after the marker disappears is
+     * therefore never reported as a successful publication, rotation or
+     * credential lease issuance.
+     */
+    private static final class SessionBoundRecordClient implements RecordClient {
+        private final RecordClient delegate;
+        private final Runnable sessionCheck;
+
+        private SessionBoundRecordClient(final RecordClient delegate, final Runnable sessionCheck) {
+            this.delegate = delegate;
+            this.sessionCheck = sessionCheck;
+        }
+
+        @Override
+        public GetResult get(final String key) {
+            sessionCheck.run();
+            try {
+                final GetResult result = delegate.get(key);
+                sessionCheck.run();
+                return result;
+            } catch (RuntimeException failure) {
+                sessionCheck.run();
+                throw failure;
+            }
+        }
+
+        @Override
+        public PutResult put(final String key, final byte[] value, final Set<PutOption> options)
+                throws UnexpectedVersionIdException, KeyAlreadyExistsException {
+            sessionCheck.run();
+            try {
+                final PutResult result = delegate.put(key, value, options);
+                sessionCheck.run();
+                return result;
+            } catch (KeyAlreadyExistsException | UnexpectedVersionIdException expectedCasRace) {
+                sessionCheck.run();
+                throw expectedCasRace;
+            } catch (RuntimeException failure) {
+                sessionCheck.run();
+                throw failure;
+            }
         }
     }
 }

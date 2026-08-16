@@ -34,7 +34,7 @@ class OxiaRealProfileCatalogSmokeTest {
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle client = connect(endpoint, prefix + "/client")) {
             final OxiaSyncProfileCatalogBackend backend = new OxiaSyncProfileCatalogBackend(
-                    client.client(), prefix + "/catalog", 5_000, 10_000,
+                    client, prefix + "/catalog", 5_000, 10_000,
                     trustSet(fixture.keyPair()));
             assertEquals(1, backend.publish(fixture.profile(), fixture.binding()).headRevision());
             final CredentialUseLeaseV1 lease = backend.issueCredentialUseLease(fixture.profile().ref(),
@@ -45,7 +45,7 @@ class OxiaRealProfileCatalogSmokeTest {
                     .objectStoreLeaseProtectionUntilEpochMs());
 
             final OxiaSyncProfileCatalogBackend reopened = new OxiaSyncProfileCatalogBackend(
-                    client.client(), prefix + "/catalog", 5_000, 10_000,
+                    client, prefix + "/catalog", 5_000, 10_000,
                     trustSet(fixture.keyPair()));
             assertEquals(fixture.profile(), reopened.resolve(fixture.profile().ref()));
             final CredentialUseLeaseV1 shorterLease = reopened.issueCredentialUseLease(fixture.profile().ref(),
