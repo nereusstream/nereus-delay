@@ -5921,3 +5921,16 @@ constructor.
 passed in the 15-test deterministic Owner backend suite. This note closes
 only local connect-input/resource-ordering validation; Owner/Oxia recovery,
 lease authority, placement, chaos, failover and release gates remain open.
+
+### 2026-08-16 Gateway admission lease release retry boundary implementation note
+
+Delay commit `d5384b954e4d99ad291b2aea004910e1b1666ec8` keeps the durable
+admission lease handle open until its exact CAS release succeeds. The local
+`closed` marker is written after `owner.release(tenantScopeHash, lease)`
+returns, so a failed bounded CAS sequence does not prevent a later caller
+retrying the same lease identity.
+
+`OxiaGatewayAdmissionControllerTest.leaseCloseRemainsRetryableAfterReleaseCasDoesNotConverge`
+passed in the 6-test deterministic Gateway admission suite. This note closes
+only local lease-release retryability; distributed Gateway authority, session
+recovery, transport delivery, failover, chaos and release gates remain open.

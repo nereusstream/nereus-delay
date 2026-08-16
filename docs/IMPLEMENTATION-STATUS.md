@@ -11131,3 +11131,25 @@ The deterministic Owner backend suite passed 15 tests, including
 the local Owner connect-input/resource-ordering boundary; it does not
 establish Owner/Oxia recovery, lease authority, placement, chaos/failover or
 V1 release evidence.
+
+## 2026-08-16 Gateway admission lease release retry boundary
+
+Delay commit `d5384b954e4d99ad291b2aea004910e1b1666ec8` keeps a durable Gateway
+admission lease retryable until its CAS release succeeds. The lease no longer
+sets its local closed marker before `OxiaGatewayAdmissionController.release()`
+returns; a non-convergent release therefore leaves the exact lease handle
+available for an explicit retry, while successful release remains idempotent.
+
+The focused receipt is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.gateway.OxiaGatewayAdmissionControllerTest \
+  --no-daemon --console=plain
+```
+
+The deterministic Gateway admission suite passed 6 tests, including
+`leaseCloseRemainsRetryableAfterReleaseCasDoesNotConverge`. This closes only
+local durable admission-lease release retryability; it does not establish
+distributed Gateway authority, session recovery, transport delivery,
+failover, chaos or V1 release evidence.

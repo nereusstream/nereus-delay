@@ -9286,6 +9286,24 @@ This closes only local Owner connect-input/resource-ordering validation. It
 does not establish Owner/Oxia session recovery, lease authority, placement,
 raw chaos, failover or V1 release readiness.
 
+## 2026-08-16 Gateway admission lease release retry boundary audit
+
+Delay commit `d5384b954e4d99ad291b2aea004910e1b1666ec8` fixes the local handle
+state transition around durable Gateway admission release. A lease remains
+open while its owner retries the exact CAS removal; it is marked closed only
+after release returns successfully, so a failed release cannot strand an
+active admission record behind a terminal in-memory handle.
+
+`OxiaGatewayAdmissionControllerTest.leaseCloseRemainsRetryableAfterReleaseCasDoesNotConverge`
+forces five release CAS failures, verifies the durable lease remains present,
+then retries the same handle and requires the lease to disappear. The
+deterministic Gateway admission suite passed 6 tests with zero
+failures/skips/errors.
+
+This closes only local durable admission-lease release retryability. It does
+not establish distributed Gateway authority, session recovery, transport
+delivery, failover, raw chaos or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
