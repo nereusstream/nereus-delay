@@ -173,10 +173,18 @@ public final class KafkaClientArtifactWorkerSmoke {
                 AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, 10_000);
 
         try (Admin admin = Admin.create(adminConfiguration)) {
-            ensureTopic(admin, topic);
-            if (destinationPhysicalTopic != null) {
-                ensureTopic(admin, destinationPhysicalTopic);
-                ensureTopic(admin, receiptPhysicalTopic);
+            if (mode.equals("resume")) {
+                requireExistingTopic(admin, topic);
+                if (destinationPhysicalTopic != null) {
+                    requireExistingTopic(admin, destinationPhysicalTopic);
+                    requireExistingTopic(admin, receiptPhysicalTopic);
+                }
+            } else {
+                ensureTopic(admin, topic);
+                if (destinationPhysicalTopic != null) {
+                    ensureTopic(admin, destinationPhysicalTopic);
+                    ensureTopic(admin, receiptPhysicalTopic);
+                }
             }
             final String clusterId = admin.describeCluster().clusterId().get(10, TimeUnit.SECONDS);
             final Uuid topicId = describe(admin, topic).topicId();
@@ -1641,6 +1649,22 @@ public final class KafkaClientArtifactWorkerSmoke {
             TimeUnit.MILLISECONDS.sleep(250);
         }
         throw new IllegalStateException("worker topic metadata did not converge");
+    }
+
+    private static void requireExistingTopic(final Admin admin, final String topic) throws Exception {
+        Exception lastFailure = null;
+        for (int attempt = 0; attempt < 12; attempt++) {
+            try {
+                if (describe(admin, topic) != null) {
+                    return;
+                }
+            } catch (Exception failure) {
+                lastFailure = failure;
+            }
+            TimeUnit.MILLISECONDS.sleep(500);
+        }
+        throw new IllegalStateException("resume topic metadata did not converge without creation: " + topic,
+                lastFailure);
     }
 
     private static TopicDescription describe(final Admin admin, final String topic) throws Exception {
