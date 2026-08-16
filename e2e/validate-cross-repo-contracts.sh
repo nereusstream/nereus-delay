@@ -1517,6 +1517,24 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Oxia Route initial-refresh notification restoration implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Oxia Route initial-refresh notification restoration receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerShardFleetRuntime.java" \
+    "Every admitted shard must get a close attempt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaRouteAuthoritySession.java" \
+    "watch client is an independent Oxia session"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/ownership/WorkerShardFleetRuntimeTest.java" \
+    "closeAttemptsEveryShardAndRetainsTheFirstDrainFailure"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
+    "sessionCloseAttemptsTheIndependentWatchClientAfterAuthorityCloseFails"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "fleet and Route resource close aggregation"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "eb47cb807ceb45d68a9f8db5f53ef3a7cc6ead4e"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "fleet and Route resource close aggregation audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "fleet and Route resource close aggregation implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Fleet and Route resource close aggregation receipt"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPublicationCoordinator.java" \
     "intentIsAtomic || catalogIsAtomic"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointUploadCoordinatorTest.java" \

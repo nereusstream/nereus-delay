@@ -2249,3 +2249,26 @@ passed as part of the 10-test Route provider/session suite. This receipt proves
 only initial-refresh notification restoration; it does not prove transparent
 automatic reconnect, event/head transactionality, multi-node failover,
 placement/source ownership, raw chaos or V1 release readiness.
+
+## Fleet and Route resource close aggregation receipt
+
+Delay commit `eb47cb807ceb45d68a9f8db5f53ef3a7cc6ead4e` makes the local fleet
+and session close paths attempt every independently owned resource after an
+earlier close failure. The first failure remains the primary exception and
+later failures are suppressed; the fleet is not marked closed while a shard
+still requires its owner-drain retry.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.ownership.WorkerShardFleetRuntimeTest \
+  --tests io.nereusstream.delay.route.OxiaSignedRouteSnapshotProviderTest \
+  --no-daemon --console=plain
+```
+
+The fleet suite passed 2 tests and the Route provider/session suite passed 11
+tests, with zero failures/skips/errors. This is deterministic local teardown
+evidence only; it does not prove owner-drain bypass, automatic Oxia recovery,
+Route transactionality, placement/source ownership, chaos, failover or V1
+release readiness.

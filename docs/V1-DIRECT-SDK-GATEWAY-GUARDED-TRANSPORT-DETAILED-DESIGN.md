@@ -5790,3 +5790,18 @@ plus one initial registration. Ten deterministic Route provider/session tests
 passed. This is initial-refresh subscription restoration, not transparent
 automatic reconnect, event/head transactionality, multi-node failover,
 placement/source ownership, raw chaos or release evidence.
+
+### 2026-08-16 fleet and Route resource close aggregation implementation note
+
+Delay commit `eb47cb807ceb45d68a9f8db5f53ef3a7cc6ead4e` completes the local
+close-attempt boundary for two independently composed surfaces. The fleet
+continues calling every admitted `WorkerShardRuntime.close()` after a failure,
+retains the first failure and suppresses later failures, and sets its closed
+state only after all shard drains/closures succeed. The session applies the
+same pattern to its authority and separate notification client, preventing an
+authority teardown exception from skipping watch cleanup.
+
+The focused command passed 2 fleet tests and 11 Route provider/session tests.
+This is retryable local teardown reporting only: owner drain ordering remains
+required, and no Route transactionality, automatic session recovery,
+placement/source authority, chaos, failover or release evidence is inferred.

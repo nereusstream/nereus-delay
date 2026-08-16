@@ -10924,3 +10924,29 @@ deterministic Route provider/session suite passed 10 tests. This closes only
 initial-refresh notification restoration; it does not claim transparent
 automatic reconnect, event/head transactionality, multi-node failover,
 placement/source ownership, raw chaos or V1 release readiness.
+
+## 2026-08-16 fleet and Route resource close aggregation
+
+Delay commit `eb47cb807ceb45d68a9f8db5f53ef3a7cc6ead4e` makes local teardown
+continue across independently owned resources. `WorkerShardFleetRuntime.close()`
+now attempts every admitted `WorkerShardRuntime` even when an earlier shard
+still rejects close because its owner drain is incomplete; the first failure is
+reported with later failures suppressed, and the fleet is marked closed only
+when every shard close succeeds. `OxiaRouteAuthoritySession.close()` applies
+the same aggregation to its authority and independently owned notification
+clients, so an authority-client close failure cannot skip watch-client cleanup.
+
+The focused receipt is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.ownership.WorkerShardFleetRuntimeTest \
+  --tests io.nereusstream.delay.route.OxiaSignedRouteSnapshotProviderTest \
+  --no-daemon --console=plain
+```
+
+The deterministic fleet suite passed 2 tests and the Route provider/session
+suite passed 11 tests, with zero failures/skips/errors. This is local close
+failure aggregation only; it does not relax the per-shard owner-drain
+ordering, add automatic Oxia session recovery, establish Route transactionality
+or placement authority, or provide chaos/failover/release evidence.

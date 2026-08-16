@@ -9116,6 +9116,28 @@ only initial-refresh notification restoration; it does not establish
 transparent automatic reconnect, event/head transactionality, multi-node
 failover, placement/source ownership, raw chaos or V1 release readiness.
 
+## 2026-08-16 fleet and Route resource close aggregation audit
+
+Delay commit `eb47cb807ceb45d68a9f8db5f53ef3a7cc6ead4e` closes two local
+teardown aggregation gaps. `WorkerShardFleetRuntime.close()` attempts every
+admitted shard runtime after a close failure, retains the first failure and
+attaches later failures as suppressed, while leaving the fleet retryable until
+all shard closes succeed. `OxiaRouteAuthoritySession.close()` independently
+attempts its authority and notification clients, so a failed authority-client
+close no longer prevents the separate watch client from being closed.
+
+`WorkerShardFleetRuntimeTest.closeAttemptsEveryShardAndRetainsTheFirstDrainFailure`
+proves both shard close attempts and first/suppressed failure ordering.
+`OxiaSignedRouteSnapshotProviderTest.sessionCloseAttemptsTheIndependentWatchClientAfterAuthorityCloseFails`
+proves watch-client cleanup after authority close failure. The focused receipt
+passed 2 fleet tests and 11 Route provider/session tests with zero
+failures/skips/errors.
+
+This closes only local close-attempt aggregation. Per-shard owner drain remains
+mandatory; no automatic Oxia session retry, Route event/head transactionality,
+placement/source ownership, raw chaos, failover or V1 release readiness is
+claimed.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
