@@ -14384,3 +14384,60 @@ does not change the release classification:
 
 Overall V1 remains NOT READY; no focused Worker receipt is promoted to a
 release PASS.
+
+## 2026-08-17 Current-source bounded chaos matrix: six-cell PASS
+
+The source-locked bounded matrix completed with `matrix_status=0` and all six
+cells passing. The final artifact directory is
+`/var/folders/vk/l_r0z80j1dj93fsrjx3zqv4r0000gn/T/nereus-delay-bounded-chaos-final.XXXXXX.Y38VkPVksq`.
+The exact source locks were Delay
+`e2b6b2dad570ad1cbfd58894f908c2828eece59c`, Kafka K1
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+Pulsar P1
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. The Kafka client SHA-256
+was `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, the
+K1 image was
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+the P1 distribution SHA-256 was
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and
+the P1 image was
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`.
+
+| Bounded cell | Exact runtime placement | Receipt |
+|---|---|---|
+| Kafka Broker process crash | `nereus-delay-kafka-e2e-1786915435-2995`, Kafka `31200/31201/31202`; Oxia `nereus-delay-kafka-oxia-e2e-1786915435-2995`, `31210` | `kafka-1` was SIGKILLed; the source-applied typed `KAFKA_TRANSACTIONAL_RECEIPT` path resumed through survivors and `kafka-1` rejoined. |
+| Kafka Worker ACK process crash | `nereus-delay-kafka-e2e-1786915514-3894`, Kafka `31220/31221/31222`; Oxia `nereus-delay-kafka-oxia-e2e-1786915514-3894`, `31230` | Store `WriteBatch` was durable before SIGKILL and before `commitSync` ACK; a fresh JVM replayed, deduped, ACKed and checkpointed through real Oxia. |
+| Kafka Broker raw TCP cut | `nereus-delay-kafka-e2e-1786915550-4401`, Kafka `31240/31241/31242`; Oxia `nereus-delay-kafka-oxia-e2e-1786915550-4401`, `31250` | The raw proxy rejected Broker-1 once and handed later connections to Broker-2; fresh Worker source apply/ACK/checkpoint completed. |
+| Pulsar Worker process crash | `nereus-delay-pulsar-e2e-1786915591-4999`, broker/web `31260/31261`; Oxia `nereus-delay-pulsar-oxia-e2e-1786915591-4999`, `31270` | A real Worker JVM was SIGKILLed before ACK; a fresh JVM reacquired the Oxia lease, replayed and ACKed the exact source record, and published the final checkpoint. |
+| Pulsar Publish Admission response loss | `nereus-delay-pulsar-e2e-1786915626-5474`, broker/web `31280/31281`; Oxia `nereus-delay-pulsar-oxia-e2e-1786915626-5474`, `31290` | The real Shard Log mutation survived a discarded append response; exact source replay recovered `PUBLISHING`, then typed `PULSAR_SEND_ACK` and payload readback passed. |
+| Checkpoint REAPING | `nereus-delay-oxia-minio-checkpoint-e2e-1786915650-5809`, Oxia `31300`, MinIO `31301` | Real Oxia Intent/Catalog/Owner authority and real MinIO immutable objects passed the checkpoint publication and REAPING flow. |
+
+The Kafka TCP receipt initially exposed a harness-observation race: Kafka may
+choose Broker 2 or Broker 3 from the bootstrap list without opening the
+Broker-1 proxy endpoint. `cc193958` added a deterministic post-cut endpoint
+probe and `e2b6b2da` added the corresponding pre-cut relay probe. Both the
+targeted retry and the final six-cell matrix passed after those changes; the
+Worker still exercised the real recovery, source replay, Oxia authority,
+apply/ACK and checkpoint path.
+
+The current Delay `./gradlew check --no-daemon --console=plain --quiet` and
+`./e2e/validate-cross-repo-contracts.sh` both passed at the final source lock.
+The matrix runner's exact cleanup left no related containers, networks or
+volumes, and no temporary `nereus-delay-kafka-*`, `nereus-delay-pulsar-*` or
+per-run Oxia image references remained. The locked bases were retained:
+`nereus/oxia-o1:37a17bef1720` (local image ID
+`sha256:5aa715e4f19091931743e5af489af5f8d6ee15efcce6430a908c6f65cc6d6516`)
+and MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+(`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`).
+No global Docker prune or unrelated base-image deletion was performed.
+
+This is a six-cell bounded receipt set, not the complete §23.3 chaos matrix
+and not V1 release certification. GC pause, half-open behavior, ENOSPC,
+fsync error, SST corruption, Broker leader/controller cuts, Oxia session
+expiry, Object Store 5xx/timeout/config drift, target-isolation gates,
+benchmark/capacity artifacts, soak, and authenticated activation-state /
+cutover evidence remain open. Gates 2, 3 and 10 are stronger but remain
+`PARTIAL`; Gates 5, 6, 7 and 9 remain `OPEN`, Gate 8 remains `PARTIAL`, and
+overall V1 remains `NOT READY`.
