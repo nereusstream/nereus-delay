@@ -283,7 +283,8 @@ public final class KafkaClientArtifactTransactionalDestinationTransport
                     || typed.verificationStatus() != EvidenceVerificationStatusV1.VERIFIED_PUBLISHED) {
                 throw new IllegalArgumentException("K2 provider returned the wrong typed evidence branch");
             }
-            typed.requireBusinessMutation(request.mapping().publishAttemptId(), true);
+            io.nereusstream.delay.adapter.KafkaTransactionalPublishEvidence.requireExactBinding(
+                    typed, request, receipt.recordMetadata().offset());
             return DestinationPublishResult.published(
                     BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
                             request.target().authenticatedClusterId(), request.target().nativeTopicUuid())),

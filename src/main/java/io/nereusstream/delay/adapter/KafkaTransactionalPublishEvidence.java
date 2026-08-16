@@ -12,7 +12,9 @@ import io.nereusstream.delay.protocol.PublishEvidenceKindV1;
 import io.nereusstream.delay.protocol.PublishEvidenceV1;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -64,6 +66,40 @@ public final class KafkaTransactionalPublishEvidence {
                 EvidenceVerificationStatusV1.VERIFIED_PUBLISHED, branch);
     }
 
+    /**
+     * Verifies provider-returned evidence before a source-locked transport
+     * promotes an uncertain transaction to PUBLISHED.  The provider owns the
+     * read_committed proof; this method owns the final request/evidence
+     * identity binding.
+     */
+    public static void requireExactBinding(final PublishEvidenceV1 evidence,
+                                           final KafkaTransactionalDestinationRequest request,
+                                           final long receiptOffset) {
+        Objects.requireNonNull(evidence, "evidence");
+        Objects.requireNonNull(request, "request");
+        if (evidence.evidenceKind() != PublishEvidenceKindV1.KAFKA_TRANSACTIONAL_RECEIPT
+                || evidence.verificationStatus() != EvidenceVerificationStatusV1.VERIFIED_PUBLISHED) {
+            throw new IllegalArgumentException("Kafka transaction evidence has the wrong branch");
+        }
+        evidence.requireBusinessMutation(request.mapping().publishAttemptId(), true);
+        if (receiptOffset < 0) {
+            throw new IllegalArgumentException("receiptOffset must be non-negative");
+        }
+        final List<CanonicalProtobuf.Reader.Field> fields = branchFields(evidence.branch());
+        final EvidenceCursorV1 cursor = EvidenceCursorV1.decode(bytes(fields.get(0), 1));
+        validateCursor(request, cursor, receiptOffset);
+        if (fields.get(1).unsignedValue() != receiptOffset
+                || !Arrays.equals(bytes(fields.get(3), 4), request.mapping().preparedPublishHash())
+                || !BrokerResourceIdentityV1.decode(bytes(fields.get(4), 5)).equals(
+                BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+                        request.target().authenticatedClusterId(), request.target().nativeTopicUuid())))
+                || uint(fields.get(5), 6) != request.target().partition()
+                || !Arrays.equals(bytes(fields.get(6), 7), request.mapping().producer().transactionalIdentitySha256())
+                || !Arrays.equals(bytes(fields.get(7), 8), request.canonicalReceiptRecordHash())) {
+            throw new IllegalArgumentException("Kafka transaction evidence does not match the exact request");
+        }
+    }
+
     private static void validateCursor(final KafkaTransactionalDestinationRequest request,
                                        final EvidenceCursorV1 cursor, final long receiptOffset) {
         final KafkaReceiptJournal.Mapping mapping = request.mapping();
@@ -77,6 +113,41 @@ public final class KafkaTransactionalPublishEvidence {
                 || Long.compareUnsigned(cursor.lastObservedLsoExclusive(), receiptOffset) <= 0) {
             throw new IllegalArgumentException("Kafka receipt cursor does not bind the exact transaction channel");
         }
+    }
+
+    private static List<CanonicalProtobuf.Reader.Field> branchFields(final byte[] branch) {
+        final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(branch);
+        final List<CanonicalProtobuf.Reader.Field> fields = new ArrayList<>();
+        while (reader.hasRemaining()) {
+            fields.add(reader.next());
+        }
+        if (fields.size() != 8) {
+            throw new IllegalArgumentException("Kafka transaction evidence branch has an invalid shape");
+        }
+        for (int index = 0; index < fields.size(); index++) {
+            if (fields.get(index).number() != index + 1) {
+                throw new IllegalArgumentException("Kafka transaction evidence branch has an invalid field order");
+            }
+        }
+        return fields;
+    }
+
+    private static byte[] bytes(final CanonicalProtobuf.Reader.Field field, final int number) {
+        if (field.number() != number || field.wireType() != 2) {
+            throw new IllegalArgumentException("Kafka transaction evidence field is not bytes: " + number);
+        }
+        return field.rawValue();
+    }
+
+    private static long uint(final CanonicalProtobuf.Reader.Field field, final int number) {
+        if (field.number() != number || field.wireType() != 0) {
+            throw new IllegalArgumentException("Kafka transaction evidence field is not uint: " + number);
+        }
+        final long value = field.unsignedValue();
+        if (value < 0 || value > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("Kafka transaction evidence partition is out of range");
+        }
+        return value;
     }
 
     private static byte[] uuidBytes(final java.util.UUID uuid) {

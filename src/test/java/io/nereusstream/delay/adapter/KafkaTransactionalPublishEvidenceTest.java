@@ -44,6 +44,7 @@ class KafkaTransactionalPublishEvidenceTest {
         assertEquals(EvidenceKindV1.KAFKA_RECEIPT_CONTIGUOUS, EvidenceCursorV1.decode(cursor.canonicalBytes())
                 .evidenceKind());
         PublishEvidenceV1.decode(evidence.canonicalBytes()).requireBusinessMutation(mapping.publishAttemptId(), true);
+        KafkaTransactionalPublishEvidence.requireExactBinding(evidence, transaction, 10);
         assertArrayEquals(transaction.canonicalReceiptRecordHash(),
                 KafkaTransactionalDestinationRequest.canonicalReceiptRecordHash(
                         transaction.receiptKey(), transaction.receiptValue()));
@@ -69,6 +70,24 @@ class KafkaTransactionalPublishEvidenceTest {
                 foreignCursor, 10, transaction.canonicalReceiptRecordHash()));
         assertThrows(IllegalArgumentException.class, () -> KafkaTransactionalPublishEvidence.published(transaction,
                 cursor(fixture), 10, Bytes.sha256(Bytes.utf8("foreign-receipt"))));
+    }
+
+    @Test
+    void providerEvidenceMustRetainTheExactReceiptOffset() {
+        final Fixture fixture = new Fixture();
+        final KafkaReceiptJournal.Mapping mapping = fixture.journal.appendNext(fixture.producer,
+                new KafkaReceiptJournal.AttemptIdentity(fixture.request.delayMessageId(), fixture.request.generation(),
+                        fixture.request.publishAttemptId(), fixture.preparedHash,
+                        fixture.source.brokerPersistenceTimeEpochMs(), fixture.source.canonicalBytes()))
+                .record().mapping();
+        final KafkaTransactionalDestinationRequest transaction = KafkaTransactionalDestinationRequest.create(
+                "target-topic", KafkaDestinationRequest.from(fixture.target, fixture.request), "receipt-topic",
+                fixture.receipt, mapping);
+        final PublishEvidenceV1 evidence = KafkaTransactionalPublishEvidence.published(transaction, cursor(fixture), 10,
+                transaction.canonicalReceiptRecordHash());
+
+        assertThrows(IllegalArgumentException.class, () -> KafkaTransactionalPublishEvidence.requireExactBinding(
+                evidence, transaction, 11));
     }
 
     private static EvidenceCursorV1 cursor(final Fixture fixture) {

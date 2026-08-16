@@ -29,6 +29,7 @@ class PulsarSendAckEvidenceTest {
         assertEquals(EvidenceVerificationStatusV1.VERIFIED_PUBLISHED, decoded.verificationStatus());
         assertArrayEquals(evidence.evidenceId(), decoded.evidenceId());
         decoded.requireBusinessMutation(request.publishAttemptId(), true);
+        PulsarSendAckEvidence.requireExactBinding(decoded, request, preparedHash, producerHash, 2_001);
     }
 
     @Test
@@ -51,6 +52,20 @@ class PulsarSendAckEvidenceTest {
                 () -> evidence.requireBusinessMutation(hash("foreign-attempt"), true));
         assertEquals(32, request.publishAttemptId().length);
         assertEquals(32, evidence.evidenceId().length);
+    }
+
+    @Test
+    void providerEvidenceMustRetainTheExactPreparedHashAndBrokerTime() {
+        final PulsarDestinationRequest request = request();
+        final byte[] preparedHash = hash("prepared");
+        final byte[] producerHash = hash("producer");
+        final PublishEvidenceV1 evidence = PulsarSendAckEvidence.published(request, preparedHash, producerHash,
+                17, 23, 0, 2_001, 42, hash("response"));
+
+        assertThrows(IllegalArgumentException.class, () -> PulsarSendAckEvidence.requireExactBinding(
+                evidence, request, hash("foreign-prepared"), producerHash, 2_001));
+        assertThrows(IllegalArgumentException.class, () -> PulsarSendAckEvidence.requireExactBinding(
+                evidence, request, preparedHash, producerHash, 2_002));
     }
 
     private static PulsarDestinationRequest request() {

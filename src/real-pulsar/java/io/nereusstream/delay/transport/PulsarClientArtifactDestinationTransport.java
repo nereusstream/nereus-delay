@@ -195,7 +195,9 @@ public final class PulsarClientArtifactDestinationTransport
                             || evidence.verificationStatus() != EvidenceVerificationStatusV1.VERIFIED_PUBLISHED) {
                         throw new IllegalArgumentException("Pulsar recovery provider returned the wrong evidence");
                     }
-                    evidence.requireBusinessMutation(request.publishAttemptId(), true);
+                    io.nereusstream.delay.adapter.PulsarSendAckEvidence.requireExactBinding(
+                            evidence, request, preparedPublishHash, producerNameHash,
+                            candidate.brokerPersistenceTimeEpochMs());
                     return DestinationPublishResult.published(BrokerResourceIdentityV1.pulsar(
                                     new PulsarBrokerResourceIdentityV1(authenticatedClusterId, resourceIncarnation,
                                             physicalTopic, physicalTopicCreationTimestamp)), partition,
