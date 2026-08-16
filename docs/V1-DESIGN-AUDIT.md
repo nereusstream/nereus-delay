@@ -9304,6 +9304,30 @@ This closes only local durable admission-lease release retryability. It does
 not establish distributed Gateway authority, session recovery, transport
 delivery, failover, raw chaos or V1 release readiness.
 
+## 2026-08-16 Gateway idempotency evidence monotonicity audit
+
+Delay commit `b19f998ffe811d0a6dee1051491eae6c61131712` closes the durable
+Gateway evidence-ordering gap. `GatewayIdempotencyRecordV1` verifies every
+terminal outcome against the one stored managed/native prepared submission and
+the callback's physical attempt ID. A byte-identical terminal replay returns
+the existing record without a new Oxia put; different terminal evidence for a
+terminal attempt is an integrity conflict and leaves the stored value intact.
+
+The aggregate transition is monotonic across the full attempt history: the
+first queued receipt remains selected, a queued attempt cannot be downgraded,
+and any unresolved attempt keeps the aggregate uncertain. Retry admission
+selects the highest unresolved attempt as the CAS precondition, so a newer
+definitive non-queued attempt cannot make an older unresolved obligation
+disappear. The Oxia and in-memory stores share the same record transition
+rules.
+
+The focused Oxia/idempotency and Gateway schedule suites passed 13 tests with
+zero failures/skips/errors. The full `./gradlew check` passed 1532 tests with
+24 skips and zero failures/errors. This closes local durable evidence
+monotonicity and exact-replay behavior only; it does not establish distributed
+Gateway authority, transport delivery, Broker failover, raw chaos or V1
+release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

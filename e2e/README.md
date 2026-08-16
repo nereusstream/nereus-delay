@@ -2453,3 +2453,28 @@ The deterministic Gateway admission suite passed 6 tests, including
 only local admission-lease release retryability; it does not prove
 distributed Gateway authority, session recovery, transport delivery,
 failover, chaos or V1 release readiness.
+
+## Gateway idempotency evidence monotonicity receipt
+
+Delay commit `b19f998ffe811d0a6dee1051491eae6c61131712` binds each durable
+Gateway outcome to the exact prepared branch and physical attempt identity.
+Identical terminal evidence is idempotent; conflicting terminal evidence is
+rejected without overwrite. Aggregate selection keeps the first queued
+receipt, retains the highest unresolved attempt when any uncertainty remains,
+and permits a later retry from that unresolved attempt even if a newer retry
+has a definitive non-queued result.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest \
+  --tests io.nereusstream.delay.gateway.GatewayScheduleServiceTest \
+  --no-daemon --console=plain
+```
+
+The deterministic Gateway suites passed 13 tests with zero failures/skips/
+errors. The full `./gradlew check` passed 1532 tests with 24 skips and zero
+failures/errors. This receipt proves only local durable idempotency evidence
+ordering; it does not prove distributed Gateway authority, transport delivery,
+Broker failover, chaos or V1 release readiness.

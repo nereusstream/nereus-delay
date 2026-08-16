@@ -5934,3 +5934,26 @@ retrying the same lease identity.
 passed in the 6-test deterministic Gateway admission suite. This note closes
 only local lease-release retryability; distributed Gateway authority, session
 recovery, transport delivery, failover, chaos and release gates remain open.
+
+### 2026-08-16 Gateway idempotency evidence monotonicity implementation note
+
+Delay commit `b19f998ffe811d0a6dee1051491eae6c61131712` implements the
+single-record evidence rules in the Gateway idempotency contract. Outcome CAS
+installation now checks the durable prepared branch, exact prepared command or
+native reference, and physical attempt identity. An identical terminal replay
+is an exact no-op; a different terminal value for the same attempt is an
+integrity conflict, so a late callback cannot last-write-wins over stored
+evidence.
+
+Aggregate recomputation preserves the first queued receipt, keeps any queued
+aggregate from being downgraded, and chooses the highest unresolved attempt
+when uncertainty remains. Retry admission uses that highest unresolved attempt
+as its precondition even when a newer retry has a definitive non-queued result.
+The Oxia store avoids a new put for an exact replay, while the in-memory store
+uses the same record transition logic.
+
+The focused Gateway suites passed 13 tests with zero failures/skips/errors;
+the full `./gradlew check` passed 1532 tests with 24 skips and zero
+failures/errors. This note closes only local durable evidence ordering and
+retry-precondition behavior; transport delivery, distributed authority,
+failover, chaos and release gates remain open.

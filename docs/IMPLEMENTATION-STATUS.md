@@ -11153,3 +11153,38 @@ The deterministic Gateway admission suite passed 6 tests, including
 local durable admission-lease release retryability; it does not establish
 distributed Gateway authority, session recovery, transport delivery,
 failover, chaos or V1 release evidence.
+
+## 2026-08-16 Gateway idempotency evidence monotonicity
+
+Delay commit `b19f998ffe811d0a6dee1051491eae6c61131712` makes Gateway
+idempotency outcome installation monotonic across late callbacks and retries.
+`GatewayIdempotencyRecordV1` validates that every outcome uses the durable
+managed/native prepared branch, exact prepared command or native reference,
+and matching physical attempt identity. A repeated identical terminal outcome
+is a no-op; different terminal evidence for the same attempt is rejected
+without overwriting the durable record.
+
+The aggregate is recomputed from all source-ordered attempts: the first
+successful queued receipt is sticky, any unresolved attempt prevents a
+definitive aggregate, and an older unresolved attempt remains the explicit
+retry precondition even when a newer attempt has a definitive non-queued
+result. Both the Oxia and in-memory stores use this transition logic, and an
+exact Oxia replay does not issue a new put.
+
+The focused receipt is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest \
+  --tests io.nereusstream.delay.gateway.GatewayScheduleServiceTest \
+  --no-daemon --console=plain
+```
+
+The focused Gateway suites passed 13 tests with zero failures/skips/errors,
+including late queued promotion, stale old-attempt evidence, conflicting
+terminal evidence, foreign attempt identity, and retry from the highest
+unresolved attempt. The full `./gradlew check` passed 1532 tests with 24
+skips and zero failures/errors. This closes local durable evidence ordering
+and retry-precondition behavior only; it does not establish distributed
+Gateway authority, transport delivery, Broker failover, raw chaos or V1
+release evidence.
