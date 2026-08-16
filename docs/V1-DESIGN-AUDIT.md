@@ -10608,7 +10608,7 @@ Oxia images; no global Docker prune was used.
 ## 2026-08-17 V1 release-gate audit result
 
 Source locks for this audit are Delay
-`262254fcefea86f34cc153282706cfb2b16ad222`, K1
+`e6d28a5b0fecc6c20daded998b1d324990fe95c2`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`. Full local `check` and the
@@ -10651,3 +10651,33 @@ reconnect, multi-node Gateway HA, load, complete crash/response-loss
 resolution, external credential/provider authority or V1 release readiness.
 Exact project/image postchecks were empty; the locked MinIO base remained and
 no global Docker prune was used.
+
+## 2026-08-17 Current-source Object Store credential renewal audit
+
+The current-source runner locks Delay to
+`e6d28a5b0fecc6c20daded998b1d324990fe95c2`, Oxia to
+`37a17bef17202d5fd6e23282da5fd26d94865484`, and the locked MinIO digest to
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+Project `nereus-delay-oxia-minio-checkpoint-e2e-1786900763-13173` used Oxia
+port `26320`, MinIO port `27320` and bucket
+`nereus-delay-checkpoints-1786900763-13173`.
+
+Audit result: PASS for the bounded real Oxia Profile/protection/lease renewal
+and rotation-fence slice. The test renewed an exact session-bound Object
+Store lease inside its configured window, reread the extended durable
+protection horizon, then failed closed after a real generation-two Head
+rotation. The same runner also passed atomic checkpoint publication, real
+MinIO immutable upload/download and REAPING. The receipts were:
+
+```text
+Oxia + MinIO Worker checkpoint publication passed: atomic Intent/Catalog=true, immutable object upload/download=true, checkpoint=00000000000000000000000000000003
+Oxia + MinIO checkpoint REAPING authority passed: real Owner abandonment=true, real Intent PENDING_UPLOAD->REAPING=true, exact-version prefix sweep=2, finalEmptyPrefix=true, localProviderOwnershipClosed=true
+Oxia + MinIO Object Store credential renewal E2E passed: real Profile Head/protection CAS renewed the exact lease and fenced the live adapter at secret rotation
+```
+
+The run-created Oxia image
+`sha256:2e1f77971b6ef7acd879a0931bddd99aa23ed0f4c9e9420e3e4bef3605d01bda`
+was removed and exact project postchecks were empty. This does not establish
+external secret-manager resolution, source-ordered trust-set publication,
+multi-process renewal ownership, provider upload after renewal or V1 release
+readiness; the locked MinIO base remained and no global Docker prune was used.

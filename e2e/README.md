@@ -3845,7 +3845,7 @@ images; no global Docker prune was used.
 ## V1 release-gate audit (2026-08-17)
 
 Current source locks are Delay
-`262254fcefea86f34cc153282706cfb2b16ad222`, K1
+`e6d28a5b0fecc6c20daded998b1d324990fe95c2`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`. The full local check and
@@ -3895,3 +3895,40 @@ This is bounded single-node session-churn/recomposition evidence. Transparent
 automatic reconnect, production multi-process Gateway HA, load, complete
 crash/response-loss resolution, external credential/provider authority and
 V1 release gates remain open.
+
+## Object Store credential renewal with real Oxia and MinIO (current source)
+
+Run the combined checkpoint publication, REAPING and credential-renewal
+receipt with:
+
+```bash
+NEREUS_DELAY_OXIA_CHECKPOINT_E2E_PORT=26320 \
+NEREUS_DELAY_MINIO_CHECKPOINT_E2E_PORT=27320 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-minio-renewal-20260817 \
+  bash e2e/run-oxia-minio-checkpoint-e2e.sh
+```
+
+The current-source run locks Delay to
+`e6d28a5b0fecc6c20daded998b1d324990fe95c2`, Oxia to
+`37a17bef17202d5fd6e23282da5fd26d94865484` and MinIO to
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The exact project was
+`nereus-delay-oxia-minio-checkpoint-e2e-1786900763-13173`; Oxia used `26320`,
+MinIO `27320`, and the bucket was
+`nereus-delay-checkpoints-1786900763-13173`.
+
+All three selected real-service tests passed with zero failures and zero
+errors:
+
+```text
+Oxia + MinIO Worker checkpoint publication passed: atomic Intent/Catalog=true, immutable object upload/download=true, checkpoint=00000000000000000000000000000003
+Oxia + MinIO checkpoint REAPING authority passed: real Owner abandonment=true, real Intent PENDING_UPLOAD->REAPING=true, exact-version prefix sweep=2, finalEmptyPrefix=true, localProviderOwnershipClosed=true
+Oxia + MinIO Object Store credential renewal E2E passed: real Profile Head/protection CAS renewed the exact lease and fenced the live adapter at secret rotation
+```
+
+The renewal test is control-plane evidence: it constructs the lease-gated
+adapter against the locked MinIO Profile, renews the exact real-Oxia lease,
+and rejects a live adapter renewal after Head rotation. It does not claim
+external secret-manager resolution or a provider upload after renewal. The
+runner removed its project resources, MinIO container and temporary Oxia
+image; the locked MinIO base remained and no global Docker prune was used.

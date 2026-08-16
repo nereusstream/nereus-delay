@@ -7110,7 +7110,7 @@ quiescence, chaos and V1 release gates remain separate.
 
 ## 2026-08-17 V1 release-gate implementation boundary
 
-At Delay `262254fcefea86f34cc153282706cfb2b16ad222`, with K1
+At Delay `e6d28a5b0fecc6c20daded998b1d324990fe95c2`, with K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`, the implementation has crossed
@@ -7146,3 +7146,30 @@ was removed after exact compose cleanup. This is bounded single-node
 session-churn/recomposition evidence, not transparent reconnect, Gateway HA,
 load, full crash/response-loss resolution or V1 release evidence. The locked
 MinIO image was retained; no global Docker prune was used.
+
+### 2026-08-17 Current-source Object Store credential renewal implementation note
+
+The current-source Oxia+MinIO runner uses Delay
+`e6d28a5b0fecc6c20daded998b1d324990fe95c2`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`,
+project `nereus-delay-oxia-minio-checkpoint-e2e-1786900763-13173`, Oxia
+`26320` and MinIO `27320`.
+
+The real renewal test builds the adapter from the session-bound Oxia Profile
+Head, immutable binding, protection and use lease, renews only inside the
+configured window, verifies the extended protection horizon, and rejects
+renewal when the durable Head rotates to generation two. The same run passed
+the real MinIO checkpoint publication/download and REAPING tests:
+
+```text
+Oxia + MinIO Worker checkpoint publication passed: atomic Intent/Catalog=true, immutable object upload/download=true, checkpoint=00000000000000000000000000000003
+Oxia + MinIO checkpoint REAPING authority passed: real Owner abandonment=true, real Intent PENDING_UPLOAD->REAPING=true, exact-version prefix sweep=2, finalEmptyPrefix=true, localProviderOwnershipClosed=true
+Oxia + MinIO Object Store credential renewal E2E passed: real Profile Head/protection CAS renewed the exact lease and fenced the live adapter at secret rotation
+```
+
+This closes the bounded real Profile/protection/lease renewal and rotation
+fence composition. It does not claim external secret-manager resolution,
+source-ordered trust-set publication, multi-process renewal ownership or a
+provider operation after renewal. The run-created Oxia image was removed;
+the locked MinIO image was retained and no global Docker prune was used.
