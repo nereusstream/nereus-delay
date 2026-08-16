@@ -51,7 +51,8 @@ public final class WorkerSourceApplyLoop implements AutoCloseable {
     /**
      * Closes the native source only after the coordinator has no pending
      * record.  Closing with an unproven ACK would discard the broker retry
-     * authority and is therefore rejected.
+     * authority and is therefore rejected. A native close failure leaves the
+     * loop retryable instead of masquerading as completed source teardown.
      */
     @Override
     public synchronized void close() {
@@ -61,7 +62,10 @@ public final class WorkerSourceApplyLoop implements AutoCloseable {
         if (coordinator.pendingEntry().isPresent()) {
             throw new IllegalStateException("cannot close source loop with a pending source record");
         }
-        closed = true;
         consumer.close();
+        // Mark the loop closed only after the native consumer confirms its
+        // teardown. If close throws after a partial release, the owner drain
+        // can retry the same boundary instead of treating the source as done.
+        closed = true;
     }
 }

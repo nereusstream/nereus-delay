@@ -192,6 +192,44 @@ class SourceApplyCoordinatorTest {
     }
 
     @Test
+    void workerSourceLoopRetriesNativeCloseAfterAReleaseFailure() throws Exception {
+        try (Fixture fixture = new Fixture(tempDir.resolve("worker-source-close-retry"))) {
+            final AtomicInteger closeCalls = new AtomicInteger();
+            final SourceRecordConsumer consumer = new SourceRecordConsumer() {
+                @Override
+                public Optional<PolledSourceRecord> poll() {
+                    return Optional.empty();
+                }
+
+                @Override
+                public void close() {
+                    if (closeCalls.incrementAndGet() == 1) {
+                        throw new IllegalStateException("simulated source close failure");
+                    }
+                }
+            };
+
+            final WorkerSourceApplyLoop loop = new WorkerSourceApplyLoop(consumer, fixture.workClasses,
+                    fixture.owned, fixture.authority, fixture.verificationKey);
+            try {
+                final IllegalStateException failure = assertThrows(IllegalStateException.class, loop::close);
+                assertEquals("simulated source close failure", failure.getMessage());
+                assertEquals(1, closeCalls.get());
+
+                loop.close();
+
+                assertEquals(2, closeCalls.get());
+                assertThrows(IllegalStateException.class,
+                        () -> loop.runTurn(fixture.budget(), () -> 101));
+            } finally {
+                if (closeCalls.get() < 2) {
+                    loop.close();
+                }
+            }
+        }
+    }
+
+    @Test
     void workerShardRuntimeBlocksDrainUntilPendingAckIsResolvedAndClosesSourceAfterRelease() throws Exception {
         try (Fixture fixture = new Fixture(tempDir.resolve("worker-runtime"))) {
             final SourceReplayRecord entry = fixture.entry("worker-runtime");
