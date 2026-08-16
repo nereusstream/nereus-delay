@@ -13853,3 +13853,49 @@ writable-tuple cutover, downgrade authority or release artifact. No new
 `meta/FIXED` key was introduced, and kind-1 application state remains outside
 this slice; Gate 8 therefore remains `PARTIAL` and the release remains
 `NOT READY`.
+
+## 2026-08-17 Current-source Kafka Broker network-partition Worker recovery receipt
+
+The current-source rerun locks Delay to
+`499169a116fa401cb902a60bb805f9c72173ab69`, Kafka K1 to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+the client artifact to SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, K1
+broker image to
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+and Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. The isolated Kafka
+project was `nereus-delay-kafka-e2e-1786910072-33614` on
+`30770,30771,30772`; the Oxia project was
+`nereus-delay-kafka-oxia-e2e-1786910072-33614` on `30780`.
+
+The source-bound command was:
+
+```bash
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+NEREUS_DELAY_KAFKA_BROKER_NETWORK_PARTITION_ONLY=1 \
+NEREUS_DELAY_KAFKA_OXIA_PORT=30780 \
+KAFKA_BROKER_1_PORT=30770 \
+KAFKA_BROKER_2_PORT=30771 \
+KAFKA_BROKER_3_PORT=30772 \
+KAFKA_DELAY_BROKER_NETWORK_PARTITION_TOPIC=nereus-delay-broker-network-partition-20260817-r1 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-network-partition-20260817-r1 \
+KAFKA_DELAY_E2E_WORKER_TOPIC=nereus-delay-worker-network-partition-20260817-r1 \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The source-bound output included:
+
+```text
+Kafka survivor topic leader recovery passed: leaders={nereus-delay-broker-network-partition-20260817-r1=2, nereus-delay-worker-destination-topic=2, nereus-delay-worker-destination-topic-receipt=3}
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, and final checkpoint
+Kafka Worker authority smoke passed: real Oxia session-bound lease
+Kafka Broker network-partition recovery E2E passed: kafka-1 stayed alive but was disconnected from the Compose network after guarded Worker preparation, the same topic resumed through kafka-2/kafka-3 with real Oxia Worker authority and source apply/ACK/checkpoint, and kafka-1 reconnected afterward.
+```
+
+This closes the bounded current-source Docker-network partition and survivor
+source-Worker recovery cut. It intentionally does not claim destination
+physical publish during the survivor window, raw packet/proxy/socket loss,
+automatic controller/coordinator failover beyond the topic-leader check,
+multi-shard chaos completeness or V1 release readiness. Exact postchecks found
+no project containers, networks, volumes, dangling images or temporary
+K1/Oxia image; no global Docker prune was used.

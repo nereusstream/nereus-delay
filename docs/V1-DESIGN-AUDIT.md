@@ -11011,3 +11011,37 @@ does not establish source-ordered activation state, authenticated
 writer-before-reader assignment, eligible-reader cutover, downgrade or a
 release artifact. It adds no Registry meta key and does not promote Gate 8;
 the release audit remains `NOT READY`.
+
+## 2026-08-17 Current-source Kafka Broker network-partition Worker recovery audit
+
+The current-source audit locks Delay to
+`499169a116fa401cb902a60bb805f9c72173ab69`, Kafka K1 to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+the client artifact to SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, K1
+broker image to
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+and Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. The exact projects
+were `nereus-delay-kafka-e2e-1786910072-33614` and
+`nereus-delay-kafka-oxia-e2e-1786910072-33614` on Kafka
+`30770,30771,30772` and Oxia `30780`.
+
+Audit result: PASS for the bounded current-source Docker-network partition and
+survivor source-Worker recovery slice. After guarded Worker preparation, the
+live `kafka-1` was disconnected from its Compose network without stopping its
+process. Real Admin leader checks confirmed survivor ownership; the same
+guarded source resumed through `kafka-2,kafka-3`, reacquired real Oxia
+session-bound authority, applied/ACKed the source record and released the
+final checkpoint before `kafka-1` rejoined:
+
+```text
+Kafka survivor topic leader recovery passed: leaders={nereus-delay-broker-network-partition-20260817-r1=2, nereus-delay-worker-destination-topic=2, nereus-delay-worker-destination-topic-receipt=3}
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, and final checkpoint
+Kafka Broker network-partition recovery E2E passed: kafka-1 stayed alive but was disconnected from the Compose network after guarded Worker preparation, the same topic resumed through kafka-2/kafka-3 with real Oxia Worker authority and source apply/ACK/checkpoint, and kafka-1 reconnected afterward.
+```
+
+This is not destination egress during the cut, raw packet/proxy/socket chaos,
+automatic controller/coordinator failover beyond topic-leader recovery,
+multi-shard chaos completeness or V1 release evidence. Exact postchecks found
+no project resources, dangling images or temporary K1/Oxia image; no global
+Docker prune was used.
