@@ -1255,7 +1255,16 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                                         if (!Arrays.equals(objectPayload, payload)) {
                                             throw new IllegalStateException("Pulsar Worker Object Store readback did not match the committed payload");
                                         }
-                                        final OwnerLease reactivationLease = signalFailoverCut(ownerAuthority, lease);
+                                        final OwnerLease activeLeaseBeforeCut = ownerAuthority.current(shard)
+                                                .orElseThrow(() -> new IllegalStateException(
+                                                        "Pulsar active Owner Lease disappeared before failover cut"));
+                                        if (activeLeaseBeforeCut.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
+                                                || !activeLeaseBeforeCut.validAt(System.currentTimeMillis())) {
+                                            throw new IllegalStateException(
+                                                    "Pulsar active Owner Lease is not live before failover cut");
+                                        }
+                                        final OwnerLease reactivationLease = signalFailoverCut(ownerAuthority,
+                                                activeLeaseBeforeCut);
                                         if (failoverRequested()) {
                                             final PulsarActivationBarrier oldBarrier =
                                                     (PulsarActivationBarrier) activeAssignment.sourceAssignment()
