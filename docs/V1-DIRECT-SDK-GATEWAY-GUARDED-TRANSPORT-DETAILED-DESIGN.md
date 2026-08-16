@@ -5818,3 +5818,17 @@ does not turn partial resource release into a terminal source state.
 passed in the 8-test deterministic source/apply suite. The note closes only
 local source teardown retryability; pending-ACK/owner-drain ordering, Broker
 reconnect/ACK evidence, crash/chaos, failover and release gates remain open.
+
+### 2026-08-16 Route client teardown retry boundary implementation note
+
+Delay commit `9f24b2f38ba4f21962bebdaa2455d7f86ba0cd1b` keeps Route teardown
+retryable while fencing new I/O. `OxiaRouteAuthoritySession.close()` records
+completion only after both independently owned clients close successfully; the
+provider uses the same state split for its owned notification executor and
+Route client, attempts both resources and preserves the first failure with
+later failures suppressed.
+
+The deterministic Route provider/session suite passed 12 tests, including
+failed-session-close and failed-provider-client-close retry regressions. This
+is local teardown state only; automatic session recovery, Route transactionality,
+placement/source authority, chaos, failover and release evidence remain open.

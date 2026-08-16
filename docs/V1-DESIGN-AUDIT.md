@@ -9155,6 +9155,25 @@ This closes only local source close retryability. Pending ACK and owner-drain
 ordering remain mandatory; Broker reconnect/ACK durability, crash/chaos,
 failover, production ownership and V1 release readiness are not claimed.
 
+## 2026-08-16 Route client teardown retry boundary audit
+
+Delay commit `9f24b2f38ba4f21962bebdaa2455d7f86ba0cd1b` separates the Route
+close fence from close completion. `OxiaRouteAuthoritySession` rejects further
+session I/O immediately after close is requested, but retries its authority and
+notification client close calls until both succeed. The provider similarly
+keeps its CLOSED health fence while retrying its owned notification executor
+and Route client, aggregating failures without losing the later attempt.
+
+`OxiaSignedRouteSnapshotProviderTest.sessionCloseAttemptsTheIndependentWatchClientAfterAuthorityCloseFails`
+now proves a failed session close can be retried, and
+`OxiaSignedRouteSnapshotProviderTest.routeProviderRetriesClientCloseAfterAReleaseFailure`
+proves the provider's second close reaches the client. The deterministic Route
+provider/session suite passed 12 tests with zero failures/skips/errors.
+
+This closes only local Route teardown retryability. It does not establish
+automatic session recovery, event/head transactionality, placement/source
+ownership, raw chaos, failover or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

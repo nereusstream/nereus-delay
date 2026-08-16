@@ -2292,3 +2292,16 @@ The deterministic source/apply suite passed 8 tests, including the native
 close-failure retry regression. This is local lifecycle evidence only; it does
 not prove pending-ACK bypass, Broker reconnect/ACK durability, crash/chaos,
 failover or V1 release readiness.
+
+## Route client teardown retry receipt
+
+Delay commit `9f24b2f38ba4f21962bebdaa2455d7f86ba0cd1b` keeps the Route session
+and provider close paths fenced but retryable. A failed authority/client close
+does not allow new Route I/O, yet the next explicit close retries all still
+owned clients and marks completion only after success.
+
+The deterministic Route provider/session suite passed 12 tests, including
+session and provider client-close retry regressions. This receipt proves only
+local teardown retryability; it does not prove automatic Oxia recovery, Route
+transactionality, placement/source ownership, chaos, failover or V1 release
+readiness.

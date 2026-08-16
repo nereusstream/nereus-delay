@@ -1549,6 +1549,22 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Worker source close retry boundary implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Worker source close retry receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaRouteAuthoritySession.java" \
+    "private boolean closeCompleted"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProvider.java" \
+    "closeCompleted = true"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
+    "routeProviderRetriesClientCloseAfterAReleaseFailure"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Route client teardown retry boundary"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "9f24b2f38ba4f21962bebdaa2455d7f86ba0cd1b"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Route client teardown retry boundary audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Route client teardown retry boundary implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Route client teardown retry receipt"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPublicationCoordinator.java" \
     "intentIsAtomic || catalogIsAtomic"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointUploadCoordinatorTest.java" \

@@ -10972,3 +10972,20 @@ The deterministic source/apply suite passed 8 tests, including
 source lifecycle retryability only; it does not bypass pending-ACK protection,
 change owner-drain ordering, establish Broker reconnect/ACK evidence, or
 provide crash/chaos/failover/release evidence.
+
+## 2026-08-16 Route client teardown retry boundary
+
+Delay commit `9f24b2f38ba4f21962bebdaa2455d7f86ba0cd1b` makes Route client
+teardown retryable after a partial close failure. `OxiaRouteAuthoritySession`
+keeps the session closed to new operations but records `closeCompleted` only
+after both its authority and notification clients close successfully.
+`OxiaSignedRouteSnapshotProvider` applies the same fence to its owned
+notification executor and Route client, attempts both resources, and only
+completes close after all attempts succeed.
+
+The focused Route provider/session suite passed 12 tests, including
+`sessionCloseAttemptsTheIndependentWatchClientAfterAuthorityCloseFails` and
+`routeProviderRetriesClientCloseAfterAReleaseFailure`. This is local teardown
+retryability only; it does not add automatic session recovery, Route
+transactionality, placement/source ownership, chaos/failover or release
+evidence.
