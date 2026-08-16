@@ -37,8 +37,11 @@ public record ResourceDeleteConfirmedRecord(
         Objects.requireNonNull(observedImmutableVersion, "observedImmutableVersion");
         Objects.requireNonNull(observedEtag, "observedEtag");
         Bytes.requireLength(responseHash, HASH_LENGTH, "responseHash");
-        TrustedUtcIntervalEvidence.decode(Objects.requireNonNull(observedAt, "observedAt"));
-        TrustedUtcIntervalEvidence.decode(Objects.requireNonNull(confirmedAt, "confirmedAt"));
+        final TrustedUtcIntervalEvidence observedEvidence = TrustedUtcIntervalEvidence.decode(
+                Objects.requireNonNull(observedAt, "observedAt"));
+        final TrustedUtcIntervalEvidence confirmedEvidence = TrustedUtcIntervalEvidence.decode(
+                Objects.requireNonNull(confirmedAt, "confirmedAt"));
+        confirmedEvidence.requireEarliestAtLeast(observedEvidence.latestEpochMs());
         Objects.requireNonNull(appliedSourcePosition, "appliedSourcePosition");
         if (outcome == ResourceDeleteConfirmedBody.DeleteOutcome.ALREADY_ABSENT
                 && (observedImmutableVersion.length != 0 || observedEtag.length != 0)) {

@@ -25,6 +25,7 @@ public final class ResourceDeleteConfirmedBody {
             throw new IllegalArgumentException("delete confirmation intent/evidence identity does not match");
         }
         this.confirmedAt = Objects.requireNonNull(confirmedAt, "confirmedAt");
+        this.confirmedAt.requireEarliestAtLeast(this.evidence.observedAt().latestEpochMs());
     }
 
     public static ResourceDeleteConfirmedBody decode(final byte[] canonicalBody) {

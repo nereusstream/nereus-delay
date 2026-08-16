@@ -96,6 +96,25 @@ class ResourceGcGuardTest {
     }
 
     @Test
+    void durableDeleteConfirmationRequiresConfirmationAfterObservation() {
+        final Fixture fixture = fixture();
+        final TrustedUtcIntervalEvidence observedAt = new TrustedUtcIntervalEvidence(1_000, 1_010,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("observed-order"), 1, 1, 1,
+                id32(18), 0, null);
+        final TrustedUtcIntervalEvidence confirmedAt = new TrustedUtcIntervalEvidence(1_005, 1_006,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("confirmed-order"), 1, 2, 1,
+                id32(19), 0, null);
+
+        assertThrows(IllegalArgumentException.class, () -> new ResourceDeleteConfirmedRecord(
+                fixture.confirmation().confirmationMutationId(), fixture.confirmation().confirmationMutationHash(),
+                fixture.intent(), fixture.confirmation().outcome(), fixture.confirmation().appliedMutationSequence(),
+                fixture.confirmation().providerRequestIdHash(), fixture.confirmation().observedImmutableVersion(),
+                fixture.confirmation().observedEtag(), fixture.confirmation().responseHash(),
+                observedAt.canonicalBytes(), confirmedAt.canonicalBytes(),
+                fixture.confirmation().appliedSourcePosition()));
+    }
+
+    @Test
     void deleteConfirmationMustCarryByteIdenticalRetireIntent() {
         final Fixture fixture = fixture();
         final ResourceRetireIntentRecord altered = new ResourceRetireIntentRecord(
@@ -227,11 +246,14 @@ class ResourceGcGuardTest {
                 id32(3), id32(4), ResourceKind.CHECKPOINT, resourceIdentity, resourceIdentityHash,
                 Long.MIN_VALUE, Long.MIN_VALUE, protectionSet(id32(17)), intentPosition.canonicalBytes());
         final TrustedUtcIntervalEvidence evidence = evidence();
+        final TrustedUtcIntervalEvidence confirmationEvidence = new TrustedUtcIntervalEvidence(1_002, 1_003,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("confirmation-clock"), 1, 2, 1,
+                id32(20), 0, null);
         final ResourceDeleteConfirmedRecord confirmation = new ResourceDeleteConfirmedRecord(
                 id32(5), id32(6), intent,
                 io.nereusstream.delay.protocol.ResourceDeleteConfirmedBody.DeleteOutcome.ALREADY_ABSENT,
                 -1L, id32(7), new byte[0], new byte[0], id32(8), evidence.canonicalBytes(),
-                evidence.canonicalBytes(), confirmationPosition.canonicalBytes());
+                confirmationEvidence.canonicalBytes(), confirmationPosition.canonicalBytes());
         final RecoveryFloor floor = RecoveryFloor.create(id16(9), checkpointId, manifestHash, 4,
                 confirmationPosition, -1L, id32(10));
         return new Fixture(shard, intent, confirmation, floor);

@@ -72,6 +72,19 @@ class ResourceDeleteConfirmedBodyTest {
     }
 
     @Test
+    void confirmationIntervalMustFollowTheCompleteObservationInterval() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 25);
+        final byte[] resourceHash = Bytes.sha256(Bytes.utf8("time-order-resource"));
+        final TrustedUtcIntervalEvidence observedAt = time(3_000, 3_010, "observed-time");
+        final TrustedUtcIntervalEvidence confirmedAt = time(3_005, 3_006, "confirmed-time");
+
+        assertThrows(IllegalArgumentException.class, () -> ResourceDeleteConfirmedBody.decode(body(shard,
+                Bytes.sha256(Bytes.utf8("time-order-mutation")), Bytes.sha256(Bytes.utf8("time-order-hash")),
+                resourceHash, 1, ResourceDeleteConfirmedBody.DeleteOutcome.ALREADY_ABSENT, resourceHash,
+                new byte[0], new byte[0], observedAt, confirmedAt)));
+    }
+
+    @Test
     void providerReturnedPayloadIdentityFieldsMustMatchExactResourceIdentity() {
         final byte[] identity = CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1,
                 CanonicalProtobuf.message(payload -> {
@@ -118,9 +131,18 @@ class ResourceDeleteConfirmedBodyTest {
                                final ResourceDeleteConfirmedBody.DeleteOutcome outcome,
                                final byte[] evidenceResourceHash, final byte[] observedVersion,
                                final byte[] etag) {
-        final TrustedUtcIntervalEvidence time = new TrustedUtcIntervalEvidence(2_000, 2_001,
-                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("clock"), 1, 4, 4,
-                Bytes.sha256(Bytes.utf8("time")), 0, null);
+        final TrustedUtcIntervalEvidence time = time(2_000, 2_001, "clock");
+        final TrustedUtcIntervalEvidence confirmedAt = time(2_002, 2_003, "confirmed-clock");
+        return body(shard, mutationId, mutationHash, resourceHash, expectedVersion, outcome, evidenceResourceHash,
+                observedVersion, etag, time, confirmedAt);
+    }
+
+    private static byte[] body(final ShardId shard, final byte[] mutationId, final byte[] mutationHash,
+                               final byte[] resourceHash, final long expectedVersion,
+                               final ResourceDeleteConfirmedBody.DeleteOutcome outcome,
+                               final byte[] evidenceResourceHash, final byte[] observedVersion,
+                               final byte[] etag, final TrustedUtcIntervalEvidence observedAt,
+                               final TrustedUtcIntervalEvidence confirmedAt) {
         final byte[] intent = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, mutationId);
             CanonicalProtobuf.bytes(output, 2, mutationHash);
@@ -138,7 +160,7 @@ class ResourceDeleteConfirmedBodyTest {
                 CanonicalProtobuf.bytes(output, 5, etag);
             }
             CanonicalProtobuf.bytes(output, 6, Bytes.sha256(Bytes.utf8("response")));
-            CanonicalProtobuf.bytes(output, 7, time.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 7, observedAt.canonicalBytes());
         });
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, subject(shard));
@@ -147,8 +169,14 @@ class ResourceDeleteConfirmedBodyTest {
             CanonicalProtobuf.bytes(output, 10, intent);
             CanonicalProtobuf.uint32(output, 11, outcome.wireValue());
             CanonicalProtobuf.bytes(output, 12, evidence);
-            CanonicalProtobuf.bytes(output, 13, time.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 13, confirmedAt.canonicalBytes());
         });
+    }
+
+    private static TrustedUtcIntervalEvidence time(final long earliest, final long latest, final String sourceId) {
+        return new TrustedUtcIntervalEvidence(earliest, latest,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8(sourceId), 1, 4, 4,
+                Bytes.sha256(Bytes.utf8("time-" + sourceId)), 0, null);
     }
 
     private static byte[] subject(final ShardId shard) {

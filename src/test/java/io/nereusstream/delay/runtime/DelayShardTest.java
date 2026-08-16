@@ -8378,6 +8378,9 @@ class DelayShardTest {
         final TrustedUtcIntervalEvidence time = new TrustedUtcIntervalEvidence(2_000, 2_001,
                 TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("delete-clock"), 1, 8, 8,
                 Bytes.sha256(Bytes.utf8("delete-time")), 0, null);
+        final TrustedUtcIntervalEvidence confirmationTime = new TrustedUtcIntervalEvidence(2_002, 2_003,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("delete-confirmed-clock"), 1,
+                9, 8, Bytes.sha256(Bytes.utf8("delete-confirmed-time")), 0, null);
         final byte[] intent = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, retire.systemMutationId());
             CanonicalProtobuf.bytes(output, 2, retire.mutationHash());
@@ -8401,7 +8404,7 @@ class DelayShardTest {
             CanonicalProtobuf.bytes(output, 10, intent);
             CanonicalProtobuf.uint32(output, 11, outcome.wireValue());
             CanonicalProtobuf.bytes(output, 12, evidence);
-            CanonicalProtobuf.bytes(output, 13, time.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 13, confirmationTime.canonicalBytes());
         });
     }
 
