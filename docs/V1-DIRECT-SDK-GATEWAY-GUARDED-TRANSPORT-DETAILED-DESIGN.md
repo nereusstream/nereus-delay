@@ -5492,3 +5492,29 @@ before/after generation checks are not a multi-record Oxia transaction. The
 implementation therefore still requires a higher-level Owner/session,
 Intent/Catalog/Pin activation authority and does not provide provider,
 source-order or GC lifecycle authorization.
+
+### 2026-08-16 Oxia Control Operation session-bound CAS implementation note
+
+Delay commit `cc8001b528bb9943a2f683c6ad14728c426cb8f2` adds a
+session-bound constructor to `OxiaSyncControlOperationBackend`. The constructor
+accepts `OxiaSyncOwnerLeaseBackend.ClientHandle` and composes its connected
+session marker into a private `SessionBoundRecordClient`. Every control
+operation record read and version-CAS write checks the marker before and after
+the Oxia call. Expected CAS races are rethrown only after the post-call marker
+check succeeds; if the marker changes after a committed write, the exact
+successor reread cannot run under the fenced session and the operation remains
+unknown/fenced.
+
+The deterministic regression includes a fake record service that commits the
+value and then fences the session before the put response. The backend throws,
+while a separately reopened unbound test seam can observe the exact durable
+value; this distinguishes durability from permission to report success. The
+focused backend suite passed 5 tests, the two real-service methods were
+skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was not configured, and the full
+Gradle check returned 0.
+
+The unbound `SyncOxiaClient` constructor remains an explicit external/test
+surface. This note does not claim actor/scope authorization, source-ordered
+control mutation routing, cross-record target/state transactionality,
+automatic session reconnect, production query routing, provider evidence,
+chaos or release readiness.

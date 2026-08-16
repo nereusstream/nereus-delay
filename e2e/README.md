@@ -1907,3 +1907,30 @@ full check returned 0. This receipt proves reusable single-pin record/CAS
 semantics only. It does not prove an atomic Intent/Catalog/Pin transaction,
 Owner/session-loss authority, provider completion, GC authorization, chaos,
 failover or V1 release readiness.
+
+## Oxia Control Operation session-bound CAS receipt
+
+Delay commit `cc8001b528bb9943a2f683c6ad14728c426cb8f2` adds the
+`OxiaSyncControlOperationBackend(ClientHandle, keyPrefix)` path. It fences
+each control-operation record read and CAS write with the exact connected Oxia
+session marker, including the response-loss path. A marker change after a
+committed write prevents the backend from performing an authorized exact
+reread, so the caller receives a fence failure rather than a guessed CURRENT
+result.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.ownership.OxiaSyncControlOperationBackendTest \
+  --tests io.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest \
+  --no-daemon --console=plain
+```
+
+The deterministic backend suite passed 5 tests. The two real-service methods
+were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was not configured, and the
+full `./gradlew check --no-daemon --console=plain --quiet` returned 0. This is
+single-record session-bound CAS evidence only; source-ordered control routing,
+actor/scope authorization, cross-record target/state transactionality,
+automatic session recovery, production query routing, chaos and V1 release
+gates remain open.

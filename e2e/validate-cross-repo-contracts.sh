@@ -1311,6 +1311,24 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Atomic publication Recovery Pin CAS implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Atomic publication Recovery Pin CAS receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncControlOperationBackend.java" \
+    "handle.backend()::assertConnectedSession"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncControlOperationBackend.java" \
+    "successful CAS whose response is lost after the marker disappears"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/ownership/OxiaSyncControlOperationBackendTest.java" \
+    "sessionFenceRejectsACommittedWriteAfterTheMarkerChanges"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/ownership/OxiaRealControlAuthoritySmokeTest.java" \
+    "new OxiaSyncControlOperationBackend(client, prefix + \"/operation\")"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Oxia Control Operation session-bound CAS"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "cc8001b528bb9943a2f683c6ad14728c426cb8f2"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Oxia Control Operation session-bound CAS audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Oxia Control Operation session-bound CAS implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Oxia Control Operation session-bound CAS receipt"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

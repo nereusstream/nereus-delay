@@ -8809,6 +8809,32 @@ session-loss authority, provider evidence, source ordering or GC lifecycle
 authorization. The two opt-in real publication smoke methods were skipped
 because `NEREUS_DELAY_OXIA_ENDPOINT` was unset.
 
+## 2026-08-16 Oxia Control Operation session-bound CAS audit
+
+Delay commit `cc8001b528bb9943a2f683c6ad14728c426cb8f2` adds the missing
+per-operation session fence to `OxiaSyncControlOperationBackend`. The
+`ClientHandle` constructor composes the existing connected Oxia session marker;
+`SessionBoundRecordClient` verifies that marker before and after every record
+read or CAS write. Expected `KeyAlreadyExistsException` and
+`UnexpectedVersionIdException` remain ordinary CAS races only after the
+post-operation marker check succeeds. A response-loss path whose marker has
+changed cannot perform a valid exact reread and therefore fails closed rather
+than returning CURRENT.
+
+`OxiaSyncControlOperationBackendTest.sessionFenceRejectsACommittedWriteAfterTheMarkerChanges`
+covers a write that is committed by the fake record service before the session
+check fails; reopening through the unbound deterministic seam proves the value
+was durable without treating the fenced caller as successful. The focused
+deterministic suite passed 5 tests, the two real-service methods were skipped
+because `NEREUS_DELAY_OXIA_ENDPOINT` was unset, and the full Gradle check
+returned 0. The unbound constructor remains an explicit external/test seam.
+
+This audit closes only the single-record Oxia I/O/session boundary. It does
+not establish authenticated actor/scope authorization, source-ordered control
+mutation routing, atomic target/state registration across records, automatic
+session reconnection, production query routing, chaos evidence or V1 release
+readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
