@@ -5569,16 +5569,17 @@ Commit/Object Store readback; combined destination egress, multi-shard
 placement, raw failure matrix and release evidence remain open.
 
 The current Kafka source fault-matrix evidence additionally closes the
-controlled Fetch response-loss and retention-floor slices below. Those receipts
-do not promote raw network/process failure, multi-shard placement, checkpoint
-publication or release readiness.
+controlled Fetch response-loss, retention-floor and isolated JVM process-crash
+recovery slices below. Those receipts do not promote raw network/proxy/socket
+loss, consumer-coordinator or Broker crash cuts, multi-shard placement,
+checkpoint publication or release readiness.
 
 | Area | Status | Evidence |
 |---|---|---|
 | Shared Semantic Core and signed immutable RouteSnapshot | Partial (local deterministic core plus Oxia event/head-CAS authority composition; bounded Kafka and Pulsar activation/failover proofs added; production gates open) | `RouteSnapshotV1`, `DefaultDelaySemanticCore`, `InMemorySignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotPublisher`, `RouteSnapshotCompatibilityV1`, `DefaultDelayClient`, `RouteBoundSubmissionTransportPlanResolver`, `RouteSnapshotV1Test`, `DefaultDelaySemanticCoreTest`, `InMemorySignedRouteSnapshotProviderTest`, `OxiaSignedRouteSnapshotProviderTest`, `OxiaRealRouteAuthoritySmokeTest`, `KafkaClientArtifactRouteWorkerSmoke`, `PulsarClientArtifactRouteWorkerSmoke`; canonical signature/digest, contiguous replay, head CAS, notification refresh with an isolated watch client, same-incarnation immutable-drift quarantine, tenant-scoped historical resolution, explicit-refresh real Oxia publication and zero-I/O preparation are covered. Bounded real Kafka Fetch v13/LSO and Pulsar guarded SUBSCRIBE/position proofs now feed signed Route barriers, real Oxia Route publication and route-bound Worker assignment; Kafka and Pulsar now add bounded multi-Broker Worker failover, and Gateway adds a real multi-node Oxia DataServer leader-stop reread. Kafka additionally proves bounded Worker Store apply, source ACK, final local checkpoint and owner/assignment release. A bounded Oxia restart/session-rotation reset now reopens the provider notification client and resumes the next signed revision; native eligibility authority, catalog-driven multi-shard placement, package split and production cross-entry gate remain open |
 | Delay Gateway and Gateway idempotency | Partial (generated handlers, strict RS256+mTLS authority, durable Oxia admission/idempotency/audit compositions, real network plus server-restart revalidation, bounded certificate replacement, two-server CAS race, session-churn fail-closed/recomposition, multi-node Oxia DataServer failover and controlled response-loss rereads; live/HA authority still open) | `GatewayScheduleRequestV1`, `GatewayRetryUncertainRequestV1`, `GatewayAdmissionRecordV1`, `GatewayAdmissionController`, `OxiaGatewayAdmissionController`, `GatewayIdempotencyStore`, `GatewayIdempotencyHashV1`, `GatewayIdempotencyRecordV1`, `GatewayPhysicalAttemptV1`, `InMemoryGatewayAdmissionController`, `InMemoryGatewayIdempotencyStore`, `OxiaGatewayIdempotencyStore`, `OxiaGatewayAuditSink`, `SessionBoundOxiaGatewayRecordClient`, `OxiaGatewaySessionUnavailableException`, `GatewayScheduleService`, `GatewayGrpcService`, `GatewayGrpcContext`, `GatewayGrpcServer`, `MutualTlsJwtGatewayTenantAuthority`, `RsaSha256GatewayJwtVerifier`, source proto, `GatewayScheduleServiceTest`, `GatewaySecurityCompositionTest`, `RsaSha256GatewayJwtVerifierTest`, `OxiaGatewayAdmissionControllerTest`, `OxiaRealGatewayAdmissionSmokeTest`, `OxiaGatewayIdempotencyStoreTest`, `OxiaGatewayAuditSinkTest`, `OxiaRealGatewayAuditSinkSmokeTest` and `OxiaRealGatewayGrpcSmokeTest`; exact body conflict, prepared-before-ownership, one-shot attempt, strict record decoding, separate durable admission pools with expiring lease CAS, trusted expiry reclaim, uncertain expected-prior/retry-ID CAS, response-loss exact rereads, generated eleven-RPC surface, mandatory mTLS server composition, RS256 signature/issuer/audience/time policy, mTLS `cnf.x5t#S256` binding, immutable digest-only audit persistence, live Oxia admission/audit readback, server restart with exact outcome reread, independent-client two-server CAS convergence, changed server/client certificate deployment with old-client rejection and new JWT certificate confirmation, session-marker checks before/after Gateway durable I/O with fail-closed `UNAVAILABLE`, controlled new-session recomposition on the same durable prefix, multi-node Oxia DataServer leader-stop recovery, committed STARTED/RETRY_UNCERTAIN response-loss rereads, and the checked-in `e2e/run-gateway-real-e2e.sh` network path are covered. Hot certificate reload/rollback, transparent automatic session reconnect, admission HA, quota-rate/load proof, multi-process HA/transactional idempotency, late authenticated evidence promotion, crash cuts and multi-language vectors remain open |
 | Kafka generic guarded Producer patch | Implemented in isolated upstream worktree plus opt-in Delay K1/K2 binding (bounded K2 gate open) | Kafka branch `nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9` from locked `trunk@c300006a7705c240642db6950b5a95fec982bfc5`; focused K1/K2 client tests, guarded Fetch/source evidence, real KRaft delete/recreate/leader-failover, transaction-v2 guarded send, Delay source-set compile, three-broker K1/K2 Docker E2E and a real committed EndTxn response-loss receipt. Client SHA-256 and broker image ID are recorded above; raw network/process response-loss, LSO/retention, source assignment authority and release gates remain open |
-| Kafka guarded Consumer/source/Worker vertical | Implemented (opt-in real Kafka plus route-bound Worker vertical; production authority pending) | `ConsumerResourceGuard`, `GuardedFetchEvidence`, `KafkaClientArtifactSourceConsumerFactory`, `KafkaClientArtifactRecoverySourceCursor`, `KafkaClientArtifactWorkerSourceFactory`, `KafkaClientArtifactWorkerSmoke`, `OwnerRecoveryCoordinator`, `WorkerShardRuntime`; guarded Fetch v13 evidence is validated before recovery or active source exposure, recovery applies offset 0 before activation, active offset 1 reaches RocksDB before `commitSync`, exact group offset is checked and drain releases the lease. The current locked Docker evidence additionally covers real Oxia session-bound assignment publication/acceptance, accepted-Route broker-survivor failover, source-applied physical Publish with typed KAFKA_TRANSACTIONAL_RECEIPT evidence, source ACK response-loss retry, destination response-loss resolution from read_committed evidence, and controlled source Fetch response-loss replay with an LSO covering the fetched records. Production placement/eligibility authority, raw network/process/Broker crash cuts, consumer-coordinator recovery, Kafka retention-floor recovery, Object Store checkpoint publication and release gates remain open |
+| Kafka guarded Consumer/source/Worker vertical | Implemented (opt-in real Kafka plus route-bound Worker vertical; production authority pending) | `ConsumerResourceGuard`, `GuardedFetchEvidence`, `KafkaClientArtifactSourceConsumerFactory`, `KafkaClientArtifactRecoverySourceCursor`, `KafkaClientArtifactWorkerSourceFactory`, `KafkaClientArtifactWorkerSmoke`, `OwnerRecoveryCoordinator`, `WorkerShardRuntime`; guarded Fetch v13 evidence is validated before recovery or active source exposure, recovery applies offset 0 before activation, active offset 1 reaches RocksDB before `commitSync`, exact group offset is checked and drain releases the lease. The current locked Docker evidence additionally covers real Oxia session-bound assignment publication/acceptance, accepted-Route broker-survivor failover, source-applied physical Publish with typed KAFKA_TRANSACTIONAL_RECEIPT evidence, source ACK response-loss retry, destination response-loss resolution from read_committed evidence, controlled source Fetch response-loss replay with an LSO covering the fetched records, real retention-floor rejection/readability, and an isolated same-group JVM process-crash replay/commit cut. Production placement/eligibility authority, raw network/proxy/socket loss, consumer-coordinator/Broker crash cuts, multi-shard recovery, Object Store checkpoint publication and release gates remain open |
 | Pulsar v22 first-class resource guard | Implemented in isolated upstream worktree plus opt-in Delay P1 binding (bounded multi-Broker Worker failover; D3/open broker cuts) | Pulsar branch `nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7` from locked `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`; focused common/broker, real in-process guarded SEND plus delete/recreate, guarded SUBSCRIBE with attestation/connection generation, real P1 two-Broker Worker failover, source ACK response-loss retry, destination SEND response-loss typed evidence, affected-module checkstyle and Delay source-set compile. Artifact SHA-256 values are recorded above; raw network/proxy/session cuts, rewind, full D3 transport and production authority remain open |
 | Queued receipt Route-policy boundary | Implemented (local strict adapter seam; Route authority pending) | `QueuedReceiptQueryPolicy`, `PolicyBoundWireCommandIngressAdapter`, `PinnedKafkaCommandIngress`, `PinnedPulsarCommandIngress`, `PreparedSubmissionAdapter`, `EmbeddedDelayService`, `AdapterIngressTest`, `NativeSubmissionAdapterTest`; strict paths derive `receipt_query_until` from authenticated Broker persistence time with checked addition, reject missing/drifting policy snapshots before transport ownership, and retain post-persistence overflow as `ENQUEUE_UNCERTAIN`/integrity evidence; absolute-boundary overloads are compatibility-only and checked against a bound policy; Route policy publication, source-time authority and concrete production transports remain release blockers |
 | Full command-result retention boundary | Implemented (local strict query seam; retention authority pending) | `CommandResultRetentionPolicy`, `DelayClient`, `EmbeddedDelayService`, `BoundedLocalQueryProjector`, `EmbeddedDelayServiceTest.embeddedQueryDerivesFullResultRetentionFromAppliedSourceTime`, `CommandResultRetentionPolicyTest`; strict query/await/applied-receipt projections derive `full_result_retain_until` from the applied Source Position Broker persistence time with checked addition, while absolute-boundary overloads remain compatibility-only; policy publication, source-time authority and production query routing remain release blockers |
@@ -11773,3 +11774,48 @@ fault injection.
 Consumer-coordinator/process/Broker crash cuts, raw network/proxy chaos,
 multi-shard placement, Object Store checkpoint publication and the V1 release
 gates remain open.
+
+## 2026-08-16 Kafka source process-crash recovery receipt
+
+Delay implementation commit
+`2bcaff5e0c0b15b819cbc614c166c47e19571be3` adds the focused
+`KafkaClientArtifactProcessCrashRecoverySmoke`, the
+`runRealKafkaProcessCrashRecoverySmoke` Gradle task and the
+`NEREUS_DELAY_KAFKA_PROCESS_CRASH_ONLY=1` E2E mode. The source-bound command
+was:
+
+```bash
+NEREUS_DELAY_KAFKA_PROCESS_CRASH_ONLY=1 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-process-crash-e2e-receipt \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The post-commit receipt used Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image ID
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+and Compose project `nereus-delay-kafka-e2e-1786881618-58469` on broker
+ports `19561,19562,19563`.
+
+The source-bound output was:
+
+```text
+Kafka source process-crash cut reached: fetchedOffsets=0,1, fetchLso=2, responseAcked=false, consumerClosed=false
+Kafka source process-crash recovery smoke passed: crashExit=86, replayOffset=0, secondOffset=1, committedAfterRecovery=2
+BUILD SUCCESSFUL in 5s
+Kafka source process-crash recovery E2E passed: the crashed JVM fetched exact guarded records without ACK, and a fresh same-group process replayed offsets 0 and 1 before committing offset 2.
+```
+
+This closes the bounded isolated process-crash recovery slice: a real
+three-Broker KRaft source was fetched through guarded Fetch v13, the first JVM
+halted at exit `86` after receiving exact offsets `0` and `1` without ACK or
+consumer close, and a fresh process with the same group replayed both records
+before `commitSync` advanced the group to `2`. Deterministic command identity
+and the fetched LSO `2` bind the cut to the same source records.
+
+The receipt does not cover raw network/proxy/socket loss,
+consumer-coordinator or Broker crash/leader-failover cuts, Worker crash during
+apply/publish, catalog-driven multi-shard placement, Object Store checkpoint
+publication, the broader chaos matrix or V1 release readiness.

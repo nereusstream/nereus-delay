@@ -6271,3 +6271,40 @@ reads the floor record through guarded `read_committed` Fetch v13 with
 loss, disk-full behavior, consumer-coordinator/process/Broker crash recovery,
 multi-shard placement, checkpoint publication, chaos and release gates are
 separate obligations.
+
+### 2026-08-16 Kafka source process-crash recovery receipt
+
+The focused process-crash mode composes the locked K1 client with a real
+three-Broker KRaft cluster:
+
+```bash
+NEREUS_DELAY_KAFKA_PROCESS_CRASH_ONLY=1 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-process-crash-e2e-receipt \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The post-commit receipt passed at Delay
+`2bcaff5e0c0b15b819cbc614c166c47e19571be3`, Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+and Compose project `nereus-delay-kafka-e2e-1786881618-58469` on ports
+`19561,19562,19563`.
+
+It printed:
+
+```text
+Kafka source process-crash cut reached: fetchedOffsets=0,1, fetchLso=2, responseAcked=false, consumerClosed=false
+Kafka source process-crash recovery smoke passed: crashExit=86, replayOffset=0, secondOffset=1, committedAfterRecovery=2
+BUILD SUCCESSFUL in 5s
+Kafka source process-crash recovery E2E passed: the crashed JVM fetched exact guarded records without ACK, and a fresh same-group process replayed offsets 0 and 1 before committing offset 2.
+```
+
+The crash process deliberately halts after the real Fetch response and before
+source ACK or consumer close. The resume process uses the same deterministic
+source command identities and group, verifies exact replay at offsets `0` and
+`1`, then commits offset `2`. This closes only the isolated JVM process-crash
+source-cursor slice; raw network/proxy/socket loss, coordinator/Broker crash or
+leader failover, Worker apply/publish crash, multi-shard placement, checkpoint
+publication, the broader chaos matrix and V1 release gates remain open.

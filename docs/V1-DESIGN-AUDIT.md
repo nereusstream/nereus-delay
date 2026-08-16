@@ -4664,6 +4664,7 @@ the guarded Broker rollout attestation remains external evidence.
 
 | 依赖 | 审计锁 |
 |---|---|
+| Delay current Kafka source process-crash recovery receipt | `nereus/delay-full-implementation-v1@2bcaff5e0c0b15b819cbc614c166c47e19571be3` (source-bound live three-Broker KRaft process-crash cut fetched exact offsets `0,1` with LSO `2` and no ACK/close, then a fresh same-group process replayed offsets `0,1` and committed group offset `2`; K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, client SHA-256 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`, Compose project `nereus-delay-kafka-e2e-1786881618-58469` on `19561,19562,19563`; raw network/proxy/socket, coordinator/Broker cuts, placement and release gates remain open) |
 | Delay current Kafka retention-floor receipt | `nereus/delay-full-implementation-v1@d8dc5f45` (source-bound live three-Broker KRaft retention floor advanced from offset `0` to `20`, stale guarded Fetch was rejected with typed `OFFSET_OUT_OF_RANGE`, and the fresh floor record at offset `20` was read with LSO `21`; K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, client SHA-256 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`; raw cuts, placement and release gates remain open) |
 | Delay current Pulsar multi-Broker Worker failover receipt | `nereus/delay-full-implementation-v1@afbb2e30511b53b2f44adc620767685753acb48e` (source-bound live two-Broker P1 Worker failover with real Oxia Assignment/Owner authority; P1 `nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`, distribution SHA-256 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, image `sha256:4faa8217a39de36a030e449473fc07f4cd04553477f4f2e84c5d799720989cf0`; broker-1 stop and broker-2 Worker resume passed, while one ZooKeeper/BookKeeper, no Gateway ingress, raw cuts, D3, placement and release gates remain explicit) |
 | Delay current live large-payload authority receipt | `nereus/delay-full-implementation-v1@33ff7a4b` (source-bound live three-node Kafka source/destination/receipt + real Oxia Route/Assignment/Owner + mTLS/RS256 Gateway + Worker + versioned MinIO receipt; provider version `483877e3-06e8-4b8d-81fa-5983b42a2cba`; Admission source offset `4`, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset `0`, Outcome source offset `5`, exact payload readback and exact Gateway idempotency; one partition per topic and local trust-catalog semantic resolution are explicit boundaries; response-loss/LSO/retention, Pulsar combined egress, multi-shard placement, raw fault matrix and release gates remain open) |
@@ -9796,6 +9797,43 @@ and the current floor remained readable with an LSO covering the tail. It is a
 controlled retention test, not raw network loss, disk exhaustion,
 consumer-coordinator/process/Broker crash recovery, multi-shard placement,
 checkpoint publication, chaos or V1 release approval.
+
+## 2026-08-16 Kafka source process-crash recovery audit
+
+Delay commit
+`2bcaff5e0c0b15b819cbc614c166c47e19571be3` adds
+`KafkaClientArtifactProcessCrashRecoverySmoke` and the source-bound mode:
+
+```bash
+NEREUS_DELAY_KAFKA_PROCESS_CRASH_ONLY=1 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-process-crash-e2e-receipt \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The live receipt used K1
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+Delay `2bcaff5e0c0b15b819cbc614c166c47e19571be3`, and Compose project
+`nereus-delay-kafka-e2e-1786881618-58469` on `19561,19562,19563`.
+
+The output was:
+
+```text
+Kafka source process-crash cut reached: fetchedOffsets=0,1, fetchLso=2, responseAcked=false, consumerClosed=false
+Kafka source process-crash recovery smoke passed: crashExit=86, replayOffset=0, secondOffset=1, committedAfterRecovery=2
+BUILD SUCCESSFUL in 5s
+Kafka source process-crash recovery E2E passed: the crashed JVM fetched exact guarded records without ACK, and a fresh same-group process replayed offsets 0 and 1 before committing offset 2.
+```
+
+This is positive evidence for the source cursor's bounded fresh-process
+recovery rule: the crash cut occurs after a real guarded Fetch response but
+before ACK/close, so the same group must replay the exact records and only
+then commit offset `2`. It does not promote the result to raw socket loss,
+consumer-coordinator or Broker crash recovery, Worker apply/publish crash
+coverage, multi-shard placement, checkpoint publication, chaos completion or
+V1 release approval.
 
 ## Final gate
 
