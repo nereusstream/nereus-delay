@@ -2169,6 +2169,20 @@ require_file_text "$delay_root/e2e/README.md" \
     "Kafka source Fetch response-loss receipt (current source)"
 require_file_text "$delay_root/e2e/README.md" \
     "Kafka source retention-floor receipt (current source)"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "2026-08-17 Current-source Pulsar multi-Broker Worker failover receipt"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "19577006e4c104b2934617719b711aa5d549ed27"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "nereus-delay-pulsar-multi-e2e-1786898570-79450"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "2026-08-17 Current-source Pulsar multi-Broker Worker failover audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "2026-08-17 Current Pulsar multi-Broker Worker failover implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Pulsar multi-Broker Worker failover receipt (current source)"
+require_file_text "$delay_root/e2e/run-pulsar-multi-broker-failover-e2e.sh" \
+    "Pulsar multi-Broker failover E2E passed"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

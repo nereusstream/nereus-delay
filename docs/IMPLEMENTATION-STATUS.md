@@ -12887,3 +12887,61 @@ readiness. Exact post-run checks found no containers, networks, volumes or
 matching temporary Kafka/Oxia images for either isolated project; both the K1
 image ID and the run-created Oxia image ID were absent, reusable base images
 were retained, and no global Docker prune was used.
+
+## 2026-08-17 Current-source Pulsar multi-Broker Worker failover receipt
+
+The current-source rerun locks Delay to
+`19577006e4c104b2934617719b711aa5d549ed27`, P1 to
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+the P1 distribution SHA-256 to
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, the
+P1 client artifacts to `57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
+`f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394` and
+`94a865b5d858ea62ec980bdad70316c3cba576a7ce37009a20f4acae89f2d8e8`, and
+the P1 image ID to
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`.
+The source-bound command was:
+
+```bash
+NEREUS_DELAY_PULSAR_WITH_OXIA=1 \
+NEREUS_DELAY_PULSAR_OXIA_PORT=16765 \
+PULSAR_BROKER_1_PORT=22080 \
+PULSAR_WEB_1_PORT=22081 \
+PULSAR_BROKER_2_PORT=22082 \
+PULSAR_WEB_2_PORT=22083 \
+NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-reactivation-gradle-20260816-r2 \
+PULSAR_DELAY_MULTI_BROKER_RESTART_TOPIC=nereus-delay-pulsar-multi-broker-live-20260817-r1 \
+PULSAR_DELAY_MULTI_BROKER_DESTINATION_TOPIC=nereus-delay-pulsar-multi-destination-live-20260817-r1 \
+  bash e2e/run-pulsar-multi-broker-failover-e2e.sh
+```
+
+The isolated P1 project was
+`nereus-delay-pulsar-multi-e2e-1786898570-79450` on broker/web ports
+`22080,22081,22082,22083`; the Oxia project was
+`nereus-delay-pulsar-multi-oxia-e2e-1786898570-79450` at
+`127.0.0.1:16765`. The Oxia build image ID was
+`sha256:00fccb88d365ae52bae39ba1461091f005dc96914fc000d9031ab93d499ded48`.
+The current-source output was:
+
+```text
+Pulsar Worker restart preparation passed: one guarded record persisted before broker restart
+Pulsar Worker assignment publication/acceptance passed: revision=1, worker=pulsar-worker, authority=real Oxia session-bound
+Pulsar Worker source-applied physical publish passed: Admission source ledger=3/2, typed PULSAR_SEND_ACK target ledger/entry=4/0, Outcome source ledger=3/3, exact payload readback
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=2/0, active apply ledger/entry=3/0, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
+Pulsar Worker authority smoke passed: real Oxia session-bound lease
+Pulsar multi-Broker failover E2E passed: same-topic guarded Worker resumed through broker-2 after broker-1 stop, applied the source record, completed provider-driven physical Publish, ACKed the source and released its final checkpoint and owner assignment.
+```
+
+This refreshes the bounded current-source two-Broker P1 failover receipt:
+Broker-1 was stopped after guarded preparation, a fresh Worker used the
+multi-endpoint service URL to reconnect through Broker-2 under real Oxia
+Assignment/Owner authority, completed guarded SUBSCRIBE, RocksDB apply,
+physical PUBLISH, typed PULSAR_SEND_ACK readback, source ACK and final
+checkpoint, and Broker-1 was restarted by the runner. It is not Pulsar
+controller/coordinator failover, multi-Broker process chaos, raw socket or
+network fault injection, Gateway ingress, multi-shard production placement,
+or V1 release evidence.
+Exact post-run checks found no containers, networks, volumes or matching P1
+image; the run-created Oxia image tag and image ID were explicitly removed
+after the runner cleanup, reusable base images were retained and no global
+Docker prune was used.

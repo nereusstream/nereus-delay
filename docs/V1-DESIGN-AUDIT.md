@@ -10390,6 +10390,34 @@ multi-shard fault coverage or V1 release approval. Exact project and image
 checks found no post-run containers, networks, volumes or matching temporary
 images; no global Docker prune was used.
 
+## 2026-08-17 Current-source Pulsar multi-Broker Worker failover audit
+
+The current-source receipt locks Delay to
+`19577006e4c104b2934617719b711aa5d549ed27`, P1 to
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+the P1 distribution SHA-256 to
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and
+the P1 image ID to
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`.
+The two-Broker P1 project was
+`nereus-delay-pulsar-multi-e2e-1786898570-79450` on
+`22080,22081,22082,22083`, with real Oxia at `127.0.0.1:16765`.
+
+After the guarded preparation record was persisted, the harness stopped
+Broker-1 and launched the successor Worker against the service URL containing
+both Broker-1 and Broker-2. The successor observed Broker-1 refusal,
+connected through Broker-2, reacquired the real Oxia session-bound
+Assignment/Owner authority, completed source apply/ACK, physical destination
+publish with typed `PULSAR_SEND_ACK` evidence and final checkpoint, then the
+runner restarted Broker-1.
+
+Audit result: PASS for this bounded current-source two-Broker P1 Worker
+failover and destination-evidence slice. Boundary remains explicit: this is
+not automatic Pulsar controller/coordinator failover, raw socket/network
+chaos, multi-process crash matrix, Gateway ingress, production multi-shard
+placement or V1 release approval. Exact project resources and the P1 image
+were absent after cleanup; the run-created Oxia image was explicitly removed.
+
 ## 2026-08-17 Current-source Kafka Fetch response-loss audit
 
 The current-source receipt locks Delay to

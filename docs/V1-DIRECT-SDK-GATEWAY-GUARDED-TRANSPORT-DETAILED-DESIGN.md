@@ -6956,3 +6956,35 @@ This closes the bounded retention-floor/LSO readability implementation
 slice. The acceleration is test-only; disk ENOSPC, raw socket/process
 chaos, automatic controller/coordinator failover, multi-shard placement,
 checkpoint publication and V1 release readiness remain unclaimed.
+
+## 2026-08-17 Current Pulsar multi-Broker Worker failover implementation note
+
+The current source-bound failover rerun locks Delay to
+`19577006e4c104b2934617719b711aa5d549ed27`, P1 to
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, the P1 distribution to
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and
+the P1 image to
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`.
+The real cluster uses two P1 Broker services backed by one ZooKeeper and one
+BookKeeper service; the run also uses real Oxia at `127.0.0.1:16765`.
+
+The harness first runs the guarded Worker preparation path against Broker-1,
+then stops Broker-1 and starts a fresh Worker with the multi-endpoint service
+URL. The Worker must observe the failed first endpoint, connect through
+Broker-2, reacquire the Oxia Assignment/Owner session, validate the guarded
+SUBSCRIBE evidence, apply to RocksDB, publish the physical destination and
+typed `PULSAR_SEND_ACK` evidence, ACK the source and release the final
+checkpoint. Broker-1 is restarted only after that receipt.
+
+The current-source receipt was:
+
+```text
+Pulsar Worker source-applied physical publish passed: Admission source ledger=3/2, typed PULSAR_SEND_ACK target ledger/entry=4/0, Outcome source ledger=3/3, exact payload readback
+Pulsar Worker vertical smoke passed: assignment recovery ledger/entry=2/0, active apply ledger/entry=3/0, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, and final checkpoint
+Pulsar multi-Broker failover E2E passed: same-topic guarded Worker resumed through broker-2 after broker-1 stop, applied the source record, completed provider-driven physical Publish, ACKed the source and released its final checkpoint and owner assignment.
+```
+
+This refreshes the explicit two-Broker Worker failover contract. It does not
+claim controller/coordinator failover, raw socket/network cuts, multiple
+independent Broker processes beyond this cluster, Gateway ingress,
+multi-shard production placement, the full chaos matrix or V1 release gates.
