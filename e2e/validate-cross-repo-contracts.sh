@@ -1581,6 +1581,20 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Direct SDK client teardown retry boundary implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Direct SDK client teardown retry receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaRouteAuthoritySession.java" \
+    "final String canonicalPrefix = canonicalKeyPrefix(keyPrefix)"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaRouteAuthoritySessionTest.java" \
+    "connectRejectsAnInvalidKeyPrefixBeforeCreatingOxiaClients"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Route connect prefix validation boundary"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "4da7bcf46b0ab9350adebf1f614590851a1fadd8"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Route connect prefix validation boundary audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Route connect prefix validation boundary implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Route connect prefix validation receipt"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPublicationCoordinator.java" \
     "intentIsAtomic || catalogIsAtomic"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointUploadCoordinatorTest.java" \

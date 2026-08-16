@@ -9194,6 +9194,25 @@ This closes only local Direct SDK teardown retryability. It does not establish
 provider/session recovery, transport delivery, durable outbox authority,
 crash/chaos, failover or V1 release readiness.
 
+## 2026-08-16 Route connect prefix validation boundary audit
+
+Delay commit `4da7bcf46b0ab9350adebf1f614590851a1fadd8` moves canonical
+`keyPrefix` validation ahead of both `OxiaClientBuilder` calls in
+`OxiaRouteAuthoritySession.connect()`. A malformed Route prefix therefore
+fails before authority or notification client creation, and the constructor
+receives the already validated canonical prefix when external client setup is
+successful.
+
+`OxiaRouteAuthoritySessionTest.connectRejectsAnInvalidKeyPrefixBeforeCreatingOxiaClients`
+passes an invalid trailing-slash prefix with an unusable endpoint and proves
+the deterministic `IllegalArgumentException` input fence without entering
+client creation. The focused Route session construction suite passed 1 test
+with zero failures/skips/errors.
+
+This closes only local connect-input/resource-ordering validation. It does not
+establish Oxia session recovery, Route transactionality, placement/source
+ownership, raw chaos, failover or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

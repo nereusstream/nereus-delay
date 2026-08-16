@@ -11013,3 +11013,26 @@ The deterministic Direct SDK client suite passed 11 tests, including
 teardown retryability only; it does not establish provider/session recovery,
 transport delivery, durable outbox authority, crash/chaos, failover or V1
 release evidence.
+
+## 2026-08-16 Route connect prefix validation boundary
+
+Delay commit `4da7bcf46b0ab9350adebf1f614590851a1fadd8` validates the canonical
+Route key prefix before `OxiaRouteAuthoritySession.connect()` creates either
+the authority or notification Oxia client. The validated canonical value is
+then passed into the session constructor, so an invalid trailing-slash,
+blank, non-NFC or otherwise malformed prefix fails at the caller boundary
+without entering external client creation and constructor cleanup.
+
+The focused receipt is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.route.OxiaRouteAuthoritySessionTest \
+  --no-daemon --console=plain
+```
+
+The deterministic Route session construction suite passed 1 test, including
+`connectRejectsAnInvalidKeyPrefixBeforeCreatingOxiaClients`. This closes only
+the local connect-input/resource-ordering boundary; it does not establish
+Oxia session recovery, Route transactionality, placement/source ownership,
+chaos/failover or V1 release evidence.

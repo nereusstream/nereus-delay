@@ -5848,3 +5848,18 @@ passed in the 11-test deterministic Direct SDK client suite. The note closes
 only local SDK teardown retryability; provider/session recovery, transport
 delivery, durable outbox authority, crash/chaos, failover and release gates
 remain open.
+
+### 2026-08-16 Route connect prefix validation boundary implementation note
+
+Delay commit `4da7bcf46b0ab9350adebf1f614590851a1fadd8` makes the Route connect
+factory validate `keyPrefix` before external client creation. The canonical
+prefix is computed after the scalar connect arguments pass their basic checks,
+then reused for the session constructor; malformed trailing-slash, blank,
+non-NFC or NUL-bearing prefixes cannot reach either authority or notification
+`OxiaClientBuilder` call.
+
+`OxiaRouteAuthoritySessionTest.connectRejectsAnInvalidKeyPrefixBeforeCreatingOxiaClients`
+passed in the 1-test deterministic Route session construction suite. This
+note closes only local input/resource-ordering validation; session recovery,
+Route transactionality, placement/source authority, chaos, failover and
+release gates remain open.
