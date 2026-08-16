@@ -57,11 +57,12 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
         this(delegate, delegate, null, keyPrefix);
     }
 
-    private OxiaRouteAuthoritySession(final OxiaRouteRecordClient delegate,
-                                      final OxiaRouteRecordClient notificationDelegate,
-                                      final java.util.function.Supplier<OxiaRouteRecordClient>
-                                              notificationDelegateFactory,
-                                      final String keyPrefix) {
+    /** Package-private composition constructor for deterministic session-fence tests. */
+    OxiaRouteAuthoritySession(final OxiaRouteRecordClient delegate,
+                              final OxiaRouteRecordClient notificationDelegate,
+                              final java.util.function.Supplier<OxiaRouteRecordClient>
+                                      notificationDelegateFactory,
+                              final String keyPrefix) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         this.notificationDelegate = Objects.requireNonNull(notificationDelegate, "notificationDelegate");
         this.notificationDelegateFactory = notificationDelegateFactory;
@@ -180,6 +181,7 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
         if (notificationDelegateFactory == null || notificationDelegate == delegate) {
             return;
         }
+        requireSession();
         final OxiaRouteRecordClient replacement = notificationDelegateFactory.get();
         final OxiaRouteRecordClient previous = notificationDelegate;
         notificationDelegate = replacement;
@@ -195,7 +197,9 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
             throw failure;
         }
         try {
+            requireSession();
             notificationDelegate.notifications(consumer);
+            requireSession();
         } catch (RuntimeException failure) {
             try {
                 replacement.close();

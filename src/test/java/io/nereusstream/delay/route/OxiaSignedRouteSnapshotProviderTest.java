@@ -96,6 +96,44 @@ class OxiaSignedRouteSnapshotProviderTest {
     }
 
     @Test
+    void notificationReconnectRequiresTheCurrentSessionBeforeRegistration() {
+        final FakeRouteClient authority = new FakeRouteClient();
+        final FakeRouteClient previousNotificationClient = new FakeRouteClient();
+        final FakeRouteClient replacementNotificationClient = new FakeRouteClient();
+        final OxiaRouteAuthoritySession session = new OxiaRouteAuthoritySession(authority,
+                previousNotificationClient, () -> replacementNotificationClient, "/nereus/route");
+        try {
+            session.startSession();
+            authority.expireEphemeralRecords();
+
+            assertThrows(IllegalStateException.class,
+                    () -> session.reconnectNotifications(notification -> { }));
+            assertEquals(0, replacementNotificationClient.notificationRegistrationCount());
+        } finally {
+            session.close();
+        }
+    }
+
+    @Test
+    void notificationReconnectRejectsACommittedRegistrationAfterTheMarkerChanges() {
+        final FakeRouteClient authority = new FakeRouteClient();
+        final FakeRouteClient previousNotificationClient = new FakeRouteClient();
+        final FakeRouteClient replacementNotificationClient = new FakeRouteClient();
+        final OxiaRouteAuthoritySession session = new OxiaRouteAuthoritySession(authority,
+                previousNotificationClient, () -> replacementNotificationClient, "/nereus/route");
+        try {
+            session.startSession();
+            replacementNotificationClient.afterNextNotifications(authority::expireEphemeralRecords);
+
+            assertThrows(IllegalStateException.class,
+                    () -> session.reconnectNotifications(notification -> { }));
+            assertEquals(1, replacementNotificationClient.notificationRegistrationCount());
+        } finally {
+            session.close();
+        }
+    }
+
+    @Test
     void sessionFenceRejectsACommittedRouteHeadAfterTheMarkerChanges() throws Exception {
         final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final FakeRouteClient client = new FakeRouteClient();
@@ -245,6 +283,8 @@ class OxiaSignedRouteSnapshotProviderTest {
         private long nextSessionId = 7;
         private boolean failNextEphemeralPutAfterCommit;
         private Runnable afterNextHeadPut;
+        private Runnable afterNextNotifications;
+        private int notificationRegistrations;
 
         @Override
         public GetResult get(final String key) {
@@ -276,6 +316,12 @@ class OxiaSignedRouteSnapshotProviderTest {
         @Override
         public void notifications(final Consumer<Notification> consumer) {
             watchers.add(consumer);
+            notificationRegistrations++;
+            if (afterNextNotifications != null) {
+                final Runnable callback = afterNextNotifications;
+                afterNextNotifications = null;
+                callback.run();
+            }
         }
 
         @Override
@@ -335,6 +381,14 @@ class OxiaSignedRouteSnapshotProviderTest {
 
         void expireAfterNextHeadPut() {
             afterNextHeadPut = this::expireEphemeralRecords;
+        }
+
+        void afterNextNotifications(final Runnable callback) {
+            afterNextNotifications = callback;
+        }
+
+        int notificationRegistrationCount() {
+            return notificationRegistrations;
         }
 
         @Override
