@@ -388,6 +388,10 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
             }
             TimeUnit.MILLISECONDS.sleep(250);
         }
+        // Partition metadata does not eagerly load the physical PersistentTopic.
+        // Materialize the exact partition through the normal create endpoint so
+        // the resource-controller endpoint can apply its ordered guard update.
+        createTopic(client, adminUrl, physicalTopic, incarnation, creationTimestamp);
         stampGuard(client, adminUrl, physicalTopic, incarnation, creationTimestamp);
     }
 
