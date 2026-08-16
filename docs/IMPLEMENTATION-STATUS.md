@@ -14185,6 +14185,71 @@ single-Broker multi-shard placement receipt; it does not establish
 multi-Broker failover, multi-shard large-payload egress, arbitrary placement
 chaos, REAPING, soak, benchmark/capacity evidence or V1 release readiness.
 
+## 2026-08-17 Current-source Kafka large-payload Broker process-crash failover audit
+
+The current-source receipt locks Delay to
+`d63285ff5232bf92f6b947becaed5456a9c68b66` (the E2E-only Broker-cut hook),
+Kafka K1 to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9`, the
+client artifact to SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, the K1
+image to
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`, and MinIO to the locked
+digest `sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+(local image ID `sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`).
+The exact Compose project was `nereus-delay-large-payload-e2e-1786912413-65112`
+on Kafka `30910,30911,30912`, Oxia `30920`, MinIO `30921`, and Gateway `30922`.
+The destination topic was
+`nereus-delay-kafka-large-payload-crash-destination-20260817`.
+
+Audit result: PASS for the bounded current-source Kafka Gateway-authority
+large-payload Broker process-crash failover cell. After Gateway
+Commit/readback and exact MinIO object verification, `kafka-1` was externally
+`SIGKILL`ed. The existing guarded Worker/K2 path resolved through the
+survivors, and `kafka-1` was started and rejoined after the run:
+
+```text
+Kafka Worker source-applied physical publish passed: Admission source offset=4, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=0, Outcome source offset=5, exact payload readback
+Kafka + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: activationOffset=0, barrierOffset=2, prepareOffset=KafkaSourcePosition[shardId=ShardId[routeIncarnation=b2243555d2b548d79fc2d0b3fa61715c, partition=0], authenticatedClusterId=MkU3OEVBNTcwNTJENDM2Qk, nativeTopicUuid=0e13f1f3-cb70-43b3-8c05-38f0c06b6fff, offset=2, leaderEpoch=null, brokerLogAppendTimeEpochMs=1786912435857], commitOffset=KafkaSourcePosition[shardId=ShardId[routeIncarnation=b2243555d2b548d79fc2d0b3fa61715c, partition=0], authenticatedClusterId=MkU3OEVBNTcwNTJENDM2Qk, nativeTopicUuid=0e13f1f3-cb70-43b3-8c05-38f0c06b6fff, offset=3, leaderEpoch=null, brokerLogAppendTimeEpochMs=1786912436627], providerVersion=e7fef78a-2f12-4465-9e71-044dcd15cd0a, exactGatewayIdempotency=true
+Kafka + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload Broker process-crash failover E2E passed: kafka-1 was SIGKILLed after Gateway Commit/readback, the same source-applied physical Publish completed through kafka-2/kafka-3, and kafka-1 rejoined afterward
+BUILD SUCCESSFUL in 26s
+```
+
+The exact runner cleanup removed the project containers, network, volume,
+temporary K1/Oxia images and staging directory. The locked MinIO base image
+was retained. This does not establish raw socket loss, transaction
+coordinator/controller failover, multi-shard large-payload placement, soak,
+benchmark/capacity evidence, the full chaos matrix or V1 release readiness.
+
+## 2026-08-17 Current-source Kafka large-payload Broker network-partition failover audit
+
+The current-source receipt uses the same Delay/K1/client/image/Oxia/MinIO
+locks as the preceding process-crash cell. The exact Compose project was
+`nereus-delay-large-payload-e2e-1786912469-65799` on Kafka
+`30930,30931,30932`, Oxia `30940`, MinIO `30941`, and Gateway `30942`; the
+destination topic was
+`nereus-delay-kafka-large-payload-partition-destination-20260817`.
+
+Audit result: PASS for the bounded current-source Kafka Gateway-authority
+large-payload Broker network-partition failover cell. After Gateway
+Commit/readback, `kafka-1` remained alive but was disconnected from the exact
+Compose network for 45 seconds; the survivor path completed the physical
+publish and destination readback, and `kafka-1` was reconnected afterward:
+
+```text
+Kafka Worker source-applied physical publish passed: Admission source offset=4, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=0, Outcome source offset=5, exact payload readback
+Kafka + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: activationOffset=0, barrierOffset=2, prepareOffset=KafkaSourcePosition[shardId=ShardId[routeIncarnation=c34058553567485491c9aa1dbec9a1b8, partition=0], authenticatedClusterId=MkU3OEVBNTcwNTJENDM2Qk, nativeTopicUuid=3dc4850c-e829-40e7-bbce-a1e286f4969b, offset=2, leaderEpoch=null, brokerLogAppendTimeEpochMs=1786912489111], commitOffset=KafkaSourcePosition[shardId=ShardId[routeIncarnation=c34058553567485491c9aa1dbec9a1b8, partition=0], authenticatedClusterId=MkU3OEVBNTcwNTJENDM2Qk, nativeTopicUuid=3dc4850c-e829-40e7-bbce-a1e286f4969b, offset=3, leaderEpoch=null, brokerLogAppendTimeEpochMs=1786912489889], providerVersion=c71ad0c3-da74-4085-bfd4-66e816c66a7b, exactGatewayIdempotency=true
+Kafka + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload Broker network-partition failover E2E passed: kafka-1 stayed alive but lost its exact Compose network endpoint after Gateway Commit/readback, the same source-applied physical Publish completed through kafka-2/kafka-3, and kafka-1 rejoined afterward
+BUILD SUCCESSFUL in 1m 6s
+```
+
+The exact runner cleanup removed the project containers, network, volume,
+temporary K1/Oxia images and staging directory. The locked MinIO base image
+was retained. This does not establish raw socket loss, transaction
+coordinator/controller failover, multi-shard large-payload placement, soak,
+benchmark/capacity evidence, the full chaos matrix or V1 release readiness.
+
 ## 2026-08-17 Current-source Pulsar large-payload Broker network-partition failover audit
 
 The current-source receipt locks Delay to
