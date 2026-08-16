@@ -534,6 +534,49 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
     }
 
     /**
+     * A P1 seek can acknowledge the seek before its broker-side consumer
+     * replacement notification has reached the client.  Two immediate proof
+     * reads are therefore not enough to bind a Route barrier: the old proof
+     * can remain visible briefly while the guarded SUBSCRIBE is being
+     * recreated.  Require a bounded quiet window before publishing the
+     * barrier, while still keeping the generation check strict.
+     */
+    private static PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof seekAfterAndSettle(
+            final GuardedConsumer<byte[]> consumer,
+            final TopicResourceGuard expectedGuard,
+            final String physicalTopic,
+            final ShardId shard,
+            final Optional<PulsarSourcePosition> lastApplied,
+            final Duration proofTimeout) {
+        PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof previous =
+                PulsarClientArtifactRecoverySourcePositioner.seekAfter(consumer, expectedGuard, physicalTopic,
+                        shard, lastApplied, proofTimeout);
+        int stableRounds = 0;
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (stableRounds < 3) {
+            if (System.nanoTime() >= deadline) {
+                throw new IllegalStateException("Pulsar guarded recovery proof did not settle after seek");
+            }
+            try {
+                TimeUnit.MILLISECONDS.sleep(250);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("interrupted while settling Pulsar recovery proof", interrupted);
+            }
+            final PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof current =
+                    PulsarClientArtifactRecoverySourcePositioner.awaitStableProof(consumer, expectedGuard,
+                            physicalTopic, shard.partition(), proofTimeout);
+            if (previous.equals(current)) {
+                stableRounds++;
+            } else {
+                previous = current;
+                stableRounds = 0;
+            }
+        }
+        return previous;
+    }
+
+    /**
      * Creates the successor source only after a fresh guarded proof is available.
      *
      * <p>The P1 generation is allocated by the Broker process that admits the
@@ -557,8 +600,8 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                     "nereus-delay-pulsar-large-reactivation-" + UUID.randomUUID());
             try {
                 final PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof proof =
-                        PulsarClientArtifactRecoverySourcePositioner.seekAfter(candidate, sourceGuard,
-                                sourcePhysicalTopic, shard, Optional.of(commitPosition), Duration.ofSeconds(15));
+                        seekAfterAndSettle(candidate, sourceGuard, sourcePhysicalTopic, shard,
+                                Optional.of(commitPosition), Duration.ofSeconds(15));
                 if (proof.connectionGeneration() != previousGeneration) {
                     return new SuccessorSource(candidate, proof);
                 }
@@ -1032,8 +1075,8 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                     client, sourceGuard, sourcePhysicalTopic, "nereus-delay-pulsar-large-worker-" + UUID.randomUUID());
             GuardedConsumer<byte[]> activeConsumer = nativeConsumer;
             final PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof proof =
-                    PulsarClientArtifactRecoverySourcePositioner.seekAfter(nativeConsumer, sourceGuard,
-                            sourcePhysicalTopic, shard, Optional.empty(), Duration.ofSeconds(5));
+                    seekAfterAndSettle(nativeConsumer, sourceGuard, sourcePhysicalTopic, shard,
+                            Optional.empty(), Duration.ofSeconds(5));
             final RouteSnapshotV1 snapshot = routeSnapshot(sourcePhysicalBase, sourcePhysicalTopic, routeIncarnation,
                     beforeRoutePosition, proof, controlKeys);
             boolean runtimeDrained = false;
