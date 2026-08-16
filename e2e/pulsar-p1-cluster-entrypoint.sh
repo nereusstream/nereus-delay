@@ -103,6 +103,12 @@ case "${component}" in
     replace_property "${broker_conf}" managedLedgerDefaultAckQuorum 1
     replace_property "${broker_conf}" webSocketServiceEnabled false
     replace_property "${broker_conf}" functionsWorkerEnabled false
+    # Keep pre-provisioned guarded destinations present across the bounded
+    # failover handoff window.  Inactive-topic deletion would recreate the
+    # topic without its resource-guard tuple and turn a broker handoff into a
+    # false ResourceIncarnationMismatch.
+    replace_property "${broker_conf}" brokerDeleteInactiveTopicsEnabled \
+      "${PULSAR_BROKER_DELETE_INACTIVE_TOPICS_ENABLED:-false}"
     printf '%s\n' \
       'brokerEntryMetadataInterceptors=org.apache.pulsar.common.intercept.AppendBrokerTimestampMetadataInterceptor,org.apache.pulsar.common.intercept.AppendIndexMetadataInterceptor' \
       'exposingBrokerEntryMetadataToClientEnabled=true' >> "${broker_conf}"
