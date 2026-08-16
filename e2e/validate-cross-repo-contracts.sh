@@ -1183,6 +1183,36 @@ require_file_text "$delay_root/e2e/README.md" \
     "Checkpoint REAPING Owner proof receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "ea89d80e-e63e-4980-b225-94b070d3c36b"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/ObjectStoreProviderOwnershipTracker.java" \
+    "maximumProviderOwnershipLifetimeMs"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/ObjectStoreProviderOwnershipTracker.java" \
+    "beginQuiescence"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/ObjectStoreProviderOwnershipTracker.java" \
+    "locallyQuiescent"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+    "beginProviderQuiescence"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+    "requireCredentialGate();"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/RenewableS3CompatibleCheckpointObjectStoreAdapter.java" \
+    "requireProviderAdmission"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/ObjectStoreProviderOwnershipTrackerTest.java" \
+    "uncertainCloseRetainsTheConfiguredProviderHorizon"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
+    "providerQuiescenceFenceStopsNewOperationsBeforeHttp"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Object Store provider-owned request horizon ledger"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "cc97c7654cb19f88c69045cd3c33a4d970a9fed3"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Delay Object Store provider ownership horizon slice"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Checkpoint provider-owned request horizon audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Object Store provider-owned request horizon implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Checkpoint provider-owned request horizon ledger receipt"
+require_file_text "$delay_root/e2e/README.md" \
+    "1b904a10-2104-46eb-a6fd-0bd2afe24524"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

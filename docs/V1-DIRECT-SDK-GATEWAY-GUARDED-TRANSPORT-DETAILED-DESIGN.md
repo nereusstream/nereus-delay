@@ -5351,3 +5351,34 @@ endpoint `http://127.0.0.1:62715`, bucket
 and provider manifest version `ea89d80e-e63e-4980-b225-94b070d3c36b`;
 JUnit recorded `tests=1 skipped=0 failures=0 errors=0` and the harness ended
 with `BUILD SUCCESSFUL`.
+
+### 2026-08-16 Object Store provider-owned request horizon implementation note
+
+Delay commit `cc97c7654cb19f88c69045cd3c33a4d970a9fed3` implements the local
+ownership ledger required around the Object Store adapter boundary. One
+tracker operation spans the complete adapter method, including nested
+checkpoint requests and streamed response-body consumption. Normal completion
+closes it; any runtime/error path records an uncertainty horizon bounded by
+`maximumProviderOwnershipLifetimeMs`. A one-way `beginProviderQuiescence`
+fence prevents new operations, and a typed observation is accepted locally
+only after active operations reach zero and the uncertainty horizon elapses.
+The renewable wrapper checks this fence before renewal. The adapter also
+rechecks `ObjectStoreCredentialUseLeaseGate` immediately before every
+`HttpClient.send`, preserving the no-per-call-Oxia-read boundary while
+preventing a stale lease from spanning a multi-object operation.
+
+The focused tracker/adapter tests passed with 3 and 9 tests; the full check
+returned 0. The locked MinIO run used container
+`nereus-delay-minio-e2e-1786846128-60582`, endpoint
+`http://127.0.0.1:49215`, bucket
+`nereus-delay-checkpoints-1786846128-60582`, image repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`,
+and provider manifest version `1b904a10-2104-46eb-a6fd-0bd2afe24524`;
+JUnit recorded `tests=1 skipped=0 failures=0 errors=0` and the harness ended
+with `BUILD SUCCESSFUL`.
+
+The tracker is local evidence for an external issuer, not a provider-side
+quiescence or consistency attestation. Remote request execution,
+cross-record lifecycle authority, source-ordered delete confirmation,
+Floor/Pin/Owner transactions, provider breadth, chaos, failover and release
+gates remain open.

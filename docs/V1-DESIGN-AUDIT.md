@@ -4665,7 +4665,7 @@ the guarded Broker rollout attestation remains external evidence.
 | 依赖 | 审计锁 |
 |---|---|
 | Delay local implementation slice | `nereus/delay-full-implementation-v1@d9b713a9159a8b2672a2b0aea5bd5243ca798c3e` (latest runtime slice: the single-record Oxia Profile catalog requires an immutable credential-attestation trust set during publication, rotation, canonical decode/reopen and bounded lease issuance; the verified material cache now installs only exact Object Store Profile/generation/binding/reference/fingerprint values after trust-set and scope checks, returns null on miss and atomically preserves its previous snapshot on failed replacement; the renewable S3 adapter renews only inside an explicit window, rechecks the exact same Head/Binding/material fingerprint, atomically replaces the local gate after a protected lease reread and rejects Head generation rotation as a quiescence boundary; exact verifier tuple, Ed25519 signature and retained key window are checked before the existing activation composition resolves Head/Binding/Protection once, obtains private Object Store material through a resolver/cache and constructs the lease-gated S3 adapter; Provider calls do not reread Oxia unless renewal is due; it builds on the exact CAS/response-loss and real single-node Oxia Profile smoke plus the S3-compatible checkpoint adapter/local lease gate and source-bound Kafka/Pulsar physical Publish/Outcome, Gateway/Oxia response-loss, real multi-node Oxia Gateway failover and bounded Kafka/Pulsar Worker failover slices; external secret-manager resolution/source-ordered refresh, trust-set publication, secret/actor authority, source ordering, retained-generation GC, cross-record session transactions, scheduled multi-process renewal ownership, multi-node failover for this authority, provider quiescence, raw network/process cuts, production placement/eligibility and release gates remain open) |
-| Delay current implementation head | `nereus/delay-full-implementation-v1@410d17edc81cb7885333bb9f1f728db2ece7b454` (current receipt head; commit `410d17ed` records the typed REAPING Owner proof gate, its locked MinIO receipt and validator anchors; implementation source is `44cd3230709f5e87742cd94cd9a8b7bce314a184`, predecessor quiescence receipt is `065a233a48f07ee561e78d4d35fa35f82b8af0da`, predecessor implementation source is `7b8b73885c5ec26dfc96c1b5b8a1a6ab8ec0d1d9`, earlier coordination receipt is `83bf17cea70b37fa42a507832693a0c43ed4d9fb`, earlier implementation source is `b9fcd2aa846329ed13986b122d287375a441b2fd`, prefix-sweep receipt is `e0402eef46026c2ee91e4fe59337bb0e40cac723`, earlier implementation source is `c32a98f328400c71346b98188930a6efa80da7c9`, retry-convergence receipt is `660a3d0c4d909dd02e412f0153dd9e701c27bbdd`, exact object-set deletion receipt is `fecfd1cf7283a007efb7c8618bb8ae1f6f468bd8`, manifest-version readback receipt is `87b44d77344e564b46d9c5515472a581cad733ba`, exact provider-version source is `b971cd3f`, test receipt source is `2981a269`, and historical bounded Pulsar Route/Worker receipt remains provenance at `nereus/delay-full-implementation-v1@bf858b089b927fcf65129214d8ed5a7fc5300deb`; bounded Kafka/Pulsar Route/Worker assignment, failover, physical Publish/typed Outcome and Gateway/Oxia response-loss receipts remain recorded; certified external Owner/session authority, provider quiescence, REAPING/Floor/Pin/Owner authorization, source-ordered retire/delete confirmation, secret-manager resolution/source-ordered refresh, trust-set publication, secret/actor authority, catalog-driven multi-shard placement, native eligibility, production Worker authority, scheduled renewal ownership, raw chaos and release gates remain open) |
+| Delay current implementation head | `nereus/delay-full-implementation-v1@cc97c7654cb19f88c69045cd3c33a4d970a9fed3` (current implementation head; commit `cc97c765` records the local Object Store provider-owned operation ledger, bounded response-loss uncertainty, one-way quiescence fence and per-request credential gate; predecessor Owner-proof receipt is `410d17edc81cb7885333bb9f1f728db2ece7b454` with implementation source `44cd3230709f5e87742cd94cd9a8b7bce314a184`, predecessor quiescence receipt is `065a233a48f07ee561e78d4d35fa35f82b8af0da` with source `7b8b73885c5ec26dfc96c1b5b8a1a6ab8ec0d1d9`, earlier REAPING coordination, prefix-sweep, deletion and provider-version source locks remain recorded below; certified external Owner/session authority, provider quiescence attestation, REAPING/Floor/Pin/Owner authorization, source-ordered retire/delete confirmation, secret-manager resolution/source-ordered refresh, trust-set publication, secret/actor authority, catalog-driven multi-shard placement, native eligibility, production Worker authority, scheduled renewal ownership, raw chaos and release gates remain open) |
 | Delay MinIO provider smoke slice | `nereus/delay-full-implementation-v1@31ba5661` (`S3CompatibleMinioRealSmokeTest` plus `e2e/run-minio-real-e2e.sh`; the harness locks the local MinIO image tag/repository digest, creates only its own temporary bucket through curl SigV4, runs the real adapter with `--rerun-tasks`, and removes only its own container; the receipt proves one MinIO endpoint's immutable checkpoint upload/idempotent retry/download path, while generic S3/provider breadth, credential authority/renewal, deletion, chaos and release gates remain open) |
 | Delay exact provider-version slice | `nereus/delay-full-implementation-v1@2981a269` (implementation `b971cd3f` makes missing `x-amz-version-id` fail closed for the mandatory exact-version Object Store Profile; the versioned MinIO receipt records provider manifest version `780f1e1f-c7da-4dc1-ae4e-a7b9be4f801c`; complete version-aware deletion, retire/Floor/Pin authority, provider consistency and release gates remain open) |
 | Delay exact manifest-version readback slice | `nereus/delay-full-implementation-v1@d7f51441` (download signs and requests the catalog-bound manifest `versionId` and rejects a different response version; the real MinIO receipt records `ac201fe8-ba70-4bcb-a49c-a75a6657be55`; complete object-set deletion and GC authority remain open) |
@@ -4675,6 +4675,7 @@ the guarded Broker rollout attestation remains external evidence.
 | Delay checkpoint REAPING sweep coordination slice | `nereus/delay-full-implementation-v1@b9fcd2aa846329ed13986b122d287375a441b2fd` (exact PENDING_UPLOAD -> REAPING CAS and successor reread precede the provider sweep; response loss retries the same REAPING identity/prefix; the locked MinIO receipt records `f5404da4-4944-4581-a75d-80dccdad92c3`; old-Owner/session authority, quiescence and external delete confirmation remain open) |
 | Delay checkpoint REAPING quiescence proof slice | `nereus/delay-full-implementation-v1@7b8b73885c5ec26dfc96c1b5b8a1a6ab8ec0d1d9` (immutable proof binds pending/reaping evidence, enforces the provider-lifetime plus trusted-clock-width horizon, and requires old-owner/provider closure horizons before the coordinator calls the provider; the locked MinIO receipt records `9c4dcab9-c03c-4860-81de-07e62302d30e`; external attestation issuers, Owner/session loss and delete confirmation remain open) |
 | Delay checkpoint REAPING Owner proof slice | `nereus/delay-full-implementation-v1@44cd3230709f5e87742cd94cd9a8b7bce314a184` (typed proof binds pending/Owner/Store/session lease identity, distinguishes explicit abandonment from a recorded lease no longer current, and requires trusted UTC after the upload deadline; the locked MinIO receipt records `ea89d80e-e63e-4980-b225-94b070d3c36b`; the issuer is local composition, not the production cross-record intent/Owner/catalog authority) |
+| Delay Object Store provider ownership horizon slice | `nereus/delay-full-implementation-v1@cc97c7654cb19f88c69045cd3c33a4d970a9fed3` (local tracker spans complete upload/download/delete/sweep operations, retains response-loss uncertainty through a bounded horizon, fences new operations and rechecks the credential-use lease before each HTTP send; the locked MinIO receipt records `1b904a10-2104-46eb-a6fd-0bd2afe24524`; remote provider execution/quiescence attestation remains external) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
@@ -8661,6 +8662,37 @@ intent/Owner/catalog transaction; certified external session-loss authority,
 provider quiescence, source-ordered delete confirmation, Floor/Pin/Owner
 transactions, provider breadth, chaos, failover and release readiness remain
 open.
+
+## 2026-08-16 Checkpoint provider-owned request horizon audit
+
+Delay commit `cc97c7654cb19f88c69045cd3c33a4d970a9fed3` adds the local
+`ObjectStoreProviderOwnershipTracker` and wires it through the
+S3-compatible checkpoint adapter and renewable wrapper. The tracker keeps a
+complete upload/download/delete/sweep operation active through nested HTTP
+responses and streamed bodies, retains a bounded uncertainty horizon after
+ambiguous failure, and exposes a canonical local observation only after a
+one-way admission fence, operation drain and elapsed horizon. The adapter
+also rechecks the local credential-use lease immediately before each
+`HttpClient.send`, so a multi-object operation cannot rely only on its entry
+check.
+
+Focused tracker/adapter tests passed with 3 and 9 tests respectively; the
+full `./gradlew check --no-daemon --console=plain --quiet` returned 0. The
+source-locked MinIO rerun used container
+`nereus-delay-minio-e2e-1786846128-60582`, endpoint
+`http://127.0.0.1:49215`, bucket
+`nereus-delay-checkpoints-1786846128-60582`, image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`
+and repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+JUnit recorded `tests=1 skipped=0 failures=0 errors=0`, provider manifest
+version `1b904a10-2104-46eb-a6fd-0bd2afe24524`, and `BUILD SUCCESSFUL`.
+
+This closes only local adapter ownership accounting and admission fencing.
+The observation cannot attest remote provider request completion or provider
+quiescence, and it does not close certified REAPING provider evidence,
+source-ordered deletion, Floor/Pin/Owner transactions, provider breadth,
+chaos, failover or V1 release gates.
 
 ## Final gate
 

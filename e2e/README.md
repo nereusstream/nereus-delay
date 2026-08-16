@@ -1750,3 +1750,42 @@ cross-record intent/Owner/session/catalog authority; certified session-loss,
 provider quiescence, source-ordered delete confirmation, Floor/Pin/Owner
 transactions, provider breadth, chaos, failover and release gates remain
 open.
+
+## Checkpoint provider-owned request horizon ledger receipt
+
+Delay commit `cc97c7654cb19f88c69045cd3c33a4d970a9fed3` adds a local
+`ObjectStoreProviderOwnershipTracker` around the S3-compatible checkpoint
+adapter. It keeps each upload/download/delete/sweep operation active through
+all nested HTTP calls and streamed response bodies, retains a bounded
+uncertainty horizon after an ambiguous failure, and exposes a canonical local
+observation only after a one-way new-operation fence, active-operation drain
+and elapsed horizon. The renewable wrapper rejects renewal after the fence,
+and every `HttpClient.send` rechecks the local credential-use lease.
+
+The local regression is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.ObjectStoreProviderOwnershipTrackerTest \
+  --tests io.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
+  --no-daemon --console=plain
+```
+
+JUnit recorded tracker `tests=3 skipped=0 failures=0 errors=0` and adapter
+`tests=9 skipped=0 failures=0 errors=0`; the full check returned 0. The
+locked MinIO rerun used container
+`nereus-delay-minio-e2e-1786846128-60582`, endpoint
+`http://127.0.0.1:49215`, bucket
+`nereus-delay-checkpoints-1786846128-60582`, image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`
+and repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The JUnit system-out recorded provider manifest version
+`1b904a10-2104-46eb-a6fd-0bd2afe24524`, and the harness ended with
+`BUILD SUCCESSFUL`.
+
+This receipt closes local adapter operation accounting and admission fencing
+only. It does not attest remote provider request completion or provider
+quiescence and does not close certified REAPING provider evidence,
+source-ordered delete confirmation, Recovery Floor/Pin/Owner transactions,
+provider breadth, chaos, failover or V1 release gates.

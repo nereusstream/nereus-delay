@@ -10353,3 +10353,55 @@ the production cross-record transaction, provider ownership/quiescence
 attestation, source-ordered delete confirmation, Recovery Floor/Pin/Owner
 transactions, multi-page policy, provider breadth, chaos, failover and V1
 release evidence remain open.
+
+## 2026-08-16 Object Store provider-owned request horizon ledger
+
+Delay commit `cc97c7654cb19f88c69045cd3c33a4d970a9fed3` adds the local
+`ObjectStoreProviderOwnershipTracker` and binds it to
+`S3CompatibleCheckpointObjectStoreAdapter`. Each upload, download, exact
+delete or prefix sweep opens one local ownership operation before its first
+provider call and keeps it active through all nested requests and streamed
+response-body consumption. A normal return closes the operation; a runtime
+or error failure closes it conservatively as uncertain and retains the
+configured `maximumProviderOwnershipLifetimeMs` through
+`uncertainUntilEpochMs`. `beginProviderQuiescence` is a one-way local
+admission fence, and `requireProviderQuiescence` requires the fence, zero
+active operations and an elapsed uncertainty horizon before returning the
+typed local observation. The renewable wrapper checks the fence before
+renewal, so quiescing an old adapter generation cannot trigger a final
+control-plane renewal first. `sendUri` also reruns the local credential-use
+lease gate immediately before each `HttpClient.send`, covering multi-object
+operations rather than only the public method entry.
+
+The focused regression is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.ObjectStoreProviderOwnershipTrackerTest \
+  --tests io.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
+  --no-daemon --console=plain
+```
+
+It passed with `BUILD SUCCESSFUL`; JUnit recorded tracker `tests=3
+skipped=0 failures=0 errors=0` and S3 adapter `tests=9 skipped=0 failures=0
+errors=0`. The full
+`./gradlew check --no-daemon --console=plain --quiet` returned 0.
+
+The locked MinIO rerun used container
+`nereus-delay-minio-e2e-1786846128-60582`, endpoint
+`http://127.0.0.1:49215`, bucket
+`nereus-delay-checkpoints-1786846128-60582`, the locked image at repository
+digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+and image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`.
+JUnit recorded `tests=1 skipped=0 failures=0 errors=0`, system-out recorded
+manifest provider version `1b904a10-2104-46eb-a6fd-0bd2afe24524`, and the
+harness ended with `BUILD SUCCESSFUL`.
+
+This closes local adapter operation accounting, uncertainty retention and
+new-call fencing. The observation is not a provider-side execution or
+quiescence attestation: remote request completion, provider consistency,
+certified REAPING provider evidence, source-ordered delete confirmation,
+Recovery Floor/Pin/Owner transactions, provider breadth, chaos, failover and
+V1 release evidence remain external boundaries.
