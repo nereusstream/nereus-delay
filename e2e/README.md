@@ -2070,3 +2070,30 @@ This receipt proves only the independent upload-intent single-record session
 fence; it does not prove cross-record Intent/Catalog/Pin transactionality,
 Owner/session recovery, provider completion, source/evidence replay, chaos,
 failover or V1 release readiness.
+
+## Oxia Worker assignment session-bound CAS receipt
+
+Delay commit `cca59a92df395c11cfdda23d24bb27a8b5269cca` strengthens the
+`OxiaSyncWorkerAssignmentBackend(ClientHandle, ...)` path. The durable desired
+assignment record checks the exact connected Oxia session marker before and
+after every read, version-CAS write and exact-version withdrawal. A committed
+assignment followed by marker loss is fenced instead of being returned as a
+guessed publication result; the unbound constructor remains an explicit
+deterministic/external seam.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.ownership.OxiaSyncWorkerAssignmentBackendTest \
+  --tests io.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest \
+  --no-daemon --console=plain
+```
+
+The deterministic Worker assignment suite passed 5 tests. The real route-
+worker smoke method was skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was not
+configured, and the full `./gradlew check --no-daemon --console=plain --quiet`
+returned 0. This receipt proves only desired-assignment single-record session
+fencing; it does not prove Assignment/Owner/Route transactionality, placement
+authority, session recovery, source/evidence replay, chaos, failover or V1
+release readiness.

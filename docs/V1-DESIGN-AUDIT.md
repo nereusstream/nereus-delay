@@ -8956,6 +8956,28 @@ does not turn the separate intent, catalog and pin records into one
 transaction, and it does not claim Owner/session recovery, provider evidence,
 source ordering, chaos evidence or V1 release readiness.
 
+## 2026-08-16 Oxia Worker assignment session-bound CAS audit
+
+Delay commit `cca59a92df395c11cfdda23d24bb27a8b5269cca` strengthens the
+handle-bound `OxiaSyncWorkerAssignmentBackend` path. Its private
+`SessionBoundRecordClient` checks the connected Oxia marker before and after
+every desired-assignment record read, version-CAS write and exact-version
+withdrawal. A committed assignment whose marker changes before the response or
+exact reread therefore fails closed rather than being exposed as a successful
+publication or withdrawal.
+
+`OxiaSyncWorkerAssignmentBackendTest.sessionFenceRejectsACommittedAssignmentAfterTheMarkerChanges`
+commits the fake assignment, fences the session before the put response
+returns, asserts failure and reopens the exact assignment through the unbound
+seam. The deterministic Worker assignment suite passed 5 tests, the real
+route-worker smoke method was skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was
+unset, and the full Gradle check returned 0.
+
+This closes only desired-assignment single-record session fencing. It does not
+establish an Assignment/Owner/Route transaction, placement authority,
+automatic session recovery, source ordering, chaos evidence or V1 release
+readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

@@ -5634,3 +5634,25 @@ This remains an independent single-record compatibility authority. It does
 not provide the missing cross-record Intent/Catalog/Pin transaction, Owner or
 session recovery, provider completion/attestation, source/evidence ordering,
 raw chaos, failover or release evidence.
+
+### 2026-08-16 Oxia Worker assignment session-bound CAS implementation note
+
+Delay commit `cca59a92df395c11cfdda23d24bb27a8b5269cca` strengthens the
+existing handle-bound `OxiaSyncWorkerAssignmentBackend` constructor. The
+desired assignment remains a durable canonical record with revision CAS, but
+the record client now checks the exact connected Oxia marker before and after
+every `get`, `put` and exact-version `delete`. A successful durable put whose
+response arrives after marker loss cannot be returned as a valid Worker
+assignment publication; the unbound constructor remains the explicit
+deterministic/external surface.
+
+The deterministic regression commits the fake assignment, fences the session
+before the put response returns, asserts failure and then reopens the exact
+assignment through the unbound seam. Five Worker assignment tests passed; the
+opt-in real route-worker smoke method was skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was not configured, and the full Gradle check
+returned 0.
+
+This is a single desired-assignment session fence, not an Assignment/Owner/
+Route transaction or placement authority. Session recovery, source ordering,
+raw chaos, failover and release evidence remain outside this receipt.

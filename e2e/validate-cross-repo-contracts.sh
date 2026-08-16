@@ -1419,6 +1419,24 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Oxia Checkpoint Upload Intent session-bound CAS implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Oxia Checkpoint Upload Intent session-bound CAS receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncWorkerAssignmentBackend.java" \
+    "Worker-assignment record"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncWorkerAssignmentBackend.java" \
+    "assignment CAS whose response is lost after the"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/ownership/OxiaSyncWorkerAssignmentBackendTest.java" \
+    "sessionFenceRejectsACommittedAssignmentAfterTheMarkerChanges"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaRealRouteWorkerAssignmentSmokeTest.java" \
+    "new OxiaSyncWorkerAssignmentBackend(assignmentHandle"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Oxia Worker assignment session-bound CAS"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "cca59a92df395c11cfdda23d24bb27a8b5269cca"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Oxia Worker assignment session-bound CAS audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Oxia Worker assignment session-bound CAS implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Oxia Worker assignment session-bound CAS receipt"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"
