@@ -159,19 +159,26 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
         }
     }
 
-    /** Reopens the ephemeral marker only after the caller explicitly requests recovery. */
+    /**
+     * Reopens the ephemeral marker after the caller explicitly requests
+     * recovery. A service restart can leave the old marker readable while the
+     * underlying Oxia session is already gone, so a successful marker reread
+     * is not sufficient to make this explicit recovery call a no-op.
+     */
     @Override
     public synchronized void reconnectSession() {
         requireNotClosed();
         if (started) {
             try {
                 requireSession();
-                return;
             } catch (SessionFenceException fenced) {
-                clearSession();
-                rotateMarker();
+                // The old marker may still be visible after the session was
+                // lost. The explicit reconnect below must use a fresh marker
+                // in either case.
             }
+            clearSession();
         }
+        rotateMarker();
         startSession();
     }
 

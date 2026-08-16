@@ -160,6 +160,23 @@ class OxiaSignedRouteSnapshotProviderTest {
     }
 
     @Test
+    void explicitSessionReconnectRotatesMarkerWhenTheOldMarkerIsStillReadable() {
+        final FakeRouteClient client = new FakeRouteClient();
+        final OxiaRouteAuthoritySession session = new OxiaRouteAuthoritySession(client, "/nereus/route");
+        try {
+            session.startSession();
+            final byte[] firstIdentity = session.sessionIdentity();
+
+            session.reconnectSession();
+
+            assertFalse(java.util.Arrays.equals(firstIdentity, session.sessionIdentity()));
+            assertNull(session.get("/nereus/route/missing"));
+        } finally {
+            session.close();
+        }
+    }
+
+    @Test
     void sessionCloseAttemptsTheIndependentWatchClientAfterAuthorityCloseFails() {
         final FakeRouteClient authority = new FakeRouteClient();
         final FakeRouteClient notification = new FakeRouteClient();
