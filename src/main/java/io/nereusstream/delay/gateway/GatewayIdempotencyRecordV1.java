@@ -61,6 +61,7 @@ public final class GatewayIdempotencyRecordV1 {
         this.createdAtEpochMs = createdAtEpochMs;
         this.retainUntilEpochMs = retainUntilEpochMs;
         this.revision = revision;
+        validateStoredProjection();
     }
 
     public Digest32 gatewayKeyHash() {
@@ -396,6 +397,41 @@ public final class GatewayIdempotencyRecordV1 {
         if (!attempts.isEmpty() && !hasStarted && aggregateBytes == null) {
             throw new IllegalArgumentException("Gateway quiescent record must carry an aggregate");
         }
+    }
+
+    private void validateStoredProjection() {
+        try {
+            PreparedSubmissionV1.decode(preparedSubmissionBytes);
+        } catch (RuntimeException malformed) {
+            throw new IllegalArgumentException("Gateway prepared submission is malformed", malformed);
+        }
+        for (GatewayPhysicalAttemptV1 attempt : attempts) {
+            if (attempt.state() == GatewayPhysicalAttemptStateV1.STARTED) {
+                continue;
+            }
+            final SubmissionOutcomeMessageV1 outcome = decodeAggregate(requireOutcomeBytes(attempt));
+            validateOutcome(outcome, attempt.physicalAttemptId());
+            if (stateFor(outcome) != attempt.state()) {
+                throw new IllegalArgumentException("Gateway attempt state does not match outcome");
+            }
+        }
+        final byte[] expectedAggregate = aggregate(attempts, null).outcomeBytes();
+        if (!Arrays.equals(expectedAggregate, aggregateOutcomeBytes)) {
+            throw new IllegalArgumentException("Gateway aggregate does not match attempt history");
+        }
+    }
+
+    private static GatewayPhysicalAttemptStateV1 stateFor(final SubmissionOutcomeMessageV1 outcome) {
+        return switch (outcome.kind()) {
+            case MANAGED -> switch (outcome.managed().kind()) {
+                case QUEUED -> GatewayPhysicalAttemptStateV1.QUEUED;
+                case DEFINITELY_NOT_QUEUED -> GatewayPhysicalAttemptStateV1.DEFINITELY_NOT_QUEUED;
+                case ENQUEUE_UNCERTAIN -> GatewayPhysicalAttemptStateV1.UNCERTAIN;
+            };
+            case NATIVE_RECEIPT -> GatewayPhysicalAttemptStateV1.QUEUED;
+            case NATIVE_DEFINITELY_NOT_QUEUED -> GatewayPhysicalAttemptStateV1.DEFINITELY_NOT_QUEUED;
+            case NATIVE_ENQUEUE_UNCERTAIN -> GatewayPhysicalAttemptStateV1.UNCERTAIN;
+        };
     }
 
     private static long checkedIncrement(final long value) {

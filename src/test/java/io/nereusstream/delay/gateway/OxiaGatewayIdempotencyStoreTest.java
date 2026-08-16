@@ -96,6 +96,29 @@ class OxiaGatewayIdempotencyStoreTest {
     }
 
     @Test
+    void gatewayProjectionRejectsOutcomeStateAndAggregateMismatches() {
+        final PreparedSubmissionV1 prepared = prepared();
+        final PhysicalEnqueueAttemptId attemptId = PhysicalEnqueueAttemptId.require(bytes(16, 14));
+        final SubmissionOutcomeMessageV1 uncertain = GatewayOutcomeSupport.uncertain(prepared, attemptId);
+        final GatewayPhysicalAttemptV1 stateMismatch = new GatewayPhysicalAttemptV1(1, attemptId,
+                GatewayPhysicalAttemptStateV1.DEFINITELY_NOT_QUEUED, uncertain.canonicalBytes(), 100, 120, 2, 110);
+
+        assertThrows(IllegalArgumentException.class, () -> new GatewayIdempotencyRecordV1(
+                new Digest32(bytes(32, 15)), GatewayOperationKindV1.SCHEDULE, new Digest32(bytes(32, 16)),
+                prepared.canonicalBytes(), GatewayIdempotencyPhaseV1.QUIESCENT, List.of(stateMismatch),
+                uncertain.canonicalBytes(), 100, 200, 1));
+
+        final GatewayPhysicalAttemptV1 valid = new GatewayPhysicalAttemptV1(1, attemptId,
+                GatewayPhysicalAttemptStateV1.UNCERTAIN, uncertain.canonicalBytes(), 100, 120, 2, 110);
+        final SubmissionOutcomeMessageV1 foreignAggregate = GatewayOutcomeSupport.uncertain(prepared,
+                PhysicalEnqueueAttemptId.require(bytes(16, 17)));
+        assertThrows(IllegalArgumentException.class, () -> new GatewayIdempotencyRecordV1(
+                new Digest32(bytes(32, 18)), GatewayOperationKindV1.SCHEDULE, new Digest32(bytes(32, 19)),
+                prepared.canonicalBytes(), GatewayIdempotencyPhaseV1.QUIESCENT, List.of(valid),
+                foreignAggregate.canonicalBytes(), 100, 200, 1));
+    }
+
+    @Test
     void oxiaStoreReopensExactRecordAndDoesNotRecreatePermitAfterResponseLoss() {
         final TrustedClock clock = () -> 100;
         final FakeGatewayClient client = new FakeGatewayClient();
