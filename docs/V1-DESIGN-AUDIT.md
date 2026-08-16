@@ -11045,3 +11045,51 @@ automatic controller/coordinator failover beyond topic-leader recovery,
 multi-shard chaos completeness or V1 release evidence. Exact postchecks found
 no project resources, dangling images or temporary K1/Oxia image; no global
 Docker prune was used.
+
+## 2026-08-17 Current-source Kafka Fetch response-loss and LSO audit
+
+The current-source audit locks Delay to
+`4800b3b269c623061149a398e9799adc8aa7c449`, Kafka K1 to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+the client artifact to SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, and K1
+broker image to
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`.
+The exact project was `nereus-delay-kafka-e2e-1786910277-37004` on
+`30790,30791,30792`.
+
+Audit result: PASS for the bounded current-source guarded Fetch response-loss
+and LSO slice. A real `read_committed` Fetch v13 response was discarded before
+ACK; the same group replayed offsets `0` and `1`, the batch LSO was `2`, and
+the committed group offset reached `2`:
+
+```text
+Kafka source Fetch response-loss smoke passed: responseDiscardedAfterFetch=true, replayOffset=0, secondOffset=1, fetchLso=2, committedAfterReplay=2
+Kafka source Fetch response-loss E2E passed: real read_committed Fetch v13 response was discarded before ACK, exact source replay and LSO coverage were recovered.
+```
+
+This is controlled client-side response loss after real Fetch persistence, not
+raw socket loss, coordinator/Broker crash recovery, the retention-floor cut,
+the complete chaos matrix or V1 release evidence. Exact postchecks found no
+project resources, dangling images or temporary K1 image; no global Docker
+prune was used.
+
+## 2026-08-17 Current-source Kafka retention-floor audit
+
+The current-source retention run uses the same Delay/K1/client/image source
+locks as the Fetch audit. The exact project was
+`nereus-delay-kafka-e2e-1786910277-37005` on `30800,30801,30802`.
+
+Audit result: PASS for the bounded deterministic accelerated-retention floor
+slice. Real Broker retention advanced the earliest offset from `0` to `4`;
+the stale guarded source offset was rejected, offset `4` remained readable and
+the guarded Fetch LSO was `21`:
+
+```text
+Kafka source retention-floor smoke passed: oldOffset=0, retentionFloor=4, endOffset=21, staleOffsetRejected=true, floorFetchOffset=4, fetchLso=21
+Kafka source retention-floor E2E passed: real Broker retention advanced the earliest offset, stale source offset was rejected, and the current floor remained readable through guarded Fetch v13 with LSO.
+```
+
+This is not disk ENOSPC, raw socket/coordinator chaos, multi-shard placement or
+V1 release evidence. Exact postchecks found no project resources, dangling
+images or temporary K1 image; no global Docker prune was used.
