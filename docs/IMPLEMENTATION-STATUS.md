@@ -11376,3 +11376,19 @@ skips and zero failures/errors. This closes only local physical-attempt
 temporal/retry-shape validation; it does not establish distributed Gateway
 authority, transport delivery, Broker failover, raw chaos or V1 release
 evidence.
+
+## 2026-08-16 Gateway queued aggregate tail fence
+
+Delay commit `5b4d99e3` closes the remaining local sticky-success history gap
+in `GatewayIdempotencyRecordV1`. Projection validation now rejects any attempt
+after a persisted `QUEUED` attempt, including a later `STARTED` retry, so the
+first authenticated queued outcome cannot be followed by another physical
+submission. The existing valid retry path with an earlier unresolved uncertain
+attempt and a newer definitive result remains allowed.
+
+`OxiaGatewayIdempotencyStoreTest.gatewayProjectionRejectsImpossibleAttemptAndRecordShapes`
+covers the queued-tail regression. The focused deterministic idempotency suite
+and the full `./gradlew check` passed with 1538 tests, 24 skips, zero failures
+and zero errors. This closes only local sticky-queued projection integrity;
+distributed authority, transport delivery, failover, chaos and release gates
+remain open.

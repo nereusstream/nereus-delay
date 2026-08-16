@@ -9465,6 +9465,23 @@ temporal/retry-shape validation; it does not establish distributed Gateway
 authority, transport delivery, Broker failover, raw chaos or V1 release
 readiness.
 
+## 2026-08-16 Gateway queued aggregate tail fence audit
+
+Delay commit `5b4d99e3` closes a local lifecycle gap left after the temporal
+attempt checks. `GatewayIdempotencyRecordV1` now tracks whether a source-ordered
+attempt has already reached `QUEUED` and rejects every later attempt. This
+matches the Registry's sticky first-persisted-receipt rule while preserving the
+valid case where an earlier unresolved uncertain attempt remains retryable even
+after a newer definitive attempt.
+
+The queued-tail regression in
+`OxiaGatewayIdempotencyStoreTest.gatewayProjectionRejectsImpossibleAttemptAndRecordShapes`
+passed in the 11-test deterministic idempotency suite with zero
+failures/skips/errors. The full `./gradlew check` passed 1538 tests with 24
+skips and zero failures/errors. This closes only local sticky-queued projection
+integrity; it does not establish distributed Gateway authority, transport
+delivery, Broker failover, raw chaos or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

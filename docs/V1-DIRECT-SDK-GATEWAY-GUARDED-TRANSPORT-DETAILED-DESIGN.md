@@ -6078,3 +6078,22 @@ failures/skips/errors; the full `./gradlew check` passed 1538 tests with 24
 skips and zero failures/errors. This closes only local physical-attempt
 temporal/retry-shape validation; distributed authority, transport delivery,
 failover, chaos and release gates remain open.
+
+### 2026-08-16 Gateway queued aggregate tail fence implementation note
+
+Delay commit `5b4d99e3` makes the stored Gateway attempt history reject any
+attempt after a persisted `QUEUED` attempt. The V1 queued aggregate is sticky:
+once a physical attempt has authenticated persistence, a later retry cannot
+become an active or terminal sibling. The validator now rejects a queued
+attempt followed by any later entry, including a final `STARTED` attempt,
+before it can be consumed by either idempotency store.
+
+The fence does not reject the existing valid path where an earlier unresolved
+attempt remains uncertain while a newer retry is definitely not queued; that
+history can still accept a later retry under the highest unresolved attempt
+precondition. `OxiaGatewayIdempotencyStoreTest.gatewayProjectionRejectsImpossibleAttemptAndRecordShapes`
+covers the queued-tail regression. The focused deterministic idempotency suite
+and the full `./gradlew check` passed with 1538 tests, 24 skips, zero failures
+and zero errors. This closes only local sticky-queued projection integrity;
+distributed authority, transport delivery, failover, chaos and release gates
+remain open.
