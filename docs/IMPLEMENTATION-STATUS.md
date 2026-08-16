@@ -11511,6 +11511,68 @@ checkpoint is local rather than an Object Store checkpoint publication. Multi-
 shard placement, Kafka response-loss/LSO/retention recovery, Pulsar
 multi-Broker failover, raw crash/chaos and the V1 release gates remain open.
 
+## 2026-08-16 Large-payload Gateway-to-Kafka destination authority receipt
+
+Delay commit `33ff7a4b` extends the large-payload harness from the earlier
+Gateway/Worker/MinIO control-object path to the same-run Kafka destination
+egress path. The opt-in composition uses a real three-node KRaft source,
+destination and receipt topic, real Oxia Route/Assignment/Owner plus Gateway
+admission/idempotency/audit authorities, Gateway mTLS and RS256/JWT tenant
+binding, a source-only Worker bootstrap followed by binding to the durable
+typed destination Lane, and the locked versioned MinIO provider. The target
+producer and broker are explicitly sized for the 1 MiB + 4 KiB payload:
+`max.request.size=2000000`, `message.max.bytes=2000000`, and
+`replica.fetch.max.bytes=3000000`; destination readback uses 2,000,000 and
+4,000,000 byte fetch limits.
+
+The source-bound command passed after commit `33ff7a4b`:
+
+```bash
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_DESTINATION_TOPIC=nereus-delay-large-payload-destination \
+NEREUS_DELAY_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-full-v1-kafka-composition-compile \
+  ./e2e/run-large-payload-gateway-e2e.sh
+```
+
+The receipt used Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:b0fcef7eb6f8350af6c22d333de889155acf4b1ec157887266568fc78beada0e`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, Delay `33ff7a4b`, and the
+locked MinIO image
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+with image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`.
+The isolated Compose project was
+`nereus-delay-large-payload-e2e-1786876116-89475`, using Kafka host ports
+`25475,25476,25477`, Oxia `26475`, MinIO `27475`, and Gateway `28475`.
+
+The source-bound output was:
+
+```text
+Kafka Worker source-applied physical publish passed: Admission source offset=4, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=0, Outcome source offset=5, exact payload readback
+Kafka + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: activationOffset=0, barrierOffset=2, prepareOffset=KafkaSourcePosition[... offset=2 ...], commitOffset=KafkaSourcePosition[... offset=3 ...], providerVersion=483877e3-06e8-4b8d-81fa-5983b42a2cba, exactGatewayIdempotency=true
+Kafka + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload + Kafka destination authority E2E passed
+BUILD SUCCESSFUL
+```
+
+This closes the current positive production-authority chain from Gateway
+Prepare/Commit through source `RESERVED`/`SCHEDULED`, MinIO upload and exact
+readback, due -> Claim -> Publish Admission -> `PUBLISHING`, transactional
+Kafka target plus typed `KAFKA_TRANSACTIONAL_RECEIPT`, source
+`PUBLISH_OUTCOME`, source apply to `PUBLISHED`, destination byte readback,
+byte-identical Gateway idempotency and final local checkpoint/Owner release.
+The ordinary local tests also passed with 1,541 tests and zero failures or
+errors; real-service tests without their opt-in endpoints remained skipped.
+
+The evidence is intentionally bounded: one source partition, one destination
+partition and one receipt partition; `InMemoryPayloadProofTrustSetCatalog`
+still supplies local semantic trust resolution while trust activation is
+source-ordered on real Kafka; the final checkpoint is local rather than a
+MinIO checkpoint publication. Kafka response-loss/LSO/retention recovery,
+Pulsar combined Gateway egress, multi-shard placement, raw crash/chaos and
+the V1 release gates remain open.
+
 ## 2026-08-16 Pulsar multi-Broker Worker failover live receipt
 
 The checked-in `e2e/run-pulsar-multi-broker-failover-e2e.sh` was rerun with
