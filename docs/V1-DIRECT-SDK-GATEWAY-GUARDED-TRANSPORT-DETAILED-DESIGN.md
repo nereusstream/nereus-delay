@@ -5908,3 +5908,16 @@ paths have been attempted.
 passed in the 4-test deterministic guarded transport suite. This note closes
 only local teardown aggregation; native/managed Broker delivery, client
 authority, failover, chaos and release gates remain open.
+
+### 2026-08-16 Owner connect prefix validation boundary implementation note
+
+Delay commit `499e8439f2fe0f1b1c1114dbfd1bb7e55a06c43c` makes the Owner lease
+connect factory validate its canonical key prefix before any external Oxia
+client is built. Namespace, client identifier and prefix are canonicalized
+once, and the validated prefix is passed into the session-establishing backend
+constructor.
+
+`OxiaSyncOwnerLeaseBackendTest.connectRejectsAnInvalidKeyPrefixBeforeCreatingAnOxiaClient`
+passed in the 15-test deterministic Owner backend suite. This note closes
+only local connect-input/resource-ordering validation; Owner/Oxia recovery,
+lease authority, placement, chaos, failover and release gates remain open.

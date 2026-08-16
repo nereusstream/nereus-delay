@@ -9269,6 +9269,23 @@ This closes only local Pulsar transport teardown aggregation. It does not
 establish native or managed Broker delivery, client lifecycle authority,
 failover, raw chaos or V1 release readiness.
 
+## 2026-08-16 Owner connect prefix validation boundary audit
+
+Delay commit `499e8439f2fe0f1b1c1114dbfd1bb7e55a06c43c` moves canonical
+`keyPrefix` validation ahead of the `OxiaClientBuilder` call in
+`OxiaSyncOwnerLeaseBackend.connect()`. The validated namespace, client
+identifier and prefix are then reused for construction; malformed Owner
+authority input cannot reach external client creation.
+
+`OxiaSyncOwnerLeaseBackendTest.connectRejectsAnInvalidKeyPrefixBeforeCreatingAnOxiaClient`
+passes an invalid trailing-slash prefix with an unusable endpoint and proves
+the deterministic `IllegalArgumentException` input fence. The deterministic
+Owner backend suite passed 15 tests with zero failures/skips/errors.
+
+This closes only local Owner connect-input/resource-ordering validation. It
+does not establish Owner/Oxia session recovery, lease authority, placement,
+raw chaos, failover or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

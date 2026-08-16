@@ -11108,3 +11108,26 @@ The deterministic guarded transport suite passed 4 tests, including
 local Pulsar transport teardown aggregation; it does not establish native or
 managed Broker delivery, client lifecycle authority, failover, chaos or V1
 release evidence.
+
+## 2026-08-16 Owner connect prefix validation boundary
+
+Delay commit `499e8439f2fe0f1b1c1114dbfd1bb7e55a06c43c` validates the canonical
+Owner authority key prefix before `OxiaSyncOwnerLeaseBackend.connect()` builds
+an external Oxia client. The canonical namespace, client identifier and
+prefix are computed once and the validated prefix is reused by the session
+backend constructor, so malformed input fails at the caller boundary without
+entering Oxia client creation.
+
+The focused receipt is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackendTest \
+  --no-daemon --console=plain
+```
+
+The deterministic Owner backend suite passed 15 tests, including
+`connectRejectsAnInvalidKeyPrefixBeforeCreatingAnOxiaClient`. This closes only
+the local Owner connect-input/resource-ordering boundary; it does not
+establish Owner/Oxia recovery, lease authority, placement, chaos/failover or
+V1 release evidence.

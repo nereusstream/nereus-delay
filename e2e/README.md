@@ -2411,3 +2411,24 @@ The deterministic guarded transport suite passed 4 tests, including
 `pulsarCloseAttemptsNativeSenderAfterManagedSenderFailure`. This receipt proves
 only local Pulsar teardown aggregation; it does not prove native/managed
 Broker delivery, client authority, failover, chaos or V1 release readiness.
+
+## Owner connect prefix validation receipt
+
+Delay commit `499e8439f2fe0f1b1c1114dbfd1bb7e55a06c43c` validates the canonical
+Owner authority key prefix before creating the external Oxia client. The
+backend receives the already validated prefix, so malformed input fails before
+session/client setup.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackendTest \
+  --no-daemon --console=plain
+```
+
+The deterministic Owner backend suite passed 15 tests, including
+`connectRejectsAnInvalidKeyPrefixBeforeCreatingAnOxiaClient`. This receipt
+proves only local Owner connect-input/resource-ordering validation; it does
+not prove Owner/Oxia recovery, lease authority, placement, chaos, failover or
+V1 release readiness.

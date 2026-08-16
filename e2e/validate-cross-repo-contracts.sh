@@ -1643,6 +1643,20 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Guarded Pulsar transport teardown aggregation implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Guarded Pulsar transport teardown aggregation receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackend.java" \
+    "final String canonicalPrefix = canonicalKeyPrefix(keyPrefix)"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackendTest.java" \
+    "connectRejectsAnInvalidKeyPrefixBeforeCreatingAnOxiaClient"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Owner connect prefix validation boundary"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "499e8439f2fe0f1b1c1114dbfd1bb7e55a06c43c"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Owner connect prefix validation boundary audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Owner connect prefix validation boundary implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Owner connect prefix validation receipt"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPublicationCoordinator.java" \
     "intentIsAtomic || catalogIsAtomic"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointUploadCoordinatorTest.java" \
