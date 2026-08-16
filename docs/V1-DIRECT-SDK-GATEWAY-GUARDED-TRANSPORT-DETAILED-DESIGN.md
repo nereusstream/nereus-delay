@@ -6198,3 +6198,39 @@ one ZooKeeper and one BookKeeper and does not combine the Gateway path with
 the separate multi-Broker failover cut. Multi-shard placement, raw
 crash/network/proxy/process chaos, Kafka LSO/retention recovery, Object Store
 checkpoint publication and V1 release gates remain open.
+
+### 2026-08-16 Kafka source Fetch response-loss receipt
+
+Delay commit `8f1116abad2bd77e2f384c04411dabaeb70b4f72` adds
+`KafkaClientArtifactFetchResponseLossSmoke`, which composes the locked K1
+guarded source consumer with a real three-Broker KRaft test mode:
+
+```bash
+NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ONLY=1 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-fetch-response-loss-gradle \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The receipt used K1
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:b0fcef7eb6f8350af6c22d333de889155acf4b1ec157887266568fc78beada0e`,
+Delay `8f1116abad2bd77e2f384c04411dabaeb70b4f72`, and Compose project
+`nereus-delay-kafka-e2e-1786879840-36136` on `19228,19229,19230`.
+
+The output was:
+
+```text
+Kafka source Fetch response-loss smoke passed: responseDiscardedAfterFetch=true, replayOffset=0, secondOffset=1, fetchLso=2, committedAfterReplay=2
+BUILD SUCCESSFUL
+Kafka source Fetch response-loss E2E passed: real read_committed Fetch v13 response was discarded before ACK, exact source replay and LSO coverage were recovered.
+```
+
+This establishes the bounded Fetch uncertainty rule with real Broker data:
+the response was discarded after the exact offset-0/1 batch and its LSO=2 had
+been received, a fresh same-group source consumer replayed offset 0, then
+source ACK committed offset 2. This is controlled client-side response loss;
+raw socket loss, retention-floor recovery, coordinator/process/Broker crash
+cuts, multi-shard placement, checkpoint publication and release gates remain
+outside this receipt.

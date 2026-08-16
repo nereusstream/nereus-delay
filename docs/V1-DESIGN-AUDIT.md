@@ -9727,6 +9727,41 @@ multi-shard placement, no raw crash/network/proxy/process chaos, no Kafka
 response-loss/LSO/retention recovery, no Object Store checkpoint publication
 and no V1 release approval.
 
+## 2026-08-16 Kafka source Fetch response-loss audit
+
+Delay commit `8f1116abad2bd77e2f384c04411dabaeb70b4f72` adds the focused
+`KafkaClientArtifactFetchResponseLossSmoke` and the source-bound E2E mode:
+
+```bash
+NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ONLY=1 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-fetch-response-loss-gradle \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The receipt locked Kafka to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:b0fcef7eb6f8350af6c22d333de889155acf4b1ec157887266568fc78beada0e`,
+and Delay `8f1116abad2bd77e2f384c04411dabaeb70b4f72`. Compose project
+`nereus-delay-kafka-e2e-1786879840-36136` used ports `19228,19229,19230`.
+
+The live output was:
+
+```text
+Kafka source Fetch response-loss smoke passed: responseDiscardedAfterFetch=true, replayOffset=0, secondOffset=1, fetchLso=2, committedAfterReplay=2
+BUILD SUCCESSFUL
+Kafka source Fetch response-loss E2E passed: real read_committed Fetch v13 response was discarded before ACK, exact source replay and LSO coverage were recovered.
+```
+
+This is positive evidence for a real three-Broker KRaft Fetch/LSO/source ACK
+cut. It proves that a client-side loss after the real Fetch does not advance
+the source cursor: the same group replayed the exact offset-0 command, then
+ACKed offsets 0 and 1 and committed group offset 2. It does not prove raw
+socket loss, retention-floor recovery, consumer-coordinator or process/Broker
+crash recovery, multi-shard placement, checkpoint publication, chaos or V1
+release approval.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

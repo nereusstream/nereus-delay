@@ -355,6 +355,16 @@ require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transpo
     "KafkaClientArtifactRecoverySourceCursor"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactFetchResponseLossSmoke.java" \
     "Kafka source Fetch response-loss smoke passed"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Kafka source Fetch response-loss receipt"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "nereus-delay-kafka-e2e-1786879840-36136"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Kafka source Fetch response-loss audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Kafka source Fetch response-loss receipt"
+require_file_text "$delay_root/e2e/README.md" \
+    "Kafka source Fetch response-loss receipt"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "Kafka Worker vertical smoke passed"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
