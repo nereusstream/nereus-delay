@@ -2152,3 +2152,21 @@ authority methods and one real Route-worker method were skipped because
 proves only per-operation Route session fencing and lazy range protection; it
 does not prove event/head transactionality, automatic reconnect, multi-node
 failover, placement/source ownership, chaos or V1 release readiness.
+
+## Atomic checkpoint publication authority pairing fence receipt
+
+Delay commit `920197ad41aaa6f0b88871f5ddf631f6899a53d3` makes
+`CheckpointPublicationCoordinator` reject a split atomic intent/catalog pair
+regardless of which supplied side implements
+`CheckpointAtomicPublicationAuthority`. The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.store.CheckpointUploadCoordinatorTest \
+  --no-daemon --console=plain
+```
+
+The focused checkpoint coordinator suite passed. This receipt proves only
+constructor-time authority pairing; it does not prove an Intent/Catalog/Pin
+multi-record transaction, provider evidence, Owner/session recovery, source
+ordering, chaos or V1 release readiness.

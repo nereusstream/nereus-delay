@@ -5702,3 +5702,20 @@ This is per-operation Route session fencing and lazy range protection, not an
 event/head transaction or automatic reconnect authority. Multi-node failover,
 placement/source ownership, raw chaos and release evidence remain outside
 this receipt.
+
+### 2026-08-16 Atomic checkpoint publication authority pairing fence implementation note
+
+Delay commit `920197ad41aaa6f0b88871f5ddf631f6899a53d3` closes the reverse
+split-authority path in `CheckpointPublicationCoordinator`. The constructor
+now checks both supplied sides: when either the Upload Intent authority or the
+Recovery Catalog authority implements `CheckpointAtomicPublicationAuthority`,
+the same object must be supplied as both authorities. A separately supplied
+atomic catalog therefore fails before a provider upload can create an object
+whose intent projection belongs to another record.
+
+`CheckpointUploadCoordinatorTest.rejectsMismatchedAtomicAuthorityRegardlessOfWhichSideDeclaresIt`
+covers both directions. The focused `CheckpointUploadCoordinatorTest` suite
+passed with the full Gradle test task. This is a constructor-time wiring fence
+only; it does not claim a three-record Intent/Catalog/Pin transaction, Owner or
+session recovery, provider evidence, source ordering, chaos or release
+readiness.

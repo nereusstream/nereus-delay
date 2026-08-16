@@ -1473,6 +1473,20 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Oxia Route authority session-bound I/O fence implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Oxia Route authority session-bound I/O fence receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPublicationCoordinator.java" \
+    "intentIsAtomic || catalogIsAtomic"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointUploadCoordinatorTest.java" \
+    "rejectsMismatchedAtomicAuthorityRegardlessOfWhichSideDeclaresIt"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Atomic checkpoint publication authority pairing fence"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "920197ad41aaa6f0b88871f5ddf631f6899a53d3"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Atomic checkpoint publication authority pairing fence audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Atomic checkpoint publication authority pairing fence implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Atomic checkpoint publication authority pairing fence receipt"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

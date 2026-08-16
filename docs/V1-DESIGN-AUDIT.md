@@ -9024,6 +9024,24 @@ protection. It does not establish event/head transactionality, automatic
 reconnect, multi-node failover, placement/source ownership, raw chaos or V1
 release readiness.
 
+## 2026-08-16 Atomic checkpoint publication authority pairing fence audit
+
+Delay commit `920197ad41aaa6f0b88871f5ddf631f6899a53d3` closes the reverse
+constructor-wiring hole in `CheckpointPublicationCoordinator`. The coordinator
+now rejects a split intent/catalog pair when either authority implements
+`CheckpointAtomicPublicationAuthority`; the same object must own both sides of
+the combined publication record. The previous one-sided check could allow an
+atomic catalog paired with an independent intent backend and defer the failure
+until after provider work.
+
+`CheckpointUploadCoordinatorTest.rejectsMismatchedAtomicAuthorityRegardlessOfWhichSideDeclaresIt`
+covers both atomic-on-intent and atomic-on-catalog mismatch directions. The
+focused `CheckpointUploadCoordinatorTest` suite passed. This audit closes only
+the constructor-time authority identity fence; the single-record publication
+boundary remains subject to its existing provider, Owner/session, source,
+chaos and release limitations, and no Intent/Catalog/Pin multi-record
+transaction is claimed.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。
