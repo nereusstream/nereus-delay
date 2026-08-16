@@ -48,13 +48,15 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
     private static final byte[] SESSION_DOMAIN = Bytes.utf8(
             "nereus-delay-oxia-session-identity-v1\0");
 
+    private final RecordClient rawClient;
     private final RecordClient client;
     private final String keyPrefix;
     private final SessionMarker sessionMarker;
+    private final Runnable sessionCheck;
 
     /** Creates a backend over an already configured Oxia client. */
     public OxiaSyncOwnerLeaseBackend(final SyncOxiaClient client, final String keyPrefix) {
-        this(new SyncRecordClient(client), keyPrefix, false);
+        this(new SyncRecordClient(client), keyPrefix, false, null);
     }
 
     /**
@@ -109,19 +111,31 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
 
     /** Package-private constructor used by deterministic CAS tests. */
     OxiaSyncOwnerLeaseBackend(final RecordClient client, final String keyPrefix) {
-        this(client, keyPrefix, false);
+        this(client, keyPrefix, false, null);
+    }
+
+    /** Package-private constructor used to exercise the session fence. */
+    OxiaSyncOwnerLeaseBackend(final RecordClient client, final String keyPrefix,
+                              final Runnable sessionCheck) {
+        this(client, keyPrefix, false, Objects.requireNonNull(sessionCheck, "sessionCheck"));
     }
 
     private OxiaSyncOwnerLeaseBackend(final SyncOxiaClient client, final String keyPrefix,
                                       final boolean establishSession) {
-        this(new SyncRecordClient(client), keyPrefix, establishSession);
+        this(new SyncRecordClient(client), keyPrefix, establishSession, null);
     }
 
     private OxiaSyncOwnerLeaseBackend(final RecordClient client, final String keyPrefix,
-                                      final boolean establishSession) {
-        this.client = Objects.requireNonNull(client, "client");
+                                      final boolean establishSession,
+                                      final Runnable suppliedSessionCheck) {
+        this.rawClient = Objects.requireNonNull(client, "client");
         this.keyPrefix = canonicalKeyPrefix(keyPrefix);
         this.sessionMarker = establishSession ? establishSessionMarker() : null;
+        this.sessionCheck = suppliedSessionCheck != null
+                ? suppliedSessionCheck
+                : sessionMarker == null ? () -> {
+                } : this::requireConnectedSession;
+        this.client = new SessionBoundRecordClient(rawClient, sessionCheck);
     }
 
     /** Returns the exact session-derived identity for a client created by {@link #connect}. */
@@ -268,7 +282,7 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
         final String key = keyPrefix + "/session/" + Bytes.hex(challenge);
         final PutResult result;
         try {
-            result = client.put(key, challenge,
+            result = rawClient.put(key, challenge,
                     Set.of(PutOption.IfRecordDoesNotExist, PutOption.AsEphemeralRecord));
         } catch (KeyAlreadyExistsException | UnexpectedVersionIdException failure) {
             throw new IllegalStateException("Oxia owner session marker CAS failed", failure);
@@ -276,7 +290,7 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
         if (result == null || !key.equals(result.key()) || result.version() == null) {
             throw new IllegalStateException("Oxia owner session marker put returned an invalid identity");
         }
-        final GetResult observed = client.get(key);
+        final GetResult observed = rawClient.get(key);
         if (observed == null || !key.equals(observed.key()) || observed.value() == null
                 || !Arrays.equals(challenge, observed.value()) || observed.version() == null
                 || observed.version().versionId() != result.version().versionId()) {
@@ -300,7 +314,7 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
         if (sessionMarker == null) {
             return;
         }
-        final GetResult observed = client.get(sessionMarker.key());
+        final GetResult observed = rawClient.get(sessionMarker.key());
         if (observed == null || !sessionMarker.key().equals(observed.key()) || observed.value() == null
                 || !Arrays.equals(sessionMarker.challenge(), observed.value()) || observed.version() == null
                 || observed.version().versionId() != sessionMarker.version().versionId()
@@ -712,6 +726,68 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
         public boolean delete(final String key, final Set<DeleteOption> options)
                 throws UnexpectedVersionIdException {
             return delegate.delete(key, options);
+        }
+    }
+
+    /**
+     * Checks the caller's Oxia session around every owner epoch or lease
+     * record operation. A committed ephemeral lease whose response is lost
+     * after marker loss cannot be reported as a successful owner operation.
+     */
+    private static final class SessionBoundRecordClient implements RecordClient {
+        private final RecordClient delegate;
+        private final Runnable sessionCheck;
+
+        private SessionBoundRecordClient(final RecordClient delegate, final Runnable sessionCheck) {
+            this.delegate = delegate;
+            this.sessionCheck = sessionCheck;
+        }
+
+        @Override
+        public GetResult get(final String key) {
+            sessionCheck.run();
+            try {
+                final GetResult result = delegate.get(key);
+                sessionCheck.run();
+                return result;
+            } catch (RuntimeException failure) {
+                sessionCheck.run();
+                throw failure;
+            }
+        }
+
+        @Override
+        public PutResult put(final String key, final byte[] value, final Set<PutOption> options)
+                throws UnexpectedVersionIdException, KeyAlreadyExistsException {
+            sessionCheck.run();
+            try {
+                final PutResult result = delegate.put(key, value, options);
+                sessionCheck.run();
+                return result;
+            } catch (KeyAlreadyExistsException | UnexpectedVersionIdException expectedCasRace) {
+                sessionCheck.run();
+                throw expectedCasRace;
+            } catch (RuntimeException failure) {
+                sessionCheck.run();
+                throw failure;
+            }
+        }
+
+        @Override
+        public boolean delete(final String key, final Set<DeleteOption> options)
+                throws UnexpectedVersionIdException {
+            sessionCheck.run();
+            try {
+                final boolean deleted = delegate.delete(key, options);
+                sessionCheck.run();
+                return deleted;
+            } catch (UnexpectedVersionIdException expectedCasRace) {
+                sessionCheck.run();
+                throw expectedCasRace;
+            } catch (RuntimeException failure) {
+                sessionCheck.run();
+                throw failure;
+            }
         }
     }
 }

@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -66,6 +67,25 @@ class OxiaSyncOwnerLeaseBackendTest {
         assertEquals(1, acquired.ownerEpoch());
         assertEquals(150, acquired.expiresAtEpochMs());
         assertTrue(acquired.sameIdentity(backend.current(shard).orElseThrow()));
+    }
+
+    @Test
+    void sessionFenceRejectsACommittedLeaseAfterTheMarkerChanges() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final AtomicBoolean sessionAlive = new AtomicBoolean(true);
+        final OxiaSyncOwnerLeaseBackend backend = new OxiaSyncOwnerLeaseBackend(records,
+                "delay/fenced-owner", () -> {
+                    if (!sessionAlive.get()) {
+                        throw new IllegalStateException("simulated Oxia session fence");
+                    }
+                });
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 20);
+        records.afterPut = () -> sessionAlive.set(false);
+
+        assertThrows(IllegalStateException.class, () -> backend.acquire(shard, "worker-fenced", 100, 50));
+
+        final OxiaSyncOwnerLeaseBackend reopened = new OxiaSyncOwnerLeaseBackend(records, "delay/fenced-owner");
+        assertTrue(reopened.current(shard).isPresent());
     }
 
     @Test
@@ -214,6 +234,7 @@ class OxiaSyncOwnerLeaseBackendTest {
         private boolean wrongKeyOnNextGet;
         private boolean wrongKeyOnNextPut;
         private boolean failNextEpochPutAfterCommit;
+        private Runnable afterPut;
 
         private Version ephemeralVersion() {
             return new Version(1, 0, 0, 1, Optional.of(7L), Optional.of("worker-session"));
@@ -256,6 +277,11 @@ class OxiaSyncOwnerLeaseBackendTest {
                     ephemeral ? Optional.of("worker-session") : Optional.empty());
             final GetResult result = new GetResult(key, Bytes.copy(value), version);
             records.put(key, new Entry(result));
+            if (afterPut != null && ephemeral) {
+                final Runnable callback = afterPut;
+                afterPut = null;
+                callback.run();
+            }
             if (failNextPutAfterCommit && ephemeral) {
                 failNextPutAfterCommit = false;
                 throw new IllegalStateException("simulated response loss");
