@@ -1745,6 +1745,22 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway stored evidence binding implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Gateway stored evidence binding receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
+    "Gateway retry request hash does not bind to an earlier attempt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
+    "GatewayIdempotencyHashV1.retryRequestHash"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
+    "new Digest32(bytes(32, 22))"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Gateway retry evidence hash binding"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "5e1bd9f6b3e2bcf24972e7b9ecdd78db49520734"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Gateway retry evidence hash binding audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Gateway retry evidence hash binding implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Gateway retry evidence hash binding receipt"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPublicationCoordinator.java" \
     "intentIsAtomic || catalogIsAtomic"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointUploadCoordinatorTest.java" \

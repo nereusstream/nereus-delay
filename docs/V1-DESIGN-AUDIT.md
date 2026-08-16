@@ -9378,6 +9378,25 @@ failures/errors. This closes only local stored-evidence binding and aggregate
 integrity; it does not establish distributed Gateway authority, transport
 delivery, Broker failover, raw chaos or V1 release readiness.
 
+## 2026-08-16 Gateway retry evidence hash binding audit
+
+Delay commit `5e1bd9f6b3e2bcf24972e7b9ecdd78db49520734` closes the remaining
+syntactic-only retry identity gap in the durable Gateway projection. For each
+attempt carrying `retryRequestId/retryRequestHash`, construction and decode
+recompute the contract hash from the record gateway key, that retry ID and an
+earlier physical attempt ID. A canonical but foreign hash is therefore
+rejected before the state machine consumes the record.
+
+The validator intentionally accepts any earlier physical attempt as the hash
+candidate because a later terminal callback can change the prior attempt from
+UNCERTAIN to QUEUED/DEFINITELY_NOT_QUEUED after the retry was installed; the
+stored projection has no transition-history field with which to reconstruct
+that historical state. The deterministic idempotency suite passed 11 tests
+with zero failures/skips/errors, and the full `./gradlew check` passed 1537
+tests with 24 skips and zero failures/errors. This closes only local retry
+evidence hash binding; it does not establish distributed Gateway authority,
+transport delivery, Broker failover, raw chaos or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

@@ -6005,3 +6005,19 @@ passed in the 11-test deterministic idempotency suite. The full
 `./gradlew check` passed 1537 tests with 24 skips and zero failures/errors.
 This closes only local semantic projection integrity; transport delivery,
 distributed authority, failover, chaos and release gates remain open.
+
+### 2026-08-16 Gateway retry evidence hash binding implementation note
+
+Delay commit `5e1bd9f6b3e2bcf24972e7b9ecdd78db49520734` extends stored Gateway
+projection validation to the retry identity formula:
+`SHA-256("nereus-delay-gateway-retry-request-v1\0" || gatewayKeyHash ||
+priorPhysicalAttemptId || retryRequestId)`. The record rejects a retry hash
+that does not bind to any earlier physical attempt in the same history. It
+does not infer the earlier attempt's state from the final projection, because
+late evidence may legally promote that prior attempt after the retry CAS.
+
+`OxiaGatewayIdempotencyStoreTest.gatewayProjectionRejectsOutcomeStateAndAggregateMismatches`
+passed in the 11-test deterministic idempotency suite. The full
+`./gradlew check` passed 1537 tests with 24 skips and zero failures/errors.
+This closes only local retry-evidence hash binding; transport delivery,
+distributed authority, failover, chaos and release gates remain open.

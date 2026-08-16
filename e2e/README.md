@@ -2549,3 +2549,26 @@ failures/skips/errors, including
 This receipt proves only local stored-evidence binding and aggregate
 recomputation; it does not prove distributed Gateway authority, transport
 delivery, Broker failover, chaos or V1 release readiness.
+
+## Gateway retry evidence hash binding receipt
+
+Delay commit `5e1bd9f6b3e2bcf24972e7b9ecdd78db49520734` makes each stored retry
+request hash bind to the current gateway key and an earlier physical attempt.
+Canonical bytes with a foreign retry hash are rejected before durable Gateway
+state-machine use. The validator permits the earlier attempt to be in any
+final state so a late queued/definitive callback after retry creation remains
+valid.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest \
+  --no-daemon --console=plain
+```
+
+The deterministic idempotency suite passed 11 tests with zero
+failures/skips/errors. The full `./gradlew check` passed 1537 tests with 24
+skips and zero failures/errors. This receipt proves only local retry-evidence
+hash binding; it does not prove distributed Gateway authority, transport
+delivery, Broker failover, chaos or V1 release readiness.

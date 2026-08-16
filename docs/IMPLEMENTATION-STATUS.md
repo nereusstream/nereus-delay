@@ -11268,3 +11268,31 @@ The full `./gradlew check` passed 1537 tests with 24 skips and zero
 failures/errors. This closes only local stored-evidence binding and aggregate
 recomputation; it does not establish distributed Gateway authority, transport
 delivery, Broker failover, raw chaos or V1 release evidence.
+
+## 2026-08-16 Gateway retry evidence hash binding
+
+Delay commit `5e1bd9f6b3e2bcf24972e7b9ecdd78db49520734` makes each persisted
+retry request hash bind to the record's gateway key and an earlier physical
+attempt identity. A record with a canonical retry ID but a foreign or
+synthetically chosen retry hash is rejected during construction/decode. The
+check accepts an earlier attempt regardless of its final terminal state, which
+preserves the valid race where a prior uncertain attempt receives late queued
+evidence after a retry was already created; the final projection does not
+contain the historical transition needed to infer the prior state at retry
+creation time.
+
+The focused receipt is:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest \
+  --no-daemon --console=plain
+```
+
+The deterministic idempotency suite passed 11 tests with zero
+failures/skips/errors, including the retry-hash mismatch branch in
+`gatewayProjectionRejectsOutcomeStateAndAggregateMismatches`. The full
+`./gradlew check` passed 1537 tests with 24 skips and zero failures/errors.
+This closes only local retry-evidence hash binding; it does not establish
+distributed Gateway authority, transport delivery, Broker failover, raw chaos
+or V1 release evidence.
