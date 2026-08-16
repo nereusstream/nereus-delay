@@ -11317,6 +11317,39 @@ was retained. This does not establish raw socket loss, transaction
 coordinator/controller failover, multi-shard large-payload placement, soak,
 benchmark/capacity evidence, the full chaos matrix or V1 release readiness.
 
+## 2026-08-17 Incremental V1 release-gate re-audit after current large-payload fault receipts
+
+The current Delay source lock is
+5e8b6a247e280c9dc6533a63f4fa2d6833797062; Kafka remains
+nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9,
+Pulsar remains nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7,
+and Oxia remains 37a17bef17202d5fd6e23282da5fd26d94865484. The current full
+Gradle check and cross-repository contract audit both passed.
+
+The bounded current-source evidence now includes Kafka and Pulsar
+Gateway/Oxia/Worker/MinIO large-payload normal production chains, Kafka and
+Pulsar Broker process-crash cuts, Kafka and Pulsar Broker network-partition
+cuts, Kafka destination K2 typed receipts, and current-source native
+multi-shard Worker fleets. This strengthens Gates 2, 3 and 10, but does not
+promote them to release PASS.
+
+The release result remains NOT READY:
+
+| §23.5 gate | Current status | Incremental boundary |
+|---|---|---|
+| 1. Protocol/state/key golden tests | PARTIAL | Current canonical/model coverage and full check pass; all-language golden certification remains open. |
+| 2. Fresh-process correctness cuts | PARTIAL | Current large-payload process/network cuts and focused response/LSO/retention cuts pass; complete crash/chaos matrix remains open. |
+| 3. Real Kafka/Pulsar/Oxia/Object gates | PARTIAL | Current real Broker/Oxia/MinIO authority chains pass; external credential/provider failover and full rollout remain open. |
+| 4. No-early tests | PARTIAL | Focused strict activation/ACK/guard tests pass; complete clock-bound and Pulsar strictness certification remains open. |
+| 5. Required benchmark configurations | OPEN | No source-locked size/burst/Lane/shard/compaction/restore/inline-object benchmark campaign artifact exists. |
+| 6. Capacity artifacts and SLO catalog | OPEN | Memory/RSS/cgroup, FD/file, disk/temp, reserve, adapter/zombie, fairness and durable SLO denominator artifacts remain incomplete. |
+| 7. Soak | OPEN | No certified long-cycle checkpoint/floor/retry/uncertainty/GC soak with zero unexplained drift exists. |
+| 8. Upgrade/downgrade | PARTIAL | Tuple codec/hash/dedupe and legacy-v1 read are covered; authenticated activation state, eligible-reader assignment, cutover/downgrade and release artifact remain open. |
+| 9. Operations runbook | OPEN | Draft and bounded local drills exist; fresh-process external-authorization and disaster-continuity release-candidate drills remain open. |
+| 10. Kafka/Pulsar patch distribution | PARTIAL | Current source locks, digests, guarded receipts and bounded large-payload failover exist; full rollout and typed rejection/delete-recreate matrix are not release-certified. |
+
+No bounded E2E receipt is reinterpreted as V1 release approval.
+
 ## 2026-08-17 Current-source Kafka large-payload Broker network-partition failover audit
 
 The current-source receipt uses the same Delay/K1/client/image/Oxia/MinIO
