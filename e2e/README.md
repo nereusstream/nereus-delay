@@ -4173,3 +4173,67 @@ ZooKeeper/BookKeeper/storage failover, multi-shard placement, full chaos or
 V1 release evidence. Exact postchecks found no project containers, networks,
 volumes, P1 image or run-created Oxia image; the locked MinIO base remained
 and no global Docker prune was used.
+
+## Pulsar Gateway + Broker network-partition large-payload failover (current source)
+
+Run the current-source combined Gateway/Oxia/Worker/MinIO network-partition
+slice with:
+
+```bash
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER=1 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_NETWORK_PARTITION=1 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_NETWORK_PARTITION_HANDOFF_WAIT_SECONDS=75 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-full-check-20260817 \
+PULSAR_LARGE_BROKER_1_PORT=30440 \
+PULSAR_LARGE_WEB_1_PORT=30441 \
+PULSAR_LARGE_BROKER_2_PORT=30442 \
+PULSAR_LARGE_WEB_2_PORT=30443 \
+NEREUS_DELAY_PULSAR_LARGE_OXIA_PORT=30450 \
+NEREUS_DELAY_PULSAR_LARGE_MINIO_PORT=30451 \
+NEREUS_DELAY_PULSAR_LARGE_GATEWAY_PORT=30452 \
+PULSAR_LARGE_PAYLOAD_TOPIC=nereus-delay-pulsar-large-payload-networkcut-20260817-r14 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_DESTINATION_TOPIC=nereus-delay-pulsar-large-destination-networkcut-20260817-r14 \
+  bash e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+This current-source receipt locks Delay to `f95c8a5468d6a1ee6df0bc1bd99000dc769d8797`,
+P1 to `nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+the P1 distribution to
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1 image
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`, Oxia
+to `37a17bef17202d5fd6e23282da5fd26d94865484`, and MinIO to the locked digest
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The isolated project was `nereus-delay-pulsar-large-e2e-1786906721-85706` on
+Pulsar `30440/30441,30442/30443`, Oxia `30450`, MinIO `30451` and Gateway
+`30452`.
+
+The receipt was:
+
+```text
+Pulsar Owner Lease renewed during failover cut: ownerEpoch=1, expiresAt=1786906846912
+Pulsar Owner Lease renewed during failover cut: ownerEpoch=1, expiresAt=1786906861998
+Pulsar Owner Lease renewed during failover cut: ownerEpoch=1, expiresAt=1786906877097
+Pulsar Owner Lease renewed during failover cut: ownerEpoch=1, expiresAt=1786906892146
+Pulsar Owner Lease renewed during failover cut: ownerEpoch=1, expiresAt=1786906907254
+Pulsar source reactivation successor accepted: oldGeneration=2, newGeneration=3, assignmentRevision=2, ownerEpoch=2
+Pulsar Worker source-applied physical publish passed: Admission source ledger=5/0, typed PULSAR_SEND_ACK target ledger/entry=7/0, Outcome source ledger=5/1, exact payload readback
+Pulsar + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: prepare=2/2, commit=2/3, exactGatewayIdempotency=true, sourceRecords=6
+Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload Broker network-partition failover E2E passed: broker-1 stayed alive but lost its exact Compose network endpoint after Gateway Commit/readback, the same source-applied physical Publish completed through broker-2, and broker-1 rejoined afterward
+BUILD SUCCESSFUL in 2m 5s
+```
+
+The harness disconnects only the exact Docker Compose network membership of the
+still-running Broker-1 after Gateway Commit/readback, waits 75 seconds for the
+disconnected ownership lease to expire while renewing the active lease, then
+performs strict successor guarded SUBSCRIBE reactivation and reconnects
+Broker-1 after the same large-payload physical Publish completes through
+Broker-2. The post-seek proof uses a bounded quiet window so a P1 consumer
+replacement cannot invalidate the Route barrier immediately after `seekAfter`.
+This is bounded two-Broker/one-physical-source-partition evidence, not all
+packet/proxy/socket failure shapes, automatic controller/coordinator or
+ZooKeeper/BookKeeper/storage failover, multi-shard production placement, the
+full crash/chaos matrix or V1 release readiness.
+
+Exact post-run checks found no containers, networks, volumes, P1 image or
+run-created Oxia image for the project. The locked MinIO base image was
+retained; no global `docker prune` was run.

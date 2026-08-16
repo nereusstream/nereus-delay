@@ -10386,6 +10386,55 @@ crash/chaos matrix, and release gates remain open. Exact postchecks found no
 project containers, networks, volumes or matching temporary images; the
 locked MinIO base remained and no global Docker prune was used.
 
+## 2026-08-17 Current-source Pulsar Gateway + Broker network-partition large-payload audit
+
+The source-bound audit locks Delay to
+`f95c8a5468d6a1ee6df0bc1bd99000dc769d8797`, P1 to
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1
+distribution to
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1
+image to
+`sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`, and MinIO to the locked
+digest
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`. The
+isolated project was `nereus-delay-pulsar-large-e2e-1786906721-85706` on
+Pulsar `30440/30441,30442/30443`, Oxia `30450`, MinIO `30451` and Gateway
+`30452`.
+
+Audit result: PASS for this bounded current-source combined production-
+authority slice. After Gateway Commit/readback, the harness disconnected only
+Broker-1's exact Docker Compose network membership while leaving its process
+alive, waited 75 seconds for ownership handoff, renewed the active Oxia Owner
+Lease during the cut, then accepted a strict successor guarded SUBSCRIBE and
+completed the same source-applied physical Publish through Broker-2. Broker-1
+was reconnected and its admin readiness passed. The receipt was:
+
+```text
+Pulsar Owner Lease renewed during failover cut: ownerEpoch=1, expiresAt=1786906846912
+Pulsar Owner Lease renewed during failover cut: ownerEpoch=1, expiresAt=1786906861998
+Pulsar Owner Lease renewed during failover cut: ownerEpoch=1, expiresAt=1786906877097
+Pulsar Owner Lease renewed during failover cut: ownerEpoch=1, expiresAt=1786906892146
+Pulsar Owner Lease renewed during failover cut: ownerEpoch=1, expiresAt=1786906907254
+Pulsar source reactivation successor accepted: oldGeneration=2, newGeneration=3, assignmentRevision=2, ownerEpoch=2
+Pulsar Worker source-applied physical publish passed: Admission source ledger=5/0, typed PULSAR_SEND_ACK target ledger/entry=7/0, Outcome source ledger=5/1, exact payload readback
+Pulsar + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: prepare=2/2, commit=2/3, exactGatewayIdempotency=true, sourceRecords=6
+Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload Broker network-partition failover E2E passed: broker-1 stayed alive but lost its exact Compose network endpoint after Gateway Commit/readback, the same source-applied physical Publish completed through broker-2, and broker-1 rejoined afterward
+BUILD SUCCESSFUL in 2m 5s
+```
+
+The proof is bounded to two Brokers, one ZooKeeper, one BookKeeper and one
+physical source partition. The P1 connection-generation allocator is
+Broker-process local; equality is still rejected by `PulsarSourceReactivationV1`
+and the fixture closes/retries equal candidates. A bounded post-seek quiet
+window is used before the Route barrier is published so a Broker-side consumer
+replacement cannot invalidate the barrier immediately after `seekAfter`.
+This is not a V1 release PASS and does not close arbitrary packet/proxy/socket
+faults, controller/coordinator or ZooKeeper/BookKeeper/storage failover,
+multi-shard placement, the full crash/chaos matrix or release gates. Exact
+postchecks found no project containers, networks, volumes or matching P1/Oxia
+images; the locked MinIO base remained and no global Docker prune was used.
+
 ## 2026-08-17 Current-source Pulsar Broker process-crash failover audit
 
 The current-source audit locks Delay to
@@ -10687,7 +10736,7 @@ Oxia images; no global Docker prune was used.
 ## 2026-08-17 V1 release-gate audit result
 
 Source locks for this audit are Delay
-`e6d28a5b0fecc6c20daded998b1d324990fe95c2`, K1
+`f95c8a5468d6a1ee6df0bc1bd99000dc769d8797`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`. Full local `check` and the
@@ -10695,8 +10744,9 @@ cross-repo contract validator pass.
 
 Audit result: `NOT READY`. Gates 1--4 and 10 are bounded `PARTIAL`: the
 repository now has current-source real Kafka/Pulsar Gateway large-payload,
-Worker fault, Oxia authority and MinIO REAPING evidence, but not the complete
-all-language, clock-bound, rollout or chaos matrix. Gates 5--9 remain `OPEN`:
+Worker fault, Oxia authority, MinIO REAPING and bounded Pulsar combined
+network-partition failover evidence, but not the complete all-language,
+clock-bound, rollout or chaos matrix. Gates 5--9 remain `OPEN`:
 required benchmark configurations, capacity/SLO artifacts, certified soak,
 upgrade/downgrade proof and restore/fence/DLQ/uncertain/disaster runbook
 drills have not been produced. This is a release audit boundary, not a reason

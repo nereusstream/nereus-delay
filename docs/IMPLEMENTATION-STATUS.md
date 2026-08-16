@@ -5584,7 +5584,7 @@ checkpoint publication or release readiness.
 | Queued receipt Route-policy boundary | Implemented (local strict adapter seam; Route authority pending) | `QueuedReceiptQueryPolicy`, `PolicyBoundWireCommandIngressAdapter`, `PinnedKafkaCommandIngress`, `PinnedPulsarCommandIngress`, `PreparedSubmissionAdapter`, `EmbeddedDelayService`, `AdapterIngressTest`, `NativeSubmissionAdapterTest`; strict paths derive `receipt_query_until` from authenticated Broker persistence time with checked addition, reject missing/drifting policy snapshots before transport ownership, and retain post-persistence overflow as `ENQUEUE_UNCERTAIN`/integrity evidence; absolute-boundary overloads are compatibility-only and checked against a bound policy; Route policy publication, source-time authority and concrete production transports remain release blockers |
 | Full command-result retention boundary | Implemented (local strict query seam; retention authority pending) | `CommandResultRetentionPolicy`, `DelayClient`, `EmbeddedDelayService`, `BoundedLocalQueryProjector`, `EmbeddedDelayServiceTest.embeddedQueryDerivesFullResultRetentionFromAppliedSourceTime`, `CommandResultRetentionPolicyTest`; strict query/await/applied-receipt projections derive `full_result_retain_until` from the applied Source Position Broker persistence time with checked addition, while absolute-boundary overloads remain compatibility-only; policy publication, source-time authority and production query routing remain release blockers |
 | Strict typed Claim runtime binding | Implemented (local Message plus durable V1 command/Lane-tuple binding and public-API fence; live authority pending) | `DelayShard.claimForPublishV1`, `DelayShard.resolveClaimMaterializationV1`, `V1ScheduleBinding.requireClaimLaneProjection`, `CanonicalLaneTupleV1`, `CanonicalLaneTupleV1Test`, `DelayShardTest.physicalGcMutationPrimitivesAreNotPublicProductionApis`, `DelayShardTest.registryPrepareCannotDowngradeTrustSetAuthorityWithLegacyCommitBody`, `ClaimMaterializationRuntimeTest`; strict Claim entrypoint binds message identity, generation, delivery window, timeline `actionAt` and inline/object payload reference before persistence, then, when a `V1ScheduleBinding` exists, exactly rebinds Destination Profile, business metadata, delivery window and the original Schedule payload branch or Prepare Object Store Profile/length/SHA-256. The public materializer derives that same projection from the accepted binding, current durable Message and canonical Lane tuple, including the committed Prepare proof identity, and the Claim executor/Worker command runtime expose a derived-materialization overload. It also parses the exact durable canonical Lane tuple and requires byte-identical Destination/Capability Profiles, Kafka/Pulsar Broker target resource and physical partition; same-hash foreign Profile identities, target or partition drift are rejected before Claim state changes. The legacy byte-array primitive is package-local and reachable across packages only from the test-classpath bridge. Live Profile/credential/resource authority, Object Store fetch, Adapter serialization/size certification, channel lease, Producer ownership, Publish materialization and crash recovery remain release blockers |
-| Large-payload production-authority vertical | Partial (two source-bound live Gateway/Oxia/Worker/MinIO destination-authority receipts for Kafka and Pulsar; bounded combined Pulsar multi-Broker reactivation is now covered; multi-shard, fault and release gates open) | Kafka `KafkaClientArtifactLargePayloadGatewaySmoke` plus Pulsar `PulsarClientArtifactLargePayloadGatewaySmoke`, their Gradle tasks and isolated E2E runners compose real Broker topologies, real Oxia Route/Assignment/Owner/Gateway records, mTLS/JWT Gateway RPCs, Worker Prepare/Commit apply, versioned MinIO payload upload/attestation/readback, exact Gateway idempotency and final Owner/Assignment release. The current Pulsar receipt is locked to Delay `49665a75041ea05cd7b47e887c9e28fa08647b9`, P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, and MinIO `sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`; the source topics use one physical partition and each combined harness keeps a local final checkpoint. The source-ordered trust activation remains a real Broker record while the harness semantic trust resolver remains an exact in-memory test seam. Profile/Oxia credential-catalog authority, Kafka response-loss/LSO/retention recovery, Pulsar raw crash/network/controller failover beyond this bounded harness, multi-shard placement, raw crash/chaos and release gates remain open |
+| Large-payload production-authority vertical | Partial (two source-bound live Gateway/Oxia/Worker/MinIO destination-authority receipts for Kafka and Pulsar; bounded combined Pulsar graceful/process-crash/network-partition failover slices are covered; multi-shard, fault and release gates open) | Kafka `KafkaClientArtifactLargePayloadGatewaySmoke` plus Pulsar `PulsarClientArtifactLargePayloadGatewaySmoke`, their Gradle tasks and isolated E2E runners compose real Broker topologies, real Oxia Route/Assignment/Owner/Gateway records, mTLS/JWT Gateway RPCs, Worker Prepare/Commit apply, versioned MinIO payload upload/attestation/readback, exact Gateway idempotency and final Owner/Assignment release. The latest current-source Pulsar network-partition receipt is locked to Delay `f95c8a5468d6a1ee6df0bc1bd99000dc769d8797`, P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, and MinIO `sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`; the source topics use one physical partition and each combined harness keeps a local final checkpoint. The source-ordered trust activation remains a real Broker record while the harness semantic trust resolver remains an exact in-memory test seam. Profile/Oxia credential-catalog authority, Kafka response-loss/LSO/retention recovery, Pulsar controller/storage failover beyond these bounded harnesses, multi-shard placement, raw crash/chaos and release gates remain open |
 | Gradle Java 21 build | Implemented | `gradle compileJava`, `gradle test` |
 | Self-routing IDs and CRC32C | Implemented | `ProtocolCodecTest` |
 | `commandId + commandHash` prepared before I/O | Implemented | `PreparedCommand`, `CommandHash`, `ProtocolCodecTest` |
@@ -13506,6 +13506,67 @@ ZooKeeper/BookKeeper/storage failover, multi-shard production placement, the
 full crash/chaos matrix or V1 release evidence. Exact postchecks found no
 project containers, networks, volumes or matching P1/Oxia images; the locked
 MinIO base was retained and no global Docker prune was used.
+
+## 2026-08-17 Current-source Pulsar Gateway + Broker network-partition large-payload receipt
+
+The current-source combined implementation is Delay
+`f95c8a5468d6a1ee6df0bc1bd99000dc769d8797`, P1
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1
+image `sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, and locked MinIO
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The source-bound command was:
+
+```bash
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER=1 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_NETWORK_PARTITION=1 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_NETWORK_PARTITION_HANDOFF_WAIT_SECONDS=75 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-full-check-20260817 \
+PULSAR_LARGE_BROKER_1_PORT=30440 \
+PULSAR_LARGE_WEB_1_PORT=30441 \
+PULSAR_LARGE_BROKER_2_PORT=30442 \
+PULSAR_LARGE_WEB_2_PORT=30443 \
+NEREUS_DELAY_PULSAR_LARGE_OXIA_PORT=30450 \
+NEREUS_DELAY_PULSAR_LARGE_MINIO_PORT=30451 \
+NEREUS_DELAY_PULSAR_LARGE_GATEWAY_PORT=30452 \
+PULSAR_LARGE_PAYLOAD_TOPIC=nereus-delay-pulsar-large-payload-networkcut-20260817-r14 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_DESTINATION_TOPIC=nereus-delay-pulsar-large-destination-networkcut-20260817-r14 \
+  bash e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+The isolated project was `nereus-delay-pulsar-large-e2e-1786906721-85706` on
+Pulsar `30440/30441,30442/30443`, Oxia `30450`, MinIO `30451` and Gateway
+`30452`. The current-source receipt was:
+
+```text
+Pulsar Owner Lease renewed during failover cut: ownerEpoch=1, expiresAt=1786906846912
+Pulsar Owner Lease renewed during failover cut: ownerEpoch=1, expiresAt=1786906861998
+Pulsar Owner Lease renewed during failover cut: ownerEpoch=1, expiresAt=1786906877097
+Pulsar Owner Lease renewed during failover cut: ownerEpoch=1, expiresAt=1786906892146
+Pulsar Owner Lease renewed during failover cut: ownerEpoch=1, expiresAt=1786906907254
+Pulsar source reactivation successor accepted: oldGeneration=2, newGeneration=3, assignmentRevision=2, ownerEpoch=2
+Pulsar Worker source-applied physical publish passed: Admission source ledger=5/0, typed PULSAR_SEND_ACK target ledger/entry=7/0, Outcome source ledger=5/1, exact payload readback
+Pulsar + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: prepare=2/2, commit=2/3, exactGatewayIdempotency=true, sourceRecords=6
+Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload Broker network-partition failover E2E passed: broker-1 stayed alive but lost its exact Compose network endpoint after Gateway Commit/readback, the same source-applied physical Publish completed through broker-2, and broker-1 rejoined afterward
+BUILD SUCCESSFUL in 2m 5s
+```
+
+This closes the bounded current-source combined Gateway + real Oxia + two real
+P1 Broker + Worker + real MinIO network-partition chain for one physical source
+partition. The harness disconnects only Broker-1's exact Docker Compose network
+membership while the process remains alive, waits 75 seconds for the
+disconnected ownership lease to expire, renews the active lease during that
+window, then performs strict successor guarded SUBSCRIBE reactivation and
+reconnects Broker-1 after the destination publish. `PulsarSourceReactivationV1`
+still rejects equal generations; the large-payload fixture now settles the
+post-seek proof through a bounded quiet window before binding the Route barrier.
+This does not claim all network-failure shapes, controller/coordinator or
+ZooKeeper/BookKeeper/storage failover, multi-shard production placement, the
+full crash/chaos matrix or V1 release evidence. Exact postchecks found no
+project containers, networks, volumes, P1 image or run-created Oxia image; the
+locked MinIO base was retained and no global Docker prune was used.
 
 ## 2026-08-17 Current-source Pulsar Broker process-crash failover receipt
 
