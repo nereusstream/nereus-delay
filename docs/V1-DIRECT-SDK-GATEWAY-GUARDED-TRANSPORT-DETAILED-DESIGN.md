@@ -6888,3 +6888,22 @@ The current source-bound run locks Delay to
 process-cut contract and does not imply destination-publish crash recovery,
 raw network chaos, controller/coordinator failover, production multi-shard
 fault coverage or V1 release readiness.
+
+## 2026-08-17 Current Kafka Broker process-crash implementation note
+
+The focused `NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_ONLY=1` path prepares one
+guarded Worker record against a real three-Broker KRaft cluster and real Oxia,
+then sends SIGKILL to `kafka-1`. The survivor bootstrap list is used to reopen
+the same source, recover the Oxia Assignment/Owner authority and run the full
+Worker path: guarded source replay, RocksDB apply, physical Kafka destination
+publish, typed transactional receipt/readback, source ACK and final
+checkpoint.
+
+Only after the survivor Worker completes does the runner start `kafka-1` and
+wait for readiness. The current source-bound run locks Delay to
+`13857e57cee134c2bc0fcf20a4d8b988fbe0f02a`, K1 to
+`05849884ca81fad767fda058444d1e17c7f9cbf9` and Oxia to
+`37a17bef17202d5fd6e23282da5fd26d94865484`. This remains a bounded Broker
+process-cut contract and does not imply raw endpoint/network fault injection,
+controller/coordinator failover, production multi-shard chaos or V1 release
+readiness.

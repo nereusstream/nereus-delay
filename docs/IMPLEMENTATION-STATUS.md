@@ -12746,3 +12746,58 @@ readiness. Exact post-run checks found no containers, networks, volumes or
 matching temporary Kafka/Oxia images for either isolated project; both the K1
 image ID and the run-created Oxia image ID were absent, reusable base images
 were retained, and no global Docker prune was used.
+
+## 2026-08-17 Current-source Kafka Broker process-crash recovery receipt
+
+The current-source Broker crash rerun locks Delay to
+`13857e57cee134c2bc0fcf20a4d8b988fbe0f02a`, Kafka to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, Kafka
+image ID
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The source-bound command was:
+
+```bash
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_ONLY=1 \
+KAFKA_BROKER_1_PORT=19761 \
+KAFKA_BROKER_2_PORT=19762 \
+KAFKA_BROKER_3_PORT=19763 \
+NEREUS_DELAY_KAFKA_OXIA_PORT=16764 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-broker-crash-20260817 \
+GRADLE_USER_HOME=/tmp/nereus-delay-kafka-broker-crash-20260817 \
+KAFKA_DELAY_BROKER_PROCESS_CRASH_TOPIC=nereus-delay-worker-broker-crash-live-20260817 \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The isolated Kafka project was
+`nereus-delay-kafka-e2e-1786897707-67896` on ports
+`19761,19762,19763`; the isolated Oxia project was
+`nereus-delay-kafka-oxia-e2e-1786897707-67896` at `127.0.0.1:16764`. The
+run-created Oxia image ID was
+`sha256:be9957b76dbc8cdbd655ee127e5236d4534a2fca092facdb8bf6e6bcd549d604`.
+The source topic was `nereus-delay-worker-broker-crash-live-20260817`.
+
+The current-source output included:
+
+```text
+Kafka Worker restart preparation passed: one guarded record persisted before broker failover
+Kafka Worker source-applied physical publish passed: Admission source offset=3, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=0, Outcome source offset=4, exact payload readback
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, source-applied physical publish with typed KAFKA_TRANSACTIONAL_RECEIPT Outcome and payload readback, and final checkpoint
+Kafka Worker authority smoke passed: real Oxia session-bound lease
+Kafka Broker process-crash recovery E2E passed: kafka-1 was SIGKILLed after guarded Worker preparation, the same topic resumed through kafka-2/kafka-3 with real Oxia authority, and kafka-1 rejoined afterward.
+```
+
+This current-source run closes the bounded three-Broker Broker-process crash
+recovery slice, including survivor source recovery, real Oxia authority,
+physical Kafka destination publish, typed receipt/readback, source ACK and
+final checkpoint before `kafka-1` rejoins. It does not claim raw endpoint or
+network-partition injection, controller/coordinator failover, production
+multi-shard fault coverage, the complete chaos matrix or V1 release
+readiness. Exact post-run checks found no containers, networks, volumes or
+matching temporary Kafka/Oxia images for either isolated project; both the K1
+image ID and the run-created Oxia image ID were absent, reusable base images
+were retained, and no global Docker prune was used.

@@ -10389,3 +10389,27 @@ packet/proxy/socket or Docker-network chaos, controller/coordinator failover,
 multi-shard fault coverage or V1 release approval. Exact project and image
 checks found no post-run containers, networks, volumes or matching temporary
 images; no global Docker prune was used.
+
+## 2026-08-17 Current-source Kafka Broker process-crash recovery audit
+
+The current-source receipt locks Delay to
+`13857e57cee134c2bc0fcf20a4d8b988fbe0f02a`, Kafka to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+and Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. The real three-Broker
+KRaft run used Kafka project `nereus-delay-kafka-e2e-1786897707-67896` on
+`19761,19762,19763`, Oxia project
+`nereus-delay-kafka-oxia-e2e-1786897707-67896` at `127.0.0.1:16764`, and source
+topic `nereus-delay-worker-broker-crash-live-20260817`.
+
+After guarded Worker preparation, the harness SIGKILLed `kafka-1`. The same
+source resumed through `kafka-2,kafka-3` with the real Oxia Assignment/Owner
+authority, physical Kafka destination publish and typed receipt/readback,
+source apply/ACK and final checkpoint. The harness then restarted `kafka-1`
+and verified it rejoined successfully.
+
+This is positive current-source evidence for Broker-process crash recovery
+through the source and destination Worker path. It is not raw endpoint or
+Docker-network chaos, controller/coordinator automatic failover,
+multi-shard fault coverage or V1 release approval. Exact project and image
+checks found no post-run containers, networks, volumes or matching temporary
+images; no global Docker prune was used.

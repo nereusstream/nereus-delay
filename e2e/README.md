@@ -3482,6 +3482,47 @@ release readiness. The exact Kafka project was
 containers, networks, volumes or matching temporary images, reusable base
 images were retained and no global Docker prune was used.
 
+## Kafka Broker process-crash recovery receipt (current source)
+
+Run the current-source Broker process-crash slice:
+
+```bash
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_ONLY=1 \
+KAFKA_BROKER_1_PORT=19761 \
+KAFKA_BROKER_2_PORT=19762 \
+KAFKA_BROKER_3_PORT=19763 \
+NEREUS_DELAY_KAFKA_OXIA_PORT=16764 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-broker-crash-20260817 \
+GRADLE_USER_HOME=/tmp/nereus-delay-kafka-broker-crash-20260817 \
+KAFKA_DELAY_BROKER_PROCESS_CRASH_TOPIC=nereus-delay-worker-broker-crash-live-20260817 \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+At Delay `13857e57cee134c2bc0fcf20a4d8b988fbe0f02a`, Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`
+and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, the harness SIGKILLed
+`kafka-1` after guarded Worker preparation. The survivor run through
+`kafka-2,kafka-3` completed real Oxia authority, source apply/ACK, physical
+Kafka destination publish and typed receipt/readback, then restarted and
+readiness-checked `kafka-1`:
+
+```text
+Kafka Worker restart preparation passed: one guarded record persisted before broker failover
+Kafka Worker source-applied physical publish passed: Admission source offset=3, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=0, Outcome source offset=4, exact payload readback
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, source-applied physical publish with typed KAFKA_TRANSACTIONAL_RECEIPT Outcome and payload readback, and final checkpoint
+Kafka Broker process-crash recovery E2E passed: kafka-1 was SIGKILLed after guarded Worker preparation, the same topic resumed through kafka-2/kafka-3 with real Oxia authority, and kafka-1 rejoined afterward.
+```
+
+This is a bounded current-source Broker-process crash receipt covering the
+Worker source/destination path. It does not claim raw endpoint/network fault
+injection, controller/coordinator failover, production multi-shard chaos or V1
+release readiness. The exact Kafka project was
+`nereus-delay-kafka-e2e-1786897707-67896` and exact Oxia project was
+`nereus-delay-kafka-oxia-e2e-1786897707-67896`; post-run checks found no
+containers, networks, volumes or matching temporary images, reusable base
+images were retained and no global Docker prune was used.
+
 ## Kafka raw TCP Broker endpoint-cut Worker recovery receipt (current source)
 
 Run the current-source raw TCP endpoint-cut slice:
