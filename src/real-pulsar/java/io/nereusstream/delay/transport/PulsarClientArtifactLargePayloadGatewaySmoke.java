@@ -378,7 +378,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                                                final String physicalTopic, final byte[] incarnation,
                                                final long creationTimestamp) throws Exception {
         final String partitionsPath = adminUrl + "/admin/v2/persistent/public/default/" + topicBase + "/partitions";
-        for (int attempt = 0; attempt < 40; attempt++) {
+        for (int attempt = 0; attempt < 120; attempt++) {
             final HttpResponse<String> response = request(client, partitionsPath, "PUT", "1");
             if (response.statusCode() >= 200 && response.statusCode() < 300 || response.statusCode() == 409) {
                 break;
@@ -411,8 +411,12 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
     private static void stampGuard(final HttpClient client, final String adminUrl, final String physicalTopic,
                                    final byte[] incarnation, final long creationTimestamp) throws Exception {
         final String path = adminUrl + "/admin/v2/persistent/public/default/" + physicalTopic + "/resourceGuard";
-        for (int attempt = 0; attempt < 40; attempt++) {
+        int lastStatus = -1;
+        String lastBody = "";
+        for (int attempt = 0; attempt < 120; attempt++) {
             final HttpResponse<String> response = request(client, path, "PUT", guardBody(incarnation, creationTimestamp));
+            lastStatus = response.statusCode();
+            lastBody = response.body();
             if (response.statusCode() >= 200 && response.statusCode() < 300 || response.statusCode() == 409) {
                 return;
             }
@@ -421,7 +425,8 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
             }
             TimeUnit.MILLISECONDS.sleep(250);
         }
-        throw new IllegalStateException("Pulsar large-payload resource guard did not converge: " + physicalTopic);
+        throw new IllegalStateException("Pulsar large-payload resource guard did not converge: " + physicalTopic
+                + " lastStatus=" + lastStatus + " lastBody=" + lastBody);
     }
 
     private static String guardBody(final byte[] incarnation, final long creationTimestamp) {
