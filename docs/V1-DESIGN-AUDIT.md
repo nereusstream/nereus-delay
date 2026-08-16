@@ -10935,3 +10935,33 @@ chaos, Broker/controller failover, multi-Worker placement, REAPING, full
 chaos or V1 release readiness. Exact postchecks found no project resources,
 temporary P1/Oxia images or crash state; the locked MinIO base remained and
 no global Docker prune was used.
+
+## 2026-08-17 Current-source Kafka K2 committed response-loss audit
+
+The current-source audit locks Delay to
+`9c6afd5e93621320da2b1c952553f6ffd28b364f`, Kafka K1 to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+the K1 client artifact to SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, and the
+temporary K1 broker image to
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`.
+The exact isolated project was
+`nereus-delay-kafka-e2e-1786909364-22320` on `30740,30741,30742`; this focused
+cut has no Oxia, Gateway or MinIO dependency.
+
+Audit result: PASS for the bounded current-source three-Broker KRaft K2
+post-commit response-loss slice. The real `EndTxn` commit persisted the exact
+target-plus-receipt pair, the test wrapper discarded only the local completion
+response, and a fresh `read_committed` consumer verified the typed
+`KAFKA_TRANSACTIONAL_RECEIPT` evidence and resolved `PUBLISHED`:
+
+```text
+K2 committed response-loss smoke passed: real EndTxn committed the exact target-plus-receipt pair, the local response was discarded, and typed read_committed evidence resolved PUBLISHED
+Kafka K2 committed response-loss E2E passed: real EndTxn commit was followed by local response loss and exact read_committed typed receipt resolution.
+```
+
+This is controlled client-side response loss after real Broker persistence. It
+does not establish raw socket loss, Broker process/crash or failover coverage,
+the complete Kafka Fetch/LSO/retention recovery matrix, or V1 release
+readiness. Exact postchecks found no project resources, dangling images or
+temporary K1 image; no global Docker prune was used.

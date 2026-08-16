@@ -13747,3 +13747,47 @@ plus Broker combined failover, multi-shard placement, the full crash/chaos
 matrix or V1 release evidence. Exact postchecks found no project containers,
 networks, volumes or matching P1/Oxia images; the locked Oxia base remained,
 and no global Docker prune was used.
+
+## 2026-08-17 Current-source Kafka K2 committed response-loss receipt
+
+The current-source rerun locks Delay to
+`9c6afd5e93621320da2b1c952553f6ffd28b364f`, Kafka K1 to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+the K1 client artifact to SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, and the
+temporary K1 broker image to
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`.
+The isolated Compose project was
+`nereus-delay-kafka-e2e-1786909364-22320` on broker ports
+`30740,30741,30742`. This focused cut does not require Oxia, Gateway or
+MinIO.
+
+The source-bound command was:
+
+```bash
+NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS=1 \
+NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS_ONLY=1 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-k2-response-loss-20260817-r2 \
+KAFKA_BROKER_1_PORT=30740 \
+KAFKA_BROKER_2_PORT=30741 \
+KAFKA_BROKER_3_PORT=30742 \
+KAFKA_DELAY_E2E_K2_TARGET_TOPIC=nereus-delay-k2-target-response-loss-20260817-r2 \
+KAFKA_DELAY_E2E_K2_RECEIPT_TOPIC=nereus-delay-k2-receipt-response-loss-20260817-r2 \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The run completed with `BUILD SUCCESSFUL in 48s` / `11 actionable tasks: 1
+executed, 10 up-to-date` and printed:
+
+```text
+K2 committed response-loss smoke passed: real EndTxn committed the exact target-plus-receipt pair, the local response was discarded, and typed read_committed evidence resolved PUBLISHED
+Kafka K2 committed response-loss E2E passed: real EndTxn commit was followed by local response loss and exact read_committed typed receipt resolution.
+```
+
+This refreshes bounded current-source three-Broker KRaft evidence for a real
+post-commit client response cut and exact typed `read_committed` target/receipt
+resolution. It is not raw socket packet loss, Broker process/crash or failover
+coverage, the complete Kafka Fetch/LSO/retention matrix, or V1 release
+approval. Gate 2 and the release status therefore remain unchanged. Exact
+postchecks found no project containers, networks, volumes, dangling images or
+temporary `nereus-delay-kafka-k1` image; no global Docker prune was used.

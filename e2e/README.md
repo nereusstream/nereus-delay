@@ -4247,3 +4247,41 @@ full crash/chaos matrix or V1 release readiness.
 Exact post-run checks found no containers, networks, volumes, P1 image or
 run-created Oxia image for the project. The locked MinIO base image was
 retained; no global `docker prune` was run.
+
+## Kafka K2 committed response-loss (current source)
+
+Run the focused current-source three-Broker K2 response-loss cut with:
+
+```bash
+NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS=1 \
+NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS_ONLY=1 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-k2-response-loss-20260817-r2 \
+KAFKA_BROKER_1_PORT=30740 \
+KAFKA_BROKER_2_PORT=30741 \
+KAFKA_BROKER_3_PORT=30742 \
+KAFKA_DELAY_E2E_K2_TARGET_TOPIC=nereus-delay-k2-target-response-loss-20260817-r2 \
+KAFKA_DELAY_E2E_K2_RECEIPT_TOPIC=nereus-delay-k2-receipt-response-loss-20260817-r2 \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The current-source receipt locks Delay to
+`9c6afd5e93621320da2b1c952553f6ffd28b364f`, K1 to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+the client artifact to
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, the
+temporary broker image to
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+and the Compose project to
+`nereus-delay-kafka-e2e-1786909364-22320`.
+
+The run passed with `BUILD SUCCESSFUL in 48s` and printed:
+
+```text
+K2 committed response-loss smoke passed: real EndTxn committed the exact target-plus-receipt pair, the local response was discarded, and typed read_committed evidence resolved PUBLISHED
+Kafka K2 committed response-loss E2E passed: real EndTxn commit was followed by local response loss and exact read_committed typed receipt resolution.
+```
+
+This is controlled local post-commit response loss, not raw socket loss,
+Broker crash/failover, the full Kafka LSO/retention matrix or a release gate.
+The runner's exact postchecks found no project containers, networks, volumes or
+temporary K1 image; no global Docker prune was used.
