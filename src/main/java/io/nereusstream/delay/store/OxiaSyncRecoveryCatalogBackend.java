@@ -13,7 +13,6 @@ import io.nereusstream.delay.protocol.SourcePosition;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.SyncOxiaClient;
-import io.oxia.client.api.Version;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
 import io.oxia.client.api.options.DeleteOption;
@@ -54,14 +53,10 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
     private static final int MAX_MANIFESTS = 100_000;
     private static final String RECORD_SUFFIX = "/catalog";
     private static final String PIN_SUFFIX = "/recovery-pin";
-    private static final int MAX_PIN_BYTES = 4 * 1024;
-    private static final byte[] SESSION_IDENTITY_DOMAIN = Bytes.utf8(
-            "nereus-delay-oxia-session-identity-v1\0");
 
     private final RecordClient client;
     private final String recordKey;
-    private final String pinRecordKey;
-    private final byte[] sessionIdentity;
+    private final OxiaSessionBoundRecoveryPinStore pinStore;
     private final CheckpointManifestLimits manifestLimits;
 
     /** Creates a backend over an already configured Oxia client. */
@@ -90,14 +85,7 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
         this.client = Objects.requireNonNull(client, "client");
         final String canonicalPrefix = canonicalKeyPrefix(keyPrefix);
         this.recordKey = canonicalPrefix + RECORD_SUFFIX;
-        this.pinRecordKey = canonicalPrefix + PIN_SUFFIX;
-        final byte[] configuredSession = client.sessionIdentity();
-        if (configuredSession != null) {
-            Bytes.requireLength(configuredSession, 32, "sessionIdentity");
-            this.sessionIdentity = Bytes.copy(configuredSession);
-        } else {
-            this.sessionIdentity = null;
-        }
+        this.pinStore = new OxiaSessionBoundRecoveryPinStore(client, canonicalPrefix + PIN_SUFFIX);
         this.manifestLimits = Objects.requireNonNull(manifestLimits, "manifestLimits");
     }
 
@@ -175,93 +163,25 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
     @Override
     public RecoveryPinV1 createRecoveryPin(final RecoveryPinV1 pin) {
         final RecoveryPinV1 requested = Objects.requireNonNull(pin, "pin");
-        requireCallerSession(requested);
-        for (int attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
+        return pinStore.create(requested, () -> {
             final RecoveryCatalog catalog = readCatalog();
             if (catalog.catalogGeneration() != requested.observedCatalogGeneration()) {
                 throw new IllegalStateException("RecoveryPin catalog generation is stale");
             }
             catalog.createRecoveryPin(requested);
-
-            final PinRecord current = readPinRecord();
-            if (current != null) {
-                if (!current.pin().equals(requested)) {
-                    throw new IllegalStateException("another RecoveryPin is already active");
-                }
-                requireCatalogGeneration(requested.observedCatalogGeneration());
-                return current.pin();
-            }
-            try {
-                final PutResult stored = client.put(pinRecordKey, requested.canonicalBytes(),
-                        Set.of(PutOption.IfRecordDoesNotExist, PutOption.AsEphemeralRecord));
-                validatePinPutResult(stored, requested);
-                final PinRecord observed = requirePinRecord(readPinRecord(), requested);
-                try {
-                    requireCatalogGeneration(requested.observedCatalogGeneration());
-                } catch (RuntimeException | Error generationFailure) {
-                    deleteExactPin(observed, generationFailure);
-                    throw generationFailure;
-                }
-                return observed.pin();
-            } catch (KeyAlreadyExistsException | UnexpectedVersionIdException conflict) {
-                // Another session won the singleton pin CAS. Re-read it on the
-                // next iteration so an exact retry remains idempotent.
-            } catch (RuntimeException responseFailure) {
-                final PinRecord observed = readPinRecord();
-                if (observed != null && observed.pin().equals(requested)) {
-                    requireCatalogGeneration(requested.observedCatalogGeneration());
-                    return observed.pin();
-                }
-                throw responseFailure;
-            }
-        }
-        throw new IllegalStateException("RecoveryPin ephemeral CAS did not converge");
+        }, () -> readCatalog().catalogGeneration());
     }
 
     /** Releases only the exact session-bound pin returned by this authority. */
     @Override
     public void releaseRecoveryPin(final RecoveryPinV1 pin) {
-        final RecoveryPinV1 requested = Objects.requireNonNull(pin, "pin");
-        requireCallerSession(requested);
-        for (int attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
-            final PinRecord current = readPinRecord();
-            if (current == null) {
-                throw new IllegalStateException("no RecoveryPin is active");
-            }
-            if (!current.pin().equals(requested)) {
-                throw new IllegalStateException("RecoveryPin identity/value mismatch");
-            }
-            try {
-                if (!client.delete(pinRecordKey, Set.of(DeleteOption.IfVersionIdEquals(
-                        current.version().versionId())))) {
-                    final PinRecord after = readPinRecord();
-                    if (after == null) {
-                        return;
-                    }
-                    throw new IllegalStateException("RecoveryPin delete returned false while the pin remained active");
-                }
-                if (readPinRecord() == null) {
-                    return;
-                }
-                throw new IllegalStateException("RecoveryPin delete was not visible on exact reread");
-            } catch (UnexpectedVersionIdException conflict) {
-                // A concurrent exact release may have won. Re-read and apply
-                // the same identity check before treating absence as success.
-            } catch (RuntimeException responseFailure) {
-                if (readPinRecord() == null) {
-                    return;
-                }
-                throw responseFailure;
-            }
-        }
-        throw new IllegalStateException("RecoveryPin release CAS did not converge");
+        pinStore.release(Objects.requireNonNull(pin, "pin"));
     }
 
     /** Reads the active ephemeral pin, failing closed on malformed/sessionless bytes. */
     @Override
     public Optional<RecoveryPinV1> activeRecoveryPin() {
-        final PinRecord active = readPinRecord();
-        return active == null ? Optional.empty() : Optional.of(active.pin());
+        return pinStore.active();
     }
 
     @Override
@@ -330,97 +250,6 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
 
     private RecoveryCatalog readCatalog() {
         return decodeCatalog(client.get(recordKey));
-    }
-
-    private PinRecord readPinRecord() {
-        final GetResult result = client.get(pinRecordKey);
-        if (result == null) {
-            return null;
-        }
-        if (!pinRecordKey.equals(result.key()) || result.version() == null) {
-            throw new IllegalStateException("Oxia RecoveryPin response has an invalid key or version");
-        }
-        final byte[] encoded = result.value();
-        if (encoded == null || encoded.length == 0 || encoded.length > MAX_PIN_BYTES) {
-            throw new IllegalStateException("Oxia RecoveryPin has an invalid size");
-        }
-        final RecoveryPinV1 pin = RecoveryPinV1.decode(encoded);
-        requireSession(result.version(), pin.oxiaSessionIdentityDigest());
-        return new PinRecord(pin, result.version());
-    }
-
-    private PinRecord requirePinRecord(final PinRecord record, final RecoveryPinV1 expected) {
-        if (record == null || !record.pin().equals(expected)) {
-            throw new IllegalStateException("Oxia RecoveryPin reread does not match the exact request");
-        }
-        return record;
-    }
-
-    private void validatePinPutResult(final PutResult result, final RecoveryPinV1 expected) {
-        if (result == null || !pinRecordKey.equals(result.key()) || result.version() == null) {
-            throw new IllegalStateException("Oxia RecoveryPin put returned an invalid record identity");
-        }
-        requireSession(result.version(), expected.oxiaSessionIdentityDigest());
-    }
-
-    private void requireCallerSession(final RecoveryPinV1 pin) {
-        if (sessionIdentity == null) {
-            throw new IllegalStateException(
-                    "RecoveryPin create/release requires an identity-bearing connected Oxia session");
-        }
-        if (!Bytes.constantTimeEquals(sessionIdentity, pin.oxiaSessionIdentityDigest())) {
-            throw new IllegalStateException("RecoveryPin is bound to another Oxia session");
-        }
-    }
-
-    private void requireCatalogGeneration(final long expectedGeneration) {
-        if (readCatalog().catalogGeneration() != expectedGeneration) {
-            throw new IllegalStateException("RecoveryPin catalog generation changed during creation");
-        }
-    }
-
-    private void deleteExactPin(final PinRecord record, final Throwable primary) {
-        try {
-            if (!client.delete(pinRecordKey, Set.of(DeleteOption.IfVersionIdEquals(
-                    record.version().versionId())))) {
-                final PinRecord after = readPinRecord();
-                if (after != null) {
-                    primary.addSuppressed(new IllegalStateException(
-                            "RecoveryPin cleanup returned false while the pin remained active"));
-                }
-            }
-        } catch (RuntimeException | Error cleanupFailure) {
-            primary.addSuppressed(cleanupFailure);
-        } catch (UnexpectedVersionIdException cleanupRace) {
-            primary.addSuppressed(cleanupRace);
-        }
-    }
-
-    private static void requireSession(final Version version, final byte[] expectedIdentity) {
-        if (version.sessionId().isEmpty() || version.clientIdentifier().isEmpty()) {
-            throw new IllegalStateException("Oxia RecoveryPin is not bound to an ephemeral session");
-        }
-        final long sessionId = version.sessionId().orElseThrow();
-        if (sessionId < 0) {
-            throw new IllegalStateException("Oxia RecoveryPin session id is negative");
-        }
-        final String clientIdentifier = canonicalSessionClientIdentifier(version.clientIdentifier().orElseThrow());
-        final byte[] actualIdentity = Bytes.sha256(SESSION_IDENTITY_DOMAIN, Bytes.u64be(sessionId),
-                Bytes.lp32(Bytes.utf8(clientIdentifier)));
-        if (!Bytes.constantTimeEquals(expectedIdentity, actualIdentity)) {
-            throw new IllegalStateException("Oxia RecoveryPin session identity does not match its bytes");
-        }
-    }
-
-    private static String canonicalSessionClientIdentifier(final String value) {
-        Objects.requireNonNull(value, "clientIdentifier");
-        final byte[] encoded = value.getBytes(StandardCharsets.UTF_8);
-        if (value.isBlank() || value.indexOf('\0') >= 0
-                || !value.equals(new String(encoded, StandardCharsets.UTF_8))
-                || !value.equals(Normalizer.normalize(value, Normalizer.Form.NFC))) {
-            throw new IllegalStateException("Oxia RecoveryPin client identity is not canonical");
-        }
-        return value;
     }
 
     private RecoveryCatalog decodeCatalog(final GetResult result) {
@@ -634,20 +463,7 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
     }
 
     /** Narrow record surface to keep deterministic tests independent of gRPC. */
-    interface RecordClient {
-        GetResult get(String key);
-
-        PutResult put(String key, byte[] value, Set<PutOption> options)
-                throws UnexpectedVersionIdException, KeyAlreadyExistsException;
-
-        boolean delete(String key, Set<DeleteOption> options) throws UnexpectedVersionIdException;
-
-        default byte[] sessionIdentity() {
-            return null;
-        }
-    }
-
-    private record PinRecord(RecoveryPinV1 pin, Version version) {
+    interface RecordClient extends OxiaSessionBoundRecoveryPinStore.RecordClient {
     }
 
     private static final class SyncRecordClient implements RecordClient {

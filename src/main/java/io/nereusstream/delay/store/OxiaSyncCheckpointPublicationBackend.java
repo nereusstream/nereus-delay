@@ -17,6 +17,7 @@ import io.oxia.client.api.PutResult;
 import io.oxia.client.api.SyncOxiaClient;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
+import io.oxia.client.api.options.DeleteOption;
 import io.oxia.client.api.options.PutOption;
 
 import java.nio.charset.StandardCharsets;
@@ -39,6 +40,8 @@ import java.util.function.Function;
  * the shard's upload-intent projections in one canonical record. The provider
  * upload remains an external immutable side effect, while the final
  * PUBLISHED-intent plus catalog-manifest binding is one Oxia version CAS. The
+ * session-bound Recovery Pin is a separate ephemeral sibling record and is
+ * never encoded into this publication snapshot. The
  * existing separate catalog and upload-intent backends remain available for
  * narrow authority tests and fail closed when asked to claim this boundary.</p>
  *
@@ -54,16 +57,29 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
     private static final byte[] DIGEST_DOMAIN =
             Bytes.utf8("nereus-delay-oxia-checkpoint-publication-v1\0");
     private static final String RECORD_SUFFIX = "/publication";
+    private static final String PIN_SUFFIX = "/recovery-pin";
 
     private final RecordClient client;
     private final String recordKey;
+    private final OxiaSessionBoundRecoveryPinStore pinStore;
     private final CheckpointManifestLimits manifestLimits;
 
     /** Creates an authority over an already configured Oxia client. */
     public OxiaSyncCheckpointPublicationBackend(final SyncOxiaClient client,
                                                 final String keyPrefix,
                                                 final CheckpointManifestLimits manifestLimits) {
-        this(new SyncRecordClient(client), keyPrefix, manifestLimits);
+        this(new SyncRecordClient(client, null), keyPrefix, manifestLimits);
+    }
+
+    /**
+     * Creates an authority whose Recovery Pin operations use the exact
+     * session identity supplied by the connected Oxia client owner.
+     */
+    public OxiaSyncCheckpointPublicationBackend(final SyncOxiaClient client,
+                                                final String keyPrefix,
+                                                final CheckpointManifestLimits manifestLimits,
+                                                final byte[] sessionIdentity) {
+        this(new SyncRecordClient(client, sessionIdentity), keyPrefix, manifestLimits);
     }
 
     /** Package-private constructor used by deterministic CAS tests. */
@@ -71,7 +87,9 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
                                          final String keyPrefix,
                                          final CheckpointManifestLimits manifestLimits) {
         this.client = Objects.requireNonNull(client, "client");
-        this.recordKey = canonicalKeyPrefix(keyPrefix) + RECORD_SUFFIX;
+        final String canonicalPrefix = canonicalKeyPrefix(keyPrefix);
+        this.recordKey = canonicalPrefix + RECORD_SUFFIX;
+        this.pinStore = new OxiaSessionBoundRecoveryPinStore(client, canonicalPrefix + PIN_SUFFIX);
         this.manifestLimits = Objects.requireNonNull(manifestLimits, "manifestLimits");
     }
 
@@ -290,20 +308,22 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
 
     @Override
     public RecoveryPinV1 createRecoveryPin(final RecoveryPinV1 pin) {
-        throw new UnsupportedOperationException(
-                "RecoveryPin requires a session-bound Oxia transaction outside the publication record");
+        final RecoveryPinV1 requested = Objects.requireNonNull(pin, "pin");
+        return pinStore.create(requested, () -> {
+            final PublicationState state = read().state();
+            final RecoveryCatalog catalog = RecoveryCatalog.fromSnapshot(state.catalog());
+            catalog.createRecoveryPin(requested);
+        }, () -> read().state().catalog().catalogGeneration());
     }
 
     @Override
     public void releaseRecoveryPin(final RecoveryPinV1 pin) {
-        throw new UnsupportedOperationException(
-                "RecoveryPin requires a session-bound Oxia transaction outside the publication record");
+        pinStore.release(Objects.requireNonNull(pin, "pin"));
     }
 
     @Override
     public Optional<RecoveryPinV1> activeRecoveryPin() {
-        throw new UnsupportedOperationException(
-                "RecoveryPin requires a session-bound Oxia transaction outside the publication record");
+        return pinStore.active();
     }
 
     private <T> T mutate(final Function<PublicationState, Change<T>> operation) {
@@ -568,18 +588,16 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
         return value;
     }
 
-    interface RecordClient {
-        GetResult get(String key);
-
-        PutResult put(String key, byte[] value, Set<PutOption> options)
-                throws UnexpectedVersionIdException, KeyAlreadyExistsException;
+    interface RecordClient extends OxiaSessionBoundRecoveryPinStore.RecordClient {
     }
 
     private static final class SyncRecordClient implements RecordClient {
         private final SyncOxiaClient delegate;
+        private final byte[] sessionIdentity;
 
-        private SyncRecordClient(final SyncOxiaClient delegate) {
+        private SyncRecordClient(final SyncOxiaClient delegate, final byte[] sessionIdentity) {
             this.delegate = Objects.requireNonNull(delegate, "client");
+            this.sessionIdentity = sessionIdentity == null ? null : Bytes.copy(sessionIdentity);
         }
 
         @Override
@@ -591,6 +609,17 @@ public final class OxiaSyncCheckpointPublicationBackend implements CheckpointAto
         public PutResult put(final String key, final byte[] value, final Set<PutOption> options)
                 throws UnexpectedVersionIdException, KeyAlreadyExistsException {
             return delegate.put(key, value, options);
+        }
+
+        @Override
+        public boolean delete(final String key, final Set<DeleteOption> options)
+                throws UnexpectedVersionIdException {
+            return delegate.delete(key, options);
+        }
+
+        @Override
+        public byte[] sessionIdentity() {
+            return sessionIdentity == null ? null : Bytes.copy(sessionIdentity);
         }
     }
 

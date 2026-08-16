@@ -17,6 +17,10 @@ import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.ProtocolTupleV1;
 import io.nereusstream.delay.protocol.PublishAdmissionBody;
 import io.nereusstream.delay.protocol.QuotaGrantRefV1;
+import io.nereusstream.delay.protocol.RecoveryCandidateKindV1;
+import io.nereusstream.delay.protocol.RecoveryCandidateRefV1;
+import io.nereusstream.delay.protocol.RecoveryFloorRefV1;
+import io.nereusstream.delay.protocol.RecoveryPinV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.ShardSubjectV1;
@@ -95,7 +99,8 @@ class OxiaRealCheckpointPublicationSmokeTest {
             });
 
             final OxiaSyncCheckpointPublicationBackend publicationBackend =
-                    new OxiaSyncCheckpointPublicationBackend(client.client(), prefix + "/publication", LIMITS);
+                    new OxiaSyncCheckpointPublicationBackend(client.client(), prefix + "/publication", LIMITS,
+                            client.sessionIdentity());
             final CheckpointManifest parent = parentManifest(store, shard, lineage, owner, controlSnapshot,
                     parentPosition);
             assertEquals(1, publicationBackend.publish(parent, 0).catalogGeneration());
@@ -145,6 +150,33 @@ class OxiaRealCheckpointPublicationSmokeTest {
         }
     }
 
+    @Test
+    void recoveryPinIsSessionBoundAndExpiresWithTheRealPublicationSession() throws Exception {
+        final String endpoint = endpoint();
+        final String prefix = "nereus-delay-real-publication-pin/" + UUID.randomUUID();
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 24);
+        final UUID topic = UUID.randomUUID();
+        final byte[] lineage = id16(20);
+        final CheckpointManifest manifest = simpleManifest(shard, topic, lineage, id16(21));
+
+        try (OxiaSyncOwnerLeaseBackend.ClientHandle owner = client(endpoint, prefix + "/owner")) {
+            final OxiaSyncCheckpointPublicationBackend backend = new OxiaSyncCheckpointPublicationBackend(
+                    owner.client(), prefix + "/publication", LIMITS, owner.sessionIdentity());
+            assertEquals(1, backend.publish(manifest, 0).catalogGeneration());
+            final RecoveryFloorRefV1 floor = backend.advanceFloor(manifest.checkpointId(), 1, List.of());
+            final RecoveryPinV1 pin = recoveryPin(shard, manifest, floor, owner.sessionIdentity());
+
+            assertEquals(pin, backend.createRecoveryPin(pin));
+            assertEquals(pin, backend.activeRecoveryPin().orElseThrow());
+        }
+
+        try (OxiaSyncOwnerLeaseBackend.ClientHandle replacement = client(endpoint, prefix + "/replacement")) {
+            final OxiaSyncCheckpointPublicationBackend reopened = new OxiaSyncCheckpointPublicationBackend(
+                    replacement.client(), prefix + "/publication", LIMITS, replacement.sessionIdentity());
+            assertTrue(reopened.activeRecoveryPin().isEmpty());
+        }
+    }
+
     private static String endpoint() {
         final String endpoint = System.getenv("NEREUS_DELAY_OXIA_ENDPOINT");
         Assumptions.assumeTrue(endpoint != null && !endpoint.isBlank(),
@@ -186,6 +218,29 @@ class OxiaRealCheckpointPublicationSmokeTest {
                 store.metadata().storeIncarnationUuid(), store.metadata().storeFormatVersion(),
                 store.shardMutationSequence(), store.appliedShardLogPosition(), controlSnapshot.snapshotDigest(),
                 id32(13), store.runtimeMetadata().evidenceCursors(), files);
+    }
+
+    private static CheckpointManifest simpleManifest(final ShardId shard, final UUID topic,
+                                                     final byte[] lineage, final byte[] checkpointId) {
+        final KafkaSourcePosition position = new KafkaSourcePosition(shard, "cluster", topic, 0,
+                null, 1_000);
+        final CheckpointManifest.FileEntry file = new CheckpointManifest.FileEntry("CURRENT", 1, id32(30),
+                Bytes.utf8("object/current"), Bytes.utf8("version"), null);
+        return new CheckpointManifest(checkpointId, lineage, 0, null, null,
+                new CheckpointManifest.CreatedBy(id32(31), id32(32), 1),
+                new CheckpointManifest.CreatedAt(1_000, 1_001, "CERTIFIED_HOST_CLOCK", id32(33), 1,
+                        0, 0, id32(34), 0, null), shard, id32(35), topic, 1, 0, position, id32(36), id32(37),
+                List.of(), List.of(file));
+    }
+
+    private static RecoveryPinV1 recoveryPin(final ShardId shard, final CheckpointManifest manifest,
+                                             final RecoveryFloorRefV1 floor, final byte[] sessionIdentity) {
+        final RecoveryCandidateRefV1 candidate = new RecoveryCandidateRefV1(
+                RecoveryCandidateKindV1.CATALOG_CHECKPOINT, manifest.recoveryLineageId(), manifest.checkpointId(),
+                manifest.manifestSha256(), null);
+        return new RecoveryPinV1(id16(22), new ShardSubjectV1(shard),
+                new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(38)), candidate,
+                floor, floor.catalogGeneration(), sessionIdentity);
     }
 
     private static CompatibleControlSnapshotV1 controlSnapshot(final ShardId shard) {

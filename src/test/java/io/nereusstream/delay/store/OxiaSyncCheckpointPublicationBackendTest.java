@@ -8,6 +8,10 @@ import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.OwnerIdentityV1;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
+import io.nereusstream.delay.protocol.RecoveryCandidateKindV1;
+import io.nereusstream.delay.protocol.RecoveryCandidateRefV1;
+import io.nereusstream.delay.protocol.RecoveryFloorRefV1;
+import io.nereusstream.delay.protocol.RecoveryPinV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.ShardSubjectV1;
@@ -17,6 +21,7 @@ import io.oxia.client.api.PutResult;
 import io.oxia.client.api.Version;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
+import io.oxia.client.api.options.DeleteOption;
 import io.oxia.client.api.options.PutOption;
 import io.oxia.client.api.options.defs.OptionVersionId;
 import org.junit.jupiter.api.Test;
@@ -31,6 +36,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class OxiaSyncCheckpointPublicationBackendTest {
     private static final CheckpointManifestLimits LIMITS = new CheckpointManifestLimits(
@@ -101,6 +107,29 @@ class OxiaSyncCheckpointPublicationBackendTest {
         assertThrows(IllegalStateException.class, () -> backend.create(conflicting));
     }
 
+    @Test
+    void recoveryPinUsesASeparateEphemeralRecordAlongsideAtomicPublication() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final OxiaSyncCheckpointPublicationBackend backend = new OxiaSyncCheckpointPublicationBackend(records,
+                "delay/publication-pin", LIMITS);
+        final CheckpointUploadIntentV1 seedPending = pending(4, null);
+        final CheckpointManifest parent = parentManifest(seedPending);
+        assertEquals(1, backend.publish(parent, 0).catalogGeneration());
+        final RecoveryFloorRefV1 floor = backend.advanceFloor(parent.checkpointId(), 1,
+                java.util.List.<io.nereusstream.delay.protocol.EvidenceCursorV1>of());
+        final RecoveryPinV1 pin = pin(parent, floor, 81, 82);
+
+        records.failNextPutAfterCommit = true;
+        assertEquals(pin, backend.createRecoveryPin(pin));
+        assertEquals(pin, backend.activeRecoveryPin().orElseThrow());
+
+        final OxiaSyncCheckpointPublicationBackend reopened = new OxiaSyncCheckpointPublicationBackend(records,
+                "delay/publication-pin", LIMITS);
+        assertEquals(pin, reopened.activeRecoveryPin().orElseThrow());
+        reopened.releaseRecoveryPin(pin);
+        assertTrue(reopened.activeRecoveryPin().isEmpty());
+    }
+
     private static CheckpointUploadIntentV1 pending(final int seed, final CheckpointManifest parent) {
         final ShardId shard = new ShardId(new RouteIncarnation(id16(seed + 1)), seed);
         return new CheckpointUploadIntentV1(new ShardSubjectV1(shard), id16(seed + 2), id16(seed + 3),
@@ -157,6 +186,16 @@ class OxiaSyncCheckpointPublicationBackendTest {
                 id32(60), 0, null);
     }
 
+    private static RecoveryPinV1 pin(final CheckpointManifest manifest, final RecoveryFloorRefV1 floor,
+                                     final int pinId, final int ownerId) {
+        final RecoveryCandidateRefV1 candidate = new RecoveryCandidateRefV1(
+                RecoveryCandidateKindV1.CATALOG_CHECKPOINT, manifest.recoveryLineageId(), manifest.checkpointId(),
+                manifest.manifestSha256(), null);
+        return new RecoveryPinV1(id16(pinId), new ShardSubjectV1(manifest.shardId()),
+                new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(ownerId)), candidate,
+                floor, floor.catalogGeneration(), fakeSessionIdentity());
+    }
+
     private static UUID uuid(final byte[] bytes) {
         final ByteBuffer buffer = ByteBuffer.wrap(bytes);
         return new UUID(buffer.getLong(), buffer.getLong());
@@ -174,11 +213,21 @@ class OxiaSyncCheckpointPublicationBackendTest {
         return bytes;
     }
 
+    private static byte[] fakeSessionIdentity() {
+        return Bytes.sha256(Bytes.utf8("nereus-delay-oxia-session-identity-v1\0"), Bytes.u64be(101),
+                Bytes.lp32(Bytes.utf8("fake-publication-session")));
+    }
+
     private static final class FakeRecordClient implements OxiaSyncCheckpointPublicationBackend.RecordClient {
         private final Map<String, GetResult> records = new HashMap<>();
         private long nextVersion = 1;
         private int putCount;
         private boolean failNextPutAfterCommit;
+
+        @Override
+        public byte[] sessionIdentity() {
+            return fakeSessionIdentity();
+        }
 
         @Override
         public GetResult get(final String key) {
@@ -201,7 +250,8 @@ class OxiaSyncCheckpointPublicationBackendTest {
                 throw new UnexpectedVersionIdException(key,
                         current == null ? OptionVersionId.KEY_NOT_EXISTS : current.version().versionId());
             }
-            final Version version = new Version(nextVersion++, 0, 0, 1, Optional.empty(), Optional.empty());
+            final Version version = new Version(nextVersion++, 0, 0, 1, Optional.of(101L),
+                    Optional.of("fake-publication-session"));
             records.put(key, new GetResult(key, Bytes.copy(value), version));
             putCount++;
             if (failNextPutAfterCommit) {
@@ -209,6 +259,26 @@ class OxiaSyncCheckpointPublicationBackendTest {
                 throw new IllegalStateException("simulated response loss");
             }
             return new PutResult(key, version);
+        }
+
+        @Override
+        public boolean delete(final String key, final Set<DeleteOption> options)
+                throws UnexpectedVersionIdException {
+            final GetResult current = records.get(key);
+            if (current == null) {
+                return false;
+            }
+            final OptionVersionId condition = options.stream()
+                    .filter(OptionVersionId.class::isInstance)
+                    .map(OptionVersionId.class::cast)
+                    .findFirst().orElse(null);
+            if (condition != null && (current.version() == null
+                    || current.version().versionId() != condition.versionId())) {
+                throw new UnexpectedVersionIdException(key, current.version() == null
+                        ? OptionVersionId.KEY_NOT_EXISTS : current.version().versionId());
+            }
+            records.remove(key);
+            return true;
         }
     }
 }
