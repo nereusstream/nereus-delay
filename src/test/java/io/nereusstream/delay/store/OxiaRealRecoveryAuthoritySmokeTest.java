@@ -49,12 +49,11 @@ class OxiaRealRecoveryAuthoritySmokeTest {
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle client = client(endpoint, prefix + "/client")) {
             final OxiaSyncRecoveryCatalogBackend backend = new OxiaSyncRecoveryCatalogBackend(
-                    client.client(), prefix + "/catalog", LIMITS, client.sessionIdentity());
+                    client, prefix + "/catalog", LIMITS);
             assertEquals(1, backend.publish(manifest, 0).catalogGeneration());
             final var floor = backend.advanceFloor(manifest.checkpointId(), 1, List.<EvidenceCursorV1>of());
             assertEquals(2, floor.catalogGeneration());
-            final var reopened = new OxiaSyncRecoveryCatalogBackend(client.client(), prefix + "/catalog", LIMITS,
-                    client.sessionIdentity());
+            final var reopened = new OxiaSyncRecoveryCatalogBackend(client, prefix + "/catalog", LIMITS);
             assertArrayEquals(floor.checkpointId(), reopened.currentFloorRef().orElseThrow().checkpointId());
 
             final byte[] storeIncarnation = id16(3);
@@ -78,7 +77,7 @@ class OxiaRealRecoveryAuthoritySmokeTest {
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle owner = client(endpoint, prefix + "/owner")) {
             final OxiaSyncRecoveryCatalogBackend backend = new OxiaSyncRecoveryCatalogBackend(
-                    owner.client(), prefix + "/catalog", LIMITS, owner.sessionIdentity());
+                    owner, prefix + "/catalog", LIMITS);
             backend.publish(manifest, 0);
             final RecoveryFloorRefV1 floor = backend.advanceFloor(manifest.checkpointId(), 1, List.of());
             final RecoveryPinV1 pin = recoveryPin(shard, manifest, floor, owner.sessionIdentity());
@@ -89,7 +88,7 @@ class OxiaRealRecoveryAuthoritySmokeTest {
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle replacement = client(endpoint, prefix + "/replacement")) {
             final OxiaSyncRecoveryCatalogBackend reopened = new OxiaSyncRecoveryCatalogBackend(
-                    replacement.client(), prefix + "/catalog", LIMITS, replacement.sessionIdentity());
+                    replacement, prefix + "/catalog", LIMITS);
             assertTrue(reopened.activeRecoveryPin().isEmpty());
         }
     }

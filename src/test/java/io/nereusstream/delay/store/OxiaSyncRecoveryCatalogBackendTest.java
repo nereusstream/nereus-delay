@@ -31,6 +31,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -79,6 +80,28 @@ class OxiaSyncRecoveryCatalogBackendTest {
         assertEquals(manifest, backend.publish(manifest, 0).manifest());
         assertArrayEquals(manifest.canonicalJsonBytes(),
                 backend.manifest(manifest.checkpointId()).orElseThrow().canonicalJsonBytes());
+    }
+
+    @Test
+    void sessionFenceRejectsACommittedCatalogPublicationAfterTheMarkerChanges() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final AtomicBoolean sessionAlive = new AtomicBoolean(true);
+        final OxiaSyncRecoveryCatalogBackend backend = new OxiaSyncRecoveryCatalogBackend(records,
+                "delay/fenced-catalog", LIMITS, () -> {
+                    if (!sessionAlive.get()) {
+                        throw new IllegalStateException("simulated Oxia session fence");
+                    }
+                });
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 14);
+        final CheckpointManifest manifest = manifest(shard, id16(14), id16(15), 0, 1, 1, null);
+        records.afterPut = () -> sessionAlive.set(false);
+
+        assertThrows(IllegalStateException.class, () -> backend.publish(manifest, 0));
+
+        final OxiaSyncRecoveryCatalogBackend reopened = new OxiaSyncRecoveryCatalogBackend(records,
+                "delay/fenced-catalog", LIMITS);
+        assertArrayEquals(manifest.canonicalJsonBytes(),
+                reopened.manifest(manifest.checkpointId()).orElseThrow().canonicalJsonBytes());
     }
 
     @Test
@@ -377,6 +400,8 @@ class OxiaSyncRecoveryCatalogBackendTest {
         private boolean failNextPutAfterCommit;
         private boolean failNextDeleteAfterCommit;
         private boolean returnWrongKeyOnNextGet;
+        private Runnable afterPut = () -> {
+        };
 
         private FakeRecordClient() {
             this(fakeSessionIdentity());
@@ -423,6 +448,7 @@ class OxiaSyncRecoveryCatalogBackendTest {
                     Optional.of("fake-recovery-session"));
             records.put(key, new GetResult(key, Bytes.copy(value), version));
             putCount++;
+            afterPut.run();
             if (failNextPutAfterCommit) {
                 failNextPutAfterCommit = false;
                 throw new IllegalStateException("simulated response loss");
