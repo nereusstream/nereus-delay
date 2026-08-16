@@ -10965,3 +10965,18 @@ does not establish raw socket loss, Broker process/crash or failover coverage,
 the complete Kafka Fetch/LSO/retention recovery matrix, or V1 release
 readiness. Exact postchecks found no project resources, dangling images or
 temporary K1 image; no global Docker prune was used.
+
+## 2026-08-17 Protocol activation payload codec audit boundary
+
+Commit `99049c6f` adds a strict implementation of the Registry-defined
+`ProtocolVersionActivatePayloadV1` and a typed field-1 accessor on
+`ApplyShardControlBody`. The codec round-trips the exact protocol tuple,
+canonical schema hash and compatible-reader-set evidence hash, rejects wrong
+fixed lengths and non-canonical field order, and preserves nested tuple
+canonicality. Its focused tests passed with `BUILD SUCCESSFUL`.
+
+Audit result: PASS for the bounded wire-codec slice only. The implementation
+does not establish source-ordered activation state, authenticated
+writer-before-reader assignment, eligible-reader cutover, downgrade or a
+release artifact. It adds no Registry meta key and does not promote Gate 8;
+the release audit remains `NOT READY`.

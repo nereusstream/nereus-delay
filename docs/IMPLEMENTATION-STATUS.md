@@ -13791,3 +13791,20 @@ coverage, the complete Kafka Fetch/LSO/retention matrix, or V1 release
 approval. Gate 2 and the release status therefore remain unchanged. Exact
 postchecks found no project containers, networks, volumes, dangling images or
 temporary `nereus-delay-kafka-k1` image; no global Docker prune was used.
+
+## 2026-08-17 Protocol activation payload codec boundary
+
+Commit `99049c6f` adds the strict Java codec for the Registry-defined
+`ProtocolVersionActivatePayloadV1`: exact `ProtocolTupleV1`, canonical schema
+SHA-256 and compatible-reader-set evidence SHA-256 fields; canonical field
+ordering, fixed-width hash validation and nested tuple canonicality are
+enforced on decode. `ApplyShardControlBody` now exposes a typed field-1
+`protocolVersionActivate()` accessor. The focused round-trip, malformed-length,
+field-order and Apply-body branch tests passed with `BUILD SUCCESSFUL`.
+
+This removes the Java-side wire-codec gap only. It does not implement the
+source-ordered activation marker, eligible-reader assignment/upgrade gate,
+writable-tuple cutover, downgrade authority or release artifact. No new
+`meta/FIXED` key was introduced, and kind-1 application state remains outside
+this slice; Gate 8 therefore remains `PARTIAL` and the release remains
+`NOT READY`.
