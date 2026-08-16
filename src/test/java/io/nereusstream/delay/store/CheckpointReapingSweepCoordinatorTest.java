@@ -19,6 +19,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -36,7 +37,7 @@ class CheckpointReapingSweepCoordinatorTest {
         };
 
         final CheckpointReapingSweepResult result = new CheckpointReapingSweepCoordinator(store, adapter)
-                .reap(pending, evidence(5_000), new RecoveryCatalog(), 100);
+                .reap(pending, new RecoveryCatalog(), quiescence(pending, evidence(5_000)), 100);
 
         assertEquals(CheckpointUploadStateV1.REAPING, result.reapingIntent().state());
         assertEquals(3, result.prefixSweep().listedVersionCount());
@@ -67,10 +68,10 @@ class CheckpointReapingSweepCoordinatorTest {
         final CheckpointReapingSweepCoordinator coordinator = new CheckpointReapingSweepCoordinator(store, adapter);
 
         assertThrows(IllegalStateException.class,
-                () -> coordinator.reap(pending, evidence(5_000), new RecoveryCatalog(), 100));
+                () -> coordinator.reap(pending, new RecoveryCatalog(), quiescence(pending, evidence(5_000)), 100));
         assertEquals(CheckpointUploadStateV1.REAPING, store.current().orElseThrow().state());
-        final CheckpointReapingSweepResult retried = coordinator.reap(pending, evidence(5_000),
-                new RecoveryCatalog(), 100);
+        final CheckpointReapingSweepResult retried = coordinator.reap(pending, new RecoveryCatalog(),
+                quiescence(pending, evidence(5_000)), 100);
 
         assertTrue(retried.prefixSweep().emptyAfterSweep());
         assertEquals(first.get().objectStoreProfile(), second.get().objectStoreProfile());
@@ -93,9 +94,38 @@ class CheckpointReapingSweepCoordinatorTest {
 
         assertThrows(IllegalStateException.class,
                 () -> new CheckpointReapingSweepCoordinator(store, adapter)
-                        .reap(pending, evidence(5_000), catalog, 100));
+                        .reap(pending, catalog, quiescence(pending, evidence(5_000)), 100));
         assertEquals(CheckpointUploadStateV1.PENDING_UPLOAD, store.current().orElseThrow().state());
-        assertTrue(!called.get());
+        assertFalse(called.get());
+    }
+
+    @Test
+    void providerOwnershipHorizonBlocksSweepAfterTheRequestWindow() {
+        final CheckpointUploadIntentStore store = new CheckpointUploadIntentStore();
+        final CheckpointUploadIntentV1 pending = pending();
+        store.create(pending);
+        final AtomicBoolean called = new AtomicBoolean();
+        final CheckpointPrefixSweepAdapter adapter = request -> {
+            called.set(true);
+            return result(0, 0);
+        };
+        final CheckpointReapingQuiescenceProof proof = quiescence(pending, evidence(5_000), evidence(10_000),
+                evidence(7_000), evidence(11_000));
+
+        assertThrows(IllegalStateException.class,
+                () -> new CheckpointReapingSweepCoordinator(store, adapter)
+                        .reap(pending, new RecoveryCatalog(), proof, 100));
+        assertEquals(CheckpointUploadStateV1.REAPING, store.current().orElseThrow().state());
+        assertFalse(called.get());
+    }
+
+    @Test
+    void horizonMustCoverProviderLifetimeAndTrustedClockWidth() {
+        final CheckpointUploadIntentV1 pending = pending();
+        assertThrows(IllegalArgumentException.class,
+                () -> new CheckpointReapingQuiescenceProof(pending.intentDigest(), evidence(5_000),
+                        evidence(10_000), evidence(7_000), evidence(7_000), 509, 500, 10,
+                        bytes(32, 60), bytes(32, 61)));
     }
 
     private static CheckpointPrefixSweepResult result(final int listed, final int deleted) {
@@ -132,6 +162,19 @@ class CheckpointReapingSweepCoordinatorTest {
         return new TrustedUtcIntervalEvidence(time, time + 1,
                 TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, bytes(8, 16), 1, 2, 3,
                 bytes(32, 17), 0, null);
+    }
+
+    private static CheckpointReapingQuiescenceProof quiescence(
+            final CheckpointUploadIntentV1 pending, final TrustedUtcIntervalEvidence reapingEvidence) {
+        return quiescence(pending, reapingEvidence, evidence(10_000), evidence(7_000), evidence(7_000));
+    }
+
+    private static CheckpointReapingQuiescenceProof quiescence(
+            final CheckpointUploadIntentV1 pending, final TrustedUtcIntervalEvidence reapingEvidence,
+            final TrustedUtcIntervalEvidence observedAt, final TrustedUtcIntervalEvidence oldOwnerClosedAt,
+            final TrustedUtcIntervalEvidence providerClosedAt) {
+        return new CheckpointReapingQuiescenceProof(pending.intentDigest(), reapingEvidence, observedAt,
+                oldOwnerClosedAt, providerClosedAt, 1_000, 500, 10, bytes(32, 60), bytes(32, 61));
     }
 
     private static byte[] bytes(final int length, final int seed) {

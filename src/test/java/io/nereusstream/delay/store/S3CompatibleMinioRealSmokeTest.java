@@ -80,7 +80,7 @@ class S3CompatibleMinioRealSmokeTest {
         final CheckpointUploadIntentStore reapingStore = new CheckpointUploadIntentStore();
         reapingStore.create(fixture.pending());
         final CheckpointReapingSweepResult reaping = new CheckpointReapingSweepCoordinator(
-                reapingStore, adapter).reap(fixture.pending(), evidence(5_000), new RecoveryCatalog(), 100);
+                reapingStore, adapter).reap(fixture.pending(), new RecoveryCatalog(), quiescence(fixture.pending()), 100);
         assertEquals(3, reaping.prefixSweep().listedVersionCount());
         assertEquals(3, reaping.prefixSweep().deletedVersionCount());
         assertTrue(reaping.prefixSweep().emptyAfterSweep());
@@ -161,6 +161,11 @@ class S3CompatibleMinioRealSmokeTest {
         return new TrustedUtcIntervalEvidence(time, time + 1,
                 TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, bytes(8, 14), 1, 2, 3,
                 bytes(32, 15), 0, null);
+    }
+
+    private static CheckpointReapingQuiescenceProof quiescence(final CheckpointUploadIntentV1 pending) {
+        return new CheckpointReapingQuiescenceProof(pending.intentDigest(), evidence(5_000), evidence(10_000),
+                evidence(7_000), evidence(7_000), 1_000, 500, 10, bytes(32, 60), bytes(32, 61));
     }
 
     private record Fixture(Path checkpointDirectory, ProfileSemanticEnvelopeV1 profile,
