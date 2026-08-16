@@ -16,6 +16,9 @@ public final class CheckpointReapingQuiescenceGuard {
         PENDING_INTENT_MISMATCH,
         REAPING_STATE_MISMATCH,
         REAPING_EVIDENCE_MISMATCH,
+        OWNER_PROOF_MISMATCH,
+        OWNER_GUARD_EVIDENCE_MISMATCH,
+        OWNER_GUARD_NOT_CLOSED,
         REQUEST_QUIESCENCE_NOT_ELAPSED,
         OLD_OWNER_GUARD_NOT_CLOSED,
         PROVIDER_OWNERSHIP_NOT_CLOSED,
@@ -24,9 +27,11 @@ public final class CheckpointReapingQuiescenceGuard {
 
     public static Decision evaluate(final CheckpointUploadIntentV1 expectedPending,
                                     final CheckpointUploadIntentV1 reaping,
+                                    final CheckpointReapingOwnerProof ownerProof,
                                     final CheckpointReapingQuiescenceProof proof) {
         Objects.requireNonNull(expectedPending, "expectedPending");
         Objects.requireNonNull(reaping, "reaping");
+        Objects.requireNonNull(ownerProof, "ownerProof");
         Objects.requireNonNull(proof, "proof");
         if (!Bytes.constantTimeEquals(expectedPending.intentDigest(), proof.pendingIntentDigest())
                 || expectedPending.state() != CheckpointUploadStateV1.PENDING_UPLOAD
@@ -38,6 +43,16 @@ public final class CheckpointReapingQuiescenceGuard {
         }
         if (!proof.reapingEvidence().equals(reaping.reapingStartedAt())) {
             return Decision.REAPING_EVIDENCE_MISMATCH;
+        }
+        if (CheckpointReapingOwnerProofGuard.evaluate(expectedPending, ownerProof)
+                != CheckpointReapingOwnerProofGuard.Decision.OWNER_PROOF_ACCEPTED) {
+            return Decision.OWNER_PROOF_MISMATCH;
+        }
+        if (!Bytes.constantTimeEquals(ownerProof.proofDigest(), proof.oldOwnerGuardEvidenceDigest())) {
+            return Decision.OWNER_GUARD_EVIDENCE_MISMATCH;
+        }
+        if (proof.oldOwnerGuardClosedAt().earliestEpochMs() < ownerProof.observedAt().earliestEpochMs()) {
+            return Decision.OWNER_GUARD_NOT_CLOSED;
         }
         final long requestBoundary;
         try {
@@ -60,8 +75,9 @@ public final class CheckpointReapingQuiescenceGuard {
 
     public static void require(final CheckpointUploadIntentV1 expectedPending,
                                final CheckpointUploadIntentV1 reaping,
+                               final CheckpointReapingOwnerProof ownerProof,
                                final CheckpointReapingQuiescenceProof proof) {
-        final Decision decision = evaluate(expectedPending, reaping, proof);
+        final Decision decision = evaluate(expectedPending, reaping, ownerProof, proof);
         if (decision != Decision.QUIESCENCE_PROVEN) {
             throw new IllegalStateException("checkpoint reaping quiescence rejected: " + decision);
         }

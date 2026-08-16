@@ -1,5 +1,8 @@
 package io.nereusstream.delay.store;
 
+import io.nereusstream.delay.ownership.OwnerLease;
+import io.nereusstream.delay.ownership.OwnerLeaseContext;
+import io.nereusstream.delay.ownership.ShardLifecycleState;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.CheckpointResourceV1;
 import io.nereusstream.delay.protocol.CheckpointUploadIntentV1;
@@ -79,8 +82,10 @@ class S3CompatibleMinioRealSmokeTest {
         final CheckpointResourceV1 sweptResource = adapter.upload(request);
         final CheckpointUploadIntentStore reapingStore = new CheckpointUploadIntentStore();
         reapingStore.create(fixture.pending());
+        final CheckpointReapingOwnerProof ownerProof = ownerProof(fixture.pending());
         final CheckpointReapingSweepResult reaping = new CheckpointReapingSweepCoordinator(
-                reapingStore, adapter).reap(fixture.pending(), new RecoveryCatalog(), quiescence(fixture.pending()), 100);
+                reapingStore, adapter).reap(fixture.pending(), new RecoveryCatalog(), ownerProof,
+                        quiescence(fixture.pending(), ownerProof), 100);
         assertEquals(3, reaping.prefixSweep().listedVersionCount());
         assertEquals(3, reaping.prefixSweep().deletedVersionCount());
         assertTrue(reaping.prefixSweep().emptyAfterSweep());
@@ -163,9 +168,19 @@ class S3CompatibleMinioRealSmokeTest {
                 bytes(32, 15), 0, null);
     }
 
-    private static CheckpointReapingQuiescenceProof quiescence(final CheckpointUploadIntentV1 pending) {
+    private static CheckpointReapingQuiescenceProof quiescence(final CheckpointUploadIntentV1 pending,
+                                                               final CheckpointReapingOwnerProof ownerProof) {
         return new CheckpointReapingQuiescenceProof(pending.intentDigest(), evidence(5_000), evidence(10_000),
-                evidence(7_000), evidence(7_000), 1_000, 500, 10, bytes(32, 60), bytes(32, 61));
+                evidence(7_000), evidence(7_000), 1_000, 500, 10, ownerProof.proofDigest(), bytes(32, 61));
+    }
+
+    private static CheckpointReapingOwnerProof ownerProof(final CheckpointUploadIntentV1 pending) {
+        final OwnerLease lease = new OwnerLease(pending.shard().shardId(), "owner-proof", pending.owner().ownerEpoch(),
+                bytes(32, 62), 20_000,
+                new OwnerLeaseContext(bytes(32, 63), 1, bytes(32, 64)), ShardLifecycleState.ACTIVE_FOR_COMMANDS);
+        return new CheckpointReapingOwnerProof(pending.intentDigest(), pending.owner(),
+                pending.sourceStoreIncarnation(), lease,
+                CheckpointReapingOwnerProof.Kind.EXACT_OWNER_EXPLICIT_ABANDON, null, evidence(7_000));
     }
 
     private record Fixture(Path checkpointDirectory, ProfileSemanticEnvelopeV1 profile,
