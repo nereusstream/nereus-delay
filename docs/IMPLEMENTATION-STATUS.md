@@ -14112,6 +14112,44 @@ was retained. This receipt does not establish raw socket loss, BookKeeper or
 controller failover, multi-shard large-payload placement, REAPING, soak,
 benchmark/capacity evidence, the full chaos matrix or V1 release readiness.
 
+## 2026-08-17 Current-source Kafka large-payload destination authority audit
+
+The current-source receipt locks Delay to
+`55377153d3583c665b8fb07aa198617538b03915`, Kafka K1 to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9`, the
+client artifact to SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, the K1
+image to
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`, and MinIO to the locked
+digest `sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+(local image ID `sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`).
+The exact Compose project was `nereus-delay-large-payload-e2e-1786912013-60877`
+on Kafka `30870,30871,30872`, Oxia `30880`, MinIO `30881`, and Gateway `30882`.
+The source and destination topics were
+`nereus-delay-kafka-large-payload-20260817` and
+`nereus-delay-kafka-large-payload-destination-20260817`.
+
+Audit result: PASS for the bounded current-source Kafka destination
+production-authority large-payload slice. The real Gateway/Oxia/Worker path
+stored the exact large object in MinIO, published the destination through the
+guarded Kafka K2 target-plus-receipt transaction, and verified the typed
+receipt and exact destination payload readback:
+
+```text
+Kafka Worker source-applied physical publish passed: Admission source offset=4, typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset=0, Outcome source offset=5, exact payload readback
+Kafka + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: activationOffset=0, barrierOffset=2, prepareOffset=KafkaSourcePosition[shardId=ShardId[routeIncarnation=965c43a49ac14561a2c398e33b473935, partition=0], authenticatedClusterId=MkU3OEVBNTcwNTJENDM2Qk, nativeTopicUuid=833e24ae-d3c3-4e7c-8efc-808530bfe7be, offset=2, leaderEpoch=null, brokerLogAppendTimeEpochMs=1786912035499], commitOffset=KafkaSourcePosition[shardId=ShardId[routeIncarnation=965c43a49ac14561a2c398e33b473935, partition=0], authenticatedClusterId=MkU3OEVBNTcwNTJENDM2Qk, nativeTopicUuid=833e24ae-d3c3-4e7c-8efc-808530bfe7be, offset=3, leaderEpoch=null, brokerLogAppendTimeEpochMs=1786912036261], providerVersion=cd968040-9c95-4a8c-b1b0-9c8229fe32ec, exactGatewayIdempotency=true
+Kafka + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload + Kafka destination authority E2E passed
+BUILD SUCCESSFUL in 26s
+```
+
+The runner's exact cleanup removed its Compose containers, network, volume,
+temporary K1/Oxia images and staging directory. The locked MinIO base image
+was retained. This receipt does not establish Kafka Broker crash/network
+partition during large-payload egress, multi-shard large-payload placement,
+REAPING, soak, benchmark/capacity evidence, the full chaos matrix or V1
+release readiness.
+
 ## 2026-08-17 Current-source Pulsar large-payload Broker network-partition failover audit
 
 The current-source receipt locks Delay to
