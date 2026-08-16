@@ -41,6 +41,7 @@ source_ack_response_loss_only="${NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS_ONL
 fetch_response_loss_only="${NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ONLY:-0}"
 retention_floor_only="${NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ONLY:-0}"
 process_crash_only="${NEREUS_DELAY_KAFKA_PROCESS_CRASH_ONLY:-0}"
+broker_process_crash_only="${NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_ONLY:-0}"
 oxia_checkout="${NEREUS_DELAY_KAFKA_OXIA_CHECKOUT:-${delay_dir}/../../oxia}"
 oxia_port="${NEREUS_DELAY_KAFKA_OXIA_PORT:-$((16650 + ($$ % 100)))}"
 oxia_compose_project="nereus-delay-kafka-oxia-e2e-$(date +%s)-$$"
@@ -102,6 +103,14 @@ if [[ "${retention_floor_only}" != "0" && "${retention_floor_only}" != "1" ]]; t
 fi
 if [[ "${process_crash_only}" != "0" && "${process_crash_only}" != "1" ]]; then
   echo "NEREUS_DELAY_KAFKA_PROCESS_CRASH_ONLY must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${broker_process_crash_only}" != "0" && "${broker_process_crash_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_ONLY must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${broker_process_crash_only}" == "1" && "${with_oxia}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_ONLY requires NEREUS_DELAY_KAFKA_WITH_OXIA=1" >&2
   exit 1
 fi
 if [[ "${route_failover}" == "1" && "${with_oxia}" != "1" ]]; then
@@ -198,6 +207,18 @@ if [[ "${process_crash_only}" == "1" && ("${route_failover_only}" == "1"
         || "${fetch_response_loss_only}" == "1"
         || "${retention_floor_only}" == "1") ]]; then
   echo "Kafka process-crash-only mode is mutually exclusive with other focused modes" >&2
+  exit 1
+fi
+if [[ "${broker_process_crash_only}" == "1" && ("${route_failover_only}" == "1"
+        || "${k2_failover_only}" == "1" || "${k2_response_loss_only}" == "1"
+        || "${worker_destination_response_loss_only}" == "1"
+        || "${source_ack_response_loss_only}" == "1"
+        || "${fetch_response_loss_only}" == "1"
+        || "${retention_floor_only}" == "1" || "${process_crash_only}" == "1"
+        || "${route_failover}" == "1" || "${k2_failover}" == "1"
+        || "${k2_response_loss}" == "1" || "${worker_destination_response_loss}" == "1"
+        || "${source_ack_response_loss}" == "1") ]]; then
+  echo "Kafka Broker process-crash-only mode is mutually exclusive with other focused modes" >&2
   exit 1
 fi
 
@@ -564,6 +585,19 @@ if [[ "${process_crash_only}" == "1" ]]; then
     -PkafkaProcessCrashMode=resume \
     --no-daemon --console=plain
   echo "Kafka source process-crash recovery E2E passed: the crashed JVM fetched exact guarded records without ACK, and a fresh same-group process replayed offsets 0 and 1 before committing offset 2."
+  exit 0
+fi
+
+if [[ "${broker_process_crash_only}" == "1" ]]; then
+  start_oxia
+  broker_crash_topic="${KAFKA_DELAY_BROKER_PROCESS_CRASH_TOPIC:-${worker_topic}-broker-process-crash}"
+  run_worker_smoke "${bootstrap_all}" "${broker_crash_topic}" prepare
+  "${compose[@]}" kill --signal KILL kafka-1
+  wait_for_broker kafka-2
+  run_worker_smoke "${bootstrap_survivors}" "${broker_crash_topic}" resume
+  "${compose[@]}" start kafka-1
+  wait_for_broker kafka-1
+  echo "Kafka Broker process-crash recovery E2E passed: kafka-1 was SIGKILLed after guarded Worker preparation, the same topic resumed through kafka-2/kafka-3 with real Oxia authority, and kafka-1 rejoined afterward."
   exit 0
 fi
 
