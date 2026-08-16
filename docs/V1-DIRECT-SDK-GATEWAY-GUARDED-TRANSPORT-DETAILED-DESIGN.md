@@ -6199,6 +6199,47 @@ the separate multi-Broker failover cut. Multi-shard placement, raw
 crash/network/proxy/process chaos, Kafka LSO/retention recovery, Object Store
 checkpoint publication and V1 release gates remain open.
 
+### 2026-08-16 Pulsar Large-payload clean production-authority revalidation
+
+The normal Large Payload Gateway-to-destination path was rerun from clean Delay
+commit `667458b98bd5adcec04eae53e2d2fe7da157be8c` after the guarded source
+reconnect replay, recovered `UNKNOWN` Publish Admission handling and exact
+Compose cleanup changes. The source-bound command was:
+
+```bash
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-large-revalidation-20260816 \
+  bash e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+The source locks were P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1 distribution
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1
+image `sha256:4faa8217a39de36a030e449473fc07f4cd04553477f4f2e84c5d799720989cf0`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, and MinIO
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The isolated project was
+`nereus-delay-pulsar-large-e2e-1786884946-97580`, using Pulsar
+`29180/29181`, broker-2 `29182/29183`, Oxia/MinIO/Gateway
+`29190/29191/29192`, and destination
+`pulsar-large-payload-destination-97580`.
+
+The clean revalidation reported:
+
+```text
+Pulsar Worker source-applied physical publish passed: Admission source ledger=3/4, typed PULSAR_SEND_ACK target ledger/entry=4/0, Outcome source ledger=3/5, exact payload readback
+Pulsar + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: prepare=3/2, commit=3/3, exactGatewayIdempotency=true, sourceRecords=6
+BUILD SUCCESSFUL in 57s
+Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed
+```
+
+This is current positive evidence for the normal real Gateway + Oxia + Pulsar
+Worker + versioned MinIO production-authority chain and exact
+`1,052,672`-byte destination readback. The exact Compose project and temporary
+P1/Oxia images were absent after cleanup. It does not promote the experimental
+combined multi-Broker failover mode or the untriggered recovered `UNKNOWN`
+response-loss branch, and it does not close multi-shard, chaos, checkpoint
+publication or V1 release gates.
+
 ### 2026-08-16 Kafka source Fetch response-loss receipt
 
 Delay commit `8f1116abad2bd77e2f384c04411dabaeb70b4f72` adds
