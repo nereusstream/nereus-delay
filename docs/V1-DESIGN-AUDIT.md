@@ -9882,6 +9882,42 @@ multi-Broker failover, checkpoint publication, multi-shard placement or V1
 release readiness. Exact cleanup checks found no containers, images, volumes or
 networks for either isolated project.
 
+## 2026-08-16 Worker checkpoint publication with real Oxia and MinIO audit
+
+Delay commit
+`7a2b7b7461dd56ff5c3ebbc0e5471756d148ad18` adds the real-service focused
+`workerCheckpointRuntimePublishesToRealMinioAndOxia` path and its isolated
+runner:
+
+```bash
+./e2e/run-oxia-minio-checkpoint-e2e.sh
+```
+
+The receipt used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, the locked MinIO image
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+with image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`,
+Compose project `nereus-delay-oxia-minio-checkpoint-e2e-1786886192-18395`,
+and Oxia/MinIO ports `16719/16729`.
+
+The live test reported one test with zero skips/failures/errors:
+
+```text
+Oxia + MinIO Worker checkpoint publication passed: atomic Intent/Catalog=true, immutable object upload/download=true, checkpoint=00000000000000000000000000000003
+BUILD SUCCESSFUL
+Oxia + MinIO Worker checkpoint publication E2E passed: real Oxia Intent/Catalog authority and real MinIO immutable objects
+```
+
+This is positive evidence for the Worker scheduled checkpoint composition,
+real Oxia Owner/session and canonical PUBLISHED Intent/Catalog record, and the
+real MinIO immutable provider resource plus exact download inventory. It does
+not close real-Oxia REAPING/RecoveryPin competition, provider quiescence or
+consistency attestation, late-PUT/delete response-loss, restore activation,
+multi-shard placement, raw chaos or the §23.5 release gates. The runner's
+exact-name cleanup check found no project containers, network, volume or
+temporary Oxia image; the locked MinIO base image remains by design.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

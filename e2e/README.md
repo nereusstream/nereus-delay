@@ -33,6 +33,49 @@ Compose container/network were cleaned up. The filesystem checkpoint adapter
 is a provider-side crash-durable seam; remote Object Store credentials and
 quiescence remain outside this receipt.
 
+## Real Oxia + MinIO Worker checkpoint publication E2E
+
+`run-oxia-minio-checkpoint-e2e.sh` composes the Worker checkpoint scheduler
+with a real Oxia session-bound Owner Lease and the real S3-compatible MinIO
+provider. The focused test creates the exact PENDING_UPLOAD intent, runs the
+Worker checkpoint work-class turn, verifies Oxia's canonical PUBLISHED
+Intent/Catalog projection, downloads the exact provider resource, and checks
+the restored file inventory against the manifest. MinIO bucket versioning is
+enabled before the test starts.
+
+From the Delay checkout:
+
+```text
+./e2e/run-oxia-minio-checkpoint-e2e.sh
+```
+
+The runner uses a unique Compose project and bucket. Override the Oxia and
+MinIO ports with `NEREUS_DELAY_OXIA_CHECKPOINT_E2E_PORT` and
+`NEREUS_DELAY_MINIO_CHECKPOINT_E2E_PORT`; override the Oxia checkout with
+`NEREUS_DELAY_OXIA_CHECKOUT`. The locked provider is
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z` at digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+The source-bound run used Delay
+`7a2b7b7461dd56ff5c3ebbc0e5471756d148ad18`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, MinIO image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`,
+Compose project `nereus-delay-oxia-minio-checkpoint-e2e-1786886192-18395`,
+and ports `16719/16729`. It reported:
+
+```text
+Oxia + MinIO Worker checkpoint publication passed: atomic Intent/Catalog=true, immutable object upload/download=true, checkpoint=00000000000000000000000000000003
+BUILD SUCCESSFUL
+Oxia + MinIO Worker checkpoint publication E2E passed: real Oxia Intent/Catalog authority and real MinIO immutable objects
+```
+
+After the run, exact-name checks found no project containers, network, volume
+or temporary Oxia image. The locked MinIO base image is retained for other
+real-service runs. This receipt does not prove real-Oxia REAPING/RecoveryPin
+competition, provider quiescence/consistency attestation, late-PUT or delete
+response-loss handling, restore activation, multi-shard placement, raw chaos
+or V1 release readiness.
+
 ## Kafka K1/K2 real-client E2E
 
 `run-kafka-real-client-e2e.sh` builds a temporary broker image from the locked

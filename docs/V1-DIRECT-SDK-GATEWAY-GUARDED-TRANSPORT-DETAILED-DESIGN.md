@@ -6283,6 +6283,46 @@ execution of the recovered `UNKNOWN` Publish Admission branch, raw socket or
 process loss, combined Gateway multi-Broker failover, checkpoint publication,
 multi-shard placement or V1 release readiness.
 
+### 2026-08-16 Worker checkpoint publication with real Oxia and MinIO
+
+Delay commit `7a2b7b7461dd56ff5c3ebbc0e5471756d148ad18` adds the isolated
+`e2e/run-oxia-minio-checkpoint-e2e.sh` runner and the focused
+`workerCheckpointRuntimePublishesToRealMinioAndOxia` smoke. It binds the
+scheduled Worker checkpoint execution to a real Oxia session-bound Owner Lease,
+the canonical Oxia PUBLISHED Intent/Catalog record, and the S3-compatible
+adapter against a real versioned MinIO bucket. The exact provider resource is
+downloaded back and its checkpoint file inventory is compared with the
+published manifest.
+
+The source-bound command was:
+
+```bash
+./e2e/run-oxia-minio-checkpoint-e2e.sh
+```
+
+The receipt used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, locked MinIO
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`,
+image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`,
+Compose project `nereus-delay-oxia-minio-checkpoint-e2e-1786886192-18395`,
+and ports `16719/16729`.
+
+The live output was:
+
+```text
+Oxia + MinIO Worker checkpoint publication passed: atomic Intent/Catalog=true, immutable object upload/download=true, checkpoint=00000000000000000000000000000003
+BUILD SUCCESSFUL
+Oxia + MinIO Worker checkpoint publication E2E passed: real Oxia Intent/Catalog authority and real MinIO immutable objects
+```
+
+This is a positive Worker/object-authority receipt, not a release claim. It
+does not prove real-Oxia REAPING/RecoveryPin competition, provider-side
+quiescence/consistency attestation, late-PUT or delete response-loss handling,
+restore activation, multi-shard placement, raw chaos or V1 release gates.
+The runner removed its exact Compose resources and temporary Oxia image while
+retaining the locked MinIO base image.
+
 ### 2026-08-16 Kafka source Fetch response-loss receipt
 
 Delay commit `8f1116abad2bd77e2f384c04411dabaeb70b4f72` adds

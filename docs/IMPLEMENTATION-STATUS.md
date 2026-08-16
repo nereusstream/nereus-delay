@@ -11793,6 +11793,49 @@ normal source `ENQUEUED` admission path; it is not evidence that the recovered
 combined Gateway multi-Broker failover, Object Store checkpoint publication,
 multi-shard placement and V1 release gates remain open.
 
+## 2026-08-16 Worker checkpoint publication with real Oxia and MinIO
+
+Delay commit
+`nereus/delay-full-implementation-v1@7a2b7b7461dd56ff5c3ebbc0e5471756d148ad18`
+adds the focused `workerCheckpointRuntimePublishesToRealMinioAndOxia` smoke and
+`e2e/run-oxia-minio-checkpoint-e2e.sh`. The Worker checkpoint runtime now runs
+the same scheduled publication composition with a real Oxia session-bound
+Owner Lease and the S3-compatible adapter pointed at a real versioned MinIO
+bucket. The exact provider resource returned by MinIO is then downloaded and
+its file inventory is checked before the smoke exits.
+
+The source-bound command was:
+
+```bash
+./e2e/run-oxia-minio-checkpoint-e2e.sh
+```
+
+The receipt used Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, the locked
+MinIO image
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`,
+image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`,
+Compose project `nereus-delay-oxia-minio-checkpoint-e2e-1786886192-18395`,
+and host ports Oxia `16719` and MinIO `16729`.
+
+The focused Gradle test recorded one test, zero skips/failures/errors, and
+reported:
+
+```text
+Oxia + MinIO Worker checkpoint publication passed: atomic Intent/Catalog=true, immutable object upload/download=true, checkpoint=00000000000000000000000000000003
+BUILD SUCCESSFUL
+Oxia + MinIO Worker checkpoint publication E2E passed: real Oxia Intent/Catalog authority and real MinIO immutable objects
+```
+
+This closes the real Worker checkpoint publication path through Oxia's
+canonical PUBLISHED Intent/Catalog record and MinIO immutable upload/download,
+including the exact resource identity returned by the provider. The runner's
+post-run exact-name checks found no project containers, network, volume or
+temporary Oxia image; the locked MinIO base image was intentionally retained.
+It does not prove real-Oxia REAPING/RecoveryPin competition, provider-side
+quiescence or consistency attestation, late-PUT/response-loss deletion,
+restore activation, multi-shard placement, raw chaos or V1 release readiness.
+
 ## 2026-08-16 Kafka source Fetch response-loss receipt
 
 Delay implementation commit
