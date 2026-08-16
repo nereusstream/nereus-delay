@@ -11,6 +11,7 @@ import io.nereusstream.delay.protocol.OwnerIdentityV1;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
+import io.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.ShardSubjectV1;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
@@ -28,6 +29,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Opt-in real MinIO coverage for the S3-compatible checkpoint adapter. */
@@ -65,6 +67,14 @@ class S3CompatibleMinioRealSmokeTest {
         assertTrue(Files.isDirectory(restored));
         assertEquals("MANIFEST-1\n", Files.readString(restored.resolve("CURRENT")));
         assertEquals("sst-bytes", Files.readString(restored.resolve("000001.sst")));
+
+        final CheckpointDeleteResult deleted = adapter.delete(new CheckpointDeleteRequest(fixture.manifest(), first));
+        assertEquals(ResourceDeleteConfirmedBody.DeleteOutcome.DELETED, deleted.outcome());
+        assertEquals(32, deleted.providerRequestIdHash().length);
+        assertEquals(32, deleted.responseHash().length);
+        assertThrows(IllegalStateException.class,
+                () -> adapter.download(new CheckpointDownloadRequest(fixture.manifest(), first),
+                        tempDir.resolve("deleted")));
     }
 
     private Fixture fixture(final URI endpoint, final String region, final String bucket,

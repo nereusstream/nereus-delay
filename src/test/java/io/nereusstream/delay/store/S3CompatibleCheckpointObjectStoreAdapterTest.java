@@ -11,6 +11,7 @@ import io.nereusstream.delay.protocol.OwnerIdentityV1;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
+import io.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.ShardSubjectV1;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
@@ -85,6 +86,51 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
             assertTrue(Files.isDirectory(restored));
             assertTrue(server.requests.stream().anyMatch(item -> item.method().equals("GET")
                     && item.path().contains("/manifest.json?versionId=")));
+        }
+    }
+
+    @Test
+    void deletesEveryCheckpointObjectByExactProviderVersion() throws Exception {
+        try (FakeS3Server server = new FakeS3Server()) {
+            final Fixture fixture = fixture(server.endpoint());
+            final S3CompatibleCheckpointObjectStoreAdapter adapter = adapter(fixture.profile(), server.endpoint());
+            final CheckpointUploadRequest request = new CheckpointUploadRequest(fixture.pending(), fixture.manifest(),
+                    fixture.checkpointDirectory(), fixture.manifest().canonicalJsonBytes());
+            final CheckpointResourceV1 resource = adapter.upload(request);
+
+            final CheckpointDeleteResult result = adapter.delete(new CheckpointDeleteRequest(fixture.manifest(),
+                    resource));
+
+            assertEquals(ResourceDeleteConfirmedBody.DeleteOutcome.DELETED, result.outcome());
+            assertEquals(32, result.providerRequestIdHash().length);
+            assertEquals(32, result.responseHash().length);
+            final List<Request> deletes = server.requests.stream().filter(item -> item.method().equals("DELETE"))
+                    .toList();
+            assertEquals(3, deletes.size());
+            assertTrue(deletes.stream().allMatch(item -> item.path().contains("?versionId=")));
+            assertTrue(deletes.stream().allMatch(item -> item.status() == 204));
+            assertTrue(deletes.get(deletes.size() - 1).path().endsWith("/manifest.json?versionId="
+                    + new String(resource.immutableVersion(), StandardCharsets.UTF_8)));
+            assertTrue(server.objects.isEmpty());
+            assertThrows(IllegalStateException.class,
+                    () -> adapter.download(new CheckpointDownloadRequest(fixture.manifest(), resource),
+                            tempDir.resolve("deleted")));
+        }
+    }
+
+    @Test
+    void rejectsDeleteThatOmitsExactProviderVersionResponse() throws Exception {
+        try (FakeS3Server server = new FakeS3Server()) {
+            final Fixture fixture = fixture(server.endpoint());
+            final S3CompatibleCheckpointObjectStoreAdapter adapter = adapter(fixture.profile(), server.endpoint());
+            final CheckpointUploadRequest request = new CheckpointUploadRequest(fixture.pending(), fixture.manifest(),
+                    fixture.checkpointDirectory(), fixture.manifest().canonicalJsonBytes());
+            final CheckpointResourceV1 resource = adapter.upload(request);
+            server.omitDeleteVersionHeaders = true;
+
+            final IllegalStateException failure = assertThrows(IllegalStateException.class,
+                    () -> adapter.delete(new CheckpointDeleteRequest(fixture.manifest(), resource)));
+            assertTrue(failure.getMessage().contains("omitted exact immutable version"));
         }
     }
 
@@ -214,6 +260,7 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
         private volatile boolean dropFirstManifestPutResponse;
         private volatile boolean manifestPutResponseDropped;
         private volatile boolean omitVersionHeaders;
+        private volatile boolean omitDeleteVersionHeaders;
 
         private FakeS3Server() throws IOException {
             serverSocket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
@@ -249,6 +296,8 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
                     handlePut(parsed, output, socket);
                 } else if (parsed.method().equals("GET")) {
                     handleGet(parsed, output);
+                } else if (parsed.method().equals("DELETE")) {
+                    handleDelete(parsed, output);
                 } else {
                     respond(output, 405, new byte[0], null);
                 }
@@ -298,6 +347,26 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
             respond(output, 200, object.body(), omitVersionHeaders ? null : object.version());
         }
 
+        private void handleDelete(final ParsedRequest request, final OutputStream output) throws IOException {
+            final String key = pathWithoutQuery(request.path());
+            final String requestedVersion = queryValue(request.path(), "versionId");
+            final StoredObject object = objects.get(key);
+            if (object == null || requestedVersion == null || !requestedVersion.equals(object.version())) {
+                record(request, 404);
+                respond(output, 404, new byte[0], null);
+                return;
+            }
+            if (!objects.remove(key, object)) {
+                record(request, 409);
+                respond(output, 409, new byte[0], null);
+                return;
+            }
+            record(request, 204);
+            final String requestId = "fake-" + Bytes.hex(Bytes.sha256(Bytes.utf8(request.path()))).substring(0, 16);
+            respond(output, 204, new byte[0], omitVersionHeaders || omitDeleteVersionHeaders
+                    ? null : object.version(), requestId);
+        }
+
         private static String pathWithoutQuery(final String path) {
             final int query = path.indexOf('?');
             return query < 0 ? path : path.substring(0, query);
@@ -319,7 +388,13 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
 
         private void respond(final OutputStream output, final int status, final byte[] body,
                              final String version) throws IOException {
-            final String reason = status == 200 ? "OK" : status == 404 ? "Not Found"
+            respond(output, status, body, version, null);
+        }
+
+        private void respond(final OutputStream output, final int status, final byte[] body,
+                             final String version, final String requestId) throws IOException {
+            final String reason = status == 200 ? "OK" : status == 204 ? "No Content"
+                    : status == 404 ? "Not Found" : status == 409 ? "Conflict"
                     : status == 412 ? "Precondition Failed" : "Method Not Allowed";
             final StringBuilder headers = new StringBuilder()
                     .append("HTTP/1.1 ").append(status).append(' ').append(reason).append("\r\n")
@@ -327,6 +402,9 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
                     .append("Connection: close\r\n");
             if (version != null) {
                 headers.append("x-amz-version-id: ").append(version).append("\r\n");
+            }
+            if (requestId != null) {
+                headers.append("x-amz-request-id: ").append(requestId).append("\r\n");
             }
             headers.append("\r\n");
             output.write(headers.toString().getBytes(StandardCharsets.ISO_8859_1));

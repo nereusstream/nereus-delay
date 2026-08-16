@@ -6,6 +6,7 @@ import io.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
 import io.nereusstream.delay.protocol.ObjectStoreProviderKindV1;
 import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
+import io.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -31,6 +32,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
@@ -65,7 +67,7 @@ import javax.crypto.spec.SecretKeySpec;
  * authority inputs.</p>
  */
 public final class S3CompatibleCheckpointObjectStoreAdapter
-        implements CheckpointUploadAdapter, CheckpointDownloadAdapter {
+        implements CheckpointUploadAdapter, CheckpointDownloadAdapter, CheckpointDeleteAdapter {
     private static final String SERVICE = "s3";
     private static final String TERMINATOR = "aws4_request";
     private static final String ENDPOINT_DOMAIN = "nereus-delay-s3-endpoint-v1\0";
@@ -249,25 +251,57 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
     }
 
     @Override
+    public synchronized CheckpointDeleteResult delete(final CheckpointDeleteRequest request) {
+        Objects.requireNonNull(request, "request");
+        requireCredentialGate();
+        final CheckpointManifest manifest = request.manifest();
+        manifest.validateLimits(limits);
+        final CheckpointResourceV1 resource = request.resource();
+        validateCheckpointResource(manifest, resource);
+
+        final String prefix = checkpointPrefix(manifest);
+        final String manifestKey = prefix + "/manifest.json";
+        final String manifestVersion = decodeProviderVersion(resource.immutableVersion());
+        final RemoteBytes remoteManifest = getBytes(manifestKey, limits.maxManifestBytes(), manifestVersion);
+        if (remoteManifest.bytes().length != resource.manifestLength()
+                || !Arrays.equals(remoteManifest.bytes(), manifest.canonicalJsonBytes())
+                || !Arrays.equals(resource.manifestSha256(), sha256(remoteManifest.bytes()))
+                || !Arrays.equals(resource.immutableVersion(), Bytes.utf8(remoteManifest.version(null)))) {
+            throw new IllegalStateException("remote checkpoint manifest differs from catalog resource");
+        }
+
+        final List<DeletePlan> plans = new ArrayList<>(manifest.files().size() + 1);
+        for (CheckpointManifest.FileEntry file : manifest.files()) {
+            final String key = objectKey(prefix, file);
+            final String version = verifyRemoteFile(key, file.length(), file.checksum(),
+                    objectBytesLimit(limits.maxIndividualFileBytes()));
+            plans.add(new DeletePlan(key, version));
+        }
+        // Keep the manifest visible until every file has passed the identity preflight.
+        plans.add(new DeletePlan(manifestKey, manifestVersion));
+
+        final List<DeleteOperation> operations = new ArrayList<>(plans.size());
+        for (DeletePlan plan : plans) {
+            operations.add(deleteObject(plan.key(), plan.version()));
+        }
+        return new CheckpointDeleteResult(resource, ResourceDeleteConfirmedBody.DeleteOutcome.DELETED,
+                aggregateDeleteRequestIds(operations), aggregateDeleteResponses(operations));
+    }
+
+    @Override
     public synchronized Path download(final CheckpointDownloadRequest request, final Path targetDirectory) {
         Objects.requireNonNull(request, "request");
         requireCredentialGate();
         final CheckpointManifest manifest = request.manifest();
         manifest.validateLimits(limits);
         final CheckpointResourceV1 resource = request.resource();
-        limits.validateResource(resource);
-        if (!resource.objectStoreProfile().equals(profile.ref())
-                || !Arrays.equals(resource.container(), Bytes.utf8(bucket))) {
-            throw new IllegalArgumentException("checkpoint resource uses a different S3 Object Store");
-        }
+        validateCheckpointResource(manifest, resource);
         final String prefix = checkpointPrefix(manifest);
         final String expectedManifestKey = prefix + "/manifest.json";
-        if (!Arrays.equals(resource.objectKey(), Bytes.utf8(expectedManifestKey))) {
-            throw new IllegalArgumentException("checkpoint resource manifest key is not canonical");
-        }
         final String manifestVersion = decodeProviderVersion(resource.immutableVersion());
         final RemoteBytes remoteManifest = getBytes(expectedManifestKey, limits.maxManifestBytes(), manifestVersion);
-        if (!Arrays.equals(remoteManifest.bytes(), manifest.canonicalJsonBytes())
+        if (remoteManifest.bytes().length != resource.manifestLength()
+                || !Arrays.equals(remoteManifest.bytes(), manifest.canonicalJsonBytes())
                 || !Arrays.equals(manifest.manifestSha256(), sha256(remoteManifest.bytes()))) {
             throw new IllegalStateException("remote checkpoint manifest differs from catalog manifest");
         }
@@ -304,6 +338,28 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
                 deleteTree(temporary);
             }
         }
+    }
+
+    private void validateCheckpointResource(final CheckpointManifest manifest,
+                                            final CheckpointResourceV1 resource) {
+        limits.validateResource(resource);
+        if (!resource.objectStoreProfile().equals(profile.ref())
+                || !Arrays.equals(resource.container(), Bytes.utf8(bucket))) {
+            throw new IllegalArgumentException("checkpoint resource uses a different S3 Object Store");
+        }
+        if (!Arrays.equals(resource.recoveryLineageId(), manifest.recoveryLineageId())
+                || !Arrays.equals(resource.checkpointId(), manifest.checkpointId())) {
+            throw new IllegalArgumentException("checkpoint resource does not identify the supplied manifest");
+        }
+        final String expectedManifestKey = checkpointPrefix(manifest) + "/manifest.json";
+        if (!Arrays.equals(resource.objectKey(), Bytes.utf8(expectedManifestKey))) {
+            throw new IllegalArgumentException("checkpoint resource manifest key is not canonical");
+        }
+        if (resource.manifestLength() != manifest.canonicalJsonBytes().length
+                || !Arrays.equals(resource.manifestSha256(), manifest.manifestSha256())) {
+            throw new IllegalArgumentException("checkpoint resource manifest digest differs from manifest");
+        }
+        decodeProviderVersion(resource.immutableVersion());
     }
 
     private void putFile(final String key, final Path source, final long expectedLength,
@@ -447,6 +503,55 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         } catch (IOException failure) {
             throw new IllegalStateException("cannot read remote checkpoint manifest: " + key, failure);
         }
+    }
+
+    private DeleteOperation deleteObject(final String key, final String versionId) {
+        final String exactVersion = canonicalText(versionId, "provider version");
+        final HttpResponse<Void> response;
+        try {
+            response = send("DELETE", key, EMPTY_SHA256, HttpRequest.BodyPublishers.noBody(), Map.of(),
+                    exactVersion, HttpResponse.BodyHandlers.discarding());
+        } catch (TransportFailure failure) {
+            throw failure;
+        }
+        if (!isSuccess(response.statusCode())) {
+            throw unexpectedStatus("DELETE", key, response.statusCode());
+        }
+        final String responseVersion = responseVersionOrFallback(response, null, "DELETE", key);
+        if (!exactVersion.equals(responseVersion)) {
+            throw new IllegalStateException("S3 delete response version differs from requested version: " + key);
+        }
+        final String requestId = response.headers().firstValue("x-amz-request-id")
+                .filter(value -> !value.isBlank())
+                .orElseThrow(() -> new IllegalStateException("S3 delete response omitted provider request ID: " + key));
+        final String secondaryRequestId = response.headers().firstValue("x-amz-id-2")
+                .filter(value -> !value.isBlank()).orElse("");
+        final byte[] requestIdHash = Bytes.sha256(Bytes.utf8("nereus-delay-s3-delete-request-v1\0"),
+                Bytes.lp32(Bytes.utf8(key)), Bytes.lp32(Bytes.utf8(exactVersion)),
+                Bytes.lp32(Bytes.utf8(requestId)));
+        final byte[] responseHash = Bytes.sha256(Bytes.utf8("nereus-delay-s3-delete-response-v1\0"),
+                Bytes.lp32(Bytes.utf8(key)), Bytes.lp32(Bytes.utf8(exactVersion)),
+                Bytes.u32be(response.statusCode()), Bytes.lp32(Bytes.utf8(responseVersion)),
+                Bytes.lp32(Bytes.utf8(requestId)), Bytes.lp32(Bytes.utf8(secondaryRequestId)));
+        return new DeleteOperation(requestIdHash, responseHash);
+    }
+
+    private static byte[] aggregateDeleteRequestIds(final List<DeleteOperation> operations) {
+        final byte[][] fields = new byte[operations.size() + 1][];
+        fields[0] = Bytes.utf8("nereus-delay-s3-delete-request-ids-v1\0");
+        for (int index = 0; index < operations.size(); index++) {
+            fields[index + 1] = Bytes.lp32(operations.get(index).requestIdHash());
+        }
+        return Bytes.sha256(fields);
+    }
+
+    private static byte[] aggregateDeleteResponses(final List<DeleteOperation> operations) {
+        final byte[][] fields = new byte[operations.size() + 1][];
+        fields[0] = Bytes.utf8("nereus-delay-s3-delete-responses-v1\0");
+        for (int index = 0; index < operations.size(); index++) {
+            fields[index + 1] = Bytes.lp32(operations.get(index).responseHash());
+        }
+        return Bytes.sha256(fields);
     }
 
     private <T> HttpResponse<T> send(final String method, final String key, final String payloadHash,
@@ -877,6 +982,26 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
 
         private String version(final String fallback) {
             return version == null || version.isBlank() ? fallback : version;
+        }
+    }
+
+    private record DeletePlan(String key, String version) {
+    }
+
+    private record DeleteOperation(byte[] requestIdHash, byte[] responseHash) {
+        private DeleteOperation {
+            requestIdHash = Bytes.copy(requestIdHash);
+            responseHash = Bytes.copy(responseHash);
+        }
+
+        @Override
+        public byte[] requestIdHash() {
+            return Bytes.copy(requestIdHash);
+        }
+
+        @Override
+        public byte[] responseHash() {
+            return Bytes.copy(responseHash);
         }
     }
 
