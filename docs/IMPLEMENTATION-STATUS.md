@@ -10054,3 +10054,27 @@ MinIO adapter path. It does not yet implement version-aware deletion of the
 complete checkpoint object set, deletion authorization from retire intent and
 Recovery Floor/Pin, provider consistency attestation, credential rotation,
 cross-provider behavior, chaos, failover or V1 release evidence.
+
+## 2026-08-16 Catalog-bound manifest version readback
+
+Delay commit `d7f51441` makes S3-compatible checkpoint download use the
+catalog-bound manifest provider version as the exact `versionId` query. The
+query is included in the SigV4 canonical request, and the response version is
+still compared byte-for-byte with the `CheckpointResourceV1` identity. The
+local fake provider now rejects a different requested version, so the focused
+download regression cannot pass by reading whichever current object happens
+to be visible.
+
+The real MinIO run used container
+`nereus-delay-minio-e2e-1786840389-93104`, endpoint
+`http://127.0.0.1:49401`, bucket
+`nereus-delay-checkpoints-1786840389-93104`, and the locked image digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The JUnit report recorded `tests=1 skipped=0 failures=0 errors=0` and
+`MinIO checkpoint manifest provider version=ac201fe8-ba70-4bcb-a49c-a75a6657be55`;
+the harness ended with `BUILD SUCCESSFUL`.
+
+This closes exact catalog-version readback for the manifest object. File
+object provider-version capture, complete version-aware checkpoint deletion,
+retire/Floor/Pin authorization, provider consistency, credential rotation,
+chaos, failover and V1 release evidence remain open.

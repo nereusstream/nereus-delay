@@ -5163,6 +5163,22 @@ endpoint. It does not create a generic provider conformance claim or close
 credential-authority renewal/rotation, version-aware deletion, consistency
 attestation, cross-provider behavior, chaos, failover or release gates.
 
+### 2026-08-16 Catalog-bound manifest version readback implementation note
+
+`S3CompatibleCheckpointObjectStoreAdapter.download` now decodes the
+catalog-bound `CheckpointResourceV1.immutableVersion()` as canonical UTF-8,
+adds it as the exact S3 `versionId` query and signs that query in the SigV4
+canonical request. The returned manifest version must still match the catalog
+resource byte-for-byte. The focused fake-provider path rejects a mismatched
+version query, and the locked MinIO run passed with provider version
+`ac201fe8-ba70-4bcb-a49c-a75a6657be55` and JUnit
+`tests=1 skipped=0 failures=0 errors=0`.
+
+This closes only the manifest's catalog-bound version read. It does not yet
+retain provider versions for each file object, authorize or execute complete
+checkpoint deletion, resolve retire/Floor/Pin state, or close consistency,
+rotation, chaos, failover or release gates.
+
 ### 2026-08-16 Exact Object Store provider-version implementation note
 
 The mandatory V1 Object Store Profile bit

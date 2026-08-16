@@ -4668,6 +4668,7 @@ the guarded Broker rollout attestation remains external evidence.
 | Delay current implementation head | `nereus/delay-full-implementation-v1@5c3d853ab1012f85f7065dca174223c98fb794be` (current branch head; commit `5c3d853a` records the exact provider-version boundary, versioned MinIO receipt and validator anchors; implementation source is `b971cd3f`, test receipt source is `2981a269`, and historical bounded Pulsar Route/Worker receipt remains provenance at `nereus/delay-full-implementation-v1@bf858b089b927fcf65129214d8ed5a7fc5300deb`; bounded Kafka/Pulsar Route/Worker assignment, failover, physical Publish/typed Outcome and Gateway/Oxia response-loss receipts remain recorded; complete version-aware deletion, retire/Floor/Pin authority, external secret-manager resolution/source-ordered refresh, trust-set publication, secret/actor authority, catalog-driven multi-shard placement, native eligibility, production Worker authority, scheduled renewal ownership, raw chaos and release gates remain open) |
 | Delay MinIO provider smoke slice | `nereus/delay-full-implementation-v1@31ba5661` (`S3CompatibleMinioRealSmokeTest` plus `e2e/run-minio-real-e2e.sh`; the harness locks the local MinIO image tag/repository digest, creates only its own temporary bucket through curl SigV4, runs the real adapter with `--rerun-tasks`, and removes only its own container; the receipt proves one MinIO endpoint's immutable checkpoint upload/idempotent retry/download path, while generic S3/provider breadth, credential authority/renewal, deletion, chaos and release gates remain open) |
 | Delay exact provider-version slice | `nereus/delay-full-implementation-v1@2981a269` (implementation `b971cd3f` makes missing `x-amz-version-id` fail closed for the mandatory exact-version Object Store Profile; the versioned MinIO receipt records provider manifest version `780f1e1f-c7da-4dc1-ae4e-a7b9be4f801c`; complete version-aware deletion, retire/Floor/Pin authority, provider consistency and release gates remain open) |
+| Delay exact manifest-version readback slice | `nereus/delay-full-implementation-v1@d7f51441` (download signs and requests the catalog-bound manifest `versionId` and rejects a different response version; the real MinIO receipt records `ac201fe8-ba70-4bcb-a49c-a75a6657be55`; complete object-set deletion and GC authority remain open) |
 | Kafka contract/patch source | `76f62f3b83e882105219b6c7687dbde594a8b8a2` |
 | Pulsar contract/guard source | `50fc70fe4620febcf0fd31d97ff7d2be447af3d4` |
 | Kafka guarded-client implementation base inspected for ADR 0044 | `trunk@c300006a7705c240642db6950b5a95fec982bfc5` |
@@ -8448,6 +8449,28 @@ not establish complete version-aware checkpoint deletion, source-ordered
 retire/delete authorization, Recovery Floor/Pin release, provider
 consistency, credential rotation, cross-provider compatibility, chaos,
 failover or V1 release readiness.
+
+## 2026-08-16 Catalog-bound manifest version readback audit
+
+Delay commit `d7f51441` changes S3-compatible checkpoint download to request
+the catalog-bound manifest provider version as the exact `versionId` query,
+including that query in the SigV4 canonical request. The response's
+`x-amz-version-id` remains byte-equal to the `CheckpointResourceV1` identity;
+the local fake provider rejects a different requested version.
+
+The source-locked MinIO run used container
+`nereus-delay-minio-e2e-1786840389-93104`, endpoint
+`http://127.0.0.1:49401`, bucket
+`nereus-delay-checkpoints-1786840389-93104`, and image digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The JUnit report recorded `tests=1 skipped=0 failures=0 errors=0`, provider
+manifest version `ac201fe8-ba70-4bcb-a49c-a75a6657be55`, and `BUILD SUCCESSFUL`.
+
+This is exact manifest readback evidence only. It does not establish file
+object version capture, complete version-aware checkpoint deletion,
+source-ordered retire/delete authorization, Recovery Floor/Pin release,
+provider consistency, credential rotation, chaos, failover or V1 release
+readiness.
 
 ## Final gate
 

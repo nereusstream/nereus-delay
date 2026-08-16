@@ -1512,3 +1512,21 @@ This receipt proves only exact provider-version response identity for the
 locked MinIO path. Full version-aware checkpoint deletion, source-ordered
 retire/delete authority, Recovery Floor/Pin release, provider consistency,
 credential rotation, chaos, failover and V1 release evidence remain open.
+
+## Catalog-bound manifest version readback receipt
+
+The adapter's download path now requests the manifest with the exact
+catalog-bound `versionId` and signs that query through SigV4. The fake-provider
+regression rejects a different query version, and the real MinIO run used
+Delay commit `d7f51441`, container `nereus-delay-minio-e2e-1786840389-93104`,
+endpoint `http://127.0.0.1:49401`, bucket
+`nereus-delay-checkpoints-1786840389-93104`, and the locked image digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The JUnit report recorded `tests=1 skipped=0 failures=0 errors=0` and
+`MinIO checkpoint manifest provider version=ac201fe8-ba70-4bcb-a49c-a75a6657be55`;
+the run ended with `BUILD SUCCESSFUL`.
+
+This is manifest readback evidence only. File-object version capture,
+complete version-aware checkpoint deletion, source-ordered retire/delete
+authority, Recovery Floor/Pin release, provider consistency, credential
+rotation, chaos, failover and V1 release evidence remain open.

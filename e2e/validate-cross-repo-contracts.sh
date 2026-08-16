@@ -1005,6 +1005,20 @@ require_file_text "$delay_root/e2e/README.md" \
     "Exact provider-version MinIO receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "780f1e1f-c7da-4dc1-ae4e-a7b9be4f801c"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+    "decodeProviderVersion"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
+    "versionId="
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Catalog-bound manifest version readback"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Delay exact manifest-version readback slice"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Catalog-bound manifest version readback implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Catalog-bound manifest version readback receipt"
+require_file_text "$delay_root/e2e/README.md" \
+    "ac201fe8-ba70-4bcb-a49c-a75a6657be55"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"
