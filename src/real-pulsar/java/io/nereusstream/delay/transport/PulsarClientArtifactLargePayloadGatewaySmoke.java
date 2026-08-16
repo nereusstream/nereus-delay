@@ -383,7 +383,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
             if (response.statusCode() >= 200 && response.statusCode() < 300 || response.statusCode() == 409) {
                 break;
             }
-            if (response.statusCode() != 412 && response.statusCode() != 503) {
+            if (response.statusCode() != 404 && response.statusCode() != 412 && response.statusCode() != 503) {
                 throw failure("create Pulsar large-payload partitioned topic", response);
             }
             TimeUnit.MILLISECONDS.sleep(250);
@@ -416,7 +416,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
             if (response.statusCode() >= 200 && response.statusCode() < 300 || response.statusCode() == 409) {
                 return;
             }
-            if (response.statusCode() != 412 && response.statusCode() != 503) {
+            if (response.statusCode() != 404 && response.statusCode() != 412 && response.statusCode() != 503) {
                 throw failure("stamp Pulsar large-payload resource guard", response);
             }
             TimeUnit.MILLISECONDS.sleep(250);

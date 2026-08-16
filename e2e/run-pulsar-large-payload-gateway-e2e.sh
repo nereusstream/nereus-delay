@@ -21,6 +21,7 @@ tls_dir="$(mktemp -d -t nereus-delay-pulsar-large-tls.XXXXXX)"
 receipt_log="$(mktemp -t nereus-delay-pulsar-large-receipt.XXXXXX).log"
 failover_mode="${NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER:-0}"
 process_crash_mode="${NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_PROCESS_CRASH:-0}"
+network_partition_mode="${NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_NETWORK_PARTITION:-0}"
 failover_marker="${runtime_dir}/gateway-commit.failover.ready"
 
 base_port=$((29100 + ($$ % 300)))
@@ -64,8 +65,20 @@ if [[ "${process_crash_mode}" != "0" && "${process_crash_mode}" != "1" ]]; then
   echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_PROCESS_CRASH must be 0 or 1" >&2
   exit 1
 fi
+if [[ "${network_partition_mode}" != "0" && "${network_partition_mode}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_NETWORK_PARTITION must be 0 or 1" >&2
+  exit 1
+fi
 if [[ "${process_crash_mode}" == "1" && "${failover_mode}" != "1" ]]; then
   echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_PROCESS_CRASH requires NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER=1" >&2
+  exit 1
+fi
+if [[ "${network_partition_mode}" == "1" && "${failover_mode}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_NETWORK_PARTITION requires NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER=1" >&2
+  exit 1
+fi
+if [[ "${network_partition_mode}" == "1" && "${process_crash_mode}" == "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_NETWORK_PARTITION cannot be combined with NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_PROCESS_CRASH" >&2
   exit 1
 fi
 for command_name in curl openssl shasum; do
@@ -286,6 +299,23 @@ if [[ "${failover_mode}" == "1" ]]; then
   if [[ "${process_crash_mode}" == "1" ]]; then
     echo "Pulsar Gateway large-payload failover cut: SIGKILLing broker-1"
     "${compose[@]}" kill --signal KILL pulsar-broker-1
+  elif [[ "${network_partition_mode}" == "1" ]]; then
+    network_name="$(docker network ls \
+      --filter "label=com.docker.compose.project=${compose_project}" \
+      --filter 'label=com.docker.compose.network=pulsar-cluster' \
+      --format '{{.Name}}' | head -n 1)"
+    broker_1_container="$("${compose[@]}" ps -q pulsar-broker-1)"
+    if [[ -z "${network_name}" || -z "${broker_1_container}" ]]; then
+      echo "Pulsar Gateway large-payload network partition could not resolve the exact network/container" >&2
+      exit 1
+    fi
+    echo "Pulsar Gateway large-payload failover cut: disconnecting broker-1 from ${network_name}"
+    docker network disconnect "${network_name}" "${broker_1_container}"
+    if docker network inspect --format '{{json .Containers}}' "${network_name}" \
+        | rg -F --quiet "${broker_1_container}"; then
+      echo "Pulsar Gateway large-payload network partition did not disconnect broker-1" >&2
+      exit 1
+    fi
   else
     echo "Pulsar Gateway large-payload failover cut: stopping broker-1"
     "${compose[@]}" stop pulsar-broker-1
@@ -310,6 +340,21 @@ if [[ "${process_crash_mode}" == "1" ]]; then
   "${compose[@]}" start pulsar-broker-1
   wait_for_admin "${admin_url}"
   echo "Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload Broker process-crash failover E2E passed: broker-1 was SIGKILLed after Gateway Commit/readback, the same source-applied physical Publish completed through broker-2, and broker-1 rejoined afterward"
+elif [[ "${network_partition_mode}" == "1" ]]; then
+  network_name="$(docker network ls \
+    --filter "label=com.docker.compose.project=${compose_project}" \
+    --filter 'label=com.docker.compose.network=pulsar-cluster' \
+    --format '{{.Name}}' | head -n 1)"
+  broker_1_container="$("${compose[@]}" ps -q pulsar-broker-1)"
+  test -n "${network_name}" && test -n "${broker_1_container}"
+  docker network connect "${network_name}" "${broker_1_container}"
+  if ! docker network inspect --format '{{json .Containers}}' "${network_name}" \
+      | rg -F --quiet "${broker_1_container}"; then
+    echo "Pulsar Gateway large-payload network partition did not reconnect broker-1" >&2
+    exit 1
+  fi
+  wait_for_admin "${admin_url}"
+  echo "Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload Broker network-partition failover E2E passed: broker-1 stayed alive but lost its exact Compose network endpoint after Gateway Commit/readback, the same source-applied physical Publish completed through broker-2, and broker-1 rejoined afterward"
 elif [[ "${failover_mode}" == "1" ]]; then
   echo "Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload multi-Broker failover E2E passed: broker-1 stopped after Gateway Commit/readback and the same source-applied physical Publish completed through broker-2"
 else
