@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -64,6 +65,26 @@ class OxiaSyncCheckpointUploadIntentBackendTest {
 
         records.putRaw("delay/lost-upload/intent/" + keyToken(pending), new byte[]{0x08, 0x02});
         assertThrows(IllegalStateException.class, () -> backend.current(pending));
+    }
+
+    @Test
+    void sessionFenceRejectsACommittedIntentAfterTheMarkerChanges() {
+        final FakeRecordClient records = new FakeRecordClient();
+        final AtomicBoolean sessionAlive = new AtomicBoolean(true);
+        final OxiaSyncCheckpointUploadIntentBackend backend =
+                new OxiaSyncCheckpointUploadIntentBackend(records, "delay/fenced-upload", () -> {
+                    if (!sessionAlive.get()) {
+                        throw new IllegalStateException("simulated Oxia session fence");
+                    }
+                });
+        final CheckpointUploadIntentV1 pending = pending(5);
+        records.afterPut = () -> sessionAlive.set(false);
+
+        assertThrows(IllegalStateException.class, () -> backend.create(pending));
+
+        final OxiaSyncCheckpointUploadIntentBackend reopened =
+                new OxiaSyncCheckpointUploadIntentBackend(records, "delay/fenced-upload");
+        assertEquals(pending, reopened.current(pending).orElseThrow());
     }
 
     @Test
@@ -119,6 +140,8 @@ class OxiaSyncCheckpointUploadIntentBackendTest {
         private final Map<String, GetResult> records = new HashMap<>();
         private long nextVersion = 1;
         private boolean failNextPutAfterCommit;
+        private Runnable afterPut = () -> {
+        };
 
         @Override
         public GetResult get(final String key) {
@@ -143,6 +166,7 @@ class OxiaSyncCheckpointUploadIntentBackendTest {
             }
             final Version version = new Version(nextVersion++, 0, 0, 1, Optional.empty(), Optional.empty());
             records.put(key, new GetResult(key, Bytes.copy(value), version));
+            afterPut.run();
             if (failNextPutAfterCommit) {
                 failNextPutAfterCommit = false;
                 throw new IllegalStateException("simulated response loss");

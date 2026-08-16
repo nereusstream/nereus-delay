@@ -101,7 +101,7 @@ class OxiaRealRecoveryAuthoritySmokeTest {
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle client = client(endpoint, prefix + "/client")) {
             final OxiaSyncCheckpointUploadIntentBackend backend =
-                    new OxiaSyncCheckpointUploadIntentBackend(client.client(), prefix + "/intent");
+                    new OxiaSyncCheckpointUploadIntentBackend(client, prefix + "/intent");
             assertEquals(pending, backend.create(pending));
             final CheckpointResourceV1 resource = resource(pending);
             final CheckpointUploadIntentV1 published = backend.publish(pending, resource);
