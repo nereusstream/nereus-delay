@@ -5518,3 +5518,26 @@ surface. This note does not claim actor/scope authorization, source-ordered
 control mutation routing, cross-record target/state transactionality,
 automatic session reconnect, production query routing, provider evidence,
 chaos or release readiness.
+
+### 2026-08-16 Oxia Control Target Registration session-bound CAS implementation note
+
+Delay commit `50435a1364d2e8f7d823cc05faa18e4766f5cbd6` extends the same
+session-bound record-I/O rule to `OxiaSyncControlTargetRegistrationBackend`.
+The `ClientHandle` constructor supplies the connected Oxia marker to a private
+`SessionBoundRecordClient`, which checks before and after every `get` and
+`put`. Registration response loss after a committed
+`IfRecordDoesNotExist` write is therefore not classified as `RECORDED` or
+`ALREADY_RECORDED` when the session marker has changed; `find` and mutation
+validation are fenced by the same wrapper.
+
+The deterministic regression commits the target record, fences the session
+before the put response returns, asserts the backend fails, and then reopens
+the bytes through the explicit unbound test seam. Four target-registration
+tests passed; the two real-service methods were skipped because
+`NEREUS_DELAY_OXIA_ENDPOINT` was not configured, and the full Gradle check
+returned 0.
+
+This is a single-record target-registry fence. It does not make Control
+Operation and target registration one Oxia transaction, and it does not add
+actor/scope authorization, source-ordered routing, automatic session
+reconnection, production query routing, chaos or release evidence.

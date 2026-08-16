@@ -8835,6 +8835,31 @@ mutation routing, atomic target/state registration across records, automatic
 session reconnection, production query routing, chaos evidence or V1 release
 readiness.
 
+## 2026-08-16 Oxia Control Target Registration session-bound CAS audit
+
+Delay commit `50435a1364d2e8f7d823cc05faa18e4766f5cbd6` adds the
+session-bound constructor to `OxiaSyncControlTargetRegistrationBackend`. Its
+`SessionBoundRecordClient` checks the exact connected Oxia session marker before
+and after every target-registration record read and `IfRecordDoesNotExist`
+write. This covers `register`, `find` and the durable lookup used by mutation
+validation. A target record committed before session loss is not exposed as a
+successful registration when the post-write marker check or exact reread is
+fenced.
+
+`OxiaSyncControlTargetRegistrationBackendTest.sessionFenceRejectsACommittedRegistrationAfterTheMarkerChanges`
+covers that boundary by committing the fake record, fencing the caller, and
+then reopening through the explicit unbound deterministic seam to prove the
+bytes are durable but the fenced operation did not return a registration
+result. The focused deterministic suite passed 4 tests, the two real-service
+methods were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset, and the
+full Gradle check returned 0.
+
+This audit closes only target-registration single-record session fencing. It
+does not establish atomic Control Operation plus target registration,
+actor/scope authorization, source-ordered mutation routing, automatic session
+reconnection, production control-query routing, chaos evidence or V1 release
+readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

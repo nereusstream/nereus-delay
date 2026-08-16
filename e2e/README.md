@@ -1934,3 +1934,29 @@ single-record session-bound CAS evidence only; source-ordered control routing,
 actor/scope authorization, cross-record target/state transactionality,
 automatic session recovery, production query routing, chaos and V1 release
 gates remain open.
+
+## Oxia Control Target Registration session-bound CAS receipt
+
+Delay commit `50435a1364d2e8f7d823cc05faa18e4766f5cbd6` adds the
+`OxiaSyncControlTargetRegistrationBackend(ClientHandle, keyPrefix)` path. It
+checks the exact connected Oxia session marker before and after each target
+registration record read or `IfRecordDoesNotExist` write. A marker change
+after a committed write prevents the backend from reporting
+`RECORDED`/`ALREADY_RECORDED` through a guessed response-loss result; lookup
+and mutation-validation reads use the same fence.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.ownership.OxiaSyncControlTargetRegistrationBackendTest \
+  --tests io.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest \
+  --no-daemon --console=plain
+```
+
+The deterministic target-registration suite passed 4 tests. The two
+real-service methods were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was not
+configured, and the full `./gradlew check --no-daemon --console=plain --quiet`
+returned 0. This receipt proves only per-record session-bound CAS; atomic
+Control Operation plus target registration, actor/source authority, automatic
+session recovery, production routing, chaos and V1 release gates remain open.

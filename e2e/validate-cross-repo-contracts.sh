@@ -1329,6 +1329,24 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Oxia Control Operation session-bound CAS implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Oxia Control Operation session-bound CAS receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncControlTargetRegistrationBackend.java" \
+    "handle.backend()::assertConnectedSession"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncControlTargetRegistrationBackend.java" \
+    "successful registration whose response is lost after the marker"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/ownership/OxiaSyncControlTargetRegistrationBackendTest.java" \
+    "sessionFenceRejectsACommittedRegistrationAfterTheMarkerChanges"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/ownership/OxiaRealControlAuthoritySmokeTest.java" \
+    "new OxiaSyncControlTargetRegistrationBackend(client, prefix + \"/target\")"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Oxia Control Target Registration session-bound CAS"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "50435a1364d2e8f7d823cc05faa18e4766f5cbd6"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Oxia Control Target Registration session-bound CAS audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Oxia Control Target Registration session-bound CAS implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Oxia Control Target Registration session-bound CAS receipt"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"
