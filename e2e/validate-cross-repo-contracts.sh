@@ -2244,7 +2244,7 @@ require_file_text "$delay_root/e2e/README.md" \
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "2026-08-17 V1 release-gate audit (not release-ready)"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
-    "Release status therefore remains `NOT READY`"
+    'Release status therefore remains `NOT READY`'
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "2026-08-17 V1 release-gate audit result"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
