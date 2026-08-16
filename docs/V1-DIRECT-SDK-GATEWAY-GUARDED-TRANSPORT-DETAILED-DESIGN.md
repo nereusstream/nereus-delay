@@ -6614,3 +6614,30 @@ destination egress during the partition, raw packet/proxy/socket injection,
 controller/coordinator leader proof beyond the topic-leader gate,
 multi-shard production or V1 release readiness. Exact Compose resource and
 temporary image cleanup passed.
+
+## Kafka Worker JVM SIGKILL recovery receipt
+
+The source-bound implementation is Delay `d35dce96`. Its focused
+`NEREUS_DELAY_KAFKA_WORKER_PROCESS_CRASH_ONLY=1` branch starts a real K1
+three-Broker cluster and real Oxia, opens the guarded Worker source/runtime,
+and waits at a gate while the next source record is unACKed. The harness kills
+the recorded Worker JVM PID with `SIGKILL`; a fresh JVM reopens the same local
+Store root, reacquires the Oxia lease, replays/ACKs the record and publishes the
+final checkpoint.
+
+The live receipt used K1
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, projects
+`nereus-delay-kafka-e2e-1786890291-72188` /
+`nereus-delay-kafka-oxia-e2e-1786890291-72188`, ports
+`19280,19281,19282/16709`, and temporary Oxia image
+`sha256:803fdb3a48af0411170bc96e81bcb39bd5674c8766a105973dfed8cc46bcc449`.
+
+This is a bounded Worker JVM/source replay receipt. It does not promote a
+crash during destination physical publish, raw packet/proxy/socket chaos,
+controller/coordinator leader failover, production multi-shard runtime or V1
+release readiness. The exact Compose resources and temporary images were
+removed after the run; no global Docker prune was used.

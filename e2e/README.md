@@ -3127,3 +3127,46 @@ chaos, destination egress under partition, controller/coordinator leader
 proof, production multi-shard runtime and V1 release readiness remain open.
 Exact post-run checks found no containers, networks, volumes or temporary
 Kafka/Oxia images for the two isolated projects.
+
+## Kafka Worker JVM SIGKILL recovery receipt
+
+The focused Worker-process cut uses a real three-Broker KRaft cluster and real
+Oxia. The first Worker JVM opens the guarded source/runtime and announces a
+gate while the next source record is still unACKed. The harness sends `SIGKILL`
+to the exact recorded PID, then starts a fresh JVM against the same local Store
+root and the same source topic:
+
+```bash
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+NEREUS_DELAY_KAFKA_WORKER_PROCESS_CRASH_ONLY=1 \
+NEREUS_DELAY_KAFKA_OXIA_PORT=16709 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-worker-process-crash-gradle-20260816 \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The source-bound Delay commit was `d35dce96`; Kafka is locked to
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+with client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3` and
+broker image
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`.
+Oxia is `37a17bef17202d5fd6e23282da5fd26d94865484`. The isolated projects
+were `nereus-delay-kafka-e2e-1786890291-72188` /
+`nereus-delay-kafka-oxia-e2e-1786890291-72188` on
+`19280,19281,19282/16709`; the temporary Oxia image was
+`sha256:803fdb3a48af0411170bc96e81bcb39bd5674c8766a105973dfed8cc46bcc449`.
+
+It reported:
+
+```text
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, and final checkpoint
+Kafka Worker authority smoke passed: real Oxia session-bound lease
+Kafka Worker process-crash recovery E2E passed: a real Worker JVM was SIGKILLed after opening the guarded source/runtime with the next record unACKed, and a fresh JVM reopened the exact local Store, reacquired the real Oxia lease, replayed and ACKed the source record, and published the final checkpoint.
+```
+
+This receipt is limited to OS-process Worker source replay/ACK/checkpoint
+recovery. It does not prove a crash during destination publish, raw
+packet/proxy/socket chaos, controller/coordinator leader failover,
+production multi-shard runtime or V1 release readiness. The named Compose
+containers, networks, volumes and temporary images were absent after cleanup;
+base images were retained and no global `docker prune` was run.

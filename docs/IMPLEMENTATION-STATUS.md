@@ -12204,3 +12204,54 @@ controller/coordinator leader proof beyond the topic-leader check, production
 multi-shard runtime, the full chaos matrix or V1 release evidence. Exact
 post-run checks found no containers, networks, volumes or temporary Kafka/Oxia
 images for either isolated project.
+
+## 2026-08-16 Kafka Worker JVM SIGKILL recovery receipt
+
+Delay implementation commit `d35dce96` adds a focused Worker process-cut mode.
+The first Worker JVM opens the guarded source/runtime against a real three-Broker
+KRaft cluster and real Oxia authority, writes a cut gate while the next source
+record is still unACKed, and records its own PID. The harness then sends
+`SIGKILL`; the fresh Worker JVM reopens the same exact local Store root, reacquires
+the session-bound Oxia lease, replays/ACKs the source record and publishes the
+final checkpoint.
+
+The source-bound command was:
+
+```bash
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+NEREUS_DELAY_KAFKA_WORKER_PROCESS_CRASH_ONLY=1 \
+NEREUS_DELAY_KAFKA_OXIA_PORT=16709 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-worker-process-crash-gradle-20260816 \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The run locked Kafka
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
+image ID
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, Kafka Compose project
+`nereus-delay-kafka-e2e-1786890291-72188` on ports `19280,19281,19282`, and
+Oxia project `nereus-delay-kafka-oxia-e2e-1786890291-72188` on port `16709`.
+The temporary Oxia image ID was
+`sha256:803fdb3a48af0411170bc96e81bcb39bd5674c8766a105973dfed8cc46bcc449`.
+The actual Worker source topic was
+`nereus-delay-worker-topic-worker-process-crash`.
+
+The source-bound output included:
+
+```text
+Kafka Worker process-crash cut reached: ... sourceRuntimeReady=true, nextSourceRecordUnacked=true
+Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply offset=1, guarded Fetch v13, RocksDB WriteBatch, commitSync ACK, and final checkpoint
+Kafka Worker authority smoke passed: real Oxia session-bound lease
+Kafka Worker process-crash recovery E2E passed: a real Worker JVM was SIGKILLed after opening the guarded source/runtime with the next record unACKed, and a fresh JVM reopened the exact local Store, reacquired the real Oxia lease, replayed and ACKed the source record, and published the final checkpoint.
+```
+
+This closes the bounded OS-process Worker recovery cut for an unACKed source
+record. It does not claim a crash during physical destination publish, raw
+packet/proxy/socket fault injection, controller/coordinator leader failover,
+production multi-shard runtime, the complete chaos matrix or V1 release
+evidence. Exact post-run checks found no containers, networks, volumes or
+temporary Kafka/Oxia images for either isolated project; base images were not
+globally pruned.
