@@ -405,7 +405,9 @@ public final class GatewayIdempotencyRecordV1 {
         } catch (RuntimeException malformed) {
             throw new IllegalArgumentException("Gateway prepared submission is malformed", malformed);
         }
-        for (GatewayPhysicalAttemptV1 attempt : attempts) {
+        for (int index = 0; index < attempts.size(); index++) {
+            final GatewayPhysicalAttemptV1 attempt = attempts.get(index);
+            validateRetryRequestHash(index, attempt);
             if (attempt.state() == GatewayPhysicalAttemptStateV1.STARTED) {
                 continue;
             }
@@ -419,6 +421,21 @@ public final class GatewayIdempotencyRecordV1 {
         if (!Arrays.equals(expectedAggregate, aggregateOutcomeBytes)) {
             throw new IllegalArgumentException("Gateway aggregate does not match attempt history");
         }
+    }
+
+    private void validateRetryRequestHash(final int attemptIndex, final GatewayPhysicalAttemptV1 attempt) {
+        if (attempt.retryRequestId() == null) {
+            return;
+        }
+        for (int priorIndex = 0; priorIndex < attemptIndex; priorIndex++) {
+            final GatewayPhysicalAttemptV1 prior = attempts.get(priorIndex);
+            final Digest32 expected = GatewayIdempotencyHashV1.retryRequestHash(gatewayKeyHash,
+                    prior.physicalAttemptId(), attempt.retryRequestId());
+            if (expected.equals(attempt.retryRequestHash())) {
+                return;
+            }
+        }
+        throw new IllegalArgumentException("Gateway retry request hash does not bind to an earlier attempt");
     }
 
     private static GatewayPhysicalAttemptStateV1 stateFor(final SubmissionOutcomeMessageV1 outcome) {

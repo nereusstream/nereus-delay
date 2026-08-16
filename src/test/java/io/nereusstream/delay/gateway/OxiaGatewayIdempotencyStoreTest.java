@@ -116,6 +116,16 @@ class OxiaGatewayIdempotencyStoreTest {
                 new Digest32(bytes(32, 18)), GatewayOperationKindV1.SCHEDULE, new Digest32(bytes(32, 19)),
                 prepared.canonicalBytes(), GatewayIdempotencyPhaseV1.QUIESCENT, List.of(valid),
                 foreignAggregate.canonicalBytes(), 100, 200, 1));
+
+        final PhysicalEnqueueAttemptId retryPhysicalId = PhysicalEnqueueAttemptId.require(bytes(16, 20));
+        final PhysicalEnqueueAttemptId retryRequestId = PhysicalEnqueueAttemptId.require(bytes(16, 21));
+        final GatewayPhysicalAttemptV1 retry = new GatewayPhysicalAttemptV1(2, retryPhysicalId,
+                GatewayPhysicalAttemptStateV1.STARTED, null, 121, 140, retryRequestId,
+                new Digest32(bytes(32, 22)), 4, 130);
+        assertThrows(IllegalArgumentException.class, () -> new GatewayIdempotencyRecordV1(
+                new Digest32(bytes(32, 23)), GatewayOperationKindV1.SCHEDULE, new Digest32(bytes(32, 24)),
+                prepared.canonicalBytes(), GatewayIdempotencyPhaseV1.ACTIVE, List.of(valid, retry), null,
+                100, 200, 4));
     }
 
     @Test
