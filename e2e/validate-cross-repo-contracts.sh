@@ -1092,6 +1092,8 @@ require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "c32a98f328400c71346b98188930a6efa80da7c9"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "e0402eef46026c2ee91e4fe59337bb0e40cac723"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "Delay checkpoint prefix sweep slice"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "Checkpoint prefix sweep audit"
