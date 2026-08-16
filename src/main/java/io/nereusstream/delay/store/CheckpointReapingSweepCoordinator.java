@@ -1,0 +1,58 @@
+package io.nereusstream.delay.store;
+
+import io.nereusstream.delay.protocol.CheckpointUploadIntentV1;
+import io.nereusstream.delay.protocol.CheckpointUploadStateV1;
+import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+
+import java.util.Objects;
+
+/**
+ * Bounded handoff from an exact REAPING intent to the provider prefix sweep.
+ *
+ * <p>The intent authority wins the PENDING_UPLOAD to REAPING CAS before any
+ * provider call.  A retry reuses the same pending identity and reaping
+ * evidence, so a provider response loss leaves an exact REAPING state that
+ * can safely invoke the idempotent final-empty sweep again.  Owner
+ * abandonment/session loss, provider quiescence, and the external
+ * delete-confirmed mutation remain authority inputs to this coordinator's
+ * caller; this class does not infer them from a deadline.</p>
+ */
+public final class CheckpointReapingSweepCoordinator {
+    private final CheckpointUploadIntentAuthority intentAuthority;
+    private final CheckpointPrefixSweepAdapter prefixSweep;
+
+    public CheckpointReapingSweepCoordinator(final CheckpointUploadIntentAuthority intentAuthority,
+                                             final CheckpointPrefixSweepAdapter prefixSweep) {
+        this.intentAuthority = Objects.requireNonNull(intentAuthority, "intentAuthority");
+        this.prefixSweep = Objects.requireNonNull(prefixSweep, "prefixSweep");
+    }
+
+    /**
+     * Competes for the exact REAPING successor, rereads that successor before
+     * provider I/O, and sweeps only its derived checkpoint prefix.
+     */
+    public CheckpointReapingSweepResult reap(final CheckpointUploadIntentV1 expectedPending,
+                                             final TrustedUtcIntervalEvidence evidence,
+                                             final RecoveryCatalogAuthority catalog,
+                                             final int maxVersions) {
+        Objects.requireNonNull(expectedPending, "expectedPending");
+        Objects.requireNonNull(evidence, "evidence");
+        Objects.requireNonNull(catalog, "catalog");
+        if (expectedPending.state() != CheckpointUploadStateV1.PENDING_UPLOAD) {
+            throw new IllegalArgumentException("checkpoint reaping requires a PENDING_UPLOAD intent");
+        }
+        final CheckpointUploadIntentV1 reaping = intentAuthority.beginReaping(expectedPending, evidence, catalog);
+        if (reaping.state() != CheckpointUploadStateV1.REAPING) {
+            throw new IllegalStateException("checkpoint reaping authority returned a non-REAPING state");
+        }
+        final CheckpointUploadIntentV1 current = intentAuthority.current(reaping).orElseThrow(
+                () -> new IllegalStateException("checkpoint REAPING intent disappeared before provider I/O"));
+        if (!current.equals(reaping)) {
+            throw new IllegalStateException("checkpoint REAPING intent changed before provider I/O");
+        }
+        final CheckpointPrefixSweepResult sweep = Objects.requireNonNull(prefixSweep.sweep(
+                new CheckpointPrefixSweepRequest(reaping.objectStoreProfile(), reaping.recoveryLineageId(),
+                        reaping.checkpointId(), maxVersions)), "checkpoint prefix sweep result");
+        return new CheckpointReapingSweepResult(reaping, sweep);
+    }
+}
