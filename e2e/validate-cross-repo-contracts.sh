@@ -2035,6 +2035,28 @@ require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transpo
     "Utils.abs(workerGroup.hashCode())"
 require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "NEREUS_DELAY_KAFKA_WORKER_GROUP_ID"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/PulsarSourceReactivationV1.java" \
+    "Pulsar source reactivation"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/PulsarSourceReactivationCoordinator.java" \
+    "FencedPlan"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/ownership/PulsarSourceReactivationTest.java" \
+    "coordinatorFencesQuiescesPublishesAndAcquiresOnlyTheSuccessor"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerShardRuntime.java" \
+    "closeForOwnerReactivation"
+require_file_text "$delay_root/e2e/run-pulsar-large-payload-gateway-e2e.sh" \
+    "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER"
+require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactLargePayloadGatewaySmoke.java" \
+    "Pulsar source reactivation successor accepted"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "2026-08-16 Pulsar Gateway large-payload multi-Broker reactivation receipt"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "2026-08-16 Pulsar Gateway large-payload multi-Broker reactivation audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "2026-08-16 Pulsar source reactivation successor implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Pulsar Gateway large-payload multi-Broker reactivation"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "49665a75041ea05cd7b47e887c9e28fa08647b9"
 
 echo "cross-repo contract audit passed"
 echo "Delay:  $(git -C "$delay_root" rev-parse HEAD)"

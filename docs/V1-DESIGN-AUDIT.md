@@ -10168,3 +10168,40 @@ controller/coordinator failover, Broker crash, network partition, multi-shard,
 full chaos or V1 release gates. Exact cleanup found no containers, networks,
 volumes or temporary Kafka/Oxia images; base images were retained and no
 global `docker prune` was run.
+
+## 2026-08-16 Pulsar Gateway large-payload multi-Broker reactivation audit
+
+The authoritative source-bound run used Delay implementation
+`49665a75041ea05cd7b47e887c9e28fa08647b9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1 distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1
+image `sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, and MinIO
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The run used Compose project
+`nereus-delay-pulsar-large-e2e-1786894113-18683` and
+`NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER=1`.
+
+This receipt verifies the production-authority sequence after Gateway
+Commit/readback: Broker-1 was stopped, a fresh guarded Pulsar source consumer
+was opened through the surviving Broker endpoint, the committed source
+position was used to seek, the old Oxia Owner was fenced, the old source loop
+was quiesced, and only then was a canonical, route/digest-bound successor
+Assignment and Owner Lease published/acquired. The live markers were:
+
+```text
+Pulsar source reactivation successor accepted: oldGeneration=2, newGeneration=3, assignmentRevision=2, ownerEpoch=2
+Pulsar Worker source-applied physical publish passed: Admission source ledger=6/0, typed PULSAR_SEND_ACK target ledger/entry=4/0, Outcome source ledger=6/1, exact payload readback
+Pulsar + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: prepare=3/2, commit=3/3, exactGatewayIdempotency=true, sourceRecords=6
+```
+
+The result is a bounded positive audit for the combined Pulsar Gateway-to-
+destination large-payload chain with real Oxia, two real Brokers, Worker
+source apply and real MinIO. It is not automatic controller/coordinator
+failover, does not cover more than one physical source partition, and does not
+close Profile/Oxia credential-catalog authority, multi-shard placement, raw
+crash/chaos, broader network/controller fault cases or the V1 release gate.
+The runner removed only the exact run resources and temporary images; reusable
+base images were retained and no global Docker prune was used. Topic deletion
+printed a cleanup warning, but no named Docker resources or matching temporary
+images remained.

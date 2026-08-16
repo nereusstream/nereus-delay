@@ -3254,3 +3254,40 @@ partition recovery, production proxy behavior, multi-shard runtime, the full
 chaos matrix or V1 release readiness. Cleanup removes only the exact Compose
 projects, temporary networks/volumes and run-created Kafka/Oxia images; reusable
 base images are retained and no global `docker prune` is performed.
+
+## Pulsar Gateway large-payload multi-Broker reactivation
+
+Run the source-bound combined Gateway/Oxia/Worker/MinIO slice with:
+
+```bash
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER=1 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-reactivation-gradle-20260816-r2 \
+  ./e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+The authoritative receipt locks Delay to
+`49665a75041ea05cd7b47e887c9e28fa08647b9`, P1 to
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1 distribution SHA-256 to
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1
+image to `sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
+Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`, and MinIO to
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The run uses one physical source partition. After Gateway Commit/readback it
+stops Broker-1, opens a fresh guarded source connection, seeks after the
+committed source position, fences/quiesces the old Owner/runtime, and publishes
+and acquires a canonical successor Assignment/Owner before the Worker resumes.
+
+Required live markers include:
+
+```text
+Pulsar source reactivation successor accepted: oldGeneration=2, newGeneration=3, assignmentRevision=2, ownerEpoch=2
+Pulsar Worker source-applied physical publish passed: Admission source ledger=6/0, typed PULSAR_SEND_ACK target ledger/entry=4/0, Outcome source ledger=6/1, exact payload readback
+Pulsar + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed: prepare=3/2, commit=3/3, exactGatewayIdempotency=true, sourceRecords=6
+```
+
+This is bounded reactivation evidence, not automatic Pulsar controller/
+coordinator failover, multi-shard evidence or V1 release approval. Cleanup is
+exactly scoped to the Compose project, its networks/volumes/orphans and
+run-created temporary images; reusable base images remain and no global Docker
+prune is run. The runner emitted a topic-delete cleanup warning, but post-run
+checks found no Docker resources or matching temporary images for the run.

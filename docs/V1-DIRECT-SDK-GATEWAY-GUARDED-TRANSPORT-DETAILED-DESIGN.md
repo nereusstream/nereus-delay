@@ -6711,3 +6711,31 @@ coordinator failover: the placement and endpoint handoff are test authority
 actions. Broker crash, Docker network partition, production proxy/load-balancer
 behavior, multi-shard scheduling, the full chaos matrix and the V1 release gate
 remain separate obligations.
+
+## 2026-08-16 Pulsar source reactivation successor implementation note
+
+The Pulsar large-payload Gateway harness now has an explicit successor
+protocol for the bounded two-Broker source-reactivation case. The canonical
+`PulsarSourceReactivationV1` transition binds the route snapshot digest, the
+previous and successor `SourceAssignment`, and the immutable Pulsar resource,
+topic, cursor, batch shape and attestation. It requires a new assignment ID,
+new assignment epoch and a different guarded source connection generation;
+changing source identity or reusing the old generation is rejected.
+
+`PulsarSourceReactivationCoordinator` owns the authority sequence: exact
+Route/Assignment/Owner validation, Oxia `ACTIVE -> FENCED` CAS, caller-proved
+source quiescence, exact old Owner release, successor Assignment revision CAS,
+and successor Owner acquisition only after the successor is durable. The old
+`WorkerShardRuntime` source loop is closed only through
+`closeForOwnerReactivation`, preserving Store and lease authority until the
+quiescence proof is recorded. This is a reactivation boundary, not a weakening
+of `RouteSnapshotCompatibilityV1` or `SourceAssignment.sameIdentity`, and it
+does not claim automatic Pulsar controller/coordinator failover or production
+multi-shard placement.
+
+The source-bound implementation is Delay
+`49665a75041ea05cd7b47e887c9e28fa08647b9`; its deterministic
+`PulsarSourceReactivationTest` covers canonical round-trip/rejection, the
+fence-quiesce-publish-acquire sequence and the failed-quiescence fence. The
+real E2E source lock additionally covers Gateway mTLS/JWT, real Oxia, two real
+Pulsar Brokers, Worker source apply and real MinIO exact payload readback.
