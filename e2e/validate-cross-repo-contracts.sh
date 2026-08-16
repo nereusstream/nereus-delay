@@ -1793,6 +1793,22 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway audit phase evidence implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Gateway audit phase evidence receipt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
+    "Gateway STARTED attempt must be the final attempt"
+require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
+    "Gateway ACTIVE record must contain one STARTED attempt"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
+    "gatewayProjectionRejectsImpossibleAttemptAndRecordShapes"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "Gateway active attempt tail fence"
+require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
+    "a1a85f99471743c48126943fad92fbb80ce6be34"
+require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
+    "Gateway active attempt tail fence audit"
+require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
+    "Gateway active attempt tail fence implementation note"
+require_file_text "$delay_root/e2e/README.md" \
+    "Gateway active attempt tail fence receipt"
 require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPublicationCoordinator.java" \
     "intentIsAtomic || catalogIsAtomic"
 require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointUploadCoordinatorTest.java" \

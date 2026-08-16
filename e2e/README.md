@@ -2617,3 +2617,24 @@ full `./gradlew check` passed 1538 tests with 24 skips and zero
 failures/errors. This receipt proves only local audit phase/digest shape
 validation; it does not prove distributed Gateway authority, transport
 delivery, Broker failover, chaos or V1 release readiness.
+
+## Gateway active attempt tail fence receipt
+
+Delay commit `a1a85f99471743c48126943fad92fbb80ce6be34` requires an ACTIVE
+Gateway idempotency projection to contain exactly one final `STARTED` attempt.
+Multiple `STARTED` attempts and a non-final `STARTED` followed by terminal
+evidence are rejected before durable state-machine use.
+
+The focused receipt command was:
+
+```bash
+./gradlew test \
+  --tests io.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest \
+  --no-daemon --console=plain
+```
+
+The deterministic idempotency suite passed 11 tests with zero
+failures/skips/errors. The full `./gradlew check` passed 1538 tests with 24
+skips and zero failures/errors. This receipt proves only local active-attempt
+projection integrity; it does not prove distributed Gateway authority,
+transport delivery, Broker failover, chaos or V1 release readiness.

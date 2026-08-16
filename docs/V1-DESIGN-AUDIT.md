@@ -9431,6 +9431,23 @@ failures/errors. This closes only local audit phase/digest shape validation;
 it does not establish distributed Gateway authority, transport delivery,
 Broker failover, raw chaos or V1 release readiness.
 
+## 2026-08-16 Gateway active attempt tail fence audit
+
+Delay commit `a1a85f99471743c48126943fad92fbb80ce6be34` closes the remaining
+local lifecycle-shape gap in `GatewayIdempotencyRecordV1`. The durable
+projection now rejects more than one `STARTED` attempt and rejects any
+`STARTED` attempt that is not the final source-ordered entry, while retaining
+the valid case where earlier terminal evidence coexists with one final
+`STARTED` attempt.
+
+The multiple-started and non-final-started regressions in
+`OxiaGatewayIdempotencyStoreTest.gatewayProjectionRejectsImpossibleAttemptAndRecordShapes`
+passed in the 11-test deterministic idempotency suite with zero
+failures/skips/errors. The full `./gradlew check` passed 1538 tests with 24
+skips and zero failures/errors. This closes only local active-attempt
+projection integrity; it does not establish distributed Gateway authority,
+transport delivery, Broker failover, raw chaos or V1 release readiness.
+
 ## Final gate
 
 设计审计通过不代表实现发布通过。实现只有在上述 artifact matrix 和主设计 §23.5 十项 release gate 全部完成后才可宣称 V1 release-ready；缺少数值、binary、benchmark 或 chaos evidence 的状态是“实现证据未完成”，不是“设计可自行解释”。

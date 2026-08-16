@@ -11343,3 +11343,20 @@ full `./gradlew check` passed 1538 tests with 24 skips and zero
 failures/errors. This closes only local audit phase/digest shape validation;
 it does not establish distributed Gateway authority, transport delivery,
 Broker failover, raw chaos or V1 release evidence.
+
+## 2026-08-16 Gateway active attempt tail fence
+
+Delay commit `a1a85f99471743c48126943fad92fbb80ce6be34` tightens the durable
+Gateway projection fence so an `ACTIVE` record contains exactly one
+`STARTED` attempt and that attempt is the final source-ordered entry. Multiple
+`STARTED` entries and a non-final `STARTED` followed by terminal evidence are
+rejected before the record can be consumed.
+
+The deterministic idempotency suite passed 11 tests with zero
+failures/skips/errors, including the multiple-started and non-final-started
+regressions in
+`OxiaGatewayIdempotencyStoreTest.gatewayProjectionRejectsImpossibleAttemptAndRecordShapes`.
+The full `./gradlew check` passed 1538 tests with 24 skips and zero
+failures/errors. This closes only local active-attempt projection integrity;
+it does not establish distributed Gateway authority, transport delivery,
+Broker failover, raw chaos or V1 release evidence.

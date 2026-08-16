@@ -6048,3 +6048,19 @@ passed in the focused 4-test audit suite. The full `./gradlew check` passed
 1538 tests with 24 skips and zero failures/errors. This closes only local
 audit phase/digest shape validation; distributed authority, transport
 delivery, failover, chaos and release gates remain open.
+
+### 2026-08-16 Gateway active attempt tail fence implementation note
+
+Delay commit `a1a85f99471743c48126943fad92fbb80ce6be34` makes the
+`GatewayIdempotencyRecordV1` ACTIVE projection match the Registry lifecycle
+shape: there is at most one `STARTED` attempt, and it must be the final
+source-ordered attempt. This still permits late evidence on an earlier
+terminal/uncertain attempt while a newer final attempt is active, but rejects
+two simultaneous starts and a terminal attempt after an unresolved STARTED
+entry.
+
+The deterministic idempotency suite passed 11 tests with zero
+failures/skips/errors, and the full `./gradlew check` passed 1538 tests with
+24 skips and zero failures/errors. This closes only local active-attempt
+projection integrity; distributed authority, transport delivery, failover,
+chaos and release gates remain open.
