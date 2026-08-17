@@ -15444,3 +15444,17 @@ This remains a local projection receipt, not certified external Oxia
 eligible-reader rollout, writer-before-reader cutover, downgrade packaging,
 Broker/Pulsar cutover or disaster continuity. No Docker or external service
 was used, so no image cleanup was applicable. V1 remains `NOT_READY`.
+
+## 2026-08-17 Current-source release-gate rerun with activation receipt
+
+The latest clean-source gate artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r4/v1-release-candidate-gate.json`
+at Delay `3e21eb072f41014ed893ef5799817f2f8cb305cb`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Source checks,
+cross-repository validation and full Gradle `check` pass. The gate records
+the new activation receipt but remains `release_status=NOT_READY`: capacity is
+`PARTIAL`, activation and chaos are `PASS_BOUNDED`, and certified soak and
+operations artifacts are absent. This confirms the fail-closed
+`PASS_CERTIFIED` boundary on the current source.

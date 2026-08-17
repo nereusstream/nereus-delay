@@ -12295,3 +12295,16 @@ eligible-reader authorization, writer-before-reader rollout, downgrade/release
 packaging, real Broker/Pulsar cutover or disaster continuity. The runner uses
 no Docker resources; there were no related images to remove. The release gate
 therefore remains correctly `NOT_READY`.
+
+### 2026-08-17 Current-source gate rerun with activation receipt
+
+The clean-source release artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r4/v1-release-candidate-gate.json`
+at Delay `3e21eb072f41014ed893ef5799817f2f8cb305cb`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Source, contract and full Gradle
+checks pass. The artifact is still `NOT_READY`: the activation receipt is
+`PASS_BOUNDED`, not `PASS_CERTIFIED`; capacity is `PARTIAL`, chaos is bounded,
+and soak/operations evidence is missing. The gate therefore records the new
+evidence without promoting it.

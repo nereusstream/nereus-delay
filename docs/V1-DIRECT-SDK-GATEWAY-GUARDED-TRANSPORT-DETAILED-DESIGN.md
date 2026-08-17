@@ -7781,3 +7781,15 @@ external Oxia Worker eligibility, writer-before-reader rollout, downgrade or
 release packaging, real Kafka/Pulsar cutover, or disaster continuity. Since the
 runner does not start Docker or external services, no related image cleanup was
 required; `PASS_BOUNDED` cannot satisfy the V1 `PASS_CERTIFIED` gate.
+
+### 2026-08-17 Current-source gate rerun with activation receipt
+
+The clean-source release artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r4/v1-release-candidate-gate.json`
+at Delay `3e21eb072f41014ed893ef5799817f2f8cb305cb`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Source, cross-repository and full
+Gradle checks pass; the fail-closed result remains `NOT_READY` because the
+activation artifact is only `PASS_BOUNDED`, capacity is `PARTIAL`, chaos is
+bounded and certified soak/operations artifacts are absent.

@@ -5503,3 +5503,21 @@ The receipt is local projection evidence only: external Oxia eligible-reader
 rollout, writer-before-reader orchestration, downgrade/release packaging and
 real Broker/Pulsar cutover remain open. This runner uses no Docker resources,
 so there are no related images to clean.
+
+The current-source release-gate rerun is:
+
+```bash
+NEREUS_DELAY_RELEASE_GATE_ARTIFACT_DIR=/tmp/nereus-delay-v1-release-gate-20260817-r4 \
+NEREUS_DELAY_RELEASE_GATE_GRADLE_USER_HOME=/tmp/nereus-delay-protocol-activation-full-check-20260817-r1 \
+NEREUS_DELAY_RELEASE_GATE_CHAOS_ARTIFACT=/tmp/nereus-delay-chaos-release-20260817-r1/bounded-chaos-matrix.json \
+NEREUS_DELAY_RELEASE_GATE_CAPACITY_ARTIFACT=/tmp/nereus-delay-capacity-matrix-current-20260817-r4/capacity-benchmark-matrix.json \
+NEREUS_DELAY_RELEASE_GATE_ACTIVATION_ARTIFACT=/tmp/nereus-delay-protocol-activation-cutover-20260817-r1/protocol-activation-cutover.json \
+NEREUS_DELAY_RELEASE_GATE_RUN_CHECK=1 \
+NEREUS_DELAY_RELEASE_GATE_ALLOW_NOT_READY=1 \
+bash e2e/run-v1-release-gate.sh
+```
+
+It produced `release_status=NOT_READY` at Delay
+`3e21eb072f41014ed893ef5799817f2f8cb305cb`: source/contract/full-check PASS,
+activation `PASS_BOUNDED` recorded but blocked by the `PASS_CERTIFIED` rule,
+capacity `PARTIAL`, chaos bounded, and soak/operations missing.
