@@ -7878,3 +7878,14 @@ does not prove multi-shard Large Payload, controller/storage/provider failover,
 long-cycle soak or V1 release certification. The runner removed its exact
 Compose resources and generated P1/Oxia images, retained locked bases and used
 no global Docker prune.
+
+### 2026-08-17 Current-source gate rerun after Pulsar failover
+
+The clean-source release artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r7/v1-release-candidate-gate.json`
+at Delay `9ec909d95b890dd227b572396091e500a9c72299`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Source, cross-repository and full
+Gradle checks pass, while bounded/partial/missing certification inputs keep the
+fail-closed result at `NOT_READY`.

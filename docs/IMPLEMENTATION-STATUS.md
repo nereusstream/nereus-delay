@@ -13133,6 +13133,19 @@ image; the run-created Oxia image tag and image ID were explicitly removed
 after the runner cleanup, reusable base images were retained and no global
 Docker prune was used.
 
+## 2026-08-17 Current-source release-gate rerun after Pulsar failover receipt
+
+The latest clean-source gate artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r7/v1-release-candidate-gate.json`
+at Delay `9ec909d95b890dd227b572396091e500a9c72299`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Source cleanliness,
+cross-repository validation and full Gradle `check` passed. The gate remains
+`release_status=NOT_READY`: capacity is `PARTIAL`, activation/operations/
+chaos are `PASS_BOUNDED`, and certified soak is missing. `ALLOW_NOT_READY=1`
+only records this fail-closed result.
+
 ## 2026-08-17 Current-source Kafka Large-payload production-authority receipt
 
 The successful current-source rerun locks Delay to

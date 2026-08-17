@@ -12392,3 +12392,14 @@ Pulsar multi-shard Large Payload, controller/storage/provider failover,
 long-cycle soak and release certification remain open. The exact project
 `nereus-delay-pulsar-large-e2e-1786938863-99638` left no resources, listeners or
 generated images; locked bases remain and no global Docker prune was used.
+
+### 2026-08-17 Current-source release-gate rerun after Pulsar failover
+
+The latest clean-source artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r7/v1-release-candidate-gate.json`
+at Delay `9ec909d95b890dd227b572396091e500a9c72299`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Source/contract/full-check pass;
+capacity remains `PARTIAL`, activation/operations/chaos are bounded, soak is
+missing, and the fail-closed release status remains `NOT_READY`.

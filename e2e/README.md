@@ -5664,3 +5664,9 @@ controller/storage/provider failover, soak or V1 release certification. The
 runner removed project `nereus-delay-pulsar-large-e2e-1786938863-99638`, its
 containers/networks/volumes/listeners and generated P1/Oxia images; locked
 MinIO/Oxia bases remain and no global Docker prune was used.
+
+The current-source release-gate rerun after this receipt is
+`/tmp/nereus-delay-v1-release-gate-20260817-r7/v1-release-candidate-gate.json`
+at Delay `9ec909d95b890dd227b572396091e500a9c72299`; source/contract/full-check
+PASS, capacity `PARTIAL`, activation/operations/chaos bounded, certified soak
+missing, and overall `release_status=NOT_READY`.
