@@ -120,23 +120,47 @@ cleanup_case_docker() {
     return 0
   fi
 
-  set +e
+  generated_refs=()
   if [[ "${provider}" == "kafka" ]]; then
-    docker compose --project-name "${project}" --file "${script_dir}/docker-compose.large-payload.yml" \
-      down --volumes --remove-orphans --rmi local >/dev/null 2>&1
+    generated_refs+=("nereus-delay-large-payload-k1:${project}" "${project}-oxia")
   else
-    docker compose --project-name "${project}" \
-      --file "${script_dir}/docker-compose.pulsar-cluster.yml" \
-      --file "${script_dir}/docker-compose.pulsar-large-payload-infra.yml" \
-      down --volumes --remove-orphans --rmi local >/dev/null 2>&1
+    generated_refs+=("nereus-delay-pulsar-p1-large:${project}" "${project}-oxia")
   fi
-  compose_status=$?
+  related_containers="$(docker ps -aq --filter "label=com.docker.compose.project=${project}" || true)"
+  related_networks="$(docker network ls -q --filter "label=com.docker.compose.project=${project}" || true)"
+  related_volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=${project}" || true)"
+  related_generated_images=""
+  for image_ref in "${generated_refs[@]}"; do
+    if docker image inspect "${image_ref}" >/dev/null 2>&1; then
+      related_generated_images="${related_generated_images}${image_ref}"$'\n'
+    fi
+  done
+
+  set +e
+  if [[ -n "${related_containers}" || -n "${related_networks}" || -n "${related_volumes}" \
+      || -n "${related_generated_images}" ]]; then
+    if [[ "${provider}" == "kafka" ]]; then
+      docker compose --project-name "${project}" --file "${script_dir}/docker-compose.large-payload.yml" \
+        down --volumes --remove-orphans --rmi local >/dev/null 2>&1
+    else
+      docker compose --project-name "${project}" \
+        --file "${script_dir}/docker-compose.pulsar-cluster.yml" \
+        --file "${script_dir}/docker-compose.pulsar-large-payload-infra.yml" \
+        down --volumes --remove-orphans --rmi local >/dev/null 2>&1
+    fi
+    compose_status=$?
+  else
+    # The provider runner already executes this exact project cleanup in its
+    # EXIT trap.  Avoid a second Compose interpolation pass after all
+    # resources are gone; the compose files intentionally require runtime
+    # image/port variables that are scoped to the child runner.
+    compose_status=0
+  fi
   if [[ "${compose_status}" != 0 ]]; then
     case_cleanup_status="FAIL"
     case_cleanup_detail="exact Compose cleanup returned ${compose_status}"
   fi
 
-  related_containers="$(docker ps -aq --filter "label=com.docker.compose.project=${project}" || true)"
   if [[ -n "${related_containers}" ]]; then
     while IFS= read -r container; do
       [[ -z "${container}" ]] && continue
@@ -151,7 +175,6 @@ cleanup_case_docker() {
     done <<<"${related_containers}"
   fi
 
-  related_networks="$(docker network ls -q --filter "label=com.docker.compose.project=${project}" || true)"
   if [[ -n "${related_networks}" ]]; then
     while IFS= read -r network; do
       [[ -z "${network}" ]] && continue
@@ -164,7 +187,6 @@ cleanup_case_docker() {
     done <<<"${related_networks}"
   fi
 
-  related_volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=${project}" || true)"
   if [[ -n "${related_volumes}" ]]; then
     while IFS= read -r volume; do
       [[ -z "${volume}" ]] && continue
@@ -177,12 +199,6 @@ cleanup_case_docker() {
     done <<<"${related_volumes}"
   fi
 
-  generated_refs=()
-  if [[ "${provider}" == "kafka" ]]; then
-    generated_refs+=("nereus-delay-large-payload-k1:${project}")
-  else
-    generated_refs+=("nereus-delay-pulsar-p1-large:${project}" "${project}-oxia")
-  fi
   for image_ref in "${generated_refs[@]}"; do
     if docker image inspect "${image_ref}" >/dev/null 2>&1; then
       image_id="$(docker image inspect --format '{{.Id}}' "${image_ref}" || true)"
