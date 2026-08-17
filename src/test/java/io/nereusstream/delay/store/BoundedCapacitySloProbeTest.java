@@ -312,17 +312,19 @@ class BoundedCapacitySloProbeTest {
     }
 
     private static SloSampleStartV1 sampleStart(final int seed) {
-        final byte[] commandHash = bytes(32, seed + 1);
-        final byte[] physicalAttemptId = bytes(16, seed + 2);
+        final byte[] commandHash = Bytes.sha256(Bytes.utf8("bounded-capacity-command-" + seed));
+        final byte[] physicalAttemptId = Arrays.copyOf(
+                Bytes.sha256(Bytes.utf8("bounded-capacity-attempt-" + seed)), 16);
         final byte[] branch = CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.bytes(output, 1, bytes(41, seed + 3));
+            CanonicalProtobuf.bytes(output, 1, uniqueBytes(41, seed + 3));
             CanonicalProtobuf.bytes(output, 2, commandHash);
             CanonicalProtobuf.bytes(output, 3, physicalAttemptId);
         });
         final SloSampleEventIdentityV1 identity = new SloSampleEventIdentityV1(
                 SloObjectiveNameV1.COMMAND_QUEUED_LATENCY, branch);
         final long startEpoch = SAMPLE_START_EPOCH_MS + seed;
-        return new SloSampleStartV1(bytes(32, seed + 4), SloObjectiveNameV1.COMMAND_QUEUED_LATENCY,
+        return new SloSampleStartV1(Bytes.sha256(Bytes.utf8("bounded-capacity-sample-" + seed)),
+                SloObjectiveNameV1.COMMAND_QUEUED_LATENCY,
                 SloPopulationV1.ALL_ACCEPTED, SloPathV1.NOT_APPLICABLE, identity,
                 endpoint(SloTimeEndpointKindV1.SEMANTIC_FIXED_EPOCH, startEpoch, seed + 5),
                 startEpoch + 1_000);
@@ -348,6 +350,15 @@ class BoundedCapacitySloProbeTest {
     private static byte[] bytes(final int length, final int value) {
         final byte[] result = new byte[length];
         Arrays.fill(result, (byte) value);
+        return result;
+    }
+
+    private static byte[] uniqueBytes(final int length, final int seed) {
+        final byte[] digest = Bytes.sha256(Bytes.utf8("bounded-capacity-unique-" + seed));
+        final byte[] result = new byte[length];
+        for (int index = 0; index < result.length; index++) {
+            result[index] = (byte) (digest[index % digest.length] ^ (index / digest.length));
+        }
         return result;
     }
 
