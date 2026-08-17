@@ -13021,3 +13021,38 @@ It is source-locked to Delay
 checks pass. Five release evidence slots are still blocked because no
 approved artifact/profile was supplied, so `release_status=NOT_READY` is the
 only valid conclusion. The temporary r38 Gradle home was removed after use.
+
+### 2026-08-17 Current-source 14-cell bounded-chaos audit r7
+
+The current-source receipt is
+`/private/tmp/nereus-delay-chaos-current-20260817-r7/bounded-chaos-matrix.json`.
+It is `schema=nereus-delay-bounded-chaos-matrix-v1` with
+`matrix_status=PASS_BOUNDED`, all 14 cell exit codes equal to zero, and locks
+Delay `9a6f171ab817607ff59d18a4e963ae0a8504e281`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The material upgrade is the
+`pulsar-worker-destination-response-loss` cell. Its forced pre-SIGKILL dump
+records durable `PUBLISHING` with `outcome_applied=false`; a fresh Worker
+process replays the durable `PUBLISH_OUTCOME` under the source-pinned test
+authority, records `outcomeApply=APPLIED/OK` and `PUBLISHED`, reads back the
+exact destination payload and issues no second SEND. The independent audit
+compares Store root, shard, Store incarnation, DB identity, Publish Attempt
+ID and Message ID, and reports `CAPTURED_AND_VERIFIED` /
+`INDEPENDENT_FIELDS_PASS`. The existing
+`pulsar-worker-admission-response-loss` cell retains the same independently
+audited recovery boundary.
+
+The other 12 cells remain explicitly marker-only and/or not captured for
+durable-state and invariant evidence. The matrix is bounded evidence, not
+release certification: `release_certification=OPEN` and the V1 gate remains
+`release_status=NOT_READY` pending the separate approved capacity, soak,
+activation, operations, upgrade/downgrade and disaster-continuity artifacts.
+
+The exact postcheck found no matching run-scoped containers, networks,
+volumes or generated images. The r7 matrix receipt and its two state-dump
+directories are retained; its Gradle home is a disposable run cache. No
+global Docker prune, source-worktree deletion or unrelated image removal was
+performed.

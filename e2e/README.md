@@ -6347,3 +6347,36 @@ Source, cross-repository and full Gradle checks pass at the current HEAD, but
 `release_status=NOT_READY` because approved capacity, soak,
 activation/cutover, operations and release-certified chaos artifacts were not
 supplied. Delete the r38 Gradle user home after the run; retain the receipt.
+
+## Current-source bounded-chaos r7
+
+The 14-cell current-source matrix is run with:
+
+```bash
+NEREUS_DELAY_CHAOS_MATRIX_ARTIFACT_DIR=/private/tmp/nereus-delay-chaos-current-20260817-r7 \
+NEREUS_DELAY_CHAOS_MATRIX_GRADLE_USER_HOME=/private/tmp/nereus-delay-chaos-gradle-current-20260817-r7 \
+bash e2e/run-bounded-chaos-matrix.sh
+```
+
+The receipt is
+`/private/tmp/nereus-delay-chaos-current-20260817-r7/bounded-chaos-matrix.json`.
+It reports `matrix_status=PASS_BOUNDED` and all 14 cells exit zero under
+Delay `9a6f171ab817607ff59d18a4e963ae0a8504e281`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The `pulsar-worker-admission-response-loss` and
+`pulsar-worker-destination-response-loss` cells independently audit durable
+before/after dumps: `PUBLISHING` with `outcome_applied=false` becomes fresh
+process `PUBLISHED` with `outcome_applied=true`, matching Store/DB/attempt/
+message identities. The destination cell also proves exact payload readback
+and no second SEND. Both report `CAPTURED_AND_VERIFIED` and
+`INDEPENDENT_FIELDS_PASS`; the other 12 cells retain their explicit
+marker-only/not-captured boundary.
+
+This is bounded fault evidence, not `PASS_CERTIFIED` release evidence. The
+matrix release slot is still open and the V1 gate remains `NOT_READY`. After
+the run, generated run-scoped Docker resources must be empty; keep the r7
+receipt and two state-dump directories, remove only the disposable Gradle
+cache, and do not use global Docker prune.

@@ -960,3 +960,37 @@ It records current source/cross-repository/full Gradle `PASS` and
 release-certified chaos remain blocked without their explicitly approved
 artifacts. Remove the corresponding r38 Gradle user home after the run; keep
 only the receipt.
+
+## 2026-08-17 Current-source bounded-chaos r7
+
+Run the 14-cell current-source matrix with isolated evidence and build-cache
+directories:
+
+```bash
+NEREUS_DELAY_CHAOS_MATRIX_ARTIFACT_DIR=/private/tmp/nereus-delay-chaos-current-20260817-r7 \
+NEREUS_DELAY_CHAOS_MATRIX_GRADLE_USER_HOME=/private/tmp/nereus-delay-chaos-gradle-current-20260817-r7 \
+bash e2e/run-bounded-chaos-matrix.sh
+```
+
+The canonical receipt is
+`/private/tmp/nereus-delay-chaos-current-20260817-r7/bounded-chaos-matrix.json`.
+It is source-locked to Delay `9a6f171ab817607ff59d18a4e963ae0a8504e281`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`; the receipt reports
+`PASS_BOUNDED` and 14 zero exit codes.
+
+The two cell-specific durable recovery audits are
+`pulsar-worker-admission-response-loss` and
+`pulsar-worker-destination-response-loss`. Each retains before/after state
+dumps, proves durable `PUBLISHING` to fresh-process `PUBLISHED` recovery and
+reports `CAPTURED_AND_VERIFIED` / `INDEPENDENT_FIELDS_PASS`. The destination
+cell additionally proves exact destination payload readback with no second
+SEND after replaying the durable `PUBLISH_OUTCOME`. Do not infer this audit
+level for the other 12 cells; they remain marker-only and/or not captured.
+
+After the run, verify exact run-scoped Docker cleanup. There must be no
+matching generated containers, networks, volumes or images. Retain the r7
+receipt and both state-dump directories; remove only the r7 Gradle cache after
+evidence capture. Never run a global Docker prune or remove unrelated images.
+The bounded result remains `release_status=NOT_READY` at the V1 gate.

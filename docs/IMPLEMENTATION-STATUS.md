@@ -16413,3 +16413,29 @@ chaos were not supplied to this invocation, so each remains `BLOCKED`; the
 functional Gateway large-payload logs do not silently satisfy those slots.
 The r38 Gradle user home was removed after the check; only the small r38 gate
 receipt was retained.
+
+## 2026-08-17 Current-source 14-cell bounded-chaos audit r7
+
+The canonical receipt is
+`/private/tmp/nereus-delay-chaos-current-20260817-r7/bounded-chaos-matrix.json`.
+It is source-locked to Delay `9a6f171ab817607ff59d18a4e963ae0a8504e281`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`; `matrix_status=PASS_BOUNDED`
+and all 14 cells exited zero.
+
+The new `pulsar-worker-destination-response-loss` cell captures a forced
+durable pre-crash `PUBLISHING` dump, then verifies fresh-process replay of the
+same durable `PUBLISH_OUTCOME` as `APPLIED/OK` and `PUBLISHED`, exact
+destination readback and no second SEND. Its independent field audit reports
+`CAPTURED_AND_VERIFIED` / `INDEPENDENT_FIELDS_PASS`; the Admission
+response-loss cell has the same evidence level. The other 12 cells remain
+`NOT_CAPTURED` and/or `MARKER_ONLY` for durable-state and invariant proof.
+
+This advances bounded fault evidence only. It does not create a
+`PASS_CERTIFIED` release artifact: matrix release certification is `OPEN` and
+the V1 gate remains `release_status=NOT_READY` until the separate approved
+capacity, soak, activation/cutover, operations, upgrade/downgrade and
+disaster-continuity evidence is supplied. The exact Docker postcheck was
+empty for generated resources; only the r7 receipt and its two audited state
+dumps are retained.
