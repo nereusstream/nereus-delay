@@ -218,6 +218,13 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         final String minioRegion = configured("NEREUS_DELAY_MINIO_REGION", "us-east-1");
         final Duration minioRequestTimeout = configuredDuration(
                 "NEREUS_DELAY_MINIO_REQUEST_TIMEOUT_MS", 60_000);
+        final String minioFaultMode = configured("NEREUS_DELAY_LARGE_PAYLOAD_MINIO_FAULT_MODE", "NONE");
+        final boolean expectPrecommitFailure = switch (minioFaultMode) {
+            case "NONE", "PUT_503_AFTER_COMMIT", "PUT_TIMEOUT_AFTER_COMMIT" -> false;
+            case "PUT_503_BEFORE_COMMIT", "PUT_TIMEOUT_BEFORE_COMMIT" -> true;
+            default -> throw new IllegalArgumentException("unsupported large-payload MinIO fault mode: "
+                    + minioFaultMode);
+        };
         final String minioSessionToken = configuredNullable("NEREUS_DELAY_MINIO_SESSION_TOKEN");
         final Path serverCertificate = requiredPath("NEREUS_DELAY_GATEWAY_SERVER_CERT");
         final Path serverPrivateKey = requiredPath("NEREUS_DELAY_GATEWAY_SERVER_KEY");
@@ -460,7 +467,51 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                                             + handleDomain.outcome());
                                 }
                                 final OpaquePayloadUploadHandleV1 handle = handleDomain.issued();
-                                payloadStore.upload(receipt, handle, payload, System.currentTimeMillis());
+                                try {
+                                    payloadStore.upload(receipt, handle, payload, System.currentTimeMillis());
+                                } catch (RuntimeException failure) {
+                                    if (!expectPrecommitFailure) {
+                                        throw failure;
+                                    }
+                                    requirePrecommitFailure(failure, minioFaultMode);
+                                    final PayloadReservation retained = Optional.ofNullable(
+                                            delayShard.getReservation(reservationId)).orElseThrow();
+                                    if (retained.status() != PayloadReservationStatus.RESERVED
+                                            || delayShard.getMessage(prepareReceipt.command().delayMessageId()) != null
+                                            || latestOffset(admin, topic, 0) != barrierOffset + 1) {
+                                        throw new IllegalStateException("Kafka pre-commit payload failure crossed the Commit boundary");
+                                    }
+                                    final PayloadAttestationResponseV1 absent = payloadStore.attest(receipt, handle,
+                                            System.currentTimeMillis());
+                                    if (absent.outcome() != PayloadAttestationOutcomeV1.OBJECT_NOT_READY_RETRYABLE) {
+                                        throw new IllegalStateException("Kafka pre-commit payload failure did not leave the object absent: "
+                                                + absent.outcome());
+                                    }
+                                    final Path checkpointPath = root.resolve("large-payload-precommit-checkpoint");
+                                    final byte[] checkpointId = Arrays.copyOf(
+                                            Bytes.sha256(Bytes.utf8("large-payload-precommit-checkpoint")), 16);
+                                    final var drain = runtime.drain(
+                                            new io.nereusstream.delay.ownership.OwnerDrainCoordinator.DrainRequest(
+                                                    System.currentTimeMillis() + 30_000, 0, checkpointPath, checkpointId),
+                                            System::currentTimeMillis, () -> { });
+                                    if (drain.pendingCheckpointTask() != null || drain.finalCheckpointPath() == null
+                                            || !Files.isDirectory(checkpointPath)
+                                            || CheckpointFileInventory.collect(checkpointPath).isEmpty()
+                                            || !ownerAuthority.current(shard).isEmpty()) {
+                                        throw new IllegalStateException("Kafka pre-commit payload failure did not drain and release the Owner");
+                                    }
+                                    runtime.close();
+                                    runtimeClosed = true;
+                                    if (!assignmentAuthority.withdraw(placement.publication())) {
+                                        throw new IllegalStateException("Kafka pre-commit Worker assignment was not withdrawn exactly");
+                                    }
+                                    assignmentWithdrawn = true;
+                                    System.out.println("Kafka + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker "
+                                            + "+ MinIO large-payload pre-commit fail-closed E2E passed: fault="
+                                            + minioFaultMode + ", Prepare retained RESERVED, Commit absent, "
+                                            + "payload object absent, owner released");
+                                    return;
+                                }
                                 final GatewayPayloadAttestationResponseV1 attestationResponse = gateway
                                         .attestPayloadUpload(GatewayAttestPayloadUploadRequestV1.newBuilder()
                                                 .setPayloadReservationReceiptV1(ByteString.copyFrom(receipt.payload()))
@@ -706,6 +757,17 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         if (result.status() != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED) {
             throw new IllegalStateException(operation + " was not applied and ACKed: " + result.status(),
                     result.failure());
+        }
+    }
+
+    private static void requirePrecommitFailure(final RuntimeException failure, final String faultMode) {
+        final String message = failure.getMessage() == null ? failure.toString() : failure.getMessage();
+        if ("PUT_503_BEFORE_COMMIT".equals(faultMode) && !message.contains("HTTP 503")) {
+            throw new IllegalStateException("Kafka pre-commit 503 did not retain the provider failure", failure);
+        }
+        if ("PUT_TIMEOUT_BEFORE_COMMIT".equals(faultMode)
+                && !message.contains("S3 payload request failed")) {
+            throw new IllegalStateException("Kafka pre-commit timeout did not retain the provider failure", failure);
         }
     }
 

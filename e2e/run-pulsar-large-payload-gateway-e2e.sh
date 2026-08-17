@@ -82,8 +82,10 @@ if [[ ! "${network_partition_handoff_wait_seconds}" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 if [[ "${minio_fault_mode}" != "NONE" && "${minio_fault_mode}" != "PUT_503_AFTER_COMMIT" \
-    && "${minio_fault_mode}" != "PUT_TIMEOUT_AFTER_COMMIT" ]]; then
-  echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MINIO_FAULT_MODE must be NONE, PUT_503_AFTER_COMMIT or PUT_TIMEOUT_AFTER_COMMIT" >&2
+    && "${minio_fault_mode}" != "PUT_TIMEOUT_AFTER_COMMIT" \
+    && "${minio_fault_mode}" != "PUT_503_BEFORE_COMMIT" \
+    && "${minio_fault_mode}" != "PUT_TIMEOUT_BEFORE_COMMIT" ]]; then
+  echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MINIO_FAULT_MODE must be NONE, PUT_503_AFTER_COMMIT, PUT_TIMEOUT_AFTER_COMMIT, PUT_503_BEFORE_COMMIT or PUT_TIMEOUT_BEFORE_COMMIT" >&2
   exit 1
 fi
 if [[ ! "${minio_request_timeout_ms}" =~ ^[1-9][0-9]*$ ]]; then
@@ -314,6 +316,7 @@ smoke_environment=(
   "NEREUS_DELAY_GATEWAY_CA_CERT=${tls_dir}/ca.crt"
   "NEREUS_DELAY_GATEWAY_CLIENT_CERT=${tls_dir}/client.crt"
   "NEREUS_DELAY_GATEWAY_CLIENT_KEY=${tls_dir}/client.key"
+  "NEREUS_DELAY_LARGE_PAYLOAD_MINIO_FAULT_MODE=${minio_fault_mode}"
   "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_DESTINATION_TOPIC=${destination_topic}"
   "NEREUS_DELAY_PULSAR_LISTENER_NAME=external"
   "GRADLE_USER_HOME=${gradle_user_home}"
@@ -410,7 +413,9 @@ fi
 if [[ "${smoke_status}" != 0 ]]; then
   exit "${smoke_status}"
 fi
-if [[ "${process_crash_mode}" == "1" ]]; then
+if [[ "${minio_fault_mode}" == "PUT_503_BEFORE_COMMIT" || "${minio_fault_mode}" == "PUT_TIMEOUT_BEFORE_COMMIT" ]]; then
+  echo "Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload pre-commit fail-closed E2E passed"
+elif [[ "${process_crash_mode}" == "1" ]]; then
   "${compose[@]}" start pulsar-broker-1
   wait_for_admin "${admin_url}"
   echo "Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload Broker process-crash failover E2E passed: broker-1 was SIGKILLed after Gateway Commit/readback, the same source-applied physical Publish completed through broker-2, and broker-1 rejoined afterward"
