@@ -12104,3 +12104,22 @@ benchmark configurations, JVM/procfs/cgroup/filesystem capacity authority,
 multi-Worker placement, restore throughput, fairness denominators, or long-cycle
 soak. Gates 5, 6 and 7 stay `OPEN`; Gates 2, 3 and 10 stay `PARTIAL`; Gate 8
 stays `PARTIAL`; V1 stays `NOT READY`.
+
+## 2026-08-17 Initial Route control activation apply audit
+
+Delay `f6b7c4ee` closes the next bounded Gate 8 sub-boundary after the kind-14
+wire codec. `DelayShard` now applies the authenticated source-ordered kind-14
+marker by constructing the existing `CompatibleControlSnapshotV1` for its
+exact shard, checking the payload snapshot hash, and using one synchronous
+WriteBatch for `meta/FIXED` key 10, the mutation result and Source Position.
+The existing immutable snapshot is never replaced: an identical later marker
+is recorded as stale, while a divergent snapshot or tampered hash is rejected.
+
+`InitialRouteControlApplyTest` passed the first-apply/replay/conflict/tamper
+cases and reopen readback; the current full Gradle `check` returned
+`CHECK_PASS`. This audit is PASS for the local source-ordered initial snapshot
+projection only. It does not prove the kind-1 Protocol Version activation
+state, authenticated eligible-reader assignment, writer-before-reader
+cutover, downgrade/release artifact, Oxia control-operation authority or a
+real Worker rollout. Gate 8 remains `PARTIAL`; V1 remains `NOT READY`. The
+slice used no Docker resources and retained all locked base images.

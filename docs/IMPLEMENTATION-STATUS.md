@@ -15155,3 +15155,28 @@ resource authority, multi-Worker/multi-shard placement, checkpoint-restore
 throughput, long-cycle soak or durable SLO certification. Gates 5, 6 and 7
 therefore remain `OPEN`; Gates 2, 3 and 10 remain `PARTIAL`; Gate 8 remains
 `PARTIAL`; V1 remains `NOT READY`.
+
+## 2026-08-17 Initial Route control activation apply slice
+
+Delay commit `f6b7c4ee` advances Registry ControlPayload field 14 from a
+codec-only boundary to a source-ordered local apply boundary. `DelayShard`
+decodes `InitialRouteControlActivatePayloadV1`, projects its exact tuple,
+Profile and initial grant set into the existing shard-bound
+`CompatibleControlSnapshotV1`, verifies the payload's immutable snapshot digest,
+and rejects a foreign or conflicting snapshot without overwriting key 10.
+
+The first accepted marker writes the snapshot at the existing `meta/FIXED` key
+10 in the same synchronous WriteBatch as `SystemMutationResult` and the
+applied Source Position. An exact replay remains the existing mutation no-op;
+the same snapshot under a different control operation is a source-position
+`APPLIED/STALE_SYSTEM_MUTATION` no-op, while a different snapshot or digest
+mismatch is `REJECTED/UNAUTHORIZED_SYSTEM_MUTATION`. The focused
+`InitialRouteControlApplyTest` covers first apply, restart readback, replay,
+conflict and tampering; the current full `check` returned `CHECK_PASS`.
+
+This is still a local activation projection, not the complete Gate 8 rollout:
+kind-1 Protocol Version activation state, authenticated eligible-reader
+assignment, writer-before-reader cutover, downgrade/release artifact, and the
+external Oxia control-operation/Worker authority remain open. Gate 8 therefore
+remains `PARTIAL` and V1 remains `NOT READY`. No Docker resource was used or
+changed for this slice.

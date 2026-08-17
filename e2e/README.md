@@ -5212,3 +5212,25 @@ and the available SLO receipt exported and reopened 24 durable samples.
 This is bounded local evidence only. It does not close the required benchmark
 campaign, production resource authority, multi-Worker placement, restore
 throughput, fairness/SLO denominator, long-cycle soak or V1 release gate.
+
+## Current-source Initial Route control apply regression
+
+The source-ordered kind-14 apply boundary is covered without Docker by the
+focused test and the full Gradle check:
+
+```bash
+GRADLE_USER_HOME=/Users/liusinan/.gradle \
+  ./gradlew test --tests io.nereusstream.delay.runtime.InitialRouteControlApplyTest \
+  --no-daemon --console=plain
+
+GRADLE_USER_HOME=/Users/liusinan/.gradle \
+  ./gradlew check --no-daemon --console=plain --quiet
+```
+
+At Delay `f6b7c4ee`, the focused test covers first apply, exact replay,
+same-snapshot stale handling, divergent/tampered rejection and restart
+readback. The first apply uses the existing `meta/FIXED` key 10 rather than a
+new metadata key and shares one Store WriteBatch with the mutation result and
+Source Position. This is not a real Broker/Oxia/Gateway E2E and does not close
+kind-1 protocol activation, eligible-reader cutover, downgrade or V1 release
+gates. No Docker resources or images are created by this regression.

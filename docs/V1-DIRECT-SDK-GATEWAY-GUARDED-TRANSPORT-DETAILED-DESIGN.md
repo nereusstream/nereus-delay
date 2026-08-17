@@ -7588,3 +7588,20 @@ This binding is intentionally below benchmark/capacity certification: it does
 not establish Broker throughput, production multi-Worker placement, restore
 throughput, fairness/SLO denominators, cgroup/procfs authority or a long-cycle
 soak. The release gate must retain those boundaries.
+
+### 2026-08-17 Source-ordered Initial Route control application
+
+Commit `f6b7c4ee` wires the Registry kind-14
+`InitialRouteControlActivatePayloadV1` into `DelayShard`. The apply path uses
+the existing `CompatibleControlSnapshotV1` projection and `meta/FIXED` key 10;
+it verifies the immutable snapshot digest and shard subject, then commits the
+snapshot, `SystemMutationResult` and Source Position in one synchronous
+WriteBatch. Exact mutation replay remains idempotent, a same-snapshot new
+operation is stale without changing the snapshot, and a divergent or
+tampered snapshot is rejected.
+
+The focused apply/reopen/conflict tests and current full `check` pass. This
+does not yet supply kind-1 Protocol Version activation, eligible-reader
+assignment, writer-before-reader cutover, downgrade/release packaging or
+external Oxia/Worker rollout authority; those remain explicit Gate 8 and V1
+release boundaries. No Docker run is required for this local Store slice.
