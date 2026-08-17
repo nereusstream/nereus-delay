@@ -12643,3 +12643,48 @@ Delay `0f04415e3c8abcf17952ae3f5c5e4796bb797831`, K1
 `37a17bef17202d5fd6e23282da5fd26d94865484`. The explicit audit result stays
 `NOT READY`: capacity is `PARTIAL`, certified soak is absent, and bounded
 activation, operations and chaos artifacts are not promotable.
+
+### 2026-08-17 Current-source fault and cutover boundary audit
+
+The canonical bounded fault receipt is
+`/tmp/nereus-delay-chaos-current-20260817-r7/bounded-chaos-matrix.json` with
+`matrix_status=PASS_BOUNDED`. Its 13 passing cells cover Kafka broker process
+crash, Worker ACK process crash, broker TCP cut, broker network partition,
+Pulsar Worker process crash, Pulsar multi-Broker process crash, Pulsar Worker
+admission response loss, checkpoint reaping, Kafka Fetch response loss,
+Kafka retention-floor recovery, Pulsar destination response loss, Pulsar
+source-ACK response loss and Gateway/Oxia session churn. The exact source
+locks are Delay `1dd68005e18d3a7422a2fae653750372a5841421`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The canonical run was performed strictly sequentially with an isolated
+Gradle cache. This is a bounded current-source fault matrix, not a production
+chaos or release PASS: controller/coordinator/storage/provider failover,
+catalog placement/churn, certified capacity/soak and external operator
+authority remain outside the receipt.
+
+The protocol activation receipt
+`/tmp/nereus-delay-protocol-activation-current-20260817-r2/protocol-activation-cutover.json`
+is `PASS_BOUNDED` for the local Store projection and restart/canonical-digest
+tests. It does not prove authenticated external Oxia eligibility,
+writer-before-reader rollout, downgrade packaging, Broker/Pulsar cutover or
+disaster continuity. The operations receipt
+`/tmp/nereus-delay-operations-current-20260817-r4/operations-drills.json` is
+`PASS_BOUNDED` for local restore fencing, catalog ancestry/floor validation,
+Owner recovery/drain, DLQ replay, source-ordered `UNCERTAIN` resolution and
+the real Oxia/MinIO checkpoint plus exact `REAPING` path. It does not prove
+external operator authorization, fresh-process disaster continuity or a
+multi-Worker production soak.
+
+The matching gate
+`/tmp/nereus-delay-v1-release-gate-20260817-r22/v1-release-candidate-gate.json`
+passes source, cross-repository and Gradle checks, while intentionally
+returning `NOT_READY`: capacity is `PARTIAL`, certified soak is missing, and
+the activation, operations and chaos artifacts are bounded. `PASS_BOUNDED`,
+`PARTIAL`, missing or stale evidence never satisfies `PASS_CERTIFIED`.
+
+The receipts are locked to the runtime candidate before this documentation
+append. The documentation commit itself is not a runtime revalidation and
+must not be used to claim a refreshed release lock.

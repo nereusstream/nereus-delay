@@ -515,3 +515,56 @@ Broker throughput, Lane/Worker placement, large-scale records,
 compaction/restore, inline/object flow, adapter/zombie bounds or soak. The
 r20 release gate therefore remains `NOT_READY` and the bounded result cannot
 be promoted with `ALLOW_NOT_READY`.
+
+## 19. Current bounded fault, activation and cleanup receipt
+
+Run the current bounded fault matrix with a fresh artifact directory and an
+isolated Gradle cache. The canonical run must remain sequential because the
+individual cells share the Delay build output directory:
+
+```bash
+NEREUS_DELAY_CHAOS_MATRIX_ARTIFACT_DIR=/tmp/nereus-delay-chaos-current-20260817-r7 \
+NEREUS_DELAY_CHAOS_MATRIX_GRADLE_USER_HOME=/tmp/nereus-delay-chaos-gradle-current-20260817-r7 \
+bash e2e/run-bounded-chaos-matrix.sh
+```
+
+The resulting
+`/tmp/nereus-delay-chaos-current-20260817-r7/bounded-chaos-matrix.json` is
+`PASS_BOUNDED` with all 13 Kafka, Pulsar, checkpoint and Gateway cells at
+status `0`. It is locked to Delay `1dd68005e18d3a7422a2fae653750372a5841421`,
+K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The activation smoke is
+`/tmp/nereus-delay-protocol-activation-current-20260817-r2/protocol-activation-cutover.json`
+(`PASS_BOUNDED`), and the operations drill is
+`/tmp/nereus-delay-operations-current-20260817-r4/operations-drills.json`
+(`PASS_BOUNDED`). The latter's real-service probe used Compose project
+`nereus-delay-oxia-minio-checkpoint-e2e-1786949637-42236` and retained the
+locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+### Docker cleanup policy and final postcheck
+
+Every run must remove only resources identified by its exact Compose project,
+container labels and generated image tags. The interrupted Pulsar attempt was
+cleaned explicitly by removing image
+`nereus-delay-pulsar-p1:nereus-delay-pulsar-multi-e2e-1786950538-53376`,
+container
+`4afc75a5ddc037ec77841f4ab0e90009abaf374bf941ffe66a858a1bb20c1fa3` and
+volume `nereus-delay-pulsar-multi-e2e-1786950538-53376_zk-data`.
+
+After cleanup, verify that no `nereus-delay-*` run container, network, volume
+or generated image remains. Retain the locked MinIO base and unrelated images;
+do not run a global Docker prune. The final postcheck for this evidence set
+found only the unrelated `wenjunxiao/mac-docker-connector` running container,
+with no generated `nereus-delay-*` image left.
+
+The source-locked gate
+`/tmp/nereus-delay-v1-release-gate-20260817-r22/v1-release-candidate-gate.json`
+passed source, contract and full Gradle checks but returned `NOT_READY` by
+design. Capacity was `PARTIAL`, certified soak was absent, and bounded
+activation, operations and chaos receipts were not eligible for
+`PASS_CERTIFIED`. `ALLOW_NOT_READY=1` records this audit result only; it does
+not authorize promotion.

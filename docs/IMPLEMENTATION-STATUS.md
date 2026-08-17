@@ -15938,3 +15938,69 @@ at Delay `0f04415e3c8abcf17952ae3f5c5e4796bb797831`, K1
 checks are `PASS`; the release decision remains `NOT_READY` because capacity
 is `PARTIAL`, soak is missing, and activation/cutover, operations and chaos
 are bounded rather than `PASS_CERTIFIED`.
+
+## 2026-08-17 Current-source bounded fault, activation and operations evidence
+
+The canonical sequential fault-matrix receipt is
+`/tmp/nereus-delay-chaos-current-20260817-r7/bounded-chaos-matrix.json`. It is
+`matrix_status=PASS_BOUNDED`; all 13 cells exited zero and are marked bounded:
+
+- `kafka-broker-process-crash`
+- `kafka-worker-ack-process-crash`
+- `kafka-broker-tcp-cut`
+- `kafka-broker-network-partition`
+- `pulsar-worker-process-crash`
+- `pulsar-multi-broker-process-crash`
+- `pulsar-worker-admission-response-loss`
+- `checkpoint-reaping`
+- `kafka-fetch-response-loss`
+- `kafka-retention-floor`
+- `pulsar-destination-response-loss`
+- `pulsar-source-ack-response-loss`
+- `gateway-oxia-session-churn`
+
+The receipt is source-locked to Delay `1dd68005e18d3a7422a2fae653750372a5841421`,
+K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The canonical run was rerun
+strictly sequentially with an isolated Gradle cache after an overlapping,
+interrupted attempt; the latter is not treated as runtime evidence.
+
+Protocol activation is recorded by
+`/tmp/nereus-delay-protocol-activation-current-20260817-r2/protocol-activation-cutover.json`
+as `PASS_BOUNDED`. `ProtocolActivationStateV1Test`,
+`InitialRouteControlApplyTest` and `ProtocolVersionActivationApplyTest` passed,
+including atomic kind-14 projection creation, source-ordered kind-1 marker
+application, pre/post-marker tuple validation and restart digest validation.
+Operations are recorded by
+`/tmp/nereus-delay-operations-current-20260817-r4/operations-drills.json` as
+`PASS_BOUNDED`: local state-machine probes and the real Oxia/MinIO checkpoint
+publication plus exact `REAPING` path passed under the same four locks.
+
+The source-locked gate
+`/tmp/nereus-delay-v1-release-gate-20260817-r22/v1-release-candidate-gate.json`
+passed source cleanliness, cross-repository contract validation and full
+Gradle `check`, but correctly reports `release_status=NOT_READY`. Capacity is
+`PARTIAL`, certified soak is absent, and activation, operations and chaos are
+`PASS_BOUNDED`; none satisfies the required `PASS_CERTIFIED` release gate.
+These receipts were generated against the runtime candidate above. This
+append-only documentation change does not retroactively refresh their source
+locks or promote the release.
+
+### Exact Docker cleanup for this evidence set
+
+Run traps removed the Compose containers, networks, volumes and generated
+K1/P1/Oxia/Gateway images for the completed runs. The only stale resources from
+an interrupted attempt were removed explicitly: image tag
+`nereus-delay-pulsar-p1:nereus-delay-pulsar-multi-e2e-1786950538-53376` (image
+`sha256:a2c76925f2504337a55c1b88d0a83cc80147d563189041514b63bc1e347cf9d3`),
+container
+`4afc75a5ddc037ec77841f4ab0e90009abaf374bf941ffe66a858a1bb20c1fa3` and
+volume `nereus-delay-pulsar-multi-e2e-1786950538-53376_zk-data`.
+
+Final exact postchecks found no `nereus-delay-*` run containers, networks or
+volumes and no generated `nereus-delay-*` images. The locked MinIO base
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+was retained; the only running container left was the unrelated
+`wenjunxiao/mac-docker-connector` connector. No global prune and no unrelated
+image deletion was used.

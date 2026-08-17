@@ -5946,3 +5946,59 @@ The subsequent current-source release artifact is
 Source, cross-repository and full Gradle checks pass, but the result remains
 `NOT_READY`: capacity is `PARTIAL`, certified soak is missing, and bounded
 activation, operations and chaos artifacts cannot satisfy `PASS_CERTIFIED`.
+
+## 20. Current sequential bounded fault matrix and release gate
+
+The canonical current-source matrix was run with:
+
+```bash
+NEREUS_DELAY_CHAOS_MATRIX_ARTIFACT_DIR=/tmp/nereus-delay-chaos-current-20260817-r7 \
+NEREUS_DELAY_CHAOS_MATRIX_GRADLE_USER_HOME=/tmp/nereus-delay-chaos-gradle-current-20260817-r7 \
+bash e2e/run-bounded-chaos-matrix.sh
+```
+
+`/tmp/nereus-delay-chaos-current-20260817-r7/bounded-chaos-matrix.json` is
+`matrix_status=PASS_BOUNDED`; all 13 cells passed: Kafka broker process crash,
+Kafka Worker ACK process crash, Kafka broker TCP cut, Kafka broker network
+partition, Pulsar Worker process crash, Pulsar multi-Broker process crash,
+Pulsar Worker admission response loss, checkpoint reaping, Kafka Fetch
+response loss, Kafka retention floor, Pulsar destination response loss,
+Pulsar source ACK response loss and Gateway/Oxia session churn. The artifact
+locks Delay `1dd68005e18d3a7422a2fae653750372a5841421`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The activation artifact
+`/tmp/nereus-delay-protocol-activation-current-20260817-r2/protocol-activation-cutover.json`
+and operations artifact
+`/tmp/nereus-delay-operations-current-20260817-r4/operations-drills.json`
+are both `PASS_BOUNDED`. Activation covers the local source-ordered projection
+and restart digest; operations covers local recovery drills and the real
+Oxia/MinIO checkpoint plus exact `REAPING` path. Neither is a certified
+operator, rollout or production-soak receipt.
+
+The matching release artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r22/v1-release-candidate-gate.json`.
+Source cleanliness, cross-repository validation and full Gradle `check` pass,
+but the explicit decision is `release_status=NOT_READY`: capacity is
+`PARTIAL`, certified soak is missing, and bounded activation, operations and
+chaos evidence cannot satisfy `PASS_CERTIFIED`. The receipts are source-locked
+to the runtime candidate above; this documentation append does not refresh
+those locks.
+
+### Exact Docker cleanup
+
+Completed runs removed their exact Compose resources and generated K1/P1/Oxia/
+Gateway images. The one interrupted Pulsar run was cleaned explicitly by
+removing image
+`nereus-delay-pulsar-p1:nereus-delay-pulsar-multi-e2e-1786950538-53376`,
+container
+`4afc75a5ddc037ec77841f4ab0e90009abaf374bf941ffe66a858a1bb20c1fa3` and
+volume `nereus-delay-pulsar-multi-e2e-1786950538-53376_zk-data`.
+
+Final exact postchecks found no `nereus-delay-*` containers, networks, volumes
+or generated images. Retain the locked MinIO base
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+and unrelated images; do not use global Docker prune or delete unrelated
+images.
