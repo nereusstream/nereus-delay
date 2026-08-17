@@ -16161,3 +16161,43 @@ certified soak, activation, operations and chaos still require distinct
 `PASS_CERTIFIED` artifacts; the bounded production-chain receipt is not a
 promotion substitute. This documentation append does not refresh the r29
 runtime source lock.
+
+## 2026-08-17 Certified production-chain harness integration receipt
+
+The new `e2e/run-certified-production-chain-soak.sh` wrapper completed a
+strictly sequential real-service run under the explicit
+`harness-integration-production-chain-r1` profile. Its canonical receipt is
+`/tmp/nereus-delay-certified-soak-harness-20260817-r5/certified-production-chain-soak.json`.
+The artifact schema is
+`nereus-delay-certified-production-chain-soak-v1` and its status is
+`PASS_CERTIFIED` for this recorded harness profile only. It locks Delay
+`8f6fddd4c3e626a90bbe73be1360398c78114065`, Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The one configured cycle ran four cases: Kafka multi-shard destination,
+Pulsar multi-shard destination, Kafka MinIO timeout-after-Commit, and Pulsar
+MinIO 503-after-Commit. All four child cases exited 0 with `PASS_BOUNDED`,
+case invariants PASS, real Gateway/Oxia/Broker/Worker/MinIO receipts and
+exact per-case Docker cleanup. The wrapper measured 269 seconds of child
+runtime and 274 seconds overall, 36 resource samples with an 8-second maximum
+gap, process peak RSS `1003392 KiB`, process peak FD count `1151`, and an
+empty exact Docker postcheck.
+
+The profile policy required one cycle, at least 240 seconds, maximum sample
+gap 15 seconds, RSS `16777216 KiB`, FD `262144` and artifact bytes
+`8589934592`. This is a harness-integration receipt, not the V1 release soak:
+§23.5 still requires a release-approved profile whose duration covers the
+longest configured checkpoint/floor/retry/uncertainty/GC interaction cycle.
+The release gate now additionally requires the certified-soak schema,
+complete policy/observations/coverage receipt and an explicitly supplied
+approved profile id; this profile is deliberately not supplied to that gate.
+Capacity, full chaos, activation/cutover, operations authorization,
+upgrade/downgrade and disaster continuity remain independent blockers.
+
+The run removed all matching run-scoped containers, networks, volumes and
+generated provider images. Related-image inspection retained only the
+canonical Oxia image `nereus/oxia-o1:37a17bef1720` and the locked MinIO base
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z`; no global Docker prune or
+unrelated-image deletion was used.

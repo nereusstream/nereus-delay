@@ -8173,3 +8173,32 @@ It records clean Delay `830fce40c77c52a3a8b25d657355db9abee851c4`, K1
 cross-repository and Gradle checks. The design remains non-promoted at
 `release_status=NOT_READY`; bounded runtime evidence is not
 `PASS_CERTIFIED`. This append does not refresh the r29 source lock.
+
+### 2026-08-17 Certified production-chain authority harness
+
+The certified wrapper
+`e2e/run-certified-production-chain-soak.sh` was exercised against the
+current four-repository candidate. Receipt:
+`/tmp/nereus-delay-certified-soak-harness-20260817-r5/certified-production-chain-soak.json`;
+profile: `harness-integration-production-chain-r1`; status:
+`PASS_CERTIFIED` for that explicit harness profile. The source locks are Delay
+`8f6fddd4c3e626a90bbe73be1360398c78114065`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The wrapper composes the four real authority cases in strict sequence and
+records source locks, child status, mode/count invariants, process-tree
+RSS/FD samples, measured coverage, duration and exact run-scoped Docker
+cleanup. The successful receipt has 4/4 cases, 269 seconds child runtime,
+36 samples, maximum sample gap 8 seconds, peak RSS `1003392 KiB`, peak FDs
+`1151`, and empty matching container/network/volume/generated-image arrays.
+
+This contract deliberately separates “certified under a named harness
+policy” from V1 release promotion. The release gate requires this schema,
+the measured coverage fields and a separately supplied approved profile id;
+the integration profile above is not approved release evidence. It therefore
+does not close the §23.5 longest-cycle soak or capacity, complete chaos,
+activation/cutover, operations, upgrade/downgrade or disaster boundaries.
+Generated run images were removed exactly; the locked MinIO and canonical
+Oxia bases were retained, with no global Docker prune.

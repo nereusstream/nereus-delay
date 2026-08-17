@@ -6131,3 +6131,38 @@ Delay `830fce40c77c52a3a8b25d657355db9abee851c4`, K1
 `release_status=NOT_READY`; bounded soak evidence is not a
 `PASS_CERTIFIED` substitute. This README append does not refresh the r29
 source lock.
+
+## Certified production-chain soak harness
+
+`run-certified-production-chain-soak.sh` wraps the bounded four-case runner
+with an explicit profile, strict sequential execution, process RSS/FD and
+artifact-size observations, measured sample coverage, duration and exact
+Docker postchecks. It refuses to start when the profile or numeric policy is
+missing, and it emits `PASS_CERTIFIED` only for the exact recorded profile and
+four-repository source lock.
+
+The current harness-integration receipt is:
+
+```text
+/tmp/nereus-delay-certified-soak-harness-20260817-r5/certified-production-chain-soak.json
+```
+
+It reports `PASS_CERTIFIED` for profile
+`harness-integration-production-chain-r1`, with Delay
+`8f6fddd4c3e626a90bbe73be1360398c78114065`, Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. One cycle passed Kafka and
+Pulsar multi-shard destination egress plus Kafka timeout-after-Commit and
+Pulsar 503-after-Commit real MinIO cases. Child runtime was 269 seconds with
+36 samples and an 8-second maximum sample gap; process peak RSS was
+`1003392 KiB`, peak FD count `1151`, and all exact cleanup arrays were empty.
+
+This profile is explicitly harness integration evidence, not V1 release
+approval. The release gate requires the certified schema, policy/coverage
+observations and `NEREUS_DELAY_RELEASE_GATE_CERTIFIED_SOAK_PROFILE_ID` to
+match an approved release profile. The §23.5 longest checkpoint/floor/retry/
+uncertainty/GC soak, capacity, full chaos, activation, operations,
+upgrade/downgrade and disaster gates remain separate. Generated run images
+are removed; the locked MinIO base and canonical Oxia image are retained, and
+no global Docker prune is used.

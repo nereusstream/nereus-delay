@@ -12811,3 +12811,31 @@ Audit result: `release_status=NOT_READY` remains correct. The bounded soak
 does not satisfy the separate `PASS_CERTIFIED` capacity, soak, activation,
 operations or chaos requirements. This documentation append does not refresh
 the r29 runtime source lock.
+
+### 2026-08-17 Certified production-chain harness integration audit
+
+The source-locked certified wrapper receipt is
+`/tmp/nereus-delay-certified-soak-harness-20260817-r5/certified-production-chain-soak.json`.
+It reports `PASS_CERTIFIED` under the explicit non-release profile
+`harness-integration-production-chain-r1`, with Delay
+`8f6fddd4c3e626a90bbe73be1360398c78114065`, Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+One strictly serial cycle passed Kafka/Pulsar multi-shard destination egress
+and the Kafka/Pulsar post-Commit MinIO uncertainty cases. Child exit,
+source-locked bounded artifact, four-case mode/count invariants, process
+monitor, duration, resource coverage and exact Docker postcheck all passed.
+The 269-second child run produced 36 resource samples, an 8-second maximum
+sample gap, peak RSS `1003392 KiB` and peak FD count `1151`.
+
+Audit boundary: this is real current-source production-chain and harness
+evidence, but not V1 release approval. The one-cycle harness profile does not
+prove the §23.5 longest configured checkpoint/floor/retry/uncertainty/GC
+period, and it does not close capacity, full §23.3 chaos, activation,
+operations, upgrade/downgrade or disaster continuity. The release gate now
+rejects a certified receipt unless its schema and coverage observations are
+valid and an approved profile id is explicitly supplied. Exact cleanup
+retained the locked MinIO base and canonical Oxia image only; no global prune
+or unrelated image deletion was performed.

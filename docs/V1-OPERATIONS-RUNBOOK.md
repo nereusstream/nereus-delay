@@ -697,3 +697,45 @@ passing full Gradle check for the four repositories. The decision remains
 `release_status=NOT_READY`: no `PASS_CERTIFIED` capacity, soak, activation,
 operations or chaos artifacts were supplied. The r29 artifact predates this
 runbook append, so the append does not refresh its source lock.
+
+## 27. Current-source certified production-chain harness integration
+
+Run this wrapper only with an explicit policy. The following receipt is a
+harness-integration profile, not an approved V1 release profile:
+
+```bash
+NEREUS_DELAY_CERTIFIED_SOAK_PROFILE_ID=harness-integration-production-chain-r1 \
+NEREUS_DELAY_CERTIFIED_SOAK_REQUIRED_CYCLES=1 \
+NEREUS_DELAY_CERTIFIED_SOAK_CYCLES=1 \
+NEREUS_DELAY_CERTIFIED_SOAK_REQUIRED_DURATION_SECONDS=240 \
+NEREUS_DELAY_CERTIFIED_SOAK_MAX_PROCESS_RSS_KIB=16777216 \
+NEREUS_DELAY_CERTIFIED_SOAK_MAX_PROCESS_FDS=262144 \
+NEREUS_DELAY_CERTIFIED_SOAK_MAX_ARTIFACT_BYTES=8589934592 \
+NEREUS_DELAY_CERTIFIED_SOAK_RESOURCE_SAMPLE_INTERVAL_SECONDS=5 \
+NEREUS_DELAY_CERTIFIED_SOAK_MAX_SAMPLE_GAP_SECONDS=15 \
+NEREUS_DELAY_CERTIFIED_SOAK_BASE_PORT=40100 \
+NEREUS_DELAY_CERTIFIED_SOAK_ARTIFACT_DIR=/tmp/nereus-delay-certified-soak-harness-20260817-r5 \
+NEREUS_DELAY_CERTIFIED_SOAK_GRADLE_USER_HOME=/tmp/nereus-delay-certified-soak-gradle-harness-r1 \
+bash e2e/run-certified-production-chain-soak.sh
+```
+
+The canonical artifact is
+`/tmp/nereus-delay-certified-soak-harness-20260817-r5/certified-production-chain-soak.json`.
+It reports `PASS_CERTIFIED` for the named profile, locks Delay
+`8f6fddd4c3e626a90bbe73be1360398c78114065`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, and covers all four serial
+Kafka/Pulsar destination and MinIO post-Commit cases. Child runtime was 269
+seconds; 36 samples were collected with an 8-second maximum gap, peak RSS was
+`1003392 KiB`, peak FD count `1151`, and all exact cleanup/postcheck fields
+were empty/pass.
+
+The runner removes only matching Compose projects, labeled resources and
+generated provider images. The locked MinIO base and canonical Oxia image are
+retained for subsequent real-service runs. Do not run `docker system prune`,
+`docker image prune`, broad image globs or unrelated-image deletion. The
+release gate still requires an explicitly supplied approved profile id and
+independent capacity, full chaos, activation, operations, upgrade/downgrade
+and disaster receipts; this one-cycle harness profile does not close those
+gates or the §23.5 longest-cycle requirement.
