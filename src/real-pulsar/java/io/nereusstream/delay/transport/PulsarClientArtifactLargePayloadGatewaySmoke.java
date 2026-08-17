@@ -492,7 +492,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         createMissedPartitions(client, guardAdminUrls, topicBase);
         for (int partition = 0; partition < partitionCount; partition++) {
             stampGuard(client, guardAdminUrls,
-                    "persistent://public/default/" + topicBase + "-partition-" + partition,
+                    topicBase + "-partition-" + partition,
                     incarnation, creationTimestamp);
         }
     }
