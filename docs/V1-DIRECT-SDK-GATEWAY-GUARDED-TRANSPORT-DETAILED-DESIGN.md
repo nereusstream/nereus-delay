@@ -7701,6 +7701,31 @@ remain separate gates. Run-created Kafka resources and the generated image were
 removed exactly; locked Oxia/MinIO bases were retained and no global Docker
 prune was used.
 
+### 2026-08-17 Source-ordered Protocol Version activation binding
+
+Delay `1c924f479c284161771c24b013622f645c4fab06` adds the first runtime
+binding for Registry kind-1 Protocol Version activation. The shard persists a
+canonical `ProtocolActivationStateV1` at `meta/FIXED` key 14 / ValueEnvelope
+type 11. Its marker entries retain the exact tuple, canonical schema hash,
+compatible-reader-set evidence hash, source position and System Mutation ID;
+the state digest and shard subject are checked on reopen.
+
+Kind-14 Initial Route control writes an empty activation state beside the
+compatible control snapshot, result and source cursor in one synchronous
+WriteBatch. Kind-1 requires the tuple to be listed in the current compatible
+reader snapshot and atomically records its source-ordered marker evidence.
+Managed Command V1 remains the compatibility baseline; a different tuple is
+position-level `UNACTIVATED_PROTOCOL_VERSION` until its marker is applied.
+The command gate also retains the explicit
+`UNSUPPORTED_ACTIVATED_PROTOCOL` mapping for an activated tuple no longer
+present in the reader snapshot.
+
+The focused state/codec, Initial Route regression, marker gate and restart
+tests passed, along with full Gradle `check` and the cross-repository contract
+validator. This is still a local source-ordered projection: authenticated
+multi-Worker eligible-reader rollout, writer-before-reader orchestration,
+downgrade/release packaging and a certified activation artifact remain open.
+
 ### 2026-08-17 Current-source canonical chaos and release-gate binding
 
 Delay `fe62065750f86b607d4c395afd52197e3cb31008`, K1

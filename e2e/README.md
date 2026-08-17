@@ -5444,3 +5444,31 @@ Both runners remove their exact project resources and generated images. The
 canonical rerun left no related containers, networks or volumes and no
 run-created Kafka/Pulsar/Oxia/Gateway image IDs; locked Oxia/MinIO bases remain.
 Do not use a global Docker prune for this workflow.
+
+## Source-ordered Protocol Version activation projection
+
+Delay commit `1c924f479c284161771c24b013622f645c4fab06` implements the local
+source-ordered kind-1 activation projection. `ProtocolActivationStateV1` is
+stored at `meta/FIXED` key 14 with ValueEnvelope type 11 and retains the exact
+tuple, schema hash, compatible-reader-set evidence hash, marker source
+position and System Mutation ID. Kind-14 Initial Route control creates the
+empty projection atomically with the key-10 control snapshot, result and
+source cursor.
+
+The focused test command is:
+
+```bash
+GRADLE_USER_HOME=/tmp/nereus-delay-protocol-activation-gradle-20260817-r1 \
+./gradlew test \
+  --tests io.nereusstream.delay.protocol.ProtocolActivationStateV1Test \
+  --tests io.nereusstream.delay.runtime.InitialRouteControlApplyTest \
+  --tests io.nereusstream.delay.runtime.ProtocolVersionActivationApplyTest \
+  --no-daemon --console=plain
+```
+
+The current receipt passed state canonical round-trip, source-ordered marker
+apply, pre-marker `UNACTIVATED_PROTOCOL_VERSION`, post-marker command apply,
+and restart recovery. This is a local activation/cutover binding, not a
+certified external Worker rollout or downgrade/release artifact. The V1 gate
+continues to require `PASS_CERTIFIED` activation, soak, benchmark and
+operations evidence.

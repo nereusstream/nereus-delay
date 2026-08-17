@@ -10908,6 +10908,31 @@ REAPING, full chaos or V1 release readiness. Exact postchecks found no project
 resources or matching P1 image; the locked MinIO base remained and no global
 Docker prune was used.
 
+### 2026-08-17 Source-ordered Protocol Version activation projection audit
+
+Delay `1c924f479c284161771c24b013622f645c4fab06` implements the runtime
+projection for Registry kind-1 Protocol Version activation. The new canonical
+`ProtocolActivationStateV1` is shard-bound and persisted at `meta/FIXED` key
+14 / ValueEnvelope type 11. Each marker retains its tuple, schema digest,
+compatible-reader-set evidence digest, exact source position and System
+Mutation ID; the state has a canonical digest and is decoded/revalidated on
+restart.
+
+Kind-14 Initial Route control creates the empty state atomically with key-10
+control snapshot, mutation result and source cursor. Kind-1 apply requires the
+tuple to be present in that current compatible-reader snapshot, then commits
+the marker evidence, result and cursor in one synchronous batch. The command
+path preserves the managed V1 baseline, rejects an unmarked well-framed tuple
+with `UNACTIVATED_PROTOCOL_VERSION`, and exposes the unsupported-activated
+mapping when a marked tuple is absent from the current reader snapshot.
+
+Audit result: PASS for the source-ordered local activation/cutover projection,
+focused codec/apply/restart tests, full Gradle `check` and cross-repository
+contract validation. This does not establish authenticated eligible-Worker
+rollout, writer-before-reader deployment orchestration, downgrade/release
+packaging or a certified activation artifact. V1 remains `NOT_READY` until
+those external authority and release-gate receipts exist.
+
 ## 2026-08-17 Current-source Pulsar Worker JVM process-crash recovery audit
 
 The current-source audit locks Delay to

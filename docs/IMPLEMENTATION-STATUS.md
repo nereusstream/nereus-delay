@@ -15380,3 +15380,30 @@ absent after cleanup; only locked reusable Oxia
 and MinIO
 `sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`
 remained. No global Docker prune was used.
+
+## 2026-08-17 Source-ordered Protocol Version activation projection
+
+Delay commit `1c924f479c284161771c24b013622f645c4fab06` implements the first
+runtime slice behind the Registry kind-1 `ProtocolVersionActivatePayloadV1`.
+`ProtocolActivationStateV1` is a canonical, shard-bound projection persisted
+under `meta/FIXED` key 14 / ValueEnvelope type 11. It records each activated
+tuple, schema hash, compatible-reader-set evidence hash, exact marker source
+position and System Mutation ID, with a state digest and strict restart
+validation.
+
+Kind-14 Initial Route control now creates the empty activation projection in
+the same synchronous WriteBatch as the compatible control snapshot, mutation
+result and source cursor. A kind-1 marker can add only a tuple already present
+in the current compatible-reader snapshot; the marker evidence, result and
+source position commit atomically. Managed Command V1 remains the explicit
+initial compatibility baseline. Other well-framed tuples before their marker
+persist `UNACTIVATED_PROTOCOL_VERSION`; a marked tuple absent from the current
+reader snapshot maps to `UNSUPPORTED_ACTIVATED_PROTOCOL`.
+
+Focused codec, kind-14 regression, marker gate and restart tests passed, as did
+the full Gradle `check` (`BUILD SUCCESSFUL`, 2m27s) and the cross-repository
+contract validator. This is a source-ordered local activation projection and
+cutover gate, not yet authenticated multi-Worker rollout, downgrade/release
+packaging or a `PASS_CERTIFIED` activation artifact. The V1 release gate
+therefore remains `NOT_READY`; real Oxia/Broker activation/cutover evidence and
+certified soak/operations/benchmark artifacts remain separate obligations.
