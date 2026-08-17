@@ -15264,3 +15264,28 @@ cuts, target isolation, the remaining chaos matrix, benchmark/soak and V1
 release proof remain open. Exact postchecks found no project containers,
 networks, volumes, listeners or generated image; no global Docker prune was
 used.
+
+## 2026-08-17 Current-source 13-cell bounded chaos matrix
+
+The clean current-source matrix used Delay `80fdb63d3512be8fcb3af51c7f9e0aa5bba9382f`, Kafka K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. `e2e/run-bounded-chaos-matrix.sh` completed with artifact directory `/tmp/nereus-delay-chaos-current-20260817-r2`, and all 13 focused cells returned zero:
+
+```text
+kafka-broker-process-crash=0
+kafka-worker-ack-process-crash=0
+kafka-broker-tcp-cut=0
+kafka-broker-network-partition=0
+pulsar-worker-process-crash=0
+pulsar-multi-broker-process-crash=0
+pulsar-worker-admission-response-loss=0
+checkpoint-reaping=0
+kafka-fetch-response-loss=0
+kafka-retention-floor=0
+pulsar-destination-response-loss=0
+pulsar-source-ack-response-loss=0
+gateway-oxia-session-churn=0
+matrix_status=0
+```
+
+The receipts cover real Kafka Broker process/TCP/network cuts, real Pulsar multi-Broker process failover, Worker process/ACK response-loss replay, real Oxia plus MinIO checkpoint REAPING, Kafka read-committed Fetch response loss and retention floor, Pulsar destination/source response loss, and Gateway/Oxia session expiry. This is a current-source bounded chaos PASS, not a V1 release gate: catalog-driven production placement, target isolation, controller/coordinator/storage/provider failover, full large-payload fault coverage, benchmark/soak, activation/cutover and release certification remain open.
+
+Exact postchecks found no matrix containers, networks, project volumes, listeners or generated `nereus-delay`/K1/P1/Oxia images. The only related reusable images retained were locked Oxia `sha256:5aa715e4f19091931743e5af489af5f8d6ee15efcce6430a908c6f65cc6d6516` and locked MinIO `sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`; pre-existing unlabelled `pulsarconf`/`pulsardata` volumes were not touched because they were not created by this matrix. No global Docker prune was used.

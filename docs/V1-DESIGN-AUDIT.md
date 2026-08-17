@@ -12173,3 +12173,9 @@ recovery reread. This does not prove transparent reconnect, multi-process
 Gateway HA, controller/coordinator/provider failover, target isolation, the
 complete §23.3 matrix, benchmark/soak or V1 release readiness. Exact cleanup
 removed the generated Oxia image and all project resources.
+
+### 2026-08-17 Current-source 13-cell bounded chaos matrix audit
+
+Delay `80fdb63d3512be8fcb3af51c7f9e0aa5bba9382f`, K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484` passed all 13 cells in `e2e/run-bounded-chaos-matrix.sh`; the matrix artifact is `/tmp/nereus-delay-chaos-current-20260817-r2` and `matrix_status=0`.
+
+Audit result: PASS for the bounded current-source chaos matrix, including Broker/Worker crash and network cuts, response-loss replay, Kafka LSO/retention recovery, Pulsar multi-Broker failover, Checkpoint REAPING and Gateway/Oxia session expiry. It is not full production chaos or a V1 release PASS. Catalog placement, target isolation, controller/coordinator/storage/provider cuts, full large-payload fault coverage, benchmark/soak, activation/cutover and release certification remain unproven. Exact cleanup removed all run-created resources and images; locked Oxia/MinIO bases were retained.

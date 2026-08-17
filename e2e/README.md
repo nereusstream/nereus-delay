@@ -5325,3 +5325,28 @@ provider failover, target isolation, full chaos, benchmark/soak or V1 release
 readiness. The runner cleanup now removes its exact generated Oxia image as
 well as the Compose project; postchecks found no project resource, listener or
 temporary image, and no global Docker prune was used.
+
+## Current-source 13-cell bounded chaos matrix
+
+The clean current-source run used Delay `80fdb63d3512be8fcb3af51c7f9e0aa5bba9382f`, K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. Running `e2e/run-bounded-chaos-matrix.sh` produced `/tmp/nereus-delay-chaos-current-20260817-r2` and returned `matrix_status=0` for all 13 cells:
+
+```text
+kafka-broker-process-crash=0
+kafka-worker-ack-process-crash=0
+kafka-broker-tcp-cut=0
+kafka-broker-network-partition=0
+pulsar-worker-process-crash=0
+pulsar-multi-broker-process-crash=0
+pulsar-worker-admission-response-loss=0
+checkpoint-reaping=0
+kafka-fetch-response-loss=0
+kafka-retention-floor=0
+pulsar-destination-response-loss=0
+pulsar-source-ack-response-loss=0
+gateway-oxia-session-churn=0
+matrix_status=0
+```
+
+This is a bounded current-source chaos receipt, not release certification. It covers real Broker/Worker cuts, response-loss replay, Kafka LSO/retention, Pulsar multi-Broker failover, Checkpoint REAPING and Gateway/Oxia session expiry. Catalog placement, target isolation, controller/coordinator/storage/provider failover, full large-payload fault coverage, benchmark/soak, activation/cutover and V1 release gates remain open.
+
+Postchecks found no matrix containers, networks, project volumes, listeners or generated related images. Locked Oxia and MinIO images were retained as reusable bases; pre-existing unlabelled `pulsarconf`/`pulsardata` volumes were left untouched because they were outside this run's ownership. No global Docker prune was used.
