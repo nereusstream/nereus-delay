@@ -12361,3 +12361,16 @@ it cannot satisfy `PASS_CERTIFIED` or V1 release readiness. The exact Compose
 project `nereus-delay-oxia-minio-checkpoint-e2e-1786938487-94600` left no
 containers, networks, volumes, listeners or generated Oxia image; locked
 MinIO/Oxia bases remain and no global Docker prune was used.
+
+### 2026-08-17 Current-source release-gate rerun with operations receipt
+
+The clean-source gate artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r6/v1-release-candidate-gate.json`
+at Delay `d405d2fa00bcaf99a0d34c892291ea0a425d4c47`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Source, contract and full Gradle
+checks passed. The result is still `NOT_READY`: capacity is `PARTIAL`, the
+activation, operations and chaos artifacts are `PASS_BOUNDED`, and certified
+soak is absent. The gate correctly records operations as blocked until an
+independently authorized `PASS_CERTIFIED` artifact is supplied.

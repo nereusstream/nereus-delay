@@ -15530,3 +15530,19 @@ The exact checkpoint Compose project was
 containers, networks, volumes, listeners or generated Oxia image. The locked
 MinIO image digest `sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
 and existing locked Oxia base were retained. No global Docker prune was used.
+
+## 2026-08-17 Current-source release-gate rerun with bounded operations receipt
+
+The clean-source gate artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r6/v1-release-candidate-gate.json`
+at Delay `d405d2fa00bcaf99a0d34c892291ea0a425d4c47`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Source cleanliness,
+cross-repository validation and full Gradle `check` passed.
+
+The fail-closed result remains `release_status=NOT_READY`: capacity is
+`PARTIAL`, activation, operations and chaos are `PASS_BOUNDED`, and certified
+soak is absent. The new operations receipt is recorded but remains blocked by
+the required `PASS_CERTIFIED` status. `ALLOW_NOT_READY=1` only emits the audit
+artifact and is not a promotion override. The gate itself used no Docker.

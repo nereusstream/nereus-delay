@@ -217,6 +217,12 @@ no related containers, networks, volumes, listeners or generated Oxia image.
 The locked MinIO/Oxia bases were retained. The runner performs only exact
 run-scoped cleanup and never invokes global Docker prune.
 
+The subsequent source-locked gate artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r6/v1-release-candidate-gate.json`
+at Delay `d405d2fa00bcaf99a0d34c892291ea0a425d4c47`. Source, contract and full
+Gradle checks passed, but the gate records this operations receipt as blocked
+because `PASS_BOUNDED` is not `PASS_CERTIFIED`; Gate 9 remains `OPEN`.
+
 Current status is `PARTIAL`: bounded state-machine and real checkpoint/failover
 receipts now exist, but no single release-candidate run has executed all five
 sections with fresh-process disaster continuity, external operator

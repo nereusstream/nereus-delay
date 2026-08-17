@@ -5610,3 +5610,23 @@ retains only the locked MinIO/Oxia bases. No global Docker prune is used.
 The release gate can record this artifact, but it must remain blocked until the
 artifact is independently promoted to `PASS_CERTIFIED` with exact current
 four-repository source locks and the required operations authority evidence.
+
+The current-source gate rerun with this bounded operations artifact is:
+
+```bash
+NEREUS_DELAY_RELEASE_GATE_ARTIFACT_DIR=/tmp/nereus-delay-v1-release-gate-20260817-r6 \
+NEREUS_DELAY_RELEASE_GATE_GRADLE_USER_HOME=/tmp/nereus-delay-protocol-activation-full-check-20260817-r1 \
+NEREUS_DELAY_RELEASE_GATE_CHAOS_ARTIFACT=/tmp/nereus-delay-chaos-release-20260817-r1/bounded-chaos-matrix.json \
+NEREUS_DELAY_RELEASE_GATE_CAPACITY_ARTIFACT=/tmp/nereus-delay-capacity-matrix-current-20260817-r4/capacity-benchmark-matrix.json \
+NEREUS_DELAY_RELEASE_GATE_ACTIVATION_ARTIFACT=/tmp/nereus-delay-protocol-activation-cutover-20260817-r1/protocol-activation-cutover.json \
+NEREUS_DELAY_RELEASE_GATE_OPERATIONS_ARTIFACT=/tmp/nereus-delay-operations-20260817-r2/operations-drills.json \
+NEREUS_DELAY_RELEASE_GATE_RUN_CHECK=1 \
+NEREUS_DELAY_RELEASE_GATE_ALLOW_NOT_READY=1 \
+bash e2e/run-v1-release-gate.sh
+```
+
+It produced `release_status=NOT_READY` at Delay
+`d405d2fa00bcaf99a0d34c892291ea0a425d4c47`: source/contract/full-check PASS,
+operations recorded but blocked as `PASS_BOUNDED`, capacity `PARTIAL`, chaos
+bounded, activation bounded and certified soak missing. The gate used no
+Docker and `ALLOW_NOT_READY=1` only retained the negative audit.
