@@ -5234,3 +5234,37 @@ new metadata key and shares one Store WriteBatch with the mutation result and
 Source Position. This is not a real Broker/Oxia/Gateway E2E and does not close
 kind-1 protocol activation, eligible-reader cutover, downgrade or V1 release
 gates. No Docker resources or images are created by this regression.
+
+## Current-source bounded Linux platform capacity probe
+
+The bounded capacity/SLO probe can also run inside a pinned Linux container so
+the platform portion sees real cgroup v2, procfs, rlimit and filesystem
+authority:
+
+```bash
+NEREUS_DELAY_CAPACITY_CONTAINER_ARTIFACT_DIR=/tmp/nereus-delay-capacity-linux-20260817-r2 \
+NEREUS_DELAY_CAPACITY_CONTAINER_GRADLE_USER_HOME=/Users/liusinan/.gradle \
+  bash e2e/run-bounded-capacity-slo-container-probe.sh
+```
+
+At Delay `84003e7aa55b7a5278cab45b606b941cdef3bcec`, the runner used
+`eclipse-temurin@sha256:57865c22b954cf920cb05a610af81d577e89783282514ba071e99c7357f6c769`
+on Linux aarch64 with a 2 GiB memory cgroup, 2 CPUs, a 65536 FD limit and an
+`exec` 4 GiB temporary filesystem. It completed with `BUILD SUCCESSFUL in
+18s` and wrote a JSON-valid artifact at
+`/tmp/nereus-delay-capacity-linux-20260817-r2/bounded-capacity-slo-probe.json`.
+
+The platform probe was `AVAILABLE`: JVM heap `536870912`, direct memory
+`268435456`, process RSS `216797184`, cgroup memory `2147483648`, max open
+files `65536`, current open files `97`, filesystem `4294967296` and usable
+filesystem `4279943168`. The store still verified 16 records at each of
+`256/4096/65536` bytes and persistent reopen; the SLO outbox exported and
+reopened 24 durable samples. The artifact remains `PARTIAL` by design because
+this is a bounded platform receipt, not the required size/burst/Lane/shard/
+restore benchmark campaign or long-cycle soak. Gate 6 still requires the
+complete certified envelope, reserve/fairness, adapter/zombie and durable SLO
+capacity evidence.
+
+The run used no application network, Broker, Oxia or MinIO resources. The
+temporary JDK image was removed after the receipt's exact postcheck; the
+locked Oxia and MinIO bases were retained. No global Docker prune was used.

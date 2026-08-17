@@ -15180,3 +15180,28 @@ assignment, writer-before-reader cutover, downgrade/release artifact, and the
 external Oxia control-operation/Worker authority remain open. Gate 8 therefore
 remains `PARTIAL` and V1 remains `NOT READY`. No Docker resource was used or
 changed for this slice.
+
+## 2026-08-17 Bounded Linux platform capacity receipt
+
+Commit `c024919c4febb2aff5f5d547c09db33f1e0e3309` fixes the bounded capacity
+artifact producer so an available platform probe emits valid JSON, including a
+comma between the authority and its measurements and native JSON booleans for
+the reopen flags. Commit `84003e7aa55b7a5278cab45b606b941cdef3bcec` adds the
+source-locked container runner `e2e/run-bounded-capacity-slo-container-probe.sh`.
+
+The runner was executed from the clean Delay source with
+`eclipse-temurin@sha256:57865c22b954cf920cb05a610af81d577e89783282514ba071e99c7357f6c769`
+on Linux aarch64. The bounded container was limited to 2 GiB memory, 2 CPUs,
+65536 open files and a 4 GiB executable temporary filesystem. The test passed
+with `BUILD SUCCESSFUL in 18s`, the artifact passed `jq empty`, and
+`WorkerRuntimeResourceProbe` returned `AVAILABLE` for JVM heap/direct memory,
+RSS, cgroup memory, FD and filesystem observations. It verified the bounded
+RocksDB payload/reopen path at 256/4096/65536 bytes and 24 durable SLO
+Start/Final outbox/collector samples.
+
+This closes the previously unavailable Linux platform-observation sub-boundary
+of Gate 6 only. The artifact remains `PARTIAL`; required benchmark dimensions,
+certified resource/reserve/fairness formulas, multi-Worker placement, restore
+throughput, adapter/zombie capacity and long-cycle SLO/soak evidence remain
+open. The temporary JDK image was removed after exact postchecks; locked Oxia
+and MinIO bases were retained and no global Docker prune was used.

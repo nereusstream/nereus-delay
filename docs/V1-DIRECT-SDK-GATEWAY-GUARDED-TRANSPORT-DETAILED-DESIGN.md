@@ -7605,3 +7605,23 @@ does not yet supply kind-1 Protocol Version activation, eligible-reader
 assignment, writer-before-reader cutover, downgrade/release packaging or
 external Oxia/Worker rollout authority; those remain explicit Gate 8 and V1
 release boundaries. No Docker run is required for this local Store slice.
+
+### 2026-08-17 Bounded Linux platform resource receipt
+
+The capacity evidence producer now emits JSON-valid `AVAILABLE` platform
+objects when all authority fields are present, and its reopen markers are JSON
+booleans. The repeatable runner is
+`e2e/run-bounded-capacity-slo-container-probe.sh`. At Delay
+`84003e7aa55b7a5278cab45b606b941cdef3bcec`, it ran the bounded probe in
+`eclipse-temurin@sha256:57865c22b954cf920cb05a610af81d577e89783282514ba071e99c7357f6c769`
+with 2 GiB cgroup memory, 2 CPUs, 65536 FDs and an executable 4 GiB temporary
+filesystem. `WorkerRuntimeResourceProbe` observed the JVM, RSS, cgroup, rlimit
+and filesystem authorities; the RocksDB/reopen and 24-sample durable SLO
+checks passed.
+
+This is a platform-observation receipt, not a capacity or V1 release PASS. It
+does not establish the required broker throughput, size/burst/Lane/shard/
+restore benchmark matrix, reserve/fairness or adapter/zombie capacity,
+multi-Worker placement, or long-cycle soak. The temporary JDK image was
+removed after the exact run; locked Oxia/MinIO bases remain the only related
+reusable bases.

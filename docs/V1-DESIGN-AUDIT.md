@@ -12123,3 +12123,21 @@ state, authenticated eligible-reader assignment, writer-before-reader
 cutover, downgrade/release artifact, Oxia control-operation authority or a
 real Worker rollout. Gate 8 remains `PARTIAL`; V1 remains `NOT READY`. The
 slice used no Docker resources and retained all locked base images.
+
+### 2026-08-17 Bounded Linux platform capacity audit
+
+The bounded capacity artifact producer was corrected at Delay
+`c024919c4febb2aff5f5d547c09db33f1e0e3309`, and the repeatable container
+runner was added at `84003e7aa55b7a5278cab45b606b941cdef3bcec`. A clean source-
+locked run used the pinned `eclipse-temurin@sha256:57865c22b954cf920cb05a610af81d577e89783282514ba071e99c7357f6c769`
+Linux aarch64 image with 2 GiB cgroup memory, 2 CPUs, 65536 FDs and an exec
+4 GiB `/tmp`. The test passed in 18 seconds, the JSON artifact parsed
+successfully, and `WorkerRuntimeResourceProbe` reported bounded JVM,
+procfs/cgroup, rlimit and filesystem values. RocksDB payload readback/reopen
+and 24 durable SLO outbox/collector samples also passed.
+
+Audit result: PASS for the platform-observation sub-boundary only. The report
+is still `PARTIAL`, not a Gate 6 certification: the required benchmark matrix,
+multi-Worker placement, restore throughput, reserve/fairness, adapter/zombie,
+durable SLO capacity and long-cycle soak remain unproven. The temporary JDK
+image was removed after exact cleanup; locked Oxia/MinIO bases were retained.
