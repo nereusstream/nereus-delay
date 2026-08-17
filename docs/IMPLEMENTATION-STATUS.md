@@ -15908,3 +15908,33 @@ cross-repository validation and full Gradle `check` are `PASS`. The gate is
 still intentionally `release_status=NOT_READY`: capacity is `PARTIAL`, no
 certified soak artifact is supplied, and activation/cutover, operations and
 chaos are `PASS_BOUNDED`, not `PASS_CERTIFIED`.
+
+## 2026-08-17 Current-source bounded Linux capacity refresh
+
+At Delay `0f04415e3c8abcf17952ae3f5c5e4796bb797831`,
+`e2e/run-bounded-capacity-matrix.sh` produced
+`/tmp/nereus-delay-capacity-matrix-current-20260817-r9/capacity-benchmark-matrix.json`
+with `status=PARTIAL` and `matrix_status=PASS_BOUNDED`. The pinned Linux
+image was `eclipse-temurin@sha256:57865c22b954cf920cb05a610af81d577e89783282514ba071e99c7357f6c769`
+(`sha256:c323c2d540b9a7272d99e6a6e819144e5ee3b2c25ac0efa1c171da460960003c`).
+Smoke, burst and sustained cases covered 256/4096/65536-byte payloads with
+16/256/1024 records and 24/128/512 SLO samples; every case passed synchronous
+Store readback/reopen and durable SLO collector reopen.
+
+This remains bounded local Store/SLO evidence. It does not certify Broker
+throughput, Lane/shard or Worker placement, 1M/10M/100M records,
+compaction/restore throughput, inline/object flow, or long-cycle soak. The
+runner removed the pulled JDK image and left no run container; no global Docker
+prune was used.
+
+## 2026-08-17 Current-source r20 release gate after capacity refresh
+
+The source-locked gate is
+`/tmp/nereus-delay-v1-release-gate-20260817-r20/v1-release-candidate-gate.json`
+at Delay `0f04415e3c8abcf17952ae3f5c5e4796bb797831`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Source, contract and full Gradle
+checks are `PASS`; the release decision remains `NOT_READY` because capacity
+is `PARTIAL`, soak is missing, and activation/cutover, operations and chaos
+are bounded rather than `PASS_CERTIFIED`.

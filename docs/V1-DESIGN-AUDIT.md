@@ -12614,3 +12614,32 @@ Gateway/Oxia/Broker/Worker/MinIO receipts are accepted as production-chain
 evidence, but do not provide the required certified benchmark envelope,
 fresh-process disaster/operator sign-off, writer-before-reader rollout or
 full production chaos artifact.
+
+### 2026-08-17 Current-source bounded Linux capacity refresh
+
+The clean Delay source `0f04415e3c8abcf17952ae3f5c5e4796bb797831` produced
+`/tmp/nereus-delay-capacity-matrix-current-20260817-r9/capacity-benchmark-matrix.json`
+from the pinned Linux image
+`eclipse-temurin@sha256:57865c22b954cf920cb05a610af81d577e89783282514ba071e99c7357f6c769`.
+The smoke, burst and sustained cases all passed Store readback/reopen and
+durable SLO collector reopen; the artifact correctly reports
+`status=PARTIAL` / `matrix_status=PASS_BOUNDED`.
+
+Audit result: PASS for this bounded local Store/SLO capacity sub-boundary.
+Gate 5/6 are not promoted: Broker throughput, Lane/shard/Worker placement,
+large-record scale, compaction/restore, inline/object flow, adapter/zombie
+envelopes, durable SLO capacity and long-cycle soak remain unproven. The
+temporary pinned image was removed by the runner and no global Docker prune
+was used.
+
+### 2026-08-17 Current-source r20 release gate
+
+The source-locked artifact
+`/tmp/nereus-delay-v1-release-gate-20260817-r20/v1-release-candidate-gate.json`
+passes source cleanliness, cross-repository contracts and full Gradle check at
+Delay `0f04415e3c8abcf17952ae3f5c5e4796bb797831`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The explicit audit result stays
+`NOT READY`: capacity is `PARTIAL`, certified soak is absent, and bounded
+activation, operations and chaos artifacts are not promotable.

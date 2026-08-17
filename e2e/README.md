@@ -5910,6 +5910,23 @@ Postchecks found no run-owned Compose containers, volumes, networks or
 generated images. The locked MinIO base and unrelated `alpine:3.17` were
 retained; no global Docker prune or unrelated image deletion was used.
 
+## Current-source bounded capacity refresh and r20 gate
+
+At Delay `0f04415e3c8abcf17952ae3f5c5e4796bb797831`,
+`e2e/run-bounded-capacity-matrix.sh` produced
+`/tmp/nereus-delay-capacity-matrix-current-20260817-r9/capacity-benchmark-matrix.json`.
+The pinned Linux JDK image was explicitly pulled, used for smoke/burst/
+sustained Store/SLO cases, and removed by exact runner cleanup. The artifact
+is `PARTIAL/PASS_BOUNDED`; all three cases reopened Store and the durable SLO
+collector. It does not cover real Broker throughput, placement, large-scale
+records, compaction/restore, inline/object flow or soak.
+
+The current-source gate
+`/tmp/nereus-delay-v1-release-gate-20260817-r20/v1-release-candidate-gate.json`
+passes source/contract/Gradle checks but remains `NOT_READY`: capacity is
+`PARTIAL`, certified soak is missing and activation/cutover, operations and
+chaos are still bounded rather than `PASS_CERTIFIED`.
+
 ## Current-source production-chain rerun and r19 gate
 
 The clean current candidate reran the Kafka and Pulsar two-shard Large Payload

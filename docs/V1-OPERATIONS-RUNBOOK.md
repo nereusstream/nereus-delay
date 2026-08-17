@@ -501,3 +501,17 @@ soak is absent, and activation/cutover, operations and chaos are blocked by
 the requirement for independently source-locked `PASS_CERTIFIED` artifacts.
 `ALLOW_NOT_READY=1` only preserves this audit receipt and is not a promotion
 override.
+
+## 18. Current-source bounded capacity refresh
+
+The current Delay source `0f04415e3c8abcf17952ae3f5c5e4796bb797831` produced
+`/tmp/nereus-delay-capacity-matrix-current-20260817-r9/capacity-benchmark-matrix.json`
+with `status=PARTIAL` / `matrix_status=PASS_BOUNDED`. The three locked Linux
+cases passed Store/SLO readback and reopen. The exact pinned JDK image was
+pulled for this run and removed afterward; no run container or image remained.
+
+This receipt is not an operator capacity certification. It does not cover
+Broker throughput, Lane/Worker placement, large-scale records,
+compaction/restore, inline/object flow, adapter/zombie bounds or soak. The
+r20 release gate therefore remains `NOT_READY` and the bounded result cannot
+be promoted with `ALLOW_NOT_READY`.
