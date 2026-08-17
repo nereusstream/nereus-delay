@@ -24,6 +24,16 @@ public final class KafkaManagedSubmissionOutcomeProjector implements SubmissionO
         this.key = java.util.Objects.requireNonNull(key, "key");
     }
 
+    /**
+     * Creates a Route-bound projector that validates the exact request
+     * resource carried by each prepared submission.  A single Gateway
+     * coordinator may then serve several Kafka partitions without weakening
+     * the resource/partition checks to a topic name alone.
+     */
+    public KafkaManagedSubmissionOutcomeProjector() {
+        this.key = null;
+    }
+
     @Override
     public SubmissionProjectionKey key() {
         return new SubmissionProjectionKey(PreparedSubmissionBranch.MANAGED,
@@ -70,8 +80,7 @@ public final class KafkaManagedSubmissionOutcomeProjector implements SubmissionO
                                                  final io.nereusstream.delay.protocol.PreparedCommand command,
                                                  final PhysicalEnqueueAttemptId attempt,
                                                  final KafkaProduceResult result) {
-        if (!key.authenticatedClusterId().equals(result.authenticatedClusterId())
-                || !key.nativeTopicUuid().equals(result.nativeTopicUuid()) || key.partition() != result.partition()
+        if (!matchesResource(request, result)
                 || result.responseEvidenceBytes() == null) {
             return uncertain(plan, attempt, StableCode.RESOURCE_INCARNATION_MISMATCH);
         }
@@ -103,5 +112,15 @@ public final class KafkaManagedSubmissionOutcomeProjector implements SubmissionO
         return SubmissionOutcomeMessageV1.managed(WireIngressOutcomeSupport.brokerDefinite(command,
                 attempt.bytes(), code, NonPersistenceProofKindV1.KAFKA_DEFINITIVE_REJECTION, resource,
                 result.requestEvidenceBytes(), result.responseEvidenceBytes()));
+    }
+
+    private boolean matchesResource(final KafkaProduceRequest request, final KafkaProduceResult result) {
+        return (key == null
+                ? request.authenticatedClusterId().equals(result.authenticatedClusterId())
+                && request.nativeTopicUuid().equals(result.nativeTopicUuid())
+                && request.partition() == result.partition()
+                : key.authenticatedClusterId().equals(result.authenticatedClusterId())
+                && key.nativeTopicUuid().equals(result.nativeTopicUuid())
+                && key.partition() == result.partition());
     }
 }

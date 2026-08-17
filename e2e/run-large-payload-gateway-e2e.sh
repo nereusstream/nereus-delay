@@ -36,6 +36,7 @@ failover_mode="${NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_FAILOVER:-0}"
 process_crash_mode="${NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_PROCESS_CRASH:-0}"
 network_partition_mode="${NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_NETWORK_PARTITION:-0}"
 network_partition_handoff_wait_seconds="${NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_NETWORK_PARTITION_HANDOFF_WAIT_SECONDS:-45}"
+multi_shard_mode="${NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_MULTI_SHARD:-0}"
 
 minio_image="quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z"
 minio_digest="sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
@@ -70,6 +71,10 @@ for mode in "${failover_mode}" "${process_crash_mode}" "${network_partition_mode
     exit 1
   fi
 done
+if [[ "${multi_shard_mode}" != "0" && "${multi_shard_mode}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_MULTI_SHARD must be 0 or 1" >&2
+  exit 1
+fi
 if [[ "${process_crash_mode}" == "1" && "${failover_mode}" != "1" ]]; then
   echo "NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_PROCESS_CRASH requires NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_FAILOVER=1" >&2
   exit 1
@@ -82,6 +87,11 @@ if [[ "${process_crash_mode}" == "1" && "${network_partition_mode}" == "1" ]]; t
   echo "large-payload process crash and network partition modes are mutually exclusive" >&2
   exit 1
 fi
+if [[ "${multi_shard_mode}" == "1" && ("${failover_mode}" == "1" || "${process_crash_mode}" == "1"
+    || "${network_partition_mode}" == "1") ]]; then
+  echo "NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_MULTI_SHARD cannot be combined with Broker failover modes" >&2
+  exit 1
+fi
 if [[ ! "${network_partition_handoff_wait_seconds}" =~ ^[0-9]+$ ]]; then
   echo "NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_NETWORK_PARTITION_HANDOFF_WAIT_SECONDS must be a non-negative integer" >&2
   exit 1
@@ -91,6 +101,14 @@ if [[ "${minio_fault_mode}" != "NONE" && "${minio_fault_mode}" != "PUT_503_AFTER
     && "${minio_fault_mode}" != "PUT_503_BEFORE_COMMIT" \
     && "${minio_fault_mode}" != "PUT_TIMEOUT_BEFORE_COMMIT" ]]; then
   echo "NEREUS_DELAY_LARGE_PAYLOAD_MINIO_FAULT_MODE must be NONE, PUT_503_AFTER_COMMIT, PUT_TIMEOUT_AFTER_COMMIT, PUT_503_BEFORE_COMMIT or PUT_TIMEOUT_BEFORE_COMMIT" >&2
+  exit 1
+fi
+if [[ "${multi_shard_mode}" == "1" && "${minio_fault_mode}" != "NONE" ]]; then
+  echo "NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_MULTI_SHARD currently requires MinIO fault mode NONE" >&2
+  exit 1
+fi
+if [[ "${multi_shard_mode}" == "1" && -n "${destination_topic}" ]]; then
+  echo "NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_MULTI_SHARD currently requires destination topic to be disabled" >&2
   exit 1
 fi
 if [[ ! "${minio_request_timeout_ms}" =~ ^[1-9][0-9]*$ ]]; then
@@ -313,6 +331,7 @@ if [[ "${minio_fault_mode}" != "NONE" ]]; then
 fi
 echo "Gateway port: ${gateway_port}"
 echo "Kafka destination topic: ${destination_topic:-<disabled>}"
+echo "Kafka Large Payload shard mode: ${multi_shard_mode}"
 
 smoke_environment=(
   "NEREUS_DELAY_OXIA_ENDPOINT=${oxia_endpoint}"
@@ -330,6 +349,7 @@ smoke_environment=(
   "NEREUS_DELAY_GATEWAY_CLIENT_CERT=${tls_dir}/client.crt"
   "NEREUS_DELAY_GATEWAY_CLIENT_KEY=${tls_dir}/client.key"
   "NEREUS_DELAY_LARGE_PAYLOAD_MINIO_FAULT_MODE=${minio_fault_mode}"
+  "NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_MULTI_SHARD=${multi_shard_mode}"
   "GRADLE_USER_HOME=${gradle_user_home}"
 )
 if [[ "${failover_mode}" == "1" ]]; then
@@ -412,7 +432,9 @@ if [[ "${smoke_status}" != 0 ]]; then
   exit "${smoke_status}"
 fi
 
-if [[ "${minio_fault_mode}" == "PUT_503_BEFORE_COMMIT" || "${minio_fault_mode}" == "PUT_TIMEOUT_BEFORE_COMMIT" ]]; then
+if [[ "${multi_shard_mode}" == "1" ]]; then
+  echo "Kafka + Oxia + Gateway mTLS/JWT + one Worker fleet + real MinIO two-shard Large Payload Object Store authority E2E passed"
+elif [[ "${minio_fault_mode}" == "PUT_503_BEFORE_COMMIT" || "${minio_fault_mode}" == "PUT_TIMEOUT_BEFORE_COMMIT" ]]; then
   echo "Kafka + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload pre-commit fail-closed E2E passed"
 elif [[ "${failover_mode}" == "1" && "${process_crash_mode}" == "1" ]]; then
   "${compose[@]}" start kafka-1

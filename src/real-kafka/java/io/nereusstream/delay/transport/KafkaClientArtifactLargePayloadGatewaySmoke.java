@@ -47,6 +47,7 @@ import io.nereusstream.delay.ownership.SourceReplaySuccessor;
 import io.nereusstream.delay.ownership.WorkerAssignment;
 import io.nereusstream.delay.ownership.WorkerAssignmentAuthority;
 import io.nereusstream.delay.ownership.WorkerAssignmentCoordinator;
+import io.nereusstream.delay.ownership.WorkerShardFleetRuntime;
 import io.nereusstream.delay.ownership.WorkerShardRuntime;
 import io.nereusstream.delay.protocol.ActivationBarrierV1;
 import io.nereusstream.delay.protocol.AdapterKindV1;
@@ -69,6 +70,7 @@ import io.nereusstream.delay.protocol.KafkaActivationBarrier;
 import io.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
 import io.nereusstream.delay.protocol.KafkaMetadataV1;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
+import io.nereusstream.delay.protocol.KafkaIngressRouteResourceV1;
 import io.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
 import io.nereusstream.delay.protocol.ObjectStoreProviderKindV1;
 import io.nereusstream.delay.protocol.OpaquePayloadUploadHandleV1;
@@ -106,6 +108,7 @@ import io.nereusstream.delay.protocol.SystemMutationType;
 import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.protocol.UploadHandleKindV1;
 import io.nereusstream.delay.route.OxiaRouteAuthoritySession;
+import io.nereusstream.delay.route.RouteHashV1;
 import io.nereusstream.delay.route.OxiaSignedRouteSnapshotProvider;
 import io.nereusstream.delay.route.OxiaSignedRouteSnapshotPublisher;
 import io.nereusstream.delay.runtime.DelayShard;
@@ -176,9 +179,11 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -249,10 +254,18 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 minioUri, minioRegion, minioBucket, minioAccessKey);
         final byte[] payload = payload();
         final byte[] payloadHash = Bytes.sha256(payload);
+        final KeyPair controlKeys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        if ("1".equals(configured("NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_MULTI_SHARD", "0"))) {
+            runMultiShard(bootstrap, arguments[1], destinationPhysicalTopic, receiptPhysicalTopic, oxiaEndpoint,
+                    minioUri, minioRegion, minioBucket, minioAccessKey, minioSecretKey, minioSessionToken,
+                    minioRequestTimeout, minioFaultMode, serverCertificate, serverPrivateKey,
+                    trustedClientCertificates, clientCertificate, clientPrivateKey, gatewayPort, tenant,
+                    proofKeys, trustSet, objectStoreProfile, payload, payloadHash, controlKeys);
+            return;
+        }
         final RouteIncarnation routeIncarnation = RouteIncarnation.random();
         final ShardId shard = new ShardId(routeIncarnation, 0);
         final RouteSelectionHint routeHint = new RouteSelectionHint(AdapterKindV1.KAFKA, Bytes.utf8("primary"));
-        final KeyPair controlKeys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final SystemMutation trustActivation = trustActivation(shard, trustSet.ref(), tenant, controlKeys);
         final PreparedCommand beforeRoute = command(shard, "large-payload-before-route");
         final Map<String, Object> adminConfiguration = Map.of(
@@ -644,6 +657,371 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         }
     }
 
+    /**
+     * Runs the same authenticated Gateway/Object Store path over two source
+     * shards admitted to one fair Worker fleet.  The normal smoke remains the
+     * single-shard production authority receipt; this opt-in path specifically
+     * proves that Large Payload reservations do not collapse the Route/Owner
+     * boundary back to partition zero.
+     */
+    private static void runMultiShard(final String bootstrap, final String topicPrefix,
+                                      final String destinationPhysicalTopic, final String receiptPhysicalTopic,
+                                      final String oxiaEndpoint, final URI minioUri, final String minioRegion,
+                                      final String minioBucket, final String minioAccessKey,
+                                      final String minioSecretKey, final String minioSessionToken,
+                                      final Duration minioRequestTimeout, final String minioFaultMode,
+                                      final Path serverCertificate, final Path serverPrivateKey,
+                                      final Path trustedClientCertificates, final Path clientCertificate,
+                                      final Path clientPrivateKey, final int gatewayPort,
+                                      final AuthenticatedTenantContext tenant, final KeyPair proofKeys,
+                                      final PayloadProofTrustSetSemanticV1 trustSet,
+                                      final ProfileSemanticEnvelopeV1 objectStoreProfile, final byte[] payload,
+                                      final byte[] payloadHash, final KeyPair controlKeys) throws Exception {
+        if (!"NONE".equals(minioFaultMode)) {
+            throw new IllegalArgumentException("multi-shard large-payload mode currently requires MinIO fault mode NONE");
+        }
+        if (destinationPhysicalTopic != null || receiptPhysicalTopic != null) {
+            throw new IllegalArgumentException("multi-shard large-payload mode currently covers Object Store authority only; "
+                    + "omit the Kafka destination topic until the multi-shard egress receipt is enabled");
+        }
+        final int shardCount = 2;
+        final String topic = topicPrefix + "-" + UUID.randomUUID();
+        final Map<String, Object> adminConfiguration = Map.of(
+                AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap,
+                AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, 10_000);
+
+        try (Admin admin = Admin.create(adminConfiguration)) {
+            ensureTopic(admin, topic, shardCount);
+            final String clusterId = admin.describeCluster().clusterId().get(10, TimeUnit.SECONDS);
+            final Uuid topicId = describe(admin, topic).topicId();
+            final UUID nativeTopicId = toUuid(topicId);
+            final RouteIncarnation routeIncarnation = RouteIncarnation.random();
+            final List<LargeShardProbe> probes = new ArrayList<>(shardCount);
+            for (int partition = 0; partition < shardCount; partition++) {
+                final ShardId shard = new ShardId(routeIncarnation, partition);
+                final SystemMutation activation = trustActivation(shard, trustSet.ref(), tenant, controlKeys);
+                final PreparedCommand beforeRoute = command(shard, "large-payload-multi-before-" + partition);
+                appendFrame(bootstrap, clusterId, topic, topicId, activation.encodeFrame(), partition, 0);
+                appendFrame(bootstrap, clusterId, topic, topicId, CommandCodec.encodeFrameV1(beforeRoute), partition, 1);
+                final org.apache.kafka.clients.consumer.GuardedFetchEvidence evidence = fetchEvidence(
+                        bootstrap, clusterId, topic, nativeTopicId, shard);
+                if (evidence.firstRecordOffset() != 0 || evidence.lastRecordOffset() != 1
+                        || evidence.lastStableOffset() < 2) {
+                    throw new IllegalStateException("Kafka multi-shard Large Payload barrier proof did not cover partition "
+                            + partition + ": " + evidence);
+                }
+                probes.add(new LargeShardProbe(shard, activation, beforeRoute, evidence, 2));
+            }
+
+            final RouteSelectionHint routeHint = new RouteSelectionHint(AdapterKindV1.KAFKA, Bytes.utf8("primary"));
+            final String namespace = configured("NEREUS_DELAY_OXIA_NAMESPACE", "default");
+            final String routePrefix = "nereus-delay/kafka-large-payload-multi-route/" + UUID.randomUUID();
+            final String assignmentPrefix = "nereus-delay/kafka-large-payload-multi-assignment/"
+                    + UUID.randomUUID();
+            final String gatewayPrefix = "nereus-delay/kafka-large-payload-multi-gateway/" + UUID.randomUUID();
+            try (OxiaRouteAuthoritySession publisherSession = OxiaRouteAuthoritySession.connect(
+                         oxiaEndpoint, namespace, "nereus-delay-large-multi-route-publisher-" + UUID.randomUUID(),
+                         Duration.ofSeconds(15), routePrefix);
+                 OxiaRouteAuthoritySession providerSession = OxiaRouteAuthoritySession.connect(
+                         oxiaEndpoint, namespace, "nereus-delay-large-multi-route-provider-" + UUID.randomUUID(),
+                         Duration.ofSeconds(15), routePrefix);
+                 OxiaSyncOwnerLeaseBackend.ClientHandle assignmentHandle =
+                         OxiaSyncOwnerLeaseBackend.connectUnchecked(oxiaEndpoint, namespace,
+                                 "nereus-delay-large-multi-assignment-" + UUID.randomUUID(),
+                                 Duration.ofSeconds(15), assignmentPrefix)) {
+                final RouteSnapshotV1 snapshot = multiRouteSnapshot(clusterId, topic, nativeTopicId,
+                        routeIncarnation, probes, tenant, controlKeys);
+                final OxiaSignedRouteSnapshotPublisher publisher = new OxiaSignedRouteSnapshotPublisher(
+                        publisherSession, routePrefix, controlKeys.getPublic());
+                final OxiaSignedRouteSnapshotProvider provider = new OxiaSignedRouteSnapshotProvider(
+                        providerSession, routePrefix, controlKeys.getPublic(), System::currentTimeMillis);
+                final long routeRevision = publisher.publish(routeHint, snapshot, 0).revision();
+                provider.refresh().toCompletableFuture().join();
+
+                final WorkerAssignmentAuthority assignmentAuthority = new OxiaSyncWorkerAssignmentBackend(
+                        assignmentHandle, assignmentPrefix);
+                final RouteWorkerAssignmentCoordinator coordinator = new RouteWorkerAssignmentCoordinator(provider,
+                        new WorkerAssignmentCoordinator(new WorkerPlacementPolicy(
+                                new WorkerPlacementPolicy.Configuration(1_000, 0, 0, 0, 0)), assignmentAuthority));
+                final OxiaOwnerLeaseStore ownerAuthority = new OxiaOwnerLeaseStore(assignmentHandle.backend());
+                final List<LargeShardAdmission> admissions = new ArrayList<>(shardCount);
+                final Set<String> assignedWorkers = new HashSet<>();
+                for (LargeShardProbe probe : probes) {
+                    final int partition = probe.shard().partition();
+                    final String workerId = "kafka-large-payload-worker-" + (char) ('a' + partition);
+                    final RouteWorkerAssignmentCoordinator.RoutePlacementResult placement = coordinator.placeActive(
+                            tenant, routeHint, placementRequest(System.currentTimeMillis(), partition, workerId));
+                    final WorkerAssignment accepted = coordinator.requireAccepted(tenant,
+                            placement.publication().revision(), placement.publication().assignment());
+                    requireRouteAssignment(accepted, snapshot, clusterId, nativeTopicId, probe.barrierOffset());
+                    if (!workerId.equals(accepted.workerId()) || !assignedWorkers.add(accepted.workerId())) {
+                        throw new IllegalStateException("Kafka multi-shard Large Payload placement did not retain a unique Worker: "
+                                + "partition=" + partition + ", expected=" + workerId + ", actual=" + accepted.workerId());
+                    }
+                    final OwnerLease lease = ownerAuthority.acquire(accepted.sourceAssignment(), workerId,
+                            assignmentHandle.sessionIdentity(), System.currentTimeMillis(), LEASE_DURATION_MS)
+                            .orElseThrow();
+                    admissions.add(new LargeShardAdmission(probe, placement.publication(), accepted, lease));
+                }
+                if (assignedWorkers.size() != shardCount) {
+                    throw new IllegalStateException("Kafka multi-shard Large Payload placement did not span two Worker identities");
+                }
+
+                final WorkClassExecutionRegistry workClasses = workClasses();
+                final Path root = Files.createTempDirectory("nereus-delay-kafka-large-payload-multi-");
+                final List<ShardStore> stores = new ArrayList<>(shardCount);
+                final List<DelayShard> delayShards = new ArrayList<>(shardCount);
+                final List<WorkerShardRuntime> runtimes = new ArrayList<>(shardCount);
+                WorkerShardFleetRuntime fleet = null;
+                boolean assignmentsWithdrawn = false;
+                try (SharedRocksDbResources resources = new SharedRocksDbResources(ShardStoreConfig.defaults(root));
+                     InMemoryCommandTransportRegistry transports = new InMemoryCommandTransportRegistry()) {
+                    resources.bindWorkClassExecutionRegistry(workClasses);
+                    final InMemoryPayloadProofTrustSetCatalog trustCatalog =
+                            new InMemoryPayloadProofTrustSetCatalog();
+                    trustCatalog.publish(trustSet);
+                    for (LargeShardAdmission admission : admissions) {
+                        final LargeShardProbe probe = admission.probe();
+                        final ShardStore store = ShardStore.open(ShardStoreConfig.defaults(root), probe.shard(), resources);
+                        stores.add(store);
+                        store.recordControlSnapshot(controlSnapshot(probe.shard(), destinationProfile()));
+                        final DelayShard delayShard = new DelayShard(store, DelayShardConfig.defaults(), null, null,
+                                scheduleResolver(), trustCatalog);
+                        delayShards.add(delayShard);
+                        final OwnerLease lease = admission.lease();
+                        final io.nereusstream.delay.protocol.OwnerIdentityV1 ownerIdentity =
+                                new io.nereusstream.delay.protocol.OwnerIdentityV1(bytes(16, 70 + probe.shard().partition()),
+                                        bytes(16, 90 + probe.shard().partition()), lease.ownerEpoch(),
+                                        Bytes.sha256(Bytes.utf8("large-payload-multi-worker-fence-"
+                                                + probe.shard().partition())));
+                        final OwnedDelayShard ownedShard = new OwnedDelayShard(delayShard, lease, ownerIdentity);
+                        final List<SourceReplayEntry> recovery = recoveryEntries(bootstrap, clusterId, topic,
+                                nativeTopicId, admission.assignment().sourceAssignment(), probe.activation(),
+                                probe.beforeRoute());
+                        recover(admission.assignment(), ownerAuthority, ownedShard, recovery, controlKeys,
+                                controlSnapshot(probe.shard(), destinationProfile()), workClasses);
+                        if (ownedShard.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
+                                || !(ownedShard.lastCatchupPosition() instanceof KafkaSourcePosition position)
+                                || position.offset() != 1 || !position.shardId().equals(probe.shard())) {
+                            throw new IllegalStateException("Kafka multi-shard Large Payload recovery did not apply partition "
+                                    + probe.shard().partition() + " activation and pre-route records");
+                        }
+                        final String workerGroup = "nereus-delay-large-payload-multi-worker-"
+                                + probe.shard().partition() + "-" + UUID.randomUUID();
+                        runtimes.add(KafkaClientArtifactWorkerSourceFactory.create(workerConsumer(bootstrap,
+                                        workerGroup, clusterId, topic, nativeTopicId, probe.shard()), topic, POLL_TIMEOUT,
+                                admission.assignment().sourceAssignment(), workClasses, ownedShard, store, resources,
+                                ownerAuthority, controlKeys.getPublic(), null, null, null, null, null));
+                        final KafkaCommandTransportKey key = new KafkaCommandTransportKey(clusterId, topic,
+                                nativeTopicId, probe.shard().partition(), new CredentialBindingKey(1,
+                                new Digest32(bytes(32, 41)), new Digest32(bytes(32, 42))));
+                        final KafkaProducer<byte[], byte[]> producer = kafkaProducer(bootstrap);
+                        transports.register(new ProductionKafkaProduceTransport(key,
+                                new ProductionKafkaProduceTransport.Configuration(-1, true, true,
+                                        "large-payload-multi-gateway-kafka-client"),
+                                new KafkaClientArtifactProduceTransport((GuardedProducer<byte[], byte[]>) producer)));
+                    }
+                    fleet = new WorkerShardFleetRuntime(workClasses, resources, runtimes);
+                    final DefaultSubmissionCoordinator submissions = new DefaultSubmissionCoordinator(
+                            new RouteBoundSubmissionTransportPlanResolver(provider, System::currentTimeMillis),
+                            transports, SubmissionOutcomeProjectorRegistry.of(
+                                    new KafkaManagedSubmissionOutcomeProjector()));
+                    final DefaultDelaySemanticCore core = new DefaultDelaySemanticCore(provider,
+                            new SecureLogicalUuidV7Generator(), System::currentTimeMillis);
+                    final S3CompatiblePayloadObjectStore payloadStore = new S3CompatiblePayloadObjectStore(
+                            objectStoreProfile, minioUri, minioRegion, minioBucket, minioAccessKey, minioSecretKey,
+                            minioSessionToken, tenant.tenantRoutingScope(), trustSet, 7, Long.MAX_VALUE,
+                            proofKeys.getPrivate(), null, HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10))
+                                    .followRedirects(HttpClient.Redirect.NEVER).build(), Clock.systemUTC(), minioRequestTimeout);
+
+                    try (OxiaSyncOwnerLeaseBackend.ClientHandle admissionHandle =
+                                 OxiaSyncOwnerLeaseBackend.connectUnchecked(oxiaEndpoint, namespace,
+                                         "nereus-delay-large-multi-admission-" + UUID.randomUUID(),
+                                         Duration.ofSeconds(15), gatewayPrefix + "/admission-client");
+                         OxiaSyncOwnerLeaseBackend.ClientHandle idempotencyHandle =
+                                 OxiaSyncOwnerLeaseBackend.connectUnchecked(oxiaEndpoint, namespace,
+                                         "nereus-delay-large-multi-idempotency-" + UUID.randomUUID(),
+                                         Duration.ofSeconds(15), gatewayPrefix + "/idempotency-client");
+                         OxiaSyncOwnerLeaseBackend.ClientHandle auditHandle =
+                                 OxiaSyncOwnerLeaseBackend.connectUnchecked(oxiaEndpoint, namespace,
+                                         "nereus-delay-large-multi-audit-" + UUID.randomUUID(),
+                                         Duration.ofSeconds(15), gatewayPrefix + "/audit-client")) {
+                        final OxiaGatewayAdmissionController admission = new OxiaGatewayAdmissionController(
+                                admissionHandle, gatewayPrefix + "/admission", System::currentTimeMillis,
+                                new OxiaGatewayAdmissionController.Limits(8, 16_000_000, 4, 4, 30_000, 16));
+                        final OxiaGatewayIdempotencyStore idempotency = new OxiaGatewayIdempotencyStore(
+                                idempotencyHandle, gatewayPrefix + "/idempotency", System::currentTimeMillis,
+                                10_000, 30_000);
+                        final OxiaGatewayAuditSink audit = new OxiaGatewayAuditSink(auditHandle, gatewayPrefix + "/audit");
+                        final GatewayScheduleService schedule = new GatewayScheduleService(core, idempotency,
+                                submissions, System::currentTimeMillis);
+                        final KeyPair jwtKeys = gatewayJwtKeys();
+                        final MutualTlsJwtGatewayTenantAuthority tenantAuthority =
+                                new MutualTlsJwtGatewayTenantAuthority(new RsaSha256GatewayJwtVerifier(jwtKeys.getPublic(),
+                                        "nereus-delay-gateway-e2e-issuer", "nereus-delay-gateway-e2e", "gateway-e2e-key",
+                                        Clock.systemUTC(), 30, 600));
+                        final GatewayIngressService ingress = new GatewayIngressService(schedule, tenantAuthority,
+                                admission, audit, System::currentTimeMillis);
+                        final GatewayPayloadStoreAuthority payloadAuthority = new GatewayPayloadStoreAuthority(
+                                tenant.tenantRoutingScope(),
+                                (receipt, kind, now) -> payloadStore.issueUploadHandle(receipt, kind, now),
+                                (receipt, handle, now) -> payloadStore.attest(receipt, handle, now));
+                        final GatewayPayloadIngressService payloadIngress = new GatewayPayloadIngressService(
+                                payloadAuthority, tenantAuthority, admission, audit, System::currentTimeMillis);
+                        final GatewayGrpcServer server = GatewayGrpcServer.mutualTls(gatewayPort, serverCertificate,
+                                serverPrivateKey, trustedClientCertificates,
+                                new io.nereusstream.delay.gateway.GatewayGrpcService(ingress,
+                                        GatewayGrpcContext.provider(), payloadIngress));
+                        server.start();
+                        final ManagedChannel channel = channel(gatewayPort, trustedClientCertificates, clientCertificate,
+                                clientPrivateKey);
+                        try {
+                            final DelayGatewayV1Grpc.DelayGatewayV1BlockingStub gateway = stub(channel,
+                                    token(jwtKeys, tenant, certificateFingerprint(clientCertificate)));
+                            for (LargeShardAdmission admissionRecord : admissions) {
+                                final int partition = admissionRecord.probe().shard().partition();
+                                final byte[] orderingKey = orderingKeyForPartition(snapshot, tenant, partition);
+                                final ScheduleIntentV1 intent = largeScheduleIntent(System.currentTimeMillis(), orderingKey);
+                                final GatewayPrepareLargeScheduleRequestV1 prepareRequest = prepareRequest(intent,
+                                        payload.length, payloadHash, trustSet.ref(), objectStoreProfile.ref(), partition);
+                                final GatewaySubmissionOutcomeV1 prepareResponse = gateway.prepareLargeSchedule(prepareRequest);
+                                final CommandQueuedReceiptV1 prepareReceipt = requireQueued(prepareResponse,
+                                        "PrepareLargeSchedule", partition, admissionRecord.probe().barrierOffset());
+                                final int runtimeIndex = partition;
+                                requireApplied(runUntilApplied(fleet, admissionRecord.probe().shard()),
+                                        "PrepareLargeSchedule partition=" + partition);
+                                final byte[] reservationId = reservationId(prepareReceipt);
+                                final PayloadReservation reservation = Optional.ofNullable(
+                                        delayShards.get(runtimeIndex).getReservation(reservationId)).orElseThrow();
+                                if (reservation.status() != PayloadReservationStatus.RESERVED) {
+                                    throw new IllegalStateException("Kafka multi-shard Prepare did not leave RESERVED partition="
+                                            + partition + ": " + reservation.status());
+                                }
+                                payloadStore.register(reservation, trustSet.ref(), objectStoreProfile.ref());
+                                final PayloadReservationReceiptV1 receipt = payloadStore.reservationReceipt(reservation);
+                                final GatewayPayloadUploadHandleResponseV1 handleResponse = gateway.issuePayloadUploadHandle(
+                                        GatewayIssuePayloadUploadHandleRequestV1.newBuilder()
+                                                .setPayloadReservationReceiptV1(ByteString.copyFrom(receipt.payload()))
+                                                .setUploadHandleKind(UploadHandleKindV1.OPAQUE_SINGLE_PUT.wireValue()).build());
+                                final PayloadUploadHandleResponseV1 handleDomain = PayloadUploadHandleResponseV1.decode(
+                                        handleResponse.getPayloadUploadHandleResponseV1().toByteArray());
+                                if (handleDomain.outcome() != PayloadUploadHandleOutcomeV1.ISSUED) {
+                                    throw new IllegalStateException("Kafka multi-shard Gateway did not issue upload handle partition="
+                                            + partition + ": " + handleDomain.outcome());
+                                }
+                                final OpaquePayloadUploadHandleV1 handle = handleDomain.issued();
+                                payloadStore.upload(receipt, handle, payload, System.currentTimeMillis());
+                                final PayloadAttestationResponseV1 attestation = PayloadAttestationResponseV1.decode(
+                                        gateway.attestPayloadUpload(GatewayAttestPayloadUploadRequestV1.newBuilder()
+                                                .setPayloadReservationReceiptV1(ByteString.copyFrom(receipt.payload()))
+                                                .setOpaquePayloadUploadHandleV1(ByteString.copyFrom(handle.canonicalBytes()))
+                                                .build()).getPayloadAttestationResponseV1().toByteArray());
+                                if (attestation.outcome() != PayloadAttestationOutcomeV1.ATTESTED
+                                        || attestation.proof() == null) {
+                                    throw new IllegalStateException("Kafka multi-shard Gateway/MinIO attestation failed partition="
+                                            + partition + ": " + attestation.outcome());
+                                }
+                                final PayloadCommitProofV1 proof = attestation.proof();
+                                final GatewaySubmissionOutcomeV1 commitResponse = gateway.commitLargeSchedule(
+                                        commitRequest(receipt, proof, partition));
+                                final CommandQueuedReceiptV1 commitReceipt = requireQueued(commitResponse,
+                                        "CommitLargeSchedule", partition, admissionRecord.probe().barrierOffset() + 1);
+                                requireApplied(runUntilApplied(fleet, admissionRecord.probe().shard()),
+                                        "CommitLargeSchedule partition=" + partition);
+                                final PayloadReservation committed = Optional.ofNullable(
+                                        delayShards.get(runtimeIndex).getReservation(reservationId)).orElseThrow();
+                                final MessageRecord message = Optional.ofNullable(delayShards.get(runtimeIndex)
+                                        .getMessage(prepareReceipt.command().delayMessageId())).orElseThrow();
+                                if (committed.status() != PayloadReservationStatus.COMMITTED
+                                        || message.status() != MessageStatus.SCHEDULED || message.payloadReference() == null
+                                        || !Arrays.equals(message.payloadReference().immutableObjectVersion(),
+                                        proof.immutableObjectVersion())
+                                        || !Arrays.equals(message.payloadReference().proofId(), proof.proofId())
+                                        || !Arrays.equals(payloadStore.readPayload(message.payloadReference()), payload)) {
+                                    throw new IllegalStateException("Kafka multi-shard Worker did not persist exact Object Store "
+                                            + "reference/readback partition=" + partition);
+                                }
+                                if (!Arrays.equals(prepareResponse.toByteArray(),
+                                        gateway.prepareLargeSchedule(prepareRequest).toByteArray())) {
+                                    throw new IllegalStateException("Kafka multi-shard Oxia Gateway idempotency changed Prepare bytes "
+                                            + "partition=" + partition);
+                                }
+                                if (latestOffset(admin, topic, partition) != admissionRecord.probe().barrierOffset() + 2) {
+                                    throw new IllegalStateException("Kafka multi-shard duplicate Prepare appended an unexpected record "
+                                            + "partition=" + partition + ", latest=" + latestOffset(admin, topic, partition));
+                                }
+                                System.out.println("Kafka multi-shard Large Payload partition=" + partition
+                                        + " passed: prepare=" + prepareReceipt.sourcePosition() + ", commit="
+                                        + commitReceipt.sourcePosition() + ", objectVersion="
+                                        + new String(proof.immutableObjectVersion(), StandardCharsets.UTF_8));
+                            }
+                            for (int index = 0; index < runtimes.size(); index++) {
+                                final int partition = admissions.get(index).probe().shard().partition();
+                                final Path checkpointPath = root.resolve("large-payload-multi-final-checkpoint-" + partition);
+                                final byte[] checkpointId = Arrays.copyOf(Bytes.sha256(Bytes.utf8(
+                                        "large-payload-multi-final-checkpoint-" + partition)), 16);
+                                final var drain = runtimes.get(index).drain(
+                                        new io.nereusstream.delay.ownership.OwnerDrainCoordinator.DrainRequest(
+                                                System.currentTimeMillis() + 30_000, 0, checkpointPath, checkpointId),
+                                        System::currentTimeMillis, () -> { });
+                                if (drain.pendingCheckpointTask() != null || drain.finalCheckpointPath() == null
+                                        || !Files.isDirectory(checkpointPath)
+                                        || CheckpointFileInventory.collect(checkpointPath).isEmpty()
+                                        || !ownerAuthority.current(admissions.get(index).probe().shard()).isEmpty()) {
+                                    throw new IllegalStateException("Kafka multi-shard Large Payload drain did not release partition "
+                                            + partition + " checkpoint/owner");
+                                }
+                            }
+                            fleet.close();
+                            fleet = null;
+                            for (LargeShardAdmission admissionRecord : admissions) {
+                                if (!assignmentAuthority.withdraw(admissionRecord.publication())) {
+                                    throw new IllegalStateException("Kafka multi-shard Large Payload assignment withdrawal failed: "
+                                            + admissionRecord.probe().shard());
+                                }
+                            }
+                            assignmentsWithdrawn = true;
+                            System.out.println("Kafka signed Route -> two guarded Fetch barriers -> Oxia multi-shard "
+                                    + "Assignment/Owner -> one Worker fleet -> Gateway mTLS/JWT -> two Large Payload "
+                                    + "reservations -> real MinIO upload/attest/commit/readback/checkpoint passed: "
+                                    + "fetchPartitions=" + shardCount + ", routeRevision=" + routeRevision
+                                    + ", workers=" + assignedWorkers + ", sourceBarriers="
+                                    + probes.stream().map(LargeShardProbe::barrierOffset).toList()
+                                    + ", exactGatewayIdempotency=true");
+                        } finally {
+                            channel.shutdownNow();
+                            channel.awaitTermination(10, TimeUnit.SECONDS);
+                            server.close();
+                        }
+                    }
+                } finally {
+                    if (fleet != null) {
+                        try {
+                            fleet.close();
+                        } catch (RuntimeException cleanupFailure) {
+                            System.err.println("Kafka multi-shard Worker fleet cleanup deferred: "
+                                    + cleanupFailure.getMessage());
+                        }
+                    }
+                    if (!assignmentsWithdrawn) {
+                        for (LargeShardAdmission admission : admissions) {
+                            assignmentAuthority.withdraw(admission.publication());
+                        }
+                    }
+                    for (ShardStore store : stores) {
+                        try {
+                            store.close();
+                        } catch (RuntimeException cleanupFailure) {
+                            System.err.println("Kafka multi-shard Store cleanup deferred: " + cleanupFailure.getMessage());
+                        }
+                    }
+                    deleteTree(root);
+                }
+            }
+            admin.deleteTopics(List.of(topic)).all().get(10, TimeUnit.SECONDS);
+        }
+    }
+
     private static KafkaProducer<byte[], byte[]> kafkaProducer(final String bootstrap) {
         final Map<String, Object> configuration = new HashMap<>();
         configuration.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
@@ -760,6 +1138,31 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         }
     }
 
+    private static io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult runUntilApplied(
+            final WorkerShardFleetRuntime fleet, final ShardId expectedShard) {
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        while (System.nanoTime() < deadline) {
+            final WorkerShardFleetRuntime.SourceTurn turn = fleet.runNextSourceTurn(
+                    new SchedulerBudget(1, 2_000_000, TimeUnit.SECONDS.toNanos(2)), System::currentTimeMillis);
+            if (turn.shardId().equals(expectedShard)
+                    && turn.result().status()
+                    == io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED) {
+                return turn.result();
+            }
+            if (turn.result().status()
+                    != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED
+                    && turn.result().status()
+                    != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.WAITING_FOR_SOURCE
+                    && turn.result().status()
+                    != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.WAITING_FOR_WORK_CLASS) {
+                throw new IllegalStateException("Kafka multi-shard Large Payload source turn failed: shard="
+                        + turn.shardId() + ", status=" + turn.result().status(), turn.result().failure());
+            }
+        }
+        throw new IllegalStateException("Kafka multi-shard Large Payload source record did not become visible: "
+                + expectedShard);
+    }
+
     private static void requirePrecommitFailure(final RuntimeException failure, final String faultMode) {
         final String message = failure.getMessage() == null ? failure.toString() : failure.getMessage();
         if ("PUT_503_BEFORE_COMMIT".equals(faultMode) && !message.contains("HTTP 503")) {
@@ -773,6 +1176,12 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
 
     private static CommandQueuedReceiptV1 requireQueued(final GatewaySubmissionOutcomeV1 response,
                                                          final String operation, final long expectedOffset) {
+        return requireQueued(response, operation, -1, expectedOffset);
+    }
+
+    private static CommandQueuedReceiptV1 requireQueued(final GatewaySubmissionOutcomeV1 response,
+                                                         final String operation, final int expectedPartition,
+                                                         final long expectedOffset) {
         if (!response.hasSubmissionOutcomeNdr1()) {
             final StableErrorV1 error = StableErrorV1.decode(response.getPreparationErrorV1().toByteArray());
             throw new IllegalStateException(operation + " returned preparation error: stage=" + error.stage()
@@ -788,9 +1197,11 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         }
         final CommandQueuedReceiptV1 receipt = outcome.managed().queued();
         if (!(receipt.sourcePosition() instanceof KafkaSourcePosition position)
-                || position.offset() != expectedOffset) {
-            throw new IllegalStateException(operation + " Kafka offset mismatch: expected=" + expectedOffset
-                    + ", actual=" + receipt.sourcePosition());
+                || position.offset() != expectedOffset
+                || (expectedPartition >= 0 && position.shardId().partition() != expectedPartition)) {
+            throw new IllegalStateException(operation + " Kafka source position mismatch: expectedPartition="
+                    + expectedPartition + ", expectedOffset=" + expectedOffset + ", actual="
+                    + receipt.sourcePosition());
         }
         return receipt;
     }
@@ -805,8 +1216,17 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                                                                          final byte[] payloadHash,
                                                                          final PayloadProofTrustSetRefV1 trustSet,
                                                                          final ProfileRefV1 objectStoreProfile) {
+        return prepareRequest(intent, payloadLength, payloadHash, trustSet, objectStoreProfile, 0);
+    }
+
+    private static GatewayPrepareLargeScheduleRequestV1 prepareRequest(final ScheduleIntentV1 intent,
+                                                                         final long payloadLength,
+                                                                         final byte[] payloadHash,
+                                                                         final PayloadProofTrustSetRefV1 trustSet,
+                                                                         final ProfileRefV1 objectStoreProfile,
+                                                                         final int partition) {
         return GatewayPrepareLargeScheduleRequestV1.newBuilder()
-                .setIdempotencyKey(ByteString.copyFrom(bytes(16, 80)))
+                .setIdempotencyKey(ByteString.copyFrom(bytes(16, 80 + (partition * 2))))
                 .setRoute(GatewayRouteSelectorV1.newBuilder().setIngressAdapterKind(AdapterKindV1.KAFKA.wireValue())
                         .setRouteAliasUtf8Nfc(ByteString.copyFromUtf8("primary")))
                 .setScheduleIntentV1(ByteString.copyFrom(intent.canonicalBytes()))
@@ -821,8 +1241,14 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
 
     private static GatewayCommitLargeScheduleRequestV1 commitRequest(final PayloadReservationReceiptV1 receipt,
                                                                        final PayloadCommitProofV1 proof) {
+        return commitRequest(receipt, proof, 0);
+    }
+
+    private static GatewayCommitLargeScheduleRequestV1 commitRequest(final PayloadReservationReceiptV1 receipt,
+                                                                       final PayloadCommitProofV1 proof,
+                                                                       final int partition) {
         return GatewayCommitLargeScheduleRequestV1.newBuilder()
-                .setIdempotencyKey(ByteString.copyFrom(bytes(16, 81)))
+                .setIdempotencyKey(ByteString.copyFrom(bytes(16, 81 + (partition * 2))))
                 .setPayloadReservationReceiptV1(ByteString.copyFrom(receipt.payload()))
                 .setPayloadCommitProofV1(ByteString.copyFrom(proof.canonicalBytes()))
                 .setRetryUntilEpochMs(System.currentTimeMillis() + 120_000)
@@ -830,9 +1256,13 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
     }
 
     private static ScheduleIntentV1 largeScheduleIntent(final long now) {
+        return largeScheduleIntent(now, Bytes.utf8("large-payload-key"));
+    }
+
+    private static ScheduleIntentV1 largeScheduleIntent(final long now, final byte[] orderingKey) {
         final long deliverAt = now + 15_000;
         return ScheduleIntentV1.forPrepare(destinationProfile(), retryPolicy(), deliverAt, deliverAt + 120_000,
-                DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, Bytes.utf8("large-payload-key"),
+                DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, orderingKey,
                 AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())), null, null);
     }
 
@@ -1020,6 +1450,36 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 signingKeys.getPrivate());
     }
 
+    private static RouteSnapshotV1 multiRouteSnapshot(final String clusterId, final String topic,
+                                                      final UUID topicId, final RouteIncarnation incarnation,
+                                                      final List<LargeShardProbe> probes,
+                                                      final AuthenticatedTenantContext tenant,
+                                                      final KeyPair signingKeys) {
+        final long now = System.currentTimeMillis();
+        final BrokerResourceIdentityV1 broker = BrokerResourceIdentityV1.kafka(
+                new KafkaBrokerResourceIdentityV1(clusterId, topicId));
+        final List<RoutePartitionPolicyV1> policies = probes.stream().map(probe -> {
+            final int partition = probe.shard().partition();
+            final org.apache.kafka.clients.consumer.GuardedFetchEvidence evidence = probe.evidence();
+            return new RoutePartitionPolicyV1(partition,
+                    ActivationBarrierV1.kafka(broker, partition, probe.barrierOffset(), evidence.lastStableOffset()),
+                    zeroQuota(), 1, Bytes.sha256(Bytes.utf8("large-payload-multi-fetch-proof-v1\0"),
+                            evidence.fetchResponseBodySha256()));
+        }).toList();
+        final TrustedUtcIntervalEvidence issuedAt = new TrustedUtcIntervalEvidence(now - 100, now,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK, Bytes.utf8("large-payload-multi-route-clock"),
+                1, 1, 1, Bytes.sha256(Bytes.utf8("large-payload-multi-route-issued-at")), 0, null);
+        return RouteSnapshotV1.create(incarnation, tenant.authenticatedTenantScopeHash(), tenant.tenantRoutingScope(),
+                RouteLifecycleV1.ACTIVE_FOR_NEW, now + 30_000,
+                new KafkaIngressRouteResourceV1(clusterId, topic, topicId, probes.size()),
+                RoutingHashVersionV1.ROUTING_HASH_V1,
+                new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1), 1, policies,
+                100, 200, 1 << 20, 2 << 20, 10, 8 << 20, 180_000, now - 1_000, now + 300_000,
+                new IngressCredentialBindingRefV1(bytes(32, 40), 1, bytes(32, 41), bytes(32, 42), bytes(32, 43)),
+                Bytes.sha256(Bytes.utf8("large-payload-multi-route-prerequisite")), issuedAt, 1,
+                signingKeys.getPrivate());
+    }
+
     private static RouteWorkerAssignmentCoordinator.PlacementRequest placementRequest(final long now) {
         return new RouteWorkerAssignmentCoordinator.PlacementRequest(0,
                 Bytes.sha256(Bytes.utf8("large-payload-worker-assignment")), 1,
@@ -1028,6 +1488,29 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                         CapacityVectorV1.empty(), 0, 16, 0, 16, WorkerLoadVector.empty(), WorkerLoadVector.empty(),
                         now, true, 0)), capacity(1), CapacityVectorV1.empty(), CapacityVectorV1.empty(), null,
                 now, 0, 0);
+    }
+
+    private static RouteWorkerAssignmentCoordinator.PlacementRequest placementRequest(final long now,
+                                                                                        final int partition,
+                                                                                        final String workerId) {
+        return new RouteWorkerAssignmentCoordinator.PlacementRequest(partition,
+                Bytes.sha256(Bytes.utf8("large-payload-multi-worker-assignment-" + partition + "-" + workerId)), 1,
+                Bytes.sha256(Bytes.utf8("large-payload-multi-worker-capacity-" + partition + "-" + workerId)), 1,
+                List.of(new WorkerPlacementPolicy.WorkerCandidate(workerId, capacity(2), CapacityVectorV1.empty(),
+                        0, 16, 0, 16, WorkerLoadVector.empty(), WorkerLoadVector.empty(), now, true, 0)),
+                capacity(1), CapacityVectorV1.empty(), CapacityVectorV1.empty(), null, now, 0, 0);
+    }
+
+    private static byte[] orderingKeyForPartition(final RouteSnapshotV1 snapshot,
+                                                   final AuthenticatedTenantContext tenant,
+                                                   final int partition) {
+        for (int attempt = 0; attempt < 100_000; attempt++) {
+            final byte[] candidate = Bytes.utf8("large-payload-multi-ordering-key-" + attempt);
+            if (RouteHashV1.partition(snapshot, tenant.tenantRoutingScope(), candidate) == partition) {
+                return candidate;
+            }
+        }
+        throw new IllegalStateException("could not find deterministic ordering key for Kafka partition " + partition);
     }
 
     private static void requireRouteAssignment(final WorkerAssignment assignment, final RouteSnapshotV1 snapshot,
@@ -1076,10 +1559,16 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
     private static void appendFrame(final String bootstrap, final String clusterId, final String topic,
                                      final Uuid topicId, final byte[] frame, final long expectedOffset)
             throws Exception {
+        appendFrame(bootstrap, clusterId, topic, topicId, frame, 0, expectedOffset);
+    }
+
+    private static void appendFrame(final String bootstrap, final String clusterId, final String topic,
+                                     final Uuid topicId, final byte[] frame, final int partition,
+                                     final long expectedOffset) throws Exception {
         try (KafkaProducer<byte[], byte[]> producer = kafkaProducer(bootstrap)) {
             final GuardedProducer<byte[], byte[]> guarded = (GuardedProducer<byte[], byte[]>) producer;
-            final var metadata = guarded.sendGuarded(new ProducerRecord<>(topic, 0, null, frame),
-                    new org.apache.kafka.clients.producer.ProducerResourceGuard(clusterId, topic, topicId, 0))
+            final var metadata = guarded.sendGuarded(new ProducerRecord<>(topic, partition, null, frame),
+                    new org.apache.kafka.clients.producer.ProducerResourceGuard(clusterId, topic, topicId, partition))
                     .get(10, TimeUnit.SECONDS);
             if (metadata.recordMetadata().offset() != expectedOffset) {
                 throw new IllegalStateException("Kafka large-payload append offset mismatch: expected="
@@ -1115,19 +1604,32 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
     }
 
     private static void ensureTopic(final Admin admin, final String topic) throws Exception {
+        ensureTopic(admin, topic, 1);
+    }
+
+    private static void ensureTopic(final Admin admin, final String topic, final int partitions) throws Exception {
+        if (partitions <= 0) {
+            throw new IllegalArgumentException("Kafka large-payload topic must contain at least one partition");
+        }
         try {
-            if (describe(admin, topic) != null) {
+            final TopicDescription existing = describe(admin, topic);
+            if (existing != null) {
+                if (existing.partitions().size() != partitions) {
+                    throw new IllegalStateException("Kafka large-payload topic has unexpected partition count: topic="
+                            + topic + ", expected=" + partitions + ", actual=" + existing.partitions().size());
+                }
                 return;
             }
         } catch (Exception missing) {
             // Create below.
         }
-        final NewTopic newTopic = new NewTopic(topic, 1, (short) 3);
+        final NewTopic newTopic = new NewTopic(topic, partitions, (short) 3);
         newTopic.configs(Map.of("message.timestamp.type", "LogAppendTime"));
         admin.createTopics(List.of(newTopic)).all().get(10, TimeUnit.SECONDS);
         for (int attempt = 0; attempt < 30; attempt++) {
             try {
-                if (describe(admin, topic) != null) {
+                final TopicDescription created = describe(admin, topic);
+                if (created != null && created.partitions().size() == partitions) {
                     return;
                 }
             } catch (Exception ignored) {
@@ -1295,5 +1797,20 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 }
             });
         }
+    }
+
+    private record LargeShardProbe(
+            ShardId shard,
+            SystemMutation activation,
+            PreparedCommand beforeRoute,
+            org.apache.kafka.clients.consumer.GuardedFetchEvidence evidence,
+            long barrierOffset) {
+    }
+
+    private record LargeShardAdmission(
+            LargeShardProbe probe,
+            WorkerAssignmentAuthority.Publication publication,
+            WorkerAssignment assignment,
+            OwnerLease lease) {
     }
 }
