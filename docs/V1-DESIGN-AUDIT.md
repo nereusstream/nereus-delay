@@ -12711,3 +12711,26 @@ prove every provider implementation, all Object Store 5xx/timeout cuts,
 multi-Worker placement isolation, long-cycle soak, capacity certification or
 `PASS_CERTIFIED` release readiness. The source-locked receipt predates this
 documentation append; the append does not refresh its runtime source lock.
+
+### 2026-08-17 Current-source real Oxia multi-node Gateway leader-failover audit
+
+The current runner receipt is
+`/tmp/nereus-delay-oxia-multi-node-gateway-current-20260817-r2/oxia-multi-node-gateway-e2e.json`.
+It reports `status=PASS` under exact source locks Delay
+`53c9fc0c7b1609ba37109536326dad330d994ebb`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The receipt records a real three-DataServer Oxia cluster and one namespace
+shard. The injected cut stopped `data-server-2` after the Gateway test reached
+its response-loss gate; the observed leader changed from `ds-2` to `ds-1`,
+and the source-locked Gradle test completed with exit code 0 and
+`BUILD SUCCESSFUL in 16s`. It retains the six generated image IDs before
+cleanup and proves an empty exact Compose image/resource postcheck afterward.
+
+Audit result: PASS for this bounded Oxia leader-stop/Gateway durable-outcome
+reread boundary. The receipt is not evidence of coordinator or storage-service
+failover, Gateway multi-process HA, placement churn, disaster continuity or
+`PASS_CERTIFIED` release readiness; the source-locked receipt predates this
+documentation append.

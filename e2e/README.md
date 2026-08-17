@@ -6026,3 +6026,40 @@ fault-run container is gone and no generated `nereus-delay-*` image remains.
 
 This is a bounded real Object Store fault receipt. It does not satisfy the
 broader capacity/soak/production chaos `PASS_CERTIFIED` requirements.
+
+## Real Oxia multi-node Gateway leader failover with canonical receipt
+
+`run-oxia-multi-node-gateway-e2e.sh` builds the locked Oxia checkout into a
+three-coordinator/three-DataServer Compose project, creates one replicated
+namespace shard, and runs the Gateway mTLS/Oxia client test across an injected
+DataServer leader stop. It now emits a canonical JSON receipt and removes only
+the exact project and generated images.
+
+The current clean run was:
+
+```bash
+NEREUS_DELAY_OXIA_MULTI_NODE_GATEWAY_ARTIFACT_DIR=/tmp/nereus-delay-oxia-multi-node-gateway-current-20260817-r2 \
+NEREUS_DELAY_GATEWAY_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-multi-node-gateway-gradle-current-20260817-r1 \
+NEREUS_DELAY_OXIA_COORDINATOR_1_PORT=35191 \
+NEREUS_DELAY_OXIA_COORDINATOR_2_PORT=35192 \
+NEREUS_DELAY_OXIA_COORDINATOR_3_PORT=35193 \
+NEREUS_DELAY_OXIA_DATA_SERVER_1_PORT=35181 \
+NEREUS_DELAY_OXIA_DATA_SERVER_2_PORT=35182 \
+NEREUS_DELAY_OXIA_DATA_SERVER_3_PORT=35183 \
+NEREUS_DELAY_GATEWAY_PORT=35158 \
+bash e2e/run-oxia-multi-node-gateway-e2e.sh
+```
+
+Receipt: `/tmp/nereus-delay-oxia-multi-node-gateway-current-20260817-r2/oxia-multi-node-gateway-e2e.json`.
+It reports `status=PASS`, Delay `53c9fc0c7b1609ba37109536326dad330d994ebb`,
+K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The observed transition was
+`ds-2 -> ds-1`; the Gateway test exited zero with `BUILD SUCCESSFUL in 16s`.
+The artifact retains six generated image IDs before cleanup and proves empty
+exact Compose container/network/volume/image postchecks.
+
+This is bounded real Oxia leader-stop/Gateway recovery evidence. It does not
+certify Gateway HA, coordinator/storage failover, placement churn, disaster
+continuity, certified soak or V1 `PASS_CERTIFIED` release readiness. Locked
+reusable bases remain; no global Docker prune is used.

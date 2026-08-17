@@ -8077,3 +8077,26 @@ This is bounded current-source evidence, not a `PASS_CERTIFIED` chaos or V1
 release result. The matching r17 gate is
 `/tmp/nereus-delay-v1-release-gate-20260817-r17/v1-release-candidate-gate.json`
 and remains `NOT_READY`.
+
+### 2026-08-17 Source-locked real Oxia multi-node Gateway failover receipt
+
+`e2e/run-oxia-multi-node-gateway-e2e.sh` now persists the complete real-service
+receipt at
+`/tmp/nereus-delay-oxia-multi-node-gateway-current-20260817-r2/oxia-multi-node-gateway-e2e.json`.
+The receipt is `status=PASS` and locks Delay
+`53c9fc0c7b1609ba37109536326dad330d994ebb`, Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The Compose cluster contains three coordinators and three DataServers. With
+one namespace shard, the run observed `ds-2` as the initial leader, stopped
+`data-server-2` after the Gateway client reached its cut gate, observed `ds-1`
+as successor and allowed the Gateway test to reread the exact durable outcome.
+The test exited 0 with `BUILD SUCCESSFUL in 16s`. The artifact records six
+generated image IDs before cleanup and an empty exact project
+container/network/volume/image postcheck; locked reusable bases remain.
+
+This is bounded real Oxia leader-stop and session-bound Gateway recovery
+evidence. It does not promote Gateway HA, coordinator/storage failover,
+placement churn, disaster continuity, certified soak or the V1 release gate.

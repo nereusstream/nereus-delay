@@ -16036,3 +16036,33 @@ Audit boundary: this closes the named real MinIO 5xx/timeout/config-drift
 fault slice and strengthens the Object Store failure evidence. It does not
 close all provider implementations, target-isolation/Worker placement,
 long-cycle soak, capacity certification or the V1 `PASS_CERTIFIED` gate.
+
+## 2026-08-17 Current-source real Oxia multi-node Gateway leader-failover receipt
+
+The runner `e2e/run-oxia-multi-node-gateway-e2e.sh` now emits a canonical
+source-locked receipt with the exact Compose project, three coordinator/data
+server port sets, initial/successor leader, test log, built image IDs and
+post-cleanup resource checks. The clean current run is
+`/tmp/nereus-delay-oxia-multi-node-gateway-current-20260817-r2/oxia-multi-node-gateway-e2e.json`
+with `status=PASS`, Delay
+`nereus/delay-full-implementation-v1@53c9fc0c7b1609ba37109536326dad330d994ebb`,
+K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The real three-DataServer cluster used coordinator ports
+`35191/35192/35193`, data-server ports `35181/35182/35183` and Gateway port
+`35158`. Oxia selected `ds-2` as the initial namespace-shard leader; the
+runner stopped `data-server-2`, observed `ds-1` as the successor and released
+the Gateway failover gate. The Gateway test reread the exact durable outcome
+through the survivor and reported `BUILD SUCCESSFUL in 16s` with exit code 0.
+
+The receipt's exact cleanup is `PASS`: all six run-built Oxia image IDs are
+absent after `docker compose down --volumes --remove-orphans --rmi local`, and
+the Compose container/network/volume/image label postchecks are empty. The
+locked reusable bases were retained; no global Docker prune was used.
+
+This closes the bounded real Oxia DataServer leader-stop plus Gateway
+session-bound reread slice. It does not certify Gateway HA, coordinator
+failover, storage-service failover, placement churn, disaster continuity or
+the V1 `PASS_CERTIFIED` release gate.

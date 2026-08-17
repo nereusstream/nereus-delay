@@ -595,3 +595,39 @@ use global Docker prune.
 The receipt is a real Object Store fault slice, not `PASS_CERTIFIED` capacity,
 soak or release evidence. Preserve the fail-closed boundary for provider
 errors before Commit and the exact-readback boundary after Commit.
+
+## 22. Current-source real Oxia multi-node Gateway leader-failover drill
+
+Run from the clean full-v1 checkout with an isolated artifact directory,
+Gradle cache and ports:
+
+```bash
+NEREUS_DELAY_OXIA_MULTI_NODE_GATEWAY_ARTIFACT_DIR=/tmp/nereus-delay-oxia-multi-node-gateway-current-20260817-r2 \
+NEREUS_DELAY_GATEWAY_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-multi-node-gateway-gradle-current-20260817-r1 \
+NEREUS_DELAY_OXIA_COORDINATOR_1_PORT=35191 \
+NEREUS_DELAY_OXIA_COORDINATOR_2_PORT=35192 \
+NEREUS_DELAY_OXIA_COORDINATOR_3_PORT=35193 \
+NEREUS_DELAY_OXIA_DATA_SERVER_1_PORT=35181 \
+NEREUS_DELAY_OXIA_DATA_SERVER_2_PORT=35182 \
+NEREUS_DELAY_OXIA_DATA_SERVER_3_PORT=35183 \
+NEREUS_DELAY_GATEWAY_PORT=35158 \
+bash e2e/run-oxia-multi-node-gateway-e2e.sh
+```
+
+The canonical receipt is
+`/tmp/nereus-delay-oxia-multi-node-gateway-current-20260817-r2/oxia-multi-node-gateway-e2e.json`.
+It records `ds-2 -> ds-1` leader succession, the exact Compose project and
+six pre-cleanup generated image IDs, and reports `status=PASS` with
+`docker_cleanup.status=PASS`. The source locks are Delay
+`53c9fc0c7b1609ba37109536326dad330d994ebb`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The cleanup policy is exact: the runner removes only this Compose project,
+its labeled resources and its generated Oxia images with `--rmi local`; the
+locked Oxia/MinIO bases and unrelated images are retained. An empty project
+container/network/volume/image postcheck is required. This drill proves one
+namespace-shard DataServer leader stop and Gateway durable-outcome reread; it
+does not prove Gateway HA, coordinator/storage failover, placement churn,
+disaster continuity or `PASS_CERTIFIED` release readiness.
