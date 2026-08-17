@@ -14,6 +14,7 @@ MODES = {
     "PUT_503_AFTER_COMMIT",
     "PUT_503_BEFORE_COMMIT",
     "PUT_TIMEOUT_AFTER_COMMIT",
+    "PUT_TIMEOUT_BEFORE_COMMIT",
 }
 
 
@@ -78,6 +79,15 @@ class ProxyHandler(BaseHTTPRequestHandler):
         fault = self.server.fault_state.consume_for(self.command, self.path)
         if fault == "PUT_503_BEFORE_COMMIT":
             self._send_bytes(503, b"injected before commit\n", "text/plain")
+            return
+        if fault == "PUT_TIMEOUT_BEFORE_COMMIT":
+            # Do not forward the request. Hold the client connection beyond
+            # the adapter timeout so the provider remains definitely absent.
+            time.sleep(3)
+            try:
+                self.connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
             return
 
         headers = {}

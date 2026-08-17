@@ -55,6 +55,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Opt-in real Oxia coverage for the Worker checkpoint publication composition. */
@@ -107,9 +108,40 @@ class OxiaRealCheckpointPublicationSmokeTest {
                 + Bytes.hex(published.manifest().checkpointId()));
     }
 
+    @Test
+    void workerCheckpointRuntimeRemainsPendingWhenMinioCommitFailsBeforeProviderWrite() throws Exception {
+        final String oxiaEndpoint = endpoint();
+        final URI minioEndpoint = URI.create(required("NEREUS_DELAY_MINIO_ENDPOINT"));
+        final String region = valueOrDefault("NEREUS_DELAY_MINIO_REGION", "us-east-1");
+        final String bucket = required("NEREUS_DELAY_MINIO_BUCKET");
+        final String accessKey = required("NEREUS_DELAY_MINIO_ACCESS_KEY");
+        final String secretKey = required("NEREUS_DELAY_MINIO_SECRET_KEY");
+        final ProfileSemanticEnvelopeV1 profile = minioProfile(minioEndpoint, region, bucket, accessKey);
+        final S3CompatibleCheckpointObjectStoreAdapter adapter = new S3CompatibleCheckpointObjectStoreAdapter(
+                profile, minioEndpoint, region, bucket, accessKey, secretKey, null, LIMITS,
+                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build(), Clock.systemUTC(),
+                requestTimeout());
+
+        final WorkerCheckpointRun run = runWorkerCheckpoint(oxiaEndpoint,
+                "nereus-delay-real-checkpoint-minio-precommit/" + UUID.randomUUID(), profile.ref(), adapter);
+        assertNull(run.published());
+        assertNotNull(run.failure());
+        System.out.println("Oxia + MinIO checkpoint pre-commit failure remained fail-closed: "
+                + "Worker attempt failed, Intent remained PENDING_UPLOAD, PUBLISHED Catalog was absent, "
+                + "exact prefix was empty");
+    }
+
     private PublishedCheckpoint publishWorkerCheckpoint(final String endpoint, final String prefix,
                                                         final ProfileRefV1 objectStore,
                                                         final CheckpointUploadAdapter adapter) throws Exception {
+        final WorkerCheckpointRun run = runWorkerCheckpoint(endpoint, prefix, objectStore, adapter);
+        assertNotNull(run.published());
+        return run.published();
+    }
+
+    private WorkerCheckpointRun runWorkerCheckpoint(final String endpoint, final String prefix,
+                                                    final ProfileRefV1 objectStore,
+                                                    final CheckpointUploadAdapter adapter) throws Exception {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 23);
         final byte[] lineage = id16(2);
         final byte[] checkpointId = id16(3);
@@ -178,19 +210,45 @@ class OxiaRealCheckpointPublicationSmokeTest {
             assertEquals(List.of(submitted.task()), runtime.runTurn(new SchedulerBudget(1,
                     submitted.task().bytes(), 1_000)));
             final CheckpointWorkClassExecutor.AttemptOutcome outcome = submitted.outcome().orElseThrow();
-            assertNotNull(outcome.result());
-            assertEquals(CheckpointUploadStateV1.PUBLISHED, outcome.result().publication().uploadIntent().state());
-            assertEquals(outcome.result().publication().uploadIntent(),
-                    publicationBackend.currentPublishedFor(pending).orElseThrow());
-            assertArrayEquals(outcome.result().manifest().canonicalJsonBytes(), publicationBackend.manifest(
-                    checkpointId).orElseThrow().canonicalJsonBytes());
+            if (outcome.result() != null) {
+                assertEquals(CheckpointUploadStateV1.PUBLISHED,
+                        outcome.result().publication().uploadIntent().state());
+                assertEquals(outcome.result().publication().uploadIntent(),
+                        publicationBackend.currentPublishedFor(pending).orElseThrow());
+                assertArrayEquals(outcome.result().manifest().canonicalJsonBytes(), publicationBackend.manifest(
+                        checkpointId).orElseThrow().canonicalJsonBytes());
+                assertTrue(Files.isDirectory(checkpointDirectory));
+                assertFalse(scheduler.isInFlight(shard));
+                final CheckpointUploadIntentV1 publishedIntent = outcome.result().publication().uploadIntent();
+                assertTrue(ownerAuthority.release(activeLease));
+                assertTrue(ownerAuthority.current(shard).isEmpty());
+                return new WorkerCheckpointRun(new PublishedCheckpoint(checkpointDirectory,
+                        outcome.result().manifest(), publishedIntent.publishedManifest()), null);
+            }
+
+            assertNotNull(outcome.failure());
+            assertEquals(pending, publicationBackend.current(pending).orElseThrow());
+            assertTrue(publicationBackend.currentPublishedFor(pending).isEmpty());
+            assertTrue(publicationBackend.manifest(checkpointId).isEmpty());
             assertTrue(Files.isDirectory(checkpointDirectory));
             assertFalse(scheduler.isInFlight(shard));
-            final CheckpointUploadIntentV1 publishedIntent = outcome.result().publication().uploadIntent();
+            final CheckpointPrefixSweepResult reapedPartialPrefix = ((CheckpointPrefixSweepAdapter) adapter).sweep(
+                    new CheckpointPrefixSweepRequest(objectStore, pending.recoveryLineageId(),
+                            pending.checkpointId(), 100));
+            assertTrue(reapedPartialPrefix.listedVersionCount() > 0);
+            assertEquals(reapedPartialPrefix.listedVersionCount(), reapedPartialPrefix.deletedVersionCount());
+            assertTrue(reapedPartialPrefix.emptyAfterSweep());
             assertTrue(ownerAuthority.release(activeLease));
             assertTrue(ownerAuthority.current(shard).isEmpty());
-            return new PublishedCheckpoint(checkpointDirectory, outcome.result().manifest(),
-                    publishedIntent.publishedManifest());
+            return new WorkerCheckpointRun(null, outcome.failure());
+        }
+    }
+
+    private record WorkerCheckpointRun(PublishedCheckpoint published, Throwable failure) {
+        private WorkerCheckpointRun {
+            if ((published == null) == (failure == null)) {
+                throw new IllegalArgumentException("checkpoint run must contain exactly one result branch");
+            }
         }
     }
 

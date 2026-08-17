@@ -51,8 +51,10 @@ if [[ ! "$oxia_port" =~ ^[0-9]+$ || ! "$minio_port" =~ ^[0-9]+$ ]]; then
     exit 1
 fi
 if [[ "${minio_fault_mode}" != "NONE" && "${minio_fault_mode}" != "PUT_503_AFTER_COMMIT" \
-    && "${minio_fault_mode}" != "PUT_TIMEOUT_AFTER_COMMIT" ]]; then
-    echo "NEREUS_DELAY_CHECKPOINT_MINIO_FAULT_MODE must be NONE, PUT_503_AFTER_COMMIT or PUT_TIMEOUT_AFTER_COMMIT" >&2
+    && "${minio_fault_mode}" != "PUT_TIMEOUT_AFTER_COMMIT" \
+    && "${minio_fault_mode}" != "PUT_503_BEFORE_COMMIT" \
+    && "${minio_fault_mode}" != "PUT_TIMEOUT_BEFORE_COMMIT" ]]; then
+    echo "NEREUS_DELAY_CHECKPOINT_MINIO_FAULT_MODE must be NONE, PUT_503_AFTER_COMMIT, PUT_TIMEOUT_AFTER_COMMIT, PUT_503_BEFORE_COMMIT or PUT_TIMEOUT_BEFORE_COMMIT" >&2
     exit 1
 fi
 if [[ ! "${minio_request_timeout_ms}" =~ ^[1-9][0-9]*$ ]]; then
@@ -239,6 +241,10 @@ if [[ "${minio_fault_mode}" == "NONE" ]]; then
         --tests io.nereusstream.delay.store.OxiaRealCheckpointReapingSmokeTest.realOxiaOwnerAbandonmentReapsExactMinioCheckpointPrefix \
         --tests io.nereusstream.delay.store.OxiaRealObjectStoreCredentialRenewalSmokeTest.renewsRealOxiaLeaseAndFencesTheLiveAdapterAtHeadRotation \
         --rerun-tasks --no-daemon --console=plain
+elif [[ "${minio_fault_mode}" == "PUT_503_BEFORE_COMMIT" \
+    || "${minio_fault_mode}" == "PUT_TIMEOUT_BEFORE_COMMIT" ]]; then
+    run_smoke io.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.workerCheckpointRuntimeRemainsPendingWhenMinioCommitFailsBeforeProviderWrite
+    set_fault_mode NONE
 else
     run_smoke io.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.workerCheckpointRuntimePublishesToRealMinioAndOxia
     set_fault_mode NONE
@@ -247,4 +253,9 @@ else
     set_fault_mode NONE
 fi
 
-echo "Oxia + MinIO Worker checkpoint publication and REAPING E2E passed: real Oxia Intent/Catalog/Owner authority and real MinIO immutable objects (fault=${minio_fault_mode})"
+if [[ "${minio_fault_mode}" == "PUT_503_BEFORE_COMMIT" \
+    || "${minio_fault_mode}" == "PUT_TIMEOUT_BEFORE_COMMIT" ]]; then
+    echo "Oxia + MinIO Worker checkpoint pre-commit fail-closed E2E passed: real Oxia Intent/Owner authority and real MinIO partial-prefix cleanup (fault=${minio_fault_mode})"
+else
+    echo "Oxia + MinIO Worker checkpoint publication and REAPING E2E passed: real Oxia Intent/Catalog/Owner authority and real MinIO immutable objects (fault=${minio_fault_mode})"
+fi
