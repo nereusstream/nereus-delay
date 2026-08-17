@@ -604,8 +604,12 @@ class OxiaRealGatewayGrpcSmokeTest {
         }
         final Path restartGate = Path.of(requiredEnv("NEREUS_DELAY_GATEWAY_SESSION_CHURN_GATE"));
         final Path restartReady = Path.of(requiredEnv("NEREUS_DELAY_GATEWAY_SESSION_CHURN_READY"));
+        final Path recoveryGate = Path.of(requiredEnv("NEREUS_DELAY_GATEWAY_SESSION_CHURN_RECOVERY_GATE"));
+        final Path recoveryReady = Path.of(requiredEnv("NEREUS_DELAY_GATEWAY_SESSION_CHURN_RECOVERY_READY"));
         Files.deleteIfExists(restartGate);
         Files.deleteIfExists(restartReady);
+        Files.deleteIfExists(recoveryGate);
+        Files.deleteIfExists(recoveryReady);
 
         final String namespace = configured("NEREUS_DELAY_OXIA_NAMESPACE", "default");
         final String prefix = "nereus-delay-real-gateway-session-churn/" + UUID.randomUUID();
@@ -629,13 +633,13 @@ class OxiaRealGatewayGrpcSmokeTest {
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle admissionClient = OxiaSyncOwnerLeaseBackend.connect(
                 endpoint, namespace, "nereus-delay-gateway-churn-admission-old-" + UUID.randomUUID(),
-                Duration.ofSeconds(2), prefix + "/admission-client");
+                Duration.ofSeconds(2), Duration.ofSeconds(1), prefix + "/admission-client");
              OxiaSyncOwnerLeaseBackend.ClientHandle idempotencyClient = OxiaSyncOwnerLeaseBackend.connect(
                      endpoint, namespace, "nereus-delay-gateway-churn-idempotency-old-" + UUID.randomUUID(),
-                     Duration.ofSeconds(2), prefix + "/idempotency-client");
+                     Duration.ofSeconds(2), Duration.ofSeconds(1), prefix + "/idempotency-client");
              OxiaSyncOwnerLeaseBackend.ClientHandle auditClient = OxiaSyncOwnerLeaseBackend.connect(
                      endpoint, namespace, "nereus-delay-gateway-churn-audit-old-" + UUID.randomUUID(),
-                     Duration.ofSeconds(2), prefix + "/audit-client")) {
+                     Duration.ofSeconds(2), Duration.ofSeconds(1), prefix + "/audit-client")) {
             final GatewayGrpcService oldGrpc = grpcService(admissionClient, idempotencyClient, auditClient, prefix,
                     clock, core, coordinator, authority);
             final io.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 firstResponse;
@@ -678,6 +682,9 @@ class OxiaRealGatewayGrpcSmokeTest {
                     staleChannel.shutdownNow();
                     assertTrue(staleChannel.awaitTermination(10, TimeUnit.SECONDS));
                 }
+
+                Files.createFile(recoveryReady);
+                awaitFile(recoveryGate);
             }
 
             try (OxiaSyncOwnerLeaseBackend.ClientHandle recoveredAdmissionClient = OxiaSyncOwnerLeaseBackend.connect(

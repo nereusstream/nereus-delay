@@ -16,6 +16,8 @@ session_churn_pause_seconds=${NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN_PAUSE_SECO
 session_churn_dir=$(mktemp -d -t nereus-delay-gateway-session-churn.XXXXXX)
 session_churn_gate="$session_churn_dir/release"
 session_churn_ready="$session_churn_dir/ready"
+session_churn_recovery_gate="$session_churn_dir/recovery-release"
+session_churn_recovery_ready="$session_churn_dir/recovery-ready"
 session_churn_log="$session_churn_dir/session-churn.log"
 session_churn_pid=""
 
@@ -153,6 +155,8 @@ run_session_churn_smoke() {
     NEREUS_DELAY_GATEWAY_CLIENT_KEY="$tls_dir/client.key" \
     NEREUS_DELAY_GATEWAY_SESSION_CHURN_GATE="$session_churn_gate" \
     NEREUS_DELAY_GATEWAY_SESSION_CHURN_READY="$session_churn_ready" \
+    NEREUS_DELAY_GATEWAY_SESSION_CHURN_RECOVERY_GATE="$session_churn_recovery_gate" \
+    NEREUS_DELAY_GATEWAY_SESSION_CHURN_RECOVERY_READY="$session_churn_recovery_ready" \
     GRADLE_USER_HOME="$delay_gradle_user_home" \
         "$delay_root/gradlew" test \
             --tests io.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.gatewayDurableRecordsRecoverAfterOxiaSessionChurn \
@@ -180,9 +184,35 @@ run_session_churn_smoke() {
 
     compose stop oxia
     sleep "$session_churn_pause_seconds"
+
+    # Keep Oxia unavailable while the test exercises the old handles. Oxia
+    # persists session metadata across a process restart, so restarting before
+    # this assertion would allow the old client to resume the same session and
+    # would not prove the Gateway outage fence. The test signals when its
+    # stale-handle assertions are complete; only then do we restore authority.
+    touch "$session_churn_gate"
+    local recovery_ready=0
+    for attempt in $(seq 1 120); do
+        if [[ -f "$session_churn_recovery_ready" ]]; then
+            recovery_ready=1
+            break
+        fi
+        if ! kill -0 "$session_churn_pid" >/dev/null 2>&1; then
+            wait "$session_churn_pid" || true
+            cat "$session_churn_log" >&2 || true
+            return 1
+        fi
+        sleep 1
+    done
+    if [[ "$recovery_ready" != 1 ]]; then
+        echo "Gateway Oxia session churn test did not reach the recovery gate" >&2
+        cat "$session_churn_log" >&2 || true
+        return 1
+    fi
+
     compose start oxia
     wait_for_oxia_health
-    touch "$session_churn_gate"
+    touch "$session_churn_recovery_gate"
     local test_status=0
     wait "$session_churn_pid" || test_status=$?
     session_churn_pid=""

@@ -31,7 +31,7 @@ final class SessionBoundOxiaGatewayRecordClient implements OxiaGatewayRecordClie
             return result;
         } catch (OxiaGatewaySessionUnavailableException failure) {
             throw failure;
-        } catch (RuntimeException failure) {
+        } catch (Exception failure) {
             throw unavailable(failure);
         }
     }
@@ -51,7 +51,7 @@ final class SessionBoundOxiaGatewayRecordClient implements OxiaGatewayRecordClie
             // the session marker has disappeared or changed.
             verifySession();
             throw expectedCasRace;
-        } catch (RuntimeException failure) {
+        } catch (Exception failure) {
             throw unavailable(failure);
         }
     }
@@ -64,12 +64,12 @@ final class SessionBoundOxiaGatewayRecordClient implements OxiaGatewayRecordClie
     private void verifySession() {
         try {
             handle.backend().assertConnectedSession();
-        } catch (RuntimeException failure) {
+        } catch (Exception failure) {
             throw new OxiaGatewaySessionUnavailableException(failure);
         }
     }
 
-    private static OxiaGatewaySessionUnavailableException unavailable(final RuntimeException failure) {
+    private static OxiaGatewaySessionUnavailableException unavailable(final Throwable failure) {
         return new OxiaGatewaySessionUnavailableException(failure);
     }
 }

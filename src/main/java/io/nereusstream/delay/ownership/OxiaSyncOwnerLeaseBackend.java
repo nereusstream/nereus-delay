@@ -85,6 +85,13 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
     public static ClientHandle connect(final String serviceAddress, final String namespace,
                                        final String clientIdentifier, final Duration sessionTimeout,
                                        final String keyPrefix) throws OxiaException {
+        return connect(serviceAddress, namespace, clientIdentifier, sessionTimeout, null, keyPrefix);
+    }
+
+    /** Creates a client with explicit session and per-request timeout bounds. */
+    public static ClientHandle connect(final String serviceAddress, final String namespace,
+                                       final String clientIdentifier, final Duration sessionTimeout,
+                                       final Duration requestTimeout, final String keyPrefix) throws OxiaException {
         Objects.requireNonNull(serviceAddress, "serviceAddress");
         Objects.requireNonNull(namespace, "namespace");
         Objects.requireNonNull(clientIdentifier, "clientIdentifier");
@@ -92,14 +99,20 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
         if (sessionTimeout.isZero() || sessionTimeout.isNegative()) {
             throw new IllegalArgumentException("sessionTimeout must be positive");
         }
+        if (requestTimeout != null && (requestTimeout.isZero() || requestTimeout.isNegative())) {
+            throw new IllegalArgumentException("requestTimeout must be positive");
+        }
         final String canonicalNamespace = canonicalText(namespace, "namespace");
         final String canonicalClientIdentifier = canonicalText(clientIdentifier, "clientIdentifier");
         final String canonicalPrefix = canonicalKeyPrefix(keyPrefix);
-        final SyncOxiaClient client = OxiaClientBuilder.create(serviceAddress)
+        final OxiaClientBuilder builder = OxiaClientBuilder.create(serviceAddress)
                 .namespace(canonicalNamespace)
                 .clientIdentifier(canonicalClientIdentifier)
-                .sessionTimeout(sessionTimeout)
-                .syncClient();
+                .sessionTimeout(sessionTimeout);
+        if (requestTimeout != null) {
+            builder.requestTimeout(requestTimeout);
+        }
+        final SyncOxiaClient client = builder.syncClient();
         try {
             return new ClientHandle(client, new OxiaSyncOwnerLeaseBackend(client, canonicalPrefix, true));
         } catch (RuntimeException failure) {
