@@ -124,9 +124,9 @@ sample_resources() {
   if [[ -n "${child_pid:-}" ]] && kill -0 "${child_pid}" >/dev/null 2>&1; then
     while IFS= read -r pid; do
       [[ "${pid}" =~ ^[0-9]+$ ]] || continue
-      line="$(ps -o rss= -p "${pid}" 2>/dev/null | awk '{print $1; exit}')"
+      line="$(ps -o rss= -p "${pid}" 2>/dev/null | awk '{print $1; exit}' || true)"
       [[ "${line}" =~ ^[0-9]+$ ]] && rss=$((rss + line))
-      line="$(lsof -p "${pid}" 2>/dev/null | awk 'NR > 1 {count++} END {print count + 0}')"
+      line="$(lsof -p "${pid}" 2>/dev/null | awk 'NR > 1 {count++} END {print count + 0}' || true)"
       [[ "${line}" =~ ^[0-9]+$ ]] && fds=$((fds + line))
     done < <(collect_descendants "${child_pid}" | sort -n -u)
   fi
@@ -151,6 +151,7 @@ echo "Configured cycles/base port: ${cycles}/${base_port}"
 echo "Process RSS/FD/artifact limits: ${max_process_rss_kib}KiB/${max_process_fds}/${max_artifact_bytes}B"
 echo "Source locks: Delay=${delay_source} Kafka=${kafka_source} Pulsar=${pulsar_source} Oxia=${oxia_source}"
 
+child_started_epoch="$(date +%s)"
 set +e
 NEREUS_DELAY_PRODUCTION_SOAK_ARTIFACT_DIR="${bounded_artifact_dir}" \
 NEREUS_DELAY_PRODUCTION_SOAK_GRADLE_USER_HOME="${gradle_home}" \
@@ -165,10 +166,17 @@ set +e
 wait "${child_pid}"
 child_status=$?
 set -e
-wait "${monitor_pid}" >/dev/null 2>&1 || true
+child_finished_epoch="$(date +%s)"
+set +e
+wait "${monitor_pid}" >/dev/null 2>&1
+monitor_status=$?
+set -e
 finished_epoch="$(date +%s)"
 finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 elapsed_seconds=$((finished_epoch - started_epoch))
+child_elapsed_seconds=$((child_finished_epoch - child_started_epoch))
+minimum_resource_samples=$((child_elapsed_seconds / resource_sample_interval))
+(( minimum_resource_samples >= 2 )) || minimum_resource_samples=2
 
 process_peak_rss_kib="$(awk 'NR > 1 {if ($2 > max) max=$2} END {print max + 0}' "${resource_samples}")"
 process_peak_fds="$(awk 'NR > 1 {if ($3 > max) max=$3} END {print max + 0}' "${resource_samples}")"
@@ -210,7 +218,8 @@ if [[ "${child_status}" == 0 && "${bounded_status}" == "PASS_BOUNDED" \
 fi
 
 process_resource_status="FAIL"
-if (( resource_sample_count >= 2 )) \
+if (( monitor_status == 0 )) \
+    && (( resource_sample_count >= minimum_resource_samples )) \
     && (( process_peak_rss_kib <= max_process_rss_kib )) \
     && (( process_peak_fds <= max_process_fds )) \
     && (( artifact_peak_bytes <= max_artifact_bytes )) \
@@ -237,7 +246,7 @@ if [[ -n "${docker_containers_after}${docker_networks_after}${docker_volumes_aft
 fi
 
 soak_status="PASS_CERTIFIED"
-if [[ "${child_status}" != 0 || "${bounded_status}" != "PASS_BOUNDED" \
+if [[ "${child_status}" != 0 || "${monitor_status}" != 0 || "${bounded_status}" != "PASS_BOUNDED" \
     || "${case_invariants}" != "PASS" || "${process_resource_status}" != "PASS" \
     || "${duration_status}" != "PASS" || "${docker_cleanup_status}" != "PASS" ]]; then
   soak_status="FAIL"
@@ -264,6 +273,8 @@ jq -n \
   --arg started_at "${started_at}" \
   --arg finished_at "${finished_at}" \
   --argjson elapsed_seconds "${elapsed_seconds}" \
+  --argjson child_elapsed_seconds "${child_elapsed_seconds}" \
+  --argjson minimum_resource_samples "${minimum_resource_samples}" \
   --argjson required_cycles "${required_cycles}" \
   --argjson cycles "${cycles}" \
   --argjson required_duration_seconds "${required_duration_seconds}" \
@@ -276,6 +287,7 @@ jq -n \
   --argjson resource_sample_count "${resource_sample_count}" \
   --argjson artifact_bytes_after "${artifact_bytes_after}" \
   --arg child_status "${child_status}" \
+  --arg monitor_status "${monitor_status}" \
   --arg bounded_status "${bounded_status}" \
   --arg case_invariants "${case_invariants}" \
   --arg process_resource_status "${process_resource_status}" \
@@ -301,6 +313,7 @@ jq -n \
     started_at: $started_at,
     finished_at: $finished_at,
     elapsed_seconds: $elapsed_seconds,
+    child_elapsed_seconds: $child_elapsed_seconds,
     execution: "strict-sequential",
     source_locks: {delay: $delay, kafka: $kafka, pulsar: $pulsar, oxia: $oxia},
     policy: {
@@ -313,6 +326,7 @@ jq -n \
     },
     observations: {
       child_exit_code: ($child_status | tonumber),
+      monitor_exit_code: ($monitor_status | tonumber),
       bounded_status: $bounded_status,
       expected_cases: ($cycles * 4),
       case_invariants: $case_invariants,
@@ -323,6 +337,7 @@ jq -n \
       process_peak_rss_kib: $process_peak_rss_kib,
       process_peak_fds: $process_peak_fds,
       artifact_peak_bytes: $artifact_peak_bytes,
+      minimum_resource_samples: $minimum_resource_samples,
       artifact_bytes_after: $artifact_bytes_after
     },
     docker_postcheck: {
@@ -343,7 +358,7 @@ jq -e --arg status "${soak_status}" '.status == $status and (.source_locks.delay
   "${soak_artifact}" >/dev/null
 echo "certified production-chain soak artifact=${soak_artifact}"
 echo "status=${soak_status}"
-echo "child_status=${child_status} bounded_status=${bounded_status} case_invariants=${case_invariants}"
+echo "child_status=${child_status} monitor_status=${monitor_status} bounded_status=${bounded_status} case_invariants=${case_invariants}"
 echo "resource_status=${process_resource_status} duration_status=${duration_status} docker_cleanup=${docker_cleanup_status}"
 
 if [[ "${soak_status}" != "PASS_CERTIFIED" ]]; then
