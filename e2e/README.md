@@ -5760,3 +5760,29 @@ reported `BUILD SUCCESSFUL in 1m 1s`.
 The runner removes its exact Compose containers, networks, volumes, listeners
 and generated P1/Oxia images. The locked Oxia/MinIO images are retained; no
 global Docker prune or unrelated image deletion is part of this receipt.
+
+## Current-source bounded fault matrix and release gate
+
+The current-source matrix command is:
+
+```bash
+NEREUS_DELAY_CHAOS_MATRIX_ARTIFACT_DIR=/tmp/nereus-delay-chaos-release-20260817-r2 \
+NEREUS_DELAY_CHAOS_MATRIX_GRADLE_USER_HOME=/tmp/nereus-delay-chaos-release-20260817-r2/gradle-user-home \
+bash e2e/run-bounded-chaos-matrix.sh
+```
+
+It produced
+`/tmp/nereus-delay-chaos-release-20260817-r2/bounded-chaos-matrix.json` with
+all 13 cells passing and `matrix_status=PASS_BOUNDED`, source-locked to Delay
+`3370bfbeb03a26186156528507e379dcb1dd3021`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The matching gate artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r11/v1-release-candidate-gate.json`:
+source, cross-repository and full Gradle checks pass, but
+`release_status=NOT_READY` because capacity is `PARTIAL`, certified soak is
+missing and bounded activation/operations/chaos evidence cannot satisfy
+`PASS_CERTIFIED`. Matrix cleanup is exact and run-scoped; no global Docker
+prune or unrelated image deletion is allowed.

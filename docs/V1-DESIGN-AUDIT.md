@@ -12464,3 +12464,22 @@ Owner release at barriers `3/1` and `4/1`, with Prepare/Commit
 Store authority: it does not claim destination publication, Broker failover,
 placement churn, catalog-driven authority or release certification. Those
 boundaries remain separate audit items.
+
+### 2026-08-17 Current-source bounded fault matrix decision
+
+The current-source artifact
+`/tmp/nereus-delay-chaos-release-20260817-r2/bounded-chaos-matrix.json` records
+`PASS_BOUNDED` for all 13 executable Kafka, Pulsar, checkpoint and Gateway
+crash/response-loss/network cells at Delay
+`3370bfbeb03a26186156528507e379dcb1dd3021`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The companion gate artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r11/v1-release-candidate-gate.json`.
+It passes source cleanliness, cross-repository contracts and full Gradle
+`check`, but correctly remains `NOT_READY`: bounded fault evidence does not
+promote to `PASS_CERTIFIED`, capacity is `PARTIAL`, and certified soak is
+missing. Exact run-scoped Docker cleanup passed; no unrelated image was
+deleted.

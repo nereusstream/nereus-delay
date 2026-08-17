@@ -15665,3 +15665,23 @@ listeners or generated P1/Oxia per-run images. The locked Oxia and MinIO
 images were retained; no global Docker prune or unrelated image deletion was
 performed. The receipt log remains at
 `/var/folders/vk/l_r0z80j1dj93fsrjx3zqv4r0000gn/T/nereus-delay-pulsar-large-receipt.XXXXXX.bcBZJXAWks.log`.
+
+## 2026-08-17 Current-source 13-cell bounded fault matrix and gate
+
+The current-source bounded chaos rerun is
+`/tmp/nereus-delay-chaos-release-20260817-r2/bounded-chaos-matrix.json`. It is
+`matrix_status=PASS_BOUNDED`, with all 13 Kafka, Pulsar, checkpoint and Gateway
+response-loss/process/network cells exiting zero, and locks Delay
+`3370bfbeb03a26186156528507e379dcb1dd3021`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The corresponding source-locked release artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r11/v1-release-candidate-gate.json`.
+Source checks, cross-repository validation and full Gradle `check` pass. The
+fail-closed result remains `release_status=NOT_READY`: capacity is `PARTIAL`,
+certified soak is absent, and activation, operations and chaos are
+`PASS_BOUNDED`, not `PASS_CERTIFIED` evidence. Matrix cleanup removed all
+run-created resources and generated images; locked Oxia/MinIO bases remain and
+no global Docker prune was used.

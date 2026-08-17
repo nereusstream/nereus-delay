@@ -7956,3 +7956,23 @@ mutually exclusive with Broker failover/network-partition and MinIO fault
 modes. The normal single-shard path and the separate failover receipts retain
 those boundaries; no multi-shard destination or release claim should be
 inferred from this result.
+
+## Current-source 13-cell bounded fault matrix and release boundary
+
+The current-source matrix artifact is
+`/tmp/nereus-delay-chaos-release-20260817-r2/bounded-chaos-matrix.json`. All 13
+Kafka, Pulsar, checkpoint and Gateway process/network/response-loss cells
+passed with exit code zero under Delay
+`3370bfbeb03a26186156528507e379dcb1dd3021`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`; its status is intentionally
+`PASS_BOUNDED`.
+
+The matching release gate is
+`/tmp/nereus-delay-v1-release-gate-20260817-r11/v1-release-candidate-gate.json`.
+Source, cross-repository and full Gradle checks pass, while capacity remains
+`PARTIAL`, certified soak is missing and activation/operations/chaos remain
+bounded; therefore the release decision is `NOT_READY`. The matrix runners
+removed their exact Compose resources and generated images, retaining only the
+locked Oxia/MinIO bases.

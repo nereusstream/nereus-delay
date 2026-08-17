@@ -322,3 +322,28 @@ generated images are gone. The runner performs only run-scoped cleanup with
 `docker compose down --volumes --remove-orphans --rmi local` plus exact
 generated P1/Oxia image removal. Retain only the locked Oxia/MinIO bases; do
 not use global `docker image prune` or `docker system prune`.
+
+## 12. Current-source 13-cell bounded chaos rerun
+
+Run the executable bounded matrix from the Delay worktree with the isolated
+artifact directory:
+
+```bash
+NEREUS_DELAY_CHAOS_MATRIX_ARTIFACT_DIR=/tmp/nereus-delay-chaos-release-20260817-r2 \
+NEREUS_DELAY_CHAOS_MATRIX_GRADLE_USER_HOME=/tmp/nereus-delay-chaos-release-20260817-r2/gradle-user-home \
+bash e2e/run-bounded-chaos-matrix.sh
+```
+
+The resulting
+`/tmp/nereus-delay-chaos-release-20260817-r2/bounded-chaos-matrix.json` is
+`PASS_BOUNDED`; all 13 cells passed at Delay
+`3370bfbeb03a26186156528507e379dcb1dd3021`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The source-locked gate
+`/tmp/nereus-delay-v1-release-gate-20260817-r11/v1-release-candidate-gate.json`
+passes source, contract and full Gradle checks but remains `NOT_READY` because
+`PASS_BOUNDED` is not `PASS_CERTIFIED`, capacity is `PARTIAL` and certified
+soak is absent. Every cell's Compose resources and generated images were
+removed by exact run-scoped cleanup; locked bases were retained and no global
+prune was used.
