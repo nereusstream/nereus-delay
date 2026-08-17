@@ -16004,3 +16004,35 @@ volumes and no generated `nereus-delay-*` images. The locked MinIO base
 was retained; the only running container left was the unrelated
 `wenjunxiao/mac-docker-connector` connector. No global prune and no unrelated
 image deletion was used.
+
+## 2026-08-17 Current-source real MinIO provider fault receipt
+
+The source-locked runner
+`e2e/run-minio-fault-e2e.sh` passed against Delay
+`nereus/delay-full-implementation-v1@b982f423e0f6f3d7627e6f0fabfbed1e36c85498`.
+The canonical JSON receipt is
+`/tmp/nereus-delay-minio-fault-current-20260817-r3/minio-fault-e2e.json`.
+It records `status=PASS`, Gradle test exit code `0`, locked MinIO image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`
+and repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+The real provider fault cases were:
+
+- `realMinioFiveHundredAfterCommitResolvesByExactReadback`;
+- `realMinioFiveHundredBeforeCommitRemainsFailClosed`;
+- `realMinioTimeoutAfterCommitResolvesByExactReadback`;
+- `realMinioCredentialConfigurationDriftFailsClosed`.
+
+The run used MinIO `31651`, the fault proxy `31652`, bucket
+`nereus-delay-fault-current-r3`, and container
+`nereus-delay-minio-fault-e2e-1786952312-78175`. Exact postchecks found the
+container removed and no generated `nereus-delay-*` image, network or volume;
+the locked MinIO base was retained. A preceding fresh-cache attempt is kept as
+`r2` with `test_exit_code=1` for Maven TLS handshake failure and is not used as
+runtime evidence.
+
+Audit boundary: this closes the named real MinIO 5xx/timeout/config-drift
+fault slice and strengthens the Object Store failure evidence. It does not
+close all provider implementations, target-isolation/Worker placement,
+long-cycle soak, capacity certification or the V1 `PASS_CERTIFIED` gate.

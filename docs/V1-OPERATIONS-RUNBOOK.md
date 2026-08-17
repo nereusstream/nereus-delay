@@ -568,3 +568,30 @@ design. Capacity was `PARTIAL`, certified soak was absent, and bounded
 activation, operations and chaos receipts were not eligible for
 `PASS_CERTIFIED`. `ALLOW_NOT_READY=1` records this audit result only; it does
 not authorize promotion.
+
+## 20. Real MinIO provider fault drill
+
+Run the Object Store fault drill with an empty artifact directory, isolated
+ports and a populated isolated Gradle cache:
+
+```bash
+NEREUS_DELAY_MINIO_FAULT_ARTIFACT_DIR=/tmp/nereus-delay-minio-fault-current-20260817-r3 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-minio-fault-current-20260817-r1 \
+NEREUS_DELAY_MINIO_FAULT_MINIO_PORT=31651 \
+NEREUS_DELAY_MINIO_FAULT_PROXY_PORT=31652 \
+NEREUS_DELAY_MINIO_BUCKET=nereus-delay-fault-current-r3 \
+bash e2e/run-minio-fault-e2e.sh
+```
+
+The canonical receipt is
+`/tmp/nereus-delay-minio-fault-current-20260817-r3/minio-fault-e2e.json`.
+It is source-locked to Delay `b982f423e0f6f3d7627e6f0fabfbed1e36c85498`, uses
+the locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`,
+and records all four provider fault tests as PASS. The runner removes its
+exact container in an EXIT trap and retains the locked base image; it does not
+use global Docker prune.
+
+The receipt is a real Object Store fault slice, not `PASS_CERTIFIED` capacity,
+soak or release evidence. Preserve the fail-closed boundary for provider
+errors before Commit and the exact-readback boundary after Commit.

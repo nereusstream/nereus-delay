@@ -3,6 +3,9 @@ set -euo pipefail
 
 e2e_root=$(cd "$(dirname "$0")" && pwd)
 delay_root=$(cd "$e2e_root/.." && pwd)
+artifact_dir=${NEREUS_DELAY_MINIO_FAULT_ARTIFACT_DIR:-$(mktemp -d -t nereus-delay-minio-fault-artifact.XXXXXX)}
+artifact_file="$artifact_dir/minio-fault-e2e.json"
+started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 minio_image="quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z"
 minio_digest="sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
 minio_region=${NEREUS_DELAY_MINIO_REGION:-us-east-1}
@@ -16,10 +19,20 @@ container_name="nereus-delay-minio-fault-e2e-$(date +%s)-$$"
 proxy_log=$(mktemp -t nereus-delay-minio-fault-proxy.XXXXXX).log
 proxy_pid=""
 container_started=0
+cleanup_status="PASS"
+test_status=-1
+source_ref=""
+source_lock=""
+image_id=""
 
 if ! command -v docker >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 \
-    || ! command -v python3 >/dev/null 2>&1; then
-    echo "docker, curl and python3 are required" >&2
+    || ! command -v python3 >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    echo "docker, curl, python3 and jq are required" >&2
+    exit 1
+fi
+mkdir -p "$artifact_dir"
+if [[ -n "$(find "$artifact_dir" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+    echo "MinIO fault artifact directory must be empty: $artifact_dir" >&2
     exit 1
 fi
 if [[ ! "$minio_port" =~ ^[0-9]+$ || ! "$proxy_port" =~ ^[0-9]+$ ]]; then
@@ -67,12 +80,72 @@ cleanup() {
         wait "$proxy_pid" >/dev/null 2>&1 || true
     fi
     if [[ "$container_started" == 1 ]]; then
-        docker rm --force "$container_name" >/dev/null 2>&1 || true
+        if ! docker rm --force "$container_name" >/dev/null 2>&1; then
+            cleanup_status="FAIL"
+        fi
+        if [[ -n "$(docker ps -aq --filter "name=^/${container_name}$" || true)" ]]; then
+            cleanup_status="FAIL"
+        fi
     fi
+    if [[ "$status" == 0 && "$test_status" == 0 && "$cleanup_status" == "PASS" ]]; then
+        result_status="PASS"
+    else
+        result_status="FAIL"
+    fi
+    jq -n \
+        --arg schema "nereus-delay-minio-fault-e2e-v1" \
+        --arg status "$result_status" \
+        --arg source_ref "$source_ref" \
+        --arg source_lock "$source_lock" \
+        --arg image "$minio_image" \
+        --arg image_digest "$minio_digest" \
+        --arg image_id "$image_id" \
+        --arg container "$container_name" \
+        --arg minio_port "$minio_port" \
+        --arg proxy_port "$proxy_port" \
+        --arg bucket "$minio_bucket" \
+        --arg started_at "$started_at" \
+        --arg finished_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --argjson test_exit_code "$test_status" \
+        --arg cleanup_status "$cleanup_status" \
+        '{
+          schema: $schema,
+          status: $status,
+          source_ref: $source_ref,
+          source_lock: $source_lock,
+          minio: {
+            image: $image,
+            digest: $image_digest,
+            image_id: $image_id,
+            container: $container,
+            minio_port: ($minio_port | tonumber),
+            fault_proxy_port: ($proxy_port | tonumber),
+            bucket: $bucket
+          },
+          tests: [
+            "realMinioFiveHundredAfterCommitResolvesByExactReadback",
+            "realMinioFiveHundredBeforeCommitRemainsFailClosed",
+            "realMinioTimeoutAfterCommitResolvesByExactReadback",
+            "realMinioCredentialConfigurationDriftFailsClosed"
+          ],
+          test_exit_code: $test_exit_code,
+          docker_cleanup: {status: $cleanup_status, container_removed: ($cleanup_status == "PASS")},
+          started_at: $started_at,
+          finished_at: $finished_at,
+          boundaries: [
+            "This is a source-locked real MinIO Object Store fault receipt, not V1 release certification.",
+            "It covers provider 5xx/timeout response loss after and before Commit plus credential configuration drift.",
+            "It does not certify all Broker/Worker placement, Object Store provider implementations, long-cycle soak or PASS_CERTIFIED capacity envelopes."
+          ]
+        }' >"$artifact_file" || true
+    echo "MinIO fault E2E artifact: $artifact_file"
     rm -f "$proxy_log"
     exit "$status"
 }
 trap cleanup EXIT INT TERM
+
+source_ref=$(git -C "$delay_root" symbolic-ref --short HEAD 2>/dev/null || echo detached)
+source_lock=$(git -C "$delay_root" rev-parse HEAD)
 
 docker run --detach --name "$container_name" \
     --publish "127.0.0.1:${minio_port}:9000" \
@@ -80,6 +153,7 @@ docker run --detach --name "$container_name" \
     --env MINIO_ROOT_PASSWORD="$minio_secret_key" \
     "$minio_image" server /data --console-address :9001 >/dev/null
 container_started=1
+image_id=$(docker image inspect --format '{{.Id}}' "$minio_image")
 
 minio_endpoint="http://127.0.0.1:${minio_port}"
 proxy_endpoint="http://127.0.0.1:${proxy_port}"
@@ -121,14 +195,15 @@ if [[ "$ready" != 1 ]]; then
     exit 1
 fi
 
-echo "Delay source: $(git -C "$delay_root" rev-parse HEAD)"
+echo "Delay source: ${source_ref}@${source_lock}"
 echo "MinIO image: $minio_image@$minio_digest"
-echo "MinIO image ID: $(docker image inspect --format '{{.Id}}' "$minio_image")"
+echo "MinIO image ID: $image_id"
 echo "MinIO container: $container_name"
 echo "MinIO endpoint: $minio_endpoint"
 echo "Fault proxy endpoint: $proxy_endpoint"
 echo "MinIO bucket: $minio_bucket"
 
+set +e
 NEREUS_DELAY_MINIO_ENDPOINT="$proxy_endpoint" \
 NEREUS_DELAY_MINIO_FAULT_CONTROL="$proxy_endpoint/__fault" \
 NEREUS_DELAY_MINIO_ACCESS_KEY="$minio_access_key" \
@@ -142,5 +217,10 @@ GRADLE_USER_HOME="$gradle_user_home" \
         --tests io.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioTimeoutAfterCommitResolvesByExactReadback \
         --tests io.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioCredentialConfigurationDriftFailsClosed \
         --rerun-tasks --no-daemon --console=plain
+test_status=$?
+set -e
+if [[ "$test_status" != 0 ]]; then
+    exit "$test_status"
+fi
 
 echo "Real MinIO Object Store 5xx/timeout/config-drift fault E2E passed: exact immutable read-back resolved post-commit 503/timeout and real MinIO rejected drifted credentials"

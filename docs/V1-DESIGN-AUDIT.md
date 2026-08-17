@@ -12688,3 +12688,26 @@ the activation, operations and chaos artifacts are bounded. `PASS_BOUNDED`,
 The receipts are locked to the runtime candidate before this documentation
 append. The documentation commit itself is not a runtime revalidation and
 must not be used to claim a refreshed release lock.
+
+### 2026-08-17 Current-source real Object Store provider fault audit
+
+The current Delay source
+`nereus/delay-full-implementation-v1@b982f423e0f6f3d7627e6f0fabfbed1e36c85498`
+passed the real MinIO fault runner. The canonical receipt is
+`/tmp/nereus-delay-minio-fault-current-20260817-r3/minio-fault-e2e.json`, with
+locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+and local image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`.
+
+Audit result: PASS for the named real provider fault boundary. A response loss
+after Commit was resolved by exact immutable readback; a 503 before Commit
+remained fail-closed; a post-Commit timeout was resolved by exact readback;
+and credential configuration drift was rejected. The runner's exact cleanup
+removed its MinIO container, and no generated `nereus-delay-*` image remained.
+
+This is real MinIO/Object Store evidence, not a release PASS. It does not
+prove every provider implementation, all Object Store 5xx/timeout cuts,
+multi-Worker placement isolation, long-cycle soak, capacity certification or
+`PASS_CERTIFIED` release readiness. The source-locked receipt predates this
+documentation append; the append does not refresh its runtime source lock.

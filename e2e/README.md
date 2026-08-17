@@ -6002,3 +6002,27 @@ or generated images. Retain the locked MinIO base
 `quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
 and unrelated images; do not use global Docker prune or delete unrelated
 images.
+
+## 21. Current-source real MinIO 5xx/timeout/config-drift fault E2E
+
+The current fault runner produces a canonical JSON receipt and exact cleanup:
+
+```bash
+NEREUS_DELAY_MINIO_FAULT_ARTIFACT_DIR=/tmp/nereus-delay-minio-fault-current-20260817-r3 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-minio-fault-current-20260817-r1 \
+NEREUS_DELAY_MINIO_FAULT_MINIO_PORT=31651 \
+NEREUS_DELAY_MINIO_FAULT_PROXY_PORT=31652 \
+NEREUS_DELAY_MINIO_BUCKET=nereus-delay-fault-current-r3 \
+bash e2e/run-minio-fault-e2e.sh
+```
+
+`/tmp/nereus-delay-minio-fault-current-20260817-r3/minio-fault-e2e.json` is
+`status=PASS`, source-locked to Delay `b982f423e0f6f3d7627e6f0fabfbed1e36c85498`,
+and uses MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The four real tests cover 503 after Commit, 503 before Commit, timeout after
+Commit and credential configuration drift. Exact postchecks confirm the
+fault-run container is gone and no generated `nereus-delay-*` image remains.
+
+This is a bounded real Object Store fault receipt. It does not satisfy the
+broader capacity/soak/production chaos `PASS_CERTIFIED` requirements.
