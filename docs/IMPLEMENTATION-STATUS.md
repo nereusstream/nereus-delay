@@ -16341,3 +16341,28 @@ are supplied.
 Exact postchecks found no matching run-scoped containers, networks, volumes or
 generated images. Only the canonical Oxia image and locked MinIO base remain;
 no global Docker prune or unrelated image deletion was used.
+
+## 2026-08-17 Current HEAD release-candidate gate r37
+
+The current HEAD gate receipt is
+`/tmp/nereus-delay-v1-release-gate-20260817-r37/v1-release-candidate-gate.json`.
+All four source checkouts were clean and the cross-repository validator and
+full Gradle check passed. The gate source locks are Delay
+`75fa4c468d1887c6901e4645e718f83f7ed0a790`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The result is intentionally `release_status=NOT_READY`: no explicitly
+approved `PASS_CERTIFIED` capacity, certified soak, activation/cutover,
+operations-drills or release-certified chaos artifact was supplied to this
+gate invocation. This is a fail-closed decision, not a regression of the
+bounded r6 chaos or certified harness receipts; those artifacts remain
+scoped evidence and do not auto-promote.
+
+The same cleanup pass removed 476 stale `/private/tmp/nereus-delay*` entries
+(old retry artifacts, logs and Gradle/build caches) after confirming there
+were no matching active processes and no temporary `.git` or `src` trees.
+Five canonical receipts were retained: Admission recovery r8, bounded chaos
+r6, certified capacity r3, certified soak r5 and this gate r37. No source
+worktree, Git object or unrelated Docker resource was a cleanup target.

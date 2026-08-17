@@ -12959,3 +12959,26 @@ and disaster-continuity artifacts.
 The run-scoped Docker postcheck was empty for generated containers, networks,
 volumes and images. The locked Oxia and MinIO bases were retained; unrelated
 images were not removed and no global prune was executed.
+
+### 2026-08-17 Current HEAD release-candidate gate r37
+
+The current HEAD gate receipt is
+`/tmp/nereus-delay-v1-release-gate-20260817-r37/v1-release-candidate-gate.json`.
+Source cleanliness, cross-repository contract validation and the full Gradle
+check are `PASS` for Delay
+`75fa4c468d1887c6901e4645e718f83f7ed0a790`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The gate remains `NOT_READY` because this invocation did not receive the
+explicitly approved certified capacity, certified soak, activation/cutover,
+operations-drills and release-certified chaos artifacts. The bounded r6
+receipt is not silently promoted into the release slot; fail-closed behavior
+is preserved.
+
+For workspace safety, the cleanup removed only 476 top-level temporary
+`/private/tmp/nereus-delay*` entries after checking that no related process,
+temporary `.git` tree or temporary `src` tree remained. Five canonical receipt
+directories were retained. The shared Delay root's pre-existing three dirty
+Java files and all isolated source worktrees were preserved unchanged.

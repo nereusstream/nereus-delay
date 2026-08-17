@@ -6285,3 +6285,23 @@ Delay/Kafka/Pulsar/Oxia/MinIO/Gateway containers, networks, volumes and images
 are absent afterward. The canonical Oxia and locked MinIO bases may remain for
 reuse. No global Docker prune is allowed, and unrelated images must be left
 untouched.
+
+## Current HEAD release gate r37
+
+The current-source fail-closed gate receipt is:
+
+```text
+/tmp/nereus-delay-v1-release-gate-20260817-r37/v1-release-candidate-gate.json
+```
+
+It records clean source checkouts, passing cross-repository validation and a
+passing full Gradle check, but `release_status=NOT_READY` because this gate
+invocation did not receive approved certified capacity, soak,
+activation/cutover, operations or release-certified chaos artifacts. A
+`PASS_BOUNDED` receipt is not a release certificate.
+
+The completed cleanup removed stale top-level `/private/tmp/nereus-delay*`
+logs, retries and build caches only. Five canonical evidence directories were
+kept so the latest recovery, chaos, capacity, soak and gate receipts remain
+available. No source worktree, Git metadata, or unrelated Docker resource was
+deleted.

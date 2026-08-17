@@ -891,3 +891,30 @@ images, networks or volumes. Retain only the canonical Oxia and locked MinIO
 base images needed by later runs. Do not run a global Docker prune or delete
 unrelated images. This cleanup is evidence hygiene and does not change the
 matrix's `PASS_BOUNDED` or the release gate's `NOT_READY` status.
+
+## 2026-08-17 Current HEAD gate and temporary-directory cleanup
+
+The current gate command was run with an isolated artifact directory and
+`NEREUS_DELAY_RELEASE_GATE_ALLOW_NOT_READY=1` so that the fail-closed receipt
+could be retained:
+
+```bash
+NEREUS_DELAY_RELEASE_GATE_ARTIFACT_DIR=/tmp/nereus-delay-v1-release-gate-20260817-r37 \
+NEREUS_DELAY_RELEASE_GATE_GRADLE_USER_HOME=/tmp/nereus-delay-v1-release-gate-gradle-20260817-r37 \
+NEREUS_DELAY_RELEASE_GATE_ALLOW_NOT_READY=1 \
+bash e2e/run-v1-release-gate.sh
+```
+
+Receipt:
+`/tmp/nereus-delay-v1-release-gate-20260817-r37/v1-release-candidate-gate.json`.
+Source, cross-repo and Gradle checks passed. Capacity, certified soak,
+activation/cutover, operations and release-certified chaos were blocked
+because no approved artifact/profile was supplied; therefore the only valid
+release result is `release_status=NOT_READY`.
+
+After all runs completed, `/private/tmp` was cleaned by exact top-level name
+matching. 476 stale `nereus-delay*` entries were removed; the five canonical
+receipt directories (Admission r8, chaos r6, certified capacity r3, certified
+soak r5 and gate r37) were retained. Before deletion there were no matching
+active processes, `.git` directories or source trees under the temporary
+targets. Source worktrees and unrelated files were not touched.
