@@ -87,6 +87,7 @@ import io.nereusstream.delay.runtime.DelayShard;
 import io.nereusstream.delay.runtime.DelayShardConfig;
 import io.nereusstream.delay.runtime.LaneRecord;
 import io.nereusstream.delay.runtime.MessageStatus;
+import io.nereusstream.delay.runtime.PublishAttemptLedger;
 import io.nereusstream.delay.runtime.V1ScheduleResolver;
 import io.nereusstream.delay.scheduler.ClaimExecutionAdmission;
 import io.nereusstream.delay.scheduler.SchedulerBudget;
@@ -119,8 +120,11 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.time.Duration;
@@ -263,7 +267,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                             lease.ownerEpoch(), Bytes.sha256(Bytes.utf8("pulsar-worker-fencing")));
                     final OwnedDelayShard ownedShard = new OwnedDelayShard(delayShard, lease, ownerIdentity);
 
-                    if (waitForProcessCrash) {
+                    if (waitForProcessCrash && !hasAdmissionResponseLossProcessCrash()) {
                         awaitWorkerProcessCrashGate(root);
                     }
 
@@ -337,9 +341,15 @@ public final class PulsarClientArtifactWorkerSmoke {
                                     throw new IllegalStateException(
                                             "Pulsar Worker physical Schedule Source Position changed across apply");
                                 }
+                                final WorkerShardRuntime.SourceBoundPhysicalPublishTurn physicalTurn =
                                 runSourceAppliedPhysicalPublish(runtime, delayShard, ownedShard, ownerIdentity, authority,
                                         store, workClasses, verificationKey, physicalBridge, physicalCommand,
                                         physicalSchedulePosition, client);
+                                if (chaosStateDumpDirectory() != null) {
+                                    writeChaosStateDump("RECOVERED_AFTER_FRESH_PROCESS", store.dbPath(), store,
+                                            physicalTurn.attempt().orElse(null), physicalSchedulePosition,
+                                            "PUBLISHED", true);
+                                }
                             }
                             final Path checkpointPath = root.resolve("worker-final-checkpoint");
                             final byte[] checkpointId = Arrays.copyOf(
@@ -400,7 +410,7 @@ public final class PulsarClientArtifactWorkerSmoke {
      * smoke authority; the source log remains authoritative for Admission and
      * Outcome application.
      */
-    static void runSourceAppliedPhysicalPublish(
+    static WorkerShardRuntime.SourceBoundPhysicalPublishTurn runSourceAppliedPhysicalPublish(
             final WorkerShardRuntime runtime,
             final DelayShard delayShard,
             final OwnedDelayShard ownedShard,
@@ -413,12 +423,12 @@ public final class PulsarClientArtifactWorkerSmoke {
             final PreparedCommand physicalCommand,
             final PulsarSourcePosition physicalSchedulePosition,
             final PulsarClient client) throws Exception {
-        runSourceAppliedPhysicalPublish(runtime, delayShard, ownedShard, ownerIdentity, authority, store,
+        return runSourceAppliedPhysicalPublish(runtime, delayShard, ownedShard, ownerIdentity, authority, store,
                 workClasses, verificationKey, bridge, physicalCommand.delayMessageId(), physicalSchedulePosition, client,
                 null, 1_000_000);
     }
 
-    static void runSourceAppliedPhysicalPublish(
+    static WorkerShardRuntime.SourceBoundPhysicalPublishTurn runSourceAppliedPhysicalPublish(
             final WorkerShardRuntime runtime,
             final DelayShard delayShard,
             final OwnedDelayShard ownedShard,
@@ -433,12 +443,12 @@ public final class PulsarClientArtifactWorkerSmoke {
             final PulsarClient client,
             final byte[] payloadOverride,
             final long workClassBytes) throws Exception {
-        runSourceAppliedPhysicalPublish(runtime, delayShard, ownedShard, ownerIdentity, authority, store,
+        return runSourceAppliedPhysicalPublish(runtime, delayShard, ownedShard, ownerIdentity, authority, store,
                 workClasses, verificationKey, bridge, physicalMessageId, physicalSchedulePosition, client,
                 payloadOverride, workClassBytes, null);
     }
 
-    static void runSourceAppliedPhysicalPublish(
+    static WorkerShardRuntime.SourceBoundPhysicalPublishTurn runSourceAppliedPhysicalPublish(
             final WorkerShardRuntime runtime,
             final DelayShard delayShard,
             final OwnedDelayShard ownedShard,
@@ -540,11 +550,18 @@ public final class PulsarClientArtifactWorkerSmoke {
             if (bridge.admissionResponseLoss()) {
                 if (!bridge.admissionResponseLossObserved()) {
                     throw new IllegalStateException(
-                            "Pulsar Worker admission response-loss wrapper did not discard a persisted response");
+                        "Pulsar Worker admission response-loss wrapper did not discard a persisted response");
+                }
+                if (chaosStateDumpDirectory() != null) {
+                    writeChaosStateDump("ADMISSION_RESPONSE_LOSS_PERSISTED", store.dbPath(), store,
+                            recoveredAttempt, physicalSchedulePosition, "PUBLISHING", false);
                 }
                 System.out.println("Pulsar Worker Publish Admission response-loss smoke passed: the real Shard Log "
                         + "mutation was persisted, its local append response was discarded, and exact source replay "
                         + "recovered the PUBLISHING admission");
+                if (hasAdmissionResponseLossProcessCrash()) {
+                    awaitAdmissionResponseLossProcessCrashGate(store.dbPath());
+                }
             }
         } else {
             throw new IllegalStateException("Pulsar Worker provider-driven Publish Admission was not source-bound: "
@@ -627,6 +644,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                 + ", typed PULSAR_SEND_ACK target ledger/entry=" + branchNumber(evidence, 3) + "/"
                 + branchNumber(evidence, 4) + ", Outcome source ledger=" + outcomePosition.ledgerId()
                 + "/" + outcomePosition.entryId() + ", exact payload readback");
+        return physicalTurn;
     }
 
     private static void bindActiveOwnerPublishGraph(
@@ -1461,6 +1479,91 @@ public final class PulsarClientArtifactWorkerSmoke {
         while (Files.exists(gatePath)) {
             Thread.sleep(50L);
         }
+    }
+
+    private static boolean hasAdmissionResponseLossProcessCrash() {
+        return "1".equals(System.getenv("NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS_PROCESS_CRASH_ONLY"));
+    }
+
+    private static Path chaosStateDumpDirectory() {
+        final String configured = System.getenv("NEREUS_DELAY_PULSAR_CHAOS_STATE_DUMP_DIR");
+        return configured == null || configured.isBlank()
+                ? null : Path.of(configured).toAbsolutePath().normalize();
+    }
+
+    private static void awaitAdmissionResponseLossProcessCrashGate(final Path dbPath) throws Exception {
+        final String gate = System.getenv("NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS_PROCESS_CRASH_GATE");
+        final String pidFile = System.getenv("NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS_PROCESS_CRASH_PID_FILE");
+        if (gate == null || gate.isBlank() || pidFile == null || pidFile.isBlank()) {
+            throw new IllegalStateException(
+                    "Pulsar Worker admission response-loss crash requires gate and PID file paths");
+        }
+        final Path gatePath = Path.of(gate).toAbsolutePath().normalize();
+        final Path pidPath = Path.of(pidFile).toAbsolutePath().normalize();
+        Files.deleteIfExists(gatePath);
+        Files.deleteIfExists(pidPath);
+        Files.createFile(gatePath);
+        Files.writeString(pidPath, Long.toString(ProcessHandle.current().pid()));
+        System.out.println("Pulsar Worker admission response-loss process-crash cut reached: "
+                + "durableAdmissionState=PUBLISHING, storeRoot=" + dbPath);
+        while (Files.exists(gatePath)) {
+            Thread.sleep(50L);
+        }
+    }
+
+    private static void writeChaosStateDump(final String phase, final Path root, final ShardStore store,
+                                            final PublishAttemptLedger attempt,
+                                            final PulsarSourcePosition physicalSchedulePosition,
+                                            final String observedAttemptState,
+                                            final boolean outcomeApplied) throws Exception {
+        final Path directory = chaosStateDumpDirectory();
+        if (directory == null) {
+            return;
+        }
+        Files.createDirectories(directory);
+        final Path target = directory.resolve(
+                "ADMISSION_RESPONSE_LOSS_PERSISTED".equals(phase)
+                        ? "before-process-crash.json" : "after-fresh-process.json");
+        final var metadata = store.metadata();
+        final var appliedPosition = store.appliedShardLogPosition();
+        final String attemptSourcePosition = attempt == null ? null : Bytes.hex(attempt.sourcePosition());
+        final String publishAttemptId = attempt == null ? null : Bytes.hex(attempt.publishAttemptId());
+        final String appliedSourcePosition = appliedPosition == null ? null : Bytes.hex(appliedPosition.canonicalBytes());
+        final String schedulePosition = physicalSchedulePosition == null
+                ? null : Bytes.hex(physicalSchedulePosition.canonicalBytes());
+        final String shard = metadata.shardId().routeIncarnation().uuid() + "/" + metadata.shardId().partition();
+        final String json = "{\n"
+                + "  \"schema\": \"nereus-delay-chaos-durable-state-dump-v1\",\n"
+                + "  \"cell\": \"pulsar-worker-admission-response-loss-process-crash\",\n"
+                + "  \"phase\": " + jsonString(phase) + ",\n"
+                + "  \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
+                + "  \"store_root\": " + jsonString(root.toString()) + ",\n"
+                + "  \"shard\": " + jsonString(shard) + ",\n"
+                + "  \"store_incarnation\": " + jsonString(Bytes.hex(metadata.storeIncarnation())) + ",\n"
+                + "  \"db_identity\": " + jsonString(Bytes.hex(metadata.dbIdentity())) + ",\n"
+                + "  \"physical_schedule_position\": " + jsonNullable(schedulePosition) + ",\n"
+                + "  \"applied_source_position\": " + jsonNullable(appliedSourcePosition) + ",\n"
+                + "  \"shard_mutation_sequence\": " + store.shardMutationSequence() + ",\n"
+                + "  \"attempt_state\": " + jsonString(observedAttemptState) + ",\n"
+                + "  \"publish_attempt_id\": " + jsonNullable(publishAttemptId) + ",\n"
+                + "  \"attempt_source_position\": " + jsonNullable(attemptSourcePosition) + ",\n"
+                + "  \"outcome_applied\": " + outcomeApplied + ",\n"
+                + "  \"durable_store_read\": true,\n"
+                + "  \"dump_forced\": true\n"
+                + "}\n";
+        try (FileChannel channel = FileChannel.open(target, StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
+            channel.write(java.nio.ByteBuffer.wrap(json.getBytes(StandardCharsets.UTF_8)));
+            channel.force(true);
+        }
+    }
+
+    private static String jsonString(final String value) {
+        return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+    }
+
+    private static String jsonNullable(final String value) {
+        return value == null ? "null" : jsonString(value);
     }
 
     private static io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult runUntilApplied(
