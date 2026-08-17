@@ -7464,3 +7464,32 @@ Oxia image; locked Oxia/MinIO bases were retained. This is a bounded
 post-commit provider-ambiguity receipt, not provider-side quiescence or
 consistency certification, multi-worker takeover, target isolation, the
 remaining §23.3 matrix, multi-shard production, chaos or V1 release proof.
+
+### Current implementation binding: checkpoint provider failure before commit
+
+The Worker checkpoint composition now has a real-provider fail-closed test for
+both an immediate 503 and a response timeout before MinIO receives the
+`manifest.json` PUT. The required state transition is:
+
+`PENDING_UPLOAD` Intent -> failed Worker attempt -> no PUBLISHED Catalog or
+manifest -> exact partial-prefix sweep -> Owner Lease release.
+
+The test also proves that the scheduler has no in-flight claim after failure.
+The sweep is scoped by the authoritative object-store profile, recovery
+lineage and checkpoint ID; it does not use a broad bucket delete. A timeout
+is not treated as evidence that the provider committed: the proxy deliberately
+does not forward the request, and the adapter's `1000ms` timeout remains an
+error boundary.
+
+The current source is Delay
+`33714d9a5470edf50aed57bc8a2aefe5cfb52b5c`, with Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The 503 receipt is project
+`nereus-delay-oxia-minio-checkpoint-e2e-1786927303-54007` on
+`31950/31951/31952`; the timeout receipt is project
+`nereus-delay-oxia-minio-checkpoint-e2e-1786927391-54902` on
+`31960/31961/31962`. Both passed their source-locked Gradle invocation and
+left no run-created Docker resources. This is a checkpoint authority receipt;
+full Gateway/large-payload pre-commit, multi-shard, chaos and release gates
+remain separate.

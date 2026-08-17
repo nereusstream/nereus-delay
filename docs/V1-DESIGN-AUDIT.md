@@ -12006,3 +12006,26 @@ quiescence/consistency, multi-worker takeover, target isolation, the remaining
 §23.3 matrix, multi-shard production, benchmark/soak and V1 release gate
 remain open. Gates 2, 3 and 10 stay `PARTIAL`; Gates 5, 6, 7 and 9 stay `OPEN`;
 Gate 8 stays `PARTIAL`; V1 stays `NOT READY`.
+
+### Current-source Checkpoint pre-commit fail-closed audit
+
+Delay `33714d9a5470edf50aed57bc8a2aefe5cfb52b5c` now exercises provider
+failure before the first `manifest.json` PUT can reach real MinIO. The 503
+mode rejects the request immediately; the timeout mode does not forward it and
+holds the client connection beyond the adapter's `1000ms` timeout. Both cells
+keep the real Oxia Intent at `PENDING_UPLOAD`, prove that the PUBLISHED
+Catalog/manifest is absent, release the Owner Lease, clear scheduler in-flight
+state, and sweep any already-uploaded partial objects by the exact
+`(objectStore, recoveryLineageId, checkpointId)` prefix.
+
+| Cell | Receipt | Audit boundary |
+|---|---|---|
+| 503-before-commit | Project `nereus-delay-oxia-minio-checkpoint-e2e-1786927303-54007`; Oxia/MinIO/proxy `31950/31951/31952`; `BUILD SUCCESSFUL in 13s`. | Current-source Worker checkpoint fail-closed PASS; not a full Gateway/large-payload pre-commit receipt. |
+| Timeout-before-commit | Project `nereus-delay-oxia-minio-checkpoint-e2e-1786927391-54902`; Oxia/MinIO/proxy `31960/31961/31962`; adapter timeout `1000ms`; `BUILD SUCCESSFUL in 14s`. | Same fail-closed PASS and exact partial-prefix cleanup; not provider-side quiescence/consistency or release evidence. |
+
+The runs are locked to Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+Exact Docker postchecks found no run resources or per-run images; the locked
+base images were retained. Gates 2, 3 and 10 remain `PARTIAL`; Gates 5, 6, 7
+and 9 remain `OPEN`; Gate 8 remains `PARTIAL`; V1 remains `NOT READY`.

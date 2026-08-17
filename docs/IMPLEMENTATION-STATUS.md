@@ -14999,7 +14999,8 @@ so both the PUBLISHED Intent/Catalog path and the `PENDING_UPLOAD -> REAPING`
 prefix sweep observe the selected provider ambiguity. `PUT_503_AFTER_COMMIT`
 and `PUT_TIMEOUT_AFTER_COMMIT` are supported; timeout receipts set the adapter
 request timeout to `1000ms` while the proxy holds the committed PUT response
-for three seconds.
+for three seconds. The same runner now supports `PUT_503_BEFORE_COMMIT` and
+`PUT_TIMEOUT_BEFORE_COMMIT` as fail-closed publication-only cells.
 
 The source lock is Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484` with locked MinIO digest
@@ -15025,3 +15026,36 @@ pre-commit success path, multi-worker takeover, target isolation, the remaining
 §23.3 cuts, multi-shard placement, benchmark/soak or release proof. Gates 2,
 3 and 10 remain `PARTIAL`; Gates 5, 6, 7 and 9 remain `OPEN`; Gate 8 remains
 `PARTIAL`; V1 remains `NOT READY`.
+
+## 2026-08-17 Current-source real MinIO Checkpoint pre-commit fail-closed receipt
+
+Delay source `33714d9a5470edf50aed57bc8a2aefe5cfb52b5c` adds the two missing
+pre-commit provider-fault cells to the real Oxia + MinIO Worker checkpoint
+runner. The proxy does not forward the first `manifest.json` PUT for either
+mode: `PUT_503_BEFORE_COMMIT` returns HTTP 503, while
+`PUT_TIMEOUT_BEFORE_COMMIT` holds the connection past the adapter's `1000ms`
+request timeout. The Worker runtime must therefore fail closed rather than
+promote the Intent or Catalog.
+
+The source lock is Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` with MinIO
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z` at digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+(local image ID `sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`).
+
+| Cell | Exact runtime placement | Receipt |
+|---|---|---|
+| Checkpoint 503-before-commit | Project `nereus-delay-oxia-minio-checkpoint-e2e-1786927303-54007`; Oxia `31950`, MinIO `31951`, proxy `31952`; bucket `nereus-delay-checkpoints-1786927303-54007` | `BUILD SUCCESSFUL in 13s`; real Oxia current Intent remained the exact `PENDING_UPLOAD`, no PUBLISHED Catalog/manifest was present, the Worker scheduler was not left in flight, and the Owner Lease was released. Partial immutable objects were observed under the exact checkpoint prefix and the exact-version sweep deleted all of them, ending empty. |
+| Checkpoint timeout-before-commit | Project `nereus-delay-oxia-minio-checkpoint-e2e-1786927391-54902`; Oxia `31960`, MinIO `31961`, proxy `31962`; bucket `nereus-delay-checkpoints-1786927391-54902`; adapter timeout `1000ms` | `BUILD SUCCESSFUL in 14s`; the proxy did not forward the manifest PUT, and the same Oxia `PENDING_UPLOAD`/no-PUBLISHED-Catalog/final-owner-release assertions plus exact partial-prefix sweep passed. |
+
+Exact postchecks after both runs found no matching container, network, volume,
+listener, per-run Oxia image or temporary proxy seed. Only the locked Oxia and
+MinIO base images remain; no global Docker prune or unrelated image deletion
+was performed.
+
+This closes the bounded Worker checkpoint pre-commit 503/timeout fail-closed
+cells. It does not close pre-commit faults through the full Gateway/large-
+payload production chain, provider-side quiescence/consistency certification,
+target isolation, the remaining §23.3 matrix, multi-shard placement,
+benchmark/soak or V1 release proof. Gates 2, 3 and 10 remain `PARTIAL`; Gates
+5, 6, 7 and 9 remain `OPEN`; Gate 8 remains `PARTIAL`; V1 remains `NOT READY`.

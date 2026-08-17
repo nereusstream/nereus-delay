@@ -4954,7 +4954,8 @@ The checkpoint runner can inject a fault into the first immutable
 `manifest.json` PUT while using real Oxia and version-enabled MinIO. It runs
 the publication and REAPING tests as separate JVMs and resets the proxy between
 them, so both authority paths receive the selected fault. Supported modes are
-`PUT_503_AFTER_COMMIT` and `PUT_TIMEOUT_AFTER_COMMIT`.
+`PUT_503_AFTER_COMMIT`, `PUT_TIMEOUT_AFTER_COMMIT`, `PUT_503_BEFORE_COMMIT` and
+`PUT_TIMEOUT_BEFORE_COMMIT`.
 
 503-after-commit invocation:
 
@@ -4998,3 +4999,50 @@ closes only post-commit ambiguity through Checkpoint Intent/Catalog/REAPING;
 pre-commit remains fail-closed, and provider-side quiescence/consistency,
 multi-worker takeover, target isolation, the remaining §23.3 matrix,
 multi-shard placement, benchmark/soak and V1 release proof remain open.
+
+### Checkpoint pre-commit fail-closed modes
+
+These invocations use the same real Oxia + version-enabled MinIO runner, but
+run only the Worker publication failure test. The proxy does not forward the
+first `manifest.json` PUT, so a timeout is deliberately an error and cannot be
+promoted to PUBLISHED.
+
+HTTP 503 before provider commit:
+
+```bash
+NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia \
+NEREUS_DELAY_OXIA_CHECKPOINT_E2E_PORT=31950 \
+NEREUS_DELAY_MINIO_CHECKPOINT_E2E_PORT=31951 \
+NEREUS_DELAY_CHECKPOINT_MINIO_FAULT_MODE=PUT_503_BEFORE_COMMIT \
+NEREUS_DELAY_CHECKPOINT_MINIO_FAULT_PROXY_PORT=31952 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-minio-checkpoint-fault-20260817-r1 \
+  bash e2e/run-oxia-minio-checkpoint-e2e.sh
+```
+
+Timeout before provider commit:
+
+```bash
+NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia \
+NEREUS_DELAY_OXIA_CHECKPOINT_E2E_PORT=31960 \
+NEREUS_DELAY_MINIO_CHECKPOINT_E2E_PORT=31961 \
+NEREUS_DELAY_CHECKPOINT_MINIO_FAULT_MODE=PUT_TIMEOUT_BEFORE_COMMIT \
+NEREUS_DELAY_CHECKPOINT_MINIO_REQUEST_TIMEOUT_MS=1000 \
+NEREUS_DELAY_CHECKPOINT_MINIO_FAULT_PROXY_PORT=31962 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-minio-checkpoint-fault-20260817-r1 \
+  bash e2e/run-oxia-minio-checkpoint-e2e.sh
+```
+
+At Delay `33714d9a5470edf50aed57bc8a2aefe5cfb52b5c`, the 503 project
+`nereus-delay-oxia-minio-checkpoint-e2e-1786927303-54007` passed in `13s` and
+the timeout project `nereus-delay-oxia-minio-checkpoint-e2e-1786927391-54902`
+passed in `14s`. Both proved exact Oxia `PENDING_UPLOAD` retention, absent
+PUBLISHED Catalog/manifest, scheduler/Owner cleanup and exact deletion of the
+partial checkpoint prefix. They used Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+The runner removes exact containers, networks, volumes, proxy processes and
+per-run Oxia images. Only the locked Oxia/MinIO bases remain; no global Docker
+prune or unrelated image deletion is appropriate. Full Gateway/large-payload
+pre-commit, provider-side quiescence/consistency, multi-shard placement, the
+remaining fault matrix and V1 release proof remain open.
