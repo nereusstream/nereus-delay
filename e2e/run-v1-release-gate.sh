@@ -132,22 +132,76 @@ check_certified_artifact() {
     add_check "${name}" "BLOCKED" "missing or invalid JSON artifact" "${path}"
     return
   fi
+  if [[ "${source_failures}" != "0" ]]; then
+    add_check "${name}" "BLOCKED" "source locks are not trustworthy; certified evidence cannot be evaluated" "${path}"
+    return
+  fi
   local status
   status="$(jq -r '.status // .matrix_status // "UNKNOWN"' "${path}")"
   if [[ "${status}" == "PASS_CERTIFIED" ]]; then
+    local artifact_check
+    artifact_check='(.source_locks | type == "object")
+      and .source_locks.delay == $delay
+      and .source_locks.kafka == $kafka
+      and .source_locks.pulsar == $pulsar
+      and .source_locks.oxia == $oxia'
+    if [[ "${name}" == "certified-soak" ]]; then
+      artifact_check='(.schema == "nereus-delay-certified-production-chain-soak-v1")
+        and (.status == "PASS_CERTIFIED")
+        and (.execution == "strict-sequential")
+        and (.profile_id | type == "string" and length > 0)
+        and (.source_locks | type == "object")
+        and (.source_locks.delay == $delay)
+        and (.source_locks.kafka == $kafka)
+        and (.source_locks.pulsar == $pulsar)
+        and (.source_locks.oxia == $oxia)
+        and (.policy | type == "object")
+        and (.policy.required_cycles | type == "number")
+        and (.policy.required_cycles >= 1)
+        and (.policy.required_cycles == (.policy.required_cycles | floor))
+        and (.policy.configured_cycles | type == "number")
+        and (.policy.configured_cycles >= .policy.required_cycles)
+        and (.policy.configured_cycles == (.policy.configured_cycles | floor))
+        and (.policy.required_duration_seconds | type == "number" and . >= 1)
+        and (.policy.max_process_rss_kib | type == "number" and . >= 1)
+        and (.policy.max_process_fds | type == "number" and . >= 1)
+        and (.policy.max_artifact_bytes | type == "number" and . >= 1)
+        and (.observations | type == "object")
+        and (.observations.child_exit_code == 0)
+        and (.observations.bounded_status == "PASS_BOUNDED")
+        and (.observations.expected_cases == (.policy.configured_cycles * 4))
+        and (.observations.case_invariants == "PASS")
+        and (.observations.process_resource_status == "PASS")
+        and (.observations.duration_status == "PASS")
+        and (.observations.docker_cleanup_status == "PASS")
+        and (.observations.resource_sample_count | type == "number" and . >= 2)
+        and (.observations.process_peak_rss_kib <= .policy.max_process_rss_kib)
+        and (.observations.process_peak_fds <= .policy.max_process_fds)
+        and (.observations.artifact_peak_bytes <= .policy.max_artifact_bytes)
+        and (.observations.artifact_bytes_after <= .policy.max_artifact_bytes)
+        and (.docker_postcheck | type == "object")
+        and (.docker_postcheck.containers | length == 0)
+        and (.docker_postcheck.networks | length == 0)
+        and (.docker_postcheck.volumes | length == 0)
+        and (.docker_postcheck.generated_images | length == 0)'
+    fi
     if jq -e \
       --arg delay "${checkout_source}" \
       --arg kafka "${kafka_source}" \
       --arg pulsar "${pulsar_source}" \
       --arg oxia "${oxia_source}" \
-      '(.source_locks | type == "object")
-       and .delay == $delay
-       and .kafka == $kafka
-       and .pulsar == $pulsar
-       and .oxia == $oxia' "${path}" >/dev/null 2>&1; then
-      add_check "${name}" "PASS" "artifact is PASS_CERTIFIED and source-locked to the current four-repository candidate" "${path}"
+      "${artifact_check}" "${path}" >/dev/null 2>&1; then
+      if [[ "${name}" == "certified-soak" ]]; then
+        add_check "${name}" "PASS" "artifact is schema-valid PASS_CERTIFIED soak evidence and source-locked to the current four-repository candidate" "${path}"
+      else
+        add_check "${name}" "PASS" "artifact is PASS_CERTIFIED and source-locked to the current four-repository candidate" "${path}"
+      fi
     else
-      add_check "${name}" "BLOCKED" "PASS_CERTIFIED artifact does not carry exact current Delay/Kafka/Pulsar/Oxia source_locks" "${path}"
+      if [[ "${name}" == "certified-soak" ]]; then
+        add_check "${name}" "BLOCKED" "certified soak artifact schema, policy, observations, cleanup or exact source_locks are invalid" "${path}"
+      else
+        add_check "${name}" "BLOCKED" "PASS_CERTIFIED artifact does not carry exact current Delay/Kafka/Pulsar/Oxia source_locks" "${path}"
+      fi
     fi
   else
     add_check "${name}" "BLOCKED" "artifact status is ${status}; PASS_CERTIFIED is required" "${path}"
