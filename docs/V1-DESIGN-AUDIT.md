@@ -12780,3 +12780,19 @@ upgrade/downgrade, operator authorization and disaster continuity required by
 §23.3–§23.5 remain open. The receipt is bounded evidence and must not be
 promoted to `PASS_CERTIFIED`; this documentation append does not refresh its
 runtime source lock.
+
+### 2026-08-17 Current-source r28 release-gate audit
+
+The gate artifact
+`/tmp/nereus-delay-v1-release-gate-20260817-r28/v1-release-candidate-gate.json`
+passes source cleanliness, cross-repository contract validation and full
+Gradle `check` for Delay `cd79d92056c31f2e66ef8936d94359cddc141883`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+Audit result: the gate is correctly fail-closed at
+`release_status=NOT_READY`. No capacity, certified soak, activation,
+operations or chaos artifact in this run satisfies `PASS_CERTIFIED`; the
+bounded production-chain receipt remains a separate runtime slice. This
+documentation append does not refresh the r28 artifact source lock.

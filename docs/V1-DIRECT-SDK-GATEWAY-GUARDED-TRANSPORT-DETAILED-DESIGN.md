@@ -8147,3 +8147,17 @@ cuts, capacity/placement, certified long-cycle soak, rollout compatibility,
 operator authorization or disaster continuity, and it is not
 `PASS_CERTIFIED`. The append is documentation only and does not change the
 receipt's source lock.
+
+### 2026-08-17 Current-source r28 release-gate result
+
+`/tmp/nereus-delay-v1-release-gate-20260817-r28/v1-release-candidate-gate.json`
+records clean source locks, a passing cross-repository validator and a passing
+full Gradle check for Delay `cd79d92056c31f2e66ef8936d94359cddc141883`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The release decision is still `NOT_READY`. The bounded soak is not a
+`PASS_CERTIFIED` capacity/soak/activation/operations/chaos substitute, so the
+accepted design's non-promotion boundary remains unchanged. This append is
+documentation only and does not change the r28 receipt source lock.

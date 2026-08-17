@@ -676,3 +676,14 @@ Do not use `docker system prune`, `docker image prune`, broad globs or remove
 unrelated images. The bounded receipt is not a release certification; the
 fresh-process chaos, capacity, certified soak, upgrade/downgrade and disaster
 continuity gates remain separate.
+
+## 25. Current-source r28 release-gate result
+
+The current fail-closed release artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r28/v1-release-candidate-gate.json`.
+It records source, cross-repository and full Gradle checks as `PASS` for the
+four locked repositories, while `release_status=NOT_READY` because no
+`PASS_CERTIFIED` capacity, soak, activation, operations or chaos inputs were
+provided. Do not promote the bounded production-chain receipt into any of
+those slots. The artifact predates this runbook append, which does not refresh
+its source lock.

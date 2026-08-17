@@ -16128,3 +16128,20 @@ does not satisfy the release gate: the full fresh-process §23.3 fault matrix,
 upgrade/downgrade and disaster-continuity evidence remain open. The artifact
 is intentionally `PASS_BOUNDED`, never `PASS_CERTIFIED`; the later
 documentation commit does not retroactively change its source lock.
+
+## 2026-08-17 Current-source r28 release-gate refresh
+
+The fail-closed gate artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r28/v1-release-candidate-gate.json`.
+It locks Delay `cd79d92056c31f2e66ef8936d94359cddc141883`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Source cleanliness,
+cross-repository contract validation and full Gradle `check` are `PASS`.
+
+The decision remains `release_status=NOT_READY`: benchmark capacity,
+certified soak, activation cutover, operations drills and chaos matrix were
+not supplied as `PASS_CERTIFIED` inputs. The bounded production-chain receipt
+is functional/runtime evidence and is intentionally not promoted into those
+certification slots. The r28 artifact predates this documentation append; the
+append does not refresh its runtime source lock.

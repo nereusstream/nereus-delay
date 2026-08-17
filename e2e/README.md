@@ -6108,3 +6108,13 @@ Docker prune was used. This bounded artifact is functional/runtime evidence,
 not `PASS_CERTIFIED` release evidence; the full fresh-process fault matrix,
 capacity envelope, certified long-cycle soak, rollout compatibility and
 disaster-continuity requirements remain outside this runner.
+
+## Current-source r28 release-gate refresh
+
+The matching gate is
+`/tmp/nereus-delay-v1-release-gate-20260817-r28/v1-release-candidate-gate.json`.
+Source locks, the cross-repository contract validator and full Gradle `check`
+passed; the gate remains `release_status=NOT_READY` because capacity,
+certified soak, activation, operations and chaos require separate
+`PASS_CERTIFIED` artifacts. The bounded production-chain receipt is not a
+promotion input. This README append does not refresh the r28 source lock.
