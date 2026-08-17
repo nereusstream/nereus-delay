@@ -459,12 +459,23 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
     }
 
     private static void createPartitionedTopic(final HttpClient client, final String adminUrl, final String topicBase,
-                                               final String physicalTopic, final byte[] incarnation,
+                                               final byte[] incarnation,
                                                final long creationTimestamp, final List<String> guardAdminUrls)
             throws Exception {
+        createPartitionedTopic(client, adminUrl, topicBase, 1, incarnation, creationTimestamp, guardAdminUrls);
+    }
+
+    private static void createPartitionedTopic(final HttpClient client, final String adminUrl, final String topicBase,
+                                               final int partitionCount, final byte[] incarnation,
+                                               final long creationTimestamp, final List<String> guardAdminUrls)
+            throws Exception {
+        if (partitionCount <= 0) {
+            throw new IllegalArgumentException("Pulsar large-payload partition count must be positive");
+        }
         final String partitionsPath = adminUrl + "/admin/v2/persistent/public/default/" + topicBase + "/partitions";
         for (int attempt = 0; attempt < 120; attempt++) {
-            final HttpResponse<String> response = request(client, partitionsPath, "PUT", "1");
+            final HttpResponse<String> response = request(client, partitionsPath, "PUT",
+                    Integer.toString(partitionCount));
             if (response.statusCode() >= 200 && response.statusCode() < 300 || response.statusCode() == 409) {
                 break;
             }
@@ -479,7 +490,11 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         // normal non-partitioned create endpoint intentionally returns 409 for a
         // partitioned topic and cannot be used as materialization.
         createMissedPartitions(client, guardAdminUrls, topicBase);
-        stampGuard(client, guardAdminUrls, physicalTopic, incarnation, creationTimestamp);
+        for (int partition = 0; partition < partitionCount; partition++) {
+            stampGuard(client, guardAdminUrls,
+                    "persistent://public/default/" + topicBase + "-partition-" + partition,
+                    incarnation, creationTimestamp);
+        }
     }
 
     private static void createMissedPartitions(final HttpClient client, final List<String> adminUrls,
@@ -1213,13 +1228,8 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         }
         final String physicalTopicBase = "persistent://public/default/" + sourceBase;
         final HttpClient admin = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build();
-        final String firstPhysicalTopicName = sourceBase + "-partition-0";
-        createPartitionedTopic(admin, adminUrls.get(0), sourceBase, firstPhysicalTopicName,
-                SOURCE_INCARNATION, SOURCE_CREATION_TIMESTAMP, adminUrls);
-        for (int partition = 1; partition < shardCount; partition++) {
-            stampGuard(admin, adminUrls, "persistent://public/default/" + sourceBase + "-partition-" + partition,
-                    SOURCE_INCARNATION, SOURCE_CREATION_TIMESTAMP);
-        }
+        createPartitionedTopic(admin, adminUrls.get(0), sourceBase, shardCount, SOURCE_INCARNATION,
+                SOURCE_CREATION_TIMESTAMP, adminUrls);
 
         final AuthenticatedTenantContext tenant = new AuthenticatedTenantContext(
                 bytes(32, 1), bytes(32, 2), bytes(32, 3));
@@ -1648,7 +1658,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         }
 
         final HttpClient admin = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build();
-        createPartitionedTopic(admin, adminUrl, sourceBase, sourcePhysicalName, SOURCE_INCARNATION,
+        createPartitionedTopic(admin, adminUrl, sourceBase, SOURCE_INCARNATION,
                 SOURCE_CREATION_TIMESTAMP, adminUrls);
         createTopic(admin, adminUrl, destinationName, DESTINATION_INCARNATION, DESTINATION_CREATION_TIMESTAMP);
 
