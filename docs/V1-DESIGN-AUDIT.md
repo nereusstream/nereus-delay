@@ -12484,6 +12484,35 @@ promote to `PASS_CERTIFIED`, capacity is `PARTIAL`, and certified soak is
 missing. Exact run-scoped Docker cleanup passed; no unrelated image was
 deleted.
 
+### 2026-08-17 Kafka multi-shard Large Payload destination egress audit
+
+Current Delay `b641fc714db779787054811f7229709b1a3fa0ba` closes the Kafka
+two-shard Large Payload destination boundary. The accepted design creates
+two-partition destination and receipt topics and binds source shard `n` to
+target and receipt partition `n`. That partition is repeated in the canonical
+Lane tuple, Channel, ReadyCertificate, evidence cursor, Kafka target/receipt
+resource, guarded transactional Producer request and persisted Outcome proof.
+The old multi-shard Object Store-only receipt remains historical evidence, not
+the current egress boundary.
+
+The real r3 receipt used K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, K1
+image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484` and locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+Both partitions passed atomic target-plus-receipt publication, read-committed
+typed receipt evidence, exact payload readback, sourceRecords `6`, object
+versions `7626b7fe-8deb-404a-9e24-af68a69dbc3c` and
+`34f981ac-b7f1-444a-a2ea-546b2e69e3a0`, and final checkpoint/Owner release.
+Gradle passed in `44s`.
+
+Audit result: PASS for the named Kafka multi-shard Large Payload destination
+egress boundary. This does not promote the bounded receipt to release
+certification. Catalog/placement churn, controller/storage/provider failover,
+certified capacity/soak and the `PASS_CERTIFIED` activation, operations and
+chaos gates remain separate.
+
 ### 2026-08-17 Pulsar multi-shard Large Payload destination egress audit
 
 Current Delay `ee292f4090e23a3f26f949aa54ac075b8ed94a78` closes the previously

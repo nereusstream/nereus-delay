@@ -382,3 +382,34 @@ volumes or generated P1/Oxia images. Retain the locked MinIO/Oxia bases and
 unrelated pre-existing images; do not use global `docker image prune` or
 `docker system prune`. This is a bounded operations receipt, not a certified
 multi-shard soak, failover or release gate.
+
+## 14. Current-source Kafka multi-shard Large Payload destination drill
+
+Run the Kafka counterpart with a non-empty destination topic. The harness
+creates matching two-partition target and receipt topics:
+
+```bash
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_MULTI_SHARD=1 \
+KAFKA_LARGE_PAYLOAD_BROKER_1_PORT=34700 \
+KAFKA_LARGE_PAYLOAD_BROKER_2_PORT=34701 \
+KAFKA_LARGE_PAYLOAD_BROKER_3_PORT=34702 \
+NEREUS_DELAY_LARGE_PAYLOAD_OXIA_PORT=34710 \
+NEREUS_DELAY_LARGE_PAYLOAD_MINIO_PORT=34711 \
+NEREUS_DELAY_LARGE_PAYLOAD_GATEWAY_PORT=34712 \
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_DESTINATION_TOPIC=kafka-large-payload-multi-egress-20260817-r3 \
+NEREUS_DELAY_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-large-payload-gradle-r1 \
+bash e2e/run-large-payload-gateway-e2e.sh
+```
+
+The current receipt is source-locked to Delay
+`b641fc714db779787054811f7229709b1a3fa0ba`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+It passed target/receipt transactional publication and read-committed typed
+evidence on both partitions, exact payload readback, sourceRecords `6` per
+partition and final checkpoint/Owner release. Verify exact project
+`nereus-delay-large-payload-e2e-1786946121-90342` has no containers, networks,
+volumes or generated K1/Oxia images. Retain locked MinIO/Oxia bases and
+unrelated images; do not use global Docker prune. This remains bounded
+evidence, not certified soak or release promotion.

@@ -8017,3 +8017,43 @@ records and `exactGatewayIdempotency=true`; Gradle reported
 This note records a bounded current-source transport PASS. It does not claim
 Kafka multi-shard egress, placement churn, provider/controller/storage
 failover, certified soak or V1 release readiness.
+
+### 2026-08-17 Current Kafka multi-shard Large Payload destination egress implementation note
+
+The current implementation at Delay
+`b641fc714db779787054811f7229709b1a3fa0ba` composes the Kafka path as:
+
+```text
+two guarded Fetch source partitions
+  -> signed Route / Oxia Assignment CAS / Owner Lease per shard
+  -> one WorkerShardFleetRuntime
+  -> Gateway mTLS/JWT Prepare / real MinIO upload-attest-Commit-readback
+  -> source-ordered PUBLISH_OUTCOME per shard
+  -> one guarded Kafka target transaction per shard
+       [business target partition n + keyed receipt partition n]
+  -> read-committed typed receipt evidence
+  -> checkpoint and Owner release per shard
+```
+
+The target partition is explicit in the Kafka target resource, Channel and
+Lane tuple; the receipt partition is explicit in the receipt resource, receipt
+transaction record and EvidenceCursor. The Worker registers both physical
+lanes in one fleet-scoped `ClaimExecutionAdmission` and
+`DestinationPhysicalAdmission`. The readback consumer uses the same guarded
+partition and verifies exact payload bytes, so partition 1 cannot be silently
+projected as partition 0.
+
+The source-locked r3 receipt used project
+`nereus-delay-large-payload-e2e-1786946121-90342`, Kafka ports
+`34700/34701/34702`, Oxia `34710`, MinIO `34711`, Gateway `34712`, K1 client
+SHA-256 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`,
+K1 image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e`
+and locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+Both partitions passed exact target/receipt transactions, typed evidence,
+payload readback and sourceRecords `6`; Gradle reported
+`BUILD SUCCESSFUL in 44s`.
+
+This closes the bounded Kafka multi-shard destination egress path. It does not
+claim placement churn, provider/controller/storage failover, certified soak or
+V1 release readiness.

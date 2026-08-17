@@ -15750,3 +15750,65 @@ certified soak is absent, and activation, operations and chaos are
 `PASS_BOUNDED`, not `PASS_CERTIFIED` evidence. Matrix cleanup removed all
 run-created resources and generated images; locked Oxia/MinIO bases remain and
 no global Docker prune was used.
+
+## 2026-08-17 Current-source Kafka two-shard Large Payload destination egress
+
+Delay commit `b641fc714db779787054811f7229709b1a3fa0ba` closes the Kafka
+multi-shard Large Payload destination boundary that the earlier Object
+Store-only receipt deliberately left open. The opt-in
+`NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_MULTI_SHARD=1` path now requires and creates
+two-partition destination and receipt topics. Each source shard carries its
+explicit destination partition through the canonical Lane tuple,
+Channel/ReadyCertificate/evidence cursor, Kafka target/receipt resources,
+transactional guarded producer and typed PUBLISH_OUTCOME; one shared Worker
+fleet-level Claim and destination admission is used for both shards.
+
+The current real receipt used K1 source
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, K1 image
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484` and locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The Compose project was
+`nereus-delay-large-payload-e2e-1786946121-90342`, with Kafka
+`34700/34701/34702`, Oxia `34710`, MinIO `34711` and Gateway `34712`; the
+destination topic was `kafka-large-payload-multi-egress-20260817-r3` and its
+receipt topic was the `-receipt` companion.
+
+The receipt log is
+`/var/folders/vk/l_r0z80j1dj93fsrjx3zqv4r0000gn/T/nereus-delay-large-payload-receipt.XXXXXX.wKLBDmwl2A.log`.
+It passed with Delay source `b641fc714db779787054811f7229709b1a3fa0ba`:
+
+```text
+partition=0: barrier=2, prepare=2, commit=3, typedReceipt=0, admission=4, outcome=5, objectVersion=7626b7fe-8deb-404a-9e24-af68a69dbc3c, destinationEgress=true, sourceRecords=6
+partition=1: barrier=2, prepare=2, commit=3, typedReceipt=0, admission=4, outcome=5, objectVersion=34f981ac-b7f1-444a-a2ea-546b2e69e3a0, destinationEgress=true, sourceRecords=6
+exact payload readback on destination partitions 0 and 1; exactGatewayIdempotency=true
+BUILD SUCCESSFUL in 44s
+```
+
+This is a current-source PASS for Kafka multi-shard Large Payload destination
+egress, including the atomic target-plus-receipt transaction, read-committed
+receipt evidence, real Gateway mTLS/JWT, real MinIO upload/attest/Commit/
+readback, source-ordered Outcome and final checkpoint/Owner release. Together
+with the Pulsar r12 receipt above, both Broker families now have a bounded
+multi-shard destination egress path. Catalog-driven placement/churn,
+controller/storage/provider failover, certified capacity/soak and release
+promotion remain open.
+
+Exact postchecks found no matching Compose containers, volumes, networks,
+listeners or generated K1/Oxia images for the r3 project. The locked MinIO
+image and unrelated pre-existing `alpine:3.17` were retained; no global Docker
+prune or unrelated image deletion was used.
+
+## 2026-08-17 Current-source release gate after Kafka multi-shard egress
+
+The source-locked artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r15/v1-release-candidate-gate.json`:
+Delay `b641fc714db779787054811f7229709b1a3fa0ba`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Source cleanliness,
+cross-repository validation and full Gradle `check` are `PASS`. The gate is
+still intentionally `release_status=NOT_READY`: capacity is `PARTIAL`, no
+certified soak artifact is supplied, and activation/cutover, operations and
+chaos are `PASS_BOUNDED`, not `PASS_CERTIFIED`.

@@ -5833,3 +5833,48 @@ soak is absent and activation/cutover, operations and chaos are bounded rather
 than `PASS_CERTIFIED`. The exact r12 Compose resources and generated P1/Oxia
 images were removed; locked MinIO and unrelated pre-existing images were
 retained, with no global Docker prune.
+
+## Current-source Kafka multi-shard Large Payload destination egress receipt
+
+The Kafka multi-shard runner now exercises the complete destination boundary
+when `NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_DESTINATION_TOPIC` is set. It creates a
+two-partition target topic and a matching two-partition `-receipt` topic, then
+fences target and receipt partitions through the same guarded transaction:
+
+```bash
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_MULTI_SHARD=1 \
+KAFKA_LARGE_PAYLOAD_BROKER_1_PORT=34700 \
+KAFKA_LARGE_PAYLOAD_BROKER_2_PORT=34701 \
+KAFKA_LARGE_PAYLOAD_BROKER_3_PORT=34702 \
+NEREUS_DELAY_LARGE_PAYLOAD_OXIA_PORT=34710 \
+NEREUS_DELAY_LARGE_PAYLOAD_MINIO_PORT=34711 \
+NEREUS_DELAY_LARGE_PAYLOAD_GATEWAY_PORT=34712 \
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_DESTINATION_TOPIC=kafka-large-payload-multi-egress-20260817-r3 \
+NEREUS_DELAY_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-large-payload-gradle-r1 \
+bash e2e/run-large-payload-gateway-e2e.sh
+```
+
+The current-source r3 receipt used Delay
+`b641fc714db779787054811f7229709b1a3fa0ba`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, K1 client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, K1
+image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484` and locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+Project `nereus-delay-large-payload-e2e-1786946121-90342` passed:
+
+```text
+partition=0 barrier=2 prepare=2 commit=3 typedReceipt=0 admission=4 outcome=5 objectVersion=7626b7fe-8deb-404a-9e24-af68a69dbc3c destinationEgress=true sourceRecords=6
+partition=1 barrier=2 prepare=2 commit=3 typedReceipt=0 admission=4 outcome=5 objectVersion=34f981ac-b7f1-444a-a2ea-546b2e69e3a0 destinationEgress=true sourceRecords=6
+exact payload readback on destination partitions 0 and 1; exactGatewayIdempotency=true
+BUILD SUCCESSFUL in 44s
+```
+
+The matching release gate is
+`/tmp/nereus-delay-v1-release-gate-20260817-r15/v1-release-candidate-gate.json`.
+Source, cross-repository and full Gradle checks pass, but the fail-closed
+result remains `release_status=NOT_READY`: capacity is `PARTIAL`, certified
+soak is absent and activation/cutover, operations and chaos are bounded rather
+than `PASS_CERTIFIED`. Exact r3 Compose resources and generated K1/Oxia images
+were removed; locked MinIO and unrelated pre-existing images were retained,
+with no global Docker prune.
