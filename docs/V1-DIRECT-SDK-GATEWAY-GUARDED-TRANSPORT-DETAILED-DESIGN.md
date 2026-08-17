@@ -8117,3 +8117,33 @@ is absent, and activation/operations/chaos are bounded rather than
 `PASS_CERTIFIED`. The new Oxia/Gateway receipt strengthens the real-service
 boundary but does not alter the release gate. This documentation append does
 not refresh the artifact's source lock.
+
+### 2026-08-17 Bounded production-authority soak implementation receipt
+
+`e2e/run-bounded-production-chain-soak.sh` now provides the bounded
+current-source production-chain check for the accepted Large Payload design.
+The canonical artifact is
+`/tmp/nereus-delay-production-chain-soak-current-20260817-r2/production-chain-soak.json`;
+its status is `PASS_BOUNDED` with one strictly sequential cycle and four
+zero-exit cases. Runtime locks are Delay
+`57a02095e51bf6c143aef57c330b415f95b61e96`, Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The first two cases exercise multi-shard destination authority: signed Route,
+per-shard Oxia Assignment/Owner, guarded source ingress, one Worker fleet,
+Gateway mTLS/JWT, real MinIO upload/attest/Commit/readback, typed broker
+evidence and source-ordered `PUBLISH_OUTCOME -> PUBLISHED` application. The
+last two cases exercise the immutable-object uncertainty rule with real MinIO
+post-Commit timeout/503 responses; exact readback resolves the committed
+object before source application. Every case reports exact Compose cleanup
+PASS, with generated provider images removed and the locked MinIO base
+retained.
+
+This receipt validates the named implementation path under a bounded run. It
+does not alter the normative release requirements for fresh-process failure
+cuts, capacity/placement, certified long-cycle soak, rollout compatibility,
+operator authorization or disaster continuity, and it is not
+`PASS_CERTIFIED`. The append is documentation only and does not change the
+receipt's source lock.

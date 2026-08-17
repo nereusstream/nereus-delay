@@ -12750,3 +12750,33 @@ The fail-closed decision is `release_status=NOT_READY`: capacity is
 remain `PASS_BOUNDED` rather than `PASS_CERTIFIED`. The new real Oxia/Gateway
 leader-failover receipt is bounded runtime evidence and is not itself a gate
 input. This audit append does not refresh the r25 runtime source lock.
+
+### 2026-08-17 Bounded current-source Large Payload production-chain soak
+
+The source-locked harness
+`e2e/run-bounded-production-chain-soak.sh` completed one strictly sequential
+cycle with the canonical receipt
+`/tmp/nereus-delay-production-chain-soak-current-20260817-r2/production-chain-soak.json`.
+It reports `status=PASS_BOUNDED` for the four expected cases, all with exit
+code 0. The locks are Delay `57a02095e51bf6c143aef57c330b415f95b61e96`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The covered cells are Kafka two-shard destination egress, Pulsar two-source-
+partition/two-Worker destination egress, Kafka MinIO timeout-after-Commit,
+and Pulsar MinIO 503-after-Commit. Their receipts show real Gateway
+mTLS/JWT, Oxia Route/Assignment/Owner authority, broker evidence, Worker
+source apply/ACK, exact payload readback and final source application. The
+post-Commit MinIO faults resolve through immutable readback rather than
+duplicating the object or source outcome.
+
+Audit result: PASS for the named bounded production-chain slice. All four
+exact Compose cleanup checks passed and no matching run container, network,
+volume or generated Kafka/Pulsar/Oxia image remained. The locked MinIO base
+was retained and no global Docker prune was used. This is not a release PASS:
+the complete fresh-process fault matrix, capacity envelope, certified soak,
+upgrade/downgrade, operator authorization and disaster continuity required by
+§23.3–§23.5 remain open. The receipt is bounded evidence and must not be
+promoted to `PASS_CERTIFIED`; this documentation append does not refresh its
+runtime source lock.

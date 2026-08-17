@@ -6077,3 +6077,34 @@ capacity is `PARTIAL`, certified soak is absent, and activation/operations/
 chaos are `PASS_BOUNDED`, not `PASS_CERTIFIED`. The Oxia/Gateway artifact is
 bounded runtime evidence and is not a substitute for those certification
 inputs; this README append does not refresh the r25 source lock.
+
+## 24. Strictly sequential bounded production-chain soak
+
+`run-bounded-production-chain-soak.sh` composes the real Gateway, Oxia,
+Kafka/Pulsar, Worker and MinIO links into one bounded current-source receipt.
+It runs cases serially and records source locks, child logs, receipt markers,
+exit codes, exact Compose projects and post-cleanup checks.
+
+The current receipt is:
+
+```text
+/tmp/nereus-delay-production-chain-soak-current-20260817-r2/production-chain-soak.json
+```
+
+It is `status=PASS_BOUNDED` for one cycle of four cases: Kafka multi-shard
+destination, Pulsar multi-shard destination, Kafka MinIO timeout-after-Commit,
+and Pulsar MinIO 503-after-Commit. All four child runners exited 0 and passed
+the real authority/readback assertions. The receipt locks Delay
+`57a02095e51bf6c143aef57c330b415f95b61e96`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+Each case requires exact Docker cleanup. Only its Compose project, labeled
+resources and generated provider images are eligible for removal; the locked
+MinIO base and unrelated images are retained. The current postcheck found no
+matching run containers, networks, volumes or generated images. No global
+Docker prune was used. This bounded artifact is functional/runtime evidence,
+not `PASS_CERTIFIED` release evidence; the full fresh-process fault matrix,
+capacity envelope, certified long-cycle soak, rollout compatibility and
+disaster-continuity requirements remain outside this runner.

@@ -643,3 +643,36 @@ certified soak is missing, and activation, operations and chaos are bounded
 receipts. Do not use `ALLOW_NOT_READY=1` as a promotion switch. The gate
 artifact predates this runbook append, so the append does not change its
 source-qualified status.
+
+## 24. Current-source bounded Large Payload production-chain soak
+
+Run the four real production-chain cases strictly sequentially from the clean
+full-v1 checkout. Use an empty artifact directory, an isolated Gradle cache and
+an unused contiguous port range:
+
+```bash
+NEREUS_DELAY_PRODUCTION_SOAK_ARTIFACT_DIR=/tmp/nereus-delay-production-chain-soak-current-20260817-r2 \
+NEREUS_DELAY_PRODUCTION_SOAK_GRADLE_USER_HOME=/tmp/nereus-delay-production-chain-soak-gradle-20260817-r1 \
+NEREUS_DELAY_PRODUCTION_SOAK_CYCLES=1 \
+NEREUS_DELAY_PRODUCTION_SOAK_BASE_PORT=35100 \
+bash e2e/run-bounded-production-chain-soak.sh
+```
+
+The canonical receipt is
+`/tmp/nereus-delay-production-chain-soak-current-20260817-r2/production-chain-soak.json`.
+The run completed four cases with exit code 0 and `status=PASS_BOUNDED`:
+Kafka multi-shard destination, Pulsar multi-shard destination, Kafka MinIO
+timeout-after-Commit, and Pulsar MinIO 503-after-Commit. Check each case's
+`receipt_markers` for the real Gateway/Oxia/Broker/Worker/MinIO evidence and
+each `docker_cleanup.status` for exact cleanup.
+
+The cleanup contract is narrow: remove only the case's exact Compose project,
+labeled containers/networks/volumes and generated provider image tags. The
+locked MinIO base remains retained at digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+After the run, verify there are no matching
+`nereus-delay-large-payload`/`nereus-delay-pulsar-large` resources or images.
+Do not use `docker system prune`, `docker image prune`, broad globs or remove
+unrelated images. The bounded receipt is not a release certification; the
+fresh-process chaos, capacity, certified soak, upgrade/downgrade and disaster
+continuity gates remain separate.

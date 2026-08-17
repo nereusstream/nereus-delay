@@ -16084,3 +16084,47 @@ and chaos are `PASS_BOUNDED`, so none satisfies the required `PASS_CERTIFIED`
 rule. `ALLOW_NOT_READY=1` only records this fail-closed audit and never promotes
 the candidate. The artifact was generated before this documentation append;
 the append does not refresh its source lock.
+
+## 2026-08-17 Current-source bounded Large Payload production-chain soak
+
+The new strictly sequential harness
+`e2e/run-bounded-production-chain-soak.sh` completed one bounded cycle across
+the real Gateway + Oxia + Broker + Worker + MinIO production authority path.
+The canonical receipt is
+`/tmp/nereus-delay-production-chain-soak-current-20260817-r2/production-chain-soak.json`.
+It reports `status=PASS_BOUNDED`, schema
+`nereus-delay-bounded-production-chain-soak-v1`, four expected cases and four
+zero exit codes. The receipt locks Delay `57a02095e51bf6c143aef57c330b415f95b61e96`,
+Kafka K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The four cases were run strictly serially:
+
+- Kafka two-shard Large Payload destination egress, with two destination
+  `PUBLISHED` outcomes and exact payload readback;
+- Pulsar two-guarded-source-partition/two-Worker Large Payload destination
+  egress, with two destination `PUBLISHED` outcomes and exact payload
+  readback;
+- Kafka real MinIO `PUT_TIMEOUT_AFTER_COMMIT`, resolved by immutable
+  readback and source apply;
+- Pulsar real MinIO `PUT_503_AFTER_COMMIT`, resolved by immutable readback and
+  source apply.
+
+Every case records the Gateway mTLS/JWT path, real Oxia authority, real
+Kafka/Pulsar broker evidence, Worker source apply/ACK and real MinIO evidence.
+Each case also reports `docker_cleanup.status=PASS`; exact Compose
+containers/networks/volumes and generated provider images are absent after
+cleanup. The locked MinIO base remains at local image ID
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`
+and repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+No global Docker prune or unrelated image deletion was used.
+
+This closes the bounded current-source Large Payload production-chain soak
+slice and strengthens the functional architecture completion assessment. It
+does not satisfy the release gate: the full fresh-process §23.3 fault matrix,
+§23.4 capacity envelope, certified memory/FD/disk/aged-uncertainty soak,
+upgrade/downgrade and disaster-continuity evidence remain open. The artifact
+is intentionally `PASS_BOUNDED`, never `PASS_CERTIFIED`; the later
+documentation commit does not retroactively change its source lock.
