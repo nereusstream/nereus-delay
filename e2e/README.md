@@ -6210,3 +6210,23 @@ images were removed; only locked Oxia/MinIO bases remain. This receipt is
 bounded evidence, not §23.3 completion or V1 release certification; long GC,
 half-open, ENOSPC, fsync/SST, target isolation and controller/storage/provider
 cuts remain outside the runner.
+
+## Current-source audited 13-cell bounded chaos r5
+
+The audited current-source receipt is
+`/tmp/nereus-delay-chaos-current-20260817-r5/bounded-chaos-matrix.json`.
+It reports `PASS_BOUNDED` with all 13 cells returning zero, locked to Delay
+`75b347da58a4086d19df912ca82f974401432f44`, Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+Unlike a plain exit-code matrix, the runner now checks each cell's required
+source/target/authority markers and records its injection point, expected
+state, duplicate boundary and fresh-process recovery status. All 13 audits
+passed. Six crash/network cells are `fresh_process_recovery=PASS`; the other
+seven response-loss/checkpoint/session cells are explicitly `NOT_COVERED`.
+`durable_state_dump=NOT_CAPTURED` and `invariant_audit=MARKER_ONLY` remain
+visible in every cell, so this is bounded evidence rather than §23.3 completion
+or `PASS_CERTIFIED` release evidence. Exact cleanup left only the locked Oxia
+and MinIO bases; no global Docker prune was used.

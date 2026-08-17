@@ -8240,3 +8240,21 @@ The result is bounded fault evidence only. It does not close the §23.3
 long-GC, half-open, ENOSPC, fsync/SST, target-isolation,
 controller/coordinator/storage/provider or durable state-dump/invariant
 requirements, and it is not `PASS_CERTIFIED` release evidence.
+
+### 2026-08-17 Current-source bounded chaos audit r5
+
+The audited bounded matrix is
+`/tmp/nereus-delay-chaos-current-20260817-r5/bounded-chaos-matrix.json`:
+`PASS_BOUNDED`, 13/13 cells at status `0`, with Delay
+`75b347da58a4086d19df912ca82f974401432f44`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+This strengthens the evidence contract around the real Kafka/Pulsar/Oxia/
+MinIO cuts: each required source, target and authority marker is checked, and
+the injection point plus duplicate boundary is recorded per cell. It remains a
+bounded marker audit, not a canonical durable-state or independent invariant
+audit. The six crash/network cells have fresh-process recovery evidence; the
+seven response-loss/checkpoint/session cells intentionally remain
+`NOT_COVERED`. Full §23.3 and V1 `PASS_CERTIFIED` release evidence remain open.

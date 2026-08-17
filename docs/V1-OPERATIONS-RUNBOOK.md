@@ -786,3 +786,33 @@ images after cleanup. Retain only the locked Oxia/MinIO bases. Treat this as
 authorize V1 promotion. The full §23.3 fault matrix and its durable state
 dump/invariant requirements remain open; the release gate remains
 `release_status=NOT_READY`.
+
+## 31. Current-source audited 13-cell bounded chaos r5
+
+Run the matrix with an isolated artifact/cache pair:
+
+```bash
+NEREUS_DELAY_CHAOS_MATRIX_ARTIFACT_DIR=/tmp/nereus-delay-chaos-current-20260817-r5 \
+NEREUS_DELAY_CHAOS_MATRIX_GRADLE_USER_HOME=/tmp/nereus-delay-chaos-gradle-current-20260817-r5 \
+bash e2e/run-bounded-chaos-matrix.sh
+```
+
+The canonical receipt is
+`/tmp/nereus-delay-chaos-current-20260817-r5/bounded-chaos-matrix.json`.
+It is `PASS_BOUNDED`, with all 13 cells at status `0` and audit/marker status
+`PASS`, under Delay `75b347da58a4086d19df912ca82f974401432f44`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The audit covers declared deterministic injection points, expected states,
+duplicate boundaries and marker-checked source/target/authority evidence. Six
+crash/network cells report fresh-process recovery `PASS`; the remaining seven
+response-loss/checkpoint/session cells remain `NOT_COVERED`. Durable state
+dumps are `NOT_CAPTURED` and invariant audits are `MARKER_ONLY`, so the matrix
+is operational recovery evidence only and does not authorize V1 promotion.
+
+Exact postchecks are empty for matching containers, networks, volumes and
+generated images. The only retained related images are the canonical Oxia
+image and locked MinIO base. Do not use global Docker prune; the release gate
+remains `release_status=NOT_READY`.

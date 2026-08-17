@@ -12888,3 +12888,22 @@ fresh-process recovery and invariant audit matrix; long GC, half-open,
 ENOSPC, fsync/SST, target isolation and provider/controller/storage cuts
 remain blockers. This receipt cannot change the release gate from
 `release_status=NOT_READY`.
+
+### 2026-08-17 Current-source bounded chaos audit r5
+
+`/tmp/nereus-delay-chaos-current-20260817-r5/bounded-chaos-matrix.json` is a
+source-locked `PASS_BOUNDED` receipt for Delay
+`75b347da58a4086d19df912ca82f974401432f44`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. All 13 focused cells returned
+zero, and every cell's audit passed its required evidence markers.
+
+The audit now makes the bounded contract explicit: deterministic injection and
+source/target/authority evidence are marker-checked; expected state and
+duplicate boundaries are declarations only; fresh-process recovery is `PASS`
+only for the six crash/network cells and `NOT_COVERED` for the remaining
+response-loss/checkpoint/session cells. Durable state dumps are
+`NOT_CAPTURED`, independent invariants are `MARKER_ONLY`, and release
+certification remains open. This receipt therefore cannot promote the V1 gate
+from `release_status=NOT_READY`.

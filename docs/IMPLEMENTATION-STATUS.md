@@ -16257,3 +16257,27 @@ V1 release certification. Long GC, half-open, ENOSPC, fsync/SST corruption,
 target isolation, controller/coordinator/storage/provider failover and the
 required durable state-dump/invariant matrix remain open. The current gate
 still correctly reports `release_status=NOT_READY`.
+
+## 2026-08-17 Current-source bounded chaos audit r5
+
+The current-source audited receipt is
+`/tmp/nereus-delay-chaos-current-20260817-r5/bounded-chaos-matrix.json`.
+It reports `matrix_status=PASS_BOUNDED` with all 13 cells exiting zero, locked
+to Delay `75b347da58a4086d19df912ca82f974401432f44`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The runner now fail-closes each cell when a required source/target/authority
+marker is missing and records the deterministic injection, expected state,
+duplicate boundary and cell-specific fresh-process recovery status. r5 has
+`audit_status=PASS` and `marker_status=PASS` for every cell. Six crash/network
+cells record `fresh_process_recovery=PASS`; response-loss, checkpoint and
+session-churn cells remain explicitly `NOT_COVERED` for fresh-process recovery.
+The matrix-level audit still records `durable_state_dump=NOT_CAPTURED` and
+`invariant_audit=MARKER_ONLY`, so this is not full §23.3 completion or V1
+release certification. The release gate remains `release_status=NOT_READY`.
+
+Exact postchecks found no matching Delay containers, networks, volumes or
+generated images. Only `nereus/oxia-o1:37a17bef1720` and the locked MinIO base
+were retained; no global Docker prune or unrelated-image deletion was used.
