@@ -5878,3 +5878,34 @@ soak is absent and activation/cutover, operations and chaos are bounded rather
 than `PASS_CERTIFIED`. Exact r3 Compose resources and generated K1/Oxia images
 were removed; locked MinIO and unrelated pre-existing images were retained,
 with no global Docker prune.
+
+## Current-source Gateway/Oxia session-fence chaos refresh
+
+The current matrix uses Delay
+`56f39ff80ee32ff46ce7086895a3b875d7284134`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`:
+
+```bash
+NEREUS_DELAY_CHAOS_MATRIX_ARTIFACT_DIR=/tmp/nereus-delay-chaos-release-20260817-r4 \
+NEREUS_DELAY_CHAOS_MATRIX_GRADLE_USER_HOME=/tmp/nereus-delay-chaos-release-20260817-r4/gradle-user-home \
+bash e2e/run-bounded-chaos-matrix.sh
+```
+
+The canonical artifact
+`/tmp/nereus-delay-chaos-release-20260817-r4/bounded-chaos-matrix.json` is
+`PASS_BOUNDED` with all 13 cells passing. The Gateway cell holds Oxia down
+while old session-bound handles fail closed, then starts Oxia after the
+recovery-ready barrier so fresh sessions reread the exact durable outcome.
+This is bounded evidence, not V1 release certification.
+
+The matching gate is
+`/tmp/nereus-delay-v1-release-gate-20260817-r17/v1-release-candidate-gate.json`;
+source, cross-repository and full Gradle checks pass, but the result remains
+`NOT_READY` because capacity is `PARTIAL`, certified soak is missing and
+activation/cutover, operations and chaos are `PASS_BOUNDED`.
+
+Postchecks found no run-owned Compose containers, volumes, networks or
+generated images. The locked MinIO base and unrelated `alpine:3.17` were
+retained; no global Docker prune or unrelated image deletion was used.

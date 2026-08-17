@@ -12944,6 +12944,40 @@ still intentionally `release_status=NOT_READY`: capacity is `PARTIAL`, no
 certified soak artifact is supplied, and activation/cutover, operations and
 chaos are `PASS_BOUNDED`, not `PASS_CERTIFIED`.
 
+## 2026-08-17 Current-source bounded chaos refresh after Gateway session fence
+
+Delay commit `56f39ff80ee32ff46ce7086895a3b875d7284134` makes the Gateway/Oxia
+session-churn cut fail closed against the current Oxia source. Oxia persists
+session metadata across a DataServer restart, so the harness now keeps Oxia
+stopped while old admission/idempotency handles and the Gateway server are
+exercised, then restores Oxia only after the stale-handle assertions signal a
+recovery gate. The Gateway record client also wraps the Oxia Java client's
+checked request-timeout path as `OxiaGatewaySessionUnavailableException`, and
+the old handles use an explicit bounded request timeout.
+
+The current-source matrix artifact is
+`/tmp/nereus-delay-chaos-release-20260817-r4/bounded-chaos-matrix.json`. It is
+`PASS_BOUNDED`; all 13 cells returned zero with locks Delay
+`56f39ff80ee32ff46ce7086895a3b875d7284134`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The Gateway cell reported stale
+durable sessions failed closed and a fresh-session reread of the exact durable
+outcome; Kafka/Pulsar broker cuts, response-loss, LSO/retention and
+Checkpoint REAPING cells also passed.
+
+The matching source-locked release artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r17/v1-release-candidate-gate.json`.
+Source checks, cross-repository validation and full Gradle `check` pass. The
+decision remains intentionally `release_status=NOT_READY`: capacity is
+`PARTIAL`, certified soak is absent, and activation/cutover, operations and
+chaos are bounded rather than `PASS_CERTIFIED`.
+
+Exact postchecks found no containers, volumes, networks or generated images
+owned by this run. The locked MinIO base and unrelated pre-existing
+`alpine:3.17` image were retained; no global Docker prune or unrelated image
+deletion was used.
+
 ## 2026-08-17 Current-source Kafka Worker durable-apply-before-ACK receipt
 
 The current-source Worker crash rerun locks Delay to

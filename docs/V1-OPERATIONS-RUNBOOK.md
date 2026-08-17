@@ -413,3 +413,33 @@ partition and final checkpoint/Owner release. Verify exact project
 volumes or generated K1/Oxia images. Retain locked MinIO/Oxia bases and
 unrelated images; do not use global Docker prune. This remains bounded
 evidence, not certified soak or release promotion.
+
+## 15. Current-source Gateway/Oxia session-fence chaos refresh
+
+Run the current-source bounded matrix with an isolated artifact/cache pair:
+
+```bash
+NEREUS_DELAY_CHAOS_MATRIX_ARTIFACT_DIR=/tmp/nereus-delay-chaos-release-20260817-r4 \
+NEREUS_DELAY_CHAOS_MATRIX_GRADLE_USER_HOME=/tmp/nereus-delay-chaos-release-20260817-r4/gradle-user-home \
+bash e2e/run-bounded-chaos-matrix.sh
+```
+
+The canonical receipt
+`/tmp/nereus-delay-chaos-release-20260817-r4/bounded-chaos-matrix.json` is
+`PASS_BOUNDED` with all 13 cells passing under Delay
+`56f39ff80ee32ff46ce7086895a3b875d7284134`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The Gateway session-fence cell
+keeps Oxia stopped through stale-handle assertions, then restores it through
+an explicit recovery barrier; this avoids treating Oxia's persisted session
+metadata after restart as a changed marker.
+
+The source-locked r17 gate is
+`/tmp/nereus-delay-v1-release-gate-20260817-r17/v1-release-candidate-gate.json`.
+It passes source, cross-repository and full Gradle checks but remains
+`NOT_READY` because bounded evidence does not satisfy `PASS_CERTIFIED`,
+capacity is `PARTIAL`, and certified soak is absent. Verify exact cleanup after
+the run: no run-owned containers, volumes, networks or generated images may
+remain. Retain only the locked MinIO base and unrelated pre-existing images;
+do not use global Docker prune or delete unrelated images.

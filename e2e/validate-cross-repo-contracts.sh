@@ -189,6 +189,10 @@ require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaR
     "assertThrows(OxiaGatewaySessionUnavailableException.class"
 require_file_text "$delay_root/e2e/run-gateway-real-e2e.sh" \
     "NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN"
+require_file_text "$delay_root/e2e/run-gateway-real-e2e.sh" \
+    "NEREUS_DELAY_GATEWAY_SESSION_CHURN_RECOVERY_GATE"
+require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
+    "NEREUS_DELAY_GATEWAY_SESSION_CHURN_RECOVERY_READY"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "241068fd"
 require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \

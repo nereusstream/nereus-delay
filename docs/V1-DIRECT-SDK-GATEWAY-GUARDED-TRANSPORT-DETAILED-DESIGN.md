@@ -8057,3 +8057,23 @@ payload readback and sourceRecords `6`; Gradle reported
 This closes the bounded Kafka multi-shard destination egress path. It does not
 claim placement churn, provider/controller/storage failover, certified soak or
 V1 release readiness.
+
+### 2026-08-17 Gateway/Oxia session-churn fail-closed implementation note
+
+Delay `56f39ff80ee32ff46ce7086895a3b875d7284134` makes the current-source
+Gateway session-churn receipt authoritative for the bounded fault cut. The
+harness has two explicit barriers: Oxia is stopped before stale-handle
+operations, and Oxia is started only after those operations have failed closed.
+Fresh session-bound clients then reread the exact durable idempotency outcome;
+the core prepare and coordinator submit counters remain one.
+
+The source-locked matrix
+`/tmp/nereus-delay-chaos-release-20260817-r4/bounded-chaos-matrix.json` reports
+`PASS_BOUNDED` for all 13 cells. `SessionBoundOxiaGatewayRecordClient` wraps
+both runtime and checked Oxia request failures as
+`OxiaGatewaySessionUnavailableException`; `OxiaSyncOwnerLeaseBackend.connect`
+also exposes an explicit request-timeout bound for outage-sensitive clients.
+This is bounded current-source evidence, not a `PASS_CERTIFIED` chaos or V1
+release result. The matching r17 gate is
+`/tmp/nereus-delay-v1-release-gate-20260817-r17/v1-release-candidate-gate.json`
+and remains `NOT_READY`.

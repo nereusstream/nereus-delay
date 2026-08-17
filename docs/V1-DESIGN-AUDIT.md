@@ -12538,3 +12538,30 @@ egress boundary. This does not promote the bounded receipt to release
 certification. Kafka multi-shard egress, catalog/placement churn,
 controller/storage/provider failover, certified capacity/soak and the
 `PASS_CERTIFIED` activation, operations and chaos gates remain separate.
+
+### 2026-08-17 Current-source Gateway/Oxia session-fence chaos refresh
+
+Delay `56f39ff80ee32ff46ce7086895a3b875d7284134` corrects the bounded
+session-churn harness for the current Oxia behavior: DataServer restart
+rehydrates persisted session metadata, so restart alone is not evidence that
+an old session marker changed. The fault cut therefore keeps Oxia unavailable
+while the old Gateway admission/idempotency handles are invoked, requires the
+Gateway to return `UNAVAILABLE`, and only then starts Oxia for new sessions to
+reread the durable outcome. The session-bound record client converts the
+checked Oxia request-timeout path into the Gateway fail-closed exception.
+
+The source-locked receipt
+`/tmp/nereus-delay-chaos-release-20260817-r4/bounded-chaos-matrix.json` is
+`PASS_BOUNDED` with all 13 cells passing under Delay
+`56f39ff80ee32ff46ce7086895a3b875d7284134`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+Audit result: PASS for the named bounded current-source fault matrix and
+Gateway session fence. It is not a production chaos or release PASS;
+controller/coordinator/storage/provider failover, catalog placement/churn,
+certified capacity/soak and `PASS_CERTIFIED` activation, operations and chaos
+evidence remain open. The corresponding r17 release artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r17/v1-release-candidate-gate.json`
+and remains `NOT_READY` by design.
