@@ -249,7 +249,7 @@ class BoundedCapacitySloProbeTest {
         json.append("    ],\n");
         usageJson(json, "usage_before", usageBefore, true);
         usageJson(json, "usage_after", usageAfter, true);
-        field(json, "reopen_verified", Boolean.toString(reopenVerified), false);
+        booleanField(json, "reopen_verified", reopenVerified, false);
         json.append("  },\n");
         json.append("  \"slo\": {\n");
         numberField(json, "durable_start_final_samples", sloSamples, true);
@@ -259,7 +259,7 @@ class BoundedCapacitySloProbeTest {
         numberField(json, "exported_records", exportUsage.records(), true);
         numberField(json, "exported_bytes", exportUsage.bytes(), true);
         numberField(json, "collector_state_bytes", fileSize(collectorState), true);
-        field(json, "collector_reopen_verified", Boolean.toString(reopenVerified), false);
+        booleanField(json, "collector_reopen_verified", reopenVerified, false);
         json.append("  },\n");
         json.append("  \"boundaries\": [\n");
         stringItem(json, "This is a bounded local evidence artifact, not a V1 benchmark or capacity certification.",
@@ -279,7 +279,7 @@ class BoundedCapacitySloProbeTest {
         final StringBuilder json = new StringBuilder(512);
         try {
             final WorkerRuntimeResourceObservation observation = WorkerRuntimeResourceProbe.observe(rootPath);
-            json.append("{\"status\":\"AVAILABLE\",\"authority\":\"WorkerRuntimeResourceProbe\"");
+            json.append("{\"status\":\"AVAILABLE\",\"authority\":\"WorkerRuntimeResourceProbe\",");
             numberFieldInline(json, "jvm_heap_bytes", observation.actualJvmHeapBytes(), true);
             numberFieldInline(json, "direct_memory_bytes", observation.actualMaxDirectMemoryBytes(), true);
             numberFieldInline(json, "process_rss_bytes", observation.currentProcessRssBytes(), true);
@@ -409,6 +409,12 @@ class BoundedCapacitySloProbeTest {
 
     private static void numberField(final StringBuilder json, final String name, final long value,
                                     final boolean trailingComma) {
+        json.append("    ").append(jsonString(name)).append(":").append(value);
+        json.append(trailingComma ? ",\n" : "\n");
+    }
+
+    private static void booleanField(final StringBuilder json, final String name, final boolean value,
+                                     final boolean trailingComma) {
         json.append("    ").append(jsonString(name)).append(":").append(value);
         json.append(trailingComma ? ",\n" : "\n");
     }
