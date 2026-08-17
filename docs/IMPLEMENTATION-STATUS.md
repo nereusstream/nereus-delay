@@ -15240,3 +15240,27 @@ the complete chaos matrix, benchmark/soak or V1 release readiness. Exact
 postchecks found no project containers, networks, volumes, listeners or
 temporary K1/P1/Oxia images; locked Oxia/MinIO bases were retained and no
 global Docker prune was used.
+
+## 2026-08-17 Current-source Gateway/Oxia session-expiry chaos cell
+
+Commit `719485e0` adds the Gateway/Oxia session-churn cut to
+`e2e/run-bounded-chaos-matrix.sh` as `gateway-oxia-session-churn`. Commit
+`f6acacdca87b6e91a953030f5a523e39df5ed314` makes `run-gateway-real-e2e.sh` remove the exact generated Oxia
+image during cleanup, preserving the no-unused-related-image boundary.
+
+The current run used Delay `f6acacdca87b6e91a953030f5a523e39df5ed314`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
+`nereus-delay-gateway-e2e-1786931032-4431`, Oxia `32060`, Gateway `32070`, and
+a two-second session-expiry pause. It passed with `BUILD SUCCESSFUL in 21s`:
+
+```text
+Gateway Oxia session churn E2E passed: stale durable sessions failed closed and recovery reread one exact outcome
+Dockerized Gateway Oxia session churn smoke passed for Oxia 37a17bef17202d5fd6e23282da5fd26d94865484
+```
+
+This is a bounded single-node session-expiry cell, not full Oxia/provider or
+Gateway HA failover. Transparent reconnect, controller/coordinator/storage
+cuts, target isolation, the remaining chaos matrix, benchmark/soak and V1
+release proof remain open. Exact postchecks found no project containers,
+networks, volumes, listeners or generated image; no global Docker prune was
+used.

@@ -5302,3 +5302,26 @@ target isolation, full chaos, benchmark/soak and V1 release gates remain open.
 Exact postchecks found no project containers, networks, volumes, listeners or
 temporary images; locked Oxia/MinIO bases were retained and no global Docker
 prune was used.
+
+## Current-source Gateway/Oxia session-expiry chaos cell
+
+The bounded chaos runner now includes `gateway-oxia-session-churn` as its
+thirteenth focused cell. The current source-locked run used Delay
+`f6acacdca87b6e91a953030f5a523e39df5ed314`, Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
+`nereus-delay-gateway-e2e-1786931032-4431`, Oxia port `32060` and Gateway port
+`32070`. The session was stopped for two seconds and restarted while the old
+Gateway process remained alive.
+
+The smoke completed with `BUILD SUCCESSFUL in 21s` and printed:
+
+```text
+Gateway Oxia session churn E2E passed: stale durable sessions failed closed and recovery reread one exact outcome
+Dockerized Gateway Oxia session churn smoke passed for Oxia 37a17bef17202d5fd6e23282da5fd26d94865484
+```
+
+This closes the bounded single-node Oxia session-expiry/stale-session cell
+only. It does not certify transparent reconnect, Gateway HA, coordinator or
+provider failover, target isolation, full chaos, benchmark/soak or V1 release
+readiness. The runner cleanup now removes its exact generated Oxia image as
+well as the Compose project; postchecks found no project resource, listener or
+temporary image, and no global Docker prune was used.

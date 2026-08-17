@@ -12158,3 +12158,18 @@ cover multi-shard large-payload egress or placement churn, and cannot close
 target isolation, controller/coordinator/storage failover, the complete chaos
 matrix, benchmark/soak or V1 release readiness. Exact cleanup left no project
 resources or temporary images; locked Oxia/MinIO bases were retained.
+
+### 2026-08-17 Gateway/Oxia session-expiry chaos audit
+
+The bounded chaos runner now includes a thirteenth focused cell for Oxia
+session expiry. The current Delay source `f6acacdca87b6e91a953030f5a523e39df5ed314` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` run kept the Gateway process alive,
+stopped the real Oxia service for two seconds, and then reread the exact
+durable result through fresh session-bound clients. The smoke passed in 21
+seconds on Oxia `32060` and Gateway `32070`.
+
+Audit result: PASS for bounded single-node stale-session fail-closed and
+recovery reread. This does not prove transparent reconnect, multi-process
+Gateway HA, controller/coordinator/provider failover, target isolation, the
+complete §23.3 matrix, benchmark/soak or V1 release readiness. Exact cleanup
+removed the generated Oxia image and all project resources.

@@ -7641,3 +7641,18 @@ placement, multi-shard large-payload egress, churn/isolation, controller/
 coordinator/storage failover, the complete chaos matrix, benchmark/soak and V1
 release gates remain separate obligations. Exact project cleanup removed all
 run-created resources and images; locked Oxia/MinIO bases remain.
+
+### 2026-08-17 Current-source Gateway/Oxia session-expiry cell
+
+`e2e/run-bounded-chaos-matrix.sh` now runs the existing real Gateway/Oxia
+session-churn smoke as a thirteenth focused cell. At Delay `f6acacdca87b6e91a953030f5a523e39df5ed314`, with
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, the old Gateway process
+survived a two-second real Oxia stop; stale durable sessions failed closed and
+fresh sessions reread one exact durable outcome. The source-locked smoke passed
+in 21 seconds.
+
+The cell is bounded single-node session-expiry evidence. It does not establish
+transparent reconnect, Gateway HA, controller/coordinator/provider failover,
+target isolation, full chaos or V1 release readiness. The Gateway runner now
+removes its exact generated Oxia image after Compose teardown; locked Oxia and
+MinIO bases are retained.
