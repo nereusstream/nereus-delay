@@ -267,3 +267,15 @@ soak or release certification. The exact project
 `nereus-delay-pulsar-large-e2e-1786939347-6325` left no containers, networks,
 volumes, listeners or generated P1/Oxia images. Locked Oxia/MinIO bases were
 retained; the runner used exact run-scoped cleanup and no global Docker prune.
+
+## 10. Current-source release-gate rerun after network-partition drill
+
+The source-locked audit artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r8/v1-release-candidate-gate.json`
+at Delay `54759958b0c7af41ffa2374d835831ec7df72d13`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Source, cross-repository and full
+Gradle checks passed. It remains `release_status=NOT_READY`: capacity is
+`PARTIAL`, certified soak is absent, and activation, operations and chaos are
+`PASS_BOUNDED`, not promotable `PASS_CERTIFIED` evidence.

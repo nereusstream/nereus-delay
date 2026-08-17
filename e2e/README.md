@@ -5709,3 +5709,15 @@ and V1 release certification remain open. Exact postchecks found no matching
 containers, networks, volumes, listeners or generated P1/Oxia images. Locked
 Oxia/MinIO bases were retained; no global Docker prune or unrelated image
 deletion was performed.
+
+## Current-source release-gate rerun after network-partition receipt
+
+The current artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r8/v1-release-candidate-gate.json`
+at Delay `54759958b0c7af41ffa2374d835831ec7df72d13`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Source/contract/full-check all
+passed. The fail-closed result is `release_status=NOT_READY`: capacity is
+`PARTIAL`, certified soak is missing, and activation, operations and chaos are
+`PASS_BOUNDED` and remain blocked by the `PASS_CERTIFIED` rule.
