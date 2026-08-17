@@ -12403,3 +12403,27 @@ at Delay `9ec909d95b890dd227b572396091e500a9c72299`, K1
 `37a17bef17202d5fd6e23282da5fd26d94865484`. Source/contract/full-check pass;
 capacity remains `PARTIAL`, activation/operations/chaos are bounded, soak is
 missing, and the fail-closed release status remains `NOT_READY`.
+
+### 2026-08-17 Pulsar Large Payload network-partition failover
+
+The clean current-source run used Delay `fc004146b807087fcd72ee7188419eaa8f6eac06`,
+P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The isolated two-Broker project was
+`nereus-delay-pulsar-large-e2e-1786939347-6325`, with ports
+`33100/33101/33102/33103`, `33110`, `33111` and `33112` for Pulsar, Oxia,
+MinIO and Gateway respectively. After Gateway Commit/readback, broker-1
+remained alive but lost its exact Compose network endpoint for the 75-second
+ownership handoff; broker-2 completed the source-applied physical Publish and
+broker-1 rejoined afterward.
+
+The run passed exact 1 MiB payload readback and reported Admission source
+`5/0`, typed `PULSAR_SEND_ACK` target `3/0`, Outcome source `5/1`,
+`prepare=2/2`, `commit=2/3`, `sourceRecords=6` and
+`exactGatewayIdempotency=true`; Gradle completed in 2m 7s. This is a
+single-shard Broker network-partition receipt only. Multi-shard placement,
+controller/storage/provider failover, certified soak and release promotion
+remain outside this evidence. The exact project resources, listeners and
+generated P1/Oxia images were removed; locked bases were retained and no
+global Docker prune was used.

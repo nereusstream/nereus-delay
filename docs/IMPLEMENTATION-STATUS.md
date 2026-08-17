@@ -15582,3 +15582,29 @@ provider failover, long-cycle soak or V1 release certification. Exact
 postchecks found no project containers, networks, volumes, listeners or
 generated P1/Oxia images; locked MinIO/Oxia bases were retained and no global
 Docker prune was used.
+
+## 2026-08-17 Current-source Pulsar Large Payload network-partition receipt
+
+At clean Delay `fc004146b807087fcd72ee7188419eaa8f6eac06`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`,
+the real two-Broker Large Payload authority path passed the network-partition
+cut. The project was `nereus-delay-pulsar-large-e2e-1786939347-6325`, using
+Pulsar `33100/33101/33102/33103`, Oxia `33110`, MinIO `33111` and Gateway
+`33112`; the ownership handoff wait was 75 seconds.
+
+After Gateway Commit/readback, broker-1 stayed alive but was disconnected from
+the exact Compose network endpoint. Once its ownership lease expired, broker-2
+completed the same source-applied physical Publish, exact 1 MiB destination
+readback and source reconciliation; broker-1 rejoined afterward. The receipt
+reported Admission source `5/0`, typed `PULSAR_SEND_ACK` target `3/0`, Outcome
+source `5/1`, `prepare=2/2`, `commit=2/3`, `sourceRecords=6` and
+`exactGatewayIdempotency=true`. Gradle reported `BUILD SUCCESSFUL in 2m 7s`.
+
+This closes the named single-shard Pulsar Broker network-partition failover
+cell only. It does not establish Pulsar multi-shard Large Payload,
+controller/storage/provider failover, long-cycle soak or V1 release
+certification. Exact postchecks found no project containers, networks, volumes,
+listeners or generated P1/Oxia images. The locked Oxia and MinIO bases were
+retained; no global Docker prune or unrelated image deletion was performed.

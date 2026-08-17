@@ -228,3 +228,42 @@ receipts now exist, but no single release-candidate run has executed all five
 sections with fresh-process disaster continuity, external operator
 authorization and signed evidence. Gate 9 therefore remains `OPEN`, and this
 document must not be cited as V1 release approval.
+
+## 9. Current-source Pulsar Large Payload network-partition drill
+
+Run the real two-Broker network-partition cut with an isolated port set. The
+source topic name must not contain Pulsar's reserved `-partition-` pattern.
+
+```bash
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER=1 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_NETWORK_PARTITION=1 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_NETWORK_PARTITION_HANDOFF_WAIT_SECONDS=75 \
+PULSAR_LARGE_BROKER_1_PORT=33100 \
+PULSAR_LARGE_WEB_1_PORT=33101 \
+PULSAR_LARGE_BROKER_2_PORT=33102 \
+PULSAR_LARGE_WEB_2_PORT=33103 \
+NEREUS_DELAY_PULSAR_LARGE_OXIA_PORT=33110 \
+NEREUS_DELAY_PULSAR_LARGE_MINIO_PORT=33111 \
+NEREUS_DELAY_PULSAR_LARGE_GATEWAY_PORT=33112 \
+PULSAR_LARGE_PAYLOAD_TOPIC=pulsar-large-payload-network-failover-20260817-r2 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-large-payload-activation-20260817-r1 \
+bash e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+The current-source run used Delay `fc004146b807087fcd72ee7188419eaa8f6eac06`,
+P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+Broker-1 stayed alive but lost its exact Compose network endpoint after
+Gateway Commit/readback; after the 75-second handoff, broker-2 completed the
+same source-applied physical Publish and broker-1 rejoined. Exact payload
+readback passed with Admission source `5/0`, typed target `3/0`, Outcome source
+`5/1`, `prepare=2/2`, `commit=2/3`, `sourceRecords=6` and
+`exactGatewayIdempotency=true`; Gradle reported `BUILD SUCCESSFUL in 2m 7s`.
+
+This is a bounded single-shard Broker network-partition receipt. It does not
+close multi-shard placement, controller/storage/provider failover, certified
+soak or release certification. The exact project
+`nereus-delay-pulsar-large-e2e-1786939347-6325` left no containers, networks,
+volumes, listeners or generated P1/Oxia images. Locked Oxia/MinIO bases were
+retained; the runner used exact run-scoped cleanup and no global Docker prune.

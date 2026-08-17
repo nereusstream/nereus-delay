@@ -7889,3 +7889,25 @@ at Delay `9ec909d95b890dd227b572396091e500a9c72299`, K1
 `37a17bef17202d5fd6e23282da5fd26d94865484`. Source, cross-repository and full
 Gradle checks pass, while bounded/partial/missing certification inputs keep the
 fail-closed result at `NOT_READY`.
+
+### 2026-08-17 Pulsar Large Payload Broker network-partition receipt
+
+At Delay `fc004146b807087fcd72ee7188419eaa8f6eac06`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and the locked MinIO digest, the
+real Gateway mTLS/JWT -> Oxia Route/Assignment/Owner -> Worker -> Pulsar ->
+MinIO path passed a two-Broker network-partition cut. Project
+`nereus-delay-pulsar-large-e2e-1786939347-6325` used Pulsar ports
+`33100/33101/33102/33103`, Oxia `33110`, MinIO `33111`, Gateway `33112`, and a
+75-second ownership handoff wait.
+
+Broker-1 stayed alive but was removed from the exact Compose network after
+Gateway Commit/readback. Broker-2 then completed the same source-applied
+physical Publish with exact 1 MiB readback, and broker-1 rejoined. The receipt
+was Admission `5/0`, typed `PULSAR_SEND_ACK` target `3/0`, Outcome `5/1`,
+`prepare=2/2`, `commit=2/3`, `sourceRecords=6` and
+`exactGatewayIdempotency=true`; Gradle passed in 2m 7s. This is bounded
+single-shard Broker failover evidence, not multi-shard production, provider or
+controller failover, soak or release certification. Run-scoped Compose
+resources and generated P1/Oxia images were removed; locked bases were
+retained and no global Docker prune was used.

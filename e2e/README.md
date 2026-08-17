@@ -5670,3 +5670,42 @@ The current-source release-gate rerun after this receipt is
 at Delay `9ec909d95b890dd227b572396091e500a9c72299`; source/contract/full-check
 PASS, capacity `PARTIAL`, activation/operations/chaos bounded, certified soak
 missing, and overall `release_status=NOT_READY`.
+
+## Pulsar Large Payload network-partition failover receipt
+
+The source-locked two-Broker run used:
+
+```bash
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER=1 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_NETWORK_PARTITION=1 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_NETWORK_PARTITION_HANDOFF_WAIT_SECONDS=75 \
+PULSAR_LARGE_BROKER_1_PORT=33100 \
+PULSAR_LARGE_WEB_1_PORT=33101 \
+PULSAR_LARGE_BROKER_2_PORT=33102 \
+PULSAR_LARGE_WEB_2_PORT=33103 \
+NEREUS_DELAY_PULSAR_LARGE_OXIA_PORT=33110 \
+NEREUS_DELAY_PULSAR_LARGE_MINIO_PORT=33111 \
+NEREUS_DELAY_PULSAR_LARGE_GATEWAY_PORT=33112 \
+PULSAR_LARGE_PAYLOAD_TOPIC=pulsar-large-payload-network-failover-20260817-r2 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-large-payload-activation-20260817-r1 \
+bash e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+At Delay `fc004146b807087fcd72ee7188419eaa8f6eac06`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`,
+project `nereus-delay-pulsar-large-e2e-1786939347-6325` passed in 2m 7s.
+After Gateway Commit/readback, broker-1 stayed alive but was disconnected from
+the exact Compose network; after the 75-second ownership handoff broker-2
+completed the same source-applied physical Publish and broker-1 rejoined.
+Admission source was `5/0`, typed `PULSAR_SEND_ACK` target `3/0`, Outcome
+source `5/1`, `prepare=2/2`, `commit=2/3`, `sourceRecords=6`, and exact 1 MiB
+payload readback plus `exactGatewayIdempotency=true` passed.
+
+This closes only the bounded single-shard Pulsar Broker network-partition cell;
+multi-shard Large Payload, controller/storage/provider failover, certified soak
+and V1 release certification remain open. Exact postchecks found no matching
+containers, networks, volumes, listeners or generated P1/Oxia images. Locked
+Oxia/MinIO bases were retained; no global Docker prune or unrelated image
+deletion was performed.
