@@ -7,6 +7,7 @@ import io.grpc.Metadata;
 import io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts;
 import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
 import io.grpc.stub.MetadataUtils;
+import io.nereusstream.delay.adapter.DestinationPhysicalAdmission;
 import io.nereusstream.delay.adapter.S3CompatiblePayloadObjectStore;
 import io.nereusstream.delay.gateway.GatewayGrpcContext;
 import io.nereusstream.delay.gateway.GatewayGrpcServer;
@@ -120,6 +121,7 @@ import io.nereusstream.delay.runtime.MessageStatus;
 import io.nereusstream.delay.runtime.PayloadReservation;
 import io.nereusstream.delay.runtime.PayloadReservationStatus;
 import io.nereusstream.delay.runtime.V1ScheduleResolver;
+import io.nereusstream.delay.scheduler.ClaimExecutionAdmission;
 import io.nereusstream.delay.scheduler.SchedulerBudget;
 import io.nereusstream.delay.scheduler.WorkClass;
 import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
@@ -680,9 +682,8 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         if (!"NONE".equals(minioFaultMode)) {
             throw new IllegalArgumentException("multi-shard large-payload mode currently requires MinIO fault mode NONE");
         }
-        if (destinationPhysicalTopic != null || receiptPhysicalTopic != null) {
-            throw new IllegalArgumentException("multi-shard large-payload mode currently covers Object Store authority only; "
-                    + "omit the Kafka destination topic until the multi-shard egress receipt is enabled");
+        if (destinationPhysicalTopic == null || receiptPhysicalTopic == null) {
+            throw new IllegalArgumentException("multi-shard large-payload mode requires a Kafka destination topic");
         }
         final int shardCount = 2;
         final String topic = topicPrefix + "-" + UUID.randomUUID();
@@ -692,9 +693,13 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
 
         try (Admin admin = Admin.create(adminConfiguration)) {
             ensureTopic(admin, topic, shardCount);
+            ensureTopic(admin, destinationPhysicalTopic, shardCount);
+            ensureTopic(admin, receiptPhysicalTopic, shardCount);
             final String clusterId = admin.describeCluster().clusterId().get(10, TimeUnit.SECONDS);
             final Uuid topicId = describe(admin, topic).topicId();
             final UUID nativeTopicId = toUuid(topicId);
+            final UUID destinationTopicId = toUuid(describe(admin, destinationPhysicalTopic).topicId());
+            final UUID receiptTopicId = toUuid(describe(admin, receiptPhysicalTopic).topicId());
             final RouteIncarnation routeIncarnation = RouteIncarnation.random();
             final List<LargeShardProbe> probes = new ArrayList<>(shardCount);
             for (int partition = 0; partition < shardCount; partition++) {
@@ -768,10 +773,22 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 }
 
                 final WorkClassExecutionRegistry workClasses = workClasses();
+                final long fleetWorkClassBytes = Math.multiplyExact((long) shardCount,
+                        LARGE_PAYLOAD_WORK_CLASS_BYTES);
+                final ClaimExecutionAdmission claimAdmission = new ClaimExecutionAdmission(shardCount,
+                        fleetWorkClassBytes);
+                final DestinationPhysicalAdmission physicalAdmission = new DestinationPhysicalAdmission(shardCount,
+                        fleetWorkClassBytes);
+                physicalAdmission.registerTargetCluster(clusterId, shardCount, fleetWorkClassBytes);
                 final Path root = Files.createTempDirectory("nereus-delay-kafka-large-payload-multi-");
                 final List<ShardStore> stores = new ArrayList<>(shardCount);
                 final List<DelayShard> delayShards = new ArrayList<>(shardCount);
                 final List<WorkerShardRuntime> runtimes = new ArrayList<>(shardCount);
+                final List<OwnedDelayShard> ownedShards = new ArrayList<>(shardCount);
+                final List<io.nereusstream.delay.protocol.OwnerIdentityV1> ownerIdentities =
+                        new ArrayList<>(shardCount);
+                final List<KafkaClientArtifactWorkerSmoke.PhysicalPublishBridge> physicalBridges =
+                        new ArrayList<>(shardCount);
                 WorkerShardFleetRuntime fleet = null;
                 boolean assignmentsWithdrawn = false;
                 try (SharedRocksDbResources resources = new SharedRocksDbResources(ShardStoreConfig.defaults(root));
@@ -786,7 +803,8 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                         stores.add(store);
                         store.recordControlSnapshot(controlSnapshot(probe.shard(), destinationProfile()));
                         final DelayShard delayShard = new DelayShard(store, DelayShardConfig.defaults(), null, null,
-                                scheduleResolver(), trustCatalog);
+                                scheduleResolver(clusterId, destinationTopicId, destinationPhysicalTopic,
+                                        probe.shard().partition()), trustCatalog);
                         delayShards.add(delayShard);
                         final OwnerLease lease = admission.lease();
                         final io.nereusstream.delay.protocol.OwnerIdentityV1 ownerIdentity =
@@ -795,6 +813,8 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                                         Bytes.sha256(Bytes.utf8("large-payload-multi-worker-fence-"
                                                 + probe.shard().partition())));
                         final OwnedDelayShard ownedShard = new OwnedDelayShard(delayShard, lease, ownerIdentity);
+                        ownedShards.add(ownedShard);
+                        ownerIdentities.add(ownerIdentity);
                         final List<SourceReplayEntry> recovery = recoveryEntries(bootstrap, clusterId, topic,
                                 nativeTopicId, admission.assignment().sourceAssignment(), probe.activation(),
                                 probe.beforeRoute());
@@ -946,14 +966,39 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                                     throw new IllegalStateException("Kafka multi-shard Oxia Gateway idempotency changed Prepare bytes "
                                             + "partition=" + partition);
                                 }
-                                if (latestOffset(admin, topic, partition) != admissionRecord.probe().barrierOffset() + 2) {
-                                    throw new IllegalStateException("Kafka multi-shard duplicate Prepare appended an unexpected record "
-                                            + "partition=" + partition + ", latest=" + latestOffset(admin, topic, partition));
+                                final LaneRecord physicalLane = Optional.ofNullable(
+                                        delayShards.get(runtimeIndex).getLane(message.laneId())).orElseThrow(
+                                        () -> new IllegalStateException(
+                                                "Kafka multi-shard Worker did not persist the physical destination Lane"));
+                                final KafkaClientArtifactWorkerSmoke.PhysicalPublishBridge physicalBridge =
+                                        KafkaClientArtifactWorkerSmoke.createPhysicalPublishBridge(
+                                                bootstrap, clusterId, topic, nativeTopicId, admissionRecord.probe().shard(),
+                                                (KafkaSourcePosition) commitReceipt.sourcePosition(), destinationPhysicalTopic,
+                                                destinationTopicId, receiptPhysicalTopic, receiptTopicId,
+                                                stores.get(runtimeIndex), ownedShards.get(runtimeIndex),
+                                                ownerIdentities.get(runtimeIndex), ownerAuthority, workClasses, controlKeys,
+                                                destinationProfile(), capabilityProfile(), message.laneId(),
+                                                physicalLane.laneIncarnation(), LARGE_PAYLOAD_WORK_CLASS_BYTES,
+                                                physicalAdmission, partition);
+                                physicalBridges.add(physicalBridge);
+                                runtimes.get(runtimeIndex).bindPhysicalPublishExecutor(physicalBridge.executor());
+                                KafkaClientArtifactWorkerSmoke.runSourceAppliedPhysicalPublish(
+                                        runtimes.get(runtimeIndex), delayShards.get(runtimeIndex),
+                                        ownedShards.get(runtimeIndex), ownerIdentities.get(runtimeIndex), ownerAuthority,
+                                        stores.get(runtimeIndex), workClasses, controlKeys, physicalBridge,
+                                        prepareReceipt.command().delayMessageId(),
+                                        (KafkaSourcePosition) commitReceipt.sourcePosition(), payload, bootstrap, clusterId,
+                                        LARGE_PAYLOAD_WORK_CLASS_BYTES, claimAdmission);
+                                final long sourceRecordCount = latestOffset(admin, topic, partition);
+                                if (sourceRecordCount != admissionRecord.probe().barrierOffset() + 4) {
+                                    throw new IllegalStateException("Kafka multi-shard physical publish appended an unexpected source record count "
+                                            + "partition=" + partition + ", latest=" + sourceRecordCount);
                                 }
                                 System.out.println("Kafka multi-shard Large Payload partition=" + partition
                                         + " passed: prepare=" + prepareReceipt.sourcePosition() + ", commit="
                                         + commitReceipt.sourcePosition() + ", objectVersion="
-                                        + new String(proof.immutableObjectVersion(), StandardCharsets.UTF_8));
+                                        + new String(proof.immutableObjectVersion(), StandardCharsets.UTF_8)
+                                        + ", destinationEgress=true, sourceRecords=" + sourceRecordCount);
                             }
                             for (int index = 0; index < runtimes.size(); index++) {
                                 final int partition = admissions.get(index).probe().shard().partition();
@@ -1008,6 +1053,14 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                             assignmentAuthority.withdraw(admission.publication());
                         }
                     }
+                    for (KafkaClientArtifactWorkerSmoke.PhysicalPublishBridge physicalBridge : physicalBridges) {
+                        try {
+                            physicalBridge.close();
+                        } catch (RuntimeException cleanupFailure) {
+                            System.err.println("Kafka multi-shard physical destination cleanup deferred: "
+                                    + cleanupFailure.getMessage());
+                        }
+                    }
                     for (ShardStore store : stores) {
                         try {
                             store.close();
@@ -1018,7 +1071,10 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                     deleteTree(root);
                 }
             }
-            admin.deleteTopics(List.of(topic)).all().get(10, TimeUnit.SECONDS);
+            final List<String> topics = new ArrayList<>(List.of(topic));
+            topics.add(destinationPhysicalTopic);
+            topics.add(receiptPhysicalTopic);
+            admin.deleteTopics(topics).all().get(10, TimeUnit.SECONDS);
         }
     }
 
@@ -1361,10 +1417,16 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
 
     private static V1ScheduleResolver scheduleResolver(final String clusterId, final UUID destinationTopicId,
                                                        final String destinationPhysicalTopic) {
+        return scheduleResolver(clusterId, destinationTopicId, destinationPhysicalTopic, 0);
+    }
+
+    private static V1ScheduleResolver scheduleResolver(final String clusterId, final UUID destinationTopicId,
+                                                       final String destinationPhysicalTopic,
+                                                       final int destinationPartition) {
         final ProfileRefV1 destination = destinationProfile();
         final ProfileRefV1 capability = capabilityProfile();
         final byte[] tuple = canonicalLaneTuple(clusterId, destinationTopicId, destinationPhysicalTopic,
-                destination, capability);
+                destination, capability, destinationPartition);
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
         final V1ScheduleResolver compatibilityResolver = scheduleResolver();
         return new V1ScheduleResolver() {
@@ -1404,8 +1466,17 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
     private static byte[] canonicalLaneTuple(final String clusterId, final UUID topicId,
                                               final String physicalTopic, final ProfileRefV1 destination,
                                               final ProfileRefV1 capability) {
+        return canonicalLaneTuple(clusterId, topicId, physicalTopic, destination, capability, 0);
+    }
+
+    private static byte[] canonicalLaneTuple(final String clusterId, final UUID topicId,
+                                              final String physicalTopic, final ProfileRefV1 destination,
+                                              final ProfileRefV1 capability, final int physicalPartition) {
         if (physicalTopic == null || physicalTopic.isBlank()) {
             throw new IllegalArgumentException("Kafka physical topic must be nonblank");
+        }
+        if (physicalPartition < 0) {
+            throw new IllegalArgumentException("Kafka physical partition must be non-negative");
         }
         final byte[] topicUuid = uuidBytes(topicId);
         return Bytes.concat(
@@ -1415,7 +1486,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 Bytes.u8(1),
                 topicUuid,
                 Bytes.lp32(topicUuid),
-                Bytes.u32be(0),
+                Bytes.u32be(physicalPartition),
                 Bytes.lp32(destination.profileId()),
                 Bytes.u64beBits(destination.version()),
                 destination.semanticHash(),

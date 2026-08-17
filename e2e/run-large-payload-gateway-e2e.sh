@@ -107,10 +107,6 @@ if [[ "${multi_shard_mode}" == "1" && "${minio_fault_mode}" != "NONE" ]]; then
   echo "NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_MULTI_SHARD currently requires MinIO fault mode NONE" >&2
   exit 1
 fi
-if [[ "${multi_shard_mode}" == "1" && -n "${destination_topic}" ]]; then
-  echo "NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_MULTI_SHARD currently requires destination topic to be disabled" >&2
-  exit 1
-fi
 if [[ ! "${minio_request_timeout_ms}" =~ ^[1-9][0-9]*$ ]]; then
   echo "NEREUS_DELAY_LARGE_PAYLOAD_MINIO_REQUEST_TIMEOUT_MS must be a positive integer" >&2
   exit 1
@@ -433,7 +429,7 @@ if [[ "${smoke_status}" != 0 ]]; then
 fi
 
 if [[ "${multi_shard_mode}" == "1" ]]; then
-  echo "Kafka + Oxia + Gateway mTLS/JWT + one Worker fleet + real MinIO two-shard Large Payload Object Store authority E2E passed"
+  echo "Kafka + Oxia + Gateway mTLS/JWT + one Worker fleet + real MinIO + two destination PUBLISHED outcomes two-shard Large Payload authority E2E passed"
 elif [[ "${minio_fault_mode}" == "PUT_503_BEFORE_COMMIT" || "${minio_fault_mode}" == "PUT_TIMEOUT_BEFORE_COMMIT" ]]; then
   echo "Kafka + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload pre-commit fail-closed E2E passed"
 elif [[ "${failover_mode}" == "1" && "${process_crash_mode}" == "1" ]]; then

@@ -814,6 +814,28 @@ public final class KafkaClientArtifactWorkerSmoke {
             final String bootstrap,
             final String clusterId,
             final long maxClaimBytes) throws Exception {
+        runSourceAppliedPhysicalPublish(runtime, delayShard, ownedShard, ownerIdentity, authority, store,
+                workClasses, verificationKey, bridge, physicalMessageId, physicalSchedulePosition, expectedPayload,
+                bootstrap, clusterId, maxClaimBytes, null);
+    }
+
+    static void runSourceAppliedPhysicalPublish(
+            final WorkerShardRuntime runtime,
+            final DelayShard delayShard,
+            final OwnedDelayShard ownedShard,
+            final OwnerIdentityV1 ownerIdentity,
+            final OxiaOwnerLeaseStore authority,
+            final ShardStore store,
+            final WorkClassExecutionRegistry workClasses,
+            final KeyPair verificationKey,
+            final PhysicalPublishBridge bridge,
+            final io.nereusstream.delay.protocol.DelayMessageId physicalMessageId,
+            final KafkaSourcePosition physicalSchedulePosition,
+            final byte[] expectedPayload,
+            final String bootstrap,
+            final String clusterId,
+            final long maxClaimBytes,
+            final ClaimExecutionAdmission sharedClaimAdmission) throws Exception {
         final var message = delayShard.getMessage(physicalMessageId);
         if (message == null || message.status() != MessageStatus.SCHEDULED
                 || !message.laneId().equals(bridge.laneId())) {
@@ -827,7 +849,7 @@ public final class KafkaClientArtifactWorkerSmoke {
             throw new IllegalStateException("source-applied physical Lane did not become schedulable");
         }
         bindActiveOwnerPublishGraph(runtime, ownedShard, ownerIdentity, authority, store, workClasses,
-                verificationKey, bridge, maxClaimBytes);
+                verificationKey, bridge, maxClaimBytes, sharedClaimAdmission);
         waitUntil(message.deliverAtEpochMs());
 
         final byte[] payload = Bytes.copy(Objects.requireNonNull(expectedPayload, "expectedPayload"));
@@ -940,7 +962,8 @@ public final class KafkaClientArtifactWorkerSmoke {
                     + ", applyStatus=" + (appliedResult == null ? "missing" : appliedResult.applyStatus())
                     + ", stableCode=" + (appliedResult == null ? "missing" : appliedResult.stableCode()));
         }
-        requirePayload(bootstrap, clusterId, bridge.destinationPhysicalTopic(), bridge.destinationTopicId(), payload);
+        requirePayload(bootstrap, clusterId, bridge.destinationPhysicalTopic(), bridge.destinationTopicId(),
+                bridge.destinationPartition(), payload);
         bridge.requireDestinationResponseLossResolved(physicalResult);
         System.out.println("Kafka Worker source-applied physical publish passed: Admission source offset="
                 + admissionPosition.offset() + ", typed KAFKA_TRANSACTIONAL_RECEIPT receipt offset="
@@ -958,7 +981,7 @@ public final class KafkaClientArtifactWorkerSmoke {
             final KeyPair verificationKey,
             final PhysicalPublishBridge bridge) {
         bindActiveOwnerPublishGraph(runtime, ownedShard, ownerIdentity, authority, store, workClasses,
-                verificationKey, bridge, 1_000_000);
+                verificationKey, bridge, 1_000_000, null);
     }
 
     static void bindActiveOwnerPublishGraph(
@@ -971,12 +994,28 @@ public final class KafkaClientArtifactWorkerSmoke {
             final KeyPair verificationKey,
             final PhysicalPublishBridge bridge,
             final long maxClaimBytes) {
+        bindActiveOwnerPublishGraph(runtime, ownedShard, ownerIdentity, authority, store, workClasses,
+                verificationKey, bridge, maxClaimBytes, null);
+    }
+
+    static void bindActiveOwnerPublishGraph(
+            final WorkerShardRuntime runtime,
+            final OwnedDelayShard ownedShard,
+            final OwnerIdentityV1 ownerIdentity,
+            final OxiaOwnerLeaseStore authority,
+            final ShardStore store,
+            final WorkClassExecutionRegistry workClasses,
+            final KeyPair verificationKey,
+            final PhysicalPublishBridge bridge,
+            final long maxClaimBytes,
+            final ClaimExecutionAdmission sharedClaimAdmission) {
         if (maxClaimBytes <= 0) {
             throw new IllegalArgumentException("maxClaimBytes must be positive");
         }
         final WorkerSchedulingRuntime scheduling = WorkerSchedulingRuntime.openForActiveOwnerFromTypedLanes(
                 workClasses, ownedShard, authority, store, ownerIdentity, List.of(bridge.laneId()), 8);
-        final ClaimExecutionAdmission permits = new ClaimExecutionAdmission(1, maxClaimBytes);
+        final ClaimExecutionAdmission permits = sharedClaimAdmission == null
+                ? new ClaimExecutionAdmission(1, maxClaimBytes) : sharedClaimAdmission;
         permits.registerShard(new ClaimExecutionAdmission.ShardSpec(runtime.shardId(), 1, maxClaimBytes));
         permits.registerLane(new ClaimExecutionAdmission.LaneSpec(runtime.shardId(), bridge.laneId(),
                 bridge.laneIncarnation(), 0, 0, 1, maxClaimBytes));
@@ -1071,6 +1110,37 @@ public final class KafkaClientArtifactWorkerSmoke {
             final DestinationLaneId requestedLaneId,
             final byte[] requestedLaneIncarnation,
             final long maxPhysicalBytes) throws Exception {
+        return createPhysicalPublishBridge(bootstrap, clusterId, sourcePhysicalTopic, sourceTopicId, shard,
+                physicalSchedulePosition, destinationPhysicalTopic, destinationTopicId, receiptPhysicalTopic,
+                receiptTopicId, store, ownedShard, ownerIdentity, authority, workClasses, verificationKey,
+                destinationProfile, capabilityProfile, requestedLaneId, requestedLaneIncarnation, maxPhysicalBytes,
+                null, 0);
+    }
+
+    static PhysicalPublishBridge createPhysicalPublishBridge(
+            final String bootstrap,
+            final String clusterId,
+            final String sourcePhysicalTopic,
+            final UUID sourceTopicId,
+            final ShardId shard,
+            final KafkaSourcePosition physicalSchedulePosition,
+            final String destinationPhysicalTopic,
+            final UUID destinationTopicId,
+            final String receiptPhysicalTopic,
+            final UUID receiptTopicId,
+            final ShardStore store,
+            final OwnedDelayShard ownedShard,
+            final OwnerIdentityV1 ownerIdentity,
+            final OxiaOwnerLeaseStore authority,
+            final WorkClassExecutionRegistry workClasses,
+            final KeyPair verificationKey,
+            final ProfileRefV1 destinationProfile,
+            final ProfileRefV1 capabilityProfile,
+            final DestinationLaneId requestedLaneId,
+            final byte[] requestedLaneIncarnation,
+            final long maxPhysicalBytes,
+            final DestinationPhysicalAdmission sharedPhysicalAdmission,
+            final int destinationPartition) throws Exception {
         final ProfileRefV1 exactDestinationProfile = Objects.requireNonNull(destinationProfile,
                 "destinationProfile");
         final ProfileRefV1 exactCapabilityProfile = Objects.requireNonNull(capabilityProfile,
@@ -1078,10 +1148,13 @@ public final class KafkaClientArtifactWorkerSmoke {
         if (maxPhysicalBytes <= 0) {
             throw new IllegalArgumentException("maxPhysicalBytes must be positive");
         }
+        if (destinationPartition < 0) {
+            throw new IllegalArgumentException("destinationPartition must be non-negative");
+        }
         final DestinationLaneId laneId;
         if (requestedLaneId == null) {
             final byte[] laneTuple = canonicalLaneTuple(clusterId, destinationTopicId, destinationPhysicalTopic,
-                    exactDestinationProfile, exactCapabilityProfile);
+                    exactDestinationProfile, exactCapabilityProfile, destinationPartition);
             laneId = DestinationLaneId.derive(laneTuple);
         } else {
             laneId = requestedLaneId;
@@ -1094,9 +1167,10 @@ public final class KafkaClientArtifactWorkerSmoke {
                 new KafkaBrokerResourceIdentityV1(clusterId, destinationTopicId));
         final BrokerResourceIdentityV1 evidenceResource = BrokerResourceIdentityV1.kafka(
                 new KafkaBrokerResourceIdentityV1(clusterId, receiptTopicId));
-        final KafkaTargetResource targetResource = new KafkaTargetResource(clusterId, destinationTopicId, 0);
+        final KafkaTargetResource targetResource = new KafkaTargetResource(clusterId, destinationTopicId,
+                destinationPartition);
         final KafkaReceiptResource receiptResource = new KafkaReceiptResource(clusterId, receiptTopicId,
-                shard.routeIncarnation(), shard.partition(), 0, 1, 1, 0);
+                shard.routeIncarnation(), shard.partition(), 0, 1, 1, shard.partition());
         final String transactionalIdentity = "nereus-delay-kafka-worker-" + UUID.randomUUID();
         final byte[] transactionalIdentitySha256 = Bytes.sha256(Bytes.utf8(transactionalIdentity));
         final KafkaReceiptJournal journal = new KafkaReceiptJournal(shard, receiptResource);
@@ -1120,8 +1194,11 @@ public final class KafkaClientArtifactWorkerSmoke {
         final KafkaTransactionalDestinationAdapter adapter = new KafkaTransactionalDestinationAdapter(
                 targetResource, receiptResource, destinationPhysicalTopic, receiptPhysicalTopic, journal, laneId,
                 laneIncarnation, transactionalIdentitySha256, transport);
-        final DestinationPhysicalAdmission physicalAdmission = new DestinationPhysicalAdmission(1, maxPhysicalBytes);
-        physicalAdmission.registerTargetCluster(clusterId, 1, maxPhysicalBytes);
+        final DestinationPhysicalAdmission physicalAdmission = sharedPhysicalAdmission == null
+                ? new DestinationPhysicalAdmission(1, maxPhysicalBytes) : sharedPhysicalAdmission;
+        if (sharedPhysicalAdmission == null) {
+            physicalAdmission.registerTargetCluster(clusterId, 1, maxPhysicalBytes);
+        }
         physicalAdmission.registerLane(new DestinationPhysicalAdmission.LaneSpec(laneId, laneIncarnation, clusterId,
                 1, 1, 1, maxPhysicalBytes, 1, maxPhysicalBytes));
         physicalAdmission.openReady(laneId);
@@ -1157,10 +1234,10 @@ public final class KafkaClientArtifactWorkerSmoke {
         final TrustedUtcIntervalEvidence issuedAt = evidence(Math.max(0, now - 1), now,
                 "kafka-worker-channel-issued");
         final ChannelResourceIdentityV1 channel = channel(laneId, laneIncarnation, target, evidenceResource,
-                0, transactionalIdentity, attestationDigest, issuedAt, exactDestinationProfile);
+                destinationPartition, transactionalIdentity, attestationDigest, issuedAt, exactDestinationProfile);
         final long validUntil = Math.addExact(now, 60_000);
         final EvidenceCursorV1 cursor = EvidenceCursorV1.kafka(laneId.bytes(), laneIncarnation,
-                uuidBytes(receiptTopicId), 0, 1, 0, 1, 1);
+                uuidBytes(receiptTopicId), receiptResource.receiptPartition(), 1, 0, 1, 1);
         final ReadyCertificateV1 readyCertificate = readyCertificate(ownerIdentity,
                 store.metadata().storeIncarnation(), laneId, laneIncarnation, channel, target, cursor,
                 issuedAt, validUntil);
@@ -1276,8 +1353,17 @@ public final class KafkaClientArtifactWorkerSmoke {
     private static byte[] canonicalLaneTuple(final String clusterId, final UUID topicId,
                                               final String physicalTopic, final ProfileRefV1 destination,
                                               final ProfileRefV1 capability) {
+        return canonicalLaneTuple(clusterId, topicId, physicalTopic, destination, capability, 0);
+    }
+
+    static byte[] canonicalLaneTuple(final String clusterId, final UUID topicId,
+                                     final String physicalTopic, final ProfileRefV1 destination,
+                                     final ProfileRefV1 capability, final int physicalPartition) {
         if (physicalTopic == null || physicalTopic.isBlank()) {
             throw new IllegalArgumentException("Kafka physical topic must be nonblank");
+        }
+        if (physicalPartition < 0) {
+            throw new IllegalArgumentException("Kafka physical partition must be non-negative");
         }
         final byte[] topicUuid = uuidBytes(topicId);
         return Bytes.concat(
@@ -1287,7 +1373,7 @@ public final class KafkaClientArtifactWorkerSmoke {
                 Bytes.u8(1),
                 topicUuid,
                 Bytes.lp32(topicUuid),
-                Bytes.u32be(0),
+                Bytes.u32be(physicalPartition),
                 Bytes.lp32(destination.profileId()),
                 Bytes.u64beBits(destination.version()),
                 destination.semanticHash(),
@@ -1368,11 +1454,18 @@ public final class KafkaClientArtifactWorkerSmoke {
 
     private static void requirePayload(final String bootstrap, final String clusterId, final String topic,
                                        final UUID topicId, final byte[] expectedPayload) {
+        requirePayload(bootstrap, clusterId, topic, topicId, 0, expectedPayload);
+    }
+
+    private static void requirePayload(final String bootstrap, final String clusterId, final String topic,
+                                       final UUID topicId, final int destinationPartition,
+                                       final byte[] expectedPayload) {
         final ConsumerResourceGuard guard = new ConsumerResourceGuard(clusterId, topic,
-                new Uuid(topicId.getMostSignificantBits(), topicId.getLeastSignificantBits()), 0);
+                new Uuid(topicId.getMostSignificantBits(), topicId.getLeastSignificantBits()), destinationPartition);
         final GuardedConsumer<byte[], byte[]> consumer = KafkaClientArtifactSourceConsumerFactory.create(
-                configuration(bootstrap, "kafka-worker-destination-readback"), clusterId, topic, topicId, 0);
-        final TopicPartition partition = new TopicPartition(topic, 0);
+                configuration(bootstrap, "kafka-worker-destination-readback-" + destinationPartition), clusterId,
+                topic, topicId, destinationPartition);
+        final TopicPartition partition = new TopicPartition(topic, destinationPartition);
         try {
             consumer.assign(List.of(partition));
             consumer.seek(partition, 0);
@@ -1539,6 +1632,10 @@ public final class KafkaClientArtifactWorkerSmoke {
 
         UUID destinationTopicId() {
             return destinationTopicId;
+        }
+
+        int destinationPartition() {
+            return (int) channel.physicalPartition();
         }
 
         void requireDestinationResponseLossResolved(final DestinationPublishResult result) {
