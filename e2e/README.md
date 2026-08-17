@@ -6166,3 +6166,17 @@ uncertainty/GC soak, capacity, full chaos, activation, operations,
 upgrade/downgrade and disaster gates remain separate. Generated run images
 are removed; the locked MinIO base and canonical Oxia image are retained, and
 no global Docker prune is used.
+
+## Current-source r30 release-gate refresh
+
+The final gate artifact for the documented source is
+`/tmp/nereus-delay-v1-release-gate-20260817-r30/v1-release-candidate-gate.json`.
+Delay `b9a7fa9994542b9bc9630d7b12c63ade2fc1c57b`, Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` passed source,
+cross-repository and full Gradle checks. The gate remains
+`release_status=NOT_READY`; certified capacity, soak, activation,
+operations and chaos inputs are absent, and the bounded harness receipt is
+not a release substitute. This README append does not refresh the r30 source
+lock.

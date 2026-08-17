@@ -739,3 +739,19 @@ release gate still requires an explicitly supplied approved profile id and
 independent capacity, full chaos, activation, operations, upgrade/downgrade
 and disaster receipts; this one-cycle harness profile does not close those
 gates or the §23.5 longest-cycle requirement.
+
+## 28. Current-source r30 release-gate result
+
+The current fail-closed artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r30/v1-release-candidate-gate.json`.
+It records source, cross-repository and full Gradle checks as `PASS` for
+Delay `b9a7fa9994542b9bc9630d7b12c63ade2fc1c57b`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The release decision remains `NOT_READY`: benchmark capacity, certified
+soak, activation/cutover, operations and chaos remain blocked without their
+separate approved `PASS_CERTIFIED` artifacts. The harness-integration
+receipt is not a release promotion input. This runbook append does not
+refresh the r30 source lock.

@@ -16201,3 +16201,19 @@ generated provider images. Related-image inspection retained only the
 canonical Oxia image `nereus/oxia-o1:37a17bef1720` and the locked MinIO base
 `quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z`; no global Docker prune or
 unrelated-image deletion was used.
+
+## 2026-08-17 Current-source r30 release-gate refresh
+
+The current-source fail-closed gate artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r30/v1-release-candidate-gate.json`.
+It locks Delay `b9a7fa9994542b9bc9630d7b12c63ade2fc1c57b`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Source cleanliness,
+cross-repository contract validation and full Gradle `check` are `PASS`.
+
+The decision remains `release_status=NOT_READY`: benchmark capacity,
+certified soak, activation cutover, operations drills and chaos matrix have
+no approved `PASS_CERTIFIED` inputs. The harness-integration soak receipt is
+intentionally not promoted into the release profile. This documentation
+append does not refresh the r30 runtime source lock.

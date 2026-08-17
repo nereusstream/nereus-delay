@@ -12839,3 +12839,19 @@ rejects a certified receipt unless its schema and coverage observations are
 valid and an approved profile id is explicitly supplied. Exact cleanup
 retained the locked MinIO base and canonical Oxia image only; no global prune
 or unrelated image deletion was performed.
+
+### 2026-08-17 Current-source r30 release-gate audit
+
+The gate artifact
+`/tmp/nereus-delay-v1-release-gate-20260817-r30/v1-release-candidate-gate.json`
+passes source cleanliness, cross-repository validation and full Gradle
+`check` for Delay `b9a7fa9994542b9bc9630d7b12c63ade2fc1c57b`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+Audit result: `release_status=NOT_READY` remains correct. Capacity, certified
+soak, activation, operations and chaos are all blocked because their
+approved `PASS_CERTIFIED` inputs were not supplied. The one-cycle
+harness-integration receipt is real bounded evidence, not release approval;
+this documentation append does not refresh the r30 runtime source lock.
