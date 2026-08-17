@@ -8214,3 +8214,18 @@ cross-repository and full Gradle checks. The release decision remains
 `release_status=NOT_READY`; no approved capacity, soak, activation,
 operations or chaos certification was supplied. This append is documentation
 only and does not change the r30 receipt source lock.
+
+### 2026-08-17 Current-source bounded chaos receipt
+
+`/tmp/nereus-delay-chaos-current-20260817-r3/bounded-chaos-matrix.json`
+records a current-source `PASS_BOUNDED` matrix with all 13 focused cells
+passing and locks Delay `8cfa6acc97a7a966e76b0ce086572c53cd731f7d`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Exact run resources and
+generated images were removed; locked Oxia and MinIO bases were retained.
+
+The result is bounded fault evidence only. It does not close the §23.3
+long-GC, half-open, ENOSPC, fsync/SST, target-isolation,
+controller/coordinator/storage/provider or durable state-dump/invariant
+requirements, and it is not `PASS_CERTIFIED` release evidence.

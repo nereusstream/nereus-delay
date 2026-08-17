@@ -6180,3 +6180,21 @@ cross-repository and full Gradle checks. The gate remains
 operations and chaos inputs are absent, and the bounded harness receipt is
 not a release substitute. This README append does not refresh the r30 source
 lock.
+
+## Current-source 13-cell bounded chaos refresh
+
+The clean rerun is recorded at
+`/tmp/nereus-delay-chaos-current-20260817-r3/bounded-chaos-matrix.json`.
+It is `matrix_status=PASS_BOUNDED` with all 13 focused cells returning zero,
+source-locked to Delay `8cfa6acc97a7a966e76b0ce086572c53cd731f7d`, Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The matrix covers Broker/Worker crashes, TCP/network cuts, response loss,
+Kafka Fetch/retention, Pulsar failover and ACK paths, checkpoint REAPING and
+Gateway/Oxia session churn. Exact run-scoped Docker resources and generated
+images were removed; only locked Oxia/MinIO bases remain. This receipt is
+bounded evidence, not §23.3 completion or V1 release certification; long GC,
+half-open, ENOSPC, fsync/SST, target isolation and controller/storage/provider
+cuts remain outside the runner.

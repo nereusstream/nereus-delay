@@ -755,3 +755,20 @@ soak, activation/cutover, operations and chaos remain blocked without their
 separate approved `PASS_CERTIFIED` artifacts. The harness-integration
 receipt is not a release promotion input. This runbook append does not
 refresh the r30 source lock.
+
+## 29. Current-source bounded chaos refresh
+
+Run receipt:
+`/tmp/nereus-delay-chaos-current-20260817-r3/bounded-chaos-matrix.json`.
+The 13 sequential focused cells all returned zero under Delay
+`8cfa6acc97a7a966e76b0ce086572c53cd731f7d`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The runner found no matching run containers, networks, volumes or generated
+images after cleanup. Retain only the locked Oxia/MinIO bases. Treat this as
+`PASS_BOUNDED`: it is useful operational recovery evidence, but it does not
+authorize V1 promotion. The full §23.3 fault matrix and its durable state
+dump/invariant requirements remain open; the release gate remains
+`release_status=NOT_READY`.

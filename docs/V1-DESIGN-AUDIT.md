@@ -12855,3 +12855,21 @@ soak, activation, operations and chaos are all blocked because their
 approved `PASS_CERTIFIED` inputs were not supplied. The one-cycle
 harness-integration receipt is real bounded evidence, not release approval;
 this documentation append does not refresh the r30 runtime source lock.
+
+### 2026-08-17 Current-source 13-cell bounded chaos audit
+
+The source-locked receipt
+`/tmp/nereus-delay-chaos-current-20260817-r3/bounded-chaos-matrix.json`
+reports `matrix_status=PASS_BOUNDED` and zero exit for all 13 focused cells
+under Delay `8cfa6acc97a7a966e76b0ce086572c53cd731f7d`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+Audit result: the bounded crash/response-loss slice passes, with exact
+run-scoped Docker cleanup and only the locked Oxia/MinIO bases retained. It
+does not satisfy the full §23.3 deterministic injection, durable state dump,
+fresh-process recovery and invariant audit matrix; long GC, half-open,
+ENOSPC, fsync/SST, target isolation and provider/controller/storage cuts
+remain blockers. This receipt cannot change the release gate from
+`release_status=NOT_READY`.

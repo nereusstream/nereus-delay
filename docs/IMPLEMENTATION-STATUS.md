@@ -16217,3 +16217,28 @@ certified soak, activation cutover, operations drills and chaos matrix have
 no approved `PASS_CERTIFIED` inputs. The harness-integration soak receipt is
 intentionally not promoted into the release profile. This documentation
 append does not refresh the r30 runtime source lock.
+
+## 2026-08-17 Current-source 13-cell bounded chaos refresh
+
+The clean current-source rerun produced
+`/tmp/nereus-delay-chaos-current-20260817-r3/bounded-chaos-matrix.json` with
+schema `nereus-delay-bounded-chaos-matrix-v1`, `matrix_status=PASS_BOUNDED`,
+and exact locks Delay `8cfa6acc97a7a966e76b0ce086572c53cd731f7d`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+All 13 cells returned zero: Kafka Broker process crash, Worker ACK crash,
+raw TCP cut, Broker network partition, Pulsar Worker crash, Pulsar
+two-Broker crash, Pulsar admission response loss, checkpoint REAPING, Kafka
+Fetch response loss, Kafka retention floor, Pulsar destination response loss,
+Pulsar source ACK response loss and Gateway/Oxia session churn. The runner
+reported no matching containers, networks, volumes or generated images after
+cleanup. Only the canonical Oxia image and locked MinIO base were retained;
+no global Docker prune was used.
+
+This is fresh current-source bounded fault evidence, not §23.3 completion or
+V1 release certification. Long GC, half-open, ENOSPC, fsync/SST corruption,
+target isolation, controller/coordinator/storage/provider failover and the
+required durable state-dump/invariant matrix remain open. The r31 gate is
+still the correct `release_status=NOT_READY` decision.
