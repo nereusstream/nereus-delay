@@ -306,6 +306,7 @@ jq -n \
   --arg monitor_status "${monitor_status}" \
   --arg bounded_status "${bounded_status}" \
   --arg case_invariants "${case_invariants}" \
+  --arg resource_coverage_status "${resource_coverage_status}" \
   --arg process_resource_status "${process_resource_status}" \
   --arg duration_status "${duration_status}" \
   --arg docker_cleanup_status "${docker_cleanup_status}" \
