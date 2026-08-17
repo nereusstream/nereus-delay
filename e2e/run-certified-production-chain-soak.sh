@@ -273,6 +273,7 @@ jq -n \
   --argjson process_peak_rss_kib "${process_peak_rss_kib}" \
   --argjson process_peak_fds "${process_peak_fds}" \
   --argjson artifact_peak_bytes "${artifact_peak_bytes}" \
+  --argjson resource_sample_count "${resource_sample_count}" \
   --argjson artifact_bytes_after "${artifact_bytes_after}" \
   --arg child_status "${child_status}" \
   --arg bounded_status "${bounded_status}" \
