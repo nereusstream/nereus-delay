@@ -16,6 +16,7 @@ kafka_dir="${NEREUS_DELAY_KAFKA_CHECKOUT:-${delay_dir}/../../kafka-worktrees/ner
 pulsar_dir="${NEREUS_DELAY_PULSAR_CHECKOUT:-${delay_dir}/../../pulsar-worktrees/nereus-delay-p1}"
 oxia_dir="${NEREUS_DELAY_OXIA_CHECKOUT:-${delay_dir}/../../oxia}"
 artifact_dir="${NEREUS_DELAY_CERTIFIED_CAPACITY_ARTIFACT_DIR:-$(mktemp -d -t nereus-delay-certified-capacity.XXXXXX)}"
+bounded_artifact_dir="${artifact_dir}/bounded-capacity-matrix"
 gradle_home="${NEREUS_DELAY_CERTIFIED_CAPACITY_GRADLE_USER_HOME:-${artifact_dir}/gradle-user-home}"
 profile_id="${NEREUS_DELAY_CERTIFIED_CAPACITY_PROFILE_ID:-}"
 required_case_count="${NEREUS_DELAY_CERTIFIED_CAPACITY_REQUIRED_CASE_COUNT:-}"
@@ -82,10 +83,11 @@ positive_integer NEREUS_DELAY_CERTIFIED_CAPACITY_MAX_ARTIFACT_BYTES "${max_artif
 [[ "${required_slo_samples_total}" == "664" ]] \
   || fail "the bounded capacity matrix currently requires SLO sample total 664"
 
-mkdir -p "${artifact_dir}" "${gradle_home}"
+mkdir -p "${artifact_dir}"
 if [[ -n "$(find "${artifact_dir}" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
   fail "artifact directory must be empty: ${artifact_dir}"
 fi
+mkdir -p "${bounded_artifact_dir}" "${gradle_home}"
 
 require_checkout() {
   local label="$1"
@@ -112,7 +114,7 @@ case_policy='[
 
 case_names=("${project_prefix}-smoke" "${project_prefix}-burst" "${project_prefix}-sustained")
 child_log="${artifact_dir}/bounded-capacity-matrix.log"
-matrix_artifact="${artifact_dir}/capacity-benchmark-matrix.json"
+matrix_artifact="${bounded_artifact_dir}/capacity-benchmark-matrix.json"
 image_id_before="$(docker image inspect "${image}" --format '{{.Id}}' 2>/dev/null || true)"
 
 cleanup_exact_containers() {
@@ -129,7 +131,7 @@ echo "Case policy: payload_records_total=${required_payload_records_total} slo_s
 echo "Resource policy: cgroup=${required_cgroup_memory_bytes} direct=${required_direct_memory_bytes} open_files=${required_max_open_files}"
 
 set +e
-NEREUS_DELAY_CAPACITY_MATRIX_ARTIFACT_DIR="${artifact_dir}" \
+NEREUS_DELAY_CAPACITY_MATRIX_ARTIFACT_DIR="${bounded_artifact_dir}" \
 NEREUS_DELAY_CAPACITY_MATRIX_GRADLE_USER_HOME="${gradle_home}" \
 NEREUS_DELAY_CAPACITY_MATRIX_IMAGE="${image}" \
 NEREUS_DELAY_CAPACITY_MATRIX_PROJECT="${project_prefix}" \
