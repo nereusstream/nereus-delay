@@ -237,6 +237,8 @@ cleanup() {
     if [[ -n "$remaining_containers$remaining_networks$remaining_volumes$remaining_images" ]]; then
         cleanup_status=FAIL
         cleanup_detail="exact Compose postcheck found remaining project resources"
+    elif [[ "$compose_down_status" == 0 ]]; then
+        cleanup_detail="exact Compose project/container/network/volume/generated-image cleanup passed; locked bases retained"
     fi
     compose_image_ids_after=$(json_array_from_lines "$remaining_images")
     rm -f "$artifact_dir/.removed-containers.json" "$artifact_dir/.removed-images.json"
