@@ -40,9 +40,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.net.URI;
+import java.net.http.HttpClient;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.EnumMap;
 import java.util.List;
@@ -87,7 +89,9 @@ class OxiaRealCheckpointPublicationSmokeTest {
         final String secretKey = required("NEREUS_DELAY_MINIO_SECRET_KEY");
         final ProfileSemanticEnvelopeV1 profile = minioProfile(minioEndpoint, region, bucket, accessKey);
         final S3CompatibleCheckpointObjectStoreAdapter adapter = new S3CompatibleCheckpointObjectStoreAdapter(
-                profile, minioEndpoint, region, bucket, accessKey, secretKey, null, LIMITS);
+                profile, minioEndpoint, region, bucket, accessKey, secretKey, null, LIMITS,
+                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build(), Clock.systemUTC(),
+                requestTimeout());
 
         final PublishedCheckpoint published = publishWorkerCheckpoint(oxiaEndpoint,
                 "nereus-delay-real-checkpoint-minio/" + UUID.randomUUID(), profile.ref(), adapter);
@@ -233,6 +237,23 @@ class OxiaRealCheckpointPublicationSmokeTest {
     private static String valueOrDefault(final String name, final String defaultValue) {
         final String value = System.getenv(name);
         return value == null || value.isBlank() ? defaultValue : value;
+    }
+
+    private static Duration requestTimeout() {
+        final String value = System.getenv("NEREUS_DELAY_MINIO_REQUEST_TIMEOUT_MS");
+        if (value == null || value.isBlank()) {
+            return Duration.ofSeconds(60);
+        }
+        try {
+            final long millis = Long.parseLong(value);
+            if (millis <= 0) {
+                throw new IllegalArgumentException("NEREUS_DELAY_MINIO_REQUEST_TIMEOUT_MS must be positive");
+            }
+            return Duration.ofMillis(millis);
+        } catch (NumberFormatException failure) {
+            throw new IllegalArgumentException("NEREUS_DELAY_MINIO_REQUEST_TIMEOUT_MS must be a positive integer",
+                    failure);
+        }
     }
 
     private static ProfileSemanticEnvelopeV1 minioProfile(final URI endpoint, final String region,

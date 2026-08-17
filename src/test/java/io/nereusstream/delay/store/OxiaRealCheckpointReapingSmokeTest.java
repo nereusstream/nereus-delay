@@ -141,8 +141,9 @@ class OxiaRealCheckpointReapingSmokeTest {
                                                              final String bucket, final String accessKey,
                                                              final String secretKey) {
         return new S3CompatibleCheckpointObjectStoreAdapter(profile, endpoint, region, bucket, accessKey,
-                secretKey, null, LIMITS, null, HttpClient.newHttpClient(), Clock.systemUTC(),
-                Duration.ofSeconds(30), 0);
+                secretKey, null, LIMITS, null,
+                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build(), Clock.systemUTC(),
+                requestTimeout(), 0);
     }
 
     private static ProfileSemanticEnvelopeV1 profile(final URI endpoint, final String region,
@@ -184,6 +185,23 @@ class OxiaRealCheckpointReapingSmokeTest {
     private static String valueOrDefault(final String name, final String defaultValue) {
         final String value = System.getenv(name);
         return value == null || value.isBlank() ? defaultValue : value;
+    }
+
+    private static Duration requestTimeout() {
+        final String value = System.getenv("NEREUS_DELAY_MINIO_REQUEST_TIMEOUT_MS");
+        if (value == null || value.isBlank()) {
+            return Duration.ofSeconds(30);
+        }
+        try {
+            final long millis = Long.parseLong(value);
+            if (millis <= 0) {
+                throw new IllegalArgumentException("NEREUS_DELAY_MINIO_REQUEST_TIMEOUT_MS must be positive");
+            }
+            return Duration.ofMillis(millis);
+        } catch (NumberFormatException failure) {
+            throw new IllegalArgumentException("NEREUS_DELAY_MINIO_REQUEST_TIMEOUT_MS must be a positive integer",
+                    failure);
+        }
     }
 
     private static byte[] uuidBytes(final UUID value) {
