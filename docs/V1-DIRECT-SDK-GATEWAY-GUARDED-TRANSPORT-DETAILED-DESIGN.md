@@ -7793,3 +7793,24 @@ at Delay `3e21eb072f41014ed893ef5799817f2f8cb305cb`, K1
 Gradle checks pass; the fail-closed result remains `NOT_READY` because the
 activation artifact is only `PASS_BOUNDED`, capacity is `PARTIAL`, chaos is
 bounded and certified soak/operations artifacts are absent.
+
+### 2026-08-17 Current-source Pulsar Large Payload authority rerun
+
+The clean Delay source `7ca4cd89d6f2f7fc5a4309dc3a383e5f34f736a6` reran the
+real P1/Pulsar/Oxia/Gateway/Worker/MinIO single-shard path. Locks were P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The isolated project `nereus-delay-pulsar-large-e2e-1786937594-84236` passed
+in `1m 15s`.
+
+The receipt proves guarded recovery, Gateway mTLS/JWT Prepare, real MinIO
+upload/attest/Commit/readback, Worker apply/ACK, typed `PULSAR_SEND_ACK`,
+source-applied physical Publish, exact destination payload readback, final
+checkpoint and Owner release. Prepare/Commit positions were `3/2` and `3/3`,
+the typed target was `4/0`, and exact Prepare replay left six source records.
+This remains single-shard evidence: Pulsar multi-shard Large Payload,
+controller/storage/provider failover, benchmark/soak and V1 certification are
+not closed. Exact Compose resources and generated P1/Oxia images were removed;
+the locked MinIO base remains and no global prune was used.

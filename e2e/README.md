@@ -5521,3 +5521,38 @@ It produced `release_status=NOT_READY` at Delay
 `3e21eb072f41014ed893ef5799817f2f8cb305cb`: source/contract/full-check PASS,
 activation `PASS_BOUNDED` recorded but blocked by the `PASS_CERTIFIED` rule,
 capacity `PARTIAL`, chaos bounded, and soak/operations missing.
+
+## Current-source Pulsar Large Payload production-authority rerun
+
+Run the single-shard complete authority path with an isolated port set:
+
+```bash
+PULSAR_LARGE_BROKER_1_PORT=32900 \
+PULSAR_LARGE_WEB_1_PORT=32901 \
+PULSAR_LARGE_BROKER_2_PORT=32902 \
+PULSAR_LARGE_WEB_2_PORT=32903 \
+NEREUS_DELAY_PULSAR_LARGE_OXIA_PORT=32910 \
+NEREUS_DELAY_PULSAR_LARGE_MINIO_PORT=32911 \
+NEREUS_DELAY_PULSAR_LARGE_GATEWAY_PORT=32912 \
+PULSAR_LARGE_PAYLOAD_TOPIC=pulsar-large-payload-activation-20260817-r1 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-large-payload-activation-20260817-r1 \
+bash e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+At Delay `7ca4cd89d6f2f7fc5a4309dc3a383e5f34f736a6`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and MinIO
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`,
+the run passed in `1m 15s`. It completed guarded recovery, Gateway mTLS/JWT
+Prepare, real MinIO upload/attest/Commit/readback, Worker apply/ACK, typed
+`PULSAR_SEND_ACK`, source-applied physical Publish, exact destination payload
+readback, final checkpoint and Owner release. Prepare/Commit were `3/2` and
+`3/3`, typed target `4/0`, and exact Prepare replay kept source record count
+at `6`.
+
+This is a current-source single-shard PASS; Pulsar multi-shard Large Payload,
+full infrastructure failover, benchmark/soak and V1 release certification
+remain open. The runner removed project
+`nereus-delay-pulsar-large-e2e-1786937594-84236`, all its volumes/networks,
+listeners and generated P1/Oxia images. The locked MinIO base was retained;
+no global Docker prune was used.

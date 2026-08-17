@@ -12308,3 +12308,25 @@ checks pass. The artifact is still `NOT_READY`: the activation receipt is
 `PASS_BOUNDED`, not `PASS_CERTIFIED`; capacity is `PARTIAL`, chaos is bounded,
 and soak/operations evidence is missing. The gate therefore records the new
 evidence without promoting it.
+
+### 2026-08-17 Current-source Pulsar Large Payload authority rerun
+
+Delay `7ca4cd89d6f2f7fc5a4309dc3a383e5f34f736a6` reran the real P1 single-shard
+Large Payload authority path with P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+distribution digest
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and MinIO
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The isolated project was `nereus-delay-pulsar-large-e2e-1786937594-84236`;
+the run passed in `1m 15s`.
+
+Audit receipt: guarded source recovery and source-ordered Prepare/Commit,
+Gateway mTLS/JWT, real MinIO immutable upload/attestation/readback, Worker
+apply/ACK, typed `PULSAR_SEND_ACK`, source-applied destination Publish, exact
+destination payload readback, checkpoint drain and Owner release. Prepare was
+`3/2`, Commit `3/3`, typed target `4/0`, and exact Prepare replay retained six
+source records. This is a single-shard current-source PASS only; Pulsar
+multi-shard Large Payload, complete infrastructure failover, benchmark/soak
+and release certification remain open. All exact project resources and
+generated images were removed; locked MinIO was retained and no global prune
+was used.

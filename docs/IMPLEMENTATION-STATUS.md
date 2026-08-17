@@ -15458,3 +15458,31 @@ the new activation receipt but remains `release_status=NOT_READY`: capacity is
 `PARTIAL`, activation and chaos are `PASS_BOUNDED`, and certified soak and
 operations artifacts are absent. This confirms the fail-closed
 `PASS_CERTIFIED` boundary on the current source.
+
+## 2026-08-17 Current-source Pulsar Large Payload production-authority rerun
+
+After the activation slice, the clean Delay source
+`7ca4cd89d6f2f7fc5a4309dc3a383e5f34f736a6` reran the real P1/Pulsar/Oxia/
+Gateway/Worker/MinIO authority path with P1
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and MinIO repository digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+The isolated Compose project was
+`nereus-delay-pulsar-large-e2e-1786937594-84236` on Pulsar
+`32900/32901/32902/32903`, Oxia `32910`, MinIO `32911` and Gateway `32912`.
+It passed with `BUILD SUCCESSFUL in 1m 15s`, including guarded source
+recovery, Gateway mTLS/JWT Prepare, real MinIO upload/attest/Commit/readback,
+Worker source apply/ACK, source-applied physical Publish, exact destination
+payload readback, final checkpoint and Owner release. The source record count
+after exact Gateway Prepare replay was `6`; Prepare/Commit were at `3/2` and
+`3/3`, and the typed `PULSAR_SEND_ACK` target was `4/0`.
+
+This is a current-source single-shard production-authority PASS. It does not
+close Pulsar multi-shard Large Payload, full Broker/controller/storage/provider
+failover, certified benchmark/soak or V1 release certification. Exact
+postchecks found no project containers, networks, volumes or listeners and no
+temporary P1/Oxia image; the locked MinIO base remained. No global Docker
+prune was used.
