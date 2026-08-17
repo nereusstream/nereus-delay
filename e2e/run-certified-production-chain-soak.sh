@@ -26,6 +26,7 @@ max_process_rss_kib="${NEREUS_DELAY_CERTIFIED_SOAK_MAX_PROCESS_RSS_KIB:-}"
 max_process_fds="${NEREUS_DELAY_CERTIFIED_SOAK_MAX_PROCESS_FDS:-}"
 max_artifact_bytes="${NEREUS_DELAY_CERTIFIED_SOAK_MAX_ARTIFACT_BYTES:-}"
 resource_sample_interval="${NEREUS_DELAY_CERTIFIED_SOAK_RESOURCE_SAMPLE_INTERVAL_SECONDS:-5}"
+max_sample_gap_seconds="${NEREUS_DELAY_CERTIFIED_SOAK_MAX_SAMPLE_GAP_SECONDS:-}"
 base_port="${NEREUS_DELAY_CERTIFIED_SOAK_BASE_PORT:-35100}"
 started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 started_epoch="$(date +%s)"
@@ -68,6 +69,8 @@ command -v rg >/dev/null 2>&1 || fail "rg is required for Docker resource filter
   || fail "NEREUS_DELAY_CERTIFIED_SOAK_MAX_ARTIFACT_BYTES must be positive"
 [[ "${resource_sample_interval}" =~ ^[1-9][0-9]*$ ]] \
   || fail "NEREUS_DELAY_CERTIFIED_SOAK_RESOURCE_SAMPLE_INTERVAL_SECONDS must be positive"
+[[ "${max_sample_gap_seconds}" =~ ^[1-9][0-9]*$ ]] \
+  || fail "NEREUS_DELAY_CERTIFIED_SOAK_MAX_SAMPLE_GAP_SECONDS must be positive"
 [[ "${base_port}" =~ ^[1-9][0-9]*$ ]] \
   || fail "NEREUS_DELAY_CERTIFIED_SOAK_BASE_PORT must be positive"
 (( base_port + (cycles - 1) * 1000 + 313 <= 65535 )) \
@@ -175,13 +178,14 @@ finished_epoch="$(date +%s)"
 finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 elapsed_seconds=$((finished_epoch - started_epoch))
 child_elapsed_seconds=$((child_finished_epoch - child_started_epoch))
-minimum_resource_samples=$((child_elapsed_seconds / resource_sample_interval))
-(( minimum_resource_samples >= 2 )) || minimum_resource_samples=2
 
 process_peak_rss_kib="$(awk 'NR > 1 {if ($2 > max) max=$2} END {print max + 0}' "${resource_samples}")"
 process_peak_fds="$(awk 'NR > 1 {if ($3 > max) max=$3} END {print max + 0}' "${resource_samples}")"
 artifact_peak_bytes="$(awk 'NR > 1 {if ($4 > max) max=$4} END {print max + 0}' "${resource_samples}")"
 resource_sample_count="$(awk 'NR > 1 {count++} END {print count + 0}' "${resource_samples}")"
+resource_first_epoch="$(awk 'NR == 2 {print $1; exit}' "${resource_samples}")"
+resource_last_epoch="$(awk 'NR > 1 {last=$1} END {print last + 0}' "${resource_samples}")"
+resource_max_gap_seconds="$(awk 'NR > 1 {if (previous > 0 && $1 - previous > max) max=$1 - previous; previous=$1} END {print max + 0}' "${resource_samples}")"
 artifact_bytes_after="$(du -sk "${artifact_dir}" | awk '{print $1 * 1024}')"
 
 bounded_artifact="${bounded_artifact_dir}/production-chain-soak.json"
@@ -217,9 +221,18 @@ if [[ "${child_status}" == 0 && "${bounded_status}" == "PASS_BOUNDED" \
   case_invariants="PASS"
 fi
 
-process_resource_status="FAIL"
+resource_coverage_status="FAIL"
 if (( monitor_status == 0 )) \
-    && (( resource_sample_count >= minimum_resource_samples )) \
+    && (( resource_sample_count >= 2 )) \
+    && (( resource_first_epoch <= child_started_epoch + resource_sample_interval )) \
+    && (( resource_last_epoch >= child_finished_epoch - resource_sample_interval )) \
+    && (( resource_last_epoch - resource_first_epoch >= child_elapsed_seconds - (resource_sample_interval * 2) )) \
+    && (( resource_max_gap_seconds <= max_sample_gap_seconds )); then
+  resource_coverage_status="PASS"
+fi
+
+process_resource_status="FAIL"
+if [[ "${resource_coverage_status}" == "PASS" ]] \
     && (( process_peak_rss_kib <= max_process_rss_kib )) \
     && (( process_peak_fds <= max_process_fds )) \
     && (( artifact_peak_bytes <= max_artifact_bytes )) \
@@ -274,17 +287,20 @@ jq -n \
   --arg finished_at "${finished_at}" \
   --argjson elapsed_seconds "${elapsed_seconds}" \
   --argjson child_elapsed_seconds "${child_elapsed_seconds}" \
-  --argjson minimum_resource_samples "${minimum_resource_samples}" \
   --argjson required_cycles "${required_cycles}" \
   --argjson cycles "${cycles}" \
   --argjson required_duration_seconds "${required_duration_seconds}" \
   --argjson max_process_rss_kib "${max_process_rss_kib}" \
   --argjson max_process_fds "${max_process_fds}" \
   --argjson max_artifact_bytes "${max_artifact_bytes}" \
+  --argjson max_sample_gap_seconds "${max_sample_gap_seconds}" \
   --argjson process_peak_rss_kib "${process_peak_rss_kib}" \
   --argjson process_peak_fds "${process_peak_fds}" \
   --argjson artifact_peak_bytes "${artifact_peak_bytes}" \
   --argjson resource_sample_count "${resource_sample_count}" \
+  --argjson resource_first_epoch "${resource_first_epoch}" \
+  --argjson resource_last_epoch "${resource_last_epoch}" \
+  --argjson resource_max_gap_seconds "${resource_max_gap_seconds}" \
   --argjson artifact_bytes_after "${artifact_bytes_after}" \
   --arg child_status "${child_status}" \
   --arg monitor_status "${monitor_status}" \
@@ -322,7 +338,8 @@ jq -n \
       required_duration_seconds: $required_duration_seconds,
       max_process_rss_kib: $max_process_rss_kib,
       max_process_fds: $max_process_fds,
-      max_artifact_bytes: $max_artifact_bytes
+      max_artifact_bytes: $max_artifact_bytes,
+      max_sample_gap_seconds: $max_sample_gap_seconds
     },
     observations: {
       child_exit_code: ($child_status | tonumber),
@@ -331,13 +348,16 @@ jq -n \
       expected_cases: ($cycles * 4),
       case_invariants: $case_invariants,
       process_resource_status: $process_resource_status,
+      resource_coverage_status: $resource_coverage_status,
       resource_sample_count: $resource_sample_count,
       duration_status: $duration_status,
       docker_cleanup_status: $docker_cleanup_status,
       process_peak_rss_kib: $process_peak_rss_kib,
       process_peak_fds: $process_peak_fds,
       artifact_peak_bytes: $artifact_peak_bytes,
-      minimum_resource_samples: $minimum_resource_samples,
+      resource_first_epoch: $resource_first_epoch,
+      resource_last_epoch: $resource_last_epoch,
+      resource_max_gap_seconds: $resource_max_gap_seconds,
       artifact_bytes_after: $artifact_bytes_after
     },
     docker_postcheck: {
@@ -359,7 +379,7 @@ jq -e --arg status "${soak_status}" '.status == $status and (.source_locks.delay
 echo "certified production-chain soak artifact=${soak_artifact}"
 echo "status=${soak_status}"
 echo "child_status=${child_status} monitor_status=${monitor_status} bounded_status=${bounded_status} case_invariants=${case_invariants}"
-echo "resource_status=${process_resource_status} duration_status=${duration_status} docker_cleanup=${docker_cleanup_status}"
+echo "resource_status=${process_resource_status} coverage=${resource_coverage_status} duration_status=${duration_status} docker_cleanup=${docker_cleanup_status}"
 
 if [[ "${soak_status}" != "PASS_CERTIFIED" ]]; then
   exit 1
