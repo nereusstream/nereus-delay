@@ -7976,3 +7976,44 @@ Source, cross-repository and full Gradle checks pass, while capacity remains
 bounded; therefore the release decision is `NOT_READY`. The matrix runners
 removed their exact Compose resources and generated images, retaining only the
 locked Oxia/MinIO bases.
+
+### 2026-08-17 Current Pulsar multi-shard Large Payload destination egress implementation note
+
+The current implementation at Delay
+`ee292f4090e23a3f26f949aa54ac075b8ed94a78` composes the production-authority
+path as:
+
+```text
+two guarded SUBSCRIBE source partitions
+  -> signed Route / Oxia Assignment CAS / Owner Lease per shard
+  -> one WorkerShardFleetRuntime
+  -> Gateway mTLS/JWT Prepare / real MinIO upload-attest-Commit-readback
+  -> source-ordered PUBLISH_OUTCOME per shard
+  -> guarded destination partition 0 or 1
+  -> checkpoint and Owner release per shard
+```
+
+The destination physical partition is explicit at every proof boundary. The
+Worker creates distinct canonical Lane tuples for
+`...-destination-partition-0` and `...-destination-partition-1`, registers
+both lanes in one fleet-scoped `ClaimExecutionAdmission` and
+`DestinationPhysicalAdmission`, and passes the same partition into the
+ChannelResourceIdentity, ReadyCertificate, ActivationBarrier, EvidenceCursor,
+`PulsarTargetResource` and guarded destination transport. The destination
+consumer verifies exact bytes on the matching physical topic. This preserves
+resource and partition fencing; it is not a relaxation of the existing
+single-physical-topic projector.
+
+The source-locked real receipt was r12 project
+`nereus-delay-pulsar-large-e2e-1786945120-74832`, with P1 distribution
+SHA-256 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`,
+P1 image `sha256:a2c76925f2504337a55c1b88d0a83cc80147d563189041514b63bc1e347cf9d3`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484` and locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+Both partitions produced exact destination payload readback, six source
+records and `exactGatewayIdempotency=true`; Gradle reported
+`BUILD SUCCESSFUL in 1m 34s`.
+
+This note records a bounded current-source transport PASS. It does not claim
+Kafka multi-shard egress, placement churn, provider/controller/storage
+failover, certified soak or V1 release readiness.

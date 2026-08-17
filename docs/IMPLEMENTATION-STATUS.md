@@ -12879,6 +12879,71 @@ Kafka/Oxia images for either isolated project; both the K1 image ID and the
 run-created Oxia image ID were absent, reusable base images were retained, and
 no global Docker prune was used.
 
+## 2026-08-17 Current-source Pulsar two-shard Large Payload destination egress
+
+Delay commit `ee292f4090e23a3f26f949aa54ac075b8ed94a78` closes the remaining
+Pulsar multi-shard Large Payload destination boundary. It extends the opt-in
+`NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MULTI_SHARD=1` receipt from the historical
+Object Store-only path to two guarded destination physical partitions. Each
+source shard now carries an explicit destination partition through the
+canonical Lane tuple, Channel/ReadyCertificate/evidence cursor, guarded
+transport and PUBLISH_OUTCOME projection; one shared Worker fleet-level Claim
+and destination admission is used for both shards.
+
+The current real receipt used P1
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1
+image `sha256:a2c76925f2504337a55c1b88d0a83cc80147d563189041514b63bc1e347cf9d3`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484` and locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The Compose project was
+`nereus-delay-pulsar-large-e2e-1786945120-74832`, with Pulsar
+`34300/34301/34302/34303`, Oxia `34310`, MinIO `34311` and Gateway `34312`;
+the destination base was
+`pulsar-large-payload-multi-egress-20260817-r12`.
+
+The receipt log is
+`/var/folders/vk/l_r0z80j1dj93fsrjx3zqv4r0000gn/T/nereus-delay-pulsar-large-receipt.XXXXXX.pjS04E5L20.log`.
+It passed with Delay source `ee292f4090e23a3f26f949aa54ac075b8ed94a78`:
+
+```text
+partition=0: barrier=3/1, prepare=3/2, commit=3/3, objectVersion=994e6c4a-d337-4d7f-99a5-4b99ea353252, destinationEgress=true, sourceRecords=6
+partition=1: barrier=4/1, prepare=4/2, commit=4/3, objectVersion=2be1f1ad-68ef-4717-be73-379dcaaa8964, destinationEgress=true, sourceRecords=6
+partition=0: typed PULSAR_SEND_ACK target=5/0, Outcome source=3/5, exact payload readback
+partition=1: typed PULSAR_SEND_ACK target=6/0, Outcome source=4/5, exact payload readback
+subscribePartitions=2, routeRevision=1, workers=[pulsar-large-payload-worker-a, pulsar-large-payload-worker-b], exactGatewayIdempotency=true
+BUILD SUCCESSFUL in 1m 34s
+```
+
+The destination consumers read the exact 1 MiB payload from
+`...-destination-partition-0` and `...-destination-partition-1`. This is a
+current-source PASS for Pulsar multi-shard Large Payload destination egress,
+including Gateway Prepare replay, real MinIO upload/attest/Commit/readback,
+source-ordered Admission/Outcome, destination PUBLISHED evidence and final
+checkpoint/Owner release. The earlier r3 Object Store-only receipt remains
+historical provenance; Kafka multi-shard destination egress, catalog-driven
+placement/churn, provider/controller/storage failover, certified soak and
+release promotion remain open.
+
+Exact postchecks found no matching Compose containers, volumes, networks,
+listeners or generated P1/Oxia images for the r12 project. The locked MinIO
+image and unrelated pre-existing `alpine:3.17` were retained; no global Docker
+prune or unrelated image deletion was used.
+
+## 2026-08-17 Current-source release gate after Pulsar multi-shard egress
+
+The source-locked artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r13/v1-release-candidate-gate.json`:
+Delay `ee292f4090e23a3f26f949aa54ac075b8ed94a78`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Source cleanliness,
+cross-repository validation and full Gradle `check` are `PASS`. The gate is
+still intentionally `release_status=NOT_READY`: capacity is `PARTIAL`, no
+certified soak artifact is supplied, and activation/cutover, operations and
+chaos are `PASS_BOUNDED`, not `PASS_CERTIFIED`.
+
 ## 2026-08-17 Current-source Kafka Worker durable-apply-before-ACK receipt
 
 The current-source Worker crash rerun locks Delay to

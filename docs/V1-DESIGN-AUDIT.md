@@ -12483,3 +12483,29 @@ It passes source cleanliness, cross-repository contracts and full Gradle
 promote to `PASS_CERTIFIED`, capacity is `PARTIAL`, and certified soak is
 missing. Exact run-scoped Docker cleanup passed; no unrelated image was
 deleted.
+
+### 2026-08-17 Pulsar multi-shard Large Payload destination egress audit
+
+Current Delay `ee292f4090e23a3f26f949aa54ac075b8ed94a78` closes the previously
+explicit Object Store-only boundary in the two-shard Pulsar Large Payload
+receipt. The accepted design now creates a partitioned destination topic and
+binds each source shard to its own destination physical partition. The
+partition is part of the canonical Lane identity and is repeated in the
+Channel, ReadyCertificate, evidence cursor, `PulsarSendRequest`, guarded
+transport and persisted Outcome proof. A name-only or partition-0 fallback is
+not accepted.
+
+The real r12 receipt used P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+and project `nereus-delay-pulsar-large-e2e-1786945120-74832`. Both partitions
+passed Gateway/MinIO Prepare/Commit, exact Prepare replay, destination
+PUBLISHED outcome, exact payload readback and sourceRecords `6`; source
+barriers were `3/1` and `4/1`, and Prepare/Commit were `3/2,3/3` and
+`4/2,4/3`. Gradle passed in `1m 34s`.
+
+Audit result: PASS for the named Pulsar multi-shard Large Payload destination
+egress boundary. This does not promote the bounded receipt to release
+certification. Kafka multi-shard egress, catalog/placement churn,
+controller/storage/provider failover, certified capacity/soak and the
+`PASS_CERTIFIED` activation, operations and chaos gates remain separate.

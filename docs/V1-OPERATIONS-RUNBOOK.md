@@ -347,3 +347,38 @@ passes source, contract and full Gradle checks but remains `NOT_READY` because
 soak is absent. Every cell's Compose resources and generated images were
 removed by exact run-scoped cleanup; locked bases were retained and no global
 prune was used.
+
+## 13. Current-source Pulsar multi-shard Large Payload destination drill
+
+Use the opt-in receipt below to exercise two real source partitions and two
+guarded destination physical partitions through one Worker fleet:
+
+```bash
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MULTI_SHARD=1 \
+PULSAR_LARGE_BROKER_1_PORT=34300 \
+PULSAR_LARGE_WEB_1_PORT=34301 \
+PULSAR_LARGE_BROKER_2_PORT=34302 \
+PULSAR_LARGE_WEB_2_PORT=34303 \
+NEREUS_DELAY_PULSAR_LARGE_OXIA_PORT=34310 \
+NEREUS_DELAY_PULSAR_LARGE_MINIO_PORT=34311 \
+NEREUS_DELAY_PULSAR_LARGE_GATEWAY_PORT=34312 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_DESTINATION_TOPIC=pulsar-large-payload-multi-egress-20260817-r12 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-large-payload-gradle-r12 \
+bash e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+The current receipt is source-locked to Delay
+`ee292f4090e23a3f26f949aa54ac075b8ed94a78`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+It passed exact barriers `3/1` and `4/1`, Prepare/Commit `3/2,3/3` and
+`4/2,4/3`, sourceRecords `6` per shard, exact payload readback on both
+destination partitions, two PUBLISHED outcomes and exact Gateway idempotency.
+
+Before treating the run as complete, verify that the exact Compose project
+`nereus-delay-pulsar-large-e2e-1786945120-74832` has no containers, networks,
+volumes or generated P1/Oxia images. Retain the locked MinIO/Oxia bases and
+unrelated pre-existing images; do not use global `docker image prune` or
+`docker system prune`. This is a bounded operations receipt, not a certified
+multi-shard soak, failover or release gate.

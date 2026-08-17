@@ -5786,3 +5786,50 @@ source, cross-repository and full Gradle checks pass, but
 missing and bounded activation/operations/chaos evidence cannot satisfy
 `PASS_CERTIFIED`. Matrix cleanup is exact and run-scoped; no global Docker
 prune or unrelated image deletion is allowed.
+
+## Current-source Pulsar multi-shard Large Payload destination egress receipt
+
+The opt-in multi-shard runner now includes guarded destination egress. It
+creates two destination physical partitions and carries the explicit
+partition through Lane activation, admission, transport, PUBLISH_OUTCOME and
+consumer readback:
+
+```bash
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MULTI_SHARD=1 \
+PULSAR_LARGE_BROKER_1_PORT=34300 \
+PULSAR_LARGE_WEB_1_PORT=34301 \
+PULSAR_LARGE_BROKER_2_PORT=34302 \
+PULSAR_LARGE_WEB_2_PORT=34303 \
+NEREUS_DELAY_PULSAR_LARGE_OXIA_PORT=34310 \
+NEREUS_DELAY_PULSAR_LARGE_MINIO_PORT=34311 \
+NEREUS_DELAY_PULSAR_LARGE_GATEWAY_PORT=34312 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_DESTINATION_TOPIC=pulsar-large-payload-multi-egress-20260817-r12 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-large-payload-gradle-r12 \
+bash e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+The current-source r12 receipt used Delay
+`ee292f4090e23a3f26f949aa54ac075b8ed94a78`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1 distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1
+image `sha256:a2c76925f2504337a55c1b88d0a83cc80147d563189041514b63bc1e347cf9d3`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484` and locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+Project `nereus-delay-pulsar-large-e2e-1786945120-74832` passed:
+
+```text
+partition=0 barrier=3/1 prepare=3/2 commit=3/3 objectVersion=994e6c4a-d337-4d7f-99a5-4b99ea353252 destinationEgress=true sourceRecords=6
+partition=1 barrier=4/1 prepare=4/2 commit=4/3 objectVersion=2be1f1ad-68ef-4717-be73-379dcaaa8964 destinationEgress=true sourceRecords=6
+typed PULSAR_SEND_ACK targets=5/0 and 6/0; Outcome sources=3/5 and 4/5; exact payload readback on both destination partitions
+exactGatewayIdempotency=true
+BUILD SUCCESSFUL in 1m 34s
+```
+
+The matching release-gate artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r13/v1-release-candidate-gate.json`.
+Source, cross-repository and full Gradle checks pass, but the fail-closed
+result remains `release_status=NOT_READY`: capacity is `PARTIAL`, certified
+soak is absent and activation/cutover, operations and chaos are bounded rather
+than `PASS_CERTIFIED`. The exact r12 Compose resources and generated P1/Oxia
+images were removed; locked MinIO and unrelated pre-existing images were
+retained, with no global Docker prune.
