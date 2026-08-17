@@ -2043,6 +2043,11 @@ public final class OwnedDelayShard {
         return sourceAssignment;
     }
 
+    /** Returns the exact durable typed Lane projection for restart-time proof reuse. */
+    public synchronized ActiveLaneStateV1 getActiveLaneStateV1(final DestinationLaneId laneId) {
+        return delegate.getActiveLaneStateV1(Objects.requireNonNull(laneId, "laneId"));
+    }
+
     public synchronized ShardLifecycleState state() {
         return state;
     }

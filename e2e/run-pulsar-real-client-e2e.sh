@@ -403,7 +403,8 @@ if [[ "${worker_admission_response_loss_process_crash_only}" == "1" ]]; then
     exit 1
   fi
   unset NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS
-  for attempt in $(seq 1 90); do
+  resume_attempts="${NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_RESUME_ATTEMPTS:-90}"
+  for attempt in $(seq 1 "${resume_attempts}"); do
     set +e
     run_focused_worker_smoke "${topic}" "${worker_destination_topic}" resume >"${worker_process_crash_resume_log}" 2>&1
     resume_status=$?
@@ -412,7 +413,7 @@ if [[ "${worker_admission_response_loss_process_crash_only}" == "1" ]]; then
       cat "${worker_process_crash_resume_log}"
       break
     fi
-    if [[ "${attempt}" == "90" ]]; then
+    if [[ "${attempt}" == "${resume_attempts}" ]]; then
       cat "${worker_process_crash_resume_log}" >&2
       echo "Pulsar Worker admission response-loss fresh-process recovery did not reacquire the real Oxia lease" >&2
       exit 1
