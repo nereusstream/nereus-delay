@@ -12907,3 +12907,24 @@ response-loss/checkpoint/session cells. Durable state dumps are
 `NOT_CAPTURED`, independent invariants are `MARKER_ONLY`, and release
 certification remains open. This receipt therefore cannot promote the V1 gate
 from `release_status=NOT_READY`.
+
+### 2026-08-17 Certified bounded-capacity harness audit
+
+The bounded-capacity wrapper is now a separate schema-valid evidence producer:
+`e2e/run-certified-capacity-benchmark.sh`. Its canonical integration receipt
+is `/tmp/nereus-delay-certified-capacity-harness-20260817-r3/certified-capacity-benchmark.json`,
+under the explicit profile `harness-integration-bounded-capacity-r1`.
+The receipt binds all four checkout locks, the fixed smoke/burst/sustained
+case policy, the Worker runtime resource authority, Store/SLO reopen results,
+and exact Docker cleanup. The child matrix remains honestly
+`status=PARTIAL`/`matrix_status=PASS_BOUNDED`; the wrapper's
+`PASS_CERTIFIED` means only that this named bounded profile satisfied its
+recorded policy.
+
+This closes the auditability gap where the release gate previously accepted a
+generic `PASS_CERTIFIED` capacity JSON. It does not close §23.4/§23.5
+capacity certification or V1 release readiness. The gate requires the strict
+capacity schema and `NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CAPACITY_PROFILE_ID`
+to match; missing approval remains fail-closed. Related temporary JDK images
+are removed only when pulled by this run, while the canonical Oxia and locked
+MinIO bases remain retained; no global Docker prune is permitted.

@@ -816,3 +816,47 @@ Exact postchecks are empty for matching containers, networks, volumes and
 generated images. The only retained related images are the canonical Oxia
 image and locked MinIO base. Do not use global Docker prune; the release gate
 remains `release_status=NOT_READY`.
+
+## 32. Certified bounded-capacity harness integration
+
+Run the bounded capacity wrapper only with an explicit, reviewable profile and
+an empty artifact directory. The following is a harness-integration profile,
+not a V1 release approval:
+
+```bash
+NEREUS_DELAY_CERTIFIED_CAPACITY_PROFILE_ID=harness-integration-bounded-capacity-r1 \
+NEREUS_DELAY_CERTIFIED_CAPACITY_REQUIRED_CASE_COUNT=3 \
+NEREUS_DELAY_CERTIFIED_CAPACITY_REQUIRED_PAYLOAD_RECORDS_TOTAL=3888 \
+NEREUS_DELAY_CERTIFIED_CAPACITY_REQUIRED_SLO_SAMPLES_TOTAL=664 \
+NEREUS_DELAY_CERTIFIED_CAPACITY_REQUIRED_CGROUP_MEMORY_BYTES=2147483648 \
+NEREUS_DELAY_CERTIFIED_CAPACITY_REQUIRED_DIRECT_MEMORY_BYTES=268435456 \
+NEREUS_DELAY_CERTIFIED_CAPACITY_REQUIRED_MAX_OPEN_FILES=65536 \
+NEREUS_DELAY_CERTIFIED_CAPACITY_MAX_CASE_PROCESS_RSS_BYTES=1073741824 \
+NEREUS_DELAY_CERTIFIED_CAPACITY_MAX_CASE_CURRENT_OPEN_FILES=4096 \
+NEREUS_DELAY_CERTIFIED_CAPACITY_MAX_CASE_STORE_LOCAL_BYTES=268435456 \
+NEREUS_DELAY_CERTIFIED_CAPACITY_MAX_CASE_STORE_WAL_BYTES=134217728 \
+NEREUS_DELAY_CERTIFIED_CAPACITY_MAX_CASE_STORE_SST_BYTES=134217728 \
+NEREUS_DELAY_CERTIFIED_CAPACITY_MAX_CASE_SLO_OUTBOX_BYTES=8388608 \
+NEREUS_DELAY_CERTIFIED_CAPACITY_MAX_CASE_SLO_COLLECTOR_BYTES=8388608 \
+NEREUS_DELAY_CERTIFIED_CAPACITY_MAX_ARTIFACT_BYTES=1073741824 \
+NEREUS_DELAY_CERTIFIED_CAPACITY_PULL_IMAGE=1 \
+NEREUS_DELAY_CERTIFIED_CAPACITY_ARTIFACT_DIR=/tmp/nereus-delay-certified-capacity-harness-20260817-r3 \
+NEREUS_DELAY_CERTIFIED_CAPACITY_GRADLE_USER_HOME=/tmp/nereus-delay-certified-capacity-gradle-20260817-r3 \
+NEREUS_DELAY_CERTIFIED_CAPACITY_PROJECT=nereus-delay-certified-capacity-20260817-r3 \
+bash e2e/run-certified-capacity-benchmark.sh
+```
+
+The canonical receipt is
+`/tmp/nereus-delay-certified-capacity-harness-20260817-r3/certified-capacity-benchmark.json`.
+It must contain `PASS_CERTIFIED` only for the named profile, three child cases
+with Store/SLO reopen evidence, passing resource policy and an empty exact
+Docker postcheck. The wrapper removes the pinned JDK image only when this run
+pulled it; it retains pre-existing base images and never runs a global prune.
+
+This receipt is bounded Store/SLO harness evidence. It does not authorize V1
+capacity or release promotion: Broker throughput, Lane fairness and placement,
+Control Reserve, Adapter/zombie bounds, restore/inline/object capacity,
+long-cycle soak and the other certification gates remain open. The release
+gate requires `NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CAPACITY_PROFILE_ID` and
+the strict capacity schema before this receipt can satisfy only the capacity
+slot.

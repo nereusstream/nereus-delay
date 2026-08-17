@@ -6230,3 +6230,29 @@ seven response-loss/checkpoint/session cells are explicitly `NOT_COVERED`.
 visible in every cell, so this is bounded evidence rather than §23.3 completion
 or `PASS_CERTIFIED` release evidence. Exact cleanup left only the locked Oxia
 and MinIO bases; no global Docker prune was used.
+
+## Certified bounded-capacity benchmark
+
+`run-certified-capacity-benchmark.sh` wraps
+`run-bounded-capacity-matrix.sh` with a named profile, fixed three-case policy,
+Worker resource observations, Store/SLO reopen assertions and exact Docker
+cleanup. It writes the integration receipt at:
+
+```text
+/tmp/nereus-delay-certified-capacity-harness-20260817-r3/certified-capacity-benchmark.json
+```
+
+The recorded profile is
+`harness-integration-bounded-capacity-r1`. It covers smoke/burst/sustained
+payload runs of 16/256/1024 records per payload size and 24/128/512 durable SLO
+samples. The child matrix remains `PARTIAL`/`PASS_BOUNDED`; wrapper
+`PASS_CERTIFIED` is scoped to the named profile and exact four-repository
+source locks, not to V1 capacity approval.
+
+The release gate accepts the strict schema only when
+`NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CAPACITY_PROFILE_ID` is supplied and
+matches the receipt. The wrapper removes only the exact temporary JDK image it
+pulled; pre-existing Oxia/MinIO bases are retained, and global Docker prune is
+forbidden. Broker/Lane throughput, placement/fairness, Control Reserve,
+Adapter/zombie, restore, inline/object, upgrade/downgrade and long-cycle soak
+remain outside this bounded profile.

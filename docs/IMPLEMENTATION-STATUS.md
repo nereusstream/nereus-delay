@@ -16281,3 +16281,29 @@ release certification. The release gate remains `release_status=NOT_READY`.
 Exact postchecks found no matching Delay containers, networks, volumes or
 generated images. Only `nereus/oxia-o1:37a17bef1720` and the locked MinIO base
 were retained; no global Docker prune or unrelated-image deletion was used.
+
+## 2026-08-17 Certified bounded-capacity harness contract
+
+`e2e/run-certified-capacity-benchmark.sh` now wraps the three-case local
+Store/SLO matrix with an explicit profile and source-locked policy. The
+canonical harness-integration receipt is
+`/tmp/nereus-delay-certified-capacity-harness-20260817-r3/certified-capacity-benchmark.json`.
+It reports `PASS_CERTIFIED` only for the named
+`harness-integration-bounded-capacity-r1` profile and the exact four-repository
+locks recorded inside that receipt.
+
+The policy fixes the three cases at 16/24, 256/128 and 1024/512
+payload-record/SLO-sample units (3,888 payload records and 664 SLO samples in
+total), requires available `WorkerRuntimeResourceProbe` observations for the
+2 GiB cgroup, 256 MiB direct-memory and 65,536-FD bounds, and checks process,
+RocksDB local/WAL/SST and SLO outbox/collector limits. Every case must pass
+payload readback, Store reopen and collector reopen. The wrapper also records
+an exact empty container/network/volume/generated-image postcheck.
+
+This is certified bounded harness evidence, not the §23.4 V1 capacity
+envelope: Broker throughput, Lane fairness, multi-Worker placement, Control
+Reserve, Adapter physical/zombie bounds, restore throughput, inline/object
+capacity, upgrade/downgrade and long-cycle soak remain separate. The release
+gate accepts this schema only with an explicitly supplied
+`NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CAPACITY_PROFILE_ID`; no release profile
+is approved by this harness result.

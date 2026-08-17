@@ -8258,3 +8258,25 @@ bounded marker audit, not a canonical durable-state or independent invariant
 audit. The six crash/network cells have fresh-process recovery evidence; the
 seven response-loss/checkpoint/session cells intentionally remain
 `NOT_COVERED`. Full §23.3 and V1 `PASS_CERTIFIED` release evidence remain open.
+
+## 2026-08-17 Certified bounded-capacity evidence boundary
+
+The capacity evidence path now has an explicit wrapper,
+`e2e/run-certified-capacity-benchmark.sh`, rather than treating the local
+probe's `PARTIAL` artifact as a generic release certificate. The integration
+receipt is
+`/tmp/nereus-delay-certified-capacity-harness-20260817-r3/certified-capacity-benchmark.json`
+for profile `harness-integration-bounded-capacity-r1`.
+
+Its contract is strict and source-bound: three serial cases with fixed
+payload/SLO counts; real WorkerRuntimeResourceProbe cgroup, direct-memory,
+RSS, FD and filesystem observations; RocksDB local/WAL/SST limits; durable SLO
+outbox/collector limits; payload readback; Store and collector reopen; and an
+empty exact Docker postcheck. The wrapper emits `PASS_CERTIFIED` only after
+those checks and records the four-repository source locks in the receipt.
+
+The semantic boundary remains explicit. This is not Broker/Lane/placement
+capacity, Control Reserve or Adapter/zombie capacity, nor checkpoint restore,
+inline/object, upgrade/downgrade or longest-cycle soak evidence. The V1 gate
+therefore requires the strict schema plus an explicitly supplied approved
+capacity profile id and continues to keep all other release gates independent.
