@@ -135,7 +135,20 @@ check_certified_artifact() {
   local status
   status="$(jq -r '.status // .matrix_status // "UNKNOWN"' "${path}")"
   if [[ "${status}" == "PASS_CERTIFIED" ]]; then
-    add_check "${name}" "PASS" "artifact is PASS_CERTIFIED" "${path}"
+    if jq -e \
+      --arg delay "${checkout_source}" \
+      --arg kafka "${kafka_source}" \
+      --arg pulsar "${pulsar_source}" \
+      --arg oxia "${oxia_source}" \
+      '(.source_locks | type == "object")
+       and .delay == $delay
+       and .kafka == $kafka
+       and .pulsar == $pulsar
+       and .oxia == $oxia' "${path}" >/dev/null 2>&1; then
+      add_check "${name}" "PASS" "artifact is PASS_CERTIFIED and source-locked to the current four-repository candidate" "${path}"
+    else
+      add_check "${name}" "BLOCKED" "PASS_CERTIFIED artifact does not carry exact current Delay/Kafka/Pulsar/Oxia source_locks" "${path}"
+    fi
   else
     add_check "${name}" "BLOCKED" "artifact status is ${status}; PASS_CERTIFIED is required" "${path}"
   fi
@@ -145,19 +158,7 @@ check_certified_artifact benchmark-capacity "${capacity_artifact}"
 check_certified_artifact certified-soak "${soak_artifact}"
 check_certified_artifact activation-cutover "${activation_artifact}"
 check_certified_artifact operations-drills "${operations_artifact}"
-
-if [[ -z "${chaos_artifact}" ]]; then
-  add_check "chaos-matrix" "BLOCKED" "no canonical chaos artifact supplied; PASS_CERTIFIED is required"
-elif [[ ! -s "${chaos_artifact}" ]] || ! jq empty "${chaos_artifact}" >/dev/null 2>&1; then
-  add_check "chaos-matrix" "BLOCKED" "missing or invalid JSON artifact" "${chaos_artifact}"
-else
-  chaos_status="$(jq -r '.matrix_status // .status // "UNKNOWN"' "${chaos_artifact}")"
-  if [[ "${chaos_status}" == "PASS_CERTIFIED" ]]; then
-    add_check "chaos-matrix" "PASS" "artifact is PASS_CERTIFIED" "${chaos_artifact}"
-  else
-    add_check "chaos-matrix" "BLOCKED" "artifact status is ${chaos_status}; PASS_CERTIFIED is required" "${chaos_artifact}"
-  fi
-fi
+check_certified_artifact chaos-matrix "${chaos_artifact}"
 
 checks_artifact="${artifact_dir}/release-gate-checks.json"
 jq -s '.' "${checks_jsonl}" >"${checks_artifact}"
