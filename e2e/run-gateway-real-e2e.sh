@@ -9,6 +9,7 @@ gateway_port=${NEREUS_DELAY_GATEWAY_PORT:-22349}
 delay_gradle_user_home=${NEREUS_DELAY_GATEWAY_GRADLE_USER_HOME:-/tmp/nereus-delay-gateway-e2e-gradle}
 compose_file="$e2e_root/docker-compose.oxia.yml"
 compose_project="nereus-delay-gateway-e2e-$(date +%s)-$$"
+oxia_image="${compose_project}-oxia"
 tls_dir=$(mktemp -d -t nereus-delay-gateway-tls.XXXXXX)
 session_churn=${NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN:-0}
 session_churn_pause_seconds=${NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN_PAUSE_SECONDS:-5}
@@ -59,6 +60,7 @@ cleanup() {
         wait "$session_churn_pid" >/dev/null 2>&1 || true
     fi
     compose down --remove-orphans >/dev/null 2>&1 || true
+    docker image rm "${oxia_image}:latest" >/dev/null 2>&1 || true
     rm -rf "$tls_dir"
     rm -rf "$session_churn_dir"
 }
