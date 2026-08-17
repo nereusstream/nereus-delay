@@ -8280,3 +8280,29 @@ capacity, Control Reserve or Adapter/zombie capacity, nor checkpoint restore,
 inline/object, upgrade/downgrade or longest-cycle soak evidence. The V1 gate
 therefore requires the strict schema plus an explicitly supplied approved
 capacity profile id and continues to keep all other release gates independent.
+
+## 2026-08-17 Fresh-process Publish Admission recovery contract
+
+The current-source bounded-chaos r6 run adds one concrete recovery proof for
+the Pulsar Worker Admission response-loss boundary. The external response is
+discarded after the Shard Log durably records the Publish Admission, then the
+Worker process is terminated. The pre-crash dump is authoritative for the
+durable attempt: it contains one `PUBLISHING` attempt and
+`outcome_applied=false`.
+
+On restart, source replay may contain no new record because the same Store has
+already applied the Admission. Recovery therefore seeks from the persisted
+ShardStore applied Pulsar position, reopens the durable `PUBLISHING` message
+and resumes its physical publish. The fresh process must reuse the exact
+persisted READY Lane proof (certificate, channel and evidence cursors) for the
+current durable state; it must not create a second READY certificate for the
+same lane. The physical result is then applied as one `PUBLISH_OUTCOME`, and
+the source position advances to `PUBLISHED`.
+
+The recovery authority is the durable Store identity, shard, Store
+incarnation, DB identity, message identity and Publish Attempt identity. The
+r6 receipt independently compares those fields across the forced pre-crash
+and post-recovery dumps and requires exactly one durable attempt/message. This
+establishes the no-second-Admission/no-second-physical-publish boundary for
+this cell. It remains bounded chaos evidence, not a claim that the complete
+§23.3 matrix or V1 release gate is closed.

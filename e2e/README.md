@@ -6256,3 +6256,32 @@ pulled; pre-existing Oxia/MinIO bases are retained, and global Docker prune is
 forbidden. Broker/Lane throughput, placement/fairness, Control Reserve,
 Adapter/zombie, restore, inline/object, upgrade/downgrade and long-cycle soak
 remain outside this bounded profile.
+
+## Current-source bounded-chaos r6
+
+The 13-cell current-source matrix is run with:
+
+```bash
+NEREUS_DELAY_CHAOS_MATRIX_ARTIFACT_DIR=/tmp/nereus-delay-chaos-current-20260817-r6 \
+NEREUS_DELAY_CHAOS_MATRIX_GRADLE_USER_HOME=/tmp/nereus-delay-chaos-gradle-current-20260817-r6 \
+bash e2e/run-bounded-chaos-matrix.sh
+```
+
+The receipt is
+`/tmp/nereus-delay-chaos-current-20260817-r6/bounded-chaos-matrix.json`.
+It reports `matrix_status=PASS_BOUNDED` and all 13 cells exit zero. The
+`pulsar-worker-admission-response-loss` cell additionally captures and
+independently audits a forced durable dump before SIGKILL and a fresh-process
+recovery dump after restart: `PUBLISHING`/`outcome_applied=false` becomes
+`PUBLISHED`/`outcome_applied=true` with the same Store and Publish Attempt
+identity.
+
+The other cells remain explicitly bounded marker evidence; durable dumps and
+independent invariant audits are not implied by a zero exit code. Matrix-level
+release certification is open and the V1 gate remains `NOT_READY`.
+
+The runner performs exact run-scoped cleanup. Verify that generated
+Delay/Kafka/Pulsar/Oxia/MinIO/Gateway containers, networks, volumes and images
+are absent afterward. The canonical Oxia and locked MinIO bases may remain for
+reuse. No global Docker prune is allowed, and unrelated images must be left
+untouched.

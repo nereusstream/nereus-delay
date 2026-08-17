@@ -860,3 +860,34 @@ long-cycle soak and the other certification gates remain open. The release
 gate requires `NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CAPACITY_PROFILE_ID` and
 the strict capacity schema before this receipt can satisfy only the capacity
 slot.
+
+## 2026-08-17 Bounded-chaos r6 and exact Docker cleanup
+
+Run the current-source bounded matrix with an isolated artifact directory:
+
+```bash
+NEREUS_DELAY_CHAOS_MATRIX_ARTIFACT_DIR=/tmp/nereus-delay-chaos-current-20260817-r6 \
+NEREUS_DELAY_CHAOS_MATRIX_GRADLE_USER_HOME=/tmp/nereus-delay-chaos-gradle-current-20260817-r6 \
+bash e2e/run-bounded-chaos-matrix.sh
+```
+
+The canonical receipt is
+`/tmp/nereus-delay-chaos-current-20260817-r6/bounded-chaos-matrix.json`.
+The run is `PASS_BOUNDED` with all 13 cells returning zero and locks Delay
+`396220a7ecc01fbd317dcd96ce3155365b9280a9`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The Pulsar Worker Admission response-loss cell now includes a forced durable
+pre-SIGKILL dump and a post-fresh-process dump. It proves the same durable
+`PUBLISHING` attempt reaches `PUBLISHED` without a second Admission or
+physical destination publish. This is cell-specific recovery evidence; the
+other cells retain their declared marker-only or not-captured boundaries.
+
+After the run, verify the exact project-scoped cleanup. There must be no
+matching `nereus-delay-(kafka|pulsar|oxia|minio|gateway)` containers, generated
+images, networks or volumes. Retain only the canonical Oxia and locked MinIO
+base images needed by later runs. Do not run a global Docker prune or delete
+unrelated images. This cleanup is evidence hygiene and does not change the
+matrix's `PASS_BOUNDED` or the release gate's `NOT_READY` status.

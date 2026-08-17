@@ -16307,3 +16307,37 @@ capacity, upgrade/downgrade and long-cycle soak remain separate. The release
 gate accepts this schema only with an explicitly supplied
 `NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CAPACITY_PROFILE_ID`; no release profile
 is approved by this harness result.
+
+## 2026-08-17 Current-source bounded-chaos audit r6: fresh-process Admission recovery
+
+The clean current-source matrix receipt is
+`/tmp/nereus-delay-chaos-current-20260817-r6/bounded-chaos-matrix.json`.
+It reports `schema=nereus-delay-bounded-chaos-matrix-v1` and
+`matrix_status=PASS_BOUNDED`; all 13 cells exited zero. The receipt locks
+Delay `396220a7ecc01fbd317dcd96ce3155365b9280a9`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The r6 receipt preserves marker-checked deterministic injection and
+source/target/authority evidence for every cell. It upgrades
+`pulsar-worker-admission-response-loss` to actual fresh-process recovery:
+the external fsync-forced pre-SIGKILL dump records durable `PUBLISHING` with
+`outcome_applied=false`, and the post-fresh-process dump records `PUBLISHED`
+with `outcome_applied=true`. Store identity, shard, store incarnation, DB
+identity and Publish Attempt identity match across the two dumps. That cell
+is audited as `CAPTURED_AND_VERIFIED` with
+`INDEPENDENT_FIELDS_PASS` invariants.
+
+The matrix remains bounded evidence, not V1 release certification. The other
+12 cells retain their explicit `NOT_CAPTURED` durable-dump and/or
+`MARKER_ONLY` invariant boundaries; the matrix audit summary records release
+certification `OPEN`. Capacity envelope, approved long-cycle soak,
+activation/cutover, operations authorization, upgrade/downgrade and disaster
+continuity remain open. The release gate must remain
+`release_status=NOT_READY` until separate approved `PASS_CERTIFIED` artifacts
+are supplied.
+
+Exact postchecks found no matching run-scoped containers, networks, volumes or
+generated images. Only the canonical Oxia image and locked MinIO base remain;
+no global Docker prune or unrelated image deletion was used.

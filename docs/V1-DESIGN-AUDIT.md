@@ -12928,3 +12928,34 @@ capacity schema and `NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CAPACITY_PROFILE_ID`
 to match; missing approval remains fail-closed. Related temporary JDK images
 are removed only when pulled by this run, while the canonical Oxia and locked
 MinIO bases remain retained; no global Docker prune is permitted.
+
+### 2026-08-17 Current-source bounded-chaos audit r6
+
+The current-source receipt is
+`/tmp/nereus-delay-chaos-current-20260817-r6/bounded-chaos-matrix.json`.
+It is schema-valid `nereus-delay-bounded-chaos-matrix-v1` evidence with
+`matrix_status=PASS_BOUNDED`, 13 zero exit codes and source locks for Delay
+`396220a7ecc01fbd317dcd96ce3155365b9280a9`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The material upgrade is the
+`pulsar-worker-admission-response-loss` cell. Its pre-crash durable dump was
+forced before SIGKILL and independently records the Admission-backed
+`PUBLISHING` attempt with `outcome_applied=false`; a fresh Worker process then
+reopened the same Store and records `PUBLISHED` with `outcome_applied=true`.
+The audit independently compares the Store identity, shard, Store
+incarnation, DB identity and Publish Attempt identity, and reports
+`CAPTURED_AND_VERIFIED` / `INDEPENDENT_FIELDS_PASS` for that cell.
+
+This does not promote the matrix to §23.3 completion: the remaining cells are
+still explicitly marker-only for invariants and/or lack durable dumps and
+fresh-process coverage. Matrix-level release certification is `OPEN`, and
+the V1 gate remains fail-closed at `release_status=NOT_READY` pending the
+separate approved capacity, soak, activation, operations, upgrade/downgrade
+and disaster-continuity artifacts.
+
+The run-scoped Docker postcheck was empty for generated containers, networks,
+volumes and images. The locked Oxia and MinIO bases were retained; unrelated
+images were not removed and no global prune was executed.
