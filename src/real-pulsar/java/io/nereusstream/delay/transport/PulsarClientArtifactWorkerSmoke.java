@@ -87,6 +87,7 @@ import io.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.nereusstream.delay.runtime.DelayShard;
 import io.nereusstream.delay.runtime.DelayShardConfig;
 import io.nereusstream.delay.runtime.LaneRecord;
+import io.nereusstream.delay.runtime.MessageRecord;
 import io.nereusstream.delay.runtime.MessageStatus;
 import io.nereusstream.delay.runtime.PublishAttemptLedger;
 import io.nereusstream.delay.runtime.V1ScheduleResolver;
@@ -96,9 +97,11 @@ import io.nereusstream.delay.scheduler.WorkClass;
 import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import io.nereusstream.delay.scheduler.WorkClassPolicy;
 import io.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
+import io.nereusstream.delay.store.ColumnFamily;
 import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.ShardStoreConfig;
 import io.nereusstream.delay.store.SharedRocksDbResources;
+import io.nereusstream.delay.store.ValueEnvelope;
 import io.nereusstream.delay.store.CheckpointFileInventory;
 import io.nereusstream.delay.store.WorkerLoadVector;
 import io.nereusstream.delay.store.WorkerPlacementPolicy;
@@ -126,12 +129,17 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.security.GeneralSecurityException;
+import java.security.KeyFactory;
 import java.security.KeyPair;
-import java.security.KeyPairGenerator;
+import java.security.spec.PKCS8EncodedKeySpec;
+import java.security.spec.X509EncodedKeySpec;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.EnumMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -149,6 +157,13 @@ public final class PulsarClientArtifactWorkerSmoke {
     private static final long DESTINATION_CREATION_TIMESTAMP = 1001L;
     private static final long LEASE_DURATION_MS = 60_000;
     private static final long DUE_DISCOVERY_MAX_BYTES = 900_000;
+    // Test-only source authority fixture. A real Worker receives this pinned
+    // verification/signing authority from the source-control plane; it must
+    // not generate a new verification key during process recovery.
+    private static final String SOURCE_AUTHORITY_PRIVATE_KEY_BASE64 =
+            "MC4CAQAwBQYDK2VwBCIEINegcXn3Ts1nGJ/JeACDj7NYvL67V6wsJd7YSQxutEmH";
+    private static final String SOURCE_AUTHORITY_PUBLIC_KEY_BASE64 =
+            "MCowBQYDK2VwAyEAhGIVt9xTnQodXvVrnojU1erbwRf/f5XoBxqOS0MmAAk=";
 
     private PulsarClientArtifactWorkerSmoke() {
     }
@@ -211,6 +226,14 @@ public final class PulsarClientArtifactWorkerSmoke {
         System.out.println("Pulsar Worker restart preparation passed: one guarded record persisted before broker restart");
     }
 
+    private static KeyPair sourceAuthorityKeyPair() throws GeneralSecurityException {
+        final KeyFactory factory = KeyFactory.getInstance("Ed25519");
+        final byte[] privateKey = Base64.getDecoder().decode(SOURCE_AUTHORITY_PRIVATE_KEY_BASE64);
+        final byte[] publicKey = Base64.getDecoder().decode(SOURCE_AUTHORITY_PUBLIC_KEY_BASE64);
+        return new KeyPair(factory.generatePublic(new X509EncodedKeySpec(publicKey)),
+                factory.generatePrivate(new PKCS8EncodedKeySpec(privateKey)));
+    }
+
     private static void runWorker(final PulsarClient client, final String physicalTopic,
                                   final boolean seedRecovery, final boolean waitForProcessCrash,
                                   final String destinationPhysicalTopic)
@@ -226,7 +249,10 @@ public final class PulsarClientArtifactWorkerSmoke {
         final Path root = workerStoreRoot();
         final boolean admissionRecoveryResume = hasAdmissionResponseLossProcessCrash()
                 && !waitForProcessCrash && !seedRecovery;
-        final boolean preserveWorkerRoot = hasAdmissionResponseLossProcessCrash();
+        final boolean destinationRecoveryResume = hasDestinationResponseLossProcessCrash()
+                && !waitForProcessCrash && !seedRecovery;
+        final boolean preserveWorkerRoot = hasAdmissionResponseLossProcessCrash()
+                || hasDestinationResponseLossProcessCrash();
         try {
             final String subscription = "nereus-delay-worker-" + UUID.randomUUID();
             final GuardedConsumer<byte[]> rawNativeConsumer = PulsarClientArtifactSourceConsumerFactory.create(
@@ -234,9 +260,10 @@ public final class PulsarClientArtifactWorkerSmoke {
             final AtomicBoolean sourceAckResponseLossObserved = new AtomicBoolean();
             final GuardedConsumer<byte[]> nativeConsumer = hasSourceAckResponseLoss()
                     ? responseLossConsumer(rawNativeConsumer, sourceAckResponseLossObserved) : rawNativeConsumer;
+            final Optional<PulsarSourcePosition> persistedRecoveryPosition = persistedPulsarPosition(root, shard);
             final PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof proof =
                     PulsarClientArtifactRecoverySourcePositioner.seekAfter(nativeConsumer, guard, physicalTopic, shard,
-                            persistedPulsarPosition(root, shard), Duration.ofSeconds(5));
+                            persistedRecoveryPosition, Duration.ofSeconds(5));
             final SourceAssignment sourceAssignment = new SourceAssignment(shard,
                     Bytes.sha256(Bytes.utf8("pulsar-worker-assignment")), 1,
                     PulsarActivationBarrier.empty(shard, INCARNATION, physicalTopic,
@@ -257,7 +284,7 @@ public final class PulsarClientArtifactWorkerSmoke {
             final OwnerLease lease = authority.acquire(assignment, "pulsar-worker", sessionIdentity,
                     ownerNow, LEASE_DURATION_MS).orElseThrow();
             final WorkClassExecutionRegistry workClasses = workClasses();
-            final KeyPair verificationKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+            final KeyPair verificationKey = sourceAuthorityKeyPair();
             final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshot(shard);
             boolean runtimeDrained = false;
             try {
@@ -272,16 +299,33 @@ public final class PulsarClientArtifactWorkerSmoke {
                             lease.ownerEpoch(), Bytes.sha256(Bytes.utf8("pulsar-worker-fencing")));
                     final OwnedDelayShard ownedShard = new OwnedDelayShard(delayShard, lease, ownerIdentity);
 
-                    if (waitForProcessCrash && !hasAdmissionResponseLossProcessCrash()) {
+                    if (waitForProcessCrash && !hasAdmissionResponseLossProcessCrash()
+                            && !hasDestinationResponseLossProcessCrash()) {
                         awaitWorkerProcessCrashGate(root);
                     }
 
                     try (PulsarClientArtifactRecoverySourceCursor recovery =
                                  new PulsarClientArtifactRecoverySourceCursor(nativeConsumer, guard, assignment,
                                          physicalTopic, Duration.ofMillis(250))) {
-                        final SourceReplayCursor<SourceReplayEntry> cursor = SourceReplayCursor.of(recovery);
+                        final List<SourceReplayEntry> recoveryEntries = new ArrayList<>();
+                        final SourceReplayCursor<SourceReplayEntry> cursor = SourceReplayCursor.of(new Iterator<>() {
+                            @Override
+                            public boolean hasNext() {
+                                return recovery.hasNext();
+                            }
+
+                            @Override
+                            public SourceReplayEntry next() {
+                                final SourceReplayEntry entry = recovery.next();
+                                recoveryEntries.add(entry);
+                                return entry;
+                            }
+                        });
+                        final SourceReplaySuccessor recoverySuccessor = destinationRecoveryResume
+                                ? destinationResponseLossRecoverySuccessor(persistedRecoveryPosition.orElseThrow())
+                                : SourceReplaySuccessor.strictPulsarBatchMember();
                         final OwnerRecoveryCoordinator coordinator = new OwnerRecoveryCoordinator(ownedShard, authority,
-                                assignment, SourceReplaySuccessor.strictPulsarBatchMember(), cursor,
+                                assignment, recoverySuccessor, cursor,
                                 verificationKey.getPublic(), controlSnapshot, System::currentTimeMillis,
                                 new ReplayTurnBudget(1, 1_000_000, TimeUnit.SECONDS.toNanos(10)), workClasses);
                         OwnerRecoveryTurn turn;
@@ -292,6 +336,15 @@ public final class PulsarClientArtifactWorkerSmoke {
                                 || ownedShard.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
                             throw new IllegalStateException("Pulsar Worker recovery did not activate at one exact record");
                         }
+                        System.out.println("Pulsar Worker recovery observation: turnOutcomes="
+                                + turn.outcomes().size() + ", replayEntries=" + recoveryEntries.size()
+                                + ", replayOutcomes=" + recoveryEntries.stream()
+                                .filter(entry -> entry instanceof SourceReplayMutation mutation
+                                        && mutation.mutation().type() == SystemMutationType.PUBLISH_OUTCOME)
+                                .count() + ", lastCatchup=" + ownedShard.lastCatchupPosition()
+                                + ", applied=" + store.appliedShardLogPosition()
+                                + ", destinationRecoveryResume=" + destinationRecoveryResume
+                                + ", outcomeApply=" + recoveryOutcomeSummary(turn));
                         final PulsarSourcePosition recovered;
                         if (turn.outcomes().size() == 1
                                 && ownedShard.lastCatchupPosition() instanceof PulsarSourcePosition replayed) {
@@ -315,7 +368,21 @@ public final class PulsarClientArtifactWorkerSmoke {
                         final DelayMessageId physicalMessageId;
                         final PhysicalPublishBridge physicalBridge;
                         final PublishAttemptLedger recoveredPublishAttempt;
-                        if (admissionRecoveryResume) {
+                        final RecoveredDestinationOutcome recoveredDestinationOutcome;
+                        if (destinationRecoveryResume) {
+                            if (destinationPhysicalTopic == null) {
+                                throw new IllegalStateException(
+                                        "Pulsar destination response-loss recovery requires a destination topic");
+                            }
+                            activeCommand = null;
+                            physicalCommand = null;
+                            recoveredPublishAttempt = null;
+                            recoveredDestinationOutcome = requireRecoveredDestinationOutcome(recoveryEntries, store,
+                                    shard);
+                            physicalSchedulePosition = recoveredDestinationOutcome.physicalSchedulePosition();
+                            physicalMessageId = recoveredDestinationOutcome.messageId();
+                            physicalBridge = null;
+                        } else if (admissionRecoveryResume) {
                             if (destinationPhysicalTopic == null) {
                                 throw new IllegalStateException(
                                         "Pulsar admission response-loss recovery requires a destination topic");
@@ -349,6 +416,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                                     destinationProfile("worker-physical-publish"), capabilityProfile(),
                                     recoveredPublishAttempt.laneId(), recoveredLane.laneIncarnation(),
                                     1_000_000, null, 0);
+                            recoveredDestinationOutcome = null;
                         } else {
                             recoveredPublishAttempt = null;
                             activeCommand = command(shard, "worker-active");
@@ -364,6 +432,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                                     : createPhysicalPublishBridge(client, nativeConsumer, physicalTopic, shard,
                                     physicalSchedulePosition, destinationPhysicalTopic, store, ownedShard, ownerIdentity,
                                     authority, workClasses, verificationKey);
+                            recoveredDestinationOutcome = null;
                         }
                         try (physicalBridge) {
                             final WorkerShardRuntime runtime = PulsarClientArtifactWorkerSourceFactory.create(
@@ -373,7 +442,28 @@ public final class PulsarClientArtifactWorkerSmoke {
                                     physicalBridge == null ? null : physicalBridge.executor());
                             try {
                             final PulsarSourcePosition activePosition;
-                            if (admissionRecoveryResume) {
+                            if (destinationRecoveryResume) {
+                                activePosition = recovered;
+                                requireAppliedRecoveryOutcome(turn);
+                                if (recoveredDestinationOutcome == null
+                                        || recoveredDestinationOutcome.outcome().sideEffect() != 1
+                                        || recoveredDestinationOutcome.outcome().stableCode() != StableCode.OK) {
+                                    throw new IllegalStateException(
+                                            "Pulsar destination response-loss recovery did not apply a definitive PUBLISHED Outcome");
+                                }
+                                requirePayload(client, destinationPhysicalTopic,
+                                        recoveredDestinationOutcome.payload());
+                                if (chaosStateDumpDirectory() != null) {
+                                    writeChaosStateDump("pulsar-worker-destination-response-loss-process-crash",
+                                            "RECOVERED_AFTER_FRESH_PROCESS", store.dbPath(), store, null,
+                                            physicalSchedulePosition, "PUBLISHED", true,
+                                            recoveredDestinationOutcome.outcome().publishAttemptId(), null,
+                                            recoveredDestinationOutcome.messageId());
+                                }
+                                System.out.println("Pulsar Worker destination response-loss fresh-process recovery "
+                                        + "passed: the durable PUBLISH_OUTCOME was replayed after SIGKILL, the "
+                                        + "exact destination payload was read back, and no second SEND was issued");
+                            } else if (admissionRecoveryResume) {
                                 if (!(store.appliedShardLogPosition() instanceof PulsarSourcePosition appliedPosition)
                                         || !appliedPosition.equals(recovered)) {
                                     throw new IllegalStateException(
@@ -385,9 +475,10 @@ public final class PulsarClientArtifactWorkerSmoke {
                                                 authority, store, workClasses, verificationKey, physicalBridge,
                                                 physicalMessageId, physicalSchedulePosition, client, null, 1_000_000);
                                 if (chaosStateDumpDirectory() != null) {
-                                    writeChaosStateDump("RECOVERED_AFTER_FRESH_PROCESS", store.dbPath(), store,
+                                    writeChaosStateDump("pulsar-worker-admission-response-loss-process-crash",
+                                            "RECOVERED_AFTER_FRESH_PROCESS", store.dbPath(), store,
                                             physicalTurn.attempt().orElse(recoveredPublishAttempt),
-                                            physicalSchedulePosition, "PUBLISHED", true);
+                                            physicalSchedulePosition, "PUBLISHED", true, null, null, null);
                                 }
                             } else {
                                 final io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult result =
@@ -424,9 +515,10 @@ public final class PulsarClientArtifactWorkerSmoke {
                                                     authority, store, workClasses, verificationKey, physicalBridge,
                                                     physicalCommand, physicalSchedulePosition, client);
                                     if (chaosStateDumpDirectory() != null) {
-                                        writeChaosStateDump("RECOVERED_AFTER_FRESH_PROCESS", store.dbPath(), store,
+                                        writeChaosStateDump("pulsar-worker-admission-response-loss-process-crash",
+                                                "RECOVERED_AFTER_FRESH_PROCESS", store.dbPath(), store,
                                                 physicalTurn.attempt().orElse(null), physicalSchedulePosition,
-                                                "PUBLISHED", true);
+                                                "PUBLISHED", true, null, null, null);
                                     }
                                 }
                             }
@@ -586,7 +678,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                     new WorkerShardRuntime.SourceBoundPhysicalPublishTurn(
                             WorkerShardRuntime.SourceBoundPhysicalPublishStatus.PHYSICAL_SUBMITTED, 0,
                             Optional.empty(), Optional.of(recoveredAttempt), Optional.of(submission), null);
-            return finishPhysicalPublish(runtime, delayShard, workClasses, bridge, client, physicalSchedulePosition,
+            return finishPhysicalPublish(runtime, delayShard, store, workClasses, bridge, client, physicalSchedulePosition,
                     payload, admissionPosition, physicalTurn);
         }
         WorkerShardRuntime.DueClaimPublishPhysicalTurn dueClaimPublish = null;
@@ -659,8 +751,9 @@ public final class PulsarClientArtifactWorkerSmoke {
                         "Pulsar Worker admission response-loss wrapper did not discard a persisted response");
                 }
                 if (chaosStateDumpDirectory() != null) {
-                    writeChaosStateDump("ADMISSION_RESPONSE_LOSS_PERSISTED", store.dbPath(), store,
-                            recoveredAttempt, physicalSchedulePosition, "PUBLISHING", false);
+                    writeChaosStateDump("pulsar-worker-admission-response-loss-process-crash",
+                            "ADMISSION_RESPONSE_LOSS_PERSISTED", store.dbPath(), store,
+                            recoveredAttempt, physicalSchedulePosition, "PUBLISHING", false, null, null, null);
                 }
                 System.out.println("Pulsar Worker Publish Admission response-loss smoke passed: the real Shard Log "
                         + "mutation was persisted, its local append response was discarded, and exact source replay "
@@ -673,13 +766,14 @@ public final class PulsarClientArtifactWorkerSmoke {
             throw new IllegalStateException("Pulsar Worker provider-driven Publish Admission was not source-bound: "
                     + admissionResult.kind());
         }
-        return finishPhysicalPublish(runtime, delayShard, workClasses, bridge, client, physicalSchedulePosition,
+        return finishPhysicalPublish(runtime, delayShard, store, workClasses, bridge, client, physicalSchedulePosition,
                 payload, admissionPosition, physicalTurn);
     }
 
     private static WorkerShardRuntime.SourceBoundPhysicalPublishTurn finishPhysicalPublish(
             final WorkerShardRuntime runtime,
             final DelayShard delayShard,
+            final ShardStore store,
             final WorkClassExecutionRegistry workClasses,
             final PhysicalPublishBridge bridge,
             final PulsarClient client,
@@ -701,6 +795,38 @@ public final class PulsarClientArtifactWorkerSmoke {
                 || physicalResult.evidence() == null) {
             throw new IllegalStateException("source-applied physical publish did not return typed PUBLISHED evidence: "
                     + physicalResult.disposition() + "/" + physicalResult.stableCode());
+        }
+
+        if (hasDestinationResponseLossProcessCrash()) {
+            if (!bridge.destinationResponseLoss() || !bridge.destinationResponseEvidenceResolved()) {
+                throw new IllegalStateException(
+                        "Pulsar destination response-loss process crash reached without resolved SEND evidence");
+            }
+            workClasses.runTurn(new SchedulerBudget(1, 2_000_000, TimeUnit.SECONDS.toNanos(2)));
+            if (workClasses.pending(WorkClass.OUTCOME_AND_CONTROL) != 0) {
+                throw new IllegalStateException(
+                        "Pulsar destination response-loss process crash did not persist PUBLISH_OUTCOME first");
+            }
+            final SystemMutation outcomeMutation = submission.outcomeMutation().orElseThrow(
+                    () -> new IllegalStateException(
+                            "Pulsar destination response-loss process crash has no queued PUBLISH_OUTCOME"));
+            final RecordedMutationAppend recordedAppend = bridge.lastMutationAppend();
+            if (recordedAppend == null
+                    || !Arrays.equals(recordedAppend.mutation().encodeFrame(), outcomeMutation.encodeFrame())
+                    || recordedAppend.outcome().disposition() != ShardLogMutationAppender.AppendDisposition.PERSISTED) {
+                throw new IllegalStateException("Pulsar destination response-loss process crash did not persist the "
+                        + "exact PUBLISH_OUTCOME: " + (recordedAppend == null ? "no append observed"
+                        : recordedAppend.outcome().disposition()));
+            }
+            System.out.println("Pulsar Worker destination response-loss outcome append observed: disposition="
+                    + recordedAppend.outcome().disposition() + ", sourcePosition="
+                    + recordedAppend.outcome().sourcePosition());
+            if (chaosStateDumpDirectory() != null) {
+                writeChaosStateDump("pulsar-worker-destination-response-loss-process-crash",
+                        "DESTINATION_RESPONSE_LOSS_PERSISTED", store.dbPath(), store, attempt,
+                        physicalSchedulePosition, "PUBLISHING", false, null, null, attempt.delayMessageId());
+            }
+            awaitDestinationResponseLossProcessCrashGate(store.dbPath());
         }
 
         SourceReplayMutation outcomeRecord = null;
@@ -1193,17 +1319,15 @@ public final class PulsarClientArtifactWorkerSmoke {
                 sourcePhysicalTopic, CREATION_TIMESTAMP, Duration.ofSeconds(20));
         final boolean admissionResponseLoss = hasWorkerAdmissionResponseLoss();
         final AtomicBoolean admissionResponseLossObserved = new AtomicBoolean();
-        final ShardLogMutationAppender appender;
-        final AutoCloseable appenderResource;
+        final ShardLogMutationAppender selectedAppender;
         if (admissionResponseLoss) {
             final AdmissionResponseLossMutationAppender wrapper = new AdmissionResponseLossMutationAppender(
                     realAppender, admissionResponseLossObserved);
-            appender = wrapper;
-            appenderResource = wrapper;
+            selectedAppender = wrapper;
         } else {
-            appender = realAppender;
-            appenderResource = realAppender;
+            selectedAppender = realAppender;
         }
+        final RecordingMutationAppender appender = new RecordingMutationAppender(selectedAppender);
         final AuthorIdentity author = AuthorIdentity.owner(ownerIdentity.deploymentId(), ownerIdentity.workerRunId(),
                 ownerIdentity.ownerEpoch(), ownerIdentity.leaseFencingDigest());
         final WorkerPublishOutcomeMutationFactory outcomeFactory = new WorkerPublishOutcomeMutationFactory(
@@ -1224,7 +1348,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                 workClasses, Runnable::run, outcomes,
                 (attempt, request, ownerClock) -> WorkerPhysicalPublishExecutor.Decision.allowed(), outcomeFactory,
                 ownedShard::fence);
-        return new PhysicalPublishBridge(executor, appender, appenderResource, laneId, laneIncarnation,
+        return new PhysicalPublishBridge(executor, appender, appender, laneId, laneIncarnation,
                 destinationProfile,
                 capabilityProfile, target, channel, readyCertificate, evidenceCursors,
                 destinationPhysicalTopic, destinationResponseLoss, responseEvidenceResolved,
@@ -1419,7 +1543,7 @@ public final class PulsarClientArtifactWorkerSmoke {
 
     static final class PhysicalPublishBridge implements AutoCloseable {
         private final WorkerPhysicalPublishExecutor executor;
-        private final ShardLogMutationAppender appender;
+        private final RecordingMutationAppender appender;
         private final AutoCloseable appenderResource;
         private final DestinationLaneId laneId;
         private final byte[] laneIncarnation;
@@ -1436,7 +1560,7 @@ public final class PulsarClientArtifactWorkerSmoke {
         private final AtomicBoolean admissionResponseLossObserved;
 
         private PhysicalPublishBridge(final WorkerPhysicalPublishExecutor executor,
-                                      final ShardLogMutationAppender appender,
+                                      final RecordingMutationAppender appender,
                                       final AutoCloseable appenderResource,
                                       final DestinationLaneId laneId, final byte[] laneIncarnation,
                                       final ProfileRefV1 destinationProfile, final ProfileRefV1 capabilityProfile,
@@ -1472,6 +1596,10 @@ public final class PulsarClientArtifactWorkerSmoke {
 
         ShardLogMutationAppender appender() {
             return appender;
+        }
+
+        RecordedMutationAppend lastMutationAppend() {
+            return appender.last();
         }
 
         DestinationLaneId laneId() {
@@ -1550,6 +1678,44 @@ public final class PulsarClientArtifactWorkerSmoke {
                 throw failure;
             }
         }
+    }
+
+    private static final class RecordingMutationAppender
+            implements ShardLogMutationAppender, AutoCloseable {
+        private final ShardLogMutationAppender delegate;
+        private volatile RecordedMutationAppend last;
+
+        private RecordingMutationAppender(final ShardLogMutationAppender delegate) {
+            this.delegate = java.util.Objects.requireNonNull(delegate, "delegate");
+        }
+
+        @Override
+        public AppendOutcome append(final SystemMutation mutation) {
+            final AppendOutcome outcome = java.util.Objects.requireNonNull(delegate.append(mutation),
+                    "Shard Log append outcome");
+            last = new RecordedMutationAppend(mutation, outcome);
+            return outcome;
+        }
+
+        private RecordedMutationAppend last() {
+            return last;
+        }
+
+        @Override
+        public void close() {
+            if (delegate instanceof AutoCloseable resource) {
+                try {
+                    resource.close();
+                } catch (RuntimeException failure) {
+                    throw failure;
+                } catch (Exception failure) {
+                    throw new IllegalStateException("Pulsar Worker mutation appender close failed", failure);
+                }
+            }
+        }
+    }
+
+    private record RecordedMutationAppend(SystemMutation mutation, ShardLogMutationAppender.AppendOutcome outcome) {
     }
 
     private static ShardId restartShard(final String physicalTopic) {
@@ -1637,6 +1803,135 @@ public final class PulsarClientArtifactWorkerSmoke {
         return attempts.get(0);
     }
 
+    /**
+     * The real Pulsar recovery cursor is positioned by a broker seek after the
+     * exact persisted source position. Pulsar entry IDs are not required to be
+     * numerically contiguous, so that broker-positioned boundary is the
+     * adapter's successor proof for the first post-crash record; same-entry
+     * batch members retain the strict proof thereafter.
+     */
+    private static SourceReplaySuccessor destinationResponseLossRecoverySuccessor(
+            final PulsarSourcePosition persistedPosition) {
+        final PulsarSourcePosition floor = java.util.Objects.requireNonNull(persistedPosition, "persistedPosition");
+        final SourceReplaySuccessor batchSuccessor = SourceReplaySuccessor.strictPulsarBatchMember();
+        final AtomicBoolean seekBoundaryConsumed = new AtomicBoolean();
+        return (previous, current) -> {
+            if (!seekBoundaryConsumed.get()
+                    && Arrays.equals(previous.canonicalBytes(), floor.canonicalBytes())
+                    && current.compareTo(previous) > 0) {
+                seekBoundaryConsumed.set(true);
+                return true;
+            }
+            return batchSuccessor.isSuccessor(previous, current);
+        };
+    }
+
+    private static String recoveryOutcomeSummary(final OwnerRecoveryTurn turn) {
+        if (turn.outcomes().isEmpty()) {
+            return "none";
+        }
+        final var result = turn.outcomes().get(turn.outcomes().size() - 1).systemMutationResult();
+        if (result == null) {
+            return "command";
+        }
+        return result.applyStatus() + "/" + result.stableCode();
+    }
+
+    private static void requireAppliedRecoveryOutcome(final OwnerRecoveryTurn turn) {
+        if (turn.outcomes().size() != 1 || turn.outcomes().get(0).systemMutationResult() == null) {
+            throw new IllegalStateException(
+                    "Pulsar destination response-loss recovery did not apply exactly one System Mutation Outcome");
+        }
+        final var result = turn.outcomes().get(0).systemMutationResult();
+        if (result.applyStatus() != io.nereusstream.delay.runtime.ApplyStatus.APPLIED
+                || result.stableCode() != StableCode.OK) {
+            throw new IllegalStateException("Pulsar destination response-loss recovery Outcome was not applied: "
+                    + result.applyStatus() + "/" + result.stableCode());
+        }
+    }
+
+    private static RecoveredDestinationOutcome requireRecoveredDestinationOutcome(
+            final List<SourceReplayEntry> recoveryEntries, final ShardStore store, final ShardId shard) {
+        SourceReplayMutation outcomeMutation = null;
+        for (SourceReplayEntry entry : recoveryEntries) {
+            if (entry instanceof SourceReplayMutation mutation
+                    && mutation.mutation().type() == SystemMutationType.PUBLISH_OUTCOME) {
+                outcomeMutation = mutation;
+            }
+        }
+        if (outcomeMutation == null) {
+            throw new IllegalStateException(
+                    "Pulsar destination response-loss recovery did not replay a PUBLISH_OUTCOME");
+        }
+        final PublishOutcomeBody outcome = PublishOutcomeBody.decode(outcomeMutation.mutation().canonicalBody());
+        if (outcome.sideEffect() != 1 || outcome.stableCode() != StableCode.OK
+                || !Arrays.equals(outcome.publishAttemptId(), outcomeMutation.mutation().logicalOperationIdentity())) {
+            throw new IllegalStateException(
+                    "Pulsar destination response-loss recovery replayed a non-definitive or divergent Outcome");
+        }
+        final PublishEvidenceV1 evidence = PublishEvidenceV1.decode(outcome.evidence());
+        if (evidence.evidenceKind() != PublishEvidenceKindV1.PULSAR_SEND_ACK
+                || evidence.verificationStatus() != EvidenceVerificationStatusV1.VERIFIED_PUBLISHED) {
+            throw new IllegalStateException(
+                    "Pulsar destination response-loss recovery replayed the wrong destination evidence branch");
+        }
+        evidence.requireBusinessMutation(outcome.publishAttemptId(), true);
+
+        MessageRecord recoveredMessage = null;
+        DelayMessageId recoveredMessageId = null;
+        final List<ShardStore.KeyValue> messages = store.scan(ColumnFamily.ID, new byte[]{1, 1}, new byte[]{1, 2}, 128);
+        System.out.println("Pulsar destination response-loss recovery message scan: entries=" + messages.size());
+        for (ShardStore.KeyValue entry : messages) {
+            final byte[] key = entry.key();
+            if (key.length != 2 + DelayMessageId.LENGTH || key[0] != 1 || key[1] != 1) {
+                continue;
+            }
+            final DelayMessageId candidateId = new DelayMessageId(Arrays.copyOfRange(key, 2, key.length));
+            if (!candidateId.routingId().shardId().equals(shard)) {
+                continue;
+            }
+            final MessageRecord candidate = MessageRecord.decode(
+                    ValueEnvelope.decode(entry.value(), 1).payload());
+            System.out.println("Pulsar destination response-loss recovery message observation: id="
+                    + Bytes.hex(candidateId.bytes()) + ", shardMatches=" + candidateId.routingId().shardId().equals(shard)
+                    + ", status=" + candidate.status());
+            if (candidate.status() != MessageStatus.PUBLISHED) {
+                continue;
+            }
+            if (recoveredMessage != null) {
+                throw new IllegalStateException(
+                        "Pulsar destination response-loss recovery found multiple PUBLISHED messages");
+            }
+            recoveredMessage = candidate;
+            recoveredMessageId = candidateId;
+        }
+        if (recoveredMessage == null || recoveredMessageId == null) {
+            throw new IllegalStateException(
+                    "Pulsar destination response-loss recovery did not find the durable PUBLISHED message");
+        }
+        final SourcePosition schedulePosition = SourcePositionCodec.decode(recoveredMessage.scheduleSourcePosition());
+        if (!(schedulePosition instanceof PulsarSourcePosition pulsarSchedulePosition)) {
+            throw new IllegalStateException(
+                    "Pulsar destination response-loss recovery found a non-Pulsar schedule position");
+        }
+        return new RecoveredDestinationOutcome(recoveredMessageId, pulsarSchedulePosition,
+                recoveredMessage.payload(), outcome, outcomeMutation.position());
+    }
+
+    private record RecoveredDestinationOutcome(DelayMessageId messageId,
+                                               PulsarSourcePosition physicalSchedulePosition,
+                                               byte[] payload, PublishOutcomeBody outcome,
+                                               SourcePosition outcomePosition) {
+        private RecoveredDestinationOutcome {
+            payload = Bytes.copy(payload);
+        }
+
+        @Override
+        public byte[] payload() {
+            return Bytes.copy(payload);
+        }
+    }
+
     private static void awaitWorkerProcessCrashGate(final Path root) throws Exception {
         final String gate = System.getenv("NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_GATE");
         final String pidFile = System.getenv("NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_PID_FILE");
@@ -1659,6 +1954,10 @@ public final class PulsarClientArtifactWorkerSmoke {
 
     private static boolean hasAdmissionResponseLossProcessCrash() {
         return "1".equals(System.getenv("NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS_PROCESS_CRASH_ONLY"));
+    }
+
+    private static boolean hasDestinationResponseLossProcessCrash() {
+        return "1".equals(System.getenv("NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS_PROCESS_CRASH_ONLY"));
     }
 
     private static Path chaosStateDumpDirectory() {
@@ -1687,11 +1986,34 @@ public final class PulsarClientArtifactWorkerSmoke {
         }
     }
 
-    private static void writeChaosStateDump(final String phase, final Path root, final ShardStore store,
-                                            final PublishAttemptLedger attempt,
+    private static void awaitDestinationResponseLossProcessCrashGate(final Path dbPath) throws Exception {
+        final String gate = System.getenv("NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS_PROCESS_CRASH_GATE");
+        final String pidFile = System.getenv("NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS_PROCESS_CRASH_PID_FILE");
+        if (gate == null || gate.isBlank() || pidFile == null || pidFile.isBlank()) {
+            throw new IllegalStateException(
+                    "Pulsar Worker destination response-loss crash requires gate and PID file paths");
+        }
+        final Path gatePath = Path.of(gate).toAbsolutePath().normalize();
+        final Path pidPath = Path.of(pidFile).toAbsolutePath().normalize();
+        Files.deleteIfExists(gatePath);
+        Files.deleteIfExists(pidPath);
+        Files.createFile(gatePath);
+        Files.writeString(pidPath, Long.toString(ProcessHandle.current().pid()));
+        System.out.println("Pulsar Worker destination response-loss process-crash cut reached: "
+                + "physicalSendEvidenceResolved=true, outcomePersisted=true, sourceApplyStarted=false, storeRoot="
+                + dbPath);
+        while (Files.exists(gatePath)) {
+            Thread.sleep(50L);
+        }
+    }
+
+    private static void writeChaosStateDump(final String cell, final String phase, final Path root,
+                                            final ShardStore store, final PublishAttemptLedger attempt,
                                             final PulsarSourcePosition physicalSchedulePosition,
-                                            final String observedAttemptState,
-                                            final boolean outcomeApplied) throws Exception {
+                                            final String observedAttemptState, final boolean outcomeApplied,
+                                            final byte[] publishAttemptIdOverride,
+                                            final byte[] attemptSourcePositionOverride,
+                                            final DelayMessageId messageIdOverride) throws Exception {
         final Path directory = chaosStateDumpDirectory();
         if (directory == null) {
             return;
@@ -1699,18 +2021,26 @@ public final class PulsarClientArtifactWorkerSmoke {
         Files.createDirectories(directory);
         final Path target = directory.resolve(
                 "ADMISSION_RESPONSE_LOSS_PERSISTED".equals(phase)
+                        || "DESTINATION_RESPONSE_LOSS_PERSISTED".equals(phase)
                         ? "before-process-crash.json" : "after-fresh-process.json");
         final var metadata = store.metadata();
         final var appliedPosition = store.appliedShardLogPosition();
-        final String attemptSourcePosition = attempt == null ? null : Bytes.hex(attempt.sourcePosition());
-        final String publishAttemptId = attempt == null ? null : Bytes.hex(attempt.publishAttemptId());
+        final String attemptSourcePosition = attemptSourcePositionOverride == null
+                ? (attempt == null ? null : Bytes.hex(attempt.sourcePosition()))
+                : Bytes.hex(attemptSourcePositionOverride);
+        final String publishAttemptId = publishAttemptIdOverride == null
+                ? (attempt == null ? null : Bytes.hex(attempt.publishAttemptId()))
+                : Bytes.hex(publishAttemptIdOverride);
+        final String messageId = messageIdOverride == null
+                ? (attempt == null ? null : Bytes.hex(attempt.delayMessageId().bytes()))
+                : Bytes.hex(messageIdOverride.bytes());
         final String appliedSourcePosition = appliedPosition == null ? null : Bytes.hex(appliedPosition.canonicalBytes());
         final String schedulePosition = physicalSchedulePosition == null
                 ? null : Bytes.hex(physicalSchedulePosition.canonicalBytes());
         final String shard = metadata.shardId().routeIncarnation().uuid() + "/" + metadata.shardId().partition();
         final String json = "{\n"
                 + "  \"schema\": \"nereus-delay-chaos-durable-state-dump-v1\",\n"
-                + "  \"cell\": \"pulsar-worker-admission-response-loss-process-crash\",\n"
+                + "  \"cell\": " + jsonString(cell) + ",\n"
                 + "  \"phase\": " + jsonString(phase) + ",\n"
                 + "  \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
                 + "  \"store_root\": " + jsonString(root.toString()) + ",\n"
@@ -1723,6 +2053,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                 + "  \"attempt_state\": " + jsonString(observedAttemptState) + ",\n"
                 + "  \"publish_attempt_id\": " + jsonNullable(publishAttemptId) + ",\n"
                 + "  \"attempt_source_position\": " + jsonNullable(attemptSourcePosition) + ",\n"
+                + "  \"message_id\": " + jsonNullable(messageId) + ",\n"
                 + "  \"outcome_applied\": " + outcomeApplied + ",\n"
                 + "  \"durable_store_read\": true,\n"
                 + "  \"dump_forced\": true\n"

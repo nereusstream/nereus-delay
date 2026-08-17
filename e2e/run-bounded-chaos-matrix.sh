@@ -138,6 +138,16 @@ audit_cell() {
       authority_evidence="Pulsar Worker authority smoke passed"
       required_markers=("Pulsar Worker Publish Admission response-loss smoke passed" "Pulsar Worker Publish Admission response-loss fresh-process recovery E2E passed" "Pulsar Worker source-applied physical publish passed" "Pulsar Worker authority smoke passed")
       ;;
+    pulsar-worker-destination-response-loss)
+      injection_point="discard the real Pulsar SEND response after PULSAR_SEND_ACK evidence is resolved and before source apply"
+      expected_state="a fresh Worker replays the durable PUBLISH_OUTCOME, applies PUBLISHED and reads the exact destination payload without a second SEND"
+      duplicate_boundary="the durable Outcome is the only recovery authority; fresh process recovery must not resend the physical payload"
+      fresh_process_recovery="PASS"
+      source_evidence="Pulsar Worker destination response-loss fresh-process recovery E2E passed"
+      target_evidence="Pulsar Worker vertical smoke passed"
+      authority_evidence="Pulsar Worker authority smoke passed"
+      required_markers=("Pulsar Worker destination response-loss fresh-process recovery passed" "Pulsar Worker destination response-loss fresh-process recovery E2E passed" "Pulsar Worker vertical smoke passed" "Pulsar Worker authority smoke passed")
+      ;;
     checkpoint-reaping)
       injection_point="checkpoint upload/catalog/reaping competition against real Oxia and MinIO"
       expected_state="only the authorized checkpoint candidate is published/reaped and immutable object identity is preserved"
@@ -254,6 +264,56 @@ audit_cell() {
       invariant_audit_status="INDEPENDENT_FIELDS_PASS"
       durable_state_dump_note="external fsync-forced JSON dump before SIGKILL and after fresh-process recovery"
       invariant_audit_note="pre/post durable fields, Store identity and Publish Attempt identity were independently compared"
+    else
+      fresh_process_recovery="FAIL"
+      durable_state_dump_status="FAIL"
+      invariant_audit_status="FAIL"
+      durable_state_dump_note="required pre-crash and post-recovery dumps were missing or failed cross-process validation"
+      invariant_audit_note="independent durable-field comparison failed"
+      audit_status="FAIL"
+    fi
+  fi
+  if [[ "${name}" == "pulsar-worker-destination-response-loss" ]]; then
+    local state_dump_dir="${artifact_dir}/pulsar-worker-destination-response-loss-state"
+    local before_dump="${state_dump_dir}/before-process-crash.json"
+    local after_dump="${state_dump_dir}/after-fresh-process.json"
+    if [[ -s "${before_dump}" && -s "${after_dump}" ]] \
+        && jq -e \
+          --slurpfile before "${before_dump}" \
+          --slurpfile after "${after_dump}" \
+          -n '
+            ($before[0]) as $pre
+            | ($after[0]) as $post
+            | $pre.schema == "nereus-delay-chaos-durable-state-dump-v1"
+              and $post.schema == "nereus-delay-chaos-durable-state-dump-v1"
+              and $pre.cell == "pulsar-worker-destination-response-loss-process-crash"
+              and $post.cell == $pre.cell
+              and $pre.phase == "DESTINATION_RESPONSE_LOSS_PERSISTED"
+              and $post.phase == "RECOVERED_AFTER_FRESH_PROCESS"
+              and $pre.attempt_state == "PUBLISHING"
+              and $post.attempt_state == "PUBLISHED"
+              and $pre.outcome_applied == false
+              and $post.outcome_applied == true
+              and $pre.durable_store_read == true
+              and $post.durable_store_read == true
+              and $pre.dump_forced == true
+              and $post.dump_forced == true
+              and ($pre.store_root == $post.store_root)
+              and ($pre.shard == $post.shard)
+              and ($pre.store_incarnation == $post.store_incarnation)
+              and ($pre.db_identity == $post.db_identity)
+              and ($pre.physical_schedule_position == $post.physical_schedule_position)
+              and ($pre.publish_attempt_id == $post.publish_attempt_id)
+              and ($pre.message_id == $post.message_id)
+              and ($pre.publish_attempt_id | (type == "string" and length > 0))
+              and ($pre.message_id | (type == "string" and length > 0))
+              and ($pre.physical_schedule_position | (type == "string" and length > 0))
+              and ($post.applied_source_position | (type == "string" and length > 0))
+          ' >/dev/null; then
+      durable_state_dump_status="CAPTURED_AND_VERIFIED"
+      invariant_audit_status="INDEPENDENT_FIELDS_PASS"
+      durable_state_dump_note="external fsync-forced JSON dump before SIGKILL and after fresh-process recovery"
+      invariant_audit_note="pre/post durable fields, Store identity, Publish Attempt identity and Message identity were independently compared"
     else
       fresh_process_recovery="FAIL"
       durable_state_dump_status="FAIL"
@@ -408,6 +468,18 @@ run_cell pulsar-worker-admission-response-loss env \
   NEREUS_DELAY_PULSAR_OXIA_PORT=31290 \
   "${script_dir}/run-pulsar-real-client-e2e.sh"
 
+run_cell pulsar-worker-destination-response-loss env \
+  NEREUS_DELAY_PULSAR_CHECKOUT="${pulsar_dir}" \
+  NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
+  NEREUS_DELAY_PULSAR_WITH_OXIA=1 \
+  NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS=1 \
+  NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS_PROCESS_CRASH_ONLY=1 \
+  NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_STATE_DUMP_DIR="${artifact_dir}/pulsar-worker-destination-response-loss-state" \
+  NEREUS_DELAY_PULSAR_GRADLE_USER_HOME="${matrix_gradle_home}" \
+  PULSAR_BROKER_PORT=31300 PULSAR_WEB_PORT=31301 \
+  NEREUS_DELAY_PULSAR_OXIA_PORT=31310 \
+  "${script_dir}/run-pulsar-real-client-e2e.sh"
+
 run_cell checkpoint-reaping env \
   NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
   NEREUS_DELAY_E2E_GRADLE_USER_HOME="${matrix_gradle_home}" \
@@ -488,15 +560,14 @@ chaos_artifact_tmp="${chaos_artifact}.tmp"
 admission_audit_status="$(jq -r '."pulsar-worker-admission-response-loss".audit.audit_status' "${cells_json}")"
 admission_dump_status="$(jq -r '."pulsar-worker-admission-response-loss".audit.durable_state_dump.status' "${cells_json}")"
 admission_invariant_status="$(jq -r '."pulsar-worker-admission-response-loss".audit.invariant_audit.status' "${cells_json}")"
-if [[ "${admission_audit_status}" == "PASS" ]]; then
-  durable_state_dump_summary="CELL_SPECIFIC; pulsar-worker-admission-response-loss CAPTURED_AND_VERIFIED; other cells NOT_CAPTURED"
-  fresh_process_recovery_summary="CELL_SPECIFIC; pulsar-worker-admission-response-loss PASS; other cells NOT_COVERED"
-  invariant_audit_summary="CELL_SPECIFIC; pulsar-worker-admission-response-loss INDEPENDENT_FIELDS_PASS; other cells MARKER_ONLY"
-else
-  durable_state_dump_summary="CELL_SPECIFIC; pulsar-worker-admission-response-loss ${admission_dump_status}; other cells NOT_CAPTURED"
-  fresh_process_recovery_summary="CELL_SPECIFIC; pulsar-worker-admission-response-loss FAIL; other cells NOT_COVERED"
-  invariant_audit_summary="CELL_SPECIFIC; pulsar-worker-admission-response-loss ${admission_invariant_status}; other cells MARKER_ONLY"
-fi
+destination_audit_status="$(jq -r '."pulsar-worker-destination-response-loss".audit.audit_status' "${cells_json}")"
+destination_dump_status="$(jq -r '."pulsar-worker-destination-response-loss".audit.durable_state_dump.status' "${cells_json}")"
+destination_recovery_status="$(jq -r '."pulsar-worker-destination-response-loss".audit.fresh_process_recovery' "${cells_json}")"
+destination_invariant_status="$(jq -r '."pulsar-worker-destination-response-loss".audit.invariant_audit.status' "${cells_json}")"
+admission_recovery_status="$(jq -r '."pulsar-worker-admission-response-loss".audit.fresh_process_recovery' "${cells_json}")"
+durable_state_dump_summary="CELL_SPECIFIC; pulsar-worker-admission-response-loss ${admission_dump_status}; pulsar-worker-destination-response-loss ${destination_dump_status}; other cells NOT_CAPTURED"
+fresh_process_recovery_summary="CELL_SPECIFIC; pulsar-worker-admission-response-loss ${admission_recovery_status}; pulsar-worker-destination-response-loss ${destination_recovery_status}; other cells NOT_COVERED"
+invariant_audit_summary="CELL_SPECIFIC; pulsar-worker-admission-response-loss ${admission_invariant_status}; pulsar-worker-destination-response-loss ${destination_invariant_status}; other cells MARKER_ONLY"
 if [[ "${matrix_status}" == "0" ]]; then
   matrix_result="PASS_BOUNDED"
 else
@@ -532,7 +603,7 @@ jq -n \
     boundaries: [
       "This is a bounded current-source fault matrix, not V1 release certification.",
       "Each bounded cell must emit its declared injection and required recovery markers; missing markers fail the bounded artifact.",
-      "Only the Pulsar Worker Publish Admission response-loss cell captures and independently audits an external durable state dump; the remaining cells still require their own §23.3 durable evidence.",
+      "The Pulsar Worker Publish Admission and Worker destination response-loss cells capture and independently audit external durable state dumps; the remaining cells still require their own §23.3 durable evidence.",
       "A release gate must additionally prove required benchmark/capacity, certified soak, activation/cutover, operations and external authority evidence."
     ]
   }' >"${chaos_artifact_tmp}"
