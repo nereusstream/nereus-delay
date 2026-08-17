@@ -660,6 +660,19 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         return value == null || value.isBlank() ? fallback : value;
     }
 
+    private static Duration configuredDuration(final String name, final long fallbackMillis) {
+        final String value = configured(name, Long.toString(fallbackMillis));
+        try {
+            final long millis = Long.parseLong(value);
+            if (millis <= 0) {
+                throw new IllegalArgumentException(name + " must be positive milliseconds");
+            }
+            return Duration.ofMillis(millis);
+        } catch (NumberFormatException failure) {
+            throw new IllegalArgumentException(name + " must be positive milliseconds", failure);
+        }
+    }
+
     private static List<String> configuredAdminUrls(final String value) {
         final List<String> urls = Arrays.stream(value.split(","))
                 .map(String::trim)
@@ -1033,6 +1046,8 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         final String minioSecretKey = requiredEnv("NEREUS_DELAY_MINIO_SECRET_KEY");
         final String minioBucket = requiredEnv("NEREUS_DELAY_MINIO_BUCKET");
         final String minioRegion = configured("NEREUS_DELAY_MINIO_REGION", "us-east-1");
+        final Duration minioRequestTimeout = configuredDuration(
+                "NEREUS_DELAY_MINIO_REQUEST_TIMEOUT_MS", 60_000);
         final Path serverCertificate = requiredPath("NEREUS_DELAY_GATEWAY_SERVER_CERT");
         final Path serverPrivateKey = requiredPath("NEREUS_DELAY_GATEWAY_SERVER_KEY");
         final Path trustedClientCertificates = requiredPath("NEREUS_DELAY_GATEWAY_CA_CERT");
@@ -1184,7 +1199,10 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                             final S3CompatiblePayloadObjectStore payloadStore = new S3CompatiblePayloadObjectStore(
                                     objectStoreProfile, minioUri, minioRegion, minioBucket, minioAccessKey,
                                     minioSecretKey, null, tenant.tenantRoutingScope(), trustSet, 7,
-                                    proofKeys.getPrivate());
+                                    Long.MAX_VALUE, proofKeys.getPrivate(), null,
+                                    HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10))
+                                            .followRedirects(HttpClient.Redirect.NEVER).build(),
+                                    Clock.systemUTC(), minioRequestTimeout);
                             final OxiaSyncOwnerLeaseBackend.ClientHandle admissionHandle =
                                     OxiaSyncOwnerLeaseBackend.connectUnchecked(oxiaEndpoint, namespace,
                                             "pulsar-large-admission-" + UUID.randomUUID(), Duration.ofSeconds(15),

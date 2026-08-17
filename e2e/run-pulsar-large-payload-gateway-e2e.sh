@@ -57,6 +57,7 @@ minio_bucket="${NEREUS_DELAY_MINIO_BUCKET:-nereus-delay-pulsar-large-${compose_p
 minio_endpoint="http://127.0.0.1:${minio_port}"
 minio_object_store_endpoint="${minio_endpoint}"
 minio_fault_mode="${NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MINIO_FAULT_MODE:-NONE}"
+minio_request_timeout_ms="${NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MINIO_REQUEST_TIMEOUT_MS:-60000}"
 minio_fault_proxy_port="${NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MINIO_FAULT_PROXY_PORT:-31700}"
 minio_fault_proxy_endpoint="http://127.0.0.1:${minio_fault_proxy_port}"
 
@@ -80,8 +81,13 @@ if [[ ! "${network_partition_handoff_wait_seconds}" =~ ^[0-9]+$ ]]; then
   echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_NETWORK_PARTITION_HANDOFF_WAIT_SECONDS must be a non-negative integer" >&2
   exit 1
 fi
-if [[ "${minio_fault_mode}" != "NONE" && "${minio_fault_mode}" != "PUT_503_AFTER_COMMIT" ]]; then
-  echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MINIO_FAULT_MODE must be NONE or PUT_503_AFTER_COMMIT" >&2
+if [[ "${minio_fault_mode}" != "NONE" && "${minio_fault_mode}" != "PUT_503_AFTER_COMMIT" \
+    && "${minio_fault_mode}" != "PUT_TIMEOUT_AFTER_COMMIT" ]]; then
+  echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MINIO_FAULT_MODE must be NONE, PUT_503_AFTER_COMMIT or PUT_TIMEOUT_AFTER_COMMIT" >&2
+  exit 1
+fi
+if [[ ! "${minio_request_timeout_ms}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MINIO_REQUEST_TIMEOUT_MS must be a positive integer" >&2
   exit 1
 fi
 if [[ ! "${minio_fault_proxy_port}" =~ ^[0-9]+$ ]]; then
@@ -287,6 +293,7 @@ echo "Compose project: ${compose_project}"
 echo "Pulsar service/admin: ${service_url}/${admin_url}"
 echo "Oxia/MinIO/Gateway: 127.0.0.1:${oxia_port}/127.0.0.1:${minio_port}/127.0.0.1:${gateway_port}"
 echo "Object Store endpoint: ${minio_object_store_endpoint}"
+echo "MinIO request timeout: ${minio_request_timeout_ms}ms"
 if [[ "${minio_fault_mode}" != "NONE" ]]; then
   echo "MinIO fault mode/proxy: ${minio_fault_mode}/${minio_fault_proxy_endpoint}"
 fi
@@ -300,6 +307,7 @@ smoke_environment=(
   "NEREUS_DELAY_MINIO_SECRET_KEY=${minio_secret_key}"
   "NEREUS_DELAY_MINIO_BUCKET=${minio_bucket}"
   "NEREUS_DELAY_MINIO_REGION=${minio_region}"
+  "NEREUS_DELAY_MINIO_REQUEST_TIMEOUT_MS=${minio_request_timeout_ms}"
   "NEREUS_DELAY_GATEWAY_PORT=${gateway_port}"
   "NEREUS_DELAY_GATEWAY_SERVER_CERT=${tls_dir}/server.crt"
   "NEREUS_DELAY_GATEWAY_SERVER_KEY=${tls_dir}/server.key"

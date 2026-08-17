@@ -157,6 +157,7 @@ import org.apache.kafka.common.serialization.ByteArraySerializer;
 import javax.net.ssl.SSLException;
 import java.io.InputStream;
 import java.net.URI;
+import java.net.http.HttpClient;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -215,6 +216,8 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         final String minioSecretKey = requiredEnv("NEREUS_DELAY_MINIO_SECRET_KEY");
         final String minioBucket = requiredEnv("NEREUS_DELAY_MINIO_BUCKET");
         final String minioRegion = configured("NEREUS_DELAY_MINIO_REGION", "us-east-1");
+        final Duration minioRequestTimeout = configuredDuration(
+                "NEREUS_DELAY_MINIO_REQUEST_TIMEOUT_MS", 60_000);
         final String minioSessionToken = configuredNullable("NEREUS_DELAY_MINIO_SESSION_TOKEN");
         final Path serverCertificate = requiredPath("NEREUS_DELAY_GATEWAY_SERVER_CERT");
         final Path serverPrivateKey = requiredPath("NEREUS_DELAY_GATEWAY_SERVER_KEY");
@@ -373,7 +376,10 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                         final S3CompatiblePayloadObjectStore payloadStore = new S3CompatiblePayloadObjectStore(
                                 objectStoreProfile, minioUri, minioRegion, minioBucket, minioAccessKey,
                                 minioSecretKey, minioSessionToken, tenant.tenantRoutingScope(), trustSet, 7,
-                                proofKeys.getPrivate());
+                                Long.MAX_VALUE, proofKeys.getPrivate(), null,
+                                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10))
+                                        .followRedirects(HttpClient.Redirect.NEVER).build(),
+                                Clock.systemUTC(), minioRequestTimeout);
 
                         final OxiaGatewayAdmissionController admission = new OxiaGatewayAdmissionController(
                                 admissionHandle, gatewayPrefix + "/admission", System::currentTimeMillis,
@@ -1173,6 +1179,19 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
     private static String configured(final String name, final String fallback) {
         final String value = System.getenv(name);
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private static Duration configuredDuration(final String name, final long fallbackMillis) {
+        final String value = configured(name, Long.toString(fallbackMillis));
+        try {
+            final long millis = Long.parseLong(value);
+            if (millis <= 0) {
+                throw new IllegalArgumentException(name + " must be positive milliseconds");
+            }
+            return Duration.ofMillis(millis);
+        } catch (NumberFormatException failure) {
+            throw new IllegalArgumentException(name + " must be positive milliseconds", failure);
+        }
     }
 
     private static String configuredNullable(final String name) {
