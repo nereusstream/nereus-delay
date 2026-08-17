@@ -279,3 +279,46 @@ at Delay `54759958b0c7af41ffa2374d835831ec7df72d13`, K1
 Gradle checks passed. It remains `release_status=NOT_READY`: capacity is
 `PARTIAL`, certified soak is absent, and activation, operations and chaos are
 `PASS_BOUNDED`, not promotable `PASS_CERTIFIED` evidence.
+
+## 11. Current-source Pulsar two-shard Large Payload authority drill
+
+Run this receipt with a source topic base that does not contain Pulsar's
+reserved `-partition-` pattern:
+
+```bash
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MULTI_SHARD=1 \
+PULSAR_LARGE_BROKER_1_PORT=33400 \
+PULSAR_LARGE_WEB_1_PORT=33401 \
+PULSAR_LARGE_BROKER_2_PORT=33402 \
+PULSAR_LARGE_WEB_2_PORT=33403 \
+NEREUS_DELAY_PULSAR_LARGE_OXIA_PORT=33410 \
+NEREUS_DELAY_PULSAR_LARGE_MINIO_PORT=33411 \
+NEREUS_DELAY_PULSAR_LARGE_GATEWAY_PORT=33412 \
+PULSAR_LARGE_PAYLOAD_TOPIC=pulsar-large-payload-multi-20260817-r3 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-large-payload-multi-20260817-r3 \
+bash e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+The source-locked r3 receipt passed with Delay
+`801e5be6a931f0dc4c5e991b79f099fdc6fd1b02`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+It passed two guarded source barriers, two Assignment/Owner pairs, one Worker
+fleet, per-shard MinIO upload/attest/Commit/readback, exact Gateway Prepare
+replay and final checkpoint/Owner release. The output was:
+
+```text
+partition=0 barrier=3/1 prepare=3/2 commit=3/3 objectVersion=59ecd3d5-60c0-43e7-a583-a6f78e9c7d49
+partition=1 barrier=4/1 prepare=4/2 commit=4/3 objectVersion=ace5c3a2-a148-4d2a-afc8-5b5872012f9f
+subscribePartitions=2 routeRevision=1 exactGatewayIdempotency=true
+BUILD SUCCESSFUL in 1m 1s
+```
+
+This is an Object Store authority drill. It deliberately does not exercise
+destination egress, Broker failover, MinIO fault modes or certified soak.
+After every run, verify the exact Compose project resources, ports and
+generated images are gone. The runner performs only run-scoped cleanup with
+`docker compose down --volumes --remove-orphans --rmi local` plus exact
+generated P1/Oxia image removal. Retain only the locked Oxia/MinIO bases; do
+not use global `docker image prune` or `docker system prune`.

@@ -15621,3 +15621,47 @@ cross-repository contracts and full Gradle `check` passed. The fail-closed
 result remains `release_status=NOT_READY`: capacity is `PARTIAL`, certified
 soak is missing, and activation, operations and chaos are `PASS_BOUNDED` and
 therefore blocked until independently promoted to `PASS_CERTIFIED`.
+
+## 2026-08-17 Current-source Pulsar two-shard Large Payload Object Store authority
+
+Delay `801e5be6a931f0dc4c5e991b79f099fdc6fd1b02` adds the opt-in
+`NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MULTI_SHARD=1` receipt to
+`e2e/run-pulsar-large-payload-gateway-e2e.sh`. The clean real run used P1
+`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+P1 distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, P1 image
+`sha256:a2c76925f2504337a55c1b88d0a83cc80147d563189041514b63bc1e347cf9d3`
+and locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+The isolated Compose project was
+`nereus-delay-pulsar-large-e2e-1786941096-27558`, using Pulsar
+`33400/33401/33402/33403`, Oxia `33410`, MinIO `33411` and Gateway `33412`.
+The generated source base was
+`pulsar-large-payload-multi-20260817-r3-ae731f69-efdc-4486-aea4-93c17069fb22`.
+The receipt crossed two exact guarded SUBSCRIBE barriers, one signed Route
+revision, two Oxia Assignment CAS publications, two Owner Leases and one
+`WorkerShardFleetRuntime`. Each partition then passed real Gateway mTLS/JWT
+Prepare, real MinIO 1 MiB+ upload/attest/commit/readback, exact Prepare
+idempotency replay and final checkpoint/Owner release:
+
+```text
+partition=0: barrier=3/1, prepare=3/2, commit=3/3, objectVersion=59ecd3d5-60c0-43e7-a583-a6f78e9c7d49, sourceRecords=4
+partition=1: barrier=4/1, prepare=4/2, commit=4/3, objectVersion=ace5c3a2-a148-4d2a-afc8-5b5872012f9f, sourceRecords=4
+subscribePartitions=2, routeRevision=1, workers=[pulsar-large-payload-worker-a, pulsar-large-payload-worker-b], exactGatewayIdempotency=true
+BUILD SUCCESSFUL in 1m 1s
+```
+
+This is a current-source PASS for the two-shard Pulsar Large Payload Object
+Store authority boundary. The opt-in path intentionally does not create or
+publish to a destination topic; destination egress, multi-Broker failover in
+the same receipt, placement churn/catalog authority, provider/controller/
+storage failover, certified soak and V1 release certification remain open.
+The existing single-shard path remains the destination-egress proof.
+
+Exact postchecks found no matching Compose containers, networks, volumes,
+listeners or generated P1/Oxia per-run images. The locked Oxia and MinIO
+images were retained; no global Docker prune or unrelated image deletion was
+performed. The receipt log remains at
+`/var/folders/vk/l_r0z80j1dj93fsrjx3zqv4r0000gn/T/nereus-delay-pulsar-large-receipt.XXXXXX.bcBZJXAWks.log`.

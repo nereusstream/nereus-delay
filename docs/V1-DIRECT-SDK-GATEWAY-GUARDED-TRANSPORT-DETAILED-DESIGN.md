@@ -7923,3 +7923,36 @@ at Delay `54759958b0c7af41ffa2374d835831ec7df72d13`, K1
 Gradle checks pass, but capacity remains `PARTIAL`, soak is missing and the
 bounded activation/operations/chaos receipts are blocked by the
 `PASS_CERTIFIED` release rule; overall status is `NOT_READY`.
+
+## Current-source Pulsar multi-shard Large Payload transport receipt
+
+The opt-in runner flag
+`NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MULTI_SHARD=1` exercises the following
+transport composition over two real Pulsar physical partitions:
+
+```text
+signed Route snapshot
+  -> guarded SUBSCRIBE barrier[0] + barrier[1]
+  -> Oxia Assignment CAS[0] + CAS[1]
+  -> Owner Lease[0] + Lease[1]
+  -> one fair WorkerShardFleetRuntime
+  -> one Gateway mTLS/JWT coordinator
+  -> request-exact Pulsar managed receipt projection
+  -> MinIO reservation / upload / attestation / Commit / readback per shard
+  -> checkpoint publication and Owner release per shard
+```
+
+The keyed `PulsarManagedSubmissionOutcomeProjector(PulsarCommandTransportKey)`
+contract remains unchanged for a single physical source. The multi-partition
+coordinator uses its no-argument exact-resource mode; `PulsarSendRequest` is
+the authority for cluster, resource incarnation, physical topic, creation
+timestamp and partition fencing, and a persisted result still requires
+response evidence. A result from a different request resource is uncertain,
+not accepted.
+
+This receipt proves Object Store authority only. The opt-in mode intentionally
+does not create a destination topic or run destination egress, and it is
+mutually exclusive with Broker failover/network-partition and MinIO fault
+modes. The normal single-shard path and the separate failover receipts retain
+those boundaries; no multi-shard destination or release claim should be
+inferred from this result.

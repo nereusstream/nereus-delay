@@ -12438,3 +12438,29 @@ at Delay `54759958b0c7af41ffa2374d835831ec7df72d13`, K1
 `37a17bef17202d5fd6e23282da5fd26d94865484`. Source, contract and full-check
 PASS; capacity is `PARTIAL`, soak is missing, activation/operations/chaos are
 bounded, and the fail-closed result remains `NOT_READY`.
+
+### 2026-08-17 Pulsar multi-shard Large Payload authority decision
+
+The current-source implementation at Delay
+`801e5be6a931f0dc4c5e991b79f099fdc6fd1b02` now has a bounded two-shard
+Pulsar Large Payload authority receipt. One signed Route snapshot carries two
+`PulsarPhysicalPartitionIdentityV1` resources and two independently proved
+guarded SUBSCRIBE activation barriers. Each shard crosses its own Oxia
+Assignment CAS and Owner Lease, while one `WorkerShardFleetRuntime` provides
+fair source turns over both accepted runtimes.
+
+The managed submission coordinator deliberately keeps one keyed projector
+constructor for the existing single-physical-topic behavior and adds an
+explicit multi-physical-partition mode whose
+`PulsarManagedSubmissionOutcomeProjector` fences the receipt against the
+exact `PulsarSendRequest` cluster, resource incarnation, physical topic,
+creation timestamp and partition. This is a transport correctness fix, not a
+relaxation of resource fencing.
+
+The real receipt passed per-shard Gateway mTLS/JWT Prepare, MinIO upload,
+attestation, Commit, readback, exact Prepare replay and final checkpoint /
+Owner release at barriers `3/1` and `4/1`, with Prepare/Commit
+`3/2,3/3` and `4/2,4/3`. The opt-in receipt intentionally stops at Object
+Store authority: it does not claim destination publication, Broker failover,
+placement churn, catalog-driven authority or release certification. Those
+boundaries remain separate audit items.

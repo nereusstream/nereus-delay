@@ -5721,3 +5721,42 @@ at Delay `54759958b0c7af41ffa2374d835831ec7df72d13`, K1
 passed. The fail-closed result is `release_status=NOT_READY`: capacity is
 `PARTIAL`, certified soak is missing, and activation, operations and chaos are
 `PASS_BOUNDED` and remain blocked by the `PASS_CERTIFIED` rule.
+
+## Current-source Pulsar Large Payload multi-shard authority
+
+The opt-in multi-shard receipt uses two real Pulsar physical source
+partitions, two Oxia Assignment/Owner records and one fair Worker fleet. It
+proves the Object Store authority path through Gateway mTLS/JWT and real
+MinIO, but intentionally does not run destination egress in the same receipt.
+The topic base must not contain `-partition-` because Pulsar reserves that
+pattern for generated physical partition names.
+
+```bash
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MULTI_SHARD=1 \
+PULSAR_LARGE_BROKER_1_PORT=33400 \
+PULSAR_LARGE_WEB_1_PORT=33401 \
+PULSAR_LARGE_BROKER_2_PORT=33402 \
+PULSAR_LARGE_WEB_2_PORT=33403 \
+NEREUS_DELAY_PULSAR_LARGE_OXIA_PORT=33410 \
+NEREUS_DELAY_PULSAR_LARGE_MINIO_PORT=33411 \
+NEREUS_DELAY_PULSAR_LARGE_GATEWAY_PORT=33412 \
+PULSAR_LARGE_PAYLOAD_TOPIC=pulsar-large-payload-multi-20260817-r3 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-large-payload-multi-20260817-r3 \
+bash e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+The current PASS receipt is Delay
+`801e5be6a931f0dc4c5e991b79f099fdc6fd1b02`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and locked MinIO
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+It passed barriers `3/1` and `4/1`, Prepare/Commit `3/2,3/3` and
+`4/2,4/3`, exact object versions
+`59ecd3d5-60c0-43e7-a583-a6f78e9c7d49` and
+`ace5c3a2-a148-4d2a-afc8-5b5872012f9f`, exact Gateway idempotency, source
+record count `4` per partition and final checkpoint/Owner release. Gradle
+reported `BUILD SUCCESSFUL in 1m 1s`.
+
+The runner removes its exact Compose containers, networks, volumes, listeners
+and generated P1/Oxia images. The locked Oxia/MinIO images are retained; no
+global Docker prune or unrelated image deletion is part of this receipt.
