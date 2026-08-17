@@ -5362,3 +5362,43 @@ sustained: records/size=1024, SLO samples=512, payload sizes=256/4096/65536, rec
 ```
 
 All cases reported `store.reopen_verified=true` and `collector_reopen_verified=true`; the Linux platform authority was available under the bounded 2 GiB/256 MiB/65536-nofile/4 GiB-tmpfs container. This remains a bounded local capacity receipt, not the required Broker throughput, Lane/shard, compaction/restore, inline-object, soak or V1 release campaign. The exact generated JDK image was removed and no matrix resource remained.
+
+## Current-source Kafka two-shard Large Payload Object Store authority
+
+Run the opt-in two-shard authority cell from the Delay checkout:
+
+```bash
+KAFKA_LARGE_PAYLOAD_BROKER_1_PORT=32545 \
+KAFKA_LARGE_PAYLOAD_BROKER_2_PORT=32546 \
+KAFKA_LARGE_PAYLOAD_BROKER_3_PORT=32547 \
+NEREUS_DELAY_LARGE_PAYLOAD_OXIA_PORT=32645 \
+NEREUS_DELAY_LARGE_PAYLOAD_MINIO_PORT=32745 \
+NEREUS_DELAY_LARGE_PAYLOAD_GATEWAY_PORT=32845 \
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_MULTI_SHARD=1 \
+./e2e/run-large-payload-gateway-e2e.sh
+```
+
+This mode creates a two-partition source topic, appends source-ordered
+activation/pre-route records, proves guarded Fetch/LSO barriers, publishes one
+signed Route, places two Oxia Assignment/Owner leases, and drives both shards
+through one Worker fleet. Each partition then completes Gateway mTLS/JWT
+Prepare, real MinIO upload/attest/Commit/readback, exact Prepare idempotency,
+Worker apply/ACK and final checkpoint/Owner release. The current source-locked
+receipt is Delay `048b4d8f220557d510ced088999f94077bc253d4`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Kafka client source
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, and MinIO
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+The run used project `nereus-delay-large-payload-e2e-1786934597-44345` and
+reported `fetchPartitions=2`, `routeRevision=1`,
+`workers=[kafka-large-payload-worker-b, kafka-large-payload-worker-a]`,
+`sourceBarriers=[2, 2]`, `exactGatewayIdempotency=true`; both partitions had
+Prepare/Commit offsets `2/3`. Destination egress is intentionally disabled in
+this mode, and MinIO/Broker failover modes are rejected. Pulsar multi-shard
+Large Payload, multi-shard destination egress, placement churn/failover,
+benchmark/soak and V1 release certification remain open.
+
+The runner removes its exact Compose containers, networks, volumes, listeners,
+temporary Kafka image and generated TLS/receipt files after the run. Locked
+Oxia/MinIO bases are retained; no global Docker prune is used.

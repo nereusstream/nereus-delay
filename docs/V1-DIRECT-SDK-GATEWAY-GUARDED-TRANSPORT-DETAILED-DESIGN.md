@@ -7668,3 +7668,35 @@ This source-locked PASS advances the crash/response-loss/recovery evidence bound
 The current Delay source `4713a54c983a025bbd1bda64dd25831416642fe1` completed the reproducible Linux matrix runner with three payload-record/SLO configurations and a valid JSON index at `/tmp/nereus-delay-capacity-matrix-current-20260817-r4/capacity-benchmark-matrix.json`. The pinned JDK image was `eclipse-temurin@sha256:57865c22b954cf920cb05a610af81d577e89783282514ba071e99c7357f6c769`; its exact runtime image ID was removed after the run.
 
 This receipt proves bounded local Store writes, payload readback, durable SLO merge, platform resource observation and persistent reopen across smoke/burst/sustained cases. It does not establish the required Broker/Lane/shard/compaction/restore/inline-object benchmark campaign, multi-Worker fairness, long-cycle soak or V1 release readiness; those gates remain separate.
+
+### 2026-08-17 Current-source Kafka two-shard Large Payload Object Store binding
+
+Delay `048b4d8f220557d510ced088999f94077bc253d4` binds the opt-in
+`NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_MULTI_SHARD=1` receipt. The implementation
+keeps one Gateway coordinator and uses a route-bound
+`KafkaManagedSubmissionOutcomeProjector` that validates the exact request
+resource for each partition, rather than weakening projection to a topic-only
+identity.
+
+The source-locked run used K1 `05849884ca81fad767fda058444d1e17c7f9`, Kafka
+client source `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484` and MinIO
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The real Compose project was `nereus-delay-large-payload-e2e-1786934597-44345`;
+Kafka used `32545/32546/32547`, Oxia `32645`, MinIO `32745` and Gateway
+`32845`.
+
+The receipt proves source-ordered activation/pre-route barriers on both Kafka
+partitions, one signed Route revision, two Oxia Assignment/Owner leases, one
+Worker fleet, Gateway mTLS/JWT Prepare/Commit, real MinIO upload/attest/readback,
+exact Prepare idempotency and final checkpoint/Owner release. Both partitions
+reported Prepare offset `2`, Commit offset `3`, `sourceBarriers=[2,2]` and
+`exactGatewayIdempotency=true`.
+
+This binding is deliberately limited to Kafka two-shard Object Store authority:
+the runner rejects MinIO fault modes, Broker failover modes and destination
+egress in this mode. Pulsar multi-shard Large Payload, multi-shard destination
+egress, placement churn/failover, benchmark/soak and V1 release certification
+remain separate gates. Run-created Kafka resources and the generated image were
+removed exactly; locked Oxia/MinIO bases were retained and no global Docker
+prune was used.

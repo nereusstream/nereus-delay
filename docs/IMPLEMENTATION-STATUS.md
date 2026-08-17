@@ -15305,3 +15305,44 @@ all cases: store.reopen_verified=true, collector_reopen_verified=true
 The Linux platform probe was `AVAILABLE` in every case through `WorkerRuntimeResourceProbe`, with a 2 GiB cgroup limit, 256 MiB direct-memory cap, 65536 max open files and a 4 GiB executable temporary filesystem. This advances bounded local Store/SLO capacity evidence only; it is not Broker throughput, Lane/shard placement, compaction/restore, inline-object, long-cycle soak or V1 release certification. Gates 5, 6 and 7 therefore remain `OPEN`.
 
 Exact postchecks removed the generated JDK image by ID and found no capacity-matrix containers, networks, volumes, listeners or temporary images. Locked Oxia/MinIO bases were not touched; no global Docker prune was used.
+
+## 2026-08-17 Current-source Kafka two-shard Large Payload Object Store authority
+
+Delay commit `048b4d8f220557d510ced088999f94077bc253d4` adds the opt-in
+`NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_MULTI_SHARD=1` path to
+`e2e/run-large-payload-gateway-e2e.sh`. A single Gateway coordinator now serves
+two partition-specific Kafka transport keys while the outcome projector keeps
+exact authenticated cluster/topic UUID/partition validation from each request.
+
+The clean real run used K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Kafka
+client source `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`,
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, and the pinned MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The Compose project was `nereus-delay-large-payload-e2e-1786934597-44345`
+with Kafka `32545/32546/32547`, Oxia `32645`, MinIO `32745` and Gateway
+`32845`; the generated Kafka image was
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`.
+
+The source-ordered fixture placed activation and pre-route records at offsets
+`0/1` on both partitions, proved two guarded Fetch/LSO barriers, published one
+signed Route revision, admitted two unique Oxia Assignment/Owner leases, and
+ran both shards through one `WorkerShardFleetRuntime`. Each partition then
+completed Gateway mTLS/JWT Prepare, real MinIO upload/attest/Commit/readback,
+exact Gateway Prepare idempotency, Worker apply/ACK and final checkpoint/Owner
+release:
+
+```text
+partition=0: prepare offset=2, commit offset=3, objectVersion=0915e1d4-90f2-446e-a1be-bb06db9cf63d
+partition=1: prepare offset=2, commit offset=3, objectVersion=01e36d39-5b00-4c56-90e6-dde5ed8f9d1b
+fetchPartitions=2, routeRevision=1, workers=[kafka-large-payload-worker-b, kafka-large-payload-worker-a]
+sourceBarriers=[2, 2], exactGatewayIdempotency=true
+```
+
+This is a PASS for current-source Kafka two-shard Large Payload Object Store
+authority. The opt-in cell intentionally disables Kafka destination egress and
+does not cover Pulsar multi-shard large payload, Broker failover/fault modes,
+catalog-driven placement/churn, the required benchmark/soak campaign or V1
+release readiness. Gates 5, 6 and 7 remain `OPEN`; V1 remains `NOT READY`.
+Exact postchecks found no project containers, networks, volumes, listeners or
+generated Kafka image; locked Oxia/MinIO bases were retained and no global
+Docker prune was used.

@@ -12185,3 +12185,31 @@ Audit result: PASS for the bounded current-source chaos matrix, including Broker
 Delay `4713a54c983a025bbd1bda64dd25831416642fe1` ran the pinned Linux capacity matrix with smoke, burst and sustained Store/SLO configurations. The artifact `/tmp/nereus-delay-capacity-matrix-current-20260817-r4/capacity-benchmark-matrix.json` is valid JSON and reports `matrix_status=PASS_BOUNDED`; all cases reopened the Store and persistent SLO collector.
 
 Audit result: PASS for bounded Linux platform-observation and local Store/SLO matrix evidence. The three cases cover 256/4096/65536-byte payloads and 16/256/1024 records per size under 24/128/512 SLO samples. This does not close required Broker throughput, Lane/shard distributions, compaction/restore throughput, inline-object flow, long-cycle soak or the V1 release gate. Gate 5 remains `OPEN`, Gate 6 remains `OPEN`, and Gate 7 remains `OPEN`. Exact cleanup removed the generated image and all run-created resources.
+
+### 2026-08-17 Current-source Kafka two-shard Large Payload authority audit
+
+Delay `048b4d8f220557d510ced088999f94077bc253d4` adds an opt-in Kafka
+two-shard Large Payload Object Store authority smoke. It uses K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Kafka client source
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and MinIO
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The real run used project `nereus-delay-large-payload-e2e-1786934597-44345`,
+Kafka `32545/32546/32547`, Oxia `32645`, MinIO `32745` and Gateway `32845`.
+
+Audit receipt: two guarded Fetch barriers at source offsets `0/1` with
+`sourceBarriers=[2,2]`; one signed Route revision; two unique Oxia
+Assignment/Owner leases; one Worker fleet; and Gateway mTLS/JWT Prepare,
+MinIO upload/attest/Commit/readback, exact Prepare idempotency, Worker apply/ACK
+and final checkpoint/Owner release on both partitions. The per-partition
+Prepare/Commit positions were `2/3`; the immutable object versions were
+`0915e1d4-90f2-446e-a1be-bb06db9cf63d` and
+`01e36d39-5b00-4c56-90e6-dde5ed8f9d1b`.
+
+Audit result: PASS for current-source Kafka two-shard Large Payload Object
+Store authority. The cell intentionally leaves Kafka destination egress
+disabled and does not establish Pulsar multi-shard large payload, Broker
+failover/fault coverage, catalog placement/churn, benchmark/soak or V1 release
+readiness. Gates 5, 6 and 7 remain `OPEN`; V1 remains `NOT READY`. Exact
+postchecks removed the generated Kafka image and all project resources; locked
+Oxia/MinIO bases remain, and no global Docker prune was used.
