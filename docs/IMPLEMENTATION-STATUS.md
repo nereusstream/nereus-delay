@@ -15407,3 +15407,18 @@ cutover gate, not yet authenticated multi-Worker rollout, downgrade/release
 packaging or a `PASS_CERTIFIED` activation artifact. The V1 release gate
 therefore remains `NOT_READY`; real Oxia/Broker activation/cutover evidence and
 certified soak/operations/benchmark artifacts remain separate obligations.
+
+## 2026-08-17 Current-source release-gate rerun after activation slice
+
+The current source-locked gate artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r3/v1-release-candidate-gate.json`
+for Delay `7835a4c4bb5ac8e083c73885047c4165918cbdab`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Source cleanliness,
+cross-repository validation and full Gradle `check` are PASS. The result is
+still `release_status=NOT_READY`: capacity is `PARTIAL`, chaos is
+`PASS_BOUNDED`, and certified soak, activation/cutover and operations-drill
+artifacts are absent. A first fresh-cache attempt (`r2`) was blocked only by a
+Maven Central TLS handshake while resolving Checkstyle's Doxia dependency;
+the rerun used the already successful cache and passed without source changes.

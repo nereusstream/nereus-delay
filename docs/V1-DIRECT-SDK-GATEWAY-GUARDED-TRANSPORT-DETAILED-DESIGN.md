@@ -7726,6 +7726,21 @@ validator. This is still a local source-ordered projection: authenticated
 multi-Worker eligible-reader rollout, writer-before-reader orchestration,
 downgrade/release packaging and a certified activation artifact remain open.
 
+### 2026-08-17 Current-source release-gate rerun after activation binding
+
+The current fail-closed gate receipt is
+`/tmp/nereus-delay-v1-release-gate-20260817-r3/v1-release-candidate-gate.json`
+at Delay `7835a4c4bb5ac8e083c73885047c4165918cbdab`, with K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Source checks, cross-repository
+validation and full Gradle `check` passed. The release status correctly stays
+`NOT_READY` because bounded/partial evidence is not `PASS_CERTIFIED` and the
+soak, activation/cutover and operations receipts are missing. A fresh-cache
+attempt hit an external Maven Central TLS handshake failure during Checkstyle
+resolution; rerunning with the known-good cache passed without a source or
+gate bypass.
+
 ### 2026-08-17 Current-source canonical chaos and release-gate binding
 
 Delay `fe62065750f86b607d4c395afd52197e3cb31008`, K1

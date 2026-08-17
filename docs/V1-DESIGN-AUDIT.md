@@ -10933,6 +10933,20 @@ rollout, writer-before-reader deployment orchestration, downgrade/release
 packaging or a certified activation artifact. V1 remains `NOT_READY` until
 those external authority and release-gate receipts exist.
 
+### 2026-08-17 Current-source gate rerun after activation implementation
+
+The source-locked rerun at
+`/tmp/nereus-delay-v1-release-gate-20260817-r3/v1-release-candidate-gate.json`
+uses Delay `7835a4c4bb5ac8e083c73885047c4165918cbdab`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Source, cross-repository and
+full Gradle checks are PASS; the fail-closed result remains `NOT_READY` for
+the bounded/partial/missing certification inputs. An earlier fresh-cache
+attempt failed at Checkstyle dependency resolution because Maven Central
+terminated a TLS handshake; the known-good-cache rerun passed and no source
+fallback or check bypass was used.
+
 ## 2026-08-17 Current-source Pulsar Worker JVM process-crash recovery audit
 
 The current-source audit locks Delay to

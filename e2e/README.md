@@ -5472,3 +5472,14 @@ and restart recovery. This is a local activation/cutover binding, not a
 certified external Worker rollout or downgrade/release artifact. The V1 gate
 continues to require `PASS_CERTIFIED` activation, soak, benchmark and
 operations evidence.
+
+The latest source-locked gate receipt is
+`/tmp/nereus-delay-v1-release-gate-20260817-r3/v1-release-candidate-gate.json`
+at Delay `7835a4c4bb5ac8e083c73885047c4165918cbdab`, with K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Source/contract/full-Gradle
+checks pass and the gate remains `NOT_READY` for the bounded/partial/missing
+certification inputs. The first fresh-cache attempt encountered an external
+Maven Central TLS handshake failure during Checkstyle dependency resolution;
+the known-good-cache rerun passed.
