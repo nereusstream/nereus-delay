@@ -12179,3 +12179,9 @@ removed the generated Oxia image and all project resources.
 Delay `80fdb63d3512be8fcb3af51c7f9e0aa5bba9382f`, K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484` passed all 13 cells in `e2e/run-bounded-chaos-matrix.sh`; the matrix artifact is `/tmp/nereus-delay-chaos-current-20260817-r2` and `matrix_status=0`.
 
 Audit result: PASS for the bounded current-source chaos matrix, including Broker/Worker crash and network cuts, response-loss replay, Kafka LSO/retention recovery, Pulsar multi-Broker failover, Checkpoint REAPING and Gateway/Oxia session expiry. It is not full production chaos or a V1 release PASS. Catalog placement, target isolation, controller/coordinator/storage/provider cuts, full large-payload fault coverage, benchmark/soak, activation/cutover and release certification remain unproven. Exact cleanup removed all run-created resources and images; locked Oxia/MinIO bases were retained.
+
+### 2026-08-17 Current-source Linux bounded capacity/benchmark matrix audit
+
+Delay `4713a54c983a025bbd1bda64dd25831416642fe1` ran the pinned Linux capacity matrix with smoke, burst and sustained Store/SLO configurations. The artifact `/tmp/nereus-delay-capacity-matrix-current-20260817-r4/capacity-benchmark-matrix.json` is valid JSON and reports `matrix_status=PASS_BOUNDED`; all cases reopened the Store and persistent SLO collector.
+
+Audit result: PASS for bounded Linux platform-observation and local Store/SLO matrix evidence. The three cases cover 256/4096/65536-byte payloads and 16/256/1024 records per size under 24/128/512 SLO samples. This does not close required Broker throughput, Lane/shard distributions, compaction/restore throughput, inline-object flow, long-cycle soak or the V1 release gate. Gate 5 remains `OPEN`, Gate 6 remains `OPEN`, and Gate 7 remains `OPEN`. Exact cleanup removed the generated image and all run-created resources.

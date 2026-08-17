@@ -15289,3 +15289,19 @@ matrix_status=0
 The receipts cover real Kafka Broker process/TCP/network cuts, real Pulsar multi-Broker process failover, Worker process/ACK response-loss replay, real Oxia plus MinIO checkpoint REAPING, Kafka read-committed Fetch response loss and retention floor, Pulsar destination/source response loss, and Gateway/Oxia session expiry. This is a current-source bounded chaos PASS, not a V1 release gate: catalog-driven production placement, target isolation, controller/coordinator/storage/provider failover, full large-payload fault coverage, benchmark/soak, activation/cutover and release certification remain open.
 
 Exact postchecks found no matrix containers, networks, project volumes, listeners or generated `nereus-delay`/K1/P1/Oxia images. The only related reusable images retained were locked Oxia `sha256:5aa715e4f19091931743e5af489af5f8d6ee15efcce6430a908c6f65cc6d6516` and locked MinIO `sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`; pre-existing unlabelled `pulsarconf`/`pulsardata` volumes were not touched because they were not created by this matrix. No global Docker prune was used.
+
+## 2026-08-17 Current-source Linux bounded capacity/benchmark matrix
+
+The clean current-source run used Delay `4713a54c983a025bbd1bda64dd25831416642fe1`, the pinned Linux image `eclipse-temurin@sha256:57865c22b954cf920cb05a610af81d577e89783282514ba071e99c7357f6c769` (runtime image ID `sha256:c323c2d540b9a7272d99e6a6e819144e5ee3b2c25ac0efa1c171da460960003c`), and `e2e/run-bounded-capacity-matrix.sh`. The valid JSON artifact is `/tmp/nereus-delay-capacity-matrix-current-20260817-r4/capacity-benchmark-matrix.json` with `matrix_status=PASS_BOUNDED`:
+
+```text
+smoke:    records/size=16,   SLO samples=24,  records/s=[6125, 24230, 5479]
+burst:    records/size=256,  SLO samples=128, records/s=[39448, 54007, 6800]
+sustained: records/size=1024, SLO samples=512, records/s=[70346, 56423, 7610]
+payload sizes: 256, 4096, 65536 bytes
+all cases: store.reopen_verified=true, collector_reopen_verified=true
+```
+
+The Linux platform probe was `AVAILABLE` in every case through `WorkerRuntimeResourceProbe`, with a 2 GiB cgroup limit, 256 MiB direct-memory cap, 65536 max open files and a 4 GiB executable temporary filesystem. This advances bounded local Store/SLO capacity evidence only; it is not Broker throughput, Lane/shard placement, compaction/restore, inline-object, long-cycle soak or V1 release certification. Gates 5, 6 and 7 therefore remain `OPEN`.
+
+Exact postchecks removed the generated JDK image by ID and found no capacity-matrix containers, networks, volumes, listeners or temporary images. Locked Oxia/MinIO bases were not touched; no global Docker prune was used.

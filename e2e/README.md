@@ -5350,3 +5350,15 @@ matrix_status=0
 This is a bounded current-source chaos receipt, not release certification. It covers real Broker/Worker cuts, response-loss replay, Kafka LSO/retention, Pulsar multi-Broker failover, Checkpoint REAPING and Gateway/Oxia session expiry. Catalog placement, target isolation, controller/coordinator/storage/provider failover, full large-payload fault coverage, benchmark/soak, activation/cutover and V1 release gates remain open.
 
 Postchecks found no matrix containers, networks, project volumes, listeners or generated related images. Locked Oxia and MinIO images were retained as reusable bases; pre-existing unlabelled `pulsarconf`/`pulsardata` volumes were left untouched because they were outside this run's ownership. No global Docker prune was used.
+
+## Current-source Linux bounded capacity/benchmark matrix
+
+The clean run used Delay `4713a54c983a025bbd1bda64dd25831416642fe1` and the pinned image `eclipse-temurin@sha256:57865c22b954cf920cb05a610af81d577e89783282514ba071e99c7357f6c769`. `e2e/run-bounded-capacity-matrix.sh` produced `/tmp/nereus-delay-capacity-matrix-current-20260817-r4/capacity-benchmark-matrix.json` with `matrix_status=PASS_BOUNDED`:
+
+```text
+smoke: records/size=16, SLO samples=24, payload sizes=256/4096/65536, records/s=6125/24230/5479
+burst: records/size=256, SLO samples=128, payload sizes=256/4096/65536, records/s=39448/54007/6800
+sustained: records/size=1024, SLO samples=512, payload sizes=256/4096/65536, records/s=70346/56423/7610
+```
+
+All cases reported `store.reopen_verified=true` and `collector_reopen_verified=true`; the Linux platform authority was available under the bounded 2 GiB/256 MiB/65536-nofile/4 GiB-tmpfs container. This remains a bounded local capacity receipt, not the required Broker throughput, Lane/shard, compaction/restore, inline-object, soak or V1 release campaign. The exact generated JDK image was removed and no matrix resource remained.

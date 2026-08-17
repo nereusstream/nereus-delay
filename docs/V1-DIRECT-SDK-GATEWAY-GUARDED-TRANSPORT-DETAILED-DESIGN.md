@@ -7662,3 +7662,9 @@ MinIO bases are retained.
 The current source locks Delay `80fdb63d3512be8fcb3af51c7f9e0aa5bba9382f`, K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484` completed the 13-cell bounded matrix with `matrix_status=0`. The receipt directory is `/tmp/nereus-delay-chaos-current-20260817-r2`.
 
 This source-locked PASS advances the crash/response-loss/recovery evidence boundary across Kafka, Pulsar, Oxia/MinIO Checkpoint REAPING and Gateway session expiry. It does not certify catalog-driven placement, target isolation, controller/coordinator/storage/provider failover, all large-payload fault cuts, benchmark/soak, activation/cutover or V1 release readiness. Matrix cleanup removed its exact project containers, networks, volumes, listeners and generated images; locked Oxia/MinIO images remain.
+
+### 2026-08-17 Current-source Linux bounded capacity/benchmark receipt
+
+The current Delay source `4713a54c983a025bbd1bda64dd25831416642fe1` completed the reproducible Linux matrix runner with three payload-record/SLO configurations and a valid JSON index at `/tmp/nereus-delay-capacity-matrix-current-20260817-r4/capacity-benchmark-matrix.json`. The pinned JDK image was `eclipse-temurin@sha256:57865c22b954cf920cb05a610af81d577e89783282514ba071e99c7357f6c769`; its exact runtime image ID was removed after the run.
+
+This receipt proves bounded local Store writes, payload readback, durable SLO merge, platform resource observation and persistent reopen across smoke/burst/sustained cases. It does not establish the required Broker/Lane/shard/compaction/restore/inline-object benchmark campaign, multi-Worker fairness, long-cycle soak or V1 release readiness; those gates remain separate.
