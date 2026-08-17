@@ -5909,3 +5909,23 @@ activation/cutover, operations and chaos are `PASS_BOUNDED`.
 Postchecks found no run-owned Compose containers, volumes, networks or
 generated images. The locked MinIO base and unrelated `alpine:3.17` were
 retained; no global Docker prune or unrelated image deletion was used.
+
+## Current-source production-chain rerun and r19 gate
+
+The clean current candidate reran the Kafka and Pulsar two-shard Large Payload
+destination paths with Delay `59abbde18ad2b0b5551e4ea59c5fc146db068982`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Both runners crossed the real
+Gateway mTLS/JWT, Oxia Assignment/Owner, guarded source, Worker,
+MinIO upload/attest/Commit/readback, typed destination, Outcome and
+checkpoint/release path for both partitions. They exited zero and exact
+postchecks found no run-owned containers, networks, volumes or generated
+Kafka/Pulsar/Oxia images. The locked MinIO base and unrelated images were
+retained; no global Docker prune was used.
+
+The subsequent current-source release artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r19/v1-release-candidate-gate.json`.
+Source, cross-repository and full Gradle checks pass, but the result remains
+`NOT_READY`: capacity is `PARTIAL`, certified soak is missing, and bounded
+activation, operations and chaos artifacts cannot satisfy `PASS_CERTIFIED`.

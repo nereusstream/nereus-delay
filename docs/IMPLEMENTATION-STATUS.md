@@ -12944,6 +12944,22 @@ still intentionally `release_status=NOT_READY`: capacity is `PARTIAL`, no
 certified soak artifact is supplied, and activation/cutover, operations and
 chaos are `PASS_BOUNDED`, not `PASS_CERTIFIED`.
 
+## 2026-08-17 Current-source release gate after production-chain rerun
+
+The current source-locked gate artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r19/v1-release-candidate-gate.json`
+at Delay `9f8b697ce5dbbeec79c70f237fa909172d2fccb3`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Source cleanliness,
+cross-repository validation and full Gradle `check` are all `PASS`.
+
+The fail-closed result is still `release_status=NOT_READY`: capacity is
+`PARTIAL`, certified soak is absent, and activation/cutover, operations and
+chaos remain blocked because their receipts are `PASS_BOUNDED` rather than
+`PASS_CERTIFIED`. The new two-shard production-chain receipts strengthen
+the real-service boundary but do not change the certified-only release rule.
+
 ## 2026-08-17 Current-source Kafka/Pulsar two-shard production-chain rerun
 
 After the documentation/source-lock refresh, the clean current Delay source

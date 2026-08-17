@@ -12596,3 +12596,21 @@ controller/storage/provider failover, certified benchmark/soak and the
 activation, operations and chaos promotion gates remain open. Run-scoped
 postchecks found no project resources or generated images; the locked MinIO
 base and unrelated images were retained, with no global Docker prune.
+
+### 2026-08-17 Current-source release-gate result after production-chain rerun
+
+The current source-locked gate artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r19/v1-release-candidate-gate.json`
+at Delay `9f8b697ce5dbbeec79c70f237fa909172d2fccb3`, Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Source, cross-repository and
+full Gradle checks are `PASS`.
+
+Audit result: `NOT READY` by the explicit release rule. Capacity is
+`PARTIAL`, certified soak is missing, and activation/cutover, operations and
+chaos are bounded rather than `PASS_CERTIFIED`. The current two-shard
+Gateway/Oxia/Broker/Worker/MinIO receipts are accepted as production-chain
+evidence, but do not provide the required certified benchmark envelope,
+fresh-process disaster/operator sign-off, writer-before-reader rollout or
+full production chaos artifact.

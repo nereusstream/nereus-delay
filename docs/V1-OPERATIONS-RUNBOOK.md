@@ -484,3 +484,20 @@ This is a production-chain revalidation, not a certified soak or release
 approval. A separate Gateway deployment boundary, catalog/placement churn,
 controller/storage/provider failover and the `PASS_CERTIFIED` capacity,
 activation, operations and chaos artifacts remain required.
+
+## 17. Current-source release-gate receipt
+
+After the two-shard production-chain revalidation, run-scoped source and
+Gradle checks produced
+`/tmp/nereus-delay-v1-release-gate-20260817-r19/v1-release-candidate-gate.json`.
+The exact locks are Delay `9f8b697ce5dbbeec79c70f237fa909172d2fccb3`, Kafka
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`; source, contract and full Gradle
+checks are `PASS`.
+
+The release decision remains `NOT_READY`. Capacity is `PARTIAL`, certified
+soak is absent, and activation/cutover, operations and chaos are blocked by
+the requirement for independently source-locked `PASS_CERTIFIED` artifacts.
+`ALLOW_NOT_READY=1` only preserves this audit receipt and is not a promotion
+override.
