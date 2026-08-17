@@ -24,6 +24,7 @@ fault_proxy_pid=""
 failover_mode="${NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER:-0}"
 process_crash_mode="${NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_PROCESS_CRASH:-0}"
 network_partition_mode="${NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_NETWORK_PARTITION:-0}"
+multi_shard_mode="${NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MULTI_SHARD:-0}"
 network_partition_handoff_wait_seconds="${NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_NETWORK_PARTITION_HANDOFF_WAIT_SECONDS:-75}"
 failover_marker="${runtime_dir}/gateway-commit.failover.ready"
 
@@ -77,6 +78,10 @@ if [[ "${network_partition_mode}" != "0" && "${network_partition_mode}" != "1" ]
   echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_NETWORK_PARTITION must be 0 or 1" >&2
   exit 1
 fi
+if [[ "${multi_shard_mode}" != "0" && "${multi_shard_mode}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MULTI_SHARD must be 0 or 1" >&2
+  exit 1
+fi
 if [[ ! "${network_partition_handoff_wait_seconds}" =~ ^[0-9]+$ ]]; then
   echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_NETWORK_PARTITION_HANDOFF_WAIT_SECONDS must be a non-negative integer" >&2
   exit 1
@@ -110,6 +115,18 @@ if [[ "${network_partition_mode}" == "1" && "${failover_mode}" != "1" ]]; then
 fi
 if [[ "${network_partition_mode}" == "1" && "${process_crash_mode}" == "1" ]]; then
   echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_NETWORK_PARTITION cannot be combined with NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_PROCESS_CRASH" >&2
+  exit 1
+fi
+if [[ "${multi_shard_mode}" == "1" && ("${failover_mode}" == "1" || "${process_crash_mode}" == "1" || "${network_partition_mode}" == "1") ]]; then
+  echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MULTI_SHARD cannot be combined with Broker failover/crash/network-partition modes" >&2
+  exit 1
+fi
+if [[ "${multi_shard_mode}" == "1" && "${minio_fault_mode}" != "NONE" ]]; then
+  echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MULTI_SHARD requires MinIO fault mode NONE" >&2
+  exit 1
+fi
+if [[ "${multi_shard_mode}" == "1" && "${source_topic}" == *-partition-* ]]; then
+  echo "PULSAR_LARGE_PAYLOAD_TOPIC must not contain '-partition-' in multi-shard mode" >&2
   exit 1
 fi
 for command_name in curl openssl shasum; do
@@ -296,6 +313,7 @@ echo "Pulsar service/admin: ${service_url}/${admin_url}"
 echo "Oxia/MinIO/Gateway: 127.0.0.1:${oxia_port}/127.0.0.1:${minio_port}/127.0.0.1:${gateway_port}"
 echo "Object Store endpoint: ${minio_object_store_endpoint}"
 echo "MinIO request timeout: ${minio_request_timeout_ms}ms"
+echo "Pulsar large-payload multi-shard mode: ${multi_shard_mode}"
 if [[ "${minio_fault_mode}" != "NONE" ]]; then
   echo "MinIO fault mode/proxy: ${minio_fault_mode}/${minio_fault_proxy_endpoint}"
 fi
@@ -317,6 +335,7 @@ smoke_environment=(
   "NEREUS_DELAY_GATEWAY_CLIENT_CERT=${tls_dir}/client.crt"
   "NEREUS_DELAY_GATEWAY_CLIENT_KEY=${tls_dir}/client.key"
   "NEREUS_DELAY_LARGE_PAYLOAD_MINIO_FAULT_MODE=${minio_fault_mode}"
+  "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MULTI_SHARD=${multi_shard_mode}"
   "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_DESTINATION_TOPIC=${destination_topic}"
   "NEREUS_DELAY_PULSAR_LISTENER_NAME=external"
   "GRADLE_USER_HOME=${gradle_user_home}"
@@ -413,7 +432,9 @@ fi
 if [[ "${smoke_status}" != 0 ]]; then
   exit "${smoke_status}"
 fi
-if [[ "${minio_fault_mode}" == "PUT_503_BEFORE_COMMIT" || "${minio_fault_mode}" == "PUT_TIMEOUT_BEFORE_COMMIT" ]]; then
+if [[ "${multi_shard_mode}" == "1" ]]; then
+  echo "Pulsar + Oxia + Gateway mTLS/JWT + two guarded source partitions + two Workers + real MinIO multi-shard Large Payload authority E2E passed; destination egress is intentionally outside this bounded receipt"
+elif [[ "${minio_fault_mode}" == "PUT_503_BEFORE_COMMIT" || "${minio_fault_mode}" == "PUT_TIMEOUT_BEFORE_COMMIT" ]]; then
   echo "Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload pre-commit fail-closed E2E passed"
 elif [[ "${process_crash_mode}" == "1" ]]; then
   "${compose[@]}" start pulsar-broker-1

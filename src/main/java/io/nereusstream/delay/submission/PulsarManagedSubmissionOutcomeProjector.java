@@ -16,12 +16,25 @@ import io.nereusstream.delay.transport.PhysicalEnqueueAttemptId;
 import io.nereusstream.delay.transport.PulsarCommandTransportKey;
 import io.nereusstream.delay.transport.TransportResult;
 
+import java.util.Arrays;
+
 /** Managed Pulsar NDR1 projector for a completed guarded SEND result. */
 public final class PulsarManagedSubmissionOutcomeProjector implements SubmissionOutcomeProjector {
     private final PulsarCommandTransportKey key;
 
     public PulsarManagedSubmissionOutcomeProjector(final PulsarCommandTransportKey key) {
         this.key = java.util.Objects.requireNonNull(key, "key");
+    }
+
+    /**
+     * Creates a projector that fences the receipt against the exact request
+     * resource.  This is required when one managed submission coordinator owns
+     * more than one Pulsar physical partition; a single fixed transport key
+     * would incorrectly turn every non-zero partition receipt into
+     * RESOURCE_INCARNATION_MISMATCH.
+     */
+    public PulsarManagedSubmissionOutcomeProjector() {
+        this.key = null;
     }
 
     @Override
@@ -69,12 +82,19 @@ public final class PulsarManagedSubmissionOutcomeProjector implements Submission
                                                  final io.nereusstream.delay.protocol.PreparedCommand command,
                                                  final PhysicalEnqueueAttemptId attempt,
                                                  final PulsarSendResult result) {
-        if (!key.authenticatedClusterId().equals(result.authenticatedClusterId())
+        if (!(plan.request() instanceof PulsarSendRequest request)
+                || !request.authenticatedClusterId().equals(result.authenticatedClusterId())
+                || !Arrays.equals(request.resourceIncarnation(), result.resourceIncarnation())
+                || !request.physicalTopic().equals(result.physicalTopic())
+                || request.physicalTopicCreationTimestamp() != result.physicalTopicCreationTimestamp()
+                || request.partition() != result.partition()
+                || (key != null && (!key.authenticatedClusterId().equals(result.authenticatedClusterId())
                 || !key.resourceIncarnation().equals(new io.nereusstream.delay.transport.Bytes32(
                 result.resourceIncarnation()))
                 || !key.canonicalPhysicalTopic().equals(result.physicalTopic())
                 || key.topicCreationTimestamp() != result.physicalTopicCreationTimestamp()
-                || key.partition() != result.partition() || result.responseEvidenceBytes() == null) {
+                || key.partition() != result.partition()))
+                || result.responseEvidenceBytes() == null) {
             return uncertain(plan, attempt, StableCode.RESOURCE_INCARNATION_MISMATCH);
         }
         final PulsarSourcePosition.EntryKind entryKind = result.batched()
@@ -104,8 +124,8 @@ public final class PulsarManagedSubmissionOutcomeProjector implements Submission
             return uncertain(plan, attempt, StableCode.INTEGRITY_ERROR);
         }
         final BrokerResourceIdentityV1 resource = BrokerResourceIdentityV1.pulsar(
-                new PulsarBrokerResourceIdentityV1(key.authenticatedClusterId(), key.resourceIncarnation().bytes(),
-                        key.canonicalPhysicalTopic(), key.topicCreationTimestamp()));
+                new PulsarBrokerResourceIdentityV1(request.authenticatedClusterId(), request.resourceIncarnation(),
+                        request.physicalTopic(), request.physicalTopicCreationTimestamp()));
         return SubmissionOutcomeMessageV1.managed(WireIngressOutcomeSupport.brokerDefinite(command,
                 attempt.bytes(), code, NonPersistenceProofKindV1.PULSAR_GUARD_REJECTION, resource,
                 result.requestEvidenceBytes(), result.responseEvidenceBytes()));
