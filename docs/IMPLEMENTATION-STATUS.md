@@ -14906,3 +14906,46 @@ Worker-level 5xx/timeout/config-drift authority, target isolation, the
 remaining §23.3 cuts, benchmark/soak and release proof remain open. Gates 2,
 3 and 10 remain `PARTIAL`; Gates 5, 6, 7 and 9 remain `OPEN`; Gate 8 remains
 `PARTIAL`; V1 remains `NOT READY`.
+
+## 2026-08-17 Current-source full large-payload production authority under real MinIO 503
+
+Delay source `9bea4b2408db3302d68ec0ef0bb3b9613cee4d18` now wires the real
+MinIO fault proxy through the complete large-payload path: Gateway mTLS/JWT,
+real Oxia Route/Assignment/Owner authority, real Kafka or Pulsar Broker,
+Worker source apply, real MinIO payload PUT/HEAD/GET, and source-applied
+physical destination Publish. The proxy injects `PUT_503_AFTER_COMMIT` on the
+first `.payload` PUT and forwards HEAD as well as GET/PUT/DELETE, so Gateway
+attestation and Worker exact payload readback use the same provider boundary.
+`S3CompatiblePayloadObjectStore` resolves a matching exact GET as success and
+retains the original 5xx when the object is absent.
+
+The source locks were Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, image
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`;
+Pulsar P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7`, distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, image
+`sha256:a2c76925f2504337a55c1b88d0a83cc80147d563189041514b63bc1e347cf9d3`;
+Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`; and locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+(local ID `sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`).
+
+| Cell | Exact runtime placement | Receipt |
+|---|---|---|
+| Kafka real MinIO 503-after-commit | Project `nereus-delay-large-payload-e2e-1786925109-27016`; Kafka `31760/31761/31762`, Oxia `31770`, MinIO `31771`, Gateway `31772`, fault proxy `31773`; bucket `nereus-delay-large-payload-1786925109-27016` | `BUILD SUCCESSFUL in 1m 7s`; Worker source-applied physical publish passed with Admission source offset `4`, typed `KAFKA_TRANSACTIONAL_RECEIPT` receipt offset `0`, Outcome source offset `5`, and exact payload readback. Authority receipt reported `activationOffset=0`, `barrierOffset=2`, `providerVersion=ba0e9466-bf59-49d2-9c5e-96fa875cb158`, `exactGatewayIdempotency=true`; Kafka destination exact payload readback also passed. |
+| Pulsar real MinIO 503-after-commit | Project `nereus-delay-pulsar-large-e2e-1786925224-28335`; broker/web `31780/31781` and `31782/31783`, Oxia `31790`, MinIO `31791`, Gateway `31792`, fault proxy `31793`; bucket `pulsar-large-payload-1786925224-28335` | `BUILD SUCCESSFUL in 1m 13s`; Worker source-applied physical publish passed with Admission source ledger `3/4`, typed `PULSAR_SEND_ACK` target ledger/entry `4/0`, Outcome source ledger `3/5`, and exact payload readback. Authority receipt reported `prepare=3/2`, `commit=3/3`, `exactGatewayIdempotency=true`, `sourceRecords=6`; Pulsar destination exact payload readback also passed. |
+
+The exact postchecks found no containers, networks, volumes, listeners or
+per-run K1/P1/Oxia images for either project. The locked Oxia and MinIO base
+images were intentionally retained for future source-locked runs; no global
+Docker prune or unrelated image deletion was performed. The temporary
+fault-proxy seed files from this run were removed separately.
+
+This closes the bounded full large-payload production-authority cell for a
+real MinIO 503 after provider commit on both Broker families. It does not
+close pre-commit or timeout fault cells through the full Gateway/Worker path,
+and this chain is the payload PUT/attest/Worker-read path rather than the
+Checkpoint Intent/Catalog/REAPING upload path. Target isolation, the
+remaining §23.3 cuts, multi-shard placement, benchmark/soak and release proof
+remain open. Gates 2, 3 and 10 remain `PARTIAL`; Gates 5, 6, 7 and 9 remain
+`OPEN`; Gate 8 remains `PARTIAL`; V1 remains `NOT READY`.

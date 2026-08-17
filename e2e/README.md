@@ -4820,3 +4820,65 @@ the adapter boundary. It does not yet drive the fault proxy through the full
 Gateway/Oxia/Worker large-payload Checkpoint Intent/Catalog/REAPING production
 chain, so the production Object Store fault matrix and V1 release gate remain
 open.
+
+## Current-source full large-payload Gateway/Broker/Worker fault E2E
+
+The large-payload runners can place the same deterministic proxy in front of
+the real MinIO used by Gateway and Worker. `PUT_503_AFTER_COMMIT` applies to
+the first payload object PUT; the proxy then forwards the exact GET and HEAD
+used by Worker readback and Gateway attestation. The adapter exact-reads the
+immutable identity, so a matching object resolves the ambiguous 503 while an
+absent object remains fail-closed.
+
+Kafka source-locked invocation:
+
+```bash
+NEREUS_DELAY_KAFKA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1 \
+NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia \
+NEREUS_DELAY_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-full-large-payload-fault-20260817-r2 \
+NEREUS_DELAY_LARGE_PAYLOAD_MINIO_FAULT_MODE=PUT_503_AFTER_COMMIT \
+NEREUS_DELAY_LARGE_PAYLOAD_MINIO_FAULT_PROXY_PORT=31773 \
+KAFKA_LARGE_PAYLOAD_BROKER_1_PORT=31760 KAFKA_LARGE_PAYLOAD_BROKER_2_PORT=31761 \
+KAFKA_LARGE_PAYLOAD_BROKER_3_PORT=31762 NEREUS_DELAY_LARGE_PAYLOAD_OXIA_PORT=31770 \
+NEREUS_DELAY_LARGE_PAYLOAD_MINIO_PORT=31771 NEREUS_DELAY_LARGE_PAYLOAD_GATEWAY_PORT=31772 \
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_TOPIC=kafka-large-payload-minio-fault-20260817-r2 \
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_DESTINATION_TOPIC=kafka-large-payload-destination-minio-fault-20260817-r2 \
+  bash e2e/run-large-payload-gateway-e2e.sh
+```
+
+Pulsar source-locked invocation:
+
+```bash
+NEREUS_DELAY_PULSAR_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1 \
+NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-large-payload-minio-fault-20260817-r2 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MINIO_FAULT_MODE=PUT_503_AFTER_COMMIT \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MINIO_FAULT_PROXY_PORT=31793 \
+PULSAR_LARGE_BROKER_1_PORT=31780 PULSAR_LARGE_WEB_1_PORT=31781 \
+PULSAR_LARGE_BROKER_2_PORT=31782 PULSAR_LARGE_WEB_2_PORT=31783 \
+NEREUS_DELAY_PULSAR_LARGE_OXIA_PORT=31790 NEREUS_DELAY_PULSAR_LARGE_MINIO_PORT=31791 \
+NEREUS_DELAY_PULSAR_LARGE_GATEWAY_PORT=31792 \
+PULSAR_LARGE_PAYLOAD_TOPIC=pulsar-large-payload-minio-fault-20260817-r2 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_DESTINATION_TOPIC=pulsar-large-payload-destination-minio-fault-20260817-r2 \
+  bash e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+At Delay `9bea4b2408db3302d68ec0ef0bb3b9613cee4d18`, Kafka project
+`nereus-delay-large-payload-e2e-1786925109-27016` passed in `1m 7s` and Pulsar
+project `nereus-delay-pulsar-large-e2e-1786925224-28335` passed in `1m 13s`.
+Both receipts include real Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`,
+K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, and MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+Kafka passed source offsets `4`/`5`, typed `KAFKA_TRANSACTIONAL_RECEIPT`,
+exact destination payload readback and `exactGatewayIdempotency=true`; Pulsar
+passed source ledgers `3/4` and `3/5`, typed `PULSAR_SEND_ACK` target `4/0`,
+exact destination payload readback and `exactGatewayIdempotency=true`.
+
+The runners remove their exact Compose containers, networks, volumes, proxy
+processes and per-run images. Only locked base images remain intentionally;
+do not use a global Docker prune. This receipt closes only the real MinIO
+503-after-commit large-payload production path. Full-chain pre-commit and
+timeout faults, Checkpoint Intent/Catalog/REAPING fault injection, target
+isolation, the remaining §23.3 matrix, multi-shard placement, benchmark/soak
+and V1 release proof remain open.

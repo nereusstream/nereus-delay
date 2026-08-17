@@ -11903,3 +11903,41 @@ injected MinIO fault. Therefore the external Object Store authority cell,
 Gates 2/3/10 promotion, the remaining §23.3 cuts and V1 release readiness
 remain open: Gates 2, 3 and 10 are `PARTIAL`; Gates 5, 6, 7 and 9 are `OPEN`;
 Gate 8 is `PARTIAL`; V1 is `NOT READY`.
+
+## 2026-08-17 Current-source full large-payload real MinIO fault audit
+
+Audit result: PASS for the bounded full production-shaped large-payload
+authority cell at Delay `9bea4b2408db3302d68ec0ef0bb3b9613cee4d18`. The current
+runner placed the deterministic proxy in front of real MinIO and injected one
+`PUT_503_AFTER_COMMIT` on the first `.payload` object. The proxy also forwards
+HEAD, which is required by Gateway attestation. The same source-locked run
+therefore covered Gateway mTLS/JWT, real Oxia Route/Assignment/Owner,
+real Broker ingress/egress, Worker source apply, real MinIO payload
+PUT/HEAD/GET, and exact destination readback.
+
+The cross-repository locks were K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Kafka client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, P1
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and
+MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+| Cell | Evidence |
+|---|---|
+| Kafka | Project `nereus-delay-large-payload-e2e-1786925109-27016`, ports `31760/31761/31762`, `31770/31771/31772`, proxy `31773`; `BUILD SUCCESSFUL in 1m 7s`; source-applied physical Publish and exact 1 MiB destination readback passed, with `KAFKA_TRANSACTIONAL_RECEIPT`, `Outcome source offset=5`, `providerVersion=ba0e9466-bf59-49d2-9c5e-96fa875cb158`, and `exactGatewayIdempotency=true`. |
+| Pulsar | Project `nereus-delay-pulsar-large-e2e-1786925224-28335`, broker/web `31780/31781` and `31782/31783`, `31790/31791/31792`, proxy `31793`; `BUILD SUCCESSFUL in 1m 13s`; source-applied physical Publish and exact 1 MiB destination readback passed, with `PULSAR_SEND_ACK` target `4/0`, Outcome `3/5`, `prepare=3/2`, `commit=3/3`, and `exactGatewayIdempotency=true`. |
+
+Exact Docker postchecks found no matching project resources, listeners or
+per-run images. Locked Oxia/MinIO bases were retained intentionally. No
+global prune or unrelated image deletion was performed; temporary proxy seed
+files from the run were removed.
+
+The PASS boundary is deliberately narrow: only the real MinIO 503-after-
+commit path is covered end to end. Full-chain pre-commit and timeout cells,
+Checkpoint Intent/Catalog/REAPING provider-fault injection, target isolation,
+the remaining §23.3 matrix, multi-shard production, benchmark/soak and V1
+release gate remain open. Gates 2, 3 and 10 stay `PARTIAL`; Gates 5, 6, 7 and
+9 stay `OPEN`; Gate 8 stays `PARTIAL`; V1 stays `NOT READY`.
