@@ -6181,6 +6181,18 @@ operations and chaos inputs are absent, and the bounded harness receipt is
 not a release substitute. This README append does not refresh the r30 source
 lock.
 
+## Current-source r32 release-gate refresh
+
+The current gate artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r32/v1-release-candidate-gate.json`.
+Delay `5d282244524de0d002cc7122ebf389150a4fd9f2`, Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` passed source,
+cross-repository and full Gradle checks. The result remains
+`release_status=NOT_READY`; bounded chaos is not a `PASS_CERTIFIED`
+release input, and the other four certification inputs are absent.
+
 ## Current-source 13-cell bounded chaos refresh
 
 The clean rerun is recorded at

@@ -756,6 +756,20 @@ separate approved `PASS_CERTIFIED` artifacts. The harness-integration
 receipt is not a release promotion input. This runbook append does not
 refresh the r30 source lock.
 
+## 30. Current-source r32 release-gate result
+
+The current fail-closed artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r32/v1-release-candidate-gate.json`.
+It records source, cross-repository and full Gradle checks as `PASS` for
+Delay `5d282244524de0d002cc7122ebf389150a4fd9f2`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The decision remains `NOT_READY`: no approved `PASS_CERTIFIED` artifacts
+were supplied for capacity, soak, activation/cutover, operations or chaos.
+The bounded chaos run is a recovery receipt, not release authorization.
+
 ## 29. Current-source bounded chaos refresh
 
 Run receipt:

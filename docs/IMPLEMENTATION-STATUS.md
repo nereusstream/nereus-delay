@@ -16218,6 +16218,21 @@ no approved `PASS_CERTIFIED` inputs. The harness-integration soak receipt is
 intentionally not promoted into the release profile. This documentation
 append does not refresh the r30 runtime source lock.
 
+## 2026-08-17 Current-source r32 release-gate refresh
+
+After the bounded-chaos documentation sync, the current-source gate artifact
+is `/tmp/nereus-delay-v1-release-gate-20260817-r32/v1-release-candidate-gate.json`.
+It locks Delay `5d282244524de0d002cc7122ebf389150a4fd9f2`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Source, cross-repository and
+full Gradle checks are `PASS`.
+
+The fail-closed decision remains `release_status=NOT_READY`: benchmark
+capacity, certified soak, activation cutover, operations drills and chaos
+matrix have no approved `PASS_CERTIFIED` inputs. The bounded chaos receipt is
+documented runtime evidence only and is not promoted into the release gate.
+
 ## 2026-08-17 Current-source 13-cell bounded chaos refresh
 
 The clean current-source rerun produced
@@ -16240,5 +16255,5 @@ no global Docker prune was used.
 This is fresh current-source bounded fault evidence, not §23.3 completion or
 V1 release certification. Long GC, half-open, ENOSPC, fsync/SST corruption,
 target isolation, controller/coordinator/storage/provider failover and the
-required durable state-dump/invariant matrix remain open. The r31 gate is
-still the correct `release_status=NOT_READY` decision.
+required durable state-dump/invariant matrix remain open. The current gate
+still correctly reports `release_status=NOT_READY`.

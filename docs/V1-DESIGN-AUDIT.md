@@ -12856,6 +12856,21 @@ approved `PASS_CERTIFIED` inputs were not supplied. The one-cycle
 harness-integration receipt is real bounded evidence, not release approval;
 this documentation append does not refresh the r30 runtime source lock.
 
+### 2026-08-17 Current-source r32 release-gate audit
+
+The gate artifact
+`/tmp/nereus-delay-v1-release-gate-20260817-r32/v1-release-candidate-gate.json`
+passes source cleanliness, cross-repository validation and full Gradle
+`check` for Delay `5d282244524de0d002cc7122ebf389150a4fd9f2`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+Audit result: `release_status=NOT_READY` remains correct. All five
+certification inputs are absent, so the bounded soak and bounded chaos
+receipts cannot satisfy capacity, soak, activation, operations or chaos
+promotion requirements.
+
 ### 2026-08-17 Current-source 13-cell bounded chaos audit
 
 The source-locked receipt

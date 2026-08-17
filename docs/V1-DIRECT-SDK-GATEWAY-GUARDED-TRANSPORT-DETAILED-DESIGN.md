@@ -8215,6 +8215,17 @@ cross-repository and full Gradle checks. The release decision remains
 operations or chaos certification was supplied. This append is documentation
 only and does not change the r30 receipt source lock.
 
+### 2026-08-17 Current-source r32 release-gate result
+
+`/tmp/nereus-delay-v1-release-gate-20260817-r32/v1-release-candidate-gate.json`
+records clean Delay `5d282244524de0d002cc7122ebf389150a4fd9f2`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, with passing source,
+cross-repository and full Gradle checks. The release decision remains
+`release_status=NOT_READY`; bounded chaos is not `PASS_CERTIFIED` release
+evidence.
+
 ### 2026-08-17 Current-source bounded chaos receipt
 
 `/tmp/nereus-delay-chaos-current-20260817-r3/bounded-chaos-matrix.json`
