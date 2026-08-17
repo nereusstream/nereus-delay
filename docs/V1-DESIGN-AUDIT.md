@@ -12141,3 +12141,20 @@ is still `PARTIAL`, not a Gate 6 certification: the required benchmark matrix,
 multi-Worker placement, restore throughput, reserve/fairness, adapter/zombie,
 durable SLO capacity and long-cycle soak remain unproven. The temporary JDK
 image was removed after exact cleanup; locked Oxia/MinIO bases were retained.
+
+### 2026-08-17 Current-source two-shard placement audit
+
+The clean Delay source `54541a00b65bf911febb543ac1a956b1e281c602` was run with
+the locked K1/P1/Oxia checkouts. Kafka and Pulsar each passed a real two-shard
+Route/guarded source barrier/Assignment/Owner/Worker fleet path, with
+`assignmentRevisions=[1,1]`, two source barriers, per-shard apply/ACK and final
+checkpoint/assignment release. Kafka completed in 68 seconds on
+`32000/32001/32002` plus Oxia `32010`; Pulsar completed in 64 seconds on
+`32020/32021` plus Oxia `32030`.
+
+Audit result: PASS for bounded current-source two-shard placement and shared
+fleet reconciliation. It is not catalog-driven production placement, does not
+cover multi-shard large-payload egress or placement churn, and cannot close
+target isolation, controller/coordinator/storage failover, the complete chaos
+matrix, benchmark/soak or V1 release readiness. Exact cleanup left no project
+resources or temporary images; locked Oxia/MinIO bases were retained.

@@ -5268,3 +5268,37 @@ capacity evidence.
 The run used no application network, Broker, Oxia or MinIO resources. The
 temporary JDK image was removed after the receipt's exact postcheck; the
 locked Oxia and MinIO bases were retained. No global Docker prune was used.
+
+## Current-source Kafka and Pulsar two-shard Worker fleet receipts
+
+The native two-shard Route/Assignment/Owner path was rerun against the current
+clean source with the isolated K1 and P1 checkouts. Kafka used broker ports
+`32000/32001/32002`, Oxia `32010`, project
+`nereus-delay-kafka-e2e-1786930684-99099` and Oxia project
+`nereus-delay-kafka-oxia-e2e-1786930684-99099`; Pulsar used broker/web
+`32020/32021`, Oxia `32030`, project
+`nereus-delay-pulsar-e2e-1786930684-99098` and Oxia project
+`nereus-delay-pulsar-oxia-e2e-1786930684-99098`.
+
+Both source-locked commands used `*_WITH_OXIA=1` and `*_MULTI_SHARD_ONLY=1`.
+Kafka completed with `BUILD SUCCESSFUL in 1m 8s` and printed
+`fetchPartitions=2, routeRevision=1, assignmentRevisions=[1, 1],
+workers=[kafka-route-worker-a, kafka-route-worker-b], sourceBarriers=[1, 1]`;
+Pulsar completed with `BUILD SUCCESSFUL in 1m 4s` and printed
+`subscribePartitions=2, routeRevision=1, assignmentRevisions=[1, 1],
+workers=[pulsar-route-worker-b, pulsar-route-worker-a],
+sourceBarriers=[10/0, 9/0]`:
+
+The Kafka K1 image was `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`;
+the P1 image was `sha256:a2c76925f2504337a55c1b88d0a83cc80147d563189041514b63bc1e347cf9d3`.
+The real Oxia Assignment/Owner CAS paths admitted both guarded native source
+consumers, one shared Worker fleet applied and ACKed both partitions, and both
+final checkpoints/assignments were released.
+
+This is a current-source bounded placement receipt, not catalog-driven
+production placement or release certification. Multi-shard large-payload
+egress, arbitrary placement churn, controller/coordinator/storage failover,
+target isolation, full chaos, benchmark/soak and V1 release gates remain open.
+Exact postchecks found no project containers, networks, volumes, listeners or
+temporary images; locked Oxia/MinIO bases were retained and no global Docker
+prune was used.

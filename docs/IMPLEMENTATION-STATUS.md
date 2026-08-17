@@ -15205,3 +15205,38 @@ certified resource/reserve/fairness formulas, multi-Worker placement, restore
 throughput, adapter/zombie capacity and long-cycle SLO/soak evidence remain
 open. The temporary JDK image was removed after exact postchecks; locked Oxia
 and MinIO bases were retained and no global Docker prune was used.
+
+## 2026-08-17 Current-source Kafka/Pulsar two-shard Worker fleet receipts
+
+The current clean Delay source `54541a00b65bf911febb543ac1a956b1e281c602` was
+rerun with K1 `nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+P1 `nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`
+and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. Kafka used the K1 client
+SHA-256 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`,
+broker ports `32000/32001/32002`, Oxia `32010`, projects
+`nereus-delay-kafka-e2e-1786930684-99099` and
+`nereus-delay-kafka-oxia-e2e-1786930684-99099`, and K1 image
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`.
+It passed in `1m 8s`:
+
+```text
+Kafka signed Route -> two guarded Fetch barriers -> Oxia multi-shard Assignment/Owner -> one Worker fleet -> RocksDB apply/ACK/checkpoint smoke passed: fetchPartitions=2, routeRevision=1, assignmentRevisions=[1, 1], workers=[kafka-route-worker-a, kafka-route-worker-b], sourceBarriers=[1, 1]
+Kafka native multi-shard Worker fleet E2E passed
+```
+
+Pulsar used the P1 distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, broker/web
+`32020/32021`, Oxia `32030`, projects
+`nereus-delay-pulsar-e2e-1786930684-99098` and
+`nereus-delay-pulsar-oxia-e2e-1786930684-99098`, and P1 image
+`sha256:a2c76925f2504337a55c1b88d0a83cc80147d563189041514b63bc1e347cf9d3`.
+It passed in `1m 4s` with the same two-shard assignment/owner, shared-fleet
+apply/ACK and final checkpoint receipt, using guarded SUBSCRIBE barriers.
+
+These are current-source bounded placement PASS receipts. They do not close
+catalog-driven production placement, multi-shard large-payload egress,
+placement churn, target isolation, controller/coordinator/storage failover,
+the complete chaos matrix, benchmark/soak or V1 release readiness. Exact
+postchecks found no project containers, networks, volumes, listeners or
+temporary K1/P1/Oxia images; locked Oxia/MinIO bases were retained and no
+global Docker prune was used.

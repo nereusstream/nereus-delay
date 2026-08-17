@@ -7625,3 +7625,19 @@ restore benchmark matrix, reserve/fairness or adapter/zombie capacity,
 multi-Worker placement, or long-cycle soak. The temporary JDK image was
 removed after the exact run; locked Oxia/MinIO bases remain the only related
 reusable bases.
+
+### 2026-08-17 Current-source two-shard placement receipt
+
+The current Delay source `54541a00b65bf911febb543ac1a956b1e281c602` was rerun
+through the existing Kafka and Pulsar two-shard Route Worker runners with real
+K1/P1 Broker and Oxia authority. Kafka passed in 68 seconds and Pulsar in 64
+seconds; both observed two guarded source barriers, two real Assignment/Owner
+CAS paths, one shared Worker fleet, per-shard RocksDB apply/ACK and final
+checkpoint/assignment release. The K1/P1 and Oxia source locks remain the
+current cross-repository locks recorded by the validator.
+
+This advances the bounded placement evidence only. Catalog-driven production
+placement, multi-shard large-payload egress, churn/isolation, controller/
+coordinator/storage failover, the complete chaos matrix, benchmark/soak and V1
+release gates remain separate obligations. Exact project cleanup removed all
+run-created resources and images; locked Oxia/MinIO bases remain.
