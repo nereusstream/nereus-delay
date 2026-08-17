@@ -5630,3 +5630,37 @@ It produced `release_status=NOT_READY` at Delay
 operations recorded but blocked as `PASS_BOUNDED`, capacity `PARTIAL`, chaos
 bounded, activation bounded and certified soak missing. The gate used no
 Docker and `ALLOW_NOT_READY=1` only retained the negative audit.
+
+## Current-source Pulsar Large Payload Broker failover
+
+Run the combined Gateway/Oxia/Worker/MinIO failover cut with an isolated
+two-Broker port set:
+
+```bash
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER=1 \
+PULSAR_LARGE_BROKER_1_PORT=33000 \
+PULSAR_LARGE_WEB_1_PORT=33001 \
+PULSAR_LARGE_BROKER_2_PORT=33002 \
+PULSAR_LARGE_WEB_2_PORT=33003 \
+NEREUS_DELAY_PULSAR_LARGE_OXIA_PORT=33010 \
+NEREUS_DELAY_PULSAR_LARGE_MINIO_PORT=33011 \
+NEREUS_DELAY_PULSAR_LARGE_GATEWAY_PORT=33012 \
+PULSAR_LARGE_PAYLOAD_TOPIC=pulsar-large-payload-failover-20260817-r1 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-large-payload-activation-20260817-r1 \
+bash e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+The clean Delay source was `11728ea29b6b27d8a314b0afc1c7805cd0af4e1f`, with
+P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and the locked MinIO digest. The
+run passed in 56 seconds: broker-1 stopped after Gateway Commit/readback, the
+same source-applied physical Publish completed through broker-2, and exact
+payload readback passed. Admission was `2/4`, typed target `7/0`, Outcome
+`2/5`, Prepare/Commit were `2/2` and `2/3`, and exact Prepare replay left six
+source records.
+
+This is single-shard failover evidence, not Pulsar multi-shard production,
+controller/storage/provider failover, soak or V1 release certification. The
+runner removed project `nereus-delay-pulsar-large-e2e-1786938863-99638`, its
+containers/networks/volumes/listeners and generated P1/Oxia images; locked
+MinIO/Oxia bases remain and no global Docker prune was used.

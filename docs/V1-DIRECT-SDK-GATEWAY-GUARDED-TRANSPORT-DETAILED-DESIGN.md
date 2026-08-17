@@ -7861,3 +7861,20 @@ pass. The fail-closed result remains `NOT_READY`; capacity is `PARTIAL`,
 activation/operations/chaos are bounded and certified soak is missing. The
 operations artifact is intentionally non-promoting because its status is
 `PASS_BOUNDED`, not `PASS_CERTIFIED`.
+
+### 2026-08-17 Pulsar Large Payload Broker failover receipt
+
+At clean Delay `11728ea29b6b27d8a314b0afc1c7805cd0af4e1f`, the current P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` Large Payload Gateway harness ran
+against two real Brokers, Oxia `37a17bef17202d5fd6e23282da5fd26d94865484` and
+the locked MinIO digest. After Gateway Commit/readback, broker-1 was stopped;
+the same source-applied physical Publish completed through broker-2 and the
+exact 1 MiB payload was read back. The receipt reported Admission `2/4`, typed
+`PULSAR_SEND_ACK` `7/0`, Outcome `2/5`, `prepare=2/2`, `commit=2/3` and
+`sourceRecords=6`; Gradle completed in 56 seconds.
+
+This closes the named single-shard Large Payload Broker-failover cut only. It
+does not prove multi-shard Large Payload, controller/storage/provider failover,
+long-cycle soak or V1 release certification. The runner removed its exact
+Compose resources and generated P1/Oxia images, retained locked bases and used
+no global Docker prune.

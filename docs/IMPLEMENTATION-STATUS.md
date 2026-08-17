@@ -15546,3 +15546,26 @@ The fail-closed result remains `release_status=NOT_READY`: capacity is
 soak is absent. The new operations receipt is recorded but remains blocked by
 the required `PASS_CERTIFIED` status. `ALLOW_NOT_READY=1` only emits the audit
 artifact and is not a promotion override. The gate itself used no Docker.
+
+## 2026-08-17 Current-source Pulsar Large Payload Broker failover receipt
+
+The clean Delay source `11728ea29b6b27d8a314b0afc1c7805cd0af4e1f` reran
+`e2e/run-pulsar-large-payload-gateway-e2e.sh` with P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, real Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The two-Broker Compose project used Pulsar `33000/33001/33002/33003`, Oxia
+`33010`, MinIO `33011` and Gateway `33012`.
+
+The failover cut stopped broker-1 after Gateway Commit/readback. The same
+source-applied physical Publish completed through broker-2, with Admission
+`2/4`, typed `PULSAR_SEND_ACK` target `7/0`, Outcome `2/5`, exact payload
+readback and `prepare=2/2`, `commit=2/3`; exact Gateway Prepare replay left
+`sourceRecords=6`. Gradle reported `BUILD SUCCESSFUL in 56s`.
+
+This is a current-source single-shard Large Payload Broker-failover PASS. It
+does not establish Pulsar multi-shard Large Payload, controller/storage/
+provider failover, long-cycle soak or V1 release certification. Exact
+postchecks found no project containers, networks, volumes, listeners or
+generated P1/Oxia images; locked MinIO/Oxia bases were retained and no global
+Docker prune was used.

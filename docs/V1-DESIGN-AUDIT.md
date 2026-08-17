@@ -12374,3 +12374,21 @@ checks passed. The result is still `NOT_READY`: capacity is `PARTIAL`, the
 activation, operations and chaos artifacts are `PASS_BOUNDED`, and certified
 soak is absent. The gate correctly records operations as blocked until an
 independently authorized `PASS_CERTIFIED` artifact is supplied.
+
+### 2026-08-17 Pulsar Large Payload Broker failover audit
+
+Delay `11728ea29b6b27d8a314b0afc1c7805cd0af4e1f`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+passed the real two-Broker Large Payload failover cut. Broker-1 was stopped
+after Gateway Commit/readback; the source-applied physical Publish completed
+through broker-2 with exact destination payload readback, typed target `7/0`,
+Outcome `2/5`, `prepare=2/2`, `commit=2/3` and six source records after exact
+Prepare replay.
+
+Audit result: PASS for this single-shard Broker-failover boundary only.
+Pulsar multi-shard Large Payload, controller/storage/provider failover,
+long-cycle soak and release certification remain open. The exact project
+`nereus-delay-pulsar-large-e2e-1786938863-99638` left no resources, listeners or
+generated images; locked bases remain and no global Docker prune was used.
