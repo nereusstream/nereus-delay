@@ -16,6 +16,7 @@ allow_not_ready="${NEREUS_DELAY_RELEASE_GATE_ALLOW_NOT_READY:-0}"
 chaos_artifact="${NEREUS_DELAY_RELEASE_GATE_CHAOS_ARTIFACT:-}"
 capacity_artifact="${NEREUS_DELAY_RELEASE_GATE_CAPACITY_ARTIFACT:-}"
 soak_artifact="${NEREUS_DELAY_RELEASE_GATE_SOAK_ARTIFACT:-}"
+certified_capacity_profile_id="${NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CAPACITY_PROFILE_ID:-}"
 certified_soak_profile_id="${NEREUS_DELAY_RELEASE_GATE_CERTIFIED_SOAK_PROFILE_ID:-}"
 activation_artifact="${NEREUS_DELAY_RELEASE_GATE_ACTIVATION_ARTIFACT:-}"
 operations_artifact="${NEREUS_DELAY_RELEASE_GATE_OPERATIONS_ARTIFACT:-}"
@@ -141,6 +142,10 @@ check_certified_artifact() {
     add_check "${name}" "BLOCKED" "no explicitly approved certified-soak profile id was supplied to the release gate" "${path}"
     return
   fi
+  if [[ "${name}" == "benchmark-capacity" && -z "${certified_capacity_profile_id}" ]]; then
+    add_check "${name}" "BLOCKED" "no explicitly approved certified-capacity profile id was supplied to the release gate" "${path}"
+    return
+  fi
   local status
   status="$(jq -r '.status // .matrix_status // "UNKNOWN"' "${path}")"
   if [[ "${status}" == "PASS_CERTIFIED" ]]; then
@@ -199,22 +204,70 @@ check_certified_artifact() {
         and (.docker_postcheck.networks | length == 0)
         and (.docker_postcheck.volumes | length == 0)
         and (.docker_postcheck.generated_images | length == 0)'
+    elif [[ "${name}" == "benchmark-capacity" ]]; then
+      artifact_check='(.schema == "nereus-delay-certified-capacity-benchmark-v1")
+        and (.status == "PASS_CERTIFIED")
+        and (.execution == "strict-sequential")
+        and (.profile_id | type == "string" and length > 0)
+        and (.profile_id == $release_capacity_profile_id)
+        and (.source_locks | type == "object")
+        and (.source_locks.delay == $delay)
+        and (.source_locks.kafka == $kafka)
+        and (.source_locks.pulsar == $pulsar)
+        and (.source_locks.oxia == $oxia)
+        and (.policy | type == "object")
+        and (.policy.case_profiles | type == "array")
+        and ((.policy.case_profiles | length) == .policy.required_case_count)
+        and (.policy.required_case_count | type == "number" and . >= 1 and . == floor)
+        and (.policy.required_payload_records_total | type == "number" and . >= 1 and . == floor)
+        and (.policy.required_slo_samples_total | type == "number" and . >= 1 and . == floor)
+        and (.policy.required_cgroup_memory_bytes | type == "number" and . >= 1 and . == floor)
+        and (.policy.required_direct_memory_bytes | type == "number" and . >= 1 and . == floor)
+        and (.policy.required_max_open_files | type == "number" and . >= 1 and . == floor)
+        and (.policy.max_case_process_rss_bytes | type == "number" and . >= 1)
+        and (.policy.max_case_current_open_files | type == "number" and . >= 1)
+        and (.policy.max_case_store_local_bytes | type == "number" and . >= 1)
+        and (.policy.max_case_store_wal_bytes | type == "number" and . >= 1)
+        and (.policy.max_case_store_sst_bytes | type == "number" and . >= 1)
+        and (.policy.max_case_slo_outbox_bytes | type == "number" and . >= 1)
+        and (.policy.max_case_slo_collector_bytes | type == "number" and . >= 1)
+        and (.policy.max_artifact_bytes | type == "number" and . >= 1)
+        and (.observations | type == "object")
+        and (.observations.child_exit_code == 0)
+        and (.observations.matrix_status == "PASS_BOUNDED")
+        and (.observations.case_invariants == "PASS")
+        and (.observations.resource_policy_status == "PASS")
+        and (.observations.artifact_size_status == "PASS")
+        and (.observations.docker_cleanup_status == "PASS")
+        and (.observations.image_cleanup_status == "PASS")
+        and (.observations.artifact_bytes_after | type == "number")
+        and (.observations.artifact_bytes_after <= .policy.max_artifact_bytes)
+        and (.docker_postcheck | type == "object")
+        and (.docker_postcheck.containers | length == 0)
+        and (.docker_postcheck.networks | length == 0)
+        and (.docker_postcheck.volumes | length == 0)
+        and (.docker_postcheck.generated_images | length == 0)'
     fi
     if jq -e \
       --arg delay "${checkout_source}" \
       --arg kafka "${kafka_source}" \
       --arg pulsar "${pulsar_source}" \
       --arg oxia "${oxia_source}" \
+      --arg release_capacity_profile_id "${certified_capacity_profile_id}" \
       --arg release_profile_id "${certified_soak_profile_id}" \
       "${artifact_check}" "${path}" >/dev/null 2>&1; then
       if [[ "${name}" == "certified-soak" ]]; then
         add_check "${name}" "PASS" "artifact is schema-valid PASS_CERTIFIED soak evidence and source-locked to the current four-repository candidate" "${path}"
+      elif [[ "${name}" == "benchmark-capacity" ]]; then
+        add_check "${name}" "PASS" "artifact is schema-valid PASS_CERTIFIED bounded-capacity evidence and source-locked to the current four-repository candidate" "${path}"
       else
         add_check "${name}" "PASS" "artifact is PASS_CERTIFIED and source-locked to the current four-repository candidate" "${path}"
       fi
     else
       if [[ "${name}" == "certified-soak" ]]; then
         add_check "${name}" "BLOCKED" "certified soak artifact schema, policy, observations, cleanup or exact source_locks are invalid" "${path}"
+      elif [[ "${name}" == "benchmark-capacity" ]]; then
+        add_check "${name}" "BLOCKED" "certified capacity artifact schema, profile, case/resource policy, cleanup or exact source_locks are invalid" "${path}"
       else
         add_check "${name}" "BLOCKED" "PASS_CERTIFIED artifact does not carry exact current Delay/Kafka/Pulsar/Oxia source_locks" "${path}"
       fi
