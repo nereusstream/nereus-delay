@@ -12213,3 +12213,29 @@ failover/fault coverage, catalog placement/churn, benchmark/soak or V1 release
 readiness. Gates 5, 6 and 7 remain `OPEN`; V1 remains `NOT READY`. Exact
 postchecks removed the generated Kafka image and all project resources; locked
 Oxia/MinIO bases remain, and no global Docker prune was used.
+
+### 2026-08-17 Current-source canonical bounded chaos and release-gate audit
+
+The current source locks Delay `fe62065750f86b607d4c395afd52197e3cb31008`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` passed all 13 bounded chaos cells.
+The canonical artifact is
+`/tmp/nereus-delay-chaos-release-20260817-r1/bounded-chaos-matrix.json` and
+reports `matrix_status=PASS_BOUNDED`.
+
+The fail-closed V1 release-candidate artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r1/v1-release-candidate-gate.json`.
+Source cleanliness, cross-repository contract validation and full Gradle
+`check` are PASS. The final audit result is `NOT_READY`: capacity is only
+`PARTIAL`, chaos is only `PASS_BOUNDED`, and no `PASS_CERTIFIED` artifacts were
+supplied for certified soak, activation/cutover or operations drills. The
+runner deliberately treats bounded/partial/missing evidence as non-promoting;
+the `ALLOW_NOT_READY=1` run merely records the negative gate outcome.
+
+Audit result: PASS for the canonical bounded-chaos and fail-closed release
+gate machinery; V1 release certification remains OPEN. Certified benchmark,
+soak, activation/cutover, operations and broader production placement/fault
+evidence are still required. Exact cleanup removed all run-created resources
+and generated image IDs; locked Oxia/MinIO bases were retained and no global
+Docker prune was used.

@@ -15346,3 +15346,37 @@ release readiness. Gates 5, 6 and 7 remain `OPEN`; V1 remains `NOT READY`.
 Exact postchecks found no project containers, networks, volumes, listeners or
 generated Kafka image; locked Oxia/MinIO bases were retained and no global
 Docker prune was used.
+
+## 2026-08-17 Current-source canonical bounded chaos and V1 release-candidate gate
+
+The current Delay source `fe62065750f86b607d4c395afd52197e3cb31008`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` completed the canonical rerun of
+`e2e/run-bounded-chaos-matrix.sh`. The valid JSON index is
+`/tmp/nereus-delay-chaos-release-20260817-r1/bounded-chaos-matrix.json` with
+schema `nereus-delay-bounded-chaos-matrix-v1`, `matrix_status=PASS_BOUNDED`,
+and all 13 cells reporting status `0`.
+
+The source-locked release-candidate audit is
+`/tmp/nereus-delay-v1-release-gate-20260817-r1/v1-release-candidate-gate.json`.
+Clean source checks, cross-repository contract validation and the full Gradle
+`check` passed. The gate remains `release_status=NOT_READY` because the
+capacity artifact is `PARTIAL`, the chaos artifact is only `PASS_BOUNDED`, and
+certified soak, activation/cutover and operations-drill artifacts were not
+supplied. The gate accepts only `PASS_CERTIFIED` for those obligations;
+`ALLOW_NOT_READY=1` was used only to emit the auditable negative result and is
+not a promotion override.
+
+This closes the canonical bounded-chaos and fail-closed release-gate runner
+slice, not V1 release readiness. The remaining release work is the certified
+capacity/benchmark campaign, long-cycle soak, protocol activation/cutover,
+operations drills and the broader production fault/placement matrix.
+
+Exact postchecks found no containers, networks or volumes for any project in
+the 13-cell rerun. All run-created Kafka/Pulsar/Oxia/Gateway image IDs were
+absent after cleanup; only locked reusable Oxia
+`sha256:5aa715e4f19091931743e5af489af5f8d6ee15efcce6430a908c6f65cc6d6516`
+and MinIO
+`sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`
+remained. No global Docker prune was used.

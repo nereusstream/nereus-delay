@@ -5402,3 +5402,45 @@ benchmark/soak and V1 release certification remain open.
 The runner removes its exact Compose containers, networks, volumes, listeners,
 temporary Kafka image and generated TLS/receipt files after the run. Locked
 Oxia/MinIO bases are retained; no global Docker prune is used.
+
+## Current-source canonical bounded chaos and V1 release-candidate gate
+
+Run the canonical 13-cell matrix from the clean Delay checkout:
+
+```bash
+NEREUS_DELAY_CHAOS_MATRIX_ARTIFACT_DIR=/tmp/nereus-delay-chaos-release-20260817-r1 \
+NEREUS_DELAY_CHAOS_MATRIX_GRADLE_USER_HOME=/tmp/nereus-delay-chaos-release-gradle-20260817-r1 \
+bash e2e/run-bounded-chaos-matrix.sh
+```
+
+With Delay `fe62065750f86b607d4c395afd52197e3cb31008`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, the canonical JSON index is
+`/tmp/nereus-delay-chaos-release-20260817-r1/bounded-chaos-matrix.json` and
+reports `matrix_status=PASS_BOUNDED` for all 13 cells. This is bounded
+evidence, not release certification.
+
+Run the fail-closed release-candidate audit with the bounded artifacts:
+
+```bash
+NEREUS_DELAY_RELEASE_GATE_ARTIFACT_DIR=/tmp/nereus-delay-v1-release-gate-20260817-r1 \
+NEREUS_DELAY_RELEASE_GATE_GRADLE_USER_HOME=/tmp/nereus-delay-v1-release-gradle-20260817-r1 \
+NEREUS_DELAY_RELEASE_GATE_CHAOS_ARTIFACT=/tmp/nereus-delay-chaos-release-20260817-r1/bounded-chaos-matrix.json \
+NEREUS_DELAY_RELEASE_GATE_CAPACITY_ARTIFACT=/tmp/nereus-delay-capacity-matrix-current-20260817-r4/capacity-benchmark-matrix.json \
+NEREUS_DELAY_RELEASE_GATE_RUN_CHECK=1 \
+NEREUS_DELAY_RELEASE_GATE_ALLOW_NOT_READY=1 \
+bash e2e/run-v1-release-gate.sh
+```
+
+The resulting `/tmp/nereus-delay-v1-release-gate-20260817-r1/v1-release-candidate-gate.json`
+has `release_status=NOT_READY`: source checks, contract validation and full
+Gradle `check` pass, but `PARTIAL`/`PASS_BOUNDED` do not satisfy the required
+`PASS_CERTIFIED` status, and certified soak, activation/cutover and operations
+artifacts are missing. `ALLOW_NOT_READY=1` is only an audit-mode escape for
+recording the negative result.
+
+Both runners remove their exact project resources and generated images. The
+canonical rerun left no related containers, networks or volumes and no
+run-created Kafka/Pulsar/Oxia/Gateway image IDs; locked Oxia/MinIO bases remain.
+Do not use a global Docker prune for this workflow.

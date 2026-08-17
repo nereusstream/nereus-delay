@@ -7700,3 +7700,27 @@ egress, placement churn/failover, benchmark/soak and V1 release certification
 remain separate gates. Run-created Kafka resources and the generated image were
 removed exactly; locked Oxia/MinIO bases were retained and no global Docker
 prune was used.
+
+### 2026-08-17 Current-source canonical chaos and release-gate binding
+
+Delay `fe62065750f86b607d4c395afd52197e3cb31008`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` are the source locks for the
+canonical 13-cell bounded chaos rerun. Its JSON artifact is
+`/tmp/nereus-delay-chaos-release-20260817-r1/bounded-chaos-matrix.json` with
+`matrix_status=PASS_BOUNDED`; all cells completed with status `0`.
+
+The new fail-closed release runner produced
+`/tmp/nereus-delay-v1-release-gate-20260817-r1/v1-release-candidate-gate.json`.
+Source checks, cross-repository contract validation and full Gradle `check`
+passed, while the final release status is `NOT_READY` because only bounded or
+partial capacity/chaos evidence exists and certified soak, activation/cutover
+and operations-drill receipts are absent. Only `PASS_CERTIFIED` satisfies the
+release gate; allowing the script to emit `NOT_READY` does not promote V1.
+
+This binds the current evidence boundary: the bounded failure matrix and gate
+machinery are reproducible, but certified production readiness remains open.
+The exact rerun left no project resources or generated Kafka/Pulsar/Oxia/
+Gateway images. Locked Oxia/MinIO bases remain available, and no global Docker
+prune was used.
