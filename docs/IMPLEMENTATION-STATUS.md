@@ -15103,3 +15103,32 @@ Exact postchecks after the four runs found no matching Compose containers,
 networks, volumes, listeners, fault-proxy processes or per-run images. The
 locked Oxia and MinIO bases were retained intentionally; no global Docker
 prune or unrelated image deletion was performed.
+
+## 2026-08-17 Current-source Kafka Fetch/LSO/retention and Pulsar multi-Broker failover receipts
+
+The current-source release-critical broker slice is now refreshed at Delay
+`883352e2bdc4f376cbf892020b0e8f02e8319797`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The Kafka client artifact is
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`; the P1
+distribution is `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`.
+
+| Cell | Exact runtime placement | Current-source receipt |
+|---|---|---|
+| Kafka guarded Fetch response-loss + LSO | Project `nereus-delay-kafka-e2e-1786928641-71203`; Kafka `31940/31941/31942`; topic base `nereus-delay-fetch-response-loss-20260817-r3` | `BUILD SUCCESSFUL in 49s`; `responseDiscardedAfterFetch=true`, replay offset `0`, second offset `1`, Fetch LSO `2`, and committed-after-replay `2`. A real read_committed Fetch v13 response was discarded before ACK and the exact source replay recovered. |
+| Kafka retention floor + LSO | Project `nereus-delay-kafka-e2e-1786928713-71988`; Kafka `31950/31951/31952`; topic base `nereus-delay-retention-floor-20260817-r3` | `BUILD SUCCESSFUL in 30s`; `oldOffset=0`, `retentionFloor=20`, `endOffset=21`, `staleOffsetRejected=true`, `floorFetchOffset=20`, `fetchLso=21`. Real Broker retention advanced the earliest offset while the current floor remained readable. |
+| Pulsar Worker process-crash failover | Broker/web `31970/31971` and `31972/31973`; Oxia `31980`; Compose project `nereus-delay-pulsar-multi-e2e-1786928804-72884`; Oxia project `nereus-delay-pulsar-multi-oxia-e2e-1786928804-72884`; topics `p1-multi-worker-20260817-r3` and `p1-multi-destination-20260817-r3` | Preparation `BUILD SUCCESSFUL in 52s`; after broker-1 SIGKILL, recovery `BUILD SUCCESSFUL in 37s`. Broker-2 completed assignment recovery, guarded SUBSCRIBE, RocksDB WriteBatch, ACK, source-applied physical publish and exact destination readback under the real Oxia session-bound authority; broker-1 rejoined afterward. |
+
+Exact postchecks after these runs found no matching containers, networks,
+volumes, listeners or per-run images. The locked Oxia and MinIO bases were
+retained intentionally; no global Docker prune or unrelated image deletion was
+performed.
+
+This closes the bounded current-source Kafka Fetch response-loss/LSO,
+retention-floor and Pulsar two-Broker process-crash Worker cells. It does not
+close coordinator/controller or storage-service failover, target isolation,
+multi-shard production placement, the remaining crash/chaos matrix,
+benchmark/soak, or the V1 release gate. Gates 2, 3 and 10 remain `PARTIAL`;
+Gates 5, 6, 7 and 9 remain `OPEN`; Gate 8 remains `PARTIAL`; V1 remains
+`NOT READY`.

@@ -7540,3 +7540,35 @@ The 503 receipt is project
 left no run-created Docker resources. This is a checkpoint authority receipt;
 full Gateway/large-payload pre-commit, multi-shard, chaos and release gates
 remain separate.
+
+### 2026-08-17 Current implementation binding: Kafka source recovery and Pulsar Broker failover
+
+The current source binds the guarded Kafka Fetch path to a real three-Broker
+K1 cluster and the Pulsar Worker path to a real two-Broker P1 cluster with
+real Oxia authority. The focused receipts are locked to Delay
+`883352e2bdc4f376cbf892020b0e8f02e8319797`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+```text
+Kafka Fetch response-loss: project nereus-delay-kafka-e2e-1786928641-71203,
+ports 31940/31941/31942, BUILD SUCCESSFUL in 49s,
+responseDiscardedAfterFetch=true, replayOffset=0, secondOffset=1,
+fetchLso=2, committedAfterReplay=2
+Kafka retention floor: project nereus-delay-kafka-e2e-1786928713-71988,
+ports 31950/31951/31952, BUILD SUCCESSFUL in 30s,
+oldOffset=0, retentionFloor=20, endOffset=21,
+staleOffsetRejected=true, floorFetchOffset=20, fetchLso=21
+Pulsar Worker process crash: project nereus-delay-pulsar-multi-e2e-1786928804-72884,
+broker/web 31970/31971 and 31972/31973, Oxia 31980,
+preparation BUILD SUCCESSFUL in 52s, recovery BUILD SUCCESSFUL in 37s
+```
+
+The Pulsar receipt proves that broker-1 can be killed after a guarded source
+record is durable and that broker-2 can recover the Oxia session-bound
+assignment/Owner, execute guarded SUBSCRIBE, apply the source mutation,
+publish to the destination and ACK; broker-1 then rejoins. The Kafka receipts
+prove exact Fetch replay/LSO and real retention-floor rejection/readability.
+These are bounded broker-client bindings, not coordinator/controller/storage
+failover, multi-shard placement, the complete chaos matrix or V1 release proof.

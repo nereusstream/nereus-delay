@@ -12062,3 +12062,28 @@ Gateway/large-payload pre-commit fault cells. Kafka response-loss/LSO/
 retention, Pulsar multi-Broker failover, multi-shard placement, chaos and
 release gates remain open; Gates 2, 3 and 10 stay `PARTIAL`, Gates 5, 6, 7 and
 9 stay `OPEN`, Gate 8 stays `PARTIAL`, and V1 stays `NOT READY`.
+
+### Current-source Kafka Fetch/LSO/retention and Pulsar multi-Broker failover audit
+
+Audit result: PASS for three bounded release-critical broker cells at Delay
+`883352e2bdc4f376cbf892020b0e8f02e8319797`, with K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+| Cell | Evidence | Audit boundary |
+|---|---|---|
+| Kafka Fetch response-loss + LSO | Project `nereus-delay-kafka-e2e-1786928641-71203`; Kafka `31940/31941/31942`; `BUILD SUCCESSFUL in 49s`; `responseDiscardedAfterFetch=true`, replay `0`, second offset `1`, Fetch LSO `2`, committed after replay `2`. | The real read_committed Fetch v13 response was discarded before ACK; the same source position replayed and the LSO remained exact. |
+| Kafka retention floor + LSO | Project `nereus-delay-kafka-e2e-1786928713-71988`; Kafka `31950/31951/31952`; `BUILD SUCCESSFUL in 30s`; `oldOffset=0`, floor `20`, end `21`, stale offset rejected, floor Fetch `20`, LSO `21`. | Real retention advanced the earliest readable offset; this is a source-floor receipt, not coordinator or storage-service failover evidence. |
+| Pulsar Worker process-crash failover | Project `nereus-delay-pulsar-multi-e2e-1786928804-72884`; Oxia project `nereus-delay-pulsar-multi-oxia-e2e-1786928804-72884`; broker/web `31970/31971`, `31972/31973`; Oxia `31980`; preparation `52s`, recovery `37s`. | broker-1 was SIGKILLed after guarded preparation; broker-2 recovered the real Oxia assignment/Owner, SUBSCRIBE, apply/ACK and destination readback, and broker-1 rejoined. |
+
+The Kafka client lock is
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`; the P1
+distribution lock is
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`.
+Exact Docker postchecks found no run resources, listeners or per-run images;
+only locked bases remained. These are bounded current-source PASS receipts.
+They do not satisfy the complete §23.3 crash/chaos matrix, multi-shard
+placement, target isolation, benchmark/soak or V1 release certification.
+Gates 2, 3 and 10 stay `PARTIAL`; Gates 5, 6, 7 and 9 stay `OPEN`; Gate 8
+stays `PARTIAL`; V1 stays `NOT READY`.

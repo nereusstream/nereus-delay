@@ -5122,3 +5122,71 @@ Only the locked Oxia/MinIO bases remain. This closes the bounded full-chain
 pre-commit fault cells, not response-loss/LSO/retention recovery, Pulsar
 multi-Broker failover, multi-shard placement, the remaining chaos matrix or
 V1 release proof.
+
+## Current-source Kafka Fetch/LSO/retention and Pulsar multi-Broker receipt refresh
+
+These focused runs refresh the release-critical broker evidence at Delay
+`883352e2bdc4f376cbf892020b0e8f02e8319797`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+Kafka Fetch response-loss + LSO:
+
+```bash
+NEREUS_DELAY_KAFKA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1 \
+NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ONLY=1 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-fetch-response-loss-20260817-r3 \
+KAFKA_BROKER_1_PORT=31940 KAFKA_BROKER_2_PORT=31941 KAFKA_BROKER_3_PORT=31942 \
+KAFKA_DELAY_FETCH_RESPONSE_LOSS_TOPIC=nereus-delay-fetch-response-loss-20260817-r3 \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+Receipt: project `nereus-delay-kafka-e2e-1786928641-71203`,
+`BUILD SUCCESSFUL in 49s`; `responseDiscardedAfterFetch=true`,
+`replayOffset=0`, `secondOffset=1`, `fetchLso=2`,
+`committedAfterReplay=2`.
+
+Kafka retention floor + LSO:
+
+```bash
+NEREUS_DELAY_KAFKA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1 \
+NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ONLY=1 \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-fetch-response-loss-20260817-r3 \
+KAFKA_BROKER_1_PORT=31950 KAFKA_BROKER_2_PORT=31951 KAFKA_BROKER_3_PORT=31952 \
+KAFKA_DELAY_RETENTION_FLOOR_TOPIC=nereus-delay-retention-floor-20260817-r3 \
+  bash e2e/run-kafka-real-client-e2e.sh
+```
+
+Receipt: project `nereus-delay-kafka-e2e-1786928713-71988`,
+`BUILD SUCCESSFUL in 30s`; `oldOffset=0`, `retentionFloor=20`,
+`endOffset=21`, `staleOffsetRejected=true`, `floorFetchOffset=20`,
+`fetchLso=21`.
+
+Pulsar multi-Broker Worker process-crash failover:
+
+```bash
+NEREUS_DELAY_PULSAR_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1 \
+NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia \
+NEREUS_DELAY_PULSAR_WITH_OXIA=1 NEREUS_DELAY_PULSAR_MULTI_BROKER_PROCESS_CRASH=1 \
+NEREUS_DELAY_PULSAR_OXIA_PORT=31980 \
+PULSAR_BROKER_1_PORT=31970 PULSAR_WEB_1_PORT=31971 \
+PULSAR_BROKER_2_PORT=31972 PULSAR_WEB_2_PORT=31973 \
+PULSAR_DELAY_MULTI_BROKER_RESTART_TOPIC=p1-multi-worker-20260817-r3 \
+PULSAR_DELAY_MULTI_BROKER_DESTINATION_TOPIC=p1-multi-destination-20260817-r3 \
+NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-multi-broker-20260817-r3 \
+  bash e2e/run-pulsar-multi-broker-failover-e2e.sh
+```
+
+Receipt: Compose project `nereus-delay-pulsar-multi-e2e-1786928804-72884`,
+Oxia project `nereus-delay-pulsar-multi-oxia-e2e-1786928804-72884`,
+preparation `BUILD SUCCESSFUL in 52s`, recovery `BUILD SUCCESSFUL in 37s`.
+broker-1 was SIGKILLed after guarded preparation; broker-2 recovered the real
+Oxia assignment/Owner, guarded SUBSCRIBE, apply/ACK and destination readback,
+then broker-1 rejoined.
+
+The three runs left no matching containers, networks, volumes, listeners or
+per-run images. Only the locked Oxia/MinIO bases remain; do not use a global
+Docker prune for this cleanup. These are bounded current-source receipts and
+do not close coordinator/controller or storage failover, multi-shard
+placement, the remaining chaos matrix or V1 release proof.
