@@ -14988,3 +14988,40 @@ provider-fault injection, target isolation, the remaining §23.3 cuts,
 multi-shard placement, benchmark/soak and release proof remain open. Gates 2,
 3 and 10 remain `PARTIAL`; Gates 5, 6, 7 and 9 remain `OPEN`; Gate 8 remains
 `PARTIAL`; V1 remains `NOT READY`.
+
+## 2026-08-17 Current-source real MinIO fault through Checkpoint Intent/Catalog/REAPING
+
+Delay source `c930413d146879b68b06f9f313eef3f290c63e1e` extends the locked
+Oxia+MinIO checkpoint runner with a deterministic proxy for the first
+`manifest.json` PUT. It runs the real Oxia Worker checkpoint publication and
+REAPING tests as separate JVM invocations, resetting the proxy between them,
+so both the PUBLISHED Intent/Catalog path and the `PENDING_UPLOAD -> REAPING`
+prefix sweep observe the selected provider ambiguity. `PUT_503_AFTER_COMMIT`
+and `PUT_TIMEOUT_AFTER_COMMIT` are supported; timeout receipts set the adapter
+request timeout to `1000ms` while the proxy holds the committed PUT response
+for three seconds.
+
+The source lock is Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` with locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+(local image ID `sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`).
+
+| Cell | Exact runtime placement | Receipt |
+|---|---|---|
+| Checkpoint 503-after-commit | Project `nereus-delay-oxia-minio-checkpoint-e2e-1786926546-44708`; Oxia `31910`, MinIO `31911`, proxy `31912`; bucket `nereus-delay-checkpoints-1786926546-44708` | Publication invocation `BUILD SUCCESSFUL in 1m 17s`; REAPING invocation `BUILD SUCCESSFUL in 13s`; final receipt confirms real Oxia Intent/Catalog/Owner authority and real MinIO immutable objects. The REAPING test reported exact-version prefix sweep `2`, `finalEmptyPrefix=true`, and `localProviderOwnershipClosed=true`. |
+| Checkpoint timeout-after-commit | Project `nereus-delay-oxia-minio-checkpoint-e2e-1786926652-46178`; Oxia `31920`, MinIO `31921`, proxy `31922`; bucket `nereus-delay-checkpoints-1786926652-46178`; adapter timeout `1000ms` | Publication invocation `BUILD SUCCESSFUL in 1m 17s`; REAPING invocation `BUILD SUCCESSFUL in 14s`; final receipt confirms the same real Oxia Intent/Catalog/Owner authority and real MinIO immutable object path, with exact-version REAPING sweep `2` and empty-prefix proof. |
+
+The runner resets the proxy fault between the publication and REAPING JVMs;
+the first manifest PUT in each test is therefore the selected ambiguous
+operation. Exact postchecks found no matching Compose container, network,
+volume, listener or per-run Oxia image. The locked Oxia and MinIO base images
+were retained intentionally; no global Docker prune or unrelated image
+deletion was performed. Temporary proxy seed files were removed.
+
+This closes the bounded real-provider 503/timeout-after-commit path through
+Checkpoint Intent/Catalog publication and exact REAPING prefix deletion. It
+does not provide provider-side quiescence/consistency certification, a
+pre-commit success path, multi-worker takeover, target isolation, the remaining
+§23.3 cuts, multi-shard placement, benchmark/soak or release proof. Gates 2,
+3 and 10 remain `PARTIAL`; Gates 5, 6, 7 and 9 remain `OPEN`; Gate 8 remains
+`PARTIAL`; V1 remains `NOT READY`.

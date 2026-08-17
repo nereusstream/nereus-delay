@@ -7428,3 +7428,39 @@ ZooKeeper/BookKeeper/storage failover, multi-shard production placement, the
 full crash/chaos matrix or V1 release readiness. Exact post-run checks found no
 project containers, networks, volumes, P1 image or run-created Oxia image; the
 locked MinIO base remained and no global Docker prune was used.
+
+### 2026-08-17 Current-source Checkpoint Intent/Catalog/REAPING real MinIO fault implementation note
+
+Delay `c930413d146879b68b06f9f313eef3f290c63e1e` extends the real Oxia + MinIO
+checkpoint runner with the same deterministic fault proxy used by the adapter
+fault tests. The proxy forwards the first immutable `manifest.json` PUT to
+real version-enabled MinIO, then injects `PUT_503_AFTER_COMMIT` or holds the
+response for three seconds for `PUT_TIMEOUT_AFTER_COMMIT`. The real checkpoint
+adapter accepts the ambiguous result only after exact immutable read-back.
+
+The runner resets the fault between separate publication and REAPING JVMs.
+Therefore each cell covers real Oxia Owner/Intent/Catalog authority, the
+PUBLISHED publication path, and the `PENDING_UPLOAD -> REAPING` CAS followed by
+exact-version prefix deletion and final-empty proof under the selected
+provider ambiguity. Timeout runs bind
+`NEREUS_DELAY_MINIO_REQUEST_TIMEOUT_MS=1000`.
+
+The source-bound receipts were:
+
+```text
+503-after-commit: project nereus-delay-oxia-minio-checkpoint-e2e-1786926546-44708,
+publication BUILD SUCCESSFUL in 1m 17s, REAPING BUILD SUCCESSFUL in 13s,
+exact-version sweep=2, finalEmptyPrefix=true
+timeout-after-commit: project nereus-delay-oxia-minio-checkpoint-e2e-1786926652-46178,
+publication BUILD SUCCESSFUL in 1m 17s, REAPING BUILD SUCCESSFUL in 14s,
+exact-version sweep=2, finalEmptyPrefix=true
+```
+
+The receipt locks Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and MinIO
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+Exact postchecks found no run-created container, network, volume, listener or
+Oxia image; locked Oxia/MinIO bases were retained. This is a bounded
+post-commit provider-ambiguity receipt, not provider-side quiescence or
+consistency certification, multi-worker takeover, target isolation, the
+remaining §23.3 matrix, multi-shard production, chaos or V1 release proof.

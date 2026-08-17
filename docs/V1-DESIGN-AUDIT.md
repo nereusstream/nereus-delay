@@ -11977,3 +11977,32 @@ Checkpoint Intent/Catalog/REAPING provider-fault injection, target isolation,
 the remaining §23.3 matrix, multi-shard production, benchmark/soak and V1
 release gate remain open. Gates 2, 3 and 10 stay `PARTIAL`; Gates 5, 6, 7 and
 9 stay `OPEN`; Gate 8 stays `PARTIAL`; V1 stays `NOT READY`.
+
+## 2026-08-17 Current-source real MinIO Checkpoint Intent/Catalog/REAPING fault audit
+
+Audit result: PASS for the bounded real-provider checkpoint fault cell at
+Delay `c930413d146879b68b06f9f313eef3f290c63e1e`. The checkpoint runner now
+places the deterministic proxy in front of real versioned MinIO and runs the
+real Oxia publication and REAPING tests in separate JVMs. Each selected
+`manifest.json` PUT is committed by MinIO before the proxy returns either an
+HTTP 503 or a response timeout; the adapter exact-reads the immutable object,
+then the real Intent/Catalog and Owner-bound REAPING coordinator completes the
+exact-version prefix sweep.
+
+The authority locks are Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+| Cell | Evidence |
+|---|---|
+| 503-after-commit | Project `nereus-delay-oxia-minio-checkpoint-e2e-1786926546-44708`, ports `31910/31911`, proxy `31912`; publication `BUILD SUCCESSFUL in 1m 17s`; REAPING `BUILD SUCCESSFUL in 13s`; real Owner abandonment, Intent `PENDING_UPLOAD -> REAPING`, exact-version sweep `2`, `finalEmptyPrefix=true`, and local provider-ownership closure passed. |
+| Timeout-after-commit | Project `nereus-delay-oxia-minio-checkpoint-e2e-1786926652-46178`, ports `31920/31921`, proxy `31922`; adapter timeout `1000ms`, publication `BUILD SUCCESSFUL in 1m 17s`; REAPING `BUILD SUCCESSFUL in 14s`; exact object readback and the same Intent/Catalog/Owner-bound REAPING sweep passed. |
+
+Exact Docker postchecks found no matching project resources, listeners or
+per-run Oxia image. Locked Oxia/MinIO bases were retained intentionally. The
+PASS is limited to post-commit ambiguity resolution through the checkpoint
+authority; pre-commit remains fail-closed and provider-side
+quiescence/consistency, multi-worker takeover, target isolation, the remaining
+§23.3 matrix, multi-shard production, benchmark/soak and V1 release gate
+remain open. Gates 2, 3 and 10 stay `PARTIAL`; Gates 5, 6, 7 and 9 stay `OPEN`;
+Gate 8 stays `PARTIAL`; V1 stays `NOT READY`.

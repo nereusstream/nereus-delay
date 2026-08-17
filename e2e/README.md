@@ -4947,3 +4947,54 @@ This receipt closes only the full real-MinIO timeout-after-commit payload path;
 Checkpoint Intent/Catalog/REAPING fault injection, pre-commit fail-closed
 evidence, target isolation, the remaining §23.3 matrix, multi-shard
 placement, benchmark/soak and V1 release proof remain open.
+
+## Current-source real MinIO Checkpoint Intent/Catalog/REAPING fault E2E
+
+The checkpoint runner can inject a fault into the first immutable
+`manifest.json` PUT while using real Oxia and version-enabled MinIO. It runs
+the publication and REAPING tests as separate JVMs and resets the proxy between
+them, so both authority paths receive the selected fault. Supported modes are
+`PUT_503_AFTER_COMMIT` and `PUT_TIMEOUT_AFTER_COMMIT`.
+
+503-after-commit invocation:
+
+```bash
+NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia \
+NEREUS_DELAY_OXIA_CHECKPOINT_E2E_PORT=31910 \
+NEREUS_DELAY_MINIO_CHECKPOINT_E2E_PORT=31911 \
+NEREUS_DELAY_CHECKPOINT_MINIO_FAULT_MODE=PUT_503_AFTER_COMMIT \
+NEREUS_DELAY_CHECKPOINT_MINIO_FAULT_PROXY_PORT=31912 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-minio-checkpoint-fault-20260817-r1 \
+  bash e2e/run-oxia-minio-checkpoint-e2e.sh
+```
+
+Timeout-after-commit invocation:
+
+```bash
+NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia \
+NEREUS_DELAY_OXIA_CHECKPOINT_E2E_PORT=31920 \
+NEREUS_DELAY_MINIO_CHECKPOINT_E2E_PORT=31921 \
+NEREUS_DELAY_CHECKPOINT_MINIO_FAULT_MODE=PUT_TIMEOUT_AFTER_COMMIT \
+NEREUS_DELAY_CHECKPOINT_MINIO_REQUEST_TIMEOUT_MS=1000 \
+NEREUS_DELAY_CHECKPOINT_MINIO_FAULT_PROXY_PORT=31922 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-minio-checkpoint-timeout-20260817-r1 \
+  bash e2e/run-oxia-minio-checkpoint-e2e.sh
+```
+
+At Delay `c930413d146879b68b06f9f313eef3f290c63e1e`, the 503 project
+`nereus-delay-oxia-minio-checkpoint-e2e-1786926546-44708` passed publication in
+`1m 17s` and REAPING in `13s`; the timeout project
+`nereus-delay-oxia-minio-checkpoint-e2e-1786926652-46178` passed publication in
+`1m 17s` and REAPING in `14s`. The real REAPING receipt proves Owner
+abandonment, `PENDING_UPLOAD -> REAPING`, exact-version prefix sweep `2`,
+`finalEmptyPrefix=true` and `localProviderOwnershipClosed=true`. Both runs
+used Oxia `37a17bef17202d5fd6e23282da5fd26d94865484` and MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+The runner removes exact MinIO/Oxia containers, Compose resources, proxy
+processes and per-run Oxia images. Only locked Oxia/MinIO bases remain; no
+global Docker prune or unrelated image deletion is appropriate. This receipt
+closes only post-commit ambiguity through Checkpoint Intent/Catalog/REAPING;
+pre-commit remains fail-closed, and provider-side quiescence/consistency,
+multi-worker takeover, target isolation, the remaining §23.3 matrix,
+multi-shard placement, benchmark/soak and V1 release proof remain open.
