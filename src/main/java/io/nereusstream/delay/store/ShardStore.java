@@ -67,6 +67,7 @@ public final class ShardStore implements AutoCloseable {
     private static final int META_CLAIM_SEQUENCE = 11;
     private static final int META_PAYLOAD_PROOF_CONTROL_STATE = 12;
     private static final int META_PROFILE_CONTROL_STATE = 13;
+    private static final int META_PROTOCOL_ACTIVATION_STATE = 14;
     private static final int META_RECOVERY_LINEAGE_BASE = 1;
     private static final int META_RECOVERY_LAST_OBSERVED_FLOOR = 2;
     private static final int META_RECOVERY_CATALOG_GENERATION = 3;
@@ -75,6 +76,7 @@ public final class ShardStore implements AutoCloseable {
     private static final int META_FIXED_VALUE_TYPE = 1;
     private static final int META_PAYLOAD_PROOF_VALUE_TYPE = 9;
     private static final int META_PROFILE_VALUE_TYPE = 10;
+    private static final int META_PROTOCOL_ACTIVATION_VALUE_TYPE = 11;
 
     static {
         RocksDbNativeLoader.load();
@@ -1336,6 +1338,8 @@ public final class ShardStore implements AutoCloseable {
         validateOptionalFixedEnvelope(db, metaHandle, META_PAYLOAD_PROOF_CONTROL_STATE,
                 META_PAYLOAD_PROOF_VALUE_TYPE);
         validateOptionalFixedEnvelope(db, metaHandle, META_PROFILE_CONTROL_STATE, META_PROFILE_VALUE_TYPE);
+        validateOptionalFixedEnvelope(db, metaHandle, META_PROTOCOL_ACTIVATION_STATE,
+                META_PROTOCOL_ACTIVATION_VALUE_TYPE);
     }
 
     private static void validateOptionalFixedEnvelope(final RocksDB db, final ColumnFamilyHandle metaHandle,

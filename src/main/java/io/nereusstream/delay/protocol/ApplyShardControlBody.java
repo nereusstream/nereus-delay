@@ -181,7 +181,7 @@ public final class ApplyShardControlBody {
         if (branches.size() != 1 || branches.get(0).number() != controlKind || branches.get(0).wireType() != 2) {
             throw new IllegalArgumentException("ControlPayload branch does not match control kind");
         }
-        readAll(new CanonicalProtobuf.Reader(branches.get(0).rawValue()));
+        readAll(new CanonicalProtobuf.Reader(branches.get(0).rawValue(), controlKind == 14));
     }
 
     private byte[] branchPayload(final int expectedControlKind) {

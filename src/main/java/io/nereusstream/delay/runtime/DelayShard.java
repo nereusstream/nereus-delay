@@ -58,6 +58,8 @@ import io.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1;
 import io.nereusstream.delay.protocol.PublishAdmissionBody;
 import io.nereusstream.delay.protocol.PublishOutcomeBody;
 import io.nereusstream.delay.protocol.PreparedCommand;
+import io.nereusstream.delay.protocol.ProtocolActivationStateV1;
+import io.nereusstream.delay.protocol.ProtocolTupleV1;
 import io.nereusstream.delay.protocol.ReadyCertificateV1;
 import io.nereusstream.delay.protocol.PreparedControlOperationV1;
 import io.nereusstream.delay.protocol.ReplayDeadLetterBody;
@@ -125,8 +127,10 @@ public final class DelayShard {
     private static final int META_CLAIM_SEQUENCE = 11;
     private static final int META_PAYLOAD_PROOF_CONTROL_STATE = 12;
     private static final int META_PROFILE_CONTROL_STATE = 13;
+    private static final int META_PROTOCOL_ACTIVATION_STATE = 14;
     private static final int PAYLOAD_PROOF_CONTROL_VALUE_TYPE = 9;
     private static final int PROFILE_CONTROL_VALUE_TYPE = 10;
+    private static final int PROTOCOL_ACTIVATION_VALUE_TYPE = 11;
     /** Legacy compatibility projection; V1 class 1 is reserved for grant identity/version. */
     private static final int META_LEGACY_QUOTA_USAGE = 1;
     /** Registry class 2: canonical aggregate CapacityVectorV1 usage. */
@@ -158,6 +162,7 @@ public final class DelayShard {
     private final SloObservationOutboxStore sloObservationOutboxStore;
     private PayloadProofTrustSetControlState payloadProofTrustSetControlState;
     private ProfileBindingControlState profileBindingControlState;
+    private ProtocolActivationStateV1 protocolActivationState;
     private final ShardCapacityEnvelopeV1 capacityEnvelope;
     private final V1ScheduleResolver v1ScheduleResolver;
     /** Single-writer scratch; consumed by the same apply turn before the batch is written. */
@@ -385,6 +390,14 @@ public final class DelayShard {
         profileBindingControlState = profileControlValue == null
                 ? ProfileBindingControlState.empty()
                 : ProfileBindingControlState.decode(profileControlValue.payload());
+        final var protocolActivationValue = store.getValue(ColumnFamily.META,
+                KeyCodec.metaFixed(META_PROTOCOL_ACTIVATION_STATE), PROTOCOL_ACTIVATION_VALUE_TYPE);
+        protocolActivationState = protocolActivationValue == null
+                ? null : ProtocolActivationStateV1.decode(protocolActivationValue.payload());
+        if (protocolActivationState != null
+                && !store.shardId().equals(protocolActivationState.shard().shardId())) {
+            throw new IllegalStateException("persisted protocol activation state belongs to another shard");
+        }
         validateControlStateSourcePositions();
         final var quotaValue = store.getValue(ColumnFamily.META, KeyCodec.metaQuota(META_LEGACY_QUOTA_USAGE), 7);
         final ShardQuota persistedQuota = quotaValue == null
@@ -667,6 +680,10 @@ public final class DelayShard {
         }
         if (sourcePosition.brokerPersistenceTimeEpochMs() > command.retryUntilEpochMs()) {
             return persistRejected(command, sourcePosition, StableCode.COMMAND_RETRY_WINDOW_EXPIRED);
+        }
+        final StableCode protocolCode = validateCommandProtocolTuple(command);
+        if (protocolCode != null) {
+            return persistRejected(command, sourcePosition, protocolCode);
         }
 
         if (command.type() == io.nereusstream.delay.protocol.CommandType.PREPARE_LARGE_SCHEDULE
@@ -2036,6 +2053,9 @@ public final class DelayShard {
         if (body.controlKind() == 12 || body.controlKind() == 13) {
             return applyPayloadProofTrustSetControlMutation(body, mutation, sourcePosition);
         }
+        if (body.controlKind() == 1) {
+            return applyProtocolVersionActivationControlMutation(body, mutation, sourcePosition);
+        }
         if (body.controlKind() == 2 || body.controlKind() == 3) {
             return applyProfileBindingControlMutation(body, mutation, sourcePosition);
         }
@@ -2201,6 +2221,82 @@ public final class DelayShard {
     }
 
     /**
+     * Applies one source-ordered Protocol Version marker. The current
+     * CompatibleControlSnapshot is the local proof that the eligible-reader
+     * set contains the tuple; the marker carries the immutable external
+     * reader-evidence digest. Both are retained so a later command can never
+     * silently use a tuple before its marker.
+     */
+    private SystemMutationResult applyProtocolVersionActivationControlMutation(
+            final ApplyShardControlBody body, final SystemMutation mutation,
+            final SourcePosition sourcePosition) {
+        final CompatibleControlSnapshotV1 snapshot = store.controlSnapshot();
+        if (snapshot == null) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.ROUTE_SNAPSHOT_UNAVAILABLE);
+        }
+        final var payload = body.protocolVersionActivate();
+        if (!snapshot.protocolTuples().contains(payload.tuple())) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+        final ProtocolActivationStateV1 current = protocolActivationState;
+        if (current != null) {
+            final ProtocolActivationStateV1.Activation existing = current.activation(payload.tuple());
+            if (existing != null) {
+                if (!Arrays.equals(existing.canonicalSchemaHash(), payload.canonicalSchemaHash())
+                        || !Arrays.equals(existing.compatibleReaderSetEvidenceHash(),
+                        payload.compatibleReaderSetEvidenceHash())) {
+                    return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                            StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+                }
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                        StableCode.STALE_SYSTEM_MUTATION);
+            }
+        }
+        final ProtocolActivationStateV1 base = current == null
+                ? new ProtocolActivationStateV1(new ShardSubjectV1(store.shardId()), List.of()) : current;
+        final ProtocolActivationStateV1 next = base.activate(payload.tuple(), payload.canonicalSchemaHash(),
+                payload.compatibleReaderSetEvidenceHash(), sourcePosition, mutation.systemMutationId());
+        final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, StableCode.OK,
+                sourcePosition.canonicalBytes());
+        store.write(batch -> {
+            batch.putValue(ColumnFamily.META, PROTOCOL_ACTIVATION_VALUE_TYPE,
+                    KeyCodec.metaFixed(META_PROTOCOL_ACTIVATION_STATE), next.canonicalBytes());
+            writeSystemResult(batch, result);
+            writePosition(batch, sourcePosition);
+        });
+        protocolActivationState = next;
+        lastAppliedSourcePosition = sourcePosition;
+        mutationSequence = nextMutationSequence();
+        return result;
+    }
+
+    /**
+     * Managed Command V1 remains the initial compatibility baseline. Once a
+     * kind-1 marker has been observed, every other tuple must be present in
+     * the authenticated control snapshot and in the durable marker set.
+     */
+    private StableCode validateCommandProtocolTuple(final PreparedCommand command) {
+        if (protocolActivationState == null) {
+            return null;
+        }
+        final CompatibleControlSnapshotV1 snapshot = store.controlSnapshot();
+        if (snapshot == null) {
+            return StableCode.ROUTE_SNAPSHOT_UNAVAILABLE;
+        }
+        final ProtocolTupleV1 tuple = command.protocolTuple();
+        if (protocolActivationState.isMarkedActivated(tuple)) {
+            return snapshot.protocolTuples().contains(tuple) ? null : StableCode.UNSUPPORTED_ACTIVATED_PROTOCOL;
+        }
+        if (ProtocolTupleV1.managedCommandV1().equals(tuple)
+                && snapshot.protocolTuples().contains(tuple)) {
+            return null;
+        }
+        return StableCode.UNACTIVATED_PROTOCOL_VERSION;
+    }
+
+    /**
      * Applies the one-time source-ordered Route control snapshot activation.
      * The payload is deliberately projected into the existing shard-bound
      * {@link CompatibleControlSnapshotV1}; no second metadata namespace is
@@ -2234,11 +2330,16 @@ public final class DelayShard {
         }
         final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, StableCode.OK,
                 sourcePosition.canonicalBytes());
+        final ProtocolActivationStateV1 initialProtocolActivationState = new ProtocolActivationStateV1(
+                new ShardSubjectV1(store.shardId()), List.of());
         store.write(batch -> {
             batch.putControlSnapshot(snapshot);
+            batch.putValue(ColumnFamily.META, PROTOCOL_ACTIVATION_VALUE_TYPE,
+                    KeyCodec.metaFixed(META_PROTOCOL_ACTIVATION_STATE), initialProtocolActivationState.canonicalBytes());
             writeSystemResult(batch, result);
             writePosition(batch, sourcePosition);
         });
+        protocolActivationState = initialProtocolActivationState;
         lastAppliedSourcePosition = sourcePosition;
         mutationSequence = nextMutationSequence();
         return result;
@@ -6695,6 +6796,11 @@ public final class DelayShard {
     /** Returns the shard-bound control snapshot required by strict activation. */
     public synchronized CompatibleControlSnapshotV1 controlSnapshot() {
         return store.controlSnapshot();
+    }
+
+    /** Returns the durable source-ordered Protocol Version marker projection. */
+    public synchronized ProtocolActivationStateV1 protocolActivationState() {
+        return protocolActivationState;
     }
 
     public synchronized long mutationSequence() {

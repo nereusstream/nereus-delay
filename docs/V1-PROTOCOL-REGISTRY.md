@@ -1438,7 +1438,7 @@ Physical CF set is exactly `default` plus seven application CFs. `default` has n
 
 Closed subtype bytes used below:
 
-- `meta/FIXED fixedKeyKind`: 1 store/schema format, 2 shard/Route/DB/Store identities, 3 applied Source Position, 4 ingress-fence state, 5 shard mutation sequence, 6 evidence cursor array, 7 checkpoint identity, 8 last-opened Owner, 9 clean/unclean marker, 10 compatible control snapshot, 11 next Claim sequence, 12 Payload Proof Trust-Set control state, 13 Profile binding control state.
+- `meta/FIXED fixedKeyKind`: 1 store/schema format, 2 shard/Route/DB/Store identities, 3 applied Source Position, 4 ingress-fence state, 5 shard mutation sequence, 6 evidence cursor array, 7 checkpoint identity, 8 last-opened Owner, 9 clean/unclean marker, 10 compatible control snapshot, 11 next Claim sequence, 12 Payload Proof Trust-Set control state, 13 Profile binding control state, 14 Protocol activation state.
 
 `meta/FIXED` key 10 is a `CompatibleControlSnapshotV1` carried in the fixed-key
 ValueEnvelope type 1. Its canonical fields are: 1 schema version=1; 2
@@ -1453,6 +1453,22 @@ and require field 2 to equal the DB's `meta/FIXED` shard identity. The local
 projection records the exact control input used for activation; it does not
 replace Oxia's authoritative Route/Profile/grant catalog or its session-bound
 lease checks.
+`meta/FIXED` key 14 is a `ProtocolActivationStateV1` carried in ValueEnvelope
+type 11. Its canonical fields are: 1 schema version=1; 2 `ShardSubjectV1`
+shard; repeated 3 `ProtocolActivationV1` entries strictly sorted by the
+canonical bytes of their tuple; 4 state digest[32]. Each entry contains 1
+`ProtocolTupleV1`, 2 canonical schema SHA-256[32], 3 compatible-reader-set
+evidence SHA-256[32], 4 canonical `SourcePositionV1` and 5 System Mutation
+ID[32]. The state digest is
+`SHA-256("nereus-delay-protocol-activation-state-v1\\0" || canonicalProtobuf(fields 1-3))`.
+Kind-14 initial Route control writes an empty key-14 projection in the same
+batch as the initial snapshot, marker result and source cursor. A kind-1
+marker may add a tuple only when key 10 contains that tuple in the current
+compatible reader snapshot; the marker evidence and exact source position are
+then committed atomically with its `SystemMutationResult`. A missing marker
+for a non-baseline tuple is `UNACTIVATED_PROTOCOL_VERSION`; a marked tuple
+that is absent from the current compatible reader snapshot is
+`UNSUPPORTED_ACTIVATED_PROTOCOL`.
 When a checkpoint manifest is supplied to restore, key 10 is mandatory and its
 snapshot digest must equal the manifest's `controlStateDigest`; a missing or
 different snapshot is a restore-integrity failure and cannot reach
