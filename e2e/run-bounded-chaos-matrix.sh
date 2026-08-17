@@ -11,6 +11,11 @@ mkdir -p "${artifact_dir}"
 matrix_gradle_home="${NEREUS_DELAY_CHAOS_MATRIX_GRADLE_USER_HOME:-${artifact_dir}/gradle-user-home}"
 mkdir -p "${matrix_gradle_home}"
 
+if ! command -v jq >/dev/null 2>&1; then
+  echo "bounded chaos matrix requires jq to write the canonical JSON receipt" >&2
+  exit 1
+fi
+
 delay_base="2dfc3289ffdbe9cf9d7f4d0de1d701493d1b49a6"
 kafka_base="c300006a7705c240642db6950b5a95fec982bfc5"
 pulsar_base="8dae0236c0a0d405ed7f8303081080520fe91551"
@@ -34,6 +39,11 @@ require_checkout "${delay_dir}" "nereus/delay-full-implementation-v1" "${delay_b
 require_checkout "${kafka_dir}" "nereus/delay-guarded-producer-v1" "${kafka_base}" "Kafka"
 require_checkout "${pulsar_dir}" "nereus/delay-resource-guard-v1" "${pulsar_base}" "Pulsar"
 require_checkout "${oxia_dir}" "main" "$(git -C "${oxia_dir}" rev-parse HEAD)" "Oxia"
+
+delay_source="$(git -C "${delay_dir}" rev-parse HEAD)"
+kafka_source="$(git -C "${kafka_dir}" rev-parse HEAD)"
+pulsar_source="$(git -C "${pulsar_dir}" rev-parse HEAD)"
+oxia_source="$(git -C "${oxia_dir}" rev-parse HEAD)"
 
 echo "Bounded chaos matrix artifact directory: ${artifact_dir}"
 echo "Matrix Gradle cache: ${matrix_gradle_home}"
@@ -199,6 +209,46 @@ for result in "${cell_results[@]}"; do
 done
 echo "artifact_dir=${artifact_dir}"
 echo "matrix_status=${matrix_status}"
+
+cells_json="${artifact_dir}/.bounded-chaos-cells.json"
+printf '{}\n' >"${cells_json}"
+for result in "${cell_results[@]}"; do
+  cell_name="${result%%=*}"
+  cell_status="${result#*=}"
+  jq --arg name "${cell_name}" --argjson status "${cell_status}" \
+    '. + {($name): {status: $status, bounded: true}}' "${cells_json}" >"${cells_json}.tmp"
+  mv "${cells_json}.tmp" "${cells_json}"
+done
+chaos_artifact="${artifact_dir}/bounded-chaos-matrix.json"
+chaos_artifact_tmp="${chaos_artifact}.tmp"
+if [[ "${matrix_status}" == "0" ]]; then
+  matrix_result="PASS_BOUNDED"
+else
+  matrix_result="FAIL"
+fi
+jq -n \
+  --arg schema "nereus-delay-bounded-chaos-matrix-v1" \
+  --arg status "${matrix_result}" \
+  --arg delay "${delay_source}" \
+  --arg kafka "${kafka_source}" \
+  --arg pulsar "${pulsar_source}" \
+  --arg oxia "${oxia_source}" \
+  --arg artifact "${artifact_dir}" \
+  --slurpfile cells "${cells_json}" \
+  '{
+    schema: $schema,
+    matrix_status: $status,
+    artifact_dir: $artifact,
+    source_locks: {delay: $delay, kafka: $kafka, pulsar: $pulsar, oxia: $oxia},
+    cells: $cells[0],
+    boundaries: [
+      "This is a bounded current-source fault matrix, not V1 release certification.",
+      "A release gate must additionally prove required benchmark/capacity, certified soak, activation/cutover, operations and external authority evidence."
+    ]
+  }' >"${chaos_artifact_tmp}"
+mv "${chaos_artifact_tmp}" "${chaos_artifact}"
+rm -f "${cells_json}"
+echo "canonical chaos artifact=${chaos_artifact}"
 
 if [[ "${matrix_status}" != 0 ]]; then
   exit 1
