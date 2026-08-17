@@ -194,8 +194,31 @@ post-run resource and image cleanup:
 operator sign-off / unresolved boundary:
 ```
 
-Current status is `PARTIAL`: the state-machine tests and bounded real
-checkpoint/failover receipts exist, but no single release-candidate run has
-executed all five sections with fresh-process disaster continuity, external
-operator authorization and signed evidence. Gate 9 therefore remains
-`OPEN`, and this document must not be cited as V1 release approval.
+## 8. Current-source bounded operations drill
+
+The clean source-locked run of `e2e/run-bounded-operations-drills.sh` produced
+`/tmp/nereus-delay-operations-20260817-r2/operations-drills.json` with
+`status=PASS_BOUNDED`. It passed the local restore/catalog/Owner recovery and
+drain suite, Dead Letter replay and all four source-ordered UNCERTAIN branches,
+then passed real Oxia + MinIO checkpoint publication and exact REAPING on
+ports `31510/31511`.
+
+The exact source locks are Delay `441a148ba4570ba0af3b6c2cfb7af3d324690954`,
+K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The receipt is bounded evidence
+only. It does not prove fresh-process disaster continuity, external operator
+authorization, cross-record production authority or certified multi-Worker
+soak, so Gate 9 remains `OPEN` and V1 remains `NOT_READY`.
+
+The exact Compose project was
+`nereus-delay-oxia-minio-checkpoint-e2e-1786938487-94600`. Post-run checks found
+no related containers, networks, volumes, listeners or generated Oxia image.
+The locked MinIO/Oxia bases were retained. The runner performs only exact
+run-scoped cleanup and never invokes global Docker prune.
+
+Current status is `PARTIAL`: bounded state-machine and real checkpoint/failover
+receipts now exist, but no single release-candidate run has executed all five
+sections with fresh-process disaster continuity, external operator
+authorization and signed evidence. Gate 9 therefore remains `OPEN`, and this
+document must not be cited as V1 release approval.

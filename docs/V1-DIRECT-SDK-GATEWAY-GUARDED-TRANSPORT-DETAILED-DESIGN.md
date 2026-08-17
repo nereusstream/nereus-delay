@@ -7825,3 +7825,26 @@ rerun is `/tmp/nereus-delay-v1-release-gate-20260817-r5/v1-release-candidate-gat
 at Delay `41b66de37980ecca624c0f2d69cbd52307d8d452`, with source,
 cross-repository and full-check PASS but overall `NOT_READY`. This slice uses
 no Docker resources.
+
+### 2026-08-17 Source-locked bounded operations drills
+
+The clean current-source run of `e2e/run-bounded-operations-drills.sh` produced
+`/tmp/nereus-delay-operations-20260817-r2/operations-drills.json` with
+`status=PASS_BOUNDED` at Delay `441a148ba4570ba0af3b6c2cfb7af3d324690954`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The local operation cut covers checkpoint restore/catalog validation, Owner
+recovery and drain fences, Dead Letter replay and source-ordered resolution of
+published, not-published, retry-with-possible-duplicate and possible-delivery
+terminalization. A real Oxia + MinIO run then passed immutable checkpoint
+publication and exact REAPING. The receipt remains bounded: it does not claim
+external operator authorization, fresh-process disaster continuity, a
+cross-record Oxia transaction or a certified multi-Worker soak.
+
+The run used checkpoint ports `31510/31511` and project
+`nereus-delay-oxia-minio-checkpoint-e2e-1786938487-94600`. Exact postchecks
+found no related containers, networks, volumes, listeners or generated Oxia
+image. The locked MinIO digest was retained, as was the existing locked Oxia
+base; no global Docker prune was used.

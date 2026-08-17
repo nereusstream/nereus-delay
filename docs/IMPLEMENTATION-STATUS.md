@@ -15504,3 +15504,29 @@ at Delay `41b66de37980ecca624c0f2d69cbd52307d8d452`, K1
 `37a17bef17202d5fd6e23282da5fd26d94865484`. Source/contract/full-check pass;
 the result remains `NOT_READY` because all supplied positive artifacts are
 bounded/partial or missing. No Docker resource was used or changed.
+
+## 2026-08-17 Current-source bounded operations drills
+
+Commit `441a148ba4570ba0af3b6c2cfb7af3d324690954` adds
+`e2e/run-bounded-operations-drills.sh`. The clean source-locked run produced
+`/tmp/nereus-delay-operations-20260817-r2/operations-drills.json` with
+`status=PASS_BOUNDED`. Delay, K1, P1 and Oxia locks are respectively
+`441a148ba4570ba0af3b6c2cfb7af3d324690954`,
+`05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The local probe passed restore/checkpoint fencing, catalog ancestry and floor
+validation, Owner recovery/drain gates, Dead Letter replay and all four
+source-ordered `UNCERTAIN` resolution branches (`BUILD SUCCESSFUL in 1m 21s`).
+The real Oxia + MinIO probe on Oxia `31510` and MinIO `31511` passed checkpoint
+publication and exact REAPING (`BUILD SUCCESSFUL in 1m 14s`). This is bounded
+operations evidence, not a certified fresh-process disaster, external operator
+authorization or multi-Worker soak receipt; the release gate remains
+`NOT_READY` because operations still requires `PASS_CERTIFIED`.
+
+The exact checkpoint Compose project was
+`nereus-delay-oxia-minio-checkpoint-e2e-1786938487-94600`. Postchecks found no
+containers, networks, volumes, listeners or generated Oxia image. The locked
+MinIO image digest `sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+and existing locked Oxia base were retained. No global Docker prune was used.

@@ -5578,3 +5578,35 @@ bash e2e/run-v1-release-gate.sh
 The receipt is `release_status=NOT_READY`: source/contract/full-check PASS,
 but bounded/partial/missing inputs remain blocked. This runner does not use
 Docker.
+
+## Current-source bounded operations drills
+
+Run the source-locked operations receipt from a clean full-v1 checkout:
+
+```bash
+NEREUS_DELAY_OPERATIONS_DRILLS_ARTIFACT_DIR=/tmp/nereus-delay-operations-20260817-r2 \
+NEREUS_DELAY_OPERATIONS_DRILLS_GRADLE_USER_HOME=/tmp/nereus-delay-protocol-activation-full-check-20260817-r1 \
+NEREUS_DELAY_OPERATIONS_CHECKPOINT_OXIA_PORT=31510 \
+NEREUS_DELAY_OPERATIONS_CHECKPOINT_MINIO_PORT=31511 \
+bash e2e/run-bounded-operations-drills.sh
+```
+
+The current artifact is
+`/tmp/nereus-delay-operations-20260817-r2/operations-drills.json` with
+`status=PASS_BOUNDED`. It locks Delay
+`441a148ba4570ba0af3b6c2cfb7af3d324690954`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The local probe passed restore,
+catalog, Owner recovery/drain, DLQ replay and source-ordered UNCERTAIN tests;
+the real Oxia + MinIO probe passed checkpoint publication and exact REAPING.
+
+This is bounded operations evidence, not `PASS_CERTIFIED`: external operator
+authorization, fresh-process disaster continuity and certified multi-Worker
+soak remain open. The runner performs exact cleanup of this run's Compose
+resources and generated Oxia image, verifies ports `31510/31511` are free and
+retains only the locked MinIO/Oxia bases. No global Docker prune is used.
+
+The release gate can record this artifact, but it must remain blocked until the
+artifact is independently promoted to `PASS_CERTIFIED` with exact current
+four-repository source locks and the required operations authority evidence.

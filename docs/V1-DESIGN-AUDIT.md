@@ -12340,3 +12340,24 @@ is `/tmp/nereus-delay-v1-release-gate-20260817-r5/v1-release-candidate-gate.json
 source, cross-repository and full Gradle checks pass, while the result remains
 `NOT_READY` because capacity is `PARTIAL`, activation/chaos are bounded and
 soak/operations evidence is missing. No Docker resources were used.
+
+### 2026-08-17 Current-source bounded operations drill audit
+
+Delay `441a148ba4570ba0af3b6c2cfb7af3d324690954`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` are the source locks for
+`/tmp/nereus-delay-operations-20260817-r2/operations-drills.json`.
+The artifact is valid and reports `status=PASS_BOUNDED`. The local suite
+passed restore/catalog/Owner recovery and drain controls, DLQ generation
+retention and all source-ordered `UNCERTAIN` outcome branches. The real
+Oxia/MinIO probe passed checkpoint publication and exact owner-abandonment
+REAPING.
+
+This advances Gate 9 from missing operations evidence to bounded operations
+evidence only. It does not prove external operator authorization, fresh-process
+disaster continuity, cross-record production authority or a certified soak, so
+it cannot satisfy `PASS_CERTIFIED` or V1 release readiness. The exact Compose
+project `nereus-delay-oxia-minio-checkpoint-e2e-1786938487-94600` left no
+containers, networks, volumes, listeners or generated Oxia image; locked
+MinIO/Oxia bases remain and no global Docker prune was used.
