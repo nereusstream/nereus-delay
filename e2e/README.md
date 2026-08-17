@@ -6380,3 +6380,22 @@ matrix release slot is still open and the V1 gate remains `NOT_READY`. After
 the run, generated run-scoped Docker resources must be empty; keep the r7
 receipt and two state-dump directories, remove only the disposable Gradle
 cache, and do not use global Docker prune.
+
+## Current HEAD release gate r39
+
+The latest fail-closed receipt is:
+
+```text
+/private/tmp/nereus-delay-v1-release-gate-20260817-r39/v1-release-candidate-gate.json
+```
+
+It records clean source checkouts, passing cross-repository validation and a
+passing full Gradle check at Delay
+`a783c5e292dde247b2a79f04078e122057917ad4`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. It remains
+`release_status=NOT_READY`: approved capacity, soak, activation/cutover,
+operations and release-certified chaos artifacts were not supplied. The r7
+`PASS_BOUNDED` receipt is scoped evidence and is not a release certificate.
+The r39 Gradle user home is disposable and was removed after the check.

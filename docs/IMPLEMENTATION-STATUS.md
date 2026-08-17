@@ -16439,3 +16439,20 @@ capacity, soak, activation/cutover, operations, upgrade/downgrade and
 disaster-continuity evidence is supplied. The exact Docker postcheck was
 empty for generated resources; only the r7 receipt and its two audited state
 dumps are retained.
+
+## 2026-08-17 Current HEAD release-candidate gate r39
+
+The latest receipt is
+`/private/tmp/nereus-delay-v1-release-gate-20260817-r39/v1-release-candidate-gate.json`.
+Source cleanliness, cross-repository validation and full Gradle `check` pass
+for Delay `a783c5e292dde247b2a79f04078e122057917ad4`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The fail-closed result is `release_status=NOT_READY`. Certified capacity,
+certified soak, activation/cutover, operations drills and release-certified
+chaos are each `BLOCKED` without their explicitly approved `PASS_CERTIFIED`
+artifacts. The current-source bounded r7 receipt therefore remains scoped
+fault evidence rather than a release certificate. The r39 Gradle cache was
+removed after the check; the receipt and logs are retained.

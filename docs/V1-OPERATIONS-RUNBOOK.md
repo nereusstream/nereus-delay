@@ -994,3 +994,23 @@ matching generated containers, networks, volumes or images. Retain the r7
 receipt and both state-dump directories; remove only the r7 Gradle cache after
 evidence capture. Never run a global Docker prune or remove unrelated images.
 The bounded result remains `release_status=NOT_READY` at the V1 gate.
+
+## 2026-08-17 Current HEAD gate r39
+
+Run the fail-closed gate with isolated receipt and Gradle-home paths:
+
+```bash
+NEREUS_DELAY_RELEASE_GATE_ARTIFACT_DIR=/private/tmp/nereus-delay-v1-release-gate-20260817-r39 \
+NEREUS_DELAY_RELEASE_GATE_GRADLE_USER_HOME=/private/tmp/nereus-delay-v1-release-gate-gradle-20260817-r39 \
+NEREUS_DELAY_RELEASE_GATE_ALLOW_NOT_READY=1 \
+bash e2e/run-v1-release-gate.sh
+```
+
+Receipt:
+`/private/tmp/nereus-delay-v1-release-gate-20260817-r39/v1-release-candidate-gate.json`.
+The four source checks, cross-repository validator and full Gradle check are
+`PASS`. The result is still `release_status=NOT_READY` because certified
+capacity, soak, activation/cutover, operations drills and release-certified
+chaos were not supplied as approved `PASS_CERTIFIED` artifacts. Remove the
+exact r39 Gradle home after the run; retain the receipt and logs. Do not
+promote the bounded r7 receipt into a certified slot.

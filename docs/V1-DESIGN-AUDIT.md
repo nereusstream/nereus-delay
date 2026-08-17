@@ -13056,3 +13056,21 @@ volumes or generated images. The r7 matrix receipt and its two state-dump
 directories are retained; its Gradle home is a disposable run cache. No
 global Docker prune, source-worktree deletion or unrelated image removal was
 performed.
+
+### 2026-08-17 Current HEAD release-candidate gate r39
+
+The latest fail-closed gate receipt is
+`/private/tmp/nereus-delay-v1-release-gate-20260817-r39/v1-release-candidate-gate.json`.
+Source cleanliness, cross-repository contract validation and the full Gradle
+check are `PASS` for Delay
+`a783c5e292dde247b2a79f04078e122057917ad4`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The gate remains `release_status=NOT_READY`: benchmark capacity, certified
+soak, activation/cutover, operations drills and release-certified chaos each
+remain `BLOCKED` because no explicitly approved `PASS_CERTIFIED` artifact was
+supplied. The bounded r7 matrix is retained as scoped evidence and is not
+silently promoted into the release-certified chaos slot. The r39 Gradle home
+was removed after the check; the gate receipt and diagnostic logs remain.
