@@ -91,10 +91,10 @@ audit_cell() {
       expected_state="source and group coordinator placement remains on Broker-2 and a fresh Worker resumes through the bootstrap list"
       duplicate_boundary="the same source position is applied once after endpoint cut; no replacement request changes the guarded identity"
       fresh_process_recovery="PASS"
-      source_evidence="Kafka raw TCP Broker endpoint-cut Worker recovery E2E passed"
+      source_evidence="Kafka Worker raw TCP Broker-endpoint cut recovery E2E passed"
       target_evidence="Kafka Worker vertical smoke passed"
       authority_evidence="Kafka Worker authority smoke passed"
-      required_markers=("Kafka raw TCP Broker endpoint-cut Worker recovery E2E passed" "Kafka Worker vertical smoke passed" "Kafka Worker authority smoke passed")
+      required_markers=("Kafka Worker raw TCP Broker-endpoint cut recovery E2E passed" "Kafka Worker vertical smoke passed" "Kafka Worker authority smoke passed")
       ;;
     kafka-broker-network-partition)
       injection_point="remove kafka-1 from the exact Compose network while keeping the process alive"
