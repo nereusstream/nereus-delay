@@ -687,3 +687,13 @@ four locked repositories, while `release_status=NOT_READY` because no
 provided. Do not promote the bounded production-chain receipt into any of
 those slots. The artifact predates this runbook append, which does not refresh
 its source lock.
+
+## 26. Current-source r29 release-gate result
+
+The final gate is
+`/tmp/nereus-delay-v1-release-gate-20260817-r29/v1-release-candidate-gate.json`.
+It reports clean source locks, passing cross-repository validation and a
+passing full Gradle check for the four repositories. The decision remains
+`release_status=NOT_READY`: no `PASS_CERTIFIED` capacity, soak, activation,
+operations or chaos artifacts were supplied. The r29 artifact predates this
+runbook append, so the append does not refresh its source lock.

@@ -16145,3 +16145,19 @@ not supplied as `PASS_CERTIFIED` inputs. The bounded production-chain receipt
 is functional/runtime evidence and is intentionally not promoted into those
 certification slots. The r28 artifact predates this documentation append; the
 append does not refresh its runtime source lock.
+
+## 2026-08-17 Current-source r29 release-gate refresh
+
+After the r28 documentation sync, the final current-source gate is
+`/tmp/nereus-delay-v1-release-gate-20260817-r29/v1-release-candidate-gate.json`.
+Delay `830fce40c77c52a3a8b25d657355db9abee851c4`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` are clean; source, cross-repo and
+full Gradle checks are `PASS`.
+
+The gate remains fail-closed at `release_status=NOT_READY`. Capacity,
+certified soak, activation, operations and chaos still require distinct
+`PASS_CERTIFIED` artifacts; the bounded production-chain receipt is not a
+promotion substitute. This documentation append does not refresh the r29
+runtime source lock.

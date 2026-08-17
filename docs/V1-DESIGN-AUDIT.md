@@ -12796,3 +12796,18 @@ Audit result: the gate is correctly fail-closed at
 operations or chaos artifact in this run satisfies `PASS_CERTIFIED`; the
 bounded production-chain receipt remains a separate runtime slice. This
 documentation append does not refresh the r28 artifact source lock.
+
+### 2026-08-17 Current-source r29 release-gate audit
+
+The final current-source gate is
+`/tmp/nereus-delay-v1-release-gate-20260817-r29/v1-release-candidate-gate.json`.
+Delay `830fce40c77c52a3a8b25d657355db9abee851c4`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` are clean, and source,
+cross-repository and full Gradle checks pass.
+
+Audit result: `release_status=NOT_READY` remains correct. The bounded soak
+does not satisfy the separate `PASS_CERTIFIED` capacity, soak, activation,
+operations or chaos requirements. This documentation append does not refresh
+the r29 runtime source lock.

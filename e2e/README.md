@@ -6118,3 +6118,16 @@ passed; the gate remains `release_status=NOT_READY` because capacity,
 certified soak, activation, operations and chaos require separate
 `PASS_CERTIFIED` artifacts. The bounded production-chain receipt is not a
 promotion input. This README append does not refresh the r28 source lock.
+
+## Current-source r29 release-gate refresh
+
+The final gate artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r29/v1-release-candidate-gate.json`.
+Source locks, the cross-repository validator and full Gradle `check` pass for
+Delay `830fce40c77c52a3a8b25d657355db9abee851c4`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The result remains
+`release_status=NOT_READY`; bounded soak evidence is not a
+`PASS_CERTIFIED` substitute. This README append does not refresh the r29
+source lock.
