@@ -443,3 +443,44 @@ capacity is `PARTIAL`, and certified soak is absent. Verify exact cleanup after
 the run: no run-owned containers, volumes, networks or generated images may
 remain. Retain only the locked MinIO base and unrelated pre-existing images;
 do not use global Docker prune or delete unrelated images.
+
+## 16. Current-source multi-shard production-chain revalidation
+
+The current source-locked candidate rerun used Delay
+`59abbde18ad2b0b5551e4ea59c5fc146db068982`, Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+Kafka:
+
+```bash
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_MULTI_SHARD=1 \
+KAFKA_LARGE_PAYLOAD_BROKER_1_PORT=34800 \
+KAFKA_LARGE_PAYLOAD_BROKER_2_PORT=34801 \
+KAFKA_LARGE_PAYLOAD_BROKER_3_PORT=34802 \
+NEREUS_DELAY_LARGE_PAYLOAD_OXIA_PORT=34810 \
+NEREUS_DELAY_LARGE_PAYLOAD_MINIO_PORT=34811 \
+NEREUS_DELAY_LARGE_PAYLOAD_GATEWAY_PORT=34812 \
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_DESTINATION_TOPIC=kafka-large-payload-current-r18-20260817 \
+NEREUS_DELAY_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-large-payload-current-r18 \
+bash e2e/run-large-payload-gateway-e2e.sh
+```
+
+Pulsar used the equivalent two-Broker run on ports `34900/34901/34902/34903`,
+Oxia `34910`, MinIO `34911`, Gateway `34912`, destination topic
+`pulsar-large-payload-current-r18-20260817` and Gradle cache
+`/tmp/nereus-delay-pulsar-large-payload-current-r18`.
+
+Both runs passed exact destination readback on source partitions 0 and 1,
+Gateway idempotency replay, typed target evidence, source-ordered Outcome,
+checkpoint and Owner release. Verify exact cleanup by project label before
+retaining the receipt: neither project may have containers, networks or
+volumes, and the per-run Kafka/Pulsar/Oxia images must be absent. Retain only
+the locked MinIO base and pre-existing unrelated images. No global Docker
+prune is allowed.
+
+This is a production-chain revalidation, not a certified soak or release
+approval. A separate Gateway deployment boundary, catalog/placement churn,
+controller/storage/provider failover and the `PASS_CERTIFIED` capacity,
+activation, operations and chaos artifacts remain required.

@@ -12944,6 +12944,52 @@ still intentionally `release_status=NOT_READY`: capacity is `PARTIAL`, no
 certified soak artifact is supplied, and activation/cutover, operations and
 chaos are `PASS_BOUNDED`, not `PASS_CERTIFIED`.
 
+## 2026-08-17 Current-source Kafka/Pulsar two-shard production-chain rerun
+
+After the documentation/source-lock refresh, the clean current Delay source
+`59abbde18ad2b0b5551e4ea59c5fc146db068982` reran both real multi-shard
+Large Payload destination paths. Kafka used K1
+`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+P1 used `nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+and both used Oxia `37a17bef17202d5fd6e23282da5fd26d94865484` plus the locked
+MinIO image
+`quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+The Kafka project `nereus-delay-large-payload-e2e-1786948482-25011` passed
+two guarded Fetch barriers, two Oxia Assignment/Owner paths, one Worker
+fleet, Gateway mTLS/JWT, real MinIO upload/attest/Commit/readback, typed
+transactional target-plus-receipt publication, source-ordered Outcome and
+checkpoint/release. The per-shard receipt was:
+
+```text
+partition=0: barrier=2, prepare=2, commit=3, objectVersion=fd5c9043-3881-4529-b188-f34ad1fab6ac, destinationEgress=true, sourceRecords=6
+partition=1: barrier=2, prepare=2, commit=3, objectVersion=853ea2f2-b729-4ae1-971f-20b2ec43282b, destinationEgress=true, sourceRecords=6
+fetchPartitions=2, routeRevision=1, workers=[kafka-large-payload-worker-b, kafka-large-payload-worker-a], exactGatewayIdempotency=true
+BUILD SUCCESSFUL in 1m 34s
+```
+
+The Pulsar project `nereus-delay-pulsar-large-e2e-1786948482-25012` passed
+the corresponding two guarded SUBSCRIBE barriers, two Assignment/Owner
+paths, one Worker fleet, Gateway mTLS/JWT, MinIO authority, typed
+`PULSAR_SEND_ACK` target publication, source-ordered Outcome and
+checkpoint/release. The per-shard receipt was:
+
+```text
+partition=0: barrier=3/1, prepare=3/2, commit=3/3, objectVersion=df2e6c37-be9a-4be3-8e29-54f6a18d4a90, destinationEgress=true, sourceRecords=6
+partition=1: barrier=4/1, prepare=4/2, commit=4/3, objectVersion=7eaf06df-9e2b-4e77-abce-4c7511101d98, destinationEgress=true, sourceRecords=6
+subscribePartitions=2, routeRevision=1, workers=[pulsar-large-payload-worker-a, pulsar-large-payload-worker-b], exactGatewayIdempotency=true
+BUILD SUCCESSFUL in 1m 39s
+```
+
+This closes the current-source real Gateway + Oxia + Broker + Worker + MinIO
+multi-shard production-chain boundary for both Broker families. It does not
+claim a separately deployed Gateway process, catalog-driven placement churn,
+controller/storage/provider failover, certified capacity/soak, or V1 release
+promotion. Exact postchecks found no containers, networks, volumes or
+run-generated Kafka/Pulsar/Oxia images for either project. The locked MinIO
+base and unrelated pre-existing images were retained; no global Docker prune
+or unrelated image deletion was used.
+
 ## 2026-08-17 Current-source bounded chaos refresh after Gateway session fence
 
 Delay commit `56f39ff80ee32ff46ce7086895a3b875d7284134` makes the Gateway/Oxia

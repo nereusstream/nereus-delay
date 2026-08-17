@@ -12565,3 +12565,34 @@ certified capacity/soak and `PASS_CERTIFIED` activation, operations and chaos
 evidence remain open. The corresponding r17 release artifact is
 `/tmp/nereus-delay-v1-release-gate-20260817-r17/v1-release-candidate-gate.json`
 and remains `NOT_READY` by design.
+
+### 2026-08-17 Current-source multi-shard production-chain revalidation
+
+The clean current candidate is Delay
+`59abbde18ad2b0b5551e4ea59c5fc146db068982`, Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The real Kafka and Pulsar
+two-shard Large Payload runners both exited zero after crossing the complete
+Gateway mTLS/JWT -> MinIO upload/attest/Commit -> Worker apply/ACK -> typed
+destination publication -> source-ordered Outcome -> checkpoint/release path.
+
+Kafka's exact current receipt used Compose project
+`nereus-delay-large-payload-e2e-1786948482-25011`, source barriers `2/2`,
+object versions `fd5c9043-3881-4529-b188-f34ad1fab6ac` and
+`853ea2f2-b729-4ae1-971f-20b2ec43282b`, and exact Gateway idempotency. Pulsar's
+receipt used project `nereus-delay-pulsar-large-e2e-1786948482-25012`, source
+barriers `3/1` and `4/1`, object versions
+`df2e6c37-be9a-4be3-8e29-54f6a18d4a90` and
+`7eaf06df-9e2b-4e77-abce-4c7511101d98`, and exact Gateway idempotency. Both
+read back the exact large payload on both destination partitions and released
+the final Owner/checkpoint state.
+
+Audit result: PASS for the named current-source multi-shard production-chain
+boundary. This is real network and real service authority evidence from the
+isolated runner, but it is not a separately deployed Gateway production
+rollout or a `PASS_CERTIFIED` release artifact. Placement/catalog churn,
+controller/storage/provider failover, certified benchmark/soak and the
+activation, operations and chaos promotion gates remain open. Run-scoped
+postchecks found no project resources or generated images; the locked MinIO
+base and unrelated images were retained, with no global Docker prune.
