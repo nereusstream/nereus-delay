@@ -16066,3 +16066,21 @@ This closes the bounded real Oxia DataServer leader-stop plus Gateway
 session-bound reread slice. It does not certify Gateway HA, coordinator
 failover, storage-service failover, placement churn, disaster continuity or
 the V1 `PASS_CERTIFIED` release gate.
+
+## 2026-08-17 Current-source r25 release-gate refresh
+
+After the Oxia/Gateway receipt, the clean current source produced
+`/tmp/nereus-delay-v1-release-gate-20260817-r25/v1-release-candidate-gate.json`.
+Delay `6a5cd494d7122a01d666cd681a3dac7fe6e11769`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` were clean; cross-repository
+validation and full `./gradlew check` both passed (`BUILD SUCCESSFUL in
+2m 29s`).
+
+The release artifact intentionally remains `release_status=NOT_READY`:
+capacity is `PARTIAL`, certified soak is missing, and activation, operations
+and chaos are `PASS_BOUNDED`, so none satisfies the required `PASS_CERTIFIED`
+rule. `ALLOW_NOT_READY=1` only records this fail-closed audit and never promotes
+the candidate. The artifact was generated before this documentation append;
+the append does not refresh its source lock.

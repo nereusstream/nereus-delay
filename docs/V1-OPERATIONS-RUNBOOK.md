@@ -631,3 +631,15 @@ container/network/volume/image postcheck is required. This drill proves one
 namespace-shard DataServer leader stop and Gateway durable-outcome reread; it
 does not prove Gateway HA, coordinator/storage failover, placement churn,
 disaster continuity or `PASS_CERTIFIED` release readiness.
+
+## 23. Current-source r25 release-gate audit
+
+The post-receipt gate is
+`/tmp/nereus-delay-v1-release-gate-20260817-r25/v1-release-candidate-gate.json`.
+Source cleanliness, cross-repository contract validation and full Gradle
+`check` passed for the exact four-repository locks recorded in that artifact.
+The decision is intentionally `release_status=NOT_READY`: `capacity=PARTIAL`,
+certified soak is missing, and activation, operations and chaos are bounded
+receipts. Do not use `ALLOW_NOT_READY=1` as a promotion switch. The gate
+artifact predates this runbook append, so the append does not change its
+source-qualified status.

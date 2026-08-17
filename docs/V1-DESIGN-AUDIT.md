@@ -12734,3 +12734,19 @@ reread boundary. The receipt is not evidence of coordinator or storage-service
 failover, Gateway multi-process HA, placement churn, disaster continuity or
 `PASS_CERTIFIED` release readiness; the source-locked receipt predates this
 documentation append.
+
+### 2026-08-17 Current-source r25 release-gate audit
+
+The current source gate is
+`/tmp/nereus-delay-v1-release-gate-20260817-r25/v1-release-candidate-gate.json`.
+It records clean Delay `6a5cd494d7122a01d666cd681a3dac7fe6e11769`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`; source, cross-repository and
+full Gradle checks are `PASS`.
+
+The fail-closed decision is `release_status=NOT_READY`: capacity is
+`PARTIAL`, certified soak is missing, and activation, operations and chaos
+remain `PASS_BOUNDED` rather than `PASS_CERTIFIED`. The new real Oxia/Gateway
+leader-failover receipt is bounded runtime evidence and is not itself a gate
+input. This audit append does not refresh the r25 runtime source lock.

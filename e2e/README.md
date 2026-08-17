@@ -6063,3 +6063,17 @@ This is bounded real Oxia leader-stop/Gateway recovery evidence. It does not
 certify Gateway HA, coordinator/storage failover, placement churn, disaster
 continuity, certified soak or V1 `PASS_CERTIFIED` release readiness. Locked
 reusable bases remain; no global Docker prune is used.
+
+## Current-source r25 release-gate refresh
+
+The source-locked gate after the real Oxia/Gateway receipt is
+`/tmp/nereus-delay-v1-release-gate-20260817-r25/v1-release-candidate-gate.json`.
+Delay `6a5cd494d7122a01d666cd681a3dac7fe6e11769`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` are clean; source, contract and
+full Gradle checks pass. The gate remains `release_status=NOT_READY` because
+capacity is `PARTIAL`, certified soak is absent, and activation/operations/
+chaos are `PASS_BOUNDED`, not `PASS_CERTIFIED`. The Oxia/Gateway artifact is
+bounded runtime evidence and is not a substitute for those certification
+inputs; this README append does not refresh the r25 source lock.

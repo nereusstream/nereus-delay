@@ -8100,3 +8100,20 @@ container/network/volume/image postcheck; locked reusable bases remain.
 This is bounded real Oxia leader-stop and session-bound Gateway recovery
 evidence. It does not promote Gateway HA, coordinator/storage failover,
 placement churn, disaster continuity, certified soak or the V1 release gate.
+
+### 2026-08-17 Current-source r25 gate refresh
+
+The current-source gate artifact is
+`/tmp/nereus-delay-v1-release-gate-20260817-r25/v1-release-candidate-gate.json`.
+It passes clean four-repository source checks, the cross-repository contract
+validator and full Delay `check` at Delay
+`6a5cd494d7122a01d666cd681a3dac7fe6e11769`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+It remains `release_status=NOT_READY`: capacity is `PARTIAL`, certified soak
+is absent, and activation/operations/chaos are bounded rather than
+`PASS_CERTIFIED`. The new Oxia/Gateway receipt strengthens the real-service
+boundary but does not alter the release gate. This documentation append does
+not refresh the artifact's source lock.
