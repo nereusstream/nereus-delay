@@ -12330,3 +12330,13 @@ multi-shard Large Payload, complete infrastructure failover, benchmark/soak
 and release certification remain open. All exact project resources and
 generated images were removed; locked MinIO was retained and no global prune
 was used.
+
+### 2026-08-17 Release artifact source-lock audit
+
+Delay `41b66de37980ecca624c0f2d69cbd52307d8d452` hardens the release runner
+so a `PASS_CERTIFIED` artifact must carry exact current Delay/Kafka/Pulsar/Oxia
+source locks. Chaos now uses the same path. The current clean-source artifact
+is `/tmp/nereus-delay-v1-release-gate-20260817-r5/v1-release-candidate-gate.json`;
+source, cross-repository and full Gradle checks pass, while the result remains
+`NOT_READY` because capacity is `PARTIAL`, activation/chaos are bounded and
+soak/operations evidence is missing. No Docker resources were used.

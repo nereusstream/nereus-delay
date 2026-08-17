@@ -15486,3 +15486,21 @@ failover, certified benchmark/soak or V1 release certification. Exact
 postchecks found no project containers, networks, volumes or listeners and no
 temporary P1/Oxia image; the locked MinIO base remained. No global Docker
 prune was used.
+
+## 2026-08-17 Release artifact source-lock enforcement
+
+Commit `41b66de37980ecca624c0f2d69cbd52307d8d452` hardens
+`e2e/run-v1-release-gate.sh`: a supplied `PASS_CERTIFIED` artifact now must
+carry exact current `source_locks.delay`, `.kafka`, `.pulsar` and `.oxia`.
+Missing or stale locks are `BLOCKED`; `PASS_BOUNDED`, `PARTIAL`, missing and
+invalid artifacts remain non-promoting. The chaos artifact uses the same
+four-lock check rather than a separate status-only branch.
+
+The clean-source rerun is
+`/tmp/nereus-delay-v1-release-gate-20260817-r5/v1-release-candidate-gate.json`
+at Delay `41b66de37980ecca624c0f2d69cbd52307d8d452`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Source/contract/full-check pass;
+the result remains `NOT_READY` because all supplied positive artifacts are
+bounded/partial or missing. No Docker resource was used or changed.

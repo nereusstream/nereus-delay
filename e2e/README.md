@@ -5556,3 +5556,25 @@ remain open. The runner removed project
 `nereus-delay-pulsar-large-e2e-1786937594-84236`, all its volumes/networks,
 listeners and generated P1/Oxia images. The locked MinIO base was retained;
 no global Docker prune was used.
+
+## Release artifact source-lock enforcement
+
+The release runner now requires every `PASS_CERTIFIED` artifact to include
+exact current `source_locks.delay`, `.kafka`, `.pulsar` and `.oxia`; missing or
+stale locks are blocked. Commit `41b66de37980ecca624c0f2d69cbd52307d8d452`
+was verified with:
+
+```bash
+NEREUS_DELAY_RELEASE_GATE_ARTIFACT_DIR=/tmp/nereus-delay-v1-release-gate-20260817-r5 \
+NEREUS_DELAY_RELEASE_GATE_GRADLE_USER_HOME=/tmp/nereus-delay-protocol-activation-full-check-20260817-r1 \
+NEREUS_DELAY_RELEASE_GATE_CHAOS_ARTIFACT=/tmp/nereus-delay-chaos-release-20260817-r1/bounded-chaos-matrix.json \
+NEREUS_DELAY_RELEASE_GATE_CAPACITY_ARTIFACT=/tmp/nereus-delay-capacity-matrix-current-20260817-r4/capacity-benchmark-matrix.json \
+NEREUS_DELAY_RELEASE_GATE_ACTIVATION_ARTIFACT=/tmp/nereus-delay-protocol-activation-cutover-20260817-r1/protocol-activation-cutover.json \
+NEREUS_DELAY_RELEASE_GATE_RUN_CHECK=1 \
+NEREUS_DELAY_RELEASE_GATE_ALLOW_NOT_READY=1 \
+bash e2e/run-v1-release-gate.sh
+```
+
+The receipt is `release_status=NOT_READY`: source/contract/full-check PASS,
+but bounded/partial/missing inputs remain blocked. This runner does not use
+Docker.

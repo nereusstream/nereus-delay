@@ -7814,3 +7814,14 @@ This remains single-shard evidence: Pulsar multi-shard Large Payload,
 controller/storage/provider failover, benchmark/soak and V1 certification are
 not closed. Exact Compose resources and generated P1/Oxia images were removed;
 the locked MinIO base remains and no global prune was used.
+
+### 2026-08-17 Release artifact source-lock enforcement
+
+Commit `41b66de37980ecca624c0f2d69cbd52307d8d452` makes the release gate
+source-qualified: every `PASS_CERTIFIED` input must expose exact current
+`source_locks` for Delay, Kafka, Pulsar and Oxia. Missing/stale locks are
+fail-closed `BLOCKED`; bounded/partial evidence never promotes. The current
+rerun is `/tmp/nereus-delay-v1-release-gate-20260817-r5/v1-release-candidate-gate.json`
+at Delay `41b66de37980ecca624c0f2d69cbd52307d8d452`, with source,
+cross-repository and full-check PASS but overall `NOT_READY`. This slice uses
+no Docker resources.
