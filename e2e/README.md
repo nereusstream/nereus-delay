@@ -5046,3 +5046,79 @@ per-run Oxia images. Only the locked Oxia/MinIO bases remain; no global Docker
 prune or unrelated image deletion is appropriate. Full Gateway/large-payload
 pre-commit, provider-side quiescence/consistency, multi-shard placement, the
 remaining fault matrix and V1 release proof remain open.
+
+### Full Gateway/large-payload pre-commit fail-closed modes
+
+The full Kafka and Pulsar large-payload runners also support
+`PUT_503_BEFORE_COMMIT` and `PUT_TIMEOUT_BEFORE_COMMIT`. In both modes the
+fault proxy does not forward the first payload PUT. The real Gateway/Oxia/
+Broker/Worker/MinIO chain must leave Prepare `RESERVED`, omit Commit, attest
+the payload as absent, drain the Worker checkpoint and release the Owner.
+
+Kafka 503-before-commit:
+
+```bash
+NEREUS_DELAY_KAFKA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1 \
+NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia \
+NEREUS_DELAY_LARGE_PAYLOAD_MINIO_FAULT_MODE=PUT_503_BEFORE_COMMIT \
+NEREUS_DELAY_LARGE_PAYLOAD_MINIO_FAULT_PROXY_PORT=31853 \
+KAFKA_LARGE_PAYLOAD_BROKER_1_PORT=31840 KAFKA_LARGE_PAYLOAD_BROKER_2_PORT=31841 \
+KAFKA_LARGE_PAYLOAD_BROKER_3_PORT=31842 NEREUS_DELAY_LARGE_PAYLOAD_OXIA_PORT=31850 \
+NEREUS_DELAY_LARGE_PAYLOAD_MINIO_PORT=31851 NEREUS_DELAY_LARGE_PAYLOAD_GATEWAY_PORT=31852 \
+  bash e2e/run-large-payload-gateway-e2e.sh
+```
+
+Kafka timeout-before-commit:
+
+```bash
+NEREUS_DELAY_KAFKA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1 \
+NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia \
+NEREUS_DELAY_LARGE_PAYLOAD_MINIO_FAULT_MODE=PUT_TIMEOUT_BEFORE_COMMIT \
+NEREUS_DELAY_LARGE_PAYLOAD_MINIO_REQUEST_TIMEOUT_MS=1000 \
+NEREUS_DELAY_LARGE_PAYLOAD_MINIO_FAULT_PROXY_PORT=31873 \
+KAFKA_LARGE_PAYLOAD_BROKER_1_PORT=31860 KAFKA_LARGE_PAYLOAD_BROKER_2_PORT=31861 \
+KAFKA_LARGE_PAYLOAD_BROKER_3_PORT=31862 NEREUS_DELAY_LARGE_PAYLOAD_OXIA_PORT=31870 \
+NEREUS_DELAY_LARGE_PAYLOAD_MINIO_PORT=31871 NEREUS_DELAY_LARGE_PAYLOAD_GATEWAY_PORT=31872 \
+  bash e2e/run-large-payload-gateway-e2e.sh
+```
+
+Pulsar 503-before-commit:
+
+```bash
+NEREUS_DELAY_PULSAR_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1 \
+NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MINIO_FAULT_MODE=PUT_503_BEFORE_COMMIT \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MINIO_FAULT_PROXY_PORT=31893 \
+PULSAR_LARGE_BROKER_1_PORT=31880 PULSAR_LARGE_WEB_1_PORT=31881 \
+PULSAR_LARGE_BROKER_2_PORT=31882 PULSAR_LARGE_WEB_2_PORT=31883 \
+NEREUS_DELAY_PULSAR_LARGE_OXIA_PORT=31890 NEREUS_DELAY_PULSAR_LARGE_MINIO_PORT=31891 \
+NEREUS_DELAY_PULSAR_LARGE_GATEWAY_PORT=31892 \
+  bash e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+Pulsar timeout-before-commit:
+
+```bash
+NEREUS_DELAY_PULSAR_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1 \
+NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MINIO_FAULT_MODE=PUT_TIMEOUT_BEFORE_COMMIT \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MINIO_REQUEST_TIMEOUT_MS=1000 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MINIO_FAULT_PROXY_PORT=31913 \
+PULSAR_LARGE_BROKER_1_PORT=31900 PULSAR_LARGE_WEB_1_PORT=31901 \
+PULSAR_LARGE_BROKER_2_PORT=31902 PULSAR_LARGE_WEB_2_PORT=31903 \
+NEREUS_DELAY_PULSAR_LARGE_OXIA_PORT=31910 NEREUS_DELAY_PULSAR_LARGE_MINIO_PORT=31911 \
+NEREUS_DELAY_PULSAR_LARGE_GATEWAY_PORT=31912 \
+  bash e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+At Delay `2a0db42290da0fa47a28356a1d4bcb6bcf2123b8`, the four source-locked
+projects were `nereus-delay-large-payload-e2e-1786928021-63153`,
+`nereus-delay-large-payload-e2e-1786928059-63650`,
+`nereus-delay-pulsar-large-e2e-1786928197-65083` and
+`nereus-delay-pulsar-large-e2e-1786928269-65870`; all reported the explicit
+pre-commit fail-closed receipt and exact postchecks found no run-created
+containers, networks, volumes, listeners, fault proxies or per-run images.
+Only the locked Oxia/MinIO bases remain. This closes the bounded full-chain
+pre-commit fault cells, not response-loss/LSO/retention recovery, Pulsar
+multi-Broker failover, multi-shard placement, the remaining chaos matrix or
+V1 release proof.

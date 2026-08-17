@@ -7465,6 +7465,53 @@ post-commit provider-ambiguity receipt, not provider-side quiescence or
 consistency certification, multi-worker takeover, target isolation, the
 remaining §23.3 matrix, multi-shard production, chaos or V1 release proof.
 
+### Current implementation binding: full large-payload provider failure before Commit
+
+The real Kafka and P1 Pulsar large-payload Gateway bindings now carry the
+MinIO fault mode into the real-client smoke. For
+`PUT_503_BEFORE_COMMIT`, the proxy rejects the first payload PUT with HTTP 503;
+for `PUT_TIMEOUT_BEFORE_COMMIT`, it does not forward the request and holds the
+response past the adapter's `1000ms` timeout. The Worker catches only these
+explicitly expected pre-commit faults, verifies the exact source and payload
+authority state, drains the checkpoint and releases the Oxia Owner before
+withdrawing the placement. A provider error is never promoted into Commit or
+PUBLISHED.
+
+The current source is Delay
+`2a0db42290da0fa47a28356a1d4bcb6bcf2123b8`, with K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Kafka client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, P1
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and
+locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+The four source-bound receipts are:
+
+```text
+Kafka 503: project nereus-delay-large-payload-e2e-1786928021-63153,
+ports 31840/31841/31842, 31850/31851/31852, proxy 31853,
+BUILD SUCCESSFUL in 10s
+Kafka timeout: project nereus-delay-large-payload-e2e-1786928059-63650,
+ports 31860/31861/31862, 31870/31871/31872, proxy 31873,
+adapter timeout 1000ms, BUILD SUCCESSFUL in 10s
+Pulsar 503: project nereus-delay-pulsar-large-e2e-1786928197-65083,
+broker/web 31880/31881 and 31882/31883, 31890/31891/31892, proxy 31893,
+BUILD SUCCESSFUL in 40s
+Pulsar timeout: project nereus-delay-pulsar-large-e2e-1786928269-65870,
+broker/web 31900/31901 and 31902/31903, 31910/31911/31912, proxy 31913,
+adapter timeout 1000ms, BUILD SUCCESSFUL in 40s
+```
+
+Each receipt proves `Prepare retained RESERVED`, no source Commit, absent
+payload object by retryable attestation, Worker checkpoint drain and Owner
+release. This is bounded two-Broker/one-source-partition evidence for the
+large-payload pre-commit fault boundary; Kafka response-loss/LSO/retention,
+Pulsar multi-Broker failover, multi-shard placement, crash/chaos and V1
+release proof remain separate.
+
 ### Current implementation binding: checkpoint provider failure before commit
 
 The Worker checkpoint composition now has a real-provider fail-closed test for

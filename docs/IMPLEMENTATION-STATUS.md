@@ -15059,3 +15059,47 @@ payload production chain, provider-side quiescence/consistency certification,
 target isolation, the remaining §23.3 matrix, multi-shard placement,
 benchmark/soak or V1 release proof. Gates 2, 3 and 10 remain `PARTIAL`; Gates
 5, 6, 7 and 9 remain `OPEN`; Gate 8 remains `PARTIAL`; V1 remains `NOT READY`.
+
+## 2026-08-17 Current-source full Gateway/Oxia/Broker/Worker/real MinIO large-payload pre-commit fail-closed receipt
+
+Delay source `2a0db42290da0fa47a28356a1d4bcb6bcf2123b8` binds the real Kafka
+and Pulsar large-payload Gateway runners to explicit MinIO fault modes before
+provider commit. The real Worker smoke now catches the expected adapter
+failure and proves that the large-payload Prepare remains `RESERVED`, the
+source Commit is absent, the payload object is absent by
+`OBJECT_NOT_READY_RETRYABLE` attestation, and the drained Worker releases its
+Oxia Owner. The fault proxy deliberately does not forward the first payload
+PUT: `PUT_503_BEFORE_COMMIT` returns HTTP 503 and
+`PUT_TIMEOUT_BEFORE_COMMIT` holds the response beyond the adapter's `1000ms`
+request timeout.
+
+The cross-repository locks are K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Kafka client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, P1
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and
+MinIO
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+(local image ID `sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`).
+
+| Cell | Exact runtime placement | Receipt |
+|---|---|---|
+| Kafka 503-before-commit | Project `nereus-delay-large-payload-e2e-1786928021-63153`; Kafka `31840/31841/31842`; Oxia/MinIO/Gateway/proxy `31850/31851/31852/31853`; bucket `nereus-delay-large-payload-1786928021-63153` | `BUILD SUCCESSFUL in 10s`; real Gateway mTLS/JWT, Oxia Route/Assignment/Owner, Kafka Worker and MinIO chain passed with `Prepare retained RESERVED, Commit absent, payload object absent, owner released`. |
+| Kafka timeout-before-commit | Project `nereus-delay-large-payload-e2e-1786928059-63650`; Kafka `31860/31861/31862`; Oxia/MinIO/Gateway/proxy `31870/31871/31872/31873`; bucket `nereus-delay-large-payload-1786928059-63650`; adapter timeout `1000ms` | `BUILD SUCCESSFUL in 10s`; the timeout remained an adapter failure and the same source-bound RESERVED/no-Commit/no-object/Owner-release assertions passed. |
+| Pulsar 503-before-commit | Project `nereus-delay-pulsar-large-e2e-1786928197-65083`; broker/web `31880/31881` and `31882/31883`; Oxia/MinIO/Gateway/proxy `31890/31891/31892/31893`; bucket `nereus-delay-pulsar-large-65083` | `BUILD SUCCESSFUL in 40s`; real P1 dual-Broker client, Gateway, Oxia and MinIO chain passed with source record count `3` before the failed upload and no Commit. |
+| Pulsar timeout-before-commit | Project `nereus-delay-pulsar-large-e2e-1786928269-65870`; broker/web `31900/31901` and `31902/31903`; Oxia/MinIO/Gateway/proxy `31910/31911/31912/31913`; bucket `nereus-delay-pulsar-large-65870`; adapter timeout `1000ms` | `BUILD SUCCESSFUL in 40s`; the timeout remained an adapter failure and the same source-bound RESERVED/no-Commit/no-object/Owner-release assertions passed. |
+
+These four receipts close the bounded full production-authority pre-commit
+large-payload fault cells across both Broker families. They do not close
+provider-side quiescence/consistency certification, Kafka response-loss/LSO/
+retention recovery, Pulsar multi-Broker failover, target isolation,
+multi-shard placement, the remaining crash/chaos matrix, benchmark/soak or
+the V1 release gate. Gates 2, 3 and 10 remain `PARTIAL`; Gates 5, 6, 7 and 9
+remain `OPEN`; Gate 8 remains `PARTIAL`; V1 remains `NOT READY`.
+
+Exact postchecks after the four runs found no matching Compose containers,
+networks, volumes, listeners, fault-proxy processes or per-run images. The
+locked Oxia and MinIO bases were retained intentionally; no global Docker
+prune or unrelated image deletion was performed.

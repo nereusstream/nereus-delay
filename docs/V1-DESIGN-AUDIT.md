@@ -12029,3 +12029,36 @@ The runs are locked to Oxia
 Exact Docker postchecks found no run resources or per-run images; the locked
 base images were retained. Gates 2, 3 and 10 remain `PARTIAL`; Gates 5, 6, 7
 and 9 remain `OPEN`; Gate 8 remains `PARTIAL`; V1 remains `NOT READY`.
+
+### Current-source full Gateway/large-payload pre-commit fault audit
+
+Audit result: PASS for four bounded current-source production-authority cells
+at Delay `2a0db42290da0fa47a28356a1d4bcb6bcf2123b8`. The real Kafka and P1
+Pulsar runners place the fault proxy in front of real version-enabled MinIO.
+Before the large-payload Commit boundary, the proxy either returns HTTP 503 or
+holds the payload PUT beyond the adapter's `1000ms` timeout without forwarding
+it. The real Gateway mTLS/JWT, Oxia Route/Assignment/Owner, Broker Worker and
+MinIO adapter therefore prove the fail-closed state rather than interpreting
+an ambiguous provider result as success.
+
+| Cell | Evidence | Audit boundary |
+|---|---|---|
+| Kafka 503-before-commit | Project `nereus-delay-large-payload-e2e-1786928021-63153`; Kafka `31840/31841/31842`; Oxia/MinIO/Gateway/proxy `31850/31851/31852/31853`; bucket `nereus-delay-large-payload-1786928021-63153`; `BUILD SUCCESSFUL in 10s`. | Prepare stayed `RESERVED`; no source Commit, no payload object by `OBJECT_NOT_READY_RETRYABLE`, Worker checkpoint drain completed and Owner released. |
+| Kafka timeout-before-commit | Project `nereus-delay-large-payload-e2e-1786928059-63650`; Kafka `31860/31861/31862`; Oxia/MinIO/Gateway/proxy `31870/31871/31872/31873`; bucket `nereus-delay-large-payload-1786928059-63650`; timeout `1000ms`; `BUILD SUCCESSFUL in 10s`. | Same fail-closed state; the adapter timeout was retained as failure. |
+| Pulsar 503-before-commit | Project `nereus-delay-pulsar-large-e2e-1786928197-65083`; broker/web `31880/31881`, `31882/31883`; Oxia/MinIO/Gateway/proxy `31890/31891/31892/31893`; bucket `nereus-delay-pulsar-large-65083`; `BUILD SUCCESSFUL in 40s`. | Source record count stopped at `3` (activation, before-route, Prepare); no Commit, object or Owner remained. |
+| Pulsar timeout-before-commit | Project `nereus-delay-pulsar-large-e2e-1786928269-65870`; broker/web `31900/31901`, `31902/31903`; Oxia/MinIO/Gateway/proxy `31910/31911/31912/31913`; bucket `nereus-delay-pulsar-large-65870`; timeout `1000ms`; `BUILD SUCCESSFUL in 40s`. | Same fail-closed state under timeout ambiguity. |
+
+The authority locks are K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Kafka client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, P1
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and
+MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+Exact Docker postchecks found no run resources, listeners, fault proxies or
+per-run images; locked bases were retained. This closes only the full
+Gateway/large-payload pre-commit fault cells. Kafka response-loss/LSO/
+retention, Pulsar multi-Broker failover, multi-shard placement, chaos and
+release gates remain open; Gates 2, 3 and 10 stay `PARTIAL`, Gates 5, 6, 7 and
+9 stay `OPEN`, Gate 8 stays `PARTIAL`, and V1 stays `NOT READY`.
