@@ -16366,3 +16366,33 @@ were no matching active processes and no temporary `.git` or `src` trees.
 Five canonical receipts were retained: Admission recovery r8, bounded chaos
 r6, certified capacity r3, certified soak r5 and this gate r37. No source
 worktree, Git object or unrelated Docker resource was a cleanup target.
+
+## 2026-08-17 Current-source Gateway + real Broker + Worker + MinIO large-payload authority E2E
+
+The two current-source multi-shard Gateway runners now provide the missing
+functional production-authority chain evidence. Their canonical logs are
+`/tmp/nereus-delay-large-payload-gateway-current-20260817-r1/kafka-multi-shard.log`
+and
+`/tmp/nereus-delay-large-payload-gateway-current-20260817-r1/pulsar-multi-shard.log`.
+Both logs bind Delay `4b04635026b2112ece478da95f5f8671b4467a67`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and the locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+Kafka proves two guarded Fetch barriers, two source partitions, Oxia
+multi-shard Assignment/Owner, one Worker fleet, Gateway mTLS/JWT, two large
+payload reservations, real MinIO upload/attest/commit/readback/checkpoint and
+two destination `PUBLISHED` outcomes with exact Gateway idempotency. Pulsar
+proves the corresponding two guarded SUBSCRIBE barriers, two Workers, two
+destination `PUBLISHED` outcomes and checkpoint. Both final markers and both
+per-partition source positions/object versions are present in the logs.
+
+This promotes the Gateway-to-real-Broker and large-payload Worker-to-Object
+Store rows to functional `PASS` for the current source. It is not a
+`PASS_CERTIFIED` release artifact: these runs do not close the full fault
+matrix, capacity envelope, approved soak, activation/cutover, operations,
+upgrade/downgrade or disaster-continuity gates. Exact postchecks left no
+run-scoped containers, networks, volumes or generated images; the two logs
+and previously retained canonical receipts are the only new temporary
+evidence kept.

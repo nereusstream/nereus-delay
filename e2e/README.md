@@ -6305,3 +6305,36 @@ logs, retries and build caches only. Five canonical evidence directories were
 kept so the latest recovery, chaos, capacity, soak and gate receipts remain
 available. No source worktree, Git metadata, or unrelated Docker resource was
 deleted.
+
+## Current-source Gateway large-payload multi-shard authority E2E
+
+Kafka requires an explicit destination topic in multi-shard mode:
+
+```bash
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_MULTI_SHARD=1 \
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_DESTINATION_TOPIC=nereus-delay-large-payload-destination-current-20260817 \
+NEREUS_DELAY_LARGE_PAYLOAD_GRADLE_USER_HOME=/private/tmp/nereus-delay-large-payload-kafka-gradle-current-20260817 \
+bash e2e/run-large-payload-gateway-e2e.sh
+```
+
+Pulsar multi-shard mode:
+
+```bash
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MULTI_SHARD=1 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME=/private/tmp/nereus-delay-pulsar-large-payload-gateway-gradle-current-20260817 \
+bash e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+The current successful logs are
+`/tmp/nereus-delay-large-payload-gateway-current-20260817-r1/kafka-multi-shard.log`
+and
+`/tmp/nereus-delay-large-payload-gateway-current-20260817-r1/pulsar-multi-shard.log`.
+They prove the two-protocol signed-Route → guarded source barriers → real
+Oxia Assignment/Owner → Gateway mTLS/JWT → Worker → real MinIO
+upload/attestation/commit/readback → two destination `PUBLISHED` outcomes →
+checkpoint chain. The exact Compose resources and generated images are empty
+after cleanup; the Gradle homes are disposable run caches and are not retained.
+
+This is functional E2E evidence, not `PASS_CERTIFIED` release evidence. The
+full chaos/capacity/soak/activation/operations/upgrade/disaster gates remain
+independent.

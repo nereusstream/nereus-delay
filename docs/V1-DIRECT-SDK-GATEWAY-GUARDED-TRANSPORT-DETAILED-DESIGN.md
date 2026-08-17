@@ -8306,3 +8306,25 @@ and post-recovery dumps and requires exactly one durable attempt/message. This
 establishes the no-second-Admission/no-second-physical-publish boundary for
 this cell. It remains bounded chaos evidence, not a claim that the complete
 §23.3 matrix or V1 release gate is closed.
+
+## 2026-08-17 Gateway-to-real-Broker large-payload authority proof
+
+The current multi-shard Kafka and Pulsar runs exercise the intended authority
+sequence end to end. A signed Route is accepted before the two guarded source
+barriers; Oxia publishes and fences the two shard assignments and owners; the
+Worker fleet consumes the source records; Gateway mTLS/JWT admits the exact
+prepared large-payload request; MinIO stores and attests the immutable object;
+the Worker applies the physical destination result; and the source advances to
+the final `PUBLISHED` state before checkpoint publication.
+
+The Kafka log proves two guarded Fetch partitions and the Pulsar log proves two
+guarded SUBSCRIBE partitions. Both logs independently show two destination
+`PUBLISHED` outcomes, per-partition source positions, object versions, exact
+Gateway idempotency and the final checkpoint. The logs are retained under
+`/tmp/nereus-delay-large-payload-gateway-current-20260817-r1/` and are bound
+to the current four-repository locks recorded in the implementation status.
+
+This is the functional production-authority proof the abstraction design
+requires. It does not weaken the release boundary: the run is not an approved
+capacity or soak profile, and it does not cover the remaining full chaos,
+activation, operations, upgrade/downgrade or disaster-continuity gates.

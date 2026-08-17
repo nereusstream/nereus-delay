@@ -12982,3 +12982,29 @@ For workspace safety, the cleanup removed only 476 top-level temporary
 temporary `.git` tree or temporary `src` tree remained. Five canonical receipt
 directories were retained. The shared Delay root's pre-existing three dirty
 Java files and all isolated source worktrees were preserved unchanged.
+
+### 2026-08-17 Current-source Gateway large-payload authority audit
+
+The current-source evidence is retained in
+`/tmp/nereus-delay-large-payload-gateway-current-20260817-r1/` as
+`kafka-multi-shard.log` and `pulsar-multi-shard.log`. Both logs are source
+bound to Delay `4b04635026b2112ece478da95f5f8671b4467a67`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and MinIO
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+The Kafka audit has two guarded Fetch barriers and two source partitions; the
+Pulsar audit has two guarded SUBSCRIBE barriers and two source partitions.
+Each chain records the signed Route, Oxia multi-shard Assignment/Owner,
+Gateway mTLS/JWT, Worker physical publish, real MinIO upload/attestation/
+commit/readback, exact idempotency and two final destination `PUBLISHED`
+outcomes. Per-partition source positions, object versions, source barriers and
+checkpoint completion are present in the raw receipt logs.
+
+This closes the functional Gateway/real-Broker/Worker/MinIO chain boundary for
+both protocols. It remains a scenario receipt, not a release certificate:
+there is no approved capacity/soak profile attached, and fault-matrix,
+activation, operations, upgrade/downgrade and disaster-continuity evidence
+remain independent gates. Docker postchecks for both exact Compose projects
+are empty.

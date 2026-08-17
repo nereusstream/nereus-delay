@@ -918,3 +918,35 @@ receipt directories (Admission r8, chaos r6, certified capacity r3, certified
 soak r5 and gate r37) were retained. Before deletion there were no matching
 active processes, `.git` directories or source trees under the temporary
 targets. Source worktrees and unrelated files were not touched.
+
+## 2026-08-17 Gateway large-payload multi-shard authority runs
+
+Run the current Kafka chain with an explicit destination topic:
+
+```bash
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_MULTI_SHARD=1 \
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_DESTINATION_TOPIC=nereus-delay-large-payload-destination-current-20260817 \
+NEREUS_DELAY_LARGE_PAYLOAD_GRADLE_USER_HOME=/private/tmp/nereus-delay-large-payload-kafka-gradle-current-20260817 \
+bash e2e/run-large-payload-gateway-e2e.sh
+```
+
+Run the current Pulsar chain with two source partitions:
+
+```bash
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MULTI_SHARD=1 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME=/private/tmp/nereus-delay-pulsar-large-payload-gateway-gradle-current-20260817 \
+bash e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+The successful logs are retained at
+`/tmp/nereus-delay-large-payload-gateway-current-20260817-r1/`. The runs
+proved the complete functional chain through real Kafka/Pulsar, Oxia, Gateway
+mTLS/JWT, Worker, MinIO and checkpoint, with two source barriers and two
+destination `PUBLISHED` outcomes per protocol. The runners removed their
+Compose containers, networks, volumes and generated images. The Gradle homes
+are run caches only and must be removed after evidence capture; they are not
+source or release artifacts.
+
+The multi-shard baseline does not authorize V1 release promotion. Broker
+failover/chaos, capacity, approved soak, activation/cutover, operations,
+upgrade/downgrade and disaster continuity remain separate gates.
