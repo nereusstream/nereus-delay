@@ -11941,3 +11941,39 @@ Checkpoint Intent/Catalog/REAPING provider-fault injection, target isolation,
 the remaining §23.3 matrix, multi-shard production, benchmark/soak and V1
 release gate remain open. Gates 2, 3 and 10 stay `PARTIAL`; Gates 5, 6, 7 and
 9 stay `OPEN`; Gate 8 stays `PARTIAL`; V1 stays `NOT READY`.
+
+## 2026-08-17 Current-source full large-payload real MinIO timeout audit
+
+Audit result: PASS for the bounded full production-shaped timeout-after-commit
+cell at Delay `0bc0741a4a813b2403becea0f4aa23b1785bab09`. The deterministic
+proxy forwarded the first immutable payload PUT to real MinIO, held its
+response for three seconds, and the adapter used a `1000ms` request timeout.
+Exact immutable GET resolved the committed object, so the receipt covers
+Gateway mTLS/JWT, real Oxia Route/Assignment/Owner, real Kafka or Pulsar
+Broker ingress/egress, Worker source apply, MinIO PUT/HEAD/GET and exact
+destination readback under an ambiguous response.
+
+The cross-repository locks were K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, Kafka client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, P1
+distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and
+MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+| Cell | Evidence |
+|---|---|
+| Kafka | Project `nereus-delay-large-payload-e2e-1786925957-37227`, ports `31800/31801/31802`, `31810/31811/31812`, proxy `31813`; `BUILD SUCCESSFUL in 1m 7s`; source-applied physical Publish and exact destination readback passed with `KAFKA_TRANSACTIONAL_RECEIPT`, Outcome source offset `5`, `providerVersion=a2de8a49-5173-4f58-b5a5-0b06edd8a002`, and `exactGatewayIdempotency=true`. |
+| Pulsar | Project `nereus-delay-pulsar-large-e2e-1786926140-39112`, broker/web `31820/31821` and `31822/31823`, `31830/31831/31832`, proxy `31833`; `BUILD SUCCESSFUL in 1m 12s`; source-applied physical Publish and exact destination readback passed with `PULSAR_SEND_ACK` target `4/0`, Outcome `3/5`, `prepare=3/2`, `commit=3/3`, `exactGatewayIdempotency=true`, and `sourceRecords=6`. |
+
+Exact Docker postchecks found no matching project resources, listeners or
+per-run images. Locked Oxia/MinIO bases were retained intentionally; no
+global prune or unrelated image deletion was performed. Temporary proxy seed
+files were removed. The PASS boundary is only post-commit ambiguity
+resolution: pre-commit timeout remains an expected fail-closed outcome, while
+Checkpoint Intent/Catalog/REAPING provider-fault injection, target isolation,
+the remaining §23.3 matrix, multi-shard production, benchmark/soak and V1
+release gate remain open. Gates 2, 3 and 10 stay `PARTIAL`; Gates 5, 6, 7 and
+9 stay `OPEN`; Gate 8 stays `PARTIAL`; V1 stays `NOT READY`.

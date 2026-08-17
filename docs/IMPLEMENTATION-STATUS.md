@@ -14949,3 +14949,42 @@ Checkpoint Intent/Catalog/REAPING upload path. Target isolation, the
 remaining §23.3 cuts, multi-shard placement, benchmark/soak and release proof
 remain open. Gates 2, 3 and 10 remain `PARTIAL`; Gates 5, 6, 7 and 9 remain
 `OPEN`; Gate 8 remains `PARTIAL`; V1 remains `NOT READY`.
+
+## 2026-08-17 Current-source full large-payload production authority under real MinIO timeout
+
+Delay source `0bc0741a4a813b2403becea0f4aa23b1785bab09` adds the explicit
+MinIO request-timeout boundary to both complete large-payload runners. The
+source locks for the receipt are Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, image
+`sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`;
+Pulsar P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7`, distribution SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`; Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`; and locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
+(local image ID `sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`).
+
+The fault proxy first forwards the immutable `.payload` PUT to real MinIO,
+then holds the response for three seconds. The adapter timeout was set to
+`1000ms`; exact immutable GET therefore resolved the already committed object
+and the rest of Gateway attestation, Oxia authority, Worker source apply,
+Broker receipt and destination readback continued normally.
+
+| Cell | Exact runtime placement | Receipt |
+|---|---|---|
+| Kafka real MinIO timeout-after-commit | Project `nereus-delay-large-payload-e2e-1786925957-37227`; Kafka `31800/31801/31802`, Oxia `31810`, MinIO `31811`, Gateway `31812`, fault proxy `31813`; bucket `nereus-delay-large-payload-1786925957-37227` | `BUILD SUCCESSFUL in 1m 7s`; Worker source-applied physical publish passed with Admission source offset `4`, typed `KAFKA_TRANSACTIONAL_RECEIPT` receipt offset `0`, Outcome source offset `5`, exact payload readback, and destination readback. Authority receipt reported `activationOffset=0`, `barrierOffset=2`, `providerVersion=a2de8a49-5173-4f58-b5a5-0b06edd8a002`, `exactGatewayIdempotency=true`. |
+| Pulsar real MinIO timeout-after-commit | Project `nereus-delay-pulsar-large-e2e-1786926140-39112`; broker/web `31820/31821` and `31822/31823`, Oxia `31830`, MinIO `31831`, Gateway `31832`, fault proxy `31833`; bucket `nereus-delay-pulsar-large-39112` | `BUILD SUCCESSFUL in 1m 12s`; Worker source-applied physical publish passed with Admission source ledger `3/4`, typed `PULSAR_SEND_ACK` target ledger/entry `4/0`, Outcome source ledger `3/5`, exact payload readback, and destination readback. Authority receipt reported `prepare=3/2`, `commit=3/3`, `exactGatewayIdempotency=true`, `sourceRecords=6`. |
+
+The exact postchecks found no matching containers, networks, volumes,
+listeners or per-run Kafka/Pulsar/Oxia images. The locked Oxia and MinIO base
+images were retained intentionally; no global Docker prune or unrelated image
+deletion was performed. The temporary receipt/proxy seed files were removed,
+while the two receipt logs remain as local evidence.
+
+This closes the bounded full-chain real MinIO timeout-after-commit cell on both
+Broker families. It does not turn pre-commit ambiguity into success: a
+pre-commit timeout must remain fail-closed. Checkpoint Intent/Catalog/REAPING
+provider-fault injection, target isolation, the remaining §23.3 cuts,
+multi-shard placement, benchmark/soak and release proof remain open. Gates 2,
+3 and 10 remain `PARTIAL`; Gates 5, 6, 7 and 9 remain `OPEN`; Gate 8 remains
+`PARTIAL`; V1 remains `NOT READY`.

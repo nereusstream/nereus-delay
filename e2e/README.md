@@ -4882,3 +4882,68 @@ do not use a global Docker prune. This receipt closes only the real MinIO
 timeout faults, Checkpoint Intent/Catalog/REAPING fault injection, target
 isolation, the remaining §23.3 matrix, multi-shard placement, benchmark/soak
 and V1 release proof remain open.
+
+## Current-source full large-payload timeout-after-commit E2E
+
+The same full runners support `PUT_TIMEOUT_AFTER_COMMIT`. The proxy forwards
+the first immutable payload PUT to real MinIO, holds the response for three
+seconds, and the smoke process uses a `1000ms` MinIO request timeout. Exact
+immutable GET must resolve the committed object; a pre-commit timeout is not
+treated as success and remains fail-closed.
+
+Kafka source-locked invocation:
+
+```bash
+NEREUS_DELAY_KAFKA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1 \
+NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia \
+NEREUS_DELAY_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-full-large-payload-timeout-20260817-r1 \
+NEREUS_DELAY_LARGE_PAYLOAD_MINIO_FAULT_MODE=PUT_TIMEOUT_AFTER_COMMIT \
+NEREUS_DELAY_LARGE_PAYLOAD_MINIO_REQUEST_TIMEOUT_MS=1000 \
+NEREUS_DELAY_LARGE_PAYLOAD_MINIO_FAULT_PROXY_PORT=31813 \
+KAFKA_LARGE_PAYLOAD_BROKER_1_PORT=31800 KAFKA_LARGE_PAYLOAD_BROKER_2_PORT=31801 \
+KAFKA_LARGE_PAYLOAD_BROKER_3_PORT=31802 NEREUS_DELAY_LARGE_PAYLOAD_OXIA_PORT=31810 \
+NEREUS_DELAY_LARGE_PAYLOAD_MINIO_PORT=31811 NEREUS_DELAY_LARGE_PAYLOAD_GATEWAY_PORT=31812 \
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_TOPIC=kafka-large-payload-minio-timeout-20260817-r1 \
+NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_DESTINATION_TOPIC=kafka-large-payload-destination-minio-timeout-20260817-r1 \
+  bash e2e/run-large-payload-gateway-e2e.sh
+```
+
+Pulsar source-locked invocation:
+
+```bash
+NEREUS_DELAY_PULSAR_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/pulsar-worktrees/nereus-delay-p1 \
+NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-large-payload-timeout-20260817-r1 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MINIO_FAULT_MODE=PUT_TIMEOUT_AFTER_COMMIT \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MINIO_REQUEST_TIMEOUT_MS=1000 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MINIO_FAULT_PROXY_PORT=31833 \
+PULSAR_LARGE_BROKER_1_PORT=31820 PULSAR_LARGE_WEB_1_PORT=31821 \
+PULSAR_LARGE_BROKER_2_PORT=31822 PULSAR_LARGE_WEB_2_PORT=31823 \
+NEREUS_DELAY_PULSAR_LARGE_OXIA_PORT=31830 NEREUS_DELAY_PULSAR_LARGE_MINIO_PORT=31831 \
+NEREUS_DELAY_PULSAR_LARGE_GATEWAY_PORT=31832 \
+PULSAR_LARGE_PAYLOAD_TOPIC=pulsar-large-payload-minio-timeout-20260817-r1 \
+NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_DESTINATION_TOPIC=pulsar-large-payload-destination-minio-timeout-20260817-r1 \
+  bash e2e/run-pulsar-large-payload-gateway-e2e.sh
+```
+
+At Delay `0bc0741a4a813b2403becea0f4aa23b1785bab09`, the Kafka project
+`nereus-delay-large-payload-e2e-1786925957-37227` passed in `1m 7s`, and the
+Pulsar project `nereus-delay-pulsar-large-e2e-1786926140-39112` passed in
+`1m 12s`. Kafka passed source offsets `4`/`5`, typed
+`KAFKA_TRANSACTIONAL_RECEIPT`, exact destination readback,
+`providerVersion=a2de8a49-5173-4f58-b5a5-0b06edd8a002` and
+`exactGatewayIdempotency=true`; Pulsar passed source ledgers `3/4` and `3/5`,
+typed `PULSAR_SEND_ACK` target `4/0`, exact destination readback and
+`exactGatewayIdempotency=true` with `sourceRecords=6`. Both receipts used
+real Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, and MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+The runners remove exact Compose containers, networks, volumes, proxy
+processes and per-run images. Only the locked Oxia and MinIO base images are
+retained; no global Docker prune or unrelated image deletion is appropriate.
+This receipt closes only the full real-MinIO timeout-after-commit payload path;
+Checkpoint Intent/Catalog/REAPING fault injection, pre-commit fail-closed
+evidence, target isolation, the remaining §23.3 matrix, multi-shard
+placement, benchmark/soak and V1 release proof remain open.
