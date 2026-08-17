@@ -97,7 +97,20 @@ for case_name in smoke burst sustained; do
         -v "$gradle_dir:/gradle" \
         -v "$case_dir:/artifacts" \
         "$image" \
-        bash -lc 'cd /workspace && ./gradlew test --tests io.nereusstream.delay.store.BoundedCapacitySloProbeTest --rerun-tasks --no-daemon --console=plain'
+        bash -lc '
+            cd /workspace
+            if ./gradlew test --tests io.nereusstream.delay.store.BoundedCapacitySloProbeTest --rerun-tasks --no-daemon --console=plain > /tmp/nereus-delay-capacity-gradle.log 2>&1; then
+                cat /tmp/nereus-delay-capacity-gradle.log
+            else
+                status=$?
+                cat /tmp/nereus-delay-capacity-gradle.log
+                if ! grep -q "Permission denied" /tmp/nereus-delay-capacity-gradle.log; then
+                    exit "$status"
+                fi
+                find /gradle/caches/modules-2/files-2.1 -type f \( -name "*.exe" -o -name "*linux*" \) -exec chmod u+x {} +
+                ./gradlew test --tests io.nereusstream.delay.store.BoundedCapacitySloProbeTest --rerun-tasks --no-daemon --console=plain
+            fi
+        '
     active_project=""
     artifact="$case_dir/bounded-capacity-slo-probe.json"
     if [[ ! -s "$artifact" ]]; then
