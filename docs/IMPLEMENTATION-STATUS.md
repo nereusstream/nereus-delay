@@ -15422,3 +15422,25 @@ still `release_status=NOT_READY`: capacity is `PARTIAL`, chaos is
 artifacts are absent. A first fresh-cache attempt (`r2`) was blocked only by a
 Maven Central TLS handshake while resolving Checkstyle's Doxia dependency;
 the rerun used the already successful cache and passed without source changes.
+
+## 2026-08-17 Reproducible protocol activation/cutover smoke receipt
+
+Commit `b0d2f757716d24cbf148a6990daeaf555cfa1369` adds
+`e2e/run-protocol-activation-cutover-smoke.sh`. From the clean
+`nereus/delay-full-implementation-v1` source it runs the canonical state,
+Initial Route and source-ordered marker/restart tests and emits a source-locked
+JSON receipt. The current run used
+`NEREUS_DELAY_PROTOCOL_ACTIVATION_GRADLE_USER_HOME=/tmp/nereus-delay-protocol-activation-full-check-20260817-r1`
+and produced
+`/tmp/nereus-delay-protocol-activation-cutover-20260817-r1/protocol-activation-cutover.json`
+with `status=PASS_BOUNDED` and Delay source
+`b0d2f757716d24cbf148a6990daeaf555cfa1369`.
+
+The receipt reports `BUILD SUCCESSFUL in 21s` for
+`ProtocolActivationStateV1Test`, `InitialRouteControlApplyTest` and
+`ProtocolVersionActivationApplyTest`; it proves the kind-14 empty projection,
+kind-1 marker evidence, pre/post-marker behavior and restart digest validation.
+This remains a local projection receipt, not certified external Oxia
+eligible-reader rollout, writer-before-reader cutover, downgrade packaging,
+Broker/Pulsar cutover or disaster continuity. No Docker or external service
+was used, so no image cleanup was applicable. V1 remains `NOT_READY`.

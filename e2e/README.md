@@ -5483,3 +5483,23 @@ checks pass and the gate remains `NOT_READY` for the bounded/partial/missing
 certification inputs. The first fresh-cache attempt encountered an external
 Maven Central TLS handshake failure during Checkstyle dependency resolution;
 the known-good-cache rerun passed.
+
+## Reproducible protocol activation/cutover smoke
+
+Run it from the clean Delay full-v1 checkout:
+
+```bash
+NEREUS_DELAY_PROTOCOL_ACTIVATION_ARTIFACT_DIR=/tmp/nereus-delay-protocol-activation-cutover-20260817-r1 \
+NEREUS_DELAY_PROTOCOL_ACTIVATION_GRADLE_USER_HOME=/tmp/nereus-delay-protocol-activation-full-check-20260817-r1 \
+bash e2e/run-protocol-activation-cutover-smoke.sh
+```
+
+The current source lock is `b0d2f757716d24cbf148a6990daeaf555cfa1369` and the
+receipt is
+`/tmp/nereus-delay-protocol-activation-cutover-20260817-r1/protocol-activation-cutover.json`
+with `status=PASS_BOUNDED`. It runs the canonical activation-state, Initial
+Route and source-ordered marker/restart tests and checks the resulting JSON.
+The receipt is local projection evidence only: external Oxia eligible-reader
+rollout, writer-before-reader orchestration, downgrade/release packaging and
+real Broker/Pulsar cutover remain open. This runner uses no Docker resources,
+so there are no related images to clean.

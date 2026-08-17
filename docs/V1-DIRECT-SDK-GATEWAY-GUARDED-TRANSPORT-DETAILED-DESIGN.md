@@ -7764,3 +7764,20 @@ machinery are reproducible, but certified production readiness remains open.
 The exact rerun left no project resources or generated Kafka/Pulsar/Oxia/
 Gateway images. Locked Oxia/MinIO bases remain available, and no global Docker
 prune was used.
+
+### 2026-08-17 Source-locked activation/cutover smoke receipt
+
+Delay `b0d2f757716d24cbf148a6990daeaf555cfa1369` adds
+`e2e/run-protocol-activation-cutover-smoke.sh`, which runs the canonical
+`ProtocolActivationStateV1Test`, `InitialRouteControlApplyTest` and
+`ProtocolVersionActivationApplyTest` from a clean source lock. The current
+artifact is
+`/tmp/nereus-delay-protocol-activation-cutover-20260817-r1/protocol-activation-cutover.json`
+with `status=PASS_BOUNDED`; Gradle reported `BUILD SUCCESSFUL in 21s`.
+
+The receipt establishes local source-ordered activation projection and
+restart/cutover behavior. It deliberately does not establish authenticated
+external Oxia Worker eligibility, writer-before-reader rollout, downgrade or
+release packaging, real Kafka/Pulsar cutover, or disaster continuity. Since the
+runner does not start Docker or external services, no related image cleanup was
+required; `PASS_BOUNDED` cannot satisfy the V1 `PASS_CERTIFIED` gate.

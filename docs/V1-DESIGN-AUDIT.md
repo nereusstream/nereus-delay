@@ -12278,3 +12278,20 @@ soak, activation/cutover, operations and broader production placement/fault
 evidence are still required. Exact cleanup removed all run-created resources
 and generated image IDs; locked Oxia/MinIO bases were retained and no global
 Docker prune was used.
+
+### 2026-08-17 Reproducible source-ordered activation smoke audit
+
+Delay `b0d2f757716d24cbf148a6990daeaf555cfa1369` adds the reproducible
+`e2e/run-protocol-activation-cutover-smoke.sh` receipt runner. Its clean-source
+run produced
+`/tmp/nereus-delay-protocol-activation-cutover-20260817-r1/protocol-activation-cutover.json`
+with `status=PASS_BOUNDED` after `BUILD SUCCESSFUL in 21s`.
+
+The three focused tests prove canonical activation-state encoding, atomic
+Initial Route projection, source-ordered kind-1 marker application, deterministic
+pre/post-marker command behavior and restart validation. This is useful
+source-locked local evidence, but it does not prove external Oxia
+eligible-reader authorization, writer-before-reader rollout, downgrade/release
+packaging, real Broker/Pulsar cutover or disaster continuity. The runner uses
+no Docker resources; there were no related images to remove. The release gate
+therefore remains correctly `NOT_READY`.
