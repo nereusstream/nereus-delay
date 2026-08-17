@@ -16396,3 +16396,20 @@ upgrade/downgrade or disaster-continuity gates. Exact postchecks left no
 run-scoped containers, networks, volumes or generated images; the two logs
 and previously retained canonical receipts are the only new temporary
 evidence kept.
+
+## 2026-08-17 Current HEAD release-candidate gate r38
+
+After the Gateway large-payload evidence commit, the current HEAD gate receipt
+is `/tmp/nereus-delay-v1-release-gate-20260817-r38/v1-release-candidate-gate.json`.
+It locks Delay `e1796ea14b82f0899c894b5e1e923d8289ae5a9d`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`; source cleanliness,
+cross-repository validation and full Gradle check are `PASS`.
+
+The release result remains `release_status=NOT_READY`. Certified capacity,
+certified soak, activation/cutover, operations-drills and release-certified
+chaos were not supplied to this invocation, so each remains `BLOCKED`; the
+functional Gateway large-payload logs do not silently satisfy those slots.
+The r38 Gradle user home was removed after the check; only the small r38 gate
+receipt was retained.

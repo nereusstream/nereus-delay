@@ -950,3 +950,13 @@ source or release artifacts.
 The multi-shard baseline does not authorize V1 release promotion. Broker
 failover/chaos, capacity, approved soak, activation/cutover, operations,
 upgrade/downgrade and disaster continuity remain separate gates.
+
+## 2026-08-17 Gate r38 current HEAD receipt
+
+The latest fail-closed gate receipt is
+`/tmp/nereus-delay-v1-release-gate-20260817-r38/v1-release-candidate-gate.json`.
+It records current source/cross-repository/full Gradle `PASS` and
+`release_status=NOT_READY`; capacity, soak, activation, operations and
+release-certified chaos remain blocked without their explicitly approved
+artifacts. Remove the corresponding r38 Gradle user home after the run; keep
+only the receipt.

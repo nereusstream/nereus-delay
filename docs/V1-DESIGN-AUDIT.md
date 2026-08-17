@@ -13008,3 +13008,16 @@ there is no approved capacity/soak profile attached, and fault-matrix,
 activation, operations, upgrade/downgrade and disaster-continuity evidence
 remain independent gates. Docker postchecks for both exact Compose projects
 are empty.
+
+### 2026-08-17 Current HEAD release-candidate gate r38
+
+The latest gate receipt is
+`/tmp/nereus-delay-v1-release-gate-20260817-r38/v1-release-candidate-gate.json`.
+It is source-locked to Delay
+`e1796ea14b82f0899c894b5e1e923d8289ae5a9d`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`; source, cross-repo and Gradle
+checks pass. Five release evidence slots are still blocked because no
+approved artifact/profile was supplied, so `release_status=NOT_READY` is the
+only valid conclusion. The temporary r38 Gradle home was removed after use.

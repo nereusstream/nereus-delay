@@ -6338,3 +6338,12 @@ after cleanup; the Gradle homes are disposable run caches and are not retained.
 This is functional E2E evidence, not `PASS_CERTIFIED` release evidence. The
 full chaos/capacity/soak/activation/operations/upgrade/disaster gates remain
 independent.
+
+## Current HEAD gate r38
+
+The latest fail-closed receipt is
+`/tmp/nereus-delay-v1-release-gate-20260817-r38/v1-release-candidate-gate.json`.
+Source, cross-repository and full Gradle checks pass at the current HEAD, but
+`release_status=NOT_READY` because approved capacity, soak,
+activation/cutover, operations and release-certified chaos artifacts were not
+supplied. Delete the r38 Gradle user home after the run; retain the receipt.
