@@ -29,6 +29,7 @@ import io.nereusstream.delay.protocol.DeliveryCapabilitySemanticV1;
 import io.nereusstream.delay.protocol.DlqExportStateV1;
 import io.nereusstream.delay.protocol.DlqExportResultBody;
 import io.nereusstream.delay.protocol.EvidenceCursorV1;
+import io.nereusstream.delay.protocol.InitialRouteControlActivatePayloadV1;
 import io.nereusstream.delay.protocol.LargeScheduleIntent;
 import io.nereusstream.delay.protocol.LaneRecordEnvelopeV1;
 import io.nereusstream.delay.protocol.LaneQuotaUsageEntryV1;
@@ -70,6 +71,7 @@ import io.nereusstream.delay.protocol.ResourceRetireIntentBody;
 import io.nereusstream.delay.protocol.RescheduleCommandBodyV1;
 import io.nereusstream.delay.protocol.ScheduleCommandBodyV1;
 import io.nereusstream.delay.protocol.ScheduleIntentV1;
+import io.nereusstream.delay.protocol.ShardSubjectV1;
 import io.nereusstream.delay.protocol.SloAuthoritativeStartFactory;
 import io.nereusstream.delay.protocol.SloObjectiveNameV1;
 import io.nereusstream.delay.protocol.SloObjectiveV1;
@@ -2037,6 +2039,9 @@ public final class DelayShard {
         if (body.controlKind() == 2 || body.controlKind() == 3) {
             return applyProfileBindingControlMutation(body, mutation, sourcePosition);
         }
+        if (body.controlKind() == 14) {
+            return applyInitialRouteControlMutation(body, mutation, sourcePosition);
+        }
         if (body.controlKind() < 8 || body.controlKind() > 11) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
                     StableCode.STALE_SYSTEM_MUTATION);
@@ -2192,6 +2197,50 @@ public final class DelayShard {
         mutationSequence = nextMutationSequence();
         quota = nextQuota;
         laneQuotaUsage = projectedLaneQuota;
+        return result;
+    }
+
+    /**
+     * Applies the one-time source-ordered Route control snapshot activation.
+     * The payload is deliberately projected into the existing shard-bound
+     * {@link CompatibleControlSnapshotV1}; no second metadata namespace is
+     * allowed to represent the same activation input. The snapshot, mutation
+     * result and source cursor share one synchronous WriteBatch.
+     */
+    private SystemMutationResult applyInitialRouteControlMutation(
+            final ApplyShardControlBody body, final SystemMutation mutation,
+            final SourcePosition sourcePosition) {
+        final InitialRouteControlActivatePayloadV1 payload = body.initialRouteControlActivate();
+        final CompatibleControlSnapshotV1 snapshot;
+        try {
+            snapshot = new CompatibleControlSnapshotV1(new ShardSubjectV1(store.shardId()),
+                    payload.protocolTuples(), payload.profiles(), payload.initialQuotaGrant());
+        } catch (IllegalArgumentException exception) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+        if (!Bytes.constantTimeEquals(snapshot.snapshotDigest(), payload.initialControlSnapshotHash())) {
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+        final CompatibleControlSnapshotV1 existing = store.controlSnapshot();
+        if (existing != null) {
+            if (existing.equals(snapshot)) {
+                return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED,
+                        StableCode.STALE_SYSTEM_MUTATION);
+            }
+            return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED,
+                    StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+        }
+        final SystemMutationResult result = SystemMutationResult.from(mutation, ApplyStatus.APPLIED, StableCode.OK,
+                sourcePosition.canonicalBytes());
+        store.write(batch -> {
+            batch.putControlSnapshot(snapshot);
+            writeSystemResult(batch, result);
+            writePosition(batch, sourcePosition);
+        });
+        lastAppliedSourcePosition = sourcePosition;
+        mutationSequence = nextMutationSequence();
         return result;
     }
 
