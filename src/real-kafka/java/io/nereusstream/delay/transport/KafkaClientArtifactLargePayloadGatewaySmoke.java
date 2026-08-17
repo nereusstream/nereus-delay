@@ -561,7 +561,12 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                         } finally {
                             try {
                                 if (!runtimeClosed && runtime != null) {
-                                    runtime.close();
+                                    try {
+                                        runtime.close();
+                                    } catch (RuntimeException cleanupFailure) {
+                                        System.err.println("Kafka large-payload runtime cleanup deferred: "
+                                                + cleanupFailure.getMessage());
+                                    }
                                 }
                             } finally {
                                 if (physicalBridge != null) {

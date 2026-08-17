@@ -19,6 +19,8 @@ image_context="$(mktemp -d -t nereus-delay-pulsar-large-image.XXXXXX)"
 runtime_dir="$(mktemp -d -t nereus-delay-pulsar-large-runtime.XXXXXX)"
 tls_dir="$(mktemp -d -t nereus-delay-pulsar-large-tls.XXXXXX)"
 receipt_log="$(mktemp -t nereus-delay-pulsar-large-receipt.XXXXXX).log"
+fault_proxy_log="$(mktemp -t nereus-delay-pulsar-large-fault-proxy.XXXXXX).log"
+fault_proxy_pid=""
 failover_mode="${NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER:-0}"
 process_crash_mode="${NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_PROCESS_CRASH:-0}"
 network_partition_mode="${NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_NETWORK_PARTITION:-0}"
@@ -53,6 +55,10 @@ minio_access_key="${NEREUS_DELAY_MINIO_ACCESS_KEY:-nereusdelaypulsarlarge}"
 minio_secret_key="${NEREUS_DELAY_MINIO_SECRET_KEY:-nereus-delay-pulsar-large-secret}"
 minio_bucket="${NEREUS_DELAY_MINIO_BUCKET:-nereus-delay-pulsar-large-${compose_project##*-}}"
 minio_endpoint="http://127.0.0.1:${minio_port}"
+minio_object_store_endpoint="${minio_endpoint}"
+minio_fault_mode="${NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MINIO_FAULT_MODE:-NONE}"
+minio_fault_proxy_port="${NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MINIO_FAULT_PROXY_PORT:-31700}"
+minio_fault_proxy_endpoint="http://127.0.0.1:${minio_fault_proxy_port}"
 
 if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
   echo "docker and docker compose are required" >&2
@@ -72,6 +78,18 @@ if [[ "${network_partition_mode}" != "0" && "${network_partition_mode}" != "1" ]
 fi
 if [[ ! "${network_partition_handoff_wait_seconds}" =~ ^[0-9]+$ ]]; then
   echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_NETWORK_PARTITION_HANDOFF_WAIT_SECONDS must be a non-negative integer" >&2
+  exit 1
+fi
+if [[ "${minio_fault_mode}" != "NONE" && "${minio_fault_mode}" != "PUT_503_AFTER_COMMIT" ]]; then
+  echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MINIO_FAULT_MODE must be NONE or PUT_503_AFTER_COMMIT" >&2
+  exit 1
+fi
+if [[ ! "${minio_fault_proxy_port}" =~ ^[0-9]+$ ]]; then
+  echo "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MINIO_FAULT_PROXY_PORT must be numeric" >&2
+  exit 1
+fi
+if [[ "${minio_fault_mode}" != "NONE" ]] && ! command -v python3 >/dev/null 2>&1; then
+  echo "python3 is required for real MinIO fault injection" >&2
   exit 1
 fi
 if [[ "${process_crash_mode}" == "1" && "${failover_mode}" != "1" ]]; then
@@ -110,6 +128,11 @@ if ! docker image inspect --format '{{join .RepoDigests "\n"}}' "${minio_image}"
   echo "local MinIO tag does not carry locked repository digest ${minio_digest}" >&2
   exit 1
 fi
+if [[ "${minio_fault_mode}" != "NONE" ]] && command -v lsof >/dev/null 2>&1 \
+    && lsof -nP -iTCP:"${minio_fault_proxy_port}" -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "required MinIO fault proxy port is already listening: ${minio_fault_proxy_port}" >&2
+  exit 1
+fi
 tar -xzf "${tarball}" -C "${runtime_dir}" --strip-components=1 "apache-pulsar-5.0.0-M1/lib"
 test -n "$(find "${runtime_dir}/lib" -type f -name '*.jar' -print -quit)"
 
@@ -119,10 +142,15 @@ cleanup() {
     "${compose[@]}" ps >&2 || true
     "${compose[@]}" logs --no-color >&2 || true
   fi
+  if [[ -n "${fault_proxy_pid}" ]]; then
+    kill "${fault_proxy_pid}" >/dev/null 2>&1 || true
+    wait "${fault_proxy_pid}" >/dev/null 2>&1 || true
+  fi
   "${compose[@]}" down --volumes --remove-orphans --rmi local >/dev/null 2>&1 || true
   docker image rm "${image}" >/dev/null 2>&1 || true
   docker image rm "${oxia_image}" >/dev/null 2>&1 || true
   rm -rf "${image_context}" "${runtime_dir}" "${tls_dir}"
+  rm -f "${fault_proxy_log}"
   echo "Pulsar large-payload E2E receipt log: ${receipt_log}" >&2
   exit "${status}"
 }
@@ -167,6 +195,28 @@ wait_for_minio() {
   done
   echo "Pulsar large-payload MinIO did not become ready" >&2
   "${compose[@]}" logs minio >&2 || true
+  return 1
+}
+
+start_minio_fault_proxy() {
+  if [[ "${minio_fault_mode}" == "NONE" ]]; then
+    return 0
+  fi
+  python3 "${script_dir}/minio-fault-proxy.py" \
+    --listen-port "${minio_fault_proxy_port}" --backend-port "${minio_port}" \
+    >"${fault_proxy_log}" 2>&1 &
+  fault_proxy_pid=$!
+  for attempt in $(seq 1 30); do
+    if curl --silent --fail "${minio_fault_proxy_endpoint}/__health" >/dev/null 2>&1; then
+      curl --silent --show-error --fail --request POST --data "${minio_fault_mode}" \
+        "${minio_fault_proxy_endpoint}/__fault" >/dev/null
+      minio_object_store_endpoint="${minio_fault_proxy_endpoint}"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "MinIO fault proxy did not become ready" >&2
+  cat "${fault_proxy_log}" >&2 || true
   return 1
 }
 
@@ -225,6 +275,7 @@ curl --silent --show-error --fail --aws-sigv4 "aws:amz:${minio_region}:s3" \
   --user "${minio_access_key}:${minio_secret_key}" --request PUT --header 'Content-Type: application/xml' \
   --data-binary '<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>' \
   --url "${minio_endpoint}/${minio_bucket}?versioning" >/dev/null
+start_minio_fault_proxy
 
 echo "Delay source: $(git -C "${delay_dir}" rev-parse HEAD)"
 echo "P1 source: $(git -C "${pulsar_dir}" rev-parse HEAD)"
@@ -235,12 +286,16 @@ echo "MinIO image: ${minio_image}@${minio_digest}"
 echo "Compose project: ${compose_project}"
 echo "Pulsar service/admin: ${service_url}/${admin_url}"
 echo "Oxia/MinIO/Gateway: 127.0.0.1:${oxia_port}/127.0.0.1:${minio_port}/127.0.0.1:${gateway_port}"
+echo "Object Store endpoint: ${minio_object_store_endpoint}"
+if [[ "${minio_fault_mode}" != "NONE" ]]; then
+  echo "MinIO fault mode/proxy: ${minio_fault_mode}/${minio_fault_proxy_endpoint}"
+fi
 echo "Destination topic: ${destination_topic}"
 
 smoke_environment=(
   "NEREUS_DELAY_OXIA_ENDPOINT=127.0.0.1:${oxia_port}"
   "NEREUS_DELAY_OXIA_NAMESPACE=default"
-  "NEREUS_DELAY_MINIO_ENDPOINT=${minio_endpoint}"
+  "NEREUS_DELAY_MINIO_ENDPOINT=${minio_object_store_endpoint}"
   "NEREUS_DELAY_MINIO_ACCESS_KEY=${minio_access_key}"
   "NEREUS_DELAY_MINIO_SECRET_KEY=${minio_secret_key}"
   "NEREUS_DELAY_MINIO_BUCKET=${minio_bucket}"

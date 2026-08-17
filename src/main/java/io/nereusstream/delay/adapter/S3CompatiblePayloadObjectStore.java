@@ -338,11 +338,8 @@ public final class S3CompatiblePayloadObjectStore {
                         Map.of("if-none-match", "*", "x-amz-meta-nereus-sha256", payloadHash),
                         HttpResponse.BodyHandlers.discarding());
             } catch (IllegalStateException failure) {
-                final byte[] existing = read(objectIdentity);
-                if (existing != null && Arrays.equals(existing, payload)) {
-                    return;
-                }
-                throw failure;
+                resolveAfterAmbiguousPut(objectIdentity, payload, failure);
+                return;
             }
             if (isSuccess(response.statusCode())) {
                 requireVersion(response, null, objectIdentity);
@@ -355,7 +352,31 @@ public final class S3CompatiblePayloadObjectStore {
                 }
                 throw new IllegalStateException("immutable payload object identity conflict: " + objectIdentity);
             }
+            if (isAmbiguousProviderStatus(response.statusCode())) {
+                resolveAfterAmbiguousPut(objectIdentity, payload,
+                        unexpectedStatus("PUT", objectIdentity, response.statusCode()));
+                return;
+            }
             throw unexpectedStatus("PUT", objectIdentity, response.statusCode());
+        }
+
+        private void resolveAfterAmbiguousPut(final String objectIdentity, final byte[] payload,
+                                              final IllegalStateException original) {
+            final byte[] existing;
+            try {
+                existing = read(objectIdentity);
+            } catch (RuntimeException lookupFailure) {
+                original.addSuppressed(lookupFailure);
+                throw original;
+            }
+            if (existing != null && Arrays.equals(existing, payload)) {
+                return;
+            }
+            if (existing != null) {
+                throw new IllegalStateException("immutable payload object identity conflict: " + objectIdentity,
+                        original);
+            }
+            throw original;
         }
 
         @Override
@@ -481,6 +502,10 @@ public final class S3CompatiblePayloadObjectStore {
 
     private static boolean isSuccess(final int status) {
         return status >= 200 && status < 300;
+    }
+
+    private static boolean isAmbiguousProviderStatus(final int status) {
+        return status >= 500 && status < 600;
     }
 
     private static IllegalStateException unexpectedStatus(final String method, final String key,

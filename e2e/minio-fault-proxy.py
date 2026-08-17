@@ -32,7 +32,7 @@ class FaultState:
 
     def consume_for(self, method, request_path):
         path = request_path.split("?", 1)[0]
-        if method != "PUT" or not path.endswith("/manifest.json"):
+        if method != "PUT" or not (path.endswith("/manifest.json") or path.endswith(".payload")):
             return None
         with self._lock:
             if self.mode == "NONE" or self.triggered:
@@ -48,6 +48,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if self.path == "/__health":
             self._send_bytes(200, b"ok\n", "text/plain")
             return
+        self._forward()
+
+    def do_HEAD(self):
         self._forward()
 
     def do_PUT(self):
@@ -163,4 +166,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
