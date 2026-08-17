@@ -286,13 +286,13 @@ jq -n \
       removed_images: $removed_images[0],
       removed_containers: $removed_containers[0],
       retained_locked_images: [$minio_image],
-      policy: "Only this run's checkpoint Compose resources and generated Oxia image are eligible for removal; no global Docker prune is performed."
+      policy: "Only resources from this checkpoint run and its generated Oxia image are eligible for removal; no global Docker prune is performed."
     },
     boundaries: [
       "PASS_BOUNDED is an operations/state-machine receipt, not V1 release certification.",
       "The local probes cover restore fencing, catalog ancestry/floor validation, Owner recovery/drain gates, DLQ replay and source-ordered UNCERTAIN resolution.",
       "The real service probe covers the current Oxia/MinIO checkpoint publication and exact REAPING path; it does not prove external operator authorization, fresh-process disaster continuity or a multi-Worker production soak.",
-      "PASS_CERTIFIED still requires the release gate's exact current four-repository source locks and independent operator/soak evidence."
+      "PASS_CERTIFIED still requires the exact current four-repository source locks from the release gate and independent operator/soak evidence."
     ]
   }' >"${operations_artifact}"
 rm -f "${probes_jsonl}"
