@@ -184,6 +184,15 @@ run_cell pulsar-source-ack-response-loss env \
   NEREUS_DELAY_PULSAR_OXIA_PORT=31390 \
   "${script_dir}/run-pulsar-real-client-e2e.sh"
 
+run_cell gateway-oxia-session-churn env \
+  NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
+  NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN=1 \
+  NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN_PAUSE_SECONDS=2 \
+  NEREUS_DELAY_GATEWAY_GRADLE_USER_HOME="${matrix_gradle_home}" \
+  NEREUS_DELAY_OXIA_GATEWAY_E2E_PORT=31440 \
+  NEREUS_DELAY_GATEWAY_PORT=31450 \
+  "${script_dir}/run-gateway-real-e2e.sh"
+
 printf '\n===== MATRIX SUMMARY =====\n'
 for result in "${cell_results[@]}"; do
   echo "${result}"
