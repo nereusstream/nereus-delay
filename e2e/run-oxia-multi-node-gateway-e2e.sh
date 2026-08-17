@@ -3,6 +3,18 @@ set -euo pipefail
 
 e2e_root=$(cd "$(dirname "$0")" && pwd)
 delay_root=$(cd "$e2e_root/.." && pwd)
+artifact_dir=${NEREUS_DELAY_OXIA_MULTI_NODE_GATEWAY_ARTIFACT_DIR:-$(mktemp -d -t nereus-delay-oxia-multi-node-gateway.XXXXXX)}
+artifact="$artifact_dir/oxia-multi-node-gateway-e2e.json"
+started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+mkdir -p "$artifact_dir"
+if [[ -n "$(find "$artifact_dir" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+    echo "artifact directory must be empty: $artifact_dir" >&2
+    exit 1
+fi
+
+delay_branch=$(git -C "$delay_root" branch --show-current 2>/dev/null || true)
+kafka_checkout=${NEREUS_DELAY_KAFKA_CHECKOUT:-"$delay_root/../../kafka-worktrees/nereus-delay-k1"}
+pulsar_checkout=${NEREUS_DELAY_PULSAR_CHECKOUT:-"$delay_root/../../pulsar-worktrees/nereus-delay-p1"}
 oxia_checkout=${NEREUS_DELAY_OXIA_CHECKOUT:-"$delay_root/../../oxia"}
 coordinator_1_port=${NEREUS_DELAY_OXIA_COORDINATOR_1_PORT:-16691}
 coordinator_2_port=${NEREUS_DELAY_OXIA_COORDINATOR_2_PORT:-16692}
@@ -18,8 +30,26 @@ tls_dir=$(mktemp -d -t nereus-delay-oxia-cluster-gateway-tls.XXXXXX)
 failover_dir=$(mktemp -d -t nereus-delay-oxia-cluster-gateway-failover.XXXXXX)
 failover_gate="$failover_dir/release"
 failover_ready="$failover_dir/ready"
-failover_log="$failover_dir/failover.log"
+failover_log="$artifact_dir/failover.log"
 failover_pid=""
+delay_sha="unknown"
+kafka_sha="unknown"
+pulsar_sha="unknown"
+oxia_sha="unknown"
+initial_leader="unknown"
+successor_leader="unknown"
+stopped_service="unknown"
+survivor_port="unknown"
+cut_gate_reached=false
+test_status=1
+cleanup_status="PASS"
+cleanup_detail="exact Compose project cleanup has not run yet"
+compose_image_ids_before='[]'
+compose_image_ids_after='[]'
+removed_container_ids='[]'
+removed_image_ids='[]'
+printf '[]\n' >"$artifact_dir/.removed-containers.json"
+printf '[]\n' >"$artifact_dir/.removed-images.json"
 
 for required_command in docker openssl jq; do
     if ! command -v "$required_command" >/dev/null 2>&1; then
@@ -31,12 +61,33 @@ if ! docker compose version >/dev/null 2>&1; then
     echo "docker compose is required" >&2
     exit 1
 fi
-if ! git -C "$oxia_checkout" rev-parse --verify HEAD >/dev/null 2>&1; then
-    echo "NEREUS_DELAY_OXIA_CHECKOUT is not a Git checkout: $oxia_checkout" >&2
-    exit 1
-fi
+require_source() {
+    local name=$1 path=$2 branch=$3
+    if ! git -C "$path" rev-parse --verify HEAD >/dev/null 2>&1; then
+        echo "$name checkout is not a Git checkout: $path" >&2
+        return 1
+    fi
+    if [[ -n "$(git -C "$path" status --porcelain)" ]]; then
+        echo "$name checkout is dirty: $path" >&2
+        return 1
+    fi
+    if [[ "$(git -C "$path" branch --show-current)" != "$branch" ]]; then
+        echo "$name checkout is not on $branch: $(git -C "$path" branch --show-current)" >&2
+        return 1
+    fi
+}
 
+require_source Delay "$delay_root" nereus/delay-full-implementation-v1
+require_source Kafka "$kafka_checkout" nereus/delay-guarded-producer-v1
+require_source Pulsar "$pulsar_checkout" nereus/delay-resource-guard-v1
+require_source Oxia "$oxia_checkout" main
+delay_sha=$(git -C "$delay_root" rev-parse HEAD)
+kafka_sha=$(git -C "$kafka_checkout" rev-parse HEAD)
+pulsar_sha=$(git -C "$pulsar_checkout" rev-parse HEAD)
 oxia_sha=$(git -C "$oxia_checkout" rev-parse HEAD)
+echo "Delay checkout: $delay_root@$delay_sha"
+echo "Kafka checkout: $kafka_checkout@$kafka_sha"
+echo "Pulsar checkout: $pulsar_checkout@$pulsar_sha"
 echo "Oxia checkout: $oxia_checkout@$oxia_sha"
 echo "Compose project: $compose_project"
 echo "Coordinator endpoints: 127.0.0.1:$coordinator_1_port, 127.0.0.1:$coordinator_2_port, 127.0.0.1:$coordinator_3_port"
@@ -46,13 +97,153 @@ compose() {
     docker compose --project-name "$compose_project" --file "$compose_file" "$@"
 }
 
+json_array_from_lines() {
+    local lines=${1:-}
+    if [[ -z "$lines" ]]; then
+        printf '[]'
+    else
+        printf '%s\n' "$lines" | jq -R -s 'split("\n") | map(select(length > 0)) | unique'
+    fi
+}
+
+capture_compose_image_ids() {
+    json_array_from_lines "$(compose images --quiet 2>/dev/null | sort -u || true)"
+}
+
+record_json_item() {
+    local file=$1 value=$2
+    jq --arg value "$value" '. + [$value]' "$file" >"$file.tmp"
+    mv "$file.tmp" "$file"
+}
+
+write_artifact() {
+    local exit_status=$1
+    local status=FAIL
+    if [[ "$exit_status" == 0 && "$test_status" == 0 && "$cleanup_status" == PASS ]]; then
+        status=PASS
+    fi
+    jq -n \
+        --arg schema "nereus-delay-oxia-multi-node-gateway-e2e-v1" \
+        --arg status "$status" \
+        --arg artifact_dir "$artifact_dir" \
+        --arg started_at "$started_at" \
+        --arg finished_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --arg delay_branch "$delay_branch" --arg kafka_branch "nereus/delay-guarded-producer-v1" \
+        --arg pulsar_branch "nereus/delay-resource-guard-v1" --arg oxia_branch "main" \
+        --arg delay "$delay_sha" --arg kafka "$kafka_sha" --arg pulsar "$pulsar_sha" --arg oxia "$oxia_sha" \
+        --arg compose_project "$compose_project" --arg compose_file "$compose_file" \
+        --argjson coordinator_ports "[$coordinator_1_port, $coordinator_2_port, $coordinator_3_port]" \
+        --argjson data_server_ports "[$data_server_1_port, $data_server_2_port, $data_server_3_port]" \
+        --arg gateway_port "$gateway_port" --arg initial_leader "$initial_leader" \
+        --arg successor_leader "$successor_leader" --arg stopped_service "$stopped_service" \
+        --arg survivor_port "$survivor_port" --argjson cut_gate_reached "$cut_gate_reached" \
+        --argjson test_exit_code "$test_status" --arg failover_log "$failover_log" \
+        --arg cleanup_status "$cleanup_status" --arg cleanup_detail "$cleanup_detail" \
+        --argjson images_before "$compose_image_ids_before" \
+        --argjson images_after "$compose_image_ids_after" \
+        --argjson removed_containers "$removed_container_ids" \
+        --argjson removed_images "$removed_image_ids" \
+        '{
+          schema: $schema,
+          status: $status,
+          artifact_dir: $artifact_dir,
+          started_at: $started_at,
+          finished_at: $finished_at,
+          source_refs: {delay: $delay_branch, kafka: $kafka_branch, pulsar: $pulsar_branch, oxia: $oxia_branch},
+          source_locks: {delay: $delay, kafka: $kafka, pulsar: $pulsar, oxia: $oxia},
+          runtime: {
+            compose_project: $compose_project,
+            compose_file: $compose_file,
+            coordinator_ports: $coordinator_ports,
+            data_server_ports: $data_server_ports,
+            gateway_port: ($gateway_port | tonumber),
+            oxia_image_ids_before_cleanup: $images_before,
+            oxia_image_ids_after_cleanup: $images_after
+          },
+          failover: {
+            initial_leader: $initial_leader,
+            stopped_service: $stopped_service,
+            survivor_port: ($survivor_port | tonumber? // $survivor_port),
+            successor_leader: $successor_leader,
+            cut_gate_reached: $cut_gate_reached,
+            test_exit_code: $test_exit_code,
+            log: $failover_log
+          },
+          docker_cleanup: {
+            status: $cleanup_status,
+            detail: $cleanup_detail,
+            removed_containers: $removed_containers,
+            removed_images: $removed_images,
+            remaining_compose_image_ids: $images_after,
+            policy: "Only this exact Compose project and its generated Oxia images are eligible for removal; no global Docker prune is performed."
+          },
+          boundaries: [
+            "PASS is a real three-DataServer Oxia shard-leader-stop plus Gateway durable-outcome reread receipt.",
+            "The test uses one Oxia namespace shard and one Gateway process; it does not certify Gateway HA, coordinator failover, storage-service failover, placement churn or disaster continuity.",
+            "This artifact is source-locked runtime evidence and is not a PASS_CERTIFIED V1 release artifact by itself."
+          ]
+        }' >"$artifact"
+}
+
 cleanup() {
+    local exit_status=$?
+    set +e
     if [[ -n "$failover_pid" ]]; then
         kill "$failover_pid" >/dev/null 2>&1 || true
         wait "$failover_pid" >/dev/null 2>&1 || true
     fi
-    compose down --volumes --remove-orphans >/dev/null 2>&1 || true
+    compose_image_ids_before=$(capture_compose_image_ids)
+    compose down --volumes --remove-orphans --rmi local >/dev/null 2>&1
+    local compose_down_status=$?
+    if [[ "$compose_down_status" != 0 ]]; then
+        cleanup_status=FAIL
+        cleanup_detail="exact Compose down returned $compose_down_status"
+    fi
+    local leftover_containers
+    leftover_containers=$(docker ps -aq --filter "label=com.docker.compose.project=$compose_project" || true)
+    while IFS= read -r container; do
+        [[ -z "$container" ]] && continue
+        docker rm --force "$container" >/dev/null 2>&1
+        if [[ $? == 0 ]]; then
+            record_json_item "$artifact_dir/.removed-containers.json" "$container"
+        else
+            cleanup_status=FAIL
+            cleanup_detail="a related Compose container could not be removed: $container"
+        fi
+    done <<<"$leftover_containers"
+    local leftover_images
+    leftover_images=$(docker image ls -q --filter "label=com.docker.compose.project=$compose_project" | sort -u || true)
+    while IFS= read -r image_id; do
+        [[ -z "$image_id" ]] && continue
+        docker image rm "$image_id" >/dev/null 2>&1
+        if [[ $? == 0 ]]; then
+            record_json_item "$artifact_dir/.removed-images.json" "$image_id"
+        else
+            cleanup_status=FAIL
+            cleanup_detail="a related generated Oxia image could not be removed: $image_id"
+        fi
+    done <<<"$leftover_images"
+    if [[ -s "$artifact_dir/.removed-containers.json" ]]; then
+        removed_container_ids=$(cat "$artifact_dir/.removed-containers.json")
+    fi
+    if [[ -s "$artifact_dir/.removed-images.json" ]]; then
+        removed_image_ids=$(cat "$artifact_dir/.removed-images.json")
+    fi
+    local remaining_containers remaining_networks remaining_volumes remaining_images
+    remaining_containers=$(docker ps -aq --filter "label=com.docker.compose.project=$compose_project" || true)
+    remaining_networks=$(docker network ls -q --filter "label=com.docker.compose.project=$compose_project" || true)
+    remaining_volumes=$(docker volume ls -q --filter "label=com.docker.compose.project=$compose_project" || true)
+    remaining_images=$(docker image ls -q --filter "label=com.docker.compose.project=$compose_project" | sort -u || true)
+    if [[ -n "$remaining_containers$remaining_networks$remaining_volumes$remaining_images" ]]; then
+        cleanup_status=FAIL
+        cleanup_detail="exact Compose postcheck found remaining project resources"
+    fi
+    compose_image_ids_after=$(json_array_from_lines "$remaining_images")
+    rm -f "$artifact_dir/.removed-containers.json" "$artifact_dir/.removed-images.json"
     rm -rf "$tls_dir" "$failover_dir"
+    write_artifact "$exit_status"
+    set -e
+    exit "$exit_status"
 }
 trap cleanup EXIT INT TERM
 
@@ -195,9 +386,7 @@ wait_for_namespace_leader() {
 }
 
 run_failover_smoke() {
-    local initial_leader
     initial_leader=$(wait_for_namespace_leader)
-    local stopped_service survivor_port
     case "$initial_leader" in
         ds-1)
             stopped_service=data-server-1
@@ -254,14 +443,15 @@ run_failover_smoke() {
         cat "$failover_log" >&2 || true
         return 1
     fi
+    cut_gate_reached=true
 
     compose stop "$stopped_service"
-    local successor
     successor=$(wait_for_namespace_leader "$initial_leader")
+    successor_leader="$successor"
     echo "Oxia shard successor leader: $successor"
     touch "$failover_gate"
 
-    local test_status=0
+    test_status=0
     wait "$failover_pid" || test_status=$?
     failover_pid=""
     cat "$failover_log"
@@ -274,6 +464,7 @@ run_failover_smoke() {
 generate_tls_material
 export NEREUS_DELAY_OXIA_CHECKOUT="$oxia_checkout"
 compose up --build --detach
+compose_image_ids_before=$(capture_compose_image_ids)
 bootstrap_cluster
 run_failover_smoke
 
