@@ -12087,3 +12087,20 @@ They do not satisfy the complete §23.3 crash/chaos matrix, multi-shard
 placement, target isolation, benchmark/soak or V1 release certification.
 Gates 2, 3 and 10 stay `PARTIAL`; Gates 5, 6, 7 and 9 stay `OPEN`; Gate 8
 stays `PARTIAL`; V1 stays `NOT READY`.
+
+### Current-source bounded capacity/SLO audit
+
+The clean Delay source
+`c12c23c248adfb9f19238c4315a58b2eb6613d22` ran the bounded local capacity/SLO
+probe with no Docker dependency. The source-locked test passed in `1m 15s` and
+the artifact status is `PARTIAL`, not a certification PASS: the platform
+resource authority was unavailable because `MaxDirectMemorySize` was not
+explicitly bounded. Within the available evidence, 16 records at each of 256,
+4096 and 65536 bytes were verified through persistent RocksDB reopen, and 24
+durable SLO Start/Final records were exported and collector-reopen verified.
+
+This is an evidence refresh for Gate 6. It does not close source-locked
+benchmark configurations, JVM/procfs/cgroup/filesystem capacity authority,
+multi-Worker placement, restore throughput, fairness denominators, or long-cycle
+soak. Gates 5, 6 and 7 stay `OPEN`; Gates 2, 3 and 10 stay `PARTIAL`; Gate 8
+stays `PARTIAL`; V1 stays `NOT READY`.

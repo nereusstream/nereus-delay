@@ -15132,3 +15132,26 @@ multi-shard production placement, the remaining crash/chaos matrix,
 benchmark/soak, or the V1 release gate. Gates 2, 3 and 10 remain `PARTIAL`;
 Gates 5, 6, 7 and 9 remain `OPEN`; Gate 8 remains `PARTIAL`; V1 remains
 `NOT READY`.
+
+## 2026-08-17 Current-source bounded capacity/SLO probe refresh
+
+The clean current Delay source `c12c23c248adfb9f19238c4315a58b2eb6613d22`
+ran `e2e/run-bounded-capacity-slo-probe.sh` without Docker. The source-locked
+Gradle test completed with `BUILD SUCCESSFUL in 1m 15s` and wrote
+`/tmp/nereus-delay-capacity-current-20260817-r1/bounded-capacity-slo-probe.json`.
+
+The artifact is deliberately `PARTIAL`: the authoritative
+`WorkerRuntimeResourceProbe` could not run because the JVM did not have an
+explicit `MaxDirectMemorySize` (`IllegalStateException`). The bounded store
+portion still read back all `16` records at each of `256`, `4096` and `65536`
+bytes, verified persistent reopen, and recorded the exact RocksDB usage before
+and after. The durable SLO portion produced, exported and reopened `24` Start/
+Final samples (`outbox_record_count=24`, `exported_records=24`,
+`exported_bytes=12528`, `collector_reopen_verified=true`).
+
+This refresh strengthens the local capacity/SLO evidence at the current clean
+source but does not close the required benchmark configurations, platform
+resource authority, multi-Worker/multi-shard placement, checkpoint-restore
+throughput, long-cycle soak or durable SLO certification. Gates 5, 6 and 7
+therefore remain `OPEN`; Gates 2, 3 and 10 remain `PARTIAL`; Gate 8 remains
+`PARTIAL`; V1 remains `NOT READY`.

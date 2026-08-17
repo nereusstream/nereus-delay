@@ -7572,3 +7572,19 @@ publish to the destination and ACK; broker-1 then rejoins. The Kafka receipts
 prove exact Fetch replay/LSO and real retention-floor rejection/readability.
 These are bounded broker-client bindings, not coordinator/controller/storage
 failover, multi-shard placement, the complete chaos matrix or V1 release proof.
+
+### 2026-08-17 Current implementation binding: bounded capacity/SLO evidence
+
+The clean Delay source
+`c12c23c248adfb9f19238c4315a58b2eb6613d22` also runs the local
+`BoundedCapacitySloProbeTest` through
+`e2e/run-bounded-capacity-slo-probe.sh`. The source-locked invocation passed in
+`1m 15s`, verified persistent RocksDB payload readback at 256/4096/65536 bytes,
+and exported/reopened 24 durable SLO Start/Final samples. The artifact remains
+`PARTIAL` because the platform probe cannot certify its envelope when the JVM
+does not explicitly set `MaxDirectMemorySize`.
+
+This binding is intentionally below benchmark/capacity certification: it does
+not establish Broker throughput, production multi-Worker placement, restore
+throughput, fairness/SLO denominators, cgroup/procfs authority or a long-cycle
+soak. The release gate must retain those boundaries.

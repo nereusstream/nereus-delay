@@ -5190,3 +5190,25 @@ per-run images. Only the locked Oxia/MinIO bases remain; do not use a global
 Docker prune for this cleanup. These are bounded current-source receipts and
 do not close coordinator/controller or storage failover, multi-shard
 placement, the remaining chaos matrix or V1 release proof.
+
+## Current-source bounded capacity/SLO probe refresh
+
+Run the local source-locked probe from a clean Delay worktree:
+
+```bash
+NEREUS_DELAY_CAPACITY_ARTIFACT_DIR=/tmp/nereus-delay-capacity-current-20260817-r1 \
+NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-capacity-gradle-current-20260817-r1 \
+  bash e2e/run-bounded-capacity-slo-probe.sh
+```
+
+At Delay `c12c23c248adfb9f19238c4315a58b2eb6613d22`, the test reported
+`BUILD SUCCESSFUL in 1m 15s` and wrote
+`/tmp/nereus-delay-capacity-current-20260817-r1/bounded-capacity-slo-probe.json`.
+The artifact status is `PARTIAL`: the platform probe was `UNAVAILABLE` because
+`MaxDirectMemorySize` was not explicitly bounded. The available store receipt
+verified 16 records at each payload size `256/4096/65536`, persistent reopen,
+and the available SLO receipt exported and reopened 24 durable samples.
+
+This is bounded local evidence only. It does not close the required benchmark
+campaign, production resource authority, multi-Worker placement, restore
+throughput, fairness/SLO denominator, long-cycle soak or V1 release gate.
