@@ -8,6 +8,7 @@ import io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts;
 import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
 import io.grpc.stub.MetadataUtils;
 import io.nereusstream.delay.adapter.S3CompatiblePayloadObjectStore;
+import io.nereusstream.delay.adapter.DestinationPhysicalAdmission;
 import io.nereusstream.delay.adapter.PulsarSendRequest;
 import io.nereusstream.delay.adapter.PulsarSendResult;
 import io.nereusstream.delay.gateway.GatewayGrpcContext;
@@ -125,6 +126,7 @@ import io.nereusstream.delay.runtime.PayloadReservation;
 import io.nereusstream.delay.runtime.PayloadReservationStatus;
 import io.nereusstream.delay.runtime.V1ScheduleResolver;
 import io.nereusstream.delay.scheduler.SchedulerBudget;
+import io.nereusstream.delay.scheduler.ClaimExecutionAdmission;
 import io.nereusstream.delay.scheduler.WorkClass;
 import io.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import io.nereusstream.delay.scheduler.WorkClassPolicy;
@@ -395,6 +397,17 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         } finally {
             closeNative(consumer);
         }
+    }
+
+    private static void requireDestinationPayload(final GuardedConsumer<byte[]> consumer,
+                                                  final byte[] expectedPayload,
+                                                  final int sourcePartition) throws Exception {
+        final var message = consumer.receive(15, TimeUnit.SECONDS);
+        if (message == null || !Arrays.equals(expectedPayload, message.getValue())) {
+            throw new IllegalStateException("Pulsar multi-shard destination payload was not read back exactly: "
+                    + "sourcePartition=" + sourcePartition);
+        }
+        consumer.acknowledge(message);
     }
 
     private static PulsarSourcePosition sendCommandAndPosition(final PulsarClient client,
@@ -1205,10 +1218,43 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         };
     }
 
+    private static V1ScheduleResolver scheduleResolver(final String destinationPhysicalTopicBase,
+                                                       final int destinationPartition) {
+        if (destinationPartition < 0) {
+            throw new IllegalArgumentException("Pulsar multi-shard destination partition must be non-negative");
+        }
+        final String destinationPhysicalTopic = destinationPhysicalTopicBase + "-partition-" + destinationPartition;
+        final ProfileRefV1 destination = destinationProfile();
+        final ProfileRefV1 capability = PulsarClientArtifactWorkerSmoke.capabilityProfile();
+        final byte[] tuple = PulsarClientArtifactWorkerSmoke.canonicalLaneTuple(destinationPhysicalTopic,
+                destination, capability, destinationPartition);
+        final DestinationLaneId lane = DestinationLaneId.derive(tuple);
+        final byte[] compatibilityTuple = Bytes.utf8("pulsar-large-payload-compatibility-lane-v1");
+        final DestinationLaneId compatibilityLane = DestinationLaneId.derive(compatibilityTuple);
+        return new V1ScheduleResolver() {
+            @Override
+            public ResolvedSchedule resolveSchedule(final ShardId shard,
+                                                     final io.nereusstream.delay.protocol.DelayMessageId message,
+                                                     final ScheduleIntentV1 intent,
+                                                     final io.nereusstream.delay.protocol.SourcePosition source) {
+                return new ResolvedSchedule(compatibilityLane, compatibilityTuple, intent.inlinePayload(), null);
+            }
+
+            @Override
+            public ResolvedPrepare resolvePrepare(final ShardId shard,
+                                                  final io.nereusstream.delay.protocol.DelayMessageId message,
+                                                  final io.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1 body,
+                                                  final io.nereusstream.delay.protocol.SourcePosition source) {
+                return new ResolvedPrepare(lane, tuple);
+            }
+        };
+    }
+
     /**
-     * Runs the Object Store authority path over two independent Pulsar source
-     * partitions.  Destination egress remains deliberately disabled in this
-     * opt-in receipt; the normal mode owns the single-shard destination proof.
+     * Runs the full Large Payload authority path over two independent Pulsar
+     * source partitions and one guarded destination topic. Each source shard
+     * retains source-ordered PUBLISH_OUTCOME evidence before the exact
+     * destination payload is accepted.
      */
     private static void runMultiShard(final String serviceUrl, final List<String> adminUrls,
                                       final String topicPrefix, final String oxiaEndpoint,
@@ -1227,9 +1273,13 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
             throw new IllegalArgumentException("Pulsar multi-shard topic base must not contain '-partition-'");
         }
         final String physicalTopicBase = "persistent://public/default/" + sourceBase;
+        final String destinationName = sourceBase + "-destination";
+        final String destinationPhysicalTopic = "persistent://public/default/" + destinationName;
         final HttpClient admin = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build();
         createPartitionedTopic(admin, adminUrls.get(0), sourceBase, shardCount, SOURCE_INCARNATION,
                 SOURCE_CREATION_TIMESTAMP, adminUrls);
+        createPartitionedTopic(admin, adminUrls.get(0), destinationName, shardCount, DESTINATION_INCARNATION,
+                DESTINATION_CREATION_TIMESTAMP, adminUrls);
 
         final AuthenticatedTenantContext tenant = new AuthenticatedTenantContext(
                 bytes(32, 1), bytes(32, 2), bytes(32, 3));
@@ -1252,7 +1302,15 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                 + UUID.randomUUID();
         final String gatewayPrefix = "nereus-delay/pulsar-large-payload-multi-gateway/" + UUID.randomUUID();
 
-        try (PulsarClient client = PulsarClient.builder().serviceUrl(serviceUrl).build()) {
+        try (PulsarClient client = PulsarClient.builder().serviceUrl(serviceUrl).build();
+             GuardedConsumer<byte[]> destinationConsumer0 = PulsarClientArtifactSourceConsumerFactory.create(
+                     client, new TopicResourceGuard(CLUSTER, DESTINATION_INCARNATION,
+                             DESTINATION_CREATION_TIMESTAMP), destinationPhysicalTopic + "-partition-0",
+                     "nereus-delay-pulsar-large-multi-destination-0-" + UUID.randomUUID());
+             GuardedConsumer<byte[]> destinationConsumer1 = PulsarClientArtifactSourceConsumerFactory.create(
+                     client, new TopicResourceGuard(CLUSTER, DESTINATION_INCARNATION,
+                             DESTINATION_CREATION_TIMESTAMP), destinationPhysicalTopic + "-partition-1",
+                     "nereus-delay-pulsar-large-multi-destination-1-" + UUID.randomUUID())) {
             final List<LargeShardProbe> probes = new ArrayList<>(shardCount);
             for (int partition = 0; partition < shardCount; partition++) {
                 final ShardId shard = new ShardId(routeIncarnation, partition);
@@ -1330,10 +1388,21 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                 }
 
                 final WorkClassExecutionRegistry workClasses = workClasses();
+                final long fleetWorkClassBytes = Math.multiplyExact((long) shardCount, WORK_CLASS_BYTES);
+                final ClaimExecutionAdmission claimAdmission = new ClaimExecutionAdmission(shardCount,
+                        fleetWorkClassBytes);
+                final DestinationPhysicalAdmission physicalAdmission = new DestinationPhysicalAdmission(shardCount,
+                        fleetWorkClassBytes);
+                physicalAdmission.registerTargetCluster(CLUSTER, shardCount, fleetWorkClassBytes);
                 final Path root = Files.createTempDirectory("nereus-delay-pulsar-large-payload-multi-");
                 final List<ShardStore> stores = new ArrayList<>(shardCount);
                 final List<DelayShard> delayShards = new ArrayList<>(shardCount);
                 final List<WorkerShardRuntime> runtimes = new ArrayList<>(shardCount);
+                final List<OwnedDelayShard> ownedShards = new ArrayList<>(shardCount);
+                final List<io.nereusstream.delay.protocol.OwnerIdentityV1> ownerIdentities =
+                        new ArrayList<>(shardCount);
+                final List<PulsarClientArtifactWorkerSmoke.PhysicalPublishBridge> physicalBridges =
+                        new ArrayList<>(shardCount);
                 WorkerShardFleetRuntime fleet = null;
                 boolean assignmentsWithdrawn = false;
                 try (SharedRocksDbResources resources = new SharedRocksDbResources(ShardStoreConfig.defaults(root));
@@ -1348,15 +1417,18 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                         stores.add(store);
                         store.recordControlSnapshot(controlSnapshot(probe.shard(), destinationProfile()));
                         final DelayShard delayShard = new DelayShard(store, DelayShardConfig.defaults(), null, null,
-                                scheduleResolver(destinationPhysicalTopicForMultiShard()), trustCatalog);
+                                scheduleResolver(destinationPhysicalTopic, probe.shard().partition()), trustCatalog);
                         delayShards.add(delayShard);
                         final OwnerLease lease = admission.lease();
-                        final OwnedDelayShard ownedShard = new OwnedDelayShard(delayShard, lease,
+                        final io.nereusstream.delay.protocol.OwnerIdentityV1 ownerIdentity =
                                 new io.nereusstream.delay.protocol.OwnerIdentityV1(
                                         bytes(16, 70 + probe.shard().partition()),
                                         bytes(16, 90 + probe.shard().partition()), lease.ownerEpoch(),
                                         Bytes.sha256(Bytes.utf8("pulsar-large-payload-multi-worker-fence-"
-                                                + probe.shard().partition()))));
+                                                + probe.shard().partition())));
+                        final OwnedDelayShard ownedShard = new OwnedDelayShard(delayShard, lease, ownerIdentity);
+                        ownedShards.add(ownedShard);
+                        ownerIdentities.add(ownerIdentity);
                         recover(probe.consumer(), probe.guard(), admission.assignment(), ownerAuthority, ownedShard,
                                 probe.activation(), probe.beforeRoute(), controlKeys,
                                 controlSnapshot(probe.shard(), destinationProfile()), workClasses, probe.physicalTopic());
@@ -1524,10 +1596,44 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                                     throw new IllegalStateException("Pulsar multi-shard duplicate Prepare changed source record count "
                                             + "partition=" + partition);
                                 }
+                                final LaneRecord physicalLane = Optional.ofNullable(
+                                        delayShards.get(runtimeIndex).getLane(message.laneId())).orElseThrow(
+                                        () -> new IllegalStateException(
+                                                "Pulsar multi-shard Worker did not persist the physical destination Lane"));
+                                final PulsarClientArtifactWorkerSmoke.PhysicalPublishBridge physicalBridge =
+                                        PulsarClientArtifactWorkerSmoke.createPhysicalPublishBridge(
+                                                client, admissionRecord.probe().consumer(),
+                                                admissionRecord.probe().physicalTopic(), admissionRecord.probe().shard(),
+                                                (PulsarSourcePosition) commitReceipt.sourcePosition(),
+                                                destinationPhysicalTopic + "-partition-" + partition, stores.get(runtimeIndex),
+                                                ownedShards.get(runtimeIndex), ownerIdentities.get(runtimeIndex), ownerAuthority,
+                                                workClasses, controlKeys, destinationProfile(),
+                                                PulsarClientArtifactWorkerSmoke.capabilityProfile(), message.laneId(),
+                                                physicalLane.laneIncarnation(), WORK_CLASS_BYTES, physicalAdmission,
+                                                partition);
+                                physicalBridges.add(physicalBridge);
+                                runtimes.get(runtimeIndex).bindPhysicalPublishExecutor(physicalBridge.executor());
+                                PulsarClientArtifactWorkerSmoke.runSourceAppliedPhysicalPublish(
+                                        runtimes.get(runtimeIndex), delayShards.get(runtimeIndex),
+                                        ownedShards.get(runtimeIndex), ownerIdentities.get(runtimeIndex), ownerAuthority,
+                                        stores.get(runtimeIndex), workClasses, controlKeys, physicalBridge,
+                                        prepareReceipt.command().delayMessageId(),
+                                        (PulsarSourcePosition) commitReceipt.sourcePosition(), client, payload,
+                                        WORK_CLASS_BYTES, claimAdmission);
+                                requireDestinationPayload(partition == 0 ? destinationConsumer0 : destinationConsumer1,
+                                        payload, partition);
+                                final int publishedSourceRecordCount = countSourceRecords(client,
+                                        admissionRecord.probe().guard(), admissionRecord.probe().physicalTopic());
+                                if (publishedSourceRecordCount != 6) {
+                                    throw new IllegalStateException("Pulsar multi-shard physical publish did not append the exact "
+                                            + "Admission/Outcome pair partition=" + partition + ", sourceRecords="
+                                            + publishedSourceRecordCount);
+                                }
                                 System.out.println("Pulsar multi-shard Large Payload partition=" + partition
                                         + " passed: prepare=" + prepareReceipt.sourcePosition() + ", commit="
                                         + commitReceipt.sourcePosition() + ", objectVersion="
-                                        + new String(proof.immutableObjectVersion(), StandardCharsets.UTF_8));
+                                        + new String(proof.immutableObjectVersion(), StandardCharsets.UTF_8)
+                                        + ", destinationEgress=true, sourceRecords=" + publishedSourceRecordCount);
                             }
                             for (int index = 0; index < runtimes.size(); index++) {
                                 final int partition = admissions.get(index).probe().shard().partition();
@@ -1559,7 +1665,8 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                             assignmentsWithdrawn = true;
                             System.out.println("Pulsar signed Route -> two guarded SUBSCRIBE barriers -> Oxia multi-shard "
                                     + "Assignment/Owner -> one Worker fleet -> Gateway mTLS/JWT -> two Large Payload "
-                                    + "reservations -> real MinIO upload/attest/commit/readback/checkpoint passed: "
+                                    + "reservations -> real MinIO upload/attest/commit/readback -> two destination "
+                                    + "PUBLISHED outcomes -> checkpoint passed: "
                                     + "subscribePartitions=" + shardCount + ", routeRevision=" + routeRevision
                                     + ", workers=" + assignedWorkers + ", sourceBarriers=" + probes.stream()
                                     .map(probe -> probe.beforeRoutePosition().ledgerId() + "/"
@@ -1577,6 +1684,14 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                             fleet.close();
                         } catch (RuntimeException cleanupFailure) {
                             System.err.println("Pulsar multi-shard Worker fleet cleanup deferred: "
+                                    + cleanupFailure.getMessage());
+                        }
+                    }
+                    for (PulsarClientArtifactWorkerSmoke.PhysicalPublishBridge physicalBridge : physicalBridges) {
+                        try {
+                            physicalBridge.close();
+                        } catch (RuntimeException cleanupFailure) {
+                            System.err.println("Pulsar multi-shard physical destination cleanup deferred: "
                                     + cleanupFailure.getMessage());
                         }
                     }
@@ -1604,11 +1719,8 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
             }
         } finally {
             deletePartitionedTopic(admin, adminUrls, sourceBase);
+            deletePartitionedTopic(admin, adminUrls, destinationName);
         }
-    }
-
-    private static String destinationPhysicalTopicForMultiShard() {
-        return "persistent://public/default/pulsar-large-payload-multi-object-store-disabled";
     }
 
     public static void main(final String[] arguments) throws Exception {

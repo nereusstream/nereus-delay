@@ -433,7 +433,7 @@ if [[ "${smoke_status}" != 0 ]]; then
   exit "${smoke_status}"
 fi
 if [[ "${multi_shard_mode}" == "1" ]]; then
-  echo "Pulsar + Oxia + Gateway mTLS/JWT + two guarded source partitions + two Workers + real MinIO multi-shard Large Payload authority E2E passed; destination egress is intentionally outside this bounded receipt"
+  echo "Pulsar + Oxia + Gateway mTLS/JWT + two guarded source partitions + two Workers + real MinIO + two destination PUBLISHED outcomes multi-shard Large Payload authority E2E passed"
 elif [[ "${minio_fault_mode}" == "PUT_503_BEFORE_COMMIT" || "${minio_fault_mode}" == "PUT_TIMEOUT_BEFORE_COMMIT" ]]; then
   echo "Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload pre-commit fail-closed E2E passed"
 elif [[ "${process_crash_mode}" == "1" ]]; then
