@@ -88,7 +88,7 @@ set +e
       --tests io.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest \
       --tests io.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest \
       --rerun-tasks --no-daemon --console=plain
-) >"${log_file}" 2>&1
+) >>"${log_file}" 2>&1
 test_status=$?
 set -e
 cat "${log_file}"
