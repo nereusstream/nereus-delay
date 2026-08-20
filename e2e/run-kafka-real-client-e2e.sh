@@ -47,6 +47,7 @@ process_crash_only="${NEREUS_DELAY_KAFKA_PROCESS_CRASH_ONLY:-0}"
 worker_process_crash_only="${NEREUS_DELAY_KAFKA_WORKER_PROCESS_CRASH_ONLY:-0}"
 worker_ack_process_crash_only="${NEREUS_DELAY_KAFKA_WORKER_ACK_PROCESS_CRASH_ONLY:-0}"
 broker_process_crash_only="${NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_ONLY:-0}"
+broker_process_crash_state_dump_dir="${NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_STATE_DUMP_DIR:-}"
 broker_network_partition_only="${NEREUS_DELAY_KAFKA_BROKER_NETWORK_PARTITION_ONLY:-0}"
 broker_tcp_cut_only="${NEREUS_DELAY_KAFKA_BROKER_TCP_CUT_ONLY:-0}"
 if [[ "${broker_tcp_cut_only}" == "1" ]]; then
@@ -490,6 +491,22 @@ run_worker_smoke() {
   fi
 }
 
+run_broker_process_crash_state_smoke() {
+  local bootstrap_server="$1"
+  local broker_crash_topic="$2"
+  local phase="$3"
+  if [[ -z "${broker_process_crash_state_dump_dir}" ]]; then
+    return 0
+  fi
+  NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_PHASE="${phase}" \
+  NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_STATE_DUMP_DIR="${broker_process_crash_state_dump_dir}" \
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaBrokerProcessCrashStateSmoke \
+    "-PkafkaClientJar=${client_jar}" \
+    "-PkafkaBootstrap=${bootstrap_server}" \
+    "-PkafkaBrokerProcessCrashTopic=${broker_crash_topic}" \
+    --no-daemon --console=plain
+}
+
 start_broker_tcp_fault_proxy() {
   rm -f "${broker_tcp_ready_file}" "${broker_tcp_ack_file}" "${broker_tcp_pre_cut_file}" \
     "${broker_tcp_post_cut_file}" "${broker_tcp_post_cut_handoff_file}" "${broker_tcp_stop_file}"
@@ -890,12 +907,24 @@ fi
 if [[ "${broker_process_crash_only}" == "1" ]]; then
   start_oxia
   broker_crash_topic="${KAFKA_DELAY_BROKER_PROCESS_CRASH_TOPIC:-${worker_topic}-broker-process-crash}"
+  if [[ -n "${broker_process_crash_state_dump_dir}" ]]; then
+    mkdir -p "${broker_process_crash_state_dump_dir}"
+    rm -f "${broker_process_crash_state_dump_dir}/before-process-crash.json" \
+      "${broker_process_crash_state_dump_dir}/after-fresh-process.json"
+  fi
   run_worker_smoke "${bootstrap_all}" "${broker_crash_topic}" prepare
+  run_broker_process_crash_state_smoke "${bootstrap_all}" "${broker_crash_topic}" before
   "${compose[@]}" kill --signal KILL kafka-1
   wait_for_broker kafka-2
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaSurvivorLeaderRecoverySmoke \
+    -PkafkaClientJar="${client_jar}" \
+    -PkafkaBootstrap="${bootstrap_survivors}" \
+    -PkafkaSurvivorTopics="${broker_crash_topic},${worker_destination_topic},${worker_destination_topic}-receipt" \
+    --no-daemon --console=plain
   run_worker_smoke "${bootstrap_survivors}" "${broker_crash_topic}" resume
   "${compose[@]}" start kafka-1
   wait_for_broker kafka-1
+  run_broker_process_crash_state_smoke "${bootstrap_all}" "${broker_crash_topic}" after
   echo "Kafka Broker process-crash recovery E2E passed: kafka-1 was SIGKILLed after guarded Worker preparation, the same topic resumed through kafka-2/kafka-3 with real Oxia authority, and kafka-1 rejoined afterward."
   exit 0
 fi
