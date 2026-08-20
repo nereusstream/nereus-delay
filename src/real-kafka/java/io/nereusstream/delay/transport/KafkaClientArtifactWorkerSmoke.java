@@ -22,11 +22,13 @@ import io.nereusstream.delay.ownership.OwnedDelayShard;
 import io.nereusstream.delay.ownership.ReplayTurnBudget;
 import io.nereusstream.delay.ownership.ShardLifecycleState;
 import io.nereusstream.delay.ownership.SourceAssignment;
+import io.nereusstream.delay.ownership.SourceAcknowledgement;
 import io.nereusstream.delay.ownership.SourceReplayCursor;
 import io.nereusstream.delay.ownership.SourceReplayEntry;
 import io.nereusstream.delay.ownership.SourceReplayMutation;
 import io.nereusstream.delay.ownership.SourceReplayRecord;
 import io.nereusstream.delay.ownership.SourceReplaySuccessor;
+import io.nereusstream.delay.ownership.SourceRecordConsumer;
 import io.nereusstream.delay.ownership.WorkerAssignment;
 import io.nereusstream.delay.ownership.WorkerAssignmentAuthority;
 import io.nereusstream.delay.ownership.WorkerAssignmentCoordinator;
@@ -95,6 +97,10 @@ import io.nereusstream.delay.store.ShardStore;
 import io.nereusstream.delay.store.ShardStoreConfig;
 import io.nereusstream.delay.store.SharedRocksDbResources;
 import io.nereusstream.delay.store.CheckpointFileInventory;
+import io.nereusstream.delay.store.CheckpointManifest;
+import io.nereusstream.delay.store.RecoveryCatalog;
+import io.nereusstream.delay.store.RecoveryCatalogAuthority;
+import io.nereusstream.delay.store.RecoveryFloor;
 import io.nereusstream.delay.store.WorkerLoadVector;
 import io.nereusstream.delay.store.WorkerPlacementPolicy;
 import org.apache.kafka.clients.admin.Admin;
@@ -231,13 +237,21 @@ public final class KafkaClientArtifactWorkerSmoke {
                         ownerNow, LEASE_DURATION_MS).orElseThrow();
                 final KeyPair verificationKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
                 final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshot(shard);
-                    final Path root = configuredWorkerRoot();
+                final boolean explicitWorkerRoot = hasConfiguredWorkerRoot();
+                final Path root = configuredWorkerRoot();
                 try {
                     final ShardStoreConfig storeConfig = ShardStoreConfig.defaults(root);
                     try (SharedRocksDbResources resources = new SharedRocksDbResources(storeConfig);
-                         ShardStore store = ShardStore.open(storeConfig, shard, resources)) {
+                         ShardStore store = mode.equals("resume") && explicitWorkerRoot
+                                 ? ShardStore.openForLocalRecoveryReuse(storeConfig, shard, resources,
+                                 localCrashRecoveryAuthority())
+                                 : ShardStore.open(storeConfig, shard, resources)) {
                         resources.bindWorkClassExecutionRegistry(workClasses);
                         store.recordControlSnapshot(controlSnapshot);
+                        final io.nereusstream.delay.protocol.SourcePosition persistedPositionBeforeRecovery =
+                                store.appliedShardLogPosition();
+                        final boolean crashRecoveryResume = mode.equals("resume") && explicitWorkerRoot
+                                && persistedPositionBeforeRecovery != null;
                         final DelayShard delayShard = new DelayShard(store, DelayShardConfig.defaults(), null, null,
                                 scheduleResolver(clusterId, destinationTopicId, destinationPhysicalTopic));
                         final OwnerIdentityV1 ownerIdentity = new OwnerIdentityV1(bytes(16, 70), bytes(16, 71),
@@ -245,7 +259,8 @@ public final class KafkaClientArtifactWorkerSmoke {
                         final OwnedDelayShard ownedShard = new OwnedDelayShard(delayShard, lease, ownerIdentity);
 
                         recoverFirstRecord(bootstrap, clusterId, topic, nativeTopicId, shard, assignment,
-                                authority, ownedShard, verificationKey, controlSnapshot, workClasses);
+                                authority, ownedShard, verificationKey, controlSnapshot, workClasses,
+                                persistedPositionBeforeRecovery);
                         if (ownedShard.state() != ShardLifecycleState.ACTIVE_FOR_COMMANDS
                                 || ownedShard.lastCatchupPosition() == null
                                 || ownedShard.lastCatchupPosition().compareTo(
@@ -254,8 +269,9 @@ public final class KafkaClientArtifactWorkerSmoke {
                             throw new IllegalStateException("Kafka Worker recovery did not activate at offset zero");
                         }
 
-                        final PreparedCommand activeCommand = command(shard, "worker-active");
-                        produce(bootstrap, clusterId, topic, topicId, activeCommand);
+                        if (!crashRecoveryResume) {
+                            produce(bootstrap, clusterId, topic, topicId, command(shard, "worker-active"));
+                        }
                         final PreparedCommand physicalCommand = destinationPhysicalTopic == null ? null
                                 : command(shard, "worker-physical-publish", Bytes.utf8(
                                 "kafka-worker-source-applied-payload"), 2_000);
@@ -263,13 +279,23 @@ public final class KafkaClientArtifactWorkerSmoke {
                                 : produceAndPosition(bootstrap, clusterId, topic, topicId, physicalCommand);
                         final String configuredWorkerGroup = System.getenv("NEREUS_DELAY_KAFKA_WORKER_GROUP_ID");
                         final String workerGroup = configuredWorkerGroup == null || configuredWorkerGroup.isBlank()
-                                ? "nereus-delay-worker-e2e-" + UUID.randomUUID() : configuredWorkerGroup;
+                                ? (explicitWorkerRoot
+                                ? "nereus-delay-worker-crash-" + topic
+                                : "nereus-delay-worker-e2e-" + UUID.randomUUID())
+                                : configuredWorkerGroup;
+                        final KafkaSourcePosition durableAckPosition = durableAckRecoveryPosition(
+                                crashRecoveryResume, persistedPositionBeforeRecovery, shard, clusterId, nativeTopicId);
+                        if (durableAckPosition != null) {
+                            acknowledgeDurableKafkaRecord(bootstrap, clusterId, topic, nativeTopicId, shard,
+                                    workerGroup, durableAckPosition, store, admin);
+                        }
                         final GuardedConsumer<byte[], byte[]> rawWorkerConsumer = workerConsumer(
                                 bootstrap, workerGroup, clusterId, topic, nativeTopicId, shard);
                         final AtomicBoolean sourceAckResponseLossObserved = new AtomicBoolean();
                         final GuardedConsumer<byte[], byte[]> workerConsumer;
                         if (mode.equals("ack-crash-wait")) {
-                            workerConsumer = workerAckProcessCrashConsumer(rawWorkerConsumer);
+                            workerConsumer = workerAckProcessCrashConsumer(rawWorkerConsumer, store, topic,
+                                    clusterId, topicId, shard);
                         } else if (hasSourceAckResponseLoss()) {
                             workerConsumer = sourceAckResponseLossConsumer(rawWorkerConsumer,
                                     sourceAckResponseLossObserved);
@@ -288,13 +314,18 @@ public final class KafkaClientArtifactWorkerSmoke {
                                     Duration.ofMillis(250), assignment, workClasses, ownedShard, store, resources,
                                     authority, verificationKey.getPublic(), null, null, null, null,
                                     physicalBridge == null ? null : physicalBridge.executor());
-                            awaitWorkerProcessCrashCutIfRequested(mode);
-                            final io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult result =
-                                    runUntilApplied(runtime);
-                            if (result.status()
-                                    != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED) {
-                                throw new IllegalStateException("Kafka Worker source turn did not ACK: " + result.status(),
-                                        result.failure());
+                            if (durableAckPosition != null) {
+                                rawWorkerConsumer.seek(new TopicPartition(topic, shard.partition()),
+                                        Math.addExact(durableAckPosition.offset(), 1));
+                            } else {
+                                awaitWorkerProcessCrashCutIfRequested(mode, store, topic, clusterId, topicId, shard);
+                                final io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult result =
+                                        runUntilApplied(runtime);
+                                if (result.status()
+                                        != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED) {
+                                    throw new IllegalStateException("Kafka Worker source turn did not ACK: " + result.status(),
+                                            result.failure());
+                                }
                             }
                             final var applied = store.appliedShardLogPosition();
                             if (!(applied instanceof io.nereusstream.delay.protocol.KafkaSourcePosition position)
@@ -303,6 +334,8 @@ public final class KafkaClientArtifactWorkerSmoke {
                                     || !position.nativeTopicUuid().equals(nativeTopicId)) {
                                 throw new IllegalStateException("Kafka Worker Store did not persist exact active position");
                             }
+                            writeKafkaWorkerStateDump(mode, "RECOVERED_AFTER_FRESH_PROCESS", store, topic,
+                                    clusterId, topicId, shard, true);
                             if (physicalBridge != null) {
                                 final io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult physicalSchedule =
                                         runUntilApplied(runtime);
@@ -364,7 +397,9 @@ public final class KafkaClientArtifactWorkerSmoke {
                         }
                     }
                 } finally {
-                    deleteTree(root);
+                    if (!preserveWorkerCrashRoot()) {
+                        deleteTree(root);
+                    }
                 }
             } finally {
                 if (oxia != null) {
@@ -388,15 +423,80 @@ public final class KafkaClientArtifactWorkerSmoke {
         return Files.createDirectories(Path.of(configured));
     }
 
+    private static boolean hasConfiguredWorkerRoot() {
+        final String configured = System.getenv("NEREUS_DELAY_KAFKA_WORKER_ROOT");
+        return configured != null && !configured.isBlank();
+    }
+
+    private static boolean preserveWorkerCrashRoot() {
+        return "1".equals(System.getenv("NEREUS_DELAY_KAFKA_PRESERVE_WORKER_CRASH_ROOT"));
+    }
+
+    /**
+     * Local crash-cut seam used only to prove ACTIVE DB reuse in this focused
+     * harness.  Production recovery must replace this with the Oxia-backed
+     * catalog/Floor transaction; it deliberately does not claim that
+     * authority here.
+     */
+    private static RecoveryCatalogAuthority localCrashRecoveryAuthority() {
+        return new RecoveryCatalogAuthority() {
+            @Override
+            public RecoveryCatalog.Publication publish(final CheckpointManifest manifest,
+                                                       final long expectedCatalogGeneration) {
+                throw new UnsupportedOperationException("crash-cut harness does not publish a catalog manifest");
+            }
+
+            @Override
+            public RecoveryFloor advanceFloor(final byte[] checkpointId, final long expectedCatalogGeneration,
+                                              final byte[] evidenceCursorDigest) {
+                throw new UnsupportedOperationException("crash-cut harness does not advance a Recovery Floor");
+            }
+
+            @Override
+            public java.util.Optional<CheckpointManifest> manifest(final byte[] checkpointId) {
+                throw new UnsupportedOperationException("crash-cut harness does not read a catalog manifest");
+            }
+
+            @Override
+            public java.util.Optional<RecoveryFloor> currentFloor() {
+                throw new UnsupportedOperationException("crash-cut harness does not read a Recovery Floor");
+            }
+
+            @Override
+            public void validatePublishedRestoreCandidate(final CheckpointManifest manifest) {
+                throw new UnsupportedOperationException("crash-cut harness does not validate a restore candidate");
+            }
+
+            @Override
+            public java.util.Optional<RecoveryCatalog.FloorCoverage> proveFloorCoverage(
+                    final byte[] candidateCheckpointId, final long requiredMutationSequence,
+                    final io.nereusstream.delay.protocol.SourcePosition... requiredPositions) {
+                throw new UnsupportedOperationException("crash-cut harness does not prove Floor coverage");
+            }
+
+            @Override
+            public void validateLocalStoreRecovery(final ShardId candidateShard,
+                                                   final io.nereusstream.delay.store.StoreRecoveryMetadata metadata) {
+                if (metadata == null) {
+                    throw new IllegalArgumentException("crash-cut recovery metadata is missing");
+                }
+            }
+        };
+    }
+
     /**
      * Holds a real Worker JVM after it has opened the source and local Store but
      * before it can ACK the next source record.  The E2E harness kills the PID
      * written here, then starts a fresh JVM against the same exact root.
      */
-    private static void awaitWorkerProcessCrashCutIfRequested(final String mode) throws Exception {
+    private static void awaitWorkerProcessCrashCutIfRequested(final String mode, final ShardStore store,
+                                                              final String topic, final String clusterId,
+                                                              final Uuid topicId, final ShardId shard) throws Exception {
         if (!mode.equals("crash-wait")) {
             return;
         }
+        writeKafkaWorkerStateDump(mode, "WORKER_PROCESS_CRASH_READY", store, topic, clusterId, topicId, shard,
+                false);
         final String gatePath = System.getenv("NEREUS_DELAY_KAFKA_WORKER_CRASH_GATE");
         final String pidPath = System.getenv("NEREUS_DELAY_KAFKA_WORKER_CRASH_PID_FILE");
         if (gatePath == null || gatePath.isBlank() || pidPath == null || pidPath.isBlank()) {
@@ -423,12 +523,13 @@ public final class KafkaClientArtifactWorkerSmoke {
      */
     @SuppressWarnings("unchecked")
     private static GuardedConsumer<byte[], byte[]> workerAckProcessCrashConsumer(
-            final GuardedConsumer<byte[], byte[]> delegate) {
+            final GuardedConsumer<byte[], byte[]> delegate, final ShardStore store, final String topic,
+            final String clusterId, final Uuid topicId, final ShardId shard) {
         return (GuardedConsumer<byte[], byte[]>) Proxy.newProxyInstance(
                 KafkaClientArtifactWorkerSmoke.class.getClassLoader(), new Class<?>[]{GuardedConsumer.class},
                 (proxy, method, arguments) -> {
                     if (method.getName().equals("commitSync") && method.getParameterCount() == 1) {
-                        awaitWorkerAckProcessCrashCut();
+                        awaitWorkerAckProcessCrashCut(store, topic, clusterId, topicId, shard);
                     }
                     try {
                         return method.invoke(delegate, arguments);
@@ -438,7 +539,11 @@ public final class KafkaClientArtifactWorkerSmoke {
                 });
     }
 
-    private static void awaitWorkerAckProcessCrashCut() throws Exception {
+    private static void awaitWorkerAckProcessCrashCut(final ShardStore store, final String topic,
+                                                      final String clusterId, final Uuid topicId,
+                                                      final ShardId shard) throws Exception {
+        writeKafkaWorkerStateDump("ack-crash-wait", "WORKER_ACK_PROCESS_CRASH_READY", store, topic, clusterId,
+                topicId, shard, false);
         final String gatePath = System.getenv("NEREUS_DELAY_KAFKA_WORKER_ACK_CRASH_GATE");
         final String pidPath = System.getenv("NEREUS_DELAY_KAFKA_WORKER_ACK_CRASH_PID_FILE");
         if (gatePath == null || gatePath.isBlank() || pidPath == null || pidPath.isBlank()) {
@@ -457,6 +562,75 @@ public final class KafkaClientArtifactWorkerSmoke {
         while (Files.exists(gate)) {
             Thread.sleep(100);
         }
+    }
+
+    /**
+     * Captures the actual RocksDB identity and source-position projection at a
+     * Kafka Worker crash boundary.  The file is written and fsync-forced while
+     * the Store is open; it is therefore evidence about the durable local
+     * authority, not a shell-side copy of the log marker.
+     */
+    private static void writeKafkaWorkerStateDump(final String mode, final String phase, final ShardStore store,
+                                                  final String topic, final String clusterId, final Uuid topicId,
+                                                  final ShardId shard, final boolean sourceAckCommitted)
+            throws Exception {
+        final String ackDirectory = System.getenv("NEREUS_DELAY_KAFKA_WORKER_ACK_PROCESS_CRASH_STATE_DUMP_DIR");
+        final String workerDirectory = System.getenv("NEREUS_DELAY_KAFKA_WORKER_PROCESS_CRASH_STATE_DUMP_DIR");
+        final boolean ackMode = mode.equals("ack-crash-wait")
+                || (ackDirectory != null && !ackDirectory.isBlank()
+                && (workerDirectory == null || workerDirectory.isBlank()));
+        final String directoryValue = ackMode ? ackDirectory : workerDirectory;
+        if (directoryValue == null || directoryValue.isBlank()) {
+            return;
+        }
+        final Path directory = Path.of(directoryValue).toAbsolutePath().normalize();
+        Files.createDirectories(directory);
+        final io.nereusstream.delay.protocol.SourcePosition applied = store.appliedShardLogPosition();
+        final Long appliedOffset = applied instanceof io.nereusstream.delay.protocol.KafkaSourcePosition position
+                ? position.offset() : null;
+        final var metadata = store.metadata();
+        final String fileName = phase.endsWith("READY") ? "before-process-crash.json" : "after-fresh-process.json";
+        final String json = "{\n"
+                + "  \"schema\": \"nereus-delay-chaos-durable-state-dump-v1\",\n"
+                + "  \"cell\": " + jsonString(ackMode
+                ? "kafka-worker-ack-process-crash" : "kafka-worker-process-crash") + ",\n"
+                + "  \"phase\": " + jsonString(phase) + ",\n"
+                + "  \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
+                + "  \"store_root\": " + jsonString(store.dbPath().toString()) + ",\n"
+                + "  \"topic\": " + jsonString(topic) + ",\n"
+                + "  \"cluster_id\": " + jsonString(clusterId) + ",\n"
+                + "  \"topic_id\": " + jsonString(topicId.toString()) + ",\n"
+                + "  \"route_uuid\": " + jsonString(shard.routeIncarnation().uuid().toString()) + ",\n"
+                + "  \"partition\": " + shard.partition() + ",\n"
+                + "  \"store_incarnation\": " + jsonString(Bytes.hex(metadata.storeIncarnation())) + ",\n"
+                + "  \"db_identity\": " + jsonString(Bytes.hex(metadata.dbIdentity())) + ",\n"
+                + "  \"applied_source_position\": " + jsonNullable(applied == null
+                ? null : Bytes.hex(applied.canonicalBytes())) + ",\n"
+                + "  \"applied_offset\": " + jsonNullable(appliedOffset) + ",\n"
+                + "  \"shard_mutation_sequence\": " + store.shardMutationSequence() + ",\n"
+                + "  \"store_write_batch_durable\": true,\n"
+                + "  \"source_ack_committed\": " + sourceAckCommitted + ",\n"
+                + "  \"durable_store_read\": true,\n"
+                + "  \"dump_forced\": true\n"
+                + "}\n";
+        final Path target = directory.resolve(fileName);
+        try (var channel = java.nio.channels.FileChannel.open(target, StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
+            channel.write(ByteBuffer.wrap(json.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            channel.force(true);
+        }
+    }
+
+    private static String jsonString(final String value) {
+        return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+    }
+
+    private static String jsonNullable(final String value) {
+        return value == null ? "null" : jsonString(value);
+    }
+
+    private static String jsonNullable(final Long value) {
+        return value == null ? "null" : Long.toString(value);
     }
 
     private static WorkerAssignment publishAssignment(final WorkerAssignmentAuthority authority,
@@ -508,12 +682,14 @@ public final class KafkaClientArtifactWorkerSmoke {
                                            final io.nereusstream.delay.ownership.OwnedDelayShard ownedShard,
                                            final KeyPair verificationKey,
                                            final CompatibleControlSnapshotV1 controlSnapshot,
-                                           final WorkClassExecutionRegistry workClasses) {
+                                           final WorkClassExecutionRegistry workClasses,
+                                           final io.nereusstream.delay.protocol.SourcePosition persistedPosition) {
         final String groupId = "nereus-delay-worker-recovery-" + UUID.randomUUID();
+        final long startOffsetInclusive = recoveryStartOffset(persistedPosition, shard, clusterId, topicId);
         try (KafkaClientArtifactRecoverySourceCursor nativeCursor =
                      new KafkaClientArtifactRecoverySourceCursor(
                              recoveryConsumer(bootstrap, groupId, clusterId, topic, topicId, shard), assignment, topic,
-                             0, Duration.ofMillis(250))) {
+                             startOffsetInclusive, Duration.ofMillis(250))) {
             final SourceReplayCursor<SourceReplayEntry> cursor = SourceReplayCursor.of(nativeCursor);
             final OwnerRecoveryCoordinator recovery = new OwnerRecoveryCoordinator(ownedShard, authority, assignment,
                     SourceReplaySuccessor.strictKafka(), cursor, verificationKey.getPublic(), controlSnapshot,
@@ -523,10 +699,86 @@ public final class KafkaClientArtifactWorkerSmoke {
             do {
                 turn = recovery.runTurn();
             } while (!turn.complete());
-            if (turn.outcomes().size() != 1 || !recovery.complete()) {
-                throw new IllegalStateException("Kafka Worker recovery did not apply exactly one source record");
+            if (!recovery.complete() || turn.outcomes().size() > 1) {
+                throw new IllegalStateException("Kafka Worker recovery did not complete within one bounded source turn");
+            }
+            if (persistedPosition == null && turn.outcomes().size() != 1) {
+                throw new IllegalStateException("Kafka Worker fresh recovery did not apply exactly one source record");
+            }
+            if (persistedPosition != null && turn.outcomes().isEmpty()
+                    && !sameSourcePosition(persistedPosition, ownedShard.lastCatchupPosition())) {
+                throw new IllegalStateException("Kafka Worker recovery changed the durable source position while reactivating");
             }
         }
+    }
+
+    private static long recoveryStartOffset(final io.nereusstream.delay.protocol.SourcePosition persistedPosition,
+                                            final ShardId shard, final String clusterId, final UUID topicId) {
+        if (persistedPosition == null) {
+            return 0;
+        }
+        if (!(persistedPosition instanceof KafkaSourcePosition kafka)
+                || !kafka.shardId().equals(shard)
+                || !kafka.authenticatedClusterId().equals(clusterId)
+                || !kafka.nativeTopicUuid().equals(topicId)
+                || kafka.offset() < 0) {
+            throw new IllegalStateException("Kafka Worker durable recovery position has a different source identity");
+        }
+        return Math.addExact(kafka.offset(), 1);
+    }
+
+    private static KafkaSourcePosition durableAckRecoveryPosition(
+            final boolean crashRecoveryResume,
+            final io.nereusstream.delay.protocol.SourcePosition persistedPosition,
+            final ShardId shard, final String clusterId, final UUID topicId) {
+        if (!crashRecoveryResume || !(persistedPosition instanceof KafkaSourcePosition kafka)
+                || kafka.offset() != 1 || !kafka.shardId().equals(shard)
+                || !kafka.authenticatedClusterId().equals(clusterId)
+                || !kafka.nativeTopicUuid().equals(topicId)) {
+            return null;
+        }
+        return kafka;
+    }
+
+    private static void acknowledgeDurableKafkaRecord(final String bootstrap, final String clusterId,
+                                                      final String topic, final UUID topicId, final ShardId shard,
+                                                      final String workerGroup, final KafkaSourcePosition expected,
+                                                      final ShardStore store, final Admin admin) throws Exception {
+        final GuardedConsumer<byte[], byte[]> consumer = workerConsumer(bootstrap, workerGroup, clusterId, topic,
+                topicId, shard);
+        try (KafkaClientArtifactSourceRecordConsumer source = new KafkaClientArtifactSourceRecordConsumer(consumer,
+                clusterId, topicId, shard, topic, Duration.ofMillis(250))) {
+            final TopicPartition topicPartition = new TopicPartition(topic, shard.partition());
+            consumer.seek(topicPartition, expected.offset());
+            final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+            SourceRecordConsumer.PolledSourceRecord observed = null;
+            while (System.nanoTime() < deadline) {
+                final Optional<SourceRecordConsumer.PolledSourceRecord> polled = source.poll();
+                if (polled.isPresent()) {
+                    observed = polled.get();
+                    break;
+                }
+            }
+            if (observed == null || !(observed.entry().position() instanceof KafkaSourcePosition actual)
+                    || !sameSourcePosition(expected, actual)) {
+                throw new IllegalStateException("Kafka Worker durable ACK retry did not fetch the exact source position");
+            }
+            final SourceAcknowledgement.AcknowledgementResult result = observed.acknowledgement()
+                    .acknowledge(observed.entry(), null);
+            if (result.disposition() != SourceAcknowledgement.Disposition.ACKED) {
+                throw new IllegalStateException("Kafka Worker durable ACK retry was not ACKED: "
+                        + result.disposition(), result.failure());
+            }
+            if (!sameSourcePosition(expected, store.appliedShardLogPosition())) {
+                throw new IllegalStateException("Kafka Worker durable ACK retry changed the applied Store position");
+            }
+            requireCommittedOffset(admin, workerGroup, topic, shard.partition(), Math.addExact(expected.offset(), 1));
+        }
+    }
+
+    private static boolean sameSourcePosition(final io.nereusstream.delay.protocol.SourcePosition expected,
+                                              final io.nereusstream.delay.protocol.SourcePosition actual) {
+        return actual != null && Arrays.equals(expected.canonicalBytes(), actual.canonicalBytes());
     }
 
     private static io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult runUntilApplied(

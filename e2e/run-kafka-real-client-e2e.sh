@@ -902,6 +902,7 @@ if [[ "${worker_process_crash_only}" == "1" ]]; then
   start_oxia
   worker_process_crash_topic="${KAFKA_DELAY_WORKER_PROCESS_CRASH_TOPIC:-${worker_topic}-worker-process-crash}"
   export NEREUS_DELAY_KAFKA_WORKER_ROOT="${worker_process_crash_dir}/state"
+  export NEREUS_DELAY_KAFKA_PRESERVE_WORKER_CRASH_ROOT=1
   export NEREUS_DELAY_KAFKA_WORKER_CRASH_GATE="${worker_process_crash_gate}"
   export NEREUS_DELAY_KAFKA_WORKER_CRASH_PID_FILE="${worker_process_crash_pid_file}"
   rm -f "${worker_process_crash_gate}" "${worker_process_crash_pid_file}"
@@ -973,6 +974,7 @@ if [[ "${worker_ack_process_crash_only}" == "1" ]]; then
   start_oxia
   worker_ack_process_crash_topic="${KAFKA_DELAY_WORKER_ACK_PROCESS_CRASH_TOPIC:-${worker_topic}-worker-ack-process-crash}"
   export NEREUS_DELAY_KAFKA_WORKER_ROOT="${worker_ack_process_crash_dir}/state"
+  export NEREUS_DELAY_KAFKA_PRESERVE_WORKER_CRASH_ROOT=1
   export NEREUS_DELAY_KAFKA_WORKER_ACK_CRASH_GATE="${worker_ack_process_crash_gate}"
   export NEREUS_DELAY_KAFKA_WORKER_ACK_CRASH_PID_FILE="${worker_ack_process_crash_pid_file}"
   rm -f "${worker_ack_process_crash_gate}" "${worker_ack_process_crash_pid_file}"
