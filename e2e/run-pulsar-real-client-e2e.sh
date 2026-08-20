@@ -11,6 +11,8 @@ gradle_user_home="${NEREUS_DELAY_PULSAR_GRADLE_USER_HOME:-/tmp/nereus-delay-puls
 with_oxia="${NEREUS_DELAY_PULSAR_WITH_OXIA:-0}"
 destination_response_loss="${NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS:-0}"
 destination_response_loss_only="${NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_ONLY:-0}"
+destination_response_loss_fresh_process="${NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_FRESH_PROCESS:-0}"
+destination_response_loss_state_dump_dir="${NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_STATE_DUMP_DIR:-}"
 source_ack_response_loss="${NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS:-0}"
 source_ack_response_loss_only="${NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_ONLY:-0}"
 worker_destination_response_loss="${NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS:-0}"
@@ -59,6 +61,22 @@ if [[ "${destination_response_loss_only}" != "0" && "${destination_response_loss
 fi
 if [[ "${destination_response_loss_only}" == "1" && "${destination_response_loss}" != "1" ]]; then
   echo "NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_ONLY requires NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS=1" >&2
+  exit 1
+fi
+if [[ "${destination_response_loss_fresh_process}" != "0" && "${destination_response_loss_fresh_process}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_FRESH_PROCESS must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${destination_response_loss_fresh_process}" == "1" && "${destination_response_loss}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_FRESH_PROCESS requires NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS=1" >&2
+  exit 1
+fi
+if [[ "${destination_response_loss_fresh_process}" == "1" && "${destination_response_loss_only}" == "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_FRESH_PROCESS cannot be combined with DESTINATION_RESPONSE_LOSS_ONLY" >&2
+  exit 1
+fi
+if [[ "${destination_response_loss_fresh_process}" == "1" && -z "${destination_response_loss_state_dump_dir}" ]]; then
+  echo "NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_STATE_DUMP_DIR is required for fresh-process evidence" >&2
   exit 1
 fi
 if [[ "${source_ack_response_loss}" != "0" && "${source_ack_response_loss}" != "1" ]]; then
@@ -131,6 +149,7 @@ if [[ "${multi_shard_only}" != "0" && "${multi_shard_only}" != "1" ]]; then
 fi
 focused_response_loss_modes=(
   "${destination_response_loss_only}"
+  "${destination_response_loss_fresh_process}"
   "${source_ack_response_loss_only}"
   "${worker_destination_response_loss_only}"
   "${worker_destination_response_loss_process_crash_only}"
@@ -688,6 +707,34 @@ if [[ "${worker_process_crash_only}" == "1" ]]; then
     exit 1
   fi
   echo "Pulsar Worker process-crash recovery E2E passed: a real Worker JVM was SIGKILLed after opening the guarded source/runtime with the next record unACKed, and a fresh JVM reopened the exact local Store, reacquired the real Oxia lease, replayed and ACKed the source record, and published the final checkpoint."
+  exit 0
+fi
+
+if [[ "${destination_response_loss_fresh_process}" == "1" ]]; then
+  mkdir -p "${destination_response_loss_state_dump_dir}"
+  rm -f "${destination_response_loss_state_dump_dir}/before-process-crash.json" \
+    "${destination_response_loss_state_dump_dir}/after-fresh-process.json"
+  env "GRADLE_USER_HOME=${gradle_user_home}" \
+    NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_PHASE=WRITE \
+    NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_STATE_DUMP_DIR="${destination_response_loss_state_dump_dir}" \
+    ./gradlew runRealPulsarDestinationSmoke \
+    -PpulsarClientClasspath="${pulsar_client_cp}" \
+    -PpulsarRuntimeDir="${runtime_dir}/lib" \
+    -PpulsarServiceUrl="${service_url}" \
+    -PpulsarAdminUrl="${admin_url}" \
+    -PpulsarDestinationTopic="${destination_topic}" \
+    --no-daemon --console=plain
+  env "GRADLE_USER_HOME=${gradle_user_home}" \
+    NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_PHASE=READ \
+    NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_STATE_DUMP_DIR="${destination_response_loss_state_dump_dir}" \
+    ./gradlew runRealPulsarDestinationSmoke \
+    -PpulsarClientClasspath="${pulsar_client_cp}" \
+    -PpulsarRuntimeDir="${runtime_dir}/lib" \
+    -PpulsarServiceUrl="${service_url}" \
+    -PpulsarAdminUrl="${admin_url}" \
+    -PpulsarDestinationTopic="${destination_topic}" \
+    --no-daemon --console=plain
+  echo "Pulsar destination committed response-loss fresh-process E2E passed: separate WRITE/READ JVMs revalidated typed PULSAR_SEND_ACK and exact single payload without a second SEND."
   exit 0
 fi
 

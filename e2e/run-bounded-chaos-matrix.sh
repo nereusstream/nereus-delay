@@ -181,13 +181,15 @@ audit_cell() {
       ;;
     pulsar-destination-response-loss)
       injection_point="discard the real Pulsar SEND response after the exact payload was persisted"
-      expected_state="typed PULSAR_SEND_ACK evidence resolves the existing publish and source application finishes"
+      expected_state="a fresh JVM revalidates typed PULSAR_SEND_ACK evidence and reads exactly one existing publish without a second SEND"
       duplicate_boundary="response loss must reread evidence and never send a second physical payload"
-      fresh_process_recovery="NOT_COVERED"
-      source_evidence="Pulsar destination committed response-loss E2E passed"
-      target_evidence="Pulsar committed response-loss smoke passed"
-      authority_evidence="Pulsar committed response-loss smoke passed"
-      required_markers=("Pulsar destination committed response-loss E2E passed" "Pulsar committed response-loss smoke passed")
+      fresh_process_recovery="PASS"
+      source_evidence="Pulsar destination committed response-loss fresh-process E2E passed"
+      target_evidence="Pulsar destination committed response-loss fresh-process READ passed"
+      authority_evidence="Pulsar destination committed response-loss fresh-process READ passed"
+      required_markers=("Pulsar destination committed response-loss fresh-process E2E passed"
+        "Pulsar destination committed response-loss fresh-process WRITE passed"
+        "Pulsar destination committed response-loss fresh-process READ passed")
       ;;
     pulsar-source-ack-response-loss)
       injection_point="discard the real Pulsar source ACK response after Broker acceptance"
@@ -628,6 +630,62 @@ audit_cell() {
       audit_status="FAIL"
     fi
   fi
+  if [[ "${name}" == "pulsar-destination-response-loss" ]]; then
+    local state_dump_dir="${artifact_dir}/pulsar-destination-response-loss-state"
+    local before_dump="${state_dump_dir}/before-process-crash.json"
+    local after_dump="${state_dump_dir}/after-fresh-process.json"
+    if [[ -s "${before_dump}" && -s "${after_dump}" ]] \
+        && jq -e \
+          --slurpfile before "${before_dump}" \
+          --slurpfile after "${after_dump}" \
+          -n '
+            ($before[0]) as $pre
+            | ($after[0]) as $post
+            | $pre.schema == "nereus-delay-chaos-durable-state-dump-v1"
+              and $post.schema == "nereus-delay-chaos-durable-state-dump-v1"
+              and $pre.cell == "pulsar-destination-response-loss"
+              and $post.cell == $pre.cell
+              and $pre.phase == "DESTINATION_RESPONSE_LOSS_READY"
+              and $post.phase == "RECOVERED_AFTER_FRESH_PROCESS"
+              and ($pre.physical_topic == $post.physical_topic)
+              and ($pre.authenticated_cluster == $post.authenticated_cluster)
+              and ($pre.resource_incarnation_base64 == $post.resource_incarnation_base64)
+              and ($pre.topic_creation_timestamp == $post.topic_creation_timestamp)
+              and ($pre.partition == $post.partition)
+              and ($pre.publish_attempt_id_base64 == $post.publish_attempt_id_base64)
+              and ($pre.prepared_hash_base64 == $post.prepared_hash_base64)
+              and ($pre.payload_base64 == $post.payload_base64)
+              and ($pre.ledger_id == $post.ledger_id)
+              and ($pre.entry_id == $post.entry_id)
+              and ($pre.sequence_id == $post.sequence_id)
+              and ($pre.broker_entry_timestamp == $post.broker_entry_timestamp)
+              and ($pre.authenticated_response_sha256_base64 == $post.authenticated_response_sha256_base64)
+              and ($pre.physical_send_count == "1")
+              and ($post.physical_send_count == $pre.physical_send_count)
+              and ($pre.send_committed == true)
+              and ($pre.response_discarded == true)
+              and ($post.payload_readback_exact == true)
+              and ($post.duplicate_payload_count | tonumber) == 0
+              and ($post.evidence_verified == true)
+              and ($pre.durable_broker_read == true)
+              and ($post.durable_broker_read == true)
+              and ($pre.dump_forced == true)
+              and ($post.dump_forced == true)
+              and ($pre.process_pid != $post.process_pid)
+          ' >/dev/null; then
+      durable_state_dump_status="CAPTURED_AND_VERIFIED"
+      invariant_audit_status="INDEPENDENT_FIELDS_PASS"
+      durable_state_dump_note="external fsync-forced SEND evidence dump before and after separate Pulsar payload-read JVM"
+      invariant_audit_note="physical topic/guard identity, publish attempt, prepared hash, broker position, evidence digest, payload and single-send boundary were independently compared"
+    else
+      fresh_process_recovery="FAIL"
+      durable_state_dump_status="FAIL"
+      invariant_audit_status="FAIL"
+      durable_state_dump_note="required Pulsar destination response-loss pre-process and post-process dumps were missing or failed cross-process validation"
+      invariant_audit_note="independent SEND evidence and duplicate-boundary comparison failed"
+      audit_status="FAIL"
+    fi
+  fi
   if [[ "${result_status}" != "0" || "${marker_status}" != "PASS" ]]; then
     audit_status="FAIL"
   fi
@@ -826,7 +884,8 @@ run_cell pulsar-destination-response-loss env \
   NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
   NEREUS_DELAY_PULSAR_WITH_OXIA=1 \
   NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS=1 \
-  NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_ONLY=1 \
+  NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_FRESH_PROCESS=1 \
+  NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_STATE_DUMP_DIR="${artifact_dir}/pulsar-destination-response-loss-state" \
   NEREUS_DELAY_PULSAR_GRADLE_USER_HOME="${matrix_gradle_home}" \
   PULSAR_BROKER_PORT=31360 PULSAR_WEB_PORT=31361 \
   NEREUS_DELAY_PULSAR_OXIA_PORT=31370 \
