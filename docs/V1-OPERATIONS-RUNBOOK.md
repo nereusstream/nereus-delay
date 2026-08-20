@@ -1457,3 +1457,24 @@ release gate. Keep the four canonical JSON files, move only confirmed failed
 diagnostic directories to recoverable Trash, remove exact run-scoped Docker
 resources, retain locked Oxia/MinIO base images, and never target source
 worktrees or the pre-existing unlabelled `pulsarconf`/`pulsardata` volumes.
+
+## 2026-08-21 Current-source 14-cell bounded chaos r15
+
+After the Kafka process-crash marker audit was corrected in Delay
+`d14d9a6a7e55d77bd1a3a42ea3f2e30291896b61`, the complete matrix was run with
+an isolated artifact and Gradle cache. The canonical receipt is
+`/private/tmp/nereus-delay-chaos-current-20260821-r15/bounded-chaos-matrix.json`.
+It reports `PASS_BOUNDED`, fourteen zero child exits, and PASS for every
+cell's marker, durable-state, fresh-process and independent-field audits. Its
+locks are Delay `d14d9a6a7e55d77bd1a3a42ea3f2e30291896b61`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+This receipt is the current bounded fault baseline, not release authorization.
+Before promotion, regenerate the certified chaos wrapper and the release gate
+after this documentation commit, keep exact Docker postchecks empty, retain
+only canonical evidence and locked base images, and move only confirmed
+obsolete diagnostic directories to recoverable Trash. Never clean source
+worktrees, Git metadata or the pre-existing unlabelled `pulsarconf` and
+`pulsardata` volumes.

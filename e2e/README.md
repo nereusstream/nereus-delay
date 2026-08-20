@@ -6971,3 +6971,27 @@ Focused cleanup moved the unused Pulsar r2 diagnostic directory to recoverable
 Trash, removed run-scoped Docker resources, retained only locked base images,
 and did not touch source worktrees or the pre-existing unlabelled
 `pulsarconf`/`pulsardata` volumes.
+
+## Current-source 14-cell bounded chaos r15
+
+After Delay `d14d9a6a7e55d77bd1a3a42ea3f2e30291896b61` corrected the Kafka
+process-crash marker audit, the strict-sequential wrapper was regenerated.
+The canonical receipt is:
+
+```text
+/private/tmp/nereus-delay-chaos-current-20260821-r15/bounded-chaos-matrix.json
+```
+
+It reports `matrix_status=PASS_BOUNDED`; all fourteen child processes return
+zero, and every cell has marker PASS,
+`CAPTURED_AND_VERIFIED` durable state, fresh-process recovery PASS and
+`INDEPENDENT_FIELDS_PASS` invariant audit. The source locks are Delay
+`d14d9a6a7e55d77bd1a3a42ea3f2e30291896b61`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+This is the canonical bounded current-source fault receipt, not V1 release
+certification. The certified chaos wrapper and release gate must be
+regenerated from the post-documentation source; capacity, soak,
+activation/cutover and operations remain separate release inputs.

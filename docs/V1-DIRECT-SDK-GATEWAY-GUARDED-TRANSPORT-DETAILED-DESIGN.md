@@ -8328,3 +8328,29 @@ This is the functional production-authority proof the abstraction design
 requires. It does not weaken the release boundary: the run is not an approved
 capacity or soak profile, and it does not cover the remaining full chaos,
 activation, operations, upgrade/downgrade or disaster-continuity gates.
+
+### 2026-08-21 Current-source 14-cell bounded chaos r15
+
+The current-source bounded wrapper was regenerated after Delay commit
+`d14d9a6a7e55d77bd1a3a42ea3f2e30291896b61`, which fixes the Kafka
+process-crash durable-dump marker expected by the wrapper. The canonical
+receipt is:
+
+```text
+/private/tmp/nereus-delay-chaos-current-20260821-r15/bounded-chaos-matrix.json
+```
+
+It reports `PASS_BOUNDED` with all fourteen child statuses at `0`. Every
+cell independently passes the marker, durable before/after,
+fresh-process-recovery and independent-field invariant checks:
+`audit_status=PASS`, `CAPTURED_AND_VERIFIED`, `PASS` and
+`INDEPENDENT_FIELDS_PASS`. The source locks are Delay
+`d14d9a6a7e55d77bd1a3a42ea3f2e30291896b61`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+This is the complete bounded fault-coverage receipt for the focused V1
+production authority paths. It does not promote the certified chaos wrapper,
+capacity/soak, activation/cutover, operations or V1 release gate; those
+remain separate source-locked and fail-closed inputs.

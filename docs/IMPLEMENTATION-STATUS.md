@@ -16866,3 +16866,35 @@ activation/cutover, operations and chaos inputs pass. Focused cleanup moved the
 unused source-ACK r2 diagnostic directory to recoverable Trash, removed the
 run-scoped Docker resources, retained locked Oxia/MinIO bases, and preserved
 the unrelated unlabelled `pulsarconf`/`pulsardata` volumes.
+
+## 2026-08-21 current-source 14-cell bounded chaos r15
+
+Delay commit `d14d9a6a7e55d77bd1a3a42ea3f2e30291896b61` fixes the Kafka
+process-crash marker rule in the bounded wrapper. The preceding r14 child run
+had passed the real Kafka recovery and durable dump, but its audit expected a
+marker without the emitted cell name; r15 is the regenerated receipt after
+that audit-only correction.
+
+The canonical artifact is:
+
+```text
+/private/tmp/nereus-delay-chaos-current-20260821-r15/bounded-chaos-matrix.json
+```
+
+The strict-sequential run reports `matrix_status=PASS_BOUNDED` and all
+fourteen child statuses are `0`. Independent audit fields pass for every
+declared cell: `audit_status=PASS`,
+`durable_state_dump=CAPTURED_AND_VERIFIED`,
+`fresh_process_recovery=PASS` and
+`invariant_audit=INDEPENDENT_FIELDS_PASS`. The source locks are Delay
+`d14d9a6a7e55d77bd1a3a42ea3f2e30291896b61`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+This closes the current-source bounded durable union at 14/14. It remains
+`PASS_BOUNDED`, not V1 release certification: the certified chaos wrapper
+must be regenerated from this post-documentation source, and capacity, soak,
+activation/cutover, operations and the fail-closed release gate remain
+independent inputs. The r14 artifact is retained only as audit-failure
+diagnostic provenance; r15 is the canonical bounded receipt.

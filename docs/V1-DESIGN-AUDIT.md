@@ -13454,3 +13454,34 @@ the approved capacity, soak, activation/cutover, operations and chaos inputs
 are current and pass. The failed source-ACK r2 diagnostic was moved to
 recoverable Trash; source worktrees, code and unrelated Docker volumes were
 not cleanup targets.
+
+## 2026-08-21 current-source 14-cell bounded chaos r15
+
+The complete current-source wrapper was regenerated after Delay commit
+`d14d9a6a7e55d77bd1a3a42ea3f2e30291896b61`, which corrects the Kafka
+process-crash durable-dump marker expected by the wrapper. The real child
+receipt had already emitted the marker; the previous r14 `matrix_status=FAIL`
+was therefore an audit-rule mismatch, not a Kafka recovery failure.
+
+Canonical receipt:
+
+```text
+/private/tmp/nereus-delay-chaos-current-20260821-r15/bounded-chaos-matrix.json
+```
+
+The strict-sequential run returned zero for all fourteen cells and reports
+`matrix_status=PASS_BOUNDED`. Each cell independently reports deterministic
+marker PASS, `CAPTURED_AND_VERIFIED` durable before/after state,
+`fresh_process_recovery=PASS` and
+`INDEPENDENT_FIELDS_PASS` invariant comparison. The four-repository source
+locks are Delay `d14d9a6a7e55d77bd1a3a42ea3f2e30291896b61`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The result is a current-source bounded fault receipt, not a `PASS_CERTIFIED`
+release artifact. It proves the fourteen focused cuts at the declared
+durable/fresh-process/invariant boundary, while the certified wrapper and the
+capacity, soak, activation/cutover, operations and V1 gate still require
+separate source-locked evaluation. Preserve r14 as diagnostic history only;
+use r15 as the canonical bounded matrix.

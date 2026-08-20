@@ -5264,6 +5264,35 @@ activation/cutover、operations 和 chaos 输入都满足要求前，V1 仍保�
 `release_status=NOT_READY`。无用的 source-ACK r2 diagnostic 已移入可恢复
 废纸篓；源码、worktree、`.git` 和未标记的既有 Docker volume 不在清理目标内。
 
+## 39. 2026-08-21 current-source 14-cell bounded chaos r15
+
+在 Delay commit `d14d9a6a7e55d77bd1a3a42ea3f2e30291896e` 修正 Kafka
+process-crash marker audit 规则后，重新执行了完整的 strict-sequential
+current-source wrapper。此前 r14 的真实 Kafka recovery 和 durable dump 已经
+通过，失败只来自 wrapper 期待的 marker 少了 cell name；r15 是修正后的
+canonical receipt。
+
+Receipt：
+
+```text
+/private/tmp/nereus-delay-chaos-current-20260821-r15/bounded-chaos-matrix.json
+```
+
+r15 报告 `matrix_status=PASS_BOUNDED`，14 个 child status 全部为 `0`。每个
+cell 都通过 `audit_status=PASS`、
+`durable_state_dump=CAPTURED_AND_VERIFIED`、
+`fresh_process_recovery=PASS` 和
+`invariant_audit=INDEPENDENT_FIELDS_PASS`。四仓 source locks 为 Delay
+`d14d9a6a7e55d77bd1a3a42ea3f2e30291896b61`、K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`、P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`、Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`。
+
+这使 current-source bounded durable evidence union 达到 `14/14`，但仍然是
+`PASS_BOUNDED`，不是 V1 release certification。Certified chaos wrapper
+必须以本次 documentation commit 为 source lock 重新生成；capacity、soak、
+activation/cutover、operations 以及最终 release gate 仍然独立、fail-closed。
+
 ## 参考资料
 
 - [R1] [DDMQ README @ 2f30b61a](https://github.com/didi/DDMQ/blob/2f30b61a5741d55a5b515f3d8d19a8a35be8c9e2/README.md)
