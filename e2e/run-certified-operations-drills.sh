@@ -61,7 +61,7 @@ bounded_exit=1
 bounded_artifact="${bounded_dir}/operations-drills.json"
 set +e
 NEREUS_DELAY_OPERATIONS_DRILLS_ARTIFACT_DIR="${bounded_dir}" \
-NEREUS_DELAY_OPERATIONS_DRILLS_GRADLE_USER_HOME="${bounded_dir}/gradle-user-home" \
+NEREUS_DELAY_OPERATIONS_DRILLS_GRADLE_USER_HOME="${artifact_dir}/child-gradle-user-home" \
 NEREUS_DELAY_KAFKA_CHECKOUT="${kafka_dir}" \
 NEREUS_DELAY_PULSAR_CHECKOUT="${pulsar_dir}" \
 NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
