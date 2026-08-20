@@ -5123,6 +5123,34 @@ duplicate。该切片只修复 evidence contract，不把 focused 或 bounded �
 wrapper 和 fail-closed release gate。清理只针对精确的 run-scoped 资源，不能
 删除源码、worktree、`.git` 或代码目录。
 
+## 35. 2026-08-21 certified chaos r13 与 release gate r10 边界
+
+文档同步前的 strict-sequential r13 已经让 14 个 child scenario 全部返回
+`0`，bounded matrix 为 `PASS_BOUNDED`。其中 9 个 cell 已具备 durable
+before/after dump、fresh-process recovery 和 independent invariant：Kafka
+Broker crash、Kafka Worker ACK crash、Pulsar Worker crash、Pulsar Worker
+admission/destination response loss、checkpoint REAPING、Kafka Fetch、Kafka
+retention floor 和 direct Pulsar destination response loss。Kafka TCP cut、
+Kafka network partition、Pulsar multi-Broker crash、Pulsar source ACK response
+loss、Gateway/Oxia session churn 仍明确处于 marker-only 或 not-covered。
+
+receipt：
+
+```text
+/private/tmp/nereus-delay-v1-certified-chaos-20260821-r13/certified-chaos-matrix.json
+/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r10/v1-release-candidate-gate.json
+```
+
+r13 source lock 为 Delay `4be08ee917e045b1466046aa69318645ac689ea5`、Kafka
+`05849884ca81fad767fda058444d1e17c7f9cbf9`、Pulsar
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`、Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`。certified wrapper 虽然
+Docker cleanup `PASS`，仍为 `BLOCKED`。gate r10 的 source、cross-repo 和
+full Gradle check 为 `PASS`，但由于 capacity/soak/activation/operations
+receipt 的 Delay source lock 较旧，且 chaos artifact 不是 `PASS_CERTIFIED`，
+最终保持 `release_status=NOT_READY`。这只是 fault evidence handoff，不是
+V1 release approval。
+
 ## 参考资料
 
 - [R1] [DDMQ README @ 2f30b61a](https://github.com/didi/DDMQ/blob/2f30b61a5741d55a5b515f3d8d19a8a35be8c9e2/README.md)

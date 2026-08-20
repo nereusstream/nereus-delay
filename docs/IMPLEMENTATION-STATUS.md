@@ -16711,3 +16711,35 @@ duplicates. The focused Docker postchecks passed. This closes the evidence
 contract defect only; the full current-source 14-cell wrapper must be rerun
 after this documentation commit, and the fail-closed V1 gate remains
 `release_status=NOT_READY`.
+
+## 2026-08-21 current-source certified chaos r13 and gate r10
+
+After the typed-state evidence repair and documentation synchronization, the
+strict-sequential r13 wrapper ran all fourteen declared child scenarios to
+exit code `0`. The bounded receipt is `PASS_BOUNDED`; nine cells now report
+`CAPTURED_AND_VERIFIED`, `fresh_process_recovery=PASS` and
+`INDEPENDENT_FIELDS_PASS`: Kafka Broker process crash, Kafka Worker ACK
+process crash, Pulsar Worker process crash, Pulsar Worker admission and
+destination response loss, checkpoint REAPING, Kafka Fetch response loss,
+Kafka retention floor and direct Pulsar destination response loss. Kafka TCP
+cut, Kafka network partition, Pulsar multi-Broker crash, Pulsar source ACK
+response loss and Gateway/Oxia session churn remain explicit marker-only or
+not-covered boundaries.
+
+The receipts are:
+
+```text
+/private/tmp/nereus-delay-v1-certified-chaos-20260821-r13/bounded-chaos/bounded-chaos-matrix.json
+/private/tmp/nereus-delay-v1-certified-chaos-20260821-r13/certified-chaos-matrix.json
+/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r10/v1-release-candidate-gate.json
+```
+
+The r13 source locks are Delay `4be08ee917e045b1466046aa69318645ac689ea5`,
+K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Docker postcheck is `PASS` with
+no scoped resources. Gate r10 is fail-closed `release_status=NOT_READY`:
+source checks, cross-repo validator and full Gradle check are `PASS`, while
+the older certified capacity/soak/activation/operations artifacts fail exact
+Delay source-lock matching and the certified chaos status is `BLOCKED`.
+This is a current-source runtime/evidence handoff, not V1 release approval.

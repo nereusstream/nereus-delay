@@ -1322,3 +1322,22 @@ version deletion and empty prefix. The Pulsar pair performs one real guarded
 SEND, discards the committed response, then uses a fresh JVM to revalidate
 typed `PULSAR_SEND_ACK` and read one exact payload without a second SEND. The
 complete chaos wrapper and V1 gate still require a new current-source run.
+
+## 2026-08-21 Certified chaos and release-gate handoff
+
+The post-fix r13 run completed all fourteen child scenarios with exit code
+`0`. Nine cells have durable/fresh-process/invariant evidence; the five
+remaining cells are deliberately still marker-only or not covered. Use these
+receipts for the handoff:
+
+```text
+/private/tmp/nereus-delay-v1-certified-chaos-20260821-r13/certified-chaos-matrix.json
+/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r10/v1-release-candidate-gate.json
+```
+
+The certified wrapper is `BLOCKED`, although its bounded child matrix is
+`PASS_BOUNDED` and its Docker postcheck is clean. Gate r10 is
+`release_status=NOT_READY`; source, cross-repository and full Gradle checks
+passed, but exact source-lock validation blocks the older certified capacity,
+soak, activation and operations receipts, and the chaos artifact itself is not
+`PASS_CERTIFIED`. Do not promote the bounded matrix or partial nine-cell union.

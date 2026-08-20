@@ -13320,3 +13320,22 @@ the Pulsar topic/guard/SEND evidence, exact payload and duplicate boundary.
 This is a correction to evidence typing and does not promote the bounded
 matrix or release gate. The full source-locked matrix is regenerated after
 the documentation sync.
+
+### 2026-08-21 Certified chaos r13 and release boundary
+
+The post-fix strict-sequential r13 run completed all fourteen child scenarios
+with exit code `0` and bounded status `PASS_BOUNDED`. Nine cells independently
+pass the durable dump, fresh-process and invariant boundary; five remain
+marker-only or not covered. The canonical receipts are:
+
+```text
+/private/tmp/nereus-delay-v1-certified-chaos-20260821-r13/certified-chaos-matrix.json
+/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r10/v1-release-candidate-gate.json
+```
+
+The certified artifact remains `BLOCKED`, with Docker cleanup `PASS`. Gate r10
+passes source cleanliness, cross-repository validation and full Gradle check,
+but remains `release_status=NOT_READY` because exact source-lock validation
+rejects the older certified non-chaos receipts and the certified chaos input
+is not `PASS_CERTIFIED`. This preserves the distinction between functional
+fault coverage and release certification.

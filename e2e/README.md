@@ -6821,3 +6821,36 @@ counts and empty prefix; the direct Pulsar audit verified typed
 duplicates. Focused cleanup left no scoped containers, networks or volumes.
 Rerun the complete current-source chaos wrapper after this documentation
 commit; neither focused receipt is a V1 release certificate.
+
+## 2026-08-21 Current-source certified chaos r13 and release gate r10
+
+After Delay `4be08ee917e045b1466046aa69318645ac689ea5`, the strict-sequential
+14-cell child matrix completed with every child exit code `0` and
+`matrix_status=PASS_BOUNDED`. Nine cells now have independently verified
+durable before/after dumps, fresh-process recovery and invariant audits:
+Kafka Broker crash, Kafka Worker ACK crash, Pulsar Worker crash, Pulsar Worker
+admission response loss, Pulsar Worker destination response loss, checkpoint
+REAPING, Kafka Fetch response loss, Kafka retention floor and direct Pulsar
+destination response loss. The remaining five cells are explicitly
+marker-only or not covered: Kafka TCP cut, Kafka network partition, Pulsar
+multi-Broker crash, Pulsar source ACK response loss and Gateway/Oxia session
+churn.
+
+The canonical receipts are:
+
+```text
+/private/tmp/nereus-delay-v1-certified-chaos-20260821-r13/bounded-chaos/bounded-chaos-matrix.json
+/private/tmp/nereus-delay-v1-certified-chaos-20260821-r13/certified-chaos-matrix.json
+/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r10/v1-release-candidate-gate.json
+```
+
+The r13 source locks are Delay `4be08ee917e045b1466046aa69318645ac689ea5`,
+K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Certified status remains
+`BLOCKED`; Docker postcheck is `PASS` with no scoped containers, networks,
+volumes or generated images. Gate r10 is intentionally
+`release_status=NOT_READY`: source checks, cross-repo validation and full
+Gradle check passed, while the supplied certified capacity/soak/activation/
+operations artifacts have older Delay source locks and the chaos artifact is
+`BLOCKED`. `ALLOW_NOT_READY=1` only preserves this fail-closed audit.
