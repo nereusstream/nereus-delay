@@ -320,6 +320,23 @@ tasks.register('runRealKafkaBrokerProcessCrashStateSmoke', JavaExec) {
     args findProperty('kafkaBootstrap'), findProperty('kafkaBrokerProcessCrashTopic')
 }
 
+tasks.register('runRealKafkaBrokerRecoveryStateSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Captures Kafka Broker metadata around a process or network recovery boundary.'
+    dependsOn tasks.named('compileRealKafka')
+    if (realKafkaClientJar == null || findProperty('kafkaBootstrap') == null
+            || findProperty('kafkaBrokerRecoveryTopic') == null) {
+        doFirst {
+            throw new GradleException(
+                    'runRealKafkaBrokerRecoveryStateSmoke requires -PkafkaClientJar=... '
+                            + '-PkafkaBootstrap=host:port -PkafkaBrokerRecoveryTopic=name')
+        }
+    }
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactBrokerProcessCrashStateSmoke'
+    args findProperty('kafkaBootstrap'), findProperty('kafkaBrokerRecoveryTopic')
+}
+
 tasks.register('runRealKafkaRouteWorkerSmoke', JavaExec) {
     group = 'verification'
     description = 'Runs guarded Fetch barrier, signed Route publication and Oxia Worker assignment against Kafka.'

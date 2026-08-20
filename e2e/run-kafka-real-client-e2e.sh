@@ -49,7 +49,9 @@ worker_ack_process_crash_only="${NEREUS_DELAY_KAFKA_WORKER_ACK_PROCESS_CRASH_ONL
 broker_process_crash_only="${NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_ONLY:-0}"
 broker_process_crash_state_dump_dir="${NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_STATE_DUMP_DIR:-}"
 broker_network_partition_only="${NEREUS_DELAY_KAFKA_BROKER_NETWORK_PARTITION_ONLY:-0}"
+broker_network_state_dump_dir="${NEREUS_DELAY_KAFKA_BROKER_NETWORK_PARTITION_STATE_DUMP_DIR:-}"
 broker_tcp_cut_only="${NEREUS_DELAY_KAFKA_BROKER_TCP_CUT_ONLY:-0}"
+broker_tcp_state_dump_dir="${NEREUS_DELAY_KAFKA_BROKER_TCP_CUT_STATE_DUMP_DIR:-}"
 if [[ "${broker_tcp_cut_only}" == "1" ]]; then
   broker_1_bind_port="${KAFKA_BROKER_1_BIND_PORT:-$((broker_1_port + 100))}"
 else
@@ -491,20 +493,28 @@ run_worker_smoke() {
   fi
 }
 
-run_broker_process_crash_state_smoke() {
+run_broker_recovery_state_smoke() {
   local bootstrap_server="$1"
-  local broker_crash_topic="$2"
+  local recovery_topic="$2"
   local phase="$3"
-  if [[ -z "${broker_process_crash_state_dump_dir}" ]]; then
+  local cell="$4"
+  local state_dump_dir="$5"
+  if [[ -z "${state_dump_dir}" ]]; then
     return 0
   fi
-  NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_PHASE="${phase}" \
-  NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_STATE_DUMP_DIR="${broker_process_crash_state_dump_dir}" \
-  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaBrokerProcessCrashStateSmoke \
+  NEREUS_DELAY_KAFKA_BROKER_RECOVERY_STATE_CELL="${cell}" \
+  NEREUS_DELAY_KAFKA_BROKER_RECOVERY_STATE_PHASE="${phase}" \
+  NEREUS_DELAY_KAFKA_BROKER_RECOVERY_STATE_DUMP_DIR="${state_dump_dir}" \
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaBrokerRecoveryStateSmoke \
     "-PkafkaClientJar=${client_jar}" \
     "-PkafkaBootstrap=${bootstrap_server}" \
-    "-PkafkaBrokerProcessCrashTopic=${broker_crash_topic}" \
+    "-PkafkaBrokerRecoveryTopic=${recovery_topic}" \
     --no-daemon --console=plain
+}
+
+run_broker_process_crash_state_smoke() {
+  run_broker_recovery_state_smoke "$1" "$2" "$3" "kafka-broker-process-crash" \
+    "${broker_process_crash_state_dump_dir}"
 }
 
 start_broker_tcp_fault_proxy() {
@@ -1076,7 +1086,14 @@ fi
 if [[ "${broker_network_partition_only}" == "1" ]]; then
   start_oxia
   broker_network_partition_topic="${KAFKA_DELAY_BROKER_NETWORK_PARTITION_TOPIC:-${worker_topic}-broker-network-partition}"
+  if [[ -n "${broker_network_state_dump_dir}" ]]; then
+    mkdir -p "${broker_network_state_dump_dir}"
+    rm -f "${broker_network_state_dump_dir}/before-process-crash.json" \
+      "${broker_network_state_dump_dir}/after-fresh-process.json"
+  fi
   run_worker_smoke "${bootstrap_all}" "${broker_network_partition_topic}" prepare
+  run_broker_recovery_state_smoke "${bootstrap_all}" "${broker_network_partition_topic}" before \
+    "kafka-broker-network-partition" "${broker_network_state_dump_dir}"
   network_name="${compose_project}_default"
   kafka_1_container="$("${compose[@]}" ps -q kafka-1)"
   test -n "${kafka_1_container}"
@@ -1098,6 +1115,8 @@ if [[ "${broker_network_partition_only}" == "1" ]]; then
     exit 1
   fi
   wait_for_broker kafka-1
+  run_broker_recovery_state_smoke "${bootstrap_all}" "${broker_network_partition_topic}" after \
+    "kafka-broker-network-partition" "${broker_network_state_dump_dir}"
   echo "Kafka Broker network-partition recovery E2E passed: kafka-1 stayed alive but was disconnected from the Compose network after guarded Worker preparation, the same topic resumed through kafka-2/kafka-3 with real Oxia Worker authority and source apply/ACK/checkpoint, and kafka-1 reconnected afterward."
   exit 0
 fi
@@ -1106,6 +1125,11 @@ if [[ "${broker_tcp_cut_only}" == "1" ]]; then
   start_oxia
   broker_tcp_cut_topic="${KAFKA_DELAY_BROKER_TCP_CUT_TOPIC:-${worker_topic}-broker-tcp-cut}"
   broker_tcp_cut_group="${broker_tcp_cut_topic}-group"
+  if [[ -n "${broker_tcp_state_dump_dir}" ]]; then
+    mkdir -p "${broker_tcp_state_dump_dir}"
+    rm -f "${broker_tcp_state_dump_dir}/before-process-crash.json" \
+      "${broker_tcp_state_dump_dir}/after-fresh-process.json"
+  fi
   probe_broker_tcp_pre_cut_forward
   run_worker_smoke "${bootstrap_all}" "${broker_tcp_cut_topic}" prepare
   if [[ ! -s "${broker_tcp_pre_cut_file}" ]]; then
@@ -1119,6 +1143,8 @@ if [[ "${broker_tcp_cut_only}" == "1" ]]; then
     "-PkafkaLeaderPlacementTopic=${broker_tcp_cut_topic}" \
     "-PkafkaLeaderPlacementGroup=${broker_tcp_cut_group}" \
     --no-daemon --console=plain
+  run_broker_recovery_state_smoke "${bootstrap_all}" "${broker_tcp_cut_topic}" before \
+    "kafka-broker-tcp-cut" "${broker_tcp_state_dump_dir}"
   touch "${broker_tcp_cut_file}"
   cut_deadline=$((SECONDS + 60))
   while [[ ! -f "${broker_tcp_ack_file}" ]]; do
@@ -1143,6 +1169,8 @@ if [[ "${broker_tcp_cut_only}" == "1" ]]; then
     echo "Kafka raw TCP fault proxy did not forward a later post-cut connection to Broker-2" >&2
     exit 1
   fi
+  run_broker_recovery_state_smoke "${bootstrap_all}" "${broker_tcp_cut_topic}" after \
+    "kafka-broker-tcp-cut" "${broker_tcp_state_dump_dir}"
   echo "Kafka Worker raw TCP Broker-endpoint cut recovery E2E passed: Broker-1 remained alive, the source and selected group-coordinator partitions were explicitly placed on Broker-2, the raw proxy rejected Broker-1 once and handed later connections to Broker-2, and a fresh Worker resumed the same source through the full bootstrap list with real Oxia authority and source apply/ACK/checkpoint."
   exit 0
 fi

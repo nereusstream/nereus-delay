@@ -99,7 +99,10 @@ audit_cell() {
       source_evidence="Kafka Worker raw TCP Broker-endpoint cut recovery E2E passed"
       target_evidence="Kafka Worker vertical smoke passed"
       authority_evidence="Kafka Worker authority smoke passed"
-      required_markers=("Kafka Worker raw TCP Broker-endpoint cut recovery E2E passed" "Kafka Worker vertical smoke passed" "Kafka Worker authority smoke passed")
+      required_markers=("Kafka Worker raw TCP Broker-endpoint cut recovery E2E passed"
+        "Kafka Broker kafka-broker-tcp-cut durable state dump passed: phase=before"
+        "Kafka Broker kafka-broker-tcp-cut durable state dump passed: phase=after"
+        "Kafka Worker vertical smoke passed" "Kafka Worker authority smoke passed")
       ;;
     kafka-broker-network-partition)
       injection_point="remove kafka-1 from the exact Compose network while keeping the process alive"
@@ -109,7 +112,10 @@ audit_cell() {
       source_evidence="Kafka Broker network-partition recovery E2E passed"
       target_evidence="Kafka Worker vertical smoke passed"
       authority_evidence="Kafka Worker authority smoke passed"
-      required_markers=("Kafka Broker network-partition recovery E2E passed" "Kafka Worker vertical smoke passed" "Kafka Worker authority smoke passed")
+      required_markers=("Kafka Broker network-partition recovery E2E passed"
+        "Kafka Broker kafka-broker-network-partition durable state dump passed: phase=before"
+        "Kafka Broker kafka-broker-network-partition durable state dump passed: phase=after"
+        "Kafka Worker vertical smoke passed" "Kafka Worker authority smoke passed")
       ;;
     pulsar-worker-process-crash)
       injection_point="SIGKILL the Worker after guarded source open and before source ACK"
@@ -278,6 +284,74 @@ audit_cell() {
       invariant_audit_status="FAIL"
       durable_state_dump_note="required Kafka Broker pre-crash and post-rejoin dumps were missing or failed cross-process validation"
       invariant_audit_note="independent Broker metadata and rejoin-field comparison failed"
+      audit_status="FAIL"
+    fi
+  fi
+  if [[ "${name}" == "kafka-broker-tcp-cut" || "${name}" == "kafka-broker-network-partition" ]]; then
+    local state_dump_dir
+    local before_dump=""
+    local after_dump=""
+    local before_phase=""
+    local after_phase=""
+    if [[ "${name}" == "kafka-broker-tcp-cut" ]]; then
+      state_dump_dir="${artifact_dir}/kafka-broker-tcp-cut-state"
+      before_phase="BROKER_TCP_CUT_READY"
+      after_phase="RECOVERED_AFTER_BROKER_TCP_CUT"
+    else
+      state_dump_dir="${artifact_dir}/kafka-broker-network-partition-state"
+      before_phase="BROKER_NETWORK_PARTITION_READY"
+      after_phase="RECOVERED_AFTER_BROKER_NETWORK_REJOIN"
+    fi
+    before_dump="${state_dump_dir}/before-process-crash.json"
+    after_dump="${state_dump_dir}/after-fresh-process.json"
+    if [[ -s "${before_dump}" && -s "${after_dump}" ]] \
+        && jq -e \
+          --arg cell "${name}" \
+          --arg before_phase "${before_phase}" \
+          --arg after_phase "${after_phase}" \
+          --slurpfile before "${before_dump}" \
+          --slurpfile after "${after_dump}" \
+          -n '
+            ($before[0]) as $pre
+            | ($after[0]) as $post
+            | $pre.schema == "nereus-delay-chaos-durable-state-dump-v1"
+              and $post.schema == "nereus-delay-chaos-durable-state-dump-v1"
+              and $pre.cell == $cell
+              and $post.cell == $pre.cell
+              and $pre.phase == $before_phase
+              and $post.phase == $after_phase
+              and ($pre.topic == $post.topic)
+              and ($pre.cluster_id == $post.cluster_id)
+              and ($pre.topic_id == $post.topic_id)
+              and ($pre.partition == 0 and $post.partition == $pre.partition)
+              and ($pre.leader_id | (type == "number" and . > 0))
+              and ($post.leader_id | (type == "number" and . > 0))
+              and ($pre.replica_ids == [1, 2, 3])
+              and ($post.replica_ids == $pre.replica_ids)
+              and ($pre.live_broker_ids == [1, 2, 3])
+              and ($pre.isr_ids == [1, 2, 3])
+              and ($post.live_broker_ids == [1, 2, 3])
+              and ($post.isr_ids == [1, 2, 3])
+              and ($pre.end_offset | (type == "number" and . >= 1))
+              and ($post.end_offset | (type == "number" and . > $pre.end_offset))
+              and $pre.broker_1_recovery_observed == false
+              and $post.broker_1_recovery_observed == true
+              and $pre.durable_broker_read == true
+              and $post.durable_broker_read == true
+              and $pre.dump_forced == true
+              and $post.dump_forced == true
+              and ($pre.process_pid != $post.process_pid)
+          ' >/dev/null; then
+      durable_state_dump_status="CAPTURED_AND_VERIFIED"
+      invariant_audit_status="INDEPENDENT_FIELDS_PASS"
+      durable_state_dump_note="external fsync-forced Kafka metadata dumps before and after ${name} recovery"
+      invariant_audit_note="topic/cluster identity, replica/ISR/live membership, Broker-1 recovery, end offset and process identity were independently compared"
+    else
+      fresh_process_recovery="FAIL"
+      durable_state_dump_status="FAIL"
+      invariant_audit_status="FAIL"
+      durable_state_dump_note="required Kafka ${name} pre-cut and post-recovery dumps were missing or failed cross-process validation"
+      invariant_audit_note="independent Kafka Broker metadata and recovery-field comparison failed"
       audit_status="FAIL"
     fi
   fi
@@ -838,6 +912,7 @@ run_cell kafka-broker-tcp-cut env \
   NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
   NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
   NEREUS_DELAY_KAFKA_BROKER_TCP_CUT_ONLY=1 \
+  NEREUS_DELAY_KAFKA_BROKER_TCP_CUT_STATE_DUMP_DIR="${artifact_dir}/kafka-broker-tcp-cut-state" \
   NEREUS_DELAY_KAFKA_GRADLE_USER_HOME="${matrix_gradle_home}" \
   KAFKA_BROKER_1_PORT=31240 KAFKA_BROKER_2_PORT=31241 KAFKA_BROKER_3_PORT=31242 \
   NEREUS_DELAY_KAFKA_OXIA_PORT=31250 \
@@ -848,6 +923,7 @@ run_cell kafka-broker-network-partition env \
   NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
   NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
   NEREUS_DELAY_KAFKA_BROKER_NETWORK_PARTITION_ONLY=1 \
+  NEREUS_DELAY_KAFKA_BROKER_NETWORK_PARTITION_STATE_DUMP_DIR="${artifact_dir}/kafka-broker-network-partition-state" \
   NEREUS_DELAY_KAFKA_GRADLE_USER_HOME="${matrix_gradle_home}" \
   KAFKA_BROKER_1_PORT=31400 KAFKA_BROKER_2_PORT=31401 KAFKA_BROKER_3_PORT=31402 \
   NEREUS_DELAY_KAFKA_OXIA_PORT=31410 \
@@ -1002,15 +1078,21 @@ retention_invariant_status="$(jq -r '."kafka-retention-floor".audit.invariant_au
 broker_dump_status="$(jq -r '."kafka-broker-process-crash".audit.durable_state_dump.status' "${cells_json}")"
 broker_recovery_status="$(jq -r '."kafka-broker-process-crash".audit.fresh_process_recovery' "${cells_json}")"
 broker_invariant_status="$(jq -r '."kafka-broker-process-crash".audit.invariant_audit.status' "${cells_json}")"
+broker_tcp_dump_status="$(jq -r '."kafka-broker-tcp-cut".audit.durable_state_dump.status' "${cells_json}")"
+broker_tcp_recovery_status="$(jq -r '."kafka-broker-tcp-cut".audit.fresh_process_recovery' "${cells_json}")"
+broker_tcp_invariant_status="$(jq -r '."kafka-broker-tcp-cut".audit.invariant_audit.status' "${cells_json}")"
+broker_network_dump_status="$(jq -r '."kafka-broker-network-partition".audit.durable_state_dump.status' "${cells_json}")"
+broker_network_recovery_status="$(jq -r '."kafka-broker-network-partition".audit.fresh_process_recovery' "${cells_json}")"
+broker_network_invariant_status="$(jq -r '."kafka-broker-network-partition".audit.invariant_audit.status' "${cells_json}")"
 worker_ack_dump_status="$(jq -r '."kafka-worker-ack-process-crash".audit.durable_state_dump.status' "${cells_json}")"
 worker_ack_recovery_status="$(jq -r '."kafka-worker-ack-process-crash".audit.fresh_process_recovery' "${cells_json}")"
 worker_ack_invariant_status="$(jq -r '."kafka-worker-ack-process-crash".audit.invariant_audit.status' "${cells_json}")"
 worker_process_dump_status="$(jq -r '."pulsar-worker-process-crash".audit.durable_state_dump.status' "${cells_json}")"
 worker_process_recovery_status="$(jq -r '."pulsar-worker-process-crash".audit.fresh_process_recovery' "${cells_json}")"
 worker_process_invariant_status="$(jq -r '."pulsar-worker-process-crash".audit.invariant_audit.status' "${cells_json}")"
-durable_state_dump_summary="CELL_SPECIFIC; kafka-broker-process-crash ${broker_dump_status}; kafka-worker-ack-process-crash ${worker_ack_dump_status}; pulsar-worker-process-crash ${worker_process_dump_status}; kafka-fetch-response-loss ${fetch_dump_status}; kafka-retention-floor ${retention_dump_status}; pulsar-worker-admission-response-loss ${admission_dump_status}; pulsar-worker-destination-response-loss ${destination_dump_status}; other cells NOT_CAPTURED"
-fresh_process_recovery_summary="CELL_SPECIFIC; kafka-broker-process-crash ${broker_recovery_status}; kafka-worker-ack-process-crash ${worker_ack_recovery_status}; pulsar-worker-process-crash ${worker_process_recovery_status}; kafka-fetch-response-loss ${fetch_recovery_status}; kafka-retention-floor ${retention_recovery_status}; pulsar-worker-admission-response-loss ${admission_recovery_status}; pulsar-worker-destination-response-loss ${destination_recovery_status}; other cells NOT_COVERED"
-invariant_audit_summary="CELL_SPECIFIC; kafka-broker-process-crash ${broker_invariant_status}; kafka-worker-ack-process-crash ${worker_ack_invariant_status}; pulsar-worker-process-crash ${worker_process_invariant_status}; kafka-fetch-response-loss ${fetch_invariant_status}; kafka-retention-floor ${retention_invariant_status}; pulsar-worker-admission-response-loss ${admission_invariant_status}; pulsar-worker-destination-response-loss ${destination_invariant_status}; other cells MARKER_ONLY"
+durable_state_dump_summary="CELL_SPECIFIC; kafka-broker-process-crash ${broker_dump_status}; kafka-broker-tcp-cut ${broker_tcp_dump_status}; kafka-broker-network-partition ${broker_network_dump_status}; kafka-worker-ack-process-crash ${worker_ack_dump_status}; pulsar-worker-process-crash ${worker_process_dump_status}; kafka-fetch-response-loss ${fetch_dump_status}; kafka-retention-floor ${retention_dump_status}; pulsar-worker-admission-response-loss ${admission_dump_status}; pulsar-worker-destination-response-loss ${destination_dump_status}; other cells NOT_CAPTURED"
+fresh_process_recovery_summary="CELL_SPECIFIC; kafka-broker-process-crash ${broker_recovery_status}; kafka-broker-tcp-cut ${broker_tcp_recovery_status}; kafka-broker-network-partition ${broker_network_recovery_status}; kafka-worker-ack-process-crash ${worker_ack_recovery_status}; pulsar-worker-process-crash ${worker_process_recovery_status}; kafka-fetch-response-loss ${fetch_recovery_status}; kafka-retention-floor ${retention_recovery_status}; pulsar-worker-admission-response-loss ${admission_recovery_status}; pulsar-worker-destination-response-loss ${destination_recovery_status}; other cells NOT_COVERED"
+invariant_audit_summary="CELL_SPECIFIC; kafka-broker-process-crash ${broker_invariant_status}; kafka-broker-tcp-cut ${broker_tcp_invariant_status}; kafka-broker-network-partition ${broker_network_invariant_status}; kafka-worker-ack-process-crash ${worker_ack_invariant_status}; pulsar-worker-process-crash ${worker_process_invariant_status}; kafka-fetch-response-loss ${fetch_invariant_status}; kafka-retention-floor ${retention_invariant_status}; pulsar-worker-admission-response-loss ${admission_invariant_status}; pulsar-worker-destination-response-loss ${destination_invariant_status}; other cells MARKER_ONLY"
 if [[ "${matrix_status}" == "0" ]]; then
   matrix_result="PASS_BOUNDED"
 else
@@ -1046,7 +1128,7 @@ jq -n \
     boundaries: [
       "This is a bounded current-source fault matrix, not V1 release certification.",
       "Each bounded cell must emit its declared injection and required recovery markers; missing markers fail the bounded artifact.",
-      "The Kafka Worker ACK, Pulsar Worker process-crash, Fetch/retention-floor and Pulsar Worker Publish Admission/destination response-loss cells capture and independently audit external durable state dumps; the remaining cells still require their own §23.3 durable evidence.",
+      "The Kafka Broker process/network/TCP cuts, Kafka Worker ACK, Pulsar Worker process-crash, Fetch/retention-floor and Pulsar Worker Publish Admission/destination response-loss cells capture and independently audit external durable state dumps; the remaining cells still require their own §23.3 durable evidence.",
       "A release gate must additionally prove required benchmark/capacity, certified soak, activation/cutover, operations and external authority evidence."
     ]
   }' >"${chaos_artifact_tmp}"
