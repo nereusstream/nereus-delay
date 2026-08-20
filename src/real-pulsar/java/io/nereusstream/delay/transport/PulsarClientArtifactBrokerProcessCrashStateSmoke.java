@@ -20,6 +20,8 @@ public final class PulsarClientArtifactBrokerProcessCrashStateSmoke {
     private static final Pattern LEDGER_ID = Pattern.compile("\\\"ledgerId\\\"\\s*:\\s*(-?\\d+)");
     private static final Pattern LEDGER_RECORD = Pattern.compile(
             "\\\"ledgerId\\\"\\s*:\\s*(-?\\d+)\\s*,\\s*\\\"entries\\\"\\s*:\\s*(\\d+)");
+    private static final int ADMIN_REQUEST_ATTEMPTS = 20;
+    private static final long ADMIN_REQUEST_RETRY_MILLIS = 1_000L;
 
     private PulsarClientArtifactBrokerProcessCrashStateSmoke() {
     }
@@ -92,11 +94,36 @@ public final class PulsarClientArtifactBrokerProcessCrashStateSmoke {
     }
 
     private static AdminResponse request(final HttpClient client, final String url) throws Exception {
-        final HttpResponse<String> response = client.send(HttpRequest.newBuilder(URI.create(url))
-                .timeout(java.time.Duration.ofSeconds(20))
-                .GET()
-                .build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        return new AdminResponse(response.statusCode(), response.body());
+        AdminResponse lastResponse = null;
+        Exception lastFailure = null;
+        for (int attempt = 1; attempt <= ADMIN_REQUEST_ATTEMPTS; attempt++) {
+            try {
+                final HttpResponse<String> response = client.send(HttpRequest.newBuilder(URI.create(url))
+                        .timeout(java.time.Duration.ofSeconds(20))
+                        .GET()
+                        .build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                lastResponse = new AdminResponse(response.statusCode(), response.body());
+                if (response.statusCode() != 500 && response.statusCode() != 502
+                        && response.statusCode() != 503 && response.statusCode() != 504) {
+                    return lastResponse;
+                }
+            } catch (java.io.IOException failure) {
+                lastFailure = failure;
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw interrupted;
+            }
+            if (attempt < ADMIN_REQUEST_ATTEMPTS) {
+                Thread.sleep(ADMIN_REQUEST_RETRY_MILLIS);
+            }
+        }
+        if (lastResponse != null) {
+            return lastResponse;
+        }
+        if (lastFailure != null) {
+            throw lastFailure;
+        }
+        throw new IllegalStateException("Pulsar admin request produced no response: " + url);
     }
 
     private static void requireSuccessful(final AdminResponse response, final String url) {
