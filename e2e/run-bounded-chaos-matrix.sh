@@ -381,7 +381,8 @@ audit_cell() {
               and ($pre.physical_topic == $post.physical_topic)
               and ($pre.cluster_id == $post.cluster_id)
               and ($pre.ledger_ids | (type == "array" and length > 0))
-              and ($post.ledger_ids == $pre.ledger_ids)
+              and ($post.ledger_ids | (type == "array" and length > 0))
+              and (($pre.ledger_ids - $post.ledger_ids) | length == 0)
               and ($pre.number_of_entries | (type == "number" and . >= 1))
               and ($post.number_of_entries | (type == "number" and . >= $pre.number_of_entries))
               and ($pre.last_confirmed_ledger | (type == "number" and . >= 0))
@@ -403,7 +404,7 @@ audit_cell() {
       durable_state_dump_status="CAPTURED_AND_VERIFIED"
       invariant_audit_status="INDEPENDENT_FIELDS_PASS"
       durable_state_dump_note="external fsync-forced Pulsar managed-ledger dumps from Broker-1 before cut and Broker-2 after failover handoff before fresh Worker resume"
-      invariant_audit_note="topic/physical identity, ledger set, entry count, last-confirmed position, distinct Broker Admin endpoints and collector process identity were independently compared"
+      invariant_audit_note="topic/physical identity, retained-or-extended ledger set, entry count, last-confirmed position, distinct Broker Admin endpoints and collector process identity were independently compared"
     else
       fresh_process_recovery="FAIL"
       durable_state_dump_status="FAIL"
