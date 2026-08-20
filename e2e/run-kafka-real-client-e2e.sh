@@ -733,6 +733,8 @@ if [[ "${broker_tcp_cut_only}" == "1" ]]; then
   start_broker_tcp_fault_proxy
 fi
 wait_for_broker kafka-1
+wait_for_broker kafka-2
+wait_for_broker kafka-3
 
 if [[ "${route_failover_only}" == "1" ]]; then
   start_oxia
