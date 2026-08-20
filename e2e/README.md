@@ -6456,3 +6456,30 @@ and certified chaos remain blocked by bounded status, so the result is
 `release_status=NOT_READY`. Exact Docker postchecks are empty; retain only
 the canonical receipt directories and locked base images, and remove
 disposable Gradle homes without touching source worktrees.
+
+## Current-source Kafka source durable chaos slice and certified wrapper (2026-08-20)
+
+The focused Kafka Fetch response-loss and retention-floor runners now support
+an explicit prepare/resume split. The first JVM persists the real Broker
+response-loss or stale-offset-rejection observation, the second JVM reopens the
+same topic identity and Route/partition boundary, and both write a forced
+`nereus-delay-chaos-durable-state-dump-v1` JSON record. The bounded matrix
+compares the exact fields instead of accepting a log marker: source offsets and
+LSO/retention floor, topic identity, group/Route identity, commit/floor Fetch,
+`durable_broker_read`, `dump_forced` and distinct process PIDs.
+
+The diagnostic focused run was recorded under
+`/private/tmp/nereus-delay-v1-kafka-durable-20260820-r1/`; its Fetch and
+retention directories are implementation evidence, not a release artifact,
+because the run preceded the final source-lock commit. The generated K1
+Compose projects and images were removed by each runner's exact trap, and the
+postcheck was empty.
+
+`e2e/run-certified-chaos-matrix.sh` is now the fail-closed certification
+boundary. It requires an explicit profile and current four-repository locks,
+then accepts `PASS_CERTIFIED` only when all fourteen declared cells have
+marker PASS, durable before/after dumps, fresh-process recovery,
+`INDEPENDENT_FIELDS_PASS`, and empty run-scoped Docker postchecks. The current
+matrix has only four cells at that evidence level, so the wrapper must remain
+`BLOCKED`; `e2e/run-v1-release-gate.sh` validates this schema and profile rather
+than promoting `PASS_BOUNDED` evidence.

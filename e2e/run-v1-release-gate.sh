@@ -20,6 +20,7 @@ certified_capacity_profile_id="${NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CAPACITY_PR
 certified_soak_profile_id="${NEREUS_DELAY_RELEASE_GATE_CERTIFIED_SOAK_PROFILE_ID:-}"
 certified_operations_profile_id="${NEREUS_DELAY_RELEASE_GATE_CERTIFIED_OPERATIONS_PROFILE_ID:-}"
 certified_activation_profile_id="${NEREUS_DELAY_RELEASE_GATE_CERTIFIED_ACTIVATION_PROFILE_ID:-}"
+certified_chaos_profile_id="${NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CHAOS_PROFILE_ID:-}"
 activation_artifact="${NEREUS_DELAY_RELEASE_GATE_ACTIVATION_ARTIFACT:-}"
 operations_artifact="${NEREUS_DELAY_RELEASE_GATE_OPERATIONS_ARTIFACT:-}"
 
@@ -154,6 +155,10 @@ check_certified_artifact() {
   fi
   if [[ "${name}" == "activation-cutover" && -z "${certified_activation_profile_id}" ]]; then
     add_check "${name}" "BLOCKED" "no explicitly approved certified-activation profile id was supplied to the release gate" "${path}"
+    return
+  fi
+  if [[ "${name}" == "chaos-matrix" && -z "${certified_chaos_profile_id}" ]]; then
+    add_check "${name}" "BLOCKED" "no explicitly approved certified-chaos profile id was supplied to the release gate" "${path}"
     return
   fi
   local status
@@ -297,6 +302,40 @@ check_certified_artifact() {
         and (.source_locks.kafka == $kafka)
         and (.source_locks.pulsar == $pulsar)
         and (.source_locks.oxia == $oxia)'
+    elif [[ "${name}" == "chaos-matrix" ]]; then
+      artifact_check='(.schema == "nereus-delay-certified-chaos-matrix-v1")
+        and (.status == "PASS_CERTIFIED")
+        and (.profile_id == $release_chaos_profile_id)
+        and (.execution == "strict-sequential")
+        and (.source_checks_pass == true)
+        and ((.required_cells | type) == "array")
+        and ((.required_cells | length) == 14)
+        and ((.cells | type) == "object")
+        and (. as $root
+          | all(.required_cells[]; . as $cell
+            | $root.cells[$cell].status == 0
+            and $root.cells[$cell].audit.audit_status == "PASS"
+            and $root.cells[$cell].audit.durable_state_dump.status == "CAPTURED_AND_VERIFIED"
+            and $root.cells[$cell].audit.fresh_process_recovery == "PASS"
+            and $root.cells[$cell].audit.invariant_audit.status == "INDEPENDENT_FIELDS_PASS"))
+        and (.bounded_matrix | type == "object")
+        and (.bounded_matrix.status == "PASS_BOUNDED")
+        and (.bounded_matrix.exit_code == 0)
+        and (.bounded_matrix.source_locks_match == "PASS")
+        and (.bounded_matrix.marker_status == "PASS")
+        and (.evidence.durable_state_dump == "PASS")
+        and (.evidence.fresh_process_recovery == "PASS")
+        and (.evidence.invariant_audit == "PASS")
+        and (.docker_postcheck.status == "PASS")
+        and (.docker_postcheck.containers | length == 0)
+        and (.docker_postcheck.networks | length == 0)
+        and (.docker_postcheck.volumes | length == 0)
+        and (.docker_postcheck.generated_images | length == 0)
+        and (.source_locks | type == "object")
+        and (.source_locks.delay == $delay)
+        and (.source_locks.kafka == $kafka)
+        and (.source_locks.pulsar == $pulsar)
+        and (.source_locks.oxia == $oxia)'
     fi
     if jq -e \
       --arg delay "${checkout_source}" \
@@ -307,6 +346,7 @@ check_certified_artifact() {
       --arg release_profile_id "${certified_soak_profile_id}" \
       --arg release_operations_profile_id "${certified_operations_profile_id}" \
       --arg release_activation_profile_id "${certified_activation_profile_id}" \
+      --arg release_chaos_profile_id "${certified_chaos_profile_id}" \
       "${artifact_check}" "${path}" >/dev/null 2>&1; then
       if [[ "${name}" == "certified-soak" ]]; then
         add_check "${name}" "PASS" "artifact is schema-valid PASS_CERTIFIED soak evidence and source-locked to the current four-repository candidate" "${path}"
@@ -316,6 +356,8 @@ check_certified_artifact() {
         add_check "${name}" "PASS" "artifact is schema-valid PASS_CERTIFIED operations evidence and source-locked to the current four-repository candidate" "${path}"
       elif [[ "${name}" == "activation-cutover" ]]; then
         add_check "${name}" "PASS" "artifact is schema-valid PASS_CERTIFIED activation evidence and source-locked to the current four-repository candidate" "${path}"
+      elif [[ "${name}" == "chaos-matrix" ]]; then
+        add_check "${name}" "PASS" "artifact is schema-valid PASS_CERTIFIED chaos evidence and source-locked to the current four-repository candidate" "${path}"
       else
         add_check "${name}" "PASS" "artifact is PASS_CERTIFIED and source-locked to the current four-repository candidate" "${path}"
       fi
@@ -328,6 +370,8 @@ check_certified_artifact() {
         add_check "${name}" "BLOCKED" "certified operations artifact schema, profile, authority/fresh-process evidence, soak input or exact source_locks are invalid" "${path}"
       elif [[ "${name}" == "activation-cutover" ]]; then
         add_check "${name}" "BLOCKED" "certified activation artifact schema, profile, external authority/fresh-session evidence, cleanup or exact source_locks are invalid" "${path}"
+      elif [[ "${name}" == "chaos-matrix" ]]; then
+        add_check "${name}" "BLOCKED" "certified chaos artifact schema, profile, fourteen durable/fresh-process/invariant cells, cleanup or exact source_locks are invalid" "${path}"
       else
         add_check "${name}" "BLOCKED" "PASS_CERTIFIED artifact does not carry exact current Delay/Kafka/Pulsar/Oxia source_locks" "${path}"
       fi

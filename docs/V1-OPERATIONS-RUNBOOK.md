@@ -1055,3 +1055,21 @@ Cleanup policy for this campaign:
 The RC1 gate is a release handoff, not a release approval: activation/cutover,
 operations authorization and release-certified chaos still require the
 separate `PASS_CERTIFIED` evidence defined by the gate.
+
+## 2026-08-20 Kafka source durable-chaos and certification boundary
+
+The current Delay source adds prepare/resume JVM modes to the Kafka Fetch
+response-loss and retention-floor drills. Each mode writes a forced
+`nereus-delay-chaos-durable-state-dump-v1` record. The bounded audit checks
+same topic/topic identity, Route/partition, source offset or retention floor,
+LSO/commit result, `durable_broker_read`, `dump_forced` and distinct JVM PIDs.
+The diagnostic output was
+`/private/tmp/nereus-delay-v1-kafka-durable-20260820-r1/`; it is not a release
+input because it predates the source-lock commit.
+
+Use `e2e/run-certified-chaos-matrix.sh` only with an explicit approved profile.
+It fails closed unless all fourteen cells independently carry durable dumps,
+fresh-process recovery and `INDEPENDENT_FIELDS_PASS`, with exact current
+source locks and empty generated Docker resources. The current implementation
+has four cells at that level, so certification remains `BLOCKED`; do not
+promote the bounded matrix into the release gate.

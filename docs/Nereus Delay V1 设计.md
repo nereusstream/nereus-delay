@@ -4702,6 +4702,16 @@ local filesystem certifies atomic rename, file/directory fsync, DB locking, and 
 - Object Store conditional put/version/checksum/response loss、deterministic proof reissue、proof key rotation/retention。
 - ACL/RBAC/secret redaction/quarantine。
 
+当前 source 的故障证据实现还明确增加了两个 Kafka source cut 的 durable
+before/after 边界：Fetch response-loss 在固定 topic/group/Route 上由独立
+prepare/resume JVM 重开同一 source cursor，retention-floor 则在独立 JVM
+重开 stale-offset rejection 后的当前 floor Fetch。两者都以 fsync 后的
+`nereus-delay-chaos-durable-state-dump-v1` 保存 topic identity、Route、
+partition、offset/floor/LSO、commit 和不同 process PID，并由 chaos audit
+逐字段比较。它们与已有的两个 Pulsar Worker response-loss dump 一起属于
+已实现的 cell-specific durable evidence；这不代表剩余 failure cuts 已经
+满足本节的完整 fresh-process/durable/invariant 要求。
+
 ### 23.3 Chaos cuts
 
 每个 failure-cut matrix 行都需要：
