@@ -1,8 +1,13 @@
 package io.nereusstream.delay.ownership;
 
 import io.nereusstream.delay.protocol.ProtocolCapabilityDeclarationV1;
+import io.nereusstream.delay.protocol.KafkaSourcePosition;
+import io.nereusstream.delay.protocol.ProtocolActivationStateV1;
 import io.nereusstream.delay.protocol.ProtocolTupleV1;
 import io.nereusstream.delay.protocol.ProtocolVersionActivatePayloadV1;
+import io.nereusstream.delay.protocol.RouteIncarnation;
+import io.nereusstream.delay.protocol.ShardId;
+import io.nereusstream.delay.protocol.ShardSubjectV1;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -39,13 +44,21 @@ class OxiaRealProtocolCapabilitySmokeTest {
                     tuple, bytes(32, 90), evidence.evidenceHash());
             final var authorized = coordinator.authorize(payload, List.of("worker-a", "worker-b"));
             assertArrayEquals(evidence.evidenceHash(), authorized.evidenceHash());
+            final ShardId shard = new ShardId(new RouteIncarnation(bytes(16, 60)), 0);
+            final KafkaSourcePosition markerPosition = new KafkaSourcePosition(shard, "activation-cluster",
+                    UUID.fromString("12345678-1234-4abc-8def-1234567890ab"), 7, 0, 8);
+            final ProtocolActivationStateV1 marker = new ProtocolActivationStateV1(
+                    new ShardSubjectV1(shard), List.of()).activate(tuple, bytes(32, 90),
+                    authorized.evidenceHash(), markerPosition, bytes(32, 91));
+            assertArrayEquals(authorized.evidenceHash(), marker.activation(tuple)
+                    .compatibleReaderSetEvidenceHash());
+            System.out.println("Oxia protocol capability authority passed: eligibleReaders=2, "
+                    + "capabilityBeforeActivationMarker=true, activationEvidence=exact, sessionBound=true");
 
             final var workerB = authority.current("worker-b").orElseThrow();
             assertTrue(authority.withdraw(workerB));
             assertThrows(IllegalStateException.class,
                     () -> coordinator.authorize(payload, List.of("worker-a", "worker-b")));
-            System.out.println("Oxia protocol capability authority passed: eligibleReaders=2, "
-                    + "activationEvidence=exact, sessionBound=true");
         }
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle replacement = OxiaSyncOwnerLeaseBackend.connect(
