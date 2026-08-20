@@ -77,8 +77,8 @@ audit_cell() {
       target_evidence="Kafka Worker source-applied physical publish passed"
       authority_evidence="Kafka Worker authority smoke passed"
       required_markers=("Kafka Broker process-crash recovery E2E passed"
-        "Kafka Broker process-crash durable state dump passed: phase=before"
-        "Kafka Broker process-crash durable state dump passed: phase=after"
+        "Kafka Broker kafka-broker-process-crash durable state dump passed: phase=before"
+        "Kafka Broker kafka-broker-process-crash durable state dump passed: phase=after"
         "Kafka Worker source-applied physical publish passed" "Kafka Worker authority smoke passed")
       ;;
     kafka-worker-ack-process-crash)
