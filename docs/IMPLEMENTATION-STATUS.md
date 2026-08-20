@@ -16583,3 +16583,31 @@ Because this implementation commit follows the r10/r6 evidence, those receipts
 are historical pre-slice evidence. The post-documentation source-lock refresh
 uses r11 chaos and r7 gate paths; no certified or release promotion is implied
 until their exact receipts and all fourteen cell audits pass.
+
+## 2026-08-21 current-source Large Payload production-chain boundary
+
+Before this documentation change, the current source passed one strict-
+sequential bounded production-chain cycle at
+`/private/tmp/nereus-delay-v1-production-chain-soak-20260821-r1/production-chain-soak.json`.
+The receipt is `PASS_BOUNDED` with four of four cases passing and source locks
+Delay `d5dfa990c22f7659ebdb68f84e800646f34e7d46`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The cases close the current real Gateway/Oxia/Broker/Worker/MinIO authority
+chain for Kafka and Pulsar two-shard destination egress and exercise the
+Kafka `PUT_TIMEOUT_AFTER_COMMIT` and Pulsar `PUT_503_AFTER_COMMIT` MinIO
+uncertainty paths. They include source apply/ACK, exact destination payload
+readback, Gateway idempotency and exact per-project Docker cleanup. This
+materially confirms that Worker egress and Large Payload production chaining
+are implemented, but it remains bounded evidence rather than a V1 release
+certificate. Chaos, capacity, aged soak, activation/cutover and operations
+remain independently gated.
+
+The documentation commit makes r1 historical. Re-run the same harness after
+the commit at
+`/private/tmp/nereus-delay-v1-production-chain-soak-20260821-r2/` and use only
+r2's exact source locks as the current handoff. Cleanup remains recoverable and
+exact-path: preserve source/worktrees and locked base images, and move only
+superseded temporary diagnostics or Gradle caches to Trash.

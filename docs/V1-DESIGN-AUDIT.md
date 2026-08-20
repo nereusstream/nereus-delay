@@ -13208,3 +13208,28 @@ and final checkpoint evidence. The r10 chaos/r6 gate receipts predate this
 slice and are historical. Regenerate r11/r7 after this documentation commit;
 the certified and release gates remain fail-closed until all fourteen cells
 pass independently.
+
+### 2026-08-21 current-source Large Payload production-authority evidence
+
+The strict-sequential bounded production-chain receipt
+`/private/tmp/nereus-delay-v1-production-chain-soak-20260821-r1/production-chain-soak.json`
+passed one cycle with all four cases `PASS`. It is source-locked to Delay
+`d5dfa990c22f7659ebdb68f84e800646f34e7d46`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The evidence covers Kafka/Pulsar two-shard Large Payload destination egress
+through signed Route, real Oxia Assignment/Owner, Gateway mTLS/JWT, Worker and
+MinIO, plus Kafka `PUT_TIMEOUT_AFTER_COMMIT` and Pulsar
+`PUT_503_AFTER_COMMIT`. The markers prove source apply/ACK, exact destination
+payload readback, Gateway idempotency, MinIO object versions for the two-shard
+cases and exact Compose cleanup. This closes the functional production-chain
+boundary for the present source, while preserving the explicit distinction
+between `PASS_BOUNDED` and certified release evidence.
+
+Since this section changes the source lock, r1 is pre-documentation history.
+Regenerate `/private/tmp/nereus-delay-v1-production-chain-soak-20260821-r2/`
+after the commit; only r2's receipt may be used as the current source-locked
+production-chain input. The release gate remains fail-closed until all named
+certified inputs and the fourteen chaos cells pass.

@@ -6633,3 +6633,58 @@ checkpoint. The existing r10 certified wrapper and r6 gate are now historical
 pre-slice receipts because their Delay source lock predates this commit. After
 this documentation update, regenerate the authoritative current-source
 wrapper and gate at r11 and r7; until then the release remains fail-closed.
+
+## 2026-08-21 current-source Large Payload production-authority soak
+
+Before this documentation change, the current implementation passed the
+strict-sequential bounded production-chain soak at:
+
+```text
+/private/tmp/nereus-delay-v1-production-chain-soak-20260821-r1/production-chain-soak.json
+```
+
+The receipt has schema `nereus-delay-bounded-production-chain-soak-v1`, status
+`PASS_BOUNDED`, one cycle and four of four cases `PASS`. Its exact source locks
+are Delay `d5dfa990c22f7659ebdb68f84e800646f34e7d46`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The four real production-authority cases were:
+
+- Kafka two-shard destination: signed Route, Oxia Assignment/Owner, one Worker
+  fleet, Gateway mTLS/JWT, real MinIO, two destination `PUBLISHED` outcomes,
+  exact payload readback and object versions
+  `6f92b8cb-7c08-4cf2-818f-7a9b5e43342b` and
+  `7d88d85d-52bc-4109-8b0c-8fb6e35369d9`.
+- Pulsar two-shard destination: two guarded source barriers, Oxia
+  multi-shard Assignment/Owner, two Workers, real MinIO, two destination
+  `PUBLISHED` outcomes, exact payload readback and object versions
+  `5cbbf2ca-44a4-4993-bcc5-360ef1be6903` and
+  `9dbda3ce-6eef-45db-adfe-93dfb2b99b6c`.
+- Kafka `PUT_TIMEOUT_AFTER_COMMIT`: the after-commit uncertainty path closed
+  with source apply/ACK, destination readback and exact Gateway idempotency.
+- Pulsar `PUT_503_AFTER_COMMIT`: the after-commit uncertainty path closed with
+  source apply/ACK, destination readback and exact Gateway idempotency.
+
+Every case reports exact per-Compose cleanup `PASS`: no run-scoped container,
+network, volume or generated provider image remained; the locked MinIO base was
+retained. This is current-source functional and bounded production-chain
+evidence, not release certification. It does not satisfy the fourteen-cell
+fresh-process chaos matrix, certified capacity/soak, activation/cutover,
+operations, upgrade or disaster-continuity gates.
+
+Because this documentation commit changes the Delay source lock, r1 is a
+pre-documentation receipt. Regenerate the current handoff after the commit:
+
+```bash
+NEREUS_DELAY_PRODUCTION_SOAK_ARTIFACT_DIR=/private/tmp/nereus-delay-v1-production-chain-soak-20260821-r2 \
+NEREUS_DELAY_PRODUCTION_SOAK_GRADLE_USER_HOME=/private/tmp/nereus-delay-production-chain-gradle-20260821-r2 \
+NEREUS_DELAY_PRODUCTION_SOAK_CYCLES=1 \
+NEREUS_DELAY_PRODUCTION_SOAK_BASE_PORT=36100 \
+bash e2e/run-bounded-production-chain-soak.sh
+```
+
+Only r2's exact `source_locks` may be used as the post-documentation
+production-chain handoff. Keep the release gate fail-closed until the
+independently source-locked certified inputs and all fourteen chaos cells pass.

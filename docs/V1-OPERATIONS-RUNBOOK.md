@@ -1183,3 +1183,44 @@ are pre-slice history and must not be used as current source-locked inputs.
 After this section is committed, r11 chaos and r7 gate receipts become the
 current handoff targets. Certified chaos and the V1 gate remain fail-closed
 until all fourteen cells satisfy the durable/fresh/invariant contract.
+
+## 2026-08-21 current-source Large Payload production-chain receipt
+
+The strict-sequential bounded production-chain soak completed before this
+documentation change at
+`/private/tmp/nereus-delay-v1-production-chain-soak-20260821-r1/production-chain-soak.json`.
+It is `nereus-delay-bounded-production-chain-soak-v1`,
+`status=PASS_BOUNDED`, one cycle, four expected cases and four `PASS` cases.
+The source locks are Delay `d5dfa990c22f7659ebdb68f84e800646f34e7d46`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+It covers the real Gateway + Oxia + Broker + Worker + MinIO chain for Kafka
+and Pulsar two-shard destination egress, plus Kafka
+`PUT_TIMEOUT_AFTER_COMMIT` and Pulsar `PUT_503_AFTER_COMMIT` uncertainty.
+All four cases reached source apply/ACK and exact destination payload readback;
+the multi-shard cases also recorded exact MinIO object versions and the fault
+cases recorded exact Gateway idempotency. Each case's Compose postcheck is
+`PASS` with no run-scoped containers, networks, volumes or generated provider
+images left behind. The locked MinIO base image remains retained.
+
+This is bounded functional production-authority evidence. It does not certify
+the V1 release: the fourteen-cell fresh-process chaos union, certified capacity
+and aged-uncertainty soak, activation/cutover, operations, upgrade and disaster
+continuity gates remain separate and fail-closed. Since this section changes
+the Delay source, r1 is pre-documentation evidence. Re-run the current-source
+receipt after committing this section:
+
+```bash
+NEREUS_DELAY_PRODUCTION_SOAK_ARTIFACT_DIR=/private/tmp/nereus-delay-v1-production-chain-soak-20260821-r2 \
+NEREUS_DELAY_PRODUCTION_SOAK_GRADLE_USER_HOME=/private/tmp/nereus-delay-production-chain-gradle-20260821-r2 \
+NEREUS_DELAY_PRODUCTION_SOAK_CYCLES=1 \
+NEREUS_DELAY_PRODUCTION_SOAK_BASE_PORT=36100 \
+bash e2e/run-bounded-production-chain-soak.sh
+```
+
+Use only r2's exact `source_locks` for the post-documentation handoff. Keep
+the r1 receipt as historical provenance and move only superseded disposable
+diagnostics/caches to Trash by exact path; never remove source worktrees or
+use a global Docker prune.

@@ -4969,6 +4969,50 @@ r10 chaos 和 r6 gate receipt 的 source lock 早于该实现提交，现为历�
 满足 durable/fresh/invariant 前，certified chaos 和 V1 Gate 仍保持
 `BLOCKED`/`NOT_READY`。
 
+## 30. 2026-08-21 current-source Large Payload production-authority 链
+
+在本次文档提交之前，当前源码完成了一轮严格串行的 bounded production-chain
+soak，receipt 为：
+
+```text
+/private/tmp/nereus-delay-v1-production-chain-soak-20260821-r1/production-chain-soak.json
+```
+
+schema 为 `nereus-delay-bounded-production-chain-soak-v1`，状态为
+`PASS_BOUNDED`，四个 case 全部 `PASS`。source lock 为：Delay
+`d5dfa990c22f7659ebdb68f84e800646f34e7d46`、Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`、Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`、Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`。
+
+四个真实链路分别是：
+
+1. Kafka 两分片 destination：signed Route、Oxia Assignment/Owner、Worker
+   fleet、Gateway mTLS/JWT、真实 MinIO、两个 `PUBLISHED` destination outcome，
+   exact payload readback；对象版本为
+   `6f92b8cb-7c08-4cf2-818f-7a9b5e43342b`、
+   `7d88d85d-52bc-4109-8b0c-8fb6e35369d9`。
+2. Pulsar 两分片 destination：两个 guarded source barrier、Oxia 多分片
+   Assignment/Owner、两个 Worker、真实 MinIO、两个 `PUBLISHED` outcome，
+   exact payload readback；对象版本为
+   `5cbbf2ca-44a4-4993-bcc5-360ef1be6903`、
+   `9dbda3ce-6eef-45db-adfe-93dfb2b99b6c`。
+3. Kafka `PUT_TIMEOUT_AFTER_COMMIT`：对象提交后的响应不确定路径最终完成
+   source apply/ACK、destination readback 和 exact Gateway idempotency。
+4. Pulsar `PUT_503_AFTER_COMMIT`：对象提交后的 503 不确定路径最终完成
+   source apply/ACK、destination readback 和 exact Gateway idempotency。
+
+四个 Compose 项目都通过了精确 cleanup：run-scoped containers、networks、
+volumes 和 generated provider images 均为空，锁定的 MinIO base image 保留。
+这证明的是当前源码的 bounded functional production-authority 链，不是 V1
+release certification；十四 cell fresh-process chaos、capacity、aged soak、
+activation/cutover、operations、upgrade 和 disaster continuity 仍需独立 gate。
+
+本节提交会改变 Delay source lock，因此 r1 是文档提交前 receipt。提交后重新
+生成 `/private/tmp/nereus-delay-v1-production-chain-soak-20260821-r2/`，只有 r2
+receipt 的 exact `source_locks` 可作为当前交接依据。清理继续遵循精确路径、可恢复
+Trash 规则，不删除源码、worktree、`.git` 或代码。
+
 ## 参考资料
 
 - [R1] [DDMQ README @ 2f30b61a](https://github.com/didi/DDMQ/blob/2f30b61a5741d55a5b515f3d8d19a8a35be8c9e2/README.md)
