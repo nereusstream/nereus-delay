@@ -16684,3 +16684,30 @@ commit. Docker cleanup for the focused run passed: no scoped containers,
 networks, volumes or generated images remained; locked Oxia/MinIO base images
 were retained. V1 remains fail-closed and `NOT_READY` until the complete
 source-locked chaos and release inputs pass.
+
+## 2026-08-21 current-source durable-state schema repair
+
+The r12 bounded chaos run reached both newly added focused paths, but its
+independent audit correctly rejected the checkpoint REAPING and direct Pulsar
+destination receipts because their manually written JSON encoded boolean
+fields as quoted strings. Delay commit `33b546f6` makes those two evidence
+writers emit actual JSON booleans and keeps the fresh-process scalar reader
+compatible with the durable-state format.
+
+After the implementation commit, focused current-source runs passed in
+separate WRITE/READ JVMs. Their receipts are:
+
+```text
+/private/tmp/nereus-delay-checkpoint-reaping-20260821-r13-state/before-process-crash.json
+/private/tmp/nereus-delay-checkpoint-reaping-20260821-r13-state/after-fresh-process.json
+/private/tmp/nereus-delay-pulsar-destination-response-loss-20260821-r13-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-destination-response-loss-20260821-r13-state/after-fresh-process.json
+```
+
+The checkpoint pair proves real Oxia/MinIO REAPING, exact listed/deleted
+versions and an empty object prefix. The Pulsar pair proves a single real
+SEND, typed `PULSAR_SEND_ACK` revalidation, exact payload readback and zero
+duplicates. The focused Docker postchecks passed. This closes the evidence
+contract defect only; the full current-source 14-cell wrapper must be rerun
+after this documentation commit, and the fail-closed V1 gate remains
+`release_status=NOT_READY`.

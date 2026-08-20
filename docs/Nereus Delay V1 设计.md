@@ -5097,6 +5097,32 @@ assignment 的实际 leader 是 Broker-3。
 没有留下 scoped container、network、volume 或 generated image，只保留锁定
 base image；源码、worktree、`.git` 和代码目录不属于清理目标。
 
+## 34. 2026-08-21 durable-state JSON 类型边界修复
+
+r12 bounded chaos 已经实际运行到 checkpoint REAPING 和 direct Pulsar
+destination response-loss 两条路径；审计失败的原因不是 runtime recovery，
+而是两个手写 durable-state JSON writer 把布尔值写成了字符串 `"true"`。
+Delay commit `33b546f6` 统一输出真正的 JSON boolean，并让 fresh-process
+reader 同时接受 quoted/scalar field，保持 JVM 交接和 shell audit 对同一
+schema 的解释一致。
+
+修复后的 focused receipt：
+
+```text
+/private/tmp/nereus-delay-checkpoint-reaping-20260821-r13-state/before-process-crash.json
+/private/tmp/nereus-delay-checkpoint-reaping-20260821-r13-state/after-fresh-process.json
+/private/tmp/nereus-delay-pulsar-destination-response-loss-20260821-r13-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-destination-response-loss-20260821-r13-state/after-fresh-process.json
+```
+
+两条 focused run 都使用独立 WRITE/READ JVM，并通过真实 Oxia、MinIO 或
+Pulsar。REAPING 验证了 exact version count、删除后 prefix 为空；Pulsar
+验证了 typed `PULSAR_SEND_ACK`、exact payload readback、single SEND 和零
+duplicate。该切片只修复 evidence contract，不把 focused 或 bounded 结果
+提升为 V1 release PASS；文档提交后仍需重新生成完整 source-locked chaos
+wrapper 和 fail-closed release gate。清理只针对精确的 run-scoped 资源，不能
+删除源码、worktree、`.git` 或代码目录。
+
 ## 参考资料
 
 - [R1] [DDMQ README @ 2f30b61a](https://github.com/didi/DDMQ/blob/2f30b61a5741d55a5b515f3d8d19a8a35be8c9e2/README.md)

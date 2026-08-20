@@ -1300,3 +1300,25 @@ documentation commits. Cleanup must verify that run-scoped Kafka/Oxia
 containers, networks, volumes and generated images are absent while retaining
 only locked base images; do not prune unrelated Docker resources or delete
 source/worktree paths.
+
+## 2026-08-21 Durable chaos state dump type contract
+
+The checkpoint REAPING and direct Pulsar destination response-loss drills now
+emit boolean state fields as JSON booleans. Delay commit `33b546f6` also makes
+the small fresh-process reader tolerate scalar state values, so the shell
+audit and the JVM handoff validate the same durable-state schema.
+
+The current focused receipts are:
+
+```text
+/private/tmp/nereus-delay-checkpoint-reaping-20260821-r13-state/before-process-crash.json
+/private/tmp/nereus-delay-checkpoint-reaping-20260821-r13-state/after-fresh-process.json
+/private/tmp/nereus-delay-pulsar-destination-response-loss-20260821-r13-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-destination-response-loss-20260821-r13-state/after-fresh-process.json
+```
+
+The first pair completes the real Oxia + MinIO REAPING sweep with exact
+version deletion and empty prefix. The Pulsar pair performs one real guarded
+SEND, discards the committed response, then uses a fresh JVM to revalidate
+typed `PULSAR_SEND_ACK` and read one exact payload without a second SEND. The
+complete chaos wrapper and V1 gate still require a new current-source run.

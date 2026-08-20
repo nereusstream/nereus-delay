@@ -6792,3 +6792,32 @@ Delay source lock predates `75a008fc` remain historical. Keep only canonical
 dumps and locked Oxia/MinIO base images after the run; exact run-scoped
 Kafka/Oxia containers, networks, volumes and generated images must be absent.
 Never delete a source worktree, `.git` directory or code path.
+
+## 2026-08-21 Typed durable chaos state evidence contract
+
+Delay commit `33b546f6` fixes the durable-state evidence writer used by the
+checkpoint REAPING and direct Pulsar destination response-loss cells. Boolean
+fields are now emitted as JSON booleans rather than quoted strings, while the
+fresh-process reader accepts the scalar representation used by the state
+schema. This is an evidence-schema correction; it does not broaden the
+runtime recovery claim.
+
+The focused current-source checks passed with Delay `33b546f6`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`:
+
+```text
+/private/tmp/nereus-delay-checkpoint-reaping-20260821-r13-state/before-process-crash.json
+/private/tmp/nereus-delay-checkpoint-reaping-20260821-r13-state/after-fresh-process.json
+/private/tmp/nereus-delay-pulsar-destination-response-loss-20260821-r13-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-destination-response-loss-20260821-r13-state/after-fresh-process.json
+```
+
+Both runs used separate WRITE/READ JVMs against real Oxia plus real MinIO or
+Pulsar. The checkpoint audit verified the REAPING transition, exact version
+counts and empty prefix; the direct Pulsar audit verified typed
+`PULSAR_SEND_ACK`, exact payload readback, `physical_send_count=1` and zero
+duplicates. Focused cleanup left no scoped containers, networks or volumes.
+Rerun the complete current-source chaos wrapper after this documentation
+commit; neither focused receipt is a V1 release certificate.

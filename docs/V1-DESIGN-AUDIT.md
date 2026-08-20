@@ -13297,3 +13297,26 @@ source-locked receipts must be regenerated against `75a008fc`. The focused
 Docker postcheck retained only the locked base images and left no scoped
 containers, networks, volumes or generated images. Source worktrees and code
 remain outside all cleanup targets.
+
+### 2026-08-21 Durable-state JSON type boundary
+
+The bounded r12 audit exposed a schema-level evidence defect rather than a
+runtime recovery failure: the checkpoint REAPING and direct Pulsar destination
+smokes wrote `true` as a JSON string. Delay commit `33b546f6` changes both
+manual state writers to emit actual booleans and allows their fresh-process
+field reader to consume quoted or scalar values.
+
+The post-fix focused receipts are:
+
+```text
+/private/tmp/nereus-delay-checkpoint-reaping-20260821-r13-state/before-process-crash.json
+/private/tmp/nereus-delay-checkpoint-reaping-20260821-r13-state/after-fresh-process.json
+/private/tmp/nereus-delay-pulsar-destination-response-loss-20260821-r13-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-destination-response-loss-20260821-r13-state/after-fresh-process.json
+```
+
+Independent audit now passes the REAPING intent/Owner/Object Store fields and
+the Pulsar topic/guard/SEND evidence, exact payload and duplicate boundary.
+This is a correction to evidence typing and does not promote the bounded
+matrix or release gate. The full source-locked matrix is regenerated after
+the documentation sync.
