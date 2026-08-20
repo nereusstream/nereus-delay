@@ -39,6 +39,11 @@ import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 
 import java.time.Duration;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -57,22 +62,72 @@ public final class KafkaClientArtifactFetchResponseLossSmoke {
         if (arguments.length != 2) {
             throw new IllegalArgumentException("usage: <bootstrap-server> <source-topic>");
         }
+        final String phase = System.getenv().getOrDefault(
+                "NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_PHASE", "full");
+        if (!phase.equals("full") && !phase.equals("prepare") && !phase.equals("resume")) {
+            throw new IllegalArgumentException("NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_PHASE must be full|prepare|resume");
+        }
         final String bootstrap = arguments[0];
-        final String topic = arguments[1] + "-" + UUID.randomUUID();
+        final String topic = phase.equals("full") ? arguments[1] + "-" + UUID.randomUUID() : arguments[1];
         final Map<String, Object> adminConfiguration = Map.of(
                 AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap,
                 AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, 10_000);
         try (Admin admin = Admin.create(adminConfiguration)) {
-            ensureTopic(admin, topic);
+            if (phase.equals("resume")) {
+                requireTopic(admin, topic);
+            } else {
+                ensureTopic(admin, topic);
+            }
             final String clusterId = admin.describeCluster().clusterId().get(10, TimeUnit.SECONDS);
             final Uuid topicId = describe(admin, topic).topicId();
-            final RouteIncarnation route = RouteIncarnation.random();
+            final RouteIncarnation route = phase.equals("resume")
+                    ? routeFromEnvironment()
+                    : RouteIncarnation.random();
             final ShardId shard = new ShardId(route, 0);
             final PreparedCommand first = command(shard, "fetch-loss-one");
             final PreparedCommand second = command(shard, "fetch-loss-two");
-            produce(bootstrap, clusterId, topic, topicId, first, second);
+            final String groupId = phase.equals("full")
+                    ? "nereus-delay-fetch-loss-" + UUID.randomUUID()
+                    : requiredEnvironment("NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_GROUP_ID");
+            if (phase.equals("prepare")) {
+                produce(bootstrap, clusterId, topic, topicId, first, second);
+                final FetchReceipt discarded = fetchAndDiscard(bootstrap, groupId, clusterId, topic, topicId, shard,
+                        first, second);
+                writeStateDump("FETCH_RESPONSE_LOSS_PERSISTED", topic, groupId, topicId, shard,
+                        discarded.firstOffset(), discarded.lastStableOffset(), null, null);
+                System.out.println("Kafka source Fetch response-loss process-crash cut reached: "
+                        + "responseDiscardedAfterFetch=true, groupId=" + groupId);
+                return;
+            }
+            if (phase.equals("resume")) {
+                try (KafkaClientArtifactSourceRecordConsumer source = source(
+                        bootstrap, groupId, clusterId, topic, topicId, shard)) {
+                    final SourceRecordConsumer.PolledSourceRecord replayed = pollAny(source,
+                            "replayed first source record");
+                    final KafkaSourcePosition replayedPosition = position(replayed);
+                    requireAcked(replayed.acknowledgement().acknowledge(replayed.entry(), null),
+                            "replayed first source record");
+                    final SourceRecordConsumer.PolledSourceRecord secondObserved = pollAny(source,
+                            "second source record after replay ACK");
+                    final KafkaSourcePosition secondPosition = position(secondObserved);
+                    requireAcked(secondObserved.acknowledgement().acknowledge(secondObserved.entry(), null),
+                            "second source record");
+                    requireCommittedOffset(admin, groupId, topic, 0, secondPosition.offset() + 1);
+                    final long endOffset = admin.listOffsets(Map.of(
+                            new TopicPartition(topic, 0), OffsetSpec.latest())).all().get(10, TimeUnit.SECONDS)
+                            .get(new TopicPartition(topic, 0)).offset();
+                    if (endOffset <= secondPosition.offset()) {
+                        throw new IllegalStateException("Kafka source end offset did not cover the ACKed record");
+                    }
+                    writeStateDump("RECOVERED_AFTER_FRESH_PROCESS", topic, groupId, topicId, shard,
+                            replayedPosition.offset(), null, secondPosition.offset(), secondPosition.offset() + 1);
+                }
+                System.out.println("Kafka source Fetch response-loss fresh-process recovery E2E passed: "
+                        + "same group replayed the uncommitted Fetch response and committed the exact source position.");
+                return;
+            }
 
-            final String groupId = "nereus-delay-fetch-loss-" + UUID.randomUUID();
+            produce(bootstrap, clusterId, topic, topicId, first, second);
             final FetchReceipt discarded = fetchAndDiscard(bootstrap, groupId, clusterId, topic, topicId, shard,
                     first, second);
             final SourceRecordConsumer.PolledSourceRecord replayed;
@@ -174,6 +229,18 @@ public final class KafkaClientArtifactFetchResponseLossSmoke {
         throw new IllegalStateException(label + " did not become visible within the bounded poll window");
     }
 
+    private static SourceRecordConsumer.PolledSourceRecord pollAny(
+            final KafkaClientArtifactSourceRecordConsumer source, final String label) {
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+        while (System.nanoTime() < deadline) {
+            final Optional<SourceRecordConsumer.PolledSourceRecord> candidate = source.poll();
+            if (candidate.isPresent()) {
+                return candidate.get();
+            }
+        }
+        throw new IllegalStateException(label + " did not become visible within the bounded poll window");
+    }
+
     private static KafkaSourcePosition position(final SourceRecordConsumer.PolledSourceRecord polled) {
         if (!(polled.entry() instanceof SourceReplayRecord record)
                 || !(record.position() instanceof KafkaSourcePosition position)) {
@@ -262,6 +329,71 @@ public final class KafkaClientArtifactFetchResponseLossSmoke {
             TimeUnit.MILLISECONDS.sleep(250);
         }
         throw new IllegalStateException("Fetch response-loss source topic metadata did not converge");
+    }
+
+    private static void requireTopic(final Admin admin, final String topic) throws Exception {
+        if (describe(admin, topic) == null) {
+            throw new IllegalStateException("Fetch response-loss resume topic is missing: " + topic);
+        }
+    }
+
+    private static RouteIncarnation routeFromEnvironment() {
+        return RouteIncarnation.fromUuid(UUID.fromString(requiredEnvironment(
+                "NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ROUTE_UUID")));
+    }
+
+    private static String requiredEnvironment(final String name) {
+        final String value = System.getenv(name);
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(name + " is required for the phased Fetch response-loss drill");
+        }
+        return value;
+    }
+
+    private static void writeStateDump(final String phase, final String topic, final String groupId,
+                                       final Uuid topicId, final ShardId shard, final long replayOffset,
+                                       final Long lastStableOffset, final Long secondOffset,
+                                       final Long committedOffset) throws Exception {
+        final String directoryValue = System.getenv("NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_STATE_DUMP_DIR");
+        if (directoryValue == null || directoryValue.isBlank()) {
+            return;
+        }
+        final Path directory = Path.of(directoryValue).toAbsolutePath().normalize();
+        Files.createDirectories(directory);
+        final String fileName = phase.equals("FETCH_RESPONSE_LOSS_PERSISTED")
+                ? "before-process-crash.json" : "after-fresh-process.json";
+        final String json = "{\n"
+                + "  \"schema\": \"nereus-delay-chaos-durable-state-dump-v1\",\n"
+                + "  \"cell\": \"kafka-fetch-response-loss-process-crash\",\n"
+                + "  \"phase\": " + jsonString(phase) + ",\n"
+                + "  \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
+                + "  \"topic\": " + jsonString(topic) + ",\n"
+                + "  \"group_id\": " + jsonString(groupId) + ",\n"
+                + "  \"topic_id\": " + jsonString(topicId.toString()) + ",\n"
+                + "  \"route_uuid\": " + jsonString(shard.routeIncarnation().uuid().toString()) + ",\n"
+                + "  \"partition\": " + shard.partition() + ",\n"
+                + "  \"replay_offset\": " + replayOffset + ",\n"
+                + "  \"last_stable_offset\": " + jsonNullable(lastStableOffset) + ",\n"
+                + "  \"second_offset\": " + jsonNullable(secondOffset) + ",\n"
+                + "  \"committed_offset\": " + jsonNullable(committedOffset) + ",\n"
+                + "  \"response_discarded_after_fetch\": true,\n"
+                + "  \"durable_broker_read\": true,\n"
+                + "  \"dump_forced\": true\n"
+                + "}\n";
+        final Path target = directory.resolve(fileName);
+        try (var channel = java.nio.channels.FileChannel.open(target, StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
+            channel.write(ByteBuffer.wrap(json.getBytes(StandardCharsets.UTF_8)));
+            channel.force(true);
+        }
+    }
+
+    private static String jsonString(final String value) {
+        return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+    }
+
+    private static String jsonNullable(final Long value) {
+        return value == null ? "null" : Long.toString(value);
     }
 
     private static org.apache.kafka.clients.admin.TopicDescription describe(final Admin admin, final String topic)

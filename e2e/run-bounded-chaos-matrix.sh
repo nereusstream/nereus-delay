@@ -159,24 +159,24 @@ audit_cell() {
       required_markers=("Oxia + MinIO Worker checkpoint publication and REAPING E2E passed")
       ;;
     kafka-fetch-response-loss)
-      injection_point="discard a real read_committed guarded Fetch v13 response before source ACK"
+      injection_point="discard a real read_committed guarded Fetch v13 response, then reopen the same group in a fresh JVM"
       expected_state="replay starts at the same offset, observes the same LSO and commits the next source position"
       duplicate_boundary="Fetch response loss must not advance the source cursor or duplicate the record"
-      fresh_process_recovery="NOT_COVERED"
-      source_evidence="Kafka source Fetch response-loss E2E passed"
-      target_evidence="Kafka source Fetch response-loss smoke passed"
-      authority_evidence="Kafka source Fetch response-loss smoke passed"
-      required_markers=("Kafka source Fetch response-loss E2E passed" "Kafka source Fetch response-loss smoke passed")
+      fresh_process_recovery="PASS"
+      source_evidence="Kafka source Fetch response-loss fresh-process recovery E2E passed"
+      target_evidence="Kafka source Fetch response-loss process-crash cut reached"
+      authority_evidence="Kafka source Fetch response-loss fresh-process recovery E2E passed"
+      required_markers=("Kafka source Fetch response-loss process-crash cut reached" "Kafka source Fetch response-loss fresh-process recovery E2E passed")
       ;;
     kafka-retention-floor)
-      injection_point="advance real Broker retention beyond a stale guarded source offset"
+      injection_point="advance real Broker retention beyond a stale guarded source offset, then reopen the current floor in a fresh JVM"
       expected_state="stale source position is rejected and the current retention floor remains readable"
       duplicate_boundary="retention rejection cannot silently remap an old source position to a new record"
-      fresh_process_recovery="NOT_COVERED"
-      source_evidence="Kafka source retention-floor E2E passed"
-      target_evidence="Kafka source retention-floor smoke passed"
-      authority_evidence="Kafka source retention-floor smoke passed"
-      required_markers=("Kafka source retention-floor E2E passed" "Kafka source retention-floor smoke passed")
+      fresh_process_recovery="PASS"
+      source_evidence="Kafka source retention-floor fresh-process recovery E2E passed"
+      target_evidence="Kafka source retention-floor process-crash cut reached"
+      authority_evidence="Kafka source retention-floor fresh-process recovery E2E passed"
+      required_markers=("Kafka source retention-floor process-crash cut reached" "Kafka source retention-floor fresh-process recovery E2E passed")
       ;;
     pulsar-destination-response-loss)
       injection_point="discard the real Pulsar SEND response after the exact payload was persisted"
@@ -320,6 +320,103 @@ audit_cell() {
       invariant_audit_status="FAIL"
       durable_state_dump_note="required pre-crash and post-recovery dumps were missing or failed cross-process validation"
       invariant_audit_note="independent durable-field comparison failed"
+      audit_status="FAIL"
+    fi
+  fi
+  if [[ "${name}" == "kafka-fetch-response-loss" ]]; then
+    local state_dump_dir="${artifact_dir}/kafka-fetch-response-loss-state"
+    local before_dump="${state_dump_dir}/before-process-crash.json"
+    local after_dump="${state_dump_dir}/after-fresh-process.json"
+    if [[ -s "${before_dump}" && -s "${after_dump}" ]] \
+        && jq -e \
+          --slurpfile before "${before_dump}" \
+          --slurpfile after "${after_dump}" \
+          -n '
+            ($before[0]) as $pre
+            | ($after[0]) as $post
+            | $pre.schema == "nereus-delay-chaos-durable-state-dump-v1"
+              and $post.schema == "nereus-delay-chaos-durable-state-dump-v1"
+              and $pre.cell == "kafka-fetch-response-loss-process-crash"
+              and $post.cell == $pre.cell
+              and $pre.phase == "FETCH_RESPONSE_LOSS_PERSISTED"
+              and $post.phase == "RECOVERED_AFTER_FRESH_PROCESS"
+              and ($pre.topic == $post.topic)
+              and ($pre.group_id == $post.group_id)
+              and ($pre.topic_id == $post.topic_id)
+              and ($pre.route_uuid == $post.route_uuid)
+              and ($pre.partition == $post.partition)
+              and ($pre.replay_offset | (type == "number" and . >= 0))
+              and ($pre.last_stable_offset | (type == "number" and . > $pre.replay_offset))
+              and ($post.replay_offset == $pre.replay_offset)
+              and ($post.second_offset | (type == "number" and . > $post.replay_offset))
+              and ($post.committed_offset == ($post.second_offset + 1))
+              and $pre.response_discarded_after_fetch == true
+              and $post.response_discarded_after_fetch == true
+              and $pre.durable_broker_read == true
+              and $post.durable_broker_read == true
+              and $pre.dump_forced == true
+              and $post.dump_forced == true
+              and ($pre.process_pid != $post.process_pid)
+          ' >/dev/null; then
+      durable_state_dump_status="CAPTURED_AND_VERIFIED"
+      invariant_audit_status="INDEPENDENT_FIELDS_PASS"
+      durable_state_dump_note="external fsync-forced JSON dump before and after fresh-group JVM recovery"
+      invariant_audit_note="topic, group, topic identity, Route identity, source offsets, LSO and committed offset were independently compared"
+    else
+      fresh_process_recovery="FAIL"
+      durable_state_dump_status="FAIL"
+      invariant_audit_status="FAIL"
+      durable_state_dump_note="required pre-crash and post-recovery Fetch dumps were missing or failed cross-process validation"
+      invariant_audit_note="independent Fetch/LSO/commit comparison failed"
+      audit_status="FAIL"
+    fi
+  fi
+  if [[ "${name}" == "kafka-retention-floor" ]]; then
+    local state_dump_dir="${artifact_dir}/kafka-retention-floor-state"
+    local before_dump="${state_dump_dir}/before-process-crash.json"
+    local after_dump="${state_dump_dir}/after-fresh-process.json"
+    if [[ -s "${before_dump}" && -s "${after_dump}" ]] \
+        && jq -e \
+          --slurpfile before "${before_dump}" \
+          --slurpfile after "${after_dump}" \
+          -n '
+            ($before[0]) as $pre
+            | ($after[0]) as $post
+            | $pre.schema == "nereus-delay-chaos-durable-state-dump-v1"
+              and $post.schema == "nereus-delay-chaos-durable-state-dump-v1"
+              and $pre.cell == "kafka-retention-floor-process-crash"
+              and $post.cell == $pre.cell
+              and $pre.phase == "RETENTION_FLOOR_REJECTED"
+              and $post.phase == "RECOVERED_AFTER_FRESH_PROCESS"
+              and ($pre.topic == $post.topic)
+              and ($pre.topic_id == $post.topic_id)
+              and ($pre.route_uuid == $post.route_uuid)
+              and ($pre.partition == $post.partition)
+              and $pre.old_offset == 0
+              and ($pre.retention_floor | (type == "number" and . > 0))
+              and ($pre.end_offset | (type == "number" and . > $pre.retention_floor))
+              and $pre.stale_offset_rejected == true
+              and ($post.retention_floor | (type == "number" and . > 0))
+              and ($post.end_offset | (type == "number" and . > $post.retention_floor))
+              and ($post.floor_fetch_offset | (type == "number" and . >= $post.retention_floor))
+              and ($post.fetch_lso | (type == "number" and . > $post.floor_fetch_offset))
+              and $post.stale_offset_rejected == true
+              and $pre.durable_broker_read == true
+              and $post.durable_broker_read == true
+              and $pre.dump_forced == true
+              and $post.dump_forced == true
+              and ($pre.process_pid != $post.process_pid)
+          ' >/dev/null; then
+      durable_state_dump_status="CAPTURED_AND_VERIFIED"
+      invariant_audit_status="INDEPENDENT_FIELDS_PASS"
+      durable_state_dump_note="external fsync-forced JSON dump after stale-offset rejection and after fresh-floor recovery"
+      invariant_audit_note="topic identity, Route identity, retention floor, end offset, stale rejection and LSO were independently compared"
+    else
+      fresh_process_recovery="FAIL"
+      durable_state_dump_status="FAIL"
+      invariant_audit_status="FAIL"
+      durable_state_dump_note="required retention pre-crash and post-recovery dumps were missing or failed cross-process validation"
+      invariant_audit_note="independent retention-floor comparison failed"
       audit_status="FAIL"
     fi
   fi
@@ -492,6 +589,8 @@ run_cell kafka-fetch-response-loss env \
   NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
   NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
   NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ONLY=1 \
+  NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_PROCESS_CRASH_ONLY=1 \
+  NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_STATE_DUMP_DIR="${artifact_dir}/kafka-fetch-response-loss-state" \
   NEREUS_DELAY_KAFKA_GRADLE_USER_HOME="${matrix_gradle_home}" \
   KAFKA_BROKER_1_PORT=31320 KAFKA_BROKER_2_PORT=31321 KAFKA_BROKER_3_PORT=31322 \
   NEREUS_DELAY_KAFKA_OXIA_PORT=31330 \
@@ -502,6 +601,8 @@ run_cell kafka-retention-floor env \
   NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
   NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
   NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ONLY=1 \
+  NEREUS_DELAY_KAFKA_RETENTION_FLOOR_PROCESS_CRASH_ONLY=1 \
+  NEREUS_DELAY_KAFKA_RETENTION_FLOOR_STATE_DUMP_DIR="${artifact_dir}/kafka-retention-floor-state" \
   NEREUS_DELAY_KAFKA_GRADLE_USER_HOME="${matrix_gradle_home}" \
   KAFKA_BROKER_1_PORT=31340 KAFKA_BROKER_2_PORT=31341 KAFKA_BROKER_3_PORT=31342 \
   NEREUS_DELAY_KAFKA_OXIA_PORT=31350 \
@@ -565,9 +666,15 @@ destination_dump_status="$(jq -r '."pulsar-worker-destination-response-loss".aud
 destination_recovery_status="$(jq -r '."pulsar-worker-destination-response-loss".audit.fresh_process_recovery' "${cells_json}")"
 destination_invariant_status="$(jq -r '."pulsar-worker-destination-response-loss".audit.invariant_audit.status' "${cells_json}")"
 admission_recovery_status="$(jq -r '."pulsar-worker-admission-response-loss".audit.fresh_process_recovery' "${cells_json}")"
-durable_state_dump_summary="CELL_SPECIFIC; pulsar-worker-admission-response-loss ${admission_dump_status}; pulsar-worker-destination-response-loss ${destination_dump_status}; other cells NOT_CAPTURED"
-fresh_process_recovery_summary="CELL_SPECIFIC; pulsar-worker-admission-response-loss ${admission_recovery_status}; pulsar-worker-destination-response-loss ${destination_recovery_status}; other cells NOT_COVERED"
-invariant_audit_summary="CELL_SPECIFIC; pulsar-worker-admission-response-loss ${admission_invariant_status}; pulsar-worker-destination-response-loss ${destination_invariant_status}; other cells MARKER_ONLY"
+fetch_dump_status="$(jq -r '."kafka-fetch-response-loss".audit.durable_state_dump.status' "${cells_json}")"
+fetch_recovery_status="$(jq -r '."kafka-fetch-response-loss".audit.fresh_process_recovery' "${cells_json}")"
+fetch_invariant_status="$(jq -r '."kafka-fetch-response-loss".audit.invariant_audit.status' "${cells_json}")"
+retention_dump_status="$(jq -r '."kafka-retention-floor".audit.durable_state_dump.status' "${cells_json}")"
+retention_recovery_status="$(jq -r '."kafka-retention-floor".audit.fresh_process_recovery' "${cells_json}")"
+retention_invariant_status="$(jq -r '."kafka-retention-floor".audit.invariant_audit.status' "${cells_json}")"
+durable_state_dump_summary="CELL_SPECIFIC; kafka-fetch-response-loss ${fetch_dump_status}; kafka-retention-floor ${retention_dump_status}; pulsar-worker-admission-response-loss ${admission_dump_status}; pulsar-worker-destination-response-loss ${destination_dump_status}; other cells NOT_CAPTURED"
+fresh_process_recovery_summary="CELL_SPECIFIC; kafka-fetch-response-loss ${fetch_recovery_status}; kafka-retention-floor ${retention_recovery_status}; pulsar-worker-admission-response-loss ${admission_recovery_status}; pulsar-worker-destination-response-loss ${destination_recovery_status}; other cells NOT_COVERED"
+invariant_audit_summary="CELL_SPECIFIC; kafka-fetch-response-loss ${fetch_invariant_status}; kafka-retention-floor ${retention_invariant_status}; pulsar-worker-admission-response-loss ${admission_invariant_status}; pulsar-worker-destination-response-loss ${destination_invariant_status}; other cells MARKER_ONLY"
 if [[ "${matrix_status}" == "0" ]]; then
   matrix_result="PASS_BOUNDED"
 else
@@ -603,7 +710,7 @@ jq -n \
     boundaries: [
       "This is a bounded current-source fault matrix, not V1 release certification.",
       "Each bounded cell must emit its declared injection and required recovery markers; missing markers fail the bounded artifact.",
-      "The Pulsar Worker Publish Admission and Worker destination response-loss cells capture and independently audit external durable state dumps; the remaining cells still require their own §23.3 durable evidence.",
+      "The Kafka Fetch/retention-floor and Pulsar Worker Publish Admission/destination response-loss cells capture and independently audit external durable state dumps; the remaining cells still require their own §23.3 durable evidence.",
       "A release gate must additionally prove required benchmark/capacity, certified soak, activation/cutover, operations and external authority evidence."
     ]
   }' >"${chaos_artifact_tmp}"

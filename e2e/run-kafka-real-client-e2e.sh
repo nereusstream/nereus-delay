@@ -40,7 +40,9 @@ worker_destination_response_loss_only="${NEREUS_DELAY_KAFKA_WORKER_DESTINATION_R
 source_ack_response_loss="${NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS:-0}"
 source_ack_response_loss_only="${NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS_ONLY:-0}"
 fetch_response_loss_only="${NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ONLY:-0}"
+fetch_response_loss_process_crash_only="${NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_PROCESS_CRASH_ONLY:-0}"
 retention_floor_only="${NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ONLY:-0}"
+retention_floor_process_crash_only="${NEREUS_DELAY_KAFKA_RETENTION_FLOOR_PROCESS_CRASH_ONLY:-0}"
 process_crash_only="${NEREUS_DELAY_KAFKA_PROCESS_CRASH_ONLY:-0}"
 worker_process_crash_only="${NEREUS_DELAY_KAFKA_WORKER_PROCESS_CRASH_ONLY:-0}"
 worker_ack_process_crash_only="${NEREUS_DELAY_KAFKA_WORKER_ACK_PROCESS_CRASH_ONLY:-0}"
@@ -111,8 +113,24 @@ if [[ "${fetch_response_loss_only}" != "0" && "${fetch_response_loss_only}" != "
   echo "NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ONLY must be 0 or 1" >&2
   exit 1
 fi
+if [[ "${fetch_response_loss_process_crash_only}" != "0" && "${fetch_response_loss_process_crash_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_PROCESS_CRASH_ONLY must be 0 or 1" >&2
+  exit 1
+fi
 if [[ "${retention_floor_only}" != "0" && "${retention_floor_only}" != "1" ]]; then
   echo "NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ONLY must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${retention_floor_process_crash_only}" != "0" && "${retention_floor_process_crash_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_RETENTION_FLOOR_PROCESS_CRASH_ONLY must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${fetch_response_loss_process_crash_only}" == "1" && "${fetch_response_loss_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_PROCESS_CRASH_ONLY requires NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ONLY=1" >&2
+  exit 1
+fi
+if [[ "${retention_floor_process_crash_only}" == "1" && "${retention_floor_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_RETENTION_FLOOR_PROCESS_CRASH_ONLY requires NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ONLY=1" >&2
   exit 1
 fi
 if [[ "${process_crash_only}" != "0" && "${process_crash_only}" != "1" ]]; then
@@ -765,23 +783,74 @@ fi
 
 if [[ "${fetch_response_loss_only}" == "1" ]]; then
   fetch_response_loss_topic="${KAFKA_DELAY_FETCH_RESPONSE_LOSS_TOPIC:-${source_topic}-fetch-response-loss}"
-  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaFetchResponseLossSmoke \
-    -PkafkaClientJar="${client_jar}" \
-    -PkafkaBootstrap="${bootstrap_all}" \
-    -PkafkaFetchResponseLossTopic="${fetch_response_loss_topic}" \
-    --no-daemon --console=plain
-  echo "Kafka source Fetch response-loss E2E passed: real read_committed Fetch v13 response was discarded before ACK, exact source replay and LSO coverage were recovered."
+  if [[ "${fetch_response_loss_process_crash_only}" == "1" ]]; then
+    fetch_response_loss_state_dump_dir="${NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_STATE_DUMP_DIR:?state dump directory is required}"
+    fetch_response_loss_group_id="${NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_GROUP_ID:-nereus-delay-fetch-loss-process-crash}"
+    mkdir -p "${fetch_response_loss_state_dump_dir}"
+    rm -f "${fetch_response_loss_state_dump_dir}/before-process-crash.json" \
+      "${fetch_response_loss_state_dump_dir}/after-fresh-process.json"
+    NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_PHASE=prepare \
+    NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_STATE_DUMP_DIR="${fetch_response_loss_state_dump_dir}" \
+    NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_GROUP_ID="${fetch_response_loss_group_id}" \
+    GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaFetchResponseLossSmoke \
+      -PkafkaClientJar="${client_jar}" \
+      -PkafkaBootstrap="${bootstrap_all}" \
+      -PkafkaFetchResponseLossTopic="${fetch_response_loss_topic}" \
+      --no-daemon --console=plain
+    fetch_response_loss_route_uuid="$(jq -r '.route_uuid' "${fetch_response_loss_state_dump_dir}/before-process-crash.json")"
+    NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_PHASE=resume \
+    NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_STATE_DUMP_DIR="${fetch_response_loss_state_dump_dir}" \
+    NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_GROUP_ID="${fetch_response_loss_group_id}" \
+    NEREUS_DELAY_KAFKA_FETCH_RESPONSE_LOSS_ROUTE_UUID="${fetch_response_loss_route_uuid}" \
+    GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaFetchResponseLossSmoke \
+      -PkafkaClientJar="${client_jar}" \
+      -PkafkaBootstrap="${bootstrap_all}" \
+      -PkafkaFetchResponseLossTopic="${fetch_response_loss_topic}" \
+      --no-daemon --console=plain
+    echo "Kafka source Fetch response-loss fresh-process recovery E2E passed: separate prepare/resume JVMs preserved the uncommitted Fetch position and LSO evidence."
+  else
+    GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaFetchResponseLossSmoke \
+      -PkafkaClientJar="${client_jar}" \
+      -PkafkaBootstrap="${bootstrap_all}" \
+      -PkafkaFetchResponseLossTopic="${fetch_response_loss_topic}" \
+      --no-daemon --console=plain
+    echo "Kafka source Fetch response-loss E2E passed: real read_committed Fetch v13 response was discarded before ACK, exact source replay and LSO coverage were recovered."
+  fi
   exit 0
 fi
 
 if [[ "${retention_floor_only}" == "1" ]]; then
   retention_floor_topic="${KAFKA_DELAY_RETENTION_FLOOR_TOPIC:-${source_topic}-retention-floor}"
-  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaRetentionFloorSmoke \
-    -PkafkaClientJar="${client_jar}" \
-    -PkafkaBootstrap="${bootstrap_all}" \
-    -PkafkaRetentionFloorTopic="${retention_floor_topic}" \
-    --no-daemon --console=plain
-  echo "Kafka source retention-floor E2E passed: real Broker retention advanced the earliest offset, stale source offset was rejected, and the current floor remained readable through guarded Fetch v13 with LSO."
+  if [[ "${retention_floor_process_crash_only}" == "1" ]]; then
+    retention_floor_state_dump_dir="${NEREUS_DELAY_KAFKA_RETENTION_FLOOR_STATE_DUMP_DIR:?state dump directory is required}"
+    mkdir -p "${retention_floor_state_dump_dir}"
+    rm -f "${retention_floor_state_dump_dir}/before-process-crash.json" \
+      "${retention_floor_state_dump_dir}/after-fresh-process.json"
+    NEREUS_DELAY_KAFKA_RETENTION_FLOOR_PHASE=prepare \
+    NEREUS_DELAY_KAFKA_RETENTION_FLOOR_STATE_DUMP_DIR="${retention_floor_state_dump_dir}" \
+    GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaRetentionFloorSmoke \
+      -PkafkaClientJar="${client_jar}" \
+      -PkafkaBootstrap="${bootstrap_all}" \
+      -PkafkaRetentionFloorTopic="${retention_floor_topic}" \
+      --no-daemon --console=plain
+    retention_floor_route_uuid="$(jq -r '.route_uuid' "${retention_floor_state_dump_dir}/before-process-crash.json")"
+    NEREUS_DELAY_KAFKA_RETENTION_FLOOR_PHASE=resume \
+    NEREUS_DELAY_KAFKA_RETENTION_FLOOR_STATE_DUMP_DIR="${retention_floor_state_dump_dir}" \
+    NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ROUTE_UUID="${retention_floor_route_uuid}" \
+    GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaRetentionFloorSmoke \
+      -PkafkaClientJar="${client_jar}" \
+      -PkafkaBootstrap="${bootstrap_all}" \
+      -PkafkaRetentionFloorTopic="${retention_floor_topic}" \
+      --no-daemon --console=plain
+    echo "Kafka source retention-floor fresh-process recovery E2E passed: separate prepare/resume JVMs preserved stale-offset rejection and current-floor Fetch evidence."
+  else
+    GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaRetentionFloorSmoke \
+      -PkafkaClientJar="${client_jar}" \
+      -PkafkaBootstrap="${bootstrap_all}" \
+      -PkafkaRetentionFloorTopic="${retention_floor_topic}" \
+      --no-daemon --console=plain
+    echo "Kafka source retention-floor E2E passed: real Broker retention advanced the earliest offset, stale source offset was rejected, and the current floor remained readable through guarded Fetch v13 with LSO."
+  fi
   exit 0
 fi
 

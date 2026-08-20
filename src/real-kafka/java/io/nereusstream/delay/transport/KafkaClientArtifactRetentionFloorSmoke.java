@@ -35,6 +35,11 @@ import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 
 import java.time.Duration;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,27 +59,63 @@ public final class KafkaClientArtifactRetentionFloorSmoke {
         if (arguments.length != 2) {
             throw new IllegalArgumentException("usage: <bootstrap-server> <source-topic>");
         }
+        final String phase = System.getenv().getOrDefault(
+                "NEREUS_DELAY_KAFKA_RETENTION_FLOOR_PHASE", "full");
+        if (!phase.equals("full") && !phase.equals("prepare") && !phase.equals("resume")) {
+            throw new IllegalArgumentException("NEREUS_DELAY_KAFKA_RETENTION_FLOOR_PHASE must be full|prepare|resume");
+        }
         final String bootstrap = arguments[0];
-        final String topic = arguments[1] + "-" + UUID.randomUUID();
+        final String topic = phase.equals("full") ? arguments[1] + "-" + UUID.randomUUID() : arguments[1];
         final Map<String, Object> adminConfiguration = Map.of(
                 AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap,
                 AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, 10_000);
         try (Admin admin = Admin.create(adminConfiguration)) {
-            ensureTopic(admin, topic);
+            if (phase.equals("resume")) {
+                requireTopic(admin, topic);
+            } else {
+                ensureTopic(admin, topic);
+            }
             final String clusterId = admin.describeCluster().clusterId().get(10, TimeUnit.SECONDS);
             final Uuid topicId = describe(admin, topic).topicId();
+            final TopicPartition topicPartition = new TopicPartition(topic, 0);
+            if (phase.equals("prepare")) {
+                final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
+                produceRounds(bootstrap, clusterId, topic, topicId, shard);
+                final RetentionBounds bounds = waitForRetentionFloor(admin, topicPartition);
+                produceTail(bootstrap, clusterId, topic, topicId, shard);
+                final RetentionBounds retained = waitForRetainedTail(admin, topicPartition);
+                requireRetainedTail(retained);
+                rejectStaleOffset(bootstrap, clusterId, topic, topicId, topicPartition, retained.beginningOffset());
+                writeStateDump("RETENTION_FLOOR_REJECTED", topic, topicId, shard,
+                        bounds, retained, null, null, true);
+                System.out.println("Kafka source retention-floor process-crash cut reached: "
+                        + "staleOffsetRejected=true, retentionFloor=" + retained.beginningOffset());
+                return;
+            }
+            if (phase.equals("resume")) {
+                final RetentionBounds retained = waitForRetainedTail(admin, topicPartition);
+                requireRetainedTail(retained);
+                final FetchReceipt current = fetchAtFloor(bootstrap, clusterId, topic, topicId, topicPartition,
+                        retained.beginningOffset());
+                if (current.offset() < retained.beginningOffset()
+                        || current.lastStableOffset() <= current.offset()) {
+                    throw new IllegalStateException("Kafka retention-floor Fetch did not retain a covering LSO: "
+                            + current);
+                }
+                writeStateDump("RECOVERED_AFTER_FRESH_PROCESS", topic, topicId,
+                        new ShardId(routeFromEnvironment(), 0), null, retained, current.offset(),
+                        current.lastStableOffset(), true);
+                System.out.println("Kafka source retention-floor fresh-process recovery E2E passed: "
+                        + "the current retention floor remained readable through guarded Fetch v13 with LSO.");
+                return;
+            }
+
             final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
             produceRounds(bootstrap, clusterId, topic, topicId, shard);
-
-            final TopicPartition topicPartition = new TopicPartition(topic, 0);
             final RetentionBounds bounds = waitForRetentionFloor(admin, topicPartition);
             produceTail(bootstrap, clusterId, topic, topicId, shard);
             final RetentionBounds retained = waitForRetainedTail(admin, topicPartition);
-            if (retained.beginningOffset() <= 0 || retained.endOffset() <= retained.beginningOffset()) {
-                throw new IllegalStateException("Kafka retention floor did not advance over the old source offset: "
-                        + retained);
-            }
-
+            requireRetainedTail(retained);
             rejectStaleOffset(bootstrap, clusterId, topic, topicId, topicPartition, retained.beginningOffset());
             final FetchReceipt current = fetchAtFloor(bootstrap, clusterId, topic, topicId, topicPartition,
                     retained.beginningOffset());
@@ -89,6 +130,13 @@ public final class KafkaClientArtifactRetentionFloorSmoke {
                     + ", staleOffsetRejected=true"
                     + ", floorFetchOffset=" + current.offset()
                     + ", fetchLso=" + current.lastStableOffset());
+        }
+    }
+
+    private static void requireRetainedTail(final RetentionBounds retained) {
+        if (retained.beginningOffset() <= 0 || retained.endOffset() <= retained.beginningOffset()) {
+            throw new IllegalStateException("Kafka retention floor did not advance over the old source offset: "
+                    + retained);
         }
     }
 
@@ -291,6 +339,68 @@ public final class KafkaClientArtifactRetentionFloorSmoke {
             TimeUnit.MILLISECONDS.sleep(250);
         }
         throw new IllegalStateException("Kafka retention-floor topic metadata did not converge");
+    }
+
+    private static void requireTopic(final Admin admin, final String topic) throws Exception {
+        if (describe(admin, topic) == null) {
+            throw new IllegalStateException("Kafka retention-floor resume topic is missing: " + topic);
+        }
+    }
+
+    private static RouteIncarnation routeFromEnvironment() {
+        final String value = System.getenv("NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ROUTE_UUID");
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(
+                    "NEREUS_DELAY_KAFKA_RETENTION_FLOOR_ROUTE_UUID is required for the phased retention drill");
+        }
+        return RouteIncarnation.fromUuid(UUID.fromString(value));
+    }
+
+    private static void writeStateDump(final String phase, final String topic, final Uuid topicId,
+                                       final ShardId shard, final RetentionBounds before,
+                                       final RetentionBounds after, final Long floorFetchOffset,
+                                       final Long fetchLso, final boolean staleOffsetRejected) throws Exception {
+        final String directoryValue = System.getenv("NEREUS_DELAY_KAFKA_RETENTION_FLOOR_STATE_DUMP_DIR");
+        if (directoryValue == null || directoryValue.isBlank()) {
+            return;
+        }
+        final Path directory = Path.of(directoryValue).toAbsolutePath().normalize();
+        Files.createDirectories(directory);
+        final String fileName = phase.equals("RETENTION_FLOOR_REJECTED")
+                ? "before-process-crash.json" : "after-fresh-process.json";
+        final String json = "{\n"
+                + "  \"schema\": \"nereus-delay-chaos-durable-state-dump-v1\",\n"
+                + "  \"cell\": \"kafka-retention-floor-process-crash\",\n"
+                + "  \"phase\": " + jsonString(phase) + ",\n"
+                + "  \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
+                + "  \"topic\": " + jsonString(topic) + ",\n"
+                + "  \"topic_id\": " + jsonString(topicId.toString()) + ",\n"
+                + "  \"route_uuid\": " + jsonString(shard.routeIncarnation().uuid().toString()) + ",\n"
+                + "  \"partition\": " + shard.partition() + ",\n"
+                + "  \"old_offset\": 0,\n"
+                + "  \"retention_floor\": " + jsonNullable(after == null ? null : after.beginningOffset()) + ",\n"
+                + "  \"end_offset\": " + jsonNullable(after == null ? null : after.endOffset()) + ",\n"
+                + "  \"before_floor_observation\": " + jsonNullable(before == null ? null : before.beginningOffset()) + ",\n"
+                + "  \"floor_fetch_offset\": " + jsonNullable(floorFetchOffset) + ",\n"
+                + "  \"fetch_lso\": " + jsonNullable(fetchLso) + ",\n"
+                + "  \"stale_offset_rejected\": " + staleOffsetRejected + ",\n"
+                + "  \"durable_broker_read\": true,\n"
+                + "  \"dump_forced\": true\n"
+                + "}\n";
+        final Path target = directory.resolve(fileName);
+        try (var channel = java.nio.channels.FileChannel.open(target, StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
+            channel.write(ByteBuffer.wrap(json.getBytes(StandardCharsets.UTF_8)));
+            channel.force(true);
+        }
+    }
+
+    private static String jsonString(final String value) {
+        return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+    }
+
+    private static String jsonNullable(final Long value) {
+        return value == null ? "null" : Long.toString(value);
     }
 
     private static org.apache.kafka.clients.admin.TopicDescription describe(final Admin admin, final String topic)
