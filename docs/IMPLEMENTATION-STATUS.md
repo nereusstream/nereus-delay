@@ -16456,3 +16456,47 @@ chaos are each `BLOCKED` without their explicitly approved `PASS_CERTIFIED`
 artifacts. The current-source bounded r7 receipt therefore remains scoped
 fault evidence rather than a release certificate. The r39 Gradle cache was
 removed after the check; the receipt and logs are retained.
+
+## 2026-08-20 RC1 current-source release evidence
+
+RC1 is source-locked to Delay `698f30db219c4aa2fc4b14c5d0cf421253332dea`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`; all four checkouts are clean.
+
+The current evidence rows are:
+
+- Capacity: `PASS_CERTIFIED` only for profile
+  `nereus-delay-v1-rc1-bounded-capacity-r1`, with 3 cases, 3,888 payload
+  records, 664 SLO samples and passing resource/artifact/Docker policy. The
+  receipt is `/private/tmp/nereus-delay-v1-rc1-capacity-20260820-r2/certified-capacity-benchmark.json`.
+- Production-chain soak: `PASS_CERTIFIED` only for profile
+  `nereus-delay-v1-rc1-production-chain-soak-r1`, with four serial real
+  Kafka/Pulsar/Oxia/Worker/MinIO cases, 62 resource samples, 9-second maximum
+  sample gap and passing duration/invariant/cleanup policy. The receipt is
+  `/private/tmp/nereus-delay-v1-rc1-soak-20260820-r1/certified-production-chain-soak.json`.
+- Activation/cutover: `PASS_BOUNDED` for the local Delay Store projection
+  tests; external Oxia eligibility, rollout ordering, downgrade packaging,
+  Broker/Pulsar cutover and disaster continuity remain unproven.
+- Operations: `PASS_BOUNDED` for local state-machine and real Oxia/MinIO
+  checkpoint/REAPING probes; external authorization, disaster continuity and
+  multi-Worker soak remain unproven.
+- Chaos: `PASS_BOUNDED`, 14/14 cells exit zero in
+  `/private/tmp/nereus-delay-v1-rc1-chaos-20260820-r2/bounded-chaos-matrix.json`.
+  Admission and destination response-loss have independently audited durable
+  dumps; the other 12 cells remain marker-only and/or not captured for the
+  full durable invariant matrix.
+
+The RC1 gate receipt is
+`/private/tmp/nereus-delay-v1-rc1-gate-20260820-r2/v1-release-candidate-gate.json`.
+Source, cross-repository and full Gradle `check` pass; capacity and named soak
+pass their strict schemas; activation, operations and certified chaos are
+blocked by their bounded status. The release result is therefore
+`release_status=NOT_READY`. This status is a deliberate release boundary, not
+a downgrade of the completed functional chain.
+
+Run-scoped Docker cleanup is complete: no related containers, networks,
+volumes, Compose projects or generated images remain. The canonical Oxia base
+image is retained; disposable Gradle caches and superseded temporary retries
+are not release artifacts and are removed separately without touching source
+worktrees or Git metadata.

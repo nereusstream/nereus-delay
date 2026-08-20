@@ -6399,3 +6399,61 @@ passing full Gradle check at Delay
 operations and release-certified chaos artifacts were not supplied. The r7
 `PASS_BOUNDED` receipt is scoped evidence and is not a release certificate.
 The r39 Gradle user home is disposable and was removed after the check.
+
+## RC1 source-locked evidence refresh (2026-08-20)
+
+The RC1 candidate locks are Delay `698f30db219c4aa2fc4b14c5d0cf421253332dea`,
+K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The fresh bounded capacity and production-chain soak commands produce these
+canonical receipts:
+
+```text
+/private/tmp/nereus-delay-v1-rc1-capacity-20260820-r2/certified-capacity-benchmark.json
+/private/tmp/nereus-delay-v1-rc1-soak-20260820-r1/certified-production-chain-soak.json
+```
+
+Both report `PASS_CERTIFIED` only for their named profiles and exact locks.
+Capacity covers the fixed three-case Store/SLO policy (3,888 payload records
+and 664 SLO samples). Soak covers four serial real Kafka/Pulsar/Oxia/Worker/
+MinIO cases with passing invariants, duration and resource coverage. Neither
+receipt is the complete V1 capacity or release-soak certificate.
+
+The current-source activation, operations and chaos receipts are:
+
+```text
+/private/tmp/nereus-delay-v1-rc1-activation-20260820-r1/protocol-activation-cutover.json
+/private/tmp/nereus-delay-v1-rc1-operations-20260820-r1/operations-drills.json
+/private/tmp/nereus-delay-v1-rc1-chaos-20260820-r2/bounded-chaos-matrix.json
+```
+
+Activation and operations remain `PASS_BOUNDED`. Chaos is
+`matrix_status=PASS_BOUNDED` with 14/14 zero cells. Its Pulsar Admission and
+destination response-loss cells independently audit durable before/after
+state; the other 12 cells retain marker-only and/or not-captured boundaries.
+
+Run the fail-closed gate with the exact artifacts:
+
+```bash
+NEREUS_DELAY_RELEASE_GATE_ARTIFACT_DIR=/private/tmp/nereus-delay-v1-rc1-gate-20260820-r2 \
+NEREUS_DELAY_RELEASE_GATE_GRADLE_USER_HOME=/private/tmp/nereus-delay-v1-rc1-chaos-gradle-20260820-r2 \
+NEREUS_DELAY_RELEASE_GATE_ALLOW_NOT_READY=1 \
+NEREUS_DELAY_RELEASE_GATE_CAPACITY_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-capacity-20260820-r2/certified-capacity-benchmark.json \
+NEREUS_DELAY_RELEASE_GATE_SOAK_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-soak-20260820-r1/certified-production-chain-soak.json \
+NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CAPACITY_PROFILE_ID=nereus-delay-v1-rc1-bounded-capacity-r1 \
+NEREUS_DELAY_RELEASE_GATE_CERTIFIED_SOAK_PROFILE_ID=nereus-delay-v1-rc1-production-chain-soak-r1 \
+NEREUS_DELAY_RELEASE_GATE_ACTIVATION_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-activation-20260820-r1/protocol-activation-cutover.json \
+NEREUS_DELAY_RELEASE_GATE_OPERATIONS_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-operations-20260820-r1/operations-drills.json \
+NEREUS_DELAY_RELEASE_GATE_CHAOS_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-chaos-20260820-r2/bounded-chaos-matrix.json \
+bash e2e/run-v1-release-gate.sh
+```
+
+The canonical gate is
+`/private/tmp/nereus-delay-v1-rc1-gate-20260820-r2/v1-release-candidate-gate.json`.
+Source, cross-repository and full Gradle checks pass; activation, operations
+and certified chaos remain blocked by bounded status, so the result is
+`release_status=NOT_READY`. Exact Docker postchecks are empty; retain only
+the canonical receipt directories and locked base images, and remove
+disposable Gradle homes without touching source worktrees.

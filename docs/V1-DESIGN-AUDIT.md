@@ -13074,3 +13074,70 @@ remain `BLOCKED` because no explicitly approved `PASS_CERTIFIED` artifact was
 supplied. The bounded r7 matrix is retained as scoped evidence and is not
 silently promoted into the release-certified chaos slot. The r39 Gradle home
 was removed after the check; the gate receipt and diagnostic logs remain.
+
+### 2026-08-20 RC1 source-locked certification refresh
+
+The RC1 candidate is fixed to Delay `698f30db219c4aa2fc4b14c5d0cf421253332dea`,
+Kafka K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. All four source checkouts were
+clean at the gate.
+
+The fresh RC1 bounded capacity receipt is
+`/private/tmp/nereus-delay-v1-rc1-capacity-20260820-r2/certified-capacity-benchmark.json`.
+It reports `PASS_CERTIFIED` for the explicitly named profile
+`nereus-delay-v1-rc1-bounded-capacity-r1`: three fixed smoke/burst/sustained
+cases, 3,888 payload records, 664 SLO samples, the recorded Worker resource
+policy and exact Docker/image cleanup. Its boundary remains the bounded
+Store/SLO harness; it does not certify the full §23.4 capacity envelope,
+Broker throughput, Lane fairness, placement, restore, inline/object capacity,
+upgrade/downgrade or long-cycle soak.
+
+The fresh RC1 production-chain receipt is
+`/private/tmp/nereus-delay-v1-rc1-soak-20260820-r1/certified-production-chain-soak.json`.
+It reports `PASS_CERTIFIED` for
+`nereus-delay-v1-rc1-production-chain-soak-r1`, covering four strictly serial
+Kafka/Pulsar/Oxia/Worker/MinIO cases. The monitor recorded 62 resource samples,
+maximum gap 9 seconds, peak process RSS 1,268,544 KiB, peak FDs 1,175,
+artifact peak 1,187,840 bytes, passing duration/invariant/coverage checks and
+exact Docker cleanup. This is the named bounded soak profile only; it does not
+certify the full §23.5 release soak, activation, operations, chaos,
+upgrade/downgrade or disaster continuity.
+
+The activation receipt
+`/private/tmp/nereus-delay-v1-rc1-activation-20260820-r1/protocol-activation-cutover.json`
+is `PASS_BOUNDED` and source-locked to the Delay candidate. Its three local
+projection tests pass, but it does not prove authenticated external Oxia Worker
+eligibility, writer-before-reader rollout, downgrade packaging, Broker/Pulsar
+cutover or disaster continuity. The operations receipt
+`/private/tmp/nereus-delay-v1-rc1-operations-20260820-r1/operations-drills.json`
+is also `PASS_BOUNDED`; its local state-machine and real Oxia/MinIO checkpoint
+probes pass, while external operator authorization, fresh-process disaster
+continuity and multi-Worker production soak remain outside its scope.
+
+The canonical current-source chaos receipt is
+`/private/tmp/nereus-delay-v1-rc1-chaos-20260820-r2/bounded-chaos-matrix.json`.
+It reports `matrix_status=PASS_BOUNDED` with all 14 cell exit codes equal to
+zero, including Kafka Worker ACK process-crash recovery after an isolated
+reproduction confirmed the same cut gate and fresh-process replay. The Pulsar
+Worker Publish Admission and destination response-loss cells retain external
+durable before/after dumps with `CAPTURED_AND_VERIFIED` /
+`INDEPENDENT_FIELDS_PASS`; the other 12 cells remain explicitly marker-only
+and/or not captured for durable-state and independent-invariant evidence.
+This is not §23.3 completion or release-certified chaos.
+
+The fail-closed gate receipt is
+`/private/tmp/nereus-delay-v1-rc1-gate-20260820-r2/v1-release-candidate-gate.json`.
+Source checks, cross-repository validation and full Gradle `check` are `PASS`,
+as are the bounded capacity and named soak inputs. Activation/cutover,
+operations-drills and release-certified chaos are `BLOCKED` because their
+receipts are `PASS_BOUNDED`; therefore `release_status=NOT_READY` remains the
+only valid conclusion. The gate is intentionally fail-closed and no bounded
+receipt is silently promoted into a certified slot.
+
+After the RC1 runs, exact run-scoped Docker postchecks found no matching
+containers, Compose projects, networks, volumes or generated images. The
+canonical `nereus/oxia-o1:37a17bef1720` base remains for reuse; no global
+Docker prune or unrelated-image deletion was performed. Disposable Gradle
+homes and superseded retry/diagnostic directories are cleanup targets only;
+the six small canonical RC1 receipt directories remain available for audit.

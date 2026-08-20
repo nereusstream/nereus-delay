@@ -1014,3 +1014,46 @@ capacity, soak, activation/cutover, operations drills and release-certified
 chaos were not supplied as approved `PASS_CERTIFIED` artifacts. Remove the
 exact r39 Gradle home after the run; retain the receipt and logs. Do not
 promote the bounded r7 receipt into a certified slot.
+
+## 2026-08-20 RC1 evidence and cleanup handoff
+
+Use the following exact source-locked receipts for the current RC1 candidate:
+
+```text
+/private/tmp/nereus-delay-v1-rc1-capacity-20260820-r2/certified-capacity-benchmark.json
+/private/tmp/nereus-delay-v1-rc1-soak-20260820-r1/certified-production-chain-soak.json
+/private/tmp/nereus-delay-v1-rc1-activation-20260820-r1/protocol-activation-cutover.json
+/private/tmp/nereus-delay-v1-rc1-operations-20260820-r1/operations-drills.json
+/private/tmp/nereus-delay-v1-rc1-chaos-20260820-r2/bounded-chaos-matrix.json
+/private/tmp/nereus-delay-v1-rc1-gate-20260820-r2/v1-release-candidate-gate.json
+```
+
+The four locks are Delay `698f30db219c4aa2fc4b14c5d0cf421253332dea`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The capacity and named soak
+profiles are `PASS_CERTIFIED` within their declared bounded policies. The
+activation, operations and 14-cell chaos receipts are `PASS_BOUNDED`; the
+release gate correctly reports `NOT_READY` and must not be overridden by an
+operator flag.
+
+The r2 chaos matrix is the canonical retry after a superseded r1 ACK-crash
+startup failure. A focused real Kafka/Oxia reproduction and the complete r2
+matrix both passed the ACK cut gate, fresh Worker replay, real Oxia authority,
+dedupe, ACK and final checkpoint. Preserve the r1 failure only if a diagnostic
+history is needed; it is not a release input.
+
+Cleanup policy for this campaign:
+
+- Verify no related process is alive before cleanup.
+- Verify exact Compose postchecks are empty for containers, projects,
+  networks, volumes and generated images.
+- Retain only the canonical receipt directories listed above and the locked
+  Oxia/MinIO base images needed for future evidence.
+- Move disposable Gradle homes, superseded retry artifacts and focused
+  diagnostic caches to Trash using exact paths. Do not use `docker system
+  prune`, broad globs, or recursive deletion against a source/worktree root.
+
+The RC1 gate is a release handoff, not a release approval: activation/cutover,
+operations authorization and release-certified chaos still require the
+separate `PASS_CERTIFIED` evidence defined by the gate.
