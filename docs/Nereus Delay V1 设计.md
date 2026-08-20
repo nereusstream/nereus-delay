@@ -4892,6 +4892,31 @@ Broker resource guard = mandatory exact-resource request fencing
 
 V1 不用本地 epoch 冒充远端 fencing，不用 Broker ACK 冒充 Schedule applied，不用最新 checkpoint 冒充完整恢复，不用多个局部 quota 冒充全局 hard limit，也不用非 strict Pulsar delayed delivery 冒充 `deliverAt`。
 
+## 27. 2026-08-21 RC1 发布认证快照
+
+本节记录当前发布收口的证据边界。前文按日期记录的 receipt 是冻结历史；当前 Gate 只接受本节列出的、在本节提交之后重新生成的 source-locked receipt。Delay 的精确 SHA 不在文档中自引用，而以每个 receipt 的 `source_locks.delay` 为唯一权威；K1、P1 和 Oxia 的锁分别为：
+
+- Kafka K1：`05849884ca81fad767fda058444d1e17c7f9cbf9`
+- Pulsar P1：`0a2536484cd3932801a98dc88ff112b2df88a1c7`
+- Oxia：`37a17bef17202d5fd6e23282da5fd26d94865484`
+
+最终证据路径固定为：
+
+```text
+/private/tmp/nereus-delay-v1-rc1-capacity-20260821-r2/certified-capacity-benchmark.json
+/private/tmp/nereus-delay-v1-rc1-soak-20260821-r5/certified-production-chain-soak.json
+/private/tmp/nereus-delay-v1-rc1-activation-20260821-r3/protocol-activation-cutover.json
+/private/tmp/nereus-delay-v1-rc1-operations-20260821-r2/operations-drills.json
+/private/tmp/nereus-delay-v1-certified-chaos-20260821-r3/certified-chaos-matrix.json
+/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r2/v1-release-candidate-gate.json
+```
+
+容量、真实 Kafka/Pulsar/Oxia/Worker/MinIO production-chain soak、协议激活/切换和 operations drills 分别只有在其声明 profile、四仓库 source lock、资源覆盖、独立字段 invariant 和清理检查同时通过时才能标记 `PASS_CERTIFIED`。14-cell chaos 的 bounded 子矩阵可以是 `PASS_BOUNDED`，但 certified wrapper 还要求每个单元都有 durable before/after dump、fresh-process recovery 和 `PASS`；当前只有 4/14 单元达到该证据级别，因此 certified chaos 必须保持 `BLOCKED`。
+
+因此当前 V1 release gate 必须保持 `release_status=NOT_READY`。这不是功能链未实现的结论，而是故障证明和发布证据尚未达到 promotion gate 的结论；不得用 bounded PASS、局部 E2E 或 operator flag 覆盖它。full Gradle check、四仓库 source checks 和 cross-repository contract validator 仍是 Gate 的前置条件。
+
+证据运行结束后，只保留上述 canonical receipt、锁定的 `nereus/oxia-o1:37a17bef1720` 和 `quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z` 基础镜像。相关 Gradle cache、失败诊断、过期 receipt 和本轮 `nereus-delay` 临时目录必须先确认没有进程、`.git` 或源码，再按精确路径移入 Trash；禁止 global Docker prune、宽泛 glob 或针对源码/worktree 根目录的递归删除。
+
 ## 参考资料
 
 - [R1] [DDMQ README @ 2f30b61a](https://github.com/didi/DDMQ/blob/2f30b61a5741d55a5b515f3d8d19a8a35be8c9e2/README.md)

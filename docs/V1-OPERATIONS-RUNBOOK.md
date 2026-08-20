@@ -1073,3 +1073,58 @@ fresh-process recovery and `INDEPENDENT_FIELDS_PASS`, with exact current
 source locks and empty generated Docker resources. The current implementation
 has four cells at that level, so certification remains `BLOCKED`; do not
 promote the bounded matrix into the release gate.
+
+## 2026-08-21 RC1 source-lock refresh and cleanup boundary
+
+This section is the current evidence handoff. Earlier receipt sections are
+frozen historical records and must not be used as the current release inputs.
+After the documentation commit containing this section, regenerate the
+receipts below without another source change. Each receipt's
+`source_locks.delay` is the authoritative Delay SHA; the other locks remain K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The current canonical receipt paths are:
+
+```text
+/private/tmp/nereus-delay-v1-rc1-capacity-20260821-r2/certified-capacity-benchmark.json
+/private/tmp/nereus-delay-v1-rc1-soak-20260821-r5/certified-production-chain-soak.json
+/private/tmp/nereus-delay-v1-rc1-activation-20260821-r3/protocol-activation-cutover.json
+/private/tmp/nereus-delay-v1-rc1-operations-20260821-r2/operations-drills.json
+/private/tmp/nereus-delay-v1-certified-chaos-20260821-r3/certified-chaos-matrix.json
+/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r2/v1-release-candidate-gate.json
+```
+
+The expected source-locked results are `PASS_CERTIFIED` for capacity, the
+four-case production-chain soak, protocol activation/cutover and operations
+drills. The certified chaos receipt remains `BLOCKED`: all 14 bounded cells
+must exit zero and therefore report `PASS_BOUNDED`, but only the independently
+audited durable/fresh-process/invariant cells may enter the certified slot.
+The current matrix has four such cells out of fourteen. The release gate must
+therefore remain `release_status=NOT_READY`; no V1 promotion or release
+approval may be inferred from the bounded result.
+
+The final gate command is:
+
+```bash
+NEREUS_DELAY_RELEASE_GATE_ARTIFACT_DIR=/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r2 \
+NEREUS_DELAY_RELEASE_GATE_GRADLE_USER_HOME=/private/tmp/nereus-delay-v1-rc1-soak-20260820-r3/gradle-user-home/kafka \
+NEREUS_DELAY_RELEASE_GATE_RUN_CHECK=1 \
+NEREUS_DELAY_RELEASE_GATE_ALLOW_NOT_READY=1 \
+NEREUS_DELAY_RELEASE_GATE_CAPACITY_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-capacity-20260821-r2/certified-capacity-benchmark.json \
+NEREUS_DELAY_RELEASE_GATE_SOAK_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-soak-20260821-r5/certified-production-chain-soak.json \
+NEREUS_DELAY_RELEASE_GATE_ACTIVATION_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-activation-20260821-r3/protocol-activation-cutover.json \
+NEREUS_DELAY_RELEASE_GATE_OPERATIONS_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-operations-20260821-r2/operations-drills.json \
+NEREUS_DELAY_RELEASE_GATE_CHAOS_ARTIFACT=/private/tmp/nereus-delay-v1-certified-chaos-20260821-r3/certified-chaos-matrix.json \
+bash e2e/run-v1-release-gate.sh
+```
+
+The full Gradle check, four source checks and cross-repository contract
+validator must all pass before this gate result is accepted. After every run,
+verify that the exact Compose postchecks are empty for containers, networks,
+volumes and generated images. Retain only the canonical receipts above and
+the locked Oxia base image `nereus/oxia-o1:37a17bef1720` and MinIO base image
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z`; move disposable Gradle
+caches, superseded receipts and diagnostics to Trash by exact path. Never use
+a global Docker prune or remove unrelated images/worktrees.
