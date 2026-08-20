@@ -357,19 +357,24 @@ public final class PulsarClientArtifactDestinationSmoke {
             if (index > 0) {
                 result.append(',');
             }
-            result.append('"').append(jsonEscape(fields[index])).append("\":\"")
-                    .append(jsonEscape(fields[index + 1])).append('"');
+            final String value = fields[index + 1];
+            result.append('"').append(jsonEscape(fields[index])).append("\":");
+            if ("true".equals(value) || "false".equals(value)) {
+                result.append(value);
+            } else {
+                result.append('"').append(jsonEscape(value)).append('"');
+            }
         }
         return result.append('}').append('\n').toString();
     }
 
     private static String field(final String json, final String name) {
         final Matcher matcher = Pattern.compile("\\\"" + Pattern.quote(name)
-                + "\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"").matcher(json);
+                + "\\\"\\s*:\\s*(?:\\\"([^\\\"]*)\\\"|([^,}\\s]+))").matcher(json);
         if (!matcher.find()) {
             throw new IllegalStateException("missing Pulsar response-loss state field: " + name);
         }
-        return matcher.group(1);
+        return matcher.group(1) != null ? matcher.group(1) : matcher.group(2);
     }
 
     private static String jsonEscape(final String value) {
