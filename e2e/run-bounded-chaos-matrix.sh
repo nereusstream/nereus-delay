@@ -152,11 +152,12 @@ audit_cell() {
       injection_point="checkpoint upload/catalog/reaping competition against real Oxia and MinIO"
       expected_state="only the authorized checkpoint candidate is published/reaped and immutable object identity is preserved"
       duplicate_boundary="late provider work cannot delete or activate a fenced checkpoint"
-      fresh_process_recovery="NOT_COVERED"
+      fresh_process_recovery="PASS"
       source_evidence="Oxia + MinIO Worker checkpoint publication and REAPING E2E passed"
       target_evidence="Oxia + MinIO Worker checkpoint publication and REAPING E2E passed"
       authority_evidence="Oxia + MinIO Worker checkpoint publication and REAPING E2E passed"
-      required_markers=("Oxia + MinIO Worker checkpoint publication and REAPING E2E passed")
+      required_markers=("Oxia + MinIO Worker checkpoint publication and REAPING E2E passed"
+        "Oxia + MinIO checkpoint REAPING fresh-process recovery E2E passed")
       ;;
     kafka-fetch-response-loss)
       injection_point="discard a real read_committed guarded Fetch v13 response, then reopen the same group in a fresh JVM"
@@ -575,6 +576,58 @@ audit_cell() {
       audit_status="FAIL"
     fi
   fi
+  if [[ "${name}" == "checkpoint-reaping" ]]; then
+    local state_dump_dir="${artifact_dir}/checkpoint-reaping-state"
+    local before_dump="${state_dump_dir}/before-process-crash.json"
+    local after_dump="${state_dump_dir}/after-fresh-process.json"
+    if [[ -s "${before_dump}" && -s "${after_dump}" ]] \
+        && jq -e \
+          --slurpfile before "${before_dump}" \
+          --slurpfile after "${after_dump}" \
+          -n '
+            ($before[0]) as $pre
+            | ($after[0]) as $post
+            | $pre.schema == "nereus-delay-chaos-durable-state-dump-v1"
+              and $post.schema == "nereus-delay-chaos-durable-state-dump-v1"
+              and $pre.cell == "checkpoint-reaping"
+              and $post.cell == $pre.cell
+              and $pre.phase == "REAPING_READY"
+              and $post.phase == "RECOVERED_AFTER_FRESH_PROCESS"
+              and ($pre.authority_prefix == $post.authority_prefix)
+              and ($pre.pending_intent_digest_base64 == $post.pending_intent_digest_base64)
+              and ($pre.route_uuid == $post.route_uuid)
+              and ($pre.partition == $post.partition)
+              and ($pre.recovery_lineage_id_base64 == $post.recovery_lineage_id_base64)
+              and ($pre.checkpoint_id_base64 == $post.checkpoint_id_base64)
+              and ($pre.source_store_incarnation_base64 == $post.source_store_incarnation_base64)
+              and ($pre.owner_released == true)
+              and ($pre.provider_ownership_closed == true)
+              and ($pre.object_versions_present == true)
+              and ($post.owner_current_absent == true)
+              and ($post.provider_quiescence_proof_bound == true)
+              and ($pre.durable_store_read == true)
+              and ($post.durable_store_read == true)
+              and ($pre.dump_forced == true)
+              and ($post.dump_forced == true)
+              and ($post.reaping_intent_state == "REAPING")
+              and ($pre.expected_version_count | tonumber) == ($post.listed_version_count | tonumber)
+              and ($post.listed_version_count | tonumber) == ($post.deleted_version_count | tonumber)
+              and ($post.prefix_empty == true)
+              and ($pre.process_pid != $post.process_pid)
+          ' >/dev/null; then
+      durable_state_dump_status="CAPTURED_AND_VERIFIED"
+      invariant_audit_status="INDEPENDENT_FIELDS_PASS"
+      durable_state_dump_note="external fsync-forced Oxia Intent/Owner/Object Store dump before and after separate REAPING JVM"
+      invariant_audit_note="intent digest, Route/checkpoint/store identities, owner absence, exact version counts, empty prefix and process identity were independently compared"
+    else
+      fresh_process_recovery="FAIL"
+      durable_state_dump_status="FAIL"
+      invariant_audit_status="FAIL"
+      durable_state_dump_note="required checkpoint REAPING pre-process and post-process dumps were missing or failed cross-process validation"
+      invariant_audit_note="independent Intent/Owner/Object Store reaping-field comparison failed"
+      audit_status="FAIL"
+    fi
+  fi
   if [[ "${result_status}" != "0" || "${marker_status}" != "PASS" ]]; then
     audit_status="FAIL"
   fi
@@ -737,6 +790,9 @@ run_cell pulsar-worker-destination-response-loss env \
 run_cell checkpoint-reaping env \
   NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
   NEREUS_DELAY_E2E_GRADLE_USER_HOME="${matrix_gradle_home}" \
+  NEREUS_DELAY_CHECKPOINT_REAPING_FRESH_PROCESS=1 \
+  NEREUS_DELAY_CHECKPOINT_REAPING_STATE_DUMP_DIR="${artifact_dir}/checkpoint-reaping-state" \
+  NEREUS_DELAY_CHECKPOINT_REAPING_PREFIX="nereus-delay-chaos-reaping/$(date +%s)-$$" \
   NEREUS_DELAY_OXIA_CHECKPOINT_E2E_PORT=31300 \
   NEREUS_DELAY_MINIO_CHECKPOINT_E2E_PORT=31301 \
   "${script_dir}/run-oxia-minio-checkpoint-e2e.sh"
