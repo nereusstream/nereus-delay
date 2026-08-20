@@ -18,6 +18,7 @@ capacity_artifact="${NEREUS_DELAY_RELEASE_GATE_CAPACITY_ARTIFACT:-}"
 soak_artifact="${NEREUS_DELAY_RELEASE_GATE_SOAK_ARTIFACT:-}"
 certified_capacity_profile_id="${NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CAPACITY_PROFILE_ID:-}"
 certified_soak_profile_id="${NEREUS_DELAY_RELEASE_GATE_CERTIFIED_SOAK_PROFILE_ID:-}"
+certified_operations_profile_id="${NEREUS_DELAY_RELEASE_GATE_CERTIFIED_OPERATIONS_PROFILE_ID:-}"
 activation_artifact="${NEREUS_DELAY_RELEASE_GATE_ACTIVATION_ARTIFACT:-}"
 operations_artifact="${NEREUS_DELAY_RELEASE_GATE_OPERATIONS_ARTIFACT:-}"
 
@@ -146,6 +147,10 @@ check_certified_artifact() {
     add_check "${name}" "BLOCKED" "no explicitly approved certified-capacity profile id was supplied to the release gate" "${path}"
     return
   fi
+  if [[ "${name}" == "operations-drills" && -z "${certified_operations_profile_id}" ]]; then
+    add_check "${name}" "BLOCKED" "no explicitly approved certified-operations profile id was supplied to the release gate" "${path}"
+    return
+  fi
   local status
   status="$(jq -r '.status // .matrix_status // "UNKNOWN"' "${path}")"
   if [[ "${status}" == "PASS_CERTIFIED" ]]; then
@@ -247,6 +252,28 @@ check_certified_artifact() {
         and (.docker_postcheck.networks | length == 0)
         and (.docker_postcheck.volumes | length == 0)
         and (.docker_postcheck.generated_images | length == 0)'
+    elif [[ "${name}" == "operations-drills" ]]; then
+      artifact_check='(.schema == "nereus-delay-certified-operations-drills-v1")
+        and (.status == "PASS_CERTIFIED")
+        and (.profile_id == $release_operations_profile_id)
+        and (.execution == "strict-sequential")
+        and (.source_checks_pass == true)
+        and (.bounded_operations | type == "object")
+        and (.bounded_operations.status == "PASS")
+        and (.bounded_operations.exit_code == 0)
+        and (.bounded_operations.docker_cleanup == "PASS")
+        and (.evidence | type == "object")
+        and (.evidence.operator_authorization == "PASS")
+        and (.evidence.capability_before_activation_marker == "PASS")
+        and (.evidence.fresh_process_recovery == "PASS")
+        and (.multi_worker_soak | type == "object")
+        and (.multi_worker_soak.status == "PASS_CERTIFIED")
+        and (.multi_worker_soak.artifact | type == "string" and length > 0)
+        and (.source_locks | type == "object")
+        and (.source_locks.delay == $delay)
+        and (.source_locks.kafka == $kafka)
+        and (.source_locks.pulsar == $pulsar)
+        and (.source_locks.oxia == $oxia)'
     fi
     if jq -e \
       --arg delay "${checkout_source}" \
@@ -255,11 +282,14 @@ check_certified_artifact() {
       --arg oxia "${oxia_source}" \
       --arg release_capacity_profile_id "${certified_capacity_profile_id}" \
       --arg release_profile_id "${certified_soak_profile_id}" \
+      --arg release_operations_profile_id "${certified_operations_profile_id}" \
       "${artifact_check}" "${path}" >/dev/null 2>&1; then
       if [[ "${name}" == "certified-soak" ]]; then
         add_check "${name}" "PASS" "artifact is schema-valid PASS_CERTIFIED soak evidence and source-locked to the current four-repository candidate" "${path}"
       elif [[ "${name}" == "benchmark-capacity" ]]; then
         add_check "${name}" "PASS" "artifact is schema-valid PASS_CERTIFIED bounded-capacity evidence and source-locked to the current four-repository candidate" "${path}"
+      elif [[ "${name}" == "operations-drills" ]]; then
+        add_check "${name}" "PASS" "artifact is schema-valid PASS_CERTIFIED operations evidence and source-locked to the current four-repository candidate" "${path}"
       else
         add_check "${name}" "PASS" "artifact is PASS_CERTIFIED and source-locked to the current four-repository candidate" "${path}"
       fi
@@ -268,6 +298,8 @@ check_certified_artifact() {
         add_check "${name}" "BLOCKED" "certified soak artifact schema, policy, observations, cleanup or exact source_locks are invalid" "${path}"
       elif [[ "${name}" == "benchmark-capacity" ]]; then
         add_check "${name}" "BLOCKED" "certified capacity artifact schema, profile, case/resource policy, cleanup or exact source_locks are invalid" "${path}"
+      elif [[ "${name}" == "operations-drills" ]]; then
+        add_check "${name}" "BLOCKED" "certified operations artifact schema, profile, authority/fresh-process evidence, soak input or exact source_locks are invalid" "${path}"
       else
         add_check "${name}" "BLOCKED" "PASS_CERTIFIED artifact does not carry exact current Delay/Kafka/Pulsar/Oxia source_locks" "${path}"
       fi
