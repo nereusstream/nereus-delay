@@ -16499,3 +16499,38 @@ volumes, Compose projects or generated images remain. The canonical Oxia base
 image is retained; disposable Gradle caches and superseded temporary retries
 are not release artifacts and are removed separately without touching source
 worktrees or Git metadata.
+
+## 2026-08-21 RC1 final source-lock refresh
+
+This is the current implementation/evidence snapshot. Earlier dated sections
+are frozen history. The canonical receipts below are regenerated after the
+commit containing this section; each receipt's `source_locks.delay` is the
+authoritative Delay SHA. K1 remains
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1 remains
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia remains
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+```text
+/private/tmp/nereus-delay-v1-rc1-capacity-20260821-r4/certified-capacity-benchmark.json
+/private/tmp/nereus-delay-v1-rc1-soak-20260821-r7/certified-production-chain-soak.json
+/private/tmp/nereus-delay-v1-rc1-activation-20260821-r5/protocol-activation-cutover.json
+/private/tmp/nereus-delay-v1-rc1-operations-20260821-r4/operations-drills.json
+/private/tmp/nereus-delay-v1-certified-chaos-20260821-r5/certified-chaos-matrix.json
+/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r4/v1-release-candidate-gate.json
+```
+
+Capacity, production-chain soak, activation/cutover and operations drills
+are expected to be `PASS_CERTIFIED` for their declared profiles. The
+14-cell bounded chaos child is expected to be `PASS_BOUNDED` with 14/14 zero
+cells, while the certified chaos wrapper remains `BLOCKED` until every cell
+has durable before/after state, fresh-process recovery and independent-field
+invariants. Four cells currently meet that evidence level; the other ten are
+explicitly not captured at certified level. The fail-closed V1 Gate therefore
+remains `release_status=NOT_READY`.
+
+At this source lock, the full Gradle check, four source checks and
+cross-repository validator must pass. Generated run-scoped Docker resources
+must be empty after every run. Retain only the six canonical receipts and the
+locked Oxia/MinIO base images; move disposable Gradle caches and superseded
+diagnostics to Trash by exact path. This snapshot does not promote bounded
+evidence or a partial chaos union into release approval.

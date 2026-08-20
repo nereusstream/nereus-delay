@@ -4903,12 +4903,12 @@ V1 不用本地 epoch 冒充远端 fencing，不用 Broker ACK 冒充 Schedule a
 最终证据路径固定为：
 
 ```text
-/private/tmp/nereus-delay-v1-rc1-capacity-20260821-r3/certified-capacity-benchmark.json
-/private/tmp/nereus-delay-v1-rc1-soak-20260821-r6/certified-production-chain-soak.json
-/private/tmp/nereus-delay-v1-rc1-activation-20260821-r4/protocol-activation-cutover.json
-/private/tmp/nereus-delay-v1-rc1-operations-20260821-r3/operations-drills.json
-/private/tmp/nereus-delay-v1-certified-chaos-20260821-r4/certified-chaos-matrix.json
-/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r3/v1-release-candidate-gate.json
+/private/tmp/nereus-delay-v1-rc1-capacity-20260821-r4/certified-capacity-benchmark.json
+/private/tmp/nereus-delay-v1-rc1-soak-20260821-r7/certified-production-chain-soak.json
+/private/tmp/nereus-delay-v1-rc1-activation-20260821-r5/protocol-activation-cutover.json
+/private/tmp/nereus-delay-v1-rc1-operations-20260821-r4/operations-drills.json
+/private/tmp/nereus-delay-v1-certified-chaos-20260821-r5/certified-chaos-matrix.json
+/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r4/v1-release-candidate-gate.json
 ```
 
 容量、真实 Kafka/Pulsar/Oxia/Worker/MinIO production-chain soak、协议激活/切换和 operations drills 分别只有在其声明 profile、四仓库 source lock、资源覆盖、独立字段 invariant 和清理检查同时通过时才能标记 `PASS_CERTIFIED`。14-cell chaos 的 bounded 子矩阵可以是 `PASS_BOUNDED`，但 certified wrapper 还要求每个单元都有 durable before/after dump、fresh-process recovery 和 `PASS`；当前只有 4/14 单元达到该证据级别，因此 certified chaos 必须保持 `BLOCKED`。

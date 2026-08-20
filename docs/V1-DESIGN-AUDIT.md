@@ -13140,3 +13140,33 @@ canonical `nereus/oxia-o1:37a17bef1720` base remains for reuse; no global
 Docker prune or unrelated-image deletion was performed. Disposable Gradle
 homes and superseded retry/diagnostic directories are cleanup targets only;
 the six small canonical RC1 receipt directories remain available for audit.
+
+### 2026-08-21 RC1 final source-lock refresh
+
+The current audit inputs are the receipts generated after the documentation
+commit containing this section:
+
+```text
+/private/tmp/nereus-delay-v1-rc1-capacity-20260821-r4/certified-capacity-benchmark.json
+/private/tmp/nereus-delay-v1-rc1-soak-20260821-r7/certified-production-chain-soak.json
+/private/tmp/nereus-delay-v1-rc1-activation-20260821-r5/protocol-activation-cutover.json
+/private/tmp/nereus-delay-v1-rc1-operations-20260821-r4/operations-drills.json
+/private/tmp/nereus-delay-v1-certified-chaos-20260821-r5/certified-chaos-matrix.json
+/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r4/v1-release-candidate-gate.json
+```
+
+Use each receipt's exact `source_locks` as authority. The final candidate is
+expected to show `PASS_CERTIFIED` for capacity, the four-case real
+Kafka/Pulsar/Oxia/Worker/MinIO soak, activation/cutover and operations. The
+14-cell bounded chaos matrix is scoped `PASS_BOUNDED` with 14/14 zero cells,
+but its certified wrapper remains `BLOCKED` because only four cells currently
+have durable state dumps, fresh-process recovery and
+`INDEPENDENT_FIELDS_PASS`; the remaining ten retain the explicit
+`NOT_CAPTURED`/`MARKER_ONLY` boundary. Consequently the release gate must
+remain `release_status=NOT_READY`.
+
+Source cleanliness, cross-repository contract validation and full Gradle
+`check` are mandatory gate inputs. Empty run-scoped Docker postchecks and
+exact-path, recoverable cleanup are part of the receipt contract. No local
+bounded marker, partial chaos union or operator override may be promoted to a
+V1 release certificate.
