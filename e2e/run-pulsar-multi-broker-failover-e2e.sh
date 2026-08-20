@@ -89,6 +89,27 @@ wait_for_admin() {
   return 1
 }
 
+wait_for_admin_stable() {
+  local url="$1"
+  local deadline=$((SECONDS + 120))
+  local consecutive=0
+  while (( SECONDS < deadline )); do
+    if curl --silent --fail "${url}/admin/v2/brokers/ready" >/dev/null 2>&1; then
+      consecutive=$((consecutive + 1))
+      if (( consecutive >= 3 )); then
+        return 0
+      fi
+    else
+      consecutive=0
+    fi
+    sleep 2
+  done
+  echo "Pulsar broker did not become stably ready: ${url}" >&2
+  "${compose[@]}" ps >&2 || true
+  "${compose[@]}" logs >&2 || true
+  return 1
+}
+
 wait_for_oxia() {
   local deadline=$((SECONDS + 120))
   while (( SECONDS < deadline )); do
@@ -183,7 +204,7 @@ echo "Pulsar Worker Oxia authority: ${with_oxia}"
 
 "${compose[@]}" up -d
 wait_for_admin "${admin_url_before}"
-wait_for_admin "${admin_url_after}"
+wait_for_admin_stable "${admin_url_after}"
 
 if [[ "${with_oxia}" == "1" ]]; then
   test -d "${oxia_checkout}"
@@ -200,7 +221,7 @@ if [[ "${broker_process_crash}" == "1" ]]; then
 else
   "${compose[@]}" stop pulsar-broker-1
 fi
-wait_for_admin "${admin_url_after}"
+wait_for_admin_stable "${admin_url_after}"
 run_broker_recovery_state_smoke "${admin_url_after}" \
   "${broker_recovery_admin_endpoint_after}" after
 run_worker "${service_url_failover}" "${admin_url_after}" resume

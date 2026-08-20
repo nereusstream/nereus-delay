@@ -20,7 +20,7 @@ public final class PulsarClientArtifactBrokerProcessCrashStateSmoke {
     private static final Pattern LEDGER_ID = Pattern.compile("\\\"ledgerId\\\"\\s*:\\s*(-?\\d+)");
     private static final Pattern LEDGER_RECORD = Pattern.compile(
             "\\\"ledgerId\\\"\\s*:\\s*(-?\\d+)\\s*,\\s*\\\"entries\\\"\\s*:\\s*(\\d+)");
-    private static final int ADMIN_REQUEST_ATTEMPTS = 20;
+    private static final int ADMIN_REQUEST_ATTEMPTS = 60;
     private static final long ADMIN_REQUEST_RETRY_MILLIS = 1_000L;
 
     private PulsarClientArtifactBrokerProcessCrashStateSmoke() {
