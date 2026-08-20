@@ -301,7 +301,7 @@ public final class PulsarClientArtifactWorkerSmoke {
 
                     if (waitForProcessCrash && !hasAdmissionResponseLossProcessCrash()
                             && !hasDestinationResponseLossProcessCrash()) {
-                        awaitWorkerProcessCrashGate(root);
+                        awaitWorkerProcessCrashGate(root, store, physicalTopic, shard);
                     }
 
                     try (PulsarClientArtifactRecoverySourceCursor recovery =
@@ -521,6 +521,12 @@ public final class PulsarClientArtifactWorkerSmoke {
                                                 "PUBLISHED", true, null, null, null);
                                     }
                                 }
+                            }
+                            if (hasWorkerProcessCrash() && !waitForProcessCrash
+                                    && !hasAdmissionResponseLossProcessCrash()
+                                    && !hasDestinationResponseLossProcessCrash()) {
+                                writeWorkerProcessStateDump("RECOVERED_AFTER_FRESH_PROCESS", root, store,
+                                        physicalTopic, shard, true);
                             }
                             final Path checkpointPath = root.resolve("worker-final-checkpoint");
                             final byte[] checkpointId = Arrays.copyOf(
@@ -1932,7 +1938,8 @@ public final class PulsarClientArtifactWorkerSmoke {
         }
     }
 
-    private static void awaitWorkerProcessCrashGate(final Path root) throws Exception {
+    private static void awaitWorkerProcessCrashGate(final Path root, final ShardStore store,
+                                                    final String physicalTopic, final ShardId shard) throws Exception {
         final String gate = System.getenv("NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_GATE");
         final String pidFile = System.getenv("NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_PID_FILE");
         if (gate == null || gate.isBlank() || pidFile == null || pidFile.isBlank()) {
@@ -1945,6 +1952,7 @@ public final class PulsarClientArtifactWorkerSmoke {
         Files.deleteIfExists(pidPath);
         Files.createFile(gatePath);
         Files.writeString(pidPath, Long.toString(ProcessHandle.current().pid()));
+        writeWorkerProcessStateDump("PULSAR_WORKER_PROCESS_CRASH_READY", root, store, physicalTopic, shard, false);
         System.out.println("Pulsar Worker process-crash cut reached: sourceRuntimeReady=true, "
                 + "nextSourceRecordUnacked=true, storeRoot=" + root);
         while (Files.exists(gatePath)) {
@@ -1954,6 +1962,10 @@ public final class PulsarClientArtifactWorkerSmoke {
 
     private static boolean hasAdmissionResponseLossProcessCrash() {
         return "1".equals(System.getenv("NEREUS_DELAY_PULSAR_WORKER_ADMISSION_RESPONSE_LOSS_PROCESS_CRASH_ONLY"));
+    }
+
+    private static boolean hasWorkerProcessCrash() {
+        return "1".equals(System.getenv("NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_ONLY"));
     }
 
     private static boolean hasDestinationResponseLossProcessCrash() {
@@ -2055,6 +2067,49 @@ public final class PulsarClientArtifactWorkerSmoke {
                 + "  \"attempt_source_position\": " + jsonNullable(attemptSourcePosition) + ",\n"
                 + "  \"message_id\": " + jsonNullable(messageId) + ",\n"
                 + "  \"outcome_applied\": " + outcomeApplied + ",\n"
+                + "  \"durable_store_read\": true,\n"
+                + "  \"dump_forced\": true\n"
+                + "}\n";
+        try (FileChannel channel = FileChannel.open(target, StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
+            channel.write(java.nio.ByteBuffer.wrap(json.getBytes(StandardCharsets.UTF_8)));
+            channel.force(true);
+        }
+    }
+
+    private static void writeWorkerProcessStateDump(final String phase, final Path root, final ShardStore store,
+                                                    final String physicalTopic, final ShardId shard,
+                                                    final boolean sourceAckCommitted) throws Exception {
+        final Path directory = chaosStateDumpDirectory();
+        if (directory == null) {
+            return;
+        }
+        Files.createDirectories(directory);
+        final Path target = directory.resolve(
+                "PULSAR_WORKER_PROCESS_CRASH_READY".equals(phase)
+                        ? "before-process-crash.json" : "after-fresh-process.json");
+        final var metadata = store.metadata();
+        final var appliedPosition = store.appliedShardLogPosition();
+        final String appliedSourcePosition = appliedPosition == null
+                ? null : Bytes.hex(appliedPosition.canonicalBytes());
+        final String shardValue = metadata.shardId().routeIncarnation().uuid() + "/" + metadata.shardId().partition();
+        final String json = "{\n"
+                + "  \"schema\": \"nereus-delay-chaos-durable-state-dump-v1\",\n"
+                + "  \"cell\": \"pulsar-worker-process-crash\",\n"
+                + "  \"phase\": " + jsonString(phase) + ",\n"
+                + "  \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
+                + "  \"store_root\": " + jsonString(root.toString()) + ",\n"
+                + "  \"physical_topic\": " + jsonString(physicalTopic) + ",\n"
+                + "  \"cluster_id\": " + jsonString(CLUSTER) + ",\n"
+                + "  \"route_uuid\": " + jsonString(metadata.shardId().routeIncarnation().uuid().toString()) + ",\n"
+                + "  \"shard\": " + jsonString(shardValue) + ",\n"
+                + "  \"partition\": " + shard.partition() + ",\n"
+                + "  \"store_incarnation\": " + jsonString(Bytes.hex(metadata.storeIncarnation())) + ",\n"
+                + "  \"db_identity\": " + jsonString(Bytes.hex(metadata.dbIdentity())) + ",\n"
+                + "  \"applied_source_position\": " + jsonNullable(appliedSourcePosition) + ",\n"
+                + "  \"source_record_prepared\": true,\n"
+                + "  \"source_record_applied\": " + sourceAckCommitted + ",\n"
+                + "  \"source_ack_committed\": " + sourceAckCommitted + ",\n"
                 + "  \"durable_store_read\": true,\n"
                 + "  \"dump_forced\": true\n"
                 + "}\n";

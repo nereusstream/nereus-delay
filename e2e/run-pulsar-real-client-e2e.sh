@@ -590,7 +590,12 @@ if [[ "${worker_process_crash_only}" == "1" ]]; then
   worker_process_crash_log="${worker_process_crash_dir}/crash.log"
   worker_process_crash_resume_log="${worker_process_crash_dir}/resume.log"
   worker_process_crash_root="${worker_process_crash_dir}/state"
+  worker_process_crash_state_dump_dir="${NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_STATE_DUMP_DIR:-${worker_process_crash_dir}/state-dumps}"
+  mkdir -p "${worker_process_crash_state_dump_dir}"
+  rm -f "${worker_process_crash_state_dump_dir}/before-process-crash.json" \
+    "${worker_process_crash_state_dump_dir}/after-fresh-process.json"
   export NEREUS_DELAY_PULSAR_WORKER_ROOT="${worker_process_crash_root}"
+  export NEREUS_DELAY_PULSAR_CHAOS_STATE_DUMP_DIR="${worker_process_crash_state_dump_dir}"
   export NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_GATE="${worker_process_crash_gate}"
   export NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_PID_FILE="${worker_process_crash_pid_file}"
   rm -f "${worker_process_crash_gate}" "${worker_process_crash_pid_file}"
@@ -635,6 +640,20 @@ if [[ "${worker_process_crash_only}" == "1" ]]; then
     echo "Pulsar Worker process-crash JVM unexpectedly returned success after SIGKILL" >&2
     exit 1
   fi
+  if ! jq -e '
+        .schema == "nereus-delay-chaos-durable-state-dump-v1"
+        and .cell == "pulsar-worker-process-crash"
+        and .phase == "PULSAR_WORKER_PROCESS_CRASH_READY"
+        and .source_record_prepared == true
+        and .source_record_applied == false
+        and .source_ack_committed == false
+        and .durable_store_read == true
+        and .dump_forced == true
+      ' "${worker_process_crash_state_dump_dir}/before-process-crash.json" >/dev/null; then
+    cat "${worker_process_crash_state_dump_dir}/before-process-crash.json" >&2
+    echo "Pulsar Worker process-crash pre-crash durable state dump failed validation" >&2
+    exit 1
+  fi
   for attempt in $(seq 1 90); do
     set +e
     run_focused_worker_smoke "${topic}" "" resume >"${worker_process_crash_resume_log}" 2>&1
@@ -653,6 +672,21 @@ if [[ "${worker_process_crash_only}" == "1" ]]; then
   done
   rg -F --quiet "Pulsar Worker vertical smoke passed" "${worker_process_crash_resume_log}" \
     || { cat "${worker_process_crash_resume_log}" >&2; exit 1; }
+  if ! jq -e '
+        .schema == "nereus-delay-chaos-durable-state-dump-v1"
+        and .cell == "pulsar-worker-process-crash"
+        and .phase == "RECOVERED_AFTER_FRESH_PROCESS"
+        and .source_record_prepared == true
+        and .source_record_applied == true
+        and .source_ack_committed == true
+        and (.applied_source_position | (type == "string" and length > 0))
+        and .durable_store_read == true
+        and .dump_forced == true
+      ' "${worker_process_crash_state_dump_dir}/after-fresh-process.json" >/dev/null; then
+    cat "${worker_process_crash_state_dump_dir}/after-fresh-process.json" >&2
+    echo "Pulsar Worker process-crash post-recovery durable state dump failed validation" >&2
+    exit 1
+  fi
   echo "Pulsar Worker process-crash recovery E2E passed: a real Worker JVM was SIGKILLed after opening the guarded source/runtime with the next record unACKed, and a fresh JVM reopened the exact local Store, reacquired the real Oxia lease, replayed and ACKed the source record, and published the final checkpoint."
   exit 0
 fi

@@ -328,6 +328,57 @@ audit_cell() {
       audit_status="FAIL"
     fi
   fi
+  if [[ "${name}" == "pulsar-worker-process-crash" ]]; then
+    local state_dump_dir="${artifact_dir}/pulsar-worker-process-crash-state"
+    local before_dump="${state_dump_dir}/before-process-crash.json"
+    local after_dump="${state_dump_dir}/after-fresh-process.json"
+    if [[ -s "${before_dump}" && -s "${after_dump}" ]] \
+        && jq -e \
+          --slurpfile before "${before_dump}" \
+          --slurpfile after "${after_dump}" \
+          -n '
+            ($before[0]) as $pre
+            | ($after[0]) as $post
+            | $pre.schema == "nereus-delay-chaos-durable-state-dump-v1"
+              and $post.schema == "nereus-delay-chaos-durable-state-dump-v1"
+              and $pre.cell == "pulsar-worker-process-crash"
+              and $post.cell == $pre.cell
+              and $pre.phase == "PULSAR_WORKER_PROCESS_CRASH_READY"
+              and $post.phase == "RECOVERED_AFTER_FRESH_PROCESS"
+              and ($pre.physical_topic == $post.physical_topic)
+              and ($pre.cluster_id == $post.cluster_id)
+              and ($pre.route_uuid == $post.route_uuid)
+              and ($pre.shard == $post.shard)
+              and ($pre.partition == $post.partition)
+              and ($pre.store_root == $post.store_root)
+              and ($pre.store_incarnation == $post.store_incarnation)
+              and ($pre.db_identity == $post.db_identity)
+              and $pre.source_record_prepared == true
+              and $post.source_record_prepared == true
+              and $pre.source_record_applied == false
+              and $post.source_record_applied == true
+              and $pre.source_ack_committed == false
+              and $post.source_ack_committed == true
+              and ($post.applied_source_position | (type == "string" and length > 0))
+              and $pre.durable_store_read == true
+              and $post.durable_store_read == true
+              and $pre.dump_forced == true
+              and $post.dump_forced == true
+              and ($pre.process_pid != $post.process_pid)
+          ' >/dev/null; then
+      durable_state_dump_status="CAPTURED_AND_VERIFIED"
+      invariant_audit_status="INDEPENDENT_FIELDS_PASS"
+      durable_state_dump_note="external fsync-forced Store identity/source-apply dump before SIGKILL and after fresh-process recovery"
+      invariant_audit_note="topic, shard, Store identity, source-apply/ACK boundary and process identity were independently compared"
+    else
+      fresh_process_recovery="FAIL"
+      durable_state_dump_status="FAIL"
+      invariant_audit_status="FAIL"
+      durable_state_dump_note="required Worker pre-crash and post-recovery dumps were missing or failed cross-process validation"
+      invariant_audit_note="independent Worker durable-field comparison failed"
+      audit_status="FAIL"
+    fi
+  fi
   if [[ "${name}" == "pulsar-worker-admission-response-loss" ]]; then
     local state_dump_dir="${artifact_dir}/pulsar-worker-admission-response-loss-state"
     local before_dump="${state_dump_dir}/before-process-crash.json"
@@ -642,6 +693,7 @@ run_cell pulsar-worker-process-crash env \
   NEREUS_DELAY_PULSAR_WITH_OXIA=1 \
   NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH=1 \
   NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_ONLY=1 \
+  NEREUS_DELAY_PULSAR_WORKER_PROCESS_CRASH_STATE_DUMP_DIR="${artifact_dir}/pulsar-worker-process-crash-state" \
   NEREUS_DELAY_PULSAR_GRADLE_USER_HOME="${matrix_gradle_home}" \
   PULSAR_BROKER_PORT=31260 PULSAR_WEB_PORT=31261 \
   NEREUS_DELAY_PULSAR_OXIA_PORT=31270 \
@@ -780,9 +832,12 @@ retention_invariant_status="$(jq -r '."kafka-retention-floor".audit.invariant_au
 worker_ack_dump_status="$(jq -r '."kafka-worker-ack-process-crash".audit.durable_state_dump.status' "${cells_json}")"
 worker_ack_recovery_status="$(jq -r '."kafka-worker-ack-process-crash".audit.fresh_process_recovery' "${cells_json}")"
 worker_ack_invariant_status="$(jq -r '."kafka-worker-ack-process-crash".audit.invariant_audit.status' "${cells_json}")"
-durable_state_dump_summary="CELL_SPECIFIC; kafka-worker-ack-process-crash ${worker_ack_dump_status}; kafka-fetch-response-loss ${fetch_dump_status}; kafka-retention-floor ${retention_dump_status}; pulsar-worker-admission-response-loss ${admission_dump_status}; pulsar-worker-destination-response-loss ${destination_dump_status}; other cells NOT_CAPTURED"
-fresh_process_recovery_summary="CELL_SPECIFIC; kafka-worker-ack-process-crash ${worker_ack_recovery_status}; kafka-fetch-response-loss ${fetch_recovery_status}; kafka-retention-floor ${retention_recovery_status}; pulsar-worker-admission-response-loss ${admission_recovery_status}; pulsar-worker-destination-response-loss ${destination_recovery_status}; other cells NOT_COVERED"
-invariant_audit_summary="CELL_SPECIFIC; kafka-worker-ack-process-crash ${worker_ack_invariant_status}; kafka-fetch-response-loss ${fetch_invariant_status}; kafka-retention-floor ${retention_invariant_status}; pulsar-worker-admission-response-loss ${admission_invariant_status}; pulsar-worker-destination-response-loss ${destination_invariant_status}; other cells MARKER_ONLY"
+worker_process_dump_status="$(jq -r '."pulsar-worker-process-crash".audit.durable_state_dump.status' "${cells_json}")"
+worker_process_recovery_status="$(jq -r '."pulsar-worker-process-crash".audit.fresh_process_recovery' "${cells_json}")"
+worker_process_invariant_status="$(jq -r '."pulsar-worker-process-crash".audit.invariant_audit.status' "${cells_json}")"
+durable_state_dump_summary="CELL_SPECIFIC; kafka-worker-ack-process-crash ${worker_ack_dump_status}; pulsar-worker-process-crash ${worker_process_dump_status}; kafka-fetch-response-loss ${fetch_dump_status}; kafka-retention-floor ${retention_dump_status}; pulsar-worker-admission-response-loss ${admission_dump_status}; pulsar-worker-destination-response-loss ${destination_dump_status}; other cells NOT_CAPTURED"
+fresh_process_recovery_summary="CELL_SPECIFIC; kafka-worker-ack-process-crash ${worker_ack_recovery_status}; pulsar-worker-process-crash ${worker_process_recovery_status}; kafka-fetch-response-loss ${fetch_recovery_status}; kafka-retention-floor ${retention_recovery_status}; pulsar-worker-admission-response-loss ${admission_recovery_status}; pulsar-worker-destination-response-loss ${destination_recovery_status}; other cells NOT_COVERED"
+invariant_audit_summary="CELL_SPECIFIC; kafka-worker-ack-process-crash ${worker_ack_invariant_status}; pulsar-worker-process-crash ${worker_process_invariant_status}; kafka-fetch-response-loss ${fetch_invariant_status}; kafka-retention-floor ${retention_invariant_status}; pulsar-worker-admission-response-loss ${admission_invariant_status}; pulsar-worker-destination-response-loss ${destination_invariant_status}; other cells MARKER_ONLY"
 if [[ "${matrix_status}" == "0" ]]; then
   matrix_result="PASS_BOUNDED"
 else
@@ -818,7 +873,7 @@ jq -n \
     boundaries: [
       "This is a bounded current-source fault matrix, not V1 release certification.",
       "Each bounded cell must emit its declared injection and required recovery markers; missing markers fail the bounded artifact.",
-      "The Kafka Worker ACK process-crash, Fetch/retention-floor and Pulsar Worker Publish Admission/destination response-loss cells capture and independently audit external durable state dumps; the remaining cells still require their own §23.3 durable evidence.",
+      "The Kafka Worker ACK, Pulsar Worker process-crash, Fetch/retention-floor and Pulsar Worker Publish Admission/destination response-loss cells capture and independently audit external durable state dumps; the remaining cells still require their own §23.3 durable evidence.",
       "A release gate must additionally prove required benchmark/capacity, certified soak, activation/cutover, operations and external authority evidence."
     ]
   }' >"${chaos_artifact_tmp}"
