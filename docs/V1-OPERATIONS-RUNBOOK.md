@@ -1478,3 +1478,39 @@ only canonical evidence and locked base images, and move only confirmed
 obsolete diagnostic directories to recoverable Trash. Never clean source
 worktrees, Git metadata or the pre-existing unlabelled `pulsarconf` and
 `pulsardata` volumes.
+
+## 2026-08-21 Pulsar failover/admission recovery runbook receipts
+
+The focused recovery fixes are Delay `16c3792e`, `2f57b5f8` and `b7b156e6`.
+The multi-Broker process-crash receipt is:
+
+```text
+/private/tmp/nereus-delay-pulsar-multi-broker-process-crash-20260821-r7-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-multi-broker-process-crash-20260821-r7-state/after-fresh-process.json
+```
+
+The runner now requires three consecutive survivor readiness probes before
+capturing post-failover Admin state. Treat a new managed-ledger ID as valid
+only when every pre-failure ID is retained, the post set is non-empty, and the
+same topic/cluster/confirmed position and durable entry boundary are present.
+The r7 receipt changed `[-1,3]` to `[-1,3,4]` and passed this retained-or-
+extended invariant.
+
+The Worker admission response-loss process-crash receipt is:
+
+```text
+/private/tmp/nereus-delay-pulsar-worker-admission-response-loss-20260821-r1-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-worker-admission-response-loss-20260821-r1-state/after-fresh-process.json
+```
+
+The before state is forced durable `PUBLISHING`; after SIGKILL and a fresh
+Worker process, the same attempt is `PUBLISHED` with durable read flags and
+the exact typed destination evidence. The independent audit is
+`INDEPENDENT_FIELDS_PASS`. Keep both JSON pairs as canonical focused
+receipts; do not delete them during run-scoped cleanup.
+
+These focused receipts do not authorize release. After the final source and
+documentation commit, rerun the complete strict-sequential matrix, then the
+certified wrapper and fail-closed release gate. Remove only exact obsolete
+diagnostic directories to recoverable Trash, keep source worktrees and Git
+metadata untouched, and retain the locked Oxia/MinIO images.

@@ -16898,3 +16898,45 @@ must be regenerated from this post-documentation source, and capacity, soak,
 activation/cutover, operations and the fail-closed release gate remain
 independent inputs. The r14 artifact is retained only as audit-failure
 diagnostic provenance; r15 is the canonical bounded receipt.
+
+## 2026-08-21 Pulsar failover readiness and Worker admission response-loss focused receipts
+
+Delay commits `16c3792e`, `2f57b5f8` and `b7b156e6` close two focused
+implementation/evidence gaps discovered while preparing the next current-source
+matrix. Broker state reads now retry across survivor readiness, the multi-Broker
+runner waits for three consecutive readiness probes, and the managed-ledger
+audit allows a failover ledger extension while requiring the pre-failure ledger
+set to be retained.
+
+The focused multi-Broker receipt is:
+
+```text
+/private/tmp/nereus-delay-pulsar-multi-broker-process-crash-20260821-r7-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-multi-broker-process-crash-20260821-r7-state/after-fresh-process.json
+```
+
+It preserved the same topic, cluster and confirmed `3:0` position across
+Broker-1 SIGKILL and Broker-2 recovery. The durable ledger set changed from
+`[-1,3]` to `[-1,3,4]`; the new `4` is a valid failover extension and the
+independent subset audit passed. Fresh Worker recovery, source-applied
+physical publish, real Oxia authority and Broker-1 rejoin all passed.
+
+The focused Worker admission response-loss receipt is:
+
+```text
+/private/tmp/nereus-delay-pulsar-worker-admission-response-loss-20260821-r1-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-worker-admission-response-loss-20260821-r1-state/after-fresh-process.json
+```
+
+The before dump was durable `PUBLISHING` after the admission append response
+was lost; a fresh Worker changed the same attempt to `PUBLISHED` with the same
+message, DB identity and Store incarnation. The receipt has forced durable
+reads, `outcome_applied=false -> true`, fresh-process recovery, and an
+independent field audit of `INDEPENDENT_FIELDS_PASS`.
+
+The next current-source bounded and certified runs must use Delay
+`b7b156e6`; the prior r15 matrix remains valid historical evidence for its own
+source lock, but is not a current-source receipt for these fixes. These focused
+receipts do not change the fail-closed V1 conclusion: capacity, soak,
+activation/cutover, operations, certified chaos and the release gate remain
+separate inputs.

@@ -8354,3 +8354,39 @@ This is the complete bounded fault-coverage receipt for the focused V1
 production authority paths. It does not promote the certified chaos wrapper,
 capacity/soak, activation/cutover, operations or V1 release gate; those
 remain separate source-locked and fail-closed inputs.
+
+### 2026-08-21 Pulsar failover and admission response-loss follow-up
+
+Delay commits `16c3792e`, `2f57b5f8` and `b7b156e6` close the focused recovery
+boundaries found after r15. The Broker state reader retries while a survivor
+reconstructs its Admin endpoint; the multi-Broker runner requires three
+consecutive readiness probes; and the durable managed-ledger invariant treats
+the post-failover ledger set as a retained extension of the pre-failure set.
+
+The real multi-Broker receipt is:
+
+```text
+/private/tmp/nereus-delay-pulsar-multi-broker-process-crash-20260821-r7-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-multi-broker-process-crash-20260821-r7-state/after-fresh-process.json
+```
+
+It preserves the same topic, cluster and confirmed `3:0` position while the
+ledger IDs extend from `[-1,3]` to `[-1,3,4]`. The fresh Worker completed the
+source-applied physical publish and real Oxia authority path, and Broker-1
+rejoined.
+
+The real Worker admission response-loss receipt is:
+
+```text
+/private/tmp/nereus-delay-pulsar-worker-admission-response-loss-20260821-r1-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-worker-admission-response-loss-20260821-r1-state/after-fresh-process.json
+```
+
+The durable state converges from `PUBLISHING` to `PUBLISHED` after a fresh
+Worker process. The same publish attempt, message ID, Store incarnation and
+DB identity are preserved; the before/after forced durable reads and typed
+destination evidence pass an independent field comparison.
+
+These are focused current-source receipts at Delay `b7b156e6`. They do not
+promote r15 to current source, and they do not claim certified chaos, generic
+transport response-loss, multi-shard placement or V1 release readiness.

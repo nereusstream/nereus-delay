@@ -13485,3 +13485,34 @@ durable/fresh-process/invariant boundary, while the certified wrapper and the
 capacity, soak, activation/cutover, operations and V1 gate still require
 separate source-locked evaluation. Preserve r14 as diagnostic history only;
 use r15 as the canonical bounded matrix.
+
+## 2026-08-21 Pulsar failover and admission response-loss follow-up
+
+After the r15 source lock, three Delay commits were made to close focused
+Pulsar recovery boundaries: `16c3792e` retries Broker Admin state reads during
+failover, `2f57b5f8` waits for stable survivor readiness, and `b7b156e6`
+changes the managed-ledger invariant from exact ledger identity to retained
+pre-failure ledger set plus a non-empty post-failure set. The last rule is
+required because a valid failover may extend the managed ledger.
+
+The focused multi-Broker receipt is
+`/private/tmp/nereus-delay-pulsar-multi-broker-process-crash-20260821-r7-state/`.
+It records a real Broker-1 SIGKILL, survivor Admin state before fresh Worker
+recovery, the same topic/cluster/confirmed position afterward, retained
+ledger IDs `[-1,3]` plus extension `4`, and successful Worker source-applied
+publish/Oxia authority/Broker-1 rejoin. The independent ledger subset audit
+passes.
+
+The focused admission response-loss receipt is
+`/private/tmp/nereus-delay-pulsar-worker-admission-response-loss-20260821-r1-state/`.
+The forced before dump is `PUBLISHING` and the forced after dump is
+`PUBLISHED`; the same publish attempt, message, Store incarnation and DB
+identity are preserved across Worker SIGKILL and fresh JVM recovery. The
+independent field comparison is `INDEPENDENT_FIELDS_PASS`.
+
+These are current focused evidence at Delay `b7b156e6`, not a replacement for
+the full current-source matrix or certified release artifact. The bounded r15
+receipt is therefore retained as historical source-bound evidence until a new
+matrix is generated, and V1 remains fail-closed pending the independent
+capacity, soak, activation/cutover, operations, certified chaos and release
+inputs.

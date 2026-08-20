@@ -1254,6 +1254,52 @@ the source-applied Outcome. This is not raw network loss, process/Broker crash
 between physical persistence and Outcome, multi-Broker failover or a complete
 D6/V1 release receipt.
 
+## 2026-08-21 Pulsar multi-Broker failover and Worker admission response-loss receipts
+
+The following focused cuts were rerun after Delay commits
+`16c3792e`, `2f57b5f8` and `b7b156e6`. The current Delay source lock for the
+next full matrix is `b7b156e6`.
+
+The real Pulsar multi-Broker process-crash receipt is:
+
+```text
+/private/tmp/nereus-delay-pulsar-multi-broker-process-crash-20260821-r7-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-multi-broker-process-crash-20260821-r7-state/after-fresh-process.json
+```
+
+The before dump was read from survivor Admin `31481`, with topic
+`persistent://public/default/p1-multi-worker-72521`, ledger IDs `[-1,3]`, one
+entry, confirmed position `3:0` and Broker PID `73216`. After Broker-1 was
+SIGKILLed, the fresh Worker recovered through Broker-2/Admin `31483`; the
+after dump retained the same topic, cluster and confirmed position, showed
+ledger IDs `[-1,3,4]`, one entry and Broker PID `73337`, and Broker-1 rejoined.
+Ledger `4` is an allowed managed-ledger extension during failover; the audit
+requires the pre-failure ledger set to remain a subset of the post-failure
+set. The Worker then completed source-applied physical publish, real Oxia
+authority and the vertical smoke.
+
+The real Pulsar Worker Publish Admission response-loss process-crash receipt
+is:
+
+```text
+/private/tmp/nereus-delay-pulsar-worker-admission-response-loss-20260821-r1-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-worker-admission-response-loss-20260821-r1-state/after-fresh-process.json
+```
+
+Before SIGKILL, the forced durable dump reported `PUBLISHING` with
+`durable_store_read=true`, `dump_forced=true` and `outcome_applied=false`.
+After a fresh Worker JVM (`75056 -> 75161`), the same
+`publish_attempt_id`, message ID, DB identity and Store incarnation were
+reopened; the state became `PUBLISHED`, `outcome_applied=true`, and the exact
+typed destination receipt, source-applied Outcome and payload readback
+completed. An independent field comparison returned
+`INDEPENDENT_FIELDS_PASS`.
+
+These receipts close the two focused durable/fresh-process cuts at the stated
+boundary. They do not by themselves promote the bounded matrix to certified
+release evidence, and they do not close multi-shard placement, full broker
+response-loss/retention recovery or the V1 release gate.
+
 ## Kafka Worker destination response-loss receipt
 
 Run the focused Worker physical-publish cut with:

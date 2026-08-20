@@ -5293,6 +5293,45 @@ cell 都通过 `audit_status=PASS`、
 必须以本次 documentation commit 为 source lock 重新生成；capacity、soak、
 activation/cutover、operations 以及最终 release gate 仍然独立、fail-closed。
 
+## 40. 2026-08-21 Pulsar failover 与 Worker admission response-loss 收口
+
+在 r15 之后，Delay 依次提交 `16c3792e`、`2f57b5f8` 和 `b7b156e6`：Broker
+Admin state read 在 survivor 尚未稳定时重试；multi-Broker runner 要求三次
+连续 readiness；managed-ledger invariant 改成“post-failover ledger set 必须
+保留 pre-failure set，同时允许合法的 ledger extension”。这是因为实际
+failover 会从 `[-1,3]` 扩展为 `[-1,3,4]`，不能用静态 ledger ID 相等作为
+恢复条件。
+
+multi-Broker focused receipt：
+
+```text
+/private/tmp/nereus-delay-pulsar-multi-broker-process-crash-20260821-r7-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-multi-broker-process-crash-20260821-r7-state/after-fresh-process.json
+```
+
+真实 Broker-1 SIGKILL 后，survivor Broker-2/Admin 读取保持相同 topic、cluster
+和确认位置 `3:0`，ledger 从 `[-1,3]` 变为 `[-1,3,4]`；fresh Worker 完成
+source-applied physical publish、real Oxia authority 和 Broker-1 rejoin。
+独立 subset audit 通过。
+
+Worker Publish Admission response-loss focused receipt：
+
+```text
+/private/tmp/nereus-delay-pulsar-worker-admission-response-loss-20260821-r1-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-worker-admission-response-loss-20260821-r1-state/after-fresh-process.json
+```
+
+SIGKILL 前 forced durable dump 是 `PUBLISHING`；fresh Worker 重开相同的
+`publish_attempt_id`、message、DB identity 和 Store incarnation 后，状态收敛
+为 `PUBLISHED`，typed destination receipt、source-applied Outcome 与 exact
+payload readback 全部完成，独立字段审计为 `INDEPENDENT_FIELDS_PASS`。
+
+这些是 Delay `b7b156e6` 下的 focused current-source 证据；它们不把 r15
+自动提升为当前矩阵，也不等同于 certified chaos、generic transport
+response-loss、multi-shard placement 或 V1 release PASS。最终 release 仍需
+在最终 source/documentation lock 上重跑 full matrix、certified wrapper 和
+fail-closed gate。
+
 ## 参考资料
 
 - [R1] [DDMQ README @ 2f30b61a](https://github.com/didi/DDMQ/blob/2f30b61a5741d55a5b515f3d8d19a8a35be8c9e2/README.md)
