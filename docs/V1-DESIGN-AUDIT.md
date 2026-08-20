@@ -13077,11 +13077,10 @@ was removed after the check; the gate receipt and diagnostic logs remain.
 
 ### 2026-08-20 RC1 source-locked certification refresh
 
-The RC1 candidate is fixed to Delay `698f30db219c4aa2fc4b14c5d0cf421253332dea`,
-Kafka K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
-`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
-`37a17bef17202d5fd6e23282da5fd26d94865484`. All four source checkouts were
-clean at the gate.
+The RC1 candidate is defined by the exact four-repository `source_locks`
+recorded in each canonical receipt and in the final gate. All four source
+checkouts were clean at the gate; those receipt fields, rather than a copied
+historical hash in this narrative, are the source-lock authority.
 
 The fresh RC1 bounded capacity receipt is
 `/private/tmp/nereus-delay-v1-rc1-capacity-20260820-r2/certified-capacity-benchmark.json`.

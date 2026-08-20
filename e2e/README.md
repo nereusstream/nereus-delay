@@ -6402,10 +6402,9 @@ The r39 Gradle user home is disposable and was removed after the check.
 
 ## RC1 source-locked evidence refresh (2026-08-20)
 
-The RC1 candidate locks are Delay `698f30db219c4aa2fc4b14c5d0cf421253332dea`,
-K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
-`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
-`37a17bef17202d5fd6e23282da5fd26d94865484`.
+The RC1 candidate locks are the exact four-repository `source_locks` recorded
+in each canonical receipt and in the final gate; use those fields as the
+authority instead of copying a hash into a command or narrative.
 
 The fresh bounded capacity and production-chain soak commands produce these
 canonical receipts:

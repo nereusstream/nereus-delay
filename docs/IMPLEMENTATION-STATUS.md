@@ -16459,10 +16459,9 @@ removed after the check; the receipt and logs are retained.
 
 ## 2026-08-20 RC1 current-source release evidence
 
-RC1 is source-locked to Delay `698f30db219c4aa2fc4b14c5d0cf421253332dea`, K1
-`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
-`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
-`37a17bef17202d5fd6e23282da5fd26d94865484`; all four checkouts are clean.
+RC1 is source-locked by the exact four-repository `source_locks` recorded in
+each canonical receipt and in the final gate; all four checkouts are clean at
+the gate. The receipt fields are authoritative for the final candidate hash.
 
 The current evidence rows are:
 
