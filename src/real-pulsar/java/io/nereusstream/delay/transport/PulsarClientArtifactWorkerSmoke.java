@@ -171,14 +171,15 @@ public final class PulsarClientArtifactWorkerSmoke {
     public static void main(final String[] arguments) throws Exception {
         if (arguments.length != 3 && arguments.length != 4 && arguments.length != 5) {
             throw new IllegalArgumentException("usage: <service-url> <admin-url> <topic> "
-                    + "[run|prepare|resume|crash-wait] [destination-topic]");
+                    + "[run|prepare|resume|crash-wait|source-ack-crash-wait|source-ack-resume] [destination-topic]");
         }
         final String serviceUrl = arguments[0];
         final String adminUrl = arguments[1];
         final String mode = arguments.length >= 4 ? arguments[3] : "run";
         final String destinationTopic = arguments.length == 5 && !arguments[4].isBlank() ? arguments[4] : null;
         if (!mode.equals("run") && !mode.equals("prepare") && !mode.equals("resume")
-                && !mode.equals("crash-wait")) {
+                && !mode.equals("crash-wait") && !mode.equals("source-ack-crash-wait")
+                && !mode.equals("source-ack-resume")) {
             throw new IllegalArgumentException("unknown Worker smoke mode: " + mode);
         }
         final String topic = mode.equals("run") ? arguments[2] + "-worker-" + UUID.randomUUID() : arguments[2];
@@ -188,10 +189,11 @@ public final class PulsarClientArtifactWorkerSmoke {
         final HttpClient admin = HttpClient.newBuilder()
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
-        createTopic(admin, adminUrl, topic, mode.equals("resume") || mode.equals("crash-wait"));
+        final boolean reuseExistingTopic = mode.equals("resume") || mode.equals("crash-wait")
+                || mode.equals("source-ack-crash-wait") || mode.equals("source-ack-resume");
+        createTopic(admin, adminUrl, topic, reuseExistingTopic);
         if (destinationTopic != null && !mode.equals("prepare")) {
-            createTopic(admin, adminUrl, destinationTopic,
-                    mode.equals("resume") || mode.equals("crash-wait"), DESTINATION_INCARNATION,
+            createTopic(admin, adminUrl, destinationTopic, reuseExistingTopic, DESTINATION_INCARNATION,
                     DESTINATION_CREATION_TIMESTAMP);
         }
         try {
@@ -205,7 +207,8 @@ public final class PulsarClientArtifactWorkerSmoke {
                     prepareWorkerRecord(client, physicalTopic);
                 } else {
                     runWorker(client, physicalTopic, mode.equals("run"), mode.equals("crash-wait"),
-                            destinationPhysicalTopic);
+                            destinationPhysicalTopic, mode.equals("source-ack-crash-wait"),
+                            mode.equals("source-ack-resume"));
                 }
             }
         } finally {
@@ -236,7 +239,9 @@ public final class PulsarClientArtifactWorkerSmoke {
 
     private static void runWorker(final PulsarClient client, final String physicalTopic,
                                   final boolean seedRecovery, final boolean waitForProcessCrash,
-                                  final String destinationPhysicalTopic)
+                                  final String destinationPhysicalTopic,
+                                  final boolean sourceAckResponseLossProcessCrashWait,
+                                  final boolean sourceAckResponseLossProcessCrashResume)
             throws Exception {
         final TopicResourceGuard guard = new TopicResourceGuard(CLUSTER, INCARNATION, CREATION_TIMESTAMP);
         final ShardId shard = seedRecovery ? new ShardId(RouteIncarnation.random(), 0) : restartShard(physicalTopic);
@@ -252,13 +257,15 @@ public final class PulsarClientArtifactWorkerSmoke {
         final boolean destinationRecoveryResume = hasDestinationResponseLossProcessCrash()
                 && !waitForProcessCrash && !seedRecovery;
         final boolean preserveWorkerRoot = hasAdmissionResponseLossProcessCrash()
-                || hasDestinationResponseLossProcessCrash();
+                || hasDestinationResponseLossProcessCrash() || sourceAckResponseLossProcessCrashWait
+                || sourceAckResponseLossProcessCrashResume;
         try {
             final String subscription = "nereus-delay-worker-" + UUID.randomUUID();
             final GuardedConsumer<byte[]> rawNativeConsumer = PulsarClientArtifactSourceConsumerFactory.create(
                     client, guard, physicalTopic, subscription);
             final AtomicBoolean sourceAckResponseLossObserved = new AtomicBoolean();
             final GuardedConsumer<byte[]> nativeConsumer = hasSourceAckResponseLoss()
+                    && !sourceAckResponseLossProcessCrashResume
                     ? responseLossConsumer(rawNativeConsumer, sourceAckResponseLossObserved) : rawNativeConsumer;
             final Optional<PulsarSourcePosition> persistedRecoveryPosition = persistedPulsarPosition(root, shard);
             final PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof proof =
@@ -291,6 +298,11 @@ public final class PulsarClientArtifactWorkerSmoke {
                 final ShardStoreConfig storeConfig = ShardStoreConfig.defaults(root);
                 try (SharedRocksDbResources resources = new SharedRocksDbResources(storeConfig);
                      ShardStore store = ShardStore.open(storeConfig, shard, resources)) {
+                    final SourceAckResponseLossProcessCrashContext sourceAckCrashContext =
+                            sourceAckResponseLossProcessCrashWait
+                                    ? new SourceAckResponseLossProcessCrashContext(root, store, physicalTopic, shard,
+                                    sourceAckResponseLossObserved)
+                                    : null;
                     resources.bindWorkClassExecutionRegistry(workClasses);
                     store.recordControlSnapshot(controlSnapshot);
                     final DelayShard delayShard = new DelayShard(store, DelayShardConfig.defaults(), null, null,
@@ -349,7 +361,8 @@ public final class PulsarClientArtifactWorkerSmoke {
                         if (turn.outcomes().size() == 1
                                 && ownedShard.lastCatchupPosition() instanceof PulsarSourcePosition replayed) {
                             recovered = replayed;
-                        } else if (admissionRecoveryResume && turn.outcomes().isEmpty()
+                        } else if ((admissionRecoveryResume || sourceAckResponseLossProcessCrashResume)
+                                && turn.outcomes().isEmpty()
                                 && store.appliedShardLogPosition() instanceof PulsarSourcePosition persisted) {
                             recovered = persisted;
                         } else {
@@ -482,7 +495,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                                 }
                             } else {
                                 final io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult result =
-                                        runUntilApplied(runtime);
+                                        runUntilApplied(runtime, sourceAckCrashContext);
                                 if (!(result.entry() instanceof SourceReplayRecord record)
                                         || !record.command().equals(activeCommand)
                                         || !(record.position() instanceof PulsarSourcePosition appliedActivePosition)) {
@@ -499,7 +512,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                                 }
                                 if (physicalBridge != null) {
                                     final io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult physicalSchedule =
-                                            runUntilApplied(runtime);
+                                            runUntilApplied(runtime, sourceAckCrashContext);
                                     if (!(physicalSchedule.entry() instanceof SourceReplayRecord physicalRecord)
                                             || !physicalRecord.command().equals(physicalCommand)
                                             || !(physicalSchedule.entry().position() instanceof PulsarSourcePosition appliedPhysical)) {
@@ -521,6 +534,17 @@ public final class PulsarClientArtifactWorkerSmoke {
                                                 "PUBLISHED", true, null, null, null);
                                     }
                                 }
+                            }
+                            if (sourceAckResponseLossProcessCrashResume) {
+                                final PulsarSourcePosition ackSourcePosition = persistedRecoveryPosition.orElseThrow(
+                                        () -> new IllegalStateException(
+                                                "Pulsar source ACK response-loss fresh process lost its durable source position"));
+                                final boolean replayedAckSource = recoveryEntries.stream()
+                                        .anyMatch(entry -> Arrays.equals(entry.position().canonicalBytes(),
+                                                ackSourcePosition.canonicalBytes()));
+                                writeSourceAckResponseLossStateDump("RECOVERED_AFTER_FRESH_PROCESS", root, store,
+                                        physicalTopic, shard, ackSourcePosition, store.appliedShardLogPosition(),
+                                        recoveryEntries.size(), replayedAckSource);
                             }
                             if (hasWorkerProcessCrash() && !waitForProcessCrash
                                     && !hasAdmissionResponseLossProcessCrash()
@@ -2077,6 +2101,55 @@ public final class PulsarClientArtifactWorkerSmoke {
         }
     }
 
+    private static void writeSourceAckResponseLossStateDump(final String phase, final Path root,
+                                                            final ShardStore store, final String physicalTopic,
+                                                            final ShardId shard, final SourcePosition ackSourcePosition,
+                                                            final SourcePosition appliedSourcePosition,
+                                                            final int recoveryReplayedEntries,
+                                                            final boolean recoveryReplayedAckSource) throws Exception {
+        final Path directory = chaosStateDumpDirectory();
+        if (directory == null) {
+            return;
+        }
+        Files.createDirectories(directory);
+        final Path target = directory.resolve(
+                "SOURCE_ACK_RESPONSE_LOSS_PERSISTED".equals(phase)
+                        ? "before-process-crash.json" : "after-fresh-process.json");
+        final var metadata = store.metadata();
+        final String shardValue = metadata.shardId().routeIncarnation().uuid() + "/" + metadata.shardId().partition();
+        final String json = "{\n"
+                + "  \"schema\": \"nereus-delay-chaos-durable-state-dump-v1\",\n"
+                + "  \"cell\": \"pulsar-source-ack-response-loss\",\n"
+                + "  \"phase\": " + jsonString(phase) + ",\n"
+                + "  \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
+                + "  \"store_root\": " + jsonString(root.toString()) + ",\n"
+                + "  \"physical_topic\": " + jsonString(physicalTopic) + ",\n"
+                + "  \"cluster_id\": " + jsonString(CLUSTER) + ",\n"
+                + "  \"route_uuid\": " + jsonString(metadata.shardId().routeIncarnation().uuid().toString()) + ",\n"
+                + "  \"shard\": " + jsonString(shardValue) + ",\n"
+                + "  \"partition\": " + shard.partition() + ",\n"
+                + "  \"store_incarnation\": " + jsonString(Bytes.hex(metadata.storeIncarnation())) + ",\n"
+                + "  \"db_identity\": " + jsonString(Bytes.hex(metadata.dbIdentity())) + ",\n"
+                + "  \"source_ack_source_position\": "
+                + jsonNullable(ackSourcePosition == null ? null : Bytes.hex(ackSourcePosition.canonicalBytes())) + ",\n"
+                + "  \"applied_source_position\": "
+                + jsonNullable(appliedSourcePosition == null ? null : Bytes.hex(appliedSourcePosition.canonicalBytes())) + ",\n"
+                + "  \"recovery_replayed_entries\": " + recoveryReplayedEntries + ",\n"
+                + "  \"recovery_replayed_ack_source\": " + recoveryReplayedAckSource + ",\n"
+                + "  \"source_apply_durable\": true,\n"
+                + "  \"source_ack_committed\": true,\n"
+                + "  \"ack_response_lost\": true,\n"
+                + "  \"duplicate_source_apply_observed\": " + recoveryReplayedAckSource + ",\n"
+                + "  \"durable_store_read\": true,\n"
+                + "  \"dump_forced\": true\n"
+                + "}\n";
+        try (FileChannel channel = FileChannel.open(target, StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
+            channel.write(java.nio.ByteBuffer.wrap(json.getBytes(StandardCharsets.UTF_8)));
+            channel.force(true);
+        }
+    }
+
     private static void writeWorkerProcessStateDump(final String phase, final Path root, final ShardStore store,
                                                     final String physicalTopic, final ShardId shard,
                                                     final boolean sourceAckCommitted) throws Exception {
@@ -2130,6 +2203,11 @@ public final class PulsarClientArtifactWorkerSmoke {
 
     private static io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult runUntilApplied(
             final WorkerShardRuntime runtime) {
+        return runUntilApplied(runtime, null);
+    }
+
+    private static io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult runUntilApplied(
+            final WorkerShardRuntime runtime, final SourceAckResponseLossProcessCrashContext sourceAckCrashContext) {
         final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
         io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult result;
         do {
@@ -2138,6 +2216,27 @@ public final class PulsarClientArtifactWorkerSmoke {
             if (result.status()
                     == io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED) {
                 return result;
+            }
+            if (result.status()
+                    == io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.ACK_UNKNOWN
+                    && sourceAckCrashContext != null
+                    && sourceAckCrashContext.responseLossObserved.get()
+                    && sourceAckCrashContext.dumpWritten.compareAndSet(false, true)) {
+                if (result.entry() == null) {
+                    throw new IllegalStateException(
+                            "Pulsar source ACK response-loss turn did not retain its exact source entry");
+                }
+                try {
+                    sourceAckCrashContext.store.flushAndSync();
+                    writeSourceAckResponseLossStateDump("SOURCE_ACK_RESPONSE_LOSS_PERSISTED",
+                            sourceAckCrashContext.root, sourceAckCrashContext.store,
+                            sourceAckCrashContext.physicalTopic, sourceAckCrashContext.shard,
+                            result.entry().position(), sourceAckCrashContext.store.appliedShardLogPosition(), 0, false);
+                    awaitSourceAckResponseLossProcessCrashGate(sourceAckCrashContext.root);
+                } catch (Exception failure) {
+                    throw new IllegalStateException(
+                            "Pulsar source ACK response-loss process-crash cut could not persist its gate", failure);
+                }
             }
             if (result.status()
                     != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.WAITING_FOR_SOURCE
@@ -2156,6 +2255,45 @@ public final class PulsarClientArtifactWorkerSmoke {
 
     private static boolean hasSourceAckResponseLoss() {
         return "1".equals(System.getenv("NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS"));
+    }
+
+    private static void awaitSourceAckResponseLossProcessCrashGate(final Path root) throws Exception {
+        final String gate = System.getenv("NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_PROCESS_CRASH_GATE");
+        final String pidFile = System.getenv("NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_PROCESS_CRASH_PID_FILE");
+        if (gate == null || gate.isBlank() || pidFile == null || pidFile.isBlank()) {
+            throw new IllegalStateException(
+                    "Pulsar source ACK response-loss crash requires gate and PID file paths");
+        }
+        final Path gatePath = Path.of(gate).toAbsolutePath().normalize();
+        final Path pidPath = Path.of(pidFile).toAbsolutePath().normalize();
+        Files.deleteIfExists(gatePath);
+        Files.deleteIfExists(pidPath);
+        Files.createFile(gatePath);
+        Files.writeString(pidPath, Long.toString(ProcessHandle.current().pid()));
+        System.out.println("Pulsar Worker source ACK response-loss process-crash cut reached: "
+                + "durableSourceApply=true, brokerAckAccepted=true, ackResponseLost=true, storeRoot=" + root);
+        while (Files.exists(gatePath)) {
+            Thread.sleep(50L);
+        }
+    }
+
+    private static final class SourceAckResponseLossProcessCrashContext {
+        private final Path root;
+        private final ShardStore store;
+        private final String physicalTopic;
+        private final ShardId shard;
+        private final AtomicBoolean responseLossObserved;
+        private final AtomicBoolean dumpWritten = new AtomicBoolean();
+
+        private SourceAckResponseLossProcessCrashContext(final Path root, final ShardStore store,
+                                                         final String physicalTopic, final ShardId shard,
+                                                         final AtomicBoolean responseLossObserved) {
+            this.root = root;
+            this.store = store;
+            this.physicalTopic = physicalTopic;
+            this.shard = shard;
+            this.responseLossObserved = responseLossObserved;
+        }
     }
 
     @SuppressWarnings("unchecked")

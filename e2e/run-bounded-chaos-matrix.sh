@@ -204,20 +204,22 @@ audit_cell() {
         "Pulsar destination committed response-loss fresh-process READ passed")
       ;;
     pulsar-source-ack-response-loss)
-      injection_point="discard the real Pulsar source ACK response after Broker acceptance"
-      expected_state="the next bounded Worker turn retries the same source ACK and closes the source record"
-      duplicate_boundary="ACK response loss cannot cause a second source apply or destination publish"
-      fresh_process_recovery="NOT_COVERED"
-      source_evidence="Pulsar Worker source ACK response-loss E2E passed"
-      target_evidence="Pulsar Worker source ACK response-loss smoke passed"
+      injection_point="discard the real Pulsar source ACK response after Broker acceptance, then SIGKILL the Worker"
+      expected_state="a fresh Worker reopens the exact durable source position and closes the source record without replaying it"
+      duplicate_boundary="ACK response loss cannot cause a second source apply or destination publish across process recovery"
+      fresh_process_recovery="PASS"
+      source_evidence="Pulsar Worker source ACK response-loss fresh-process recovery passed"
+      target_evidence="Pulsar Worker source ACK response-loss process-crash cut reached"
       authority_evidence="Pulsar Worker authority smoke passed"
-      required_markers=("Pulsar Worker source ACK response-loss E2E passed" "Pulsar Worker source ACK response-loss smoke passed" "Pulsar Worker authority smoke passed")
+      required_markers=("Pulsar Worker source ACK response-loss process-crash cut reached"
+        "Pulsar Worker source ACK response-loss fresh-process recovery passed"
+        "Pulsar Worker vertical smoke passed" "Pulsar Worker authority smoke passed")
       ;;
     gateway-oxia-session-churn)
       injection_point="stop and restart the real Oxia session during Gateway durable session use"
       expected_state="stale durable session fails closed and Gateway rereads one exact outcome after recovery"
       duplicate_boundary="session churn cannot resurrect stale Gateway state or duplicate the idempotency result"
-      fresh_process_recovery="NOT_COVERED"
+      fresh_process_recovery="PASS"
       source_evidence="Gateway Oxia session churn E2E passed"
       target_evidence="Gateway Oxia session churn E2E passed"
       authority_evidence="Dockerized Gateway Oxia session churn smoke passed"
@@ -870,6 +872,124 @@ audit_cell() {
       audit_status="FAIL"
     fi
   fi
+  if [[ "${name}" == "pulsar-source-ack-response-loss" ]]; then
+    local state_dump_dir="${artifact_dir}/pulsar-source-ack-response-loss-state"
+    local before_dump="${state_dump_dir}/before-process-crash.json"
+    local after_dump="${state_dump_dir}/after-fresh-process.json"
+    if [[ -s "${before_dump}" && -s "${after_dump}" ]] \
+        && jq -e \
+          --slurpfile before "${before_dump}" \
+          --slurpfile after "${after_dump}" \
+          -n '
+            ($before[0]) as $pre
+            | ($after[0]) as $post
+            | $pre.schema == "nereus-delay-chaos-durable-state-dump-v1"
+              and $post.schema == "nereus-delay-chaos-durable-state-dump-v1"
+              and $pre.cell == "pulsar-source-ack-response-loss"
+              and $post.cell == $pre.cell
+              and $pre.phase == "SOURCE_ACK_RESPONSE_LOSS_PERSISTED"
+              and $post.phase == "RECOVERED_AFTER_FRESH_PROCESS"
+              and ($pre.physical_topic == $post.physical_topic)
+              and ($pre.cluster_id == $post.cluster_id)
+              and ($pre.route_uuid == $post.route_uuid)
+              and ($pre.shard == $post.shard)
+              and ($pre.partition == $post.partition)
+              and ($pre.store_root == $post.store_root)
+              and ($pre.store_incarnation == $post.store_incarnation)
+              and ($pre.db_identity == $post.db_identity)
+              and ($pre.source_ack_source_position == $pre.applied_source_position)
+              and ($post.source_ack_source_position == $pre.source_ack_source_position)
+              and ($post.applied_source_position | (type == "string" and length > 0))
+              and ($pre.source_ack_source_position | (type == "string" and length > 0))
+              and $pre.source_apply_durable == true
+              and $post.source_apply_durable == true
+              and $pre.source_ack_committed == true
+              and $post.source_ack_committed == true
+              and $pre.ack_response_lost == true
+              and $post.ack_response_lost == true
+              and $pre.recovery_replayed_entries == 0
+              and $post.recovery_replayed_entries == 0
+              and $pre.recovery_replayed_ack_source == false
+              and $post.recovery_replayed_ack_source == false
+              and $pre.duplicate_source_apply_observed == false
+              and $post.duplicate_source_apply_observed == false
+              and $pre.durable_store_read == true
+              and $post.durable_store_read == true
+              and $pre.dump_forced == true
+              and $post.dump_forced == true
+              and ($pre.process_pid != $post.process_pid)
+          ' >/dev/null; then
+      durable_state_dump_status="CAPTURED_AND_VERIFIED"
+      invariant_audit_status="INDEPENDENT_FIELDS_PASS"
+      durable_state_dump_note="external fsync-forced Store/source-ACK dump after Broker acceptance and after fresh Worker recovery"
+      invariant_audit_note="topic, Route/Store identity, exact ACK source position, no fresh replay, ACK boundary and process identity were independently compared"
+    else
+      fresh_process_recovery="FAIL"
+      durable_state_dump_status="FAIL"
+      invariant_audit_status="FAIL"
+      durable_state_dump_note="required source-ACK response-loss pre-crash and post-recovery dumps were missing or failed cross-process validation"
+      invariant_audit_note="independent source-ACK durable-field and duplicate-boundary comparison failed"
+      audit_status="FAIL"
+    fi
+  fi
+  if [[ "${name}" == "gateway-oxia-session-churn" ]]; then
+    local state_dump_dir="${artifact_dir}/gateway-oxia-session-churn-state"
+    local before_dump="${state_dump_dir}/before-oxia-restart.json"
+    local after_dump="${state_dump_dir}/after-oxia-restart.json"
+    if [[ -s "${before_dump}" && -s "${after_dump}" ]] \
+        && jq -e \
+          --slurpfile before "${before_dump}" \
+          --slurpfile after "${after_dump}" \
+          -n '
+            ($before[0]) as $pre
+            | ($after[0]) as $post
+            | $pre.schema == "nereus-delay-chaos-durable-state-dump-v1"
+              and $post.schema == "nereus-delay-chaos-durable-state-dump-v1"
+              and $pre.cell == "gateway-oxia-session-churn"
+              and $post.cell == $pre.cell
+              and $pre.phase == "BEFORE_OXIA_RESTART"
+              and $post.phase == "RECOVERED_AFTER_OXIA_RESTART"
+              and ($pre.oxia_endpoint == $post.oxia_endpoint)
+              and ($pre.oxia_namespace == $post.oxia_namespace)
+              and ($pre.prefix == $post.prefix)
+              and ($pre.response_sha256 == $post.response_sha256)
+              and ($pre.response_bytes == $post.response_bytes)
+              and ($pre.prepare_calls == 1)
+              and ($post.prepare_calls == $pre.prepare_calls)
+              and ($pre.submit_calls == 1)
+              and ($post.submit_calls == $pre.submit_calls)
+              and ($pre.admission_records == 1)
+              and ($post.admission_records == $pre.admission_records)
+              and ($pre.idempotency_records == 1)
+              and ($post.idempotency_records == $pre.idempotency_records)
+              and ($post.idempotency_phase == "QUIESCENT")
+              and ($post.idempotency_attempts == 1)
+              and ($post.aggregate_outcome_present == true)
+              and ($post.admission_active_leases == 0)
+              and ($post.audit_records == 2)
+              and ($pre.stale_session_failed_closed == false)
+              and ($post.stale_session_failed_closed == true)
+              and ($pre.exact_outcome_recovered == false)
+              and ($post.exact_outcome_recovered == true)
+              and ($post.oxia_process_restarted == true)
+              and ($pre.durable_store_read == true)
+              and ($post.durable_store_read == true)
+              and ($pre.dump_forced == true)
+              and ($post.dump_forced == true)
+          ' >/dev/null; then
+      durable_state_dump_status="CAPTURED_AND_VERIFIED"
+      invariant_audit_status="INDEPENDENT_FIELDS_PASS"
+      durable_state_dump_note="external fsync-forced Gateway/Oxia durable-record dump before and after real Oxia process restart"
+      invariant_audit_note="Oxia endpoint/prefix, response digest, call counts, durable record counts, stale-session fence and exact outcome were independently compared"
+    else
+      fresh_process_recovery="FAIL"
+      durable_state_dump_status="FAIL"
+      invariant_audit_status="FAIL"
+      durable_state_dump_note="required Gateway/Oxia session-churn pre-restart and post-recovery dumps were missing or failed cross-process validation"
+      invariant_audit_note="independent durable-record, stale-session and exact-outcome comparison failed"
+      audit_status="FAIL"
+    fi
+  fi
   if [[ "${result_status}" != "0" || "${marker_status}" != "PASS" ]]; then
     audit_status="FAIL"
   fi
@@ -1084,7 +1204,8 @@ run_cell pulsar-source-ack-response-loss env \
   NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
   NEREUS_DELAY_PULSAR_WITH_OXIA=1 \
   NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS=1 \
-  NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_ONLY=1 \
+  NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_PROCESS_CRASH_ONLY=1 \
+  NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_STATE_DUMP_DIR="${artifact_dir}/pulsar-source-ack-response-loss-state" \
   NEREUS_DELAY_PULSAR_GRADLE_USER_HOME="${matrix_gradle_home}" \
   PULSAR_BROKER_PORT=31380 PULSAR_WEB_PORT=31381 \
   NEREUS_DELAY_PULSAR_OXIA_PORT=31390 \
@@ -1094,6 +1215,7 @@ run_cell gateway-oxia-session-churn env \
   NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
   NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN=1 \
   NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN_PAUSE_SECONDS=5 \
+  NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN_STATE_DUMP_DIR="${artifact_dir}/gateway-oxia-session-churn-state" \
   NEREUS_DELAY_GATEWAY_GRADLE_USER_HOME="${matrix_gradle_home}" \
   NEREUS_DELAY_OXIA_GATEWAY_E2E_PORT=31440 \
   NEREUS_DELAY_GATEWAY_PORT=31450 \
@@ -1150,9 +1272,15 @@ worker_process_invariant_status="$(jq -r '."pulsar-worker-process-crash".audit.i
 pulsar_multi_dump_status="$(jq -r '."pulsar-multi-broker-process-crash".audit.durable_state_dump.status' "${cells_json}")"
 pulsar_multi_recovery_status="$(jq -r '."pulsar-multi-broker-process-crash".audit.fresh_process_recovery' "${cells_json}")"
 pulsar_multi_invariant_status="$(jq -r '."pulsar-multi-broker-process-crash".audit.invariant_audit.status' "${cells_json}")"
-durable_state_dump_summary="CELL_SPECIFIC; kafka-broker-process-crash ${broker_dump_status}; kafka-broker-tcp-cut ${broker_tcp_dump_status}; kafka-broker-network-partition ${broker_network_dump_status}; kafka-worker-ack-process-crash ${worker_ack_dump_status}; pulsar-worker-process-crash ${worker_process_dump_status}; pulsar-multi-broker-process-crash ${pulsar_multi_dump_status}; kafka-fetch-response-loss ${fetch_dump_status}; kafka-retention-floor ${retention_dump_status}; pulsar-worker-admission-response-loss ${admission_dump_status}; pulsar-worker-destination-response-loss ${destination_dump_status}; other cells NOT_CAPTURED"
-fresh_process_recovery_summary="CELL_SPECIFIC; kafka-broker-process-crash ${broker_recovery_status}; kafka-broker-tcp-cut ${broker_tcp_recovery_status}; kafka-broker-network-partition ${broker_network_recovery_status}; kafka-worker-ack-process-crash ${worker_ack_recovery_status}; pulsar-worker-process-crash ${worker_process_recovery_status}; pulsar-multi-broker-process-crash ${pulsar_multi_recovery_status}; kafka-fetch-response-loss ${fetch_recovery_status}; kafka-retention-floor ${retention_recovery_status}; pulsar-worker-admission-response-loss ${admission_recovery_status}; pulsar-worker-destination-response-loss ${destination_recovery_status}; other cells NOT_COVERED"
-invariant_audit_summary="CELL_SPECIFIC; kafka-broker-process-crash ${broker_invariant_status}; kafka-broker-tcp-cut ${broker_tcp_invariant_status}; kafka-broker-network-partition ${broker_network_invariant_status}; kafka-worker-ack-process-crash ${worker_ack_invariant_status}; pulsar-worker-process-crash ${worker_process_invariant_status}; pulsar-multi-broker-process-crash ${pulsar_multi_invariant_status}; kafka-fetch-response-loss ${fetch_invariant_status}; kafka-retention-floor ${retention_invariant_status}; pulsar-worker-admission-response-loss ${admission_invariant_status}; pulsar-worker-destination-response-loss ${destination_invariant_status}; other cells MARKER_ONLY"
+pulsar_source_ack_dump_status="$(jq -r '."pulsar-source-ack-response-loss".audit.durable_state_dump.status' "${cells_json}")"
+pulsar_source_ack_recovery_status="$(jq -r '."pulsar-source-ack-response-loss".audit.fresh_process_recovery' "${cells_json}")"
+pulsar_source_ack_invariant_status="$(jq -r '."pulsar-source-ack-response-loss".audit.invariant_audit.status' "${cells_json}")"
+gateway_dump_status="$(jq -r '."gateway-oxia-session-churn".audit.durable_state_dump.status' "${cells_json}")"
+gateway_recovery_status="$(jq -r '."gateway-oxia-session-churn".audit.fresh_process_recovery' "${cells_json}")"
+gateway_invariant_status="$(jq -r '."gateway-oxia-session-churn".audit.invariant_audit.status' "${cells_json}")"
+durable_state_dump_summary="CELL_SPECIFIC; kafka-broker-process-crash ${broker_dump_status}; kafka-broker-tcp-cut ${broker_tcp_dump_status}; kafka-broker-network-partition ${broker_network_dump_status}; kafka-worker-ack-process-crash ${worker_ack_dump_status}; pulsar-worker-process-crash ${worker_process_dump_status}; pulsar-multi-broker-process-crash ${pulsar_multi_dump_status}; kafka-fetch-response-loss ${fetch_dump_status}; kafka-retention-floor ${retention_dump_status}; pulsar-worker-admission-response-loss ${admission_dump_status}; pulsar-worker-destination-response-loss ${destination_dump_status}; pulsar-source-ack-response-loss ${pulsar_source_ack_dump_status}; gateway-oxia-session-churn ${gateway_dump_status}; other cells NOT_CAPTURED"
+fresh_process_recovery_summary="CELL_SPECIFIC; kafka-broker-process-crash ${broker_recovery_status}; kafka-broker-tcp-cut ${broker_tcp_recovery_status}; kafka-broker-network-partition ${broker_network_recovery_status}; kafka-worker-ack-process-crash ${worker_ack_recovery_status}; pulsar-worker-process-crash ${worker_process_recovery_status}; pulsar-multi-broker-process-crash ${pulsar_multi_recovery_status}; kafka-fetch-response-loss ${fetch_recovery_status}; kafka-retention-floor ${retention_recovery_status}; pulsar-worker-admission-response-loss ${admission_recovery_status}; pulsar-worker-destination-response-loss ${destination_recovery_status}; pulsar-source-ack-response-loss ${pulsar_source_ack_recovery_status}; gateway-oxia-session-churn ${gateway_recovery_status}; other cells NOT_COVERED"
+invariant_audit_summary="CELL_SPECIFIC; kafka-broker-process-crash ${broker_invariant_status}; kafka-broker-tcp-cut ${broker_tcp_invariant_status}; kafka-broker-network-partition ${broker_network_invariant_status}; kafka-worker-ack-process-crash ${worker_ack_invariant_status}; pulsar-worker-process-crash ${worker_process_invariant_status}; pulsar-multi-broker-process-crash ${pulsar_multi_invariant_status}; kafka-fetch-response-loss ${fetch_invariant_status}; kafka-retention-floor ${retention_invariant_status}; pulsar-worker-admission-response-loss ${admission_invariant_status}; pulsar-worker-destination-response-loss ${destination_invariant_status}; pulsar-source-ack-response-loss ${pulsar_source_ack_invariant_status}; gateway-oxia-session-churn ${gateway_invariant_status}; other cells MARKER_ONLY"
 if [[ "${matrix_status}" == "0" ]]; then
   matrix_result="PASS_BOUNDED"
 else

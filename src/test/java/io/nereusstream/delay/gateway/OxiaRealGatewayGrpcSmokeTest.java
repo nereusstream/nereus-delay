@@ -53,6 +53,8 @@ import org.junit.jupiter.api.Test;
 
 import javax.net.ssl.SSLException;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -606,10 +608,16 @@ class OxiaRealGatewayGrpcSmokeTest {
         final Path restartReady = Path.of(requiredEnv("NEREUS_DELAY_GATEWAY_SESSION_CHURN_READY"));
         final Path recoveryGate = Path.of(requiredEnv("NEREUS_DELAY_GATEWAY_SESSION_CHURN_RECOVERY_GATE"));
         final Path recoveryReady = Path.of(requiredEnv("NEREUS_DELAY_GATEWAY_SESSION_CHURN_RECOVERY_READY"));
+        final Path stateDumpDirectory = optionalPath("NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN_STATE_DUMP_DIR");
         Files.deleteIfExists(restartGate);
         Files.deleteIfExists(restartReady);
         Files.deleteIfExists(recoveryGate);
         Files.deleteIfExists(recoveryReady);
+        if (stateDumpDirectory != null) {
+            Files.createDirectories(stateDumpDirectory);
+            Files.deleteIfExists(stateDumpDirectory.resolve("before-oxia-restart.json"));
+            Files.deleteIfExists(stateDumpDirectory.resolve("after-oxia-restart.json"));
+        }
 
         final String namespace = configured("NEREUS_DELAY_OXIA_NAMESPACE", "default");
         final String prefix = "nereus-delay-real-gateway-session-churn/" + UUID.randomUUID();
@@ -656,6 +664,13 @@ class OxiaRealGatewayGrpcSmokeTest {
                     assertTrue(firstChannel.awaitTermination(10, TimeUnit.SECONDS));
                 }
 
+                if (stateDumpDirectory != null) {
+                    writeGatewaySessionChurnStateDump(stateDumpDirectory, "BEFORE_OXIA_RESTART", endpoint,
+                            namespace, prefix, firstResponse.toByteArray(), core.prepareCalls,
+                            coordinator.submitCalls, scanGatewayChurnRecords(admissionClient, idempotencyClient,
+                                    auditClient, prefix), false, false);
+                }
+
                 Files.createFile(restartReady);
                 awaitFile(restartGate);
 
@@ -700,14 +715,14 @@ class OxiaRealGatewayGrpcSmokeTest {
                 final GatewayGrpcService recoveredGrpc = grpcService(recoveredAdmissionClient,
                         recoveredIdempotencyClient, recoveredAuditClient, prefix, clock, core, coordinator,
                         authority);
+                final io.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 recoveredResponse;
                 try (GatewayGrpcServer recoveredServer = GatewayGrpcServer.mutualTls(port, serverCertificate,
                         serverPrivateKey, trustedClientCertificates, recoveredGrpc)) {
                     recoveredServer.start();
                     final ManagedChannel recoveredChannel = channel(port, trustedClientCertificates,
                             clientCertificate, clientPrivateKey);
                     try {
-                        final io.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 recoveredResponse =
-                                stub(recoveredChannel, token).schedule(request);
+                        recoveredResponse = stub(recoveredChannel, token).schedule(request);
                         assertArrayEquals(firstResponse.toByteArray(), recoveredResponse.toByteArray());
                         assertEquals(1, core.prepareCalls);
                         assertEquals(1, coordinator.submitCalls);
@@ -738,6 +753,12 @@ class OxiaRealGatewayGrpcSmokeTest {
                     assertEquals(1, idempotencyRecord.attempts().size());
                     assertNotNull(idempotencyRecord.aggregateOutcomeBytes());
                     assertEquals(2, auditRecords.size());
+                }
+                if (stateDumpDirectory != null) {
+                    writeGatewaySessionChurnStateDump(stateDumpDirectory, "RECOVERED_AFTER_OXIA_RESTART", endpoint,
+                            namespace, prefix, recoveredResponse.toByteArray(), core.prepareCalls,
+                            coordinator.submitCalls, scanGatewayChurnRecords(recoveredAdmissionClient,
+                                    recoveredIdempotencyClient, recoveredAuditClient, prefix), true, true);
                 }
             }
             System.out.println("Gateway Oxia session churn E2E passed: stale admission/idempotency sessions failed "
@@ -1093,6 +1114,107 @@ class OxiaRealGatewayGrpcSmokeTest {
         final Path path = Path.of(requiredEnv(name));
         Assumptions.assumeTrue(Files.isRegularFile(path), name + " is not a regular file: " + path);
         return path;
+    }
+
+    private static Path optionalPath(final String name) {
+        final String value = System.getenv(name);
+        return value == null || value.isBlank() ? null : Path.of(value);
+    }
+
+    private static GatewayChurnDurableSnapshot scanGatewayChurnRecords(
+            final OxiaSyncOwnerLeaseBackend.ClientHandle admissionClient,
+            final OxiaSyncOwnerLeaseBackend.ClientHandle idempotencyClient,
+            final OxiaSyncOwnerLeaseBackend.ClientHandle auditClient,
+            final String prefix) throws Exception {
+        try (var admissionScan = admissionClient.client().rangeScan(
+                prefix + "/admission/admission/", prefix + "/admission/admission/\uffff");
+             var idempotencyScan = idempotencyClient.client().rangeScan(
+                     prefix + "/idempotency/idempotency/", prefix + "/idempotency/idempotency/\uffff");
+             var auditScan = auditClient.client().rangeScan(
+                     prefix + "/audit/audit/", prefix + "/audit/audit/\uffff")) {
+            final List<GetResult> admissionRecords =
+                    java.util.stream.StreamSupport.stream(admissionScan.spliterator(), false).toList();
+            final List<GetResult> idempotencyRecords =
+                    java.util.stream.StreamSupport.stream(idempotencyScan.spliterator(), false).toList();
+            final List<GetResult> auditRecords =
+                    java.util.stream.StreamSupport.stream(auditScan.spliterator(), false).toList();
+            int activeLeases = 0;
+            if (admissionRecords.size() == 1) {
+                activeLeases = GatewayAdmissionRecordV1.decode(admissionRecords.get(0).value()).leases().size();
+            }
+            String idempotencyPhase = null;
+            int idempotencyAttempts = 0;
+            boolean aggregateOutcomePresent = false;
+            if (idempotencyRecords.size() == 1) {
+                final GatewayIdempotencyRecordV1 idempotencyRecord =
+                        GatewayIdempotencyRecordV1.decode(idempotencyRecords.get(0).value());
+                idempotencyPhase = idempotencyRecord.phase().name();
+                idempotencyAttempts = idempotencyRecord.attempts().size();
+                aggregateOutcomePresent = idempotencyRecord.aggregateOutcomeBytes() != null;
+            }
+            return new GatewayChurnDurableSnapshot(admissionRecords.size(), activeLeases,
+                    idempotencyRecords.size(), idempotencyPhase, idempotencyAttempts,
+                    aggregateOutcomePresent, auditRecords.size());
+        }
+    }
+
+    private static void writeGatewaySessionChurnStateDump(final Path directory, final String phase,
+                                                           final String endpoint, final String namespace,
+                                                           final String prefix, final byte[] response,
+                                                           final int prepareCalls, final int submitCalls,
+                                                           final GatewayChurnDurableSnapshot snapshot,
+                                                           final boolean staleSessionFailedClosed,
+                                                           final boolean exactOutcomeRecovered) throws Exception {
+        Files.createDirectories(directory);
+        final Path target = directory.resolve("BEFORE_OXIA_RESTART".equals(phase)
+                ? "before-oxia-restart.json" : "after-oxia-restart.json");
+        final String json = "{\n"
+                + "  \"schema\": \"nereus-delay-chaos-durable-state-dump-v1\",\n"
+                + "  \"cell\": \"gateway-oxia-session-churn\",\n"
+                + "  \"phase\": " + jsonString(phase) + ",\n"
+                + "  \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
+                + "  \"oxia_endpoint\": " + jsonString(endpoint) + ",\n"
+                + "  \"oxia_namespace\": " + jsonString(namespace) + ",\n"
+                + "  \"prefix\": " + jsonString(prefix) + ",\n"
+                + "  \"response_sha256\": " + jsonString(Bytes.hex(Bytes.sha256(response))) + ",\n"
+                + "  \"response_bytes\": " + response.length + ",\n"
+                + "  \"prepare_calls\": " + prepareCalls + ",\n"
+                + "  \"submit_calls\": " + submitCalls + ",\n"
+                + "  \"admission_records\": " + snapshot.admissionRecords() + ",\n"
+                + "  \"admission_active_leases\": " + snapshot.activeLeases() + ",\n"
+                + "  \"idempotency_records\": " + snapshot.idempotencyRecords() + ",\n"
+                + "  \"idempotency_phase\": " + jsonNullable(snapshot.idempotencyPhase()) + ",\n"
+                + "  \"idempotency_attempts\": " + snapshot.idempotencyAttempts() + ",\n"
+                + "  \"aggregate_outcome_present\": " + snapshot.aggregateOutcomePresent() + ",\n"
+                + "  \"audit_records\": " + snapshot.auditRecords() + ",\n"
+                + "  \"stale_session_failed_closed\": " + staleSessionFailedClosed + ",\n"
+                + "  \"exact_outcome_recovered\": " + exactOutcomeRecovered + ",\n"
+                + "  \"oxia_process_restarted\": " + !"BEFORE_OXIA_RESTART".equals(phase) + ",\n"
+                + "  \"durable_store_read\": true,\n"
+                + "  \"dump_forced\": true\n"
+                + "}\n";
+        final ByteBuffer bytes = StandardCharsets.UTF_8.encode(json);
+        try (FileChannel channel = FileChannel.open(target, java.nio.file.StandardOpenOption.CREATE,
+                java.nio.file.StandardOpenOption.TRUNCATE_EXISTING, java.nio.file.StandardOpenOption.WRITE)) {
+            while (bytes.hasRemaining()) {
+                channel.write(bytes);
+            }
+            channel.force(true);
+        }
+    }
+
+    private static String jsonString(final String value) {
+        return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+    }
+
+    private static String jsonNullable(final String value) {
+        return value == null ? "null" : jsonString(value);
+    }
+
+    private record GatewayChurnDurableSnapshot(int admissionRecords, int activeLeases,
+                                                int idempotencyRecords, String idempotencyPhase,
+                                                int idempotencyAttempts, boolean aggregateOutcomePresent,
+                                                int auditRecords) {
     }
 
     private static String requiredEnv(final String name) {

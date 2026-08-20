@@ -19,6 +19,7 @@ session_churn_ready="$session_churn_dir/ready"
 session_churn_recovery_gate="$session_churn_dir/recovery-release"
 session_churn_recovery_ready="$session_churn_dir/recovery-ready"
 session_churn_log="$session_churn_dir/session-churn.log"
+session_churn_state_dump_dir=${NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN_STATE_DUMP_DIR:-"$session_churn_dir/state"}
 session_churn_pid=""
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -157,6 +158,7 @@ run_session_churn_smoke() {
     NEREUS_DELAY_GATEWAY_SESSION_CHURN_READY="$session_churn_ready" \
     NEREUS_DELAY_GATEWAY_SESSION_CHURN_RECOVERY_GATE="$session_churn_recovery_gate" \
     NEREUS_DELAY_GATEWAY_SESSION_CHURN_RECOVERY_READY="$session_churn_recovery_ready" \
+    NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN_STATE_DUMP_DIR="$session_churn_state_dump_dir" \
     GRADLE_USER_HOME="$delay_gradle_user_home" \
         "$delay_root/gradlew" test \
             --tests io.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.gatewayDurableRecordsRecoverAfterOxiaSessionChurn \
@@ -220,6 +222,28 @@ run_session_churn_smoke() {
     if [[ "$test_status" != 0 ]]; then
         return "$test_status"
     fi
+    if [[ ! -s "$session_churn_state_dump_dir/before-oxia-restart.json" \
+        || ! -s "$session_churn_state_dump_dir/after-oxia-restart.json" ]]; then
+        echo "Gateway Oxia session churn durable state dumps are missing" >&2
+        return 1
+    fi
+    jq -e '
+        .schema == "nereus-delay-chaos-durable-state-dump-v1"
+        and .cell == "gateway-oxia-session-churn"
+        and .phase == "BEFORE_OXIA_RESTART"
+        and .durable_store_read == true
+        and .dump_forced == true
+    ' "$session_churn_state_dump_dir/before-oxia-restart.json" >/dev/null
+    jq -e '
+        .schema == "nereus-delay-chaos-durable-state-dump-v1"
+        and .cell == "gateway-oxia-session-churn"
+        and .phase == "RECOVERED_AFTER_OXIA_RESTART"
+        and .stale_session_failed_closed == true
+        and .exact_outcome_recovered == true
+        and .oxia_process_restarted == true
+        and .durable_store_read == true
+        and .dump_forced == true
+    ' "$session_churn_state_dump_dir/after-oxia-restart.json" >/dev/null
 }
 
 generate_tls_material

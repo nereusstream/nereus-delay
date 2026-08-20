@@ -15,6 +15,8 @@ destination_response_loss_fresh_process="${NEREUS_DELAY_PULSAR_DESTINATION_RESPO
 destination_response_loss_state_dump_dir="${NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_STATE_DUMP_DIR:-}"
 source_ack_response_loss="${NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS:-0}"
 source_ack_response_loss_only="${NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_ONLY:-0}"
+source_ack_response_loss_process_crash_only="${NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_PROCESS_CRASH_ONLY:-0}"
+source_ack_response_loss_state_dump_dir="${NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_STATE_DUMP_DIR:-}"
 worker_destination_response_loss="${NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS:-0}"
 worker_destination_response_loss_only="${NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS_ONLY:-0}"
 worker_destination_response_loss_process_crash_only="${NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS_PROCESS_CRASH_ONLY:-0}"
@@ -91,6 +93,22 @@ if [[ "${source_ack_response_loss_only}" == "1" && "${source_ack_response_loss}"
   echo "NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_ONLY requires NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS=1" >&2
   exit 1
 fi
+if [[ "${source_ack_response_loss_process_crash_only}" != "0" && "${source_ack_response_loss_process_crash_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_PROCESS_CRASH_ONLY must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${source_ack_response_loss_process_crash_only}" == "1" && "${source_ack_response_loss}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_PROCESS_CRASH_ONLY requires NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS=1" >&2
+  exit 1
+fi
+if [[ "${source_ack_response_loss_process_crash_only}" == "1" && "${source_ack_response_loss_only}" == "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_PROCESS_CRASH_ONLY cannot be combined with SOURCE_ACK_RESPONSE_LOSS_ONLY" >&2
+  exit 1
+fi
+if [[ "${source_ack_response_loss_process_crash_only}" == "1" && -z "${source_ack_response_loss_state_dump_dir}" ]]; then
+  echo "NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_STATE_DUMP_DIR is required for fresh-process evidence" >&2
+  exit 1
+fi
 if [[ "${worker_destination_response_loss}" != "0" && "${worker_destination_response_loss}" != "1" ]]; then
   echo "NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS must be 0 or 1" >&2
   exit 1
@@ -151,6 +169,7 @@ focused_response_loss_modes=(
   "${destination_response_loss_only}"
   "${destination_response_loss_fresh_process}"
   "${source_ack_response_loss_only}"
+  "${source_ack_response_loss_process_crash_only}"
   "${worker_destination_response_loss_only}"
   "${worker_destination_response_loss_process_crash_only}"
   "${worker_admission_response_loss_only}"
@@ -208,6 +227,10 @@ if [[ "${worker_admission_response_loss_process_crash_only}" == "1" && "${multi_
 fi
 if [[ "${worker_destination_response_loss_process_crash_only}" == "1" && "${worker_admission_response_loss_process_crash_only}" == "1" ]]; then
   echo "Pulsar Worker destination and admission response-loss process-crash modes are mutually exclusive" >&2
+  exit 1
+fi
+if [[ "${source_ack_response_loss_process_crash_only}" == "1" && "${with_oxia}" != "1" ]]; then
+  echo "NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_PROCESS_CRASH_ONLY requires NEREUS_DELAY_PULSAR_WITH_OXIA=1" >&2
   exit 1
 fi
 
@@ -747,6 +770,129 @@ if [[ "${destination_response_loss_only}" == "1" ]]; then
     -PpulsarDestinationTopic="${destination_topic}" \
     --no-daemon --console=plain
   echo "Pulsar destination committed response-loss E2E passed: real SEND response loss resolved through typed PULSAR_SEND_ACK evidence and exact guarded payload readback."
+  exit 0
+fi
+
+if [[ "${source_ack_response_loss_process_crash_only}" == "1" ]]; then
+  source_ack_process_crash_dir="${source_ack_response_loss_state_dump_dir}"
+  source_ack_process_crash_gate="${source_ack_process_crash_dir}/cut"
+  source_ack_process_crash_pid_file="${source_ack_process_crash_dir}/pid"
+  source_ack_process_crash_log="${source_ack_process_crash_dir}/crash.log"
+  source_ack_process_resume_log="${source_ack_process_crash_dir}/resume.log"
+  source_ack_process_worker_root="${source_ack_process_crash_dir}/worker-root"
+  mkdir -p "${source_ack_process_crash_dir}"
+  rm -f "${source_ack_process_crash_dir}/before-process-crash.json" \
+    "${source_ack_process_crash_dir}/after-fresh-process.json" \
+    "${source_ack_process_crash_gate}" "${source_ack_process_crash_pid_file}"
+  rm -rf "${source_ack_process_worker_root}"
+  export NEREUS_DELAY_PULSAR_WORKER_ROOT="${source_ack_process_worker_root}"
+  export NEREUS_DELAY_PULSAR_CHAOS_STATE_DUMP_DIR="${source_ack_process_crash_dir}"
+  export NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS=1
+  export NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_PROCESS_CRASH_ONLY=1
+  export NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_PROCESS_CRASH_GATE="${source_ack_process_crash_gate}"
+  export NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_PROCESS_CRASH_PID_FILE="${source_ack_process_crash_pid_file}"
+  run_focused_worker_smoke "${topic}" "" prepare
+  set +e
+  run_focused_worker_smoke "${topic}" "" source-ack-crash-wait >"${source_ack_process_crash_log}" 2>&1 &
+  source_ack_process_launcher_pid=$!
+  set -e
+  source_ack_process_gate_deadline=$((SECONDS + 180))
+  while (( SECONDS < source_ack_process_gate_deadline )); do
+    if [[ -f "${source_ack_process_crash_gate}" && -s "${source_ack_process_crash_pid_file}" ]]; then
+      break
+    fi
+    if ! kill -0 "${source_ack_process_launcher_pid}" >/dev/null 2>&1; then
+      wait "${source_ack_process_launcher_pid}" || true
+      cat "${source_ack_process_crash_log}" >&2
+      echo "Pulsar source ACK response-loss JVM exited before its cut gate" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  if [[ ! -f "${source_ack_process_crash_gate}" || ! -s "${source_ack_process_crash_pid_file}" ]]; then
+    cat "${source_ack_process_crash_log}" >&2
+    echo "Pulsar source ACK response-loss JVM did not reach its cut gate" >&2
+    exit 1
+  fi
+  source_ack_process_pid="$(<"${source_ack_process_crash_pid_file}")"
+  if [[ ! "${source_ack_process_pid}" =~ ^[0-9]+$ ]] || ! kill -0 "${source_ack_process_pid}" >/dev/null 2>&1; then
+    cat "${source_ack_process_crash_log}" >&2
+    echo "Pulsar source ACK response-loss JVM PID is not alive at the cut gate" >&2
+    exit 1
+  fi
+  rg -F "Pulsar Worker source ACK response-loss process-crash cut reached" "${source_ack_process_crash_log}"
+  if ! jq -e '
+        .schema == "nereus-delay-chaos-durable-state-dump-v1"
+        and .cell == "pulsar-source-ack-response-loss"
+        and .phase == "SOURCE_ACK_RESPONSE_LOSS_PERSISTED"
+        and (.source_ack_source_position | (type == "string" and length > 0))
+        and (.applied_source_position == .source_ack_source_position)
+        and .source_apply_durable == true
+        and .source_ack_committed == true
+        and .ack_response_lost == true
+        and .duplicate_source_apply_observed == false
+        and .durable_store_read == true
+        and .dump_forced == true
+      ' "${source_ack_process_crash_dir}/before-process-crash.json" >/dev/null; then
+    cat "${source_ack_process_crash_dir}/before-process-crash.json" >&2
+    echo "Pulsar source ACK response-loss pre-crash durable state dump failed validation" >&2
+    exit 1
+  fi
+  kill -KILL "${source_ack_process_pid}"
+  rm -f "${source_ack_process_crash_gate}"
+  set +e
+  wait "${source_ack_process_launcher_pid}"
+  source_ack_process_status=$?
+  set -e
+  source_ack_process_launcher_pid=""
+  if [[ "${source_ack_process_status}" == "0" ]]; then
+    echo "Pulsar source ACK response-loss JVM unexpectedly returned success after SIGKILL" >&2
+    exit 1
+  fi
+  unset NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS
+  unset NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_PROCESS_CRASH_ONLY
+  unset NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_PROCESS_CRASH_GATE
+  unset NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_PROCESS_CRASH_PID_FILE
+  resume_attempts="${NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_RESUME_ATTEMPTS:-90}"
+  for attempt in $(seq 1 "${resume_attempts}"); do
+    set +e
+    run_focused_worker_smoke "${topic}" "" source-ack-resume >"${source_ack_process_resume_log}" 2>&1
+    resume_status=$?
+    set -e
+    if [[ "${resume_status}" == "0" ]]; then
+      cat "${source_ack_process_resume_log}"
+      break
+    fi
+    if [[ "${attempt}" == "${resume_attempts}" ]]; then
+      cat "${source_ack_process_resume_log}" >&2
+      echo "Pulsar source ACK response-loss fresh-process recovery did not complete" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  rg -F --quiet "Pulsar Worker vertical smoke passed" "${source_ack_process_resume_log}" \
+    || { cat "${source_ack_process_resume_log}" >&2; exit 1; }
+  if ! jq -e '
+        .schema == "nereus-delay-chaos-durable-state-dump-v1"
+        and .cell == "pulsar-source-ack-response-loss"
+        and .phase == "RECOVERED_AFTER_FRESH_PROCESS"
+        and (.physical_topic | (type == "string" and length > 0))
+        and (.source_ack_source_position | (type == "string" and length > 0))
+        and (.applied_source_position | (type == "string" and length > 0))
+        and .source_apply_durable == true
+        and .source_ack_committed == true
+        and .ack_response_lost == true
+        and .recovery_replayed_ack_source == false
+        and .duplicate_source_apply_observed == false
+        and .durable_store_read == true
+        and .dump_forced == true
+      ' "${source_ack_process_crash_dir}/after-fresh-process.json" >/dev/null; then
+    cat "${source_ack_process_crash_dir}/after-fresh-process.json" >&2
+    echo "Pulsar source ACK response-loss fresh-process durable state dump failed validation" >&2
+    exit 1
+  fi
+  rm -rf "${source_ack_process_worker_root}"
+  echo "Pulsar Worker source ACK response-loss fresh-process recovery passed: the broker-accepted ACK response loss survived SIGKILL, a fresh Worker reread the durable source position, and the source record was not applied twice."
   exit 0
 fi
 
