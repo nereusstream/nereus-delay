@@ -1170,3 +1170,16 @@ Until all fourteen cells independently satisfy durable state, fresh-process
 recovery and invariant comparison, keep the certified chaos result blocked and
 the release gate `NOT_READY`. Cleanup remains exact-path and recoverable via
 Trash; never delete a source/worktree root or use global Docker prune.
+
+## 2026-08-21 Pulsar Worker process-crash evidence slice
+
+Delay commit `83a47900ef3de4cfa110f7ca43d13fcde1376628` adds the certified
+durable-state path for the existing Pulsar Worker process-crash cell. Its
+focused before/after dumps are
+`/private/tmp/nereus-delay-v1-pulsar-worker-process-crash-20260821-r1/`;
+the real-broker E2E preserved Store/DB identity across fresh JVM recovery and
+closed source apply/ACK under the real Oxia Owner Lease. The r10/r6 receipts
+are pre-slice history and must not be used as current source-locked inputs.
+After this section is committed, r11 chaos and r7 gate receipts become the
+current handoff targets. Certified chaos and the V1 gate remain fail-closed
+until all fourteen cells satisfy the durable/fresh/invariant contract.

@@ -6612,3 +6612,24 @@ durable state, fresh-process recovery and invariant evidence. Keep only
 canonical receipts and locked base images; move superseded exact paths to
 Trash after checking that no process is using them. Source worktrees and Git
 metadata are never cleanup targets.
+
+## 2026-08-21 Pulsar Worker process-crash evidence slice
+
+The next chaos slice is pushed as
+`83a47900ef3de4cfa110f7ca43d13fcde1376628` (`test: certify Pulsar Worker
+process crash recovery`). It adds external fsync-forced before/after Store
+dumps for the existing real Pulsar Worker process-crash path and independently
+compares the physical topic, Route/shard identity, Store incarnation, DB
+identity, source apply/ACK boundary and fresh JVM PID. The focused receipt is:
+
+```text
+/private/tmp/nereus-delay-v1-pulsar-worker-process-crash-20260821-r1/before-process-crash.json
+/private/tmp/nereus-delay-v1-pulsar-worker-process-crash-20260821-r1/after-fresh-process.json
+```
+
+The focused real-broker E2E passed with Store/DB identity unchanged, PID
+`750 -> 847`, source apply/ACK `false -> true`, real Oxia Owner Lease and final
+checkpoint. The existing r10 certified wrapper and r6 gate are now historical
+pre-slice receipts because their Delay source lock predates this commit. After
+this documentation update, regenerate the authoritative current-source
+wrapper and gate at r11 and r7; until then the release remains fail-closed.

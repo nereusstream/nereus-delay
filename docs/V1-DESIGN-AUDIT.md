@@ -13197,3 +13197,14 @@ with source/cross-repository/full-Gradle checks `PASS` and final
 use only the post-documentation r10 chaos receipt and r6 gate receipt; their
 exact `source_locks` are the authority. The release remains fail-closed until
 all fourteen cells meet the certified evidence contract.
+
+### 2026-08-21 Pulsar Worker process-crash evidence slice
+
+Delay commit `83a47900ef3de4cfa110f7ca43d13fcde1376628` adds external durable
+before/after state for the real Pulsar Worker process-crash cell. The audit
+compares topic, Route/shard, Store incarnation, DB identity, apply/ACK boundary
+and fresh-process identity; the focused E2E also retains real Oxia Owner Lease
+and final checkpoint evidence. The r10 chaos/r6 gate receipts predate this
+slice and are historical. Regenerate r11/r7 after this documentation commit;
+the certified and release gates remain fail-closed until all fourteen cells
+pass independently.

@@ -16569,3 +16569,17 @@ Their own `source_locks` are authoritative. This status is a release-evidence
 boundary, not a claim that the functional Worker egress chain is unimplemented.
 Related temporary artifacts may be moved to Trash only by exact path after
 process/resource checks; source code, worktrees and Git metadata remain intact.
+
+## 2026-08-21 Pulsar Worker process-crash evidence slice
+
+Commit `83a47900ef3de4cfa110f7ca43d13fcde1376628` extends the chaos evidence
+union with the Pulsar Worker process-crash cell. The focused real-broker run
+captured fsync-forced before/after Store state, preserved Store incarnation and
+DB identity across fresh JVM recovery, and observed source apply/ACK
+`false -> true` under real Oxia ownership. The focused dumps are retained at
+`/private/tmp/nereus-delay-v1-pulsar-worker-process-crash-20260821-r1/`.
+
+Because this implementation commit follows the r10/r6 evidence, those receipts
+are historical pre-slice evidence. The post-documentation source-lock refresh
+uses r11 chaos and r7 gate paths; no certified or release promotion is implied
+until their exact receipts and all fourteen cell audits pass.

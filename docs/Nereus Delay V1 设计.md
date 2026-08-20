@@ -4952,6 +4952,23 @@ before/after、fresh-process recovery 和 invariant 之前，V1 必须保持
 `NOT_READY`。清理只允许对精确临时路径执行并移入 Trash；源码、worktree、
 `.git` 和代码内容不是清理目标。
 
+## 29. 2026-08-21 Pulsar Worker 崩溃证据切片
+
+提交 `83a47900ef3de4cfa110f7ca43d13fcde1376628` 为已有的 Pulsar Worker
+process-crash real-broker 路径补齐 certified 所需的 fsync-forced durable
+before/after Store dump。独立审计比较 physical topic、Route/shard、Store
+incarnation、DB identity、source apply/ACK 边界和 fresh JVM PID，并保留真实
+Oxia Owner Lease 与最终 checkpoint 证据。focused dump 保留在：
+
+```text
+/private/tmp/nereus-delay-v1-pulsar-worker-process-crash-20260821-r1/
+```
+
+r10 chaos 和 r6 gate receipt 的 source lock 早于该实现提交，现为历史证据；
+本节提交后用 r11 chaos 与 r7 gate 生成当前 source lock。十四个 cell 全部
+满足 durable/fresh/invariant 前，certified chaos 和 V1 Gate 仍保持
+`BLOCKED`/`NOT_READY`。
+
 ## 参考资料
 
 - [R1] [DDMQ README @ 2f30b61a](https://github.com/didi/DDMQ/blob/2f30b61a5741d55a5b515f3d8d19a8a35be8c9e2/README.md)
