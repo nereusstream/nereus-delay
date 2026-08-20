@@ -135,7 +135,10 @@ audit_cell() {
       source_evidence="Pulsar Broker process-crash failover E2E passed"
       target_evidence="Pulsar Worker source-applied physical publish passed"
       authority_evidence="Pulsar Worker authority smoke passed"
-      required_markers=("Pulsar Broker process-crash failover E2E passed" "Pulsar Worker source-applied physical publish passed" "Pulsar Worker authority smoke passed")
+      required_markers=("Pulsar Broker process-crash failover E2E passed"
+        "Pulsar Broker pulsar-multi-broker-process-crash durable state dump passed: phase=before"
+        "Pulsar Broker pulsar-multi-broker-process-crash durable state dump passed: phase=after"
+        "Pulsar Worker source-applied physical publish passed" "Pulsar Worker authority smoke passed")
       ;;
     pulsar-worker-admission-response-loss)
       injection_point="discard the Pulsar Shard Log Publish Admission append response after durable mutation"
@@ -352,6 +355,59 @@ audit_cell() {
       invariant_audit_status="FAIL"
       durable_state_dump_note="required Kafka ${name} pre-cut and post-recovery dumps were missing or failed cross-process validation"
       invariant_audit_note="independent Kafka Broker metadata and recovery-field comparison failed"
+      audit_status="FAIL"
+    fi
+  fi
+  if [[ "${name}" == "pulsar-multi-broker-process-crash" ]]; then
+    local state_dump_dir="${artifact_dir}/pulsar-multi-broker-process-crash-state"
+    local before_dump="${state_dump_dir}/before-process-crash.json"
+    local after_dump="${state_dump_dir}/after-fresh-process.json"
+    if [[ -s "${before_dump}" && -s "${after_dump}" ]] \
+        && jq -e \
+          --slurpfile before "${before_dump}" \
+          --slurpfile after "${after_dump}" \
+          -n '
+            ($before[0]) as $pre
+            | ($after[0]) as $post
+            | $pre.schema == "nereus-delay-chaos-durable-state-dump-v1"
+              and $post.schema == "nereus-delay-chaos-durable-state-dump-v1"
+              and $pre.cell == "pulsar-multi-broker-process-crash"
+              and $post.cell == $pre.cell
+              and $pre.phase == "PULSAR_BROKER_PROCESS_CRASH_READY"
+              and $post.phase == "RECOVERED_AFTER_FRESH_PROCESS"
+              and ($pre.topic == $post.topic)
+              and ($pre.physical_topic == $post.physical_topic)
+              and ($pre.cluster_id == $post.cluster_id)
+              and ($pre.ledger_ids | (type == "array" and length > 0))
+              and ($post.ledger_ids == $pre.ledger_ids)
+              and ($pre.number_of_entries | (type == "number" and . >= 1))
+              and ($post.number_of_entries | (type == "number" and . >= $pre.number_of_entries))
+              and ($pre.last_confirmed_ledger | (type == "number" and . >= 0))
+              and ($pre.last_confirmed_entry | (type == "number" and . >= 0))
+              and ($post.last_confirmed_ledger | (type == "number" and . >= 0))
+              and ($post.last_confirmed_entry | (type == "number" and . >= 0))
+              and (($post.last_confirmed_ledger > $pre.last_confirmed_ledger)
+                or ($post.last_confirmed_ledger == $pre.last_confirmed_ledger
+                  and $post.last_confirmed_entry >= $pre.last_confirmed_entry))
+              and ($pre.managed_ledger_state | (type == "string" and length > 0))
+              and ($post.managed_ledger_state | (type == "string" and length > 0))
+              and ($pre.admin_endpoint != $post.admin_endpoint)
+              and $pre.durable_broker_read == true
+              and $post.durable_broker_read == true
+              and $pre.dump_forced == true
+              and $post.dump_forced == true
+              and ($pre.process_pid != $post.process_pid)
+          ' >/dev/null; then
+      durable_state_dump_status="CAPTURED_AND_VERIFIED"
+      invariant_audit_status="INDEPENDENT_FIELDS_PASS"
+      durable_state_dump_note="external fsync-forced Pulsar managed-ledger dumps from Broker-1 before cut and Broker-2 after failover handoff before fresh Worker resume"
+      invariant_audit_note="topic/physical identity, ledger set, entry count, last-confirmed position, distinct Broker Admin endpoints and collector process identity were independently compared"
+    else
+      fresh_process_recovery="FAIL"
+      durable_state_dump_status="FAIL"
+      invariant_audit_status="FAIL"
+      durable_state_dump_note="required Pulsar multi-Broker pre-cut and survivor-Broker post-recovery dumps were missing or failed cross-process validation"
+      invariant_audit_note="independent managed-ledger identity and monotonic-position comparison failed"
       audit_status="FAIL"
     fi
   fi
@@ -946,6 +1002,7 @@ run_cell pulsar-multi-broker-process-crash env \
   NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
   NEREUS_DELAY_PULSAR_WITH_OXIA=1 \
   NEREUS_DELAY_PULSAR_MULTI_BROKER_PROCESS_CRASH=1 \
+  NEREUS_DELAY_PULSAR_BROKER_RECOVERY_STATE_DUMP_DIR="${artifact_dir}/pulsar-multi-broker-process-crash-state" \
   NEREUS_DELAY_PULSAR_GRADLE_USER_HOME="${matrix_gradle_home}" \
   PULSAR_BROKER_1_PORT=31420 PULSAR_WEB_1_PORT=31421 \
   PULSAR_BROKER_2_PORT=31422 PULSAR_WEB_2_PORT=31423 \
@@ -1090,9 +1147,12 @@ worker_ack_invariant_status="$(jq -r '."kafka-worker-ack-process-crash".audit.in
 worker_process_dump_status="$(jq -r '."pulsar-worker-process-crash".audit.durable_state_dump.status' "${cells_json}")"
 worker_process_recovery_status="$(jq -r '."pulsar-worker-process-crash".audit.fresh_process_recovery' "${cells_json}")"
 worker_process_invariant_status="$(jq -r '."pulsar-worker-process-crash".audit.invariant_audit.status' "${cells_json}")"
-durable_state_dump_summary="CELL_SPECIFIC; kafka-broker-process-crash ${broker_dump_status}; kafka-broker-tcp-cut ${broker_tcp_dump_status}; kafka-broker-network-partition ${broker_network_dump_status}; kafka-worker-ack-process-crash ${worker_ack_dump_status}; pulsar-worker-process-crash ${worker_process_dump_status}; kafka-fetch-response-loss ${fetch_dump_status}; kafka-retention-floor ${retention_dump_status}; pulsar-worker-admission-response-loss ${admission_dump_status}; pulsar-worker-destination-response-loss ${destination_dump_status}; other cells NOT_CAPTURED"
-fresh_process_recovery_summary="CELL_SPECIFIC; kafka-broker-process-crash ${broker_recovery_status}; kafka-broker-tcp-cut ${broker_tcp_recovery_status}; kafka-broker-network-partition ${broker_network_recovery_status}; kafka-worker-ack-process-crash ${worker_ack_recovery_status}; pulsar-worker-process-crash ${worker_process_recovery_status}; kafka-fetch-response-loss ${fetch_recovery_status}; kafka-retention-floor ${retention_recovery_status}; pulsar-worker-admission-response-loss ${admission_recovery_status}; pulsar-worker-destination-response-loss ${destination_recovery_status}; other cells NOT_COVERED"
-invariant_audit_summary="CELL_SPECIFIC; kafka-broker-process-crash ${broker_invariant_status}; kafka-broker-tcp-cut ${broker_tcp_invariant_status}; kafka-broker-network-partition ${broker_network_invariant_status}; kafka-worker-ack-process-crash ${worker_ack_invariant_status}; pulsar-worker-process-crash ${worker_process_invariant_status}; kafka-fetch-response-loss ${fetch_invariant_status}; kafka-retention-floor ${retention_invariant_status}; pulsar-worker-admission-response-loss ${admission_invariant_status}; pulsar-worker-destination-response-loss ${destination_invariant_status}; other cells MARKER_ONLY"
+pulsar_multi_dump_status="$(jq -r '."pulsar-multi-broker-process-crash".audit.durable_state_dump.status' "${cells_json}")"
+pulsar_multi_recovery_status="$(jq -r '."pulsar-multi-broker-process-crash".audit.fresh_process_recovery' "${cells_json}")"
+pulsar_multi_invariant_status="$(jq -r '."pulsar-multi-broker-process-crash".audit.invariant_audit.status' "${cells_json}")"
+durable_state_dump_summary="CELL_SPECIFIC; kafka-broker-process-crash ${broker_dump_status}; kafka-broker-tcp-cut ${broker_tcp_dump_status}; kafka-broker-network-partition ${broker_network_dump_status}; kafka-worker-ack-process-crash ${worker_ack_dump_status}; pulsar-worker-process-crash ${worker_process_dump_status}; pulsar-multi-broker-process-crash ${pulsar_multi_dump_status}; kafka-fetch-response-loss ${fetch_dump_status}; kafka-retention-floor ${retention_dump_status}; pulsar-worker-admission-response-loss ${admission_dump_status}; pulsar-worker-destination-response-loss ${destination_dump_status}; other cells NOT_CAPTURED"
+fresh_process_recovery_summary="CELL_SPECIFIC; kafka-broker-process-crash ${broker_recovery_status}; kafka-broker-tcp-cut ${broker_tcp_recovery_status}; kafka-broker-network-partition ${broker_network_recovery_status}; kafka-worker-ack-process-crash ${worker_ack_recovery_status}; pulsar-worker-process-crash ${worker_process_recovery_status}; pulsar-multi-broker-process-crash ${pulsar_multi_recovery_status}; kafka-fetch-response-loss ${fetch_recovery_status}; kafka-retention-floor ${retention_recovery_status}; pulsar-worker-admission-response-loss ${admission_recovery_status}; pulsar-worker-destination-response-loss ${destination_recovery_status}; other cells NOT_COVERED"
+invariant_audit_summary="CELL_SPECIFIC; kafka-broker-process-crash ${broker_invariant_status}; kafka-broker-tcp-cut ${broker_tcp_invariant_status}; kafka-broker-network-partition ${broker_network_invariant_status}; kafka-worker-ack-process-crash ${worker_ack_invariant_status}; pulsar-worker-process-crash ${worker_process_invariant_status}; pulsar-multi-broker-process-crash ${pulsar_multi_invariant_status}; kafka-fetch-response-loss ${fetch_invariant_status}; kafka-retention-floor ${retention_invariant_status}; pulsar-worker-admission-response-loss ${admission_invariant_status}; pulsar-worker-destination-response-loss ${destination_invariant_status}; other cells MARKER_ONLY"
 if [[ "${matrix_status}" == "0" ]]; then
   matrix_result="PASS_BOUNDED"
 else

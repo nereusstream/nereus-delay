@@ -34,6 +34,9 @@ admin_url_before="http://127.0.0.1:${web_1_port}"
 admin_url_after="http://127.0.0.1:${web_2_port}"
 restart_topic="${PULSAR_DELAY_MULTI_BROKER_RESTART_TOPIC:-p1-multi-worker-${compose_project##*-}}"
 destination_topic="${PULSAR_DELAY_MULTI_BROKER_DESTINATION_TOPIC:-p1-multi-destination-${compose_project##*-}}"
+broker_recovery_state_dump_dir="${NEREUS_DELAY_PULSAR_BROKER_RECOVERY_STATE_DUMP_DIR:-}"
+broker_recovery_admin_endpoint_before="${NEREUS_DELAY_PULSAR_BROKER_RECOVERY_ADMIN_ENDPOINT_BEFORE:-${admin_url_before}}"
+broker_recovery_admin_endpoint_after="${NEREUS_DELAY_PULSAR_BROKER_RECOVERY_ADMIN_ENDPOINT_AFTER:-${admin_url_after}}"
 tarball="${NEREUS_DELAY_PULSAR_TARBALL:-${pulsar_dir}/distribution/server/build/distributions/apache-pulsar-5.0.0-M1-bin.tar.gz}"
 pulsar_client_cp="${pulsar_dir}/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:${pulsar_dir}/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:${pulsar_dir}/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar"
 IFS=: read -r -a pulsar_client_artifacts <<< "${pulsar_client_cp}"
@@ -45,6 +48,11 @@ fi
 if [[ "${broker_process_crash}" == "1" && "${with_oxia}" != "1" ]]; then
   echo "NEREUS_DELAY_PULSAR_MULTI_BROKER_PROCESS_CRASH requires NEREUS_DELAY_PULSAR_WITH_OXIA=1" >&2
   exit 1
+fi
+if [[ -n "${broker_recovery_state_dump_dir}" ]]; then
+  mkdir -p "${broker_recovery_state_dump_dir}"
+  rm -f "${broker_recovery_state_dump_dir}/before-process-crash.json" \
+    "${broker_recovery_state_dump_dir}/after-fresh-process.json"
 fi
 
 cleanup() {
@@ -119,6 +127,25 @@ run_worker() {
   "${worker_environment[@]}" ./gradlew runRealPulsarWorkerSmoke "${worker_gradle_args[@]}"
 }
 
+run_broker_recovery_state_smoke() {
+  local admin_url="$1"
+  local endpoint_label="$2"
+  local phase="$3"
+  if [[ -z "${broker_recovery_state_dump_dir}" ]]; then
+    return 0
+  fi
+  NEREUS_DELAY_PULSAR_BROKER_RECOVERY_STATE_CELL=pulsar-multi-broker-process-crash \
+  NEREUS_DELAY_PULSAR_BROKER_RECOVERY_STATE_PHASE="${phase}" \
+  NEREUS_DELAY_PULSAR_BROKER_RECOVERY_STATE_DUMP_DIR="${broker_recovery_state_dump_dir}" \
+  NEREUS_DELAY_PULSAR_BROKER_RECOVERY_ADMIN_ENDPOINT="${endpoint_label}" \
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealPulsarBrokerRecoveryStateSmoke \
+    -PpulsarClientClasspath="${pulsar_client_cp}" \
+    -PpulsarRuntimeDir="${runtime_dir}/lib" \
+    -PpulsarAdminUrl="${admin_url}" \
+    -PpulsarBrokerRecoveryTopic="${restart_topic}" \
+    --no-daemon --console=plain
+}
+
 cd "${delay_dir}"
 require_clean_pulsar_checkout
 test -s "${tarball}"
@@ -166,12 +193,16 @@ if [[ "${with_oxia}" == "1" ]]; then
 fi
 
 run_worker "${service_url_before}" "${admin_url_after}" prepare
+run_broker_recovery_state_smoke "${admin_url_before}" \
+  "${broker_recovery_admin_endpoint_before}" before
 if [[ "${broker_process_crash}" == "1" ]]; then
   "${compose[@]}" kill --signal KILL pulsar-broker-1
 else
   "${compose[@]}" stop pulsar-broker-1
 fi
 wait_for_admin "${admin_url_after}"
+run_broker_recovery_state_smoke "${admin_url_after}" \
+  "${broker_recovery_admin_endpoint_after}" after
 run_worker "${service_url_failover}" "${admin_url_after}" resume
 "${compose[@]}" start pulsar-broker-1
 wait_for_admin "${admin_url_before}"

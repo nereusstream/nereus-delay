@@ -607,6 +607,33 @@ tasks.register('runRealPulsarWorkerSmoke', JavaExec) {
             findProperty('pulsarWorkerMode') ?: 'run', findProperty('pulsarWorkerDestinationTopic') ?: ''
 }
 
+tasks.register('runRealPulsarBrokerRecoveryStateSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Reads real Pulsar managed-ledger metadata for a Broker failover durable-state receipt.'
+    dependsOn tasks.named('compileRealPulsar')
+    if (realPulsarClientClasspath == null || realPulsarRuntimeDir == null
+            || findProperty('pulsarAdminUrl') == null
+            || findProperty('pulsarBrokerRecoveryTopic') == null) {
+        doFirst {
+            throw new GradleException(
+                    'runRealPulsarBrokerRecoveryStateSmoke requires -PpulsarClientClasspath=... '
+                            + '-PpulsarRuntimeDir=/path/to/pulsar-distribution/lib '
+                            + '-PpulsarAdminUrl=http://host:8080 -PpulsarBrokerRecoveryTopic=topic and '
+                            + 'NEREUS_DELAY_PULSAR_BROKER_RECOVERY_STATE_PHASE/DUMP_DIR')
+        }
+    }
+    doFirst {
+        if (!file(realPulsarRuntimeDir).isDirectory()) {
+            throw new GradleException('pulsarRuntimeDir must be an extracted P1 distribution lib directory')
+        }
+    }
+    classpath = files(sourceSets.main.output,
+            sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
+            fileTree(realPulsarRuntimeDir).include('**/*.jar'))
+    mainClass = 'io.nereusstream.delay.transport.PulsarClientArtifactBrokerProcessCrashStateSmoke'
+    args findProperty('pulsarAdminUrl'), findProperty('pulsarBrokerRecoveryTopic')
+}
+
 tasks.register('runRealPulsarLargePayloadGatewaySmoke', JavaExec) {
     group = 'verification'
     description = 'Runs the real Pulsar Gateway/Oxia/Worker/MinIO large-payload authority smoke.'
