@@ -1469,6 +1469,14 @@ then committed atomically with its `SystemMutationResult`. A missing marker
 for a non-baseline tuple is `UNACTIVATED_PROTOCOL_VERSION`; a marked tuple
 that is absent from the current compatible reader snapshot is
 `UNSUPPORTED_ACTIVATED_PROTOCOL`.
+The compatible-reader evidence is sourced from the external
+`ProtocolCapabilityDeclarationV1` authority, not inferred from key 10 alone.
+The Oxia-backed capability record is keyed by canonical Worker identity, uses
+revision CAS, and is ephemeral when written through a session-backed Worker
+handle. Before a marker is admitted, the authority rereads every eligible
+Worker, requires the exact tuple, and hashes the sorted Worker IDs together
+with declaration revision/digest/session identity. A missing, expired or
+incompatible declaration is therefore a fail-closed activation decision.
 When a checkpoint manifest is supplied to restore, key 10 is mandatory and its
 snapshot digest must equal the manifest's `controlStateDigest`; a missing or
 different snapshot is a restore-integrity failure and cannot reach

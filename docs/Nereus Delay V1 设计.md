@@ -715,6 +715,17 @@ managed V1 tuple 后读取；tuple 不同的同 `commandId` 返回
 对未激活/未支持 tuple fail closed。该切片不等同于 writer-before-reader、
 eligible-reader assignment、升级/降级或发布包演练已完成。
 
+当前实现补充（2026-08-20）：`ProtocolCapabilityDeclarationV1` 是 Worker
+session 的 canonical capability 声明；`OxiaSyncProtocolCapabilityBackend`
+按 Worker 做 revision-CAS，并在 handle-backed 模式把声明写成绑定同一 Oxia
+session 的 ephemeral record。`ProtocolActivationAuthorityCoordinator` 在
+activation marker 前重新读取全部 eligible reader，要求每个 Worker 支持精确
+tuple，并计算包含 Worker、revision、声明 digest 与 session identity 的
+reader-set evidence hash。Route assignment 通过该 authority 的可选门控后才
+发布/接受 Worker assignment；本地 key-14 projection 仍不替代该外部 authority。
+这已覆盖“capability-before-marker”的实现与 real Oxia smoke，但不把单次
+smoke 自动提升为 writer-before-reader、升级/降级或发布包认证。
+
 ## 8. Shard Log 与 Source Position
 
 ### 8.1 Kafka

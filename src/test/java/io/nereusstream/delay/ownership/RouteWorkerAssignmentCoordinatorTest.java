@@ -11,6 +11,7 @@ import io.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
 import io.nereusstream.delay.protocol.KafkaIngressRouteResourceV1;
 import io.nereusstream.delay.protocol.ProtocolTupleV1;
 import io.nereusstream.delay.protocol.PublishAdmissionBody;
+import io.nereusstream.delay.protocol.ProtocolCapabilityDeclarationV1;
 import io.nereusstream.delay.protocol.QuotaGrantRefV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.RouteLifecycleV1;
@@ -29,6 +30,8 @@ import org.junit.jupiter.api.Test;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -95,6 +98,31 @@ class RouteWorkerAssignmentCoordinatorTest {
                 () -> coordinator.requireAccepted(tenant(), placed.publication().revision(), changedDigest));
     }
 
+    @Test
+    void optionalCapabilityAuthorityGatesRoutePlacementAndAcceptance() throws Exception {
+        final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final InMemorySignedRouteSnapshotProvider routes = new InMemorySignedRouteSnapshotProvider(
+                keys.getPublic(), () -> 200);
+        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKindV1.KAFKA, Bytes.utf8("primary"));
+        routes.accept(1, 0, hint, route(keys));
+        final InMemoryWorkerAssignmentAuthority assignments = new InMemoryWorkerAssignmentAuthority();
+        final WorkerAssignmentCoordinator worker = new WorkerAssignmentCoordinator(
+                new WorkerPlacementPolicy(new WorkerPlacementPolicy.Configuration(1_000, 0, 0, 0, 0)),
+                assignments);
+        final InMemoryProtocolCapabilityAuthority capabilities = new InMemoryProtocolCapabilityAuthority();
+        final ProtocolTupleV1 tuple = route(keys).protocolTuple();
+        capabilities.publish(new ProtocolCapabilityDeclarationV1("worker-a", bytes(32, 70), List.of(tuple),
+                1, bytes(32, 71)), 0);
+        final RouteWorkerAssignmentCoordinator coordinator = new RouteWorkerAssignmentCoordinator(routes, worker,
+                capabilities);
+
+        final var placed = coordinator.placeActive(tenant(), hint, request());
+        assertEquals("worker-a", coordinator.requireAccepted(tenant(), placed.publication().revision(),
+                placed.publication().assignment()).workerId());
+        capabilities.clear();
+        assertThrows(IllegalStateException.class, () -> coordinator.placeActive(tenant(), hint, request()));
+    }
+
     private static RouteWorkerAssignmentCoordinator.PlacementRequest request() {
         return new RouteWorkerAssignmentCoordinator.PlacementRequest(0,
                 Bytes.sha256(Bytes.utf8("route-assignment")), 1,
@@ -142,5 +170,30 @@ class RouteWorkerAssignmentCoordinatorTest {
             value[index] = (byte) (seed + index);
         }
         return value;
+    }
+
+    private static final class InMemoryProtocolCapabilityAuthority implements ProtocolCapabilityAuthority {
+        private final Map<String, Publication> values = new java.util.HashMap<>();
+
+        @Override
+        public Publication publish(final ProtocolCapabilityDeclarationV1 declaration, final long expectedRevision) {
+            final Publication publication = new Publication(expectedRevision + 1, declaration);
+            values.put(declaration.workerId(), publication);
+            return publication;
+        }
+
+        @Override
+        public Optional<Publication> current(final String workerId) {
+            return Optional.ofNullable(values.get(workerId));
+        }
+
+        @Override
+        public boolean withdraw(final Publication expected) {
+            return values.remove(expected.declaration().workerId(), expected);
+        }
+
+        private void clear() {
+            values.clear();
+        }
     }
 }

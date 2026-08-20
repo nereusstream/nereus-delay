@@ -21,12 +21,26 @@ public final class RouteWorkerAssignmentCoordinator {
     private final RouteSnapshotProvider routeProvider;
     private final RouteSourceAssignmentResolver sourceResolver;
     private final WorkerAssignmentCoordinator workerCoordinator;
+    private final ProtocolActivationAuthorityCoordinator protocolAuthority;
 
     public RouteWorkerAssignmentCoordinator(final RouteSnapshotProvider routeProvider,
                                             final WorkerAssignmentCoordinator workerCoordinator) {
+        this(routeProvider, workerCoordinator, null);
+    }
+
+    /**
+     * Creates a Route coordinator that also requires every placement candidate
+     * and accepted Worker to advertise the Route's exact protocol tuple in the
+     * external capability authority.
+     */
+    public RouteWorkerAssignmentCoordinator(final RouteSnapshotProvider routeProvider,
+                                            final WorkerAssignmentCoordinator workerCoordinator,
+                                            final ProtocolCapabilityAuthority capabilityAuthority) {
         this.routeProvider = Objects.requireNonNull(routeProvider, "routeProvider");
         this.sourceResolver = new RouteSourceAssignmentResolver(routeProvider);
         this.workerCoordinator = Objects.requireNonNull(workerCoordinator, "workerCoordinator");
+        this.protocolAuthority = capabilityAuthority == null ? null
+                : new ProtocolActivationAuthorityCoordinator(capabilityAuthority);
     }
 
     /** Publishes a new assignment from the tenant-authorized active Route alias. */
@@ -68,11 +82,19 @@ public final class RouteWorkerAssignmentCoordinator {
                 expectedAssignment.routeSnapshotDigest())) {
             throw new IllegalStateException("signed Route projection changed before Worker acceptance");
         }
+        if (protocolAuthority != null) {
+            protocolAuthority.requireEligibleReaders(resolved.routeSnapshot().protocolTuple(),
+                    List.of(expectedAssignment.workerId()));
+        }
         return workerCoordinator.requireAccepted(expectedSource.shardId(), expectedRevision, expectedAssignment);
     }
 
     private RoutePlacementResult publish(final RouteSourceAssignmentResolver.Resolved resolved,
                                          final PlacementRequest request) {
+        if (protocolAuthority != null) {
+            protocolAuthority.requireEligibleReaders(resolved.routeSnapshot().protocolTuple(),
+                    request.candidates().stream().map(WorkerPlacementPolicy.WorkerCandidate::workerId).toList());
+        }
         final WorkerAssignmentCoordinator.PlacementResult placement = workerCoordinator.place(
                 resolved.sourceAssignment(), request.capacityEnvelopeDigest(),
                 resolved.routeSnapshot().snapshotDigest(), request.placementEpoch(), request.candidates(),

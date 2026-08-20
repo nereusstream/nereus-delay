@@ -237,6 +237,11 @@ run_smoke() {
 
 if [[ "${minio_fault_mode}" == "NONE" ]]; then
     env "${smoke_environment[@]}" "$delay_root/gradlew" test \
+        --tests io.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest \
+        --tests io.nereusstream.delay.ownership.OxiaRealProtocolCapabilitySmokeTest \
+        --tests io.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest \
+        --tests io.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest \
+        --tests io.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
         --tests io.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.workerCheckpointRuntimePublishesToRealMinioAndOxia \
         --tests io.nereusstream.delay.store.OxiaRealCheckpointReapingSmokeTest.realOxiaOwnerAbandonmentReapsExactMinioCheckpointPrefix \
         --tests io.nereusstream.delay.store.OxiaRealObjectStoreCredentialRenewalSmokeTest.renewsRealOxiaLeaseAndFencesTheLiveAdapterAtHeadRotation \
