@@ -1375,3 +1375,36 @@ not yet been rerun. The remaining durable evidence slices are Pulsar
 multi-Broker failover, Pulsar source-ACK response loss and Gateway/Oxia
 session churn. Cleanup remains exact-path and run-scoped; do not prune locked
 base images or touch source worktrees.
+
+## 2026-08-21 Pulsar multi-Broker process-crash runbook receipt
+
+The focused r4 run for `pulsar-multi-broker-process-crash` passed with real
+two-Broker Pulsar, ZooKeeper/BookKeeper, Oxia and Worker services. It killed
+Broker-1 after guarded preparation, read durable state from the surviving
+Broker-2, resumed the Worker through the survivor path, and then restarted
+Broker-1 until rejoin was observed.
+
+Receipt files:
+
+```text
+/private/tmp/nereus-delay-pulsar-multi-broker-process-crash-20260821-r4-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-multi-broker-process-crash-20260821-r4-state/after-process-crash.json
+```
+
+The independent audit requires and passed: common schema and topic/physical
+topic/cluster, ledger IDs `[-1,2]`, entries and confirmed position monotonic,
+distinct Admin endpoints `31741 -> 31743`, distinct collector JVM PIDs
+`12676 -> 12738`, `internalStats?metadata=true`, and explicit
+`durable_broker_read=true` plus `dump_forced=true`. Source locks are Delay
+`a48cd33a00ecd566d149ddb300efa22cf670747a`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+Operational boundary: capture the survivor Admin dump after Broker-2 is ready
+but before fresh Worker resume. Once the source consumer is closed, Pulsar
+Admin `internalStats`/`internal-info` may return 404/500 in this setup, so a
+post-Worker Admin query is not part of this receipt. The focused Docker
+cleanup left no scoped resources and retained locked base images. This slice
+advances the bounded durable union to 12/14; rerun the complete source-locked
+chaos wrapper before using it as release input.

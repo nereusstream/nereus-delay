@@ -16780,3 +16780,40 @@ source-ACK response loss and Gateway/Oxia session churn remain open. The V1
 release boundary is unchanged: until the current-source chaos wrapper and all
 approved capacity/soak/activation/operations inputs are rerun, the gate stays
 fail-closed `release_status=NOT_READY`.
+
+## 2026-08-21 Pulsar multi-Broker process-crash durable failover
+
+Delay commit `a48cd33a00ecd566d149ddb300efa22cf670747a` closes the independent
+durable/fresh-process/invariant evidence boundary for the
+`pulsar-multi-broker-process-crash` cell. The focused r4 run used two real
+Pulsar Brokers with ZooKeeper/BookKeeper, real Oxia authority and the real
+Worker. Broker-1 was SIGKILLed after guarded preparation; Broker-2 produced a
+survivor Admin dump before a fresh Worker resumed source apply, typed
+destination publish, ACK and checkpoint work; Broker-1 was restarted and
+observed rejoined.
+
+Receipts:
+
+```text
+/private/tmp/nereus-delay-pulsar-multi-broker-process-crash-20260821-r4-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-multi-broker-process-crash-20260821-r4-state/after-process-crash.json
+```
+
+Independent audit passed matching schema/topic/physical-topic/cluster and
+ledger identity, monotonic entries and confirmed position, distinct Admin
+endpoints `http://127.0.0.1:31741 -> http://127.0.0.1:31743`, distinct
+collector JVM PIDs `12676 -> 12738`, and both `durable_broker_read` and
+`dump_forced` true. Both dumps used `internalStats?metadata=true` and reported
+ledger IDs `[-1,2]`, one entry, confirmed position `2:0` and `LedgerOpened`.
+The source locks were Delay `a48cd33a00ecd566d149ddb300efa22cf670747a`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The after dump is deliberately taken after survivor readiness and before the
+fresh Worker closes the source consumer. In this environment a later Admin
+`internalStats`/`internal-info` query can return 404/500 after that close, so
+the evidence does not claim a post-Worker Admin read. The independently
+audited bounded union advances to 12/14. Pulsar source-ACK response loss and
+Gateway/Oxia session churn remain open, and the full current-source wrapper
+plus release gate has not yet been regenerated at this source lock.

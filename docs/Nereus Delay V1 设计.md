@@ -5184,6 +5184,40 @@ churn 仍需补齐。完整 current-source chaos wrapper 和 V1 release gate 尚
 针对 `ae10068e` 重跑，因此 release boundary 仍是
 `release_status=NOT_READY`，不能把 focused receipt 当作 release approval。
 
+## 37. 2026-08-21 Pulsar multi-Broker process-crash durable evidence
+
+Delay commit `a48cd33a00ecd566d149ddb300efa22cf670747a` 为
+`pulsar-multi-broker-process-crash` 增加了独立的 durable-state collector 和
+字段审计。r4 使用两台真实 Pulsar Broker、ZooKeeper、BookKeeper、真实 Oxia
+authority 和真实 Worker：guarded preparation 完成后 SIGKILL Broker-1，由
+Broker-2 完成 survivor Admin read，再由 fresh Worker 恢复 source apply、typed
+destination publish、ACK/checkpoint，最后重启 Broker-1 并观察到 rejoin。
+
+Receipt：
+
+```text
+/private/tmp/nereus-delay-pulsar-multi-broker-process-crash-20260821-r4-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-multi-broker-process-crash-20260821-r4-state/after-process-crash.json
+```
+
+独立 jq 审计通过了 schema、topic/physical-topic/cluster、ledger identity、
+entries/confirmed position 单调性、不同的 Admin endpoint `31741 -> 31743`、
+不同的 collector JVM PID `12676 -> 12738`，以及显式的
+`durable_broker_read=true`、`dump_forced=true`。两份 dump 都通过
+`internalStats?metadata=true` 读取，并得到 ledger IDs `[-1,2]`、`1` 条 entry、
+confirmed position `2:0` 和 `LedgerOpened`。source locks 为 Delay
+`a48cd33a00ecd566d149ddb300efa22cf670747a`、K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`、P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`、Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`。
+
+这里保留一个重要边界：survivor Admin dump 在 Broker-2 ready 后、fresh
+Worker resume 前采集；本 setup 中 source consumer 关闭后再查
+`internalStats`/`internal-info` 可能返回 404/500，因此没有把 post-Worker
+Admin read 写成证据。该 focused cell 将独立审计 union 推进到 12/14，但
+Pulsar source-ACK response loss、Gateway/Oxia session churn 以及完整
+current-source wrapper/release gate 仍需继续收口。
+
 ## 参考资料
 
 - [R1] [DDMQ README @ 2f30b61a](https://github.com/didi/DDMQ/blob/2f30b61a5741d55a5b515f3d8d19a8a35be8c9e2/README.md)

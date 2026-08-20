@@ -6886,3 +6886,41 @@ full current-source chaos wrapper and certified release gate still need a
 fresh rerun after the remaining Pulsar multi-Broker, Pulsar source-ACK and
 Gateway/Oxia session-churn slices; this focused receipt is not release
 certification.
+
+## 2026-08-21 Pulsar multi-Broker process-crash durable failover evidence
+
+Delay commit `a48cd33a00ecd566d149ddb300efa22cf670747a` adds an independent
+durable-state collector and audit for `pulsar-multi-broker-process-crash`.
+The focused r4 run used two real Pulsar Brokers with ZooKeeper and
+BookKeeper, real Oxia authority, and the real Worker chain. After guarded
+preparation, Broker-1 was SIGKILLed; Broker-2 supplied the survivor Admin read
+before a fresh Worker resumed source apply, typed destination publish and
+ACK/checkpoint work, and Broker-1 was then restarted and observed rejoined.
+
+Focused receipts:
+
+```text
+/private/tmp/nereus-delay-pulsar-multi-broker-process-crash-20260821-r4-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-multi-broker-process-crash-20260821-r4-state/after-process-crash.json
+```
+
+The independent jq audit passed the common durable-state schema, identical
+topic/physical-topic/cluster and ledger identity, non-decreasing entry and
+confirmed position, distinct survivor Admin endpoints
+(`31741 -> 31743`), distinct collector JVM PIDs (`12676 -> 12738`),
+`durable_broker_read=true` and `dump_forced=true`. Both state dumps read
+`internalStats?metadata=true` and reported ledger IDs `[-1,2]`, one entry,
+confirmed position `2:0` and `LedgerOpened`. The source locks were Delay
+`a48cd33a00ecd566d149ddb300efa22cf670747a`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The Admin state is intentionally captured after survivor readiness and before
+the fresh Worker closes the source consumer: in this setup, querying
+`internalStats`/`internal-info` after that consumer close can return 404/500.
+This receipt therefore proves the survivor Broker durable read and subsequent
+Worker recovery chain without claiming a post-Worker Admin query. The
+independently audited bounded union is now 12 of 14. Pulsar source-ACK
+response loss and Gateway/Oxia session churn remain open; the full wrapper and
+V1 release gate must be regenerated at the new source lock.

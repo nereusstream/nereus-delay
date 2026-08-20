@@ -13372,3 +13372,40 @@ remaining source-boundary work is Pulsar multi-Broker failover, Pulsar source
 ACK response loss and Gateway/Oxia session churn; until those and the
 current-source wrapper are rerun, the certified chaos artifact and V1 release
 gate remain non-promotable.
+
+## 2026-08-21 Pulsar multi-Broker process-crash evidence boundary
+
+Delay commit `a48cd33a00ecd566d149ddb300efa22cf670747a` adds the durable-state
+collector and independent field audit for the real Pulsar multi-Broker
+process-crash cut. The r4 run used two Brokers with ZooKeeper/BookKeeper,
+real Oxia authority and the real Worker. After guarded preparation, Broker-1
+was SIGKILLed; Broker-2 supplied the survivor Admin read, the fresh Worker
+resumed source apply and destination ACK/checkpoint flow, and Broker-1 later
+rejoined.
+
+The paired receipts are:
+
+```text
+/private/tmp/nereus-delay-pulsar-multi-broker-process-crash-20260821-r4-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-multi-broker-process-crash-20260821-r4-state/after-process-crash.json
+```
+
+The audit passed the durable-state schema, same topic/physical-topic/cluster,
+same ledger IDs `[-1,2]`, entries `1 -> 1`, confirmed position `2:0 -> 2:0`,
+`LedgerOpened`, distinct Admin endpoints `31741 -> 31743`, distinct collector
+PIDs `12676 -> 12738`, and forced durable reads. Both dumps used
+`internalStats?metadata=true`; `durable_broker_read=true` and `dump_forced=true`
+are explicit fields, not inferred from the Worker marker. Source locks are
+Delay `a48cd33a00ecd566d149ddb300efa22cf670747a`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The evidence boundary is intentional: survivor Admin capture occurs before
+fresh Worker resume, because closing the source consumer can make subsequent
+`internalStats`/`internal-info` reads return 404/500 in this setup. Thus the
+receipt proves durable survivor state plus the separately observed Worker
+recovery chain, without over-claiming a post-Worker Admin query. This closes
+one cell and advances the independently audited bounded union to 12/14; the
+Pulsar source-ACK response-loss and Gateway/Oxia session-churn cells remain
+open, and no release promotion follows from this focused evidence.
