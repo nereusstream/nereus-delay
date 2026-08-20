@@ -59,7 +59,6 @@ if ! oxia_source="$(require_checkout Oxia "${oxia_dir}" main)"; then source_stat
 bounded_status="BLOCKED"
 bounded_exit=1
 bounded_artifact="${bounded_dir}/operations-drills.json"
-mkdir -p "${bounded_dir}"
 set +e
 NEREUS_DELAY_OPERATIONS_DRILLS_ARTIFACT_DIR="${bounded_dir}" \
 NEREUS_DELAY_OPERATIONS_DRILLS_GRADLE_USER_HOME="${bounded_dir}/gradle-user-home" \
