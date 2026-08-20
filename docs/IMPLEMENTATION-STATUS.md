@@ -16817,3 +16817,52 @@ the evidence does not claim a post-Worker Admin read. The independently
 audited bounded union advances to 12/14. Pulsar source-ACK response loss and
 Gateway/Oxia session churn remain open, and the full current-source wrapper
 plus release gate has not yet been regenerated at this source lock.
+
+## 2026-08-21 current-source Pulsar source-ACK and Gateway/Oxia churn evidence
+
+Delay commit `63b72ee9944995a88b0cfe4505ede2051e4392f` closes the two remaining
+focused durable-state evidence cells. For Pulsar source ACK response loss, the
+Worker now calls the Store's explicit flush/sync boundary before the cut gate,
+SIGKILLs the real Worker JVM after Broker ACK acceptance and local response
+loss, and allows a fresh Worker to recover from the already-persisted source
+position when the exact old record does not need replay. The Gateway harness
+captures forced durable-record dumps immediately before and after a real Oxia
+process restart.
+
+Focused receipts:
+
+```text
+/private/tmp/nereus-delay-pulsar-source-ack-response-loss-20260821-r3-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-source-ack-response-loss-20260821-r3-state/after-fresh-process.json
+/private/tmp/nereus-delay-gateway-oxia-session-churn-20260821-r1-state/before-oxia-restart.json
+/private/tmp/nereus-delay-gateway-oxia-session-churn-20260821-r1-state/after-oxia-restart.json
+```
+
+The Pulsar pair used real Pulsar, real Oxia and the real Worker. It preserved
+the topic, Route/Store identity, `store_incarnation=87e9c9ecfb3a42499970b75927cfb661`
+and `db_identity=77fa231eacc87edc595e5ef82567bbf7b579ff7cc32adf325bf2a4e6bed2405e`.
+Before SIGKILL, the ACK source position equaled the durable applied position
+and the dump marked source apply, Broker ACK acceptance and response loss.
+Fresh JVM PIDs were `31393 -> 31470`; after recovery the ACK position was
+unchanged, `recovery_replayed_entries=0`,
+`recovery_replayed_ack_source=false` and `duplicate_source_apply_observed=false`.
+The fresh Worker then completed the active vertical smoke, real Oxia lease and
+final checkpoint.
+
+The Gateway/Oxia pair preserved one admission record, one QUIESCENT
+idempotency record with one attempt and an aggregate outcome, two audit
+records, zero active leases, one prepare call and one submit call. The response
+digest stayed `ebac652cf85c75330d79e523b1cd46d52116a0611c7d3128448749cd78cec2c3`.
+Old Oxia-backed admission/idempotency sessions failed closed while fresh
+sessions reread the exact outcome after restart. This is a bounded Oxia
+session/process-churn cell, not a claim of full Gateway HA/provider failover.
+
+With these two current-source focused receipts, the independently audited
+durable union is 14/14. This does not retroactively change the older wrapper or
+release artifacts: the complete current-source matrix must be rerun against
+Delay `63b72ee9944995a88b0cfe4505ede2051e4392f`, and V1 remains
+`release_status=NOT_READY` until the approved capacity, soak,
+activation/cutover, operations and chaos inputs pass. Focused cleanup moved the
+unused source-ACK r2 diagnostic directory to recoverable Trash, removed the
+run-scoped Docker resources, retained locked Oxia/MinIO bases, and preserved
+the unrelated unlabelled `pulsarconf`/`pulsardata` volumes.

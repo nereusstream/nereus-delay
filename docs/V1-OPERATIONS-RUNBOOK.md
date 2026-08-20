@@ -1408,3 +1408,52 @@ post-Worker Admin query is not part of this receipt. The focused Docker
 cleanup left no scoped resources and retained locked base images. This slice
 advances the bounded durable union to 12/14; rerun the complete source-locked
 chaos wrapper before using it as release input.
+
+## 2026-08-21 Pulsar source-ACK and Gateway/Oxia churn runbook receipt
+
+Delay commit `63b72ee9944995a88b0cfe4505ede2051e4392f` supplies the final two
+focused durable-state receipts for the bounded fault set. Run the Pulsar cell
+with real Pulsar and Oxia, `NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS=1`,
+`NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_PROCESS_CRASH_ONLY=1` and an
+exact state-dump directory. The Worker forces the Store/WAL boundary, waits at
+the Broker-accepted/response-lost cut, the runner SIGKILLs the recorded JVM,
+and a fresh Worker resumes from the same Store root.
+
+```text
+/private/tmp/nereus-delay-pulsar-source-ack-response-loss-20260821-r3-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-source-ack-response-loss-20260821-r3-state/after-fresh-process.json
+```
+
+The r3 receipt preserved the same physical topic, Route/Store identity,
+`store_incarnation=87e9c9ecfb3a42499970b75927cfb661` and DB identity across
+Worker PIDs `31393 -> 31470`. Before SIGKILL, ACK source position equaled the
+applied position and the dump recorded durable source apply, Broker ACK
+acceptance and local response loss. After fresh recovery, the old ACK position
+was retained, no source entry was replayed, no duplicate apply was observed,
+and vertical smoke, Oxia lease and final checkpoint passed.
+
+Run the Gateway cell with
+`NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN=1` and
+`NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN_STATE_DUMP_DIR` pointing at an exact
+artifact path:
+
+```text
+/private/tmp/nereus-delay-gateway-oxia-session-churn-20260821-r1-state/before-oxia-restart.json
+/private/tmp/nereus-delay-gateway-oxia-session-churn-20260821-r1-state/after-oxia-restart.json
+```
+
+The real mTLS Gateway/Oxia run preserved one admission record, one QUIESCENT
+idempotency record with one attempt and aggregate outcome, two audit records,
+zero active leases and one prepare/submit pair. The response digest was
+identical before and after the Oxia process restart; stale sessions failed
+closed and fresh sessions reread the exact outcome. This is a session/process
+churn receipt, not full Gateway HA/provider failover.
+
+These two focused cells bring the independently audited durable union to
+14/14. They do not make the historical matrix or release gate current. Rerun
+the full strict-sequential wrapper at Delay
+`63b72ee9944995a88b0cfe4505ede2051e4392f`, then regenerate the fail-closed
+release gate. Keep the four canonical JSON files, move only confirmed failed
+diagnostic directories to recoverable Trash, remove exact run-scoped Docker
+resources, retain locked Oxia/MinIO base images, and never target source
+worktrees or the pre-existing unlabelled `pulsarconf`/`pulsardata` volumes.

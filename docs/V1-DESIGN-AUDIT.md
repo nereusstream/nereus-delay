@@ -13409,3 +13409,48 @@ recovery chain, without over-claiming a post-Worker Admin query. This closes
 one cell and advances the independently audited bounded union to 12/14; the
 Pulsar source-ACK response-loss and Gateway/Oxia session-churn cells remain
 open, and no release promotion follows from this focused evidence.
+
+## 2026-08-21 Pulsar source-ACK and Gateway/Oxia session-churn boundary
+
+Delay commit `63b72ee9944995a88b0cfe4505ede2051e4392f` closes the two remaining
+focused durable-evidence boundaries. The Pulsar source-ACK response-loss path
+now flushes and synchronizes the real Store/WAL before the cut, then treats a
+fresh Worker opening the same durable source position with no replayed entry as
+the valid recovery branch. The Gateway path persists forced before/after
+snapshots around a real Oxia process restart and keeps stale Oxia-backed
+sessions fail-closed.
+
+Receipts:
+
+```text
+/private/tmp/nereus-delay-pulsar-source-ack-response-loss-20260821-r3-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-source-ack-response-loss-20260821-r3-state/after-fresh-process.json
+/private/tmp/nereus-delay-gateway-oxia-session-churn-20260821-r1-state/before-oxia-restart.json
+/private/tmp/nereus-delay-gateway-oxia-session-churn-20260821-r1-state/after-oxia-restart.json
+```
+
+The Pulsar receipt preserves exact topic, Route/Store identity, store
+incarnation and DB identity across Worker PIDs `31393 -> 31470`. Before the
+cut, the ACK source position equals the durable applied position and the dump
+records Broker ACK acceptance plus intentionally lost local response. After a
+fresh Worker opens the Store, the ACK position is retained while
+`recovery_replayed_entries=0`, `recovery_replayed_ack_source=false` and
+`duplicate_source_apply_observed=false`; a new active record, Oxia lease and
+final checkpoint then complete. This proves ACK-response ambiguity at the
+source boundary without claiming a second source apply.
+
+The Gateway receipt keeps one admission record, one QUIESCENT idempotency
+record with one attempt and one aggregate outcome, two audit records, zero
+active leases, and exactly one prepare plus one submit. The before/after
+response digest is identical; stale admission/idempotency calls fail closed
+while fresh sessions reread the exact durable result. This is a bounded Oxia
+session/process-churn proof, not full Gateway HA or provider failover.
+
+The two focused receipts bring the independently audited durable union to
+14/14. This does not promote the historical chaos wrapper or release gate:
+the current-source wrapper must be regenerated at Delay
+`63b72ee9944995a88b0cfe4505ede2051e4392f`, and V1 remains fail-closed until
+the approved capacity, soak, activation/cutover, operations and chaos inputs
+are current and pass. The failed source-ACK r2 diagnostic was moved to
+recoverable Trash; source worktrees, code and unrelated Docker volumes were
+not cleanup targets.

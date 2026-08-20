@@ -5218,6 +5218,52 @@ Admin read 写成证据。该 focused cell 将独立审计 union 推进到 12/14
 Pulsar source-ACK response loss、Gateway/Oxia session churn 以及完整
 current-source wrapper/release gate 仍需继续收口。
 
+## 38. 2026-08-21 Pulsar source ACK 与 Gateway/Oxia churn evidence
+
+Delay commit `63b72ee9944995a88b0cfe4505ede2051e4392f` 补齐了最后两个
+focused durable-evidence cell。Pulsar source ACK response-loss 路径在 cut 前
+显式执行真实 Store/WAL 的 flush/sync；Broker 已接受 ACK 但本地 response 被
+丢弃后，runner SIGKILL 真实 Worker JVM，fresh Worker 重新打开同一 Store。
+当 exact source record 已经 durable apply、恢复时没有旧 entry 需要 replay，
+fresh Worker 现在接受已持久化 source position，并继续完成 vertical path。
+Gateway 路径则在真实 Oxia 进程 restart 前后写入 forced durable-record dump，
+同时保持旧 session fail-closed。
+
+focused receipts：
+
+```text
+/private/tmp/nereus-delay-pulsar-source-ack-response-loss-20260821-r3-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-source-ack-response-loss-20260821-r3-state/after-fresh-process.json
+/private/tmp/nereus-delay-gateway-oxia-session-churn-20260821-r1-state/before-oxia-restart.json
+/private/tmp/nereus-delay-gateway-oxia-session-churn-20260821-r1-state/after-oxia-restart.json
+```
+
+Pulsar receipt 保持了同一个 physical topic、Route/Store identity、
+`store_incarnation=87e9c9ecfb3a42499970b75927cfb661` 与
+`db_identity=77fa231eacc87edc595e5ef82567bbf7b579ff7cc32adf325bf2a4e6bed2405e`，
+before/after Worker PID 为 `31393 -> 31470`。before dump 中
+`source_ack_source_position == applied_source_position`，并明确记录
+`source_apply_durable=true`、Broker ACK 已接受、response 已丢失。fresh
+Worker recovery 后 ACK position 保持不变，
+`recovery_replayed_entries=0`、`recovery_replayed_ack_source=false`、
+`duplicate_source_apply_observed=false`，随后完成新的 active record、真实
+Oxia lease 与 final checkpoint。
+
+Gateway/Oxia receipt 保持一个 admission record、一个 `QUIESCENT` idempotency
+record（一个 attempt 和 aggregate outcome）、两个 audit record、零 active
+lease，以及一次 prepare/submit。before/after response digest 相同；旧
+admission/idempotency session 在 Oxia 不可用时 fail-closed，Oxia restart 后
+fresh session reread 同一个 durable outcome。这是 bounded Oxia
+session/process-churn 证据，不是完整 Gateway HA/provider failover 证明。
+
+这两个 focused receipt 使当前独立审计 durable union 达到 `14/14`。但这不
+会把历史 wrapper 或 release artifact 自动提升为 current：必须针对 Delay
+`63b72ee9944995a88b0cfe4505ede2051e4392f` 重跑完整 current-source chaos
+wrapper，并重新生成 fail-closed release gate；在 capacity、soak、
+activation/cutover、operations 和 chaos 输入都满足要求前，V1 仍保持
+`release_status=NOT_READY`。无用的 source-ACK r2 diagnostic 已移入可恢复
+废纸篓；源码、worktree、`.git` 和未标记的既有 Docker volume 不在清理目标内。
+
 ## 参考资料
 
 - [R1] [DDMQ README @ 2f30b61a](https://github.com/didi/DDMQ/blob/2f30b61a5741d55a5b515f3d8d19a8a35be8c9e2/README.md)
