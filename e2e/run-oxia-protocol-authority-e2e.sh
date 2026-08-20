@@ -68,6 +68,11 @@ oxia_source="$(git -C "${oxia_checkout}" rev-parse HEAD)"
 echo "Oxia source: ${oxia_source}"
 echo "Compose project: ${compose_project}"
 echo "Oxia endpoint: 127.0.0.1:${oxia_port}"
+{
+  echo "Oxia source: ${oxia_source}"
+  echo "Compose project: ${compose_project}"
+  echo "Oxia endpoint: 127.0.0.1:${oxia_port}"
+} >>"${log_file}"
 export NEREUS_DELAY_OXIA_CHECKOUT="${oxia_checkout}"
 export NEREUS_DELAY_OXIA_E2E_PORT="${oxia_port}"
 compose up --build --detach
