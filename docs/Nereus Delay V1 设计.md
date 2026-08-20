@@ -5059,6 +5059,44 @@ readback 成功，duplicate 为 `0`。该证据只关闭 direct destination adap
 release PASS；在当前 source-locked wrapper 重跑前，Gate 继续保持
 `release_status=NOT_READY`。
 
+## 33. 2026-08-21 Kafka Broker process-crash durable rejoin 证据
+
+提交 `75a008fc` 为真实 Kafka `kafka-broker-process-crash` cell 补齐了
+durable/fresh-process/invariant 证据边界。流程是：先完成 guarded Worker
+准备，由第一个 Java Admin JVM 从真实 Broker 读取并 fsync 保存 topic/cluster
+identity、topic ID、replica、ISR、live Broker 和 end offset；然后对
+`kafka-1` 执行 SIGKILL，等待 survivor leader 收敛，由真实 Oxia authority
+下的 Worker 通过 `kafka-2,kafka-3` 完成 source apply/ACK、typed
+`KAFKA_TRANSACTIONAL_RECEIPT` 和 exact destination readback；最后启动
+`kafka-1`，等待它重新进入 ISR，再由第二个 Admin JVM 写出 after dump。
+
+focused evidence：
+
+```text
+/private/tmp/nereus-delay-kafka-broker-process-crash-20260821-r3/state/before-process-crash.json
+/private/tmp/nereus-delay-kafka-broker-process-crash-20260821-r3/state/after-fresh-process.json
+```
+
+本次真实运行的 source lock 是 Delay `75a008fc`、Kafka
+`05849884ca81fad767fda058444d1e17c7f9cbf9`、Pulsar
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`、Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`。before 观察到 leader `3`、
+replica/ISR/live 为 `[1,2,3]`、end offset `1`；after 观察到 ISR/live
+仍为 `[1,2,3]`、end offset `5`、`broker_1_rejoined=true`，两个独立 JVM
+PID 为 `51328 -> 51612`。独立审计比较 topic/cluster/topic identity、replica
+和 ISR、Broker-1 rejoin、offset advancement、forced durable read 与 process
+identity。这里记录真实 leader，而不强制声称 Broker-1 是 leader；本次
+assignment 的实际 leader 是 Broker-3。
+
+第一次尝试还证明 survivor leader convergence 不能用简单端口等待替代：
+如果立刻让 Worker Fetch，真实客户端可能暂时观察到
+`UNKNOWN_LEADER_EPOCH`。因此 convergence smoke 是恢复流程的明确 barrier。
+该结果只关闭 `kafka-broker-process-crash` cell 的证据缺口，不代表完整
+14-cell chaos 或 V1 release PASS；旧 receipt 的 Delay source lock 早于
+`75a008fc`，必须在实现和文档提交后重新生成。focused Docker cleanup 已通过，
+没有留下 scoped container、network、volume 或 generated image，只保留锁定
+base image；源码、worktree、`.git` 和代码目录不属于清理目标。
+
 ## 参考资料
 
 - [R1] [DDMQ README @ 2f30b61a](https://github.com/didi/DDMQ/blob/2f30b61a5741d55a5b515f3d8d19a8a35be8c9e2/README.md)

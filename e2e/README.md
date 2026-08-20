@@ -6737,3 +6737,58 @@ Compose resources and generated images were cleaned; locked base images remain.
 This closes the direct `pulsar-destination-response-loss` cell only. It does
 not replace the separate Worker destination-response-loss cell, the complete
 chaos union or the V1 release gate.
+
+## 2026-08-21 Kafka Broker process-crash durable rejoin evidence
+
+Delay commit `75a008fc` adds an independently auditable durable-state path to
+the existing real Kafka Broker process-crash cut. After guarded Worker
+preparation, a separate Java Admin JVM force-dumps the real topic/cluster
+identity, replicas, ISR, live Broker IDs and end offset. The runner then
+SIGKILLs `kafka-1`, waits for survivor leader convergence, resumes the Worker
+through `kafka-2,kafka-3`, starts `kafka-1`, waits for its port and ISR rejoin,
+and finally runs a fresh Admin JVM for the post-rejoin dump.
+
+Run the focused cell with:
+
+```bash
+artifact_dir=/private/tmp/nereus-delay-kafka-broker-process-crash-20260821-r3
+mkdir -p "${artifact_dir}"
+NEREUS_DELAY_KAFKA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1 \
+NEREUS_DELAY_OXIA_CHECKOUT=/Users/liusinan/apps/ideaproject/nereusstream/oxia \
+NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_ONLY=1 \
+NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_STATE_DUMP_DIR="${artifact_dir}/state" \
+NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/Users/liusinan/.gradle \
+KAFKA_BROKER_1_PORT=31540 KAFKA_BROKER_2_PORT=31541 KAFKA_BROKER_3_PORT=31542 \
+NEREUS_DELAY_KAFKA_OXIA_PORT=31550 \
+KAFKA_DELAY_BROKER_PROCESS_CRASH_TOPIC=nereus-delay-broker-crash-20260821-r3 \
+bash e2e/run-kafka-real-client-e2e.sh
+```
+
+The focused receipt is:
+
+```text
+/private/tmp/nereus-delay-kafka-broker-process-crash-20260821-r3/state/before-process-crash.json
+/private/tmp/nereus-delay-kafka-broker-process-crash-20260821-r3/state/after-fresh-process.json
+```
+
+The real run passed with Delay `75a008fc`, K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`,
+P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The before dump observed leader
+`3`, replicas/ISR/live `[1,2,3]` and end offset `1`; after survivor leader
+convergence, real Worker source apply/ACK, typed `KAFKA_TRANSACTIONAL_RECEIPT`
+readback and Broker-1 restart, the after dump observed ISR/live `[1,2,3]`,
+end offset `5`, `broker_1_rejoined=true` and distinct JVM PIDs `51328 -> 51612`.
+The independent audit checks topic/cluster/topic identity, replica and ISR
+membership, Broker-1 rejoin, offset advancement, forced durable reads and
+process identity. It deliberately does not require Broker-1 to have been the
+topic leader: the real assignment selected Broker-3, so the evidence records
+the actual leader rather than imposing an unobserved ownership claim.
+
+This closes the durable/fresh-process/invariant boundary for the
+`kafka-broker-process-crash` cell only. The current 14-cell wrapper and V1
+release gate must be regenerated after this commit; historical receipts whose
+Delay source lock predates `75a008fc` remain historical. Keep only canonical
+dumps and locked Oxia/MinIO base images after the run; exact run-scoped
+Kafka/Oxia containers, networks, volumes and generated images must be absent.
+Never delete a source worktree, `.git` directory or code path.

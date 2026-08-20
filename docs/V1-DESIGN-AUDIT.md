@@ -13265,3 +13265,35 @@ show PIDs `42487` and `42581`, position `9/0/0`, equal payload and prepared
 identity, `physical_send_count=1` and zero duplicates. This is not the separate
 Worker destination-response-loss cell and is not a release certificate by
 itself.
+
+### 2026-08-21 Kafka Broker process-crash evidence boundary
+
+Delay commit `75a008fc` adds the missing durable/fresh-process/invariant
+receipt for the real Kafka `kafka-broker-process-crash` cell. The runner
+force-dumps the real Admin view before SIGKILL, waits for survivor leader
+convergence, performs the Oxia-backed Worker recovery and physical destination
+readback, restarts Broker-1, and force-dumps a second Admin view after Broker-1
+is back in the ISR.
+
+The focused dumps are:
+
+```text
+/private/tmp/nereus-delay-kafka-broker-process-crash-20260821-r3/state/before-process-crash.json
+/private/tmp/nereus-delay-kafka-broker-process-crash-20260821-r3/state/after-fresh-process.json
+```
+
+They preserve the same topic/cluster/topic identity and replica set, record
+ISR/live membership `[1,2,3]` before and after, and show end offset `1 -> 5`,
+`broker_1_rejoined=true` and distinct Admin JVM PIDs `51328 -> 51612`. The
+independent shell audit requires both fsync-forced dumps, real Broker-1 live/ISR
+rejoin, offset advancement and all identity fields. A survivor leader
+convergence smoke is required before the Worker resumes; the first attempted
+run demonstrated that a raw port wait can expose transient
+`UNKNOWN_LEADER_EPOCH` to the guarded Fetch path.
+
+This is a cell-level current-source evidence PASS. It does not promote the
+14-cell chaos wrapper, certified stability, or V1 release gate; the old
+source-locked receipts must be regenerated against `75a008fc`. The focused
+Docker postcheck retained only the locked base images and left no scoped
+containers, networks, volumes or generated images. Source worktrees and code
+remain outside all cleanup targets.

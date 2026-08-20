@@ -1267,3 +1267,36 @@ after dump records one physical send, exact payload readback and zero duplicate
 payloads. This is the direct destination adapter cell, not the separate
 Worker destination response-loss process-crash drill. The full chaos and
 release gates remain fail-closed.
+
+## 2026-08-21 Kafka Broker process-crash recovery drill
+
+The Kafka Broker process-crash runner now has a durable rejoin handoff in
+Delay commit `75a008fc`. The operational sequence is: prepare one guarded
+Worker record; fsync a real Admin metadata dump; SIGKILL `kafka-1`; wait for
+survivor leader convergence; resume the Worker through Brokers 2 and 3;
+restart Broker 1; wait for its port and ISR rejoin; then fsync a second dump
+from a fresh Admin JVM. The Worker portion must retain real Oxia authority,
+source apply/ACK, typed `KAFKA_TRANSACTIONAL_RECEIPT`, exact destination
+readback and final checkpoint markers.
+
+The focused evidence is:
+
+```text
+/private/tmp/nereus-delay-kafka-broker-process-crash-20260821-r3/state/before-process-crash.json
+/private/tmp/nereus-delay-kafka-broker-process-crash-20260821-r3/state/after-fresh-process.json
+```
+
+It recorded topic/cluster identity unchanged, replicas and ISR `[1,2,3]`
+before and after, survivor leader `3`, end offset `1 -> 5`,
+`broker_1_rejoined=true` and distinct Admin JVM PIDs `51328 -> 51612`. The
+first attempt also exposed why the survivor leader convergence step is
+mandatory: a Worker can otherwise observe transient `UNKNOWN_LEADER_EPOCH`
+immediately after the crashed Broker's port disappears. Treat the convergence
+smoke as a required operational barrier, not as a sleep-based workaround.
+
+This is a focused cell PASS, not a release approval. Regenerate the current
+source-locked chaos wrapper and release gate after the implementation and
+documentation commits. Cleanup must verify that run-scoped Kafka/Oxia
+containers, networks, volumes and generated images are absent while retaining
+only locked base images; do not prune unrelated Docker resources or delete
+source/worktree paths.

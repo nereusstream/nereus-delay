@@ -16644,3 +16644,43 @@ broker position `ledger=9, entry=0, sequence=0`; payload readback was exact and
 the duplicate count was zero. This is separate from the Worker destination
 response-loss cell and does not make the complete chaos wrapper or V1 gate
 current until they are rerun against `b42135d4`.
+
+## 2026-08-21 current-source Kafka Broker process-crash durable rejoin evidence
+
+Delay commit `75a008fc` upgrades the existing Kafka Broker process-crash
+focused path from marker-only recovery to an independently audited
+fresh-process durable boundary. After Worker preparation, the first Java Admin
+JVM fsync-forces the real topic/cluster identity, topic ID, replica set, ISR,
+live Broker IDs and end offset. The runner SIGKILLs `kafka-1`, waits for the
+survivor leader convergence smoke, resumes the real Oxia-backed Worker through
+`kafka-2,kafka-3`, restarts `kafka-1` and waits for its ISR rejoin before a
+second Admin JVM writes the after dump.
+
+Focused evidence:
+
+```text
+/private/tmp/nereus-delay-kafka-broker-process-crash-20260821-r3/state/before-process-crash.json
+/private/tmp/nereus-delay-kafka-broker-process-crash-20260821-r3/state/after-fresh-process.json
+```
+
+The current focused run passed with source locks Delay `75a008fc`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Before SIGKILL, the dump had
+leader `3`, replicas/ISR/live `[1,2,3]` and end offset `1`; after survivor
+recovery, Worker source apply/ACK, typed `KAFKA_TRANSACTIONAL_RECEIPT` and
+exact destination readback, then Broker-1 restart, the after dump had
+ISR/live `[1,2,3]`, end offset `5`, `broker_1_rejoined=true` and distinct JVM
+PIDs `51328 -> 51612`. The audit compares topic/cluster/topic identity,
+replica and ISR membership, Broker-1 rejoin, offset advancement, forced
+durable reads and process identity. The actual leader is recorded; no claim is
+made that Broker-1 was leader because this run's assignment selected Broker-3.
+
+This closes the durable/fresh-process/invariant boundary for
+`kafka-broker-process-crash` only. The previous chaos and release receipts are
+historical once their Delay source lock predates `75a008fc`; rerun the current
+wrapper and gate after this implementation and the following documentation
+commit. Docker cleanup for the focused run passed: no scoped containers,
+networks, volumes or generated images remained; locked Oxia/MinIO base images
+were retained. V1 remains fail-closed and `NOT_READY` until the complete
+source-locked chaos and release inputs pass.
