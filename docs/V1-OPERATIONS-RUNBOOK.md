@@ -1088,12 +1088,12 @@ receipts below without another source change. Each receipt's
 The current canonical receipt paths are:
 
 ```text
-/private/tmp/nereus-delay-v1-rc1-capacity-20260821-r2/certified-capacity-benchmark.json
-/private/tmp/nereus-delay-v1-rc1-soak-20260821-r5/certified-production-chain-soak.json
-/private/tmp/nereus-delay-v1-rc1-activation-20260821-r3/protocol-activation-cutover.json
-/private/tmp/nereus-delay-v1-rc1-operations-20260821-r2/operations-drills.json
-/private/tmp/nereus-delay-v1-certified-chaos-20260821-r3/certified-chaos-matrix.json
-/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r2/v1-release-candidate-gate.json
+/private/tmp/nereus-delay-v1-rc1-capacity-20260821-r3/certified-capacity-benchmark.json
+/private/tmp/nereus-delay-v1-rc1-soak-20260821-r6/certified-production-chain-soak.json
+/private/tmp/nereus-delay-v1-rc1-activation-20260821-r4/protocol-activation-cutover.json
+/private/tmp/nereus-delay-v1-rc1-operations-20260821-r3/operations-drills.json
+/private/tmp/nereus-delay-v1-certified-chaos-20260821-r4/certified-chaos-matrix.json
+/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r3/v1-release-candidate-gate.json
 ```
 
 The expected source-locked results are `PASS_CERTIFIED` for capacity, the
@@ -1108,15 +1108,20 @@ approval may be inferred from the bounded result.
 The final gate command is:
 
 ```bash
-NEREUS_DELAY_RELEASE_GATE_ARTIFACT_DIR=/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r2 \
+NEREUS_DELAY_RELEASE_GATE_ARTIFACT_DIR=/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r3 \
 NEREUS_DELAY_RELEASE_GATE_GRADLE_USER_HOME=/private/tmp/nereus-delay-v1-rc1-soak-20260820-r3/gradle-user-home/kafka \
 NEREUS_DELAY_RELEASE_GATE_RUN_CHECK=1 \
 NEREUS_DELAY_RELEASE_GATE_ALLOW_NOT_READY=1 \
-NEREUS_DELAY_RELEASE_GATE_CAPACITY_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-capacity-20260821-r2/certified-capacity-benchmark.json \
-NEREUS_DELAY_RELEASE_GATE_SOAK_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-soak-20260821-r5/certified-production-chain-soak.json \
-NEREUS_DELAY_RELEASE_GATE_ACTIVATION_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-activation-20260821-r3/protocol-activation-cutover.json \
-NEREUS_DELAY_RELEASE_GATE_OPERATIONS_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-operations-20260821-r2/operations-drills.json \
-NEREUS_DELAY_RELEASE_GATE_CHAOS_ARTIFACT=/private/tmp/nereus-delay-v1-certified-chaos-20260821-r3/certified-chaos-matrix.json \
+NEREUS_DELAY_RELEASE_GATE_CAPACITY_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-capacity-20260821-r3/certified-capacity-benchmark.json \
+NEREUS_DELAY_RELEASE_GATE_SOAK_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-soak-20260821-r6/certified-production-chain-soak.json \
+NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CAPACITY_PROFILE_ID=nereus-delay-v1-rc1-bounded-capacity-r1 \
+NEREUS_DELAY_RELEASE_GATE_CERTIFIED_SOAK_PROFILE_ID=nereus-delay-v1-rc1-production-chain-soak-r1 \
+NEREUS_DELAY_RELEASE_GATE_ACTIVATION_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-activation-20260821-r4/protocol-activation-cutover.json \
+NEREUS_DELAY_RELEASE_GATE_CERTIFIED_ACTIVATION_PROFILE_ID=nereus-delay-v1-rc1-activation-r1 \
+NEREUS_DELAY_RELEASE_GATE_OPERATIONS_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-operations-20260821-r3/operations-drills.json \
+NEREUS_DELAY_RELEASE_GATE_CERTIFIED_OPERATIONS_PROFILE_ID=nereus-delay-v1-rc1-operations-r1 \
+NEREUS_DELAY_RELEASE_GATE_CHAOS_ARTIFACT=/private/tmp/nereus-delay-v1-certified-chaos-20260821-r4/certified-chaos-matrix.json \
+NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CHAOS_PROFILE_ID=nereus-delay-v1-rc1-chaos-r1 \
 bash e2e/run-v1-release-gate.sh
 ```
 
