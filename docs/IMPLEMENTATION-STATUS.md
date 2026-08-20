@@ -16611,3 +16611,20 @@ the commit at
 r2's exact source locks as the current handoff. Cleanup remains recoverable and
 exact-path: preserve source/worktrees and locked base images, and move only
 superseded temporary diagnostics or Gradle caches to Trash.
+
+## 2026-08-21 current-source checkpoint-reaping fresh-process evidence
+
+Delay commit `6e163de1` turns the existing real Oxia+MinIO checkpoint reaping
+smoke into a two-JVM evidence cut. The WRITE JVM leaves a durable
+`PENDING_UPLOAD` intent and exact versioned objects after explicit Owner
+abandonment and forced state-dump publication. The READ JVM independently
+reopens the authority, verifies Owner absence, CASes `REAPING` and deletes the
+exact object versions.
+
+The focused receipt is
+`/private/tmp/nereus-delay-checkpoint-reaping-fresh-20260821-r1/`. It passed
+with PIDs `35845` and `35997`; identity fields were preserved and the result
+was `2 listed`, `2 deleted`, empty prefix. This is the first durable/fresh-
+process/invariant evidence for the `checkpoint-reaping` cell. The 14-cell
+wrapper has not yet been rerun against `6e163de1`, so no chaos or release
+promotion follows from this focused receipt.

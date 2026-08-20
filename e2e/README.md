@@ -6688,3 +6688,28 @@ bash e2e/run-bounded-production-chain-soak.sh
 Only r2's exact `source_locks` may be used as the post-documentation
 production-chain handoff. Keep the release gate fail-closed until the
 independently source-locked certified inputs and all fourteen chaos cells pass.
+
+## 2026-08-21 checkpoint-reaping fresh-process evidence slice
+
+Delay commit `6e163de1` adds a real two-JVM checkpoint REAPING cut to the
+existing Oxia+MinIO harness. The WRITE JVM creates the durable
+`PENDING_UPLOAD` intent, uploads the exact versioned prefix, explicitly
+abandons the session-bound Owner and fsync-forces the pre-recovery dump. The
+READ JVM reconnects to real Oxia, proves the Owner is absent, wins the
+`PENDING_UPLOAD -> REAPING` CAS and performs the exact MinIO version sweep.
+
+Focused evidence:
+
+```text
+/private/tmp/nereus-delay-checkpoint-reaping-fresh-20260821-r1/before-process-crash.json
+/private/tmp/nereus-delay-checkpoint-reaping-fresh-20260821-r1/after-fresh-process.json
+```
+
+The receipt passed with distinct JVM PIDs `35845` and `35997`. Intent digest,
+Route/partition, recovery lineage, checkpoint ID and source-store incarnation
+were unchanged; the after dump recorded `REAPING`, `listed=2`, `deleted=2` and
+`prefix_empty=true`, with Owner absence and forced durable reads. The run-scoped
+Compose resources and generated Oxia image were cleaned; locked base images
+remain retained. This closes the `checkpoint-reaping` cell boundary only; the
+14-cell chaos union and V1 release gate remain fail-closed until a new
+source-locked matrix run.

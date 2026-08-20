@@ -1224,3 +1224,25 @@ Use only r2's exact `source_locks` for the post-documentation handoff. Keep
 the r1 receipt as historical provenance and move only superseded disposable
 diagnostics/caches to Trash by exact path; never remove source worktrees or
 use a global Docker prune.
+
+## 2026-08-21 checkpoint-reaping fresh-process drill
+
+Commit `6e163de1` adds the missing process boundary to the real checkpoint
+REAPING drill. WRITE creates the Oxia-backed `PENDING_UPLOAD` intent, uploads
+the exact MinIO versioned prefix, closes provider ownership, explicitly
+abandons the session-bound Owner and fsync-forces the pre-process dump. A
+separate READ JVM reconnects to Oxia, verifies no current Owner remains, CASes
+the intent to `REAPING` and sweeps the exact prefix through the real MinIO
+adapter.
+
+Focused evidence:
+
+```text
+/private/tmp/nereus-delay-checkpoint-reaping-fresh-20260821-r1/before-process-crash.json
+/private/tmp/nereus-delay-checkpoint-reaping-fresh-20260821-r1/after-fresh-process.json
+```
+
+The receipt passed with PIDs `35845 -> 35997`, identical intent/Route/
+lineage/checkpoint/store identities, Owner absence after reconnect, and exact
+version counts `2 listed / 2 deleted / empty prefix`. This is a focused PASS
+for the checkpoint cell, not a 14-cell certified-chaos or V1 release PASS.

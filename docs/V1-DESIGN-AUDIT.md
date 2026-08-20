@@ -13233,3 +13233,19 @@ Regenerate `/private/tmp/nereus-delay-v1-production-chain-soak-20260821-r2/`
 after the commit; only r2's receipt may be used as the current source-locked
 production-chain input. The release gate remains fail-closed until all named
 certified inputs and the fourteen chaos cells pass.
+
+### 2026-08-21 checkpoint-reaping fresh-process boundary
+
+Delay commit `6e163de1` closes the explicit `NOT_COVERED` process boundary for
+checkpoint REAPING. The WRITE JVM creates the real Oxia Intent, uploads the
+exact MinIO versioned prefix, closes provider ownership and abandons the
+session-bound Owner. The READ JVM verifies Owner absence, performs the Intent
+CAS to `REAPING` and executes the bounded exact-version sweep.
+
+The focused dumps at
+`/private/tmp/nereus-delay-checkpoint-reaping-fresh-20260821-r1/` show distinct
+PIDs `35845` and `35997`, equal identity fields across the handoff, and
+`2 listed = 2 deleted = empty prefix`. Both dumps are fsync-forced and the
+independent audit checks durable reads, Owner absence, Intent state and process
+identity. This is a cell-level evidence PASS only; the complete chaos matrix
+and V1 release gate remain open.

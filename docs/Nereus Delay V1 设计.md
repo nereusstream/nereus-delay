@@ -5013,6 +5013,30 @@ activation/cutover、operations、upgrade 和 disaster continuity 仍需独立 g
 receipt 的 exact `source_locks` 可作为当前交接依据。清理继续遵循精确路径、可恢复
 Trash 规则，不删除源码、worktree、`.git` 或代码。
 
+## 31. 2026-08-21 checkpoint-reaping fresh-process authority 证据
+
+提交 `6e163de1` 把 checkpoint REAPING 从单 JVM marker 路径提升为真实两 JVM
+证据路径。WRITE JVM 在真实 Oxia 中创建 `PENDING_UPLOAD`，向真实 MinIO 上传
+exact versioned prefix，关闭 provider ownership，显式放弃 session-bound Owner，
+并 fsync 强制写出 before dump。READ JVM 重新连接 Oxia，验证 Owner current 为空，
+CAS `PENDING_UPLOAD -> REAPING`，再通过真实 MinIO adapter 执行 exact-version
+sweep。
+
+focused receipt 保留在：
+
+```text
+/private/tmp/nereus-delay-checkpoint-reaping-fresh-20260821-r1/before-process-crash.json
+/private/tmp/nereus-delay-checkpoint-reaping-fresh-20260821-r1/after-fresh-process.json
+```
+
+两次 Gradle/JUnit JVM 的 PID 为 `35845 -> 35997`。独立字段审计确认 intent
+digest、Route/partition、recovery lineage、checkpoint ID、source-store
+incarnation 不变；READ 结果为 `REAPING`，`listed=2`、`deleted=2`、prefix
+为空，并确认 Owner absence、durable read 和 forced dump。该结果只关闭
+`checkpoint-reaping` 的 durable/fresh-process/invariant 缺口，不代表 14-cell
+chaos 或 V1 release PASS；在全部 cell 和其他 `PASS_CERTIFIED` 输入完成前，
+Gate 继续保持 `release_status=NOT_READY`。
+
 ## 参考资料
 
 - [R1] [DDMQ README @ 2f30b61a](https://github.com/didi/DDMQ/blob/2f30b61a5741d55a5b515f3d8d19a8a35be8c9e2/README.md)
