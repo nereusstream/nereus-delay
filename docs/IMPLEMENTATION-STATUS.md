@@ -16743,3 +16743,40 @@ source checks, cross-repo validator and full Gradle check are `PASS`, while
 the older certified capacity/soak/activation/operations artifacts fail exact
 Delay source-lock matching and the certified chaos status is `BLOCKED`.
 This is a current-source runtime/evidence handoff, not V1 release approval.
+
+## 2026-08-21 current-source Kafka Broker TCP/network recovery evidence
+
+Delay commit `ae10068e` closes the durable/fresh-process/invariant evidence
+boundary for the Kafka `kafka-broker-tcp-cut` and
+`kafka-broker-network-partition` cells. The generalized Admin smoke writes the
+same `nereus-delay-chaos-durable-state-dump-v1` schema for both cells, with
+cell-specific before/after phases, forced file-channel writes and real Kafka
+metadata readback. The bounded audit now requires matching topic/cluster/topic
+identity, exact replicas `[1,2,3]`, exact ISR/live membership before and after,
+strict end-offset advancement, `broker_1_recovery_observed=false -> true`,
+forced durable reads and distinct JVM PIDs.
+
+Focused receipts:
+
+```text
+/private/tmp/nereus-delay-kafka-broker-tcp-cut-20260821-r1-state/before-process-crash.json
+/private/tmp/nereus-delay-kafka-broker-tcp-cut-20260821-r1-state/after-fresh-process.json
+/private/tmp/nereus-delay-kafka-broker-network-partition-20260821-r1-state/before-process-crash.json
+/private/tmp/nereus-delay-kafka-broker-network-partition-20260821-r1-state/after-fresh-process.json
+```
+
+Both real runs passed with source locks Delay `ae10068e`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. TCP and network each advanced
+the durable end offset `1 -> 2`; both preserved `[1,2,3]` replicas/ISR/live
+and used different before/after JVM PIDs. The focused Docker postchecks found
+no scoped Kafka/Oxia containers or networks and retained the locked base
+images.
+
+The independently audited bounded union is now 11/14, but the full wrapper
+has not been regenerated at `ae10068e`; Pulsar multi-Broker failover, Pulsar
+source-ACK response loss and Gateway/Oxia session churn remain open. The V1
+release boundary is unchanged: until the current-source chaos wrapper and all
+approved capacity/soak/activation/operations inputs are rerun, the gate stays
+fail-closed `release_status=NOT_READY`.

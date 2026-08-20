@@ -13339,3 +13339,36 @@ but remains `release_status=NOT_READY` because exact source-lock validation
 rejects the older certified non-chaos receipts and the certified chaos input
 is not `PASS_CERTIFIED`. This preserves the distinction between functional
 fault coverage and release certification.
+
+### 2026-08-21 Kafka Broker TCP/network durable recovery boundary
+
+Delay commit `ae10068e` extends the real Kafka Broker durable evidence
+contract from process crash to endpoint and network cuts. The TCP scenario
+uses a one-shot raw proxy rejection after explicit source/group-coordinator
+placement on Broker-2. The network scenario disconnects only `kafka-1` from
+the exact Compose network while the Broker process remains alive. Both paths
+then run the real Oxia-backed Worker recovery and source apply/ACK chain before
+the Broker is observed in the recovered state.
+
+The four focused dumps are:
+
+```text
+/private/tmp/nereus-delay-kafka-broker-tcp-cut-20260821-r1-state/before-process-crash.json
+/private/tmp/nereus-delay-kafka-broker-tcp-cut-20260821-r1-state/after-fresh-process.json
+/private/tmp/nereus-delay-kafka-broker-network-partition-20260821-r1-state/before-process-crash.json
+/private/tmp/nereus-delay-kafka-broker-network-partition-20260821-r1-state/after-fresh-process.json
+```
+
+Each pair preserves cluster/topic identity and the exact `[1,2,3]`
+replica/ISR/live set, advances the durable end offset from `1` to `2`,
+records `broker_1_recovery_observed` as `false` then `true`, and has
+`durable_broker_read=true`, `dump_forced=true` and distinct JVM PIDs. This is
+independent field evidence for two additional cells, not an inference from
+the child success marker. The focused resource audit left no matching Docker
+containers or networks and retained only locked bases.
+
+At source lock Delay `ae10068e`, the bounded durable union is 11/14. The
+remaining source-boundary work is Pulsar multi-Broker failover, Pulsar source
+ACK response loss and Gateway/Oxia session churn; until those and the
+current-source wrapper are rerun, the certified chaos artifact and V1 release
+gate remain non-promotable.

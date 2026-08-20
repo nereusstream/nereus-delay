@@ -1341,3 +1341,37 @@ The certified wrapper is `BLOCKED`, although its bounded child matrix is
 passed, but exact source-lock validation blocks the older certified capacity,
 soak, activation and operations receipts, and the chaos artifact itself is not
 `PASS_CERTIFIED`. Do not promote the bounded matrix or partial nine-cell union.
+
+## 2026-08-21 Kafka Broker TCP-cut and network-partition evidence
+
+Delay commit `ae10068e` adds the same durable-state handoff used by the Kafka
+Broker process-crash cell to the two remaining Kafka Broker cuts. For the TCP
+cell, prepare the guarded Worker record, place the source and group-coordinator
+partitions on Broker-2, force the before dump, cut the one-shot raw endpoint
+proxy, let a fresh Worker resume through the bootstrap list, and force the
+after dump. For the network cell, force the before dump, disconnect only
+`kafka-1` from the exact Compose network, wait for survivor leader convergence,
+resume the Worker through Brokers 2/3, reconnect `kafka-1`, and force the after
+dump from a new Admin JVM.
+
+Focused receipts:
+
+```text
+/private/tmp/nereus-delay-kafka-broker-tcp-cut-20260821-r1-state/before-process-crash.json
+/private/tmp/nereus-delay-kafka-broker-tcp-cut-20260821-r1-state/after-fresh-process.json
+/private/tmp/nereus-delay-kafka-broker-network-partition-20260821-r1-state/before-process-crash.json
+/private/tmp/nereus-delay-kafka-broker-network-partition-20260821-r1-state/after-fresh-process.json
+```
+
+The source locks are Delay `ae10068e`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Both focused cells passed the
+real Kafka/Oxia Worker chain and independent audit: end offset `1 -> 2`,
+unchanged cluster/topic identity, replicas/ISR/live `[1,2,3]`, forced durable
+reads and distinct JVM PIDs. These two cells therefore join the bounded
+durable union, but the complete current-source matrix and certified gate have
+not yet been rerun. The remaining durable evidence slices are Pulsar
+multi-Broker failover, Pulsar source-ACK response loss and Gateway/Oxia
+session churn. Cleanup remains exact-path and run-scoped; do not prune locked
+base images or touch source worktrees.

@@ -6854,3 +6854,35 @@ volumes or generated images. Gate r10 is intentionally
 Gradle check passed, while the supplied certified capacity/soak/activation/
 operations artifacts have older Delay source locks and the chaos artifact is
 `BLOCKED`. `ALLOW_NOT_READY=1` only preserves this fail-closed audit.
+
+## 2026-08-21 Kafka TCP cut and network-partition durable evidence
+
+Delay commit `ae10068e` generalizes the Kafka Broker state smoke and bounded
+audit to the real TCP-cut and Compose-network-partition cells. Each cell now
+captures a forced durable Admin dump before the fault and from a separate JVM
+after recovery, and the shell audit compares the schema, cell/phase, topic /
+cluster / topic identity, replica/ISR/live membership, offset advancement,
+Broker-1 recovery observation and process identity.
+
+The focused current-source receipts are:
+
+```text
+/private/tmp/nereus-delay-kafka-broker-tcp-cut-20260821-r1-state/before-process-crash.json
+/private/tmp/nereus-delay-kafka-broker-tcp-cut-20260821-r1-state/after-fresh-process.json
+/private/tmp/nereus-delay-kafka-broker-network-partition-20260821-r1-state/before-process-crash.json
+/private/tmp/nereus-delay-kafka-broker-network-partition-20260821-r1-state/after-fresh-process.json
+```
+
+Both real three-Broker runs passed the full Worker/Oxia recovery chain. TCP
+cut recorded end offset `1 -> 2`, and network partition recorded `1 -> 2`;
+both preserved replicas/ISR/live `[1,2,3]`, with distinct before/after JVM
+PIDs and forced durable reads. The raw proxy rejected the Broker-1 endpoint
+once, while the network case removed the live Broker-1 container from the
+exact Compose network and later reconnected it. The focused Docker postchecks
+left no scoped containers or networks and retained only locked base images.
+
+This advances the independently audited bounded union to 11 of 14 cells. The
+full current-source chaos wrapper and certified release gate still need a
+fresh rerun after the remaining Pulsar multi-Broker, Pulsar source-ACK and
+Gateway/Oxia session-churn slices; this focused receipt is not release
+certification.

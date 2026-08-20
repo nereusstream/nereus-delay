@@ -5151,6 +5151,39 @@ receipt 的 Delay source lock 较旧，且 chaos artifact 不是 `PASS_CERTIFIED
 最终保持 `release_status=NOT_READY`。这只是 fault evidence handoff，不是
 V1 release approval。
 
+## 36. 2026-08-21 Kafka Broker TCP cut / network partition durable evidence
+
+Delay commit `ae10068e` 把 Kafka Broker 的 durable state handoff 从进程崩溃
+扩展到 TCP endpoint cut 和 Compose network partition。TCP 场景先把 source
+与 group coordinator placement 固定到 Broker-2，再让 one-shot raw proxy
+拒绝 Broker-1 endpoint；network 场景只把 `kafka-1` 从精确 Compose network
+断开而不杀 Broker 进程。两条链都通过真实 Oxia Worker 完成 source apply、
+ACK、checkpoint 和恢复后的 Broker 观测。
+
+focused receipt：
+
+```text
+/private/tmp/nereus-delay-kafka-broker-tcp-cut-20260821-r1-state/before-process-crash.json
+/private/tmp/nereus-delay-kafka-broker-tcp-cut-20260821-r1-state/after-fresh-process.json
+/private/tmp/nereus-delay-kafka-broker-network-partition-20260821-r1-state/before-process-crash.json
+/private/tmp/nereus-delay-kafka-broker-network-partition-20260821-r1-state/after-fresh-process.json
+```
+
+两条真实三 Broker run 均通过独立 audit：cluster/topic identity 不变，
+replicas、ISR、live 均为 `[1,2,3]`，end offset 都从 `1` 增长到 `2`，
+`broker_1_recovery_observed` 为 `false -> true`，并且 before/after 是不同
+JVM PID、`durable_broker_read=true`、`dump_forced=true`。source lock 为
+Delay `ae10068e`、Kafka `05849884ca81fad767fda058444d1e17c7f9cbf9`、Pulsar
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`、Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`。focused Docker cleanup 没有
+留下本次的 container/network，只保留锁定的 base image。
+
+这使当前独立 durable evidence union 达到 14 个 cell 中的 11 个；Pulsar
+multi-Broker failover、Pulsar source ACK response loss、Gateway/Oxia session
+churn 仍需补齐。完整 current-source chaos wrapper 和 V1 release gate 尚未
+针对 `ae10068e` 重跑，因此 release boundary 仍是
+`release_status=NOT_READY`，不能把 focused receipt 当作 release approval。
+
 ## 参考资料
 
 - [R1] [DDMQ README @ 2f30b61a](https://github.com/didi/DDMQ/blob/2f30b61a5741d55a5b515f3d8d19a8a35be8c9e2/README.md)
