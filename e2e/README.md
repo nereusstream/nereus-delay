@@ -6539,3 +6539,76 @@ the canonical receipts, `nereus/oxia-o1:37a17bef1720` and
 `quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z`; move exact disposable
 Gradle/diagnostic paths to Trash. Do not use a global Docker prune, broad
 globs or recursive deletion against a source/worktree root.
+
+## 2026-08-21 current-source chaos slice and post-documentation receipt
+
+The implementation slice pushed immediately before this section is
+`71068209dff3915e17ac2d81324154d79074e6f5` (`test: wait for all Kafka brokers
+before chaos`). Together with `9a55403e1f493fad8db73956db9dcd50c4429964`, it
+adds the Kafka Worker ACK crash cell's durable before/after Store dumps,
+fresh-JVM recovery and native Kafka `commitSync` proof. The recovery test
+reuses the durable Store root and real Oxia Owner Lease, but its local
+Recovery Catalog/Floor authority remains an explicit test seam; this is not a
+claim of full production Recovery Catalog authority.
+
+The pre-documentation current-source wrapper receipt is:
+
+```text
+/private/tmp/nereus-delay-v1-certified-chaos-20260821-r9/certified-chaos-matrix.json
+```
+
+Its exact source locks are Delay `71068209dff3915e17ac2d81324154d79074e6f5`,
+K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The bounded child is
+`PASS_BOUNDED` with 14/14 cells passing in this rerun, while the wrapper is
+`BLOCKED`: durable-state, fresh-process and invariant evidence is still
+`FAIL`, and only 5/14 cells have the required durable dumps. Docker postcheck
+is `PASS`. An earlier same-source r8 run recorded a timing-sensitive Kafka
+network-partition resume timeout; r9 passed the bounded child, so this history
+must not be promoted to certified stability.
+
+The matching pre-documentation gate receipt is:
+
+```text
+/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r5/v1-release-candidate-gate.json
+```
+
+It records source, cross-repository and full Gradle checks as `PASS`, but
+`release_status=NOT_READY` because the older capacity/soak/activation/
+operations receipts are not source-locked to this implementation and chaos is
+not `PASS_CERTIFIED`.
+
+After this documentation commit, regenerate the source-locked follow-up
+receipts before using them as current gate inputs:
+
+```bash
+NEREUS_DELAY_CERTIFIED_CHAOS_ARTIFACT_DIR=/private/tmp/nereus-delay-v1-certified-chaos-20260821-r10 \
+NEREUS_DELAY_CERTIFIED_CHAOS_GRADLE_USER_HOME=/private/tmp/nereus-delay-chaos-gradle-20260821 \
+NEREUS_DELAY_CERTIFIED_CHAOS_PROFILE_ID=nereus-delay-v1-rc1-chaos-r2 \
+bash e2e/run-certified-chaos-matrix.sh
+
+NEREUS_DELAY_RELEASE_GATE_ARTIFACT_DIR=/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r6 \
+NEREUS_DELAY_RELEASE_GATE_GRADLE_USER_HOME=/private/tmp/nereus-delay-chaos-gradle-20260821 \
+NEREUS_DELAY_RELEASE_GATE_RUN_CHECK=1 \
+NEREUS_DELAY_RELEASE_GATE_ALLOW_NOT_READY=1 \
+NEREUS_DELAY_RELEASE_GATE_CAPACITY_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-capacity-20260821-r4/certified-capacity-benchmark.json \
+NEREUS_DELAY_RELEASE_GATE_SOAK_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-soak-20260821-r7/certified-production-chain-soak.json \
+NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CAPACITY_PROFILE_ID=nereus-delay-v1-rc1-bounded-capacity-r1 \
+NEREUS_DELAY_RELEASE_GATE_CERTIFIED_SOAK_PROFILE_ID=nereus-delay-v1-rc1-production-chain-soak-r1 \
+NEREUS_DELAY_RELEASE_GATE_ACTIVATION_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-activation-20260821-r5/protocol-activation-cutover.json \
+NEREUS_DELAY_RELEASE_GATE_CERTIFIED_ACTIVATION_PROFILE_ID=nereus-delay-v1-rc1-activation-r1 \
+NEREUS_DELAY_RELEASE_GATE_OPERATIONS_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-operations-20260821-r4/operations-drills.json \
+NEREUS_DELAY_RELEASE_GATE_CERTIFIED_OPERATIONS_PROFILE_ID=nereus-delay-v1-rc1-operations-r1 \
+NEREUS_DELAY_RELEASE_GATE_CHAOS_ARTIFACT=/private/tmp/nereus-delay-v1-certified-chaos-20260821-r10/certified-chaos-matrix.json \
+NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CHAOS_PROFILE_ID=nereus-delay-v1-rc1-chaos-r2 \
+bash e2e/run-v1-release-gate.sh
+```
+
+The post-documentation receipts are authoritative only through their own
+`source_locks`; the expected fail-closed result remains certified chaos
+`BLOCKED` and V1 `NOT_READY` until all fourteen cells independently provide
+durable state, fresh-process recovery and invariant evidence. Keep only
+canonical receipts and locked base images; move superseded exact paths to
+Trash after checking that no process is using them. Source worktrees and Git
+metadata are never cleanup targets.

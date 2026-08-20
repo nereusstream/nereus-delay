@@ -4917,6 +4917,41 @@ V1 不用本地 epoch 冒充远端 fencing，不用 Broker ACK 冒充 Schedule a
 
 证据运行结束后，只保留上述 canonical receipt、锁定的 `nereus/oxia-o1:37a17bef1720` 和 `quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z` 基础镜像。相关 Gradle cache、失败诊断、过期 receipt 和本轮 `nereus-delay` 临时目录必须先确认没有进程、`.git` 或源码，再按精确路径移入 Trash；禁止 global Docker prune、宽泛 glob 或针对源码/worktree 根目录的递归删除。
 
+## 28. 2026-08-21 当前源码故障证明与发布边界
+
+当前实现切片包含 Kafka Worker ACK 崩溃恢复的 durable Store/fresh JVM/真实
+Oxia Owner Lease/ACK 证据（`9a55403e1f493fad8db73956db9dcd50c4429964`），以及
+chaos 启动前等待三个 Kafka broker 的修复
+（`71068209dff3915e17ac2d81324154d79074e6f5`）。ACK 恢复测试中的
+Recovery Catalog/Floor 是本地 harness seam，不等于生产 Recovery Catalog
+authority 已被证明。
+
+本次文档提交前的当前源码 chaos receipt 为：
+
+```text
+/private/tmp/nereus-delay-v1-certified-chaos-20260821-r9/certified-chaos-matrix.json
+```
+
+它的 bounded child 是 `PASS_BOUNDED`（14/14），Docker postcheck 是 `PASS`，
+但 certified wrapper 仍为 `BLOCKED`：durable state、fresh-process recovery
+和 independent-field invariant 为 `FAIL`，只有 5/14 cell 达到该证据级别。
+r8 曾记录 Kafka network-partition survivor resume 的 timing-sensitive
+timeout；r9 的 bounded PASS 不能把这段历史提升为 certified stability。
+本次对应的 Gate receipt 为：
+
+```text
+/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r5/v1-release-candidate-gate.json
+```
+
+它的 source/cross-repository/full-Gradle 检查通过，但
+`release_status=NOT_READY`，因为旧 capacity/soak/activation/operations
+receipt 与当前源码锁不一致，且 chaos 不是 `PASS_CERTIFIED`。文档提交后
+将用 r10 chaos receipt 和 r6 release-gate receipt 重新生成当前 source lock；
+只接受这些 receipt 自身的 `source_locks`。在十四个 cell 全部具备 durable
+before/after、fresh-process recovery 和 invariant 之前，V1 必须保持
+`NOT_READY`。清理只允许对精确临时路径执行并移入 Trash；源码、worktree、
+`.git` 和代码内容不是清理目标。
+
 ## 参考资料
 
 - [R1] [DDMQ README @ 2f30b61a](https://github.com/didi/DDMQ/blob/2f30b61a5741d55a5b515f3d8d19a8a35be8c9e2/README.md)

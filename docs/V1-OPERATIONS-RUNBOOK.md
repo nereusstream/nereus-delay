@@ -1133,3 +1133,40 @@ the locked Oxia base image `nereus/oxia-o1:37a17bef1720` and MinIO base image
 `quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z`; move disposable Gradle
 caches, superseded receipts and diagnostics to Trash by exact path. Never use
 a global Docker prune or remove unrelated images/worktrees.
+
+## 2026-08-21 current-source chaos slice and post-documentation receipt
+
+The current implementation slice is Delay commit
+`71068209dff3915e17ac2d81324154d79074e6f5`, following the durable Kafka Worker
+ACK recovery slice `9a55403e1f493fad8db73956db9dcd50c4429964`. The ACK cell now
+proves durable Store reuse, a fresh JVM, real Oxia Owner Lease continuity and
+the Kafka ACK transition. The test uses a local Recovery Catalog/Floor
+authority seam, so it must not be described as full production Recovery
+Catalog authority.
+
+The current pre-documentation chaos receipt is
+`/private/tmp/nereus-delay-v1-certified-chaos-20260821-r9/certified-chaos-matrix.json`.
+It is source-locked to Delay `71068209dff3915e17ac2d81324154d79074e6f5`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Its bounded child is
+`PASS_BOUNDED` (14/14), Docker postcheck is `PASS`, but the certified wrapper
+is `BLOCKED` because durable/fresh-process/invariant proof is `FAIL` and only
+5/14 cells have durable dumps. The r8 network-partition timeout remains a
+recorded timing-sensitive failure; r9 bounded PASS does not certify stability.
+
+The corresponding pre-documentation release gate is
+`/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r5/v1-release-candidate-gate.json`.
+It has source, cross-repository and full Gradle checks `PASS`, while the final
+status is `release_status=NOT_READY` because the older named receipts do not
+match the current source lock and chaos is not `PASS_CERTIFIED`.
+
+Once this section is committed, regenerate the post-documentation receipts at
+`/private/tmp/nereus-delay-v1-certified-chaos-20260821-r10/certified-chaos-matrix.json`
+and
+`/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r6/v1-release-candidate-gate.json`.
+Only those receipts' exact `source_locks` may be used as the current handoff.
+Until all fourteen cells independently satisfy durable state, fresh-process
+recovery and invariant comparison, keep the certified chaos result blocked and
+the release gate `NOT_READY`. Cleanup remains exact-path and recoverable via
+Trash; never delete a source/worktree root or use global Docker prune.

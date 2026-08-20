@@ -16534,3 +16534,38 @@ must be empty after every run. Retain only the six canonical receipts and the
 locked Oxia/MinIO base images; move disposable Gradle caches and superseded
 diagnostics to Trash by exact path. This snapshot does not promote bounded
 evidence or a partial chaos union into release approval.
+
+## 2026-08-21 current-source chaos and release boundary
+
+The latest implementation commits are Delay
+`9a55403e1f493fad8db73956db9dcd50c4429964` (durable Kafka Worker ACK crash
+recovery) and `71068209dff3915e17ac2d81324154d79074e6f5` (wait for all Kafka
+brokers before chaos). The former now exercises durable Store reuse across a
+fresh JVM, real Oxia Owner Lease continuity and native Kafka ACK recovery. Its
+local Recovery Catalog/Floor authority is still a harness seam and is not a
+production-authority claim.
+
+The current-source pre-documentation chaos receipt is
+`/private/tmp/nereus-delay-v1-certified-chaos-20260821-r9/certified-chaos-matrix.json`:
+the bounded child is `PASS_BOUNDED` with 14/14 cells, Docker postcheck is
+`PASS`, but the certified wrapper is `BLOCKED`; durable-state, fresh-process
+and independent-invariant evidence is `FAIL`, with only 5/14 cells captured at
+that level. The earlier r8 network-partition resume timeout remains a
+timing-sensitive failure record and is not silently erased by the r9 bounded
+rerun.
+
+The pre-documentation gate
+`/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r5/v1-release-candidate-gate.json`
+records source, cross-repository and full Gradle checks as `PASS`, but
+`release_status=NOT_READY`: the older capacity/soak/activation/operations
+inputs are source-lock stale for this implementation and certified chaos is
+not promotable.
+
+After this documentation commit, the source-lock refresh targets are
+`/private/tmp/nereus-delay-v1-certified-chaos-20260821-r10/certified-chaos-matrix.json`
+and
+`/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r6/v1-release-candidate-gate.json`.
+Their own `source_locks` are authoritative. This status is a release-evidence
+boundary, not a claim that the functional Worker egress chain is unimplemented.
+Related temporary artifacts may be moved to Trash only by exact path after
+process/resource checks; source code, worktrees and Git metadata remain intact.

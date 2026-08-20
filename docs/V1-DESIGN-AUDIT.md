@@ -13170,3 +13170,30 @@ Source cleanliness, cross-repository contract validation and full Gradle
 exact-path, recoverable cleanup are part of the receipt contract. No local
 bounded marker, partial chaos union or operator override may be promoted to a
 V1 release certificate.
+
+### 2026-08-21 current-source chaos slice
+
+The current Delay implementation adds a durable Kafka Worker ACK crash cell in
+`9a55403e1f493fad8db73956db9dcd50c4429964` and the broker-startup barrier in
+`71068209dff3915e17ac2d81324154d79074e6f5`. The cell proves Store reuse in a
+fresh process, real Oxia Owner Lease continuity and Kafka ACK recovery. It
+uses a local Recovery Catalog/Floor authority seam for the harness; therefore
+the evidence must not be promoted to full production Recovery Catalog
+authority.
+
+The current pre-documentation wrapper receipt is
+`/private/tmp/nereus-delay-v1-certified-chaos-20260821-r9/certified-chaos-matrix.json`.
+Its bounded child is `PASS_BOUNDED` for 14/14 cells and its Docker postcheck is
+`PASS`, but the certified wrapper is `BLOCKED` because durable-state,
+fresh-process and independent-field evidence is `FAIL`; only 5/14 cells have
+the required durable dumps. The r8 network-partition resume timeout remains a
+timing-sensitive prior failure and does not establish a stable certified
+result.
+
+The matching pre-documentation gate is
+`/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r5/v1-release-candidate-gate.json`,
+with source/cross-repository/full-Gradle checks `PASS` and final
+`release_status=NOT_READY`. After this documentation commit, regenerate and
+use only the post-documentation r10 chaos receipt and r6 gate receipt; their
+exact `source_locks` are the authority. The release remains fail-closed until
+all fourteen cells meet the certified evidence contract.
