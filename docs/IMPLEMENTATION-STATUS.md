@@ -16628,3 +16628,19 @@ was `2 listed`, `2 deleted`, empty prefix. This is the first durable/fresh-
 process/invariant evidence for the `checkpoint-reaping` cell. The 14-cell
 wrapper has not yet been rerun against `6e163de1`, so no chaos or release
 promotion follows from this focused receipt.
+
+## 2026-08-21 current-source Pulsar destination response-loss evidence
+
+Delay commit `b42135d4` adds durable/fresh-process evidence for the direct
+`pulsar-destination-response-loss` cell. WRITE sends once through the guarded
+P1 producer, records the real committed SEND evidence after response loss and
+exits. READ does not create a producer; it revalidates the typed
+`PULSAR_SEND_ACK` and reads the real topic exactly once.
+
+The focused receipt is
+`/private/tmp/nereus-delay-pulsar-destination-response-loss-fresh-20260821-r1/`.
+PIDs `42487` and `42581` preserved the topic/guard/attempt/prepared hash and
+broker position `ledger=9, entry=0, sequence=0`; payload readback was exact and
+the duplicate count was zero. This is separate from the Worker destination
+response-loss cell and does not make the complete chaos wrapper or V1 gate
+current until they are rerun against `b42135d4`.

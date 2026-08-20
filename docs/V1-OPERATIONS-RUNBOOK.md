@@ -1246,3 +1246,24 @@ The receipt passed with PIDs `35845 -> 35997`, identical intent/Route/
 lineage/checkpoint/store identities, Owner absence after reconnect, and exact
 version counts `2 listed / 2 deleted / empty prefix`. This is a focused PASS
 for the checkpoint cell, not a 14-cell certified-chaos or V1 release PASS.
+
+## 2026-08-21 Pulsar destination response-loss fresh-process drill
+
+Commit `b42135d4` makes the direct Pulsar destination response-loss drill
+cross-process. WRITE performs one guarded SEND against the real P1 broker,
+discards the post-commit response and force-dumps the request/evidence. READ
+reopens the topic in a separate JVM without a Producer, validates the exact
+`PULSAR_SEND_ACK` fields and reads back exactly one payload.
+
+The focused dumps are:
+
+```text
+/private/tmp/nereus-delay-pulsar-destination-response-loss-fresh-20260821-r1/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-destination-response-loss-fresh-20260821-r1/after-fresh-process.json
+```
+
+PIDs were `42487 -> 42581`; the exact broker position was `9/0/0`, and the
+after dump records one physical send, exact payload readback and zero duplicate
+payloads. This is the direct destination adapter cell, not the separate
+Worker destination response-loss process-crash drill. The full chaos and
+release gates remain fail-closed.

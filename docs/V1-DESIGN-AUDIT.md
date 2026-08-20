@@ -13249,3 +13249,19 @@ PIDs `35845` and `35997`, equal identity fields across the handoff, and
 independent audit checks durable reads, Owner absence, Intent state and process
 identity. This is a cell-level evidence PASS only; the complete chaos matrix
 and V1 release gate remain open.
+
+### 2026-08-21 Pulsar destination response-loss fresh-process boundary
+
+Delay commit `b42135d4` closes the direct destination adapter's
+`NOT_COVERED/MARKER_ONLY` process boundary. The first JVM performs one real
+guarded SEND, loses the response after broker commit and force-dumps the full
+request/evidence identity. The second JVM performs no SEND: it reconstructs
+the guarded evidence, validates the exact `PULSAR_SEND_ACK` binding and reads
+the one real payload.
+
+The dumps at
+`/private/tmp/nereus-delay-pulsar-destination-response-loss-fresh-20260821-r1/`
+show PIDs `42487` and `42581`, position `9/0/0`, equal payload and prepared
+identity, `physical_send_count=1` and zero duplicates. This is not the separate
+Worker destination-response-loss cell and is not a release certificate by
+itself.

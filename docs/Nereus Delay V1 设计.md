@@ -5037,6 +5037,28 @@ incarnation 不变；READ 结果为 `REAPING`，`listed=2`、`deleted=2`、prefi
 chaos 或 V1 release PASS；在全部 cell 和其他 `PASS_CERTIFIED` 输入完成前，
 Gate 继续保持 `release_status=NOT_READY`。
 
+## 32. 2026-08-21 Pulsar destination response-loss fresh-process 证据
+
+提交 `b42135d4` 为 direct `pulsar-destination-response-loss` cell 补齐真实两 JVM
+证据。WRITE JVM 通过 guarded P1 Producer 只发送一次，Broker 已提交后丢弃
+response，并 fsync 强制保存完整 request 与 guarded SEND evidence。READ JVM 不创建
+Producer、不再发送，只重建并验证 exact `PULSAR_SEND_ACK`，然后从同一真实 topic
+读回唯一 payload。
+
+focused dump 为：
+
+```text
+/private/tmp/nereus-delay-pulsar-destination-response-loss-fresh-20260821-r1/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-destination-response-loss-fresh-20260821-r1/after-fresh-process.json
+```
+
+PID 为 `42487 -> 42581`；topic/guard/attempt/prepared hash 和 Broker position
+`ledger=9, entry=0, sequence=0` 保持一致，`physical_send_count=1`，exact payload
+readback 成功，duplicate 为 `0`。该证据只关闭 direct destination adapter cell，
+不替代独立的 Worker destination response-loss cell，也不代表完整 chaos 或 V1
+release PASS；在当前 source-locked wrapper 重跑前，Gate 继续保持
+`release_status=NOT_READY`。
+
 ## 参考资料
 
 - [R1] [DDMQ README @ 2f30b61a](https://github.com/didi/DDMQ/blob/2f30b61a5741d55a5b515f3d8d19a8a35be8c9e2/README.md)

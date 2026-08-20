@@ -6713,3 +6713,27 @@ Compose resources and generated Oxia image were cleaned; locked base images
 remain retained. This closes the `checkpoint-reaping` cell boundary only; the
 14-cell chaos union and V1 release gate remain fail-closed until a new
 source-locked matrix run.
+
+## 2026-08-21 Pulsar destination response-loss fresh-process slice
+
+Delay commit `b42135d4` adds a two-JVM real P1 destination response-loss cut.
+The WRITE JVM performs exactly one guarded SEND, discards the completion after
+the broker has committed it, and fsync-forces the full request plus guarded
+SEND evidence. The READ JVM creates no Producer and sends nothing: it
+reconstructs and validates the typed `PULSAR_SEND_ACK`, then reads the same
+real topic and checks the exact payload count.
+
+Focused evidence:
+
+```text
+/private/tmp/nereus-delay-pulsar-destination-response-loss-fresh-20260821-r1/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-destination-response-loss-fresh-20260821-r1/after-fresh-process.json
+```
+
+The receipt passed with PIDs `42487 -> 42581`, broker position `ledger=9,
+entry=0, sequence=0`, equal topic/guard/attempt/prepared-hash/payload fields,
+and `physical_send_count=1`, `duplicate_payload_count=0`. The P1 and Oxia
+Compose resources and generated images were cleaned; locked base images remain.
+This closes the direct `pulsar-destination-response-loss` cell only. It does
+not replace the separate Worker destination-response-loss cell, the complete
+chaos union or the V1 release gate.
