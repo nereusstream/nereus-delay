@@ -155,6 +155,7 @@ run_real_checkpoint() {
     NEREUS_DELAY_E2E_GRADLE_USER_HOME="${gradle_home}/real-checkpoint" \
     NEREUS_DELAY_OXIA_CHECKPOINT_E2E_PORT="${checkpoint_oxia_port}" \
     NEREUS_DELAY_MINIO_CHECKPOINT_E2E_PORT="${checkpoint_minio_port}" \
+    NEREUS_DELAY_FRESH_PROCESS_AUTHORITY=1 \
     "${script_dir}/run-oxia-minio-checkpoint-e2e.sh"
 }
 
@@ -291,7 +292,8 @@ jq -n \
     boundaries: [
       "PASS_BOUNDED is an operations/state-machine receipt, not V1 release certification.",
       "The local probes cover restore fencing, catalog ancestry/floor validation, Owner recovery/drain gates, DLQ replay and source-ordered UNCERTAIN resolution.",
-      "The real service probe covers the current Oxia/MinIO checkpoint publication and exact REAPING path; it does not prove external operator authorization, fresh-process disaster continuity or a multi-Worker production soak.",
+      "The real service probe covers Oxia control-operation registration, Worker protocol capability eligibility, signed Route/assignment CAS, recovery authority, checkpoint publication and exact REAPING; its fresh-process subprobe uses separate WRITE/READ Gradle JVMs.",
+      "This bounded operations receipt still does not prove an independently authorized operator procedure or a multi-Worker production soak.",
       "PASS_CERTIFIED still requires the exact current four-repository source locks from the release gate and independent operator/soak evidence."
     ]
   }' >"${operations_artifact}"

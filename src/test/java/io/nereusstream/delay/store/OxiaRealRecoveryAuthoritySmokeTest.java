@@ -112,6 +112,41 @@ class OxiaRealRecoveryAuthoritySmokeTest {
         }
     }
 
+    @Test
+    void freshProcessPhaseReopensDurableRecoveryAuthorities() throws Exception {
+        final String phase = System.getenv("NEREUS_DELAY_FRESH_PROCESS_AUTHORITY_PHASE");
+        final String prefix = System.getenv("NEREUS_DELAY_FRESH_PROCESS_AUTHORITY_PREFIX");
+        Assumptions.assumeTrue(phase != null && (phase.equals("WRITE") || phase.equals("READ")),
+                "fresh-process authority phase is not configured");
+        Assumptions.assumeTrue(prefix != null && !prefix.isBlank(),
+                "fresh-process authority prefix is not configured");
+        final String endpoint = endpoint();
+        final ShardId shard = new ShardId(new RouteIncarnation(id16(121)), 120);
+        final CheckpointManifest manifest = manifest(shard,
+                UUID.fromString("12345678-1234-4abc-8def-1234567890ab"), id16(122), id16(123), 0,
+                10, 10, null);
+        final CheckpointUploadIntentV1 pending = pendingIntent(120);
+
+        try (OxiaSyncOwnerLeaseBackend.ClientHandle client = client(endpoint, prefix + "/recovery-client")) {
+            final OxiaSyncRecoveryCatalogBackend catalog = new OxiaSyncRecoveryCatalogBackend(
+                    client, prefix + "/catalog", LIMITS);
+            final OxiaSyncCheckpointUploadIntentBackend intents =
+                    new OxiaSyncCheckpointUploadIntentBackend(client, prefix + "/intent");
+            if (phase.equals("WRITE")) {
+                final var published = catalog.publish(manifest, 0);
+                catalog.advanceFloor(manifest.checkpointId(), published.catalogGeneration(), List.of());
+                assertEquals(pending, intents.create(pending));
+                assertEquals(CheckpointUploadStateV1.PUBLISHED,
+                        intents.publish(pending, resource(pending)).state());
+                System.out.println("fresh-process recovery authority write phase passed");
+            } else {
+                assertArrayEquals(manifest.checkpointId(), catalog.currentFloorRef().orElseThrow().checkpointId());
+                assertEquals(CheckpointUploadStateV1.PUBLISHED, intents.current(pending).orElseThrow().state());
+                System.out.println("fresh-process recovery authority read phase passed");
+            }
+        }
+    }
+
     private static String endpoint() {
         final String endpoint = System.getenv("NEREUS_DELAY_OXIA_ENDPOINT");
         Assumptions.assumeTrue(endpoint != null && !endpoint.isBlank(),

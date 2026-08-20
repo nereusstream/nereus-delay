@@ -18,6 +18,7 @@ minio_bucket=${NEREUS_DELAY_MINIO_BUCKET:-nereus-delay-checkpoints-$(date +%s)-$
 minio_container="nereus-delay-checkpoint-minio-e2e-$(date +%s)-$$"
 minio_fault_mode=${NEREUS_DELAY_CHECKPOINT_MINIO_FAULT_MODE:-NONE}
 minio_request_timeout_ms=${NEREUS_DELAY_CHECKPOINT_MINIO_REQUEST_TIMEOUT_MS:-60000}
+fresh_process_authority=${NEREUS_DELAY_FRESH_PROCESS_AUTHORITY:-0}
 minio_fault_proxy_port=${NEREUS_DELAY_CHECKPOINT_MINIO_FAULT_PROXY_PORT:-$((minio_port + 100))}
 minio_fault_proxy_endpoint="http://127.0.0.1:${minio_fault_proxy_port}"
 fault_proxy_log=$(mktemp -t nereus-delay-checkpoint-fault-proxy.XXXXXX).log
@@ -59,6 +60,14 @@ if [[ "${minio_fault_mode}" != "NONE" && "${minio_fault_mode}" != "PUT_503_AFTER
 fi
 if [[ ! "${minio_request_timeout_ms}" =~ ^[1-9][0-9]*$ ]]; then
     echo "NEREUS_DELAY_CHECKPOINT_MINIO_REQUEST_TIMEOUT_MS must be a positive integer" >&2
+    exit 1
+fi
+if [[ "${fresh_process_authority}" != "0" && "${fresh_process_authority}" != "1" ]]; then
+    echo "NEREUS_DELAY_FRESH_PROCESS_AUTHORITY must be 0 or 1" >&2
+    exit 1
+fi
+if [[ "${fresh_process_authority}" == "1" && "${minio_fault_mode}" != "NONE" ]]; then
+    echo "fresh-process authority evidence requires NEREUS_DELAY_CHECKPOINT_MINIO_FAULT_MODE=NONE" >&2
     exit 1
 fi
 if [[ ! "${minio_fault_proxy_port}" =~ ^[0-9]+$ ]]; then
@@ -235,7 +244,24 @@ run_smoke() {
         --rerun-tasks --no-daemon --console=plain
 }
 
+run_fresh_process_authority() {
+    local phase="$1"
+    env "${smoke_environment[@]}" \
+        "NEREUS_DELAY_FRESH_PROCESS_AUTHORITY_PHASE=${phase}" \
+        "NEREUS_DELAY_FRESH_PROCESS_AUTHORITY_PREFIX=${fresh_process_prefix}" \
+        "$delay_root/gradlew" test \
+        --tests io.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest.freshProcessPhaseReopensDurableControlAuthority \
+        --tests io.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest.freshProcessPhaseReopensDurableRecoveryAuthorities \
+        --rerun-tasks --no-daemon --console=plain
+}
+
 if [[ "${minio_fault_mode}" == "NONE" ]]; then
+    fresh_process_prefix="${NEREUS_DELAY_FRESH_PROCESS_AUTHORITY_PREFIX:-nereus-delay-real-fresh-process/$(date +%s)-$$}"
+    if [[ "${fresh_process_authority}" == "1" ]]; then
+        run_fresh_process_authority WRITE
+        run_fresh_process_authority READ
+        echo "Oxia fresh-process control/recovery authority E2E passed: separate WRITE/READ Gradle JVMs"
+    fi
     env "${smoke_environment[@]}" "$delay_root/gradlew" test \
         --tests io.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest \
         --tests io.nereusstream.delay.ownership.OxiaRealProtocolCapabilitySmokeTest \
@@ -246,6 +272,7 @@ if [[ "${minio_fault_mode}" == "NONE" ]]; then
         --tests io.nereusstream.delay.store.OxiaRealCheckpointReapingSmokeTest.realOxiaOwnerAbandonmentReapsExactMinioCheckpointPrefix \
         --tests io.nereusstream.delay.store.OxiaRealObjectStoreCredentialRenewalSmokeTest.renewsRealOxiaLeaseAndFencesTheLiveAdapterAtHeadRotation \
         --rerun-tasks --no-daemon --console=plain
+    echo "Oxia external control/protocol/Route/recovery authority E2E passed"
 elif [[ "${minio_fault_mode}" == "PUT_503_BEFORE_COMMIT" \
     || "${minio_fault_mode}" == "PUT_TIMEOUT_BEFORE_COMMIT" ]]; then
     run_smoke io.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.workerCheckpointRuntimeRemainsPendingWhenMinioCommitFailsBeforeProviderWrite

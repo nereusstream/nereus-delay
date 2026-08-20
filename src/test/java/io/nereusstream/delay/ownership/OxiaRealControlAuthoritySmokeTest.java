@@ -70,6 +70,34 @@ class OxiaRealControlAuthoritySmokeTest {
         }
     }
 
+    @Test
+    void freshProcessPhaseReopensDurableControlAuthority() throws Exception {
+        final String phase = System.getenv("NEREUS_DELAY_FRESH_PROCESS_AUTHORITY_PHASE");
+        final String prefix = System.getenv("NEREUS_DELAY_FRESH_PROCESS_AUTHORITY_PREFIX");
+        Assumptions.assumeTrue(phase != null && (phase.equals("WRITE") || phase.equals("READ")),
+                "fresh-process authority phase is not configured");
+        Assumptions.assumeTrue(prefix != null && !prefix.isBlank(),
+                "fresh-process authority prefix is not configured");
+        final String endpoint = endpoint();
+        final ControlOperationReceiptV1 receipt = receipt(77, 4_000);
+        final CurrentControlOperationV1 initial = current(receipt, 1, ControlOperationStateV1.PENDING);
+        final CurrentControlOperationV1 next = current(receipt, 2, ControlOperationStateV1.DISPATCHING);
+
+        try (OxiaSyncOwnerLeaseBackend.ClientHandle client = connect(endpoint, prefix + "/control-client")) {
+            final OxiaSyncControlOperationBackend backend =
+                    new OxiaSyncControlOperationBackend(client, prefix + "/control");
+            if (phase.equals("WRITE")) {
+                assertEquals(ControlOperationQueryResultV1.CURRENT, backend.register(receipt, initial).resultKind());
+                assertEquals(ControlOperationQueryResultV1.CURRENT,
+                        backend.advance(receipt, 1, next).resultKind());
+                System.out.println("fresh-process control authority write phase passed");
+            } else {
+                assertEquals(next, backend.query(receipt, 4_000).current());
+                System.out.println("fresh-process control authority read phase passed");
+            }
+        }
+    }
+
     private static String endpoint() {
         final String endpoint = System.getenv("NEREUS_DELAY_OXIA_ENDPOINT");
         Assumptions.assumeTrue(endpoint != null && !endpoint.isBlank(),
