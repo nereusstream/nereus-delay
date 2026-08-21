@@ -160,7 +160,7 @@ candidate_locks_json="$(jq -cn --arg delay "${candidate_delay}" --arg kafka "${c
 
 required_for_gate() {
   case "$1" in
-    protocol-golden) printf '%s\n' ndl1 crc enums version-bound-hash signature identity protobuf-golden jcs uint64 key-ordering state-golden kafka-lso-boundary kafka-empty-boundary pulsar-inclusive-boundary pulsar-strictness model-property-interleavings;;
+    protocol-golden) printf '%s\n' ndl1 crc enums version-bound-hash signature identity protobuf-golden jcs uint64 key-ordering state-golden kafka-lso-boundary kafka-empty-boundary pulsar-inclusive-boundary pulsar-strictness model-property-interleavings kafka-guarded-golden pulsar-guarded-golden;;
     chaos) printf '%s\n' sigkill long-gc network-partition half-open enospc fsync-error sst-corruption broker-leader-failover oxia-session-expiry object-store-5xx object-store-timeout storage-provider-fault config-drift target-isolation disaster-host-fault kafka-response-loss lso-retention-floor pulsar-multibroker-failover;;
     real-service) printf '%s\n' kafka-to-kafka kafka-to-pulsar pulsar-to-kafka pulsar-to-pulsar gateway-mtls-jwt real-oxia real-minio real-worker activation-cutover kafka-lso-open-tx-aborted-marker-gap pulsar-batching-exclusive-inclusive pulsar-dedup-reconnect-attempt-journal mapping-before-send;;
     no-early) printf '%s\n' worker-clock-bound target-clock-bound pulsar-strict-delivery empty-partition boundary-arithmetic uncertainty-bound;;

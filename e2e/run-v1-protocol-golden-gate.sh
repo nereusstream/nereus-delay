@@ -12,7 +12,11 @@ oxia_dir="${NEREUS_DELAY_OXIA_CHECKOUT:-${delay_dir}/../../oxia}"
 candidate_lock_file="${NEREUS_DELAY_V1_CANDIDATE_SOURCE_LOCK:-${NEREUS_DELAY_RELEASE_GATE_CANDIDATE_SOURCE_LOCK:-}}"
 artifact_dir="${NEREUS_DELAY_V1_PROTOCOL_GOLDEN_ARTIFACT_DIR:-$(mktemp -d -t nereus-delay-v1-protocol-golden.XXXXXX)}"
 gradle_home="${NEREUS_DELAY_V1_PROTOCOL_GOLDEN_GRADLE_USER_HOME:-${artifact_dir}/gradle-user-home}"
+kafka_gradle_home="${NEREUS_DELAY_V1_PROTOCOL_GOLDEN_KAFKA_GRADLE_USER_HOME:-${artifact_dir}/kafka-gradle-user-home}"
+pulsar_gradle_home="${NEREUS_DELAY_V1_PROTOCOL_GOLDEN_PULSAR_GRADLE_USER_HOME:-${artifact_dir}/pulsar-gradle-user-home}"
 log_file="${artifact_dir}/protocol-golden-gradle.log"
+kafka_log_file="${artifact_dir}/kafka-guarded-golden-gradle.log"
+pulsar_log_file="${artifact_dir}/pulsar-guarded-golden-gradle.log"
 artifact="${artifact_dir}/protocol-golden.json"
 
 fail() { echo "V1 protocol golden gate: $*" >&2; exit 1; }
@@ -50,7 +54,7 @@ fi
 required=(
   ndl1 crc enums version-bound-hash signature identity protobuf-golden jcs uint64
   key-ordering state-golden kafka-lso-boundary kafka-empty-boundary pulsar-inclusive-boundary
-  pulsar-strictness model-property-interleavings
+  pulsar-strictness model-property-interleavings kafka-guarded-golden pulsar-guarded-golden
 )
 test_patterns=(
   'io.nereusstream.delay.protocol.*'
@@ -85,12 +89,63 @@ rg -Fq 'commandHashBindsTheProtocolTuple' "${delay_dir}/src/test/java/io/nereuss
 rg -Fq 'canonical JCS' "${delay_dir}/src/main/java/io/nereusstream/delay/store/CheckpointManifest.java" || source_audit_status=FAIL
 
 cross_repo_status="BLOCKED"
+kafka_test_exit_code=1
+pulsar_test_exit_code=1
+kafka_test_count=0
+pulsar_test_count=0
 if [[ "${source_status}" == PASS ]]; then
   set +e
   bash "${script_dir}/validate-cross-repo-contracts.sh" >"${artifact_dir}/cross-repo-validator.log" 2>&1
   cross_repo_exit=$?
   set -e
   [[ "${cross_repo_exit}" == 0 ]] && cross_repo_status=PASS
+fi
+
+if [[ "${source_status}" == PASS && "${cross_repo_status}" == PASS ]]; then
+  set +e
+  (
+    cd "${kafka_dir}"
+    GRADLE_USER_HOME="${kafka_gradle_home}" ./gradlew :clients:test \
+      --tests org.apache.kafka.clients.producer.GuardedProducerApiTest \
+      --tests org.apache.kafka.clients.producer.KafkaProducerGuardedPreflightTest \
+      --tests org.apache.kafka.clients.producer.internals.GuardedSenderTest \
+      --tests org.apache.kafka.clients.consumer.GuardedConsumerApiTest \
+      --no-daemon --console=plain
+  ) >"${kafka_log_file}" 2>&1
+  kafka_test_exit_code=$?
+  set -e
+  if [[ -d "${kafka_dir}/clients/build/test-results/test" ]]; then
+    kafka_test_count="$(rg --no-heading --no-filename -o '<testcase([ >])' "${kafka_dir}/clients/build/test-results/test" -g 'TEST-*.xml' | wc -l | tr -d ' ')"
+  fi
+  set +e
+  (
+    cd "${pulsar_dir}"
+    GRADLE_USER_HOME="${pulsar_gradle_home}" ./gradlew :pulsar-common:test \
+      --tests org.apache.pulsar.common.protocol.TopicResourceGuardApiTest \
+      --tests org.apache.pulsar.common.protocol.CommandsTopicResourceGuardTest \
+      --no-daemon --console=plain
+    common_status=$?
+    if [[ "${common_status}" == 0 ]]; then
+      GRADLE_USER_HOME="${pulsar_gradle_home}" ./gradlew :pulsar-broker:test \
+        --tests org.apache.pulsar.broker.service.ValidatedTopicResourceGuardTest \
+        --no-daemon --console=plain
+      broker_status=$?
+    else
+      broker_status=1
+    fi
+    exit $((common_status != 0 || broker_status != 0))
+  ) >"${pulsar_log_file}" 2>&1
+  pulsar_test_exit_code=$?
+  set -e
+  if [[ -d "${pulsar_dir}/pulsar-common/build/test-results/test" ]]; then
+    pulsar_test_count=$((pulsar_test_count + $(rg --no-heading --no-filename -o '<testcase([ >])' "${pulsar_dir}/pulsar-common/build/test-results/test" -g 'TEST-*.xml' | wc -l | tr -d ' ')))
+  fi
+  if [[ -d "${pulsar_dir}/pulsar-broker/build/test-results/test" ]]; then
+    pulsar_test_count=$((pulsar_test_count + $(rg --no-heading --no-filename -o '<testcase([ >])' "${pulsar_dir}/pulsar-broker/build/test-results/test" -g 'TEST-*.xml' | wc -l | tr -d ' ')))
+  fi
+else
+  echo "source or cross-repo validation failed; Kafka/Pulsar protocol tests were not started" >"${kafka_log_file}"
+  echo "source or cross-repo validation failed; Kafka/Pulsar protocol tests were not started" >"${pulsar_log_file}"
 fi
 
 test_exit_code=1
@@ -115,16 +170,18 @@ failure_count=0
 error_count=0
 skipped_count=0
 if [[ "${tests_started}" == 1 && -d "${delay_dir}/build/test-results/test" ]]; then
-  test_count="$(rg -h -o '<testcase([ >])' "${delay_dir}/build/test-results/test" -g 'TEST-*.xml' | wc -l | tr -d ' ')"
-  failure_count="$(rg -h -o '<failure([ >])' "${delay_dir}/build/test-results/test" -g 'TEST-*.xml' | wc -l | tr -d ' ')"
-  error_count="$(rg -h -o '<error([ >])' "${delay_dir}/build/test-results/test" -g 'TEST-*.xml' | wc -l | tr -d ' ')"
-  skipped_count="$(rg -h -o '<skipped([ >])' "${delay_dir}/build/test-results/test" -g 'TEST-*.xml' | wc -l | tr -d ' ')"
+  test_count="$(rg --no-heading --no-filename -o '<testcase([ >])' "${delay_dir}/build/test-results/test" -g 'TEST-*.xml' | wc -l | tr -d ' ')"
+  failure_count="$(rg --no-heading --no-filename -o '<failure([ >])' "${delay_dir}/build/test-results/test" -g 'TEST-*.xml' | wc -l | tr -d ' ')"
+  error_count="$(rg --no-heading --no-filename -o '<error([ >])' "${delay_dir}/build/test-results/test" -g 'TEST-*.xml' | wc -l | tr -d ' ')"
+  skipped_count="$(rg --no-heading --no-filename -o '<skipped([ >])' "${delay_dir}/build/test-results/test" -g 'TEST-*.xml' | wc -l | tr -d ' ')"
 fi
 
 status="BLOCKED"
 if [[ "${source_status}" == PASS && "${source_audit_status}" == PASS && "${cross_repo_status}" == PASS \
     && "${test_exit_code}" == 0 && "${test_count}" -gt 0 && "${failure_count}" == 0 \
-    && "${error_count}" == 0 && "${skipped_count}" == 0 ]]; then
+    && "${error_count}" == 0 && "${skipped_count}" == 0 \
+    && "${kafka_test_exit_code}" == 0 && "${kafka_test_count}" -gt 0 \
+    && "${pulsar_test_exit_code}" == 0 && "${pulsar_test_count}" -gt 0 ]]; then
   status="PASS_CERTIFIED"
 fi
 required_json="$(printf '%s\n' "${required[@]}" | jq -Rsc 'split("\n") | map(select(length > 0))')"
@@ -142,7 +199,7 @@ jq -n \
     gate:$gate,execution:"strict-sequential",
     source_locks:{delay:$delay,kafka:$kafka,pulsar:$pulsar,oxia:$oxia},
     coverage:{complete_v1:($status == "PASS_CERTIFIED"),required:$required,observed:(if $status == "PASS_CERTIFIED" then $required else [] end),exclusions:[]},
-    evidence:{test_exit_code:$test_exit_code,test_count:$test_count,failure_count:$failure_count,error_count:$error_count,skipped_count:$skipped_count,source_lock_status:$source_status,source_audit_status:$source_audit_status,cross_repo_status:$cross_repo_status,coverage_status:(if $status == "PASS_CERTIFIED" then "PASS" else "BLOCKED" end),independent_audit:(if $status == "PASS_CERTIFIED" then "PASS" else "BLOCKED" end),test_log:$log},
+    evidence:{test_exit_code:$test_exit_code,test_count:$test_count,failure_count:$failure_count,error_count:$error_count,skipped_count:$skipped_count,kafka_test_exit_code:$kafka_test_exit_code,kafka_test_count:$kafka_test_count,pulsar_test_exit_code:$pulsar_test_exit_code,pulsar_test_count:$pulsar_test_count,source_lock_status:$source_status,source_audit_status:$source_audit_status,cross_repo_status:$cross_repo_status,coverage_status:(if $status == "PASS_CERTIFIED" then "PASS" else "BLOCKED" end),independent_audit:(if $status == "PASS_CERTIFIED" then "PASS" else "BLOCKED" end),test_log:$log,kafka_test_log:$kafka_log,pulsar_test_log:$pulsar_log},
     assertions:["NDL1/NDR1 CRC and enum/version checks","canonical Protobuf and JCS/uint64 vectors","identity and registered key ordering","Kafka LSO/empty boundaries","Pulsar inclusive MessageId/batch and strictness boundaries","state/property interleaving and activation vectors"],
     boundaries:[]
   }' >"${artifact}"
