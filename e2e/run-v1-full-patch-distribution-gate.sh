@@ -120,7 +120,7 @@ kafka_exit="$(run_command kafka "${kafka_dir}" "${kafka_log}" env \
   GRADLE_USER_HOME="${kafka_gradle_home}" ./gradlew \
   :clients:clients-integration-tests:test \
   --tests org.apache.kafka.clients.producer.KafkaProducerGuardedIntegrationTest \
-  --no-daemon --console=plain)"
+  --rerun-tasks --no-daemon --console=plain)"
 
 pulsar_exit="$(run_command pulsar "${pulsar_dir}" "${pulsar_log}" env \
   GRADLE_USER_HOME="${pulsar_gradle_home}" ./gradlew \
@@ -128,13 +128,13 @@ pulsar_exit="$(run_command pulsar "${pulsar_dir}" "${pulsar_log}" env \
   --tests org.apache.pulsar.common.protocol.CommandsTopicResourceGuardTest \
   :pulsar-broker:test --tests org.apache.pulsar.broker.service.ValidatedTopicResourceGuardTest \
   --tests org.apache.pulsar.client.api.TopicResourceGuardIntegrationTest \
-  --no-daemon --console=plain)"
+  --rerun-tasks --no-daemon --console=plain)"
 
 delay_exit="$(run_command delay "${delay_dir}" "${delay_log}" env \
   GRADLE_USER_HOME="${delay_gradle_home}" ./gradlew test \
   --tests io.nereusstream.delay.transport.GuardedTransportOwnershipTest \
   --tests io.nereusstream.delay.adapter.DestinationPhysicalAdmissionTest \
-  --no-daemon --console=plain)"
+  --rerun-tasks --no-daemon --console=plain)"
 
 digest_file="${artifact_dir}/binary-digests.tsv"
 : >"${digest_file}"
@@ -169,10 +169,22 @@ if [[ "${run_cluster}" == "1" ]]; then
   set -e
 fi
 
+kafka_typed_rejection="FAIL"
+if [[ "${kafka_exit}" == "0" ]] \
+    && rg -q 'ResourceGuardException|ResourceGuardFailureReason\.TOPIC_ID_MISMATCH|assertInstanceOf' \
+      "${kafka_dir}/clients/clients-integration-tests/src/test/java/org/apache/kafka/clients/producer/KafkaProducerGuardedIntegrationTest.java" \
+    && rg -q '^> Task :clients:clients-integration-tests:test$' "${kafka_log}"; then
+  kafka_typed_rejection="PASS"
+fi
+pulsar_typed_rejection="FAIL"
+if [[ "${pulsar_exit}" == "0" ]] \
+    && rg -q 'TopicResourceGuardException|TopicResourceGuard|resourceGuard' \
+      "${pulsar_dir}/pulsar-broker/src/test/java/org/apache/pulsar/client/api/TopicResourceGuardIntegrationTest.java" \
+    && rg -q '^> Task :pulsar-broker:test$' "${pulsar_log}"; then
+  pulsar_typed_rejection="PASS"
+fi
 typed_rejection="FAIL"
-if [[ "${kafka_exit}" == "0" && "${pulsar_exit}" == "0" && "${delay_exit}" == "0" ]] \
-    && rg -q 'ResourceGuard|resource guard|TopicResourceGuard|TOPIC_ID_MISMATCH' \
-      "${kafka_log}" "${pulsar_log}" "${delay_log}"; then
+if [[ "${kafka_typed_rejection}" == "PASS" && "${pulsar_typed_rejection}" == "PASS" ]]; then
   typed_rejection="PASS"
 fi
 delete_recreate="FAIL"
@@ -235,6 +247,8 @@ jq -n \
   --arg digest_file "${digest_file}" --arg full_rollout "${full_rollout}" \
   --arg partial_rollout "${partial_rollout}" --arg digest_status "${digest_status}" \
   --arg typed_rejection "${typed_rejection}" --arg delete_recreate "${delete_recreate}" \
+  --arg kafka_typed_rejection "${kafka_typed_rejection}" \
+  --arg pulsar_typed_rejection "${pulsar_typed_rejection}" \
   --arg stock_rejection "${stock_rejection}" --arg name_fallback_rejection "${name_fallback_rejection}" \
   --arg old_protocol_rejection "${old_protocol_rejection}" \
   '{
@@ -246,6 +260,7 @@ jq -n \
     commands:{kafka:{exit_code:$kafka_exit,log:$kafka_log},pulsar:{exit_code:$pulsar_exit,log:$pulsar_log},delay:{exit_code:$delay_exit,log:$delay_log},partial_rollout:{exit_code:$cluster_exit,log:$cluster_log}},
     binary_digests:{status:$digest_status,file:$digest_file},
     observations:{full_rollout:$full_rollout,partial_rollout:$partial_rollout,binary_digest:$digest_status,typed_rejection:$typed_rejection,delete_recreate:$delete_recreate,stock_name_old_protocol_rejection:(if ($stock_rejection == "PASS" and $name_fallback_rejection == "PASS" and $old_protocol_rejection == "PASS") then "PASS" else "FAIL" end)},
+    typed_rejection_details:{kafka:$kafka_typed_rejection,pulsar:$pulsar_typed_rejection},
     distribution_assertions:{stock_client_rejection:$stock_rejection,name_fallback_rejection:$name_fallback_rejection,old_protocol_rejection:$old_protocol_rejection},
     boundaries:[]
   }' >"${artifact}"
