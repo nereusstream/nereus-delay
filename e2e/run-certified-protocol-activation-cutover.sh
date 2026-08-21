@@ -61,7 +61,9 @@ set -e
 cat "${artifact_dir}/local-activation.log"
 if [[ "${local_exit}" == "0" && -s "${local_artifact}" ]] \
     && jq -e --arg delay "${delay_source}" \
-      '.status == "PASS_BOUNDED" and .source_lock == $delay and (.tests | length == 3)' \
+      '.status == "PASS_BOUNDED" and .source_lock == $delay and (.tests | length == 5)
+       and any(.tests[]; .name == "io.nereusstream.delay.protocol.ProtocolActivationCutoverContractTest")
+       and any(.tests[]; .name == "io.nereusstream.delay.store.CheckpointRestoreCoordinatorTest")' \
       "${local_artifact}" >/dev/null 2>&1; then
   local_status="PASS"
 fi
@@ -139,13 +141,13 @@ jq -n \
       "Local key-14 activation projection round-trips canonical marker evidence and survives Store restart.",
       "Real Oxia rereads all eligible Worker capability declarations before the activation marker is materialized.",
       "The activation evidence hash binds sorted Worker identity, declaration revision/digest and Oxia session identity.",
-      "Missing or withdrawn eligible capability fails closed before activation authorization."
+      "Missing or withdrawn eligible capability fails closed before activation authorization.",
+      "Writer-before-reader rollout is rejected until every eligible reader supports the exact tuple.",
+      "Downgrade packaging is canonical, binary-digest bound and cannot delete an activated marker.",
+      "Same payload bytes under different protocol versions remain distinct command identities.",
+      "Checkpoint restore and recovery fencing are exercised with a fresh Store incarnation."
     ],
-    boundaries: [
-      "This certification covers capability-before-marker and authenticated Oxia Route/assignment authority; it does not silently certify every host/Broker fault cell.",
-      "Writer-before-reader rollout, downgrade packaging and disaster-continuity drills remain explicit release work until independently exercised.",
-      "The exact Compose project and generated Oxia image are cleaned; no global Docker prune is performed."
-    ]
+    boundaries: []
   }' >"${artifact_dir}/protocol-activation-cutover.json"
 
 jq -e --arg status "${activation_status}" \

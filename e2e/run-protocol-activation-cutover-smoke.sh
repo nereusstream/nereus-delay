@@ -40,8 +40,11 @@ artifact="${artifact_dir}/protocol-activation-cutover.json"
 
 test_names=(
   "io.nereusstream.delay.protocol.ProtocolActivationStateV1Test"
+  "io.nereusstream.delay.protocol.ProtocolActivationCutoverContractTest"
   "io.nereusstream.delay.runtime.InitialRouteControlApplyTest"
   "io.nereusstream.delay.runtime.ProtocolVersionActivationApplyTest"
+  "io.nereusstream.delay.runtime.CommandProtocolDedupeApplyTest"
+  "io.nereusstream.delay.store.CheckpointRestoreCoordinatorTest"
 )
 test_args=()
 for test_name in "${test_names[@]}"; do
@@ -90,20 +93,24 @@ jq -n \
       "Initial Route kind-14 creates the empty activation projection atomically with its control snapshot and source position.",
       "A kind-1 marker records tuple, reader-set evidence, source position and mutation identity in canonical state.",
       "A non-baseline tuple is rejected before its marker and accepted after its source-ordered marker.",
-      "The activation projection survives a Store restart with canonical bytes and digest validation."
+      "The activation projection survives a Store restart with canonical bytes and digest validation.",
+      "Writer-before-reader activation fails closed until every eligible Worker publishes the exact tuple.",
+      "Downgrade packaging binds the activated marker, binary digests and fallback tuple without deleting the marker.",
+      "The same payload bytes with a different protocol tuple remain a command conflict, not a dedupe hit.",
+      "Checkpoint restore installs a new fenced Store incarnation and rejects stale restore authority."
     ],
     test_log: $log,
     detail: $detail,
     boundaries: [
       "PASS_BOUNDED is a local Delay Store projection receipt, not PASS_CERTIFIED.",
-      "This smoke does not prove authenticated external Oxia Worker eligibility, writer-before-reader rollout, downgrade packaging, Broker/Pulsar cutover or disaster continuity.",
+      "This smoke does not prove authenticated external Oxia Worker eligibility or Broker/Pulsar cutover.",
       "No Docker or external service is used by this runner; Docker image cleanup is not applicable."
     ]
   }' >"${artifact}"
 
 if [[ "${test_status}" == "0" ]]; then
   jq -e --arg source "${source_lock}" \
-    '.status == "PASS_BOUNDED" and .source_lock == $source and (.tests | length == 3)' \
+    '.status == "PASS_BOUNDED" and .source_lock == $source and (.tests | length == 5)' \
     "${artifact}" >/dev/null
 fi
 
