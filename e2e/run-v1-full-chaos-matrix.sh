@@ -871,7 +871,11 @@ else
   evidence_exit=1
   coverage_status="BLOCKED"
   independent_audit="BLOCKED"
-  boundaries_json="$(printf '%s\n' "${blocked_reasons[@]}" | jq -Rsc 'split("\n") | map(select(length > 0))')"
+  if ((${#blocked_reasons[@]} > 0)); then
+    boundaries_json="$(printf '%s\n' "${blocked_reasons[@]}" | jq -Rsc 'split("\n") | map(select(length > 0))')"
+  else
+    boundaries_json='[]'
+  fi
 fi
 
 jq -n \
