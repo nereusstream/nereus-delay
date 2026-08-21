@@ -80,7 +80,7 @@ done
 rg -Fq 'frameZeroVectorMatchesRegistry' "${delay_dir}/src/test/java/io/nereusstream/delay/protocol/ProtocolCodecTest.java" || source_audit_status=FAIL
 rg -Fq 'receiptFrameZeroVectorMatchesRegistry' "${delay_dir}/src/test/java/io/nereusstream/delay/protocol/ProtocolCodecTest.java" || source_audit_status=FAIL
 rg -Fq 'uint64BitsRoundTripsTheHighBitPattern' "${delay_dir}/src/test/java/io/nereusstream/delay/protocol/CanonicalProtobufTest.java" || source_audit_status=FAIL
-rg -Fq 'pulsarBarrierRequiresTheInclusiveFinalBatchMember' "${delay_dir}/src/test/java/io/nereusstream/delay/protocol/SourceActivationBarrierTest.java" || source_audit_status=FAIL
+rg -Fq 'pulsarBarrierPinsBatchShapeForTheInclusiveEntry' "${delay_dir}/src/test/java/io/nereusstream/delay/protocol/SourceActivationBarrierTest.java" || source_audit_status=FAIL
 rg -Fq 'commandHashBindsTheProtocolTuple' "${delay_dir}/src/test/java/io/nereusstream/delay/protocol/CommandProtocolTupleTest.java" || source_audit_status=FAIL
 rg -Fq 'canonical JCS' "${delay_dir}/src/main/java/io/nereusstream/delay/store/CheckpointManifest.java" || source_audit_status=FAIL
 
@@ -94,6 +94,7 @@ if [[ "${source_status}" == PASS ]]; then
 fi
 
 test_exit_code=1
+tests_started=0
 if [[ "${source_status}" == PASS && "${source_audit_status}" == PASS && "${cross_repo_status}" == PASS ]]; then
   test_args=()
   for pattern in "${test_patterns[@]}"; do test_args+=(--tests "${pattern}"); done
@@ -103,6 +104,7 @@ if [[ "${source_status}" == PASS && "${source_audit_status}" == PASS && "${cross
     GRADLE_USER_HOME="${gradle_home}" ./gradlew clean test "${test_args[@]}" --rerun-tasks --no-daemon --console=plain
   ) >"${log_file}" 2>&1
   test_exit_code=$?
+  tests_started=1
   set -e
 else
   echo "source, source-audit or cross-repo validation failed; protocol tests were not started" >"${log_file}"
@@ -112,7 +114,7 @@ test_count=0
 failure_count=0
 error_count=0
 skipped_count=0
-if [[ -d "${delay_dir}/build/test-results/test" ]]; then
+if [[ "${tests_started}" == 1 && -d "${delay_dir}/build/test-results/test" ]]; then
   test_count="$(rg -h -o '<testcase([ >])' "${delay_dir}/build/test-results/test" -g 'TEST-*.xml' | wc -l | tr -d ' ')"
   failure_count="$(rg -h -o '<failure([ >])' "${delay_dir}/build/test-results/test" -g 'TEST-*.xml' | wc -l | tr -d ' ')"
   error_count="$(rg -h -o '<error([ >])' "${delay_dir}/build/test-results/test" -g 'TEST-*.xml' | wc -l | tr -d ' ')"
