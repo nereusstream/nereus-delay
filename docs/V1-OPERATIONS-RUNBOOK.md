@@ -1577,3 +1577,16 @@ artifact SHA-256/status and all four-repository source locks. A missing
 manifest, changed ledger, non-allowlisted source edit or stale artifact is a
 hard block. The manifest is outside the repository to avoid self-hashing; no
 post-manifest documentation edit is permitted.
+
+The stable runbook command is intentionally full-scope:
+
+~~~bash
+NEREUS_DELAY_RELEASE_GATE_CANDIDATE_SOURCE_LOCK=/private/tmp/<candidate>/source-lock.json \
+  bash e2e/run-v1-release-gate.sh
+~~~
+
+The ten artifact variables are `PROTOCOL_GOLDEN`, `CHAOS_FULL`,
+`REAL_SERVICE`, `NO_EARLY`, `BENCHMARK`, `CAPACITY_FULL`, `SOAK_FULL`,
+`UPGRADE_DOWNGRADE`, `OPERATIONS_FULL` and `PATCH_DISTRIBUTION`. The validator
+emits `nereus-delay-v1-release-gate-v2`; absent or old bounded receipts are
+reported as `NOT_READY` and are never promoted.

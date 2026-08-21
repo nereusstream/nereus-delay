@@ -5399,6 +5399,14 @@ gate。e2e/verify-v1-evidence-manifest.sh 对 candidate→overlay diff、文档
 字节、artifact 字节、状态和 source lock 全部 fail closed；manifest 不放入
 Delay checkout，避免文档记录结果时产生自指哈希。
 
+实现侧的稳定入口仍是 `e2e/run-v1-release-gate.sh`，其实际执行
+`e2e/run-v1-full-release-gate.sh`。该 gate 必须接收仓库外的候选四仓锁和
+十个独立 artifact；artifact 统一要求
+`nereus-delay-v1-full-gate-input-v1`、`scope=full-v1`、
+`complete_v1=true`、`PASS_CERTIFIED`、精确 candidate lock、空 exclusions
+和空 boundaries。旧 bounded/RC1 schema、缺失 gate 或带有未覆盖完整 V1
+声明的 receipt 都只能得到 `NOT_READY`，不能被转换为完整 V1 PASS。
+
 ## 参考资料
 
 - [R1] [DDMQ README @ 2f30b61a](https://github.com/didi/DDMQ/blob/2f30b61a5741d55a5b515f3d8d19a8a35be8c9e2/README.md)

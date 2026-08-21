@@ -17019,3 +17019,13 @@ overlay changes, changed ledger bytes, changed artifact bytes, missing
 certified gate inputs and every source-lock mismatch. The manifest is
 intentionally outside the Delay checkout, so the documentation that records
 the manifest cannot hash itself recursively.
+
+The stable runbook entry `e2e/run-v1-release-gate.sh` now delegates to the
+fail-closed full-V1 validator `e2e/run-v1-full-release-gate.sh`. It requires
+an external `NEREUS_DELAY_RELEASE_GATE_CANDIDATE_SOURCE_LOCK` JSON and exactly
+ten independently supplied artifacts. Each artifact must use schema
+`nereus-delay-v1-full-gate-input-v1`, `scope=full-v1`, `complete_v1=true`,
+`PASS_CERTIFIED`, exact candidate locks, zero exclusions and zero boundary
+claims. The resulting gate schema is
+`nereus-delay-v1-release-gate-v2`; old bounded schemas, missing inputs and
+artifacts that explicitly exclude full V1 remain `BLOCKED`.

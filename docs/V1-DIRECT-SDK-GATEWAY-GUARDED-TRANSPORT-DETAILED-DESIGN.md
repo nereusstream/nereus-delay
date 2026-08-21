@@ -7046,6 +7046,13 @@ outside the six ledgers or any later byte/source/status drift, so recording
 evidence cannot silently broaden a bounded transport receipt into a complete
 V1 claim.
 
+The stable release command `e2e/run-v1-release-gate.sh` now uses the adjacent
+full-V1 validator. It requires a separately frozen four-repository candidate
+lock and ten exact-source `PASS_CERTIFIED` inputs with the common
+`nereus-delay-v1-full-gate-input-v1` contract. `scope=full-v1`,
+`complete_v1=true`, empty exclusions/boundaries, and complete per-gate coverage
+are mandatory; the former bounded RC1 receipts cannot satisfy this gate.
+
 ## 2026-08-17 Current Pulsar Gateway large-payload multi-Broker failover implementation note
 
 The current failover composition locks Delay to

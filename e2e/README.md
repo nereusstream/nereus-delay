@@ -6255,6 +6255,30 @@ inputs, and any source-lock mismatch. Because the manifest is outside the
 checkout, the documentation overlay does not recursively hash the manifest
 that describes it.
 
+The stable release command is full-scope and requires the external candidate
+lock plus one artifact for each of the ten main-design gates:
+
+~~~bash
+NEREUS_DELAY_RELEASE_GATE_CANDIDATE_SOURCE_LOCK=/private/tmp/<candidate>/source-lock.json \
+NEREUS_DELAY_RELEASE_GATE_PROTOCOL_GOLDEN_ARTIFACT=/private/tmp/<final>/protocol-golden.json \
+NEREUS_DELAY_RELEASE_GATE_CHAOS_FULL_ARTIFACT=/private/tmp/<final>/chaos.json \
+NEREUS_DELAY_RELEASE_GATE_REAL_SERVICE_ARTIFACT=/private/tmp/<final>/real-service.json \
+NEREUS_DELAY_RELEASE_GATE_NO_EARLY_ARTIFACT=/private/tmp/<final>/no-early.json \
+NEREUS_DELAY_RELEASE_GATE_BENCHMARK_ARTIFACT=/private/tmp/<final>/benchmark.json \
+NEREUS_DELAY_RELEASE_GATE_CAPACITY_FULL_ARTIFACT=/private/tmp/<final>/capacity.json \
+NEREUS_DELAY_RELEASE_GATE_SOAK_FULL_ARTIFACT=/private/tmp/<final>/soak.json \
+NEREUS_DELAY_RELEASE_GATE_UPGRADE_DOWNGRADE_ARTIFACT=/private/tmp/<final>/upgrade-downgrade.json \
+NEREUS_DELAY_RELEASE_GATE_OPERATIONS_FULL_ARTIFACT=/private/tmp/<final>/operations.json \
+NEREUS_DELAY_RELEASE_GATE_PATCH_DISTRIBUTION_ARTIFACT=/private/tmp/<final>/patch-distribution.json \
+  bash e2e/run-v1-release-gate.sh
+~~~
+
+Every input must be `nereus-delay-v1-full-gate-input-v1` with
+`scope=full-v1`, `complete_v1=true`, `PASS_CERTIFIED`, exact candidate locks,
+empty exclusions and empty boundaries. Existing bounded RC1 receipts are
+rejected by construction; until the full ten-gate set exists the result is
+expected to remain `NOT_READY`.
+
 ## Current-source r32 release-gate refresh
 
 The current gate artifact is

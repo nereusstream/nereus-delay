@@ -13584,3 +13584,9 @@ e2e/verify-v1-evidence-manifest.sh compares the candidate-to-overlay diff
 against the exact allowlist and fails closed on any source, ledger, artifact,
 status or source-lock drift. This removes the self-referential documentation
 gap without treating a documentation append as a new implementation PASS.
+The release command itself is also full-scope: `e2e/run-v1-release-gate.sh`
+delegates to `e2e/run-v1-full-release-gate.sh` and accepts only the ten exact
+`nereus-delay-v1-full-gate-input-v1` artifacts with `scope=full-v1`,
+`complete_v1=true`, `PASS_CERTIFIED`, exact candidate locks, and empty
+exclusions/boundaries. This is a governance boundary; the currently missing
+full-V1 inputs remain release blockers until independently produced.

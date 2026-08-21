@@ -118,6 +118,12 @@ for doc in "${expected_docs[@]}"; do
     || fail "evidence ledger bytes changed after manifest freeze: ${doc}"
 done
 
+actual_doc_keys="$(jq -er '.evidence_overlay.docs_sha256 | if type == "object" then keys[] else error end' "${manifest}" | sort -u)"
+expected_doc_keys="$(printf '%s\n' "${expected_docs[@]}" | sort -u)"
+if ! diff -u <(printf '%s\n' "${expected_doc_keys}") <(printf '%s\n' "${actual_doc_keys}") >/dev/null; then
+  fail "evidence_overlay.docs_sha256 must contain exactly the six evidence ledgers"
+fi
+
 lock_json="$(jq -cn \
   --arg delay "${candidate_delay}" \
   --arg kafka "${candidate_kafka}" \
@@ -149,6 +155,25 @@ verify_artifact() {
   jq -e --argjson expected "${expected_locks}" \
     '.source_locks == $expected' "${path}" >/dev/null 2>&1 \
     || fail "${label} source_locks do not match ${expected_lock_kind} lock"
+
+  if [[ "${label}" == gate:* ]]; then
+    gate_name="${label#gate:}"
+    jq -e --arg gate "${gate_name}" \
+      '.schema == "nereus-delay-v1-full-gate-input-v1"
+       and .status == "PASS_CERTIFIED"
+       and .scope == "full-v1"
+       and .complete_v1 == true
+       and .gate == $gate
+       and .execution == "strict-sequential"
+       and .coverage.complete_v1 == true
+       and (.coverage.exclusions | type == "array" and length == 0)
+       and .evidence.test_exit_code == 0
+       and .evidence.source_lock_status == "PASS"
+       and .evidence.coverage_status == "PASS"
+       and .evidence.independent_audit == "PASS"
+       and (.boundaries | type == "array" and length == 0)' "${path}" >/dev/null 2>&1 \
+      || fail "${label} is not a complete full-v1 PASS_CERTIFIED artifact"
+  fi
 }
 
 gate_count="$(jq -er '.gates | if type == "object" then length else error end' "${manifest}")"
@@ -180,6 +205,14 @@ final_status="$(jq -er '.final_release_gate.expected_status' "${manifest}")"
 final_lock_kind="$(jq -r '.final_release_gate.source_lock_kind // "overlay"' "${manifest}")"
 [[ "${final_status}" == "PASS" ]] || fail "final release gate must require PASS"
 verify_artifact "final-release-gate" "${final_path}" "${final_sha}" "${final_status}" "${final_lock_kind}"
+jq -e \
+  '.schema == "nereus-delay-v1-release-gate-v2"
+   and .scope == "full-v1"
+   and .release_status == "PASS"
+   and ((.required_gates | type) == "array")
+   and ((.required_gates | length) == 10)
+   and (([.checks[] | select(.status != "PASS")] | length) == 0)' "${final_path}" >/dev/null 2>&1 \
+  || fail "final release gate is not the ten-gate full-v1 PASS artifact"
 
 echo "V1 evidence manifest PASS"
 echo "candidate_source_lock.delay=${candidate_delay}"
