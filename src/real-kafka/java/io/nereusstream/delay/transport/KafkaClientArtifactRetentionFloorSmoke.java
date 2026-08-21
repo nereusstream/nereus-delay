@@ -15,6 +15,8 @@ import io.nereusstream.delay.protocol.ScheduleIntentV1;
 import io.nereusstream.delay.protocol.ShardId;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.AlterConfigOp;
+import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.admin.OffsetSpec;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -31,6 +33,7 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.ProducerResourceGuard;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.Uuid;
+import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 
@@ -82,6 +85,7 @@ public final class KafkaClientArtifactRetentionFloorSmoke {
                 final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
                 produceRounds(bootstrap, clusterId, topic, topicId, shard);
                 final RetentionBounds bounds = waitForRetentionFloor(admin, topicPartition);
+                preserveRetainedTail(admin, topic);
                 produceTail(bootstrap, clusterId, topic, topicId, shard);
                 final RetentionBounds retained = waitForRetainedTail(admin, topicPartition);
                 requireRetainedTail(retained);
@@ -113,6 +117,7 @@ public final class KafkaClientArtifactRetentionFloorSmoke {
             final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
             produceRounds(bootstrap, clusterId, topic, topicId, shard);
             final RetentionBounds bounds = waitForRetentionFloor(admin, topicPartition);
+            preserveRetainedTail(admin, topic);
             produceTail(bootstrap, clusterId, topic, topicId, shard);
             final RetentionBounds retained = waitForRetainedTail(admin, topicPartition);
             requireRetainedTail(retained);
@@ -215,6 +220,13 @@ public final class KafkaClientArtifactRetentionFloorSmoke {
             TimeUnit.MILLISECONDS.sleep(250);
         }
         throw new IllegalStateException("Kafka retention-floor tail did not remain readable: " + latest);
+    }
+
+    private static void preserveRetainedTail(final Admin admin, final String topic) throws Exception {
+        final ConfigResource resource = new ConfigResource(ConfigResource.Type.TOPIC, topic);
+        admin.incrementalAlterConfigs(Map.of(resource, List.of(new AlterConfigOp(
+                new ConfigEntry("retention.ms", "60000"), AlterConfigOp.OpType.SET))))
+                .all().get(10, TimeUnit.SECONDS);
     }
 
     private static RetentionBounds offsets(final Admin admin, final TopicPartition topicPartition) throws Exception {
