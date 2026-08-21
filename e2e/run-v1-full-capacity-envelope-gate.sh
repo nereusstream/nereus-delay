@@ -88,7 +88,7 @@ mkdir -p "${artifact_dir}"
 if [[ -n "$(find "${artifact_dir}" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
   fail "artifact directory must be empty: ${artifact_dir}"
 fi
-gradle_home="${artifact_dir}/gradle-user-home"
+gradle_home="${NEREUS_DELAY_V1_CAPACITY_GRADLE_USER_HOME:-${artifact_dir}/gradle-user-home}"
 mkdir -p "${gradle_home}"
 
 candidate_delay="$(jq -er '.delay' "${candidate_lock_file}")"
