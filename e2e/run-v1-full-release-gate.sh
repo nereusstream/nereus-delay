@@ -223,11 +223,11 @@ check_full_gate_artifact() {
     chaos) filter="${filter}
       and (.cells | type == \"object\")
       and ((.cells | keys | sort | unique) == (\$required | sort | unique))
-      and (all(\$required[]; . as \$cell | .cells[\$cell].status == \"PASS\"
-        and .cells[\$cell].injection.status == \"PASS\"
-        and .cells[\$cell].before_after.status == \"PASS\"
-        and .cells[\$cell].fresh_process_recovery == \"PASS\"
-        and .cells[\$cell].invariant_audit == \"PASS\"))";;
+      and (. as \$root | all(\$required[]; . as \$cell | \$root.cells[\$cell].status == \"PASS\"
+        and \$root.cells[\$cell].injection.status == \"PASS\"
+        and \$root.cells[\$cell].before_after.status == \"PASS\"
+        and \$root.cells[\$cell].fresh_process_recovery == \"PASS\"
+        and \$root.cells[\$cell].invariant_audit == \"PASS\"))";;
     real-service) filter="${filter}
       and (.observations.activation_cutover == \"PASS\")
       and (.observations.cross_route_paths == \"PASS\")
