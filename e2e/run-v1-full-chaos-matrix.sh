@@ -668,10 +668,86 @@ storage_cell sst-corruption "corrupt one copied SST after clean checkpoint publi
 storage_cell enospc "fill an exact 128 MiB mounted Store filesystem until native ENOSPC, then release headroom"
 storage_cell disaster-host-fault "SIGKILL the exact host-side Worker JVM after durable local Store read"
 
-# These three cuts still require dedicated real injection and recovery
-# children; the full matrix keeps them explicit rather than synthesizing a
-# PASS from marker-only unit state.
-blocked_cell long-gc "pause the Worker at the long-GC admission boundary" "no deterministic long-GC fresh-process dump child"
+long_gc_dir="${artifact_dir}/long-gc"
+long_gc_artifact="${long_gc_dir}/long-gc-e2e.json"
+long_gc_exit=1
+if [[ "${source_status}" == "PASS" ]]; then
+  mkdir -p "${long_gc_dir}"
+  set +e
+  NEREUS_DELAY_LONG_GC_E2E_ARTIFACT_DIR="${long_gc_dir}" \
+  NEREUS_DELAY_LONG_GC_GRADLE_USER_HOME="${gradle_home}" \
+  NEREUS_DELAY_LONG_GC_SOURCE_LOCK="${candidate_lock_file}" \
+    bash "${script_dir}/run-long-gc-chaos-e2e.sh" \
+      >"${artifact_dir}/long-gc-child.log" 2>&1
+  long_gc_exit=$?
+  set -e
+else
+  echo "source boundary blocked; long-GC child was not started" \
+    >"${artifact_dir}/long-gc-child.log"
+fi
+
+long_gc_status="BLOCKED"
+long_gc_before="${long_gc_dir}/before.json"
+long_gc_after="${long_gc_dir}/after.json"
+if [[ "${long_gc_exit}" == "0" && -s "${long_gc_artifact}" \
+    && -s "${long_gc_before}" && -s "${long_gc_after}" ]] \
+    && jq -e --arg delay "${candidate_delay}" \
+      '.schema == "nereus-delay-long-gc-e2e-v1"
+       and .status == "PASS"
+       and .cell == "long-gc"
+       and .source_locks.delay == $delay
+       and .before_process.exit_code == 0
+       and .after_process.exit_code == 0
+       and .fresh_process_recovery == true
+       and .invariant_audit == "INDEPENDENT_FIELDS_PASS"
+       and .docker_cleanup.status == "PASS"' \
+      "${long_gc_artifact}" >/dev/null 2>&1 \
+    && jq -n --slurpfile before "${long_gc_before}" --slurpfile after "${long_gc_after}" \
+      '($before | length) == 1 and ($after | length) == 1
+       and $before[0].schema == "nereus-delay-long-gc-durable-state-dump-v1"
+       and $after[0].schema == "nereus-delay-long-gc-durable-state-dump-v1"
+       and $before[0].cell == "long-gc" and $after[0].cell == "long-gc"
+       and $before[0].phase == "BEFORE_FRESH_PROCESS_RECOVERY"
+       and $after[0].phase == "RECOVERED_AFTER_FRESH_PROCESS"
+       and $before[0].fault == "LONG_GC" and $after[0].fault == "LONG_GC"
+       and $before[0].dump_forced == true and $after[0].dump_forced == true
+       and $before[0].durable_store_read == true and $after[0].durable_store_read == true
+       and $before[0].gc_pause_observed == true
+       and ($before[0].gc_collection_count_delta | type == "number" and . > 0)
+       and ($before[0].gc_collection_time_delta_ms | type == "number" and . >= 50)
+       and $before[0].scheduler_pending_before == 1
+       and $after[0].durable_store_value_recovered_exactly == true
+       and $after[0].scheduler_item_served == true
+       and $after[0].scheduler_pending_after == 0
+       and ($before[0].process_pid | type == "number")
+       and ($after[0].process_pid | type == "number")
+       and $before[0].process_pid != $after[0].process_pid
+       and $before[0].key_sha256 == $after[0].key_sha256
+       and $before[0].value_sha256 == $after[0].value_sha256
+       and $before[0].due_item_sha256 == $after[0].due_item_sha256' \
+      >/dev/null 2>&1; then
+  long_gc_status="PASS"
+fi
+if [[ "${long_gc_status}" == "PASS" ]]; then
+  add_cell "$(jq -cn --arg child "${long_gc_artifact}" \
+    --arg before "${long_gc_before}" --arg after "${long_gc_after}" \
+    --arg log "${artifact_dir}/long-gc-child.log" \
+    '{"long-gc": {
+      status:"PASS",
+      injection:{status:"PASS",point:"induce real JVM heap pressure and a measured long GC at the due-admission boundary"},
+      before_after:{status:"PASS",audit:{status:"CAPTURED_AND_VERIFIED",before_dump:$before,after_dump:$after}},
+      fresh_process_recovery:"PASS",
+      invariant_audit:"INDEPENDENT_FIELDS_PASS",
+      evidence:{child_artifact:$child,before_dump:$before,after_dump:$after,run_log:$log}
+    }}')"
+else
+  blocked_cell long-gc "pause the Worker at the long-GC admission boundary" \
+    "real long-GC before/after child failed or its independent audit did not pass (exit=${long_gc_exit})"
+fi
+
+# The half-open cut still requires a dedicated real transport injection and
+# recovery child; the full matrix keeps it explicit rather than synthesizing
+# a PASS from marker-only unit state.
 blocked_cell half-open "hold a half-open native connection past the channel deadline" "no real half-open transport dump child"
 
 all_pass="PASS"
