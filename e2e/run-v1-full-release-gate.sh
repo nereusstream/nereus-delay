@@ -108,7 +108,7 @@ if [[ "${current_delay}" != unknown && "${current_delay}" != "${candidate_delay}
   tmp_checks="${checks_jsonl}.tmp"
   jq -c 'select(.name != "source-delay")' "${checks_jsonl}" >"${tmp_checks}"
   mv "${tmp_checks}" "${checks_jsonl}"
-  actual_paths="$(git -C "${delay_dir}" diff --name-only "${candidate_delay}" "${current_delay}" | sort -u)"
+  actual_paths="$(git -c core.quotePath=false -C "${delay_dir}" diff --name-only "${candidate_delay}" "${current_delay}" | sort -u)"
   expected_paths="$(printf '%s\n' \
     'docs/IMPLEMENTATION-STATUS.md' \
     'docs/Nereus Delay V1 设计.md' \

@@ -91,7 +91,7 @@ else
   git -C "${delay_dir}" merge-base --is-ancestor "${candidate_delay}" "${overlay_delay}" \
     || fail "evidence overlay is not a descendant of the candidate source lock"
 
-  actual_paths="$(git -C "${delay_dir}" diff --name-only "${candidate_delay}" "${overlay_delay}" | sort -u)"
+  actual_paths="$(git -c core.quotePath=false -C "${delay_dir}" diff --name-only "${candidate_delay}" "${overlay_delay}" | sort -u)"
   expected_paths="$(jq -er '.evidence_overlay.allowed_paths | if type == "array" then .[] else error end' "${manifest}" | sort -u)"
   if ! diff -u <(printf '%s\n' "${expected_paths}") <(printf '%s\n' "${actual_paths}") >/dev/null; then
     fail "Delay evidence overlay changed a non-allowlisted path"
