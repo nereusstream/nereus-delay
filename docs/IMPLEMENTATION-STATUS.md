@@ -17324,3 +17324,22 @@ It is `PASS_CERTIFIED`, exclusion-free and covers all six required cells. The
 capacity, soak, operations, chaos and remaining release obligations stay
 fail-closed. Exact related Docker postchecks were empty; retained base images
 were not globally pruned.
+
+## 2026-08-22 release audit after candidate upgrade refresh
+
+The strict audit artifact is
+`/private/tmp/nereus-delay-v1-release-gate-current-20260822-r2/v1-release-candidate-gate.json`
+with SHA-256 `6a3f7ff024933555613fd93c682d41d9b56b00c711e8d531947e086aac13c375`.
+It used candidate Delay `1631f8c1821116e8c7b3ef3f7166bab06c4b8a76`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`; the audit-time documentation
+overlay was Delay `ea3a76e24b7c7aa5e4bb20a3be50e0b101d13172`.
+
+Source checks, cross-repository contracts and full Gradle `check` passed. The
+candidate-source upgrade/downgrade and patch-distribution artifacts passed
+exactly. Capacity and operations were present but rejected because they were
+not complete `PASS_CERTIFIED` full-v1 inputs (`measurement_status=MISSING` and
+missing independent soak, respectively); protocol-golden, chaos, real-service,
+no-early, benchmark and soak had no complete full-v1 artifact. The resulting
+release status is therefore `NOT_READY`; no complete ten-gate manifest exists.
