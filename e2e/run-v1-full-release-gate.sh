@@ -222,8 +222,8 @@ check_full_gate_artifact() {
   case "${gate}" in
     chaos) filter="${filter}
       and (.cells | type == \"object\")
-      and ((.cells | keys | sort | unique) == ($required | sort | unique))
-      and (all($required[]; . as \$cell | .cells[\$cell].status == \"PASS\"
+      and ((.cells | keys | sort | unique) == (\$required | sort | unique))
+      and (all(\$required[]; . as \$cell | .cells[\$cell].status == \"PASS\"
         and .cells[\$cell].injection.status == \"PASS\"
         and .cells[\$cell].before_after.status == \"PASS\"
         and .cells[\$cell].fresh_process_recovery == \"PASS\"
