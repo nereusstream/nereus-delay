@@ -12,6 +12,7 @@ import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.runtime.AdmissionGate;
 import io.nereusstream.delay.runtime.LaneRecord;
 import io.nereusstream.delay.runtime.RuntimeReadiness;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -62,8 +63,10 @@ class TargetIsolationDurableChaosTest {
 
     @Test
     void targetIsolationSurvivesFreshProcessRecovery() throws Exception {
+        final String phase = System.getenv(PHASE_ENV);
+        Assumptions.assumeTrue(phase != null && !phase.isBlank(),
+                "target-isolation evidence phase is opt-in");
         final Path artifact = artifactDirectory();
-        final String phase = required(PHASE_ENV);
         Files.createDirectories(artifact);
         switch (phase) {
             case "before" -> writeBefore(artifact);
