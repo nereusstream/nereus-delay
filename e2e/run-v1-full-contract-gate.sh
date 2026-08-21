@@ -21,6 +21,8 @@ artifact_dir="${NEREUS_DELAY_V1_FULL_GATE_ARTIFACT_DIR:-}"
 candidate_lock_file="${NEREUS_DELAY_V1_FULL_GATE_CANDIDATE_SOURCE_LOCK:-}"
 profile_id="${NEREUS_DELAY_V1_FULL_GATE_PROFILE_ID:-nereus-delay-v1-${gate}-full-r1}"
 run_real="${NEREUS_DELAY_V1_FULL_GATE_RUN_REAL:-0}"
+gradle_home_override="${NEREUS_DELAY_V1_FULL_GATE_GRADLE_USER_HOME:-}"
+real_gradle_home_override="${NEREUS_DELAY_V1_FULL_GATE_REAL_GRADLE_USER_HOME:-}"
 started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 fail() {
@@ -142,6 +144,10 @@ if [[ -n "$(find "${artifact_dir}" -mindepth 1 -maxdepth 1 -print -quit)" ]]; th
   fail "artifact directory must be empty: ${artifact_dir}"
 fi
 gradle_home="${artifact_dir}/gradle-user-home"
+if [[ -n "${gradle_home_override}" ]]; then
+  gradle_home="${gradle_home_override}"
+fi
+real_gradle_home="${real_gradle_home_override:-${gradle_home}}"
 mkdir -p "${gradle_home}"
 
 candidate_delay="$(jq -er '.delay' "${candidate_lock_file}")"
@@ -205,7 +211,7 @@ if [[ "${run_real}" == "1" ]]; then
       mkdir -p "${real_artifact_dir}"
       set +e
       NEREUS_DELAY_CERTIFIED_SOAK_ARTIFACT_DIR="${real_artifact_dir}" \
-      NEREUS_DELAY_CERTIFIED_SOAK_GRADLE_USER_HOME="${gradle_home}/production-chain" \
+      NEREUS_DELAY_CERTIFIED_SOAK_GRADLE_USER_HOME="${real_gradle_home}" \
       NEREUS_DELAY_CERTIFIED_SOAK_PROFILE_ID="${profile_id}" \
       NEREUS_DELAY_CERTIFIED_SOAK_REQUIRED_CYCLES="${NEREUS_DELAY_V1_FULL_GATE_REQUIRED_CYCLES:-2}" \
       NEREUS_DELAY_CERTIFIED_SOAK_CYCLES="${NEREUS_DELAY_V1_FULL_GATE_CYCLES:-2}" \
@@ -230,7 +236,7 @@ if [[ "${run_real}" == "1" ]]; then
       mkdir -p "${real_artifact_dir}"
       set +e
       NEREUS_DELAY_CERTIFIED_OPERATIONS_ARTIFACT_DIR="${real_artifact_dir}" \
-      NEREUS_DELAY_CERTIFIED_OPERATIONS_GRADLE_USER_HOME="${gradle_home}/operations" \
+      NEREUS_DELAY_CERTIFIED_OPERATIONS_GRADLE_USER_HOME="${real_gradle_home}" \
       NEREUS_DELAY_CERTIFIED_OPERATIONS_PROFILE_ID="${profile_id}" \
       NEREUS_DELAY_KAFKA_CHECKOUT="${kafka_dir}" \
       NEREUS_DELAY_PULSAR_CHECKOUT="${pulsar_dir}" \
