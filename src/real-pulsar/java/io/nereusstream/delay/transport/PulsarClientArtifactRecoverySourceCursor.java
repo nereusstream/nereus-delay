@@ -124,6 +124,9 @@ public final class PulsarClientArtifactRecoverySourceCursor
     }
 
     private SourceProof requireProof() {
+        if (!consumer.isConnected()) {
+            throw new IllegalStateException("Pulsar guarded recovery consumer is not connected");
+        }
         if (!expectedGuard.equals(consumer.resourceGuard()) || !physicalTopic.equals(consumer.getTopic())) {
             throw new IllegalStateException("Pulsar guarded recovery consumer identity changed");
         }

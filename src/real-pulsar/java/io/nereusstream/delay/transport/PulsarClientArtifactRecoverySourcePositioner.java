@@ -109,6 +109,9 @@ public final class PulsarClientArtifactRecoverySourcePositioner {
                                                              final TopicResourceGuard expectedGuard,
                                                              final String physicalTopic,
                                                              final int partition) {
+        if (!consumer.isConnected()) {
+            throw new IllegalStateException("Pulsar recovery consumer is not connected");
+        }
         if (!expectedGuard.equals(consumer.resourceGuard()) || !physicalTopic.equals(consumer.getTopic())) {
             throw new IllegalStateException("Pulsar recovery consumer identity changed");
         }
