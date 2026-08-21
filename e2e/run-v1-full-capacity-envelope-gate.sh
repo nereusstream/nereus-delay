@@ -144,6 +144,7 @@ set -e
 real_status="NOT_REQUESTED"
 real_exit_code=0
 real_logs=()
+real_logs_json='[]'
 if [[ "${run_real}" == "1" ]]; then
   real_status="PASS"
   kafka_log="${artifact_dir}/kafka-large-payload-multi-shard.log"
@@ -178,6 +179,7 @@ if [[ "${run_real}" == "1" ]]; then
     real_status="FAIL"
     real_exit_code=1
   fi
+  real_logs_json="$(printf '%s\n' "${real_logs[@]}" | jq -Rsc 'split("\n") | map(select(length > 0))')"
 else
   real_status="REQUIRED"
   real_exit_code=2
@@ -277,7 +279,6 @@ observations="$(jq -n \
     measurement_configurations_status:$configs,measurement_cells_status:$cells}')"
 
 artifact="${artifact_dir}/full-v1-gate-input.json"
-real_logs_json="$(printf '%s\n' "${real_logs[@]}" | jq -Rsc 'split("\n") | map(select(length > 0))')"
 jq -n \
   --arg schema "nereus-delay-v1-full-gate-input-v1" \
   --arg status "${status}" --arg scope "full-v1" --arg profile_id "${profile_id}" \
