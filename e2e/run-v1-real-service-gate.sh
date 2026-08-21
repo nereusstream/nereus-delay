@@ -18,6 +18,17 @@ artifact_dir="${NEREUS_DELAY_V1_REAL_SERVICE_ARTIFACT_DIR:-$(mktemp -d -t nereus
 gradle_home="${NEREUS_DELAY_V1_REAL_SERVICE_GRADLE_USER_HOME:-${artifact_dir}/gradle-user-home}"
 started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+# Keep the default artifact-local isolation, but allow a caller with a
+# pre-warmed, source-independent dependency cache to use it explicitly.  This
+# matters on hosts where Maven Central is intermittently unavailable; it must
+# never alter the checkout or source-lock boundary.
+kafka_large_gradle_home="${NEREUS_DELAY_V1_REAL_SERVICE_KAFKA_LARGE_GRADLE_USER_HOME:-${gradle_home}/kafka-large}"
+pulsar_large_gradle_home="${NEREUS_DELAY_V1_REAL_SERVICE_PULSAR_LARGE_GRADLE_USER_HOME:-${gradle_home}/pulsar-large}"
+cross_gradle_home="${NEREUS_DELAY_V1_REAL_SERVICE_CROSS_GRADLE_USER_HOME:-${gradle_home}/cross}"
+kafka_client_gradle_home="${NEREUS_DELAY_V1_REAL_SERVICE_KAFKA_CLIENT_GRADLE_USER_HOME:-${gradle_home}/kafka-client}"
+pulsar_client_gradle_home="${NEREUS_DELAY_V1_REAL_SERVICE_PULSAR_CLIENT_GRADLE_HOME:-${gradle_home}/pulsar-client}"
+activation_gradle_home="${NEREUS_DELAY_V1_REAL_SERVICE_ACTIVATION_GRADLE_HOME:-${gradle_home}/activation}"
+
 required=(
   kafka-to-kafka kafka-to-pulsar pulsar-to-kafka pulsar-to-pulsar
   gateway-mtls-jwt real-oxia real-minio real-worker activation-cutover
@@ -98,7 +109,7 @@ child_exit() {
 
 run_child kafka-to-kafka \
   "Kafka + Oxia + Gateway mTLS/JWT + one Worker fleet + real MinIO + two destination PUBLISHED outcomes two-shard Large Payload authority E2E passed" \
-  env NEREUS_DELAY_LARGE_PAYLOAD_GRADLE_USER_HOME="${gradle_home}/kafka-large" \
+  env NEREUS_DELAY_LARGE_PAYLOAD_GRADLE_USER_HOME="${kafka_large_gradle_home}" \
     NEREUS_DELAY_KAFKA_CHECKOUT="${kafka_dir}" NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
     NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_MULTI_SHARD=1 \
     NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_DESTINATION_TOPIC="${kafka_destination_topic}" \
@@ -106,7 +117,7 @@ run_child kafka-to-kafka \
 
 run_child pulsar-to-pulsar \
   "Pulsar + Oxia + Gateway mTLS/JWT + two guarded source partitions + two Workers + real MinIO + two destination PUBLISHED outcomes multi-shard Large Payload authority E2E passed" \
-  env NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME="${gradle_home}/pulsar-large" \
+  env NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME="${pulsar_large_gradle_home}" \
     NEREUS_DELAY_PULSAR_CHECKOUT="${pulsar_dir}" NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
     NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MULTI_SHARD=1 \
     bash "${script_dir}/run-pulsar-large-payload-gateway-e2e.sh"
@@ -115,27 +126,27 @@ cross_artifact="${artifact_dir}/cross-adapter"
 run_child cross-adapter \
   "CROSS_ADAPTER_LARGE_PAYLOAD_GATEWAY_E2E=PASS_CERTIFIED" \
   env NEREUS_DELAY_CROSS_ARTIFACT_DIR="${cross_artifact}" \
-    NEREUS_DELAY_CROSS_GRADLE_USER_HOME="${gradle_home}/cross" \
+    NEREUS_DELAY_CROSS_GRADLE_USER_HOME="${cross_gradle_home}" \
     NEREUS_DELAY_KAFKA_CHECKOUT="${kafka_dir}" NEREUS_DELAY_PULSAR_CHECKOUT="${pulsar_dir}" \
     NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
     bash "${script_dir}/run-cross-adapter-large-payload-gateway-e2e.sh"
 
 run_child kafka-real-client \
   "Kafka source/Worker/K1/K2 real-client E2E passed" \
-  env NEREUS_DELAY_KAFKA_GRADLE_USER_HOME="${gradle_home}/kafka-client" \
+  env NEREUS_DELAY_KAFKA_GRADLE_USER_HOME="${kafka_client_gradle_home}" \
     NEREUS_DELAY_KAFKA_CHECKOUT="${kafka_dir}" NEREUS_DELAY_KAFKA_WITH_OXIA=0 \
     bash "${script_dir}/run-kafka-real-client-e2e.sh"
 
 run_child pulsar-real-client \
   "Pulsar P1 real-client E2E passed" \
-  env NEREUS_DELAY_PULSAR_GRADLE_USER_HOME="${gradle_home}/pulsar-client" \
+  env NEREUS_DELAY_PULSAR_GRADLE_USER_HOME="${pulsar_client_gradle_home}" \
     NEREUS_DELAY_PULSAR_CHECKOUT="${pulsar_dir}" NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
     bash "${script_dir}/run-pulsar-real-client-e2e.sh"
 
 run_child activation-cutover \
   "status=PASS_CERTIFIED" \
   env NEREUS_DELAY_CERTIFIED_ACTIVATION_ARTIFACT_DIR="${artifact_dir}/activation" \
-    NEREUS_DELAY_CERTIFIED_ACTIVATION_GRADLE_USER_HOME="${gradle_home}/activation" \
+    NEREUS_DELAY_CERTIFIED_ACTIVATION_GRADLE_USER_HOME="${activation_gradle_home}" \
     NEREUS_DELAY_KAFKA_CHECKOUT="${kafka_dir}" NEREUS_DELAY_PULSAR_CHECKOUT="${pulsar_dir}" \
     NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
     bash "${script_dir}/run-certified-protocol-activation-cutover.sh"
