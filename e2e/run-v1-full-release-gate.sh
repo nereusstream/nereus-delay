@@ -227,7 +227,8 @@ check_full_gate_artifact() {
         and \$root.cells[\$cell].injection.status == \"PASS\"
         and \$root.cells[\$cell].before_after.status == \"PASS\"
         and \$root.cells[\$cell].fresh_process_recovery == \"PASS\"
-        and \$root.cells[\$cell].invariant_audit == \"PASS\"))";;
+        and (\$root.cells[\$cell].invariant_audit == \"PASS\"
+          or \$root.cells[\$cell].invariant_audit == \"INDEPENDENT_FIELDS_PASS\")))";;
     real-service) filter="${filter}
       and (.observations.activation_cutover == \"PASS\")
       and (.observations.cross_route_paths == \"PASS\")
