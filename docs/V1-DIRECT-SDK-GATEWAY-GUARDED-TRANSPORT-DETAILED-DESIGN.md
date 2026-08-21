@@ -8711,3 +8711,20 @@ not complete `PASS_CERTIFIED` full-v1 inputs (`measurement_status=MISSING` and
 missing independent soak, respectively); protocol-golden, chaos, real-service,
 no-early, benchmark and soak had no complete full-v1 artifact. The resulting
 release status is therefore `NOT_READY`; no complete ten-gate manifest exists.
+
+## 2026-08-22 current Gateway-to-production evidence
+
+Candidate locks are Delay `a40588bec6d363a4cfd2a4b7d3df5695649a0d79`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Large Payload receipt r3 is
+`PASS_CERTIFIED` in both directions, including exact payload readback and
+idempotency through real Broker/Oxia/MinIO services.
+
+Protocol-golden r3, no-early r4, real-service r2, chaos r6 (19/19),
+upgrade-downgrade r4, patch-distribution r5, operations r16 and the certified
+Soak child in r15 pass. The release wrapper keeps Soak blocked because it omits
+`policy.longest_configured_period_seconds`. Capacity r10 and benchmark r11 also
+remain blocked by missing physical Broker/Lane measurements. The strict audit
+`/private/tmp/nereus-delay-v1-full-gates-20260822-r17/release/v1-release-candidate-gate.json`
+is therefore `NOT_READY`.

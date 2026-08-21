@@ -1887,3 +1887,25 @@ not complete `PASS_CERTIFIED` full-v1 inputs (`measurement_status=MISSING` and
 missing independent soak, respectively); protocol-golden, chaos, real-service,
 no-early, benchmark and soak had no complete full-v1 artifact. The resulting
 release status is therefore `NOT_READY`; no complete ten-gate manifest exists.
+
+## 2026-08-22 current operational evidence and cleanup boundary
+
+Current locks are Delay `a40588bec6d363a4cfd2a4b7d3df5695649a0d79`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Operations r16 is a complete
+`PASS_CERTIFIED` full-v1 receipt for restore, fence, DLQ, uncertain override
+and disaster recovery. Soak r15 independently passed 3 cycles / 12 cases,
+800 seconds and exact Docker cleanup, but release audit r17 keeps its wrapper
+blocked until `policy.longest_configured_period_seconds` is emitted.
+
+Large Payload receipt r3 passed both adapter directions with exact payload and
+idempotency. Capacity r10 and benchmark r11 remain blocked by absent physical
+Broker/Lane measurements. The fail-closed audit
+`/private/tmp/nereus-delay-v1-full-gates-20260822-r17/release/v1-release-candidate-gate.json`
+is `NOT_READY`.
+
+Cleanup is recoverable and exact: only unused evidence/cache directories are
+eligible for Trash after reference checks; no worktree or source checkout is
+deleted. Docker cleanup uses exact generated project resources only. The locked
+MinIO base and canonical Oxia image remain available; no global prune is used.

@@ -17343,3 +17343,31 @@ not complete `PASS_CERTIFIED` full-v1 inputs (`measurement_status=MISSING` and
 missing independent soak, respectively); protocol-golden, chaos, real-service,
 no-early, benchmark and soak had no complete full-v1 artifact. The resulting
 release status is therefore `NOT_READY`; no complete ten-gate manifest exists.
+
+## 2026-08-22 current full-V1 candidate and production-authority evidence
+
+Current candidate locks: Delay `a40588bec6d363a4cfd2a4b7d3df5695649a0d79`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The candidate worktree is clean,
+and the cross-repository contract validator passed at these exact locks.
+
+Large Payload Gateway production-authority E2E
+`/private/tmp/nereus-delay-v1-large-payload-production-20260822-r3/` is
+`PASS_CERTIFIED`: Kafka-to-Pulsar and Pulsar-to-Kafka both proved exact payload
+readback and idempotency through real Kafka, Pulsar, Oxia and MinIO.
+
+Full-v1 receipts pass for protocol-golden r3, no-early r4, real-service r2,
+chaos r6 (19/19 cells), upgrade-downgrade r4, patch-distribution r5, soak r15
+and operations r16. Soak covers 3 configured cycles / 12 cases and 800 seconds
+with exact Docker cleanup; the strict release checker nevertheless records
+`gate-soak=BLOCKED` because the full-v1 wrapper does not emit the required
+`policy.longest_configured_period_seconds` field. Capacity r10 and benchmark
+r11 remain `FAIL` because the required physical Broker/Lane measurement
+artifact is missing; bounded probes are not promoted.
+
+The strict audit
+`/private/tmp/nereus-delay-v1-full-gates-20260822-r17/release/v1-release-candidate-gate.json`
+is `NOT_READY`; no V1 certification manifest exists. Post-run Docker checks
+found no matching generated Delay/Large Payload/real-client/Oxia-MinIO
+resources. The locked MinIO base and canonical Oxia image were retained.
