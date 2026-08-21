@@ -8585,3 +8585,10 @@ This does not promote a local contract receipt to a production release. The
 physical capacity envelope, full long-cycle soak, operations authority and
 patch-distribution gates remain separate and must be supplied by their own
 real-observation runners.
+
+The guarded-client distribution seam is
+\`e2e/run-v1-full-patch-distribution-gate.sh\`. It keeps K1 and P1 source
+authority separate, tests their typed resource-guard rejection and
+delete/recreate behavior, records binary digests, and requires an actual
+multi-Broker partial rollout. A compiled client or static source match alone
+cannot satisfy this gate.

@@ -1745,3 +1745,18 @@ declared full-v1 cells; capacity and benchmark must additionally use the
 physical Broker/Lane envelope producer, while soak and operations must pass
 their real-service child. Do not use \`NEREUS_DELAY_V1_FULL_GATE_RUN_REAL=0\`
 to turn those missing external authorities into a PASS.
+
+For the guarded-client distribution gate, use the same candidate lock and an
+empty artifact directory:
+
+\`\`\`bash
+NEREUS_DELAY_V1_PATCH_ARTIFACT_DIR=/private/tmp/<run>/patch \\
+NEREUS_DELAY_V1_PATCH_CANDIDATE_SOURCE_LOCK=/private/tmp/<run>/source-lock.json \\
+NEREUS_DELAY_V1_PATCH_RUN_CLUSTER=1 \\
+bash e2e/run-v1-full-patch-distribution-gate.sh
+\`\`\`
+
+The runner retains the K1/P1 test logs and binary digest table. A source or
+binary-only check is not a partial rollout; the multi-Broker child must run
+and clean its exact Compose resources before the patch-distribution input can
+pass.

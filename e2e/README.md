@@ -7291,3 +7291,9 @@ set and exact coverage audit. Its output is suitable for
 that gate have also passed; the script intentionally leaves Broker/Lane
 capacity, full soak and real operations authority fail-closed when those
 children are not present.
+
+\`run-v1-full-patch-distribution-gate.sh\` is the separate K1/P1 distribution
+input runner. It executes guarded-client tests in their own Gradle homes,
+records built binary digests and rejects stock/name-fallback/old-protocol
+paths. \`NEREUS_DELAY_V1_PATCH_RUN_CLUSTER=1\` is mandatory for a PASS because
+full and partial Broker rollout are distinct release evidence.

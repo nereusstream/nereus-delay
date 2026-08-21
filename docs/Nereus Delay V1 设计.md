@@ -5587,3 +5587,9 @@ The first verified slice passed the upgrade/downgrade matrix on Delay
 \`f3a0fd8f93a66e491825ee921179f8ede17dd4e6\`; it does not close the release gate.
 The physical Broker/Lane capacity envelope, full long-cycle soak, operations
 authority and patch-distribution evidence remain independent requirements.
+
+Patch distribution is therefore a separate source-locked gate:
+\`e2e/run-v1-full-patch-distribution-gate.sh\` must prove K1/P1 full and
+partial rollout, immutable binary digests, typed rejection, delete/recreate,
+and stock/name/old-protocol fail-closed behavior. It may not promote a client
+compile or a bounded Broker smoke to the §23.5 distribution gate.

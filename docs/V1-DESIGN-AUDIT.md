@@ -13735,3 +13735,9 @@ the full physical capacity envelope still needs Broker throughput, placement,
 Lane fairness and adapter/zombie observations; full soak and operations still
 need their real-service children. Bounded receipts remain historical or
 independent inputs and cannot be relabeled by this runner.
+
+The distribution slice is now explicit as well:
+\`e2e/run-v1-full-patch-distribution-gate.sh\` binds the K1/P1 source locks,
+executes their guarded client tests, records binary SHA-256 digests and
+requires a real multi-Broker partial-rollout child. It remains fail-closed
+until that child and all typed rejection/delete-recreate assertions pass.

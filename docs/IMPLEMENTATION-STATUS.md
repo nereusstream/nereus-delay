@@ -17213,3 +17213,11 @@ The runner deliberately keeps the physical Broker/Lane capacity envelope
 blocked until a dedicated real-observation producer exists; soak and operations
 require their real-service child. Therefore this implementation slice does not
 change the V1 release decision or promote any bounded RC1 evidence.
+
+\`e2e/run-v1-full-patch-distribution-gate.sh\` is the corresponding source-locked
+distribution producer. It runs the K1 guarded producer integration tests, the
+P1 guard API/broker tests, Delay guarded-transport tests, records Kafka/Pulsar
+binary SHA-256 digests, and requires an actual multi-Broker partial-rollout
+child before emitting a boundary-free PASS. Missing built artifacts, typed
+rejection evidence, delete/recreate proof or the cluster child remains a hard
+FAIL.
