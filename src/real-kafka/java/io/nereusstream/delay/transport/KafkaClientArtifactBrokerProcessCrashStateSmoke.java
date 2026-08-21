@@ -57,6 +57,16 @@ public final class KafkaClientArtifactBrokerProcessCrashStateSmoke {
                 throw new IllegalStateException("Broker recovery state was captured before the guarded record: "
                         + state.endOffset());
             }
+            if (cell.equals("kafka-broker-leader-failover")
+                    && phase.equals("before") && state.leaderId() != 1) {
+                throw new IllegalStateException("source leader was not Broker-1 before placement: "
+                        + state.leaderId());
+            }
+            if (cell.equals("kafka-broker-leader-failover")
+                    && phase.equals("after") && state.leaderId() != 2) {
+                throw new IllegalStateException("source leader did not move to Broker-2: "
+                        + state.leaderId());
+            }
             if (phase.equals("after") && !state.liveBrokerIds().contains(CRASHED_BROKER_ID)) {
                 throw new IllegalStateException("Broker-1 was not visible in the live cluster after recovery: "
                         + state.liveBrokerIds());
@@ -181,6 +191,10 @@ public final class KafkaClientArtifactBrokerProcessCrashStateSmoke {
                 + "  \"broker_1_recovery_observed\": " + (phase.equals("after")
                 && state.liveBrokerIds().contains(CRASHED_BROKER_ID)
                 && state.isrBrokerIds().contains(CRASHED_BROKER_ID)) + ",\n"
+                + "  \"leader_moved_without_broker_loss\": " + (boundary.cell().equals("kafka-broker-leader-failover")
+                && phase.equals("after") && state.leaderId() == 2
+                && state.liveBrokerIds().contains(CRASHED_BROKER_ID)
+                && state.isrBrokerIds().contains(CRASHED_BROKER_ID)) + ",\n"
                 + "  \"durable_broker_read\": true,\n"
                 + "  \"dump_forced\": true\n"
                 + "}\n";
@@ -218,6 +232,8 @@ public final class KafkaClientArtifactBrokerProcessCrashStateSmoke {
                     "BROKER_TCP_CUT_READY", "RECOVERED_AFTER_BROKER_TCP_CUT");
             case "kafka-broker-network-partition" -> new Boundary(cell,
                     "BROKER_NETWORK_PARTITION_READY", "RECOVERED_AFTER_BROKER_NETWORK_REJOIN");
+            case "kafka-broker-leader-failover" -> new Boundary(cell,
+                    "BROKER_LEADER_FAILOVER_READY", "RECOVERED_AFTER_BROKER_LEADER_FAILOVER");
             default -> throw new IllegalArgumentException("unsupported Kafka Broker recovery cell: " + cell);
         };
     }

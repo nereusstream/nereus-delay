@@ -193,6 +193,64 @@ bounded_cell lso-retention-floor "advance real retention and reopen stale/curren
 bounded_cell pulsar-multibroker-failover "stop or SIGKILL one real Pulsar Broker and resume on survivor" pulsar-multi-broker-process-crash
 bounded_cell oxia-session-expiry "stop the real Oxia authority while the old Gateway session is live" gateway-oxia-session-churn
 
+leader_dir="${artifact_dir}/broker-leader-failover"
+leader_state_dir="${leader_dir}/state"
+leader_exit=1
+leader_cell_status="BLOCKED"
+if [[ "${run_external}" == "1" && "${source_status}" == "PASS" ]]; then
+  mkdir -p "${leader_dir}" "${leader_state_dir}"
+  set +e
+  NEREUS_DELAY_KAFKA_LEADER_PLACEMENT_ONLY=1 \
+  NEREUS_DELAY_KAFKA_LEADER_PLACEMENT_STATE_DUMP_DIR="${leader_state_dir}" \
+  NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+  NEREUS_DELAY_KAFKA_E2E_ARTIFACT_DIR="${leader_dir}" \
+  NEREUS_DELAY_KAFKA_GRADLE_USER_HOME="${gradle_home}" \
+  NEREUS_DELAY_KAFKA_CHECKOUT="${kafka_dir}" \
+  NEREUS_DELAY_KAFKA_OXIA_CHECKOUT="${oxia_dir}" \
+    bash "${script_dir}/run-kafka-real-client-e2e.sh" >"${leader_dir}/run.log" 2>&1
+  leader_exit=$?
+  set -e
+fi
+leader_before="${leader_state_dir}/before-process-crash.json"
+leader_after="${leader_state_dir}/after-fresh-process.json"
+if [[ "${leader_exit}" == "0" && -s "${leader_before}" && -s "${leader_after}" ]] \
+    && jq -n --slurpfile before "${leader_before}" --slurpfile after "${leader_after}" \
+      '($before | length) == 1 and ($after | length) == 1
+       and $before[0].schema == "nereus-delay-chaos-durable-state-dump-v1"
+       and $after[0].schema == "nereus-delay-chaos-durable-state-dump-v1"
+       and $before[0].cell == "kafka-broker-leader-failover"
+       and $after[0].cell == "kafka-broker-leader-failover"
+       and $before[0].phase == "BROKER_LEADER_FAILOVER_READY"
+       and $after[0].phase == "RECOVERED_AFTER_BROKER_LEADER_FAILOVER"
+       and $before[0].dump_forced == true and $after[0].dump_forced == true
+       and $before[0].durable_broker_read == true and $after[0].durable_broker_read == true
+       and ($before[0].process_pid != $after[0].process_pid)
+       and $before[0].cluster_id == $after[0].cluster_id
+       and $before[0].topic_id == $after[0].topic_id
+       and $before[0].leader_id == 1 and $after[0].leader_id == 2
+       and ($before[0].live_broker_ids | sort) == [1,2,3]
+       and ($after[0].live_broker_ids | sort) == [1,2,3]
+       and ($before[0].isr_ids | sort) == [1,2,3]
+       and ($after[0].isr_ids | sort) == [1,2,3]
+       and $after[0].leader_moved_without_broker_loss == true
+       and $after[0].end_offset >= $before[0].end_offset' >/dev/null 2>&1; then
+  leader_cell_status="PASS"
+fi
+if [[ "${leader_cell_status}" == "PASS" ]]; then
+  add_cell "$(jq -cn --arg before "${leader_before}" --arg after "${leader_after}" --arg log "${leader_dir}/run.log" \
+    '{"broker-leader-failover": {
+      status:"PASS",
+      injection:{status:"PASS",point:"reassign replicated source and consumer-coordinator partitions to Broker-2 while Broker-1 remains live"},
+      before_after:{status:"PASS",audit:{status:"CAPTURED_AND_VERIFIED",before_dump:$before,after_dump:$after}},
+      fresh_process_recovery:"PASS",
+      invariant_audit:"INDEPENDENT_FIELDS_PASS",
+      evidence:{before_dump:$before,after_dump:$after,run_log:$log}
+    }}')"
+else
+  blocked_cell broker-leader-failover "move the source leader to a surviving Broker while the old Broker remains live" \
+    "real Kafka leader-placement child failed or its independent before/after audit did not pass (exit=${leader_exit})"
+fi
+
 if [[ "${run_external}" == "1" && "${source_status}" == "PASS" ]]; then
   minio_dir="${artifact_dir}/minio-fault"
   set +e
@@ -375,7 +433,6 @@ blocked_cell half-open "hold a half-open native connection past the channel dead
 blocked_cell enospc "fill the exact Store/checkpoint filesystem to the ENOSPC boundary" "no safe exact ENOSPC fixture with durable before/after dump"
 blocked_cell fsync-error "fail directory/WAL fsync after the accepted WriteBatch boundary" "no current-source fsync fault child artifact"
 blocked_cell sst-corruption "corrupt one copied SST after checkpoint publication" "no current-source SST corruption fresh-process child"
-blocked_cell broker-leader-failover "move the source leader to a surviving Broker" "leader-placement child is not yet wired into this full matrix"
 blocked_cell disaster-host-fault "terminate the host-side Worker process and restore from the exact floor" "no disaster-host fresh-process child artifact"
 
 all_pass="PASS"

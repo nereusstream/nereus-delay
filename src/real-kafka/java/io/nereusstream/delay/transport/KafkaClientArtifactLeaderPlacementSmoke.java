@@ -18,7 +18,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
-/** Moves one replicated source partition to Broker 2 without stopping Broker 1. */
+/** Moves one replicated source partition to a requested live broker without stopping the other broker. */
 public final class KafkaClientArtifactLeaderPlacementSmoke {
     private static final Duration DEADLINE = Duration.ofSeconds(120);
 
@@ -44,28 +44,53 @@ public final class KafkaClientArtifactLeaderPlacementSmoke {
             if (before.partitions().size() != 1 || before.partitions().get(0).replicas().size() != 3) {
                 throw new IllegalStateException("expected one three-replica partition for " + topic);
             }
-            final List<Integer> targetReplicas = List.of(2, 3, 1);
-            placeAndAwait(admin, partition, targetReplicas);
+            final int targetLeader = targetLeader();
+            final List<Integer> targetReplicas = targetLeader == 1
+                    ? List.of(1, 2, 3) : List.of(2, 3, 1);
+            placeAndAwait(admin, partition, targetReplicas, targetLeader);
             final TopicDescription latest = describe(admin, topic);
             final var info = latest.partitions().get(0);
             final List<Integer> replicas = info.replicas().stream().map(replica -> replica.id()).toList();
-            System.out.println("Kafka raw TCP cut source leader placement passed: topic=" + topic
+            if (info.leader().id() != targetLeader) {
+                throw new IllegalStateException("source leader did not converge to Broker-" + targetLeader
+                        + ": " + info.leader().id());
+            }
+            System.out.println("Kafka source leader placement passed: topic=" + topic
                     + ", leader=" + info.leader().id() + ", replicas=" + replicas
                     + ", broker1Alive=true");
             if (workerGroup != null) {
                 final TopicDescription offsets = awaitTopic(admin, "__consumer_offsets");
                 final int offsetsPartition = Utils.abs(workerGroup.hashCode()) % offsets.partitions().size();
                 final TopicPartition coordinatorPartition = new TopicPartition("__consumer_offsets", offsetsPartition);
-                placeAndAwait(admin, coordinatorPartition, targetReplicas);
+                placeAndAwait(admin, coordinatorPartition, targetReplicas, targetLeader);
                 final TopicDescription updatedOffsets = describe(admin, "__consumer_offsets");
                 final var coordinatorInfo = updatedOffsets.partitions().get(offsetsPartition);
                 final List<Integer> coordinatorReplicas = coordinatorInfo.replicas().stream()
                         .map(replica -> replica.id()).toList();
-                System.out.println("Kafka raw TCP cut group coordinator placement passed: group=" + workerGroup
+                if (coordinatorInfo.leader().id() != targetLeader) {
+                    throw new IllegalStateException("group coordinator leader did not converge to Broker-"
+                            + targetLeader + ": " + coordinatorInfo.leader().id());
+                }
+                System.out.println("Kafka group coordinator placement passed: group=" + workerGroup
                         + ", offsetsPartition=" + offsetsPartition + ", leader=" + coordinatorInfo.leader().id()
                         + ", replicas=" + coordinatorReplicas + ", broker1Alive=true");
             }
         }
+    }
+
+    private static int targetLeader() {
+        final String configured = System.getenv().getOrDefault(
+                "NEREUS_DELAY_KAFKA_LEADER_PLACEMENT_TARGET", "2");
+        final int target;
+        try {
+            target = Integer.parseInt(configured);
+        } catch (NumberFormatException failure) {
+            throw new IllegalArgumentException("leader placement target must be Broker 1 or 2", failure);
+        }
+        if (target != 1 && target != 2) {
+            throw new IllegalArgumentException("leader placement target must be Broker 1 or 2");
+        }
+        return target;
     }
 
     private static void ensureConsumerGroup(final String bootstrap, final String topic, final String groupId) {
@@ -108,10 +133,10 @@ public final class KafkaClientArtifactLeaderPlacementSmoke {
     }
 
     private static void placeAndAwait(final Admin admin, final TopicPartition partition,
-                                      final List<Integer> targetReplicas) throws Exception {
+                                      final List<Integer> targetReplicas, final int targetLeader) throws Exception {
         TopicDescription before = describe(admin, partition.topic());
         final var current = before.partitions().get(partition.partition());
-        if (current.leader().id() != 2
+        if (current.leader().id() != targetLeader
                 || !current.replicas().stream().map(replica -> replica.id()).toList().equals(targetReplicas)) {
             admin.alterPartitionReassignments(Map.of(partition,
                     Optional.of(new NewPartitionReassignment(targetReplicas)))).all()
@@ -123,17 +148,17 @@ public final class KafkaClientArtifactLeaderPlacementSmoke {
             before = describe(admin, partition.topic());
             final var info = before.partitions().get(partition.partition());
             final List<Integer> replicas = info.replicas().stream().map(replica -> replica.id()).toList();
-            if (info.leader().id() == 2 && replicas.equals(targetReplicas)) {
+            if (info.leader().id() == targetLeader && replicas.equals(targetReplicas)) {
                 return;
             }
-            if (replicas.equals(targetReplicas) && info.leader().id() != 2) {
+            if (replicas.equals(targetReplicas) && info.leader().id() != targetLeader) {
                 tryPreferredLeader(admin, partition);
             }
             TimeUnit.MILLISECONDS.sleep(250);
         }
         final var info = describe(admin, partition.topic()).partitions().get(partition.partition());
         final List<Integer> replicas = info.replicas().stream().map(replica -> replica.id()).toList();
-        throw new IllegalStateException("partition did not converge to Broker 2: " + partition
+        throw new IllegalStateException("partition did not converge to Broker " + targetLeader + ": " + partition
                 + " leader=" + info.leader().id() + " replicas=" + replicas);
     }
 

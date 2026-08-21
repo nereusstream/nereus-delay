@@ -48,6 +48,8 @@ worker_process_crash_only="${NEREUS_DELAY_KAFKA_WORKER_PROCESS_CRASH_ONLY:-0}"
 worker_ack_process_crash_only="${NEREUS_DELAY_KAFKA_WORKER_ACK_PROCESS_CRASH_ONLY:-0}"
 broker_process_crash_only="${NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_ONLY:-0}"
 broker_process_crash_state_dump_dir="${NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_STATE_DUMP_DIR:-}"
+leader_placement_only="${NEREUS_DELAY_KAFKA_LEADER_PLACEMENT_ONLY:-0}"
+leader_placement_state_dump_dir="${NEREUS_DELAY_KAFKA_LEADER_PLACEMENT_STATE_DUMP_DIR:-}"
 broker_network_partition_only="${NEREUS_DELAY_KAFKA_BROKER_NETWORK_PARTITION_ONLY:-0}"
 broker_network_state_dump_dir="${NEREUS_DELAY_KAFKA_BROKER_NETWORK_PARTITION_STATE_DUMP_DIR:-}"
 broker_tcp_cut_only="${NEREUS_DELAY_KAFKA_BROKER_TCP_CUT_ONLY:-0}"
@@ -152,6 +154,10 @@ if [[ "${broker_process_crash_only}" != "0" && "${broker_process_crash_only}" !=
   echo "NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_ONLY must be 0 or 1" >&2
   exit 1
 fi
+if [[ "${leader_placement_only}" != "0" && "${leader_placement_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_LEADER_PLACEMENT_ONLY must be 0 or 1" >&2
+  exit 1
+fi
 if [[ "${broker_network_partition_only}" != "0" && "${broker_network_partition_only}" != "1" ]]; then
   echo "NEREUS_DELAY_KAFKA_BROKER_NETWORK_PARTITION_ONLY must be 0 or 1" >&2
   exit 1
@@ -166,6 +172,10 @@ if (( broker_1_bind_port <= 0 || broker_1_bind_port > 65535 )); then
 fi
 if [[ "${broker_process_crash_only}" == "1" && "${with_oxia}" != "1" ]]; then
   echo "NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_ONLY requires NEREUS_DELAY_KAFKA_WITH_OXIA=1" >&2
+  exit 1
+fi
+if [[ "${leader_placement_only}" == "1" && "${with_oxia}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_LEADER_PLACEMENT_ONLY requires NEREUS_DELAY_KAFKA_WITH_OXIA=1" >&2
   exit 1
 fi
 if [[ "${worker_process_crash_only}" == "1" && "${with_oxia}" != "1" ]]; then
@@ -296,6 +306,21 @@ if [[ "${broker_process_crash_only}" == "1" && ("${route_failover_only}" == "1"
   echo "Kafka Broker process-crash-only mode is mutually exclusive with other focused modes" >&2
   exit 1
 fi
+if [[ "${leader_placement_only}" == "1" && ("${route_failover_only}" == "1"
+        || "${k2_failover_only}" == "1" || "${k2_response_loss_only}" == "1"
+        || "${worker_destination_response_loss_only}" == "1"
+        || "${source_ack_response_loss_only}" == "1"
+        || "${fetch_response_loss_only}" == "1"
+        || "${retention_floor_only}" == "1" || "${process_crash_only}" == "1"
+        || "${worker_process_crash_only}" == "1" || "${worker_ack_process_crash_only}" == "1"
+        || "${broker_process_crash_only}" == "1" || "${broker_network_partition_only}" == "1"
+        || "${broker_tcp_cut_only}" == "1" || "${route_failover}" == "1"
+        || "${k2_failover}" == "1" || "${k2_response_loss}" == "1"
+        || "${worker_destination_response_loss}" == "1"
+        || "${source_ack_response_loss}" == "1") ]]; then
+  echo "Kafka leader-placement-only mode is mutually exclusive with other focused modes" >&2
+  exit 1
+fi
 if [[ "${worker_process_crash_only}" == "1" && ("${route_failover_only}" == "1"
         || "${k2_failover_only}" == "1" || "${k2_response_loss_only}" == "1"
         || "${worker_destination_response_loss_only}" == "1"
@@ -380,6 +405,7 @@ worker_ack_process_crash_resume_log="${worker_ack_process_crash_dir}/resume.log"
 worker_ack_process_crash_gate="${worker_ack_process_crash_dir}/release"
 worker_ack_process_crash_pid_file="${worker_ack_process_crash_dir}/worker.pid"
 worker_ack_process_crash_launcher_pid=""
+leader_placement_dir="$(mktemp -d -t nereus-delay-kafka-leader-placement.XXXXXX)"
 broker_tcp_cut_dir="$(mktemp -d -t nereus-delay-kafka-broker-tcp-cut.XXXXXX)"
 broker_tcp_cut_log="${broker_tcp_cut_dir}/proxy.log"
 broker_tcp_cut_file="${broker_tcp_cut_dir}/cut"
@@ -420,6 +446,7 @@ cleanup() {
   rm -rf "${process_crash_dir}"
   rm -rf "${worker_process_crash_dir}"
   rm -rf "${worker_ack_process_crash_dir}"
+  rm -rf "${leader_placement_dir}"
   rm -rf "${broker_tcp_cut_dir}"
 }
 trap cleanup EXIT INT TERM
@@ -936,6 +963,39 @@ if [[ "${broker_process_crash_only}" == "1" ]]; then
   wait_for_broker kafka-1
   run_broker_process_crash_state_smoke "${bootstrap_all}" "${broker_crash_topic}" after
   echo "Kafka Broker process-crash recovery E2E passed: kafka-1 was SIGKILLed after guarded Worker preparation, the same topic resumed through kafka-2/kafka-3 with real Oxia authority, and kafka-1 rejoined afterward."
+  exit 0
+fi
+
+if [[ "${leader_placement_only}" == "1" ]]; then
+  start_oxia
+  leader_placement_topic="${KAFKA_DELAY_LEADER_PLACEMENT_TOPIC:-${worker_topic}-leader-failover}"
+  leader_placement_group="${KAFKA_DELAY_LEADER_PLACEMENT_GROUP:-${leader_placement_topic}-group}"
+  if [[ -n "${leader_placement_state_dump_dir}" ]]; then
+    mkdir -p "${leader_placement_state_dump_dir}"
+    rm -f "${leader_placement_state_dump_dir}/before-process-crash.json" \
+      "${leader_placement_state_dump_dir}/after-fresh-process.json"
+  fi
+  run_worker_smoke "${bootstrap_all}" "${leader_placement_topic}" prepare
+  NEREUS_DELAY_KAFKA_LEADER_PLACEMENT_TARGET=1 \
+    GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaLeaderPlacementSmoke \
+      "-PkafkaClientJar=${client_jar}" \
+      "-PkafkaBootstrap=${bootstrap_all}" \
+      "-PkafkaLeaderPlacementTopic=${leader_placement_topic}" \
+      "-PkafkaLeaderPlacementGroup=${leader_placement_group}" \
+      --no-daemon --console=plain
+  run_broker_recovery_state_smoke "${bootstrap_all}" "${leader_placement_topic}" before \
+    "kafka-broker-leader-failover" "${leader_placement_state_dump_dir}"
+  NEREUS_DELAY_KAFKA_LEADER_PLACEMENT_TARGET=2 \
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaLeaderPlacementSmoke \
+    "-PkafkaClientJar=${client_jar}" \
+    "-PkafkaBootstrap=${bootstrap_all}" \
+    "-PkafkaLeaderPlacementTopic=${leader_placement_topic}" \
+    "-PkafkaLeaderPlacementGroup=${leader_placement_group}" \
+    --no-daemon --console=plain
+  run_worker_smoke "${bootstrap_all}" "${leader_placement_topic}" resume ""
+  run_broker_recovery_state_smoke "${bootstrap_all}" "${leader_placement_topic}" after \
+    "kafka-broker-leader-failover" "${leader_placement_state_dump_dir}"
+  echo "Kafka source leader failover E2E passed: Broker-1 remained alive while the replicated source and consumer-coordinator partitions moved to Broker-2, then a fresh Worker resumed the exact guarded source through real Oxia authority."
   exit 0
 fi
 
