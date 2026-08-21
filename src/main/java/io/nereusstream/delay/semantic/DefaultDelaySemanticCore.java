@@ -1,7 +1,6 @@
 package io.nereusstream.delay.semantic;
 
 import io.nereusstream.delay.protocol.AdapterKindV1;
-import io.nereusstream.delay.protocol.AdapterMetadataV1;
 import io.nereusstream.delay.protocol.CommandCodec;
 import io.nereusstream.delay.protocol.CommandId;
 import io.nereusstream.delay.protocol.DelayMessageId;
