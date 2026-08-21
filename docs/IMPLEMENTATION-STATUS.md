@@ -17367,7 +17367,7 @@ r11 remain `FAIL` because the required physical Broker/Lane measurement
 artifact is missing; bounded probes are not promoted.
 
 The strict audit
-`/private/tmp/nereus-delay-v1-full-gates-20260822-r17/release/v1-release-candidate-gate.json`
+`/private/tmp/nereus-delay-v1-full-gates-20260822-r18/release/v1-release-candidate-gate.json`
 is `NOT_READY`; no V1 certification manifest exists. Post-run Docker checks
 found no matching generated Delay/Large Payload/real-client/Oxia-MinIO
 resources. The locked MinIO base and canonical Oxia image were retained.

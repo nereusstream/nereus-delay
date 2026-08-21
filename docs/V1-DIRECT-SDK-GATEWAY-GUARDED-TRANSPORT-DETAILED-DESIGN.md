@@ -8726,5 +8726,5 @@ upgrade-downgrade r4, patch-distribution r5, operations r16 and the certified
 Soak child in r15 pass. The release wrapper keeps Soak blocked because it omits
 `policy.longest_configured_period_seconds`. Capacity r10 and benchmark r11 also
 remain blocked by missing physical Broker/Lane measurements. The strict audit
-`/private/tmp/nereus-delay-v1-full-gates-20260822-r17/release/v1-release-candidate-gate.json`
+`/private/tmp/nereus-delay-v1-full-gates-20260822-r18/release/v1-release-candidate-gate.json`
 is therefore `NOT_READY`.

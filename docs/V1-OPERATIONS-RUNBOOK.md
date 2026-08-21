@@ -1902,7 +1902,7 @@ blocked until `policy.longest_configured_period_seconds` is emitted.
 Large Payload receipt r3 passed both adapter directions with exact payload and
 idempotency. Capacity r10 and benchmark r11 remain blocked by absent physical
 Broker/Lane measurements. The fail-closed audit
-`/private/tmp/nereus-delay-v1-full-gates-20260822-r17/release/v1-release-candidate-gate.json`
+`/private/tmp/nereus-delay-v1-full-gates-20260822-r18/release/v1-release-candidate-gate.json`
 is `NOT_READY`.
 
 Cleanup is recoverable and exact: only unused evidence/cache directories are
