@@ -8,6 +8,7 @@ import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.StableCode;
 import io.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
+import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
 import io.nereusstream.delay.protocol.PulsarSourcePosition;
 import io.nereusstream.delay.protocol.SourcePosition;
@@ -148,6 +149,43 @@ class DestinationAdapterTest {
         }
         assertEquals(source, receivedSource.get());
         assertArrayEquals(preparedHash, receivedPreparedHash.get());
+    }
+
+    @Test
+    void pulsarSourceBoundTransportAcceptsKafkaSourcePositionFromTheSameDelayShard() {
+        final byte[] resourceIncarnation = Bytes.sha256(Bytes.utf8("pulsar-cross-source-resource"));
+        final PulsarTargetResource resource = new PulsarTargetResource("cluster", resourceIncarnation,
+                "persistent://tenant/ns/cross-source", 8_101, 0);
+        final DestinationPublishRequest request = request(1_000, 1_000);
+        final SourcePosition source = new KafkaSourcePosition(
+                request.delayMessageId().routingId().shardId(), "source-cluster", UUID.randomUUID(), 4, 1,
+                1_001);
+        final byte[] preparedHash = Bytes.sha256(Bytes.utf8("prepared-cross-source"));
+        final AtomicReference<SourcePosition> receivedSource = new AtomicReference<>();
+        final PinnedPulsarDestinationAdapter.PulsarDestinationTransport transport =
+                new PinnedPulsarDestinationAdapter.PulsarDestinationTransport() {
+                    @Override
+                    public CompletableFuture<DestinationPublishResult> publish(
+                            final PulsarDestinationRequest ignored) {
+                        throw new AssertionError("source-bound transport overload was not used");
+                    }
+
+                    @Override
+                    public CompletableFuture<DestinationPublishResult> publish(
+                            final PulsarDestinationRequest ignored,
+                            final SourcePosition exactSource,
+                            final byte[] ignoredPreparedHash) {
+                        receivedSource.set(exactSource);
+                        return CompletableFuture.completedFuture(DestinationPublishResult.unknown(
+                                StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
+                    }
+                };
+        try (PinnedPulsarDestinationAdapter adapter = new PinnedPulsarDestinationAdapter(resource, transport)) {
+            final DestinationPublishResult result = adapter.publish(request, source, preparedHash)
+                    .toCompletableFuture().join();
+            assertEquals(DestinationPublishResult.Disposition.UNKNOWN, result.disposition());
+        }
+        assertEquals(source, receivedSource.get());
     }
 
     @Test

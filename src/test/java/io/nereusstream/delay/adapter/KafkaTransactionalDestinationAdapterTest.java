@@ -5,6 +5,7 @@ import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DestinationLaneId;
 import io.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
 import io.nereusstream.delay.protocol.KafkaSourcePosition;
+import io.nereusstream.delay.protocol.PulsarSourcePosition;
 import io.nereusstream.delay.protocol.RouteIncarnation;
 import io.nereusstream.delay.protocol.ShardId;
 import io.nereusstream.delay.protocol.SourcePosition;
@@ -69,6 +70,30 @@ class KafkaTransactionalDestinationAdapterTest {
         assertEquals(StableCode.INVALID_METADATA, result.stableCode());
         assertEquals(0, calls.get());
         assertEquals(0, fixture.journal.records().size());
+    }
+
+    @Test
+    void acceptsPulsarSourcePositionFromTheSameDelayShard() {
+        final Fixture fixture = new Fixture();
+        final AtomicReference<KafkaTransactionalDestinationRequest> sent = new AtomicReference<>();
+        final KafkaTransactionalDestinationAdapter adapter = fixture.adapter(request -> {
+            sent.set(request);
+            return CompletableFuture.completedFuture(DestinationPublishResult.published(
+                    BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+                            fixture.target.authenticatedClusterId(), fixture.target.nativeTopicUuid())),
+                    fixture.target.partition(), request.mapping().publishAttemptId(), 2_001,
+                    Bytes.utf8("cross-source-target-and-receipt-evidence")));
+        });
+        final SourcePosition source = new PulsarSourcePosition(fixture.shard,
+                Bytes.sha256(Bytes.utf8("pulsar-source-resource")), "persistent://tenant/ns/source", 4, 9,
+                0, 1, PulsarSourcePosition.EntryKind.NON_BATCH, 1_001);
+
+        final DestinationPublishResult result = adapter.publish(fixture.request, source, fixture.preparedHash)
+                .toCompletableFuture().join();
+
+        assertEquals(DestinationPublishResult.Disposition.PUBLISHED, result.disposition());
+        assertEquals(1, fixture.journal.records().size());
+        assertArrayEquals(source.canonicalBytes(), sent.get().mapping().sourcePosition());
     }
 
     @Test

@@ -2,7 +2,6 @@ package io.nereusstream.delay.adapter;
 
 import io.nereusstream.delay.protocol.BrokerResourceIdentityV1;
 import io.nereusstream.delay.protocol.Bytes;
-import io.nereusstream.delay.protocol.PulsarSourcePosition;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.StableCode;
 
@@ -60,8 +59,11 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
     private CompletionStage<DestinationPublishResult> publishOpen(final DestinationPublishRequest request,
                                                                    final SourcePosition sourcePosition,
                                                                    final byte[] preparedPublishHash) {
-        if (sourcePosition != null && (!(sourcePosition instanceof PulsarSourcePosition pulsarSource)
-                || !request.delayMessageId().routingId().shardId().equals(pulsarSource.shardId()))) {
+        // The source and target adapters may differ.  The source position is
+        // still bound to the exact Delay Shard, while the target transport
+        // proves the independent Pulsar resource identity and SEND outcome.
+        if (sourcePosition != null
+                && !request.delayMessageId().routingId().shardId().equals(sourcePosition.shardId())) {
             return completed(DestinationPublishResult.definitelyNotPublished(StableCode.INVALID_METADATA, null));
         }
         try {

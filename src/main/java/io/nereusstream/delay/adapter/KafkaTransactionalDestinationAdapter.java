@@ -3,7 +3,6 @@ package io.nereusstream.delay.adapter;
 import io.nereusstream.delay.protocol.BrokerResourceIdentityV1;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.DestinationLaneId;
-import io.nereusstream.delay.protocol.KafkaSourcePosition;
 import io.nereusstream.delay.protocol.SourcePosition;
 import io.nereusstream.delay.protocol.StableCode;
 
@@ -18,7 +17,9 @@ import java.util.concurrent.CompletionStage;
  * invoked. The transport receives a closed pair and must send both records in
  * one Kafka transaction. This adapter deliberately requires the authoritative
  * source position at publish time; the ordinary one-argument Destination
- * Publish API cannot manufacture that identity.</p>
+ * Publish API cannot manufacture that identity. The source position may come
+ * from either supported ingress adapter, but it must belong to this Delay
+ * Shard.</p>
  */
 public final class KafkaTransactionalDestinationAdapter implements DestinationPublishAdapter {
     private final KafkaTargetResource targetResource;
@@ -101,8 +102,10 @@ public final class KafkaTransactionalDestinationAdapter implements DestinationPu
         final KafkaReceiptJournal.ProducerKey producerKey;
         final KafkaReceiptJournal.AttemptIdentity identity;
         try {
-            if (!(sourcePosition instanceof KafkaSourcePosition)
-                    || !request.delayMessageId().routingId().shardId().equals(sourcePosition.shardId())) {
+            // Cross-adapter delivery is valid. The receipt mapping binds the
+            // canonical source position generically; only the Delay Shard
+            // identity is a local admission invariant here.
+            if (!request.delayMessageId().routingId().shardId().equals(sourcePosition.shardId())) {
                 return completed(DestinationPublishResult.definitelyNotPublished(StableCode.INVALID_METADATA, null));
             }
             producerKey = new KafkaReceiptJournal.ProducerKey(laneId, laneIncarnation,

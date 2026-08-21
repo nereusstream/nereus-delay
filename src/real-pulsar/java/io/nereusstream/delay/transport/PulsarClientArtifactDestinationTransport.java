@@ -8,7 +8,6 @@ import io.nereusstream.delay.protocol.BrokerResourceIdentityV1;
 import io.nereusstream.delay.protocol.Bytes;
 import io.nereusstream.delay.protocol.EvidenceVerificationStatusV1;
 import io.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
-import io.nereusstream.delay.protocol.PulsarSourcePosition;
 import io.nereusstream.delay.protocol.PublishEvidenceKindV1;
 import io.nereusstream.delay.protocol.PublishEvidenceV1;
 import io.nereusstream.delay.protocol.SourcePosition;
@@ -101,8 +100,10 @@ public final class PulsarClientArtifactDestinationTransport
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(sourcePosition, "sourcePosition");
         Bytes.requireLength(preparedPublishHash, 32, "preparedPublishHash");
-        if (!(sourcePosition instanceof PulsarSourcePosition)
-                || !request.delayMessageId().routingId().shardId().equals(sourcePosition.shardId())) {
+        // The source can be Kafka when the Delay route crosses adapters. The
+        // target proof below remains strictly Pulsar-native; only the common
+        // Delay Shard identity is checked at this seam.
+        if (!request.delayMessageId().routingId().shardId().equals(sourcePosition.shardId())) {
             return CompletableFuture.completedFuture(DestinationPublishResult.definitelyNotPublished(
                     StableCode.INVALID_METADATA, null));
         }
