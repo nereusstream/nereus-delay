@@ -46,6 +46,7 @@ retention_floor_process_crash_only="${NEREUS_DELAY_KAFKA_RETENTION_FLOOR_PROCESS
 process_crash_only="${NEREUS_DELAY_KAFKA_PROCESS_CRASH_ONLY:-0}"
 worker_process_crash_only="${NEREUS_DELAY_KAFKA_WORKER_PROCESS_CRASH_ONLY:-0}"
 worker_ack_process_crash_only="${NEREUS_DELAY_KAFKA_WORKER_ACK_PROCESS_CRASH_ONLY:-0}"
+worker_ack_process_crash_state_dump_dir="${NEREUS_DELAY_KAFKA_WORKER_ACK_PROCESS_CRASH_STATE_DUMP_DIR:-}"
 broker_process_crash_only="${NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_ONLY:-0}"
 broker_process_crash_state_dump_dir="${NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_STATE_DUMP_DIR:-}"
 leader_placement_only="${NEREUS_DELAY_KAFKA_LEADER_PLACEMENT_ONLY:-0}"
@@ -1166,6 +1167,7 @@ if [[ "${worker_ack_process_crash_only}" == "1" ]]; then
   worker_ack_process_crash_topic="${KAFKA_DELAY_WORKER_ACK_PROCESS_CRASH_TOPIC:-${worker_topic}-worker-ack-process-crash}"
   export NEREUS_DELAY_KAFKA_WORKER_ROOT="${worker_ack_process_crash_dir}/state"
   export NEREUS_DELAY_KAFKA_PRESERVE_WORKER_CRASH_ROOT=1
+  export NEREUS_DELAY_KAFKA_WORKER_ACK_PROCESS_CRASH_STATE_DUMP_DIR="${worker_ack_process_crash_state_dump_dir}"
   export NEREUS_DELAY_KAFKA_WORKER_ACK_CRASH_GATE="${worker_ack_process_crash_gate}"
   export NEREUS_DELAY_KAFKA_WORKER_ACK_CRASH_PID_FILE="${worker_ack_process_crash_pid_file}"
   rm -f "${worker_ack_process_crash_gate}" "${worker_ack_process_crash_pid_file}"
