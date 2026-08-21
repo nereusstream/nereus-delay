@@ -27,15 +27,19 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -108,9 +112,11 @@ class S3CompatibleMinioRealSmokeTest {
         final String bucket = required("NEREUS_DELAY_MINIO_BUCKET");
         final String region = valueOrDefault("NEREUS_DELAY_MINIO_REGION", DEFAULT_REGION);
         final Fixture fixture = fixture(URI.create(endpoint), region, bucket, accessKey);
+        final Path stateDirectory = stateDirectoryOrNull();
 
         setFaultMode(controlEndpoint, "PUT_503_AFTER_COMMIT");
         try {
+            persistBefore("object-store-5xx", fixture, "PUT_503_AFTER_COMMIT");
             final S3CompatibleCheckpointObjectStoreAdapter adapter = adapter(fixture, accessKey, secretKey,
                     Duration.ofSeconds(5));
             final CheckpointResourceV1 resource = adapter.upload(new CheckpointUploadRequest(fixture.pending(),
@@ -118,8 +124,12 @@ class S3CompatibleMinioRealSmokeTest {
 
             final String providerVersion = new String(resource.immutableVersion(), StandardCharsets.UTF_8);
             assertFalse(providerVersion.startsWith("sha256-"));
-            assertEquals(ResourceDeleteConfirmedBody.DeleteOutcome.DELETED,
-                    adapter.delete(new CheckpointDeleteRequest(fixture.manifest(), resource)).outcome());
+            if (stateDirectory == null) {
+                assertEquals(ResourceDeleteConfirmedBody.DeleteOutcome.DELETED,
+                        adapter.delete(new CheckpointDeleteRequest(fixture.manifest(), resource)).outcome());
+            } else {
+                persistPublished("object-store-5xx", fixture, resource, "PUT_503_AFTER_COMMIT");
+            }
         } finally {
             setFaultMode(controlEndpoint, "NONE");
         }
@@ -137,6 +147,7 @@ class S3CompatibleMinioRealSmokeTest {
 
         setFaultMode(controlEndpoint, "PUT_503_BEFORE_COMMIT");
         try {
+            persistBefore("storage-provider-fault", fixture, "PUT_503_BEFORE_COMMIT");
             final S3CompatibleCheckpointObjectStoreAdapter adapter = adapter(fixture, accessKey, secretKey,
                     Duration.ofSeconds(5));
             final IllegalStateException failure = assertThrows(IllegalStateException.class,
@@ -157,17 +168,23 @@ class S3CompatibleMinioRealSmokeTest {
         final String bucket = required("NEREUS_DELAY_MINIO_BUCKET");
         final String region = valueOrDefault("NEREUS_DELAY_MINIO_REGION", DEFAULT_REGION);
         final Fixture fixture = fixture(URI.create(endpoint), region, bucket, accessKey);
+        final Path stateDirectory = stateDirectoryOrNull();
 
         setFaultMode(controlEndpoint, "PUT_TIMEOUT_AFTER_COMMIT");
         try {
+            persistBefore("object-store-timeout", fixture, "PUT_TIMEOUT_AFTER_COMMIT");
             final S3CompatibleCheckpointObjectStoreAdapter adapter = adapter(fixture, accessKey, secretKey,
                     Duration.ofMillis(750));
             final CheckpointResourceV1 resource = adapter.upload(new CheckpointUploadRequest(fixture.pending(),
                     fixture.manifest(), fixture.checkpointDirectory(), fixture.manifest().canonicalJsonBytes()));
 
             assertFalse(new String(resource.immutableVersion(), StandardCharsets.UTF_8).startsWith("sha256-"));
-            assertEquals(ResourceDeleteConfirmedBody.DeleteOutcome.DELETED,
-                    adapter.delete(new CheckpointDeleteRequest(fixture.manifest(), resource)).outcome());
+            if (stateDirectory == null) {
+                assertEquals(ResourceDeleteConfirmedBody.DeleteOutcome.DELETED,
+                        adapter.delete(new CheckpointDeleteRequest(fixture.manifest(), resource)).outcome());
+            } else {
+                persistPublished("object-store-timeout", fixture, resource, "PUT_TIMEOUT_AFTER_COMMIT");
+            }
         } finally {
             setFaultMode(controlEndpoint, "NONE");
         }
@@ -181,6 +198,7 @@ class S3CompatibleMinioRealSmokeTest {
         final String bucket = required("NEREUS_DELAY_MINIO_BUCKET");
         final String region = valueOrDefault("NEREUS_DELAY_MINIO_REGION", DEFAULT_REGION);
         final Fixture fixture = fixture(URI.create(endpoint), region, bucket, accessKey);
+        persistBefore("config-drift", fixture, "CREDENTIAL_CONFIGURATION_DRIFT");
         final S3CompatibleCheckpointObjectStoreAdapter adapter = adapter(fixture, accessKey,
                 secretKey + "-drift", Duration.ofSeconds(5));
 
@@ -190,11 +208,173 @@ class S3CompatibleMinioRealSmokeTest {
         assertTrue(failure.getMessage().contains("HTTP 403"));
     }
 
+    @Test
+    void realMinioFaultRecoveryRunsInFreshProcess() throws Exception {
+        final Path stateDirectory = requiredStateDirectory();
+        recoverPublished("object-store-5xx");
+        recoverPublished("object-store-timeout");
+        recoverProviderFault("storage-provider-fault");
+        recoverProviderFault("config-drift");
+        assertTrue(Files.exists(stateDirectory.resolve("object-store-5xx/after.json")));
+    }
+
+    private static Path stateDirectoryOrNull() {
+        final String value = System.getenv("NEREUS_DELAY_MINIO_FAULT_STATE_DUMP_DIR");
+        return value == null || value.isBlank() ? null : Path.of(value).toAbsolutePath().normalize();
+    }
+
+    private static Path requiredStateDirectory() {
+        final Path value = stateDirectoryOrNull();
+        Assumptions.assumeTrue(value != null, "NEREUS_DELAY_MINIO_FAULT_STATE_DUMP_DIR is not configured");
+        return value;
+    }
+
+    private static void persistBefore(final String cell, final Fixture fixture, final String fault) throws Exception {
+        final Path stateDirectory = stateDirectoryOrNull();
+        if (stateDirectory == null) {
+            return;
+        }
+        final Path cellDirectory = stateDirectory.resolve(cell);
+        final Path checkpointDirectory = cellDirectory.resolve("checkpoint");
+        Files.createDirectories(checkpointDirectory);
+        writeForced(cellDirectory.resolve("manifest.json"), fixture.manifest().canonicalJsonBytes());
+        writeForced(cellDirectory.resolve("profile.bin"), fixture.profile().canonicalBytes());
+        writeForced(cellDirectory.resolve("pending-intent.bin"), fixture.pending().canonicalBytes());
+        for (CheckpointManifest.FileEntry file : fixture.manifest().files()) {
+            final Path target = checkpointDirectory.resolve(file.name()).normalize();
+            if (!target.startsWith(checkpointDirectory)) {
+                throw new IllegalStateException("checkpoint file escaped durable state directory: " + file.name());
+            }
+            writeForced(target, Files.readAllBytes(fixture.checkpointDirectory().resolve(file.name())));
+        }
+        writeDump(cellDirectory.resolve("before.json"), cell, "BEFORE_FRESH_PROCESS_RECOVERY", fault,
+                fixture.manifest(), fixture.pending(), null, false, "NO_RESOURCE_YET");
+    }
+
+    private static void persistPublished(final String cell, final Fixture fixture,
+                                         final CheckpointResourceV1 resource, final String fault) throws Exception {
+        final Path stateDirectory = requiredStateDirectory();
+        final Path cellDirectory = stateDirectory.resolve(cell);
+        final CheckpointUploadIntentV1 published = new CheckpointUploadIntentV1(
+                fixture.pending().shard(), fixture.pending().recoveryLineageId(), fixture.pending().checkpointId(),
+                fixture.pending().owner(), fixture.pending().sourceStoreIncarnation(), fixture.pending().uploadToken(),
+                fixture.pending().baseCatalogGeneration(), fixture.pending().parentCheckpointId(),
+                fixture.pending().parentManifestSha256(), fixture.pending().objectStoreProfile(),
+                fixture.pending().checkpointCreatedAt(), fixture.pending().uploadDeadlineEpochMs(),
+                CheckpointUploadStateV1.PUBLISHED, fixture.pending().stateRevision() + 1, resource, null);
+        writeForced(cellDirectory.resolve("resource.bin"), resource.canonicalBytes());
+        writeForced(cellDirectory.resolve("published-intent.bin"), published.canonicalBytes());
+        writeDump(cellDirectory.resolve("before.json"), cell, "BEFORE_FRESH_PROCESS_RECOVERY", fault,
+                fixture.manifest(), published, resource, true, "PUBLISHED_RESOURCE_DURABLE");
+    }
+
+    private void recoverPublished(final String cell) throws Exception {
+        final Path cellDirectory = requiredStateDirectory().resolve(cell);
+        final CheckpointManifest manifest = CheckpointManifest.decodeCanonicalJson(
+                Files.readAllBytes(cellDirectory.resolve("manifest.json")), LIMITS);
+        final ProfileSemanticEnvelopeV1 profile = ProfileSemanticEnvelopeV1.decode(
+                Files.readAllBytes(cellDirectory.resolve("profile.bin")));
+        final CheckpointUploadIntentV1 published = CheckpointUploadIntentV1.decode(
+                Files.readAllBytes(cellDirectory.resolve("published-intent.bin")));
+        final CheckpointResourceV1 resource = CheckpointResourceV1.decode(
+                Files.readAllBytes(cellDirectory.resolve("resource.bin")));
+        assertEquals(CheckpointUploadStateV1.PUBLISHED, published.state());
+        assertEquals(resource, published.publishedManifest());
+        assertArrayEquals(manifest.manifestSha256(), resource.manifestSha256());
+        final String accessKey = required("NEREUS_DELAY_MINIO_ACCESS_KEY");
+        final String secretKey = required("NEREUS_DELAY_MINIO_SECRET_KEY");
+        final S3CompatibleCheckpointObjectStoreAdapter adapter = adapter(profile, accessKey, secretKey,
+                Duration.ofSeconds(5));
+        final Path restored = adapter.download(new CheckpointDownloadRequest(manifest, resource),
+                tempDir.resolve(cell + "-restored"));
+        assertEquals("MANIFEST-1\n", Files.readString(restored.resolve("CURRENT")));
+        assertEquals("sst-bytes", Files.readString(restored.resolve("000001.sst")));
+        assertEquals(ResourceDeleteConfirmedBody.DeleteOutcome.DELETED,
+                adapter.delete(new CheckpointDeleteRequest(manifest, resource)).outcome());
+        final CheckpointPrefixSweepResult sweep = adapter.sweep(new CheckpointPrefixSweepRequest(
+                profile.ref(), manifest.recoveryLineageId(), manifest.checkpointId(), 100));
+        assertEquals(0, sweep.listedVersionCount());
+        assertTrue(sweep.emptyAfterSweep());
+        writeDump(cellDirectory.resolve("after.json"), cell, "RECOVERED_AFTER_FRESH_PROCESS", "NONE", manifest,
+                published, resource, false, "DOWNLOAD_EXACT_READBACK_DELETE_EXACT_VERSION");
+    }
+
+    private void recoverProviderFault(final String cell) throws Exception {
+        final Path cellDirectory = requiredStateDirectory().resolve(cell);
+        final CheckpointManifest manifest = CheckpointManifest.decodeCanonicalJson(
+                Files.readAllBytes(cellDirectory.resolve("manifest.json")), LIMITS);
+        final ProfileSemanticEnvelopeV1 profile = ProfileSemanticEnvelopeV1.decode(
+                Files.readAllBytes(cellDirectory.resolve("profile.bin")));
+        final CheckpointUploadIntentV1 pending = CheckpointUploadIntentV1.decode(
+                Files.readAllBytes(cellDirectory.resolve("pending-intent.bin")));
+        assertEquals(CheckpointUploadStateV1.PENDING_UPLOAD, pending.state());
+        final String accessKey = required("NEREUS_DELAY_MINIO_ACCESS_KEY");
+        final String secretKey = required("NEREUS_DELAY_MINIO_SECRET_KEY");
+        final S3CompatibleCheckpointObjectStoreAdapter adapter = adapter(profile, accessKey, secretKey,
+                Duration.ofSeconds(5));
+        final CheckpointPrefixSweepResult sweep = adapter.sweep(new CheckpointPrefixSweepRequest(
+                profile.ref(), manifest.recoveryLineageId(), manifest.checkpointId(), 100));
+        assertTrue(sweep.emptyAfterSweep());
+        writeDump(cellDirectory.resolve("after.json"), cell, "RECOVERED_AFTER_FRESH_PROCESS", "NONE", manifest,
+                pending, null, false, "EXACT_PREFIX_SWEEP_AFTER_PRECOMMIT_FAILURE");
+    }
+
+    private static void writeDump(final Path path, final String cell, final String phase, final String fault,
+                                  final CheckpointManifest manifest, final CheckpointUploadIntentV1 intent,
+                                  final CheckpointResourceV1 resource, final boolean objectPresent,
+                                  final String recoveryAction) throws Exception {
+        final String resourceDigest = resource == null ? "" : Bytes.hex(resource.manifestSha256());
+        final String json = "{\n"
+                + "  \"schema\": \"nereus-delay-chaos-durable-state-dump-v1\",\n"
+                + "  \"cell\": " + jsonString(cell) + ",\n"
+                + "  \"phase\": " + jsonString(phase) + ",\n"
+                + "  \"fault\": " + jsonString(fault) + ",\n"
+                + "  \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
+                + "  \"manifest_sha256\": " + jsonString(Bytes.hex(manifest.manifestSha256())) + ",\n"
+                + "  \"manifest_bytes\": " + manifest.canonicalJsonBytes().length + ",\n"
+                + "  \"intent_state\": " + jsonString(intent.state().name()) + ",\n"
+                + "  \"resource_present\": " + resourcePresent(objectPresent) + ",\n"
+                + "  \"resource_manifest_sha256\": " + jsonString(resourceDigest) + ",\n"
+                + "  \"recovery_action\": " + jsonString(recoveryAction) + ",\n"
+                + "  \"durable_store_read\": true,\n"
+                + "  \"dump_forced\": true\n"
+                + "}\n";
+        writeForced(path, json.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String resourcePresent(final boolean value) {
+        return Boolean.toString(value);
+    }
+
+    private static String jsonString(final String value) {
+        return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+    }
+
+    private static void writeForced(final Path path, final byte[] bytes) throws Exception {
+        final Path parent = path.getParent();
+        Files.createDirectories(parent);
+        try (FileChannel channel = FileChannel.open(path, StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
+            final ByteBuffer buffer = ByteBuffer.wrap(bytes);
+            while (buffer.hasRemaining()) {
+                channel.write(buffer);
+            }
+            channel.force(true);
+        }
+    }
+
     private static S3CompatibleCheckpointObjectStoreAdapter adapter(final Fixture fixture,
                                                                     final String accessKey,
                                                                     final String secretKey,
                                                                     final Duration timeout) {
-        return new S3CompatibleCheckpointObjectStoreAdapter(fixture.profile(),
+        return adapter(fixture.profile(), accessKey, secretKey, timeout);
+    }
+
+    private static S3CompatibleCheckpointObjectStoreAdapter adapter(final ProfileSemanticEnvelopeV1 profile,
+                                                                    final String accessKey,
+                                                                    final String secretKey,
+                                                                    final Duration timeout) {
+        return new S3CompatibleCheckpointObjectStoreAdapter(profile,
                 URI.create(required("NEREUS_DELAY_MINIO_ENDPOINT")),
                 valueOrDefault("NEREUS_DELAY_MINIO_REGION", DEFAULT_REGION),
                 required("NEREUS_DELAY_MINIO_BUCKET"), accessKey, secretKey, null, LIMITS,
@@ -219,8 +399,8 @@ class S3CompatibleMinioRealSmokeTest {
         Files.writeString(directory.resolve("000001.sst"), "sst-bytes");
         final ProfileSemanticEnvelopeV1 profile = profile(endpoint, region, bucket, accessKey);
         final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
-        final byte[] lineage = bytes(16, 2);
-        final byte[] checkpoint = bytes(16, 3);
+        final byte[] lineage = uuidBytes(UUID.randomUUID());
+        final byte[] checkpoint = uuidBytes(UUID.randomUUID());
         final UUID storeIncarnation = UUID.randomUUID();
         final OwnerIdentityV1 owner = new OwnerIdentityV1(bytes(8, 5), bytes(8, 6), 42, bytes(32, 7));
         final List<CheckpointFileInventory> inventory = CheckpointFileInventory.collect(directory, LIMITS);

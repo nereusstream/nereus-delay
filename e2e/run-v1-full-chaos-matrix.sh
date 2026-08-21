@@ -209,17 +209,77 @@ else
   echo "real MinIO child not run" >"${artifact_dir}/minio-fault.log"
 fi
 minio_artifact="${artifact_dir}/minio-fault/minio-fault-e2e.json"
+minio_state_dir=""
+minio_child_ready="FAIL"
 if [[ "${minio_exit}" == "0" && -s "${minio_artifact}" ]] \
-    && jq -e '.status == "PASS" and .test_exit_code == 0 and .docker_cleanup.status == "PASS"' \
-      "${minio_artifact}" >/dev/null 2>&1; then
-  minio_reason="real MinIO child passed, but it does not yet expose independent durable before/after dumps"
-else
-  minio_reason="real MinIO 5xx/timeout/configuration-drift child did not pass"
+    && jq -e --arg source "${candidate_delay}" \
+      '.status == "PASS" and .test_exit_code == 0
+       and .first_test_exit_code == 0 and .recovery_test_exit_code == 0
+       and .docker_cleanup.status == "PASS"
+       and .fresh_process_recovery.required == true
+       and .source_lock == $source' "${minio_artifact}" >/dev/null 2>&1; then
+  minio_state_dir="$(jq -r '.minio.state_dump_dir // empty' "${minio_artifact}")"
+  [[ -n "${minio_state_dir}" ]] && minio_child_ready="PASS"
 fi
-blocked_cell object-store-5xx "inject PUT_503_AFTER_COMMIT and PUT_503_BEFORE_COMMIT at the real MinIO proxy" "${minio_reason}"
-blocked_cell object-store-timeout "inject PUT_TIMEOUT_AFTER_COMMIT at the real MinIO proxy" "${minio_reason}"
-blocked_cell storage-provider-fault "inject provider failure before immutable checkpoint Commit" "${minio_reason}"
-blocked_cell config-drift "replace the provider credential configuration with a drifted binding" "${minio_reason}"
+
+minio_cell() {
+  local name="$1" point="$2" state_cell="$3" expected_fault="$4"
+  local expected_intent="$5" expected_resource_before="$6" expected_action="$7"
+  if [[ "${minio_child_ready}" != "PASS" || ! -d "${minio_state_dir}/${state_cell}" ]]; then
+    blocked_cell "${name}" "${point}" "real MinIO child or its state-dump directory did not pass"
+    return
+  fi
+  local before_dump="${minio_state_dir}/${state_cell}/before.json"
+  local after_dump="${minio_state_dir}/${state_cell}/after.json"
+  local pair_status="FAIL"
+  if [[ -s "${before_dump}" && -s "${after_dump}" ]] \
+      && jq -n --slurpfile before "${before_dump}" --slurpfile after "${after_dump}" \
+        --arg cell "${state_cell}" --arg fault "${expected_fault}" \
+        --arg intent "${expected_intent}" --arg action "${expected_action}" \
+        --argjson resource_before "${expected_resource_before}" \
+        '($before | length) == 1 and ($after | length) == 1
+         and $before[0].schema == "nereus-delay-chaos-durable-state-dump-v1"
+         and $after[0].schema == "nereus-delay-chaos-durable-state-dump-v1"
+         and $before[0].cell == $cell and $after[0].cell == $cell
+         and $before[0].phase == "BEFORE_FRESH_PROCESS_RECOVERY"
+         and $after[0].phase == "RECOVERED_AFTER_FRESH_PROCESS"
+         and $before[0].fault == $fault and $after[0].fault == "NONE"
+         and $before[0].dump_forced == true and $after[0].dump_forced == true
+         and $before[0].durable_store_read == true and $after[0].durable_store_read == true
+         and ($before[0].process_pid != $after[0].process_pid)
+         and ($before[0].manifest_sha256 == $after[0].manifest_sha256)
+         and $before[0].intent_state == $intent
+         and $before[0].resource_present == $resource_before
+         and $after[0].resource_present == false
+         and $after[0].recovery_action == $action' >/dev/null 2>&1; then
+    pair_status="PASS"
+  fi
+  if [[ "${pair_status}" != "PASS" ]]; then
+    blocked_cell "${name}" "${point}" "real MinIO before/after dumps failed independent fresh-process validation"
+    return
+  fi
+  local cell_json
+  cell_json="$(jq -cn --arg name "${name}" --arg point "${point}" \
+      --arg child "${minio_artifact}" --arg before "${before_dump}" --arg after "${after_dump}" \
+      '{($name): {
+        status:"PASS",
+        injection:{status:"PASS",point:$point},
+        before_after:{status:"PASS",audit:{status:"CAPTURED_AND_VERIFIED",before_dump:$before,after_dump:$after}},
+        fresh_process_recovery:"PASS",
+        invariant_audit:"INDEPENDENT_FIELDS_PASS",
+        evidence:{child_artifact:$child,before_dump:$before,after_dump:$after}
+      }}')"
+  add_cell "${cell_json}"
+}
+
+minio_cell object-store-5xx "inject PUT_503_AFTER_COMMIT at the real MinIO proxy" \
+  object-store-5xx PUT_503_AFTER_COMMIT PUBLISHED true DOWNLOAD_EXACT_READBACK_DELETE_EXACT_VERSION
+minio_cell object-store-timeout "inject PUT_TIMEOUT_AFTER_COMMIT at the real MinIO proxy" \
+  object-store-timeout PUT_TIMEOUT_AFTER_COMMIT PUBLISHED true DOWNLOAD_EXACT_READBACK_DELETE_EXACT_VERSION
+minio_cell storage-provider-fault "inject provider failure before immutable checkpoint Commit" \
+  storage-provider-fault PUT_503_BEFORE_COMMIT PENDING_UPLOAD false EXACT_PREFIX_SWEEP_AFTER_PRECOMMIT_FAILURE
+minio_cell config-drift "replace the provider credential configuration with a drifted binding" \
+  config-drift CREDENTIAL_CONFIGURATION_DRIFT PENDING_UPLOAD false EXACT_PREFIX_SWEEP_AFTER_PRECOMMIT_FAILURE
 blocked_cell credential-binding-drift "rotate the credential head across a protected use lease" "credential lease rotation still needs an independent durable before/after fault receipt"
 
 # These cuts are intentionally not synthesized from a marker-only unit test.

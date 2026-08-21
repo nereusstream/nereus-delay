@@ -5,6 +5,7 @@ e2e_root=$(cd "$(dirname "$0")" && pwd)
 delay_root=$(cd "$e2e_root/.." && pwd)
 artifact_dir=${NEREUS_DELAY_MINIO_FAULT_ARTIFACT_DIR:-$(mktemp -d -t nereus-delay-minio-fault-artifact.XXXXXX)}
 artifact_file="$artifact_dir/minio-fault-e2e.json"
+state_dump_dir=${NEREUS_DELAY_MINIO_FAULT_STATE_DUMP_DIR:-$artifact_dir/state}
 started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 minio_image="quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z"
 minio_digest="sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
@@ -21,6 +22,8 @@ proxy_pid=""
 container_started=0
 cleanup_status="PASS"
 test_status=-1
+first_test_status=-1
+recovery_test_status=-1
 source_ref=""
 source_lock=""
 image_id=""
@@ -33,6 +36,11 @@ fi
 mkdir -p "$artifact_dir"
 if [[ -n "$(find "$artifact_dir" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
     echo "MinIO fault artifact directory must be empty: $artifact_dir" >&2
+    exit 1
+fi
+mkdir -p "$state_dump_dir"
+if [[ -n "$(find "$state_dump_dir" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+    echo "MinIO fault state dump directory must be empty: $state_dump_dir" >&2
     exit 1
 fi
 if [[ ! "$minio_port" =~ ^[0-9]+$ || ! "$proxy_port" =~ ^[0-9]+$ ]]; then
@@ -104,9 +112,12 @@ cleanup() {
         --arg minio_port "$minio_port" \
         --arg proxy_port "$proxy_port" \
         --arg bucket "$minio_bucket" \
+        --arg state_dump_dir "$state_dump_dir" \
         --arg started_at "$started_at" \
         --arg finished_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         --argjson test_exit_code "$test_status" \
+        --argjson first_test_exit_code "$first_test_status" \
+        --argjson recovery_test_exit_code "$recovery_test_status" \
         --arg cleanup_status "$cleanup_status" \
         '{
           schema: $schema,
@@ -120,15 +131,29 @@ cleanup() {
             container: $container,
             minio_port: ($minio_port | tonumber),
             fault_proxy_port: ($proxy_port | tonumber),
-            bucket: $bucket
+            bucket: $bucket,
+            state_dump_dir: $state_dump_dir
           },
           tests: [
             "realMinioFiveHundredAfterCommitResolvesByExactReadback",
             "realMinioFiveHundredBeforeCommitRemainsFailClosed",
             "realMinioTimeoutAfterCommitResolvesByExactReadback",
-            "realMinioCredentialConfigurationDriftFailsClosed"
+            "realMinioCredentialConfigurationDriftFailsClosed",
+            "realMinioFaultRecoveryRunsInFreshProcess"
           ],
           test_exit_code: $test_exit_code,
+          first_test_exit_code: $first_test_exit_code,
+          recovery_test_exit_code: $recovery_test_exit_code,
+          fresh_process_recovery: {
+            required: true,
+            state_dump_directory: $state_dump_dir,
+            before_after_pairs: [
+              "object-store-5xx/before.json -> after.json",
+              "object-store-timeout/before.json -> after.json",
+              "storage-provider-fault/before.json -> after.json",
+              "config-drift/before.json -> after.json"
+            ]
+          },
           docker_cleanup: {status: $cleanup_status, container_removed: ($cleanup_status == "PASS")},
           started_at: $started_at,
           finished_at: $finished_at,
@@ -210,17 +235,40 @@ NEREUS_DELAY_MINIO_ACCESS_KEY="$minio_access_key" \
 NEREUS_DELAY_MINIO_SECRET_KEY="$minio_secret_key" \
 NEREUS_DELAY_MINIO_BUCKET="$minio_bucket" \
 NEREUS_DELAY_MINIO_REGION="$minio_region" \
+NEREUS_DELAY_MINIO_FAULT_STATE_DUMP_DIR="$state_dump_dir" \
 GRADLE_USER_HOME="$gradle_user_home" \
     "$delay_root/gradlew" test \
         --tests io.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioFiveHundredAfterCommitResolvesByExactReadback \
         --tests io.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioFiveHundredBeforeCommitRemainsFailClosed \
         --tests io.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioTimeoutAfterCommitResolvesByExactReadback \
         --tests io.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioCredentialConfigurationDriftFailsClosed \
+        -Dorg.gradle.test.retries.max=0 \
         --rerun-tasks --no-daemon --console=plain
-test_status=$?
+first_test_status=$?
+test_status=$first_test_status
 set -e
 if [[ "$test_status" != 0 ]]; then
     exit "$test_status"
 fi
 
-echo "Real MinIO Object Store 5xx/timeout/config-drift fault E2E passed: exact immutable read-back resolved post-commit 503/timeout and real MinIO rejected drifted credentials"
+set +e
+NEREUS_DELAY_MINIO_ENDPOINT="$proxy_endpoint" \
+NEREUS_DELAY_MINIO_FAULT_CONTROL="$proxy_endpoint/__fault" \
+NEREUS_DELAY_MINIO_ACCESS_KEY="$minio_access_key" \
+NEREUS_DELAY_MINIO_SECRET_KEY="$minio_secret_key" \
+NEREUS_DELAY_MINIO_BUCKET="$minio_bucket" \
+NEREUS_DELAY_MINIO_REGION="$minio_region" \
+NEREUS_DELAY_MINIO_FAULT_STATE_DUMP_DIR="$state_dump_dir" \
+GRADLE_USER_HOME="$gradle_user_home" \
+    "$delay_root/gradlew" test \
+        --tests io.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioFaultRecoveryRunsInFreshProcess \
+        -Dorg.gradle.test.retries.max=0 \
+        --rerun-tasks --no-daemon --console=plain
+recovery_test_status=$?
+test_status=$recovery_test_status
+set -e
+if [[ "$test_status" != 0 ]]; then
+    exit "$test_status"
+fi
+
+echo "Real MinIO Object Store fault E2E passed: first JVM injected 5xx/timeout/config drift and second JVM performed exact recovery/delete with forced durable state dumps"
