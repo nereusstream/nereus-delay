@@ -484,15 +484,165 @@ else
     "target-isolation durable before/after child failed (before=${target_isolation_before_exit}, after=${target_isolation_after_exit})"
 fi
 
-# These cuts are intentionally not synthesized from a marker-only unit test.
-# They remain explicit blockers until their real injection and recovery child
-# is added with a durable dump that a fresh process can reopen.
+storage_dir="${artifact_dir}/local-storage-chaos"
+storage_artifact="${storage_dir}/local-storage-chaos-e2e.json"
+storage_exit=1
+if [[ "${source_status}" == "PASS" ]]; then
+  set +e
+  NEREUS_DELAY_STORAGE_CHAOS_ARTIFACT_DIR="${storage_dir}" \
+  NEREUS_DELAY_STORAGE_CHAOS_GRADLE_USER_HOME="${gradle_home}" \
+    bash "${script_dir}/run-local-storage-chaos-e2e.sh" \
+      >"${artifact_dir}/local-storage-chaos-child.log" 2>&1
+  storage_exit=$?
+  set -e
+else
+  echo "source boundary blocked; local storage child was not started" \
+    >"${artifact_dir}/local-storage-chaos-child.log"
+fi
+storage_child_ready="FAIL"
+if [[ "${storage_exit}" == "0" && -s "${storage_artifact}" ]] \
+    && jq -e --arg delay "${candidate_delay}" \
+      '.schema == "nereus-delay-local-storage-chaos-e2e-v1"
+       and .status == "PASS"
+       and .source_locks.delay == $delay
+       and .fresh_process_recovery == true
+       and .docker_cleanup.status == "PASS"
+       and ([.cells[].name] | sort) == ["disaster-host-fault", "fsync-error", "sst-corruption"]
+       and ([.cells[].status] | all(. == "PASS"))' \
+      "${storage_artifact}" >/dev/null 2>&1; then
+  storage_child_ready="PASS"
+fi
+
+storage_cell() {
+  local name="$1" point="$2"
+  local cell_dir="${storage_dir}/${name}"
+  local before_dump="${cell_dir}/before.json"
+  local after_dump="${cell_dir}/after.json"
+  local kill_receipt="${cell_dir}/kill-receipt.json"
+  local pair_status="FAIL"
+  if [[ "${storage_child_ready}" == "PASS" && -s "${before_dump}" && -s "${after_dump}" ]]; then
+    case "${name}" in
+      fsync-error)
+        if jq -n --slurpfile before "${before_dump}" --slurpfile after "${after_dump}" \
+          '($before | length) == 1 and ($after | length) == 1
+           and $before[0].schema == "nereus-delay-storage-chaos-durable-state-dump-v1"
+           and $after[0].schema == "nereus-delay-storage-chaos-durable-state-dump-v1"
+           and $before[0].cell == "fsync-error" and $after[0].cell == "fsync-error"
+           and $before[0].phase == "BEFORE_FRESH_PROCESS_RECOVERY"
+           and $after[0].phase == "RECOVERED_AFTER_FRESH_PROCESS"
+           and $before[0].fault == "FSYNC_ERROR" and $after[0].fault == "FSYNC_ERROR"
+           and $before[0].dump_forced == true and $after[0].dump_forced == true
+           and $before[0].durable_store_read == true and $after[0].durable_store_read == true
+           and $before[0].flush_sync_failure_observed == true
+           and $before[0].write_outcome_uncertain == true
+           and $after[0].write_outcome_uncertain == false
+           and $after[0].value_recovered_exactly == true
+           and $before[0].key_sha256 == $after[0].key_sha256
+           and $before[0].value_sha256 == $after[0].value_sha256
+           and ($before[0].process_pid | type == "number")
+           and ($after[0].process_pid | type == "number")
+           and $before[0].process_pid != $after[0].process_pid
+           and $after[0].recovery_action == "FRESH_PROCESS_REOPENED_AFTER_FSYNC_FAILURE"' \
+          >/dev/null 2>&1; then
+          pair_status="PASS"
+        fi
+        ;;
+      sst-corruption)
+        if jq -n --slurpfile before "${before_dump}" --slurpfile after "${after_dump}" \
+          '($before | length) == 1 and ($after | length) == 1
+           and $before[0].schema == "nereus-delay-storage-chaos-durable-state-dump-v1"
+           and $after[0].schema == "nereus-delay-storage-chaos-durable-state-dump-v1"
+           and $before[0].cell == "sst-corruption" and $after[0].cell == "sst-corruption"
+           and $before[0].phase == "BEFORE_FRESH_PROCESS_RECOVERY"
+           and $after[0].phase == "RECOVERED_AFTER_FRESH_PROCESS"
+           and $before[0].fault == "SST_CORRUPTION" and $after[0].fault == "SST_CORRUPTION"
+           and $before[0].dump_forced == true and $after[0].dump_forced == true
+           and $before[0].durable_store_read == true and $after[0].durable_store_read == true
+           and $before[0].clean_checkpoint_present == true
+           and ($before[0].clean_checkpoint_file_count | type == "number" and . >= 1)
+           and $after[0].corruption_rejected == true
+           and $after[0].clean_restore_exact == true
+           and $before[0].clean_checkpoint_inventory_sha256
+               != $after[0].corrupt_checkpoint_inventory_sha256
+           and $before[0].key_sha256 == $after[0].key_sha256
+           and $before[0].value_sha256 == $after[0].value_sha256
+           and ($before[0].process_pid | type == "number")
+           and ($after[0].process_pid | type == "number")
+           and $before[0].process_pid != $after[0].process_pid
+           and $after[0].recovery_action
+               == "FRESH_PROCESS_REJECTED_CORRUPT_SST_AND_RESTORED_CLEAN_CHECKPOINT"' \
+          >/dev/null 2>&1; then
+          pair_status="PASS"
+        fi
+        ;;
+      disaster-host-fault)
+        if [[ -s "${kill_receipt}" ]] \
+          && jq -n --slurpfile before "${before_dump}" --slurpfile after "${after_dump}" \
+            --slurpfile kill "${kill_receipt}" \
+            '($before | length) == 1 and ($after | length) == 1 and ($kill | length) == 1
+             and $before[0].schema == "nereus-delay-storage-chaos-durable-state-dump-v1"
+             and $after[0].schema == "nereus-delay-storage-chaos-durable-state-dump-v1"
+             and $kill[0].schema == "nereus-delay-storage-chaos-kill-receipt-v1"
+             and $before[0].cell == "disaster-host-fault" and $after[0].cell == "disaster-host-fault"
+             and $before[0].phase == "BEFORE_FRESH_PROCESS_RECOVERY"
+             and $after[0].phase == "RECOVERED_AFTER_FRESH_PROCESS"
+             and $before[0].fault == "DISASTER_HOST_FAULT"
+             and $after[0].fault == "DISASTER_HOST_FAULT"
+             and $before[0].dump_forced == true and $after[0].dump_forced == true
+             and $before[0].durable_store_read == true and $after[0].durable_store_read == true
+             and $before[0].host_fault_pending == true
+             and $before[0].store_left_open_for_host_fault == true
+             and $kill[0].fault == "DISASTER_HOST_FAULT"
+             and $kill[0].signal == "SIGKILL" and $kill[0].signal_number == 9
+             and $kill[0].exact_target == true
+             and $kill[0].target_process_pid == $before[0].process_pid
+             and $after[0].host_fault_pending == false
+             and $after[0].host_fault_signal == "SIGKILL"
+             and $after[0].value_recovered_exactly == true
+             and $before[0].key_sha256 == $after[0].key_sha256
+             and $before[0].value_sha256 == $after[0].value_sha256
+             and ($before[0].process_pid | type == "number")
+             and ($after[0].process_pid | type == "number")
+             and $before[0].process_pid != $after[0].process_pid
+             and $after[0].recovery_action
+                 == "FRESH_PROCESS_REOPENED_AFTER_SIGKILL_AND_REPLAYED_DURABLE_STORE"' \
+            >/dev/null 2>&1; then
+          pair_status="PASS"
+        fi
+        ;;
+    esac
+  fi
+  if [[ "${pair_status}" == "PASS" ]]; then
+    add_cell "$(jq -cn --arg name "${name}" --arg point "${point}" \
+      --arg child "${storage_artifact}" --arg before "${before_dump}" --arg after "${after_dump}" \
+      --arg kill "${kill_receipt}" \
+      '{($name): {
+        status:"PASS",
+        injection:{status:"PASS",point:$point},
+        before_after:{status:"PASS",audit:{status:"CAPTURED_AND_VERIFIED",before_dump:$before,after_dump:$after}},
+        fresh_process_recovery:"PASS",
+        invariant_audit:"INDEPENDENT_FIELDS_PASS",
+        evidence:(
+          {child_artifact:$child,before_dump:$before,after_dump:$after}
+          + (if $name == "disaster-host-fault" then {kill_receipt:$kill} else {} end)
+        )
+      }}')"
+  else
+    blocked_cell "${name}" "${point}" \
+      "local storage before/after child failed independent fresh-process validation (exit=${storage_exit})"
+  fi
+}
+
+storage_cell fsync-error "fail the directory/WAL flush boundary after an accepted synchronous WriteBatch"
+storage_cell sst-corruption "corrupt one copied SST after clean checkpoint publication and restore the clean image"
+storage_cell disaster-host-fault "SIGKILL the exact host-side Worker JVM after durable local Store read"
+
+# These three cuts still require dedicated real injection and recovery
+# children; the full matrix keeps them explicit rather than synthesizing a
+# PASS from marker-only unit state.
 blocked_cell long-gc "pause the Worker at the long-GC admission boundary" "no deterministic long-GC fresh-process dump child"
 blocked_cell half-open "hold a half-open native connection past the channel deadline" "no real half-open transport dump child"
 blocked_cell enospc "fill the exact Store/checkpoint filesystem to the ENOSPC boundary" "no safe exact ENOSPC fixture with durable before/after dump"
-blocked_cell fsync-error "fail directory/WAL fsync after the accepted WriteBatch boundary" "no current-source fsync fault child artifact"
-blocked_cell sst-corruption "corrupt one copied SST after checkpoint publication" "no current-source SST corruption fresh-process child"
-blocked_cell disaster-host-fault "terminate the host-side Worker process and restore from the exact floor" "no disaster-host fresh-process child artifact"
 
 all_pass="PASS"
 for name in "${required_cells[@]}"; do
