@@ -219,6 +219,7 @@ measurement_status="MISSING"
 measurement_source_status="MISSING"
 measurement_config_status="MISSING"
 measurement_cells_status="MISSING"
+full_matrix_status="MISSING"
 measurement_detail="A physical measurement artifact is required"
 if [[ -n "${measurement_artifact}" && -s "${measurement_artifact}" ]] \
     && jq empty "${measurement_artifact}" >/dev/null 2>&1; then
@@ -240,6 +241,20 @@ if [[ -n "${measurement_artifact}" && -s "${measurement_artifact}" ]] \
        and (.campaign.physical_contract_tests.exit_code == 0)
        and (.campaign.real_kafka_large_payload.exit_code == 0)
        and (.campaign.real_pulsar_large_payload.exit_code == 0)
+       and (.campaign.full_v1_matrix.status == "PASS")
+       and ((.campaign.full_v1_matrix.record_cardinalities | sort) == [1000000,10000000,100000000])
+       and ((.campaign.full_v1_matrix.arrival_patterns | sort | unique) == ["burst","uniform","zipf"])
+       and ((.campaign.full_v1_matrix.ordering_modes | sort | unique) == ["ordered","unordered"])
+       and ((.campaign.full_v1_matrix.consistency_modes | sort | unique) == ["baseline","strong"])
+       and ((.campaign.full_v1_matrix.target_health | sort | unique) == ["bad","healthy"])
+       and ((.campaign.full_v1_matrix.placement_modes | sort | unique) == ["multi-shard","single-shard"])
+       and ((.campaign.full_v1_matrix.payload_modes | sort | unique) == ["inline","object"])
+       and (.campaign.full_v1_matrix.observations | type == "array" and length >= 8)
+       and all(.campaign.full_v1_matrix.observations[];
+         .status == "PASS"
+         and (.metrics | type == "object" and length >= 3)
+         and (.invariants | type == "array" and length >= 3)
+         and (.provenance | type == "object"))
        and (.platform_observation | type == "object")
        and (.platform_observation.cgroup_memory_limit_bytes | type == "number" and . > 0)
        and (.platform_observation.direct_memory_bytes | type == "number" and . > 0)
@@ -267,6 +282,7 @@ if [[ -n "${measurement_artifact}" && -s "${measurement_artifact}" ]] \
     measurement_source_status="PASS"
     measurement_config_status="PASS"
     measurement_cells_status="PASS"
+    full_matrix_status="PASS"
     measurement_detail="exact source-locked physical envelope observations"
   else
     measurement_detail="measurement artifact is stale, incomplete or not PASS"
@@ -303,6 +319,7 @@ if [[ "${measurement_status}" != "PASS" ]]; then
   adapter_zombie_bounds="FAIL"
   lane_fairness="FAIL"
   slo_envelope="FAIL"
+  full_matrix_status="FAIL"
 fi
 if [[ "${gate}" == "benchmark" ]]; then
   resource_control_reserve="PASS"
@@ -313,7 +330,8 @@ fi
 
 status="PASS_CERTIFIED"
 if [[ "${test_exit_code}" != "0" || "${real_status}" != "PASS" \
-    || "${measurement_status}" != "PASS" || "${source_status}" != "PASS" \
+    || "${measurement_status}" != "PASS" || "${full_matrix_status}" != "PASS" \
+    || "${source_status}" != "PASS" \
     || "${coverage_status}" != "PASS" || "${independent_audit}" != "PASS" \
     || "${required_status}" != "PASS" || "${throughput_status}" != "PASS" \
     || "${slo_status}" != "PASS" || "${resource_control_reserve}" != "PASS" \
@@ -329,11 +347,13 @@ observations="$(jq -n \
   --arg fairness "${lane_fairness}" --arg envelope "${slo_envelope}" \
   --arg measurement "${measurement_status}" --arg source "${measurement_source_status}" \
   --arg configs "${measurement_config_status}" --arg cells "${measurement_cells_status}" \
+  --arg full_matrix "${full_matrix_status}" \
   '{required_configurations_status:$required,throughput_status:$throughput,slo_status:$slo,
     resource_control_reserve:$reserve,adapter_physical_bounds:$physical,
     adapter_zombie_bounds:$zombie,lane_fairness:$fairness,slo_envelope:$envelope,
     measurement_status:$measurement,measurement_source_status:$source,
-    measurement_configurations_status:$configs,measurement_cells_status:$cells}')"
+    measurement_configurations_status:$configs,measurement_cells_status:$cells,
+    full_v1_matrix_status:$full_matrix}')"
 
 artifact="${artifact_dir}/full-v1-gate-input.json"
 jq -n \

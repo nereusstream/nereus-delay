@@ -203,6 +203,7 @@ set -e
 real_log=""
 real_exit_code=0
 real_status="NOT_REQUESTED"
+real_artifact=""
 if [[ "${run_real}" == "1" ]]; then
   case "${gate}" in
     soak)
@@ -245,6 +246,35 @@ if [[ "${run_real}" == "1" ]]; then
       bash "${script_dir}/run-certified-operations-drills.sh" >"${real_log}" 2>&1
       real_exit_code=$?
       set -e
+      ;;
+    upgrade-downgrade)
+      real_artifact_dir="${artifact_dir}/protocol-activation-cutover"
+      real_artifact="${real_artifact_dir}/protocol-activation-cutover.json"
+      real_log="${artifact_dir}/protocol-activation-cutover.log"
+      mkdir -p "${real_artifact_dir}"
+      set +e
+      NEREUS_DELAY_CERTIFIED_ACTIVATION_ARTIFACT_DIR="${real_artifact_dir}" \
+      NEREUS_DELAY_CERTIFIED_ACTIVATION_GRADLE_USER_HOME="${real_gradle_home}" \
+      NEREUS_DELAY_CERTIFIED_ACTIVATION_PROFILE_ID="${profile_id}" \
+      NEREUS_DELAY_KAFKA_CHECKOUT="${kafka_dir}" \
+      NEREUS_DELAY_PULSAR_CHECKOUT="${pulsar_dir}" \
+      NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
+        bash "${script_dir}/run-certified-protocol-activation-cutover.sh" >"${real_log}" 2>&1
+      real_exit_code=$?
+      set -e
+      if [[ "${real_exit_code}" == "0" && -s "${real_artifact}" ]] \
+          && jq -e --arg delay "${delay_source}" --arg kafka "${kafka_source}" \
+            --arg pulsar "${pulsar_source}" --arg oxia "${oxia_source}" \
+            '.status == "PASS_CERTIFIED"
+             and .source_locks == {delay:$delay,kafka:$kafka,pulsar:$pulsar,oxia:$oxia}
+             and .external_authority.status == "PASS"
+             and .external_authority.fresh_session_recovery == "PASS"
+             and .external_authority.cleanup_status == "PASS"' \
+            "${real_artifact}" >/dev/null 2>&1; then
+        real_status="PASS_CERTIFIED"
+      else
+        real_status="FAIL"
+      fi
       ;;
     *)
       real_status="NO_REAL_CHILD_FOR_GATE"
@@ -351,6 +381,14 @@ if [[ "${gate}" == "operations" && "${run_real}" == "1" && "${real_status}" != "
   uncertain_override="FAIL"
   disaster_recovery="FAIL"
 fi
+if [[ "${gate}" == "upgrade-downgrade" \
+    && ( "${run_real}" != "1" || "${real_status}" != "PASS_CERTIFIED" ) ]]; then
+  required_status="FAIL"
+  writer_before_reader="FAIL"
+  downgrade="FAIL"
+  same_bytes_different_version_dedupe="FAIL"
+  backup_restore_fence="FAIL"
+fi
 if [[ "${gate}" == "benchmark" || "${gate}" == "capacity" ]]; then
   required_status="FAIL"
   throughput_status="FAIL"
@@ -396,7 +434,8 @@ case "${gate}" in
   upgrade-downgrade)
     observations="$(jq -n --arg writer "${writer_before_reader}" --arg downgrade "${downgrade}" \
       --arg dedupe "${same_bytes_different_version_dedupe}" --arg fence "${backup_restore_fence}" \
-      '{writer_before_reader:$writer,downgrade:$downgrade,same_bytes_different_version_dedupe:$dedupe,backup_restore_fence:$fence}')" ;;
+      --arg authority "${real_status}" \
+      '{writer_before_reader:$writer,downgrade:$downgrade,same_bytes_different_version_dedupe:$dedupe,backup_restore_fence:$fence,external_authority:$authority}')" ;;
   operations)
     observations="$(jq -n --arg restore "${restore}" --arg fence "${fence}" --arg dlq "${dlq}" \
       --arg uncertain "${uncertain_override}" --arg disaster "${disaster_recovery}" \
@@ -429,7 +468,7 @@ jq -n \
     coverage:{complete_v1:($status == "PASS_CERTIFIED"),required:$required,observed:$required,exclusions:[]},
     evidence:{test_exit_code:$test_exit_code,source_lock_status:"PASS",coverage_status:(if ($status == "PASS_CERTIFIED") then "PASS" else "FAIL" end),independent_audit:(if ($status == "PASS_CERTIFIED") then "PASS" else "FAIL" end)},
     tests:$tests,test_log:$test_log,
-    child_evidence:{capacity_probe:$probe_artifact,real_child:{status:$real_status,exit_code:$real_exit_code,log:$real_log}},
+    child_evidence:{capacity_probe:$probe_artifact,real_child:{status:$real_status,exit_code:$real_exit_code,log:$real_log,artifact:$real_artifact}},
     observations:$observations,policy:$policy,
     boundaries:[]
   }' >"${artifact}"

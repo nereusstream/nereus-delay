@@ -852,6 +852,10 @@ all_pass="PASS"
 for name in "${required_cells[@]}"; do
   status="$(jq -r --arg name "${name}" '.[$name].status // "BLOCKED"' <<<"${cells_json}")"
   [[ "${status}" == "PASS" ]] || all_pass="BLOCKED"
+  invariant="$(jq -r --arg name "${name}" '.[$name].invariant_audit // "BLOCKED"' <<<"${cells_json}")"
+  [[ "${invariant}" == "INDEPENDENT_FIELDS_PASS" ]] || all_pass="BLOCKED"
+  durable="$(jq -r --arg name "${name}" '.[$name].before_after.audit.status // "BLOCKED"' <<<"${cells_json}")"
+  [[ "${durable}" == "CAPTURED_AND_VERIFIED" ]] || all_pass="BLOCKED"
 done
 [[ "${source_status}" == "PASS" && "${bounded_exit}" == "0" \
     && "${bounded_status}" == "PASS_CERTIFIED" && "${bounded_locks_match}" == "PASS" ]] || all_pass="BLOCKED"

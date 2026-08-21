@@ -226,9 +226,9 @@ check_full_gate_artifact() {
       and (. as \$root | all(\$required[]; . as \$cell | \$root.cells[\$cell].status == \"PASS\"
         and \$root.cells[\$cell].injection.status == \"PASS\"
         and \$root.cells[\$cell].before_after.status == \"PASS\"
+        and \$root.cells[\$cell].before_after.audit.status == \"CAPTURED_AND_VERIFIED\"
         and \$root.cells[\$cell].fresh_process_recovery == \"PASS\"
-        and (\$root.cells[\$cell].invariant_audit == \"PASS\"
-          or \$root.cells[\$cell].invariant_audit == \"INDEPENDENT_FIELDS_PASS\")))";;
+        and \$root.cells[\$cell].invariant_audit == \"INDEPENDENT_FIELDS_PASS\")))";;
     real-service) filter="${filter}
       and (.observations.activation_cutover == \"PASS\")
       and (.observations.cross_route_paths == \"PASS\")
@@ -243,14 +243,16 @@ check_full_gate_artifact() {
     benchmark) filter="${filter}
       and (.observations.required_configurations_status == \"PASS\")
       and (.observations.throughput_status == \"PASS\")
-      and (.observations.slo_status == \"PASS\")";;
+      and (.observations.slo_status == \"PASS\")
+      and (.observations.full_v1_matrix_status == \"PASS\")";;
     capacity) filter="${filter}
       and (.observations.resource_control_reserve == \"PASS\")
       and (.observations.adapter_physical_bounds == \"PASS\")
       and (.observations.adapter_zombie_bounds == \"PASS\")
       and (.observations.lane_fairness == \"PASS\")
       and (.observations.slo_envelope == \"PASS\")
-      and (.observations.required_configurations_status == \"PASS\")";;
+      and (.observations.required_configurations_status == \"PASS\")
+      and (.observations.full_v1_matrix_status == \"PASS\")";;
     soak) filter="${filter}
       and (.policy.required_cycles | type == \"number\" and . >= 2 and . == floor)
       and (.policy.required_duration_seconds | type == \"number\" and . >= 1)
@@ -264,7 +266,10 @@ check_full_gate_artifact() {
       and (.observations.writer_before_reader == \"PASS\")
       and (.observations.downgrade == \"PASS\")
       and (.observations.same_bytes_different_version_dedupe == \"PASS\")
-      and (.observations.backup_restore_fence == \"PASS\")";;
+      and (.observations.backup_restore_fence == \"PASS\")
+      and (.observations.external_authority == \"PASS_CERTIFIED\")
+      and (.child_evidence.real_child.status == \"PASS_CERTIFIED\")
+      and (.child_evidence.real_child.exit_code == 0)";;
     operations) filter="${filter}
       and (.observations.restore == \"PASS\") and (.observations.fence == \"PASS\")
       and (.observations.dlq == \"PASS\") and (.observations.uncertain_override == \"PASS\")
