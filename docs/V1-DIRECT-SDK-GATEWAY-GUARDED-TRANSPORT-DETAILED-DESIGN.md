@@ -8651,3 +8651,44 @@ V1 inputs were absent and therefore `BLOCKED` by the validator, leaving the
 strict release result `NOT_READY`. The Gradle run still skips opt-in external
 Oxia/MinIO/chaos methods when their endpoints are unset; this audit does not
 promote those skips or any bounded receipt into release PASS.
+
+## 2026-08-22 current-source Large Payload and operations evidence refresh
+
+The current documentation-overlay source is Delay `336f6586a7013938356eea6bd3093225a646d7b1`, with Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The source-locked physical-capacity runner produced
+`/private/tmp/nereus-delay-v1-full-capacity-current-20260822-r1/full-v1-gate-input.json`
+(SHA-256 `1e69acee2181ba87ec0d03bea9cc8689ed40951eda1db1ff5bb8ddd4361cba0d`).
+Its Delay contract tests and both real children passed. Kafka's two-shard
+Gateway mTLS/JWT -> Oxia Assignment/Owner -> Worker -> real MinIO -> destination
+`PUBLISHED` receipt is recorded in
+`kafka-large-payload-multi-shard.log` (SHA-256
+`7e1a8ac79733a8b86e28ea1683787a01863ae3d5dfc757b0a449f9ade47311ad`); Pulsar's
+corresponding two-guarded-partition/two-Worker chain is recorded in
+`pulsar-large-payload-multi-shard.log` (SHA-256
+`54617e4489106e56e183a771244af5bb8401a4df914dca66c8ced8a79c9ffdc8`).
+The full capacity artifact remains `FAIL` with `measurement_status=MISSING`:
+functional Large Payload E2E is now current-source evidence, but it is not a
+Broker/Lane/resource capacity envelope.
+
+The current-source operations retry is retained at
+`/private/tmp/nereus-delay-v1-operations-current-20260822-r2/full-v1-gate-input.json`
+(SHA-256 `69cc717120703bba10fdf0650f2187298a68b87fb52d9e6c0e32d99d4247af2a`).
+Its bounded child is `PASS_BOUNDED` (SHA-256
+`bca3dcdfb55fcb871396ca0af484a30a32ca389795086027398ea277d0acac59`): local
+state-machine, real Oxia/MinIO checkpoint recovery, separate fresh-process
+recovery and exact Docker cleanup all passed. The certified operations wrapper
+remains `BLOCKED` only because the independent multi-Worker soak artifact is
+missing; no operations or disaster-continuity release PASS is claimed.
+
+For the candidate source lock itself, the upgrade/downgrade full-v1 artifact was
+rerun in an isolated candidate clone at
+`/private/tmp/nereus-delay-v1-upgrade-downgrade-candidate-20260822-r1/full-v1-gate-input.json`
+(SHA-256 `023460f978fcc6a74c752419521e86e0869eb087fbb08aa4419e8af2547778a1`).
+It is `PASS_CERTIFIED`, exclusion-free and covers all six required cells. The
+capacity, soak, operations, chaos and remaining release obligations stay
+fail-closed. Exact related Docker postchecks were empty; retained base images
+were not globally pruned.
