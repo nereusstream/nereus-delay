@@ -291,7 +291,7 @@ if [[ "${source_status}" == "PASS" ]]; then
   NEREUS_DELAY_TARGET_ISOLATION_ARTIFACT_DIR="${target_isolation_dir}" \
   NEREUS_DELAY_TARGET_ISOLATION_PHASE=before \
   GRADLE_USER_HOME="${gradle_home}" \
-    ./gradlew test --no-daemon --console=plain \
+    ./gradlew test --no-daemon --console=plain --rerun-tasks \
       --tests io.nereusstream.delay.scheduler.TargetIsolationDurableChaosTest \
       >"${target_isolation_dir}/before-process.log" 2>&1
   target_isolation_before_exit=$?
