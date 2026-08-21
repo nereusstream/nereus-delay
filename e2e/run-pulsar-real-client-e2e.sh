@@ -438,7 +438,6 @@ if [[ "${worker_destination_response_loss_process_crash_only}" == "1" ]]; then
     echo "Pulsar Worker destination response-loss process-crash JVM PID is not alive at the cut gate" >&2
     exit 1
   fi
-  rg -F "Pulsar Worker destination response-loss process-crash cut reached" "${worker_process_crash_log}"
   kill -KILL "${worker_process_pid}"
   rm -f "${worker_process_crash_gate}"
   set +e
@@ -446,6 +445,12 @@ if [[ "${worker_destination_response_loss_process_crash_only}" == "1" ]]; then
   worker_process_crash_status=$?
   set -e
   worker_process_crash_launcher_pid=""
+  if ! rg -F "Pulsar Worker destination response-loss process-crash cut reached" \
+      "${worker_process_crash_log}"; then
+    cat "${worker_process_crash_log}" >&2
+    echo "Pulsar Worker destination response-loss process-crash cut marker was not flushed before JVM exit" >&2
+    exit 1
+  fi
   if [[ "${worker_process_crash_status}" == "0" ]]; then
     echo "Pulsar Worker destination response-loss process-crash JVM unexpectedly returned success after SIGKILL" >&2
     exit 1
