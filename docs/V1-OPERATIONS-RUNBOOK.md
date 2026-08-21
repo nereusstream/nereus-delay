@@ -1608,3 +1608,18 @@ It locks Delay `dc37d2c2093eb46d3bf85f2bd964d5055a086194`, Kafka
 code was zero and no failure/error/skip was observed. The receipt is
 `PASS_CERTIFIED` only for `protocol-golden`; do not pass it as the complete V1
 release gate while the other nine artifacts are absent.
+
+## Current-source no-early execution
+
+The source-locked no-early run is:
+
+```text
+/private/tmp/nereus-delay-v1-no-early-20260821-a.bOg67w/no-early.json
+sha256=91692a7301b5e4fc99605ef6698c0c9208a12ea1379f7123d9db928ae7138d37
+```
+
+It uses Delay `f82e914d22c5b7d84f618e0ca31fa378a27bf3a2` with the fixed K1/P1/Oxia
+locks, and passed 34 focused tests with zero failures/errors/skips. The
+artifact records `max_early_ms=0`, a 20 ms trusted worker uncertainty bound and
+a 20 ms Pulsar target clock-ahead bound. It is `PASS_CERTIFIED` only for the
+no-early gate; it cannot substitute for the remaining full-V1 artifacts.

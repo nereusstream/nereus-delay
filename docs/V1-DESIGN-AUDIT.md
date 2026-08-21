@@ -13605,3 +13605,14 @@ The four locks are Delay `dc37d2c2093eb46d3bf85f2bd964d5055a086194`, Kafka
 `PASS_CERTIFIED` for `protocol-golden`, with 392 Delay tests, 17 Kafka guarded
 tests, and 8 Pulsar guarded tests, all clean. This is Gate 1 evidence only;
 the nine other full-V1 inputs are still required before release promotion.
+
+## Current-source no-early evidence
+
+The exact-source no-early receipt is
+`/private/tmp/nereus-delay-v1-no-early-20260821-a.bOg67w/no-early.json` with
+SHA-256 `91692a7301b5e4fc99605ef6698c0c9208a12ea1379f7123d9db928ae7138d37`.
+It locks Delay `f82e914d22c5b7d84f618e0ca31fa378a27bf3a2` and the unchanged K1,
+P1 and Oxia locks, reports `PASS_CERTIFIED`, and has no exclusions. The run
+passed 34 focused tests and records zero early delivery, a 20 ms worker clock
+uncertainty bound and a 20 ms Pulsar target-clock-ahead bound. This closes only
+the no-early gate; all other missing full-V1 artifacts remain blockers.

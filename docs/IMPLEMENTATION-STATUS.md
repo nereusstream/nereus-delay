@@ -17052,3 +17052,19 @@ Gradle commands and the cross-repository validator exited successfully.
 This certifies only Gate 1, `protocol-golden`. The other nine full-V1 gates
 remain open and the receipt must not be used as a release result. Historical
 r19/r20 receipts remain historical and are not rewritten.
+
+## 2026-08-21 current-source no-early receipt
+
+The exact-source no-early gate passed at Delay
+`f82e914d22c5b7d84f618e0ca31fa378a27bf3a2`, with Kafka
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`:
+
+`/private/tmp/nereus-delay-v1-no-early-20260821-a.bOg67w/no-early.json`
+(`91692a7301b5e4fc99605ef6698c0c9208a12ea1379f7123d9db928ae7138d37`).
+The artifact is `PASS_CERTIFIED`, exact-source and exclusion-free; 34 focused
+tests passed with zero failures/errors/skips. Its deterministic observations
+are `max_early_ms=0`, worker clock error bound 20 ms and Pulsar target clock
+ahead bound 20 ms. This closes only the no-early gate; the remaining eight
+full-V1 inputs and final release gate remain open.

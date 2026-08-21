@@ -8466,3 +8466,18 @@ The receipt covers 392 Delay protocol/store/clock tests, 17 Kafka guarded
 tests and 8 Pulsar guarded tests, with zero failures, errors or skips. It closes
 only the protocol-golden gate; the complete §23.1–§23.5 evidence set, including
 the remaining nine release gates, is still open.
+
+## 2026-08-21 current-source no-early receipt
+
+The no-early gate is `PASS_CERTIFIED` at Delay
+`f82e914d22c5b7d84f618e0ca31fa378a27bf3a2`. Its exact-source receipt is:
+
+```text
+/private/tmp/nereus-delay-v1-no-early-20260821-a.bOg67w/no-early.json
+sha256=91692a7301b5e4fc99605ef6698c0c9208a12ea1379f7123d9db928ae7138d37
+```
+
+The 34-test run proves the trusted-UTC earliest-edge due rule, signed Pulsar
+target clock bound, inclusive/batch/empty source boundary and reactivation
+strictness. It records `max_early_ms=0`, with 20 ms worker and target bounds.
+This is a gate-specific receipt, not a complete V1 release result.

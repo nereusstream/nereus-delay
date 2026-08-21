@@ -7145,3 +7145,18 @@ tests, 17 Kafka guarded tests and 8 Pulsar guarded tests. All test exits were
 zero with zero failures, errors and skips, so the artifact is
 `PASS_CERTIFIED` for Gate 1 (`protocol-golden`). It does not satisfy the other
 nine full-V1 gates and does not change the historical status of r19/r20.
+
+## Current-source no-early PASS_CERTIFIED
+
+The no-early runner produced the exact-source receipt:
+
+```text
+/private/tmp/nereus-delay-v1-no-early-20260821-a.bOg67w/no-early.json
+sha256=91692a7301b5e4fc99605ef6698c0c9208a12ea1379f7123d9db928ae7138d37
+```
+
+Delay `f82e914d22c5b7d84f618e0ca31fa378a27bf3a2` plus the fixed Kafka/Pulsar/Oxia
+locks passed 34 focused tests with zero failures, errors or skips. The receipt
+is `PASS_CERTIFIED` for no-early, records `max_early_ms=0`, and exposes the
+20 ms worker and target clock bounds. It does not close the remaining eight
+full-V1 gate inputs or the final release gate.

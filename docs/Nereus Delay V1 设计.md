@@ -5465,3 +5465,16 @@ tests, and Pulsar's 6 common plus 2 broker guarded tests; all exits were zero
 and all failure/error/skip counts were zero. This is an independently verified
 Gate 1 result only. It does not close the remaining nine §23 release gates or
 promote the historical bounded r17/r19/r20 evidence.
+
+## 2026-08-21 current-source no-early PASS_CERTIFIED
+
+The no-early gate passed against Delay `f82e914d22c5b7d84f618e0ca31fa378a27bf3a2`,
+Kafka `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+The receipt is
+`/private/tmp/nereus-delay-v1-no-early-20260821-a.bOg67w/no-early.json`,
+SHA-256 `91692a7301b5e4fc99605ef6698c0c9208a12ea1379f7123d9db928ae7138d37`.
+It is `PASS_CERTIFIED` with 34 tests, no failure/error/skip, `max_early_ms=0`,
+and explicit 20 ms worker uncertainty and target clock bounds. This certifies
+the no-early gate only and does not close the other eight full-V1 gates.
