@@ -8481,3 +8481,22 @@ The 34-test run proves the trusted-UTC earliest-edge due rule, signed Pulsar
 target clock bound, inclusive/batch/empty source boundary and reactivation
 strictness. It records `max_early_ms=0`, with 20 ms worker and target bounds.
 This is a gate-specific receipt, not a complete V1 release result.
+
+## 2026-08-21 current-source same-adapter Large Payload authority
+
+The real production chain now reaches destination egress on both locked
+adapters. Kafka K1 uses
+`/private/tmp/nereus-delay-v1-real-service-kafka-20260821-c.4owPvQ/run.log`
+(`sha256=358271def7aeb50bc503c8a09f4eda430fbd7e4db8850f6775ba6d22de60f4d8`),
+and Pulsar P1 uses
+`/private/tmp/nereus-delay-v1-real-service-pulsar-20260821-a.WCUeKp/run.log`
+(`sha256=84bf7f5171c0124463dd5efe40ca061ef7cea7bbc240bce14a569d77877c8d11`).
+At Delay `2f38677f491bd0b9071269dc27937ec691827c49`, each two-shard run
+proved guarded source barriers, real Oxia assignment/owner authority, Gateway
+mTLS/JWT, real MinIO upload/attest/Commit/readback, Worker apply/ACK,
+destination `PUBLISHED`, checkpoint and exact Gateway idempotency. The run
+receipts are evidence for the two same-adapter cells only.
+
+The full real-service contract still requires the cross-adapter Kafka-to-Pulsar
+and Pulsar-to-Kafka paths plus activation cutover and the other §23 evidence.
+Same-adapter success must not be promoted to a complete V1 release PASS.

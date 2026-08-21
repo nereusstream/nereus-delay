@@ -13616,3 +13616,25 @@ P1 and Oxia locks, reports `PASS_CERTIFIED`, and has no exclusions. The run
 passed 34 focused tests and records zero early delivery, a 20 ms worker clock
 uncertainty bound and a 20 ms Pulsar target-clock-ahead bound. This closes only
 the no-early gate; all other missing full-V1 artifacts remain blockers.
+
+## Current-source Large Payload egress audit
+
+The current Delay source `2f38677f491bd0b9071269dc27937ec691827c49` has real
+same-adapter Large Payload authority receipts for both locked Broker families.
+Kafka K1 `05849884ca81fad767fda058444d1e17c7f9cbf9` passed the two-shard
+Gateway/Oxia/Worker/MinIO destination path in
+`/private/tmp/nereus-delay-v1-real-service-kafka-20260821-c.4owPvQ/run.log`
+(`sha256=358271def7aeb50bc503c8a09f4eda430fbd7e4db8850f6775ba6d22de60f4d8`);
+Pulsar P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7` passed the corresponding
+path in
+`/private/tmp/nereus-delay-v1-real-service-pulsar-20260821-a.WCUeKp/run.log`
+(`sha256=84bf7f5171c0124463dd5efe40ca061ef7cea7bbc240bce14a569d77877c8d11`).
+Both bind real Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, locked MinIO,
+Gateway mTLS/JWT, real Object Store readback, Worker source apply/ACK and
+destination `PUBLISHED` plus checkpoint evidence.
+
+The audit boundary is explicit: these receipts do not prove the required
+Kafka-to-Pulsar or Pulsar-to-Kafka cross-adapter cells, activation cutover or
+the remaining full-V1 gates. They cannot be supplied as a complete
+`real-service` `PASS_CERTIFIED` artifact until those cells are independently
+executed and source-locked.

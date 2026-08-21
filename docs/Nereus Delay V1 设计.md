@@ -5478,3 +5478,25 @@ SHA-256 `91692a7301b5e4fc99605ef6698c0c9208a12ea1379f7123d9db928ae7138d37`.
 It is `PASS_CERTIFIED` with 34 tests, no failure/error/skip, `max_early_ms=0`,
 and explicit 20 ms worker uncertainty and target clock bounds. This certifies
 the no-early gate only and does not close the other eight full-V1 gates.
+
+## 2026-08-21 current-source Large Payload production-authority egress
+
+Delay `2f38677f491bd0b9071269dc27937ec691827c49` passed the real two-shard
+Large Payload destination path against K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`
+and P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7`, with real Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and the locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The Kafka run is recorded at
+`/private/tmp/nereus-delay-v1-real-service-kafka-20260821-c.4owPvQ/run.log`
+(`358271def7aeb50bc503c8a09f4eda430fbd7e4db8850f6775ba6d22de60f4d8`) and the
+Pulsar run at
+`/private/tmp/nereus-delay-v1-real-service-pulsar-20260821-a.WCUeKp/run.log`
+(`84bf7f5171c0124463dd5efe40ca061ef7cea7bbc240bce14a569d77877c8d11`). Both
+include Gateway mTLS/JWT, real MinIO upload/attest/Commit/readback, Worker
+apply/ACK, two destination `PUBLISHED` outcomes, checkpoint and exact
+idempotency evidence.
+
+This is a same-adapter production-authority PASS only. The full real-service
+gate remains open for Kafka-to-Pulsar and Pulsar-to-Kafka cross-adapter paths,
+activation cutover and the remaining §23 fault, capacity, soak, operations and
+patch evidence.

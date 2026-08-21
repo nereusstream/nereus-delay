@@ -1623,3 +1623,21 @@ locks, and passed 34 focused tests with zero failures/errors/skips. The
 artifact records `max_early_ms=0`, a 20 ms trusted worker uncertainty bound and
 a 20 ms Pulsar target clock-ahead bound. It is `PASS_CERTIFIED` only for the
 no-early gate; it cannot substitute for the remaining full-V1 artifacts.
+
+## Current-source Large Payload authority receipts
+
+The current source `2f38677f491bd0b9071269dc27937ec691827c49` has completed the
+real same-adapter Large Payload run for K1 and P1. The Kafka log is
+`/private/tmp/nereus-delay-v1-real-service-kafka-20260821-c.4owPvQ/run.log`,
+SHA-256 `358271def7aeb50bc503c8a09f4eda430fbd7e4db8850f6775ba6d22de60f4d8`;
+the Pulsar log is
+`/private/tmp/nereus-delay-v1-real-service-pulsar-20260821-a.WCUeKp/run.log`,
+SHA-256 `84bf7f5171c0124463dd5efe40ca061ef7cea7bbc240bce14a569d77877c8d11`.
+Both runs used real Oxia, locked MinIO, Gateway mTLS/JWT, real Broker
+evidence, Worker apply/ACK, two destination `PUBLISHED` outcomes and exact
+post-run Compose cleanup.
+
+Operationally these are retained as named same-adapter receipts, not as the
+full `real-service` gate input. The cross-adapter cells, activation cutover and
+the remaining full-V1 fault/capacity/soak/operations/patch receipts must be
+present before the release command can return PASS.

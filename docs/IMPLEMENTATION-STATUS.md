@@ -17068,3 +17068,39 @@ tests passed with zero failures/errors/skips. Its deterministic observations
 are `max_early_ms=0`, worker clock error bound 20 ms and Pulsar target clock
 ahead bound 20 ms. This closes only the no-early gate; the remaining eight
 full-V1 inputs and final release gate remain open.
+
+## 2026-08-21 current-source Gateway plus real Broker plus Worker plus MinIO Large Payload egress
+
+The clean Delay source `2f38677f491bd0b9071269dc27937ec691827c49` now passes
+the real two-shard destination-egress path for both locked broker adapters. The
+Kafka receipt used K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and the locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`:
+
+```text
+/private/tmp/nereus-delay-v1-real-service-kafka-20260821-c.4owPvQ/run.log
+sha256=358271def7aeb50bc503c8a09f4eda430fbd7e4db8850f6775ba6d22de60f4d8
+receipt.sha256=a4fa6afb765d5d361eb2bd864063dec010566440a2f496fe175f6460e63a542d
+```
+
+It proves two guarded Fetch barriers, Oxia Route/Assignment/Owner placement,
+one Worker fleet, Gateway mTLS/JWT, real MinIO upload/attest/Commit/readback,
+two Kafka destination `PUBLISHED` outcomes, typed transaction receipts, exact
+payload readback, checkpoint publication and exact Gateway idempotency. The
+Pulsar receipt used P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and records
+the corresponding two guarded SUBSCRIBE barriers, two Workers, two destination
+`PUBLISHED` outcomes, checkpoint and exact idempotency:
+
+```text
+/private/tmp/nereus-delay-v1-real-service-pulsar-20260821-a.WCUeKp/run.log
+sha256=84bf7f5171c0124463dd5efe40ca061ef7cea7bbc240bce14a569d77877c8d11
+receipt.sha256=3232a3004f0a35e562c436b7d19ed114db8be5fa119bdd9f9023632a3fcff788
+```
+
+These are current-source same-adapter production-authority PASS receipts for
+the named Kafka and Pulsar paths. They do not yet close the full real-service
+matrix's `kafka-to-pulsar` and `pulsar-to-kafka` cross-adapter cells, activation
+cutover, the remaining fault/capacity/soak/operations/patch gates or V1 release
+readiness. Exact postchecks found no scoped Compose containers, images,
+networks or volumes; locked Oxia and MinIO bases were retained and no global
+Docker prune was used.
