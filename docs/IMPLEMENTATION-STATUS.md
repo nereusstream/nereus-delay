@@ -16977,3 +16977,45 @@ r17 is the canonical current-source bounded receipt, not V1 release
 certification. Run certified chaos and the fail-closed release gate against
 the post-documentation source lock; capacity, soak, activation/cutover and
 operations remain independent release inputs.
+
+## 2026-08-21 Candidate source lock and evidence-manifest boundary
+
+The r19 certified-chaos receipt and r20 release-gate receipt are retained as
+historical diagnostics at the exact Delay source lock
+cec7641b96a57d3108723c8cb27eb51594846543:
+
+~~~text
+/private/tmp/nereus-delay-v1-certified-chaos-20260821-r19/certified-chaos-matrix.json
+/private/tmp/nereus-delay-v1-release-gate-20260821-r20/v1-release-candidate-gate.json
+~~~
+
+r19 is PASS_CERTIFIED only for the existing 14-cell chaos profile. r20 is
+NOT_READY: source, cross-repository validation and full Gradle check pass,
+while the old 98eaa5cf capacity/soak/activation/operations inputs fail exact
+current-source validation. Neither receipt is a complete V1 release result.
+
+The final V1 evidence protocol now separates two locks. First, freeze a
+candidate source lock for all four repositories after the last implementation
+and normative-document change. Run all ten exact-source gate inputs against
+that candidate. Then, if the six evidence ledgers need the final receipt
+summary, make one documentation-only overlay commit. The overlay is allowed
+to change only these six paths:
+
+~~~text
+docs/IMPLEMENTATION-STATUS.md
+docs/Nereus Delay V1 设计.md
+docs/V1-DESIGN-AUDIT.md
+docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md
+docs/V1-OPERATIONS-RUNBOOK.md
+e2e/README.md
+~~~
+
+An external nereus-delay-v1-evidence-manifest-v1 JSON then records the
+candidate source lock, overlay commit, exact post-overlay SHA-256 for all six
+ledgers, SHA-256 and expected status/source lock for all ten gate inputs, and
+the final release-gate artifact. The verifier
+e2e/verify-v1-evidence-manifest.sh rejects dirty worktrees, non-allowlisted
+overlay changes, changed ledger bytes, changed artifact bytes, missing
+certified gate inputs and every source-lock mismatch. The manifest is
+intentionally outside the Delay checkout, so the documentation that records
+the manifest cannot hash itself recursively.

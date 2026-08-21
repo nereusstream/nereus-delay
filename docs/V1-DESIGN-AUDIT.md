@@ -13546,3 +13546,41 @@ Broker-1-recovery checks with
 r17 closes the current bounded fault union at 14/14, but remains bounded
 evidence. It does not promote certified chaos, capacity, soak,
 activation/cutover, operations or the V1 release gate.
+
+## 2026-08-21 Evidence-manifest lock boundary
+
+The current historical receipts are bound to Delay
+cec7641b96a57d3108723c8cb27eb51594846543:
+
+~~~text
+/private/tmp/nereus-delay-v1-certified-chaos-20260821-r19/certified-chaos-matrix.json
+/private/tmp/nereus-delay-v1-release-gate-20260821-r20/v1-release-candidate-gate.json
+~~~
+
+r19 is a named 14-cell chaos PASS_CERTIFIED, not complete V1. r20 is
+NOT_READY; its source, cross-repository and full Gradle checks pass, but the
+capacity, soak, activation and operations artifacts retain the older
+98eaa5cf Delay lock and are correctly blocked.
+
+For the complete V1 candidate, source freezing and evidence documentation are
+separate phases. The candidate lock freezes the four repository HEADs after
+implementation and normative docs are final. A later evidence overlay may
+modify only the six evidence ledgers listed below; it must not modify source,
+build, protocol or runtime files:
+
+~~~text
+docs/IMPLEMENTATION-STATUS.md
+docs/Nereus Delay V1 设计.md
+docs/V1-DESIGN-AUDIT.md
+docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md
+docs/V1-OPERATIONS-RUNBOOK.md
+e2e/README.md
+~~~
+
+The external nereus-delay-v1-evidence-manifest-v1 binds the candidate lock,
+overlay commit, exact SHA-256 bytes of those six ledgers, ten independent
+PASS_CERTIFIED gate inputs and the final PASS release artifact.
+e2e/verify-v1-evidence-manifest.sh compares the candidate-to-overlay diff
+against the exact allowlist and fails closed on any source, ledger, artifact,
+status or source-lock drift. This removes the self-referential documentation
+gap without treating a documentation append as a new implementation PASS.

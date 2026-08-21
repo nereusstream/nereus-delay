@@ -1546,3 +1546,34 @@ recoverable: retain canonical JSON receipts and locked Oxia/MinIO base images;
 move only confirmed disposable diagnostics to Trash; never use global Docker
 prune or target source worktrees and the unlabelled `pulsarconf`/`pulsardata`
 volumes.
+
+## 2026-08-21 Candidate/evidence lock operating procedure
+
+Keep r19 and r20 as historical, source-bound receipts at Delay
+cec7641b96a57d3108723c8cb27eb51594846543:
+
+~~~text
+/private/tmp/nereus-delay-v1-certified-chaos-20260821-r19/certified-chaos-matrix.json
+/private/tmp/nereus-delay-v1-release-gate-20260821-r20/v1-release-candidate-gate.json
+~~~
+
+The final runbook sequence is: freeze the candidate four-repository source
+lock; execute the ten independent gate inputs; make at most one documentation-
+only evidence overlay; generate the external evidence manifest; and run the
+final release gate against that manifest. The overlay may touch only:
+
+~~~text
+docs/IMPLEMENTATION-STATUS.md
+docs/Nereus Delay V1 设计.md
+docs/V1-DESIGN-AUDIT.md
+docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md
+docs/V1-OPERATIONS-RUNBOOK.md
+e2e/README.md
+~~~
+
+e2e/verify-v1-evidence-manifest.sh checks clean branches, candidate-to-
+overlay ancestry, the exact six-path diff, post-overlay document SHA-256,
+artifact SHA-256/status and all four-repository source locks. A missing
+manifest, changed ledger, non-allowlisted source edit or stale artifact is a
+hard block. The manifest is outside the repository to avoid self-hashing; no
+post-manifest documentation edit is permitted.

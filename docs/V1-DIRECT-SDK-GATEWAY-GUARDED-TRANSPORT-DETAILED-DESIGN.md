@@ -7018,6 +7018,34 @@ semantic trust resolver seam; it does not promote checkpoint REAPING/GC,
 external credential-provider authority, full response-loss/chaos coverage or
 V1 release readiness.
 
+## 2026-08-21 Candidate source lock versus evidence overlay
+
+The r19/r20 receipts remain historical at Delay
+cec7641b96a57d3108723c8cb27eb51594846543; r19 certifies only its declared
+14-cell chaos profile and r20 correctly remains NOT_READY because the
+capacity/soak/activation/operations inputs are source-locked to older Delay
+code.
+
+Complete V1 evidence must freeze the candidate implementation and normative
+documents before execution. A separate, post-run documentation overlay may
+record receipt results only in these six evidence-ledger files:
+
+~~~text
+docs/IMPLEMENTATION-STATUS.md
+docs/Nereus Delay V1 设计.md
+docs/V1-DESIGN-AUDIT.md
+docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md
+docs/V1-OPERATIONS-RUNBOOK.md
+e2e/README.md
+~~~
+
+The external evidence manifest stores both locks: candidate four-repository
+HEADs and overlay Delay commit. It also stores exact document/artifact hashes
+and all ten required PASS_CERTIFIED inputs. The verifier rejects any diff
+outside the six ledgers or any later byte/source/status drift, so recording
+evidence cannot silently broaden a bounded transport receipt into a complete
+V1 claim.
+
 ## 2026-08-17 Current Pulsar Gateway large-payload multi-Broker failover implementation note
 
 The current failover composition locks Delay to

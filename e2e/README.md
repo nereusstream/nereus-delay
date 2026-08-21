@@ -6227,6 +6227,34 @@ operations and chaos inputs are absent, and the bounded harness receipt is
 not a release substitute. This README append does not refresh the r30 source
 lock.
 
+## 2026-08-21 Evidence-manifest protocol for complete V1
+
+The certified-chaos r19 receipt and release-gate r20 receipt are retained as
+historical artifacts at Delay cec7641b96a57d3108723c8cb27eb51594846543:
+
+~~~text
+/private/tmp/nereus-delay-v1-certified-chaos-20260821-r19/certified-chaos-matrix.json
+/private/tmp/nereus-delay-v1-release-gate-20260821-r20/v1-release-candidate-gate.json
+~~~
+
+They do not certify complete V1. The final process freezes a four-repository
+candidate source lock first, runs ten independent exact-source certified gate
+inputs, then permits one documentation-only overlay across the six evidence
+ledgers. An external manifest records the candidate lock, overlay commit,
+SHA-256 bytes for every ledger and artifact, all ten gate statuses, and the
+final release-gate status. Validate it with:
+
+~~~bash
+NEREUS_DELAY_EVIDENCE_MANIFEST=/private/tmp/<final>/v1-evidence-manifest.json \
+  bash e2e/verify-v1-evidence-manifest.sh
+~~~
+
+The verifier fails closed for dirty worktrees, non-allowlisted source changes,
+post-freeze ledger edits, missing or changed receipts, non-certified gate
+inputs, and any source-lock mismatch. Because the manifest is outside the
+checkout, the documentation overlay does not recursively hash the manifest
+that describes it.
+
 ## Current-source r32 release-gate refresh
 
 The current gate artifact is

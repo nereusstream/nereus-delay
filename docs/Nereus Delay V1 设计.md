@@ -5364,6 +5364,41 @@ r2 独立通过 fresh process/新 PID、相同 topic/cluster/topic ID、end offs
 bounded fault evidence，但不是 certified chaos 或 V1 release PASS；仍需在
 最终 source lock 上执行 certified wrapper 与 fail-closed release gate。
 
+## 42. 2026-08-21 candidate source lock 与 evidence-manifest lock
+
+r19 certified chaos 与 r20 release gate 必须保留为历史证据；二者都绑定
+Delay cec7641b96a57d3108723c8cb27eb51594846543：
+
+~~~text
+/private/tmp/nereus-delay-v1-certified-chaos-20260821-r19/certified-chaos-matrix.json
+/private/tmp/nereus-delay-v1-release-gate-20260821-r20/v1-release-candidate-gate.json
+~~~
+
+r19 只证明既有 14-cell chaos profile 的 PASS_CERTIFIED，不代表完整 V1；
+r20 是 NOT_READY，因为 capacity/soak/activation/operations receipt 仍是
+旧 98eaa5cf source lock，fail-closed 结论正确。
+
+完整 V1 的证据流程必须把两类 lock 分开：先在最后一次实现和规范文档
+冻结后记录四仓 candidate source lock，再严格顺序执行十项独立 gate。若要
+把最终结果写回文档，只允许一次 documentation-only overlay，且只能修改
+以下六份 evidence ledger：
+
+~~~text
+docs/IMPLEMENTATION-STATUS.md
+docs/Nereus Delay V1 设计.md
+docs/V1-DESIGN-AUDIT.md
+docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md
+docs/V1-OPERATIONS-RUNBOOK.md
+e2e/README.md
+~~~
+
+随后在仓库外生成 nereus-delay-v1-evidence-manifest-v1 JSON，记录
+candidate 四仓 HEAD、overlay Delay commit、六份文档的精确 SHA-256、十个
+PASS_CERTIFIED artifact 的路径/哈希/source lock，以及最终 PASS release
+gate。e2e/verify-v1-evidence-manifest.sh 对 candidate→overlay diff、文档
+字节、artifact 字节、状态和 source lock 全部 fail closed；manifest 不放入
+Delay checkout，避免文档记录结果时产生自指哈希。
+
 ## 参考资料
 
 - [R1] [DDMQ README @ 2f30b61a](https://github.com/didi/DDMQ/blob/2f30b61a5741d55a5b515f3d8d19a8a35be8c9e2/README.md)
