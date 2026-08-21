@@ -338,7 +338,66 @@ minio_cell storage-provider-fault "inject provider failure before immutable chec
   storage-provider-fault PUT_503_BEFORE_COMMIT PENDING_UPLOAD false EXACT_PREFIX_SWEEP_AFTER_PRECOMMIT_FAILURE
 minio_cell config-drift "replace the provider credential configuration with a drifted binding" \
   config-drift CREDENTIAL_CONFIGURATION_DRIFT PENDING_UPLOAD false EXACT_PREFIX_SWEEP_AFTER_PRECOMMIT_FAILURE
-blocked_cell credential-binding-drift "rotate the credential head across a protected use lease" "credential lease rotation still needs an independent durable before/after fault receipt"
+
+credential_dir="${artifact_dir}/credential-binding-drift"
+credential_exit=1
+if [[ "${run_external}" == "1" && "${source_status}" == "PASS" ]]; then
+  mkdir -p "${credential_dir}"
+  set +e
+  NEREUS_DELAY_CREDENTIAL_CHAOS_ARTIFACT_DIR="${credential_dir}" \
+  NEREUS_DELAY_CREDENTIAL_CHAOS_GRADLE_USER_HOME="${gradle_home}" \
+  NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
+    bash "${script_dir}/run-credential-binding-drift-e2e.sh" >"${credential_dir}/run.log" 2>&1
+  credential_exit=$?
+  set -e
+fi
+credential_artifact="${credential_dir}/credential-binding-drift-e2e.json"
+credential_before="${credential_dir}/before.json"
+credential_after="${credential_dir}/after.json"
+credential_status="BLOCKED"
+if [[ "${credential_exit}" == "0" && -s "${credential_artifact}" \
+    && -s "${credential_before}" && -s "${credential_after}" ]] \
+    && jq -e --arg delay "${candidate_delay}" --arg oxia "${candidate_oxia}" \
+      --slurpfile before "${credential_before}" --slurpfile after "${credential_after}" \
+      '.status == "PASS" and .cell == "credential-binding-drift"
+       and .source_locks.delay == $delay and .source_locks.oxia == $oxia
+       and .fresh_process_recovery == true
+       and ($before | length) == 1 and ($after | length) == 1
+       and $before[0].schema == "nereus-delay-chaos-durable-state-dump-v1"
+       and $after[0].schema == "nereus-delay-chaos-durable-state-dump-v1"
+       and $before[0].cell == "credential-binding-drift"
+       and $after[0].cell == "credential-binding-drift"
+       and $before[0].phase == "BEFORE_FRESH_PROCESS_RECOVERY"
+       and $after[0].phase == "RECOVERED_AFTER_FRESH_PROCESS"
+       and $before[0].fault == "CREDENTIAL_BINDING_ROTATION"
+       and $after[0].fault == "CREDENTIAL_BINDING_ROTATION"
+       and $before[0].dump_forced == true and $after[0].dump_forced == true
+       and $before[0].durable_oxia_read == true and $after[0].durable_oxia_read == true
+       and ($before[0].process_pid != $after[0].process_pid)
+       and $before[0].head_generation == 2 and $after[0].head_generation == 2
+       and $before[0].head_revision == 2 and $after[0].head_revision == 2
+       and $before[0].old_lease_generation == 1 and $after[0].old_lease_generation == 1
+       and $after[0].stale_fingerprint_rejected == true
+       and $after[0].fresh_lease_generation == 2
+       and $after[0].fresh_protection_until >= $after[0].old_lease_valid_until' \
+      "${credential_artifact}" >/dev/null 2>&1; then
+  credential_status="PASS"
+fi
+if [[ "${credential_status}" == "PASS" ]]; then
+  add_cell "$(jq -cn --arg child "${credential_artifact}" --arg before "${credential_before}" \
+    --arg after "${credential_after}" --arg log "${credential_dir}/run.log" \
+    '{"credential-binding-drift": {
+      status:"PASS",
+      injection:{status:"PASS",point:"rotate the real Oxia credential Head across a protected generation-1 Object Store lease"},
+      before_after:{status:"PASS",audit:{status:"CAPTURED_AND_VERIFIED",before_dump:$before,after_dump:$after}},
+      fresh_process_recovery:"PASS",
+      invariant_audit:"INDEPENDENT_FIELDS_PASS",
+      evidence:{child_artifact:$child,before_dump:$before,after_dump:$after,run_log:$log}
+    }}')"
+else
+  blocked_cell credential-binding-drift "rotate the credential head across a protected use lease" \
+    "real Oxia credential rotation child failed or its independent before/after audit did not pass (exit=${credential_exit})"
+fi
 
 target_isolation_dir="${artifact_dir}/target-isolation"
 target_isolation_before_exit=1
