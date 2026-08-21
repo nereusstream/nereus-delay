@@ -75,6 +75,24 @@ class AutoFastScheduleTest {
     }
 
     @Test
+    void nativeBrokerTimestampNeverExceedsTheActivatedTargetClockBound() throws Exception {
+        final Fixture fixture = fixture();
+        try (EmbeddedDelayService service = fixture.service(tempDir.resolve("target-clock-bound"))) {
+            final PreparedSubmissionV1 prepared = service.prepareAutoFast(
+                    AutoFastSchedule.withNativeCandidate(fixture.command, fixture.candidate));
+            final DestinationProfileSemanticV1 destination =
+                    (DestinationProfileSemanticV1) fixture.candidate.destinationProfile().body();
+
+            assertFalse(prepared.isManaged());
+            assertEquals(20, destination.targetClockAheadBoundMs());
+            assertEquals(fixture.candidate.deliverAtEpochMs() + destination.targetClockAheadBoundMs(),
+                    prepared.nativePrepared().brokerDeliverAtEpochMs());
+            assertTrue(prepared.nativePrepared().brokerDeliverAtEpochMs()
+                    - prepared.nativePrepared().deliverAtEpochMs() <= destination.targetClockAheadBoundMs());
+        }
+    }
+
+    @Test
     void ineligibleNativeCandidateReturnsTheExactManagedFrame() throws Exception {
         final Fixture fixture = fixture();
         final AutoFastSchedule.NativeCandidate noDirectAuthority = new AutoFastSchedule.NativeCandidate(

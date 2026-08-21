@@ -54,6 +54,16 @@ class TrustedUtcClockTest {
     }
 
     @Test
+    void dueProofNeverUsesTheLatestEdgeToAdmitEarly() {
+        final TrustedUtcIntervalEvidence sample = evidence(999, 1_005, 0);
+        final TrustedUtcInterval beforeBoundary = new TrustedUtcInterval(999, 1_005, true, sample);
+        final TrustedUtcInterval atBoundary = new TrustedUtcInterval(1_000, 1_005, true, sample);
+
+        assertFalse(beforeBoundary.provesDue(1_000));
+        assertTrue(atBoundary.provesDue(1_000));
+    }
+
+    @Test
     void uncertaintyBudgetIncludesBothDivergenceSides() {
         assertThrows(IllegalArgumentException.class,
                 () -> new TrustedUtcClock.Config(9, 1_000, 5, 0));
