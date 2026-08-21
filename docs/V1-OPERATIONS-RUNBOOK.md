@@ -1909,3 +1909,34 @@ Cleanup is recoverable and exact: only unused evidence/cache directories are
 eligible for Trash after reference checks; no worktree or source checkout is
 deleted. Docker cleanup uses exact generated project resources only. The locked
 MinIO base and canonical Oxia image remain available; no global prune is used.
+
+## 2026-08-22 current full-V1 release handoff
+
+The exact source lock for this handoff is:
+
+```text
+Delay  c448e52607c8ff8bf3206c443fed35137a0c4cdc
+Kafka  05849884ca81fad767fda058444d1e17c7f9cbf9
+Pulsar 0a2536484cd3932801a98dc88ff112b2df88a1c7
+Oxia   37a17bef17202d5fd6e23282da5fd26d94865484
+```
+
+The strict ten-gate receipt is
+`/private/tmp/nereus-delay-v1-release-gate-20260822-r1/v1-release-candidate-gate.json`
+(`release_status=PASS`, SHA-256
+`e25fcec81e766afb6d9ba8c2e68149439bd25ced902ab3b260d346be11e563e9`). It
+passed source cleanliness/branch checks, the cross-repository validator and
+full Gradle `check`, then validated exact-source `PASS_CERTIFIED` inputs for
+all ten gates.
+
+The soak profile used 3 configured cycles / 12 cases, a required duration of
+600 seconds and `longest_configured_period_seconds=600`; this is recorded as
+the run profile input. The operations command must receive that independently
+certified soak artifact. Commit `c448e526` makes the runner pass it explicitly,
+so omitting it remains a fail-closed error.
+
+The post-run cleanup contract remains unchanged: generated Compose resources
+are removed by each exact child, locked MinIO/Oxia base images are retained,
+and no global Docker prune or source/worktree deletion is authorized. This
+receipt is a candidate release handoff; target-branch merges and publication
+still require their own explicit delivery steps.

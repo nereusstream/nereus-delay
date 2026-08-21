@@ -7448,3 +7448,28 @@ MinIO base and canonical Oxia image were kept; global Docker prune is forbidden.
 Unused `/private/tmp/nereus-delay` evidence directories are moved recoverably
 to Trash only after reference and `.git` checks; source code/worktrees are
 never targeted.
+
+## 2026-08-22 current full-V1 certification
+
+Candidate source locks are Delay
+`c448e52607c8ff8bf3206c443fed35137a0c4cdc`, Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The strict release receipt
+`/private/tmp/nereus-delay-v1-release-gate-20260822-r1/v1-release-candidate-gate.json`
+is `release_status=PASS` (SHA-256
+`e25fcec81e766afb6d9ba8c2e68149439bd25ced902ab3b260d346be11e563e9`). It
+validated source cleanliness, cross-repository contracts, full Gradle
+`check`, and all ten exclusion-free `PASS_CERTIFIED` full-V1 inputs. The
+physical benchmark/capacity observations are independent artifacts; the soak
+records 3 configured cycles / 12 cases and an explicit 600-second longest
+configured period; operations consumes that exact soak receipt through the
+`c448e526` gate-wiring fix.
+
+This is the current candidate release-evidence boundary. Do not infer target
+branch merge, publication, or global Docker cleanup from this receipt. Cleanup
+remains exact and recoverable: generated resources are removed by their child
+runners, locked MinIO/Oxia images remain, and unused temporary evidence is
+moved to Trash only after reference and `.git` checks.

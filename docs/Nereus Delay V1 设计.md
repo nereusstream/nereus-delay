@@ -5738,3 +5738,28 @@ benchmark r11 remain blocked by the missing physical Broker/Lane measurement.
 The strict audit
 `/private/tmp/nereus-delay-v1-full-gates-20260822-r20/release/v1-release-candidate-gate.json`
 therefore remains `NOT_READY`; no certification manifest is claimed.
+
+## 2026-08-22 current full-V1 release certification
+
+The exact candidate locks are Delay `c448e52607c8ff8bf3206c443fed35137a0c4cdc`,
+K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The strict release artifact
+`/private/tmp/nereus-delay-v1-release-gate-20260822-r1/v1-release-candidate-gate.json`
+is `PASS` (SHA-256
+`e25fcec81e766afb6d9ba8c2e68149439bd25ced902ab3b260d346be11e563e9`).
+Source checks, cross-repository contracts and full Gradle `check` all passed.
+
+All ten release inputs are current-source, exclusion-free `PASS_CERTIFIED`:
+protocol-golden r3, full chaos r1 (19/19 cells), real-service r1, no-early r2,
+benchmark r24, capacity r24, soak r25, upgrade-downgrade r3, operations r2 and
+patch-distribution r1. The benchmark/capacity inputs include independent
+physical observation artifacts. Soak uses 3 configured cycles / 12 cases and
+records `longest_configured_period_seconds=600` as the explicit certification
+profile input; this value is not silently promoted into a semantic design
+constant. Operations accepts the soak receipt only through the explicit gate
+input added by commit `c448e526`, so no bounded operations result is promoted.
+
+The result closes the V1 functional architecture and release-evidence gate for
+this candidate. It remains distinct from merging K1/P1/Oxia into any target
+branch or publishing a distribution artifact.

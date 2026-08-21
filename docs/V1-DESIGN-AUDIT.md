@@ -13882,3 +13882,27 @@ The audit
 `/private/tmp/nereus-delay-v1-full-gates-20260822-r20/release/v1-release-candidate-gate.json`
 is `NOT_READY`; no certification manifest is claimed. Matching generated Docker
 resources were absent after the runs; locked base images were retained.
+
+## 2026-08-22 current full-V1 audit result
+
+The current source-locked candidate is Delay
+`c448e52607c8ff8bf3206c443fed35137a0c4cdc`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The strict artifact
+`/private/tmp/nereus-delay-v1-release-gate-20260822-r1/v1-release-candidate-gate.json`
+has SHA-256
+`e25fcec81e766afb6d9ba8c2e68149439bd25ced902ab3b260d346be11e563e9` and
+reports `release_status=PASS`.
+
+The complete required matrix is now evidenced: protocol golden, 19-cell
+chaos, real-service Gateway/Broker/Worker/MinIO, no-early, independent
+benchmark and capacity observations, long-cycle soak, upgrade/downgrade,
+operations/disaster and patch distribution all pass with exact source locks and
+no exclusions. The soak policy explicitly records the 600-second longest
+configured period; the operations wrapper consumes that independent receipt
+through the c448e526 gate-wiring fix. Full Gradle `check` and the cross-repo
+validator also pass.
+
+This audit promotes the exact candidate only. It does not claim an integration
+merge into target Kafka/Pulsar branches or a published release package.

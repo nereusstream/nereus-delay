@@ -8728,3 +8728,26 @@ Soak child in r15 pass. The release wrapper keeps Soak blocked because it omits
 remain blocked by missing physical Broker/Lane measurements. The strict audit
 `/private/tmp/nereus-delay-v1-full-gates-20260822-r20/release/v1-release-candidate-gate.json`
 is therefore `NOT_READY`.
+
+## 2026-08-22 current Gateway-to-production release certification
+
+The production-authority candidate is Delay
+`c448e52607c8ff8bf3206c443fed35137a0c4cdc`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The strict release receipt
+`/private/tmp/nereus-delay-v1-release-gate-20260822-r1/v1-release-candidate-gate.json`
+is `PASS` with SHA-256
+`e25fcec81e766afb6d9ba8c2e68149439bd25ced902ab3b260d346be11e563e9`.
+
+The real-service receipt proves Kafka-to-Kafka, Pulsar-to-Pulsar and both
+cross-adapter paths through Gateway mTLS/JWT, real Oxia authority, real MinIO,
+Worker assignment/ownership and destination `PUBLISHED` outcomes. The
+independent physical measurement receipts close the Broker/Lane/resource
+envelope; the 19-cell chaos receipt, no-early receipt and 3-cycle soak close
+the remaining authority/fault boundaries. Operations is release-certified only
+with its exact independent soak input, wired by `c448e526`.
+
+The architecture and evidence chain are complete for this source candidate.
+Target-branch integration and release publication remain delivery boundaries,
+not unverified claims of this audit.

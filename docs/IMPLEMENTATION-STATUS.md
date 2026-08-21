@@ -17371,3 +17371,41 @@ The strict audit
 is `NOT_READY`; no V1 certification manifest exists. Post-run Docker checks
 found no matching generated Delay/Large Payload/real-client/Oxia-MinIO
 resources. The locked MinIO base and canonical Oxia image were retained.
+
+## 2026-08-22 current full-V1 release certification
+
+The current candidate is Delay `c448e52607c8ff8bf3206c443fed35137a0c4cdc`,
+Kafka K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. All four worktrees were clean,
+on the expected branches, and exact source-locked by the release checker.
+
+The strict full-V1 receipt is
+`/private/tmp/nereus-delay-v1-release-gate-20260822-r1/v1-release-candidate-gate.json`
+(SHA-256 `e25fcec81e766afb6d9ba8c2e68149439bd25ced902ab3b260d346be11e563e9`)
+with `release_status=PASS`. Cross-repository validation and full Gradle
+`check` passed. The ten required current-source inputs are:
+
+| Gate | Receipt |
+| --- | --- |
+| protocol-golden | `/private/tmp/nereus-delay-v1-full-protocol-20260822-r3/protocol-golden.json` |
+| chaos | `/private/tmp/nereus-delay-v1-full-chaos-20260822-r1/full-chaos-matrix.json` |
+| real-service | `/private/tmp/nereus-delay-v1-full-real-service-20260822-r1/real-service.json` |
+| no-early | `/private/tmp/nereus-delay-v1-full-no-early-20260822-r2/no-early.json` |
+| benchmark / capacity | `/private/tmp/nereus-delay-v1-full-benchmark-20260822-r24/full-v1-gate-input.json` / `/private/tmp/nereus-delay-v1-full-capacity-20260822-r24/full-v1-gate-input.json` |
+| soak | `/private/tmp/nereus-delay-v1-full-soak-20260822-r25/full-v1-gate-input.json` |
+| upgrade-downgrade / operations | `/private/tmp/nereus-delay-v1-full-upgrade-downgrade-20260822-r3/full-v1-gate-input.json` / `/private/tmp/nereus-delay-v1-full-operations-20260822-r2/full-v1-gate-input.json` |
+| patch-distribution | `/private/tmp/nereus-delay-v1-full-patch-distribution-20260822-r1/full-v1-gate-input.json` |
+
+Benchmark and capacity now have independent physical observation artifacts,
+not only functional E2E: their observation SHA-256 values are
+`f09f30081e048a6273ef2017e58b8c0a7a9a59b5a8e6ed01c8b61fad524017d1` and
+`52c038f251b18cbe2bbb5179e9696d3566713564e142adcc6bf863a6da6a5585`.
+The certified soak records 3 configured cycles / 12 cases, a 600-second
+required longest configured period, resource sampling and exact cleanup.
+Operations is certified only after the independent soak receipt is supplied;
+commit `c448e526` wires that receipt into the operations gate and preserves
+the fail-closed boundary.
+
+This is a release certification for the exact candidate source locks and does
+not imply that K1/P1/Oxia have been merged into unrelated target branches.
