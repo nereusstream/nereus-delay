@@ -65,28 +65,33 @@ done
     && "${current_pulsar}" == "${candidate_pulsar}" && "${current_oxia}" == "${candidate_oxia}" ]] \
   || source_status="FAIL"
 
-declare -A child_status=()
-declare -A child_log=()
-declare -A child_marker=()
-
 run_child() {
   local name="$1" marker="$2"
   shift 2
   local log="${artifact_dir}/${name}.log"
-  child_log["${name}"]="${log}"
-  child_marker["${name}"]="${marker}"
+  local status_file="${artifact_dir}/${name}.exit"
   if [[ "${source_status}" != "PASS" ]]; then
     printf '%s\n' "source lock or worktree validation failed; child not started" >"${log}"
-    child_status["${name}"]=1
+    printf '1\n' >"${status_file}"
     return 0
   fi
   set +e
   "$@" >"${log}" 2>&1
   local exit_code=$?
   set -e
-  child_status["${name}"]="${exit_code}"
   if [[ "${exit_code}" == 0 && -n "${marker}" ]] && ! rg -Fq -- "${marker}" "${log}"; then
-    child_status["${name}"]=1
+    exit_code=1
+  fi
+  printf '%s\n' "${exit_code}" >"${status_file}"
+}
+
+child_exit() {
+  local name="$1"
+  local status_file="${artifact_dir}/${name}.exit"
+  if [[ -s "${status_file}" ]]; then
+    cat "${status_file}"
+  else
+    printf '1\n'
   fi
 }
 
@@ -131,12 +136,12 @@ run_child activation-cutover \
     NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
     bash "${script_dir}/run-certified-protocol-activation-cutover.sh"
 
-special_kafka="${child_status[kafka-real-client]:-1}"
-special_pulsar="${child_status[pulsar-real-client]:-1}"
-same_kafka="${child_status[kafka-to-kafka]:-1}"
-same_pulsar="${child_status[pulsar-to-pulsar]:-1}"
-cross_status="${child_status[cross-adapter]:-1}"
-activation_status="${child_status[activation-cutover]:-1}"
+special_kafka="$(child_exit kafka-real-client)"
+special_pulsar="$(child_exit pulsar-real-client)"
+same_kafka="$(child_exit kafka-to-kafka)"
+same_pulsar="$(child_exit pulsar-to-pulsar)"
+cross_status="$(child_exit cross-adapter)"
+activation_status="$(child_exit activation-cutover)"
 
 coverage_status="PASS"
 if [[ "${same_kafka}" != 0 || "${same_pulsar}" != 0 || "${cross_status}" != 0 \
@@ -158,12 +163,12 @@ fi
 test_exit_code=1
 if [[ "${status}" == "PASS_CERTIFIED" ]]; then test_exit_code=0; fi
 logs_json="$(jq -n \
-  --arg k2 "${child_log[kafka-to-kafka]:-}" \
-  --arg p2 "${child_log[pulsar-to-pulsar]:-}" \
-  --arg cross "${child_log[cross-adapter]:-}" \
-  --arg kafka "${child_log[kafka-real-client]:-}" \
-  --arg pulsar "${child_log[pulsar-real-client]:-}" \
-  --arg activation "${child_log[activation-cutover]:-}" \
+  --arg k2 "${artifact_dir}/kafka-to-kafka.log" \
+  --arg p2 "${artifact_dir}/pulsar-to-pulsar.log" \
+  --arg cross "${artifact_dir}/cross-adapter.log" \
+  --arg kafka "${artifact_dir}/kafka-real-client.log" \
+  --arg pulsar "${artifact_dir}/pulsar-real-client.log" \
+  --arg activation "${artifact_dir}/activation-cutover.log" \
   '{kafka_to_kafka:$k2,pulsar_to_pulsar:$p2,cross_adapter:$cross,kafka_real_client:$kafka,pulsar_real_client:$pulsar,activation_cutover:$activation}')"
 
 jq -n \
