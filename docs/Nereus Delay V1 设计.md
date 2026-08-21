@@ -5568,8 +5568,8 @@ half-open, ENOSPC, fsync-error, SST corruption, broker-leader-failover and
 disaster-host-fault.
 
 The strict release audit at
-`/private/tmp/nereus-delay-v1-release-gate-current-20260821-r3/v1-release-candidate-gate.json`
-(SHA-256 `804f467a88d7f04e00f168b2a4aafab79de3f71beb9d0e78379b315ff85e29b6`)
+`/private/tmp/nereus-delay-v1-release-gate-current-20260821-r5/v1-release-candidate-gate.json`
+(SHA-256 `81dd7566c377d036d4d964fab181e941342fbe208d541969ca0da73fedf9bcf8`)
 is `NOT_READY`: source locks, cross-repo contracts, full Gradle check,
 protocol-golden, real-service and no-early pass, while the remaining full-V1
 inputs remain fail-closed. This audit must not be read as a V1 release PASS.

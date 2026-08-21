@@ -1718,9 +1718,9 @@ half-open, ENOSPC, fsync-error, SST corruption, broker-leader-failover and
 disaster-host-fault.
 
 The strict audit command produced
-`/private/tmp/nereus-delay-v1-release-gate-current-20260821-r3/v1-release-candidate-gate.json`
+`/private/tmp/nereus-delay-v1-release-gate-current-20260821-r5/v1-release-candidate-gate.json`
 with SHA-256
-`804f467a88d7f04e00f168b2a4aafab79de3f71beb9d0e78379b315ff85e29b6` and
+`81dd7566c377d036d4d964fab181e941342fbe208d541969ca0da73fedf9bcf8` and
 `release_status=NOT_READY`. It passed source locks, cross-repo contracts,
 full Gradle check, protocol-golden, real-service and no-early. Benchmark,
 chaos, complete capacity/soak, upgrade/downgrade, complete operations and

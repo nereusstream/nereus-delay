@@ -8566,7 +8566,7 @@ The bounded capacity, soak and operations receipts are current-source
 `PASS_CERTIFIED` profiles but preserve their `PASS_BOUNDED` boundaries. The
 full chaos receipt has 11/19 independently passing cells and remains blocked
 on eight named deterministic fault children. The strict release artifact
-`/private/tmp/nereus-delay-v1-release-gate-current-20260821-r3/v1-release-candidate-gate.json`
-(SHA-256 `804f467a88d7f04e00f168b2a4aafab79de3f71beb9d0e78379b315ff85e29b6`)
+`/private/tmp/nereus-delay-v1-release-gate-current-20260821-r5/v1-release-candidate-gate.json`
+(SHA-256 `81dd7566c377d036d4d964fab181e941342fbe208d541969ca0da73fedf9bcf8`)
 is `NOT_READY`; this is the correct V1 boundary until the remaining full-gate
 inputs are independently produced.
