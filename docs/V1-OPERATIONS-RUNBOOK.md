@@ -1676,3 +1676,53 @@ complete V1 release input. The release runbook still requires independently
 source-locked activation/cutover, full 19-cell chaos, capacity, soak,
 upgrade/downgrade, operations/disaster-continuity and patch-distribution
 artifacts.
+
+## 2026-08-21 current-source V1 closure audit and runbook boundary
+
+The frozen candidate source lock is Delay
+`e44a23ccd76e9976c49427ebf46240fda8410abd`, Kafka
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The current runbook receipts are:
+
+```text
+protocol-golden  PASS_CERTIFIED
+/private/tmp/nereus-delay-v1-protocol-golden-current-20260821-r2/protocol-golden.json
+sha256=362f54f6cec0d6041be3be07f1b8ba6188322980f00fa853a4eae2fb4791d90c
+
+no-early         PASS_CERTIFIED
+/private/tmp/nereus-delay-v1-no-early-current-20260821-r2/no-early.json
+sha256=d424f5017a110ff884355b4d7f28c5367a2855d2562eac97606efce6054d1a3a
+
+real-service     PASS_CERTIFIED
+/private/tmp/nereus-delay-v1-real-service-candidate-20260821/real-service-r6/real-service.json
+sha256=db0297371961dbc8d3791a80f24940eaa07ca27da5938e6aa4fb547097e779c0
+```
+
+`real-service` is now the current full Gateway + real Oxia + real Kafka/Pulsar
+Broker + Worker + MinIO Large Payload authority chain, including both
+cross-adapter directions and activation cutover. Worker egress is complete;
+the remaining work is release evidence, fault coverage and packaging, not a
+new egress abstraction. Standalone activation is also certified at
+`/private/tmp/nereus-delay-v1-activation-current-20260821-r2/`.
+
+The current capacity, soak and operations runs are deliberately retained as
+bounded profiles. They pass their bounded policies, but their schemas and
+boundaries do not satisfy the complete §23 capacity/soak/operations inputs.
+The current 19-cell chaos receipt at
+`/private/tmp/nereus-delay-v1-full-chaos-20260821-r44/full-chaos-matrix.json`
+has 11 passing cells and 8 blockers: credential-binding-drift, long-GC,
+half-open, ENOSPC, fsync-error, SST corruption, broker-leader-failover and
+disaster-host-fault.
+
+The strict audit command produced
+`/private/tmp/nereus-delay-v1-release-gate-current-20260821-r3/v1-release-candidate-gate.json`
+with SHA-256
+`804f467a88d7f04e00f168b2a4aafab79de3f71beb9d0e78379b315ff85e29b6` and
+`release_status=NOT_READY`. It passed source locks, cross-repo contracts,
+full Gradle check, protocol-golden, real-service and no-early. Benchmark,
+chaos, complete capacity/soak, upgrade/downgrade, complete operations and
+patch-distribution remain fail-closed; do not use bounded receipts to pass the
+full release command.

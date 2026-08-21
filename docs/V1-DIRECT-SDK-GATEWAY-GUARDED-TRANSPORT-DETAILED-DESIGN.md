@@ -8534,3 +8534,39 @@ This is a PASS for the two named cross-adapter Large Payload cells, not for the
 complete V1 release. Activation/cutover, full 19-cell chaos, capacity, soak,
 upgrade/downgrade, operations/disaster-continuity and patch-distribution gates
 remain required.
+
+## 2026-08-21 current-source V1 closure audit
+
+The current implementation candidate is Delay
+`e44a23ccd76e9976c49427ebf46240fda8410abd`, locked with K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The exact-source real-service receipt is
+`/private/tmp/nereus-delay-v1-real-service-candidate-20260821/real-service-r6/real-service.json`
+with SHA-256
+`db0297371961dbc8d3791a80f24940eaa07ca27da5938e6aa4fb547097e779c0` and
+`PASS_CERTIFIED` status. It now proves the complete current Gateway/Oxia/
+Broker/Worker/MinIO Large Payload production-authority chain for both adapters,
+both cross-adapter directions and activation cutover. In particular, Worker
+egress is complete and source-certified; it must not be tracked as an
+unimplemented module.
+
+The companion current receipts are protocol-golden and no-early:
+
+```text
+/private/tmp/nereus-delay-v1-protocol-golden-current-20260821-r2/protocol-golden.json
+sha256=362f54f6cec0d6041be3be07f1b8ba6188322980f00fa853a4eae2fb4791d90c
+/private/tmp/nereus-delay-v1-no-early-current-20260821-r2/no-early.json
+sha256=d424f5017a110ff884355b4d7f28c5367a2855d2562eac97606efce6054d1a3a
+```
+
+The bounded capacity, soak and operations receipts are current-source
+`PASS_CERTIFIED` profiles but preserve their `PASS_BOUNDED` boundaries. The
+full chaos receipt has 11/19 independently passing cells and remains blocked
+on eight named deterministic fault children. The strict release artifact
+`/private/tmp/nereus-delay-v1-release-gate-current-20260821-r3/v1-release-candidate-gate.json`
+(SHA-256 `804f467a88d7f04e00f168b2a4aafab79de3f71beb9d0e78379b315ff85e29b6`)
+is `NOT_READY`; this is the correct V1 boundary until the remaining full-gate
+inputs are independently produced.

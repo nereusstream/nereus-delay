@@ -5529,3 +5529,47 @@ This closes those two named cross-adapter Large Payload cells only. Full V1
 still requires activation/cutover, the full 19-cell chaos matrix, capacity,
 soak, upgrade/downgrade, operations/disaster-continuity and patch-distribution
 evidence before release certification.
+
+## 2026-08-21 current-source V1 closure audit
+
+The frozen candidate lock is Delay
+`e44a23ccd76e9976c49427ebf46240fda8410abd`, Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`; the lock file SHA-256 is
+`5fe71747ac103bd543badcc3350bdec264ac7c217562af445510ef3f1065afa3`.
+
+The current source receipts are `PASS_CERTIFIED` for protocol-golden,
+no-early and the complete real-service chain:
+
+- `/private/tmp/nereus-delay-v1-protocol-golden-current-20260821-r2/protocol-golden.json`
+  SHA-256 `362f54f6cec0d6041be3be07f1b8ba6188322980f00fa853a4eae2fb4791d90c`;
+- `/private/tmp/nereus-delay-v1-no-early-current-20260821-r2/no-early.json`
+  SHA-256 `d424f5017a110ff884355b4d7f28c5367a2855d2562eac97606efce6054d1a3a`;
+- `/private/tmp/nereus-delay-v1-real-service-candidate-20260821/real-service-r6/real-service.json`
+  SHA-256 `db0297371961dbc8d3791a80f24940eaa07ca27da5938e6aa4fb547097e779c0`.
+
+The real-service receipt includes Gateway mTLS/JWT, real Oxia authority, real
+Kafka and Pulsar brokers, Worker ingress/egress, MinIO object authority,
+same-adapter and cross-adapter Large Payload paths, exact payload readback,
+source Outcome application and activation cutover. The standalone activation
+receipt is also `PASS_CERTIFIED` at
+`/private/tmp/nereus-delay-v1-activation-current-20260821-r2/protocol-activation-cutover.json`.
+Worker egress is consequently a completed implementation and certified
+production-path result, not a pending abstraction.
+
+The current capacity, soak and operations receipts are retained as explicit
+bounded profiles (all `PASS_CERTIFIED`, with underlying `PASS_BOUNDED` matrix
+boundaries) at the `capacity-current-20260821-r2`, `soak-current-20260821-r3`
+and `operations-current-20260821-r2` directories. The 19-cell chaos receipt
+at `/private/tmp/nereus-delay-v1-full-chaos-20260821-r44/full-chaos-matrix.json`
+has 11 `PASS` cells and 8 honest blockers: credential-binding-drift, long-GC,
+half-open, ENOSPC, fsync-error, SST corruption, broker-leader-failover and
+disaster-host-fault.
+
+The strict release audit at
+`/private/tmp/nereus-delay-v1-release-gate-current-20260821-r3/v1-release-candidate-gate.json`
+(SHA-256 `804f467a88d7f04e00f168b2a4aafab79de3f71beb9d0e78379b315ff85e29b6`)
+is `NOT_READY`: source locks, cross-repo contracts, full Gradle check,
+protocol-golden, real-service and no-early pass, while the remaining full-V1
+inputs remain fail-closed. This audit must not be read as a V1 release PASS.

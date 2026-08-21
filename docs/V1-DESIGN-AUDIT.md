@@ -13673,3 +13673,48 @@ Audit result: PASS for the two named cross-adapter Large Payload cells. This
 does not promote the full `real-service` gate or V1 release: activation and
 cutover, full 19-cell chaos, capacity, soak, upgrade/downgrade,
 operations/disaster-continuity and patch-distribution remain open.
+
+## 2026-08-21 current-source V1 closure audit
+
+All current evidence below is bound to Delay
+`e44a23ccd76e9976c49427ebf46240fda8410abd`, Kafka
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The external candidate lock is
+`/private/tmp/nereus-delay-v1-real-service-candidate-20260821/source-lock.json`.
+
+Current `PASS_CERTIFIED` full-gate inputs are protocol-golden,
+no-early and real-service:
+
+```text
+/private/tmp/nereus-delay-v1-protocol-golden-current-20260821-r2/protocol-golden.json
+sha256=362f54f6cec0d6041be3be07f1b8ba6188322980f00fa853a4eae2fb4791d90c
+/private/tmp/nereus-delay-v1-no-early-current-20260821-r2/no-early.json
+sha256=d424f5017a110ff884355b4d7f28c5367a2855d2562eac97606efce6054d1a3a
+/private/tmp/nereus-delay-v1-real-service-candidate-20260821/real-service-r6/real-service.json
+sha256=db0297371961dbc8d3791a80f24940eaa07ca27da5938e6aa4fb547097e779c0
+```
+
+The real-service input now covers both same-adapter and cross-adapter Gateway
+plus real Oxia plus real Broker plus Worker plus MinIO Large Payload paths and
+activation cutover. This is the current source-bound proof that Worker egress
+is implemented; it is not a remaining implementation gap. Standalone
+activation/cutover is additionally certified at
+`/private/tmp/nereus-delay-v1-activation-current-20260821-r2/`.
+
+Current capacity, soak and operations runs are certified only as bounded
+profiles; their receipts deliberately retain `PASS_BOUNDED` matrix boundaries
+and therefore cannot be relabeled as complete §23 inputs. The current chaos
+artifact is `/private/tmp/nereus-delay-v1-full-chaos-20260821-r44/full-chaos-matrix.json`:
+11/19 cells pass independently and 8 remain blocked for missing deterministic
+fault children (credential binding rotation, long-GC, half-open, ENOSPC,
+fsync, SST corruption, broker leader placement and disaster host fault).
+
+The full release audit is retained at
+`/private/tmp/nereus-delay-v1-release-gate-current-20260821-r3/v1-release-candidate-gate.json`
+with SHA-256
+`804f467a88d7f04e00f168b2a4aafab79de3f71beb9d0e78379b315ff85e29b6` and result
+`NOT_READY`. Source checks, cross-repo contracts, full Gradle check and the
+three complete inputs pass; chaos, benchmark, complete capacity/soak,
+upgrade/downgrade, complete operations and patch-distribution remain strict
+release blockers. No documentation append may promote this to V1 release PASS.
