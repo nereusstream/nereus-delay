@@ -143,7 +143,7 @@ bounded_cell() {
     return
   fi
   local child_status audit_status durable fresh invariant
-  child_status="$(jq -r '.cells[$name].status // 1' "${bounded_artifact}")"
+  child_status="$(jq -r --arg name "${child_name}" '.cells[$name].status // 1' "${bounded_artifact}")"
   audit_status="$(jq -r '.audit_status // "FAIL"' <<<"${audit}")"
   durable="$(jq -r '.durable_state_dump.status // "FAIL"' <<<"${audit}")"
   fresh="$(jq -r '.fresh_process_recovery // "FAIL"' <<<"${audit}")"
