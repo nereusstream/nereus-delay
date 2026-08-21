@@ -346,6 +346,7 @@ smoke_environment=(
   "NEREUS_DELAY_GATEWAY_CLIENT_KEY=${tls_dir}/client.key"
   "NEREUS_DELAY_LARGE_PAYLOAD_MINIO_FAULT_MODE=${minio_fault_mode}"
   "NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_MULTI_SHARD=${multi_shard_mode}"
+  "NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_DESTINATION_TOPIC=${destination_topic}"
   "GRADLE_USER_HOME=${gradle_user_home}"
 )
 if [[ "${failover_mode}" == "1" ]]; then
