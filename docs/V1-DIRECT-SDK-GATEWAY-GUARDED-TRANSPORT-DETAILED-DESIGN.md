@@ -8603,8 +8603,8 @@ source-matching `nereus-delay-v1-capacity-observation-v1` file whose declared
 configurations are physically measured; missing or stale input is rejected.
 
 The current base-source probe is retained at
-`/private/tmp/nereus-delay-v1-full-capacity-real-current-20260821-r2/` for
-Delay `43e1c6a1b5bc980e4f18e3a8026e3235e0f1f510`. Both real child paths passed,
+`/private/tmp/nereus-delay-v1-full-capacity-real-current-20260821-r3/` for
+Delay `9ab82d11c0b1b8bd60547d94ea695403d2c73b1c`. Both real child paths passed,
 but the full capacity artifact is `FAIL` with
 `measurement_status=MISSING`. This preserves the boundary between functional
 Gateway/Oxia/Worker/MinIO E2E and a Broker/Lane/resource capacity envelope.

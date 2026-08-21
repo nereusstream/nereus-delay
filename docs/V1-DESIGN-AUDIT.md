@@ -13745,13 +13745,13 @@ until that child and all typed rejection/delete-recreate assertions pass.
 ## 2026-08-21 full-v1 capacity-envelope audit
 
 `e2e/run-v1-full-capacity-envelope-gate.sh` was exercised against base Delay
-`43e1c6a1b5bc980e4f18e3a8026e3235e0f1f510`, K1
+`9ab82d11c0b1b8bd60547d94ea695403d2c73b1c`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`. The Delay contract test set and
 both real Kafka/Pulsar multi-shard children passed. Their exact logs and the
 generated input are retained under
-`/private/tmp/nereus-delay-v1-full-capacity-real-current-20260821-r2/`.
+`/private/tmp/nereus-delay-v1-full-capacity-real-current-20260821-r3/`.
 
 This remains functional production-chain evidence only. The full-v1 capacity
 input is `FAIL` because the independently measured physical observation file

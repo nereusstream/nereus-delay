@@ -7309,8 +7309,8 @@ functional child success cannot stand in for physical throughput or resource
 observations.
 
 The current base-source probe is retained at
-`/private/tmp/nereus-delay-v1-full-capacity-real-current-20260821-r2/` with
-Delay `43e1c6a1b5bc980e4f18e3a8026e3235e0f1f510`, K1
+`/private/tmp/nereus-delay-v1-full-capacity-real-current-20260821-r3/` with
+Delay `9ab82d11c0b1b8bd60547d94ea695403d2c73b1c`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`. The Delay tests passed, both

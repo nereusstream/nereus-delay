@@ -1778,8 +1778,8 @@ bash e2e/run-v1-full-capacity-envelope-gate.sh capacity
 ```
 
 The current base-source probe is retained at
-`/private/tmp/nereus-delay-v1-full-capacity-real-current-20260821-r2/` for
-Delay `43e1c6a1b5bc980e4f18e3a8026e3235e0f1f510`. Local contracts and both
+`/private/tmp/nereus-delay-v1-full-capacity-real-current-20260821-r3/` for
+Delay `9ab82d11c0b1b8bd60547d94ea695403d2c73b1c`. Local contracts and both
 real children passed, but the full input is intentionally `FAIL` because the
 physical measurement artifact was not supplied. Related Docker postchecks
 were empty; do not pass this functional result into the release gate as

@@ -5604,11 +5604,11 @@ chains. A physical observation file with schema
 PASS; functional Large Payload success is not a capacity measurement.
 
 The base candidate Delay is
-`43e1c6a1b5bc980e4f18e3a8026e3235e0f1f510`, with K1
+`9ab82d11c0b1b8bd60547d94ea695403d2c73b1c`, with K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`. The retained probe is
-`/private/tmp/nereus-delay-v1-full-capacity-real-current-20260821-r2/`:
+`/private/tmp/nereus-delay-v1-full-capacity-real-current-20260821-r3/`:
 local contracts and both real children passed, while the full gate remains
 `FAIL` with `measurement_status=MISSING`. No throughput, fairness, resource
 or SLO certification is claimed, and V1 remains `NOT_READY`.
