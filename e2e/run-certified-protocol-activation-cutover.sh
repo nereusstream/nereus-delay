@@ -54,7 +54,7 @@ local_status="BLOCKED"
 local_exit=1
 set +e
 NEREUS_DELAY_PROTOCOL_ACTIVATION_ARTIFACT_DIR="${local_dir}" \
-NEREUS_DELAY_PROTOCOL_ACTIVATION_GRADLE_USER_HOME="${artifact_dir}/local-gradle-user-home" \
+NEREUS_DELAY_PROTOCOL_ACTIVATION_GRADLE_USER_HOME="${gradle_home}" \
 bash "${script_dir}/run-protocol-activation-cutover-smoke.sh" >"${artifact_dir}/local-activation.log" 2>&1
 local_exit=$?
 set -e
@@ -70,7 +70,7 @@ fi
 
 set +e
 NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
-NEREUS_DELAY_OXIA_PROTOCOL_AUTHORITY_GRADLE_USER_HOME="${artifact_dir}/real-gradle-user-home" \
+NEREUS_DELAY_OXIA_PROTOCOL_AUTHORITY_GRADLE_USER_HOME="${gradle_home}" \
 NEREUS_DELAY_OXIA_PROTOCOL_AUTHORITY_LOG="${real_log}" \
 NEREUS_DELAY_OXIA_PROTOCOL_AUTHORITY_PORT="31510" \
 bash "${script_dir}/run-oxia-protocol-authority-e2e.sh"
