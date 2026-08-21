@@ -282,6 +282,91 @@ minio_cell config-drift "replace the provider credential configuration with a dr
   config-drift CREDENTIAL_CONFIGURATION_DRIFT PENDING_UPLOAD false EXACT_PREFIX_SWEEP_AFTER_PRECOMMIT_FAILURE
 blocked_cell credential-binding-drift "rotate the credential head across a protected use lease" "credential lease rotation still needs an independent durable before/after fault receipt"
 
+target_isolation_dir="${artifact_dir}/target-isolation"
+target_isolation_before_exit=1
+target_isolation_after_exit=1
+if [[ "${source_status}" == "PASS" ]]; then
+  mkdir -p "${target_isolation_dir}"
+  set +e
+  NEREUS_DELAY_TARGET_ISOLATION_ARTIFACT_DIR="${target_isolation_dir}" \
+  NEREUS_DELAY_TARGET_ISOLATION_PHASE=before \
+  GRADLE_USER_HOME="${gradle_home}" \
+    ./gradlew test --no-daemon --console=plain \
+      --tests io.nereusstream.delay.scheduler.TargetIsolationDurableChaosTest \
+      >"${target_isolation_dir}/before-process.log" 2>&1
+  target_isolation_before_exit=$?
+  set -e
+  if [[ "${target_isolation_before_exit}" == "0" ]]; then
+    set +e
+    NEREUS_DELAY_TARGET_ISOLATION_ARTIFACT_DIR="${target_isolation_dir}" \
+    NEREUS_DELAY_TARGET_ISOLATION_PHASE=after \
+    GRADLE_USER_HOME="${gradle_home}" \
+      ./gradlew test --no-daemon --console=plain --rerun-tasks \
+        --tests io.nereusstream.delay.scheduler.TargetIsolationDurableChaosTest \
+        >"${target_isolation_dir}/after-process.log" 2>&1
+    target_isolation_after_exit=$?
+    set -e
+  fi
+fi
+
+target_isolation_cell_status="FAIL"
+target_isolation_manifest_sha256=""
+if [[ -s "${target_isolation_dir}/manifest.json" ]]; then
+  target_isolation_manifest_sha256="$(shasum -a 256 "${target_isolation_dir}/manifest.json" | awk '{print $1}')"
+fi
+if [[ "${target_isolation_before_exit}" == "0" && "${target_isolation_after_exit}" == "0" \
+    && -s "${target_isolation_dir}/before.json" && -s "${target_isolation_dir}/after.json" \
+    && -n "${target_isolation_manifest_sha256}" ]] \
+    && jq -n --slurpfile before "${target_isolation_dir}/before.json" \
+      --slurpfile after "${target_isolation_dir}/after.json" \
+      --arg manifest "${target_isolation_manifest_sha256}" \
+      '($before | length) == 1 and ($after | length) == 1
+       and $before[0].schema == "nereus-delay-target-isolation-durable-state-dump-v1"
+       and $after[0].schema == "nereus-delay-target-isolation-durable-state-dump-v1"
+       and $before[0].cell == "target-isolation" and $after[0].cell == "target-isolation"
+       and $before[0].phase == "BEFORE_FRESH_PROCESS_RECOVERY"
+       and $after[0].phase == "RECOVERED_AFTER_FRESH_PROCESS"
+       and $before[0].fault == "TARGET_ISOLATION" and $after[0].fault == "TARGET_ISOLATION"
+       and $before[0].dump_forced == true and $after[0].dump_forced == true
+       and $before[0].durable_store_read == true and $after[0].durable_store_read == true
+       and ($before[0].process_pid | type == "number")
+       and ($after[0].process_pid | type == "number")
+       and ($before[0].process_pid != $after[0].process_pid)
+       and $before[0].manifest_sha256 == $manifest
+       and $after[0].manifest_sha256 == $manifest
+       and $before[0].bad_target_state == "BLOCKED"
+       and $after[0].bad_target_state == "BLOCKED"
+       and $before[0].healthy_target_state == "READY"
+       and $after[0].healthy_target_state == "READY"
+       and ($before[0].bad_pending | type == "number" and . >= 1)
+       and $after[0].bad_pending == $before[0].bad_pending
+       and $after[0].healthy_progress > $before[0].healthy_progress
+       and $after[0].healthy_pending <= $before[0].healthy_pending
+       and $after[0].recovery_action == "FRESH_PROCESS_REOPENED_AND_HEALTHY_PROGRESS_CONTINUED"' \
+      >/dev/null 2>&1; then
+  target_isolation_cell_status="PASS"
+fi
+if [[ "${target_isolation_cell_status}" == "PASS" ]]; then
+  target_isolation_cell_json="$(jq -cn \
+    --arg before "${target_isolation_dir}/before.json" \
+    --arg after "${target_isolation_dir}/after.json" \
+    --arg manifest "${target_isolation_dir}/manifest.json" \
+    --arg before_log "${target_isolation_dir}/before-process.log" \
+    --arg after_log "${target_isolation_dir}/after-process.log" \
+    '{"target-isolation": {
+      status:"PASS",
+      injection:{status:"PASS",point:"block target A at the Worker outer-ring admission boundary"},
+      before_after:{status:"PASS",audit:{status:"CAPTURED_AND_VERIFIED",before_dump:$before,after_dump:$after,manifest:$manifest}},
+      fresh_process_recovery:"PASS",
+      invariant_audit:"INDEPENDENT_FIELDS_PASS",
+      evidence:{before_dump:$before,after_dump:$after,manifest:$manifest,before_log:$before_log,after_log:$after_log}
+    }}')"
+  add_cell "${target_isolation_cell_json}"
+else
+  blocked_cell target-isolation "block target A while target B remains schedulable" \
+    "target-isolation durable before/after child failed (before=${target_isolation_before_exit}, after=${target_isolation_after_exit})"
+fi
+
 # These cuts are intentionally not synthesized from a marker-only unit test.
 # They remain explicit blockers until their real injection and recovery child
 # is added with a durable dump that a fresh process can reopen.
@@ -291,7 +376,6 @@ blocked_cell enospc "fill the exact Store/checkpoint filesystem to the ENOSPC bo
 blocked_cell fsync-error "fail directory/WAL fsync after the accepted WriteBatch boundary" "no current-source fsync fault child artifact"
 blocked_cell sst-corruption "corrupt one copied SST after checkpoint publication" "no current-source SST corruption fresh-process child"
 blocked_cell broker-leader-failover "move the source leader to a surviving Broker" "leader-placement child is not yet wired into this full matrix"
-blocked_cell target-isolation "starve target A while target B remains schedulable" "no full target-isolation durable fairness dump child"
 blocked_cell disaster-host-fault "terminate the host-side Worker process and restore from the exact floor" "no disaster-host fresh-process child artifact"
 
 all_pass="PASS"
