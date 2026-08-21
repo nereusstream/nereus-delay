@@ -557,7 +557,6 @@ if [[ "${worker_admission_response_loss_process_crash_only}" == "1" ]]; then
     echo "Pulsar Worker admission response-loss process-crash JVM PID is not alive at the cut gate" >&2
     exit 1
   fi
-  cat "${worker_process_crash_log}"
   kill -KILL "${worker_process_pid}"
   rm -f "${worker_process_crash_gate}"
   set +e
@@ -565,6 +564,7 @@ if [[ "${worker_admission_response_loss_process_crash_only}" == "1" ]]; then
   worker_process_crash_status=$?
   set -e
   worker_process_crash_launcher_pid=""
+  cat "${worker_process_crash_log}"
   if [[ "${worker_process_crash_status}" == "0" ]]; then
     echo "Pulsar Worker admission response-loss process-crash JVM unexpectedly returned success after SIGKILL" >&2
     exit 1
