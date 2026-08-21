@@ -8448,3 +8448,21 @@ same-topic/cluster/topic-ID, changed-process, monotonic-offset, Broker-1
 recovery and independent-field checks. These receipts strengthen the bounded
 authority/failure evidence; they do not claim certified chaos, multi-shard
 placement or V1 release readiness.
+
+## 2026-08-21 current-source protocol-golden receipt
+
+The protocol gate is now independently `PASS_CERTIFIED` at Delay
+`dc37d2c2093eb46d3bf85f2bd964d5055a086194`, Kafka
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`:
+
+```text
+/private/tmp/nereus-delay-v1-protocol-golden-run-20260821-f.1N9Xji/protocol-golden.json
+sha256=e144407304580231c879ff3ed9f4c84951f85f537bcda2f06a9f101b1f375365
+```
+
+The receipt covers 392 Delay protocol/store/clock tests, 17 Kafka guarded
+tests and 8 Pulsar guarded tests, with zero failures, errors or skips. It closes
+only the protocol-golden gate; the complete §23.1–§23.5 evidence set, including
+the remaining nine release gates, is still open.

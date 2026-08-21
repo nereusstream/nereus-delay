@@ -7127,3 +7127,21 @@ topic/cluster/topic ID, monotonic end offset, Broker-1 recovery and
 `INDEPENDENT_FIELDS_PASS`. r17 is the canonical bounded receipt, not a
 certified-chaos or V1 release PASS; run those gates against the final source
 lock.
+
+## Current-source protocol-golden PASS_CERTIFIED
+
+The current exact-source protocol gate completed independently at:
+
+```text
+/private/tmp/nereus-delay-v1-protocol-golden-run-20260821-f.1N9Xji/protocol-golden.json
+sha256=e144407304580231c879ff3ed9f4c84951f85f537bcda2f06a9f101b1f375365
+```
+
+Candidate locks were Delay `dc37d2c2093eb46d3bf85f2bd964d5055a086194`, Kafka
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The runner executed 392 Delay
+tests, 17 Kafka guarded tests and 8 Pulsar guarded tests. All test exits were
+zero with zero failures, errors and skips, so the artifact is
+`PASS_CERTIFIED` for Gate 1 (`protocol-golden`). It does not satisfy the other
+nine full-V1 gates and does not change the historical status of r19/r20.

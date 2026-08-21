@@ -17029,3 +17029,26 @@ ten independently supplied artifacts. Each artifact must use schema
 claims. The resulting gate schema is
 `nereus-delay-v1-release-gate-v2`; old bounded schemas, missing inputs and
 artifacts that explicitly exclude full V1 remain `BLOCKED`.
+
+## 2026-08-21 current-source protocol-golden receipt
+
+The current Delay candidate is `dc37d2c2093eb46d3bf85f2bd964d5055a086194`.
+The exact four-repository candidate lock used by the protocol gate is Delay
+`dc37d2c2093eb46d3bf85f2bd964d5055a086194`, Kafka
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The independently generated receipt is
+`/private/tmp/nereus-delay-v1-protocol-golden-run-20260821-f.1N9Xji/protocol-golden.json`
+with SHA-256
+`e144407304580231c879ff3ed9f4c84951f85f537bcda2f06a9f101b1f375365`.
+It is `nereus-delay-v1-full-gate-input-v1`, `scope=full-v1`,
+`PASS_CERTIFIED`, exact-source and has no exclusions. Delay ran 392 tests with
+zero failures, errors or skips; Kafka guarded tests ran 17 tests; Pulsar
+common and broker guarded tests ran 6 and 2 tests respectively. All three
+Gradle commands and the cross-repository validator exited successfully.
+
+This certifies only Gate 1, `protocol-golden`. The other nine full-V1 gates
+remain open and the receipt must not be used as a release result. Historical
+r19/r20 receipts remain historical and are not rewritten.

@@ -1590,3 +1590,21 @@ The ten artifact variables are `PROTOCOL_GOLDEN`, `CHAOS_FULL`,
 `UPGRADE_DOWNGRADE`, `OPERATIONS_FULL` and `PATCH_DISTRIBUTION`. The validator
 emits `nereus-delay-v1-release-gate-v2`; absent or old bounded receipts are
 reported as `NOT_READY` and are never promoted.
+
+## Current-source protocol-golden execution
+
+The first current-source full-V1 gate receipt is:
+
+```text
+/private/tmp/nereus-delay-v1-protocol-golden-run-20260821-f.1N9Xji/protocol-golden.json
+sha256=e144407304580231c879ff3ed9f4c84951f85f537bcda2f06a9f101b1f375365
+```
+
+It locks Delay `dc37d2c2093eb46d3bf85f2bd964d5055a086194`, Kafka
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Delay returned 392 tests, Kafka
+17 guarded tests, and Pulsar 6 common plus 2 broker guarded tests; each exit
+code was zero and no failure/error/skip was observed. The receipt is
+`PASS_CERTIFIED` only for `protocol-golden`; do not pass it as the complete V1
+release gate while the other nine artifacts are absent.

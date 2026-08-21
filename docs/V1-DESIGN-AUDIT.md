@@ -13590,3 +13590,18 @@ delegates to `e2e/run-v1-full-release-gate.sh` and accepts only the ten exact
 `complete_v1=true`, `PASS_CERTIFIED`, exact candidate locks, and empty
 exclusions/boundaries. This is a governance boundary; the currently missing
 full-V1 inputs remain release blockers until independently produced.
+
+## Current-source protocol-golden evidence
+
+At Delay `dc37d2c2093eb46d3bf85f2bd964d5055a086194`, the exact-source protocol
+gate produced
+`/private/tmp/nereus-delay-v1-protocol-golden-run-20260821-f.1N9Xji/protocol-golden.json`
+with SHA-256
+`e144407304580231c879ff3ed9f4c84951f85f537bcda2f06a9f101b1f375365`.
+The four locks are Delay `dc37d2c2093eb46d3bf85f2bd964d5055a086194`, Kafka
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The artifact is
+`PASS_CERTIFIED` for `protocol-golden`, with 392 Delay tests, 17 Kafka guarded
+tests, and 8 Pulsar guarded tests, all clean. This is Gate 1 evidence only;
+the nine other full-V1 inputs are still required before release promotion.

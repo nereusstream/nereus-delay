@@ -5447,3 +5447,21 @@ Delay checkout，避免文档记录结果时产生自指哈希。
 - [R36] [Pulsar ManagedLedger exposes the loaded persistent Topic property map](https://github.com/nereusstream/pulsar/blob/50fc70fe4620febcf0fd31d97ff7d2be447af3d4/managed-ledger/src/main/java/org/apache/bookkeeper/mledger/ManagedLedger.java)
 - [R37] [Kafka transaction V1 caps ProduceRequest at v11](https://github.com/nereusstream/kafka/blob/76f62f3b83e882105219b6c7687dbde594a8b8a2/clients/src/main/java/org/apache/kafka/common/requests/ProduceRequest.java)
 - [R38] [RFC 8785 JSON Canonicalization Scheme](https://www.rfc-editor.org/rfc/rfc8785)
+
+## 2026-08-21 current-source protocol-golden PASS_CERTIFIED
+
+The current candidate source is Delay
+`dc37d2c2093eb46d3bf85f2bd964d5055a086194`, with Kafka
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The protocol-golden receipt is
+`/private/tmp/nereus-delay-v1-protocol-golden-run-20260821-f.1N9Xji/protocol-golden.json`
+(`e144407304580231c879ff3ed9f4c84951f85f537bcda2f06a9f101b1f375365`), with
+schema `nereus-delay-v1-full-gate-input-v1`, exact source locks, empty
+exclusions and `PASS_CERTIFIED` status.
+
+The run executed Delay's 392 protocol/store/clock tests, Kafka's 17 guarded
+tests, and Pulsar's 6 common plus 2 broker guarded tests; all exits were zero
+and all failure/error/skip counts were zero. This is an independently verified
+Gate 1 result only. It does not close the remaining nine §23 release gates or
+promote the historical bounded r17/r19/r20 evidence.
