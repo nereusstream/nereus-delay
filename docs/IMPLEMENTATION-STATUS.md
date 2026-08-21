@@ -17184,8 +17184,8 @@ Current source-bound receipts are:
   corruption, broker-leader-failover and disaster-host-fault.
 
 The strict release audit is
-`/private/tmp/nereus-delay-v1-release-gate-current-20260821-r5/v1-release-candidate-gate.json`
-(SHA-256 `81dd7566c377d036d4d964fab181e941342fbe208d541969ca0da73fedf9bcf8`).
+`/private/tmp/nereus-delay-v1-release-gate-current-20260821-r6/v1-release-candidate-gate.json`
+(SHA-256 `bd64e1897210f834b6160223221c3b65360b74c7861fa6b37c874b0f202fd597`).
 It passed all four source checks, cross-repository contracts, full Gradle
 check, protocol-golden, real-service and no-early, but its final status is
 `NOT_READY`. Chaos, benchmark, complete capacity/soak, upgrade/downgrade,

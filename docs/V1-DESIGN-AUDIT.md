@@ -13711,9 +13711,9 @@ fault children (credential binding rotation, long-GC, half-open, ENOSPC,
 fsync, SST corruption, broker leader placement and disaster host fault).
 
 The full release audit is retained at
-`/private/tmp/nereus-delay-v1-release-gate-current-20260821-r5/v1-release-candidate-gate.json`
+`/private/tmp/nereus-delay-v1-release-gate-current-20260821-r6/v1-release-candidate-gate.json`
 with SHA-256
-`81dd7566c377d036d4d964fab181e941342fbe208d541969ca0da73fedf9bcf8` and result
+`bd64e1897210f834b6160223221c3b65360b74c7861fa6b37c874b0f202fd597` and result
 `NOT_READY`. Source checks, cross-repo contracts, full Gradle check and the
 three complete inputs pass; chaos, benchmark, complete capacity/soak,
 upgrade/downgrade, complete operations and patch-distribution remain strict

@@ -7272,9 +7272,9 @@ Current bounded capacity, soak and operations profiles remain useful evidence
 but do not satisfy the complete full-V1 schemas. The current full-chaos matrix
 has 11/19 independently passing cells and 8 explicit blockers. The strict
 release artifact is
-`/private/tmp/nereus-delay-v1-release-gate-current-20260821-r5/v1-release-candidate-gate.json`
+`/private/tmp/nereus-delay-v1-release-gate-current-20260821-r6/v1-release-candidate-gate.json`
 with SHA-256
-`81dd7566c377d036d4d964fab181e941342fbe208d541969ca0da73fedf9bcf8`; it is
+`bd64e1897210f834b6160223221c3b65360b74c7861fa6b37c874b0f202fd597`; it is
 `NOT_READY` after source, contract, Gradle, protocol-golden, real-service and
 no-early checks pass. Missing benchmark, complete chaos/capacity/soak,
 upgrade/downgrade, complete operations and patch-distribution inputs remain
