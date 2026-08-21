@@ -1726,3 +1726,22 @@ full Gradle check, protocol-golden, real-service and no-early. Benchmark,
 chaos, complete capacity/soak, upgrade/downgrade, complete operations and
 patch-distribution remain fail-closed; do not use bounded receipts to pass the
 full release command.
+
+## 2026-08-21 full-v1 gate runner procedure
+
+For Delay-owned full-v1 contract evidence, use a fresh empty artifact
+directory and an explicit four-repository lock:
+
+\`\`\`bash
+NEREUS_DELAY_V1_FULL_GATE_ARTIFACT_DIR=/private/tmp/<run>/upgrade \\
+NEREUS_DELAY_V1_FULL_GATE_CANDIDATE_SOURCE_LOCK=/private/tmp/<run>/source-lock.json \\
+NEREUS_DELAY_V1_FULL_GATE_PROFILE_ID=nereus-delay-v1-upgrade-r1 \\
+bash e2e/run-v1-full-contract-gate.sh upgrade-downgrade
+\`\`\`
+
+The runner checks branch, cleanliness and exact HEAD before running the fresh
+test matrix. A successful local upgrade/downgrade receipt proves only its
+declared full-v1 cells; capacity and benchmark must additionally use the
+physical Broker/Lane envelope producer, while soak and operations must pass
+their real-service child. Do not use \`NEREUS_DELAY_V1_FULL_GATE_RUN_REAL=0\`
+to turn those missing external authorities into a PASS.

@@ -7279,3 +7279,15 @@ with SHA-256
 no-early checks pass. Missing benchmark, complete chaos/capacity/soak,
 upgrade/downgrade, complete operations and patch-distribution inputs remain
 release blockers.
+
+## 2026-08-21 full-v1 contract input runner
+
+\`run-v1-full-contract-gate.sh\` is the source-locked producer for the
+Delay-owned contract inputs. It accepts \`benchmark\`, \`capacity\`, \`soak\`,
+\`upgrade-downgrade\` or \`operations\`, requires an explicit candidate lock,
+and emits \`nereus-delay-v1-full-gate-input-v1\` only after a fresh Gradle test
+set and exact coverage audit. Its output is suitable for
+\`run-v1-full-release-gate.sh\` only when the physical child requirements for
+that gate have also passed; the script intentionally leaves Broker/Lane
+capacity, full soak and real operations authority fail-closed when those
+children are not present.

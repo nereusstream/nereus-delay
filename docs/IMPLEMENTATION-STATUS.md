@@ -17191,3 +17191,25 @@ check, protocol-golden, real-service and no-early, but its final status is
 `NOT_READY`. Chaos, benchmark, complete capacity/soak, upgrade/downgrade,
 complete operations and patch-distribution remain fail-closed release inputs;
 this is not a V1 release PASS.
+
+## 2026-08-21 full-v1 contract runner implementation
+
+\`e2e/run-v1-full-contract-gate.sh\` is now a source-locked producer for the
+Delay-owned full-v1 contract inputs. It checks all four clean worktrees against
+an explicit candidate lock, runs a fresh Gradle test set, records the exact
+required/observed coverage list, and emits the
+\`nereus-delay-v1-full-gate-input-v1\` schema. It never rewrites a bounded child
+receipt and emits no boundary-free PASS unless the test and independent audit
+checks pass.
+
+The first implementation slice was verified on Delay
+\`f3a0fd8f93a66e491825ee921179f8ede17dd4e6\` with the upgrade/downgrade test
+matrix. The resulting local artifact was \`PASS_CERTIFIED\` for its declared
+six-cell matrix, including writer-before-reader, downgrade marker retention,
+same-bytes/different-version identity and checkpoint restore fencing. The
+artifact remains a probe receipt until the final candidate lock is frozen.
+
+The runner deliberately keeps the physical Broker/Lane capacity envelope
+blocked until a dedicated real-observation producer exists; soak and operations
+require their real-service child. Therefore this implementation slice does not
+change the V1 release decision or promote any bounded RC1 evidence.

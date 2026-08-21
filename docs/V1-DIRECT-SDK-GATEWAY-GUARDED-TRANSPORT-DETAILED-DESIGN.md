@@ -8570,3 +8570,18 @@ on eight named deterministic fault children. The strict release artifact
 (SHA-256 `bd64e1897210f834b6160223221c3b65360b74c7861fa6b37c874b0f202fd597`)
 is `NOT_READY`; this is the correct V1 boundary until the remaining full-gate
 inputs are independently produced.
+
+## 2026-08-21 source-locked full-v1 contract runner
+
+The Delay worktree now contains \`e2e/run-v1-full-contract-gate.sh\`, which
+turns the existing protocol/restore/DLQ/resource tests into independently
+auditable full-v1 input receipts. The runner binds Delay, K1, P1 and Oxia
+HEADs to an external candidate lock and records required versus observed cells
+without self-hashing the documentation overlay. Its first verified slice is
+the upgrade/downgrade matrix at Delay
+\`f3a0fd8f93a66e491825ee921179f8ede17dd4e6\`.
+
+This does not promote a local contract receipt to a production release. The
+physical capacity envelope, full long-cycle soak, operations authority and
+patch-distribution gates remain separate and must be supplied by their own
+real-observation runners.

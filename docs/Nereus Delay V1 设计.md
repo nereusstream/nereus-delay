@@ -5573,3 +5573,17 @@ The strict release audit at
 is `NOT_READY`: source locks, cross-repo contracts, full Gradle check,
 protocol-golden, real-service and no-early pass, while the remaining full-V1
 inputs remain fail-closed. This audit must not be read as a V1 release PASS.
+
+## 2026-08-21 full-v1 contract runner boundary
+
+\`e2e/run-v1-full-contract-gate.sh\` is the source-locked producer for the
+Delay-owned contract evidence required by §23.5. It runs fresh protocol,
+restore, resource, DLQ and activation tests against an explicit four-repository
+candidate lock, then records exact required/observed coverage and an
+independent-audit result. A bounded child receipt is never relabeled by this
+runner.
+
+The first verified slice passed the upgrade/downgrade matrix on Delay
+\`f3a0fd8f93a66e491825ee921179f8ede17dd4e6\`; it does not close the release gate.
+The physical Broker/Lane capacity envelope, full long-cycle soak, operations
+authority and patch-distribution evidence remain independent requirements.

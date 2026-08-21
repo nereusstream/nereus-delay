@@ -13718,3 +13718,20 @@ with SHA-256
 three complete inputs pass; chaos, benchmark, complete capacity/soak,
 upgrade/downgrade, complete operations and patch-distribution remain strict
 release blockers. No documentation append may promote this to V1 release PASS.
+
+## 2026-08-21 full-v1 contract evidence boundary
+
+The new \`e2e/run-v1-full-contract-gate.sh\` runner is the implementation seam
+for Delay-owned benchmark/capacity/soak/upgrade/operations evidence. Every
+receipt is bound to the four-repository candidate source lock and a fresh
+Gradle invocation; required and observed coverage arrays must be identical,
+exclusions must be empty, and the artifact must use
+\`nereus-delay-v1-full-gate-input-v1\` before the release validator can inspect
+it.
+
+The initial current-source probe passed the upgrade/downgrade contract matrix
+on Delay \`f3a0fd8f93a66e491825ee921179f8ede17dd4e6\`. It is not a release result:
+the full physical capacity envelope still needs Broker throughput, placement,
+Lane fairness and adapter/zombie observations; full soak and operations still
+need their real-service children. Bounded receipts remain historical or
+independent inputs and cannot be relabeled by this runner.
