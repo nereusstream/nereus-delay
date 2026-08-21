@@ -54,7 +54,10 @@ broker_network_partition_only="${NEREUS_DELAY_KAFKA_BROKER_NETWORK_PARTITION_ONL
 broker_network_state_dump_dir="${NEREUS_DELAY_KAFKA_BROKER_NETWORK_PARTITION_STATE_DUMP_DIR:-}"
 broker_tcp_cut_only="${NEREUS_DELAY_KAFKA_BROKER_TCP_CUT_ONLY:-0}"
 broker_tcp_state_dump_dir="${NEREUS_DELAY_KAFKA_BROKER_TCP_CUT_STATE_DUMP_DIR:-}"
-if [[ "${broker_tcp_cut_only}" == "1" ]]; then
+half_open_only="${NEREUS_DELAY_KAFKA_HALF_OPEN_ONLY:-0}"
+half_open_state_dump_dir="${NEREUS_DELAY_KAFKA_HALF_OPEN_STATE_DUMP_DIR:-}"
+half_open_channel_deadline_ms="${NEREUS_DELAY_KAFKA_HALF_OPEN_CHANNEL_DEADLINE_MS:-10000}"
+if [[ "${broker_tcp_cut_only}" == "1" || "${half_open_only}" == "1" ]]; then
   broker_1_bind_port="${KAFKA_BROKER_1_BIND_PORT:-$((broker_1_port + 100))}"
 else
   broker_1_bind_port="${KAFKA_BROKER_1_BIND_PORT:-${broker_1_port}}"
@@ -166,8 +169,20 @@ if [[ "${broker_tcp_cut_only}" != "0" && "${broker_tcp_cut_only}" != "1" ]]; the
   echo "NEREUS_DELAY_KAFKA_BROKER_TCP_CUT_ONLY must be 0 or 1" >&2
   exit 1
 fi
+if [[ "${half_open_only}" != "0" && "${half_open_only}" != "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_HALF_OPEN_ONLY must be 0 or 1" >&2
+  exit 1
+fi
+if [[ "${broker_tcp_cut_only}" == "1" && "${half_open_only}" == "1" ]]; then
+  echo "NEREUS_DELAY_KAFKA_BROKER_TCP_CUT_ONLY and NEREUS_DELAY_KAFKA_HALF_OPEN_ONLY are exclusive" >&2
+  exit 1
+fi
 if (( broker_1_bind_port <= 0 || broker_1_bind_port > 65535 )); then
   echo "KAFKA_BROKER_1_BIND_PORT must be 1..65535" >&2
+  exit 1
+fi
+if ! [[ "${half_open_channel_deadline_ms}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "NEREUS_DELAY_KAFKA_HALF_OPEN_CHANNEL_DEADLINE_MS must be a positive integer" >&2
   exit 1
 fi
 if [[ "${broker_process_crash_only}" == "1" && "${with_oxia}" != "1" ]]; then
@@ -417,8 +432,36 @@ broker_tcp_pre_cut_file="${broker_tcp_cut_dir}/pre-cut-forward"
 broker_tcp_post_cut_file="${broker_tcp_cut_dir}/post-cut-rejection"
 broker_tcp_post_cut_handoff_file="${broker_tcp_cut_dir}/post-cut-handoff"
 broker_tcp_proxy_pid=""
+half_open_dir="$(mktemp -d -t nereus-delay-kafka-half-open.XXXXXX)"
+half_open_log="${half_open_dir}/proxy.log"
+half_open_hold_file="${half_open_dir}/hold"
+half_open_release_file="${half_open_dir}/release"
+half_open_stop_file="${half_open_dir}/stop"
+half_open_ready_file="${half_open_dir}/ready"
+half_open_ack_file="${half_open_dir}/hold-ack"
+half_open_release_observed_file="${half_open_dir}/release-observed"
+half_open_post_release_file="${half_open_dir}/post-release-forward"
+half_open_worker_log="${half_open_dir}/worker.log"
+half_open_worker_state_dir="${half_open_dir}/worker-state"
+half_open_worker_pid=""
+half_open_proxy_pid=""
 
 cleanup() {
+  if [[ -n "${half_open_state_dump_dir}" && -d "${half_open_dir}" ]]; then
+    mkdir -p "${half_open_state_dump_dir}" >/dev/null 2>&1 || true
+    cp -f "${half_open_log}" "${half_open_state_dump_dir}/proxy.log" >/dev/null 2>&1 || true
+    cp -f "${half_open_ack_file}" "${half_open_state_dump_dir}/hold-ack" >/dev/null 2>&1 || true
+    cp -f "${half_open_release_observed_file}" \
+      "${half_open_state_dump_dir}/release-observed" >/dev/null 2>&1 || true
+    cp -f "${half_open_post_release_file}" \
+      "${half_open_state_dump_dir}/post-release-forward" >/dev/null 2>&1 || true
+    cp -f "${half_open_worker_log}" "${half_open_state_dump_dir}/worker.log" >/dev/null 2>&1 || true
+    if [[ -d "${half_open_worker_state_dir}" ]]; then
+      mkdir -p "${half_open_state_dump_dir}/worker-state" >/dev/null 2>&1 || true
+      cp -f "${half_open_worker_state_dir}/after-fresh-process.json" \
+        "${half_open_state_dump_dir}/worker-state/after-fresh-process.json" >/dev/null 2>&1 || true
+    fi
+  fi
   if [[ -n "${worker_process_crash_launcher_pid}" ]]; then
     kill "${worker_process_crash_launcher_pid}" >/dev/null 2>&1 || true
     wait "${worker_process_crash_launcher_pid}" >/dev/null 2>&1 || true
@@ -430,6 +473,14 @@ cleanup() {
   if [[ -n "${broker_tcp_proxy_pid}" ]]; then
     touch "${broker_tcp_stop_file}" >/dev/null 2>&1 || true
     wait "${broker_tcp_proxy_pid}" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${half_open_proxy_pid}" ]]; then
+    touch "${half_open_stop_file}" >/dev/null 2>&1 || true
+    wait "${half_open_proxy_pid}" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${half_open_worker_pid}" ]]; then
+    kill "${half_open_worker_pid}" >/dev/null 2>&1 || true
+    wait "${half_open_worker_pid}" >/dev/null 2>&1 || true
   fi
   if [[ -n "${k2_failover_pid}" ]]; then
     kill "${k2_failover_pid}" >/dev/null 2>&1 || true
@@ -448,6 +499,7 @@ cleanup() {
   rm -rf "${worker_ack_process_crash_dir}"
   rm -rf "${leader_placement_dir}"
   rm -rf "${broker_tcp_cut_dir}"
+  rm -rf "${half_open_dir}"
 }
 trap cleanup EXIT INT TERM
 
@@ -578,6 +630,41 @@ start_broker_tcp_fault_proxy() {
   done
   cat "${broker_tcp_cut_log}" >&2
   echo "Kafka raw TCP fault proxy did not become ready" >&2
+  return 1
+}
+
+start_half_open_proxy() {
+  rm -f "${half_open_ready_file}" "${half_open_ack_file}" "${half_open_release_observed_file}" \
+    "${half_open_post_release_file}" "${half_open_stop_file}"
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaHalfOpenProxy \
+    "-PkafkaClientJar=${client_jar}" \
+    "-PkafkaHalfOpenListenPort=${broker_1_port}" \
+    "-PkafkaHalfOpenTargetHost=127.0.0.1" \
+    "-PkafkaHalfOpenTargetPort=${broker_1_bind_port}" \
+    "-PkafkaHalfOpenHoldFile=${half_open_hold_file}" \
+    "-PkafkaHalfOpenReleaseFile=${half_open_release_file}" \
+    "-PkafkaHalfOpenStopFile=${half_open_stop_file}" \
+    "-PkafkaHalfOpenReadyFile=${half_open_ready_file}" \
+    "-PkafkaHalfOpenAckFile=${half_open_ack_file}" \
+    "-PkafkaHalfOpenReleaseObservedFile=${half_open_release_observed_file}" \
+    "-PkafkaHalfOpenPostReleaseFile=${half_open_post_release_file}" \
+    "-PkafkaHalfOpenChannelDeadlineMs=${half_open_channel_deadline_ms}" \
+    --no-daemon --console=plain >"${half_open_log}" 2>&1 &
+  half_open_proxy_pid=$!
+  local deadline=$((SECONDS + 120))
+  while (( SECONDS < deadline )); do
+    if [[ -f "${half_open_ready_file}" ]]; then
+      return 0
+    fi
+    if ! kill -0 "${half_open_proxy_pid}" >/dev/null 2>&1; then
+      cat "${half_open_log}" >&2
+      echo "Kafka half-open proxy exited before readiness" >&2
+      return 1
+    fi
+    sleep 1
+  done
+  cat "${half_open_log}" >&2
+  echo "Kafka half-open proxy did not become ready" >&2
   return 1
 }
 
@@ -785,6 +872,9 @@ echo "Broker ports: ${broker_1_port},${broker_2_port},${broker_3_port}"
 "${compose[@]}" up -d
 if [[ "${broker_tcp_cut_only}" == "1" ]]; then
   start_broker_tcp_fault_proxy
+fi
+if [[ "${half_open_only}" == "1" ]]; then
+  start_half_open_proxy
 fi
 wait_for_broker kafka-1
 wait_for_broker kafka-2
@@ -1178,6 +1268,143 @@ if [[ "${broker_network_partition_only}" == "1" ]]; then
   run_broker_recovery_state_smoke "${bootstrap_all}" "${broker_network_partition_topic}" after \
     "kafka-broker-network-partition" "${broker_network_state_dump_dir}"
   echo "Kafka Broker network-partition recovery E2E passed: kafka-1 stayed alive but was disconnected from the Compose network after guarded Worker preparation, the same topic resumed through kafka-2/kafka-3 with real Oxia Worker authority and source apply/ACK/checkpoint, and kafka-1 reconnected afterward."
+  exit 0
+fi
+
+if [[ "${half_open_only}" == "1" ]]; then
+  start_oxia
+  half_open_topic="${KAFKA_DELAY_HALF_OPEN_TOPIC:-${worker_topic}-half-open}"
+  half_open_group="${KAFKA_DELAY_HALF_OPEN_GROUP:-${half_open_topic}-group}"
+  half_open_bootstrap="127.0.0.1:${broker_1_port}"
+  if [[ -n "${half_open_state_dump_dir}" ]]; then
+    mkdir -p "${half_open_state_dump_dir}"
+    rm -f "${half_open_state_dump_dir}/before-process-crash.json" \
+      "${half_open_state_dump_dir}/after-fresh-process.json"
+  fi
+  NEREUS_DELAY_KAFKA_WORKER_GROUP_ID="${half_open_group}" \
+    run_worker_smoke "${half_open_bootstrap}" "${half_open_topic}" prepare ""
+  NEREUS_DELAY_KAFKA_LEADER_PLACEMENT_TARGET=1 \
+  GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealKafkaLeaderPlacementSmoke \
+    "-PkafkaClientJar=${client_jar}" \
+    "-PkafkaBootstrap=${bootstrap_all}" \
+    "-PkafkaLeaderPlacementTopic=${half_open_topic}" \
+    "-PkafkaLeaderPlacementGroup=${half_open_group}" \
+    --no-daemon --console=plain
+  run_broker_recovery_state_smoke "${bootstrap_all}" "${half_open_topic}" before \
+    "kafka-half-open" "${half_open_state_dump_dir}"
+
+  touch "${half_open_hold_file}"
+  set +e
+  NEREUS_DELAY_KAFKA_WORKER_GROUP_ID="${half_open_group}" \
+  NEREUS_DELAY_KAFKA_WORKER_PROCESS_CRASH_STATE_DUMP_DIR="${half_open_worker_state_dir}" \
+    run_worker_smoke "${half_open_bootstrap}" "${half_open_topic}" resume "" \
+      >"${half_open_worker_log}" 2>&1 &
+  half_open_worker_pid=$!
+  set -e
+  hold_deadline=$((SECONDS + 60))
+  while [[ ! -s "${half_open_ack_file}" ]]; do
+    if (( SECONDS >= hold_deadline )); then
+      cat "${half_open_worker_log}" >&2 || true
+      cat "${half_open_log}" >&2 || true
+      echo "Kafka half-open proxy did not hold a real Broker response" >&2
+      exit 1
+    fi
+    if ! kill -0 "${half_open_worker_pid}" >/dev/null 2>&1; then
+      cat "${half_open_worker_log}" >&2 || true
+      cat "${half_open_log}" >&2 || true
+      echo "Kafka Worker exited before the half-open hold was observed" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  if ! kill -0 "${half_open_worker_pid}" >/dev/null 2>&1; then
+    cat "${half_open_worker_log}" >&2 || true
+    echo "Kafka Worker did not remain live across the half-open deadline" >&2
+    exit 1
+  fi
+  half_open_wait_seconds=$(( (half_open_channel_deadline_ms + 999) / 1000 + 4 ))
+  sleep "${half_open_wait_seconds}"
+  if ! kill -0 "${half_open_worker_pid}" >/dev/null 2>&1; then
+    cat "${half_open_worker_log}" >&2 || true
+    echo "Kafka Worker exited before the half-open channel was released" >&2
+    exit 1
+  fi
+  touch "${half_open_release_file}"
+  release_deadline=$((SECONDS + 30))
+  while [[ ! -s "${half_open_release_observed_file}" ]]; do
+    if (( SECONDS >= release_deadline )); then
+      cat "${half_open_log}" >&2 || true
+      echo "Kafka half-open proxy did not observe release" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  worker_deadline=$((SECONDS + 180))
+  worker_exit=1
+  while kill -0 "${half_open_worker_pid}" >/dev/null 2>&1; do
+    if (( SECONDS >= worker_deadline )); then
+      cat "${half_open_worker_log}" >&2 || true
+      echo "Kafka Worker did not recover after half-open release" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  set +e
+  wait "${half_open_worker_pid}"
+  worker_exit=$?
+  set -e
+  half_open_worker_pid=""
+  if [[ "${worker_exit}" != "0" ]]; then
+    cat "${half_open_worker_log}" >&2 || true
+    echo "Kafka Worker fresh-process recovery failed after half-open release" >&2
+    exit 1
+  fi
+  [[ -s "${half_open_post_release_file}" ]] || {
+    cat "${half_open_log}" >&2 || true
+    echo "Kafka half-open proxy did not forward after release" >&2
+    exit 1
+  }
+  rg -F --quiet "Kafka Worker vertical smoke passed" "${half_open_worker_log}" \
+    || { cat "${half_open_worker_log}" >&2; exit 1; }
+  rg -F --quiet "Kafka Worker authority smoke passed" "${half_open_worker_log}" \
+    || { cat "${half_open_worker_log}" >&2; exit 1; }
+  hold_duration_ms="$(awk -F= '$1 == "hold_duration_ms" {print $2}' \
+    "${half_open_release_observed_file}" | tail -n 1)"
+  if ! [[ "${hold_duration_ms}" =~ ^[0-9]+$ ]] \
+      || (( hold_duration_ms < half_open_channel_deadline_ms )); then
+    cat "${half_open_release_observed_file}" >&2 || true
+    echo "Kafka half-open hold did not cross the configured channel deadline" >&2
+    exit 1
+  fi
+  half_open_worker_after="${half_open_worker_state_dir}/after-fresh-process.json"
+  [[ -s "${half_open_worker_after}" ]] \
+    && jq -e \
+       '.schema == "nereus-delay-chaos-durable-state-dump-v1"
+       and .cell == "kafka-worker-process-crash"
+       and .phase == "RECOVERED_AFTER_FRESH_PROCESS"
+       and (.process_pid | type == "number")
+       and .applied_offset == 1
+       and .store_write_batch_durable == true
+       and .source_ack_committed == true
+       and .durable_store_read == true
+       and .dump_forced == true' "${half_open_worker_after}" >/dev/null \
+    || { cat "${half_open_worker_log}" >&2; echo "fresh Worker state dump is missing or invalid" >&2; exit 1; }
+  if [[ -n "${half_open_state_dump_dir}" ]]; then
+    mkdir -p "${half_open_state_dump_dir}"
+    jq -n --argjson deadline_ms "${half_open_channel_deadline_ms}" \
+      --argjson duration_ms "${hold_duration_ms}" \
+      --arg worker_log "${half_open_state_dump_dir}/worker.log" \
+      --arg worker_after "${half_open_state_dump_dir}/worker-state/after-fresh-process.json" \
+      '{schema:"nereus-delay-half-open-transport-e2e-v1",status:"PASS",cell:"kafka-half-open",
+        channel_deadline_ms:$deadline_ms,hold_duration_ms:$duration_ms,
+        hold_crossed_channel_deadline:($duration_ms >= $deadline_ms),
+        worker_log:$worker_log,worker_after_dump:$worker_after,
+        real_socket_hold:true,release_observed:true,post_release_forward:true,
+        fresh_worker_recovery:true}' >"${half_open_state_dump_dir}/half-open-e2e.json"
+  fi
+  run_broker_recovery_state_smoke "${bootstrap_all}" "${half_open_topic}" after \
+    "kafka-half-open" "${half_open_state_dump_dir}"
+  echo "Kafka Worker half-open recovery E2E passed: a real Broker response was held on an open TCP channel past the ${half_open_channel_deadline_ms}ms deadline, the fresh Worker remained durable and recovered after release, and real Oxia authority plus source apply/ACK completed."
   exit 0
 fi
 

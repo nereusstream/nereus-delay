@@ -234,6 +234,8 @@ public final class KafkaClientArtifactBrokerProcessCrashStateSmoke {
                     "BROKER_NETWORK_PARTITION_READY", "RECOVERED_AFTER_BROKER_NETWORK_REJOIN");
             case "kafka-broker-leader-failover" -> new Boundary(cell,
                     "BROKER_LEADER_FAILOVER_READY", "RECOVERED_AFTER_BROKER_LEADER_FAILOVER");
+            case "kafka-half-open" -> new Boundary(cell,
+                    "HALF_OPEN_READY", "RECOVERED_AFTER_HALF_OPEN");
             default -> throw new IllegalArgumentException("unsupported Kafka Broker recovery cell: " + cell);
         };
     }

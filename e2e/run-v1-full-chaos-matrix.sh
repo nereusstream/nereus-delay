@@ -251,6 +251,109 @@ else
     "real Kafka leader-placement child failed or its independent before/after audit did not pass (exit=${leader_exit})"
 fi
 
+half_open_dir="${artifact_dir}/half-open"
+half_open_state_dir="${half_open_dir}/state"
+mkdir -p "${half_open_dir}" "${half_open_state_dir}"
+half_open_exit=1
+if [[ "${run_external}" == "1" && "${source_status}" == "PASS" ]]; then
+  set +e
+  NEREUS_DELAY_KAFKA_HALF_OPEN_ONLY=1 \
+  NEREUS_DELAY_KAFKA_WITH_OXIA=1 \
+  NEREUS_DELAY_KAFKA_HALF_OPEN_STATE_DUMP_DIR="${half_open_state_dir}" \
+  NEREUS_DELAY_KAFKA_GRADLE_USER_HOME="${gradle_home}" \
+  NEREUS_DELAY_KAFKA_CHECKOUT="${kafka_dir}" \
+  NEREUS_DELAY_KAFKA_OXIA_CHECKOUT="${oxia_dir}" \
+    bash "${script_dir}/run-kafka-real-client-e2e.sh" \
+      >"${half_open_dir}/run.log" 2>&1
+  half_open_exit=$?
+  set -e
+else
+  echo "source boundary blocked or external execution disabled; half-open child was not started" \
+    >"${half_open_dir}/run.log"
+fi
+
+half_open_status="BLOCKED"
+half_open_before="${half_open_state_dir}/before-process-crash.json"
+half_open_after="${half_open_state_dir}/after-fresh-process.json"
+half_open_transport="${half_open_state_dir}/half-open-e2e.json"
+half_open_worker_after="${half_open_state_dir}/worker-state/after-fresh-process.json"
+if [[ "${half_open_exit}" == "0" && -s "${half_open_transport}" \
+    && -s "${half_open_before}" && -s "${half_open_after}" \
+    && -s "${half_open_state_dir}/hold-ack" \
+    && -s "${half_open_state_dir}/release-observed" \
+    && -s "${half_open_state_dir}/post-release-forward" \
+    && -s "${half_open_worker_after}" ]] \
+    && jq -e --arg delay "${candidate_delay}" \
+      '.schema == "nereus-delay-half-open-transport-e2e-v1"
+       and .status == "PASS"
+       and .cell == "kafka-half-open"
+       and .real_socket_hold == true
+       and .release_observed == true
+       and .post_release_forward == true
+       and .fresh_worker_recovery == true
+       and .hold_crossed_channel_deadline == true
+       and (.hold_duration_ms | type == "number")
+       and (.hold_duration_ms >= .channel_deadline_ms)' \
+      "${half_open_transport}" >/dev/null 2>&1 \
+    && rg -F --quiet "hold_active=true" "${half_open_state_dir}/hold-ack" \
+    && rg -F --quiet "release_observed=true" "${half_open_state_dir}/release-observed" \
+    && rg -F --quiet "forwarded_after_release=true" "${half_open_state_dir}/post-release-forward" \
+    && jq -n --slurpfile before "${half_open_before}" --slurpfile after "${half_open_after}" \
+      --slurpfile worker "${half_open_worker_after}" \
+      '($before | length) == 1 and ($after | length) == 1 and ($worker | length) == 1
+       and $before[0].schema == "nereus-delay-chaos-durable-state-dump-v1"
+       and $after[0].schema == "nereus-delay-chaos-durable-state-dump-v1"
+       and $worker[0].schema == "nereus-delay-chaos-durable-state-dump-v1"
+       and $before[0].cell == "kafka-half-open" and $after[0].cell == "kafka-half-open"
+       and $worker[0].cell == "kafka-worker-process-crash"
+       and $before[0].phase == "HALF_OPEN_READY"
+       and $after[0].phase == "RECOVERED_AFTER_HALF_OPEN"
+       and $worker[0].phase == "RECOVERED_AFTER_FRESH_PROCESS"
+       and $before[0].dump_forced == true and $after[0].dump_forced == true
+       and $worker[0].dump_forced == true
+       and $before[0].durable_broker_read == true and $after[0].durable_broker_read == true
+       and $worker[0].durable_store_read == true
+       and ($before[0].process_pid | type == "number")
+       and ($after[0].process_pid | type == "number")
+       and ($worker[0].process_pid | type == "number")
+       and $before[0].process_pid != $after[0].process_pid
+       and $before[0].topic == $after[0].topic
+       and $before[0].topic_id == $after[0].topic_id
+       and $before[0].cluster_id == $after[0].cluster_id
+       and ($before[0].replica_ids | sort) == [1,2,3]
+       and ($after[0].replica_ids | sort) == [1,2,3]
+       and ($before[0].isr_ids | sort) == [1,2,3]
+       and ($after[0].isr_ids | sort) == [1,2,3]
+       and ($before[0].live_broker_ids | sort) == [1,2,3]
+       and ($after[0].live_broker_ids | sort) == [1,2,3]
+       and $before[0].leader_id == 1 and $after[0].leader_id == 1
+       and $after[0].end_offset >= $before[0].end_offset
+       and $worker[0].topic == $before[0].topic
+       and $worker[0].topic_id == $before[0].topic_id
+       and $worker[0].cluster_id == $before[0].cluster_id
+       and $worker[0].applied_offset == 1
+       and $worker[0].store_write_batch_durable == true
+       and $worker[0].source_ack_committed == true' \
+      >/dev/null 2>&1; then
+  half_open_status="PASS"
+fi
+if [[ "${half_open_status}" == "PASS" ]]; then
+  add_cell "$(jq -cn --arg transport "${half_open_transport}" \
+    --arg before "${half_open_before}" --arg after "${half_open_after}" \
+    --arg worker "${half_open_worker_after}" --arg log "${half_open_dir}/run.log" \
+    '{"half-open": {
+      status:"PASS",
+      injection:{status:"PASS",point:"hold a real Broker response on an open TCP channel beyond the configured channel deadline"},
+      before_after:{status:"PASS",audit:{status:"CAPTURED_AND_VERIFIED",before_dump:$before,after_dump:$after,transport:$transport}},
+      fresh_process_recovery:"PASS",
+      invariant_audit:"INDEPENDENT_FIELDS_PASS",
+      evidence:{transport:$transport,before_dump:$before,after_dump:$after,worker_after_dump:$worker,run_log:$log}
+    }}')"
+else
+  blocked_cell half-open "hold a half-open native connection past the channel deadline" \
+    "real Kafka half-open transport/Worker child failed or its independent audit did not pass (exit=${half_open_exit})"
+fi
+
 if [[ "${run_external}" == "1" && "${source_status}" == "PASS" ]]; then
   minio_dir="${artifact_dir}/minio-fault"
   set +e

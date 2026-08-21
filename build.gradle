@@ -252,6 +252,27 @@ tasks.register('runRealKafkaTcpFaultProxy', JavaExec) {
     args proxyProperties.collect { findProperty(it) }
 }
 
+tasks.register('runRealKafkaHalfOpenProxy', JavaExec) {
+    group = 'verification'
+    description = 'Runs the raw TCP relay used by the focused Kafka half-open connection E2E.'
+    dependsOn tasks.named('compileRealKafka')
+    def proxyProperties = [
+            'kafkaHalfOpenListenPort', 'kafkaHalfOpenTargetHost', 'kafkaHalfOpenTargetPort',
+            'kafkaHalfOpenHoldFile', 'kafkaHalfOpenReleaseFile', 'kafkaHalfOpenStopFile',
+            'kafkaHalfOpenReadyFile', 'kafkaHalfOpenAckFile', 'kafkaHalfOpenReleaseObservedFile',
+            'kafkaHalfOpenPostReleaseFile', 'kafkaHalfOpenChannelDeadlineMs'
+    ]
+    if (realKafkaClientJar == null || proxyProperties.any { findProperty(it) == null }) {
+        doFirst {
+            throw new GradleException('runRealKafkaHalfOpenProxy requires the locked Kafka client and all '
+                    + 'kafkaHalfOpen* properties')
+        }
+    }
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactHalfOpenProxy'
+    args proxyProperties.collect { findProperty(it) }
+}
+
 tasks.register('runRealKafkaMutationSmoke', JavaExec) {
     group = 'verification'
     description = 'Runs guarded signed System Mutation append/replay/ACK against an explicitly supplied broker.'
