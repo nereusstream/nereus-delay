@@ -20,6 +20,15 @@ pulsar_log_file="${artifact_dir}/pulsar-guarded-golden-gradle.log"
 artifact="${artifact_dir}/protocol-golden.json"
 
 fail() { echo "V1 protocol golden gate: $*" >&2; exit 1; }
+count_xml_matches() {
+  local result_root="$1" token="$2"
+  if [[ ! -d "${result_root}" ]]; then
+    printf '0\n'
+    return
+  fi
+  rg --no-heading --no-filename -o "${token}" "${result_root}" -g 'TEST-*.xml' \
+    | wc -l | tr -d ' ' || true
+}
 command -v jq >/dev/null 2>&1 || fail "jq is required"
 command -v rg >/dev/null 2>&1 || fail "rg is required"
 [[ -n "${candidate_lock_file}" && -s "${candidate_lock_file}" ]] \
@@ -115,7 +124,7 @@ if [[ "${source_status}" == PASS && "${cross_repo_status}" == PASS ]]; then
   kafka_test_exit_code=$?
   set -e
   if [[ -d "${kafka_dir}/clients/build/test-results/test" ]]; then
-    kafka_test_count="$(rg --no-heading --no-filename -o '<testcase([ >])' "${kafka_dir}/clients/build/test-results/test" -g 'TEST-*.xml' | wc -l | tr -d ' ')"
+    kafka_test_count="$(count_xml_matches "${kafka_dir}/clients/build/test-results/test" '<testcase([ >])')"
   fi
   set +e
   (
@@ -138,10 +147,10 @@ if [[ "${source_status}" == PASS && "${cross_repo_status}" == PASS ]]; then
   pulsar_test_exit_code=$?
   set -e
   if [[ -d "${pulsar_dir}/pulsar-common/build/test-results/test" ]]; then
-    pulsar_test_count=$((pulsar_test_count + $(rg --no-heading --no-filename -o '<testcase([ >])' "${pulsar_dir}/pulsar-common/build/test-results/test" -g 'TEST-*.xml' | wc -l | tr -d ' ')))
+    pulsar_test_count=$((pulsar_test_count + $(count_xml_matches "${pulsar_dir}/pulsar-common/build/test-results/test" '<testcase([ >])')))
   fi
   if [[ -d "${pulsar_dir}/pulsar-broker/build/test-results/test" ]]; then
-    pulsar_test_count=$((pulsar_test_count + $(rg --no-heading --no-filename -o '<testcase([ >])' "${pulsar_dir}/pulsar-broker/build/test-results/test" -g 'TEST-*.xml' | wc -l | tr -d ' ')))
+    pulsar_test_count=$((pulsar_test_count + $(count_xml_matches "${pulsar_dir}/pulsar-broker/build/test-results/test" '<testcase([ >])')))
   fi
 else
   echo "source or cross-repo validation failed; Kafka/Pulsar protocol tests were not started" >"${kafka_log_file}"
@@ -170,10 +179,10 @@ failure_count=0
 error_count=0
 skipped_count=0
 if [[ "${tests_started}" == 1 && -d "${delay_dir}/build/test-results/test" ]]; then
-  test_count="$(rg --no-heading --no-filename -o '<testcase([ >])' "${delay_dir}/build/test-results/test" -g 'TEST-*.xml' | wc -l | tr -d ' ')"
-  failure_count="$(rg --no-heading --no-filename -o '<failure([ >])' "${delay_dir}/build/test-results/test" -g 'TEST-*.xml' | wc -l | tr -d ' ')"
-  error_count="$(rg --no-heading --no-filename -o '<error([ >])' "${delay_dir}/build/test-results/test" -g 'TEST-*.xml' | wc -l | tr -d ' ')"
-  skipped_count="$(rg --no-heading --no-filename -o '<skipped([ >])' "${delay_dir}/build/test-results/test" -g 'TEST-*.xml' | wc -l | tr -d ' ')"
+  test_count="$(count_xml_matches "${delay_dir}/build/test-results/test" '<testcase([ >])')"
+  failure_count="$(count_xml_matches "${delay_dir}/build/test-results/test" '<failure([ >])')"
+  error_count="$(count_xml_matches "${delay_dir}/build/test-results/test" '<error([ >])')"
+  skipped_count="$(count_xml_matches "${delay_dir}/build/test-results/test" '<skipped([ >])')"
 fi
 
 status="BLOCKED"
