@@ -61,7 +61,7 @@ set -e
 cat "${artifact_dir}/local-activation.log"
 if [[ "${local_exit}" == "0" && -s "${local_artifact}" ]] \
     && jq -e --arg delay "${delay_source}" \
-      '.status == "PASS_BOUNDED" and .source_lock == $delay and (.tests | length == 5)
+      '.status == "PASS_BOUNDED" and .source_lock == $delay and (.tests | length == 6)
        and any(.tests[]; .name == "io.nereusstream.delay.protocol.ProtocolActivationCutoverContractTest")
        and any(.tests[]; .name == "io.nereusstream.delay.store.CheckpointRestoreCoordinatorTest")' \
       "${local_artifact}" >/dev/null 2>&1; then

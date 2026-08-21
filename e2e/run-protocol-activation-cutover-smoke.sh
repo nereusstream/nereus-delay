@@ -110,7 +110,7 @@ jq -n \
 
 if [[ "${test_status}" == "0" ]]; then
   jq -e --arg source "${source_lock}" \
-    '.status == "PASS_BOUNDED" and .source_lock == $source and (.tests | length == 5)' \
+    '.status == "PASS_BOUNDED" and .source_lock == $source and (.tests | length == 6)' \
     "${artifact}" >/dev/null
 fi
 
