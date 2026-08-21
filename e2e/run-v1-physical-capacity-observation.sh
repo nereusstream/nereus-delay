@@ -24,6 +24,7 @@ run_real="${NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_RUN_REAL:-1}"
 payload_bytes="${NEREUS_DELAY_V1_CAPACITY_PAYLOAD_BYTES:-1052672}"
 matrix_image="${NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_IMAGE:-eclipse-temurin@sha256:57865c22b954cf920cb05a610af81d577e89783282514ba071e99c7357f6c769}"
 seeded_gradle_home="${NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_GRADLE_USER_HOME:-}"
+full_matrix_input="${NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_FULL_MATRIX_ARTIFACT:-}"
 started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 fail() {
@@ -88,10 +89,40 @@ delay_source="$(require_checkout Delay "${delay_dir}" nereus/delay-full-implemen
 kafka_source="$(require_checkout Kafka "${kafka_dir}" nereus/delay-guarded-producer-v1 "${candidate_kafka}")"
 pulsar_source="$(require_checkout Pulsar "${pulsar_dir}" nereus/delay-resource-guard-v1 "${candidate_pulsar}")"
 oxia_source="$(require_checkout Oxia "${oxia_dir}" main "${candidate_oxia}")"
+source_locks_json="$(jq -cn --arg delay "${delay_source}" --arg kafka "${kafka_source}" \
+  --arg pulsar "${pulsar_source}" --arg oxia "${oxia_source}" \
+  '{delay:$delay,kafka:$kafka,pulsar:$pulsar,oxia:$oxia}')"
 
 mkdir -p "${artifact_dir}"
 if [[ -n "$(find "${artifact_dir}" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
   fail "measurement artifact directory must be empty: ${artifact_dir}"
+fi
+
+full_matrix_status="MISSING"
+full_matrix_validation_log="${artifact_dir}/full-capacity-matrix-validation.log"
+full_matrix_json="$(jq -cn \
+  --argjson locks "${source_locks_json}" \
+  '{schema:"nereus-delay-v1-capacity-matrix-v1",status:"MISSING",source_locks:$locks,
+    dimensions:{record_cardinalities:[],arrival_patterns:[],ordering_modes:[],consistency_modes:[],
+      target_health:[],placement_modes:[],payload_modes:[]},observations:[],
+    capacity_envelope:{status:"MISSING",config_file:"",config_sha256:""},
+    boundaries:["A separately produced physical §23.4 capacity matrix is required."]}')"
+if [[ -n "${full_matrix_input}" ]]; then
+  set +e
+  bash "${script_dir}/validate-v1-capacity-matrix.sh" \
+    "${full_matrix_input}" "${candidate_lock_file}" >"${full_matrix_validation_log}" 2>&1
+  full_matrix_validation_exit=$?
+  set -e
+  if [[ "${full_matrix_validation_exit}" == "0" ]]; then
+    full_matrix_status="PASS"
+    full_matrix_json="$(jq -c '.' "${full_matrix_input}")"
+  else
+    full_matrix_status="FAIL"
+  fi
+else
+  full_matrix_validation_exit=2
+  echo "NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_FULL_MATRIX_ARTIFACT is required" \
+    >"${full_matrix_validation_log}"
 fi
 
 now_ms() {
@@ -272,9 +303,6 @@ if [[ "${run_real}" == "1" && "${kafka_exit_code}" == "0" && "${pulsar_exit_code
   real_status="PASS"
 fi
 
-source_locks_json="$(jq -cn --arg delay "${delay_source}" --arg kafka "${kafka_source}" \
-  --arg pulsar "${pulsar_source}" --arg oxia "${oxia_source}" \
-  '{delay:$delay,kafka:$kafka,pulsar:$pulsar,oxia:$oxia}')"
 commands_json="$(jq -cn \
   --arg matrix "bash ${script_dir}/run-bounded-capacity-matrix.sh" \
   --arg contract "./gradlew test <physical-capacity-contract-tests> --rerun-tasks --no-daemon" \
@@ -360,7 +388,8 @@ for name in "${required_lines[@]}"; do
 done
 
 overall_status="FAIL"
-if [[ "${local_measurement_status}" == "PASS" && "${real_measurement_status}" == "PASS" \
+if [[ "${full_matrix_status}" == "PASS" \
+    && "${local_measurement_status}" == "PASS" && "${real_measurement_status}" == "PASS" \
     && "$(jq -n -r --argjson required "${required_json}" --argjson measurements "${measurements_json}" \
       'all($required[]; . as $name | $measurements[$name].status == "PASS" and $measurements[$name].invariant_status == "PASS")')" == "true" ]]; then
   overall_status="PASS"
@@ -379,6 +408,11 @@ jq -n \
   --argjson measurements "${measurements_json}" \
   --argjson provenance "${provenance_json}" \
   --arg matrix_status "${matrix_status}" \
+  --arg full_matrix_status "${full_matrix_status}" \
+  --arg full_matrix_input "${full_matrix_input}" \
+  --arg full_matrix_validation_log "${full_matrix_validation_log}" \
+  --argjson full_matrix_validation_exit "${full_matrix_validation_exit}" \
+  --argjson full_matrix "${full_matrix_json}" \
   --arg local_status "${local_measurement_status}" \
   --arg real_status "${real_measurement_status}" \
   --argjson matrix_exit "${matrix_exit_code}" \
@@ -402,6 +436,21 @@ jq -n \
       physical_contract_tests:{status:(if $contract_exit == 0 then "PASS" else "FAIL" end),exit_code:$contract_exit},
       real_kafka_large_payload:{status:(if $kafka_exit == 0 then "PASS" else "FAIL" end),exit_code:$kafka_exit},
       real_pulsar_large_payload:{status:(if $pulsar_exit == 0 then "PASS" else "FAIL" end),exit_code:$pulsar_exit},
+      full_v1_matrix:{
+        status:$full_matrix_status,
+        source_artifact:$full_matrix_input,
+        validation_log:$full_matrix_validation_log,
+        validation_exit_code:$full_matrix_validation_exit,
+        record_cardinalities:($full_matrix.dimensions.record_cardinalities // []),
+        arrival_patterns:($full_matrix.dimensions.arrival_patterns // []),
+        ordering_modes:($full_matrix.dimensions.ordering_modes // []),
+        consistency_modes:($full_matrix.dimensions.consistency_modes // []),
+        target_health:($full_matrix.dimensions.target_health // []),
+        placement_modes:($full_matrix.dimensions.placement_modes // []),
+        payload_modes:($full_matrix.dimensions.payload_modes // []),
+        observations:($full_matrix.observations // []),
+        capacity_envelope:($full_matrix.capacity_envelope // {})
+      },
       payload_bytes:$payload_bytes,
       local_payload_records:$local_records,
       local_payload_bytes:$local_bytes
@@ -417,6 +466,7 @@ jq -n \
       "All values are derived from the exact artifacts and exit codes recorded by this run.",
       "The real Broker values are end-to-end wall measurements for the two-shard Large Payload authority chain, not a claim of unconstrained broker saturation.",
       "The local resource values are authoritative only for the recorded container/profile and exact source lock.",
+      "The full V1 capacity matrix is independently supplied and hash-validated; without it this artifact remains FAIL even when the bounded probe and real E2E pass.",
       "Missing or malformed platform, broker, worker, object-store, contract or hash evidence produces FAIL."
     ]
   }' >"${measurement_artifact}"
@@ -426,7 +476,8 @@ jq -e --arg status "${overall_status}" --argjson required "${required_json}" \
    and (.source_locks.delay | length == 40)
    and ((.required_configurations | sort | unique) == ($required | sort | unique))
    and ((.observed_configurations | sort | unique) == ($required | sort | unique))
-   and (.measurements | type == "object")' "${measurement_artifact}" >/dev/null
+   and (.measurements | type == "object")
+   and (.campaign.full_v1_matrix.status == "MISSING" or .campaign.full_v1_matrix.status == "FAIL" or .campaign.full_v1_matrix.status == "PASS")' "${measurement_artifact}" >/dev/null
 
 echo "physical capacity observation artifact=${measurement_artifact} status=${overall_status}"
 echo "matrix=${matrix_status}/${matrix_exit_code} contract=${contract_exit_code} real=${real_status} kafka=${kafka_exit_code} pulsar=${pulsar_exit_code}"
