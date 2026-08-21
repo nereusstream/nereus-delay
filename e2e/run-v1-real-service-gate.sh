@@ -146,10 +146,22 @@ same_kafka="$(child_exit kafka-to-kafka)"
 same_pulsar="$(child_exit pulsar-to-pulsar)"
 cross_status="$(child_exit cross-adapter)"
 activation_status="$(child_exit activation-cutover)"
+activation_artifact="${artifact_dir}/activation/protocol-activation-cutover.json"
+activation_contract_status=1
+if [[ "${activation_status}" == 0 && -s "${activation_artifact}" ]] \
+    && jq -e --arg delay "${candidate_delay}" --arg kafka "${candidate_kafka}" \
+      --arg pulsar "${candidate_pulsar}" --arg oxia "${candidate_oxia}" \
+      '.status == "PASS_CERTIFIED" and (.boundaries | type == "array" and length == 0)
+       and .source_locks.delay == $delay and .source_locks.kafka == $kafka
+       and .source_locks.pulsar == $pulsar and .source_locks.oxia == $oxia' \
+      "${activation_artifact}" >/dev/null 2>&1; then
+  activation_contract_status=0
+fi
 
 coverage_status="PASS"
 if [[ "${same_kafka}" != 0 || "${same_pulsar}" != 0 || "${cross_status}" != 0 \
-    || "${special_kafka}" != 0 || "${special_pulsar}" != 0 || "${activation_status}" != 0 ]]; then
+    || "${special_kafka}" != 0 || "${special_pulsar}" != 0 || "${activation_status}" != 0 \
+    || "${activation_contract_status}" != 0 ]]; then
   coverage_status="BLOCKED"
 fi
 
@@ -187,6 +199,7 @@ jq -n \
   --argjson kafka_to_kafka "${same_kafka}" --argjson pulsar_to_pulsar "${same_pulsar}" \
   --argjson cross_adapter "${cross_status}" --argjson kafka_client "${special_kafka}" \
   --argjson pulsar_client "${special_pulsar}" --argjson activation "${activation_status}" \
+  --argjson activation_contract "${activation_contract_status}" \
   --arg started_at "${started_at}" --arg finished_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   ' {
       schema:$schema,status:$status,scope:"full-v1",complete_v1:($status == "PASS_CERTIFIED"),
@@ -197,8 +210,8 @@ jq -n \
         coverage_status:$coverage_status,independent_audit:(if $status == "PASS_CERTIFIED" then "PASS" else "BLOCKED" end),
         child_logs:$logs,child_exit_codes:{kafka_to_kafka:$kafka_to_kafka,pulsar_to_pulsar:$pulsar_to_pulsar,
           cross_adapter:$cross_adapter,kafka_real_client:$kafka_client,pulsar_real_client:$pulsar_client,
-          activation_cutover:$activation}},
-      observations:{activation_cutover:(if $activation == 0 then "PASS" else "BLOCKED" end),
+          activation_cutover:$activation,activation_contract:$activation_contract}},
+      observations:{activation_cutover:(if $activation_contract == 0 then "PASS" else "BLOCKED" end),
         cross_route_paths:(if $cross_adapter == 0 then "PASS" else "BLOCKED" end),
         real_services:(if ($kafka_to_kafka == 0 and $pulsar_to_pulsar == 0 and $cross_adapter == 0
           and $kafka_client == 0 and $pulsar_client == 0) then "PASS" else "BLOCKED" end)},
@@ -206,7 +219,10 @@ jq -n \
         "Real Kafka-to-Pulsar and Pulsar-to-Kafka source/target adapter ownership",
         "Kafka LSO/K1/K2 and Pulsar batching/dedup/attempt-journal client paths",
         "Capability-before-marker authenticated Oxia activation/cutover"],
-      boundaries:(if $status == "PASS_CERTIFIED" then [] else ["one or more required real-service child paths did not pass"] end),
+      boundaries:(if $status == "PASS_CERTIFIED" then [] else
+        (if $activation_contract == 1
+         then ["activation child artifact is bounded or has source/boundary drift"]
+         else ["one or more required real-service child paths did not pass"] end) end),
       started_at:$started_at,finished_at:$finished_at
     }' >"${artifact_dir}/real-service.json"
 
