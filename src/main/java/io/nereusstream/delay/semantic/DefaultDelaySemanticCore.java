@@ -63,7 +63,7 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
         Objects.requireNonNull(submissionMode, "submissionMode");
         final TrustedTimeSnapshot trustedTime = time();
         final RouteSnapshotV1 snapshot = activeRoute(tenant, route, trustedTime);
-        requireAdapter(snapshot, route.adapterKind(), intent.adapterMetadata().kind());
+        requireIngressRoute(snapshot, route.adapterKind());
         requireRetryWindow(snapshot, retryUntilEpochMs, trustedTime);
         if (intent.hasInlinePayload() && intent.inlinePayload().length > snapshot.maxInlinePayloadBytes()) {
             throw SemanticPreparationException.of(StableCode.PAYLOAD_TOO_LARGE, null);
@@ -111,7 +111,7 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
         Objects.requireNonNull(request, "request");
         final TrustedTimeSnapshot trustedTime = time();
         final RouteSnapshotV1 snapshot = activeRoute(tenant, route, trustedTime);
-        requireAdapter(snapshot, route.adapterKind(), request.intentWithoutPayload().adapterMetadata().kind());
+        requireIngressRoute(snapshot, route.adapterKind());
         requireRetryWindow(snapshot, retryUntilEpochMs, trustedTime);
         final UUID logicalMessageUuid = nextUuid(trustedTime);
         final byte[] routingKey = request.intentWithoutPayload().orderingKey().length == 0
@@ -267,11 +267,13 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
         }
     }
 
-    private static void requireAdapter(final RouteSnapshotV1 snapshot, final AdapterKindV1 selected,
-                                       final AdapterMetadataV1.Kind metadataKind) {
-        final AdapterKindV1 metadata = metadataKind == AdapterMetadataV1.Kind.KAFKA
-                ? AdapterKindV1.KAFKA : AdapterKindV1.PULSAR;
-        if (snapshot.ingress().adapterKind() != selected || selected != metadata) {
+    /**
+     * The Gateway route selects the command ingress adapter.  The intent
+     * metadata selects the destination adapter and is checked later by the
+     * immutable Destination Profile/Claim materialization boundary.
+     */
+    private static void requireIngressRoute(final RouteSnapshotV1 snapshot, final AdapterKindV1 selected) {
+        if (snapshot.ingress().adapterKind() != selected) {
             throw SemanticPreparationException.of(StableCode.INGRESS_ROUTE_MISMATCH, null);
         }
     }

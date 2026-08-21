@@ -194,10 +194,11 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
     private PulsarClientArtifactLargePayloadGatewaySmoke() {
     }
 
-    private static RouteSnapshotV1 routeSnapshot(final String physicalTopicBase, final String physicalTopic,
+    static RouteSnapshotV1 routeSnapshot(final String physicalTopicBase, final String physicalTopic,
                                                   final RouteIncarnation incarnation,
                                                   final PulsarSourcePosition position,
                                                   final PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof proof,
+                                                  final AuthenticatedTenantContext tenant,
                                                   final KeyPair signingKeys) {
         final long now = System.currentTimeMillis();
         final BrokerResourceIdentityV1 broker = BrokerResourceIdentityV1.pulsar(
@@ -214,7 +215,8 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         final IngressRouteResourceV1 ingress = new PulsarIngressRouteResourceV1(CLUSTER, physicalTopicBase,
                 List.of(new PulsarPhysicalPartitionIdentityV1(0, physicalTopic, SOURCE_INCARNATION,
                         SOURCE_CREATION_TIMESTAMP)));
-        return RouteSnapshotV1.create(incarnation, bytes(32, 1), bytes(32, 2), RouteLifecycleV1.ACTIVE_FOR_NEW,
+        return RouteSnapshotV1.create(incarnation, tenant.authenticatedTenantScopeHash(), tenant.tenantRoutingScope(),
+                RouteLifecycleV1.ACTIVE_FOR_NEW,
                 now + 30_000, ingress, RoutingHashVersionV1.ROUTING_HASH_V1,
                 new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1), 1, List.of(policy),
                 100, 200, 1 << 20, 2 << 20, 10, 8 << 20, 180_000, now - 1_000, now + 300_000,
@@ -257,7 +259,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                 signingKeys.getPrivate());
     }
 
-    private static RouteWorkerAssignmentCoordinator.PlacementRequest placementRequest(final long now) {
+    static RouteWorkerAssignmentCoordinator.PlacementRequest placementRequest(final long now) {
         return new RouteWorkerAssignmentCoordinator.PlacementRequest(0,
                 Bytes.sha256(Bytes.utf8("pulsar-large-worker-assignment")), 1,
                 Bytes.sha256(Bytes.utf8("pulsar-large-worker-capacity")), 1,
@@ -293,7 +295,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         throw new IllegalStateException("could not find deterministic ordering key for Pulsar partition " + partition);
     }
 
-    private static void requireRouteAssignment(final WorkerAssignment assignment, final RouteSnapshotV1 snapshot,
+    static void requireRouteAssignment(final WorkerAssignment assignment, final RouteSnapshotV1 snapshot,
                                                final PulsarSourcePosition barrierPosition,
                                                final PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof proof) {
         if (!assignment.routeBound() || !Arrays.equals(snapshot.snapshotDigest(), assignment.routeSnapshotDigest())
@@ -309,25 +311,25 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         }
     }
 
-    private static CompatibleControlSnapshotV1 controlSnapshot(final ShardId shard,
+    static CompatibleControlSnapshotV1 controlSnapshot(final ShardId shard,
                                                                 final ProfileRefV1 destinationProfile) {
         return new CompatibleControlSnapshotV1(new ShardSubjectV1(shard),
                 List.of(new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1)),
                 List.of(destinationProfile), zeroQuota());
     }
 
-    private static QuotaGrantRefV1 zeroQuota() {
+    static QuotaGrantRefV1 zeroQuota() {
         return new QuotaGrantRefV1(bytes(32, 50), 1, new PublishAdmissionBody.ChargeVector(
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
     }
 
-    private static CapacityVectorV1 capacity(final long dbInstances) {
+    static CapacityVectorV1 capacity(final long dbInstances) {
         final long[] values = new long[CapacityDimensionV1.COUNT];
         values[CapacityDimensionV1.DB_INSTANCES.wireValue() - 1] = dbInstances;
         return new CapacityVectorV1(values);
     }
 
-    private static WorkClassExecutionRegistry workClasses() {
+    static WorkClassExecutionRegistry workClasses() {
         final EnumMap<WorkClass, WorkClassPolicy> policies = new EnumMap<>(WorkClass.class);
         for (WorkClass workClass : WorkClass.values()) {
             final boolean protectedClass = switch (workClass) {
@@ -343,7 +345,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                 System::nanoTime);
     }
 
-    private static PulsarSourcePosition sendFrameAndPosition(final PulsarClient client,
+    static PulsarSourcePosition sendFrameAndPosition(final PulsarClient client,
                                                                final TopicResourceGuard guard,
                                                                final String physicalTopic,
                                                                final ShardId shard,
@@ -352,7 +354,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         return sendFrameAndPosition(client, guard, physicalTopic, shard, frame, producerName, 0);
     }
 
-    private static PulsarSourcePosition sendFrameAndPosition(final PulsarClient client,
+    static PulsarSourcePosition sendFrameAndPosition(final PulsarClient client,
                                                                final TopicResourceGuard guard,
                                                                final String physicalTopic,
                                                                final ShardId shard,
@@ -420,13 +422,13 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                 io.nereusstream.delay.protocol.CommandCodec.encodeFrameV1(command), producerName, partition);
     }
 
-    private static KeyPair gatewayJwtKeys() throws GeneralSecurityException {
+    static KeyPair gatewayJwtKeys() throws GeneralSecurityException {
         final KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
         generator.initialize(2_048);
         return generator.generateKeyPair();
     }
 
-    private static String token(final KeyPair keyPair, final AuthenticatedTenantContext tenant,
+    static String token(final KeyPair keyPair, final AuthenticatedTenantContext tenant,
                                 final byte[] certificateFingerprint) throws GeneralSecurityException {
         final long now = Instant.now().getEpochSecond();
         final String header = "{\"alg\":\"RS256\",\"typ\":\"JWT\",\"kid\":\"gateway-e2e-key\"}";
@@ -447,7 +449,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         return input + "." + encode(signature.sign());
     }
 
-    private static DelayGatewayV1Grpc.DelayGatewayV1BlockingStub stub(final ManagedChannel channel,
+    static DelayGatewayV1Grpc.DelayGatewayV1BlockingStub stub(final ManagedChannel channel,
                                                                         final String token) {
         final Metadata headers = new Metadata();
         headers.put(Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER), "Bearer " + token);
@@ -455,14 +457,14 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                 MetadataUtils.newAttachHeadersInterceptor(headers)));
     }
 
-    private static ManagedChannel channel(final int port, final Path ca, final Path clientCertificate,
+    static ManagedChannel channel(final int port, final Path ca, final Path clientCertificate,
                                           final Path clientPrivateKey) throws SSLException {
         final io.grpc.netty.shaded.io.netty.handler.ssl.SslContext sslContext = GrpcSslContexts.forClient()
                 .trustManager(ca.toFile()).keyManager(clientCertificate.toFile(), clientPrivateKey.toFile()).build();
         return NettyChannelBuilder.forAddress("127.0.0.1", port).sslContext(sslContext).build();
     }
 
-    private static byte[] certificateFingerprint(final Path certificate) throws Exception {
+    static byte[] certificateFingerprint(final Path certificate) throws Exception {
         final CertificateFactory factory = CertificateFactory.getInstance("X.509");
         final X509Certificate parsed;
         try (InputStream input = Files.newInputStream(certificate)) {
@@ -471,14 +473,14 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         return Bytes.sha256(parsed.getEncoded());
     }
 
-    private static void createPartitionedTopic(final HttpClient client, final String adminUrl, final String topicBase,
+    static void createPartitionedTopic(final HttpClient client, final String adminUrl, final String topicBase,
                                                final byte[] incarnation,
                                                final long creationTimestamp, final List<String> guardAdminUrls)
             throws Exception {
         createPartitionedTopic(client, adminUrl, topicBase, 1, incarnation, creationTimestamp, guardAdminUrls);
     }
 
-    private static void createPartitionedTopic(final HttpClient client, final String adminUrl, final String topicBase,
+    static void createPartitionedTopic(final HttpClient client, final String adminUrl, final String topicBase,
                                                final int partitionCount, final byte[] incarnation,
                                                final long creationTimestamp, final List<String> guardAdminUrls)
             throws Exception {
@@ -510,7 +512,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         }
     }
 
-    private static void createMissedPartitions(final HttpClient client, final List<String> adminUrls,
+    static void createMissedPartitions(final HttpClient client, final List<String> adminUrls,
                                                final String topicBase) throws Exception {
         int lastStatus = -1;
         String lastBody = "";
@@ -536,7 +538,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                 + topicBase + " lastStatus=" + lastStatus + " lastBody=" + lastBody);
     }
 
-    private static void createTopic(final HttpClient client, final String adminUrl, final String topic,
+    static void createTopic(final HttpClient client, final String adminUrl, final String topic,
                                     final byte[] incarnation, final long creationTimestamp) throws Exception {
         final String path = adminUrl + "/admin/v2/persistent/public/default/" + topic;
         final String body = guardBody(incarnation, creationTimestamp);
@@ -562,7 +564,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                 + " lastStatus=" + lastStatus + " lastBody=" + lastBody);
     }
 
-    private static void stampGuard(final HttpClient client, final List<String> adminUrls,
+    static void stampGuard(final HttpClient client, final List<String> adminUrls,
                                    final String physicalTopic, final byte[] incarnation,
                                    final long creationTimestamp) throws Exception {
         int lastStatus = -1;
@@ -592,23 +594,23 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                 + " lastStatus=" + lastStatus + " lastBody=" + lastBody);
     }
 
-    private static String guardBody(final byte[] incarnation, final long creationTimestamp) {
+    static String guardBody(final byte[] incarnation, final long creationTimestamp) {
         return "{\"nereus.resource.guard.version\":\"1\",\"nereus.resource.incarnation\":\""
                 + encode(incarnation) + "\",\"nereus.resource.created-at\":\""
                 + Long.toUnsignedString(creationTimestamp) + "\"}";
     }
 
-    private static void deletePartitionedTopic(final HttpClient client, final List<String> adminUrls,
+    static void deletePartitionedTopic(final HttpClient client, final List<String> adminUrls,
                                                 final String topic) {
         deleteAcrossAdmins(client, adminUrls,
                 "/admin/v2/persistent/public/default/" + topic + "/partitions?force=true");
     }
 
-    private static void deleteTopic(final HttpClient client, final List<String> adminUrls, final String topic) {
+    static void deleteTopic(final HttpClient client, final List<String> adminUrls, final String topic) {
         deleteAcrossAdmins(client, adminUrls, "/admin/v2/persistent/public/default/" + topic + "?force=true");
     }
 
-    private static void deleteAcrossAdmins(final HttpClient client, final List<String> adminUrls,
+    static void deleteAcrossAdmins(final HttpClient client, final List<String> adminUrls,
                                             final String suffix) {
         Exception lastFailure = null;
         for (String adminUrl : adminUrls) {
@@ -628,7 +630,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         }
     }
 
-    private static HttpResponse<String> request(final HttpClient client, final String path, final String method,
+    static HttpResponse<String> request(final HttpClient client, final String path, final String method,
                                                 final String body) throws Exception {
         final HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(path))
                 .header("Content-Type", "application/json");
@@ -897,7 +899,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         }
     }
 
-    private static void recover(final GuardedConsumer<byte[]> consumer,
+    static void recover(final GuardedConsumer<byte[]> consumer,
                                 final TopicResourceGuard guard,
                                 final WorkerAssignment accepted,
                                 final OxiaOwnerLeaseStore ownerAuthority,
@@ -951,7 +953,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
      * ledger transition is deliberately rejected until the adapter supplies a
      * stronger broker continuity proof.
      */
-    private static SourceReplaySuccessor strictPulsarFixtureSuccessor() {
+    static SourceReplaySuccessor strictPulsarFixtureSuccessor() {
         return (previous, current) -> {
             if (!(previous instanceof PulsarSourcePosition previousPulsar)
                     || !(current instanceof PulsarSourcePosition currentPulsar)
@@ -971,7 +973,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         };
     }
 
-    private static io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult runUntilApplied(
+    static io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult runUntilApplied(
             final WorkerShardRuntime runtime) {
         final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
         io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult result;
@@ -990,7 +992,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         throw new IllegalStateException("Pulsar large-payload Worker source record did not become visible");
     }
 
-    private static io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult runUntilApplied(
+    static io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult runUntilApplied(
             final WorkerShardFleetRuntime fleet, final ShardId expectedShard) {
         final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
         do {
@@ -1013,7 +1015,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                 + expectedShard);
     }
 
-    private static void requireApplied(
+    static void requireApplied(
             final io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult result,
             final String operation) {
         if (result.status() != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED) {
@@ -1033,7 +1035,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         }
     }
 
-    private static CommandQueuedReceiptV1 requireQueued(final GatewaySubmissionOutcomeV1 response,
+    static CommandQueuedReceiptV1 requireQueued(final GatewaySubmissionOutcomeV1 response,
                                                          final String operation,
                                                          final PulsarSourcePosition previousPosition) {
         if (!response.hasSubmissionOutcomeNdr1()) {
@@ -1057,12 +1059,12 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         return receipt;
     }
 
-    private static byte[] reservationId(final CommandQueuedReceiptV1 receipt) {
+    static byte[] reservationId(final CommandQueuedReceiptV1 receipt) {
         return Bytes.sha256(Bytes.utf8("nereus-delay-reservation-id-v1\0"), receipt.command().commandId().bytes(),
                 receipt.command().delayMessageId().bytes(), receipt.command().commandHash());
     }
 
-    private static GatewayPrepareLargeScheduleRequestV1 prepareRequest(final ScheduleIntentV1 intent,
+    static GatewayPrepareLargeScheduleRequestV1 prepareRequest(final ScheduleIntentV1 intent,
                                                                          final long payloadLength,
                                                                          final byte[] payloadHash,
                                                                          final PayloadProofTrustSetRefV1 trustSet,
@@ -1070,7 +1072,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         return prepareRequest(intent, payloadLength, payloadHash, trustSet, objectStoreProfile, 0);
     }
 
-    private static GatewayPrepareLargeScheduleRequestV1 prepareRequest(final ScheduleIntentV1 intent,
+    static GatewayPrepareLargeScheduleRequestV1 prepareRequest(final ScheduleIntentV1 intent,
                                                                          final long payloadLength,
                                                                          final byte[] payloadHash,
                                                                          final PayloadProofTrustSetRefV1 trustSet,
@@ -1090,12 +1092,12 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                 .build();
     }
 
-    private static GatewayCommitLargeScheduleRequestV1 commitRequest(final PayloadReservationReceiptV1 receipt,
+    static GatewayCommitLargeScheduleRequestV1 commitRequest(final PayloadReservationReceiptV1 receipt,
                                                                        final PayloadCommitProofV1 proof) {
         return commitRequest(receipt, proof, 0);
     }
 
-    private static GatewayCommitLargeScheduleRequestV1 commitRequest(final PayloadReservationReceiptV1 receipt,
+    static GatewayCommitLargeScheduleRequestV1 commitRequest(final PayloadReservationReceiptV1 receipt,
                                                                        final PayloadCommitProofV1 proof,
                                                                        final int partition) {
         return GatewayCommitLargeScheduleRequestV1.newBuilder()
@@ -1106,11 +1108,11 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                 .build();
     }
 
-    private static ScheduleIntentV1 largeScheduleIntent(final long now) {
+    static ScheduleIntentV1 largeScheduleIntent(final long now) {
         return largeScheduleIntent(now, Bytes.utf8("pulsar-large-payload-key"));
     }
 
-    private static ScheduleIntentV1 largeScheduleIntent(final long now, final byte[] orderingKey) {
+    static ScheduleIntentV1 largeScheduleIntent(final long now, final byte[] orderingKey) {
         final long deliverAt = now + 15_000;
         return ScheduleIntentV1.forPrepare(destinationProfile(), retryPolicy(), deliverAt, deliverAt + 120_000,
                 DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, orderingKey,
@@ -1126,17 +1128,17 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         return PreparedCommand.scheduleV1(shard, intent, deliverAt + 20_000);
     }
 
-    private static ProfileRefV1 destinationProfile() {
+    static ProfileRefV1 destinationProfile() {
         return new ProfileRefV1(Bytes.utf8("destination-large-payload"), 1,
                 Bytes.sha256(Bytes.utf8("destination-large-payload-semantic")), ProfileKindV1.DESTINATION);
     }
 
-    private static RetryPolicyRefV1 retryPolicy() {
+    static RetryPolicyRefV1 retryPolicy() {
         return new RetryPolicyRefV1(Bytes.utf8("retry-large-payload"), 1,
                 Bytes.sha256(Bytes.utf8("retry-large-payload-semantic")));
     }
 
-    private static ProfileSemanticEnvelopeV1 objectStoreProfile(final URI endpoint, final String region,
+    static ProfileSemanticEnvelopeV1 objectStoreProfile(final URI endpoint, final String region,
                                                                  final String bucket, final String accessKey) {
         final io.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1 semantic =
                 new io.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1(
@@ -1149,7 +1151,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                 semantic);
     }
 
-    private static byte[] payload() {
+    static byte[] payload() {
         final byte[] value = new byte[(int) PAYLOAD_BYTES];
         for (int index = 0; index < value.length; index++) {
             value[index] = (byte) (index * 31 + 7);
@@ -1157,7 +1159,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         return value;
     }
 
-    private static SystemMutation trustActivation(final ShardId shard, final PayloadProofTrustSetRefV1 trustSet,
+    static SystemMutation trustActivation(final ShardId shard, final PayloadProofTrustSetRefV1 trustSet,
                                                   final AuthenticatedTenantContext tenant,
                                                   final KeyPair signingKeys) {
         final long retryUntil = System.currentTimeMillis() + 300_000;
@@ -1191,7 +1193,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         });
     }
 
-    private static V1ScheduleResolver scheduleResolver(final String destinationPhysicalTopic) {
+    static V1ScheduleResolver scheduleResolver(final String destinationPhysicalTopic) {
         final ProfileRefV1 destination = destinationProfile();
         final ProfileRefV1 capability = PulsarClientArtifactWorkerSmoke.capabilityProfile();
         final byte[] tuple = PulsarClientArtifactWorkerSmoke.canonicalLaneTuple(destinationPhysicalTopic,
@@ -1218,7 +1220,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
         };
     }
 
-    private static V1ScheduleResolver scheduleResolver(final String destinationPhysicalTopicBase,
+    static V1ScheduleResolver scheduleResolver(final String destinationPhysicalTopicBase,
                                                        final int destinationPartition) {
         if (destinationPartition < 0) {
             throw new IllegalArgumentException("Pulsar multi-shard destination partition must be non-negative");
@@ -1815,7 +1817,7 @@ public final class PulsarClientArtifactLargePayloadGatewaySmoke {
                     seekAfterAndSettle(nativeConsumer, sourceGuard, sourcePhysicalTopic, shard,
                             Optional.empty(), Duration.ofSeconds(5));
             final RouteSnapshotV1 snapshot = routeSnapshot(sourcePhysicalBase, sourcePhysicalTopic, routeIncarnation,
-                    beforeRoutePosition, proof, controlKeys);
+                    beforeRoutePosition, proof, tenant, controlKeys);
             boolean runtimeDrained = false;
             try {
                 try (OxiaRouteAuthoritySession publisherSession = OxiaRouteAuthoritySession.connect(

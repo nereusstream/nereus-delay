@@ -1078,7 +1078,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         }
     }
 
-    private static KafkaProducer<byte[], byte[]> kafkaProducer(final String bootstrap) {
+    static KafkaProducer<byte[], byte[]> kafkaProducer(final String bootstrap) {
         final Map<String, Object> configuration = new HashMap<>();
         configuration.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
         configuration.put(ProducerConfig.ACKS_CONFIG, "all");
@@ -1089,7 +1089,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         return new KafkaProducer<>(configuration, new ByteArraySerializer(), new ByteArraySerializer());
     }
 
-    private static org.apache.kafka.clients.consumer.GuardedFetchEvidence fetchEvidence(final String bootstrap,
+    static org.apache.kafka.clients.consumer.GuardedFetchEvidence fetchEvidence(final String bootstrap,
                                                                                          final String clusterId,
                                                                                          final String topic,
                                                                                          final UUID topicId,
@@ -1117,7 +1117,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         }
     }
 
-    private static List<SourceReplayEntry> recoveryEntries(final String bootstrap, final String clusterId,
+    static List<SourceReplayEntry> recoveryEntries(final String bootstrap, final String clusterId,
                                                             final String topic, final UUID topicId,
                                                             final SourceAssignment assignment,
                                                             final SystemMutation activation,
@@ -1148,7 +1148,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         return List.copyOf(entries);
     }
 
-    private static void recover(final WorkerAssignment accepted, final OxiaOwnerLeaseStore authority,
+    static void recover(final WorkerAssignment accepted, final OxiaOwnerLeaseStore authority,
                                 final OwnedDelayShard ownedShard, final List<SourceReplayEntry> entries,
                                 final KeyPair verificationKeys, final CompatibleControlSnapshotV1 controlSnapshot,
                                 final WorkClassExecutionRegistry workClasses) {
@@ -1166,7 +1166,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         }
     }
 
-    private static io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult runUntilApplied(
+    static io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult runUntilApplied(
             final WorkerShardRuntime runtime) {
         final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
         io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult result;
@@ -1186,7 +1186,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         throw new IllegalStateException("Kafka large-payload Worker source record did not become visible");
     }
 
-    private static void requireApplied(final io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult result,
+    static void requireApplied(final io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult result,
                                        final String operation) {
         if (result.status() != io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnStatus.APPLIED_AND_ACKED) {
             throw new IllegalStateException(operation + " was not applied and ACKed: " + result.status(),
@@ -1194,7 +1194,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         }
     }
 
-    private static io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult runUntilApplied(
+    static io.nereusstream.delay.ownership.SourceApplyCoordinator.TurnResult runUntilApplied(
             final WorkerShardFleetRuntime fleet, final ShardId expectedShard) {
         final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
         while (System.nanoTime() < deadline) {
@@ -1230,12 +1230,12 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         }
     }
 
-    private static CommandQueuedReceiptV1 requireQueued(final GatewaySubmissionOutcomeV1 response,
+    static CommandQueuedReceiptV1 requireQueued(final GatewaySubmissionOutcomeV1 response,
                                                          final String operation, final long expectedOffset) {
         return requireQueued(response, operation, -1, expectedOffset);
     }
 
-    private static CommandQueuedReceiptV1 requireQueued(final GatewaySubmissionOutcomeV1 response,
+    static CommandQueuedReceiptV1 requireQueued(final GatewaySubmissionOutcomeV1 response,
                                                          final String operation, final int expectedPartition,
                                                          final long expectedOffset) {
         if (!response.hasSubmissionOutcomeNdr1()) {
@@ -1249,7 +1249,21 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 response.getSubmissionOutcomeNdr1().toByteArray());
         if (outcome.kind() != io.nereusstream.delay.protocol.SubmissionOutcomeKindV1.MANAGED
                 || outcome.managed().kind() != EnqueueOutcomeKindV1.QUEUED) {
-            throw new IllegalStateException(operation + " did not produce a managed QUEUED outcome: " + outcome);
+            final String detail;
+            if (outcome.kind() != io.nereusstream.delay.protocol.SubmissionOutcomeKindV1.MANAGED) {
+                detail = "kind=" + outcome.kind();
+            } else if (outcome.managed().kind() == EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED) {
+                detail = "kind=" + outcome.managed().kind() + ", code="
+                        + outcome.managed().definitelyNotQueued().error().code()
+                        + ", stage=" + outcome.managed().definitelyNotQueued().error().stage();
+            } else if (outcome.managed().kind() == EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN) {
+                detail = "kind=" + outcome.managed().kind() + ", code="
+                        + outcome.managed().uncertain().error().code()
+                        + ", stage=" + outcome.managed().uncertain().error().stage();
+            } else {
+                detail = "kind=" + outcome.managed().kind();
+            }
+            throw new IllegalStateException(operation + " did not produce a managed QUEUED outcome: " + detail);
         }
         final CommandQueuedReceiptV1 receipt = outcome.managed().queued();
         if (!(receipt.sourcePosition() instanceof KafkaSourcePosition position)
@@ -1262,12 +1276,12 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         return receipt;
     }
 
-    private static byte[] reservationId(final CommandQueuedReceiptV1 receipt) {
+    static byte[] reservationId(final CommandQueuedReceiptV1 receipt) {
         return Bytes.sha256(Bytes.utf8("nereus-delay-reservation-id-v1\0"), receipt.command().commandId().bytes(),
                 receipt.command().delayMessageId().bytes(), receipt.command().commandHash());
     }
 
-    private static GatewayPrepareLargeScheduleRequestV1 prepareRequest(final ScheduleIntentV1 intent,
+    static GatewayPrepareLargeScheduleRequestV1 prepareRequest(final ScheduleIntentV1 intent,
                                                                          final long payloadLength,
                                                                          final byte[] payloadHash,
                                                                          final PayloadProofTrustSetRefV1 trustSet,
@@ -1275,7 +1289,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         return prepareRequest(intent, payloadLength, payloadHash, trustSet, objectStoreProfile, 0);
     }
 
-    private static GatewayPrepareLargeScheduleRequestV1 prepareRequest(final ScheduleIntentV1 intent,
+    static GatewayPrepareLargeScheduleRequestV1 prepareRequest(final ScheduleIntentV1 intent,
                                                                          final long payloadLength,
                                                                          final byte[] payloadHash,
                                                                          final PayloadProofTrustSetRefV1 trustSet,
@@ -1295,12 +1309,12 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 .build();
     }
 
-    private static GatewayCommitLargeScheduleRequestV1 commitRequest(final PayloadReservationReceiptV1 receipt,
+    static GatewayCommitLargeScheduleRequestV1 commitRequest(final PayloadReservationReceiptV1 receipt,
                                                                        final PayloadCommitProofV1 proof) {
         return commitRequest(receipt, proof, 0);
     }
 
-    private static GatewayCommitLargeScheduleRequestV1 commitRequest(final PayloadReservationReceiptV1 receipt,
+    static GatewayCommitLargeScheduleRequestV1 commitRequest(final PayloadReservationReceiptV1 receipt,
                                                                        final PayloadCommitProofV1 proof,
                                                                        final int partition) {
         return GatewayCommitLargeScheduleRequestV1.newBuilder()
@@ -1311,11 +1325,11 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 .build();
     }
 
-    private static ScheduleIntentV1 largeScheduleIntent(final long now) {
+    static ScheduleIntentV1 largeScheduleIntent(final long now) {
         return largeScheduleIntent(now, Bytes.utf8("large-payload-key"));
     }
 
-    private static ScheduleIntentV1 largeScheduleIntent(final long now, final byte[] orderingKey) {
+    static ScheduleIntentV1 largeScheduleIntent(final long now, final byte[] orderingKey) {
         final long deliverAt = now + 15_000;
         return ScheduleIntentV1.forPrepare(destinationProfile(), retryPolicy(), deliverAt, deliverAt + 120_000,
                 DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, orderingKey,
@@ -1330,17 +1344,17 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         return PreparedCommand.scheduleV1(shard, intent, deliverAt + 20_000);
     }
 
-    private static ProfileRefV1 destinationProfile() {
+    static ProfileRefV1 destinationProfile() {
         return new ProfileRefV1(Bytes.utf8("destination-large-payload"), 1,
                 Bytes.sha256(Bytes.utf8("destination-large-payload-semantic")), ProfileKindV1.DESTINATION);
     }
 
-    private static RetryPolicyRefV1 retryPolicy() {
+    static RetryPolicyRefV1 retryPolicy() {
         return new RetryPolicyRefV1(Bytes.utf8("retry-large-payload"), 1,
                 Bytes.sha256(Bytes.utf8("retry-large-payload-semantic")));
     }
 
-    private static ProfileSemanticEnvelopeV1 objectStoreProfile(final URI endpoint, final String region,
+    static ProfileSemanticEnvelopeV1 objectStoreProfile(final URI endpoint, final String region,
                                                                  final String bucket, final String accessKey) {
         final ObjectStoreProfileSemanticV1 semantic = new ObjectStoreProfileSemanticV1(
                 ObjectStoreProviderKindV1.S3_COMPATIBLE,
@@ -1352,7 +1366,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 semantic);
     }
 
-    private static byte[] payload() {
+    static byte[] payload() {
         final byte[] value = new byte[(int) PAYLOAD_BYTES];
         for (int index = 0; index < value.length; index++) {
             value[index] = (byte) (index * 31 + 7);
@@ -1360,7 +1374,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         return value;
     }
 
-    private static SystemMutation trustActivation(final ShardId shard, final PayloadProofTrustSetRefV1 trustSet,
+    static SystemMutation trustActivation(final ShardId shard, final PayloadProofTrustSetRefV1 trustSet,
                                                   final AuthenticatedTenantContext tenant,
                                                   final KeyPair signingKeys) {
         final long retryUntil = System.currentTimeMillis() + 300_000;
@@ -1394,7 +1408,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         });
     }
 
-    private static V1ScheduleResolver scheduleResolver() {
+    static V1ScheduleResolver scheduleResolver() {
         final byte[] tuple = Bytes.utf8("large-payload-kafka-canonical-lane-tuple-v1");
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
         return new V1ScheduleResolver() {
@@ -1415,12 +1429,12 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         };
     }
 
-    private static V1ScheduleResolver scheduleResolver(final String clusterId, final UUID destinationTopicId,
+    static V1ScheduleResolver scheduleResolver(final String clusterId, final UUID destinationTopicId,
                                                        final String destinationPhysicalTopic) {
         return scheduleResolver(clusterId, destinationTopicId, destinationPhysicalTopic, 0);
     }
 
-    private static V1ScheduleResolver scheduleResolver(final String clusterId, final UUID destinationTopicId,
+    static V1ScheduleResolver scheduleResolver(final String clusterId, final UUID destinationTopicId,
                                                        final String destinationPhysicalTopic,
                                                        final int destinationPartition) {
         final ProfileRefV1 destination = destinationProfile();
@@ -1497,7 +1511,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 Bytes.sha256(Bytes.utf8("kafka-worker-ordering-domain")));
     }
 
-    private static RouteSnapshotV1 routeSnapshot(final String clusterId, final String topic, final UUID topicId,
+    static RouteSnapshotV1 routeSnapshot(final String clusterId, final String topic, final UUID topicId,
                                                  final RouteIncarnation incarnation,
                                                  final org.apache.kafka.clients.consumer.GuardedFetchEvidence evidence,
                                                  final AuthenticatedTenantContext tenant, final KeyPair signingKeys) {
@@ -1551,7 +1565,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 signingKeys.getPrivate());
     }
 
-    private static RouteWorkerAssignmentCoordinator.PlacementRequest placementRequest(final long now) {
+    static RouteWorkerAssignmentCoordinator.PlacementRequest placementRequest(final long now) {
         return new RouteWorkerAssignmentCoordinator.PlacementRequest(0,
                 Bytes.sha256(Bytes.utf8("large-payload-worker-assignment")), 1,
                 Bytes.sha256(Bytes.utf8("large-payload-worker-capacity")), 1,
@@ -1561,7 +1575,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 now, 0, 0);
     }
 
-    private static RouteWorkerAssignmentCoordinator.PlacementRequest placementRequest(final long now,
+    static RouteWorkerAssignmentCoordinator.PlacementRequest placementRequest(final long now,
                                                                                         final int partition,
                                                                                         final String workerId) {
         return new RouteWorkerAssignmentCoordinator.PlacementRequest(partition,
@@ -1584,7 +1598,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         throw new IllegalStateException("could not find deterministic ordering key for Kafka partition " + partition);
     }
 
-    private static void requireRouteAssignment(final WorkerAssignment assignment, final RouteSnapshotV1 snapshot,
+    static void requireRouteAssignment(final WorkerAssignment assignment, final RouteSnapshotV1 snapshot,
                                                final String clusterId, final UUID topicId, final long barrierOffset) {
         if (!assignment.routeBound() || !Arrays.equals(snapshot.snapshotDigest(), assignment.routeSnapshotDigest())
                 || !(assignment.sourceAssignment().activationBarrier() instanceof KafkaActivationBarrier barrier)
@@ -1594,14 +1608,14 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         }
     }
 
-    private static CompatibleControlSnapshotV1 controlSnapshot(final ShardId shard,
+    static CompatibleControlSnapshotV1 controlSnapshot(final ShardId shard,
                                                                 final ProfileRefV1 destinationProfile) {
         return new CompatibleControlSnapshotV1(new ShardSubjectV1(shard),
                 List.of(new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1)),
                 List.of(destinationProfile), zeroQuota());
     }
 
-    private static WorkClassExecutionRegistry workClasses() {
+    static WorkClassExecutionRegistry workClasses() {
         final java.util.EnumMap<WorkClass, WorkClassPolicy> policies = new java.util.EnumMap<>(WorkClass.class);
         for (WorkClass workClass : WorkClass.values()) {
             final boolean protectedClass = switch (workClass) {
@@ -1627,13 +1641,13 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
     }
 
-    private static void appendFrame(final String bootstrap, final String clusterId, final String topic,
+    static void appendFrame(final String bootstrap, final String clusterId, final String topic,
                                      final Uuid topicId, final byte[] frame, final long expectedOffset)
             throws Exception {
         appendFrame(bootstrap, clusterId, topic, topicId, frame, 0, expectedOffset);
     }
 
-    private static void appendFrame(final String bootstrap, final String clusterId, final String topic,
+    static void appendFrame(final String bootstrap, final String clusterId, final String topic,
                                      final Uuid topicId, final byte[] frame, final int partition,
                                      final long expectedOffset) throws Exception {
         try (KafkaProducer<byte[], byte[]> producer = kafkaProducer(bootstrap)) {
@@ -1648,7 +1662,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         }
     }
 
-    private static Map<String, Object> consumerConfiguration(final String bootstrap, final String groupId) {
+    static Map<String, Object> consumerConfiguration(final String bootstrap, final String groupId) {
         final Map<String, Object> configuration = new HashMap<>();
         configuration.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
         configuration.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
@@ -1715,13 +1729,13 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         return admin.describeTopics(List.of(topic)).allTopicNames().get(10, TimeUnit.SECONDS).get(topic);
     }
 
-    private static KeyPair gatewayJwtKeys() throws GeneralSecurityException {
+    static KeyPair gatewayJwtKeys() throws GeneralSecurityException {
         final KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
         generator.initialize(2_048);
         return generator.generateKeyPair();
     }
 
-    private static String token(final KeyPair keyPair, final AuthenticatedTenantContext tenant,
+    static String token(final KeyPair keyPair, final AuthenticatedTenantContext tenant,
                                 final byte[] certificateFingerprint) throws GeneralSecurityException {
         final long now = Instant.now().getEpochSecond();
         final String header = "{\"alg\":\"RS256\",\"typ\":\"JWT\",\"kid\":\"gateway-e2e-key\"}";
@@ -1742,7 +1756,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         return input + "." + encode(signature.sign());
     }
 
-    private static DelayGatewayV1Grpc.DelayGatewayV1BlockingStub stub(final ManagedChannel channel,
+    static DelayGatewayV1Grpc.DelayGatewayV1BlockingStub stub(final ManagedChannel channel,
                                                                         final String token) {
         final Metadata headers = new Metadata();
         headers.put(Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER), "Bearer " + token);
@@ -1750,14 +1764,14 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 MetadataUtils.newAttachHeadersInterceptor(headers)));
     }
 
-    private static ManagedChannel channel(final int port, final Path ca, final Path clientCertificate,
+    static ManagedChannel channel(final int port, final Path ca, final Path clientCertificate,
                                           final Path clientPrivateKey) throws SSLException {
         final io.grpc.netty.shaded.io.netty.handler.ssl.SslContext sslContext = GrpcSslContexts.forClient()
                 .trustManager(ca.toFile()).keyManager(clientCertificate.toFile(), clientPrivateKey.toFile()).build();
         return NettyChannelBuilder.forAddress("127.0.0.1", port).sslContext(sslContext).build();
     }
 
-    private static byte[] certificateFingerprint(final Path certificate) throws Exception {
+    static byte[] certificateFingerprint(final Path certificate) throws Exception {
         final CertificateFactory factory = CertificateFactory.getInstance("X.509");
         final X509Certificate parsed;
         try (InputStream input = Files.newInputStream(certificate)) {

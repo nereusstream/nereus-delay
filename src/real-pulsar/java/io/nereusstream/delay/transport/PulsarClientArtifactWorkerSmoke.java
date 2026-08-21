@@ -923,7 +923,7 @@ public final class PulsarClientArtifactWorkerSmoke {
         return physicalTurn;
     }
 
-    private static void bindActiveOwnerPublishGraph(
+    static void bindActiveOwnerPublishGraph(
             final WorkerShardRuntime runtime,
             final OwnedDelayShard ownedShard,
             final OwnerIdentityV1 ownerIdentity,
@@ -936,7 +936,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                 verificationKey, bridge, 1_000_000);
     }
 
-    private static void bindActiveOwnerPublishGraph(
+    static void bindActiveOwnerPublishGraph(
             final WorkerShardRuntime runtime,
             final OwnedDelayShard ownedShard,
             final OwnerIdentityV1 ownerIdentity,
@@ -950,7 +950,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                 verificationKey, bridge, workClassBytes, null);
     }
 
-    private static void bindActiveOwnerPublishGraph(
+    static void bindActiveOwnerPublishGraph(
             final WorkerShardRuntime runtime,
             final OwnedDelayShard ownedShard,
             final OwnerIdentityV1 ownerIdentity,
@@ -1000,7 +1000,7 @@ public final class PulsarClientArtifactWorkerSmoke {
         runtime.bindActiveOwnerPublishGraph(scheduling, commandRuntime, preparation);
     }
 
-    private static void waitForPhysicalCompletion(final WorkerPhysicalPublishExecutor.Submission submission)
+    static void waitForPhysicalCompletion(final WorkerPhysicalPublishExecutor.Submission submission)
             throws Exception {
         final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
         while (submission.state() == WorkerPhysicalPublishExecutor.SubmissionState.PENDING

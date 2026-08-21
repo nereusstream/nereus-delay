@@ -1685,7 +1685,7 @@ public final class KafkaClientArtifactWorkerSmoke {
                 Bytes.sha256(Bytes.utf8("destination-semantic-" + identity)), ProfileKindV1.DESTINATION);
     }
 
-    private static ProfileRefV1 capabilityProfile() {
+    static ProfileRefV1 capabilityProfile() {
         return new ProfileRefV1(Bytes.utf8("kafka-worker-capability"), 1,
                 Bytes.sha256(Bytes.utf8("kafka-worker-capability-semantic")),
                 ProfileKindV1.DELIVERY_CAPABILITY);

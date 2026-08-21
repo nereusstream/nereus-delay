@@ -5,6 +5,7 @@ import io.nereusstream.delay.protocol.AdapterKindV1;
 import io.nereusstream.delay.protocol.AdapterMetadataV1;
 import io.nereusstream.delay.protocol.BrokerResourceIdentityV1;
 import io.nereusstream.delay.protocol.Bytes;
+import io.nereusstream.delay.protocol.CommandBodies;
 import io.nereusstream.delay.protocol.CommandCodec;
 import io.nereusstream.delay.protocol.DeliveryMode;
 import io.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
@@ -18,6 +19,8 @@ import io.nereusstream.delay.protocol.ProfileKindV1;
 import io.nereusstream.delay.protocol.ProfileRefV1;
 import io.nereusstream.delay.protocol.ProtocolTupleV1;
 import io.nereusstream.delay.protocol.PublishAdmissionBody;
+import io.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1;
+import io.nereusstream.delay.protocol.PulsarMetadataV1;
 import io.nereusstream.delay.protocol.QuotaGrantRefV1;
 import io.nereusstream.delay.protocol.RetryPolicyRefV1;
 import io.nereusstream.delay.protocol.RouteIncarnation;
@@ -104,6 +107,27 @@ class DefaultDelaySemanticCoreTest {
 
         assertEquals(RouteHashV1.partition(snapshot, tenant.tenantRoutingScope(), Bytes.utf8("large-key")),
                 command.shardId().partition());
+        assertEquals(command, CommandCodec.decodeFrameV1(CommandCodec.encodeFrameV1(command)));
+    }
+
+    @Test
+    void largePreparationSeparatesIngressRouteFromDestinationMetadata() throws Exception {
+        final RouteSnapshotV1 snapshot = kafkaSnapshot();
+        final AuthenticatedTenantContext tenant = tenant();
+        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKindV1.KAFKA, Bytes.utf8("primary"));
+        final ScheduleIntentV1 intent = ScheduleIntentV1.forPrepare(destination(), retryPolicy(), 300, 800,
+                DeliveryMode.MANAGED, OrderingMode.BEST_EFFORT, Bytes.utf8("cross-key"),
+                AdapterMetadataV1.pulsar(new PulsarMetadataV1(null, null, null, List.of())), null, null);
+        final LargeSchedulePreparationV1 request = new LargeSchedulePreparationV1(intent, 10, bytes(32, 80), 100,
+                new PayloadProofTrustSetRefV1(1, bytes(32, 81)),
+                new ProfileRefV1(Bytes.utf8("object-store"), 1, bytes(32, 82), ProfileKindV1.OBJECT_STORE));
+
+        final PreparedCommand command = new DefaultDelaySemanticCore(new CountingRoutes(snapshot),
+                new SequenceUuids(uuidV7(210, 1), uuidV7(211, 2)), () -> 200)
+                .prepareLargeSchedule(tenant, hint, request, 600);
+        final PrepareLargeScheduleBodyV1 body = CommandBodies.decodePrepareLargeV1(command.canonicalBody());
+
+        assertEquals(AdapterMetadataV1.Kind.PULSAR, body.intentWithoutPayload().adapterMetadata().kind());
         assertEquals(command, CommandCodec.decodeFrameV1(CommandCodec.encodeFrameV1(command)));
     }
 

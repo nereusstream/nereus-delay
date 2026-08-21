@@ -55,12 +55,16 @@ sourceSets {
     realPulsar {
         java.srcDir('src/real-pulsar/java')
     }
+    realCross {
+        java.srcDir('src/real-cross/java')
+    }
 }
 
 // The default source-set compile tasks have no artifact classpath until the
 // caller supplies one.  The explicit tasks below own that opt-in boundary.
 tasks.named('compileRealKafkaJava').configure { enabled = false }
 tasks.named('compileRealPulsarJava').configure { enabled = false }
+tasks.named('compileRealCrossJava').configure { enabled = false }
 
 def realKafkaClientJar = findProperty('kafkaClientJar')
 def realPulsarClientClasspath = findProperty('pulsarClientClasspath')
@@ -660,6 +664,60 @@ tasks.register('runRealPulsarLargePayloadGatewaySmoke', JavaExec) {
             fileTree(realPulsarRuntimeDir).include('**/*.jar'), optionalOxiaClasspath)
     mainClass = 'io.nereusstream.delay.transport.PulsarClientArtifactLargePayloadGatewaySmoke'
     args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarLargePayloadTopic')
+}
+
+tasks.register('compileRealCross', JavaCompile) {
+    group = 'verification'
+    description = 'Compiles the cross-adapter Delay binding against the locked Kafka and Pulsar client artifacts.'
+    dependsOn tasks.named('compileRealKafka'), tasks.named('compileRealPulsar'), tasks.named('classes')
+    if (realKafkaClientJar == null || realPulsarClientClasspath == null) {
+        doFirst {
+            throw new GradleException(
+                    'compileRealCross requires -PkafkaClientJar=... and '
+                            + '-PpulsarClientClasspath=...')
+        }
+    }
+    source = sourceSets.realCross.java
+    classpath = files(sourceSets.main.output, sourceSets.realKafka.output, sourceSets.realPulsar.output,
+            sourceSets.main.compileClasspath, realKafkaClientJar,
+            realPulsarClientClasspath.split(File.pathSeparator))
+    destinationDirectory = layout.buildDirectory.dir('classes/java/realCross')
+    options.release = 21
+    options.encoding = 'UTF-8'
+    options.compilerArgs += ['-Xlint:all', '-Werror']
+}
+
+tasks.register('runRealCrossLargePayloadGatewaySmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the real cross-adapter Gateway/Oxia/Broker/Worker/MinIO large-payload authority E2E.'
+    dependsOn tasks.named('compileRealCross')
+    if (realKafkaClientJar == null || realPulsarClientClasspath == null || realPulsarRuntimeDir == null
+            || findProperty('kafkaBootstrap') == null || findProperty('pulsarServiceUrl') == null
+            || findProperty('pulsarAdminUrl') == null || findProperty('crossDirection') == null) {
+        doFirst {
+            throw new GradleException(
+                    'runRealCrossLargePayloadGatewaySmoke requires -PkafkaClientJar=... '
+                            + '-PpulsarClientClasspath=... -PpulsarRuntimeDir=/path/to/pulsar/lib '
+                            + '-PkafkaBootstrap=host:port -PpulsarServiceUrl=pulsar://host:6650 '
+                            + '-PpulsarAdminUrl=http://host:8080 -PcrossDirection=K_TO_P|P_TO_K')
+        }
+    }
+    doFirst {
+        if (!file(realPulsarRuntimeDir).isDirectory()) {
+            throw new GradleException('pulsarRuntimeDir must be an extracted P1 distribution lib directory')
+        }
+    }
+    // Keep the locked P1 distribution jars ahead of the shared Oxia client
+    // runtime.  The shared build carries an older unshaded netty-buffer/common
+    // pair for Oxia; P1's client is built against its exact 4.2.x family and
+    // must own those classes when the two real-client bindings share one JVM.
+    classpath = files(sourceSets.main.output, sourceSets.realKafka.output, sourceSets.realPulsar.output,
+            sourceSets.realCross.output, realKafkaClientJar,
+            realPulsarClientClasspath.split(File.pathSeparator),
+            fileTree(realPulsarRuntimeDir).include('**/*.jar'), sourceSets.main.runtimeClasspath)
+    mainClass = 'io.nereusstream.delay.transport.CrossAdapterLargePayloadGatewaySmoke'
+    args findProperty('kafkaBootstrap'), findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'),
+            findProperty('crossDirection')
 }
 
 protobuf {
