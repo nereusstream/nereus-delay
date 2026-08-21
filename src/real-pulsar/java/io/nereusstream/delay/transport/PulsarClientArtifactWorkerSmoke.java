@@ -1111,11 +1111,11 @@ public final class PulsarClientArtifactWorkerSmoke {
      */
     private static final class AdmissionResponseLossMutationAppender
             implements ShardLogMutationAppender, AutoCloseable {
-        private final PulsarClientArtifactShardLogMutationAppender delegate;
+        private final ShardLogMutationAppender delegate;
         private final AtomicBoolean responseLossObserved;
 
         private AdmissionResponseLossMutationAppender(
-                final PulsarClientArtifactShardLogMutationAppender delegate,
+                final ShardLogMutationAppender delegate,
                 final AtomicBoolean responseLossObserved) {
             this.delegate = delegate;
             this.responseLossObserved = responseLossObserved;
@@ -1133,7 +1133,15 @@ public final class PulsarClientArtifactWorkerSmoke {
 
         @Override
         public void close() {
-            delegate.close();
+            if (delegate instanceof AutoCloseable resource) {
+                try {
+                    resource.close();
+                } catch (RuntimeException failure) {
+                    throw failure;
+                } catch (Exception failure) {
+                    throw new IllegalStateException("Pulsar Worker mutation appender close failed", failure);
+                }
+            }
         }
     }
 
@@ -1247,6 +1255,39 @@ public final class PulsarClientArtifactWorkerSmoke {
             final long workClassBytes,
             final DestinationPhysicalAdmission sharedPhysicalAdmission,
             final int destinationPartition) throws Exception {
+        return createPhysicalPublishBridge(client, nativeConsumer, sourcePhysicalTopic, shard,
+                physicalSchedulePosition, destinationPhysicalTopic, store, ownedShard, ownerIdentity, authority,
+                workClasses, verificationKey, destinationProfile, capabilityProfile, requestedLaneId,
+                requestedLaneIncarnation, workClassBytes, sharedPhysicalAdmission, destinationPartition, null);
+    }
+
+    /**
+     * Creates a Pulsar destination bridge while allowing the source Shard Log
+     * append authority to be supplied by another guarded adapter. The target
+     * SEND remains Pulsar-native; only the common Delay Shard mutation append
+     * is externalized for cross-adapter Worker graphs.
+     */
+    static PhysicalPublishBridge createPhysicalPublishBridge(
+            final PulsarClient client,
+            final GuardedConsumer<?> nativeConsumer,
+            final String sourcePhysicalTopic,
+            final ShardId shard,
+            final io.nereusstream.delay.protocol.SourcePosition physicalSchedulePosition,
+            final String destinationPhysicalTopic,
+            final ShardStore store,
+            final OwnedDelayShard ownedShard,
+            final OwnerIdentityV1 ownerIdentity,
+            final OxiaOwnerLeaseStore authority,
+            final WorkClassExecutionRegistry workClasses,
+            final KeyPair verificationKey,
+            final ProfileRefV1 destinationProfile,
+            final ProfileRefV1 capabilityProfile,
+            final DestinationLaneId requestedLaneId,
+            final byte[] requestedLaneIncarnation,
+            final long workClassBytes,
+            final DestinationPhysicalAdmission sharedPhysicalAdmission,
+            final int destinationPartition,
+            final ShardLogMutationAppender suppliedAppender) throws Exception {
         if (workClassBytes <= 0) {
             throw new IllegalArgumentException("Pulsar physical publish work-class bytes must be positive");
         }
@@ -1342,11 +1383,16 @@ public final class PulsarClientArtifactWorkerSmoke {
         final PinnedPulsarDestinationAdapter adapter = new PinnedPulsarDestinationAdapter(
                 new PulsarTargetResource(CLUSTER, DESTINATION_INCARNATION, destinationPhysicalTopic,
                         DESTINATION_CREATION_TIMESTAMP, destinationPartition), transport);
-        final String mutationProducerName = "pulsar-worker-mutation-" + UUID.randomUUID();
-        final PulsarClientArtifactShardLogMutationAppender realAppender = new PulsarClientArtifactShardLogMutationAppender(
-                PulsarClientArtifactProducerFactory.create(client, CLUSTER, INCARNATION, sourcePhysicalTopic,
-                        CREATION_TIMESTAMP, mutationProducerName), nativeConsumer, shard, CLUSTER, INCARNATION,
-                sourcePhysicalTopic, CREATION_TIMESTAMP, Duration.ofSeconds(20));
+        final ShardLogMutationAppender realAppender;
+        if (suppliedAppender == null) {
+            final String mutationProducerName = "pulsar-worker-mutation-" + UUID.randomUUID();
+            realAppender = new PulsarClientArtifactShardLogMutationAppender(
+                    PulsarClientArtifactProducerFactory.create(client, CLUSTER, INCARNATION, sourcePhysicalTopic,
+                            CREATION_TIMESTAMP, mutationProducerName), nativeConsumer, shard, CLUSTER, INCARNATION,
+                    sourcePhysicalTopic, CREATION_TIMESTAMP, Duration.ofSeconds(20));
+        } else {
+            realAppender = suppliedAppender;
+        }
         final boolean admissionResponseLoss = hasWorkerAdmissionResponseLoss();
         final AtomicBoolean admissionResponseLossObserved = new AtomicBoolean();
         final ShardLogMutationAppender selectedAppender;

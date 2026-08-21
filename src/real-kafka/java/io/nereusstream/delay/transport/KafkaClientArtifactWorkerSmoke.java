@@ -20,6 +20,7 @@ import io.nereusstream.delay.ownership.OwnerRecoveryCoordinator;
 import io.nereusstream.delay.ownership.OwnerRecoveryTurn;
 import io.nereusstream.delay.ownership.OwnedDelayShard;
 import io.nereusstream.delay.ownership.ReplayTurnBudget;
+import io.nereusstream.delay.ownership.ShardLogMutationAppender;
 import io.nereusstream.delay.ownership.ShardLifecycleState;
 import io.nereusstream.delay.ownership.SourceAssignment;
 import io.nereusstream.delay.ownership.SourceAcknowledgement;
@@ -1393,6 +1394,44 @@ public final class KafkaClientArtifactWorkerSmoke {
             final long maxPhysicalBytes,
             final DestinationPhysicalAdmission sharedPhysicalAdmission,
             final int destinationPartition) throws Exception {
+        return createPhysicalPublishBridge(bootstrap, clusterId, sourcePhysicalTopic, sourceTopicId, shard,
+                physicalSchedulePosition, destinationPhysicalTopic, destinationTopicId, receiptPhysicalTopic,
+                receiptTopicId, store, ownedShard, ownerIdentity, authority, workClasses, verificationKey,
+                destinationProfile, capabilityProfile, requestedLaneId, requestedLaneIncarnation, maxPhysicalBytes,
+                sharedPhysicalAdmission, destinationPartition, null);
+    }
+
+    /**
+     * Creates a Kafka destination bridge while allowing the source Shard Log
+     * append authority to be supplied by another guarded adapter. The target
+     * transaction remains Kafka-native; only the common Delay Shard mutation
+     * append is externalized for cross-adapter Worker graphs.
+     */
+    static PhysicalPublishBridge createPhysicalPublishBridge(
+            final String bootstrap,
+            final String clusterId,
+            final String sourcePhysicalTopic,
+            final UUID sourceTopicId,
+            final ShardId shard,
+            final io.nereusstream.delay.protocol.SourcePosition physicalSchedulePosition,
+            final String destinationPhysicalTopic,
+            final UUID destinationTopicId,
+            final String receiptPhysicalTopic,
+            final UUID receiptTopicId,
+            final ShardStore store,
+            final OwnedDelayShard ownedShard,
+            final OwnerIdentityV1 ownerIdentity,
+            final OxiaOwnerLeaseStore authority,
+            final WorkClassExecutionRegistry workClasses,
+            final KeyPair verificationKey,
+            final ProfileRefV1 destinationProfile,
+            final ProfileRefV1 capabilityProfile,
+            final DestinationLaneId requestedLaneId,
+            final byte[] requestedLaneIncarnation,
+            final long maxPhysicalBytes,
+            final DestinationPhysicalAdmission sharedPhysicalAdmission,
+            final int destinationPartition,
+            final ShardLogMutationAppender suppliedAppender) throws Exception {
         final ProfileRefV1 exactDestinationProfile = Objects.requireNonNull(destinationProfile,
                 "destinationProfile");
         final ProfileRefV1 exactCapabilityProfile = Objects.requireNonNull(capabilityProfile,
@@ -1454,12 +1493,17 @@ public final class KafkaClientArtifactWorkerSmoke {
         physicalAdmission.registerLane(new DestinationPhysicalAdmission.LaneSpec(laneId, laneIncarnation, clusterId,
                 1, 1, 1, maxPhysicalBytes, 1, maxPhysicalBytes));
         physicalAdmission.openReady(laneId);
-        final KafkaProducer<byte[], byte[]> mutationProducer = new KafkaProducer<>(
-                producerConfiguration(bootstrap, "nereus-delay-kafka-worker-mutation"),
-                new ByteArraySerializer(), new ByteArraySerializer());
-        final KafkaClientArtifactShardLogMutationAppender appender =
-                new KafkaClientArtifactShardLogMutationAppender((GuardedProducer<byte[], byte[]>) mutationProducer,
-                        shard, clusterId, sourcePhysicalTopic, sourceTopicId, Duration.ofSeconds(20));
+        final ShardLogMutationAppender appender;
+        if (suppliedAppender == null) {
+            final KafkaProducer<byte[], byte[]> mutationProducer = new KafkaProducer<>(
+                    producerConfiguration(bootstrap, "nereus-delay-kafka-worker-mutation"),
+                    new ByteArraySerializer(), new ByteArraySerializer());
+            appender = new KafkaClientArtifactShardLogMutationAppender(
+                    (GuardedProducer<byte[], byte[]>) mutationProducer, shard, clusterId, sourcePhysicalTopic,
+                    sourceTopicId, Duration.ofSeconds(20));
+        } else {
+            appender = suppliedAppender;
+        }
         final AuthorIdentity author = AuthorIdentity.owner(ownerIdentity.deploymentId(), ownerIdentity.workerRunId(),
                 ownerIdentity.ownerEpoch(), ownerIdentity.leaseFencingDigest());
         final WorkerPublishOutcomeMutationFactory outcomeFactory = new WorkerPublishOutcomeMutationFactory(
@@ -1795,7 +1839,7 @@ public final class KafkaClientArtifactWorkerSmoke {
 
     static final class PhysicalPublishBridge implements AutoCloseable {
         private final WorkerPhysicalPublishExecutor executor;
-        private final KafkaClientArtifactShardLogMutationAppender appender;
+        private final ShardLogMutationAppender appender;
         private final DestinationLaneId laneId;
         private final byte[] laneIncarnation;
         private final ProfileRefV1 destinationProfile;
@@ -1810,7 +1854,7 @@ public final class KafkaClientArtifactWorkerSmoke {
         private final AtomicBoolean destinationResponseLossObserved;
 
         private PhysicalPublishBridge(final WorkerPhysicalPublishExecutor executor,
-                                      final KafkaClientArtifactShardLogMutationAppender appender,
+                                      final ShardLogMutationAppender appender,
                                       final DestinationLaneId laneId, final byte[] laneIncarnation,
                                       final ProfileRefV1 destinationProfile,
                                       final ProfileRefV1 capabilityProfile,
@@ -1842,7 +1886,7 @@ public final class KafkaClientArtifactWorkerSmoke {
             return executor;
         }
 
-        KafkaClientArtifactShardLogMutationAppender appender() {
+        ShardLogMutationAppender appender() {
             return appender;
         }
 
@@ -1918,13 +1962,18 @@ public final class KafkaClientArtifactWorkerSmoke {
             } catch (RuntimeException closeFailure) {
                 failure = closeFailure;
             }
-            try {
-                appender.close();
-            } catch (RuntimeException closeFailure) {
-                if (failure == null) {
-                    failure = closeFailure;
-                } else {
-                    failure.addSuppressed(closeFailure);
+            if (appender instanceof AutoCloseable resource) {
+                try {
+                    resource.close();
+                } catch (Exception closeFailure) {
+                    final RuntimeException runtimeFailure = closeFailure instanceof RuntimeException
+                            ? (RuntimeException) closeFailure
+                            : new IllegalStateException("Kafka Worker mutation appender close failed", closeFailure);
+                    if (failure == null) {
+                        failure = runtimeFailure;
+                    } else {
+                        failure.addSuppressed(runtimeFailure);
+                    }
                 }
             }
             if (failure != null) {
