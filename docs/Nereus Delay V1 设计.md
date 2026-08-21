@@ -5500,3 +5500,32 @@ This is a same-adapter production-authority PASS only. The full real-service
 gate remains open for Kafka-to-Pulsar and Pulsar-to-Kafka cross-adapter paths,
 activation cutover and the remaining §23 fault, capacity, soak, operations and
 patch evidence.
+
+## 2026-08-21 current-source cross-adapter Large Payload authority
+
+The current Delay source `6b5c357c207169f98ec78be7f7007e2ebf3c1209` was run
+against Kafka K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, using Kafka client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, Pulsar
+distribution SHA-256 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`
+and locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+Canonical evidence is retained at
+`/private/tmp/nereus-delay-v1-cross-20260821-r29/`; `K_TO_P.log` has SHA-256
+`02db290caafda6d4cc814f2e2397726c50dcd91a2a3f1e0d9f2b27cfcdd76f40` and
+`P_TO_K.log` has SHA-256
+`44ffccb5e043f59ed15e60de6696e324359bd7d738a2276bbb816a259dee3608`.
+K→P proves real Kafka source to Pulsar target with `PULSAR_SEND_ACK`; P→K
+proves real Pulsar source to Kafka target with `KAFKA_TRANSACTIONAL_RECEIPT`.
+Both paths cover Gateway mTLS/JWT, real Oxia authority, MinIO exact payload
+readback, Worker due→Claim→Admission→target publish→source Outcome and exact
+idempotency. The runner returned
+`CROSS_ADAPTER_LARGE_PAYLOAD_GATEWAY_E2E=PASS_CERTIFIED` and cleaned its exact
+scoped runtime resources.
+
+This closes those two named cross-adapter Large Payload cells only. Full V1
+still requires activation/cutover, the full 19-cell chaos matrix, capacity,
+soak, upgrade/downgrade, operations/disaster-continuity and patch-distribution
+evidence before release certification.

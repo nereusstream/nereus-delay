@@ -17104,3 +17104,40 @@ cutover, the remaining fault/capacity/soak/operations/patch gates or V1 release
 readiness. Exact postchecks found no scoped Compose containers, images,
 networks or volumes; locked Oxia and MinIO bases were retained and no global
 Docker prune was used.
+
+## 2026-08-21 current-source cross-adapter Large Payload production authority
+
+Delay `6b5c357c207169f98ec78be7f7007e2ebf3c1209`, Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` were exercised by the real
+cross-adapter Gateway/Worker harness. The Kafka client artifact is locked to
+SHA-256 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`,
+the Pulsar distribution to SHA-256
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and
+MinIO to the locked digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+The canonical receipt is
+`/private/tmp/nereus-delay-v1-cross-20260821-r29/`:
+
+```text
+K_TO_P.log sha256=02db290caafda6d4cc814f2e2397726c50dcd91a2a3f1e0d9f2b27cfcdd76f40
+P_TO_K.log sha256=44ffccb5e043f59ed15e60de6696e324359bd7d738a2276bbb816a259dee3608
+```
+
+K→P passed the real Kafka source through Gateway mTLS/JWT, Oxia Route/
+Assignment/Owner, MinIO upload/attest/Commit/readback and Worker due→Claim→
+Admission→target publish→source Outcome, with target evidence
+`PULSAR_SEND_ACK`, exact payload readback and exact idempotency. P→K passed the
+corresponding real Pulsar source path with target evidence
+`KAFKA_TRANSACTIONAL_RECEIPT`, exact payload readback and exact idempotency.
+Both directions returned `BUILD SUCCESSFUL`; the runner returned
+`CROSS_ADAPTER_LARGE_PAYLOAD_GATEWAY_E2E=PASS_CERTIFIED` and its exact scoped
+Compose/Oxia/MinIO resources were removed while locked base images were kept.
+
+This closes the named cross-adapter Large Payload real-service cells. It does
+not close the full `real-service` gate or complete V1 release certification:
+activation/cutover, the full 19-cell chaos matrix, capacity, soak,
+upgrade/downgrade, operations/disaster-continuity and patch-distribution
+inputs remain independent fail-closed requirements.

@@ -13638,3 +13638,38 @@ Kafka-to-Pulsar or Pulsar-to-Kafka cross-adapter cells, activation cutover or
 the remaining full-V1 gates. They cannot be supplied as a complete
 `real-service` `PASS_CERTIFIED` artifact until those cells are independently
 executed and source-locked.
+
+## 2026-08-21 current-source cross-adapter Large Payload audit
+
+The cross-adapter audit was independently rerun from Delay
+`6b5c357c207169f98ec78be7f7007e2ebf3c1209`, Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The locked client/runtime
+artifacts are Kafka SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, Pulsar
+SHA-256 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`,
+and MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+Canonical logs:
+
+```text
+/private/tmp/nereus-delay-v1-cross-20260821-r29/K_TO_P.log
+sha256=02db290caafda6d4cc814f2e2397726c50dcd91a2a3f1e0d9f2b27cfcdd76f40
+/private/tmp/nereus-delay-v1-cross-20260821-r29/P_TO_K.log
+sha256=44ffccb5e043f59ed15e60de6696e324359bd7d738a2276bbb816a259dee3608
+```
+
+K→P passed the real Kafka source, Gateway/Oxia/MinIO authority, Worker
+due→Claim→Admission chain, Pulsar target `PULSAR_SEND_ACK`, source-applied
+Outcome, exact payload readback and exact idempotency. P→K passed the real
+Pulsar source and Kafka target with `KAFKA_TRANSACTIONAL_RECEIPT` plus the
+same source-applied and payload/idempotency checks. The runner returned
+`CROSS_ADAPTER_LARGE_PAYLOAD_GATEWAY_E2E=PASS_CERTIFIED`; no exact-scoped
+runtime resources remained afterward.
+
+Audit result: PASS for the two named cross-adapter Large Payload cells. This
+does not promote the full `real-service` gate or V1 release: activation and
+cutover, full 19-cell chaos, capacity, soak, upgrade/downgrade,
+operations/disaster-continuity and patch-distribution remain open.

@@ -1641,3 +1641,38 @@ Operationally these are retained as named same-adapter receipts, not as the
 full `real-service` gate input. The cross-adapter cells, activation cutover and
 the remaining full-V1 fault/capacity/soak/operations/patch receipts must be
 present before the release command can return PASS.
+
+## 2026-08-21 current-source cross-adapter Large Payload runbook receipt
+
+The exact current-source cross-adapter run is retained at:
+
+```text
+/private/tmp/nereus-delay-v1-cross-20260821-r29/
+```
+
+Source locks are Delay `6b5c357c207169f98ec78be7f7007e2ebf3c1209`, Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Kafka client SHA-256 is
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, Pulsar
+distribution SHA-256 is
+`373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and the
+MinIO image is locked to
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+`K_TO_P.log` SHA-256 is
+`02db290caafda6d4cc814f2e2397726c50dcd91a2a3f1e0d9f2b27cfcdd76f40`;
+`P_TO_K.log` SHA-256 is
+`44ffccb5e043f59ed15e60de6696e324359bd7d738a2276bbb816a259dee3608`.
+Both directions passed real Broker ingress, Gateway mTLS/JWT, Oxia placement
+and ownership, MinIO upload/attest/Commit/readback, Worker due→Claim→Admission,
+target publish, source Outcome and exact idempotency. K→P resolved with
+`PULSAR_SEND_ACK`; P→K resolved with `KAFKA_TRANSACTIONAL_RECEIPT`. The runner
+returned `CROSS_ADAPTER_LARGE_PAYLOAD_GATEWAY_E2E=PASS_CERTIFIED` and removed
+only its exact scoped runtime resources.
+
+This receipt closes the two cross-adapter Large Payload cells, but it is not a
+complete V1 release input. The release runbook still requires independently
+source-locked activation/cutover, full 19-cell chaos, capacity, soak,
+upgrade/downgrade, operations/disaster-continuity and patch-distribution
+artifacts.
