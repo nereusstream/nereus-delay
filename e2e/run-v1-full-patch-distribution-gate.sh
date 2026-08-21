@@ -42,9 +42,9 @@ mkdir -p "${artifact_dir}"
 if [[ -n "$(find "${artifact_dir}" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
   fail "artifact directory must be empty: ${artifact_dir}"
 fi
-kafka_gradle_home="${artifact_dir}/kafka-gradle-user-home"
-pulsar_gradle_home="${artifact_dir}/pulsar-gradle-user-home"
-delay_gradle_home="${artifact_dir}/delay-gradle-user-home"
+kafka_gradle_home="${NEREUS_DELAY_V1_PATCH_KAFKA_GRADLE_USER_HOME:-${artifact_dir}/kafka-gradle-user-home}"
+pulsar_gradle_home="${NEREUS_DELAY_V1_PATCH_PULSAR_GRADLE_USER_HOME:-${artifact_dir}/pulsar-gradle-user-home}"
+delay_gradle_home="${NEREUS_DELAY_V1_PATCH_DELAY_GRADLE_USER_HOME:-${artifact_dir}/delay-gradle-user-home}"
 mkdir -p "${kafka_gradle_home}" "${pulsar_gradle_home}" "${delay_gradle_home}"
 
 candidate_delay="$(jq -er '.delay' "${candidate_lock_file}")"
@@ -67,7 +67,34 @@ require_checkout() {
   printf '%s' "${actual}"
 }
 
-delay_source="$(require_checkout Delay "${delay_dir}" nereus/delay-full-implementation-v1 "${candidate_delay}")"
+require_delay_checkout() {
+  local path="$1" branch="$2" expected="$3"
+  [[ -e "${path}/.git" ]] || fail "Delay checkout is missing: ${path}"
+  [[ -z "$(git -C "${path}" status --porcelain)" ]] || fail "Delay checkout is dirty"
+  [[ "$(git -C "${path}" branch --show-current)" == "${branch}" ]] \
+    || fail "Delay branch is not ${branch}"
+  local actual
+  actual="$(git -C "${path}" rev-parse HEAD)"
+  if [[ "${actual}" == "${expected}" ]]; then
+    printf '%s' "${expected}"
+    return 0
+  fi
+  git -C "${path}" merge-base --is-ancestor "${expected}" "${actual}" \
+    || fail "Delay HEAD ${actual} is not descended from candidate ${expected}"
+  local actual_paths expected_paths
+  actual_paths="$(git -c core.quotePath=false -C "${path}" diff --name-only "${expected}" "${actual}" | sort -u)"
+  expected_paths="$(printf '%s\n' \
+    'docs/IMPLEMENTATION-STATUS.md' \
+    'docs/Nereus Delay V1 设计.md' \
+    'docs/V1-DESIGN-AUDIT.md' \
+    'docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md' \
+    'docs/V1-OPERATIONS-RUNBOOK.md' 'e2e/README.md' | sort -u)"
+  diff -u <(printf '%s\n' "${expected_paths}") <(printf '%s\n' "${actual_paths}") >/dev/null \
+    || fail "Delay changed a non-documentation path after candidate lock"
+  printf '%s' "${expected}"
+}
+
+delay_source="$(require_delay_checkout "${delay_dir}" nereus/delay-full-implementation-v1 "${candidate_delay}")"
 kafka_source="$(require_checkout Kafka "${kafka_dir}" nereus/delay-guarded-producer-v1 "${candidate_kafka}")"
 pulsar_source="$(require_checkout Pulsar "${pulsar_dir}" nereus/delay-resource-guard-v1 "${candidate_pulsar}")"
 oxia_source="$(require_checkout Oxia "${oxia_dir}" main "${candidate_oxia}")"
