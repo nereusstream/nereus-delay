@@ -8632,3 +8632,22 @@ This certifies only the patch-distribution input, not the V1 release. Capacity
 measurement, complete chaos, soak, upgrade/downgrade, operations/disaster and
 the remaining release inputs stay fail-closed. Exact scoped Docker postchecks
 were empty; base images were retained.
+
+## 2026-08-22 current-source release audit boundary
+
+The final audit for candidate lock Delay
+`1631f8c1821116e8c7b3ef3f7166bab06c4b8a76`, Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` is retained at
+`/private/tmp/nereus-delay-v1-release-gate-current-20260822-r1/v1-release-candidate-gate.json`
+with SHA-256
+`6436c4279cf3be7e579cbd0bae5c48fa6a1684e857bc711691dca015cba0b3d0`.
+The documentation-only overlay is Delay `03e285c7d2d99c1389cf6d8d73338a9e8f8205c0`.
+
+Source checks, cross-repository contracts and the full Gradle `check` passed;
+the patch-distribution input is also exact-source `PASS`. The nine other full
+V1 inputs were absent and therefore `BLOCKED` by the validator, leaving the
+strict release result `NOT_READY`. The Gradle run still skips opt-in external
+Oxia/MinIO/chaos methods when their endpoints are unset; this audit does not
+promote those skips or any bounded receipt into release PASS.
