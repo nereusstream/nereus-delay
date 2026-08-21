@@ -24,6 +24,7 @@ required=(
   kafka-lso-open-tx-aborted-marker-gap pulsar-batching-exclusive-inclusive
   pulsar-dedup-reconnect-attempt-journal mapping-before-send
 )
+kafka_destination_topic="nereus-delay-v1-kafka-destination-$(date +%s)-$$"
 
 fail() {
   echo "V1 real-service gate: $*" >&2
@@ -99,12 +100,15 @@ run_child kafka-to-kafka \
   "Kafka + Oxia + Gateway mTLS/JWT + one Worker fleet + real MinIO + two destination PUBLISHED outcomes two-shard Large Payload authority E2E passed" \
   env NEREUS_DELAY_LARGE_PAYLOAD_GRADLE_USER_HOME="${gradle_home}/kafka-large" \
     NEREUS_DELAY_KAFKA_CHECKOUT="${kafka_dir}" NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
+    NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_MULTI_SHARD=1 \
+    NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_DESTINATION_TOPIC="${kafka_destination_topic}" \
     bash "${script_dir}/run-large-payload-gateway-e2e.sh"
 
 run_child pulsar-to-pulsar \
   "Pulsar + Oxia + Gateway mTLS/JWT + two guarded source partitions + two Workers + real MinIO + two destination PUBLISHED outcomes multi-shard Large Payload authority E2E passed" \
   env NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME="${gradle_home}/pulsar-large" \
     NEREUS_DELAY_PULSAR_CHECKOUT="${pulsar_dir}" NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
+    NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MULTI_SHARD=1 \
     bash "${script_dir}/run-pulsar-large-payload-gateway-e2e.sh"
 
 cross_artifact="${artifact_dir}/cross-adapter"
