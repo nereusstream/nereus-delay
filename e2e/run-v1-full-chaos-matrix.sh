@@ -848,11 +848,6 @@ else
     "real long-GC before/after child failed or its independent audit did not pass (exit=${long_gc_exit})"
 fi
 
-# The half-open cut still requires a dedicated real transport injection and
-# recovery child; the full matrix keeps it explicit rather than synthesizing
-# a PASS from marker-only unit state.
-blocked_cell half-open "hold a half-open native connection past the channel deadline" "no real half-open transport dump child"
-
 all_pass="PASS"
 for name in "${required_cells[@]}"; do
   status="$(jq -r --arg name "${name}" '.[$name].status // "BLOCKED"' <<<"${cells_json}")"
