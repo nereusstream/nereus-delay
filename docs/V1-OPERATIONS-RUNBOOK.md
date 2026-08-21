@@ -1760,3 +1760,27 @@ The runner retains the K1/P1 test logs and binary digest table. A source or
 binary-only check is not a partial rollout; the multi-Broker child must run
 and clean its exact Compose resources before the patch-distribution input can
 pass.
+
+## 2026-08-21 full-v1 benchmark/capacity run
+
+Run the physical envelope producer with an empty artifact directory and a
+candidate lock. `RUN_REAL=1` runs the functional multi-shard children;
+`MEASUREMENT_ARTIFACT` must point to a separately collected, source-matching
+physical observation file for a PASS:
+
+```bash
+NEREUS_DELAY_V1_CAPACITY_ARTIFACT_DIR=/private/tmp/<run>/capacity \
+NEREUS_DELAY_V1_CAPACITY_CANDIDATE_SOURCE_LOCK=/private/tmp/<run>/source-lock.json \
+NEREUS_DELAY_V1_CAPACITY_GRADLE_USER_HOME=/private/tmp/<run>/gradle-user-home \
+NEREUS_DELAY_V1_CAPACITY_RUN_REAL=1 \
+NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_ARTIFACT=/private/tmp/<run>/capacity-observation.json \
+bash e2e/run-v1-full-capacity-envelope-gate.sh capacity
+```
+
+The current base-source probe is retained at
+`/private/tmp/nereus-delay-v1-full-capacity-real-current-20260821-r2/` for
+Delay `43e1c6a1b5bc980e4f18e3a8026e3235e0f1f510`. Local contracts and both
+real children passed, but the full input is intentionally `FAIL` because the
+physical measurement artifact was not supplied. Related Docker postchecks
+were empty; do not pass this functional result into the release gate as
+benchmark or capacity evidence.

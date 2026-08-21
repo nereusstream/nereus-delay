@@ -8592,3 +8592,19 @@ authority separate, tests their typed resource-guard rejection and
 delete/recreate behavior, records binary digests, and requires an actual
 multi-Broker partial rollout. A compiled client or static source match alone
 cannot satisfy this gate.
+
+## 2026-08-21 physical capacity-envelope producer
+
+The full-v1 capacity seam is explicit in
+`e2e/run-v1-full-capacity-envelope-gate.sh`. It source-locks Delay, K1, P1 and
+Oxia, runs local resource/capacity contracts, and optionally runs both real
+multi-shard Large Payload production chains. It additionally requires a
+source-matching `nereus-delay-v1-capacity-observation-v1` file whose declared
+configurations are physically measured; missing or stale input is rejected.
+
+The current base-source probe is retained at
+`/private/tmp/nereus-delay-v1-full-capacity-real-current-20260821-r2/` for
+Delay `43e1c6a1b5bc980e4f18e3a8026e3235e0f1f510`. Both real child paths passed,
+but the full capacity artifact is `FAIL` with
+`measurement_status=MISSING`. This preserves the boundary between functional
+Gateway/Oxia/Worker/MinIO E2E and a Broker/Lane/resource capacity envelope.

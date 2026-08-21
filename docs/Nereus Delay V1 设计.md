@@ -5593,3 +5593,22 @@ Patch distribution is therefore a separate source-locked gate:
 partial rollout, immutable binary digests, typed rejection, delete/recreate,
 and stock/name/old-protocol fail-closed behavior. It may not promote a client
 compile or a bounded Broker smoke to the §23.5 distribution gate.
+
+## 2026-08-21 full-v1 physical capacity-envelope boundary
+
+`e2e/run-v1-full-capacity-envelope-gate.sh` is the source-locked entry point
+for the §23 benchmark/capacity evidence. It runs the Delay capacity/resource
+contracts and, when requested, real Kafka/Pulsar multi-shard Large Payload
+chains. A physical observation file with schema
+`nereus-delay-v1-capacity-observation-v1` is mandatory for a boundary-free
+PASS; functional Large Payload success is not a capacity measurement.
+
+The base candidate Delay is
+`43e1c6a1b5bc980e4f18e3a8026e3235e0f1f510`, with K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The retained probe is
+`/private/tmp/nereus-delay-v1-full-capacity-real-current-20260821-r2/`:
+local contracts and both real children passed, while the full gate remains
+`FAIL` with `measurement_status=MISSING`. No throughput, fairness, resource
+or SLO certification is claimed, and V1 remains `NOT_READY`.

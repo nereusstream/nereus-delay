@@ -7297,3 +7297,24 @@ input runner. It executes guarded-client tests in their own Gradle homes,
 records built binary digests and rejects stock/name-fallback/old-protocol
 paths. \`NEREUS_DELAY_V1_PATCH_RUN_CLUSTER=1\` is mandatory for a PASS because
 full and partial Broker rollout are distinct release evidence.
+
+## 2026-08-21 full-v1 physical capacity-envelope probe
+
+`run-v1-full-capacity-envelope-gate.sh` is the source-locked producer for the
+benchmark/capacity inputs. It runs Delay capacity/resource contracts and,
+with `NEREUS_DELAY_V1_CAPACITY_RUN_REAL=1`, executes the Kafka and Pulsar
+multi-shard Large Payload Gateway/Oxia/Worker/MinIO chains. It requires an
+independent `nereus-delay-v1-capacity-observation-v1` artifact for PASS;
+functional child success cannot stand in for physical throughput or resource
+observations.
+
+The current base-source probe is retained at
+`/private/tmp/nereus-delay-v1-full-capacity-real-current-20260821-r2/` with
+Delay `43e1c6a1b5bc980e4f18e3a8026e3235e0f1f510`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The Delay tests passed, both
+real children passed with two destination `PUBLISHED` outcomes and checkpoint
+evidence, and related Docker resources were absent afterward. The full gate
+remains `FAIL` with `measurement_status=MISSING`, so this probe does not
+change the V1 release status.
