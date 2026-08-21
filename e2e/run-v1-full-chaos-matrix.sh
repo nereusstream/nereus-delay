@@ -163,9 +163,9 @@ bounded_cell() {
       && "${durable}" == "CAPTURED_AND_VERIFIED" \
       && "${fresh}" == "PASS" && "${invariant}" == "INDEPENDENT_FIELDS_PASS" ]] \
     && status="PASS"
-  local before_status="FAIL" invariant_status="FAIL"
+  local before_status="BLOCKED" invariant_status="BLOCKED"
   [[ "${durable}" == "CAPTURED_AND_VERIFIED" ]] && before_status="PASS"
-  [[ "${invariant}" == "INDEPENDENT_FIELDS_PASS" ]] && invariant_status="PASS"
+  [[ "${invariant}" == "INDEPENDENT_FIELDS_PASS" ]] && invariant_status="INDEPENDENT_FIELDS_PASS"
   local cell_json
   cell_json="$(jq -cn --arg name "${name}" --arg point "${point}" \
       --arg status "${status}" --arg before "${before_status}" \
