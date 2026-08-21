@@ -8390,3 +8390,26 @@ destination evidence pass an independent field comparison.
 These are focused current-source receipts at Delay `b7b156e6`. They do not
 promote r15 to current source, and they do not claim certified chaos, generic
 transport response-loss, multi-shard placement or V1 release readiness.
+
+## 2026-08-21 Current-source bounded chaos r17 and Kafka TCP-cut evidence
+
+The complete strict-sequential bounded fault matrix was regenerated at Delay
+`257161a203090fdf5657acdea896d6b8b5777040`:
+
+```text
+/private/tmp/nereus-delay-chaos-current-20260821-r17/bounded-chaos-matrix.json
+```
+
+It reports `PASS_BOUNDED`; all fourteen declared cells returned zero and each
+has durable before/after state, fresh-process recovery and
+`INDEPENDENT_FIELDS_PASS`. K1, P1 and Oxia are locked to
+`05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The r16 Kafka TCP-cut timeout remains diagnostic only. Focused rerun r2 at
+`/private/tmp/nereus-delay-kafka-broker-tcp-cut-20260821-r2-state/` passed the
+same-topic/cluster/topic-ID, changed-process, monotonic-offset, Broker-1
+recovery and independent-field checks. These receipts strengthen the bounded
+authority/failure evidence; they do not claim certified chaos, multi-shard
+placement or V1 release readiness.

@@ -7041,3 +7041,37 @@ This is the canonical bounded current-source fault receipt, not V1 release
 certification. The certified chaos wrapper and release gate must be
 regenerated from the post-documentation source; capacity, soak,
 activation/cutover and operations remain separate release inputs.
+
+## 2026-08-21 Current-source bounded chaos r17 and Kafka TCP-cut rerun
+
+The complete strict-sequential matrix was rerun after Delay documentation
+commit `257161a203090fdf5657acdea896d6b8b5777040`. The canonical artifact is:
+
+```text
+/private/tmp/nereus-delay-chaos-current-20260821-r17/bounded-chaos-matrix.json
+```
+
+It reports `matrix_status=PASS_BOUNDED`; all fourteen child processes returned
+zero, and every cell independently passed
+`audit_status=PASS`,
+`durable_state_dump=CAPTURED_AND_VERIFIED`,
+`fresh_process_recovery=PASS` and
+`invariant_audit=INDEPENDENT_FIELDS_PASS`. The four source locks are Delay
+`257161a203090fdf5657acdea896d6b8b5777040`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The previous r16 run is retained as a diagnostic because its Kafka
+`broker-tcp-cut` producer hit a transient `TimeoutException` and had no after
+dump. The same current source was independently rerun at:
+
+```text
+/private/tmp/nereus-delay-kafka-broker-tcp-cut-20260821-r2-state/
+```
+
+The focused r2 receipt passed fresh-process recovery, changed PID, same
+topic/cluster/topic ID, monotonic end offset, Broker-1 recovery and
+`INDEPENDENT_FIELDS_PASS`. r17 is the canonical bounded receipt, not a
+certified-chaos or V1 release PASS; run those gates against the final source
+lock.

@@ -16940,3 +16940,40 @@ source lock, but is not a current-source receipt for these fixes. These focused
 receipts do not change the fail-closed V1 conclusion: capacity, soak,
 activation/cutover, operations, certified chaos and the release gate remain
 separate inputs.
+
+## 2026-08-21 Current-source bounded chaos r17 and Kafka TCP-cut rerun
+
+After Delay documentation commit `257161a203090fdf5657acdea896d6b8b5777040`,
+the complete strict-sequential bounded matrix was regenerated at:
+
+```text
+/private/tmp/nereus-delay-chaos-current-20260821-r17/bounded-chaos-matrix.json
+```
+
+The artifact reports `matrix_status=PASS_BOUNDED`; all fourteen child cells
+returned `0`, and every cell independently reports
+`audit_status=PASS`, `durable_state_dump=CAPTURED_AND_VERIFIED`,
+`fresh_process_recovery=PASS` and
+`invariant_audit=INDEPENDENT_FIELDS_PASS`. Its source locks are Delay
+`257161a203090fdf5657acdea896d6b8b5777040`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The preceding r16 matrix retained a diagnostic Kafka `broker-tcp-cut` cell
+whose real recovery path hit a transient producer `TimeoutException` and had
+no post-cut dump. It is not promoted. The same current source was independently
+rerun at:
+
+```text
+/private/tmp/nereus-delay-kafka-broker-tcp-cut-20260821-r2-state/
+```
+
+That focused receipt proves a fresh Kafka process, changed process PID,
+same topic/cluster/topic ID, monotonic end offset and Broker-1 recovery;
+the independent comparison returned `INDEPENDENT_FIELDS_PASS`.
+
+r17 is the canonical current-source bounded receipt, not V1 release
+certification. Run certified chaos and the fail-closed release gate against
+the post-documentation source lock; capacity, soak, activation/cutover and
+operations remain independent release inputs.

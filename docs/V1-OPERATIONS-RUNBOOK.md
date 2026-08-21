@@ -1514,3 +1514,35 @@ documentation commit, rerun the complete strict-sequential matrix, then the
 certified wrapper and fail-closed release gate. Remove only exact obsolete
 diagnostic directories to recoverable Trash, keep source worktrees and Git
 metadata untouched, and retain the locked Oxia/MinIO images.
+
+## 2026-08-21 Current-source bounded chaos r17 and TCP-cut follow-up
+
+The post-documentation strict-sequential bounded matrix is recorded at:
+
+```text
+/private/tmp/nereus-delay-chaos-current-20260821-r17/bounded-chaos-matrix.json
+```
+
+With Delay `257161a203090fdf5657acdea896d6b8b5777040`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, all fourteen cells returned zero
+and passed marker, durable-state, fresh-process and independent-invariant
+audits. The artifact is `PASS_BOUNDED`, not `PASS_CERTIFIED`.
+
+r16 is retained as a diagnostic for a transient Kafka TCP-cut producer timeout
+with no after dump. Before using that cell as a focused handoff, the same
+source was rerun at:
+
+```text
+/private/tmp/nereus-delay-kafka-broker-tcp-cut-20260821-r2-state/
+```
+
+The focused r2 receipt passed the fresh process/PID, same topic/cluster/topic
+ID, monotonic end offset, Broker-1 rejoin and
+`INDEPENDENT_FIELDS_PASS` checks. Certified chaos and the V1 release gate must
+still be run against the final source lock. Cleanup remains exact-path and
+recoverable: retain canonical JSON receipts and locked Oxia/MinIO base images;
+move only confirmed disposable diagnostics to Trash; never use global Docker
+prune or target source worktrees and the unlabelled `pulsarconf`/`pulsardata`
+volumes.

@@ -5332,6 +5332,38 @@ response-loss、multi-shard placement 或 V1 release PASS。最终 release 仍�
 在最终 source/documentation lock 上重跑 full matrix、certified wrapper 和
 fail-closed gate。
 
+## 41. 2026-08-21 current-source bounded chaos r17 与 Kafka TCP-cut 复验
+
+在 documentation commit `257161a203090fdf5657acdea896d6b8b5777040` 之后，重新
+执行完整 strict-sequential bounded matrix，canonical receipt 为：
+
+```text
+/private/tmp/nereus-delay-chaos-current-20260821-r17/bounded-chaos-matrix.json
+```
+
+结果为 `matrix_status=PASS_BOUNDED`，14 个 child 全部返回 `0`；每个 cell
+独立通过 `audit_status=PASS`、
+`durable_state_dump=CAPTURED_AND_VERIFIED`、
+`fresh_process_recovery=PASS` 和
+`invariant_audit=INDEPENDENT_FIELDS_PASS`。四仓 source locks 为 Delay
+`257161a203090fdf5657acdea896d6b8b5777040`、K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`、P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`、Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`。
+
+r16 的 Kafka `broker-tcp-cut` 因 producer 临时 `TimeoutException` 没有
+after dump，保留为 diagnostic，不提升为 PASS。相同 source 的 focused r2
+receipt 位于：
+
+```text
+/private/tmp/nereus-delay-kafka-broker-tcp-cut-20260821-r2-state/
+```
+
+r2 独立通过 fresh process/新 PID、相同 topic/cluster/topic ID、end offset
+单调增长、Broker-1 recovery 和 `INDEPENDENT_FIELDS_PASS`。r17 是当前
+bounded fault evidence，但不是 certified chaos 或 V1 release PASS；仍需在
+最终 source lock 上执行 certified wrapper 与 fail-closed release gate。
+
 ## 参考资料
 
 - [R1] [DDMQ README @ 2f30b61a](https://github.com/didi/DDMQ/blob/2f30b61a5741d55a5b515f3d8d19a8a35be8c9e2/README.md)

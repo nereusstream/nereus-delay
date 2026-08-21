@@ -13516,3 +13516,33 @@ receipt is therefore retained as historical source-bound evidence until a new
 matrix is generated, and V1 remains fail-closed pending the independent
 capacity, soak, activation/cutover, operations, certified chaos and release
 inputs.
+
+## 2026-08-21 Current-source bounded chaos r17 and Kafka TCP-cut rerun
+
+The complete current-source bounded matrix was regenerated after Delay
+`257161a203090fdf5657acdea896d6b8b5777040`. Its canonical artifact is:
+
+```text
+/private/tmp/nereus-delay-chaos-current-20260821-r17/bounded-chaos-matrix.json
+```
+
+It reports `matrix_status=PASS_BOUNDED` with fourteen zero child exits. Every
+cell independently passes marker, durable before/after state,
+fresh-process-recovery and invariant comparison:
+`audit_status=PASS`, `CAPTURED_AND_VERIFIED`, `PASS` and
+`INDEPENDENT_FIELDS_PASS`. The K1/P1/Oxia locks are respectively
+`05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The r16 Kafka TCP-cut failure is retained as a diagnostic because its producer
+hit a transient `TimeoutException` and did not produce an after dump. A
+same-source focused rerun at
+`/private/tmp/nereus-delay-kafka-broker-tcp-cut-20260821-r2-state/` passed the
+fresh-process, changed-PID, topic/cluster/topic-ID, monotonic-offset and
+Broker-1-recovery checks with
+`INDEPENDENT_FIELDS_PASS`.
+
+r17 closes the current bounded fault union at 14/14, but remains bounded
+evidence. It does not promote certified chaos, capacity, soak,
+activation/cutover, operations or the V1 release gate.
