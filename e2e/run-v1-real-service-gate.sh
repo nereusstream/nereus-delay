@@ -35,10 +35,11 @@ command -v rg >/dev/null 2>&1 || fail "rg is required"
 [[ -n "${candidate_lock_file}" && -s "${candidate_lock_file}" ]] \
   || fail "NEREUS_DELAY_V1_CANDIDATE_SOURCE_LOCK is required"
 jq empty "${candidate_lock_file}" >/dev/null 2>&1 || fail "candidate lock is not JSON"
-mkdir -p "${artifact_dir}" "${gradle_home}"
+mkdir -p "${artifact_dir}"
 if [[ -n "$(find "${artifact_dir}" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
   fail "artifact directory must be empty: ${artifact_dir}"
 fi
+mkdir -p "${gradle_home}"
 
 candidate_delay="$(jq -er '.delay' "${candidate_lock_file}")"
 candidate_kafka="$(jq -er '.kafka' "${candidate_lock_file}")"
