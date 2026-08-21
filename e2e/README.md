@@ -7318,3 +7318,27 @@ real children passed with two destination `PUBLISHED` outcomes and checkpoint
 evidence, and related Docker resources were absent afterward. The full gate
 remains `FAIL` with `measurement_status=MISSING`, so this probe does not
 change the V1 release status.
+
+## 2026-08-22 current-source guarded patch-distribution certification
+
+The gate fix is Delay `1631f8c1821116e8c7b3ef3f7166bab06c4b8a76`: K1, P1 and
+Delay tests now use `--rerun-tasks`, so an up-to-date Gradle result cannot be
+mistaken for fresh execution. The canonical artifact is
+`/private/tmp/nereus-delay-v1-patch-distribution-current-20260822-r3/full-v1-gate-input.json`
+with SHA-256
+`c92104c707d208035aff782a3def37d84c409830bd2214bc543381e5eeab2ebb`.
+
+It locks Kafka K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The artifact is
+`PASS_CERTIFIED`, exclusion-free and source-lock exact: Kafka guarded producer
+cases passed, Pulsar guarded common/broker tests and Delay guarded transport
+tests were freshly executed, and the real two-Broker Pulsar partial-rollout
+child passed broker stop/recovery, physical publish, ACK and checkpoint
+release. Binary digests are in
+`/private/tmp/nereus-delay-v1-patch-distribution-current-20260822-r3/binary-digests.tsv`.
+
+This certifies only the patch-distribution input, not the V1 release. Capacity
+measurement, complete chaos, soak, upgrade/downgrade, operations/disaster and
+the remaining release inputs stay fail-closed. Exact scoped Docker postchecks
+were empty; base images were retained.
