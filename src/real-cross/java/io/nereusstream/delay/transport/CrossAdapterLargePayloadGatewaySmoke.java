@@ -598,19 +598,18 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
             final org.apache.pulsar.client.api.GuardedConsumer<byte[]> nativeConsumer =
                     PulsarClientArtifactSourceConsumerFactory.create(pulsarClient, sourceGuard,
                             sourcePhysicalTopic, "cross-p-to-k-worker-" + UUID.randomUUID());
-            try {
-                final PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof sourceProof =
-                        PulsarClientArtifactRecoverySourcePositioner.seekAfter(nativeConsumer, sourceGuard,
-                                sourcePhysicalTopic, shard, Optional.empty(), Duration.ofSeconds(5));
-                final RouteSnapshotV1 snapshot = PulsarClientArtifactLargePayloadGatewaySmoke.routeSnapshot(
-                        sourcePhysicalBase, sourcePhysicalTopic, routeIncarnation, beforeRoutePosition,
-                        sourceProof, tenant, controlKeys);
-                final RouteSelectionHint routeHint = new RouteSelectionHint(AdapterKindV1.PULSAR,
-                        Bytes.utf8("primary"));
-                final String routePrefix = "nereus-delay/cross-p-to-k-route/" + UUID.randomUUID();
-                final String assignmentPrefix = "nereus-delay/cross-p-to-k-assignment/" + UUID.randomUUID();
-                final String gatewayPrefix = "nereus-delay/cross-p-to-k-gateway/" + UUID.randomUUID();
-                try (OxiaRouteAuthoritySession publisherSession = OxiaRouteAuthoritySession.connect(
+            final PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof sourceProof =
+                    PulsarClientArtifactRecoverySourcePositioner.seekAfter(nativeConsumer, sourceGuard,
+                            sourcePhysicalTopic, shard, Optional.empty(), Duration.ofSeconds(5));
+            final RouteSnapshotV1 snapshot = PulsarClientArtifactLargePayloadGatewaySmoke.routeSnapshot(
+                    sourcePhysicalBase, sourcePhysicalTopic, routeIncarnation, beforeRoutePosition,
+                    sourceProof, tenant, controlKeys);
+            final RouteSelectionHint routeHint = new RouteSelectionHint(AdapterKindV1.PULSAR,
+                    Bytes.utf8("primary"));
+            final String routePrefix = "nereus-delay/cross-p-to-k-route/" + UUID.randomUUID();
+            final String assignmentPrefix = "nereus-delay/cross-p-to-k-assignment/" + UUID.randomUUID();
+            final String gatewayPrefix = "nereus-delay/cross-p-to-k-gateway/" + UUID.randomUUID();
+            try (OxiaRouteAuthoritySession publisherSession = OxiaRouteAuthoritySession.connect(
                              configuration.oxiaEndpoint(), configuration.namespace(), "cross-p-to-k-route-publisher-"
                                      + UUID.randomUUID(), Duration.ofSeconds(15), routePrefix);
                      OxiaRouteAuthoritySession providerSession = OxiaRouteAuthoritySession.connect(
