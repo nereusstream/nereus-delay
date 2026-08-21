@@ -7221,3 +7221,22 @@ This closes the two named cross-adapter Large Payload cells only. It does not
 make the full `real-service` or V1 release gate PASS; activation/cutover, full
 19-cell chaos, capacity, soak, upgrade/downgrade, operations/disaster-
 continuity and patch-distribution inputs remain required.
+
+## 2026-08-21 full-V1 real-service gate runner
+
+`run-v1-real-service-gate.sh` is the full-scope real-service input runner. It
+requires an exact candidate source-lock JSON and executes, strictly serially,
+the two same-adapter Gateway/Worker/MinIO chains, both cross-adapter
+directions, the Kafka K1/K2 real-client path, the Pulsar P1 real-client path,
+and authenticated capability-before-marker activation/cutover. It writes a
+`nereus-delay-v1-full-gate-input-v1` artifact only from those current child
+logs; a failed child or missing marker leaves the artifact `BLOCKED`.
+
+```bash
+NEREUS_DELAY_V1_CANDIDATE_SOURCE_LOCK=/private/tmp/<candidate>/source-lock.json \
+NEREUS_DELAY_V1_REAL_SERVICE_ARTIFACT_DIR=/private/tmp/<candidate>/real-service \
+  bash e2e/run-v1-real-service-gate.sh
+```
+
+The runner does not reinterpret the earlier same-adapter or bounded receipts,
+and each child retains its exact Docker cleanup boundary.
