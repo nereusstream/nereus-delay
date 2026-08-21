@@ -23,6 +23,7 @@ profile_id="${NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_PROFILE_ID:-nereus-delay-v1-$
 run_real="${NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_RUN_REAL:-1}"
 payload_bytes="${NEREUS_DELAY_V1_CAPACITY_PAYLOAD_BYTES:-1052672}"
 matrix_image="${NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_IMAGE:-eclipse-temurin@sha256:57865c22b954cf920cb05a610af81d577e89783282514ba071e99c7357f6c769}"
+seeded_gradle_home="${NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_GRADLE_USER_HOME:-}"
 started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 fail() {
@@ -42,6 +43,9 @@ command -v python3 >/dev/null 2>&1 || fail "python3 is required for monotonic wa
 [[ "${run_real}" == "0" || "${run_real}" == "1" ]] || fail "run-real must be 0 or 1"
 [[ "${payload_bytes}" =~ ^[1-9][0-9]*$ ]] || fail "payload bytes must be positive"
 [[ "${profile_id}" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$ ]] || fail "profile id is not canonical"
+if [[ -n "${seeded_gradle_home}" ]]; then
+  mkdir -p "${seeded_gradle_home}"
+fi
 
 if [[ "${gate}" == "benchmark" ]]; then
   required_lines=(
@@ -133,7 +137,7 @@ extract_last_value() {
 
 matrix_dir="${artifact_dir}/bounded-capacity-matrix"
 matrix_log="${artifact_dir}/bounded-capacity-matrix.log"
-matrix_gradle_home="${artifact_dir}/matrix-gradle-user-home"
+matrix_gradle_home="${seeded_gradle_home:-${artifact_dir}/matrix-gradle-user-home}"
 mkdir -p "${matrix_dir}"
 matrix_started_ms="$(now_ms)"
 set +e
@@ -150,7 +154,7 @@ matrix_artifact="${matrix_dir}/capacity-benchmark-matrix.json"
 matrix_status="$(jq -r '.matrix_status // "MISSING"' "${matrix_artifact}" 2>/dev/null || printf 'MISSING')"
 
 contract_log="${artifact_dir}/delay-physical-capacity-contract-tests.log"
-contract_gradle_home="${artifact_dir}/contract-gradle-user-home"
+contract_gradle_home="${seeded_gradle_home:-${artifact_dir}/contract-gradle-user-home}"
 contract_tests=(
   io.nereusstream.delay.protocol.CapacityVectorV1Test
   io.nereusstream.delay.protocol.ShardCapacityEnvelopeV1Test
@@ -202,7 +206,7 @@ if [[ "${run_real}" == "1" ]]; then
     NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
     NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_MULTI_SHARD=1 \
     NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_DESTINATION_TOPIC="nereus-delay-v1-${gate}-measurement-kafka-${profile_id}" \
-    NEREUS_DELAY_LARGE_PAYLOAD_GRADLE_USER_HOME="${artifact_dir}/kafka-gradle-user-home" \
+    NEREUS_DELAY_LARGE_PAYLOAD_GRADLE_USER_HOME="${seeded_gradle_home:-${artifact_dir}/kafka-gradle-user-home}" \
       bash "${script_dir}/run-large-payload-gateway-e2e.sh"
   ) >"${real_kafka_log}" 2>&1
   kafka_exit_code=$?
@@ -217,7 +221,7 @@ if [[ "${run_real}" == "1" ]]; then
     NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
     NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MULTI_SHARD=1 \
     NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_DESTINATION_TOPIC="persistent://public/default/nereus-delay-v1-${gate}-measurement-pulsar-${profile_id}" \
-    NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME="${artifact_dir}/pulsar-gradle-user-home" \
+    NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME="${seeded_gradle_home:-${artifact_dir}/pulsar-gradle-user-home}" \
       bash "${script_dir}/run-pulsar-large-payload-gateway-e2e.sh"
   ) >"${real_pulsar_log}" 2>&1
   pulsar_exit_code=$?
