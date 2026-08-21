@@ -21,6 +21,7 @@ gradle_home="${NEREUS_DELAY_FULL_CHAOS_GRADLE_USER_HOME:-${artifact_dir}/gradle-
 candidate_lock_file="${NEREUS_DELAY_FULL_CHAOS_CANDIDATE_SOURCE_LOCK:-${NEREUS_DELAY_RELEASE_GATE_CANDIDATE_SOURCE_LOCK:-}}"
 profile_id="${NEREUS_DELAY_FULL_CHAOS_PROFILE_ID:-nereus-delay-v1-full-chaos-r1}"
 run_external="${NEREUS_DELAY_FULL_CHAOS_RUN_EXTERNAL:-1}"
+reuse_certified_dir="${NEREUS_DELAY_FULL_CHAOS_REUSE_CERTIFIED_DIR:-}"
 started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 required_cells=(
@@ -84,7 +85,11 @@ required_json="$(printf '%s\n' "${required_cells[@]}" | jq -Rsc 'split("\n") | m
 bounded_dir="${artifact_dir}/certified-fourteen-cell"
 bounded_artifact="${bounded_dir}/certified-chaos-matrix.json"
 bounded_exit=1
-if [[ "${source_status}" == "PASS" ]]; then
+if [[ -n "${reuse_certified_dir}" ]]; then
+  bounded_dir="${reuse_certified_dir}"
+  bounded_artifact="${bounded_dir}/certified-chaos-matrix.json"
+  bounded_exit=0
+elif [[ "${source_status}" == "PASS" ]]; then
   set +e
   NEREUS_DELAY_CERTIFIED_CHAOS_ARTIFACT_DIR="${bounded_dir}" \
   NEREUS_DELAY_CERTIFIED_CHAOS_GRADLE_USER_HOME="${gradle_home}" \
@@ -104,6 +109,11 @@ fi
 bounded_status="MISSING"
 if [[ -s "${bounded_artifact}" ]] && jq empty "${bounded_artifact}" >/dev/null 2>&1; then
   bounded_status="$(jq -r '.status // "UNKNOWN"' "${bounded_artifact}")"
+fi
+bounded_locks_match="FAIL"
+if [[ -s "${bounded_artifact}" ]] && jq -e --argjson locks "${source_locks_json}" \
+    '.source_locks == $locks' "${bounded_artifact}" >/dev/null 2>&1; then
+  bounded_locks_match="PASS"
 fi
 
 cells_json='{}'
@@ -230,7 +240,7 @@ for name in "${required_cells[@]}"; do
   [[ "${status}" == "PASS" ]] || all_pass="BLOCKED"
 done
 [[ "${source_status}" == "PASS" && "${bounded_exit}" == "0" \
-    && "${bounded_status}" == "PASS_CERTIFIED" ]] || all_pass="BLOCKED"
+    && "${bounded_status}" == "PASS_CERTIFIED" && "${bounded_locks_match}" == "PASS" ]] || all_pass="BLOCKED"
 
 if [[ "${all_pass}" == "PASS" ]]; then
   observed_json="${required_json}"
@@ -257,6 +267,7 @@ jq -n \
   --arg coverage_status "${coverage_status}" --arg independent_audit "${independent_audit}" \
   --arg bounded_artifact "${bounded_artifact}" --arg minio_artifact "${minio_artifact}" \
   --argjson bounded_exit "${bounded_exit}" --arg bounded_status "${bounded_status}" \
+  --arg bounded_locks_match "${bounded_locks_match}" \
   '{
     schema:$schema,status:(if $status == "PASS" then "PASS_CERTIFIED" else "BLOCKED" end),
     profile_id:$profile_id,scope:"full-v1",complete_v1:($status == "PASS"),
@@ -265,12 +276,12 @@ jq -n \
     coverage:{complete_v1:($status == "PASS"),required:$required,observed:$observed,exclusions:[]},
     evidence:{test_exit_code:$test_exit_code,source_lock_status:(if $locks then "PASS" else "BLOCKED" end),
       coverage_status:$coverage_status,independent_audit:$independent_audit,
-      bounded_child:{status:$bounded_status,exit_code:$bounded_exit,artifact:$bounded_artifact},
+      bounded_child:{status:$bounded_status,exit_code:$bounded_exit,artifact:$bounded_artifact,source_locks_match:$bounded_locks_match},
       minio_child:$minio_artifact},
     cells:$cells,boundaries:$boundaries
   }' >"${artifact_dir}/full-chaos-matrix.json"
 
 echo "V1 full chaos matrix artifact: ${artifact_dir}/full-chaos-matrix.json"
-echo "status=$(jq -r '.status' "${artifact_dir}/full-chaos-matrix.json") bounded=${bounded_status} minio_exit=${minio_exit}"
+echo "status=$(jq -r '.status' "${artifact_dir}/full-chaos-matrix.json") bounded=${bounded_status} bounded_locks=${bounded_locks_match} minio_exit=${minio_exit}"
 jq -r '.boundaries[]? // empty' "${artifact_dir}/full-chaos-matrix.json" | head -n 40
 [[ "${all_pass}" == "PASS" ]]
