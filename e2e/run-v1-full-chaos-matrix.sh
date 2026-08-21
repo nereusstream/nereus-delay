@@ -342,12 +342,12 @@ minio_cell config-drift "replace the provider credential configuration with a dr
 credential_dir="${artifact_dir}/credential-binding-drift"
 credential_exit=1
 if [[ "${run_external}" == "1" && "${source_status}" == "PASS" ]]; then
-  mkdir -p "${credential_dir}"
   set +e
   NEREUS_DELAY_CREDENTIAL_CHAOS_ARTIFACT_DIR="${credential_dir}" \
   NEREUS_DELAY_CREDENTIAL_CHAOS_GRADLE_USER_HOME="${gradle_home}" \
   NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
-    bash "${script_dir}/run-credential-binding-drift-e2e.sh" >"${credential_dir}/run.log" 2>&1
+    bash "${script_dir}/run-credential-binding-drift-e2e.sh" \
+      >"${artifact_dir}/credential-binding-drift-child.log" 2>&1
   credential_exit=$?
   set -e
 fi
@@ -385,7 +385,7 @@ if [[ "${credential_exit}" == "0" && -s "${credential_artifact}" \
 fi
 if [[ "${credential_status}" == "PASS" ]]; then
   add_cell "$(jq -cn --arg child "${credential_artifact}" --arg before "${credential_before}" \
-    --arg after "${credential_after}" --arg log "${credential_dir}/run.log" \
+    --arg after "${credential_after}" --arg log "${artifact_dir}/credential-binding-drift-child.log" \
     '{"credential-binding-drift": {
       status:"PASS",
       injection:{status:"PASS",point:"rotate the real Oxia credential Head across a protected generation-1 Object Store lease"},
