@@ -13879,6 +13879,6 @@ checker keeps that gate blocked. Capacity r10 and benchmark r11 are blocked by
 the missing physical Broker/Lane measurement artifact.
 
 The audit
-`/private/tmp/nereus-delay-v1-full-gates-20260822-r18/release/v1-release-candidate-gate.json`
+`/private/tmp/nereus-delay-v1-full-gates-20260822-r20/release/v1-release-candidate-gate.json`
 is `NOT_READY`; no certification manifest is claimed. Matching generated Docker
 resources were absent after the runs; locked base images were retained.

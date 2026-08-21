@@ -7441,7 +7441,7 @@ r11 remain blocked because no physical Broker/Lane measurement artifact was
 provided.
 
 Strict audit:
-`/private/tmp/nereus-delay-v1-full-gates-20260822-r18/release/v1-release-candidate-gate.json`,
+`/private/tmp/nereus-delay-v1-full-gates-20260822-r20/release/v1-release-candidate-gate.json`,
 `release_status=NOT_READY`; no certification manifest is claimed. Exact
 matching generated Docker resources were absent after the runs. The locked
 MinIO base and canonical Oxia image were kept; global Docker prune is forbidden.

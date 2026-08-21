@@ -5736,5 +5736,5 @@ with exact cleanup, but the release checker records `gate-soak=BLOCKED` because
 the wrapper omits `policy.longest_configured_period_seconds`. Capacity r10 and
 benchmark r11 remain blocked by the missing physical Broker/Lane measurement.
 The strict audit
-`/private/tmp/nereus-delay-v1-full-gates-20260822-r18/release/v1-release-candidate-gate.json`
+`/private/tmp/nereus-delay-v1-full-gates-20260822-r20/release/v1-release-candidate-gate.json`
 therefore remains `NOT_READY`; no certification manifest is claimed.
