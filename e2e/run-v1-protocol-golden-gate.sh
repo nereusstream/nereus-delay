@@ -191,9 +191,13 @@ jq -n \
   --arg pulsar "${candidate_pulsar}" --arg oxia "${candidate_oxia}" --arg log "${log_file}" \
   --argjson test_exit_code "${test_exit_code}" --argjson test_count "${test_count}" \
   --argjson failure_count "${failure_count}" --argjson error_count "${error_count}" \
-  --argjson skipped_count "${skipped_count}" --argjson required "${required_json}" \
+  --argjson skipped_count "${skipped_count}" \
+  --argjson kafka_test_exit_code "${kafka_test_exit_code}" --argjson kafka_test_count "${kafka_test_count}" \
+  --argjson pulsar_test_exit_code "${pulsar_test_exit_code}" --argjson pulsar_test_count "${pulsar_test_count}" \
+  --argjson required "${required_json}" \
   --arg source_status "${source_status}" --arg source_audit_status "${source_audit_status}" \
-  --arg cross_repo_status "${cross_repo_status}" \
+  --arg cross_repo_status "${cross_repo_status}" --arg kafka_log "${kafka_log_file}" \
+  --arg pulsar_log "${pulsar_log_file}" \
   '{
     schema:$schema,status:$status,scope:"full-v1",complete_v1:($status == "PASS_CERTIFIED"),
     gate:$gate,execution:"strict-sequential",
