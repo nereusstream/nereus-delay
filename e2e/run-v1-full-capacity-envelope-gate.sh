@@ -89,6 +89,7 @@ if [[ -n "$(find "${artifact_dir}" -mindepth 1 -maxdepth 1 -print -quit)" ]]; th
   fail "artifact directory must be empty: ${artifact_dir}"
 fi
 gradle_home="${NEREUS_DELAY_V1_CAPACITY_GRADLE_USER_HOME:-${artifact_dir}/gradle-user-home}"
+real_gradle_home="${NEREUS_DELAY_V1_CAPACITY_REAL_GRADLE_USER_HOME:-${gradle_home}}"
 mkdir -p "${gradle_home}"
 
 candidate_delay="$(jq -er '.delay' "${candidate_lock_file}")"
@@ -158,7 +159,7 @@ if [[ "${run_real}" == "1" ]]; then
     NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
     NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_MULTI_SHARD=1 \
     NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_DESTINATION_TOPIC="nereus-delay-v1-capacity-kafka-destination-${profile_id}" \
-    NEREUS_DELAY_LARGE_PAYLOAD_GRADLE_USER_HOME="${artifact_dir}/kafka-large-payload-gradle" \
+    NEREUS_DELAY_LARGE_PAYLOAD_GRADLE_USER_HOME="${real_gradle_home}" \
     bash "${script_dir}/run-large-payload-gateway-e2e.sh"
   ) >"${kafka_log}" 2>&1
   kafka_real_exit=$?
@@ -169,7 +170,7 @@ if [[ "${run_real}" == "1" ]]; then
     NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
     NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MULTI_SHARD=1 \
     NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_DESTINATION_TOPIC="nereus-delay-v1-capacity-pulsar-destination-${profile_id}" \
-    NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME="${artifact_dir}/pulsar-large-payload-gradle" \
+    NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME="${real_gradle_home}" \
     bash "${script_dir}/run-pulsar-large-payload-gateway-e2e.sh"
   ) >"${pulsar_log}" 2>&1
   pulsar_real_exit=$?
