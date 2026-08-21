@@ -16,8 +16,30 @@ fail() {
 
 mkdir -p "${artifact_dir}"
 class_name="io.nereusstream.delay.store.LocalStorageDurableChaosTest"
-cells=(fsync-error sst-corruption disaster-host-fault)
+cells=(fsync-error sst-corruption enospc disaster-host-fault)
 cell_records=()
+enospc_image=""
+enospc_mount=""
+enospc_mounted=0
+
+cleanup_enospc() {
+  if [[ "${enospc_mounted}" == "1" && -n "${enospc_mount}" ]]; then
+    set +e
+    hdiutil detach "${enospc_mount}" >/dev/null 2>&1
+    if [[ $? != 0 ]]; then
+      hdiutil detach -force "${enospc_mount}" >/dev/null 2>&1
+    fi
+    set -e
+    enospc_mounted=0
+  fi
+  if [[ -n "${enospc_image}" && -e "${enospc_image}" ]]; then
+    /opt/homebrew/bin/gio trash -- "${enospc_image}" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${enospc_mount}" && -d "${enospc_mount}" ]]; then
+    /opt/homebrew/bin/gio trash -- "${enospc_mount}" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup_enospc EXIT
 
 ensure_empty_cell() {
   local cell_dir="$1"
@@ -33,11 +55,14 @@ ensure_empty_cell() {
 
 run_gradle_phase() {
   local cell="$1" phase="$2" cell_dir="$3" log_file="$4"
+  local storage_root="${5:-}" headroom_file="${6:-}"
   set +e
   NEREUS_DELAY_STORAGE_CHAOS_ARTIFACT_DIR="${cell_dir}" \
   NEREUS_DELAY_STORAGE_CHAOS_CELL="${cell}" \
   NEREUS_DELAY_STORAGE_CHAOS_PHASE="${phase}" \
   NEREUS_DELAY_STORAGE_CHAOS_HOLD_FILE="${cell_dir}/hold" \
+  NEREUS_DELAY_STORAGE_CHAOS_ROOT="${storage_root}" \
+  NEREUS_DELAY_STORAGE_CHAOS_HEADROOM_FILE="${headroom_file}" \
   GRADLE_USER_HOME="${gradle_home}" \
     "${delay_dir}/gradlew" test --no-daemon --console=plain --rerun-tasks \
       --tests "${class_name}" >"${log_file}" 2>&1
@@ -110,7 +135,7 @@ run_disaster_cell() {
     '{schema:"nereus-delay-storage-chaos-kill-receipt-v1",fault:"DISASTER_HOST_FAULT",
       target_process_pid:$pid,signal:$signal,signal_number:$signal_number,kill_exit:$kill_exit,exact_target:true}' \
     >"${cell_dir}/kill-receipt.json"
-  rm -f "${hold_file}"
+  /opt/homebrew/bin/gio trash -- "${hold_file}"
   set +e
   wait "${before_job}"
   local before_exit=$?
@@ -123,6 +148,41 @@ run_disaster_cell() {
     after_exit=$?
     set -e
   fi
+  validate_cell "${cell}" "${before_exit}" "${after_exit}" "${cell_dir}"
+}
+
+run_enospc_cell() {
+  local cell="enospc"
+  local cell_dir="${artifact_dir}/${cell}"
+  ensure_empty_cell "${cell_dir}"
+  command -v hdiutil >/dev/null 2>&1 || fail "hdiutil is required for the exact ENOSPC fixture"
+  enospc_image="${cell_dir}/enospc-fixture.sparsebundle"
+  enospc_mount="${cell_dir}/enospc-mount"
+  mkdir -p "${enospc_mount}"
+  hdiutil create -size 128m -fs HFS+J -volname NereusDelayChaos -type SPARSEBUNDLE \
+    -quiet "${enospc_image}"
+  hdiutil attach -nobrowse -quiet -mountpoint "${enospc_mount}" "${enospc_image}"
+  enospc_mounted=1
+  local headroom_file="${enospc_mount}/headroom.bin"
+  dd if=/dev/zero of="${headroom_file}" bs=1048576 count=80 conv=sync \
+    >/dev/null 2>&1
+  local before_log="${artifact_dir}/${cell}-before-process.log"
+  local after_log="${artifact_dir}/${cell}-after-process.log"
+  local before_exit=1 after_exit=1
+  set +e
+  run_gradle_phase "${cell}" before "${cell_dir}" "${before_log}" \
+    "${enospc_mount}/worker-root" "${headroom_file}"
+  before_exit=$?
+  set -e
+  if [[ "${before_exit}" == "0" ]]; then
+    unlink "${headroom_file}"
+    set +e
+    run_gradle_phase "${cell}" after "${cell_dir}" "${after_log}" \
+      "${enospc_mount}/worker-root" "${headroom_file}"
+    after_exit=$?
+    set -e
+  fi
+  cleanup_enospc
   validate_cell "${cell}" "${before_exit}" "${after_exit}" "${cell_dir}"
 }
 
@@ -223,6 +283,38 @@ validate_cell() {
           status="PASS"
         fi
         ;;
+      enospc)
+        if [[ "${before_exit}" == "0" && "${after_exit}" == "0" ]] \
+          && jq -e \
+            '.schema == "nereus-delay-storage-chaos-durable-state-dump-v1"
+             and .cell == "enospc"
+             and .phase == "BEFORE_FRESH_PROCESS_RECOVERY"
+             and .fault == "ENOSPC"
+             and .dump_forced == true
+             and .durable_store_read == true
+             and .enospc_observed == true
+             and .enospc_status == "NO_SPACE_LEFT_ON_DEVICE"
+             and .headroom_file_present == true
+             and (.filler_records_attempted | type == "number" and . >= 1)' \
+            "${cell_dir}/before.json" >/dev/null \
+          && jq -e \
+            '.schema == "nereus-delay-storage-chaos-durable-state-dump-v1"
+             and .cell == "enospc"
+             and .phase == "RECOVERED_AFTER_FRESH_PROCESS"
+             and .fault == "ENOSPC"
+             and .dump_forced == true
+             and .durable_store_read == true
+             and .enospc_recovered == true
+             and .space_released_before_recovery == true
+             and .value_recovered_exactly == true
+             and .write_outcome_uncertain == false
+             and .recovery_action == "FRESH_PROCESS_REOPENED_AFTER_ENOSPC_AND_HEADROOM_RELEASE"
+             and (.process_pid != $before_pid)' \
+            --argjson before_pid "$(jq -er '.process_pid' "${cell_dir}/before.json")" \
+            "${cell_dir}/after.json" >/dev/null; then
+          status="PASS"
+        fi
+        ;;
     esac
   fi
   local record
@@ -236,6 +328,7 @@ validate_cell() {
 
 run_regular_cell fsync-error
 run_regular_cell sst-corruption
+run_enospc_cell
 run_disaster_cell
 
 cells_json="$(printf '%s\n' "${cell_records[@]}" | jq -s '.')"
@@ -251,7 +344,7 @@ jq -n --arg status "${overall_status}" --arg artifact "${artifact_dir}" \
     schema:"nereus-delay-local-storage-chaos-e2e-v1",
     status:$status,
     source_locks:{delay:$delay},
-    scope:"fsync-error,sst-corruption,disaster-host-fault",
+    scope:"fsync-error,sst-corruption,enospc,disaster-host-fault",
     fresh_process_recovery:true,
     docker_cleanup:{status:"PASS",scope:"no Docker resources created"},
     artifact_dir:$artifact,

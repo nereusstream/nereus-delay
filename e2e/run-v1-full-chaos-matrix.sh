@@ -507,7 +507,7 @@ if [[ "${storage_exit}" == "0" && -s "${storage_artifact}" ]] \
        and .source_locks.delay == $delay
        and .fresh_process_recovery == true
        and .docker_cleanup.status == "PASS"
-       and ([.cells[].name] | sort) == ["disaster-host-fault", "fsync-error", "sst-corruption"]
+       and ([.cells[].name] | sort) == ["disaster-host-fault", "enospc", "fsync-error", "sst-corruption"]
        and ([.cells[].status] | all(. == "PASS"))' \
       "${storage_artifact}" >/dev/null 2>&1; then
   storage_child_ready="PASS"
@@ -575,6 +575,36 @@ storage_cell() {
           pair_status="PASS"
         fi
         ;;
+      enospc)
+        if jq -n --slurpfile before "${before_dump}" --slurpfile after "${after_dump}" \
+          '($before | length) == 1 and ($after | length) == 1
+           and $before[0].schema == "nereus-delay-storage-chaos-durable-state-dump-v1"
+           and $after[0].schema == "nereus-delay-storage-chaos-durable-state-dump-v1"
+           and $before[0].cell == "enospc" and $after[0].cell == "enospc"
+           and $before[0].phase == "BEFORE_FRESH_PROCESS_RECOVERY"
+           and $after[0].phase == "RECOVERED_AFTER_FRESH_PROCESS"
+           and $before[0].fault == "ENOSPC" and $after[0].fault == "ENOSPC"
+           and $before[0].dump_forced == true and $after[0].dump_forced == true
+           and $before[0].durable_store_read == true and $after[0].durable_store_read == true
+           and $before[0].enospc_observed == true
+           and $before[0].enospc_status == "NO_SPACE_LEFT_ON_DEVICE"
+           and $before[0].headroom_file_present == true
+           and ($before[0].filler_records_attempted | type == "number" and . >= 1)
+           and $after[0].enospc_recovered == true
+           and $after[0].space_released_before_recovery == true
+           and $after[0].value_recovered_exactly == true
+           and $after[0].write_outcome_uncertain == false
+           and $before[0].key_sha256 == $after[0].key_sha256
+           and $before[0].value_sha256 == $after[0].value_sha256
+           and ($before[0].process_pid | type == "number")
+           and ($after[0].process_pid | type == "number")
+           and $before[0].process_pid != $after[0].process_pid
+           and $after[0].recovery_action
+               == "FRESH_PROCESS_REOPENED_AFTER_ENOSPC_AND_HEADROOM_RELEASE"' \
+          >/dev/null 2>&1; then
+          pair_status="PASS"
+        fi
+        ;;
       disaster-host-fault)
         if [[ -s "${kill_receipt}" ]] \
           && jq -n --slurpfile before "${before_dump}" --slurpfile after "${after_dump}" \
@@ -635,6 +665,7 @@ storage_cell() {
 
 storage_cell fsync-error "fail the directory/WAL flush boundary after an accepted synchronous WriteBatch"
 storage_cell sst-corruption "corrupt one copied SST after clean checkpoint publication and restore the clean image"
+storage_cell enospc "fill an exact 128 MiB mounted Store filesystem until native ENOSPC, then release headroom"
 storage_cell disaster-host-fault "SIGKILL the exact host-side Worker JVM after durable local Store read"
 
 # These three cuts still require dedicated real injection and recovery
@@ -642,7 +673,6 @@ storage_cell disaster-host-fault "SIGKILL the exact host-side Worker JVM after d
 # PASS from marker-only unit state.
 blocked_cell long-gc "pause the Worker at the long-GC admission boundary" "no deterministic long-GC fresh-process dump child"
 blocked_cell half-open "hold a half-open native connection past the channel deadline" "no real half-open transport dump child"
-blocked_cell enospc "fill the exact Store/checkpoint filesystem to the ENOSPC boundary" "no safe exact ENOSPC fixture with durable before/after dump"
 
 all_pass="PASS"
 for name in "${required_cells[@]}"; do

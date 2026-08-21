@@ -22,6 +22,7 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Random;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -44,15 +45,19 @@ class LocalStorageDurableChaosTest {
     private static final String CELL_ENV = "NEREUS_DELAY_STORAGE_CHAOS_CELL";
     private static final String PHASE_ENV = "NEREUS_DELAY_STORAGE_CHAOS_PHASE";
     private static final String HOLD_ENV = "NEREUS_DELAY_STORAGE_CHAOS_HOLD_FILE";
+    private static final String ROOT_ENV = "NEREUS_DELAY_STORAGE_CHAOS_ROOT";
+    private static final String HEADROOM_ENV = "NEREUS_DELAY_STORAGE_CHAOS_HEADROOM_FILE";
     private static final String SCHEMA = "nereus-delay-storage-chaos-durable-state-dump-v1";
     private static final String BEFORE_PHASE = "BEFORE_FRESH_PROCESS_RECOVERY";
     private static final String AFTER_PHASE = "RECOVERED_AFTER_FRESH_PROCESS";
     private static final String FSYNC_CELL = "fsync-error";
     private static final String SST_CELL = "sst-corruption";
     private static final String DISASTER_CELL = "disaster-host-fault";
+    private static final String ENOSPC_CELL = "enospc";
     private static final String FSYNC_FAULT = "FSYNC_ERROR";
     private static final String SST_FAULT = "SST_CORRUPTION";
     private static final String DISASTER_FAULT = "DISASTER_HOST_FAULT";
+    private static final String ENOSPC_FAULT = "ENOSPC";
     private static final String VALUE_TEXT = "durable-storage-chaos-value-v1";
     private static final RouteIncarnation ROUTE = RouteIncarnation.fromUuid(
             UUID.fromString("01234567-89ab-cdef-0123-456789abcdef"));
@@ -72,6 +77,7 @@ class LocalStorageDurableChaosTest {
             case FSYNC_CELL -> runFsync(artifact, phase);
             case SST_CELL -> runSstCorruption(artifact, phase);
             case DISASTER_CELL -> runDisaster(artifact, phase);
+            case ENOSPC_CELL -> runEnospc(artifact, phase);
             default -> throw new IllegalArgumentException("unsupported local storage chaos cell: " + cell);
         }
     }
@@ -269,6 +275,86 @@ class LocalStorageDurableChaosTest {
         }
     }
 
+    private static void runEnospc(final Path artifact, final String phase) throws Exception {
+        switch (phase) {
+            case "before" -> writeEnospcBefore(artifact);
+            case "after" -> writeEnospcAfter(artifact);
+            default -> throw new IllegalArgumentException("unsupported ENOSPC phase: " + phase);
+        }
+    }
+
+    private static void writeEnospcBefore(final Path artifact) throws Exception {
+        final Path storeRoot = requiredPath(ROOT_ENV);
+        final Path headroom = requiredPath(HEADROOM_ENV);
+        assertTrue(Files.isRegularFile(headroom, LinkOption.NOFOLLOW_LINKS));
+        Files.createDirectories(storeRoot);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(storeRoot);
+        final long filesystemTotal = Files.getFileStore(storeRoot).getTotalSpace();
+        final long filesystemUsableBefore = Files.getFileStore(storeRoot).getUsableSpace();
+        int attemptedFillerRecords = 0;
+        RuntimeException noSpaceFailure = null;
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, SHARD, resources)) {
+            store.write(batch -> batch.putValue(ColumnFamily.META, 3, key(), value()));
+            store.flushAndSync();
+            final ValueEnvelope.Decoded durable = store.getValue(ColumnFamily.META, key(), 3);
+            assertNotNull(durable);
+            assertArrayEquals(value(), durable.payload());
+
+            for (int index = 0; index < 256; index++) {
+                attemptedFillerRecords++;
+                final byte[] fillerKey = Bytes.utf8("enospc-filler-" + index);
+                final byte[] filler = new byte[1024 * 1024];
+                new Random(0x5eed_0000L + index).nextBytes(filler);
+                try {
+                    store.write(batch -> batch.putValue(ColumnFamily.META, 3, fillerKey, filler));
+                } catch (RuntimeException failure) {
+                    if (!isNoSpace(failure)) {
+                        throw failure;
+                    }
+                    noSpaceFailure = failure;
+                    break;
+                }
+            }
+            assertNotNull(noSpaceFailure, "the bounded filesystem fixture must return ENOSPC");
+            assertTrue(store.isWriteOutcomeUncertain());
+            final JsonObject dump = commonDump(ENOSPC_CELL, BEFORE_PHASE, ENOSPC_FAULT,
+                    storeRoot, true, "ENOSPC_FENCED_STORE_AFTER_DURABLE_KEY");
+            dump.addProperty("enospc_observed", true);
+            dump.addProperty("enospc_status", "NO_SPACE_LEFT_ON_DEVICE");
+            dump.addProperty("headroom_file_present", true);
+            dump.addProperty("filler_records_attempted", attemptedFillerRecords);
+            dump.addProperty("filesystem_total_bytes", filesystemTotal);
+            dump.addProperty("filesystem_usable_before_bytes", filesystemUsableBefore);
+            dump.addProperty("write_outcome_uncertain", store.isWriteOutcomeUncertain());
+            writeJson(artifact.resolve("before.json"), dump);
+        }
+    }
+
+    private static void writeEnospcAfter(final Path artifact) throws Exception {
+        final JsonObject before = readJson(artifact.resolve("before.json"));
+        requireBefore(before, ENOSPC_CELL, ENOSPC_FAULT);
+        final Path storeRoot = requiredPath(ROOT_ENV);
+        final Path headroom = requiredPath(HEADROOM_ENV);
+        assertFalse(Files.exists(headroom, LinkOption.NOFOLLOW_LINKS));
+        final ShardStoreConfig config = ShardStoreConfig.defaults(storeRoot);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+             ShardStore store = ShardStore.open(config, SHARD, resources)) {
+            final ValueEnvelope.Decoded recovered = store.getValue(ColumnFamily.META, key(), 3);
+            assertNotNull(recovered);
+            assertArrayEquals(value(), recovered.payload());
+            store.flushAndSync();
+            final JsonObject dump = commonDump(ENOSPC_CELL, AFTER_PHASE, ENOSPC_FAULT,
+                    storeRoot, true, "FRESH_PROCESS_REOPENED_AFTER_ENOSPC_AND_HEADROOM_RELEASE");
+            dump.addProperty("enospc_recovered", true);
+            dump.addProperty("space_released_before_recovery", true);
+            dump.addProperty("value_recovered_exactly", true);
+            dump.addProperty("write_outcome_uncertain", false);
+            requireDifferentProcess(before, dump);
+            writeJson(artifact.resolve("after.json"), dump);
+        }
+    }
+
     private static JsonObject commonDump(final String cell, final String phase, final String fault,
                                          final Path storeRoot, final boolean durableRead,
                                          final String recoveryAction) {
@@ -419,5 +505,18 @@ class LocalStorageDurableChaosTest {
 
     private static String digest(final byte[] bytes) {
         return Bytes.hex(Bytes.sha256(bytes));
+    }
+
+    private static boolean isNoSpace(final Throwable failure) {
+        for (Throwable current = failure; current != null; current = current.getCause()) {
+            final String message = current.getMessage();
+            if (message != null) {
+                final String normalized = message.toLowerCase(java.util.Locale.ROOT);
+                if (normalized.contains("no space left on device") || normalized.contains("enospc")) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }
