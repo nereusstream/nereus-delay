@@ -20,6 +20,8 @@ gate="${1:-${NEREUS_DELAY_V1_CAPACITY_GATE_NAME:-}}"
 artifact_dir="${NEREUS_DELAY_V1_CAPACITY_ARTIFACT_DIR:-}"
 candidate_lock_file="${NEREUS_DELAY_V1_CAPACITY_CANDIDATE_SOURCE_LOCK:-}"
 measurement_artifact="${NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_ARTIFACT:-}"
+measurement_runner="${NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_RUNNER:-${script_dir}/run-v1-physical-capacity-observation.sh}"
+run_measurement="${NEREUS_DELAY_V1_CAPACITY_RUN_MEASUREMENT:-0}"
 profile_id="${NEREUS_DELAY_V1_CAPACITY_PROFILE_ID:-nereus-delay-v1-${gate}-physical-envelope-r1}"
 run_real="${NEREUS_DELAY_V1_CAPACITY_RUN_REAL:-0}"
 started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -38,6 +40,8 @@ command -v git >/dev/null 2>&1 || fail "git is required"
   || fail "NEREUS_DELAY_V1_CAPACITY_CANDIDATE_SOURCE_LOCK must name a non-empty JSON file"
 [[ "${run_real}" == "0" || "${run_real}" == "1" ]] \
   || fail "NEREUS_DELAY_V1_CAPACITY_RUN_REAL must be 0 or 1"
+[[ "${run_measurement}" == "0" || "${run_measurement}" == "1" ]] \
+  || fail "NEREUS_DELAY_V1_CAPACITY_RUN_MEASUREMENT must be 0 or 1"
 [[ "${profile_id}" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$ ]] \
   || fail "profile id is not canonical: ${profile_id}"
 
@@ -87,6 +91,29 @@ fi
 mkdir -p "${artifact_dir}"
 if [[ -n "$(find "${artifact_dir}" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
   fail "artifact directory must be empty: ${artifact_dir}"
+fi
+if [[ "${run_measurement}" == "1" ]]; then
+  [[ -x "${measurement_runner}" ]] || fail "measurement runner is not executable: ${measurement_runner}"
+  [[ -z "${measurement_artifact}" ]] \
+    || fail "do not combine NEREUS_DELAY_V1_CAPACITY_RUN_MEASUREMENT=1 with a supplied measurement artifact"
+  measurement_run_dir="${artifact_dir}/physical-capacity-measurement"
+  mkdir -p "${measurement_run_dir}"
+  measurement_artifact="${measurement_run_dir}/capacity-observation.json"
+  set +e
+  NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_ARTIFACT_DIR="${measurement_run_dir}" \
+  NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_CANDIDATE_SOURCE_LOCK="${candidate_lock_file}" \
+  NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_PROFILE_ID="${profile_id}" \
+  NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_GATE="${gate}" \
+  NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_RUN_REAL="${run_real}" \
+  NEREUS_DELAY_KAFKA_CHECKOUT="${kafka_dir}" \
+  NEREUS_DELAY_PULSAR_CHECKOUT="${pulsar_dir}" \
+  NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
+    bash "${measurement_runner}"
+  measurement_runner_exit=$?
+  set -e
+  if [[ "${measurement_runner_exit}" != "0" ]]; then
+    measurement_detail="source-locked physical measurement runner failed with exit ${measurement_runner_exit}"
+  fi
 fi
 gradle_home="${NEREUS_DELAY_V1_CAPACITY_GRADLE_USER_HOME:-${artifact_dir}/gradle-user-home}"
 real_gradle_home="${NEREUS_DELAY_V1_CAPACITY_REAL_GRADLE_USER_HOME:-${gradle_home}}"
@@ -205,7 +232,34 @@ if [[ -n "${measurement_artifact}" && -s "${measurement_artifact}" ]] \
        and ((.required_configurations | sort | unique) == ($required | sort | unique))
        and ((.observed_configurations | sort | unique) == ($required | sort | unique))
        and (.measurements | type == "object")
-       and (. as $root | all($required[]; . as $name | $root.measurements[$name].status == "PASS"))' \
+       and (.status == "PASS")
+       and (.campaign | type == "object")
+       and (.campaign.bounded_matrix.exit_code == 0)
+       and (.campaign.physical_contract_tests.exit_code == 0)
+       and (.campaign.real_kafka_large_payload.exit_code == 0)
+       and (.campaign.real_pulsar_large_payload.exit_code == 0)
+       and (.platform_observation | type == "object")
+       and (.platform_observation.cgroup_memory_limit_bytes | type == "number" and . > 0)
+       and (.platform_observation.direct_memory_bytes | type == "number" and . > 0)
+       and (.platform_observation.max_open_files | type == "number" and . > 0)
+       and (.platform_observation.process_rss_bytes | type == "number" and . > 0)
+       and (.platform_observation.current_open_files | type == "number" and . > 0)
+       and (. as $root | all($required[]; . as $name
+         | ($root.measurements[$name] | type == "object")
+         and ($root.measurements[$name].status == "PASS")
+         and ($root.measurements[$name].invariant_status == "PASS")
+         and ($root.measurements[$name].authority | type == "string" and length > 0)
+         and ($root.measurements[$name].dimensions | type == "object")
+         and ($root.measurements[$name].metrics | type == "object" and length >= 3)
+         and ($root.measurements[$name].invariants | type == "array" and length >= 3)
+         and ($root.measurements[$name].provenance.source_locks == {delay:$delay,kafka:$kafka,pulsar:$pulsar,oxia:$oxia})
+         and ($root.measurements[$name].provenance.commands | type == "array" and length >= 1)
+         and ($root.measurements[$name].provenance.artifacts | type == "array" and length >= 1)
+         and ($root.measurements[$name].provenance.artifact_sha256 | type == "array"
+              and length == ($root.measurements[$name].provenance.artifacts | length)
+              and all(.[]; test("^[0-9a-f]{64}$")))
+         and ($root.measurements[$name].provenance.exit_codes | type == "array"
+              and all(.[]; .exit_code == 0))))' \
       "${measurement_artifact}" >/dev/null 2>&1; then
     measurement_status="PASS"
     measurement_source_status="PASS"

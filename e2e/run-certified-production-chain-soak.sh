@@ -22,6 +22,7 @@ profile_id="${NEREUS_DELAY_CERTIFIED_SOAK_PROFILE_ID:-}"
 required_cycles="${NEREUS_DELAY_CERTIFIED_SOAK_REQUIRED_CYCLES:-}"
 cycles="${NEREUS_DELAY_CERTIFIED_SOAK_CYCLES:-${required_cycles}}"
 required_duration_seconds="${NEREUS_DELAY_CERTIFIED_SOAK_REQUIRED_DURATION_SECONDS:-}"
+longest_configured_period_seconds="${NEREUS_DELAY_CERTIFIED_SOAK_LONGEST_CONFIGURED_PERIOD_SECONDS:-}"
 max_process_rss_kib="${NEREUS_DELAY_CERTIFIED_SOAK_MAX_PROCESS_RSS_KIB:-}"
 max_process_fds="${NEREUS_DELAY_CERTIFIED_SOAK_MAX_PROCESS_FDS:-}"
 max_artifact_bytes="${NEREUS_DELAY_CERTIFIED_SOAK_MAX_ARTIFACT_BYTES:-}"
@@ -61,6 +62,10 @@ command -v rg >/dev/null 2>&1 || fail "rg is required for Docker resource filter
   || fail "configured cycles ${cycles} are below required profile cycles ${required_cycles}"
 [[ "${required_duration_seconds}" =~ ^[1-9][0-9]*$ ]] \
   || fail "NEREUS_DELAY_CERTIFIED_SOAK_REQUIRED_DURATION_SECONDS must be positive"
+[[ "${longest_configured_period_seconds}" =~ ^[1-9][0-9]*$ ]] \
+  || fail "NEREUS_DELAY_CERTIFIED_SOAK_LONGEST_CONFIGURED_PERIOD_SECONDS must be positive"
+(( longest_configured_period_seconds <= required_duration_seconds )) \
+  || fail "longest configured period ${longest_configured_period_seconds}s exceeds required duration ${required_duration_seconds}s"
 [[ "${max_process_rss_kib}" =~ ^[1-9][0-9]*$ ]] \
   || fail "NEREUS_DELAY_CERTIFIED_SOAK_MAX_PROCESS_RSS_KIB must be positive"
 [[ "${max_process_fds}" =~ ^[1-9][0-9]*$ ]] \
@@ -149,7 +154,7 @@ monitor_resources() {
 }
 
 echo "Certified production-chain soak profile: ${profile_id}"
-echo "Required cycles/duration: ${required_cycles}/${required_duration_seconds}s"
+echo "Required cycles/duration/longest-period: ${required_cycles}/${required_duration_seconds}s/${longest_configured_period_seconds}s"
 echo "Configured cycles/base port: ${cycles}/${base_port}"
 echo "Process RSS/FD/artifact limits: ${max_process_rss_kib}KiB/${max_process_fds}/${max_artifact_bytes}B"
 echo "Source locks: Delay=${delay_source} Kafka=${kafka_source} Pulsar=${pulsar_source} Oxia=${oxia_source}"
@@ -290,6 +295,7 @@ jq -n \
   --argjson required_cycles "${required_cycles}" \
   --argjson cycles "${cycles}" \
   --argjson required_duration_seconds "${required_duration_seconds}" \
+  --argjson longest_configured_period_seconds "${longest_configured_period_seconds}" \
   --argjson max_process_rss_kib "${max_process_rss_kib}" \
   --argjson max_process_fds "${max_process_fds}" \
   --argjson max_artifact_bytes "${max_artifact_bytes}" \
@@ -337,6 +343,7 @@ jq -n \
       required_cycles: $required_cycles,
       configured_cycles: $cycles,
       required_duration_seconds: $required_duration_seconds,
+      longest_configured_period_seconds: $longest_configured_period_seconds,
       max_process_rss_kib: $max_process_rss_kib,
       max_process_fds: $max_process_fds,
       max_artifact_bytes: $max_artifact_bytes,

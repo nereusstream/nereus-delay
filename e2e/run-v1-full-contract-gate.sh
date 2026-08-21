@@ -38,6 +38,10 @@ command -v git >/dev/null 2>&1 || fail "git is required"
   || fail "NEREUS_DELAY_V1_FULL_GATE_RUN_REAL must be 0 or 1"
 [[ "${profile_id}" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$ ]] \
   || fail "profile id is not canonical: ${profile_id}"
+if [[ "${gate}" == "soak" ]]; then
+  [[ "${NEREUS_DELAY_V1_FULL_GATE_LONGEST_CONFIGURED_PERIOD_SECONDS:-}" =~ ^[1-9][0-9]*$ ]] \
+    || fail "NEREUS_DELAY_V1_FULL_GATE_LONGEST_CONFIGURED_PERIOD_SECONDS must be positive for soak"
+fi
 
 required_for_gate() {
   case "${1}" in
@@ -206,6 +210,7 @@ if [[ "${run_real}" == "1" ]]; then
       NEREUS_DELAY_CERTIFIED_SOAK_REQUIRED_CYCLES="${NEREUS_DELAY_V1_FULL_GATE_REQUIRED_CYCLES:-2}" \
       NEREUS_DELAY_CERTIFIED_SOAK_CYCLES="${NEREUS_DELAY_V1_FULL_GATE_CYCLES:-2}" \
       NEREUS_DELAY_CERTIFIED_SOAK_REQUIRED_DURATION_SECONDS="${NEREUS_DELAY_V1_FULL_GATE_REQUIRED_DURATION_SECONDS:-600}" \
+      NEREUS_DELAY_CERTIFIED_SOAK_LONGEST_CONFIGURED_PERIOD_SECONDS="${NEREUS_DELAY_V1_FULL_GATE_LONGEST_CONFIGURED_PERIOD_SECONDS}" \
       NEREUS_DELAY_CERTIFIED_SOAK_MAX_PROCESS_RSS_KIB="${NEREUS_DELAY_V1_FULL_GATE_MAX_PROCESS_RSS_KIB:-4194304}" \
       NEREUS_DELAY_CERTIFIED_SOAK_MAX_PROCESS_FDS="${NEREUS_DELAY_V1_FULL_GATE_MAX_PROCESS_FDS:-20000}" \
       NEREUS_DELAY_CERTIFIED_SOAK_MAX_ARTIFACT_BYTES="${NEREUS_DELAY_V1_FULL_GATE_MAX_ARTIFACT_BYTES:-1073741824}" \
@@ -260,6 +265,13 @@ case "${gate}" in
     real_exit_code=2
     ;;
 esac
+
+policy_json='{}'
+if [[ "${gate}" == "soak" && -n "${real_artifact_dir:-}" \
+    && -s "${real_artifact_dir}/certified-production-chain-soak.json" ]] \
+    && jq empty "${real_artifact_dir}/certified-production-chain-soak.json" >/dev/null 2>&1; then
+  policy_json="$(jq -c '.policy // {}' "${real_artifact_dir}/certified-production-chain-soak.json")"
+fi
 
 probe_artifact="${probe_dir}/bounded-capacity-slo-probe.json"
 probe_status="MISSING"
@@ -401,6 +413,7 @@ jq -n \
   --arg real_status "${real_status}" --argjson real_exit_code "${real_exit_code}" \
   --argjson test_exit_code "${test_exit_code}" --argjson required "${required_json}" \
   --argjson observations "${observations}" \
+  --argjson policy "${policy_json}" \
   '{
     schema:$schema,status:$status,scope:$scope,profile_id:$profile_id,gate:$gate,
     complete_v1:($status == "PASS_CERTIFIED"),execution:$execution,
@@ -410,7 +423,7 @@ jq -n \
     evidence:{test_exit_code:$test_exit_code,source_lock_status:"PASS",coverage_status:(if ($status == "PASS_CERTIFIED") then "PASS" else "FAIL" end),independent_audit:(if ($status == "PASS_CERTIFIED") then "PASS" else "FAIL" end)},
     tests:$tests,test_log:$test_log,
     child_evidence:{capacity_probe:$probe_artifact,real_child:{status:$real_status,exit_code:$real_exit_code,log:$real_log}},
-    observations:$observations,
+    observations:$observations,policy:$policy,
     boundaries:[]
   }' >"${artifact}"
 
