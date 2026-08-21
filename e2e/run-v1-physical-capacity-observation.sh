@@ -357,7 +357,7 @@ done
 
 overall_status="FAIL"
 if [[ "${local_measurement_status}" == "PASS" && "${real_measurement_status}" == "PASS" \
-    && "$(jq -r --argjson required "${required_json}" --argjson measurements "${measurements_json}" \
+    && "$(jq -n -r --argjson required "${required_json}" --argjson measurements "${measurements_json}" \
       'all($required[]; . as $name | $measurements[$name].status == "PASS" and $measurements[$name].invariant_status == "PASS")')" == "true" ]]; then
   overall_status="PASS"
 fi
