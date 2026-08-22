@@ -17409,3 +17409,47 @@ the fail-closed boundary.
 
 This is a release certification for the exact candidate source locks and does
 not imply that K1/P1/Oxia have been merged into unrelated target branches.
+
+## 2026-08-22 latest full-V1 authority audit — f4b7e005
+
+This is the newest status section and supersedes earlier same-day PASS or
+NOT_READY notes. The exact candidate source lock is Delay
+`f4b7e005c217d938c26bdba1eaa107cadb355da`, Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The strict ten-gate receipt is
+`/private/tmp/nereus-delay-v1-release-gate-20260822-f4b7e005-rerun/v1-release-candidate-gate.json`;
+it reports `release_status=NOT_READY`. Source cleanliness, exact source locks,
+cross-repository contracts and full Gradle `check` pass. Eight of ten full-V1
+gates are `PASS_CERTIFIED`; Benchmark and Capacity are blocked because their
+independent physical measurement matrices are missing. Functional probes and
+the real production chain do not substitute for those measurements.
+
+| Gate | Exact current result |
+| --- | --- |
+| protocol-golden | `PASS_CERTIFIED`, 397 tests, 0 failures |
+| chaos | `PASS_CERTIFIED`, 19/19 full cells |
+| real-service | `PASS_CERTIFIED`, Kafka/Pulsar multi-shard Large Payload through Gateway, real Oxia, Worker and MinIO |
+| no-early | `PASS_CERTIFIED`, 34 tests, max early delivery 0 ms |
+| benchmark | `BLOCKED`, `measurement_status=MISSING` |
+| capacity | `BLOCKED`, `measurement_status=MISSING` |
+| soak | `PASS_CERTIFIED`, 3 configured cycles and required 600-second period |
+| upgrade-downgrade | `PASS_CERTIFIED`, six required cells |
+| operations | `PASS_CERTIFIED`, restore/fence/DLQ/uncertain override/disaster recovery |
+| patch-distribution | `PASS_CERTIFIED`, Kafka/Pulsar rollout and rejection cells |
+
+The current receipts are retained under the f4-named directories in
+`/private/tmp/nereus-delay-v1-*`. No complete ten-gate evidence manifest is
+claimed until the independently generated §23.4 benchmark and capacity
+artifacts pass with the same source lock. The f4 code change also fixes the
+release validator's certified-chaos cell acceptance; it does not widen any
+promotion boundary.
+
+Cleanup was exact and recoverable: 63 stale related temporary entries were
+moved to `/Users/liusinan/.Trash/nereus-delay-cleanup-20260822-104500`; no
+entry contained `.git`, and no source checkout or worktree was targeted. No
+generated `nereus-delay` Docker container or image remains. The locked
+`nereus/oxia-o1:37a17bef1720` and MinIO base image were retained; no global
+Docker prune was performed.

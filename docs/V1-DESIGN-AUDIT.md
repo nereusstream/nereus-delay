@@ -13906,3 +13906,29 @@ validator also pass.
 
 This audit promotes the exact candidate only. It does not claim an integration
 merge into target Kafka/Pulsar branches or a published release package.
+
+## 2026-08-22 latest exact-source full-V1 audit — f4b7e005
+
+The latest audit supersedes the older same-day candidate sections. The exact
+source lock is Delay `f4b7e005c217d938c26bdba1eaa107cadb355da`, Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The strict audit is
+`/private/tmp/nereus-delay-v1-release-gate-20260822-f4b7e005-rerun/v1-release-candidate-gate.json`
+with `release_status=NOT_READY`.
+
+| Evidence boundary | Result |
+| --- | --- |
+| Source/contract/Gradle authority | PASS |
+| Protocol golden, real service, no-early | PASS_CERTIFIED |
+| Full chaos | PASS_CERTIFIED, 19/19 cells |
+| Soak, upgrade/downgrade, operations, patch distribution | PASS_CERTIFIED |
+| Benchmark | BLOCKED: independent physical measurement missing |
+| Capacity | BLOCKED: independent physical measurement missing |
+
+The real-service receipt is the important functional milestone: Kafka and
+Pulsar multi-shard Large Payload paths passed through Gateway mTLS/JWT, real
+Oxia, Worker assignment/ownership, real MinIO and destination `PUBLISHED`
+outcomes. This is not promoted into the missing §23.4 Broker/Lane/resource
+envelope. Consequently there is no complete ten-gate evidence manifest and no
+full-V1 release PASS claim for this source lock.

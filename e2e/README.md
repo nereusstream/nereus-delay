@@ -7473,3 +7473,27 @@ branch merge, publication, or global Docker cleanup from this receipt. Cleanup
 remains exact and recoverable: generated resources are removed by their child
 runners, locked MinIO/Oxia images remain, and unused temporary evidence is
 moved to Trash only after reference and `.git` checks.
+
+## 2026-08-22 latest full-V1 gate result — f4b7e005
+
+The latest ten-gate run is source-locked to Delay
+`f4b7e005c217d938c26bdba1eaa107cadb355da`, Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`:
+
+`/private/tmp/nereus-delay-v1-release-gate-20260822-f4b7e005-rerun/v1-release-candidate-gate.json`
+
+It reports `release_status=NOT_READY`. Protocol golden, full 19-cell chaos,
+real-service, no-early, soak, upgrade/downgrade, operations and
+patch-distribution are exact-source `PASS_CERTIFIED`. Benchmark and Capacity
+are deliberately blocked because `measurement_status=MISSING`; their real
+Kafka/Pulsar Large Payload probes pass but are not independent §23.4 physical
+capacity matrices. There is consequently no complete ten-gate evidence
+manifest.
+
+For this run, generated Delay containers/images were absent after cleanup;
+the pinned Oxia/MinIO base images were kept. Sixty-three stale related
+temporary entries were moved to
+`/Users/liusinan/.Trash/nereus-delay-cleanup-20260822-104500`. The move was
+recoverable and `.git`-checked; source code and worktrees were not targeted.

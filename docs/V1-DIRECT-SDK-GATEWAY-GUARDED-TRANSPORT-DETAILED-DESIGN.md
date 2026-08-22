@@ -8751,3 +8751,24 @@ with its exact independent soak input, wired by `c448e526`.
 The architecture and evidence chain are complete for this source candidate.
 Target-branch integration and release publication remain delivery boundaries,
 not unverified claims of this audit.
+
+## 2026-08-22 latest production-authority boundary — f4b7e005
+
+The source-locked production chain is now evidenced end to end for the
+functional path: Gateway mTLS/JWT → real Oxia assignment/owner authority →
+Worker ingress and egress → real MinIO Large Payload/checkpoint handling →
+Kafka/Pulsar destination `PUBLISHED` and source apply. Kafka and Pulsar
+multi-shard cases both pass, including cross-adapter authority cases. The
+19-cell full chaos receipt and the no-early clock-bound receipt are also
+current-source `PASS_CERTIFIED` evidence.
+
+The exact candidate is Delay
+`f4b7e005c217d938c26bdba1eaa107cadb355da`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The release receipt
+`/private/tmp/nereus-delay-v1-release-gate-20260822-f4b7e005-rerun/v1-release-candidate-gate.json`
+is `NOT_READY` solely because the independent physical Benchmark and Capacity
+matrices required by §23.4 are absent. Functional E2E is therefore a
+production-authority proof, not a capacity-envelope proof; no bounded result
+is promoted across that boundary.

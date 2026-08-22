@@ -5763,3 +5763,30 @@ input added by commit `c448e526`, so no bounded operations result is promoted.
 The result closes the V1 functional architecture and release-evidence gate for
 this candidate. It remains distinct from merging K1/P1/Oxia into any target
 branch or publishing a distribution artifact.
+
+## 2026-08-22 §23.1–§23.5 latest authority boundary — f4b7e005
+
+本节是当前最新的完整 V1 结论，覆盖主设计要求的 §23.1–§23.5，并明确
+覆盖此前同日的历史 PASS 记录。候选 source lock 为 Delay
+`f4b7e005c217d938c26bdba1eaa107cadb355da`、Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`、Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`、Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`。
+
+功能架构链已经进入收尾：Gateway mTLS/JWT、real Oxia、real Kafka/Pulsar、
+Worker、real MinIO、Large Payload、PUBLISHED outcome、source apply 和
+checkpoint/recovery 已经形成 source-locked production-authority E2E；
+full chaos 的 19 个故障 cell、no-early、soak、upgrade/downgrade、operations
+和 patch-distribution 均已 `PASS_CERTIFIED`。
+
+但完整 V1 release 仍不是 PASS。严格 receipt
+`/private/tmp/nereus-delay-v1-release-gate-20260822-f4b7e005-rerun/v1-release-candidate-gate.json`
+为 `NOT_READY`，唯一剩余 release blockers 是 §23.4 的独立物理
+Benchmark 与 Capacity measurement matrix 缺失。当前真实 Large Payload
+链路证明了功能与 authority，不证明 Broker/Lane/resource capacity
+envelope；bounded probe 不得晋升为 full-V1 measurement。
+
+因此当前的设计结论是：实现主线基本完成，发布认证尚未完成；下一条主线
+是生成并审计独立的 Benchmark/Capacity 物理矩阵，之后才进入最终 release
+manifest，而不是增加新的 abstraction。历史 receipt 保留为 provenance，
+不得与 f4 source lock 混用。

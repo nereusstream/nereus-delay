@@ -1940,3 +1940,27 @@ are removed by each exact child, locked MinIO/Oxia base images are retained,
 and no global Docker prune or source/worktree deletion is authorized. This
 receipt is a candidate release handoff; target-branch merges and publication
 still require their own explicit delivery steps.
+
+## 2026-08-22 latest operational handoff — f4b7e005
+
+The current source lock is Delay
+`f4b7e005c217d938c26bdba1eaa107cadb355da`, Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The current strict handoff is
+`/private/tmp/nereus-delay-v1-release-gate-20260822-f4b7e005-rerun/v1-release-candidate-gate.json`
+with `release_status=NOT_READY`: all source/contract checks, real-service,
+chaos, no-early, soak, operations, upgrade/downgrade and patch-distribution
+inputs pass; only Benchmark and Capacity lack independent physical matrices.
+
+The cleanup boundary is part of this handoff. After the runs, no generated
+`nereus-delay` Docker resources remained. The pinned Oxia and MinIO base images
+were retained, and no global prune was used. Sixty-three stale related
+`/private/tmp` entries were moved, recoverably, to
+`/Users/liusinan/.Trash/nereus-delay-cleanup-20260822-104500`; the retained
+f4 receipts, candidate source lock and current Gradle cache remain under
+`/private/tmp`. No worktree, source checkout or `.git` directory was touched.
+
+Do not publish or call this a full-V1 release until the strict receipt changes
+from `NOT_READY` to `PASS` after the independent §23.4 Benchmark/Capacity
+artifacts are supplied and source-locked.
