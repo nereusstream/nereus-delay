@@ -222,7 +222,7 @@ upload_object_evidence() {
     --url "${endpoint}/${bucket}/${object_key}" >/dev/null 2>"${receipt}.put.err"
   put_status=$?
   curl --silent --show-error --aws-sigv4 "aws:amz:us-east-1:s3" \
-    --user "${access}:${secret}" --request HEAD \
+    --user "${access}:${secret}" --head \
     --url "${endpoint}/${bucket}/${object_key}" >/dev/null 2>"${receipt}.head.err"
   head_status=$?
   set -e
