@@ -444,7 +444,7 @@ public final class PulsarClientArtifactCapacityProducer {
             field(json, "batch_messages", configuration.batchMessages(), true, false);
             field(json, "batch_bytes", configuration.batchBytes(), true, false);
             field(json, "linger_ms", configuration.lingerMs(), true, false);
-            field(json, "fsync_authority", "bookkeeper-ledger-ack", true, false);
+            field(json, "fsync_authority", "bookkeeper-ledger-ack", true);
             field(json, "source_lock_delay", sourceLock("NEREUS_DELAY_CAPACITY_SOURCE_LOCK_DELAY"), true, true);
             field(json, "source_lock_kafka", sourceLock("NEREUS_DELAY_CAPACITY_SOURCE_LOCK_KAFKA"), true, true);
             field(json, "source_lock_pulsar", sourceLock("NEREUS_DELAY_CAPACITY_SOURCE_LOCK_PULSAR"), true, true);
