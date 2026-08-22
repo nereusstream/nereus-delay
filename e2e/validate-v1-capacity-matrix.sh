@@ -61,9 +61,10 @@ jq -e --argjson locks "${locks_json}" \
      and (.provenance.source_locks == $locks)
      and (.provenance.commands | type == "array" and length >= 1)
      and (.provenance.artifacts | type == "array" and length >= 1)
-     and (.provenance.artifact_sha256 | type == "array"
-          and length == (.provenance.artifacts | length)
-          and all(.[]; test("^[0-9a-f]{64}$")))
+     and (.provenance as $p
+          | ($p.artifact_sha256 | type == "array"
+             and length == ($p.artifacts | length)
+             and all(.[]; test("^[0-9a-f]{64}$"))))
      and (.provenance.exit_codes | type == "array"
           and length >= 1 and all(.[]; .exit_code == 0)))
    and (.capacity_envelope.status == "PASS")
