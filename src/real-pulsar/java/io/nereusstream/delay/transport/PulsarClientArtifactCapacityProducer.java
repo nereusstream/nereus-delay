@@ -30,6 +30,7 @@ import java.util.concurrent.locks.LockSupport;
 public final class PulsarClientArtifactCapacityProducer {
     private static final int ARGUMENT_COUNT = 18;
     private static final long MAX_SLEEP_NANOS = TimeUnit.MILLISECONDS.toNanos(10);
+    private static final long PRODUCER_EPOCH_RECORDS = 500_000L;
 
     private PulsarClientArtifactCapacityProducer() {
     }
@@ -77,117 +78,169 @@ public final class PulsarClientArtifactCapacityProducer {
         final AtomicLong maxEntry = new AtomicLong(-1L);
         final AtomicLongArray partitionCounts = new AtomicLongArray(configuration.partitions());
         final AtomicReference<String> firstFailure = new AtomicReference<>();
-        final Semaphore permits = new Semaphore(configuration.maxInFlight());
-        final CountDownLatch completions = new CountDownLatch(configuration.recordsAsIntForLatch());
         final long expectedBad = expectedBadRecords(configuration);
         final long startNanos = System.nanoTime();
         final byte[] payload = payload(configuration.payloadBytes(), configuration.payloadMode(), topic);
+        boolean pass = true;
 
         try (PulsarClient client = PulsarClient.builder().serviceUrl(configuration.serviceUrl()).build()) {
-            final List<Producer<byte[]>> producers = new ArrayList<>(configuration.partitions());
-            final List<Producer<byte[]>> badProducers = new ArrayList<>(configuration.partitions());
-            String badCreationFailure = "";
-            try {
-                for (int partition = 0; partition < configuration.partitions(); partition++) {
-                    producers.add(createProducer(client, physicalTopic(topic, partition), goodGuard,
-                            configuration, false, partition));
+            long recordStart = 0L;
+            long epochIndex = 0L;
+            while (recordStart < configuration.records()) {
+                final int epochRecords = (int) Math.min(PRODUCER_EPOCH_RECORDS,
+                        configuration.records() - recordStart);
+                final Observation epoch = produceEpoch(configuration, client, topic, goodGuard, badGuard,
+                        recordStart, epochRecords, epochIndex);
+                accepted.addAndGet(epoch.accepted());
+                rejected.addAndGet(epoch.rejected());
+                errors.addAndGet(epoch.errors());
+                guardedEvidence.addAndGet(epoch.guardedEvidence());
+                badAccepted.addAndGet(epoch.badAccepted());
+                updateMinimum(minEntry, epoch.minEntry());
+                updateMaximum(maxEntry, epoch.maxEntry());
+                for (int partition = 0; partition < partitionCounts.length(); partition++) {
+                    partitionCounts.addAndGet(partition, epoch.partitions().get(partition));
                 }
-                if (configuration.targetHealth().equals("bad")) {
-                    for (int partition = 0; partition < configuration.partitions(); partition++) {
-                        try {
-                            badProducers.add(createProducer(client, physicalTopic(topic, partition), badGuard,
-                                    configuration, true, partition));
-                        } catch (Exception failure) {
-                            badProducers.add(null);
-                            if (badCreationFailure.isEmpty()) {
-                                badCreationFailure = failure.getClass().getName() + ": " + failure.getMessage();
-                            }
-                        }
-                    }
+                if (!epoch.pass()) {
+                    pass = false;
+                    firstFailure.compareAndSet(null, epoch.failure());
                 }
-                for (long record = 0; record < configuration.records(); record++) {
-                    waitForRate(startNanos, record, configuration.ratePerSecond());
-                    final boolean bad = isBadRecord(configuration, record);
-                    final int requestedPartition = choosePartition(configuration, record);
-                    final Producer<byte[]> selected = bad
-                            ? (requestedPartition < badProducers.size() ? badProducers.get(requestedPartition) : null)
-                            : producers.get(requestedPartition);
-                    if (bad && selected == null) {
-                        rejected.incrementAndGet();
-                        completions.countDown();
-                        continue;
-                    }
-                    permits.acquire();
-                    try {
-                        final CompletableFuture<org.apache.pulsar.client.api.MessageId> send = selected.newMessage()
-                                .property("nereus.capacity.partition", Integer.toString(requestedPartition))
-                                .keyBytes(key(record)).value(payload).sendAsync();
-                        send.whenComplete((messageId, failure) -> {
-                            try {
-                                if (failure != null) {
-                                    if (bad) {
-                                        rejected.incrementAndGet();
-                                    } else {
-                                        recordFailure(errors, firstFailure, failure);
-                                    }
-                                } else if (bad && valid(messageId, badGuard, configuration.partitions())) {
-                                    badAccepted.incrementAndGet();
-                                } else if (!bad && valid(messageId, goodGuard, configuration.partitions())) {
-                                    final GuardedMessageId guarded = (GuardedMessageId) messageId;
-                                    accepted.incrementAndGet();
-                                    guardedEvidence.incrementAndGet();
-                                    partitionCounts.incrementAndGet(guarded.partition());
-                                    final MessageIdAdv advanced = (MessageIdAdv) messageId;
-                                    updateMinimum(minEntry, advanced.getEntryId());
-                                    updateMaximum(maxEntry, advanced.getEntryId());
-                                } else {
-                                    recordFailure(errors, firstFailure,
-                                            new IllegalStateException("guarded Pulsar response evidence mismatch"));
-                                }
-                            } finally {
-                                completions.countDown();
-                                permits.release();
-                            }
-                        });
-                    } catch (RuntimeException failure) {
-                        if (bad) {
-                            rejected.incrementAndGet();
-                        } else {
-                            recordFailure(errors, firstFailure, failure);
-                        }
-                        completions.countDown();
-                        permits.release();
-                    }
-                }
-                final long timeoutSeconds = Math.max(120L,
-                        Math.min(86_400L, configuration.records() / 1_000L + 120L));
-                if (!completions.await(timeoutSeconds, TimeUnit.SECONDS)) {
-                    recordFailure(errors, firstFailure, new IllegalStateException("guarded Pulsar completions timed out"));
-                }
-                final long elapsedNanos = Math.max(1L, System.nanoTime() - startNanos);
-                final boolean countsMatch = accepted.get() == configuration.records() - expectedBad
-                        && rejected.get() == expectedBad;
-                final boolean pass = countsMatch && errors.get() == 0 && badAccepted.get() == 0
-                        && guardedEvidence.get() == accepted.get() && maxEntry.get() >= 0;
-                return new Observation(configuration, topic, accepted.get(), rejected.get(), errors.get(),
-                        guardedEvidence.get(), badAccepted.get(), payload.length, elapsedNanos, minEntry.get(),
-                        maxEntry.get(),
-                        partitionCounts, pass, firstFailure.get() == null ? badCreationFailure : firstFailure.get());
-            } finally {
-                closeProducers(badProducers);
-                closeProducers(producers);
+                recordStart += epochRecords;
+                epochIndex++;
             }
+        }
+        final long elapsedNanos = Math.max(1L, System.nanoTime() - startNanos);
+        final boolean countsMatch = accepted.get() == configuration.records() - expectedBad
+                && rejected.get() == expectedBad;
+        pass = pass && countsMatch && errors.get() == 0 && badAccepted.get() == 0
+                && guardedEvidence.get() == accepted.get() && maxEntry.get() >= 0;
+        return new Observation(configuration, topic, accepted.get(), rejected.get(), errors.get(),
+                guardedEvidence.get(), badAccepted.get(), payload.length, elapsedNanos, minEntry.get(),
+                maxEntry.get(), partitionCounts, pass, firstFailure.get());
+    }
+
+    private static Observation produceEpoch(final Configuration configuration, final PulsarClient client,
+                                            final String topic, final TopicResourceGuard goodGuard,
+                                            final TopicResourceGuard badGuard, final long recordStart,
+                                            final int epochRecords, final long epochIndex) throws Exception {
+        final AtomicLong accepted = new AtomicLong();
+        final AtomicLong rejected = new AtomicLong();
+        final AtomicLong errors = new AtomicLong();
+        final AtomicLong guardedEvidence = new AtomicLong();
+        final AtomicLong badAccepted = new AtomicLong();
+        final AtomicLong minEntry = new AtomicLong(Long.MAX_VALUE);
+        final AtomicLong maxEntry = new AtomicLong(-1L);
+        final AtomicLongArray partitionCounts = new AtomicLongArray(configuration.partitions());
+        final AtomicReference<String> firstFailure = new AtomicReference<>();
+        final Semaphore permits = new Semaphore(configuration.maxInFlight());
+        final CountDownLatch completions = new CountDownLatch(epochRecords);
+        final long expectedBad = expectedBadRecords(configuration, recordStart, epochRecords);
+        final long startNanos = System.nanoTime();
+        final byte[] payload = payload(configuration.payloadBytes(), configuration.payloadMode(), topic);
+        final List<Producer<byte[]>> producers = new ArrayList<>(configuration.partitions());
+        final List<Producer<byte[]>> badProducers = new ArrayList<>(configuration.partitions());
+        String badCreationFailure = "";
+        try {
+            for (int partition = 0; partition < configuration.partitions(); partition++) {
+                producers.add(createProducer(client, physicalTopic(topic, partition), goodGuard,
+                        configuration, false, partition, epochIndex));
+            }
+            if (configuration.targetHealth().equals("bad")) {
+                for (int partition = 0; partition < configuration.partitions(); partition++) {
+                    try {
+                        badProducers.add(createProducer(client, physicalTopic(topic, partition), badGuard,
+                                configuration, true, partition, epochIndex));
+                    } catch (Exception failure) {
+                        badProducers.add(null);
+                        if (badCreationFailure.isEmpty()) {
+                            badCreationFailure = failure.getClass().getName() + ": " + failure.getMessage();
+                        }
+                    }
+                }
+            }
+            for (long relativeRecord = 0; relativeRecord < epochRecords; relativeRecord++) {
+                final long record = recordStart + relativeRecord;
+                waitForRate(startNanos, relativeRecord, configuration.ratePerSecond());
+                final boolean bad = isBadRecord(configuration, record);
+                final int requestedPartition = choosePartition(configuration, record);
+                final Producer<byte[]> selected = bad
+                        ? (requestedPartition < badProducers.size() ? badProducers.get(requestedPartition) : null)
+                        : producers.get(requestedPartition);
+                if (bad && selected == null) {
+                    rejected.incrementAndGet();
+                    completions.countDown();
+                    continue;
+                }
+                permits.acquire();
+                try {
+                    final CompletableFuture<org.apache.pulsar.client.api.MessageId> send = selected.newMessage()
+                            .property("nereus.capacity.partition", Integer.toString(requestedPartition))
+                            .keyBytes(key(record)).value(payload).sendAsync();
+                    send.whenComplete((messageId, failure) -> {
+                        try {
+                            if (failure != null) {
+                                if (bad) {
+                                    rejected.incrementAndGet();
+                                } else {
+                                    recordFailure(errors, firstFailure, failure);
+                                }
+                            } else if (bad && valid(messageId, badGuard, configuration.partitions())) {
+                                badAccepted.incrementAndGet();
+                            } else if (!bad && valid(messageId, goodGuard, configuration.partitions())) {
+                                final GuardedMessageId guarded = (GuardedMessageId) messageId;
+                                accepted.incrementAndGet();
+                                guardedEvidence.incrementAndGet();
+                                partitionCounts.incrementAndGet(guarded.partition());
+                                final MessageIdAdv advanced = (MessageIdAdv) messageId;
+                                updateMinimum(minEntry, advanced.getEntryId());
+                                updateMaximum(maxEntry, advanced.getEntryId());
+                            } else {
+                                recordFailure(errors, firstFailure,
+                                        new IllegalStateException("guarded Pulsar response evidence mismatch"));
+                            }
+                        } finally {
+                            completions.countDown();
+                            permits.release();
+                        }
+                    });
+                } catch (RuntimeException failure) {
+                    if (bad) {
+                        rejected.incrementAndGet();
+                    } else {
+                        recordFailure(errors, firstFailure, failure);
+                    }
+                    completions.countDown();
+                    permits.release();
+                }
+            }
+            final long timeoutSeconds = Math.max(120L,
+                    Math.min(86_400L, epochRecords / 1_000L + 120L));
+            if (!completions.await(timeoutSeconds, TimeUnit.SECONDS)) {
+                recordFailure(errors, firstFailure, new IllegalStateException("guarded Pulsar completions timed out"));
+            }
+            final long elapsedNanos = Math.max(1L, System.nanoTime() - startNanos);
+            final boolean countsMatch = accepted.get() == epochRecords - expectedBad
+                    && rejected.get() == expectedBad;
+            final boolean pass = countsMatch && errors.get() == 0 && badAccepted.get() == 0
+                    && guardedEvidence.get() == accepted.get() && maxEntry.get() >= 0;
+            return new Observation(configuration, topic, accepted.get(), rejected.get(), errors.get(),
+                    guardedEvidence.get(), badAccepted.get(), payload.length, elapsedNanos, minEntry.get(),
+                    maxEntry.get(), partitionCounts, pass,
+                    firstFailure.get() == null ? badCreationFailure : firstFailure.get());
+        } finally {
+            closeProducers(badProducers);
+            closeProducers(producers);
         }
     }
 
     private static Producer<byte[]> createProducer(final PulsarClient client, final String topic,
                                                    final TopicResourceGuard guard,
                                                    final Configuration configuration, final boolean bad,
-                                                   final int partition)
+                                                   final int partition, final long epochIndex)
             throws Exception {
         final ProducerBuilder<byte[]> builder = client.newProducer(Schema.BYTES).topic(topic).resourceGuard(guard)
                 .producerName("nereus-delay-capacity-" + (bad ? "bad" : "good") + "-"
-                        + configuration.topicBase() + "-partition-" + partition)
+                        + configuration.topicBase() + "-epoch-" + epochIndex + "-partition-" + partition)
                 .enableBatching(configuration.batchMessages() > 0)
                 // P1 guarded ACK evidence is per message; the client rejects a
                 // multi-message batch before it can construct GuardedMessageId.
@@ -230,7 +283,20 @@ public final class PulsarClientArtifactCapacityProducer {
     }
 
     private static long expectedBadRecords(final Configuration configuration) {
-        return configuration.targetHealth().equals("bad") ? (configuration.records() + 99L) / 100L : 0L;
+        return configuration.targetHealth().equals("bad") ? ((configuration.records() - 1L) / 100L) + 1L : 0L;
+    }
+
+    private static long expectedBadRecords(final Configuration configuration, final long recordStart,
+                                           final long recordCount) {
+        if (!configuration.targetHealth().equals("bad")) {
+            return 0L;
+        }
+        final long firstBad = recordStart % 100L == 0L
+                ? recordStart : recordStart + (100L - recordStart % 100L);
+        if (firstBad >= recordStart + recordCount) {
+            return 0L;
+        }
+        return ((recordStart + recordCount - 1L - firstBad) / 100L) + 1L;
     }
 
     private static boolean isBadRecord(final Configuration configuration, final long record) {
@@ -327,10 +393,6 @@ public final class PulsarClientArtifactCapacityProducer {
                                  int maxInFlight) {
         private static Configuration parse(final String[] arguments) {
             final long records = positiveLong(arguments[4], "records");
-            if (records > Integer.MAX_VALUE) {
-                throw new IllegalArgumentException("records must be <= " + Integer.MAX_VALUE
-                        + " because the completion latch is bounded");
-            }
             final Configuration parsed = new Configuration(nonBlank(arguments[0], "service-url"),
                     nonBlank(arguments[1], "admin-urls"), nonBlank(arguments[2], "topic-base"),
                     Path.of(arguments[3]), records, positiveInt(arguments[5], "payload-bytes"), arguments[6],
@@ -361,10 +423,6 @@ public final class PulsarClientArtifactCapacityProducer {
                 throw new IllegalArgumentException("placement and partition count disagree");
             }
             return parsed;
-        }
-
-        private int recordsAsIntForLatch() {
-            return Math.toIntExact(records);
         }
 
         private static String nonBlank(final String value, final String name) {
