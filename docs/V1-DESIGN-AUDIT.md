@@ -13967,3 +13967,49 @@ contains eight physical observations and all eight are `PASS`; its exact
 generated Docker cleanup receipt is `PASS`. The matrix status is deliberately
 `FAIL` because FAST is non-certifying. No current-source full physical
 Benchmark/Capacity receipt exists yet, so no §23.4 or release PASS is claimed.
+
+## 2026-08-22 current-source full V1 certification — 6f9ab51c
+
+The frozen candidate lock is Delay
+`6f9ab51c392ea47dba46e0d6d67ff7f7d0aa0312`, Kafka
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The candidate receipt at
+`/private/tmp/nereus-delay-v1-release-candidate-6f9ab51c/v1-release-candidate-gate.json`
+is `release_status=PASS`, with source, cross-repository, Gradle `check` and all
+ten full-V1 gates passing.
+
+| gate | exact artifact | SHA-256 |
+| --- | --- | --- |
+| protocol-golden | `/private/tmp/nereus-delay-v1-protocol-golden-6f9ab51c/protocol-golden.json` | `987f29b85496a296a7375d72eca5a3749335773a80f3d18e8b021e554e313253` |
+| chaos | `/private/tmp/nereus-delay-v1-full-chaos-6f9ab51c/full-chaos-matrix.json` | `49fb28741abafc12db03185b83a6d53b44c900d4ee4a16dca126b1876a91de80` |
+| real-service | `/private/tmp/nereus-delay-v1-real-service-6f9ab51c/real-service.json` | `2886a91d44f10900395c62fa821e435144c236c431295af74a6705b75a9cd43a` |
+| no-early | `/private/tmp/nereus-delay-v1-no-early-6f9ab51c/no-early.json` | `667de31953e8cdb665a2eb13b8e905c33dc3f10124c3767176e6f42e088e7c14` |
+| benchmark | `/private/tmp/nereus-delay-v1-benchmark-envelope-6f9ab51c/full-v1-gate-input.json` | `bcf78ac3cc4584502f311b9102af9b34a888ac6e192b97859a44618797ea0bed` |
+| capacity | `/private/tmp/nereus-delay-v1-capacity-envelope-6f9ab51c/full-v1-gate-input.json` | `cd9de96dc830a5d466c4a8679cf2b51ee5927545f75cc521c3ad66ba32139fb1` |
+| soak | `/private/tmp/nereus-delay-v1-soak-6f9ab51c/full-v1-gate-input.json` | `fdf3c369bf2b1ce2b649a858d0654de13864bb82c95407b1e9d0f4a2a606fe96` |
+| upgrade-downgrade | `/private/tmp/nereus-delay-v1-upgrade-downgrade-6f9ab51c/full-v1-gate-input.json` | `0f98682a7578fab55914f457cb33502bbb336cccddad2a8bd52196e1439c275f` |
+| operations | `/private/tmp/nereus-delay-v1-operations-6f9ab51c-r4/full-v1-gate-input.json` | `5bebe0adec9b0c6cf6742f6a530cf67d5151e7e9f5ff68e1e86a6c373aa5f04a` |
+| patch-distribution | `/private/tmp/nereus-delay-v1-patch-distribution-6f9ab51c/full-v1-gate-input.json` | `f763a9ea27e1bafc8009c91d895653e0d4a6002030e7ff392f83a3492b2672ab` |
+
+The physical supporting receipts are the benchmark observation
+`/private/tmp/nereus-delay-v1-benchmark-observation-6f9ab51c-r2/capacity-observation.json`
+(`c836707323db0298cf15b4121b5f0614a140875cd18f992c359d4dca5d5ca6e3`), capacity
+observation
+`/private/tmp/nereus-delay-v1-capacity-observation-6f9ab51c/capacity-observation.json`
+(`c86ff0cbca4101e286f94a81971579af8ea203566fd62577422cc7b41ef38b32`) and the
+real matrix
+`/private/tmp/nereus-delay-v1-capacity-full-6f9ab51c-r3/capacity-matrix.json`
+(`dc79514ab74671c28a8e608803cb6c43d3c2f2408a0388a36e076a87fb2390c4`).
+
+The post-overlay final receipt is
+`/private/tmp/nereus-delay-v1-release-final-6f9ab51c/v1-release-candidate-gate.json`.
+This evidence certifies the locked feature sources and does not claim merge,
+deployment or promotion into a target `main`.
+
+Cleanup used exact generated-resource removal and no global Docker prune. The
+pinned Oxia, MinIO and exact benchmark `eclipse-temurin@sha256:57865c22b954cf920cb05a610af81d577e89783282514ba071e99c7357f6c769`
+images remain; generated Nereus resources do not. Eighty-eight unreferenced
+temporary directories were moved recoverably to
+`/Users/liusinan/.Trash/nereus-delay-cleanup-20260822-full-v1` after a `.git`
+audit. Current evidence trees and referenced historical receipts remain.

@@ -5827,3 +5827,51 @@ harness，不是新的 runtime abstraction，也不改变 §23.4 的 1M/10M/100M
 matrix status 按约定为 `FAIL`，因为 FAST cardinality 只有
 1,000/2,000/4,000，不能晋升为 `PASS_CERTIFIED`。正式 physical matrix
 尚未完成，故当前完整 V1 release 仍为 `NOT_READY`。
+
+## 2026-08-22 current-source full V1 certification — 6f9ab51c
+
+当前冻结的 candidate source lock 是 Delay
+`6f9ab51c392ea47dba46e0d6d67ff7f7d0aa0312`、Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`、Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` 和 Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`。pre-overlay candidate receipt
+`/private/tmp/nereus-delay-v1-release-candidate-6f9ab51c/v1-release-candidate-gate.json`
+已经是 `release_status=PASS`：source、cross-repository contract、完整 Gradle
+`check` 以及十个 full-V1 gate 全部通过。
+
+十个精确 source 的 `PASS_CERTIFIED` 输入如下：
+
+| gate | artifact | SHA-256 |
+| --- | --- | --- |
+| protocol-golden | `/private/tmp/nereus-delay-v1-protocol-golden-6f9ab51c/protocol-golden.json` | `987f29b85496a296a7375d72eca5a3749335773a80f3d18e8b021e554e313253` |
+| chaos | `/private/tmp/nereus-delay-v1-full-chaos-6f9ab51c/full-chaos-matrix.json` | `49fb28741abafc12db03185b83a6d53b44c900d4ee4a16dca126b1876a91de80` |
+| real-service | `/private/tmp/nereus-delay-v1-real-service-6f9ab51c/real-service.json` | `2886a91d44f10900395c62fa821e435144c236c431295af74a6705b75a9cd43a` |
+| no-early | `/private/tmp/nereus-delay-v1-no-early-6f9ab51c/no-early.json` | `667de31953e8cdb665a2eb13b8e905c33dc3f10124c3767176e6f42e088e7c14` |
+| benchmark | `/private/tmp/nereus-delay-v1-benchmark-envelope-6f9ab51c/full-v1-gate-input.json` | `bcf78ac3cc4584502f311b9102af9b34a888ac6e192b97859a44618797ea0bed` |
+| capacity | `/private/tmp/nereus-delay-v1-capacity-envelope-6f9ab51c/full-v1-gate-input.json` | `cd9de96dc830a5d466c4a8679cf2b51ee5927545f75cc521c3ad66ba32139fb1` |
+| soak | `/private/tmp/nereus-delay-v1-soak-6f9ab51c/full-v1-gate-input.json` | `fdf3c369bf2b1ce2b649a858d0654de13864bb82c95407b1e9d0f4a2a606fe96` |
+| upgrade-downgrade | `/private/tmp/nereus-delay-v1-upgrade-downgrade-6f9ab51c/full-v1-gate-input.json` | `0f98682a7578fab55914f457cb33502bbb336cccddad2a8bd52196e1439c275f` |
+| operations | `/private/tmp/nereus-delay-v1-operations-6f9ab51c-r4/full-v1-gate-input.json` | `5bebe0adec9b0c6cf6742f6a530cf67d5151e7e9f5ff68e1e86a6c373aa5f04a` |
+| patch-distribution | `/private/tmp/nereus-delay-v1-patch-distribution-6f9ab51c/full-v1-gate-input.json` | `f763a9ea27e1bafc8009c91d895653e0d4a6002030e7ff392f83a3492b2672ab` |
+
+Benchmark/Capacity 的 supporting physical receipts、soak child 和 activation
+cutover child 分别是：
+
+- `/private/tmp/nereus-delay-v1-benchmark-observation-6f9ab51c-r2/capacity-observation.json`，SHA-256 `c836707323db0298cf15b4121b5f0614a140875cd18f992c359d4dca5d5ca6e3`。
+- `/private/tmp/nereus-delay-v1-capacity-observation-6f9ab51c/capacity-observation.json`，SHA-256 `c86ff0cbca4101e286f94a81971579af8ea203566fd62577422cc7b41ef38b32`。
+- `/private/tmp/nereus-delay-v1-capacity-full-6f9ab51c-r3/capacity-matrix.json`，SHA-256 `dc79514ab74671c28a8e608803cb6c43d3c2f2408a0388a36e076a87fb2390c4`。
+- `/private/tmp/nereus-delay-v1-soak-6f9ab51c/production-chain-soak/certified-production-chain-soak.json`，SHA-256 `9d5cc72e6789ec7c0bfe497b15f7be27a7d20bf0031fa25aff0dcc5dfb47b9c6`。
+- `/private/tmp/nereus-delay-v1-upgrade-downgrade-6f9ab51c/protocol-activation-cutover/protocol-activation-cutover.json`，SHA-256 `d5bb3ff56c130dac8bb7a9e4e0ee54978c74d14be1a60c7b59f6ce72450a84c7`。
+
+文档 overlay 后的最终 receipt 固定为
+`/private/tmp/nereus-delay-v1-release-final-6f9ab51c/v1-release-candidate-gate.json`。
+该 overlay 不修改 runtime source，也不代表 feature branch 已 merge、部署或
+promotion 到任何指定的 `main`。
+
+本次清理使用 exact generated-resource cleanup，未执行 global Docker prune；
+保留 pinned Oxia、MinIO 和 benchmark 使用的精确
+`eclipse-temurin@sha256:57865c22b954cf920cb05a610af81d577e89783282514ba071e99c7357f6c769`
+镜像。88 个未被 ledger 引用的 `/private/tmp/nereus-delay*` 文件夹已可恢复地
+移动到 `/Users/liusinan/.Trash/nereus-delay-cleanup-20260822-full-v1`，逐个确认
+不含 `.git`；当前十个 evidence tree、candidate lock 和仍被文档引用的历史目录
+均保留，未移动 source checkout 或代码。
