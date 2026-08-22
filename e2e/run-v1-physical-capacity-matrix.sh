@@ -54,7 +54,7 @@ done
 
 require_checkout() {
   local label="$1" path="$2" branch="$3" expected="$4"
-  [[ -d "${path}/.git" ]] || fail "${label} checkout is missing: ${path}"
+  [[ -e "${path}/.git" ]] || fail "${label} checkout is missing: ${path}"
   [[ -z "$(git -C "${path}" status --porcelain)" ]] || fail "${label} checkout is dirty: ${path}"
   [[ "$(git -C "${path}" branch --show-current)" == "${branch}" ]] \
     || fail "${label} branch is not ${branch}"
