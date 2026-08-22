@@ -52,6 +52,10 @@ for lock in "${candidate_delay}" "${candidate_kafka}" "${candidate_pulsar}" "${c
   [[ "${lock}" =~ ^[0-9a-f]{40}$ ]] || fail "non-canonical source lock: ${lock}"
 done
 
+oxia_image="${NEREUS_DELAY_V1_CAPACITY_OXIA_IMAGE:-nereus/oxia-o1:${candidate_oxia:0:12}}"
+[[ "$(docker image inspect --format '{{index .Config.Labels \"org.opencontainers.image.revision\"}}' "${oxia_image}" 2>/dev/null || true)" == "${candidate_oxia}" ]] \
+  || fail "Oxia image revision is not the locked source: ${oxia_image}"
+
 require_checkout() {
   local label="$1" path="$2" branch="$3" expected="$4"
   [[ -e "${path}/.git" ]] || fail "${label} checkout is missing: ${path}"
@@ -118,17 +122,21 @@ cleanup() {
   set +e
   if [[ "${kafka_up}" == "1" ]]; then
     docker compose -p "${kafka_project}" -f "${script_dir}/docker-compose.large-payload.yml" \
+      -f "${script_dir}/docker-compose.oxia-image.yml" \
       logs --no-color >"${artifact_dir}/kafka-compose.log" 2>&1 || true
     docker compose -p "${kafka_project}" -f "${script_dir}/docker-compose.large-payload.yml" \
-      down --volumes --remove-orphans --rmi local >/dev/null 2>&1 || true
+      -f "${script_dir}/docker-compose.oxia-image.yml" \
+      down --volumes --remove-orphans >/dev/null 2>&1 || true
   fi
   if [[ "${pulsar_up}" == "1" ]]; then
     docker compose -p "${pulsar_project}" -f "${script_dir}/docker-compose.pulsar-cluster.yml" \
       -f "${script_dir}/docker-compose.pulsar-large-payload-infra.yml" \
+      -f "${script_dir}/docker-compose.oxia-image.yml" \
       logs --no-color >"${artifact_dir}/pulsar-compose.log" 2>&1 || true
     docker compose -p "${pulsar_project}" -f "${script_dir}/docker-compose.pulsar-cluster.yml" \
       -f "${script_dir}/docker-compose.pulsar-large-payload-infra.yml" \
-      down --volumes --remove-orphans --rmi local >/dev/null 2>&1 || true
+      -f "${script_dir}/docker-compose.oxia-image.yml" \
+      down --volumes --remove-orphans >/dev/null 2>&1 || true
   fi
   docker image rm "${kafka_image}" >/dev/null 2>&1 || true
   docker image rm "${pulsar_image}" >/dev/null 2>&1 || true
@@ -243,13 +251,15 @@ capture_snapshot() {
     compose_project_name="${kafka_project}"
     compose_file_name="${script_dir}/docker-compose.large-payload.yml"
     local ids
-    ids="$(docker compose -p "${compose_project_name}" -f "${compose_file_name}" ps -q kafka-1 kafka-2 kafka-3)"
+    ids="$(docker compose -p "${compose_project_name}" -f "${compose_file_name}" \
+      -f "${script_dir}/docker-compose.oxia-image.yml" ps -q kafka-1 kafka-2 kafka-3)"
     docker stats --no-stream --format '{{json .}}' ${ids} >"${stats_file}"
     : >"${resource_file}"
     for service in kafka-1 kafka-2 kafka-3; do
       {
         echo "service=${service}"
-        docker compose -p "${compose_project_name}" -f "${compose_file_name}" exec -T "${service}" sh -c \
+        docker compose -p "${compose_project_name}" -f "${compose_file_name}" \
+          -f "${script_dir}/docker-compose.oxia-image.yml" exec -T "${service}" sh -c \
           'du -sb /tmp/kafka-logs 2>/dev/null || true; find /proc/1/fd -maxdepth 1 -type l 2>/dev/null | wc -l; sed -n "/Max open files/,+1p" /proc/1/limits 2>/dev/null || true'
       } >>"${resource_file}"
     done
@@ -258,14 +268,16 @@ capture_snapshot() {
     compose_file_name="${script_dir}/docker-compose.pulsar-cluster.yml -f ${script_dir}/docker-compose.pulsar-large-payload-infra.yml"
     local ids
     ids="$(docker compose -p "${pulsar_project}" -f "${script_dir}/docker-compose.pulsar-cluster.yml" \
-      -f "${script_dir}/docker-compose.pulsar-large-payload-infra.yml" ps -q pulsar-broker-1 pulsar-broker-2 bookie)"
+      -f "${script_dir}/docker-compose.pulsar-large-payload-infra.yml" \
+      -f "${script_dir}/docker-compose.oxia-image.yml" ps -q pulsar-broker-1 pulsar-broker-2 bookie)"
     docker stats --no-stream --format '{{json .}}' ${ids} >"${stats_file}"
     : >"${resource_file}"
     for service in pulsar-broker-1 pulsar-broker-2 bookie; do
       {
         echo "service=${service}"
         docker compose -p "${pulsar_project}" -f "${script_dir}/docker-compose.pulsar-cluster.yml" \
-          -f "${script_dir}/docker-compose.pulsar-large-payload-infra.yml" exec -T "${service}" sh -c \
+          -f "${script_dir}/docker-compose.pulsar-large-payload-infra.yml" \
+          -f "${script_dir}/docker-compose.oxia-image.yml" exec -T "${service}" sh -c \
           'du -sb /pulsar/data /pulsar/logs 2>/dev/null || true; find /proc/1/fd -maxdepth 1 -type l 2>/dev/null | wc -l; sed -n "/Max open files/,+1p" /proc/1/limits 2>/dev/null || true'
       } >>"${resource_file}"
     done
@@ -364,10 +376,12 @@ export KAFKA_BROKER_1_PORT="${kafka_broker_1_port}" KAFKA_BROKER_2_PORT="${kafka
   KAFKA_BROKER_3_PORT="${kafka_broker_3_port}" NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
   NEREUS_DELAY_OXIA_PORT="${kafka_oxia_port}" NEREUS_DELAY_MINIO_IMAGE="${minio_image}" \
   NEREUS_DELAY_MINIO_PORT="${kafka_minio_port}" NEREUS_DELAY_MINIO_ACCESS_KEY="${kafka_minio_access}" \
-  NEREUS_DELAY_MINIO_SECRET_KEY="${kafka_minio_secret}"
-kafka_compose=(docker compose -p "${kafka_project}" -f "${script_dir}/docker-compose.large-payload.yml")
+  NEREUS_DELAY_MINIO_SECRET_KEY="${kafka_minio_secret}" \
+  NEREUS_DELAY_V1_CAPACITY_OXIA_IMAGE="${oxia_image}"
+kafka_compose=(docker compose -p "${kafka_project}" -f "${script_dir}/docker-compose.large-payload.yml" \
+  -f "${script_dir}/docker-compose.oxia-image.yml")
 kafka_up=1
-"${kafka_compose[@]}" up --detach --build kafka-1 kafka-2 kafka-3 oxia minio
+"${kafka_compose[@]}" up --detach kafka-1 kafka-2 kafka-3 oxia minio
 wait_for_kafka || fail "K1 cluster did not become ready"
 wait_for_minio "${kafka_minio_endpoint}" || fail "K1 MinIO did not become ready"
 create_bucket "${kafka_minio_endpoint}" "${kafka_minio_access}" "${kafka_minio_secret}" "${kafka_minio_bucket}"
@@ -377,7 +391,7 @@ run_kafka_case kafka-100m-zipf-unordered-strong-healthy-multi-inline "${record_1
 run_kafka_case kafka-1m-burst-ordered-baseline-bad-multi-object "${record_1m}" 4096 burst ordered baseline bad multi-shard object 2 16384 0 0 20000
 
 echo "stopping K1 cluster before starting P1"
-"${kafka_compose[@]}" down --volumes --remove-orphans --rmi local >/dev/null
+"${kafka_compose[@]}" down --volumes --remove-orphans >/dev/null
 kafka_up=0
 
 echo "starting real P1 cluster"
@@ -398,11 +412,13 @@ export PULSAR_P1_IMAGE="${pulsar_image}" PULSAR_CLUSTER_NAME="standalone" \
   PULSAR_BROKER_2_PORT="${pulsar_broker_2_port}" PULSAR_WEB_2_PORT="${pulsar_web_2_port}" \
   NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" NEREUS_DELAY_PULSAR_LARGE_OXIA_PORT="${pulsar_oxia_port}" \
   NEREUS_DELAY_PULSAR_LARGE_MINIO_PORT="${pulsar_minio_port}" NEREUS_DELAY_MINIO_IMAGE="${minio_image}" \
-  NEREUS_DELAY_MINIO_ACCESS_KEY="${pulsar_minio_access}" NEREUS_DELAY_MINIO_SECRET_KEY="${pulsar_minio_secret}"
+  NEREUS_DELAY_MINIO_ACCESS_KEY="${pulsar_minio_access}" NEREUS_DELAY_MINIO_SECRET_KEY="${pulsar_minio_secret}" \
+  NEREUS_DELAY_V1_CAPACITY_OXIA_IMAGE="${oxia_image}"
 pulsar_compose=(docker compose -p "${pulsar_project}" -f "${script_dir}/docker-compose.pulsar-cluster.yml" \
-  -f "${script_dir}/docker-compose.pulsar-large-payload-infra.yml")
+  -f "${script_dir}/docker-compose.pulsar-large-payload-infra.yml" \
+  -f "${script_dir}/docker-compose.oxia-image.yml")
 pulsar_up=1
-"${pulsar_compose[@]}" up --detach --build
+"${pulsar_compose[@]}" up --detach
 wait_for_pulsar || fail "P1 cluster did not become ready"
 wait_for_minio "${pulsar_minio_endpoint}" || fail "P1 MinIO did not become ready"
 create_bucket "${pulsar_minio_endpoint}" "${pulsar_minio_access}" "${pulsar_minio_secret}" "${pulsar_minio_bucket}"
@@ -411,7 +427,7 @@ run_pulsar_case pulsar-10m-uniform-unordered-strong-healthy-multi-inline "${reco
 run_pulsar_case pulsar-100m-zipf-unordered-strong-healthy-multi-inline "${record_100m}" 128 zipf unordered strong healthy multi-shard inline 2 1000 65536 5 100000 20000
 run_pulsar_case pulsar-1m-burst-ordered-baseline-bad-multi-object "${record_1m}" 4096 burst ordered baseline bad multi-shard object 2 0 16384 0 0 20000
 
-"${pulsar_compose[@]}" down --volumes --remove-orphans --rmi local >/dev/null
+"${pulsar_compose[@]}" down --volumes --remove-orphans >/dev/null
 pulsar_up=0
 
 post_cleanup="${artifact_dir}/docker-post-cleanup.json"
