@@ -7,6 +7,7 @@ import org.apache.pulsar.client.api.MessageIdAdv;
 import org.apache.pulsar.client.api.MessageRouter;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClient;
+import org.apache.pulsar.client.api.ProducerBuilder;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.TopicMetadata;
 import org.apache.pulsar.client.api.TopicResourceGuard;
@@ -176,18 +177,20 @@ public final class PulsarClientArtifactCapacityProducer {
                                                    final TopicResourceGuard guard,
                                                    final Configuration configuration, final boolean bad)
             throws Exception {
-        return client.newProducer(Schema.BYTES).topic(topic).resourceGuard(guard)
+        final ProducerBuilder<byte[]> builder = client.newProducer(Schema.BYTES).topic(topic).resourceGuard(guard)
                 .producerName("nereus-delay-capacity-" + (bad ? "bad" : "good") + "-" + configuration.topicBase())
                 .messageRouter(new PropertyPartitionRouter())
                 .enableBatching(configuration.batchMessages() > 0)
                 .batchingMaxMessages(Math.max(1, configuration.batchMessages()))
                 .batchingMaxBytes(configuration.batchBytes())
-                .batchingMaxPublishDelay(configuration.lingerMs(), TimeUnit.MILLISECONDS)
                 .maxPendingMessages(configuration.maxInFlight())
                 .blockIfQueueFull(true)
                 .autoUpdatePartitions(false)
-                .enableChunking(false)
-                .create();
+                .enableChunking(false);
+        if (configuration.lingerMs() > 0) {
+            builder.batchingMaxPublishDelay(configuration.lingerMs(), TimeUnit.MILLISECONDS);
+        }
+        return builder.create();
     }
 
     private static boolean valid(final org.apache.pulsar.client.api.MessageId messageId,
