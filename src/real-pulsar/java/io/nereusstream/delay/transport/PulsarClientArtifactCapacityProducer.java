@@ -97,7 +97,7 @@ public final class PulsarClientArtifactCapacityProducer {
                         try {
                             badProducers.add(createProducer(client, physicalTopic(topic, partition), badGuard,
                                     configuration, true, partition));
-                        } catch (RuntimeException failure) {
+                        } catch (Exception failure) {
                             badProducers.add(null);
                             if (badCreationFailure.isEmpty()) {
                                 badCreationFailure = failure.getClass().getName() + ": " + failure.getMessage();
