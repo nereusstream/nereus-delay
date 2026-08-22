@@ -43,6 +43,7 @@ import java.util.concurrent.locks.LockSupport;
 public final class KafkaClientArtifactCapacityProducer {
     private static final int ARGUMENT_COUNT = 17;
     private static final long MAX_SLEEP_NANOS = TimeUnit.MILLISECONDS.toNanos(10);
+    private static final long PRODUCER_EPOCH_RECORDS = 500_000L;
 
     private KafkaClientArtifactCapacityProducer() {
     }
@@ -95,6 +96,52 @@ public final class KafkaClientArtifactCapacityProducer {
 
     private static Observation produce(final Configuration configuration, final String clusterId,
                                        final Uuid topicId) throws Exception {
+        final long startNanos = System.nanoTime();
+        final AtomicLong accepted = new AtomicLong();
+        final AtomicLong rejected = new AtomicLong();
+        final AtomicLong errors = new AtomicLong();
+        final AtomicLong guardedEvidence = new AtomicLong();
+        final AtomicLong badAccepted = new AtomicLong();
+        final AtomicLong minOffset = new AtomicLong(Long.MAX_VALUE);
+        final AtomicLong maxOffset = new AtomicLong(-1L);
+        final AtomicReference<String> firstFailure = new AtomicReference<>();
+        final AtomicLongArray partitionCounts = new AtomicLongArray(configuration.partitions());
+        long recordStart = 0L;
+        boolean pass = true;
+        while (recordStart < configuration.records()) {
+            final int epochRecords = (int) Math.min(PRODUCER_EPOCH_RECORDS,
+                    configuration.records() - recordStart);
+            final Observation epoch = produceEpoch(configuration, clusterId, topicId, recordStart, epochRecords);
+            accepted.addAndGet(epoch.accepted());
+            rejected.addAndGet(epoch.rejected());
+            errors.addAndGet(epoch.errors());
+            guardedEvidence.addAndGet(epoch.guardedEvidence());
+            badAccepted.addAndGet(epoch.badAccepted());
+            updateMinimum(minOffset, epoch.minOffset());
+            updateMaximum(maxOffset, epoch.maxOffset());
+            for (int partition = 0; partition < partitionCounts.length(); partition++) {
+                partitionCounts.addAndGet(partition, epoch.partitions().get(partition));
+            }
+            if (!epoch.pass()) {
+                pass = false;
+                firstFailure.compareAndSet(null, epoch.failure());
+            }
+            recordStart += epochRecords;
+        }
+        final long elapsedNanos = Math.max(1L, System.nanoTime() - startNanos);
+        final boolean countsMatch = accepted.get() == configuration.records() - expectedBadRecords(configuration)
+                && rejected.get() == expectedBadRecords(configuration);
+        pass = pass && countsMatch && errors.get() == 0 && badAccepted.get() == 0
+                && guardedEvidence.get() == accepted.get() && maxOffset.get() >= 0;
+        return new Observation(configuration, clusterId, topicId, accepted.get(), rejected.get(), errors.get(),
+                guardedEvidence.get(), badAccepted.get(), payload(configuration.payloadBytes(),
+                configuration.payloadMode(), configuration.topic()).length, elapsedNanos, minOffset.get(),
+                maxOffset.get(), partitionCounts, pass, firstFailure.get());
+    }
+
+    private static Observation produceEpoch(final Configuration configuration, final String clusterId,
+                                            final Uuid topicId, final long recordStart,
+                                            final int epochRecords) throws Exception {
         final Properties properties = new Properties();
         properties.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, configuration.bootstrap());
         properties.put(ProducerConfig.ACKS_CONFIG, configuration.strong() ? "all" : "1");
@@ -119,9 +166,9 @@ public final class KafkaClientArtifactCapacityProducer {
         final AtomicLong maxOffset = new AtomicLong(-1L);
         final AtomicReference<String> firstFailure = new AtomicReference<>();
         final AtomicLongArray partitionCounts = new AtomicLongArray(configuration.partitions());
-        final long expectedBad = expectedBadRecords(configuration);
+        final long expectedBad = expectedBadRecords(configuration, recordStart, epochRecords);
         final Semaphore permits = new Semaphore(configuration.maxInFlight());
-        final CountDownLatch completions = new CountDownLatch(configuration.recordsAsIntForLatch());
+        final CountDownLatch completions = new CountDownLatch(epochRecords);
         final long startNanos = System.nanoTime();
         final byte[] payload = payload(configuration.payloadBytes(), configuration.payloadMode(),
                 configuration.topic());
@@ -169,8 +216,9 @@ public final class KafkaClientArtifactCapacityProducer {
         try (KafkaProducer<byte[], byte[]> producer = new KafkaProducer<>(properties,
                 new ByteArraySerializer(), new ByteArraySerializer())) {
             final GuardedProducer<byte[], byte[]> guarded = (GuardedProducer<byte[], byte[]>) producer;
-            for (long record = 0; record < configuration.records(); record++) {
-                waitForRate(startNanos, record, configuration.ratePerSecond());
+            for (long relativeRecord = 0; relativeRecord < epochRecords; relativeRecord++) {
+                final long record = recordStart + relativeRecord;
+                waitForRate(startNanos, relativeRecord, configuration.ratePerSecond());
                 permits.acquire();
                 final int partition = choosePartition(configuration, record);
                 final boolean bad = isBadRecord(configuration, record);
@@ -193,14 +241,14 @@ public final class KafkaClientArtifactCapacityProducer {
                 }
             }
             final long timeoutSeconds = Math.max(120L,
-                    Math.min(86_400L, configuration.records() / 1_000L + 120L));
+                    Math.min(86_400L, epochRecords / 1_000L + 120L));
             if (!completions.await(timeoutSeconds, TimeUnit.SECONDS)) {
                 recordFailure(errors, firstFailure, new IllegalStateException("guarded Kafka completions timed out"));
             }
             producer.flush();
         }
         final long elapsedNanos = Math.max(1L, System.nanoTime() - startNanos);
-        final boolean countsMatch = accepted.get() == configuration.records() - expectedBad
+        final boolean countsMatch = accepted.get() == epochRecords - expectedBad
                 && rejected.get() == expectedBad;
         final boolean pass = countsMatch && errors.get() == 0 && badAccepted.get() == 0
                 && guardedEvidence.get() == accepted.get() && maxOffset.get() >= 0;
@@ -237,6 +285,19 @@ public final class KafkaClientArtifactCapacityProducer {
 
     private static long expectedBadRecords(final Configuration configuration) {
         return configuration.targetHealth().equals("bad") ? (configuration.records() + 99L) / 100L : 0L;
+    }
+
+    private static long expectedBadRecords(final Configuration configuration, final long recordStart,
+                                           final long recordCount) {
+        if (!configuration.targetHealth().equals("bad")) {
+            return 0L;
+        }
+        final long firstBad = recordStart % 100L == 0L
+                ? recordStart : recordStart + (100L - recordStart % 100L);
+        if (firstBad >= recordStart + recordCount) {
+            return 0L;
+        }
+        return ((recordStart + recordCount - 1L - firstBad) / 100L) + 1L;
     }
 
     private static boolean isBadRecord(final Configuration configuration, final long record) {
@@ -370,10 +431,6 @@ public final class KafkaClientArtifactCapacityProducer {
 
         private boolean ordered() {
             return ordering.equals("ordered");
-        }
-
-        private int recordsAsIntForLatch() {
-            return Math.toIntExact(records);
         }
 
         private String profileName() {
