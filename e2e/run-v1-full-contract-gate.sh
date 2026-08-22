@@ -456,6 +456,7 @@ jq -n \
   --arg pulsar "${pulsar_source}" --arg oxia "${oxia_source}" \
   --arg test_log "${test_log}" --argjson tests "${test_json}" \
   --arg probe_artifact "${probe_artifact}" --arg real_log "${real_log}" \
+  --arg real_artifact "${real_artifact:-}" \
   --arg real_status "${real_status}" --argjson real_exit_code "${real_exit_code}" \
   --argjson test_exit_code "${test_exit_code}" --argjson required "${required_json}" \
   --argjson observations "${observations}" \
