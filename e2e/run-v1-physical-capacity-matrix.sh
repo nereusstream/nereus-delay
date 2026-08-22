@@ -53,7 +53,7 @@ for lock in "${candidate_delay}" "${candidate_kafka}" "${candidate_pulsar}" "${c
 done
 
 oxia_image="${NEREUS_DELAY_V1_CAPACITY_OXIA_IMAGE:-nereus/oxia-o1:${candidate_oxia:0:12}}"
-[[ "$(docker image inspect --format '{{index .Config.Labels \"org.opencontainers.image.revision\"}}' "${oxia_image}" 2>/dev/null || true)" == "${candidate_oxia}" ]] \
+[[ "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "${oxia_image}" 2>/dev/null || true)" == "${candidate_oxia}" ]] \
   || fail "Oxia image revision is not the locked source: ${oxia_image}"
 
 require_checkout() {
