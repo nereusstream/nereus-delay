@@ -13949,3 +13949,21 @@ The f4 receipts remain historical and are not valid for `a11d281c`; a new
 candidate source lock and serial gate rerun are required. The release remains
 `NOT_READY` until the independent physical observations and all dependent
 source-locked gates pass.
+
+## 2026-08-22 latest physical-capacity harness boundary — 6209d824
+
+The current source lock is Delay
+`6209d824d9df77478cc6a8d8ba6dfdf6ba8e5a05`, with K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. Both physical producers now use
+500,000-record producer epochs and aggregate evidence across epochs on one
+real topic; this bounds client-lifecycle retention without weakening the
+requested 1M/10M/100M cardinality.
+
+The FAST smoke artifact
+`/private/tmp/nereus-delay-v1-capacity-smoke-6209d824/capacity-matrix.json`
+contains eight physical observations and all eight are `PASS`; its exact
+generated Docker cleanup receipt is `PASS`. The matrix status is deliberately
+`FAIL` because FAST is non-certifying. No current-source full physical
+Benchmark/Capacity receipt exists yet, so no §23.4 or release PASS is claimed.

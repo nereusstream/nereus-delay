@@ -5806,3 +5806,24 @@ MinIO、收集 broker/resource/WAL/FD/磁盘证据并生成 source-locked matrix
 历史 provenance；必须先生成新的 candidate source lock，再重跑物理
 Benchmark/Capacity 及其依赖的完整 V1 gates。当前 release 结论仍为
 `NOT_READY`。
+
+## 2026-08-22 §23.4 producer lifecycle correction — 6209d824
+
+当前 candidate source lock 已推进到 Delay
+`6209d824d9df77478cc6a8d8ba6dfdf6ba8e5a05`；K1/P1/Oxia locks 保持为
+`05849884ca81fad767fda058444d1e17c7f9cbf9`、
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`、
+`37a17bef17202d5fd6e23282da5fd26d94865484`。
+
+为避免大 cardinality 测量过程中把已完成的 guarded future 保留在单个
+producer 生命周期内，K1/P1 capacity producer 均按 500,000 条记录重建
+producer；记录仍写入同一个真实 topic，完整 cardinality、ACK/evidence、bad
+target rejection 和分区聚合结果均保留。该修正只属于物理 measurement
+harness，不是新的 runtime abstraction，也不改变 §23.4 的 1M/10M/100M
+要求。
+
+`/private/tmp/nereus-delay-v1-capacity-smoke-6209d824/capacity-matrix.json`
+的 FAST 编排 smoke 已得到 8/8 observation `PASS` 和 cleanup `PASS`，但
+matrix status 按约定为 `FAIL`，因为 FAST cardinality 只有
+1,000/2,000/4,000，不能晋升为 `PASS_CERTIFIED`。正式 physical matrix
+尚未完成，故当前完整 V1 release 仍为 `NOT_READY`。

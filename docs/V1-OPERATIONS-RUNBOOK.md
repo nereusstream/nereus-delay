@@ -1980,3 +1980,21 @@ No new physical run has yet been certified. The f4 receipts are retained as
 historical provenance and must not be supplied to the current-source release
 validator. Keep the pinned Oxia/MinIO images, avoid global Docker prune, and
 continue to protect every source worktree during cleanup.
+
+## 2026-08-22 physical-capacity producer lifecycle — 6209d824
+
+Use candidate lock
+`/private/tmp/nereus-delay-v1-candidate-6209d824.json` for the next physical
+run. K1 and P1 capacity producers now use 500,000-record epochs on the same
+real topic, with epoch-qualified producer names and aggregate guarded evidence.
+This keeps the full 1M/10M/100M campaign intact while bounding the client
+lifecycle retained state observed during the earlier large Kafka probe.
+
+The FAST smoke
+`/private/tmp/nereus-delay-v1-capacity-smoke-6209d824/capacity-matrix.json`
+is a valid orchestration/cleanup check only: all 8 observations passed and the
+exact generated Docker resources were removed, but its matrix status is
+non-certifying `FAIL`. Run the default (FAST unset/0) serial campaign into a
+new empty artifact directory for release evidence. Retain only the pinned
+Oxia/MinIO images; remove generated images by exact tag and never use a global
+Docker prune.

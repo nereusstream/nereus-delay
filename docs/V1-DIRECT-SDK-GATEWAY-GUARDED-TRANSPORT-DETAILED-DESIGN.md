@@ -8789,3 +8789,20 @@ new physical matrix receipt. Therefore f4 evidence cannot be reused after the
 source move to `a11d281c`, and the production-authority design is still
 `NOT_READY` for release purposes until the new independent measurements and
 full gate rerun pass.
+
+## 2026-08-22 physical-capacity lifecycle boundary — 6209d824
+
+The current Delay source is
+`6209d824d9df77478cc6a8d8ba6dfdf6ba8e5a05`, paired with the locked K1/P1/Oxia
+revisions recorded in `/private/tmp/nereus-delay-v1-candidate-6209d824.json`.
+The physical K1/P1 producers reopen their guarded producer lifecycle every
+500,000 records, while retaining the same topic, full requested cardinality,
+guarded response evidence, object-reference checks and aggregate partition
+observations. This is an execution-boundary fix for large measurement runs;
+the Gateway/Worker runtime authority chain is unchanged.
+
+The FAST artifact at
+`/private/tmp/nereus-delay-v1-capacity-smoke-6209d824/capacity-matrix.json`
+proves orchestration and cleanup only: 8/8 observations pass and generated
+resources are gone, but the matrix is non-certifying by design. The formal
+1M/10M/100M physical measurement and dependent release gate remain open.

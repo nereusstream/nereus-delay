@@ -17479,3 +17479,26 @@ source-locked gates are rerun, the current V1 release status remains
 The runner uses exact generated Docker resources and retains only the pinned
 Oxia/MinIO base images; it does not perform a global prune or target source
 worktrees. The existing `/private/tmp` cleanup boundary remains unchanged.
+
+## 2026-08-22 physical §23.4 producer-lifecycle boundary — 6209d824
+
+The current candidate source lock is Delay
+`6209d824d9df77478cc6a8d8ba6dfdf6ba8e5a05`, Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The K1 and P1 physical capacity producers now bound each producer lifecycle to
+500,000 records while preserving one real topic, the complete requested
+cardinality, guarded response evidence and aggregate partition/resource
+observations. P1 producer names include the epoch, so reopening a producer
+cannot fence a previous epoch. This is a measurement-harness memory boundary;
+it does not reduce the 1M/10M/100M matrix cardinalities or change runtime
+delivery semantics.
+
+The source-locked FAST smoke at
+`/private/tmp/nereus-delay-v1-capacity-smoke-6209d824/capacity-matrix.json`
+has 8/8 physical observations `PASS` and exact Docker cleanup `PASS`, but the
+matrix itself is intentionally `FAIL` because FAST uses 1,000/2,000/4,000
+records and is non-certifying. The formal 1M/10M/100M matrix is still pending;
+therefore §23.4 and the V1 release remain `NOT_READY`.

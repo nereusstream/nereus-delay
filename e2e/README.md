@@ -7515,3 +7515,20 @@ orchestration smoke test and is non-certifying. Generate a new candidate lock
 before the real run; f4 receipts cannot be reused after this source change.
 Generated Docker resources are cleaned exactly, pinned base images are kept,
 and no global prune or source/worktree deletion is allowed.
+
+## 2026-08-22 producer-epoch boundary — 6209d824
+
+The current physical capacity source is Delay
+`6209d824d9df77478cc6a8d8ba6dfdf6ba8e5a05` (the canonical lock file is
+`/private/tmp/nereus-delay-v1-candidate-6209d824.json`), paired with the
+locked K1/P1/Oxia revisions in that file. Both guarded physical producers
+reopen their producer lifecycle every 500,000 records and aggregate the full
+campaign on one topic. This bounds measurement-client retention and does not
+lower the required 1M/10M/100M cardinalities.
+
+The FAST smoke at
+`/private/tmp/nereus-delay-v1-capacity-smoke-6209d824/capacity-matrix.json`
+has 8/8 observation PASS and exact cleanup PASS, but its top-level status is
+intentionally FAIL because FAST is non-certifying. Use the default runner for
+the source-qualified physical matrix; do not promote FAST output to a release
+gate.
