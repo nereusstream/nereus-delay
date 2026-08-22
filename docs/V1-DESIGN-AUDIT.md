@@ -13932,3 +13932,20 @@ Oxia, Worker assignment/ownership, real MinIO and destination `PUBLISHED`
 outcomes. This is not promoted into the missing §23.4 Broker/Lane/resource
 envelope. Consequently there is no complete ten-gate evidence manifest and no
 full-V1 release PASS claim for this source lock.
+
+## 2026-08-22 latest physical-capacity implementation boundary — a11d281c
+
+The feature source is now `a11d281cbc39416359c9a03085146c40d2142053`.
+It adds guarded K1/P1 physical producers and the serial runner
+`e2e/run-v1-physical-capacity-matrix.sh`, including the §23.4 cardinality,
+arrival, ordering, consistency, target-health, placement and payload-mode
+dimensions, real MinIO object checks, broker evidence and resource snapshots.
+Compilation, full Gradle `test checkDocumentation`, shell syntax and diff
+checks pass.
+
+This is a code/harness receipt only. No new matrix has yet been executed, so
+there is no current-source Benchmark or Capacity `PASS_CERTIFIED` receipt.
+The f4 receipts remain historical and are not valid for `a11d281c`; a new
+candidate source lock and serial gate rerun are required. The release remains
+`NOT_READY` until the independent physical observations and all dependent
+source-locked gates pass.

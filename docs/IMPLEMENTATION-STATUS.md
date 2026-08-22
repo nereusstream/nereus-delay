@@ -17454,3 +17454,28 @@ found no `.git` or source checkout in those targets, and no source worktree was
 touched. No generated `nereus-delay` Docker container or image remains. The locked
 `nereus/oxia-o1:37a17bef1720` and MinIO base image were retained; no global
 Docker prune was performed.
+
+## 2026-08-22 physical §23.4 implementation slice — a11d281c
+
+Commit `a11d281cbc39416359c9a03085146c40d2142053` adds the source-locked
+physical capacity harness required by §23.4: guarded K1 and P1 artifact
+producers, object-reference mode, arrival/ordering/consistency/health/
+placement dimensions, bounded in-flight admission, broker evidence and
+resource snapshots. The serial real-broker runner is
+`e2e/run-v1-physical-capacity-matrix.sh`; it defaults to the 1M/10M/100M
+cardinality profile, executes Kafka before Pulsar, and fails closed unless
+all required cells and MinIO object evidence pass. It is an implementation
+slice, not a measurement receipt.
+
+The slice passed K1/P1 compilation, the full Gradle `test` and
+`checkDocumentation`, shell syntax checks and diff checks, and was pushed to
+`origin/nereus/delay-full-implementation-v1`. The previous f4 physical and
+release receipts are historical provenance only: the Delay source has moved to
+`a11d281c`, so a new candidate source lock and new source-qualified physical
+measurements are required. Until those measurements and the remaining
+source-locked gates are rerun, the current V1 release status remains
+`NOT_READY`.
+
+The runner uses exact generated Docker resources and retains only the pinned
+Oxia/MinIO base images; it does not perform a global prune or target source
+worktrees. The existing `/private/tmp` cleanup boundary remains unchanged.

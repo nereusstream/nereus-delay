@@ -7497,3 +7497,21 @@ the pinned Oxia/MinIO base images were kept. Sixty-three stale related
 temporary entries were moved out of `/private/tmp` into
 `/Users/liusinan/.Trash/nereus-delay-cleanup-20260822-104500`. The targets were
 `.git`-checked; source code and worktrees were not targeted.
+
+## 2026-08-22 physical capacity matrix runner — a11d281c
+
+Commit `a11d281cbc39416359c9a03085146c40d2142053` adds
+`run-v1-physical-capacity-matrix.sh` plus guarded K1/P1 producers for the
+independent §23.4 physical evidence. The default profile covers 1M, 10M and
+100M records with burst/uniform/Zipf arrivals, ordered/unordered delivery,
+baseline/strong consistency, healthy/bad target, single/multi-shard placement
+and inline/object payload modes. It runs Kafka and Pulsar serially, records
+broker and resource evidence, checks real MinIO object evidence and fails
+closed unless every required cell passes.
+
+The runner and producers compile and the full Gradle/documentation checks pass,
+but the matrix has not yet been executed for `a11d281c`. Fast mode is only an
+orchestration smoke test and is non-certifying. Generate a new candidate lock
+before the real run; f4 receipts cannot be reused after this source change.
+Generated Docker resources are cleaned exactly, pinned base images are kept,
+and no global prune or source/worktree deletion is allowed.

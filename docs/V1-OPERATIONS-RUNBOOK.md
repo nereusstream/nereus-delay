@@ -1964,3 +1964,19 @@ receipts, candidate source lock and current Gradle cache remain under
 Do not publish or call this a full-V1 release until the strict receipt changes
 from `NOT_READY` to `PASS` after the independent §23.4 Benchmark/Capacity
 artifacts are supplied and source-locked.
+
+## 2026-08-22 physical-capacity runbook addition — a11d281c
+
+The physical §23.4 runner is now available at
+`e2e/run-v1-physical-capacity-matrix.sh` in source commit
+`a11d281cbc39416359c9a03085146c40d2142053`. It must be run with a newly
+generated candidate source lock after all participating worktrees are clean.
+It executes the real Kafka campaign before the real Pulsar campaign, captures
+exact Docker/resource evidence, verifies MinIO object-mode evidence and
+removes only the generated project resources. `NEREUS_DELAY_V1_CAPACITY_MATRIX_FAST=1`
+is an orchestration smoke mode and cannot satisfy a release gate.
+
+No new physical run has yet been certified. The f4 receipts are retained as
+historical provenance and must not be supplied to the current-source release
+validator. Keep the pinned Oxia/MinIO images, avoid global Docker prune, and
+continue to protect every source worktree during cleanup.

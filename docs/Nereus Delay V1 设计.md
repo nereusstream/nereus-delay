@@ -5790,3 +5790,19 @@ envelope；bounded probe 不得晋升为 full-V1 measurement。
 是生成并审计独立的 Benchmark/Capacity 物理矩阵，之后才进入最终 release
 manifest，而不是增加新的 abstraction。历史 receipt 保留为 provenance，
 不得与 f4 source lock 混用。
+
+## 2026-08-22 §23.4 physical measurement implementation boundary — a11d281c
+
+`a11d281cbc39416359c9a03085146c40d2142053` 已把 §23.4 的物理测量执行面
+补齐到代码：K1/P1 guarded artifact producer、1M/10M/100M cardinality、
+burst/uniform/Zipf、ordered/unordered、baseline/strong、healthy/bad target、
+single/multi-shard 和 inline/object 模式均有明确参数；
+`e2e/run-v1-physical-capacity-matrix.sh` 负责串行启动真实 Broker、真实
+MinIO、收集 broker/resource/WAL/FD/磁盘证据并生成 source-locked matrix。
+
+该提交已通过 K1/P1 编译、完整 Gradle `test checkDocumentation`、shell
+语法和 diff 检查，但物理矩阵尚未运行，因此不能把实现 harness 晋升为
+`PASS_CERTIFIED`。源已从 f4 移到 `a11d281c`，旧 f4 receipts 只能作为
+历史 provenance；必须先生成新的 candidate source lock，再重跑物理
+Benchmark/Capacity 及其依赖的完整 V1 gates。当前 release 结论仍为
+`NOT_READY`。

@@ -8772,3 +8772,20 @@ is `NOT_READY` solely because the independent physical Benchmark and Capacity
 matrices required by §23.4 are absent. Functional E2E is therefore a
 production-authority proof, not a capacity-envelope proof; no bounded result
 is promoted across that boundary.
+
+## 2026-08-22 physical-capacity execution boundary — a11d281c
+
+The implementation source is `a11d281cbc39416359c9a03085146c40d2142053`.
+The guarded K1/P1 capacity producers and
+`e2e/run-v1-physical-capacity-matrix.sh` now provide the concrete §23.4
+execution path for the Broker/Lane envelope, including real Broker admission,
+object-reference mode, shard placement, target-health rejection, throughput,
+broker evidence and host/container resource observations. The runner is
+serial and source-lock checked; its fast mode is explicitly non-certifying.
+
+The implementation passed K1/P1 compilation, full Gradle `test
+checkDocumentation`, shell syntax and diff checks. It has not yet produced a
+new physical matrix receipt. Therefore f4 evidence cannot be reused after the
+source move to `a11d281c`, and the production-authority design is still
+`NOT_READY` for release purposes until the new independent measurements and
+full gate rerun pass.
