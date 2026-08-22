@@ -2,14 +2,11 @@ package io.nereusstream.delay.transport;
 
 import io.nereusstream.delay.protocol.Bytes;
 import org.apache.pulsar.client.api.GuardedMessageId;
-import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.MessageIdAdv;
-import org.apache.pulsar.client.api.MessageRouter;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.ProducerBuilder;
 import org.apache.pulsar.client.api.Schema;
-import org.apache.pulsar.client.api.TopicMetadata;
 import org.apache.pulsar.client.api.TopicResourceGuard;
 
 import java.io.IOException;
@@ -17,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.net.http.HttpClient;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -85,29 +83,41 @@ public final class PulsarClientArtifactCapacityProducer {
         final long startNanos = System.nanoTime();
         final byte[] payload = payload(configuration.payloadBytes(), configuration.payloadMode(), topic);
 
-        try (PulsarClient client = PulsarClient.builder().serviceUrl(configuration.serviceUrl()).build();
-             Producer<byte[]> producer = createProducer(client, topic, goodGuard, configuration, false)) {
-            Producer<byte[]> badProducer = null;
+        try (PulsarClient client = PulsarClient.builder().serviceUrl(configuration.serviceUrl()).build()) {
+            final List<Producer<byte[]>> producers = new ArrayList<>(configuration.partitions());
+            final List<Producer<byte[]>> badProducers = new ArrayList<>(configuration.partitions());
             String badCreationFailure = "";
-            if (configuration.targetHealth().equals("bad")) {
-                try {
-                    badProducer = createProducer(client, topic, badGuard, configuration, true);
-                } catch (RuntimeException failure) {
-                    badCreationFailure = failure.getClass().getName() + ": " + failure.getMessage();
-                }
-            }
             try {
+                for (int partition = 0; partition < configuration.partitions(); partition++) {
+                    producers.add(createProducer(client, physicalTopic(topic, partition), goodGuard,
+                            configuration, false, partition));
+                }
+                if (configuration.targetHealth().equals("bad")) {
+                    for (int partition = 0; partition < configuration.partitions(); partition++) {
+                        try {
+                            badProducers.add(createProducer(client, physicalTopic(topic, partition), badGuard,
+                                    configuration, true, partition));
+                        } catch (RuntimeException failure) {
+                            badProducers.add(null);
+                            if (badCreationFailure.isEmpty()) {
+                                badCreationFailure = failure.getClass().getName() + ": " + failure.getMessage();
+                            }
+                        }
+                    }
+                }
                 for (long record = 0; record < configuration.records(); record++) {
                     waitForRate(startNanos, record, configuration.ratePerSecond());
                     final boolean bad = isBadRecord(configuration, record);
-                    if (bad && badProducer == null) {
+                    final int requestedPartition = choosePartition(configuration, record);
+                    final Producer<byte[]> selected = bad
+                            ? (requestedPartition < badProducers.size() ? badProducers.get(requestedPartition) : null)
+                            : producers.get(requestedPartition);
+                    if (bad && selected == null) {
                         rejected.incrementAndGet();
                         completions.countDown();
                         continue;
                     }
                     permits.acquire();
-                    final Producer<byte[]> selected = bad ? badProducer : producer;
-                    final int requestedPartition = choosePartition(configuration, record);
                     try {
                         final CompletableFuture<org.apache.pulsar.client.api.MessageId> send = selected.newMessage()
                                 .property("nereus.capacity.partition", Integer.toString(requestedPartition))
@@ -120,18 +130,16 @@ public final class PulsarClientArtifactCapacityProducer {
                                     } else {
                                         recordFailure(errors, firstFailure, failure);
                                     }
-                                } else if (valid(messageId, goodGuard, configuration.partitions())) {
-                                    if (bad) {
-                                        badAccepted.incrementAndGet();
-                                    } else {
-                                        final GuardedMessageId guarded = (GuardedMessageId) messageId;
-                                        accepted.incrementAndGet();
-                                        guardedEvidence.incrementAndGet();
-                                        partitionCounts.incrementAndGet(guarded.partition());
-                                        final MessageIdAdv advanced = (MessageIdAdv) messageId;
-                                        updateMinimum(minEntry, advanced.getEntryId());
-                                        updateMaximum(maxEntry, advanced.getEntryId());
-                                    }
+                                } else if (bad && valid(messageId, badGuard, configuration.partitions())) {
+                                    badAccepted.incrementAndGet();
+                                } else if (!bad && valid(messageId, goodGuard, configuration.partitions())) {
+                                    final GuardedMessageId guarded = (GuardedMessageId) messageId;
+                                    accepted.incrementAndGet();
+                                    guardedEvidence.incrementAndGet();
+                                    partitionCounts.incrementAndGet(guarded.partition());
+                                    final MessageIdAdv advanced = (MessageIdAdv) messageId;
+                                    updateMinimum(minEntry, advanced.getEntryId());
+                                    updateMaximum(maxEntry, advanced.getEntryId());
                                 } else {
                                     recordFailure(errors, firstFailure,
                                             new IllegalStateException("guarded Pulsar response evidence mismatch"));
@@ -166,20 +174,20 @@ public final class PulsarClientArtifactCapacityProducer {
                         maxEntry.get(),
                         partitionCounts, pass, firstFailure.get() == null ? badCreationFailure : firstFailure.get());
             } finally {
-                if (badProducer != null) {
-                    badProducer.close();
-                }
+                closeProducers(badProducers);
+                closeProducers(producers);
             }
         }
     }
 
     private static Producer<byte[]> createProducer(final PulsarClient client, final String topic,
                                                    final TopicResourceGuard guard,
-                                                   final Configuration configuration, final boolean bad)
+                                                   final Configuration configuration, final boolean bad,
+                                                   final int partition)
             throws Exception {
         final ProducerBuilder<byte[]> builder = client.newProducer(Schema.BYTES).topic(topic).resourceGuard(guard)
-                .producerName("nereus-delay-capacity-" + (bad ? "bad" : "good") + "-" + configuration.topicBase())
-                .messageRouter(new PropertyPartitionRouter())
+                .producerName("nereus-delay-capacity-" + (bad ? "bad" : "good") + "-"
+                        + configuration.topicBase() + "-partition-" + partition)
                 .enableBatching(configuration.batchMessages() > 0)
                 .batchingMaxMessages(Math.max(1, configuration.batchMessages()))
                 .batchingMaxBytes(configuration.batchBytes())
@@ -191,6 +199,18 @@ public final class PulsarClientArtifactCapacityProducer {
             builder.batchingMaxPublishDelay(configuration.lingerMs(), TimeUnit.MILLISECONDS);
         }
         return builder.create();
+    }
+
+    private static String physicalTopic(final String topic, final int partition) {
+        return topic + "-partition-" + partition;
+    }
+
+    private static void closeProducers(final List<Producer<byte[]>> producers) throws Exception {
+        for (Producer<byte[]> producer : producers) {
+            if (producer != null) {
+                producer.close();
+            }
+        }
     }
 
     private static boolean valid(final org.apache.pulsar.client.api.MessageId messageId,
@@ -382,19 +402,6 @@ public final class PulsarClientArtifactCapacityProducer {
             } catch (NumberFormatException failure) {
                 throw new IllegalArgumentException(name + " is not numeric: " + value, failure);
             }
-        }
-    }
-
-    private static final class PropertyPartitionRouter implements MessageRouter {
-        private static final long serialVersionUID = 1L;
-
-        @Override
-        public int choosePartition(final Message<?> message, final TopicMetadata metadata) {
-            final String requested = message.getProperty("nereus.capacity.partition");
-            if (requested == null) {
-                return 0;
-            }
-            return Math.max(0, Math.min(metadata.numPartitions() - 1, Integer.parseInt(requested)));
         }
     }
 
