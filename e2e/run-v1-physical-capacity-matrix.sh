@@ -430,6 +430,10 @@ run_pulsar_case pulsar-1m-burst-ordered-baseline-bad-multi-object "${record_1m}"
 "${pulsar_compose[@]}" down --volumes --remove-orphans >/dev/null
 pulsar_up=0
 
+# Remove only the two generated producer images before validating the cleanup
+# receipt. The EXIT trap repeats this operation defensively on failure.
+docker image rm "${kafka_image}" "${pulsar_image}" >/dev/null 2>&1 || true
+
 post_cleanup="${artifact_dir}/docker-post-cleanup.json"
 remaining_kafka_containers="$(docker ps -a --filter "label=com.docker.compose.project=${kafka_project}" -q)"
 remaining_pulsar_containers="$(docker ps -a --filter "label=com.docker.compose.project=${pulsar_project}" -q)"
