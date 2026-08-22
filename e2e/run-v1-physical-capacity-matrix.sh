@@ -290,10 +290,11 @@ run_kafka_case() {
     target_health="$7" placement="$8" payload_mode="$9" partitions="${10}" batch_bytes="${11}" \
     linger_ms="${12}" rate="${13}" max_in_flight="${14}"
   local topic="nereus-delay-v1-${profile_id}-${id//_/-}"
-  local artifact="${artifact_dir}/${id}-kafka.json" object_receipt=""
+  local artifact="${artifact_dir}/${id}-kafka.json" object_receipt="" manifest_object_receipt="-"
   if [[ "${payload_mode}" == "object" ]]; then
     object_receipt="$(upload_object_evidence "${id}" "${kafka_minio_endpoint}" "${kafka_minio_access}" \
       "${kafka_minio_secret}" "${kafka_minio_bucket}" "${payload_bytes}")"
+    manifest_object_receipt="${object_receipt}"
   fi
   local command="./gradlew runRealKafkaCapacityProducer -PkafkaBootstrap=${kafka_bootstrap} -PkafkaTopic=${topic}"
   NEREUS_DELAY_CAPACITY_SOURCE_LOCK_DELAY="${candidate_delay}" \
@@ -317,7 +318,7 @@ run_kafka_case() {
     "${id}" kafka "${records}" "${payload_bytes}" "${arrival}" "${ordering}" "${consistency}" \
     "${target_health}" "${placement}" "${payload_mode}" "${partitions}" "${artifact}" \
     "${artifact_dir}/${id}-docker-stats.json" "${artifact_dir}/${id}-broker-resource.txt" \
-    "${object_receipt}" "${command}" >>"${case_manifest}"
+    "${manifest_object_receipt}" "${command}" >>"${case_manifest}"
 }
 
 run_pulsar_case() {
@@ -325,10 +326,11 @@ run_pulsar_case() {
     target_health="$7" placement="$8" payload_mode="$9" partitions="${10}" batch_messages="${11}" \
     batch_bytes="${12}" linger_ms="${13}" rate="${14}" max_in_flight="${15}"
   local topic_base="nereus-delay-v1-${profile_id}-${id//_/-}"
-  local artifact="${artifact_dir}/${id}-pulsar.json" object_receipt=""
+  local artifact="${artifact_dir}/${id}-pulsar.json" object_receipt="" manifest_object_receipt="-"
   if [[ "${payload_mode}" == "object" ]]; then
     object_receipt="$(upload_object_evidence "${id}" "${pulsar_minio_endpoint}" "${pulsar_minio_access}" \
       "${pulsar_minio_secret}" "${pulsar_minio_bucket}" "${payload_bytes}")"
+    manifest_object_receipt="${object_receipt}"
   fi
   local command="./gradlew runRealPulsarCapacityProducer -PpulsarCapacityTopicBase=${topic_base}"
   NEREUS_DELAY_CAPACITY_SOURCE_LOCK_DELAY="${candidate_delay}" \
@@ -353,7 +355,7 @@ run_pulsar_case() {
     "${id}" pulsar "${records}" "${payload_bytes}" "${arrival}" "${ordering}" "${consistency}" \
     "${target_health}" "${placement}" "${payload_mode}" "${partitions}" "${artifact}" \
     "${artifact_dir}/${id}-docker-stats.json" "${artifact_dir}/${id}-broker-resource.txt" \
-    "${object_receipt}" "${command}" >>"${case_manifest}"
+    "${manifest_object_receipt}" "${command}" >>"${case_manifest}"
 }
 
 echo "building source-locked K1/P1 images"
@@ -464,7 +466,7 @@ observations_json='[]'
 while IFS=$'\t' read -r id broker records payload_bytes arrival ordering consistency target_health placement payload_mode partitions artifact stats resource object_receipt command; do
   [[ -s "${artifact}" && -s "${stats}" && -s "${resource}" ]] || fail "case evidence missing: ${id}"
   files=("${artifact}" "${stats}" "${resource}" "${post_cleanup}")
-  if [[ -n "${object_receipt}" ]]; then
+  if [[ -n "${object_receipt}" && "${object_receipt}" != "-" ]]; then
     [[ -s "${object_receipt}" ]] || fail "object receipt missing: ${id}"
     files+=("${object_receipt}")
   fi
@@ -479,7 +481,8 @@ while IFS=$'\t' read -r id broker records payload_bytes arrival ordering consist
   metrics="$(jq -cn --argjson base "${class_metrics}" --arg stats "${stats}" --arg resource "${resource}" \
     '$base + {docker_stats_file:$stats,broker_resource_file:$resource,resource_observation_status:"PASS"}')"
   status="$(jq -r '.status' "${artifact}")"
-  if [[ -n "${object_receipt}" ]] && [[ "$(jq -r '.status' "${object_receipt}")" != "PASS" ]]; then
+  if [[ -n "${object_receipt}" && "${object_receipt}" != "-" ]] \
+    && [[ "$(jq -r '.status' "${object_receipt}")" != "PASS" ]]; then
     status=FAIL
   fi
   observation="$(jq -cn --arg id "${id}" --arg status "${status}" --arg broker "${broker}" \
