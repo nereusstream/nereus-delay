@@ -112,6 +112,8 @@ pulsar_image="nereus-delay-v1-capacity-p1:${pulsar_project}"
 kafka_context="$(mktemp -d -t nereus-delay-v1-capacity-k1.XXXXXX)"
 pulsar_context="$(mktemp -d -t nereus-delay-v1-capacity-p1.XXXXXX)"
 pulsar_runtime="$(mktemp -d -t nereus-delay-v1-capacity-runtime.XXXXXX)"
+pulsar_bookie_data_dir="/private/tmp/${pulsar_project}-bookie-data"
+mkdir -p "${pulsar_bookie_data_dir}"
 kafka_up=0
 pulsar_up=0
 case_manifest="${artifact_dir}/case-manifest.tsv"
@@ -140,7 +142,7 @@ cleanup() {
   fi
   docker image rm "${kafka_image}" >/dev/null 2>&1 || true
   docker image rm "${pulsar_image}" >/dev/null 2>&1 || true
-  rm -rf "${kafka_context}" "${pulsar_context}" "${pulsar_runtime}"
+  rm -rf "${kafka_context}" "${pulsar_context}" "${pulsar_runtime}" "${pulsar_bookie_data_dir}"
   if [[ "${status}" != "0" ]]; then
     echo "physical capacity matrix failed; exact temporary compose resources were requested for cleanup" >&2
   fi
@@ -281,6 +283,11 @@ capture_snapshot() {
           'du -sb /pulsar/data /pulsar/logs 2>/dev/null || true; find /proc/1/fd -maxdepth 1 -type l 2>/dev/null | wc -l; sed -n "/Max open files/,+1p" /proc/1/limits 2>/dev/null || true'
       } >>"${resource_file}"
     done
+    {
+      echo "bookie_host_data_dir=${pulsar_bookie_data_dir}"
+      df -h "${pulsar_bookie_data_dir}" 2>/dev/null || true
+      du -sh "${pulsar_bookie_data_dir}" 2>/dev/null || true
+    } >>"${resource_file}"
   fi
   [[ -s "${stats_file}" && -s "${resource_file}" ]] || fail "resource snapshot is empty: ${id}"
 }
@@ -413,6 +420,7 @@ export PULSAR_P1_IMAGE="${pulsar_image}" PULSAR_CLUSTER_NAME="standalone" \
   PULSAR_BROKER_1_PORT="${pulsar_broker_1_port}" PULSAR_WEB_1_PORT="${pulsar_web_1_port}" \
   PULSAR_BROKER_2_PORT="${pulsar_broker_2_port}" PULSAR_WEB_2_PORT="${pulsar_web_2_port}" \
   NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" NEREUS_DELAY_PULSAR_LARGE_OXIA_PORT="${pulsar_oxia_port}" \
+  NEREUS_DELAY_PULSAR_BOOKIE_DATA_DIR="${pulsar_bookie_data_dir}" \
   NEREUS_DELAY_PULSAR_LARGE_MINIO_PORT="${pulsar_minio_port}" NEREUS_DELAY_MINIO_IMAGE="${minio_image}" \
   NEREUS_DELAY_MINIO_ACCESS_KEY="${pulsar_minio_access}" NEREUS_DELAY_MINIO_SECRET_KEY="${pulsar_minio_secret}" \
   NEREUS_DELAY_V1_CAPACITY_OXIA_IMAGE="${oxia_image}"

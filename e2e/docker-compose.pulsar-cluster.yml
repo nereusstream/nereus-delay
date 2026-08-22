@@ -46,7 +46,11 @@ services:
     networks:
       - pulsar-cluster
     volumes:
-      - bookie-data:/pulsar/data
+      # The physical capacity harness may supply a host-backed directory here
+      # so a 100M-record campaign measures Broker/BookKeeper capacity instead
+      # of the small Docker Desktop named-volume quota.  Other callers keep
+      # the named-volume default.
+      - ${NEREUS_DELAY_PULSAR_BOOKIE_DATA_DIR:-bookie-data}:/pulsar/data
     depends_on:
       pulsar-init:
         condition: service_completed_successfully
