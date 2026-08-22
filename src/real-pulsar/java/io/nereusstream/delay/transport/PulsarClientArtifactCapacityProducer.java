@@ -189,7 +189,9 @@ public final class PulsarClientArtifactCapacityProducer {
                 .producerName("nereus-delay-capacity-" + (bad ? "bad" : "good") + "-"
                         + configuration.topicBase() + "-partition-" + partition)
                 .enableBatching(configuration.batchMessages() > 0)
-                .batchingMaxMessages(Math.max(1, configuration.batchMessages()))
+                // P1 guarded ACK evidence is per message; the client rejects a
+                // multi-message batch before it can construct GuardedMessageId.
+                .batchingMaxMessages(1)
                 .batchingMaxBytes(configuration.batchBytes())
                 .maxPendingMessages(configuration.maxInFlight())
                 .blockIfQueueFull(true)
@@ -452,8 +454,10 @@ public final class PulsarClientArtifactCapacityProducer {
             json.append("],\n");
             json.append("  \"configuration\": {");
             field(json, "batch_messages", configuration.batchMessages(), true, false);
+            numberField(json, "effective_guarded_batch_messages", 1, true);
             field(json, "batch_bytes", configuration.batchBytes(), true, false);
             field(json, "linger_ms", configuration.lingerMs(), true, false);
+            field(json, "guarded_batching_mode", "singleton-only", true);
             field(json, "fsync_authority", "bookkeeper-ledger-ack", true);
             field(json, "source_lock_delay", sourceLock("NEREUS_DELAY_CAPACITY_SOURCE_LOCK_DELAY"), true, true);
             field(json, "source_lock_kafka", sourceLock("NEREUS_DELAY_CAPACITY_SOURCE_LOCK_KAFKA"), true, true);
