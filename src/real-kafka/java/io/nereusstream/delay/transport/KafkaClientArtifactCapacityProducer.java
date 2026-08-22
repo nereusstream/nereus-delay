@@ -3,12 +3,14 @@ package io.nereusstream.delay.transport;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.admin.TopicDescription;
+import org.apache.kafka.clients.producer.GuardedCallback;
 import org.apache.kafka.clients.producer.GuardedProducer;
 import org.apache.kafka.clients.producer.GuardedRecordMetadata;
+import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.ProducerResourceGuard;
-import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.ResourceGuardException;
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 
@@ -124,6 +126,45 @@ public final class KafkaClientArtifactCapacityProducer {
         final byte[] payload = payload(configuration.payloadBytes(), configuration.payloadMode(),
                 configuration.topic());
         final Uuid badTopicId = Uuid.randomUuid();
+        final ProducerResourceGuard[] healthyGuards = guards(clusterId, configuration.topic(), topicId,
+                configuration.partitions());
+        final ProducerResourceGuard[] badGuards = guards(clusterId, configuration.topic(), badTopicId,
+                configuration.partitions());
+        final GuardedCallback callback = (metadata, failure) -> {
+            final ProducerResourceGuard completionGuard = metadata != null
+                    ? metadata.resourceGuard()
+                    : failure instanceof ResourceGuardException
+                    ? ((ResourceGuardException) failure).guard() : null;
+            final boolean bad = completionGuard != null && !topicId.equals(completionGuard.expectedTopicId());
+            final int partition = completionGuard == null ? -1 : completionGuard.partition();
+            try {
+                if (failure != null) {
+                    if (bad) {
+                        rejected.incrementAndGet();
+                    } else {
+                        recordFailure(errors, firstFailure, failure);
+                    }
+                } else if (completionGuard != null
+                        && valid(metadata, completionGuard, configuration.topic(), partition)) {
+                    if (bad) {
+                        badAccepted.incrementAndGet();
+                    } else {
+                        accepted.incrementAndGet();
+                        guardedEvidence.incrementAndGet();
+                        partitionCounts.incrementAndGet(partition);
+                        final long offset = metadata.recordMetadata().offset();
+                        updateMinimum(minOffset, offset);
+                        updateMaximum(maxOffset, offset);
+                    }
+                } else {
+                    recordFailure(errors, firstFailure,
+                            new IllegalStateException("guarded Kafka response evidence mismatch"));
+                }
+            } finally {
+                completions.countDown();
+                permits.release();
+            }
+        };
 
         try (KafkaProducer<byte[], byte[]> producer = new KafkaProducer<>(properties,
                 new ByteArraySerializer(), new ByteArraySerializer())) {
@@ -133,39 +174,11 @@ public final class KafkaClientArtifactCapacityProducer {
                 permits.acquire();
                 final int partition = choosePartition(configuration, record);
                 final boolean bad = isBadRecord(configuration, record);
-                final ProducerResourceGuard guard = new ProducerResourceGuard(clusterId, configuration.topic(),
-                        bad ? badTopicId : topicId, partition);
+                final ProducerResourceGuard guard = bad ? badGuards[partition] : healthyGuards[partition];
                 final ProducerRecord<byte[], byte[]> producerRecord = new ProducerRecord<>(configuration.topic(),
                         partition, key(record), payload);
                 try {
-                    guarded.sendGuarded(producerRecord, guard, (metadata, failure) -> {
-                        try {
-                            if (failure != null) {
-                                if (bad) {
-                                    rejected.incrementAndGet();
-                                } else {
-                                    recordFailure(errors, firstFailure, failure);
-                                }
-                            } else if (valid(metadata, guard, configuration.topic(), partition)) {
-                                if (bad) {
-                                    badAccepted.incrementAndGet();
-                                } else {
-                                    accepted.incrementAndGet();
-                                    guardedEvidence.incrementAndGet();
-                                    partitionCounts.incrementAndGet(partition);
-                                    final long offset = metadata.recordMetadata().offset();
-                                    updateMinimum(minOffset, offset);
-                                    updateMaximum(maxOffset, offset);
-                                }
-                            } else {
-                                recordFailure(errors, firstFailure,
-                                        new IllegalStateException("guarded Kafka response evidence mismatch"));
-                            }
-                        } finally {
-                            completions.countDown();
-                            permits.release();
-                        }
-                    });
+                    guarded.sendGuarded(producerRecord, guard, callback);
                 } catch (RuntimeException failure) {
                     try {
                         if (bad) {
@@ -194,6 +207,15 @@ public final class KafkaClientArtifactCapacityProducer {
         return new Observation(configuration, clusterId, topicId, accepted.get(), rejected.get(), errors.get(),
                 guardedEvidence.get(), badAccepted.get(), payload.length, elapsedNanos, minOffset.get(), maxOffset.get(),
                 partitionCounts, pass, firstFailure.get());
+    }
+
+    private static ProducerResourceGuard[] guards(final String clusterId, final String topic,
+                                                  final Uuid topicId, final int partitions) {
+        final ProducerResourceGuard[] guards = new ProducerResourceGuard[partitions];
+        for (int partition = 0; partition < partitions; partition++) {
+            guards[partition] = new ProducerResourceGuard(clusterId, topic, topicId, partition);
+        }
+        return guards;
     }
 
     private static boolean valid(final GuardedRecordMetadata metadata, final ProducerResourceGuard guard,
