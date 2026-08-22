@@ -397,6 +397,26 @@ tasks.register('runRealKafkaLargePayloadGatewaySmoke', JavaExec) {
     args findProperty('kafkaBootstrap'), findProperty('kafkaLargePayloadTopic')
 }
 
+tasks.register('runRealKafkaCapacityProducer', JavaExec) {
+    group = 'verification'
+    description = 'Runs the source-locked K1 guarded physical capacity producer.'
+    dependsOn tasks.named('compileRealKafka')
+    def requiredProperties = ['kafkaCapacityBootstrap', 'kafkaCapacityTopic', 'kafkaCapacityArtifact',
+                              'kafkaCapacityRecords', 'kafkaCapacityPayloadBytes', 'kafkaCapacityArrival',
+                              'kafkaCapacityOrdering', 'kafkaCapacityConsistency', 'kafkaCapacityTargetHealth',
+                              'kafkaCapacityPlacement', 'kafkaCapacityPayloadMode', 'kafkaCapacityPartitions',
+                              'kafkaCapacityBatchBytes', 'kafkaCapacityLingerMs', 'kafkaCapacityRatePerSecond',
+                              'kafkaCapacityMaxInFlight', 'kafkaCapacityDeleteTopic']
+    if (realKafkaClientJar == null || requiredProperties.any { findProperty(it) == null }) {
+        doFirst {
+            throw new GradleException('runRealKafkaCapacityProducer requires the K1 client and all kafkaCapacity* properties')
+        }
+    }
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactCapacityProducer'
+    args requiredProperties.collect { findProperty(it) }
+}
+
 tasks.register('compileRealPulsar', JavaCompile) {
     group = 'verification'
     description = 'Compiles the Delay Pulsar binding against explicitly supplied locked P1 client artifacts.'
@@ -685,6 +705,33 @@ tasks.register('runRealPulsarLargePayloadGatewaySmoke', JavaExec) {
             fileTree(realPulsarRuntimeDir).include('**/*.jar'), optionalOxiaClasspath)
     mainClass = 'io.nereusstream.delay.transport.PulsarClientArtifactLargePayloadGatewaySmoke'
     args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarLargePayloadTopic')
+}
+
+tasks.register('runRealPulsarCapacityProducer', JavaExec) {
+    group = 'verification'
+    description = 'Runs the source-locked P1 guarded physical capacity producer.'
+    dependsOn tasks.named('compileRealPulsar')
+    def requiredProperties = ['pulsarCapacityServiceUrl', 'pulsarCapacityAdminUrls', 'pulsarCapacityTopicBase',
+                              'pulsarCapacityArtifact', 'pulsarCapacityRecords', 'pulsarCapacityPayloadBytes',
+                              'pulsarCapacityArrival', 'pulsarCapacityOrdering', 'pulsarCapacityConsistency',
+                              'pulsarCapacityTargetHealth', 'pulsarCapacityPlacement', 'pulsarCapacityPayloadMode',
+                              'pulsarCapacityPartitions', 'pulsarCapacityBatchMessages', 'pulsarCapacityBatchBytes',
+                              'pulsarCapacityLingerMs', 'pulsarCapacityRatePerSecond', 'pulsarCapacityMaxInFlight']
+    if (realPulsarClientClasspath == null || realPulsarRuntimeDir == null
+            || requiredProperties.any { findProperty(it) == null }) {
+        doFirst {
+            throw new GradleException('runRealPulsarCapacityProducer requires P1 client/runtime and all pulsarCapacity* properties')
+        }
+    }
+    doFirst {
+        if (!file(realPulsarRuntimeDir).isDirectory()) {
+            throw new GradleException('pulsarRuntimeDir must be an extracted P1 distribution lib directory')
+        }
+    }
+    classpath = files(sourceSets.main.output, sourceSets.realPulsar.output,
+            realPulsarClientClasspath.split(File.pathSeparator), fileTree(realPulsarRuntimeDir).include('**/*.jar'))
+    mainClass = 'io.nereusstream.delay.transport.PulsarClientArtifactCapacityProducer'
+    args requiredProperties.collect { findProperty(it) }
 }
 
 tasks.register('compileRealCross', JavaCompile) {

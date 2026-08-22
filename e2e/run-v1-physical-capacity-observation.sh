@@ -25,6 +25,8 @@ payload_bytes="${NEREUS_DELAY_V1_CAPACITY_PAYLOAD_BYTES:-1052672}"
 matrix_image="${NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_IMAGE:-eclipse-temurin@sha256:57865c22b954cf920cb05a610af81d577e89783282514ba071e99c7357f6c769}"
 seeded_gradle_home="${NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_GRADLE_USER_HOME:-}"
 full_matrix_input="${NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_FULL_MATRIX_ARTIFACT:-}"
+full_matrix_runner="${NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_FULL_MATRIX_RUNNER:-${script_dir}/run-v1-physical-capacity-matrix.sh}"
+run_full_matrix="${NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_RUN_FULL_MATRIX:-0}"
 started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 fail() {
@@ -42,6 +44,7 @@ command -v python3 >/dev/null 2>&1 || fail "python3 is required for monotonic wa
 [[ -n "${candidate_lock_file}" && -s "${candidate_lock_file}" ]] \
   || fail "NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_CANDIDATE_SOURCE_LOCK must name a JSON file"
 [[ "${run_real}" == "0" || "${run_real}" == "1" ]] || fail "run-real must be 0 or 1"
+[[ "${run_full_matrix}" == "0" || "${run_full_matrix}" == "1" ]] || fail "run-full-matrix must be 0 or 1"
 [[ "${payload_bytes}" =~ ^[1-9][0-9]*$ ]] || fail "payload bytes must be positive"
 [[ "${profile_id}" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$ ]] || fail "profile id is not canonical"
 if [[ -n "${seeded_gradle_home}" ]]; then
@@ -100,6 +103,29 @@ fi
 
 full_matrix_status="MISSING"
 full_matrix_validation_log="${artifact_dir}/full-capacity-matrix-validation.log"
+full_matrix_runner_log="${artifact_dir}/full-capacity-matrix-runner.log"
+if [[ -z "${full_matrix_input}" && "${run_full_matrix}" == "1" ]]; then
+  full_matrix_dir="${artifact_dir}/full-physical-matrix"
+  mkdir -p "${full_matrix_dir}"
+  set +e
+  NEREUS_DELAY_V1_CAPACITY_MATRIX_ARTIFACT_DIR="${full_matrix_dir}" \
+  NEREUS_DELAY_V1_CAPACITY_MATRIX_CANDIDATE_SOURCE_LOCK="${candidate_lock_file}" \
+  NEREUS_DELAY_V1_CAPACITY_MATRIX_PROFILE_ID="${profile_id}-broker-matrix" \
+  NEREUS_DELAY_V1_CAPACITY_MATRIX_GRADLE_USER_HOME="${seeded_gradle_home:-${artifact_dir}/matrix-gradle-user-home}" \
+  NEREUS_DELAY_KAFKA_CHECKOUT="${kafka_dir}" \
+  NEREUS_DELAY_PULSAR_CHECKOUT="${pulsar_dir}" \
+  NEREUS_DELAY_OXIA_CHECKOUT="${oxia_dir}" \
+    bash "${full_matrix_runner}" >"${full_matrix_runner_log}" 2>&1
+  full_matrix_runner_exit=$?
+  set -e
+  if [[ "${full_matrix_runner_exit}" == "0" && -s "${full_matrix_dir}/capacity-matrix.json" ]]; then
+    full_matrix_input="${full_matrix_dir}/capacity-matrix.json"
+  else
+    full_matrix_runner_exit="${full_matrix_runner_exit:-1}"
+  fi
+else
+  full_matrix_runner_exit=2
+fi
 full_matrix_json="$(jq -cn \
   --argjson locks "${source_locks_json}" \
   '{schema:"nereus-delay-v1-capacity-matrix-v1",status:"MISSING",source_locks:$locks,
@@ -151,7 +177,7 @@ count_matches() {
   local expression="$1" file="$2"
   if [[ -s "${file}" ]]; then
     local count
-    count="$(rg -c --no-messages "${expression}" "${file}" || true)"
+    count="$(grep -E -c -- "${expression}" "${file}" 2>/dev/null || true)"
     [[ "${count}" =~ ^[0-9]+$ ]] || count=0
     printf '%s\n' "${count}"
   else
@@ -162,7 +188,7 @@ count_matches() {
 extract_last_value() {
   local expression="$1" file="$2"
   if [[ -s "${file}" ]]; then
-    rg -o --no-messages "${expression}" "${file}" | tail -n 1 | sed -E 's/[^0-9]//g' || true
+    grep -E -o -- "${expression}" "${file}" 2>/dev/null | tail -n 1 | sed -E 's/[^0-9]//g' || true
   fi
 }
 
@@ -286,8 +312,8 @@ kafka_source_records="$(extract_last_value 'sourceRecords=[0-9]+' "${real_kafka_
 pulsar_source_records="$(extract_last_value 'sourceRecords=[0-9]+' "${real_pulsar_log}")"
 kafka_published_records="$(count_matches 'Kafka multi-shard Large Payload partition=' "${real_kafka_log}")"
 pulsar_published_records="$(count_matches 'Pulsar multi-shard Large Payload partition=' "${real_pulsar_log}")"
-kafka_workers_text="$(rg -o --no-messages 'workers=\[[^]]*\]' "${real_kafka_log}" | tail -n 1 | sed -E 's/.*workers=\[([^]]*)\].*/\1/' || true)"
-pulsar_workers_text="$(rg -o --no-messages 'workers=\[[^]]*\]' "${real_pulsar_log}" | tail -n 1 | sed -E 's/.*workers=\[([^]]*)\].*/\1/' || true)"
+kafka_workers_text="$(grep -E -o -- 'workers=\[[^]]*\]' "${real_kafka_log}" 2>/dev/null | tail -n 1 | sed -E 's/.*workers=\[([^]]*)\].*/\1/' || true)"
+pulsar_workers_text="$(grep -E -o -- 'workers=\[[^]]*\]' "${real_pulsar_log}" 2>/dev/null | tail -n 1 | sed -E 's/.*workers=\[([^]]*)\].*/\1/' || true)"
 kafka_workers_json="$(printf '%s\n' "${kafka_workers_text}" | tr ',' '\n' | sed 's/^ *//;s/ *$//' | jq -Rsc 'split("\n") | map(select(length > 0))')"
 pulsar_workers_json="$(printf '%s\n' "${pulsar_workers_text}" | tr ',' '\n' | sed 's/^ *//;s/ *$//' | jq -Rsc 'split("\n") | map(select(length > 0))')"
 kafka_worker_count="$(jq 'length' <<<"${kafka_workers_json}")"
@@ -308,7 +334,8 @@ commands_json="$(jq -cn \
   --arg contract "./gradlew test <physical-capacity-contract-tests> --rerun-tasks --no-daemon" \
   --arg kafka "bash ${script_dir}/run-large-payload-gateway-e2e.sh" \
   --arg pulsar "bash ${script_dir}/run-pulsar-large-payload-gateway-e2e.sh" \
-  '[$matrix,$contract,$kafka,$pulsar]')"
+  --arg physical_matrix "bash ${full_matrix_runner}" \
+  '[$matrix,$contract,$kafka,$pulsar,$physical_matrix]')"
 artifacts_json="$(printf '%s\n' "${matrix_artifact}" "${sustained_artifact}" "${contract_log}" "${real_kafka_log}" "${real_pulsar_log}" | jq -Rsc 'split("\n") | map(select(length > 0))')"
 hashes_json="$(printf '%s\n' "${matrix_artifact}" "${sustained_artifact}" "${contract_log}" "${real_kafka_log}" "${real_pulsar_log}" | while IFS= read -r file; do sha256_or_empty "${file}"; done | jq -Rsc 'split("\n") | map(select(length > 0))')"
 exit_codes_json="$(jq -cn --argjson matrix "${matrix_exit_code}" --argjson contract "${contract_exit_code}" \
@@ -411,6 +438,7 @@ jq -n \
   --arg full_matrix_status "${full_matrix_status}" \
   --arg full_matrix_input "${full_matrix_input}" \
   --arg full_matrix_validation_log "${full_matrix_validation_log}" \
+  --argjson full_matrix_runner_exit "${full_matrix_runner_exit}" \
   --argjson full_matrix_validation_exit "${full_matrix_validation_exit}" \
   --argjson full_matrix "${full_matrix_json}" \
   --arg local_status "${local_measurement_status}" \
@@ -439,6 +467,7 @@ jq -n \
       full_v1_matrix:{
         status:$full_matrix_status,
         source_artifact:$full_matrix_input,
+        runner_exit_code:$full_matrix_runner_exit,
         validation_log:$full_matrix_validation_log,
         validation_exit_code:$full_matrix_validation_exit,
         record_cardinalities:($full_matrix.dimensions.record_cardinalities // []),

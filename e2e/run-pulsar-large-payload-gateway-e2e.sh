@@ -149,7 +149,7 @@ if ! docker image inspect "${minio_image}" >/dev/null 2>&1; then
   exit 1
 fi
 if ! docker image inspect --format '{{join .RepoDigests "\n"}}' "${minio_image}" \
-    | rg -F "@${minio_digest}" >/dev/null; then
+    | grep -F "@${minio_digest}" >/dev/null; then
   echo "local MinIO tag does not carry locked repository digest ${minio_digest}" >&2
   exit 1
 fi
@@ -406,7 +406,7 @@ if [[ "${failover_mode}" == "1" ]]; then
     echo "Pulsar Gateway large-payload failover cut: disconnecting broker-1 from ${network_name}"
     docker network disconnect "${network_name}" "${broker_1_container}"
     if docker network inspect --format '{{json .Containers}}' "${network_name}" \
-        | rg -F --quiet "${broker_1_container}"; then
+        | grep -F --quiet -- "${broker_1_container}"; then
       echo "Pulsar Gateway large-payload network partition did not disconnect broker-1" >&2
       exit 1
     fi
@@ -449,7 +449,7 @@ elif [[ "${network_partition_mode}" == "1" ]]; then
   test -n "${network_name}" && test -n "${broker_1_container}"
   docker network connect "${network_name}" "${broker_1_container}"
   if ! docker network inspect --format '{{json .Containers}}' "${network_name}" \
-      | rg -F --quiet "${broker_1_container}"; then
+      | grep -F --quiet -- "${broker_1_container}"; then
     echo "Pulsar Gateway large-payload network partition did not reconnect broker-1" >&2
     exit 1
   fi

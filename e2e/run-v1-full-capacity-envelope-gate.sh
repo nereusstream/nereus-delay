@@ -22,6 +22,7 @@ candidate_lock_file="${NEREUS_DELAY_V1_CAPACITY_CANDIDATE_SOURCE_LOCK:-}"
 measurement_artifact="${NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_ARTIFACT:-}"
 measurement_runner="${NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_RUNNER:-${script_dir}/run-v1-physical-capacity-observation.sh}"
 run_measurement="${NEREUS_DELAY_V1_CAPACITY_RUN_MEASUREMENT:-0}"
+run_full_matrix="${NEREUS_DELAY_V1_CAPACITY_RUN_FULL_MATRIX:-1}"
 profile_id="${NEREUS_DELAY_V1_CAPACITY_PROFILE_ID:-nereus-delay-v1-${gate}-physical-envelope-r1}"
 run_real="${NEREUS_DELAY_V1_CAPACITY_RUN_REAL:-0}"
 measurement_gradle_home="${NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_GRADLE_USER_HOME:-}"
@@ -43,6 +44,8 @@ command -v git >/dev/null 2>&1 || fail "git is required"
   || fail "NEREUS_DELAY_V1_CAPACITY_RUN_REAL must be 0 or 1"
 [[ "${run_measurement}" == "0" || "${run_measurement}" == "1" ]] \
   || fail "NEREUS_DELAY_V1_CAPACITY_RUN_MEASUREMENT must be 0 or 1"
+[[ "${run_full_matrix}" == "0" || "${run_full_matrix}" == "1" ]] \
+  || fail "NEREUS_DELAY_V1_CAPACITY_RUN_FULL_MATRIX must be 0 or 1"
 [[ "${profile_id}" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$ ]] \
   || fail "profile id is not canonical: ${profile_id}"
 
@@ -106,6 +109,7 @@ if [[ "${run_measurement}" == "1" ]]; then
   NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_PROFILE_ID="${profile_id}" \
   NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_GATE="${gate}" \
   NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_RUN_REAL="${run_real}" \
+  NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_RUN_FULL_MATRIX="${run_full_matrix}" \
   NEREUS_DELAY_V1_CAPACITY_MEASUREMENT_GRADLE_USER_HOME="${measurement_gradle_home}" \
   NEREUS_DELAY_KAFKA_CHECKOUT="${kafka_dir}" \
   NEREUS_DELAY_PULSAR_CHECKOUT="${pulsar_dir}" \
