@@ -1956,9 +1956,9 @@ inputs pass; only Benchmark and Capacity lack independent physical matrices.
 The cleanup boundary is part of this handoff. After the runs, no generated
 `nereus-delay` Docker resources remained. The pinned Oxia and MinIO base images
 were retained, and no global prune was used. Sixty-three stale related
-`/private/tmp` entries were moved, recoverably, to
-`/Users/liusinan/.Trash/nereus-delay-cleanup-20260822-104500`; the retained
-f4 receipts, candidate source lock and current Gradle cache remain under
+`/private/tmp` entries were moved out of the temporary directory into
+`/Users/liusinan/.Trash/nereus-delay-cleanup-20260822-104500`; the retained f4
+receipts, candidate source lock and current Gradle cache remain under
 `/private/tmp`. No worktree, source checkout or `.git` directory was touched.
 
 Do not publish or call this a full-V1 release until the strict receipt changes

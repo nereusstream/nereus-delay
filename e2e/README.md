@@ -7494,6 +7494,6 @@ manifest.
 
 For this run, generated Delay containers/images were absent after cleanup;
 the pinned Oxia/MinIO base images were kept. Sixty-three stale related
-temporary entries were moved to
-`/Users/liusinan/.Trash/nereus-delay-cleanup-20260822-104500`. The move was
-recoverable and `.git`-checked; source code and worktrees were not targeted.
+temporary entries were moved out of `/private/tmp` into
+`/Users/liusinan/.Trash/nereus-delay-cleanup-20260822-104500`. The targets were
+`.git`-checked; source code and worktrees were not targeted.

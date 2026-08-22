@@ -17447,9 +17447,10 @@ artifacts pass with the same source lock. The f4 code change also fixes the
 release validator's certified-chaos cell acceptance; it does not widen any
 promotion boundary.
 
-Cleanup was exact and recoverable: 63 stale related temporary entries were
-moved to `/Users/liusinan/.Trash/nereus-delay-cleanup-20260822-104500`; no
-entry contained `.git`, and no source checkout or worktree was targeted. No
-generated `nereus-delay` Docker container or image remains. The locked
+Cleanup was exact: 63 stale related temporary entries were moved out of
+`/private/tmp` into the user Trash target
+`/Users/liusinan/.Trash/nereus-delay-cleanup-20260822-104500`; the final scan
+found no `.git` or source checkout in those targets, and no source worktree was
+touched. No generated `nereus-delay` Docker container or image remains. The locked
 `nereus/oxia-o1:37a17bef1720` and MinIO base image were retained; no global
 Docker prune was performed.
