@@ -132,8 +132,8 @@ pulsar_exit="$(run_command pulsar "${pulsar_dir}" "${pulsar_log}" env \
 
 delay_exit="$(run_command delay "${delay_dir}" "${delay_log}" env \
   GRADLE_USER_HOME="${delay_gradle_home}" ./gradlew test \
-  --tests io.nereusstream.delay.transport.GuardedTransportOwnershipTest \
-  --tests io.nereusstream.delay.adapter.DestinationPhysicalAdmissionTest \
+  --tests com.nereusstream.delay.transport.GuardedTransportOwnershipTest \
+  --tests com.nereusstream.delay.adapter.DestinationPhysicalAdmissionTest \
   --rerun-tasks --no-daemon --console=plain)"
 
 digest_file="${artifact_dir}/binary-digests.tsv"
@@ -197,13 +197,13 @@ fi
 stock_rejection="FAIL"
 if [[ "${delay_exit}" == "0" ]] \
     && rg -q 'refuses stock name-only|auto-create disabled|requires acks=all' \
-      "${delay_dir}/src/main/java/io/nereusstream/delay/transport/ProductionKafkaProduceTransport.java"; then
+      "${delay_dir}/src/main/java/com/nereusstream/delay/transport/ProductionKafkaProduceTransport.java"; then
   stock_rejection="PASS"
 fi
 name_fallback_rejection="FAIL"
 if [[ "${delay_exit}" == "0" ]] \
     && rg -q 'TopicResourceGuard|different guarded topic|resource guard' \
-      "${delay_dir}/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSourceFactory.java"; then
+      "${delay_dir}/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactWorkerSourceFactory.java"; then
   name_fallback_rejection="PASS"
 fi
 old_protocol_rejection="FAIL"

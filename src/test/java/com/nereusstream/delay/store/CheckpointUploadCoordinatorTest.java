@@ -1,0 +1,591 @@
+package com.nereusstream.delay.store;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CheckpointResourceV1;
+import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
+import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
+import com.nereusstream.delay.protocol.KafkaSourcePosition;
+import com.nereusstream.delay.protocol.OwnerIdentityV1;
+import com.nereusstream.delay.protocol.ProfileKindV1;
+import com.nereusstream.delay.protocol.ProfileRefV1;
+import com.nereusstream.delay.protocol.RouteIncarnation;
+import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.SourcePosition;
+import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class CheckpointUploadCoordinatorTest {
+    @TempDir
+    Path tempDir;
+
+    @Test
+    void inventoriesCheckpointAndPublishesOnlyAfterExactResourceValidation() throws Exception {
+        final Fixture fixture = fixture();
+        final CheckpointUploadIntentStore intentStore = new CheckpointUploadIntentStore();
+        intentStore.create(fixture.pending());
+        final AtomicBoolean called = new AtomicBoolean();
+        try (SharedRocksDbResources resources =
+                new SharedRocksDbResources(ShardStoreConfig.defaults(tempDir.resolve("resources")))) {
+            final CheckpointUploadIntentV1 published = new CheckpointUploadCoordinator(resources, intentStore)
+                    .upload(fixture.directory(), fixture.pending(), fixture.manifest(), 1_000, request -> {
+                        called.set(true);
+                        assertArrayEquals(fixture.manifest().canonicalJsonBytes(), request.manifestBytes());
+                        assertEquals(fixture.directory(), request.checkpointDirectory());
+                        return fixture.resource();
+                    });
+            assertEquals(CheckpointUploadStateV1.PUBLISHED, published.state());
+            assertEquals(fixture.resource(), published.publishedManifest());
+            assertEquals(published, intentStore.current().orElseThrow());
+            assertEquals(true, called.get());
+        }
+    }
+
+    @Test
+    void providerFailureAndWrongIdentityLeavePendingIntentForRetry() throws Exception {
+        final Fixture fixture = fixture();
+        final CheckpointUploadIntentStore intentStore = new CheckpointUploadIntentStore();
+        intentStore.create(fixture.pending());
+        try (SharedRocksDbResources resources =
+                new SharedRocksDbResources(ShardStoreConfig.defaults(tempDir.resolve("retry")))) {
+            final CheckpointUploadCoordinator coordinator = new CheckpointUploadCoordinator(resources, intentStore);
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> coordinator.upload(
+                            fixture.directory(), fixture.pending(), fixture.manifest(), 1_000, request -> {
+                                throw new IllegalStateException("provider response lost");
+                            }));
+            assertEquals(fixture.pending(), intentStore.current().orElseThrow());
+
+            final CheckpointResourceV1 wrong = new CheckpointResourceV1(
+                    fixture.pending().recoveryLineageId(),
+                    bytes(16, 90),
+                    fixture.profile(),
+                    bytes(4, 1),
+                    bytes(4, 2),
+                    bytes(4, 3),
+                    fixture.manifest().canonicalJsonBytes().length,
+                    fixture.manifest().manifestSha256());
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> coordinator.upload(
+                            fixture.directory(), fixture.pending(), fixture.manifest(), 1_000, request -> wrong));
+            assertEquals(fixture.pending(), intentStore.current().orElseThrow());
+
+            final CheckpointUploadIntentV1 published = coordinator.upload(
+                    fixture.directory(), fixture.pending(), fixture.manifest(), 1_000, request -> fixture.resource());
+            assertEquals(CheckpointUploadStateV1.PUBLISHED, published.state());
+        }
+    }
+
+    @Test
+    void rejectsDeadlineAndLocalFileDriftBeforeAdapterInvocation() throws Exception {
+        final Fixture fixture = fixture();
+        final CheckpointUploadIntentStore intentStore = new CheckpointUploadIntentStore();
+        intentStore.create(fixture.pending());
+        final AtomicBoolean called = new AtomicBoolean();
+        try (SharedRocksDbResources resources =
+                new SharedRocksDbResources(ShardStoreConfig.defaults(tempDir.resolve("reject")))) {
+            final CheckpointUploadCoordinator coordinator = new CheckpointUploadCoordinator(resources, intentStore);
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> coordinator.upload(
+                            fixture.directory(), fixture.pending(), fixture.manifest(), 5_001, request -> {
+                                called.set(true);
+                                return fixture.resource();
+                            }));
+            assertEquals(false, called.get());
+            Files.writeString(fixture.directory().resolve("CURRENT"), "tampered\n");
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> coordinator.upload(
+                            fixture.directory(), fixture.pending(), fixture.manifest(), 1_000, request -> {
+                                called.set(true);
+                                return fixture.resource();
+                            }));
+            assertEquals(false, called.get());
+            assertEquals(fixture.pending(), intentStore.current().orElseThrow());
+        }
+    }
+
+    @Test
+    void rejectsCheckpointWithoutRocksDbCurrentMarkerBeforeAdapterInvocation() throws Exception {
+        final Fixture fixture = fixture();
+        final CheckpointUploadIntentStore intentStore = new CheckpointUploadIntentStore();
+        intentStore.create(fixture.pending());
+        final AtomicBoolean called = new AtomicBoolean();
+        Files.delete(fixture.directory().resolve("CURRENT"));
+        try (SharedRocksDbResources resources =
+                new SharedRocksDbResources(ShardStoreConfig.defaults(tempDir.resolve("missing-current")))) {
+            assertThrows(IllegalArgumentException.class, () -> new CheckpointUploadCoordinator(resources, intentStore)
+                    .upload(fixture.directory(), fixture.pending(), fixture.manifest(), 1_000, request -> {
+                        called.set(true);
+                        return fixture.resource();
+                    }));
+        }
+        assertEquals(false, called.get());
+        assertEquals(fixture.pending(), intentStore.current().orElseThrow());
+    }
+
+    @Test
+    void rereadsPublishedIntentAfterResponseLossWithoutCallingAdapter() throws Exception {
+        final Fixture fixture = fixture();
+        final CheckpointUploadIntentStore intentStore = new CheckpointUploadIntentStore();
+        intentStore.create(fixture.pending());
+        final AtomicBoolean retryCalled = new AtomicBoolean();
+        try (SharedRocksDbResources resources =
+                new SharedRocksDbResources(ShardStoreConfig.defaults(tempDir.resolve("response-loss")))) {
+            final CheckpointUploadCoordinator coordinator = new CheckpointUploadCoordinator(resources, intentStore);
+            final CheckpointUploadIntentV1 first = coordinator.upload(
+                    fixture.directory(), fixture.pending(), fixture.manifest(), 1_000, request -> fixture.resource());
+            final CheckpointUploadIntentV1 reread = coordinator.upload(
+                    fixture.directory(),
+                    fixture.pending(),
+                    fixture.manifest(),
+                    fixture.pending().uploadDeadlineEpochMs(),
+                    request -> {
+                        retryCalled.set(true);
+                        throw new AssertionError("published response loss must reread before provider I/O");
+                    });
+            assertEquals(first, reread);
+            assertEquals(CheckpointUploadStateV1.PUBLISHED, reread.state());
+            assertEquals(false, retryCalled.get());
+        }
+    }
+
+    @Test
+    void rereadsIntentAfterUploadSlotBeforeProviderIo() throws Exception {
+        final Fixture fixture = fixture();
+        final CheckpointUploadIntentStore backing = new CheckpointUploadIntentStore();
+        backing.create(fixture.pending());
+        final CheckpointUploadIntentAuthority authority =
+                new PublishAfterFirstPendingRead(backing, fixture.pending(), fixture.resource());
+        final AtomicBoolean adapterCalled = new AtomicBoolean();
+        try (SharedRocksDbResources resources =
+                new SharedRocksDbResources(ShardStoreConfig.defaults(tempDir.resolve("slot-race")))) {
+            final CheckpointUploadIntentV1 result = new CheckpointUploadCoordinator(resources, authority)
+                    .upload(fixture.directory(), fixture.pending(), fixture.manifest(), 1_000, request -> {
+                        adapterCalled.set(true);
+                        throw new AssertionError("stale intent must not reach provider I/O");
+                    });
+            assertEquals(CheckpointUploadStateV1.PUBLISHED, result.state());
+            assertEquals(fixture.resource(), result.publishedManifest());
+            assertEquals(false, adapterCalled.get());
+        }
+    }
+
+    @Test
+    void rereadAfterUploadSlotRejectsPublishedResourceThatDoesNotBindTheManifest() throws Exception {
+        final Fixture fixture = fixture();
+        final CheckpointUploadIntentStore backing = new CheckpointUploadIntentStore();
+        backing.create(fixture.pending());
+        final CheckpointResourceV1 wrongManifestBinding = new CheckpointResourceV1(
+                fixture.pending().recoveryLineageId(),
+                fixture.pending().checkpointId(),
+                fixture.profile(),
+                bytes(4, 31),
+                bytes(8, 32),
+                bytes(8, 33),
+                fixture.manifest().canonicalJsonBytes().length + 1,
+                fixture.manifest().manifestSha256());
+        final CheckpointUploadIntentAuthority authority =
+                new PublishAfterFirstPendingRead(backing, fixture.pending(), wrongManifestBinding);
+        final AtomicBoolean adapterCalled = new AtomicBoolean();
+
+        try (SharedRocksDbResources resources =
+                new SharedRocksDbResources(ShardStoreConfig.defaults(tempDir.resolve("slot-race-wrong-manifest")))) {
+            final CheckpointUploadCoordinator coordinator = new CheckpointUploadCoordinator(resources, authority);
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> coordinator.upload(
+                            fixture.directory(), fixture.pending(), fixture.manifest(), 1_000, request -> {
+                                adapterCalled.set(true);
+                                throw new AssertionError("a concurrently published intent must not call the provider");
+                            }));
+        }
+        assertEquals(false, adapterCalled.get());
+        assertEquals(
+                CheckpointUploadStateV1.PUBLISHED,
+                backing.current().orElseThrow().state());
+    }
+
+    @Test
+    void publicationCoordinatorBindsPublishedIntentToCatalogAndRetriesCatalogResponseLoss() throws Exception {
+        final Fixture fixture = fixture();
+        final CheckpointUploadIntentStore intentStore = new CheckpointUploadIntentStore();
+        intentStore.create(fixture.pending());
+        final RecoveryCatalog catalog = new RecoveryCatalog();
+        // The fixture's intent deliberately carries the post-genesis catalog
+        // generation. Seed the same manifest so the local catalog is at that
+        // generation; publication then exercises the exact object binding and
+        // idempotent retry path rather than inventing a second checkpoint.
+        catalog.publish(fixture.manifest(), 0);
+        final AtomicBoolean retryAdapterCalled = new AtomicBoolean();
+        try (SharedRocksDbResources resources =
+                new SharedRocksDbResources(ShardStoreConfig.defaults(tempDir.resolve("publication")))) {
+            final CheckpointPublicationCoordinator coordinator =
+                    new CheckpointPublicationCoordinator(resources, intentStore, catalog);
+            final CheckpointPublicationCoordinator.CheckpointPublication first = coordinator.publish(
+                    fixture.directory(),
+                    fixture.pending(),
+                    fixture.manifest(),
+                    1,
+                    1_000,
+                    request -> fixture.resource());
+            assertEquals(CheckpointUploadStateV1.PUBLISHED, first.uploadIntent().state());
+            assertArrayEquals(
+                    fixture.manifest().checkpointId(),
+                    first.catalogPublication().manifest().checkpointId());
+            assertEquals(
+                    fixture.resource(),
+                    catalog.snapshot()
+                            .manifestResources()
+                            .get(Bytes.hex(fixture.manifest().checkpointId())));
+
+            final CheckpointPublicationCoordinator.CheckpointPublication retry = coordinator.publish(
+                    fixture.directory(),
+                    fixture.pending(),
+                    fixture.manifest(),
+                    1,
+                    fixture.pending().uploadDeadlineEpochMs(),
+                    request -> {
+                        retryAdapterCalled.set(true);
+                        throw new AssertionError("published upload must not call provider on catalog retry");
+                    });
+            assertEquals(first.uploadIntent(), retry.uploadIntent());
+            assertEquals(first.catalogPublication(), retry.catalogPublication());
+            assertEquals(false, retryAdapterCalled.get());
+        }
+    }
+
+    @Test
+    void rejectsMismatchedAtomicAuthorityRegardlessOfWhichSideDeclaresIt() throws Exception {
+        final CheckpointAtomicPublicationAuthority atomic = new AtomicPublicationAuthorityStub();
+        final CheckpointUploadIntentAuthority independentIntent = new CheckpointUploadIntentStore();
+        final RecoveryCatalog independentCatalog = new RecoveryCatalog();
+        try (SharedRocksDbResources resources =
+                new SharedRocksDbResources(ShardStoreConfig.defaults(tempDir.resolve("atomic-authority-pair")))) {
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> new CheckpointPublicationCoordinator(
+                            resources, atomic, CheckpointManifestLimits.unbounded(), independentCatalog));
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> new CheckpointPublicationCoordinator(
+                            resources, independentIntent, CheckpointManifestLimits.unbounded(), atomic));
+        }
+    }
+
+    @Test
+    void explicitManifestLimitsRejectBeforeProviderIo() throws Exception {
+        final Fixture fixture = fixture();
+        final CheckpointUploadIntentStore intentStore = new CheckpointUploadIntentStore();
+        intentStore.create(fixture.pending());
+        final AtomicBoolean called = new AtomicBoolean();
+        final CheckpointManifestLimits limits =
+                new CheckpointManifestLimits(1, 1L << 20, 1L << 20, 1024, 1 << 20, 10, 1024);
+        try (SharedRocksDbResources resources =
+                new SharedRocksDbResources(ShardStoreConfig.defaults(tempDir.resolve("bounded-manifest")))) {
+            final CheckpointUploadCoordinator coordinator =
+                    new CheckpointUploadCoordinator(resources, intentStore, limits);
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> coordinator.upload(
+                            fixture.directory(), fixture.pending(), fixture.manifest(), 1_000, request -> {
+                                called.set(true);
+                                return fixture.resource();
+                            }));
+        }
+        assertEquals(false, called.get());
+        assertEquals(fixture.pending(), intentStore.current().orElseThrow());
+    }
+
+    @Test
+    void explicitObjectIdentityLimitRejectsProviderResourceBeforeIntentCas() throws Exception {
+        final Fixture fixture = fixture();
+        final CheckpointUploadIntentStore intentStore = new CheckpointUploadIntentStore();
+        intentStore.create(fixture.pending());
+        final AtomicBoolean called = new AtomicBoolean();
+        final CheckpointManifestLimits limits =
+                new CheckpointManifestLimits(10, 1L << 20, 1L << 20, 1024, 1 << 20, 10, 64);
+        final CheckpointResourceV1 oversized = new CheckpointResourceV1(
+                fixture.pending().recoveryLineageId(),
+                fixture.pending().checkpointId(),
+                fixture.profile(),
+                bytes(4, 1),
+                bytes(65, 2),
+                bytes(8, 3),
+                fixture.manifest().canonicalJsonBytes().length,
+                fixture.manifest().manifestSha256());
+        try (SharedRocksDbResources resources =
+                new SharedRocksDbResources(ShardStoreConfig.defaults(tempDir.resolve("bounded-object-identity")))) {
+            final CheckpointUploadCoordinator coordinator =
+                    new CheckpointUploadCoordinator(resources, intentStore, limits);
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> coordinator.upload(
+                            fixture.directory(), fixture.pending(), fixture.manifest(), 1_000, request -> {
+                                called.set(true);
+                                return oversized;
+                            }));
+        }
+        assertEquals(true, called.get());
+        assertEquals(fixture.pending(), intentStore.current().orElseThrow());
+    }
+
+    private Fixture fixture() throws Exception {
+        final Path directory = tempDir.resolve("checkpoint-" + UUID.randomUUID());
+        Files.createDirectories(directory);
+        Files.writeString(directory.resolve("CURRENT"), "MANIFEST-1\n");
+        Files.writeString(directory.resolve("000001.sst"), "sst-bytes");
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
+        final byte[] lineage = bytes(16, 2);
+        final byte[] checkpoint = bytes(16, 3);
+        final UUID storeIncarnation = UUID.randomUUID();
+        final ProfileRefV1 profile =
+                new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, bytes(32, 4), ProfileKindV1.OBJECT_STORE);
+        final OwnerIdentityV1 owner = new OwnerIdentityV1(bytes(8, 5), bytes(8, 6), 42, bytes(32, 7));
+        final List<CheckpointFileInventory> inventory = CheckpointFileInventory.collect(directory);
+        final List<CheckpointManifest.FileEntry> files = inventory.stream()
+                .map(file -> new CheckpointManifest.FileEntry(
+                        file.name(),
+                        file.length(),
+                        file.checksum(),
+                        Bytes.utf8("object/" + file.name()),
+                        Bytes.utf8("version-1"),
+                        null))
+                .toList();
+        final KafkaSourcePosition position = new KafkaSourcePosition(shard, "cluster", UUID.randomUUID(), 9, 3, 1_000);
+        final CheckpointManifest manifest = new CheckpointManifest(
+                checkpoint,
+                lineage,
+                0,
+                null,
+                null,
+                new CheckpointManifest.CreatedBy(owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch()),
+                new CheckpointManifest.CreatedAt(
+                        900, 1_000, "CERTIFIED_HOST_CLOCK", bytes(8, 8), 1, 2, 3, bytes(32, 9), 0, null),
+                shard,
+                bytes(32, 10),
+                storeIncarnation,
+                1,
+                7,
+                position,
+                bytes(32, 11),
+                bytes(32, 12),
+                List.of(),
+                files);
+        final CheckpointUploadIntentV1 pending = new CheckpointUploadIntentV1(
+                new ShardSubjectV1(shard.routeIncarnation(), shard.partition()),
+                lineage,
+                checkpoint,
+                owner,
+                uuidBytes(storeIncarnation),
+                bytes(32, 13),
+                1,
+                null,
+                null,
+                profile,
+                evidence(900),
+                5_000,
+                CheckpointUploadStateV1.PENDING_UPLOAD,
+                1,
+                null,
+                null);
+        final CheckpointResourceV1 resource = new CheckpointResourceV1(
+                lineage,
+                checkpoint,
+                profile,
+                bytes(4, 16),
+                bytes(8, 17),
+                bytes(8, 18),
+                manifest.canonicalJsonBytes().length,
+                manifest.manifestSha256());
+        return new Fixture(directory, profile, manifest, pending, resource);
+    }
+
+    private record Fixture(
+            Path directory,
+            ProfileRefV1 profile,
+            CheckpointManifest manifest,
+            CheckpointUploadIntentV1 pending,
+            CheckpointResourceV1 resource) {}
+
+    /** Changes the intent immediately after the coordinator's first exact read. */
+    private static final class PublishAfterFirstPendingRead implements CheckpointUploadIntentAuthority {
+        private final CheckpointUploadIntentStore delegate;
+        private final CheckpointUploadIntentV1 pending;
+        private final CheckpointResourceV1 resource;
+        private boolean published;
+
+        private PublishAfterFirstPendingRead(
+                final CheckpointUploadIntentStore delegate,
+                final CheckpointUploadIntentV1 pending,
+                final CheckpointResourceV1 resource) {
+            this.delegate = delegate;
+            this.pending = pending;
+            this.resource = resource;
+        }
+
+        @Override
+        public CheckpointUploadIntentV1 create(final CheckpointUploadIntentV1 value) {
+            return delegate.create(value);
+        }
+
+        @Override
+        public CheckpointUploadIntentV1 publish(
+                final CheckpointUploadIntentV1 expected, final CheckpointResourceV1 value) {
+            return delegate.publish(expected, value);
+        }
+
+        @Override
+        public Optional<CheckpointUploadIntentV1> currentPublishedFor(final CheckpointUploadIntentV1 expected) {
+            return delegate.currentPublishedFor(expected);
+        }
+
+        @Override
+        public CheckpointUploadIntentV1 beginReaping(
+                final CheckpointUploadIntentV1 expected, final TrustedUtcIntervalEvidence evidence) {
+            return delegate.beginReaping(expected, evidence);
+        }
+
+        @Override
+        public CheckpointUploadIntentV1 beginReaping(
+                final CheckpointUploadIntentV1 expected,
+                final TrustedUtcIntervalEvidence evidence,
+                final RecoveryCatalogAuthority catalog) {
+            return delegate.beginReaping(expected, evidence, catalog);
+        }
+
+        @Override
+        public Optional<CheckpointUploadIntentV1> current(final CheckpointUploadIntentV1 identity) {
+            final Optional<CheckpointUploadIntentV1> result = delegate.current(identity);
+            if (!published && identity.equals(pending) && result.isPresent()) {
+                delegate.publish(pending, resource);
+                published = true;
+            }
+            return result;
+        }
+    }
+
+    /** Marker-only atomic authority used to exercise constructor pairing. */
+    private static final class AtomicPublicationAuthorityStub implements CheckpointAtomicPublicationAuthority {
+        @Override
+        public CheckpointUploadIntentV1 create(final CheckpointUploadIntentV1 pending) {
+            throw new AssertionError("not invoked");
+        }
+
+        @Override
+        public CheckpointUploadIntentV1 publish(
+                final CheckpointUploadIntentV1 expectedPending, final CheckpointResourceV1 resource) {
+            throw new AssertionError("not invoked");
+        }
+
+        @Override
+        public Optional<CheckpointUploadIntentV1> currentPublishedFor(final CheckpointUploadIntentV1 expectedPending) {
+            throw new AssertionError("not invoked");
+        }
+
+        @Override
+        public CheckpointUploadIntentV1 beginReaping(
+                final CheckpointUploadIntentV1 expectedPending, final TrustedUtcIntervalEvidence evidence) {
+            throw new AssertionError("not invoked");
+        }
+
+        @Override
+        public CheckpointUploadIntentV1 beginReaping(
+                final CheckpointUploadIntentV1 expectedPending,
+                final TrustedUtcIntervalEvidence evidence,
+                final RecoveryCatalogAuthority catalog) {
+            throw new AssertionError("not invoked");
+        }
+
+        @Override
+        public Optional<CheckpointUploadIntentV1> current(final CheckpointUploadIntentV1 identity) {
+            throw new AssertionError("not invoked");
+        }
+
+        @Override
+        public CheckpointUploadIntentV1 publishUploadedCheckpointAtomically(
+                final CheckpointUploadIntentV1 expectedPending,
+                final CheckpointResourceV1 resource,
+                final CheckpointManifest manifest,
+                final long expectedCatalogGeneration) {
+            throw new AssertionError("not invoked");
+        }
+
+        @Override
+        public RecoveryCatalog.Publication publish(
+                final CheckpointManifest manifest, final long expectedCatalogGeneration) {
+            throw new AssertionError("not invoked");
+        }
+
+        @Override
+        public RecoveryFloor advanceFloor(
+                final byte[] checkpointId, final long expectedCatalogGeneration, final byte[] evidenceCursorDigest) {
+            throw new AssertionError("not invoked");
+        }
+
+        @Override
+        public Optional<CheckpointManifest> manifest(final byte[] checkpointId) {
+            throw new AssertionError("not invoked");
+        }
+
+        @Override
+        public Optional<RecoveryFloor> currentFloor() {
+            throw new AssertionError("not invoked");
+        }
+
+        @Override
+        public void validatePublishedRestoreCandidate(final CheckpointManifest candidate) {
+            throw new AssertionError("not invoked");
+        }
+
+        @Override
+        public Optional<RecoveryCatalog.FloorCoverage> proveFloorCoverage(
+                final byte[] candidateCheckpointId,
+                final long requiredMutationSequence,
+                final SourcePosition... requiredPositions) {
+            throw new AssertionError("not invoked");
+        }
+    }
+
+    private static byte[] bytes(final int length, final int seed) {
+        final byte[] value = new byte[length];
+        for (int index = 0; index < length; index++) {
+            value[index] = (byte) (seed + index);
+        }
+        return value;
+    }
+
+    private static byte[] uuidBytes(final UUID value) {
+        return java.nio.ByteBuffer.allocate(16)
+                .putLong(value.getMostSignificantBits())
+                .putLong(value.getLeastSignificantBits())
+                .array();
+    }
+
+    private static TrustedUtcIntervalEvidence evidence(final long time) {
+        return new TrustedUtcIntervalEvidence(
+                time,
+                time + 1,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                bytes(8, 14),
+                1,
+                2,
+                3,
+                bytes(32, 15),
+                0,
+                null);
+    }
+}

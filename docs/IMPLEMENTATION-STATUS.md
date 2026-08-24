@@ -1310,9 +1310,9 @@ temporary standalone service built from Oxia source commit
 ```text
 NEREUS_DELAY_OXIA_ENDPOINT=127.0.0.1:6648 \
 GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle \
-./gradlew test --tests io.nereusstream.delay.ownership.OxiaRealServiceSmokeTest \
-  --tests io.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest \
-  --tests io.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
+./gradlew test --tests com.nereusstream.delay.ownership.OxiaRealServiceSmokeTest \
+  --tests com.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest \
+  --tests com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
   --console=plain
 ```
 All 5 test cases completed with zero failures, errors or skips. The service
@@ -2274,7 +2274,7 @@ a lost race are intentional and safe; reuse is never allowed. The deterministic
 record surface is covered by `OxiaSyncOwnerLeaseBackendTest`. An opt-in
 `OxiaRealServiceSmokeTest` can now run the same boundary against a real Oxia
 gRPC service (`NEREUS_DELAY_OXIA_ENDPOINT=host:port ./gradlew test
---tests io.nereusstream.delay.ownership.OxiaRealServiceSmokeTest
+--tests com.nereusstream.delay.ownership.OxiaRealServiceSmokeTest
 --rerun-tasks`); on 2026-08-12 it passed against the standalone Oxia source at
 `a45e38cf2b8c815499fda4c1b59e017db769142f`, covering durable epoch CAS,
 ephemeral-session creation/removal, renew, lifecycle transition, release and
@@ -5529,13 +5529,13 @@ to the intended modules:
 
 | Package | Current responsibility | Design target |
 |---|---|---|
-| `io.nereusstream.delay.protocol` | IDs, source positions, canonical hash, NDL1 frame, command envelope and body codec | `delay-api` / `delay-client-core` |
-| `io.nereusstream.delay.store` | One RocksDB instance per shard, seven application CFs, value envelope, shared process resources and checkpoints | `delay-store-rocksdb` |
-| `io.nereusstream.delay.runtime` | Deterministic Shard Log application, message state machine and Lane gate projection | `delay-core` |
-| `io.nereusstream.delay.scheduler` | Lane-local failure isolation and bounded weighted DRR | `delay-core` |
-| `io.nereusstream.delay.ownership` | Owner Lease CAS boundary and local ownerEpoch fencing | `delay-server` / `delay-metadata-oxia` |
-| `io.nereusstream.delay.client` | Strict preparation, zero-I/O AUTO_FAST branch selection, immutable managed/native submission bridge, ordered enqueue outcomes, bounded command/message queries, receipt-bound large-payload operations and embedded conformance service | `delay-api` / `delay-client-core` / `delay-testkit` |
-| `io.nereusstream.delay.adapter` | Broker/destination interfaces and test adapters | ingress/adapter modules |
+| `com.nereusstream.delay.protocol` | IDs, source positions, canonical hash, NDL1 frame, command envelope and body codec | `delay-api` / `delay-client-core` |
+| `com.nereusstream.delay.store` | One RocksDB instance per shard, seven application CFs, value envelope, shared process resources and checkpoints | `delay-store-rocksdb` |
+| `com.nereusstream.delay.runtime` | Deterministic Shard Log application, message state machine and Lane gate projection | `delay-core` |
+| `com.nereusstream.delay.scheduler` | Lane-local failure isolation and bounded weighted DRR | `delay-core` |
+| `com.nereusstream.delay.ownership` | Owner Lease CAS boundary and local ownerEpoch fencing | `delay-server` / `delay-metadata-oxia` |
+| `com.nereusstream.delay.client` | Strict preparation, zero-I/O AUTO_FAST branch selection, immutable managed/native submission bridge, ordered enqueue outcomes, bounded command/message queries, receipt-bound large-payload operations and embedded conformance service | `delay-api` / `delay-client-core` / `delay-testkit` |
+| `com.nereusstream.delay.adapter` | Broker/destination interfaces and test adapters | ingress/adapter modules |
 | local monolith packages exist | shared zero-I/O preparation and verified Route cache boundary (`semantic`, `route`) | `delay-semantic-core` / `delay-route-spi` / `delay-route-oxia` extraction and Oxia authority remain pending |
 | local monolith packages exist | transport registry, ownership permits, guarded Kafka/Pulsar bridges, strict production configuration seams, opt-in source-locked K1/K2/P1 bindings, native Worker source factories and no-ACK recovery cursors | `delay-transport-spi` / `delay-client-kafka` / `delay-client-pulsar` extraction, full K2/D3 receipt/source cuts, assignment/session authority and Worker wiring remain pending |
 | local source proto + in-memory Schedule conformance exist | optional multi-language auth/idempotency/quota/audit entry (`gateway`) | `delay-gateway-api` / `delay-gateway` generated modules, auth, quota, audit and HA durability remain pending |
@@ -8558,8 +8558,8 @@ including the injected preparation and `UNKNOWN` Publish outcome. The
 following checks passed:
 
 ```text
-./gradlew test --tests io.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest
-./gradlew test --tests io.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest --tests io.nereusstream.delay.ownership.PublishAdmissionWorkClassExecutorTest
+./gradlew test --tests com.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest
+./gradlew test --tests com.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest --tests com.nereusstream.delay.ownership.PublishAdmissionWorkClassExecutorTest
 ./gradlew check
 BUILD SUCCESSFUL in 1m 13s
 21 actionable tasks: 4 executed, 17 up-to-date
@@ -8685,7 +8685,7 @@ Store Certificate regression is covered by the focused Claim handoff test.
 Verification passed:
 
 ```text
-./gradlew test --tests io.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest --no-daemon --console=plain
+./gradlew test --tests com.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest --no-daemon --console=plain
 BUILD SUCCESSFUL in 5s
 11 actionable tasks: 2 executed, 9 up-to-date
 
@@ -8767,7 +8767,7 @@ or physical Publish authority.
 Verification passed:
 
 ```text
-./gradlew test --tests io.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest --no-daemon --console=plain
+./gradlew test --tests com.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest --no-daemon --console=plain
 BUILD SUCCESSFUL
 
 ./gradlew compileRealKafka -PkafkaClientJar=/Users/liusinan/apps/ideaproject/nereusstream/kafka-worktrees/nereus-delay-k1/clients/build/libs/kafka-clients-4.4.0-SNAPSHOT.jar --no-daemon --console=plain
@@ -8856,7 +8856,7 @@ focused coverage retains the optional-graph and duplicate-shard checks.
 Verification passed:
 
 ```text
-./gradlew test --tests io.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest --tests io.nereusstream.delay.ownership.WorkerShardFleetRuntimeTest --no-daemon --console=plain
+./gradlew test --tests com.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest --tests com.nereusstream.delay.ownership.WorkerShardFleetRuntimeTest --no-daemon --console=plain
 BUILD SUCCESSFUL in 7s
 11 actionable tasks: 3 executed, 8 up-to-date
 
@@ -8895,7 +8895,7 @@ Admission/payload entrypoints.
 Verification passed:
 
 ```text
-./gradlew test --tests io.nereusstream.delay.ownership.WorkerPhysicalPublishExecutorTest --tests io.nereusstream.delay.ownership.WorkerShardFleetRuntimeTest --tests io.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest --no-daemon --console=plain
+./gradlew test --tests com.nereusstream.delay.ownership.WorkerPhysicalPublishExecutorTest --tests com.nereusstream.delay.ownership.WorkerShardFleetRuntimeTest --tests com.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest --no-daemon --console=plain
 BUILD SUCCESSFUL in 6s
 11 actionable tasks: 2 executed, 9 up-to-date
 
@@ -8934,7 +8934,7 @@ owns source-ordered application.
 Focused verification:
 
 ```text
-./gradlew test --tests io.nereusstream.delay.ownership.WorkerPublishOutcomeMutationFactoryTest --tests io.nereusstream.delay.ownership.WorkerPhysicalPublishExecutorTest --no-daemon --console=plain
+./gradlew test --tests com.nereusstream.delay.ownership.WorkerPublishOutcomeMutationFactoryTest --tests com.nereusstream.delay.ownership.WorkerPhysicalPublishExecutorTest --no-daemon --console=plain
 BUILD SUCCESSFUL in 6s
 11 actionable tasks: 3 executed, 8 up-to-date
 
@@ -8966,7 +8966,7 @@ Publish hash immediately before the guarded delegate. Focused verification
 passed:
 
 ```text
-./gradlew test --tests io.nereusstream.delay.ownership.WorkerPhysicalPublishExecutorTest --tests io.nereusstream.delay.adapter.KafkaTransactionalDestinationAdapterTest --no-daemon --console=plain
+./gradlew test --tests com.nereusstream.delay.ownership.WorkerPhysicalPublishExecutorTest --tests com.nereusstream.delay.adapter.KafkaTransactionalDestinationAdapterTest --no-daemon --console=plain
 BUILD SUCCESSFUL in 6s
 11 actionable tasks: 2 executed, 9 up-to-date
 
@@ -8993,7 +8993,7 @@ compatibility default and retain their prior behavior.
 Focused verification:
 
 ```text
-./gradlew test --tests io.nereusstream.delay.adapter.DestinationAdapterTest --tests io.nereusstream.delay.ownership.WorkerPhysicalPublishExecutorTest --no-daemon --console=plain
+./gradlew test --tests com.nereusstream.delay.adapter.DestinationAdapterTest --tests com.nereusstream.delay.ownership.WorkerPhysicalPublishExecutorTest --no-daemon --console=plain
 BUILD SUCCESSFUL in 7s
 11 actionable tasks: 3 executed, 8 up-to-date
 
@@ -9018,7 +9018,7 @@ Admission/payload/source-bound request path.
 Focused verification:
 
 ```text
-./gradlew test --tests io.nereusstream.delay.ownership.WorkerShardRuntimePhysicalLookupTest --tests io.nereusstream.delay.ownership.WorkerPhysicalPublishExecutorTest --no-daemon --console=plain
+./gradlew test --tests com.nereusstream.delay.ownership.WorkerShardRuntimePhysicalLookupTest --tests com.nereusstream.delay.ownership.WorkerPhysicalPublishExecutorTest --no-daemon --console=plain
 BUILD SUCCESSFUL in 6s
 11 actionable tasks: 2 executed, 9 up-to-date
 
@@ -9050,7 +9050,7 @@ handoff; this slice does not shortcut source-ordered RocksDB mutation.
 Verification passed:
 
 ```text
-./gradlew test --tests io.nereusstream.delay.ownership.WorkerShardRuntimePhysicalLookupTest --no-daemon --console=plain
+./gradlew test --tests com.nereusstream.delay.ownership.WorkerShardRuntimePhysicalLookupTest --no-daemon --console=plain
 BUILD SUCCESSFUL in 5s
 11 actionable tasks: 2 executed, 9 up-to-date
 
@@ -9087,7 +9087,7 @@ result remains `UNKNOWN`.
 The new typed builder test, full `check`, and exact real-Kafka compile passed:
 
 ```text
-./gradlew test --tests io.nereusstream.delay.adapter.KafkaTransactionalPublishEvidenceTest --no-daemon --console=plain
+./gradlew test --tests com.nereusstream.delay.adapter.KafkaTransactionalPublishEvidenceTest --no-daemon --console=plain
 BUILD SUCCESSFUL in 5s
 
 ./gradlew check --no-daemon --console=plain
@@ -9587,7 +9587,7 @@ deduplication.
 Focused verification:
 
 ```text
-./gradlew test --tests io.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest --no-daemon --console=plain
+./gradlew test --tests com.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest --no-daemon --console=plain
 BUILD SUCCESSFUL in 59s
 11 actionable tasks: 3 executed, 8 up-to-date
 
@@ -9999,7 +9999,7 @@ The focused test is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
+  --tests com.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
   --no-daemon --console=plain
 ```
 
@@ -10028,8 +10028,8 @@ The focused regression is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.store.ObjectStoreCredentialUseLeaseGateTest \
-  --tests io.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
+  --tests com.nereusstream.delay.store.ObjectStoreCredentialUseLeaseGateTest \
+  --tests com.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
   --no-daemon --console=plain
 ```
 
@@ -10059,7 +10059,7 @@ The deterministic authority regression is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.runtime.OxiaSyncProfileCatalogBackendTest \
+  --tests com.nereusstream.delay.runtime.OxiaSyncProfileCatalogBackendTest \
   --no-daemon --console=plain
 ```
 
@@ -10091,8 +10091,8 @@ The focused composition regression is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.runtime.OxiaObjectStoreCredentialLeaseActivatorTest \
-  --tests io.nereusstream.delay.runtime.OxiaSyncProfileCatalogBackendTest \
+  --tests com.nereusstream.delay.runtime.OxiaObjectStoreCredentialLeaseActivatorTest \
+  --tests com.nereusstream.delay.runtime.OxiaSyncProfileCatalogBackendTest \
   --no-daemon --console=plain
 ```
 
@@ -10120,8 +10120,8 @@ The deterministic regression is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.runtime.CredentialAttestationTrustSetTest \
-  --tests io.nereusstream.delay.runtime.OxiaSyncProfileCatalogBackendTest \
+  --tests com.nereusstream.delay.runtime.CredentialAttestationTrustSetTest \
+  --tests com.nereusstream.delay.runtime.OxiaSyncProfileCatalogBackendTest \
   --no-daemon --console=plain
 ```
 
@@ -10160,8 +10160,8 @@ The deterministic regression is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.store.RenewableS3CompatibleCheckpointObjectStoreAdapterTest \
-  --tests io.nereusstream.delay.store.ObjectStoreCredentialUseLeaseGateTest \
+  --tests com.nereusstream.delay.store.RenewableS3CompatibleCheckpointObjectStoreAdapterTest \
+  --tests com.nereusstream.delay.store.ObjectStoreCredentialUseLeaseGateTest \
   --no-daemon --console=plain
 ```
 
@@ -10193,8 +10193,8 @@ The deterministic regression is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.store.VerifiedCredentialMaterialCacheTest \
-  --tests io.nereusstream.delay.runtime.CredentialAttestationTrustSetTest \
+  --tests com.nereusstream.delay.store.VerifiedCredentialMaterialCacheTest \
+  --tests com.nereusstream.delay.runtime.CredentialAttestationTrustSetTest \
   --no-daemon --console=plain
 ```
 
@@ -10306,7 +10306,7 @@ The focused local regression is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
+  --tests com.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
   --no-daemon --console=plain
 ```
 
@@ -10390,7 +10390,7 @@ The focused local regression is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
+  --tests com.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
   --no-daemon --console=plain
 ```
 
@@ -10436,7 +10436,7 @@ The focused regression is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.store.CheckpointReapingSweepCoordinatorTest \
+  --tests com.nereusstream.delay.store.CheckpointReapingSweepCoordinatorTest \
   --no-daemon --console=plain
 ```
 
@@ -10481,7 +10481,7 @@ The focused regression is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.store.CheckpointReapingSweepCoordinatorTest \
+  --tests com.nereusstream.delay.store.CheckpointReapingSweepCoordinatorTest \
   --no-daemon --console=plain
 ```
 
@@ -10533,8 +10533,8 @@ The focused regression is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.store.CheckpointReapingOwnerProofIssuerTest \
-  --tests io.nereusstream.delay.store.CheckpointReapingSweepCoordinatorTest \
+  --tests com.nereusstream.delay.store.CheckpointReapingOwnerProofIssuerTest \
+  --tests com.nereusstream.delay.store.CheckpointReapingSweepCoordinatorTest \
   --rerun-tasks --no-daemon --console=plain
 ```
 
@@ -10584,8 +10584,8 @@ The focused regression is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.store.ObjectStoreProviderOwnershipTrackerTest \
-  --tests io.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
+  --tests com.nereusstream.delay.store.ObjectStoreProviderOwnershipTrackerTest \
+  --tests com.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
   --no-daemon --console=plain
 ```
 
@@ -10633,7 +10633,7 @@ The focused regression is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.store.CheckpointDeleteConfirmationComposerTest \
+  --tests com.nereusstream.delay.store.CheckpointDeleteConfirmationComposerTest \
   --no-daemon --console=plain
 ```
 
@@ -10701,8 +10701,8 @@ The focused regression is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.store.OxiaSyncRecoveryCatalogBackendTest \
-  --tests io.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
+  --tests com.nereusstream.delay.store.OxiaSyncRecoveryCatalogBackendTest \
+  --tests com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
   --no-daemon --console=plain
 ```
 
@@ -10739,10 +10739,10 @@ The focused regression is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.store.OxiaSyncRecoveryCatalogBackendTest \
-  --tests io.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackendTest \
-  --tests io.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
-  --tests io.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest \
+  --tests com.nereusstream.delay.store.OxiaSyncRecoveryCatalogBackendTest \
+  --tests com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackendTest \
+  --tests com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
+  --tests com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest \
   --no-daemon --console=plain
 ```
 
@@ -10770,8 +10770,8 @@ The focused regression was:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.ownership.OxiaSyncControlOperationBackendTest \
-  --tests io.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest \
+  --tests com.nereusstream.delay.ownership.OxiaSyncControlOperationBackendTest \
+  --tests com.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest \
   --no-daemon --console=plain
 ```
 
@@ -10797,8 +10797,8 @@ The focused regression was:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.ownership.OxiaSyncControlTargetRegistrationBackendTest \
-  --tests io.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest \
+  --tests com.nereusstream.delay.ownership.OxiaSyncControlTargetRegistrationBackendTest \
+  --tests com.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest \
   --no-daemon --console=plain
 ```
 
@@ -10826,8 +10826,8 @@ The focused regression was:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.runtime.OxiaSyncProfileCatalogBackendTest \
-  --tests io.nereusstream.delay.runtime.OxiaRealProfileCatalogSmokeTest \
+  --tests com.nereusstream.delay.runtime.OxiaSyncProfileCatalogBackendTest \
+  --tests com.nereusstream.delay.runtime.OxiaRealProfileCatalogSmokeTest \
   --no-daemon --console=plain
 ```
 
@@ -10854,8 +10854,8 @@ The focused regression was:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.store.OxiaSyncRecoveryCatalogBackendTest \
-  --tests io.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
+  --tests com.nereusstream.delay.store.OxiaSyncRecoveryCatalogBackendTest \
+  --tests com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
   --no-daemon --console=plain
 ```
 
@@ -10883,8 +10883,8 @@ The focused regression was:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackendTest \
-  --tests io.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest \
+  --tests com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackendTest \
+  --tests com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest \
   --no-daemon --console=plain
 ```
 
@@ -10914,8 +10914,8 @@ The focused regression was:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.store.OxiaSyncCheckpointUploadIntentBackendTest \
-  --tests io.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
+  --tests com.nereusstream.delay.store.OxiaSyncCheckpointUploadIntentBackendTest \
+  --tests com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
   --no-daemon --console=plain
 ```
 
@@ -10943,8 +10943,8 @@ The focused regression was:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.ownership.OxiaSyncWorkerAssignmentBackendTest \
-  --tests io.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest \
+  --tests com.nereusstream.delay.ownership.OxiaSyncWorkerAssignmentBackendTest \
+  --tests com.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest \
   --no-daemon --console=plain
 ```
 
@@ -10971,8 +10971,8 @@ The focused receipt command was:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackendTest \
-  --tests io.nereusstream.delay.ownership.OxiaRealServiceSmokeTest \
+  --tests com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackendTest \
+  --tests com.nereusstream.delay.ownership.OxiaRealServiceSmokeTest \
   --no-daemon --console=plain
 ```
 
@@ -10999,9 +10999,9 @@ The focused receipt command was:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.route.OxiaSignedRouteSnapshotProviderTest \
-  --tests io.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest \
-  --tests io.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest \
+  --tests com.nereusstream.delay.route.OxiaSignedRouteSnapshotProviderTest \
+  --tests com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest \
+  --tests com.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest \
   --no-daemon --console=plain
 ```
 
@@ -11027,7 +11027,7 @@ The focused regression is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.store.CheckpointUploadCoordinatorTest \
+  --tests com.nereusstream.delay.store.CheckpointUploadCoordinatorTest \
   --no-daemon --console=plain
 ```
 
@@ -11049,8 +11049,8 @@ The focused regressions are:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.store.OxiaSyncRecoveryCatalogBackendTest \
-  --tests io.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackendTest \
+  --tests com.nereusstream.delay.store.OxiaSyncRecoveryCatalogBackendTest \
+  --tests com.nereusstream.delay.store.OxiaSyncCheckpointPublicationBackendTest \
   --no-daemon --console=plain
 ```
 
@@ -11076,9 +11076,9 @@ The focused receipt command is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.route.OxiaSignedRouteSnapshotProviderTest \
-  --tests io.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest \
-  --tests io.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest \
+  --tests com.nereusstream.delay.route.OxiaSignedRouteSnapshotProviderTest \
+  --tests com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest \
+  --tests com.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest \
   --no-daemon --console=plain
 ```
 
@@ -11142,8 +11142,8 @@ The focused receipt is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.ownership.WorkerShardFleetRuntimeTest \
-  --tests io.nereusstream.delay.route.OxiaSignedRouteSnapshotProviderTest \
+  --tests com.nereusstream.delay.ownership.WorkerShardFleetRuntimeTest \
+  --tests com.nereusstream.delay.route.OxiaSignedRouteSnapshotProviderTest \
   --no-daemon --console=plain
 ```
 
@@ -11165,7 +11165,7 @@ The focused receipt is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.ownership.SourceApplyCoordinatorTest \
+  --tests com.nereusstream.delay.ownership.SourceApplyCoordinatorTest \
   --no-daemon --console=plain
 ```
 
@@ -11206,7 +11206,7 @@ The focused receipt is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.client.DefaultDelayClientTest \
+  --tests com.nereusstream.delay.client.DefaultDelayClientTest \
   --no-daemon --console=plain
 ```
 
@@ -11229,7 +11229,7 @@ The focused receipt is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.route.OxiaRouteAuthoritySessionTest \
+  --tests com.nereusstream.delay.route.OxiaRouteAuthoritySessionTest \
   --no-daemon --console=plain
 ```
 
@@ -11253,8 +11253,8 @@ The focused receipt is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.store.WorkerRuntimeResourceMonitorTest \
-  --tests io.nereusstream.delay.store.WorkerRocksDbUsageMonitorTest \
+  --tests com.nereusstream.delay.store.WorkerRuntimeResourceMonitorTest \
+  --tests com.nereusstream.delay.store.WorkerRocksDbUsageMonitorTest \
   --no-daemon --console=plain
 ```
 
@@ -11278,7 +11278,7 @@ The focused receipt is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.transport.InMemoryCommandTransportRegistryTest \
+  --tests com.nereusstream.delay.transport.InMemoryCommandTransportRegistryTest \
   --no-daemon --console=plain
 ```
 
@@ -11301,7 +11301,7 @@ The focused receipt is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.transport.GuardedTransportOwnershipTest \
+  --tests com.nereusstream.delay.transport.GuardedTransportOwnershipTest \
   --no-daemon --console=plain
 ```
 
@@ -11324,7 +11324,7 @@ The focused receipt is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackendTest \
+  --tests com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackendTest \
   --no-daemon --console=plain
 ```
 
@@ -11346,7 +11346,7 @@ The focused receipt is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.gateway.OxiaGatewayAdmissionControllerTest \
+  --tests com.nereusstream.delay.gateway.OxiaGatewayAdmissionControllerTest \
   --no-daemon --console=plain
 ```
 
@@ -11377,8 +11377,8 @@ The focused receipt is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest \
-  --tests io.nereusstream.delay.gateway.GatewayScheduleServiceTest \
+  --tests com.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest \
+  --tests com.nereusstream.delay.gateway.GatewayScheduleServiceTest \
   --no-daemon --console=plain
 ```
 
@@ -11406,8 +11406,8 @@ The focused receipt is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.gateway.GatewayScheduleServiceTest \
-  --tests io.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest \
+  --tests com.nereusstream.delay.gateway.GatewayScheduleServiceTest \
+  --tests com.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest \
   --no-daemon --console=plain
 ```
 
@@ -11432,7 +11432,7 @@ The focused receipt is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest \
+  --tests com.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest \
   --no-daemon --console=plain
 ```
 
@@ -11460,7 +11460,7 @@ The focused receipt is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest \
+  --tests com.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest \
   --no-daemon --console=plain
 ```
 
@@ -11487,7 +11487,7 @@ The focused receipt is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest \
+  --tests com.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest \
   --no-daemon --console=plain
 ```
 
@@ -11513,8 +11513,8 @@ The focused receipt is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.gateway.GatewayGrpcServiceTest \
-  --tests io.nereusstream.delay.gateway.GatewayScheduleServiceTest \
+  --tests com.nereusstream.delay.gateway.GatewayGrpcServiceTest \
+  --tests com.nereusstream.delay.gateway.GatewayScheduleServiceTest \
   --no-daemon --console=plain
 ```
 
@@ -11536,7 +11536,7 @@ The focused receipt is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.gateway.OxiaGatewayAuditSinkTest \
+  --tests com.nereusstream.delay.gateway.OxiaGatewayAuditSinkTest \
   --no-daemon --console=plain
 ```
 
@@ -14992,7 +14992,7 @@ The focused command was:
 ```bash
 GRADLE_USER_HOME=/tmp/nereus-delay-object-store-faults-20260817-r1 \
   ./gradlew test \
-    --tests io.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
+    --tests com.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
     --no-daemon --console=plain
 ```
 

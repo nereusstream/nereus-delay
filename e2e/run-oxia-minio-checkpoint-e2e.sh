@@ -265,8 +265,8 @@ run_fresh_process_authority() {
         "NEREUS_DELAY_FRESH_PROCESS_AUTHORITY_PHASE=${phase}" \
         "NEREUS_DELAY_FRESH_PROCESS_AUTHORITY_PREFIX=${fresh_process_prefix}" \
         "$delay_root/gradlew" test \
-        --tests io.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest.freshProcessPhaseReopensDurableControlAuthority \
-        --tests io.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest.freshProcessPhaseReopensDurableRecoveryAuthorities \
+        --tests com.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest.freshProcessPhaseReopensDurableControlAuthority \
+        --tests com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest.freshProcessPhaseReopensDurableRecoveryAuthorities \
         --rerun-tasks --no-daemon --console=plain
 }
 
@@ -277,7 +277,7 @@ run_fresh_process_reaping() {
         "NEREUS_DELAY_CHECKPOINT_REAPING_PREFIX=${reaping_prefix}" \
         "NEREUS_DELAY_CHECKPOINT_REAPING_STATE_DIR=${reaping_state_dir}" \
         "$delay_root/gradlew" test \
-        --tests io.nereusstream.delay.store.OxiaRealCheckpointReapingSmokeTest.realOxiaOwnerAbandonmentReapsExactMinioCheckpointPrefix \
+        --tests com.nereusstream.delay.store.OxiaRealCheckpointReapingSmokeTest.realOxiaOwnerAbandonmentReapsExactMinioCheckpointPrefix \
         --rerun-tasks --no-daemon --console=plain
 }
 
@@ -294,26 +294,26 @@ if [[ "${minio_fault_mode}" == "NONE" ]]; then
         echo "Oxia + MinIO checkpoint REAPING fresh-process recovery E2E passed: separate WRITE/READ Gradle JVMs"
     else
         env "${smoke_environment[@]}" "$delay_root/gradlew" test \
-            --tests io.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest \
-            --tests io.nereusstream.delay.ownership.OxiaRealProtocolCapabilitySmokeTest \
-            --tests io.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest \
-            --tests io.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest \
-            --tests io.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
-            --tests io.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.workerCheckpointRuntimePublishesToRealMinioAndOxia \
-            --tests io.nereusstream.delay.store.OxiaRealCheckpointReapingSmokeTest.realOxiaOwnerAbandonmentReapsExactMinioCheckpointPrefix \
-            --tests io.nereusstream.delay.store.OxiaRealObjectStoreCredentialRenewalSmokeTest.renewsRealOxiaLeaseAndFencesTheLiveAdapterAtHeadRotation \
+            --tests com.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest \
+            --tests com.nereusstream.delay.ownership.OxiaRealProtocolCapabilitySmokeTest \
+            --tests com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest \
+            --tests com.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest \
+            --tests com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
+            --tests com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.workerCheckpointRuntimePublishesToRealMinioAndOxia \
+            --tests com.nereusstream.delay.store.OxiaRealCheckpointReapingSmokeTest.realOxiaOwnerAbandonmentReapsExactMinioCheckpointPrefix \
+            --tests com.nereusstream.delay.store.OxiaRealObjectStoreCredentialRenewalSmokeTest.renewsRealOxiaLeaseAndFencesTheLiveAdapterAtHeadRotation \
             --rerun-tasks --no-daemon --console=plain
         echo "Oxia external control/protocol/Route/recovery authority E2E passed"
     fi
 elif [[ "${minio_fault_mode}" == "PUT_503_BEFORE_COMMIT" \
     || "${minio_fault_mode}" == "PUT_TIMEOUT_BEFORE_COMMIT" ]]; then
-    run_smoke io.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.workerCheckpointRuntimeRemainsPendingWhenMinioCommitFailsBeforeProviderWrite
+    run_smoke com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.workerCheckpointRuntimeRemainsPendingWhenMinioCommitFailsBeforeProviderWrite
     set_fault_mode NONE
 else
-    run_smoke io.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.workerCheckpointRuntimePublishesToRealMinioAndOxia
+    run_smoke com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.workerCheckpointRuntimePublishesToRealMinioAndOxia
     set_fault_mode NONE
     set_fault_mode "$minio_fault_mode"
-    run_smoke io.nereusstream.delay.store.OxiaRealCheckpointReapingSmokeTest.realOxiaOwnerAbandonmentReapsExactMinioCheckpointPrefix
+    run_smoke com.nereusstream.delay.store.OxiaRealCheckpointReapingSmokeTest.realOxiaOwnerAbandonmentReapsExactMinioCheckpointPrefix
     set_fault_mode NONE
 fi
 

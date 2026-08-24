@@ -135,37 +135,37 @@ require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "PulsarClientArtifactRecoverySourcePositioner"
 
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/protocol/KafkaBrokerResourceIdentityV1.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/protocol/KafkaBrokerResourceIdentityV1.java" \
     "nativeTopicUuid"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/protocol/PulsarBrokerResourceIdentityV1.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/protocol/PulsarBrokerResourceIdentityV1.java" \
     "resourceIncarnation"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/transport/ProductionKafkaProduceTransport.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/transport/ProductionKafkaProduceTransport.java" \
     "acks != -1 || !idempotenceEnabled || !autoTopicCreationDisabled"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/transport/ProductionPulsarSendTransport.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/transport/ProductionPulsarSendTransport.java" \
     "!batchingDisabled || !chunkingDisabled || !autoTopicCreationDisabled"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/RsaSha256GatewayJwtVerifier.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/RsaSha256GatewayJwtVerifier.java" \
     "SHA256withRSA"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/RsaSha256GatewayJwtVerifier.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/RsaSha256GatewayJwtVerifier.java" \
     "x5t#S256"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/OxiaGatewayAdmissionController.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/OxiaGatewayAdmissionController.java" \
     "IfVersionIdEquals"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/OxiaGatewayAdmissionController.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/OxiaGatewayAdmissionController.java" \
     "containsExact"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
     "GatewayGrpcServer.mutualTls"
 require_file_text "$delay_root/e2e/run-gateway-real-e2e.sh" \
     "OxiaRealGatewayGrpcSmokeTest"
 require_file_text "$delay_root/e2e/run-gateway-real-e2e.sh" \
     "NEREUS_DELAY_GATEWAY_CA_CERT"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
     "afterRestart"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "232ce29d"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
     "concurrentDuplicateRequestsAcrossTwoGatewayServersUseOneDurableAttempt"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "1213650b"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
     "rotatedGatewayCertificatesRejectOldClientAndReuseDurableOutcome"
 require_file_text "$delay_root/e2e/run-gateway-real-e2e.sh" \
     "NEREUS_DELAY_GATEWAY_ROTATED_SERVER_CERT"
@@ -177,21 +177,21 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway certificate replacement and channel revalidation"
 require_file_text "$delay_root/e2e/README.md" \
     "Gateway certificate replacement and channel revalidation"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/SessionBoundOxiaGatewayRecordClient.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/SessionBoundOxiaGatewayRecordClient.java" \
     "before and after every operation"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/OxiaGatewaySessionUnavailableException.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/OxiaGatewaySessionUnavailableException.java" \
     "durable operation is fenced"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackend.java" \
     "assertConnectedSession"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
     "gatewayDurableRecordsRecoverAfterOxiaSessionChurn"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
     "assertThrows(OxiaGatewaySessionUnavailableException.class"
 require_file_text "$delay_root/e2e/run-gateway-real-e2e.sh" \
     "NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN"
 require_file_text "$delay_root/e2e/run-gateway-real-e2e.sh" \
     "NEREUS_DELAY_GATEWAY_SESSION_CHURN_RECOVERY_GATE"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
     "NEREUS_DELAY_GATEWAY_SESSION_CHURN_RECOVERY_READY"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "241068fd"
@@ -201,7 +201,7 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway durable admission/idempotency recovery after Oxia session churn"
 require_file_text "$delay_root/e2e/README.md" \
     "NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN=1"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
     "gatewayRecoversAcrossRealOxiaDataServerFailover"
 require_file_text "$delay_root/e2e/docker-compose.oxia-cluster.yml" \
     "raft-bootstrap-nodes"
@@ -217,9 +217,9 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway recovery across a real multi-node Oxia DataServer leader stop"
 require_file_text "$delay_root/e2e/README.md" \
     "run-oxia-multi-node-gateway-e2e.sh"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
     "attemptCasResponseLossConvergesToUncertainAfterDeadlineWithoutPermit"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/OxiaGatewayIdempotencyStore.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/OxiaGatewayIdempotencyStore.java" \
     "recoverExpiredStartedAttempt"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Gateway STARTED CAS response-loss recovery"
@@ -231,9 +231,9 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway STARTED CAS response-loss recovery"
 require_file_text "$delay_root/e2e/README.md" \
     "Gateway STARTED CAS response-loss recovery"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
     "gatewayRecoversAfterCommittedOxiaAttemptResponseLoss"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
     "Gateway Oxia STARTED response-loss E2E passed"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "real Oxia Gateway STARTED CAS response-loss receipt"
@@ -247,11 +247,11 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "real Oxia Gateway STARTED CAS response-loss receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "Gateway STARTED CAS response-loss recovery against real Oxia"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
     "gatewayRecoversAfterCommittedOxiaRetryAttemptResponseLoss"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/OxiaRealGatewayGrpcSmokeTest.java" \
     "Gateway Oxia RETRY_UNCERTAIN response-loss E2E passed"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
     "GatewayIdempotencyPhaseV1.ACTIVE, next, null"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "real Oxia Gateway RETRY_UNCERTAIN response-loss receipt"
@@ -265,105 +265,105 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "real Oxia Gateway RETRY_UNCERTAIN response-loss receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "Gateway RETRY_UNCERTAIN response-loss recovery against real Oxia"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayAdmissionRecordV1.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/GatewayAdmissionRecordV1.java" \
     "nereus-delay-gateway-admission-record-v1"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayAdmissionControllerTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/OxiaGatewayAdmissionControllerTest.java" \
     "responseLossIsAcceptedOnlyAfterExactRereadForReserveAndRelease"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaRealGatewayAdmissionSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/OxiaRealGatewayAdmissionSmokeTest.java" \
     "admissionPoolsAndExpiryWorkAgainstRealService"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaRouteAuthoritySession.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/route/OxiaRouteAuthoritySession.java" \
     "reconnectSession"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
     "explicitSessionReconnectRotatesMarkerAfterFenceAndRestoresReads"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/semantic/VerifiedNativePreparationSnapshotCache.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/semantic/VerifiedNativePreparationSnapshotCache.java" \
     "NativePreparationEligibilityV1"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/semantic/NativeCapabilitySnapshotIssuer.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/semantic/NativeCapabilitySnapshotIssuer.java" \
     "protectNativeCapability"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/semantic/NativeCapabilityIssuanceAuthority.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/semantic/NativeCapabilityIssuanceAuthority.java" \
     "resolveGuard"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/client/DelayClient.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/client/DelayClient.java" \
     "prepareScheduleSubmissionV1"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/protocol/ActivationBarrierV1.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/protocol/ActivationBarrierV1.java" \
     "toSourceBarrier"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/runtime/DelayShard.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/runtime/DelayShard.java" \
     "resolveClaimMaterializationV1"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/protocol/CanonicalLaneTupleV1.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/protocol/CanonicalLaneTupleV1.java" \
     "public static Projection project"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerCommandRuntime.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/WorkerCommandRuntime.java" \
     "materialization derived from the accepted"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/PublishAdmissionWorkClassExecutor.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/PublishAdmissionWorkClassExecutor.java" \
     "deriveDescriptor"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerShardRuntime.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/WorkerShardRuntime.java" \
     "pollAndSubmitClaim"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/RouteSourceAssignmentFactory.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/RouteSourceAssignmentFactory.java" \
     "fromRoute"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/RouteSourceAssignmentResolver.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/RouteSourceAssignmentResolver.java" \
     "active"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSourceFactory.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactWorkerSourceFactory.java" \
     "ACTIVE_FOR_COMMANDS"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSourceFactory.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactWorkerSourceFactory.java" \
     "consumer.seek"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactRecoverySourceCursor.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactRecoverySourceCursor.java" \
     "never commits a group offset"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactRecoverySourceCursor.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactRecoverySourceCursor.java" \
     "OwnerRecoveryCoordinator"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSourceFactory.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactWorkerSourceFactory.java" \
     "resourceGuardAttestation"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSourceFactory.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactWorkerSourceFactory.java" \
     "WorkerShardRuntime"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactRecoverySourceCursor.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactRecoverySourceCursor.java" \
     "PulsarClientArtifactRecoverySourceCursor"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactRecoverySourceCursor.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactRecoverySourceCursor.java" \
     "requireProof"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactRecoverySourcePositioner.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactRecoverySourcePositioner.java" \
     "seekAfter"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactRecoverySourcePositioner.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactRecoverySourcePositioner.java" \
     "awaitStableProof"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactSourceRecordConsumer.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactSourceRecordConsumer.java" \
     "GuardedConsumer<byte[]>"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactSourceRecordConsumer.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactSourceRecordConsumer.java" \
     "connectionGeneration()"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactSourceRecordDecoder.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactSourceRecordDecoder.java" \
     "SourceReplayMutation"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactShardLogMutationAppender.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactShardLogMutationAppender.java" \
     "sendAsync"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactShardLogMutationAppender.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactShardLogMutationAppender.java" \
     "AppendOutcome.unknown"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactMutationSmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactMutationSmoke.java" \
     "Pulsar Shard Log mutation append/replay/ACK smoke passed"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactSourceRecordConsumer.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactSourceRecordConsumer.java" \
     "KafkaClientArtifactSourceRecordConsumer"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactSourceRecordConsumer.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactSourceRecordConsumer.java" \
     "consumer.commitSync"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactSourceConsumerFactory.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactSourceConsumerFactory.java" \
     "bindResourceGuard"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/protocol/SystemMutationIdentityV1.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/protocol/SystemMutationIdentityV1.java" \
     "RESOURCE_DELETE_CONFIRMED"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/protocol/SystemMutation.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/protocol/SystemMutation.java" \
     "public static SystemMutation decodeFrame"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactSourceRecordDecoder.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactSourceRecordDecoder.java" \
     "SourceReplayMutation"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactShardLogMutationAppender.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactShardLogMutationAppender.java" \
     "sendGuarded"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactShardLogMutationAppender.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactShardLogMutationAppender.java" \
     "AppendOutcome.unknown"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactMutationSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactMutationSmoke.java" \
     "Kafka Shard Log mutation append/replay/ACK smoke passed"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactFetchEvidence.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactFetchEvidence.java" \
     "requireBatch"
 require_file_text "$kafka_checkout/clients/src/main/java/org/apache/kafka/clients/consumer/GuardedConsumer.java" \
     "pollGuarded"
 require_file_text "$kafka_checkout/clients/src/main/java/org/apache/kafka/clients/consumer/GuardedFetchEvidence.java" \
     "fetchResponseBodySha256"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactSourceSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactSourceSmoke.java" \
     "KafkaClientArtifactRecoverySourceCursor"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactFetchResponseLossSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactFetchResponseLossSmoke.java" \
     "Kafka source Fetch response-loss smoke passed"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactRetentionFloorSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactRetentionFloorSmoke.java" \
     "Kafka source retention-floor smoke passed"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactProcessCrashRecoverySmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactProcessCrashRecoverySmoke.java" \
     "Kafka source process-crash recovery smoke passed"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactSurvivorLeaderRecoverySmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactSurvivorLeaderRecoverySmoke.java" \
     "Kafka survivor topic leader recovery passed"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "NEREUS_DELAY_KAFKA_BROKER_PROCESS_CRASH_ONLY"
@@ -445,33 +445,33 @@ require_file_text "$delay_root/e2e/README.md" \
     "Kafka Worker JVM SIGKILL recovery receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "Kafka Worker durable-apply-before-ACK SIGKILL recovery receipt"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "Kafka Worker vertical smoke passed"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "Kafka Worker authority smoke passed"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "CheckpointFileInventory.collect"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "and final checkpoint"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "Kafka Worker restart preparation passed"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "crash-wait"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "NEREUS_DELAY_KAFKA_WORKER_CRASH_PID_FILE"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "NEREUS_DELAY_KAFKA_WORKER_ROOT"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "workerAckProcessCrashConsumer"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "storeWriteBatchDurable=true"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "runSourceAppliedPhysicalPublish"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "readBackSourcePosition"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "Kafka Worker source-applied physical publish passed"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerShardRuntime.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/WorkerShardRuntime.java" \
     "sameSourcePosition"
 require_file_text "$delay_root/build.gradle" \
     "kafkaWorkerDestinationTopic"
@@ -489,9 +489,9 @@ require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "nereus-delay-kafka-e2e-1786812109-79794"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "21092,21093,21094"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerShardRuntime.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/WorkerShardRuntime.java" \
     "bindActiveOwnerPublishGraph"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "runDueClaimPublishPhysicalTurn"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "e5cae7b8e7d9988cc6dca516212d011d49fea5fa"
@@ -499,13 +499,13 @@ require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "nereus-delay-kafka-e2e-1786814042-841"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "21492,21493,21494"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactRouteWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactRouteWorkerSmoke.java" \
     "Kafka signed Route -> guarded Fetch barrier"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactRouteWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactRouteWorkerSmoke.java" \
     "RocksDB apply/checkpoint"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactRouteWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactRouteWorkerSmoke.java" \
     "lastStableOffset"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactRouteWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactRouteWorkerSmoke.java" \
     "accepted-route broker failover"
 require_file_text "$delay_root/build.gradle" \
     "runRealKafkaRouteWorkerSmoke"
@@ -521,25 +521,25 @@ require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS_ONLY"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactTransactionalDestinationTransport.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTransactionalDestinationTransport.java" \
     "NEREUS_DELAY_KAFKA_K2_COMMIT_GATE"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactTransactionalSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTransactionalSmoke.java" \
     "K2 broker failover commit returned PUBLISHED"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactTransactionalSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTransactionalSmoke.java" \
     "K2 broker failover commit resolved after UNKNOWN"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactTransactionalSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTransactionalSmoke.java" \
     "NEREUS_DELAY_KAFKA_K2_COMMITTED_RESPONSE_LOSS"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactTransactionalSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTransactionalSmoke.java" \
     "K2 committed response-loss smoke passed"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/adapter/KafkaTransactionalPublishEvidence.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/adapter/KafkaTransactionalPublishEvidence.java" \
     "KAFKA_TRANSACTIONAL_RECEIPT"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactTransactionalReceiptEvidenceProvider.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTransactionalReceiptEvidenceProvider.java" \
     "lastStableOffset"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactTransactionalReceiptEvidenceProvider.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTransactionalReceiptEvidenceProvider.java" \
     "read_committed"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactTransactionalDestinationTransport.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTransactionalDestinationTransport.java" \
     "typed.requireBusinessMutation"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactTransactionalSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTransactionalSmoke.java" \
     "typed KAFKA_TRANSACTIONAL_RECEIPT evidence"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "6912b940"
@@ -549,11 +549,11 @@ require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "nereus-delay-kafka-e2e-1786806083-13395"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "typed KAFKA_TRANSACTIONAL_RECEIPT evidence"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "destinationResponseLossProducer"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "Kafka Worker destination response-loss smoke passed"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS_ONLY"
@@ -569,11 +569,11 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Kafka Worker destination response-loss receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "NEREUS_DELAY_KAFKA_WORKER_DESTINATION_RESPONSE_LOSS=1"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "sourceAckResponseLossConsumer"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "Kafka Worker source ACK response-loss smoke passed"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "NEREUS_DELAY_KAFKA_SOURCE_ACK_RESPONSE_LOSS_ONLY"
@@ -615,9 +615,9 @@ require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "K2 committed response-loss E2E passed"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "typed KAFKA_TRANSACTIONAL_RECEIPT"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactRouteWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactRouteWorkerSmoke.java" \
     "Pulsar signed Route -> guarded SUBSCRIBE barrier"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactRouteWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactRouteWorkerSmoke.java" \
     "RocksDB apply/checkpoint"
 require_file_text "$delay_root/build.gradle" \
     "runRealPulsarRouteWorkerSmoke"
@@ -627,39 +627,39 @@ require_file_text "$pulsar_checkout/pulsar-broker/src/main/java/org/apache/pulsa
     "resourceGuard"
 require_file_text "$pulsar_checkout/pulsar-broker/src/main/java/org/apache/pulsar/broker/admin/impl/PersistentTopicsBase.java" \
     "internalUpdateTopicResourceGuardPropertiesAsync"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackend.java" \
     "establishSessionMarker"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackend.java" \
     "connectUnchecked"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/SourceAssignment.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/SourceAssignment.java" \
     "canonicalBytes"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerAssignment.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/WorkerAssignment.java" \
     "capacityEnvelopeDigest"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncWorkerAssignmentBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/OxiaSyncWorkerAssignmentBackend.java" \
     "nereus-delay-oxia-worker-assignment-record-v1"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerAssignmentCoordinator.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/WorkerAssignmentCoordinator.java" \
     "requireAccepted"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/RouteWorkerAssignmentCoordinator.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/RouteWorkerAssignmentCoordinator.java" \
     "snapshotDigest"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerSchedulingRuntime.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/WorkerSchedulingRuntime.java" \
     "openForActiveOwner"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerShardRuntime.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/WorkerShardRuntime.java" \
     "runSchedulingTurn"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerCommandRuntime.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/WorkerCommandRuntime.java" \
     "submitPublish"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerShardRuntime.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/WorkerShardRuntime.java" \
     "runCommandTurn"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/scheduler/PersistentLaneScheduler.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/scheduler/PersistentLaneScheduler.java" \
     "forActiveOwner"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/WorkerCheckpointRuntime.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/WorkerCheckpointRuntime.java" \
     "claimDue"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointAtomicPublicationAuthority.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/CheckpointAtomicPublicationAuthority.java" \
     "publishUploadedCheckpointAtomically"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackend.java" \
     "checkpoint-publication-v1"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaRealCheckpointPublicationSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/OxiaRealCheckpointPublicationSmokeTest.java" \
     "workerCheckpointRuntimePublishesAtomicIntentAndCatalogAgainstRealService"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaRealCheckpointPublicationSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/OxiaRealCheckpointPublicationSmokeTest.java" \
     "checkpoint Owner Lease/session"
 require_file_text "$delay_root/e2e/run-oxia-real-service.sh" \
     "OxiaRealCheckpointPublicationSmokeTest"
@@ -707,27 +707,27 @@ require_file_text "$delay_root/build.gradle" \
     "kafkaWorkerMode"
 require_file_text "$delay_root/build.gradle" \
     "runRealKafkaMutationSmoke"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactSourceSmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactSourceSmoke.java" \
     "PulsarClientArtifactRecoverySourceCursor"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
     "Pulsar Worker vertical smoke passed"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
     "prepare"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
     "Pulsar Worker assignment publication/acceptance passed"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
     "CheckpointFileInventory.collect"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
     "and final checkpoint"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "Kafka Worker assignment publication/acceptance passed"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaRealRouteWorkerAssignmentSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/route/OxiaRealRouteWorkerAssignmentSmokeTest.java" \
     "signedRoutePublicationFeedsSessionBoundWorkerAssignmentAuthority"
 require_file_text "$delay_root/e2e/run-oxia-real-service.sh" \
     "OxiaRealRouteWorkerAssignmentSmokeTest"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaRealRouteAuthoritySmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/route/OxiaRealRouteAuthoritySmokeTest.java" \
     "signedRouteProviderRecoversAfterRealOxiaRestart"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaRealRouteAuthoritySmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/route/OxiaRealRouteAuthoritySmokeTest.java" \
     "signedRouteNotificationsRecoverAfterRealOxiaRestart"
 require_file_text "$delay_root/e2e/run-oxia-real-service.sh" \
     "NEREUS_DELAY_OXIA_ROUTE_RESTART"
@@ -766,11 +766,11 @@ require_file_text "$delay_root/build.gradle" \
 require_file_text "$delay_root/build.gradle" \
     "pulsarWithOxia"
 
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/adapter/PulsarSendAckEvidence.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/adapter/PulsarSendAckEvidence.java" \
     "PULSAR_SEND_ACK"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactDestinationTransport.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactDestinationTransport.java" \
     "PulsarSendAckEvidence.published"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactDestinationSmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactDestinationSmoke.java" \
     "Pulsar destination typed-evidence smoke passed"
 require_file_text "$delay_root/build.gradle" \
     "runRealPulsarDestinationSmoke"
@@ -780,11 +780,11 @@ require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \
     "NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_ONLY"
 require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \
     "pulsar-p1-cluster-entrypoint.sh"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactDestinationTransport.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactDestinationTransport.java" \
     "PublishEvidenceProvider"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactDestinationTransport.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactDestinationTransport.java" \
     "PULSAR_SEND_ACK"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactDestinationSmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactDestinationSmoke.java" \
     "Pulsar committed response-loss smoke passed"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "12334f63"
@@ -798,9 +798,9 @@ require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "nereus-delay-pulsar-e2e-1786829967-75545"
 require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \
     "NEREUS_DELAY_PULSAR_SOURCE_ACK_RESPONSE_LOSS_ONLY"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
     "ACK_UNKNOWN"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
     "Pulsar Worker source ACK response-loss smoke passed"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "31145cc8"
@@ -814,9 +814,9 @@ require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "nereus-delay-pulsar-e2e-1786830626-82754"
 require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \
     "NEREUS_DELAY_PULSAR_WORKER_DESTINATION_RESPONSE_LOSS_ONLY"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
     "resolveDestinationResponseLoss"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
     "Pulsar Worker destination response-loss smoke passed"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "c903fe34"
@@ -834,17 +834,17 @@ require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "Pulsar destination typed-evidence smoke passed"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "ledger=11, entry=0, batchIndex=0, sequence=0"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
     "runSourceAppliedPhysicalPublish"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
     "bindActiveOwnerPublishGraph"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
     "runDueClaimPublishPhysicalTurn"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
     "Pulsar Worker source-applied physical publish passed"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactLargePayloadGatewaySmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactLargePayloadGatewaySmoke.java" \
     "Pulsar + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E passed"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerShardRuntime.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/WorkerShardRuntime.java" \
     "runSourceBoundPhysicalPublish"
 require_file_text "$delay_root/build.gradle" \
     "pulsarWorkerDestinationTopic"
@@ -880,7 +880,7 @@ require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "nereus-delay-pulsar-e2e-1786814719-7983"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "21515,21516"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
     "real Oxia session-bound"
 require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \
     "NEREUS_DELAY_PULSAR_WITH_OXIA"
@@ -890,9 +890,9 @@ require_file_text "$delay_root/docs/V1-DESIGN-AUDIT.md" \
     "nereus-delay-pulsar-e2e-1786815185-13398"
 require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md" \
     "Admission source ledger=35/2"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
     "NEREUS_DELAY_PULSAR_LISTENER_NAME"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactWorkerSmoke.java" \
     "followRedirects(HttpClient.Redirect.NORMAL)"
 require_file_text "$delay_root/e2e/run-pulsar-multi-broker-failover-e2e.sh" \
     "NEREUS_DELAY_PULSAR_LISTENER_NAME=external"
@@ -975,69 +975,69 @@ require_file_text "$pulsar_checkout/pulsar-broker/src/main/java/org/apache/pulsa
 require_file_text "$pulsar_checkout/pulsar-client/src/main/java/org/apache/pulsar/client/impl/ProducerImpl.java" \
     "recoverResourceIncarnationMismatch"
 
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
     "x-amz-content-sha256"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
     "verifyAfterAmbiguousPut"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
     "objectBytesLimit"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
     "credentialGate.requireBeforeProviderCall"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/ObjectStoreCredentialUseLeaseGate.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/ObjectStoreCredentialUseLeaseGate.java" \
     "requireBeforeProviderCall"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/runtime/OxiaSyncProfileCatalogBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/runtime/OxiaSyncProfileCatalogBackend.java" \
     "issueCredentialUseLease"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/runtime/OxiaSyncProfileCatalogBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/runtime/OxiaSyncProfileCatalogBackend.java" \
     "IfVersionIdEquals"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/runtime/CredentialAttestationTrustSet.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/runtime/CredentialAttestationTrustSet.java" \
     "semanticDigest"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/runtime/CredentialAttestationTrustSet.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/runtime/CredentialAttestationTrustSet.java" \
     "verifySignature"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/runtime/CredentialProfileAuthority.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/runtime/CredentialProfileAuthority.java" \
     "issueCredentialUseLease"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaObjectStoreCredentialLeaseActivator.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/OxiaObjectStoreCredentialLeaseActivator.java" \
     "activateS3Compatible"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaObjectStoreCredentialLeaseActivator.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/OxiaObjectStoreCredentialLeaseActivator.java" \
     "resolvedCredentialFingerprintDigest"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/RenewableS3CompatibleCheckpointObjectStoreAdapter.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/RenewableS3CompatibleCheckpointObjectStoreAdapter.java" \
     "renewIfNeeded"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/RenewableS3CompatibleCheckpointObjectStoreAdapter.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/RenewableS3CompatibleCheckpointObjectStoreAdapter.java" \
     "requires adapter quiescence"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/ObjectStoreCredentialUseLeaseGate.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/ObjectStoreCredentialUseLeaseGate.java" \
     "renewed Object Store credential lease moves expiry backwards"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/VerifiedCredentialMaterialCache.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/VerifiedCredentialMaterialCache.java" \
     "CacheKey.from"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/VerifiedCredentialMaterialCache.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/VerifiedCredentialMaterialCache.java" \
     "attestationTrustSet.verify"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
     "uploadsAndRestoresAfterManifestResponseLossWithBoundedSigV4Requests"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
     "rejectsImmutableObjectConflictAfterIfNoneMatchPrecondition"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/ObjectStoreCredentialUseLeaseGateTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/ObjectStoreCredentialUseLeaseGateTest.java" \
     "rejectsExpiredLeaseBeforeProviderCall"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/ObjectStoreCredentialUseLeaseGateTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/ObjectStoreCredentialUseLeaseGateTest.java" \
     "rejectsLoadedCredentialFingerprintDriftAtConstruction"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/runtime/OxiaSyncProfileCatalogBackendTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/runtime/OxiaSyncProfileCatalogBackendTest.java" \
     "responseLossIsAcceptedOnlyAfterExactReread"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/runtime/OxiaSyncProfileCatalogBackendTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/runtime/OxiaSyncProfileCatalogBackendTest.java" \
     "rejectsHeadCasDriftAndProfileSemanticCollision"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/runtime/CredentialAttestationTrustSetTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/runtime/CredentialAttestationTrustSetTest.java" \
     "verifiesExactVerifierIdentitySignatureAndWindow"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/runtime/CredentialAttestationTrustSetTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/runtime/CredentialAttestationTrustSetTest.java" \
     "rejectsUnknownVerifierAndOutOfWindowAttestation"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/runtime/OxiaRealProfileCatalogSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/runtime/OxiaRealProfileCatalogSmokeTest.java" \
     "profileHeadProtectionLeaseAndRotationReopenAgainstRealService"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/runtime/OxiaObjectStoreCredentialLeaseActivatorTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/runtime/OxiaObjectStoreCredentialLeaseActivatorTest.java" \
     "rejectsResolverFingerprintDriftBeforeLeaseIssuance"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/runtime/OxiaObjectStoreCredentialLeaseActivatorTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/runtime/OxiaObjectStoreCredentialLeaseActivatorTest.java" \
     "rejectsAuthorityLeaseThatIsNotProtectedByTheRereadProjection"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/RenewableS3CompatibleCheckpointObjectStoreAdapterTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/RenewableS3CompatibleCheckpointObjectStoreAdapterTest.java" \
     "renewsOnlyInsideWindowAndReplacesTheLocalGate"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/RenewableS3CompatibleCheckpointObjectStoreAdapterTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/RenewableS3CompatibleCheckpointObjectStoreAdapterTest.java" \
     "refusesToRenewAcrossAHeadRotationBeforeProviderIo"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/VerifiedCredentialMaterialCacheTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/VerifiedCredentialMaterialCacheTest.java" \
     "resolvesOnlyTheExactVerifiedBindingAndSupportsRemoval"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/VerifiedCredentialMaterialCacheTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/VerifiedCredentialMaterialCacheTest.java" \
     "rejectsUntrustedOrFingerprintDriftAndKeepsPreviousSnapshotOnFailedReplace"
 require_file_text "$delay_root/e2e/run-oxia-real-service.sh" \
     "OxiaRealProfileCatalogSmokeTest"
@@ -1115,7 +1115,7 @@ require_file_text "$delay_root/e2e/run-minio-real-e2e.sh" \
     "--rerun-tasks"
 require_file_text "$delay_root/e2e/run-minio-real-e2e.sh" \
     "sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleMinioRealSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/S3CompatibleMinioRealSmokeTest.java" \
     "immutableCheckpointUploadsIdempotentlyAndRestoresAgainstMinio"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "MinIO S3-compatible checkpoint provider smoke"
@@ -1135,9 +1135,9 @@ require_file_text "$delay_root/e2e/README.md" \
     "MinIO S3-compatible checkpoint real-service receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "Dockerized MinIO S3-compatible checkpoint smoke passed"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
     "responseVersionOrFallback"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
     "rejectsProviderThatOmitsExactVersionHeaders"
 require_file_text "$delay_root/e2e/run-minio-real-e2e.sh" \
     "<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>"
@@ -1151,9 +1151,9 @@ require_file_text "$delay_root/e2e/README.md" \
     "Exact provider-version MinIO receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "780f1e1f-c7da-4dc1-ae4e-a7b9be4f801c"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
     "decodeProviderVersion"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
     "versionId="
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Catalog-bound manifest version readback"
@@ -1165,19 +1165,19 @@ require_file_text "$delay_root/e2e/README.md" \
     "Catalog-bound manifest version readback receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "ac201fe8-ba70-4bcb-a49c-a75a6657be55"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
     "implements CheckpointUploadAdapter, CheckpointDownloadAdapter, CheckpointDeleteAdapter"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
     "private DeleteOperation deleteObject"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
     "aggregateDeleteRequestIds"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointDeleteResult.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/CheckpointDeleteResult.java" \
     "externalEvidence"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
     "deletesEveryCheckpointObjectByExactProviderVersion"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
     "rejectsDeleteThatOmitsExactProviderVersionResponse"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleMinioRealSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/S3CompatibleMinioRealSmokeTest.java" \
     "CheckpointDeleteResult deleted"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Exact checkpoint object-set deletion slice"
@@ -1193,11 +1193,11 @@ require_file_text "$delay_root/e2e/README.md" \
     "Exact checkpoint object-set deletion receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "e223584d-2863-45a1-8471-9b378c0899c5"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
     "aggregateProbeRequestIds"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
     "RemoteObjectObservation"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
     "deleteRetryConvergesAfterPartialResponseLossAndReportsAlreadyAbsent"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Checkpoint delete retry-convergence slice"
@@ -1213,21 +1213,21 @@ require_file_text "$delay_root/e2e/README.md" \
     "Checkpoint delete retry-convergence receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "1a81631c-3bd9-41e6-a132-8abe1da7ea2e"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPrefixSweepAdapter.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/CheckpointPrefixSweepAdapter.java" \
     "CheckpointPrefixSweepResult sweep"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPrefixSweepRequest.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/CheckpointPrefixSweepRequest.java" \
     "MAX_SINGLE_PAGE_VERSIONS"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPrefixSweepResult.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/CheckpointPrefixSweepResult.java" \
     "emptyAfterSweep"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
     "CheckpointPrefixSweepAdapter"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
     "private VersionList listVersions"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
     "parseVersionList"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
     "sweepsExactCheckpointPrefixVersionsAndProvesEmptyAfterward"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleMinioRealSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/S3CompatibleMinioRealSmokeTest.java" \
     "CheckpointReapingSweepResult reaping"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Bounded checkpoint prefix sweep provider seam"
@@ -1245,15 +1245,15 @@ require_file_text "$delay_root/e2e/README.md" \
     "Checkpoint prefix sweep receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "f905db1e-1a7e-455c-bb32-5fa90bb7ed1f"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointReapingSweepCoordinator.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/CheckpointReapingSweepCoordinator.java" \
     "quiescence.reapingEvidence(), catalog"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointReapingSweepResult.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/CheckpointReapingSweepResult.java" \
     "requires a REAPING intent"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointReapingSweepCoordinatorTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/CheckpointReapingSweepCoordinatorTest.java" \
     "responseLossLeavesReapingStateAndRetryUsesTheSamePrefix"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointReapingSweepCoordinatorTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/CheckpointReapingSweepCoordinatorTest.java" \
     "catalogProtectionPreventsProviderSweep"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleMinioRealSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/S3CompatibleMinioRealSmokeTest.java" \
     "CheckpointReapingSweepResult reaping"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "REAPING-to-prefix sweep coordination slice"
@@ -1271,15 +1271,15 @@ require_file_text "$delay_root/e2e/README.md" \
     "Checkpoint REAPING sweep coordination receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "f5404da4-4944-4581-a75d-80dccdad92c3"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointReapingQuiescenceProof.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/CheckpointReapingQuiescenceProof.java" \
     "maximumProviderOwnershipLifetimeMs"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointReapingQuiescenceProof.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/CheckpointReapingQuiescenceProof.java" \
     "requestQuiescenceHorizonMs < minimumHorizon"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointReapingQuiescenceGuard.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/CheckpointReapingQuiescenceGuard.java" \
     "PROVIDER_OWNERSHIP_NOT_CLOSED"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointReapingQuiescenceGuard.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/CheckpointReapingQuiescenceGuard.java" \
     "public static void require"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointReapingSweepCoordinatorTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/CheckpointReapingSweepCoordinatorTest.java" \
     "providerOwnershipHorizonBlocksSweepAfterTheRequestWindow"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Checkpoint REAPING quiescence proof gate"
@@ -1297,19 +1297,19 @@ require_file_text "$delay_root/e2e/README.md" \
     "Checkpoint REAPING quiescence proof receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "9c4dcab9-c03c-4860-81de-07e62302d30e"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointReapingOwnerProof.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/CheckpointReapingOwnerProof.java" \
     "EXACT_OWNER_EXPLICIT_ABANDON"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointReapingOwnerProof.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/CheckpointReapingOwnerProof.java" \
     "recordedLease"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointReapingOwnerProofGuard.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/CheckpointReapingOwnerProofGuard.java" \
     "OWNER_PROOF_DEADLINE_NOT_CLOSED"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointReapingOwnerProofIssuer.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/CheckpointReapingOwnerProofIssuer.java" \
     "explicitOwnerAbandon"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointReapingSweepCoordinator.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/CheckpointReapingSweepCoordinator.java" \
     "CheckpointReapingOwnerProof ownerProof"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointReapingOwnerProofIssuerTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/CheckpointReapingOwnerProofIssuerTest.java" \
     "anotherActorCanProveTheRecordedLeaseWasReplaced"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointReapingSweepCoordinatorTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/CheckpointReapingSweepCoordinatorTest.java" \
     "quiescenceReceiptMustBindTheExactOwnerProof"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Checkpoint REAPING Owner proof gate"
@@ -1325,9 +1325,9 @@ require_file_text "$delay_root/e2e/README.md" \
     "Checkpoint REAPING Owner proof receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "ea89d80e-e63e-4980-b225-94b070d3c36b"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaRealCheckpointReapingSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/OxiaRealCheckpointReapingSmokeTest.java" \
     "realOxiaOwnerAbandonmentReapsExactMinioCheckpointPrefix"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaRealCheckpointReapingSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/OxiaRealCheckpointReapingSmokeTest.java" \
     "real Intent PENDING_UPLOAD->REAPING=true"
 require_file_text "$delay_root/e2e/run-oxia-minio-checkpoint-e2e.sh" \
     "OxiaRealCheckpointReapingSmokeTest.realOxiaOwnerAbandonmentReapsExactMinioCheckpointPrefix"
@@ -1341,21 +1341,21 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Checkpoint REAPING real Oxia/MinIO receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "Checkpoint REAPING with real Oxia and MinIO"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/ObjectStoreProviderOwnershipTracker.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/ObjectStoreProviderOwnershipTracker.java" \
     "maximumProviderOwnershipLifetimeMs"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/ObjectStoreProviderOwnershipTracker.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/ObjectStoreProviderOwnershipTracker.java" \
     "beginQuiescence"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/ObjectStoreProviderOwnershipTracker.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/ObjectStoreProviderOwnershipTracker.java" \
     "locallyQuiescent"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
     "beginProviderQuiescence"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapter.java" \
     "requireCredentialGate();"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/RenewableS3CompatibleCheckpointObjectStoreAdapter.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/RenewableS3CompatibleCheckpointObjectStoreAdapter.java" \
     "requireProviderAdmission"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/ObjectStoreProviderOwnershipTrackerTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/ObjectStoreProviderOwnershipTrackerTest.java" \
     "uncertainCloseRetainsTheConfiguredProviderHorizon"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/S3CompatibleCheckpointObjectStoreAdapterTest.java" \
     "providerQuiescenceFenceStopsNewOperationsBeforeHttp"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Object Store provider-owned request horizon ledger"
@@ -1371,11 +1371,11 @@ require_file_text "$delay_root/e2e/README.md" \
     "Checkpoint provider-owned request horizon ledger receipt"
 require_file_text "$delay_root/e2e/README.md" \
     "1b904a10-2104-46eb-a6fd-0bd2afe24524"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointDeleteConfirmationComposer.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/CheckpointDeleteConfirmationComposer.java" \
     "does not authorize"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointDeleteConfirmationComposer.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/CheckpointDeleteConfirmationComposer.java" \
     "confirmedAt.requireEarliestAtLeast(observedAt.latestEpochMs())"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointDeleteConfirmationComposerTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/CheckpointDeleteConfirmationComposerTest.java" \
     "composesSignedDeletedConfirmationFromExactProviderReceipt"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Checkpoint delete-confirmation mutation composer"
@@ -1390,14 +1390,14 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
 require_file_text "$delay_root/e2e/README.md" \
     "Checkpoint delete-confirmation mutation composition receipt"
 require_file_text "$delay_root/e2e/README.md" \
-    "io.nereusstream.delay.store.CheckpointDeleteConfirmationComposerTest"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/protocol/ResourceDeleteConfirmedBody.java" \
+    "com.nereusstream.delay.store.CheckpointDeleteConfirmationComposerTest"
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/protocol/ResourceDeleteConfirmedBody.java" \
     "this.confirmedAt.requireEarliestAtLeast(this.evidence.observedAt().latestEpochMs())"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/runtime/ResourceDeleteConfirmedRecord.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/runtime/ResourceDeleteConfirmedRecord.java" \
     "confirmedEvidence.requireEarliestAtLeast(observedEvidence.latestEpochMs())"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/protocol/ResourceDeleteConfirmedBodyTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/protocol/ResourceDeleteConfirmedBodyTest.java" \
     "confirmationIntervalMustFollowTheCompleteObservationInterval"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/runtime/ResourceGcGuardTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/runtime/ResourceGcGuardTest.java" \
     "durableDeleteConfirmationRequiresConfirmationAfterObservation"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Delete-confirmation temporal evidence fence"
@@ -1411,11 +1411,11 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Delete-confirmation temporal evidence fence implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Delete-confirmation temporal evidence fence receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/GcWorkClassExecutor.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/GcWorkClassExecutor.java" \
     "submitDeleteConfirmation"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/GcWorkClassExecutor.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/GcWorkClassExecutor.java" \
     "requireStrictlyAfter"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/ownership/GcWorkClassExecutorTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/ownership/GcWorkClassExecutorTest.java" \
     "typedDeleteConfirmationHandoffRequiresReturnedSourceAfterRetire"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Source-ordered GC confirmation handoff"
@@ -1429,25 +1429,25 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Source-ordered GC confirmation handoff implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Source-ordered GC confirmation handoff receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSessionBoundRecoveryPinStore.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/OxiaSessionBoundRecoveryPinStore.java" \
     "PutOption.AsEphemeralRecord"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSessionBoundRecoveryPinStore.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/OxiaSessionBoundRecoveryPinStore.java" \
     "RecoveryPin create/release requires an identity-bearing connected Oxia session"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSessionBoundRecoveryPinStore.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/OxiaSessionBoundRecoveryPinStore.java" \
     "requireCatalogGeneration(requested, currentCatalogGeneration)"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSessionBoundRecoveryPinStore.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/OxiaSessionBoundRecoveryPinStore.java" \
     "DeleteOption.IfVersionIdEquals"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackend.java" \
     "new OxiaSessionBoundRecoveryPinStore(this.client, canonicalPrefix + PIN_SUFFIX)"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackendTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackendTest.java" \
     "recoveryPinUsesAnEphemeralSingletonCasAndExactRereadRelease"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackendTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackendTest.java" \
     "recoveryPinRequiresAnIdentityBearingCallerSession"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaRealRecoveryAuthoritySmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/OxiaRealRecoveryAuthoritySmokeTest.java" \
     "recoveryPinIsSessionBoundAndExpiresWithTheRealOxiaSession"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackendTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackendTest.java" \
     "recoveryPinUsesASeparateEphemeralRecordAlongsideAtomicPublication"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaRealCheckpointPublicationSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/OxiaRealCheckpointPublicationSmokeTest.java" \
     "recoveryPinIsSessionBoundAndExpiresWithTheRealPublicationSession"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Oxia session-bound Recovery Pin CAS"
@@ -1469,13 +1469,13 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Atomic publication Recovery Pin CAS implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Atomic publication Recovery Pin CAS receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncControlOperationBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/OxiaSyncControlOperationBackend.java" \
     "handle.backend()::assertConnectedSession"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncControlOperationBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/OxiaSyncControlOperationBackend.java" \
     "successful CAS whose response is lost after the marker disappears"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/ownership/OxiaSyncControlOperationBackendTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/ownership/OxiaSyncControlOperationBackendTest.java" \
     "sessionFenceRejectsACommittedWriteAfterTheMarkerChanges"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/ownership/OxiaRealControlAuthoritySmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/ownership/OxiaRealControlAuthoritySmokeTest.java" \
     "new OxiaSyncControlOperationBackend(client, prefix + \"/operation\")"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Oxia Control Operation session-bound CAS"
@@ -1487,13 +1487,13 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Oxia Control Operation session-bound CAS implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Oxia Control Operation session-bound CAS receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncControlTargetRegistrationBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/OxiaSyncControlTargetRegistrationBackend.java" \
     "handle.backend()::assertConnectedSession"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncControlTargetRegistrationBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/OxiaSyncControlTargetRegistrationBackend.java" \
     "successful registration whose response is lost after the marker"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/ownership/OxiaSyncControlTargetRegistrationBackendTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/ownership/OxiaSyncControlTargetRegistrationBackendTest.java" \
     "sessionFenceRejectsACommittedRegistrationAfterTheMarkerChanges"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/ownership/OxiaRealControlAuthoritySmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/ownership/OxiaRealControlAuthoritySmokeTest.java" \
     "new OxiaSyncControlTargetRegistrationBackend(client, prefix + \"/target\")"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Oxia Control Target Registration session-bound CAS"
@@ -1505,13 +1505,13 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Oxia Control Target Registration session-bound CAS implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Oxia Control Target Registration session-bound CAS receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/runtime/OxiaSyncProfileCatalogBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/runtime/OxiaSyncProfileCatalogBackend.java" \
     "handle.backend()::assertConnectedSession"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/runtime/OxiaSyncProfileCatalogBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/runtime/OxiaSyncProfileCatalogBackend.java" \
     "profile mutation whose response is lost after the marker disappears"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/runtime/OxiaSyncProfileCatalogBackendTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/runtime/OxiaSyncProfileCatalogBackendTest.java" \
     "sessionFenceRejectsACommittedPublicationAfterTheMarkerChanges"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/runtime/OxiaRealProfileCatalogSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/runtime/OxiaRealProfileCatalogSmokeTest.java" \
     "client, prefix + \"/catalog\", 5_000, 10_000"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Oxia credential Profile catalog session-bound CAS"
@@ -1523,13 +1523,13 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Oxia credential Profile catalog session-bound CAS implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Oxia credential Profile catalog session-bound CAS receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackend.java" \
     "handle.backend()::assertConnectedSession"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackend.java" \
     "catalog CAS whose response is lost after the marker"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackendTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackendTest.java" \
     "sessionFenceRejectsACommittedCatalogPublicationAfterTheMarkerChanges"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaRealRecoveryAuthoritySmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/OxiaRealRecoveryAuthoritySmokeTest.java" \
     "client, prefix + \"/catalog\", LIMITS);"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Oxia Recovery Catalog session-bound CAS"
@@ -1541,13 +1541,13 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Oxia Recovery Catalog session-bound CAS implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Oxia Recovery Catalog session-bound CAS receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackend.java" \
     "handle.backend()::assertConnectedSession"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackend.java" \
     "publication CAS whose response is lost after the marker"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackendTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackendTest.java" \
     "sessionFenceRejectsACommittedPublicationAfterTheMarkerChanges"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaRealCheckpointPublicationSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/OxiaRealCheckpointPublicationSmokeTest.java" \
     "new OxiaSyncCheckpointPublicationBackend(client, prefix + \"/publication\", LIMITS)"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Oxia Checkpoint Publication session-bound CAS"
@@ -1559,13 +1559,13 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Oxia Checkpoint Publication session-bound CAS implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Oxia Checkpoint Publication session-bound CAS receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSyncCheckpointUploadIntentBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/OxiaSyncCheckpointUploadIntentBackend.java" \
     "handle.backend()::assertConnectedSession"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSyncCheckpointUploadIntentBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/OxiaSyncCheckpointUploadIntentBackend.java" \
     "committed CAS whose response is lost after the marker"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaSyncCheckpointUploadIntentBackendTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/OxiaSyncCheckpointUploadIntentBackendTest.java" \
     "sessionFenceRejectsACommittedIntentAfterTheMarkerChanges"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaRealRecoveryAuthoritySmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/OxiaRealRecoveryAuthoritySmokeTest.java" \
     "new OxiaSyncCheckpointUploadIntentBackend(client, prefix + \"/intent\")"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Oxia Checkpoint Upload Intent session-bound CAS"
@@ -1577,13 +1577,13 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Oxia Checkpoint Upload Intent session-bound CAS implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Oxia Checkpoint Upload Intent session-bound CAS receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncWorkerAssignmentBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/OxiaSyncWorkerAssignmentBackend.java" \
     "Worker-assignment record"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncWorkerAssignmentBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/OxiaSyncWorkerAssignmentBackend.java" \
     "assignment CAS whose response is lost after the"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/ownership/OxiaSyncWorkerAssignmentBackendTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/ownership/OxiaSyncWorkerAssignmentBackendTest.java" \
     "sessionFenceRejectsACommittedAssignmentAfterTheMarkerChanges"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaRealRouteWorkerAssignmentSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/route/OxiaRealRouteWorkerAssignmentSmokeTest.java" \
     "new OxiaSyncWorkerAssignmentBackend(assignmentHandle"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Oxia Worker assignment session-bound CAS"
@@ -1595,13 +1595,13 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Oxia Worker assignment session-bound CAS implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Oxia Worker assignment session-bound CAS receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackend.java" \
     "owner epoch or lease"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackend.java" \
     "committed ephemeral lease whose response is lost"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackendTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackendTest.java" \
     "sessionFenceRejectsACommittedLeaseAfterTheMarkerChanges"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/ownership/OxiaRealServiceSmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/ownership/OxiaRealServiceSmokeTest.java" \
     "OxiaSyncOwnerLeaseBackend.connect("
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Oxia Owner Lease session-bound CAS"
@@ -1613,27 +1613,27 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Oxia Owner Lease session-bound CAS implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Oxia Owner Lease session-bound CAS receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaRouteAuthoritySession.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/route/OxiaRouteAuthoritySession.java" \
     "SessionBoundIterable"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaRouteAuthoritySession.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/route/OxiaRouteAuthoritySession.java" \
     "lazy iterator consumes Oxia data"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
     "sessionFenceRejectsACommittedRouteHeadAfterTheMarkerChanges"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaRouteAuthoritySession.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/route/OxiaRouteAuthoritySession.java" \
     "notificationDelegate.notifications(consumer);"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
     "notificationReconnectRequiresTheCurrentSessionBeforeRegistration"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
     "notificationReconnectRejectsACommittedRegistrationAfterTheMarkerChanges"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProvider.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/route/OxiaSignedRouteSnapshotProvider.java" \
     "health == RouteCacheHealth.HEALTHY"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
     "startRetriesNotificationRegistrationAfterACommittedRegistrationIsFenced"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProvider.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/route/OxiaSignedRouteSnapshotProvider.java" \
     "client.notifications(this::onNotification);"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
     "refreshAfterAnInitialRouteGapRestoresTheNotificationStream"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaRealRouteAuthoritySmokeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/route/OxiaRealRouteAuthoritySmokeTest.java" \
     "OxiaRouteAuthoritySession.connect("
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Oxia Route authority session-bound I/O fence"
@@ -1675,13 +1675,13 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Oxia Route initial-refresh notification restoration implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Oxia Route initial-refresh notification restoration receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerShardFleetRuntime.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/WorkerShardFleetRuntime.java" \
     "Every admitted shard must get a close attempt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaRouteAuthoritySession.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/route/OxiaRouteAuthoritySession.java" \
     "watch client is an independent Oxia session"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/ownership/WorkerShardFleetRuntimeTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/ownership/WorkerShardFleetRuntimeTest.java" \
     "closeAttemptsEveryShardAndRetainsTheFirstDrainFailure"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
     "sessionCloseAttemptsTheIndependentWatchClientAfterAuthorityCloseFails"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "fleet and Route resource close aggregation"
@@ -1693,9 +1693,9 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "fleet and Route resource close aggregation implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Fleet and Route resource close aggregation receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerSourceApplyLoop.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/WorkerSourceApplyLoop.java" \
     "native close failure leaves the"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/ownership/SourceApplyCoordinatorTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/ownership/SourceApplyCoordinatorTest.java" \
     "workerSourceLoopRetriesNativeCloseAfterAReleaseFailure"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Worker source close retry boundary"
@@ -1707,11 +1707,11 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Worker source close retry boundary implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Worker source close retry receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaRouteAuthoritySession.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/route/OxiaRouteAuthoritySession.java" \
     "private boolean closeCompleted"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProvider.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/route/OxiaSignedRouteSnapshotProvider.java" \
     "closeCompleted = true"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
     "routeProviderRetriesClientCloseAfterAReleaseFailure"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Route client teardown retry boundary"
@@ -1723,11 +1723,11 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Route client teardown retry boundary implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Route client teardown retry receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/client/DefaultDelayClient.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/client/DefaultDelayClient.java" \
     "private boolean closeCompleted"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/client/DefaultDelayClient.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/client/DefaultDelayClient.java" \
     "public synchronized void close()"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/client/DefaultDelayClientTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/client/DefaultDelayClientTest.java" \
     "closeRetriesEveryChildAfterTheFirstCloseFailure"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Direct SDK client teardown retry boundary"
@@ -1739,9 +1739,9 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Direct SDK client teardown retry boundary implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Direct SDK client teardown retry receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaRouteAuthoritySession.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/route/OxiaRouteAuthoritySession.java" \
     "final String canonicalPrefix = canonicalKeyPrefix(keyPrefix)"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaRouteAuthoritySessionTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/route/OxiaRouteAuthoritySessionTest.java" \
     "connectRejectsAnInvalidKeyPrefixBeforeCreatingOxiaClients"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Route connect prefix validation boundary"
@@ -1753,13 +1753,13 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Route connect prefix validation boundary implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Route connect prefix validation receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/WorkerRuntimeResourceMonitor.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/WorkerRuntimeResourceMonitor.java" \
     "private boolean closeCompleted"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/WorkerRocksDbUsageMonitor.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/WorkerRocksDbUsageMonitor.java" \
     "private boolean closeCompleted"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/WorkerRuntimeResourceMonitorTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/WorkerRuntimeResourceMonitorTest.java" \
     "closeRetriesExecutorShutdownAfterTheFirstFailure"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/WorkerRocksDbUsageMonitorTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/WorkerRocksDbUsageMonitorTest.java" \
     "closeRetriesExecutorShutdownAfterTheFirstFailure"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Worker monitor teardown retry boundary"
@@ -1771,9 +1771,9 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Worker monitor teardown retry boundary implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Worker monitor teardown retry receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/transport/InMemoryCommandTransportRegistry.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/transport/InMemoryCommandTransportRegistry.java" \
     "private boolean closeCompleted"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/transport/InMemoryCommandTransportRegistryTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/transport/InMemoryCommandTransportRegistryTest.java" \
     "closeRetriesOnlyTheTransportThatFailedTheFirstTeardown"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "In-memory command transport registry teardown retry"
@@ -1785,11 +1785,11 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "In-memory command transport registry teardown retry implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "In-memory command transport registry teardown retry receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/transport/GuardedPulsarCommandTransport.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/transport/GuardedPulsarCommandTransport.java" \
     "nativeSender.close()"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/transport/GuardedPulsarCommandTransport.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/transport/GuardedPulsarCommandTransport.java" \
     "appendCloseFailure"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/transport/GuardedTransportOwnershipTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/transport/GuardedTransportOwnershipTest.java" \
     "pulsarCloseAttemptsNativeSenderAfterManagedSenderFailure"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Guarded Pulsar transport teardown aggregation"
@@ -1801,9 +1801,9 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Guarded Pulsar transport teardown aggregation implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Guarded Pulsar transport teardown aggregation receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackend.java" \
     "final String canonicalPrefix = canonicalKeyPrefix(keyPrefix)"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackendTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/ownership/OxiaSyncOwnerLeaseBackendTest.java" \
     "connectRejectsAnInvalidKeyPrefixBeforeCreatingAnOxiaClient"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Owner connect prefix validation boundary"
@@ -1815,9 +1815,9 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Owner connect prefix validation boundary implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Owner connect prefix validation receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/OxiaGatewayAdmissionController.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/OxiaGatewayAdmissionController.java" \
     "owner.release(tenantScopeHash, lease)"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayAdmissionControllerTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/OxiaGatewayAdmissionControllerTest.java" \
     "leaseCloseRemainsRetryableAfterReleaseCasDoesNotConverge"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Gateway admission lease release retry boundary"
@@ -1829,13 +1829,13 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway admission lease release retry boundary implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Gateway admission lease release retry receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
     "Gateway attempt terminal evidence conflict"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/OxiaGatewayIdempotencyStore.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/OxiaGatewayIdempotencyStore.java" \
     "if (next == current.record())"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
     "lateQueuedEvidencePromotesUncertainWithoutChangingItsAttemptIdentity"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
     "retryUsesTheHighestUnresolvedAttemptWhenANewerAttemptIsDefinitive"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Gateway idempotency evidence monotonicity"
@@ -1847,15 +1847,15 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway idempotency evidence monotonicity implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Gateway idempotency evidence monotonicity receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayScheduleService.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/GatewayScheduleService.java" \
     "PREPARED_COMMAND_EXPIRED"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/InMemoryGatewayIdempotencyStore.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/InMemoryGatewayIdempotencyStore.java" \
     "current.retainUntilEpochMs()"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/OxiaGatewayIdempotencyStore.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/OxiaGatewayIdempotencyStore.java" \
     "current.record().retainUntilEpochMs()"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/GatewayScheduleServiceTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/GatewayScheduleServiceTest.java" \
     "completedAggregateReplaysAfterRetryDeadlineWithoutAnotherCoordinatorCall"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
     "expiredPreparedRecordCannotCreateAnAttemptAtTheStoreBoundary"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Gateway prepared-expiry fence and aggregate replay"
@@ -1867,13 +1867,13 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway prepared-expiry fence and aggregate replay implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Gateway prepared-expiry fence and aggregate replay receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayPhysicalAttemptV1.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/GatewayPhysicalAttemptV1.java" \
     "Gateway STARTED attempt must not carry terminal evidence"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
     "Gateway physical attempt identity is duplicated"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
     "Gateway idempotency phase does not match attempts"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
     "gatewayProjectionRejectsImpossibleAttemptAndRecordShapes"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Gateway attempt projection integrity fence"
@@ -1885,13 +1885,13 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway attempt projection integrity fence implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Gateway attempt projection integrity fence receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
     "validateStoredProjection"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
     "Gateway attempt state does not match outcome"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
     "Gateway aggregate does not match attempt history"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
     "gatewayProjectionRejectsOutcomeStateAndAggregateMismatches"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Gateway stored evidence binding"
@@ -1903,11 +1903,11 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway stored evidence binding implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Gateway stored evidence binding receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
     "Gateway retry request hash does not bind to an earlier attempt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
     "GatewayIdempotencyHashV1.retryRequestHash"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
     "new Digest32(bytes(32, 22))"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Gateway retry evidence hash binding"
@@ -1919,13 +1919,13 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway retry evidence hash binding implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Gateway retry evidence hash binding receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
     "Gateway operation does not match prepared submission"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
     "GatewayOperationKindV1.CANCEL"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/GatewayGrpcServiceTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/GatewayGrpcServiceTest.java" \
     "PreparedCommand.prepareLargeV1"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/GatewayScheduleServiceTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/GatewayScheduleServiceTest.java" \
     "PreparedCommand.rescheduleV1"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Gateway operation/prepared binding"
@@ -1937,9 +1937,9 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway operation/prepared binding implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Gateway operation/prepared binding receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayAuditEventV1.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/GatewayAuditEventV1.java" \
     "Gateway audit outcome hash must match the completed phase"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayAuditSinkTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/OxiaGatewayAuditSinkTest.java" \
     "auditOutcomeDigestIsPresentOnlyForCompletedEvents"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Gateway audit phase evidence"
@@ -1951,11 +1951,11 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway audit phase evidence implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Gateway audit phase evidence receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
     "Gateway STARTED attempt must be the final attempt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/GatewayIdempotencyRecordV1.java" \
     "Gateway ACTIVE record must contain one STARTED attempt"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/gateway/OxiaGatewayIdempotencyStoreTest.java" \
     "gatewayProjectionRejectsImpossibleAttemptAndRecordShapes"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Gateway active attempt tail fence"
@@ -1967,11 +1967,11 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway active attempt tail fence implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Gateway active attempt tail fence receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayPhysicalAttemptV1.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/GatewayPhysicalAttemptV1.java" \
     "Gateway first attempt must not carry retry identity"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayPhysicalAttemptV1.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/GatewayPhysicalAttemptV1.java" \
     "Gateway retry attempt must carry retry identity"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/gateway/GatewayPhysicalAttemptV1.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/gateway/GatewayPhysicalAttemptV1.java" \
     "invalid Gateway physical attempt bounds"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Gateway attempt timing/retry shape"
@@ -1983,9 +1983,9 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Gateway attempt timing/retry shape implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Gateway attempt timing/retry shape receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/CheckpointPublicationCoordinator.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/CheckpointPublicationCoordinator.java" \
     "intentIsAtomic || catalogIsAtomic"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/CheckpointUploadCoordinatorTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/CheckpointUploadCoordinatorTest.java" \
     "rejectsMismatchedAtomicAuthorityRegardlessOfWhichSideDeclaresIt"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Atomic checkpoint publication authority pairing fence"
@@ -1997,13 +1997,13 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "Atomic checkpoint publication authority pairing fence implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Atomic checkpoint publication authority pairing fence receipt"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackend.java" \
     "new OxiaSessionBoundRecoveryPinStore(this.client"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackend.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackend.java" \
     "new OxiaSessionBoundRecoveryPinStore(this.client"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackendTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/OxiaSyncRecoveryCatalogBackendTest.java" \
     "sessionFenceRejectsACommittedRecoveryPinAfterTheMarkerChanges"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackendTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/store/OxiaSyncCheckpointPublicationBackendTest.java" \
     "sessionFenceRejectsACommittedPublicationRecoveryPinAfterTheMarkerChanges"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "Recovery Pin session-fenced client wiring correction"
@@ -2033,23 +2033,23 @@ require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "runRealKafkaTcpFaultProxy"
 require_file_text "$delay_root/e2e/docker-compose.kafka.yml" \
     "KAFKA_BROKER_1_BIND_PORT"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactTcpFaultProxy.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactTcpFaultProxy.java" \
     "post-cut-handoff-file"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactLeaderPlacementSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactLeaderPlacementSmoke.java" \
     "Utils.abs(workerGroup.hashCode())"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactWorkerSmoke.java" \
     "NEREUS_DELAY_KAFKA_WORKER_GROUP_ID"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/PulsarSourceReactivationV1.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/PulsarSourceReactivationV1.java" \
     "Pulsar source reactivation"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/PulsarSourceReactivationCoordinator.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/PulsarSourceReactivationCoordinator.java" \
     "FencedPlan"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/ownership/PulsarSourceReactivationTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/ownership/PulsarSourceReactivationTest.java" \
     "coordinatorFencesQuiescesPublishesAndAcquiresOnlyTheSuccessor"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/ownership/WorkerShardRuntime.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/ownership/WorkerShardRuntime.java" \
     "closeForOwnerReactivation"
 require_file_text "$delay_root/e2e/run-pulsar-large-payload-gateway-e2e.sh" \
     "NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_FAILOVER"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactLargePayloadGatewaySmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactLargePayloadGatewaySmoke.java" \
     "Pulsar source reactivation successor accepted"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "2026-08-16 Pulsar Gateway large-payload multi-Broker reactivation receipt"
@@ -2079,9 +2079,9 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "2026-08-16 Current multi-shard placement implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Current Oxia Route-driven multi-shard placement"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactRouteWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactRouteWorkerSmoke.java" \
     "Kafka signed Route -> two guarded Fetch barriers"
-require_file_text "$delay_root/src/real-kafka/java/io/nereusstream/delay/transport/KafkaClientArtifactRouteWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-kafka/java/com/nereusstream/delay/transport/KafkaClientArtifactRouteWorkerSmoke.java" \
     "WorkerShardFleetRuntime"
 require_file_text "$delay_root/e2e/run-kafka-real-client-e2e.sh" \
     "NEREUS_DELAY_KAFKA_MULTI_SHARD_ONLY"
@@ -2095,9 +2095,9 @@ require_file_text "$delay_root/docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETA
     "2026-08-16 Kafka native multi-shard Worker fleet implementation note"
 require_file_text "$delay_root/e2e/README.md" \
     "Kafka native multi-shard Worker fleet"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactRouteWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactRouteWorkerSmoke.java" \
     "Pulsar signed Route -> two guarded SUBSCRIBE barriers"
-require_file_text "$delay_root/src/real-pulsar/java/io/nereusstream/delay/transport/PulsarClientArtifactRouteWorkerSmoke.java" \
+require_file_text "$delay_root/src/real-pulsar/java/com/nereusstream/delay/transport/PulsarClientArtifactRouteWorkerSmoke.java" \
     "WorkerShardFleetRuntime"
 require_file_text "$delay_root/e2e/run-pulsar-real-client-e2e.sh" \
     "NEREUS_DELAY_PULSAR_MULTI_SHARD_ONLY"
@@ -2229,9 +2229,9 @@ require_file_text "$delay_root/e2e/README.md" \
     "Current-source Checkpoint REAPING with real Oxia and MinIO"
 require_file_text "$delay_root/e2e/run-oxia-minio-checkpoint-e2e.sh" \
     "OxiaRealCheckpointReapingSmokeTest.realOxiaOwnerAbandonmentReapsExactMinioCheckpointPrefix"
-require_file_text "$delay_root/src/main/java/io/nereusstream/delay/route/OxiaRouteAuthoritySession.java" \
+require_file_text "$delay_root/src/main/java/com/nereusstream/delay/route/OxiaRouteAuthoritySession.java" \
     "The old marker may still be visible after the session was"
-require_file_text "$delay_root/src/test/java/io/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
+require_file_text "$delay_root/src/test/java/com/nereusstream/delay/route/OxiaSignedRouteSnapshotProviderTest.java" \
     "explicitSessionReconnectRotatesMarkerWhenTheOldMarkerIsStillReadable"
 require_file_text "$delay_root/docs/IMPLEMENTATION-STATUS.md" \
     "2026-08-17 Current-source Oxia Profile/Route authority and restart receipt"

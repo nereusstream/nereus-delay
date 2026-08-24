@@ -1,0 +1,44 @@
+package com.nereusstream.delay.store;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import java.util.concurrent.atomic.AtomicLong;
+import org.junit.jupiter.api.Test;
+
+class SloObservationOutboxExportRateTest {
+    @Test
+    void rejectsUsageAboveRecordOrByteBudgetUntilWindowResets() {
+        final AtomicLong now = new AtomicLong(10);
+        final SloObservationOutboxExportRate rate =
+                new SloObservationOutboxExportRate(new SloObservationOutboxExportRate.Limits(2, 100), now::get);
+
+        assertTrue(rate.tryAcquire(1, 60));
+        assertFalse(rate.tryAcquire(2, 1));
+        assertFalse(rate.tryAcquire(1, 41));
+        now.set(1_000_000_010L);
+        assertTrue(rate.tryAcquire(2, 100));
+    }
+
+    @Test
+    void rejectsARegressingMonotonicClock() {
+        final AtomicLong now = new AtomicLong(100);
+        final SloObservationOutboxExportRate rate =
+                new SloObservationOutboxExportRate(new SloObservationOutboxExportRate.Limits(1, 100), now::get);
+        assertTrue(rate.tryAcquire(1, 1));
+        now.set(99);
+        assertThrows(IllegalStateException.class, () -> rate.tryAcquire(1, 1));
+    }
+
+    @Test
+    void treatsLongMinimumAsARealWindowStart() {
+        final AtomicLong now = new AtomicLong(Long.MIN_VALUE);
+        final SloObservationOutboxExportRate rate =
+                new SloObservationOutboxExportRate(new SloObservationOutboxExportRate.Limits(2, 100), now::get);
+
+        assertTrue(rate.tryAcquire(1, 60));
+        now.set(Long.MIN_VALUE + 1);
+        assertFalse(rate.tryAcquire(2, 1));
+        assertFalse(rate.tryAcquire(1, 41));
+    }
+}

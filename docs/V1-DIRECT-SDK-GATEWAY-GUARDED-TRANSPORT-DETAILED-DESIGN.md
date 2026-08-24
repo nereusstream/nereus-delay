@@ -96,12 +96,12 @@ Light SDK -> Nereus Delay Gateway ---+--> Entry Composition
 
 ```text
 :delay-api
-  io.nereusstream.delay.protocol.*
-  io.nereusstream.delay.client.api.*
+  com.nereusstream.delay.protocol.*
+  com.nereusstream.delay.client.api.*
   （包括 SubmissionModeV1、authenticated intent/error value API）
 
 :delay-semantic-core
-  io.nereusstream.delay.semantic.*
+  com.nereusstream.delay.semantic.*
   只依赖 :delay-api、:delay-route-spi
 
 :delay-route-spi
@@ -550,12 +550,12 @@ GatewayServer
 
 ```text
 delay-gateway-api/src/main/proto/nereus/delay/gateway/v1/delay_gateway.proto
-delay-gateway/src/main/java/io/nereusstream/delay/gateway/DelayGatewayService.java
-delay-gateway/src/main/java/io/nereusstream/delay/gateway/GatewayIdempotencyService.java
-delay-gateway/src/main/java/io/nereusstream/delay/gateway/GatewayAppliedObservationService.java
-delay-gateway/src/main/java/io/nereusstream/delay/gateway/GatewayAuthenticationInterceptor.java
-delay-gateway/src/main/java/io/nereusstream/delay/gateway/GatewayQuotaAdmission.java
-delay-gateway/src/main/java/io/nereusstream/delay/gateway/GatewayAuditSink.java
+delay-gateway/src/main/java/com/nereusstream/delay/gateway/DelayGatewayService.java
+delay-gateway/src/main/java/com/nereusstream/delay/gateway/GatewayIdempotencyService.java
+delay-gateway/src/main/java/com/nereusstream/delay/gateway/GatewayAppliedObservationService.java
+delay-gateway/src/main/java/com/nereusstream/delay/gateway/GatewayAuthenticationInterceptor.java
+delay-gateway/src/main/java/com/nereusstream/delay/gateway/GatewayQuotaAdmission.java
+delay-gateway/src/main/java/com/nereusstream/delay/gateway/GatewayAuditSink.java
 ```
 
 ### 7.2 RPC surface
@@ -4685,7 +4685,7 @@ test covers the explicit retry path and preserved retry identity.
 Focused verification:
 
 ```text
-./gradlew test --tests io.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest --no-daemon --console=plain
+./gradlew test --tests com.nereusstream.delay.gateway.OxiaGatewayIdempotencyStoreTest --no-daemon --console=plain
 BUILD SUCCESSFUL in 59s
 11 actionable tasks: 3 executed, 8 up-to-date
 
@@ -5085,7 +5085,7 @@ manifest response loss, exact restore and immutable conflict:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
+  --tests com.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
   --no-daemon --console=plain
 ```
 

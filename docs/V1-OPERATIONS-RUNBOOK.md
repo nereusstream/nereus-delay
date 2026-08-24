@@ -63,9 +63,9 @@ Bounded local drill commands:
 
 ```bash
 GRADLE_USER_HOME=/tmp/nereus-delay-full-check-20260817 ./gradlew test --no-daemon --console=plain \
-  --tests io.nereusstream.delay.store.CheckpointRestoreCoordinatorTest \
-  --tests io.nereusstream.delay.store.RecoveryCatalogTest \
-  --tests io.nereusstream.delay.store.ShardStoreTest
+  --tests com.nereusstream.delay.store.CheckpointRestoreCoordinatorTest \
+  --tests com.nereusstream.delay.store.RecoveryCatalogTest \
+  --tests com.nereusstream.delay.store.ShardStoreTest
 ```
 
 The real Object Store/Oxia checkpoint boundary is exercised by
@@ -93,8 +93,8 @@ Bounded local drill commands:
 
 ```bash
 GRADLE_USER_HOME=/tmp/nereus-delay-full-check-20260817 ./gradlew test --no-daemon --console=plain \
-  --tests io.nereusstream.delay.ownership.OwnerLeaseTest \
-  --tests io.nereusstream.delay.ownership.OwnerRecoveryCoordinatorTest
+  --tests com.nereusstream.delay.ownership.OwnerLeaseTest \
+  --tests com.nereusstream.delay.ownership.OwnerRecoveryCoordinatorTest
 ```
 
 Real Kafka/Pulsar failover receipts prove only the named source/resource and
@@ -125,8 +125,8 @@ Bounded local drill:
 
 ```bash
 GRADLE_USER_HOME=/tmp/nereus-delay-full-check-20260817 ./gradlew test --no-daemon --console=plain \
-  --tests 'io.nereusstream.delay.runtime.DelayShardTest.replayDeadLetterCreatesNextGenerationAndRetainsOldTerminalSummary' \
-  --tests 'io.nereusstream.delay.runtime.DelayShardTest.terminalSummaryRetainsASecondOpenObligationAndReopensSafely'
+  --tests 'com.nereusstream.delay.runtime.DelayShardTest.replayDeadLetterCreatesNextGenerationAndRetainsOldTerminalSummary' \
+  --tests 'com.nereusstream.delay.runtime.DelayShardTest.terminalSummaryRetainsASecondOpenObligationAndReopensSafely'
 ```
 
 ## 5. Uncertain publish resolution
@@ -153,10 +153,10 @@ Bounded local drills:
 
 ```bash
 GRADLE_USER_HOME=/tmp/nereus-delay-full-check-20260817 ./gradlew test --no-daemon --console=plain \
-  --tests 'io.nereusstream.delay.runtime.DelayShardTest.sourceOrderedResolveUncertainPublishedEvidenceSettlesExactObligation' \
-  --tests 'io.nereusstream.delay.runtime.DelayShardTest.sourceOrderedResolveUncertainNotPublishedEvidenceNormalizesDefinitiveRetry' \
-  --tests 'io.nereusstream.delay.runtime.DelayShardTest.sourceOrderedResolveUncertainRetryMaterializesControlOverrideTimeline' \
-  --tests 'io.nereusstream.delay.runtime.DelayShardTest.sourceOrderedResolveUncertainTerminalizesPossibleDeliveryAndRetainsObligation'
+  --tests 'com.nereusstream.delay.runtime.DelayShardTest.sourceOrderedResolveUncertainPublishedEvidenceSettlesExactObligation' \
+  --tests 'com.nereusstream.delay.runtime.DelayShardTest.sourceOrderedResolveUncertainNotPublishedEvidenceNormalizesDefinitiveRetry' \
+  --tests 'com.nereusstream.delay.runtime.DelayShardTest.sourceOrderedResolveUncertainRetryMaterializesControlOverrideTimeline' \
+  --tests 'com.nereusstream.delay.runtime.DelayShardTest.sourceOrderedResolveUncertainTerminalizesPossibleDeliveryAndRetainsObligation'
 ```
 
 ## 6. Disaster boundary

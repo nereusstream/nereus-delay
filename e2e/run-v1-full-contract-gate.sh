@@ -60,81 +60,81 @@ test_names=()
 case "${gate}" in
   benchmark)
     test_names=(
-      io.nereusstream.delay.protocol.CapacityVectorV1Test
-      io.nereusstream.delay.protocol.ShardCapacityEnvelopeV1Test
-      io.nereusstream.delay.protocol.SloObjectiveV1Test
-      io.nereusstream.delay.protocol.SloObservationOutboxV1Test
-      io.nereusstream.delay.store.BoundedCapacitySloProbeTest
-      io.nereusstream.delay.store.SloObservationCollectorTest
-      io.nereusstream.delay.store.PersistentSloObservationCollectorTest
-      io.nereusstream.delay.store.SloObservationOutboxExportRateTest
-      io.nereusstream.delay.store.SloObservationOutboxStoreTest
+      com.nereusstream.delay.protocol.CapacityVectorV1Test
+      com.nereusstream.delay.protocol.ShardCapacityEnvelopeV1Test
+      com.nereusstream.delay.protocol.SloObjectiveV1Test
+      com.nereusstream.delay.protocol.SloObservationOutboxV1Test
+      com.nereusstream.delay.store.BoundedCapacitySloProbeTest
+      com.nereusstream.delay.store.SloObservationCollectorTest
+      com.nereusstream.delay.store.PersistentSloObservationCollectorTest
+      com.nereusstream.delay.store.SloObservationOutboxExportRateTest
+      com.nereusstream.delay.store.SloObservationOutboxStoreTest
     )
     ;;
   capacity)
     test_names=(
-      io.nereusstream.delay.protocol.CapacityVectorV1Test
-      io.nereusstream.delay.protocol.ShardCapacityEnvelopeV1Test
-      io.nereusstream.delay.store.WorkerCapacityAdmissionTest
-      io.nereusstream.delay.store.WorkerNativeResourceLedgerTest
-      io.nereusstream.delay.store.WorkerResourceEnvelopeTest
-      io.nereusstream.delay.store.WorkerPlacementPolicyTest
-      io.nereusstream.delay.store.WorkerRuntimeResourceMonitorTest
-      io.nereusstream.delay.store.WorkerRuntimeResourceProbeTest
-      io.nereusstream.delay.store.SharedRocksDbResourcesTest
-      io.nereusstream.delay.scheduler.WorkClassResourcePoolTest
-      io.nereusstream.delay.scheduler.WorkClassDispatcherTest
-      io.nereusstream.delay.scheduler.LaneSchedulerTest
-      io.nereusstream.delay.store.CheckpointRestoreCoordinatorTest
-      io.nereusstream.delay.store.SloObservationCollectorTest
-      io.nereusstream.delay.store.PersistentSloObservationCollectorTest
+      com.nereusstream.delay.protocol.CapacityVectorV1Test
+      com.nereusstream.delay.protocol.ShardCapacityEnvelopeV1Test
+      com.nereusstream.delay.store.WorkerCapacityAdmissionTest
+      com.nereusstream.delay.store.WorkerNativeResourceLedgerTest
+      com.nereusstream.delay.store.WorkerResourceEnvelopeTest
+      com.nereusstream.delay.store.WorkerPlacementPolicyTest
+      com.nereusstream.delay.store.WorkerRuntimeResourceMonitorTest
+      com.nereusstream.delay.store.WorkerRuntimeResourceProbeTest
+      com.nereusstream.delay.store.SharedRocksDbResourcesTest
+      com.nereusstream.delay.scheduler.WorkClassResourcePoolTest
+      com.nereusstream.delay.scheduler.WorkClassDispatcherTest
+      com.nereusstream.delay.scheduler.LaneSchedulerTest
+      com.nereusstream.delay.store.CheckpointRestoreCoordinatorTest
+      com.nereusstream.delay.store.SloObservationCollectorTest
+      com.nereusstream.delay.store.PersistentSloObservationCollectorTest
     )
     ;;
   soak)
     test_names=(
-      io.nereusstream.delay.store.CheckpointSchedulerTest
-      io.nereusstream.delay.store.CheckpointExecutionCoordinatorTest
-      io.nereusstream.delay.store.CheckpointRestoreCoordinatorTest
-      io.nereusstream.delay.store.CheckpointReapingGuardTest
-      io.nereusstream.delay.store.CheckpointReapingSweepCoordinatorTest
-      io.nereusstream.delay.runtime.ResourceGcGuardTest
-      io.nereusstream.delay.runtime.PublishAttemptLedgerTest
-      io.nereusstream.delay.runtime.GenerationRuntimeIndexTest
-      io.nereusstream.delay.runtime.CommandProtocolDedupeApplyTest
-      io.nereusstream.delay.scheduler.LongGcDurableChaosTest
-      io.nereusstream.delay.scheduler.WorkClassResourcePoolTest
-      io.nereusstream.delay.store.WorkerRuntimeResourceMonitorTest
+      com.nereusstream.delay.store.CheckpointSchedulerTest
+      com.nereusstream.delay.store.CheckpointExecutionCoordinatorTest
+      com.nereusstream.delay.store.CheckpointRestoreCoordinatorTest
+      com.nereusstream.delay.store.CheckpointReapingGuardTest
+      com.nereusstream.delay.store.CheckpointReapingSweepCoordinatorTest
+      com.nereusstream.delay.runtime.ResourceGcGuardTest
+      com.nereusstream.delay.runtime.PublishAttemptLedgerTest
+      com.nereusstream.delay.runtime.GenerationRuntimeIndexTest
+      com.nereusstream.delay.runtime.CommandProtocolDedupeApplyTest
+      com.nereusstream.delay.scheduler.LongGcDurableChaosTest
+      com.nereusstream.delay.scheduler.WorkClassResourcePoolTest
+      com.nereusstream.delay.store.WorkerRuntimeResourceMonitorTest
     )
     ;;
   upgrade-downgrade)
     test_names=(
-      io.nereusstream.delay.protocol.ProtocolActivationCutoverContractTest
-      io.nereusstream.delay.protocol.ProtocolActivationStateV1Test
-      io.nereusstream.delay.protocol.ProtocolVersionActivatePayloadV1Test
-      io.nereusstream.delay.runtime.ProtocolVersionActivationApplyTest
-      io.nereusstream.delay.runtime.CommandProtocolDedupeApplyTest
-      io.nereusstream.delay.runtime.InitialRouteControlApplyTest
-      io.nereusstream.delay.store.CheckpointRestoreCoordinatorTest
-      io.nereusstream.delay.store.CheckpointControlSnapshotVerifierTest
+      com.nereusstream.delay.protocol.ProtocolActivationCutoverContractTest
+      com.nereusstream.delay.protocol.ProtocolActivationStateV1Test
+      com.nereusstream.delay.protocol.ProtocolVersionActivatePayloadV1Test
+      com.nereusstream.delay.runtime.ProtocolVersionActivationApplyTest
+      com.nereusstream.delay.runtime.CommandProtocolDedupeApplyTest
+      com.nereusstream.delay.runtime.InitialRouteControlApplyTest
+      com.nereusstream.delay.store.CheckpointRestoreCoordinatorTest
+      com.nereusstream.delay.store.CheckpointControlSnapshotVerifierTest
     )
     ;;
   operations)
     test_names=(
-      io.nereusstream.delay.store.CheckpointRestoreCoordinatorTest
-      io.nereusstream.delay.store.CheckpointReapingGuardTest
-      io.nereusstream.delay.store.CheckpointReapingOwnerProofIssuerTest
-      io.nereusstream.delay.store.CheckpointReapingSweepCoordinatorTest
-      io.nereusstream.delay.store.CheckpointDeleteConfirmationComposerTest
-      io.nereusstream.delay.runtime.ResourceGcGuardTest
-      io.nereusstream.delay.runtime.DlqExportApplyTest
-      io.nereusstream.delay.runtime.DlqExportRecordTest
-      io.nereusstream.delay.protocol.ResolveUncertainBodyTest
-      io.nereusstream.delay.protocol.ReplayDeadLetterBodyTest
-      io.nereusstream.delay.ownership.LeaseFenceWorkClassExecutorTest
-      io.nereusstream.delay.ownership.OwnerRecoveryCoordinatorTest
-      io.nereusstream.delay.runtime.CredentialBindingDurableChaosTest
-      io.nereusstream.delay.scheduler.TargetIsolationDurableChaosTest
-      io.nereusstream.delay.store.LocalStorageDurableChaosTest
+      com.nereusstream.delay.store.CheckpointRestoreCoordinatorTest
+      com.nereusstream.delay.store.CheckpointReapingGuardTest
+      com.nereusstream.delay.store.CheckpointReapingOwnerProofIssuerTest
+      com.nereusstream.delay.store.CheckpointReapingSweepCoordinatorTest
+      com.nereusstream.delay.store.CheckpointDeleteConfirmationComposerTest
+      com.nereusstream.delay.runtime.ResourceGcGuardTest
+      com.nereusstream.delay.runtime.DlqExportApplyTest
+      com.nereusstream.delay.runtime.DlqExportRecordTest
+      com.nereusstream.delay.protocol.ResolveUncertainBodyTest
+      com.nereusstream.delay.protocol.ReplayDeadLetterBodyTest
+      com.nereusstream.delay.ownership.LeaseFenceWorkClassExecutorTest
+      com.nereusstream.delay.ownership.OwnerRecoveryCoordinatorTest
+      com.nereusstream.delay.runtime.CredentialBindingDurableChaosTest
+      com.nereusstream.delay.scheduler.TargetIsolationDurableChaosTest
+      com.nereusstream.delay.store.LocalStorageDurableChaosTest
     )
     ;;
 esac

@@ -3674,7 +3674,7 @@ release gates.
 
 After `f05290d`, the bottom-most physical checkpoint seams are no longer public:
 all `ShardStore.createCheckpoint(...)` and `ShardStore.restoreFromCheckpoint(...)`
-overloads are package-local to `io.nereusstream.delay.store`. This makes the design's
+overloads are package-local to `com.nereusstream.delay.store`. This makes the design's
 cross-package rule compiler-enforced: Worker composition must use the scheduled,
 planned-drain or restore `CHECKPOINT` executor rather than calling a RocksDB primitive
 directly. `ShardStoreTest` reflects over every declared method with those names and
@@ -8243,7 +8243,7 @@ The focused local receipt is
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
+  --tests com.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
   --no-daemon --console=plain
 ```
 
@@ -8271,8 +8271,8 @@ The focused command and full check both passed:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.store.ObjectStoreCredentialUseLeaseGateTest \
-  --tests io.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
+  --tests com.nereusstream.delay.store.ObjectStoreCredentialUseLeaseGateTest \
+  --tests com.nereusstream.delay.store.S3CompatibleCheckpointObjectStoreAdapterTest \
   --no-daemon --console=plain
 ./gradlew check --no-daemon --console=plain --quiet
 ```
@@ -8341,8 +8341,8 @@ The deterministic regression is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.runtime.CredentialAttestationTrustSetTest \
-  --tests io.nereusstream.delay.runtime.OxiaSyncProfileCatalogBackendTest \
+  --tests com.nereusstream.delay.runtime.CredentialAttestationTrustSetTest \
+  --tests com.nereusstream.delay.runtime.OxiaSyncProfileCatalogBackendTest \
   --no-daemon --console=plain
 ```
 
@@ -8379,8 +8379,8 @@ The deterministic regression is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.store.RenewableS3CompatibleCheckpointObjectStoreAdapterTest \
-  --tests io.nereusstream.delay.store.ObjectStoreCredentialUseLeaseGateTest \
+  --tests com.nereusstream.delay.store.RenewableS3CompatibleCheckpointObjectStoreAdapterTest \
+  --tests com.nereusstream.delay.store.ObjectStoreCredentialUseLeaseGateTest \
   --no-daemon --console=plain
 ```
 
@@ -8411,8 +8411,8 @@ The deterministic regression is:
 
 ```bash
 ./gradlew test \
-  --tests io.nereusstream.delay.store.VerifiedCredentialMaterialCacheTest \
-  --tests io.nereusstream.delay.runtime.CredentialAttestationTrustSetTest \
+  --tests com.nereusstream.delay.store.VerifiedCredentialMaterialCacheTest \
+  --tests com.nereusstream.delay.runtime.CredentialAttestationTrustSetTest \
   --no-daemon --console=plain
 ```
 

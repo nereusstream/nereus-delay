@@ -1,0 +1,897 @@
+package com.nereusstream.delay.adapter;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.nereusstream.delay.client.EnqueueStatus;
+import com.nereusstream.delay.protocol.AdapterMetadataV1;
+import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CommandCodec;
+import com.nereusstream.delay.protocol.DeliveryMode;
+import com.nereusstream.delay.protocol.DestinationLaneId;
+import com.nereusstream.delay.protocol.EnqueueOutcomeKindV1;
+import com.nereusstream.delay.protocol.KafkaMetadataV1;
+import com.nereusstream.delay.protocol.NonPersistenceProofKindV1;
+import com.nereusstream.delay.protocol.OrderingMode;
+import com.nereusstream.delay.protocol.PreparedCommand;
+import com.nereusstream.delay.protocol.ProfileKindV1;
+import com.nereusstream.delay.protocol.ProfileRefV1;
+import com.nereusstream.delay.protocol.PulsarSourcePosition;
+import com.nereusstream.delay.protocol.RetryPolicyRefV1;
+import com.nereusstream.delay.protocol.RouteIncarnation;
+import com.nereusstream.delay.protocol.ScheduleIntentV1;
+import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.StableCode;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import org.junit.jupiter.api.Test;
+
+class AdapterIngressTest {
+    @Test
+    void kafkaAdapterReturnsQueuedOnlyForPinnedPersistedResult() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 2);
+        final UUID topic = UUID.randomUUID();
+        final KafkaIngressResource resource = new KafkaIngressResource(shard, "cluster-a", "command-topic", topic, 2);
+        final PreparedCommand command = command(shard);
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request -> {
+            assertEquals(topic, request.nativeTopicUuid());
+            assertEquals(2, request.partition());
+            assertEquals(command.commandId(), request.commandId());
+            assertEquals(command, CommandCodec.decodeFrame(request.frame()));
+            return CompletableFuture.completedFuture(
+                    KafkaProduceResult.persisted("cluster-a", topic, 2, 41, 7, 1000, Bytes.utf8("ack")));
+        };
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
+            final var outcome = adapter.enqueue(command).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.QUEUED, outcome.status());
+            assertEquals(
+                    41,
+                    ((com.nereusstream.delay.protocol.KafkaSourcePosition)
+                                    outcome.receipt().sourcePosition())
+                            .offset());
+        }
+    }
+
+    @Test
+    void kafkaTransportExceptionIsUncertainAndNotDefinitelyRejected() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
+        final KafkaIngressResource resource =
+                new KafkaIngressResource(shard, "cluster", "command-topic", UUID.randomUUID(), 0);
+        final PreparedCommand command = command(shard);
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request -> {
+            throw new IllegalStateException("connection lost after ownership");
+        };
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
+            final var outcome = adapter.enqueue(command).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.ENQUEUE_UNCERTAIN, outcome.status());
+            assertEquals(StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue(), outcome.stableCode());
+        }
+    }
+
+    @Test
+    void kafkaCompletionStageRegistrationFailureIsUncertain() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 34);
+        final UUID topic = UUID.randomUUID();
+        final KafkaIngressResource resource =
+                new KafkaIngressResource(shard, "cluster-stage", "command-topic", topic, 34);
+        final PreparedCommand command = command(shard);
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport =
+                request -> new HandleRegistrationFailureFuture<>();
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
+            final var outcome = adapter.enqueue(command).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.ENQUEUE_UNCERTAIN, outcome.status());
+            assertEquals(StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue(), outcome.stableCode());
+
+            final var wire = adapter.enqueueOutcomeV1(
+                            command, 5_000, java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("stage-attempt")), 16))
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(
+                    StableCode.ENQUEUE_RESULT_UNCERTAIN,
+                    wire.uncertain().error().code());
+        }
+    }
+
+    @Test
+    void kafkaNullHandledStageIsUncertain() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 36);
+        final UUID topic = UUID.randomUUID();
+        final KafkaIngressResource resource =
+                new KafkaIngressResource(shard, "cluster-null-handle", "command-topic", topic, 36);
+        final PreparedCommand command = command(shard);
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request -> new NullHandledFuture<>();
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
+            assertEquals(
+                    EnqueueStatus.ENQUEUE_UNCERTAIN,
+                    adapter.enqueue(command).toCompletableFuture().join().status());
+            final var wire = adapter.enqueueOutcomeV1(
+                            command,
+                            5_000,
+                            java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("null-handle-attempt")), 16))
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(
+                    StableCode.ENQUEUE_RESULT_UNCERTAIN,
+                    wire.uncertain().error().code());
+        }
+    }
+
+    @Test
+    void kafkaWireBridgeCarriesQueuedReceiptAndAckEvidence() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
+        final UUID topic = UUID.randomUUID();
+        final KafkaIngressResource resource =
+                new KafkaIngressResource(shard, "cluster-wire", "command-topic", topic, 5);
+        final PreparedCommand command = command(shard);
+        final byte[] evidence = Bytes.utf8("kafka-response");
+        final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("wire-attempt")), 16);
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request -> CompletableFuture.completedFuture(
+                KafkaProduceResult.persisted("cluster-wire", topic, 5, 12, 3, 2_000, evidence));
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
+            final var wire = adapter.enqueueOutcomeV1(command, 5_000, attempt)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(EnqueueOutcomeKindV1.QUEUED, wire.kind());
+            final var ack = (com.nereusstream.delay.protocol.CommandQueuedReceiptV1.KafkaQueuedAck)
+                    wire.queued().brokerAck();
+            assertArrayEquals(Bytes.sha256(evidence), ack.responseSha256());
+            assertEquals(wire, com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1.decode(wire.canonicalBytes()));
+        }
+    }
+
+    @Test
+    void policyBoundKafkaDerivesReceiptBoundaryFromBrokerPersistenceTime() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 38);
+        final UUID topic = UUID.randomUUID();
+        final KafkaIngressResource resource =
+                new KafkaIngressResource(shard, "cluster-policy", "command-topic", topic, 38);
+        final PreparedCommand command = command(shard);
+        final QueuedReceiptQueryPolicy policy = new QueuedReceiptQueryPolicy(7, 4_000);
+        final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("policy-kafka-attempt")), 16);
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request -> CompletableFuture.completedFuture(
+                KafkaProduceResult.persisted("cluster-policy", topic, 38, 12, 3, 2_000, Bytes.utf8("policy-response")));
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport, policy)) {
+            final var wire = adapter.enqueueOutcomeV1(command, policy, attempt)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(EnqueueOutcomeKindV1.QUEUED, wire.kind());
+            assertEquals(6_000, wire.queued().receiptQueryUntilEpochMs());
+        }
+    }
+
+    @Test
+    void policyBoundIngressFailsClosedWhenBoundaryAdditionOverflows() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 39);
+        final UUID topic = UUID.randomUUID();
+        final KafkaIngressResource resource =
+                new KafkaIngressResource(shard, "cluster-overflow", "command-topic", topic, 39);
+        final PreparedCommand command = command(shard);
+        final QueuedReceiptQueryPolicy policy = new QueuedReceiptQueryPolicy(8, 1);
+        final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("policy-overflow-attempt")), 16);
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport =
+                request -> CompletableFuture.completedFuture(KafkaProduceResult.persisted(
+                        "cluster-overflow", topic, 39, 12, 3, Long.MAX_VALUE, Bytes.utf8("overflow-response")));
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport, policy)) {
+            final var wire = adapter.enqueueOutcomeV1(command, policy, attempt)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(
+                    StableCode.ENQUEUE_RESULT_UNCERTAIN,
+                    wire.uncertain().error().code());
+            assertEquals(
+                    StableCode.INTEGRITY_ERROR.wireValue(),
+                    wire.uncertain().error().diagnosticCode());
+        }
+    }
+
+    @Test
+    void kafkaWireBridgeCarriesAuthenticatedDefinitiveProof() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
+        final UUID topic = UUID.randomUUID();
+        final KafkaIngressResource resource =
+                new KafkaIngressResource(shard, "cluster-proof", "command-topic", topic, 6);
+        final PreparedCommand command = command(shard);
+        final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("proof-attempt")), 16);
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport =
+                request -> CompletableFuture.completedFuture(KafkaProduceResult.definitelyNotPersisted(
+                        StableCode.BROKER_DEFINITIVE_NOT_PERSISTED.wireValue(), Bytes.utf8("rejection")));
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
+            final var wire = adapter.enqueueOutcomeV1(command, 5_000, attempt)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED, wire.kind());
+            assertEquals(
+                    NonPersistenceProofKindV1.KAFKA_DEFINITIVE_REJECTION,
+                    wire.definitelyNotQueued().proof().kind());
+            assertEquals(wire, com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1.decode(wire.canonicalBytes()));
+        }
+    }
+
+    @Test
+    void kafkaWireDoesNotTurnMismatchedDefinitiveCodeIntoProof() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 32);
+        final UUID topic = UUID.randomUUID();
+        final KafkaIngressResource resource =
+                new KafkaIngressResource(shard, "cluster-malformed-proof", "command-topic", topic, 32);
+        final PreparedCommand command = command(shard);
+        final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("malformed-proof-attempt")), 16);
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport =
+                request -> CompletableFuture.completedFuture(KafkaProduceResult.definitelyNotPersisted(
+                        StableCode.BROKER_RESOURCE_UNCERTIFIED.wireValue(), Bytes.utf8("not-a-rejection")));
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
+            final var wire = adapter.enqueueOutcomeV1(command, 5_000, attempt)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(
+                    StableCode.ENQUEUE_RESULT_UNCERTAIN,
+                    wire.uncertain().error().code());
+            assertEquals(
+                    StableCode.BROKER_RESOURCE_UNCERTIFIED.wireValue(),
+                    wire.uncertain().error().diagnosticCode());
+        }
+    }
+
+    @Test
+    void kafkaWireBridgeKeepsTransportExceptionUncertain() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 7);
+        final KafkaIngressResource resource =
+                new KafkaIngressResource(shard, "cluster-unknown", "command-topic", UUID.randomUUID(), 7);
+        final PreparedCommand command = command(shard);
+        final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("unknown-attempt")), 16);
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request -> {
+            throw new IllegalStateException("lost after ownership");
+        };
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
+            final var wire = adapter.enqueueOutcomeV1(command, 5_000, attempt)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(
+                    StableCode.ENQUEUE_RESULT_UNCERTAIN,
+                    wire.uncertain().error().code());
+        }
+    }
+
+    @Test
+    void kafkaWireBridgeDoesNotInventProofWithoutResponseEvidence() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 8);
+        final KafkaIngressResource resource =
+                new KafkaIngressResource(shard, "cluster-no-proof", "command-topic", UUID.randomUUID(), 8);
+        final PreparedCommand command = command(shard);
+        final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("no-proof-attempt")), 16);
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport =
+                request -> CompletableFuture.completedFuture(KafkaProduceResult.definitelyNotPersisted(
+                        StableCode.BROKER_DEFINITIVE_NOT_PERSISTED.wireValue(), null));
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
+            final var wire = adapter.enqueueOutcomeV1(command, 5_000, attempt)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(
+                    StableCode.ENQUEUE_RESULT_UNCERTAIN,
+                    wire.uncertain().error().code());
+        }
+    }
+
+    @Test
+    void kafkaWireProjectionFailureIsUncertain() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 27);
+        final UUID topic = UUID.randomUUID();
+        final KafkaIngressResource resource =
+                new KafkaIngressResource(shard, "cluster-projection", "command-topic", topic, 27);
+        final PreparedCommand command = command(shard);
+        final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("projection-attempt")), 16);
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request -> CompletableFuture.completedFuture(
+                KafkaProduceResult.persisted("cluster-projection", topic, 27, 12, 3, 2_000, Bytes.utf8("response")));
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
+            final var wire = adapter.enqueueOutcomeV1(command, 1_999, attempt)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(
+                    StableCode.ENQUEUE_RESULT_UNCERTAIN,
+                    wire.uncertain().error().code());
+            assertEquals(
+                    StableCode.INTEGRITY_ERROR.wireValue(),
+                    wire.uncertain().error().diagnosticCode());
+        }
+    }
+
+    @Test
+    void ingressResourceAndTransportResultIdentitiesAreCanonicalAndClosed() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 28);
+        final UUID topic = UUID.randomUUID();
+        final byte[] token = Bytes.sha256(Bytes.utf8("canonical-token"));
+        final String decomposed = "cluster\u0301";
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new KafkaIngressResource(shard, decomposed, "command-topic", topic, 28));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PulsarIngressResource(
+                        shard, "cluster", token, "persistent://tenant/ns/topic\u0301", 9_028, 28));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new KafkaProduceResult(
+                        KafkaProduceResult.Disposition.PERSISTED,
+                        "cluster",
+                        topic,
+                        28,
+                        12,
+                        3,
+                        2_000,
+                        StableCode.BROKER_DEFINITIVE_NOT_PERSISTED.wireValue(),
+                        Bytes.utf8("response")));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new KafkaProduceResult(
+                        KafkaProduceResult.Disposition.PERSISTED,
+                        decomposed,
+                        topic,
+                        28,
+                        12,
+                        3,
+                        2_000,
+                        StableCode.OK.wireValue(),
+                        Bytes.utf8("response")));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PulsarSendResult(
+                        PulsarSendResult.Disposition.PERSISTED,
+                        "cluster",
+                        token,
+                        "persistent://tenant/ns/topic\u0301",
+                        9_028,
+                        28,
+                        12,
+                        13,
+                        0,
+                        1,
+                        false,
+                        2_001,
+                        StableCode.OK.wireValue(),
+                        Bytes.utf8("response")));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PulsarSendResult(
+                        PulsarSendResult.Disposition.UNKNOWN,
+                        null,
+                        null,
+                        null,
+                        -1,
+                        -1,
+                        -1,
+                        -1,
+                        -1,
+                        -1,
+                        false,
+                        -1,
+                        StableCode.OK.wireValue(),
+                        null));
+    }
+
+    @Test
+    void kafkaV1RejectsInvalidPhysicalAttemptBeforeTransportOwnership() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 30);
+        final KafkaIngressResource resource =
+                new KafkaIngressResource(shard, "cluster-attempt", "command-topic", UUID.randomUUID(), 30);
+        final PreparedCommand command = command(shard);
+        final java.util.concurrent.atomic.AtomicBoolean transportCalled =
+                new java.util.concurrent.atomic.AtomicBoolean();
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request -> {
+            transportCalled.set(true);
+            return CompletableFuture.failedFuture(new AssertionError("invalid attempt reached transport"));
+        };
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
+            final var wire = adapter.enqueueOutcomeV1(command, 5_000, new byte[16])
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED, wire.kind());
+            assertEquals(
+                    StableCode.INVALID_PREPARED_COMMAND,
+                    wire.definitelyNotQueued().error().code());
+            assertFalse(transportCalled.get());
+        }
+    }
+
+    @Test
+    void pulsarV1RejectsInvalidPhysicalAttemptBeforeTransportOwnership() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 31);
+        final byte[] token = Bytes.sha256(Bytes.utf8("attempt-pulsar-token"));
+        final PulsarIngressResource resource = new PulsarIngressResource(
+                shard, "cluster-attempt-pulsar", token, "persistent://tenant/ns/topic-31", 9_031, 31);
+        final PreparedCommand command = command(shard);
+        final java.util.concurrent.atomic.AtomicBoolean transportCalled =
+                new java.util.concurrent.atomic.AtomicBoolean();
+        final PinnedPulsarCommandIngress.PulsarSendTransport transport = request -> {
+            transportCalled.set(true);
+            return CompletableFuture.failedFuture(new AssertionError("invalid attempt reached transport"));
+        };
+        try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
+            final var wire = adapter.enqueueOutcomeV1(command, 5_000, new byte[16])
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED, wire.kind());
+            assertEquals(
+                    StableCode.INVALID_PREPARED_COMMAND,
+                    wire.definitelyNotQueued().error().code());
+            assertFalse(transportCalled.get());
+        }
+    }
+
+    @Test
+    void kafkaV1WireRejectsLegacyBodyBeforeTransportOwnership() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 25);
+        final KafkaIngressResource resource =
+                new KafkaIngressResource(shard, "cluster-v1", "command-topic", UUID.randomUUID(), 25);
+        final PreparedCommand legacy = PreparedCommand.schedule(
+                shard,
+                new com.nereusstream.delay.protocol.ScheduleIntent(
+                        DestinationLaneId.derive(Bytes.utf8("legacy-v1-lane")),
+                        2_000,
+                        5_000,
+                        OrderingMode.BEST_EFFORT,
+                        Bytes.utf8("legacy")),
+                10_000);
+        final java.util.concurrent.atomic.AtomicBoolean transportCalled =
+                new java.util.concurrent.atomic.AtomicBoolean();
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request -> {
+            transportCalled.set(true);
+            return CompletableFuture.failedFuture(new AssertionError("legacy V1 body reached transport"));
+        };
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
+            final var failure =
+                    assertThrows(java.util.concurrent.CompletionException.class, () -> adapter.enqueueOutcomeV1(
+                                    legacy,
+                                    5_000,
+                                    java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("legacy-v1-attempt")), 16))
+                            .toCompletableFuture()
+                            .join());
+            assertTrue(failure.getCause() instanceof IllegalArgumentException);
+            assertFalse(transportCalled.get());
+        }
+    }
+
+    @Test
+    void pulsarV1WireRejectsLegacyBodyBeforeTransportOwnership() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 26);
+        final byte[] token = Bytes.sha256(Bytes.utf8("legacy-pulsar-v1-token"));
+        final PulsarIngressResource resource = new PulsarIngressResource(
+                shard, "cluster-pulsar-v1", token, "persistent://tenant/ns/command-26", 7026, 26);
+        final PreparedCommand legacy = PreparedCommand.schedule(
+                shard,
+                new com.nereusstream.delay.protocol.ScheduleIntent(
+                        DestinationLaneId.derive(Bytes.utf8("legacy-pulsar-v1-lane")),
+                        2_000,
+                        5_000,
+                        OrderingMode.BEST_EFFORT,
+                        Bytes.utf8("legacy")),
+                10_000);
+        final java.util.concurrent.atomic.AtomicBoolean transportCalled =
+                new java.util.concurrent.atomic.AtomicBoolean();
+        final PinnedPulsarCommandIngress.PulsarSendTransport transport = request -> {
+            transportCalled.set(true);
+            return CompletableFuture.failedFuture(new AssertionError("legacy V1 body reached transport"));
+        };
+        try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
+            final var failure =
+                    assertThrows(java.util.concurrent.CompletionException.class, () -> adapter.enqueueOutcomeV1(
+                                    legacy,
+                                    5_000,
+                                    java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("legacy-pulsar-v1-attempt")), 16))
+                            .toCompletableFuture()
+                            .join());
+            assertTrue(failure.getCause() instanceof IllegalArgumentException);
+            assertFalse(transportCalled.get());
+        }
+    }
+
+    @Test
+    void pulsarGuardRejectionIsDefinitelyNotQueued() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 1);
+        final byte[] token = Bytes.sha256(Bytes.utf8("token"));
+        final PulsarIngressResource resource =
+                new PulsarIngressResource(shard, "cluster", token, "persistent://tenant/ns/command-1", 7001, 1);
+        final PreparedCommand command = command(shard);
+        final PinnedPulsarCommandIngress.PulsarSendTransport transport =
+                request -> CompletableFuture.completedFuture(PulsarSendResult.definitelyNotPersisted(
+                        StableCode.BROKER_DEFINITIVE_NOT_PERSISTED.wireValue(), Bytes.utf8("guard")));
+        try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
+            final var outcome = adapter.enqueue(command).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.DEFINITELY_NOT_QUEUED, outcome.status());
+            assertEquals(StableCode.BROKER_DEFINITIVE_NOT_PERSISTED.wireValue(), outcome.stableCode());
+        }
+    }
+
+    @Test
+    void pulsarManagedTransportFailureUsesManagedUncertainCode() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 20);
+        final byte[] token = Bytes.sha256(Bytes.utf8("managed-uncertain-token"));
+        final PulsarIngressResource resource = new PulsarIngressResource(
+                shard, "cluster-managed-uncertain", token, "persistent://tenant/ns/command-20", 7020, 20);
+        final PreparedCommand command = command(shard);
+        final PinnedPulsarCommandIngress.PulsarSendTransport transport = request -> {
+            throw new IllegalStateException("connection lost after producer ownership");
+        };
+        try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
+            final var outcome = adapter.enqueue(command).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.ENQUEUE_UNCERTAIN, outcome.status());
+            assertEquals(StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue(), outcome.stableCode());
+        }
+    }
+
+    @Test
+    void pulsarManagedNullResultUsesManagedUncertainCode() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 21);
+        final PulsarIngressResource resource = new PulsarIngressResource(
+                shard,
+                "cluster-managed-null",
+                Bytes.sha256(Bytes.utf8("managed-null-token")),
+                "persistent://tenant/ns/command-21",
+                7021,
+                21);
+        final PreparedCommand command = command(shard);
+        final PinnedPulsarCommandIngress.PulsarSendTransport transport =
+                request -> CompletableFuture.completedFuture(null);
+        try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
+            final var outcome = adapter.enqueue(command).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.ENQUEUE_UNCERTAIN, outcome.status());
+            assertEquals(StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue(), outcome.stableCode());
+        }
+    }
+
+    @Test
+    void pulsarCompletionStageRegistrationFailureIsUncertain() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 35);
+        final byte[] token = Bytes.sha256(Bytes.utf8("stage-pulsar-token"));
+        final PulsarIngressResource resource = new PulsarIngressResource(
+                shard, "cluster-stage-pulsar", token, "persistent://tenant/ns/topic-35", 9_035, 35);
+        final PreparedCommand command = command(shard);
+        final PinnedPulsarCommandIngress.PulsarSendTransport transport =
+                request -> new HandleRegistrationFailureFuture<>();
+        try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
+            final var outcome = adapter.enqueue(command).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.ENQUEUE_UNCERTAIN, outcome.status());
+            assertEquals(StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue(), outcome.stableCode());
+
+            final var wire = adapter.enqueueOutcomeV1(
+                            command,
+                            5_000,
+                            java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("stage-pulsar-attempt")), 16))
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(
+                    StableCode.ENQUEUE_RESULT_UNCERTAIN,
+                    wire.uncertain().error().code());
+        }
+    }
+
+    @Test
+    void pulsarNullHandledStageIsUncertain() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 37);
+        final byte[] token = Bytes.sha256(Bytes.utf8("null-handle-pulsar-token"));
+        final PulsarIngressResource resource = new PulsarIngressResource(
+                shard, "cluster-null-handle-pulsar", token, "persistent://tenant/ns/topic-37", 9_037, 37);
+        final PreparedCommand command = command(shard);
+        final PinnedPulsarCommandIngress.PulsarSendTransport transport = request -> new NullHandledFuture<>();
+        try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
+            assertEquals(
+                    EnqueueStatus.ENQUEUE_UNCERTAIN,
+                    adapter.enqueue(command).toCompletableFuture().join().status());
+            final var wire = adapter.enqueueOutcomeV1(
+                            command,
+                            5_000,
+                            java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("null-handle-pulsar-attempt")), 16))
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(
+                    StableCode.ENQUEUE_RESULT_UNCERTAIN,
+                    wire.uncertain().error().code());
+        }
+    }
+
+    @Test
+    void managedIngressDoesNotLeakNativeUncertainCode() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 22);
+        final UUID topic = UUID.randomUUID();
+        final KafkaIngressResource resource =
+                new KafkaIngressResource(shard, "cluster-managed-code", "command-topic", topic, 22);
+        final PreparedCommand command = command(shard);
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport =
+                request -> CompletableFuture.completedFuture(KafkaProduceResult.unknown(
+                        StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN.wireValue(), Bytes.utf8("native-code")));
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
+            final var outcome = adapter.enqueue(command).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.ENQUEUE_UNCERTAIN, outcome.status());
+            assertEquals(StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue(), outcome.stableCode());
+            final var wire = adapter.enqueueOutcomeV1(
+                            command,
+                            5_000,
+                            java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("managed-code-attempt")), 16))
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(
+                    StableCode.ENQUEUE_RESULT_UNCERTAIN,
+                    wire.uncertain().error().code());
+        }
+    }
+
+    @Test
+    void managedIngressNormalizesNativeGuardCode() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 23);
+        final UUID topic = UUID.randomUUID();
+        final KafkaIngressResource resource =
+                new KafkaIngressResource(shard, "cluster-managed-guard", "command-topic", topic, 23);
+        final PreparedCommand command = command(shard);
+        final PinnedKafkaCommandIngress.KafkaProduceTransport transport =
+                request -> CompletableFuture.completedFuture(KafkaProduceResult.definitelyNotPersisted(
+                        StableCode.NATIVE_GUARD_DEFINITIVE_NOT_PERSISTED.wireValue(), Bytes.utf8("guard-code")));
+        try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
+            final var wire = adapter.enqueueOutcomeV1(
+                            command,
+                            5_000,
+                            java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("managed-guard-attempt")), 16))
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED, wire.kind());
+            assertEquals(
+                    StableCode.BROKER_DEFINITIVE_NOT_PERSISTED,
+                    wire.definitelyNotQueued().error().code());
+        }
+    }
+
+    @Test
+    void persistedPulsarResultCarriesBatchAwareSourcePosition() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
+        final byte[] token = Bytes.sha256(Bytes.utf8("token-2"));
+        final PulsarIngressResource resource = new PulsarIngressResource(
+                shard, "cluster", token, "persistent://tenant/ns/command-3", Long.MIN_VALUE, 3);
+        final PreparedCommand command = command(shard);
+        final PinnedPulsarCommandIngress.PulsarSendTransport transport = request -> {
+            assertEquals(resource.physicalTopicCreationTimestamp(), request.physicalTopicCreationTimestamp());
+            return CompletableFuture.completedFuture(PulsarSendResult.persisted(
+                    "cluster",
+                    token,
+                    resource.physicalTopic(),
+                    resource.physicalTopicCreationTimestamp(),
+                    3,
+                    8,
+                    9,
+                    1,
+                    2,
+                    true,
+                    1001,
+                    null));
+        };
+        try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
+            final var outcome = adapter.enqueue(command).toCompletableFuture().join();
+            assertTrue(outcome.status() == EnqueueStatus.QUEUED);
+            final PulsarSourcePosition position =
+                    (PulsarSourcePosition) outcome.receipt().sourcePosition();
+            assertEquals(1, position.normalizedBatchIndex());
+            assertEquals(PulsarSourcePosition.EntryKind.BATCH, position.entryKind());
+            assertFalse(position.canonicalBytes().length == 0);
+        }
+    }
+
+    @Test
+    void policyBoundPulsarDerivesReceiptBoundaryFromBrokerPersistenceTime() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 40);
+        final byte[] token = Bytes.sha256(Bytes.utf8("policy-pulsar-token"));
+        final PulsarIngressResource resource = new PulsarIngressResource(
+                shard, "cluster-policy-pulsar", token, "persistent://tenant/ns/policy-40", 9_040, 40);
+        final PreparedCommand command = command(shard);
+        final QueuedReceiptQueryPolicy policy = new QueuedReceiptQueryPolicy(9, 3_000);
+        final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("policy-pulsar-attempt")), 16);
+        final PinnedPulsarCommandIngress.PulsarSendTransport transport =
+                request -> CompletableFuture.completedFuture(PulsarSendResult.persisted(
+                        "cluster-policy-pulsar",
+                        token,
+                        resource.physicalTopic(),
+                        resource.physicalTopicCreationTimestamp(),
+                        40,
+                        12,
+                        13,
+                        0,
+                        1,
+                        false,
+                        2_500,
+                        Bytes.utf8("policy-pulsar-response")));
+        try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport, policy)) {
+            final var wire = adapter.enqueueOutcomeV1(command, policy, attempt)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(EnqueueOutcomeKindV1.QUEUED, wire.kind());
+            assertEquals(5_500, wire.queued().receiptQueryUntilEpochMs());
+        }
+    }
+
+    @Test
+    void pulsarCreationIdentityMismatchIsUncertain() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
+        final byte[] token = Bytes.sha256(Bytes.utf8("token-3"));
+        final PulsarIngressResource resource =
+                new PulsarIngressResource(shard, "cluster", token, "persistent://tenant/ns/command-4", 7004, 4);
+        final PreparedCommand command = command(shard);
+        final PinnedPulsarCommandIngress.PulsarSendTransport transport =
+                request -> CompletableFuture.completedFuture(PulsarSendResult.persisted(
+                        "cluster", token, resource.physicalTopic(), 7005, 4, 8, 9, 0, 1, false, 1001, null));
+        try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
+            final var outcome = adapter.enqueue(command).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.ENQUEUE_UNCERTAIN, outcome.status());
+            assertEquals(StableCode.RESOURCE_INCARNATION_MISMATCH.wireValue(), outcome.stableCode());
+        }
+    }
+
+    @Test
+    void pulsarWireProjectionFailureIsUncertain() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 29);
+        final byte[] token = Bytes.sha256(Bytes.utf8("projection-pulsar-token"));
+        final PulsarIngressResource resource = new PulsarIngressResource(
+                shard, "cluster-pulsar-projection", token, "persistent://tenant/ns/topic-29", 9_029, 29);
+        final PreparedCommand command = command(shard);
+        final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("pulsar-projection-attempt")), 16);
+        final PinnedPulsarCommandIngress.PulsarSendTransport transport =
+                request -> CompletableFuture.completedFuture(PulsarSendResult.persisted(
+                        "cluster-pulsar-projection",
+                        token,
+                        resource.physicalTopic(),
+                        resource.physicalTopicCreationTimestamp(),
+                        29,
+                        12,
+                        13,
+                        0,
+                        1,
+                        false,
+                        2_001,
+                        Bytes.utf8("response")));
+        try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
+            final var wire = adapter.enqueueOutcomeV1(command, 2_000, attempt)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(
+                    StableCode.ENQUEUE_RESULT_UNCERTAIN,
+                    wire.uncertain().error().code());
+            assertEquals(
+                    StableCode.INTEGRITY_ERROR.wireValue(),
+                    wire.uncertain().error().diagnosticCode());
+        }
+    }
+
+    @Test
+    void pulsarWireBridgeCarriesBatchAwareReceiptAndEvidence() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 9);
+        final byte[] token = Bytes.sha256(Bytes.utf8("wire-pulsar-token"));
+        final PulsarIngressResource resource = new PulsarIngressResource(
+                shard, "cluster-pulsar-wire", token, "persistent://tenant/ns/command-9", 9009, 9);
+        final PreparedCommand command = command(shard);
+        final byte[] evidence = Bytes.utf8("pulsar-response");
+        final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("pulsar-attempt")), 16);
+        final PinnedPulsarCommandIngress.PulsarSendTransport transport = request -> {
+            assertEquals(resource.physicalTopicCreationTimestamp(), request.physicalTopicCreationTimestamp());
+            return CompletableFuture.completedFuture(PulsarSendResult.persisted(
+                    "cluster-pulsar-wire",
+                    token,
+                    resource.physicalTopic(),
+                    resource.physicalTopicCreationTimestamp(),
+                    9,
+                    12,
+                    13,
+                    2,
+                    3,
+                    true,
+                    2_001,
+                    evidence));
+        };
+        try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
+            final var wire = adapter.enqueueOutcomeV1(command, 5_000, attempt)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(EnqueueOutcomeKindV1.QUEUED, wire.kind());
+            final var ack = (com.nereusstream.delay.protocol.CommandQueuedReceiptV1.PulsarQueuedAck)
+                    wire.queued().brokerAck();
+            assertArrayEquals(Bytes.sha256(evidence), ack.sendReceiptSha256());
+            assertEquals(2, ack.normalizedBatchIndex());
+            assertEquals(wire, com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1.decode(wire.canonicalBytes()));
+        }
+    }
+
+    @Test
+    void pulsarWireBridgeCarriesGuardRejectionProof() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 10);
+        final byte[] token = Bytes.sha256(Bytes.utf8("guard-wire-token"));
+        final PulsarIngressResource resource = new PulsarIngressResource(
+                shard, "cluster-pulsar-proof", token, "persistent://tenant/ns/command-10", 9010, 10);
+        final PreparedCommand command = command(shard);
+        final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("pulsar-proof-attempt")), 16);
+        final PinnedPulsarCommandIngress.PulsarSendTransport transport =
+                request -> CompletableFuture.completedFuture(PulsarSendResult.definitelyNotPersisted(
+                        StableCode.BROKER_DEFINITIVE_NOT_PERSISTED.wireValue(), Bytes.utf8("guard-rejection")));
+        try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
+            final var wire = adapter.enqueueOutcomeV1(command, 5_000, attempt)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED, wire.kind());
+            assertEquals(
+                    NonPersistenceProofKindV1.PULSAR_GUARD_REJECTION,
+                    wire.definitelyNotQueued().proof().kind());
+            assertEquals(wire, com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1.decode(wire.canonicalBytes()));
+        }
+    }
+
+    @Test
+    void pulsarWireDoesNotTurnMismatchedDefinitiveCodeIntoProof() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 33);
+        final byte[] token = Bytes.sha256(Bytes.utf8("malformed-pulsar-proof-token"));
+        final PulsarIngressResource resource = new PulsarIngressResource(
+                shard, "cluster-malformed-pulsar-proof", token, "persistent://tenant/ns/topic-33", 9_033, 33);
+        final PreparedCommand command = command(shard);
+        final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("malformed-pulsar-proof-attempt")), 16);
+        final PinnedPulsarCommandIngress.PulsarSendTransport transport =
+                request -> CompletableFuture.completedFuture(PulsarSendResult.definitelyNotPersisted(
+                        StableCode.BROKER_RESOURCE_UNCERTIFIED.wireValue(), Bytes.utf8("not-a-guard-rejection")));
+        try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
+            final var wire = adapter.enqueueOutcomeV1(command, 5_000, attempt)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(
+                    StableCode.ENQUEUE_RESULT_UNCERTAIN,
+                    wire.uncertain().error().code());
+            assertEquals(
+                    StableCode.BROKER_RESOURCE_UNCERTIFIED.wireValue(),
+                    wire.uncertain().error().diagnosticCode());
+        }
+    }
+
+    private static final class HandleRegistrationFailureFuture<T> extends CompletableFuture<T> {
+        @Override
+        public <U> CompletableFuture<U> handle(
+                final java.util.function.BiFunction<? super T, Throwable, ? extends U> function) {
+            throw new IllegalStateException("completion callback registration failed");
+        }
+    }
+
+    private static final class NullHandledFuture<T> extends CompletableFuture<T> {
+        @Override
+        public <U> CompletableFuture<U> handle(
+                final java.util.function.BiFunction<? super T, Throwable, ? extends U> function) {
+            return null;
+        }
+    }
+
+    private static PreparedCommand command(final ShardId shard) {
+        final ProfileRefV1 destination = new ProfileRefV1(
+                Bytes.utf8("adapter-destination"),
+                1,
+                Bytes.sha256(Bytes.utf8("adapter-destination-semantic")),
+                ProfileKindV1.DESTINATION);
+        final RetryPolicyRefV1 retryPolicy = new RetryPolicyRefV1(
+                Bytes.utf8("adapter-retry"), 1, Bytes.sha256(Bytes.utf8("adapter-retry-semantic")));
+        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
+                destination,
+                retryPolicy,
+                2_000,
+                5_000,
+                DeliveryMode.MANAGED,
+                OrderingMode.BEST_EFFORT,
+                new byte[0],
+                Bytes.utf8("payload"),
+                null,
+                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())),
+                null,
+                null);
+        return PreparedCommand.scheduleV1(shard, intent, 10_000);
+    }
+}

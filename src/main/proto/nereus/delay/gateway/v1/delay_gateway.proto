@@ -3,7 +3,7 @@ syntax = "proto3";
 package nereus.delay.gateway.v1;
 
 option java_multiple_files = true;
-option java_package = "io.nereusstream.delay.gateway.v1";
+option java_package = "com.nereusstream.delay.gateway.v1";
 
 // Transport DTOs only. Embedded values remain the canonical V1 Registry bytes.
 service DelayGatewayV1 {

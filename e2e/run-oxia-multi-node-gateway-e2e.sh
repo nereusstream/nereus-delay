@@ -422,7 +422,7 @@ run_failover_smoke() {
     NEREUS_DELAY_GATEWAY_MULTI_NODE_FAILOVER_READY="$failover_ready" \
     GRADLE_USER_HOME="$delay_gradle_user_home" \
         "$delay_root/gradlew" test \
-            --tests io.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.gatewayRecoversAcrossRealOxiaDataServerFailover \
+            --tests com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.gatewayRecoversAcrossRealOxiaDataServerFailover \
             --rerun-tasks \
             --no-daemon --console=plain >"$failover_log" 2>&1 &
     failover_pid=$!

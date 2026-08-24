@@ -512,7 +512,7 @@ if [[ "${source_status}" == "PASS" ]]; then
   NEREUS_DELAY_TARGET_ISOLATION_PHASE=before \
   GRADLE_USER_HOME="${gradle_home}" \
     ./gradlew test --no-daemon --console=plain --rerun-tasks \
-      --tests io.nereusstream.delay.scheduler.TargetIsolationDurableChaosTest \
+      --tests com.nereusstream.delay.scheduler.TargetIsolationDurableChaosTest \
       >"${target_isolation_dir}/before-process.log" 2>&1
   target_isolation_before_exit=$?
   set -e
@@ -522,7 +522,7 @@ if [[ "${source_status}" == "PASS" ]]; then
     NEREUS_DELAY_TARGET_ISOLATION_PHASE=after \
     GRADLE_USER_HOME="${gradle_home}" \
       ./gradlew test --no-daemon --console=plain --rerun-tasks \
-        --tests io.nereusstream.delay.scheduler.TargetIsolationDurableChaosTest \
+        --tests com.nereusstream.delay.scheduler.TargetIsolationDurableChaosTest \
         >"${target_isolation_dir}/after-process.log" 2>&1
     target_isolation_after_exit=$?
     set -e

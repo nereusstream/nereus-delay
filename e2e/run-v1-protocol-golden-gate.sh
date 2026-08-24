@@ -66,36 +66,36 @@ required=(
   pulsar-strictness model-property-interleavings kafka-guarded-golden pulsar-guarded-golden
 )
 test_patterns=(
-  'io.nereusstream.delay.protocol.*'
-  'io.nereusstream.delay.store.KeyCodecTest'
-  'io.nereusstream.delay.store.ValueEnvelopeTest'
-  'io.nereusstream.delay.store.CheckpointManifestTest'
-  'io.nereusstream.delay.runtime.TrustedUtcClockTest'
-  'io.nereusstream.delay.client.AutoFastScheduleTest'
-  'io.nereusstream.delay.runtime.ProfileCatalogV1ScheduleResolverTest'
+  'com.nereusstream.delay.protocol.*'
+  'com.nereusstream.delay.store.KeyCodecTest'
+  'com.nereusstream.delay.store.ValueEnvelopeTest'
+  'com.nereusstream.delay.store.CheckpointManifestTest'
+  'com.nereusstream.delay.runtime.TrustedUtcClockTest'
+  'com.nereusstream.delay.client.AutoFastScheduleTest'
+  'com.nereusstream.delay.runtime.ProfileCatalogV1ScheduleResolverTest'
 )
 
 source_audit_status="PASS"
 source_audit_files=(
-  "src/test/java/io/nereusstream/delay/protocol/ProtocolCodecTest.java"
-  "src/test/java/io/nereusstream/delay/protocol/CanonicalProtobufTest.java"
-  "src/test/java/io/nereusstream/delay/protocol/CommandProtocolTupleTest.java"
-  "src/test/java/io/nereusstream/delay/protocol/SourceActivationBarrierTest.java"
-  "src/test/java/io/nereusstream/delay/store/KeyCodecTest.java"
-  "src/test/java/io/nereusstream/delay/store/ValueEnvelopeTest.java"
-  "src/test/java/io/nereusstream/delay/store/CheckpointManifestTest.java"
-  "src/test/java/io/nereusstream/delay/runtime/TrustedUtcClockTest.java"
-  "src/test/java/io/nereusstream/delay/client/AutoFastScheduleTest.java"
+  "src/test/java/com/nereusstream/delay/protocol/ProtocolCodecTest.java"
+  "src/test/java/com/nereusstream/delay/protocol/CanonicalProtobufTest.java"
+  "src/test/java/com/nereusstream/delay/protocol/CommandProtocolTupleTest.java"
+  "src/test/java/com/nereusstream/delay/protocol/SourceActivationBarrierTest.java"
+  "src/test/java/com/nereusstream/delay/store/KeyCodecTest.java"
+  "src/test/java/com/nereusstream/delay/store/ValueEnvelopeTest.java"
+  "src/test/java/com/nereusstream/delay/store/CheckpointManifestTest.java"
+  "src/test/java/com/nereusstream/delay/runtime/TrustedUtcClockTest.java"
+  "src/test/java/com/nereusstream/delay/client/AutoFastScheduleTest.java"
 )
 for file in "${source_audit_files[@]}"; do
   [[ -s "${delay_dir}/${file}" ]] || source_audit_status="FAIL"
 done
-rg -Fq 'frameZeroVectorMatchesRegistry' "${delay_dir}/src/test/java/io/nereusstream/delay/protocol/ProtocolCodecTest.java" || source_audit_status=FAIL
-rg -Fq 'receiptFrameZeroVectorMatchesRegistry' "${delay_dir}/src/test/java/io/nereusstream/delay/protocol/ProtocolCodecTest.java" || source_audit_status=FAIL
-rg -Fq 'uint64BitsRoundTripsTheHighBitPattern' "${delay_dir}/src/test/java/io/nereusstream/delay/protocol/CanonicalProtobufTest.java" || source_audit_status=FAIL
-rg -Fq 'pulsarBarrierPinsBatchShapeForTheInclusiveEntry' "${delay_dir}/src/test/java/io/nereusstream/delay/protocol/SourceActivationBarrierTest.java" || source_audit_status=FAIL
-rg -Fq 'commandHashBindsTheProtocolTuple' "${delay_dir}/src/test/java/io/nereusstream/delay/protocol/CommandProtocolTupleTest.java" || source_audit_status=FAIL
-rg -Fq 'canonical JCS' "${delay_dir}/src/main/java/io/nereusstream/delay/store/CheckpointManifest.java" || source_audit_status=FAIL
+rg -Fq 'frameZeroVectorMatchesRegistry' "${delay_dir}/src/test/java/com/nereusstream/delay/protocol/ProtocolCodecTest.java" || source_audit_status=FAIL
+rg -Fq 'receiptFrameZeroVectorMatchesRegistry' "${delay_dir}/src/test/java/com/nereusstream/delay/protocol/ProtocolCodecTest.java" || source_audit_status=FAIL
+rg -Fq 'uint64BitsRoundTripsTheHighBitPattern' "${delay_dir}/src/test/java/com/nereusstream/delay/protocol/CanonicalProtobufTest.java" || source_audit_status=FAIL
+rg -Fq 'pulsarBarrierPinsBatchShapeForTheInclusiveEntry' "${delay_dir}/src/test/java/com/nereusstream/delay/protocol/SourceActivationBarrierTest.java" || source_audit_status=FAIL
+rg -Fq 'commandHashBindsTheProtocolTuple' "${delay_dir}/src/test/java/com/nereusstream/delay/protocol/CommandProtocolTupleTest.java" || source_audit_status=FAIL
+rg -Fq 'canonical JCS' "${delay_dir}/src/main/java/com/nereusstream/delay/store/CheckpointManifest.java" || source_audit_status=FAIL
 
 cross_repo_status="BLOCKED"
 kafka_test_exit_code=1

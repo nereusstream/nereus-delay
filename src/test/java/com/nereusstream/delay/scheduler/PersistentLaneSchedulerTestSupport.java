@@ -1,0 +1,22 @@
+package com.nereusstream.delay.scheduler;
+
+import com.nereusstream.delay.runtime.LaneRecord;
+import com.nereusstream.delay.store.ShardStore;
+
+/** Test-classpath-only bridge for package-local scheduler fixture setup. */
+public final class PersistentLaneSchedulerTestSupport {
+    private PersistentLaneSchedulerTestSupport() {}
+
+    public static PersistentLaneScheduler defaults(final ShardStore store) {
+        return PersistentLaneScheduler.defaults(store);
+    }
+
+    public static void register(final PersistentLaneScheduler scheduler, final LaneRecord lane) {
+        scheduler.register(lane);
+    }
+
+    public static int rebuildFromAuthoritativeReady(
+            final PersistentLaneScheduler scheduler, final int maxReadyEntries) {
+        return scheduler.rebuildFromAuthoritativeReady(maxReadyEntries);
+    }
+}

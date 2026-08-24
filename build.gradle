@@ -2,10 +2,11 @@ plugins {
     id 'java-library'
     id 'jacoco'
     id 'checkstyle'
+    id 'com.diffplug.spotless' version '8.4.0'
     id 'com.google.protobuf' version '0.10.0'
 }
 
-group = 'io.nereusstream'
+group = 'com.nereusstream'
 version = '0.1.0-SNAPSHOT'
 
 java {
@@ -101,7 +102,7 @@ tasks.register('runRealKafkaSmoke', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
-    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactSmoke'
+    mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactSmoke'
     args findProperty('kafkaBootstrap'), findProperty('kafkaTopic')
     if (findProperty('smokeMode') != null) {
         args findProperty('smokeMode')
@@ -121,7 +122,7 @@ tasks.register('runRealKafkaK2Smoke', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
-    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactTransactionalSmoke'
+    mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactTransactionalSmoke'
     args findProperty('kafkaBootstrap'), findProperty('kafkaTargetTopic'), findProperty('kafkaReceiptTopic')
 }
 
@@ -138,7 +139,7 @@ tasks.register('runRealKafkaSourceSmoke', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
-    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactSourceSmoke'
+    mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactSourceSmoke'
     args findProperty('kafkaBootstrap'), findProperty('kafkaSourceTopic')
 }
 
@@ -155,7 +156,7 @@ tasks.register('runRealKafkaFetchResponseLossSmoke', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
-    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactFetchResponseLossSmoke'
+    mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactFetchResponseLossSmoke'
     args findProperty('kafkaBootstrap'), findProperty('kafkaFetchResponseLossTopic')
 }
 
@@ -172,7 +173,7 @@ tasks.register('runRealKafkaRetentionFloorSmoke', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
-    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactRetentionFloorSmoke'
+    mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactRetentionFloorSmoke'
     args findProperty('kafkaBootstrap'), findProperty('kafkaRetentionFloorTopic')
 }
 
@@ -190,7 +191,7 @@ tasks.register('runRealKafkaProcessCrashRecoverySmoke', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
-    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactProcessCrashRecoverySmoke'
+    mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactProcessCrashRecoverySmoke'
     args findProperty('kafkaBootstrap'), findProperty('kafkaProcessCrashTopic'),
             findProperty('kafkaProcessCrashMode')
 }
@@ -208,7 +209,7 @@ tasks.register('runRealKafkaSurvivorLeaderRecoverySmoke', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
-    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactSurvivorLeaderRecoverySmoke'
+    mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactSurvivorLeaderRecoverySmoke'
     args findProperty('kafkaBootstrap'), findProperty('kafkaSurvivorTopics')
 }
 
@@ -225,7 +226,7 @@ tasks.register('runRealKafkaLeaderPlacementSmoke', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
-    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactLeaderPlacementSmoke'
+    mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactLeaderPlacementSmoke'
     args findProperty('kafkaBootstrap'), findProperty('kafkaLeaderPlacementTopic'),
             findProperty('kafkaLeaderPlacementGroup')
 }
@@ -248,7 +249,7 @@ tasks.register('runRealKafkaTcpFaultProxy', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
-    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactTcpFaultProxy'
+    mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactTcpFaultProxy'
     args proxyProperties.collect { findProperty(it) }
 }
 
@@ -269,7 +270,7 @@ tasks.register('runRealKafkaHalfOpenProxy', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
-    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactHalfOpenProxy'
+    mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactHalfOpenProxy'
     args proxyProperties.collect { findProperty(it) }
 }
 
@@ -286,7 +287,7 @@ tasks.register('runRealKafkaMutationSmoke', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
-    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactMutationSmoke'
+    mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactMutationSmoke'
     args findProperty('kafkaBootstrap'), findProperty('kafkaMutationTopic')
 }
 
@@ -303,7 +304,7 @@ tasks.register('runRealKafkaMutationWorkerSmoke', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
-    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactMutationWorkerSmoke'
+    mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactMutationWorkerSmoke'
     args findProperty('kafkaBootstrap'), findProperty('kafkaMutationWorkerTopic')
 }
 
@@ -320,7 +321,7 @@ tasks.register('runRealKafkaWorkerSmoke', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
-    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactWorkerSmoke'
+    mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactWorkerSmoke'
     args findProperty('kafkaBootstrap'), findProperty('kafkaWorkerTopic'),
             findProperty('kafkaWorkerMode') ?: 'run'
     if (findProperty('kafkaWorkerDestinationTopic') != null) {
@@ -341,7 +342,7 @@ tasks.register('runRealKafkaBrokerProcessCrashStateSmoke', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
-    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactBrokerProcessCrashStateSmoke'
+    mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactBrokerProcessCrashStateSmoke'
     args findProperty('kafkaBootstrap'), findProperty('kafkaBrokerProcessCrashTopic')
 }
 
@@ -358,7 +359,7 @@ tasks.register('runRealKafkaBrokerRecoveryStateSmoke', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
-    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactBrokerProcessCrashStateSmoke'
+    mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactBrokerProcessCrashStateSmoke'
     args findProperty('kafkaBootstrap'), findProperty('kafkaBrokerRecoveryTopic')
 }
 
@@ -375,7 +376,7 @@ tasks.register('runRealKafkaRouteWorkerSmoke', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
-    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactRouteWorkerSmoke'
+    mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactRouteWorkerSmoke'
     args findProperty('kafkaBootstrap'), findProperty('kafkaRouteWorkerTopic')
 }
 
@@ -393,7 +394,7 @@ tasks.register('runRealKafkaLargePayloadGatewaySmoke', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
-    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactLargePayloadGatewaySmoke'
+    mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactLargePayloadGatewaySmoke'
     args findProperty('kafkaBootstrap'), findProperty('kafkaLargePayloadTopic')
 }
 
@@ -413,7 +414,7 @@ tasks.register('runRealKafkaCapacityProducer', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
-    mainClass = 'io.nereusstream.delay.transport.KafkaClientArtifactCapacityProducer'
+    mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactCapacityProducer'
     args requiredProperties.collect { findProperty(it) }
 }
 
@@ -450,7 +451,7 @@ tasks.register('runRealPulsarSmoke', JavaExec) {
     }
     classpath = files(sourceSets.main.runtimeClasspath,
             sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator))
-    mainClass = 'io.nereusstream.delay.transport.PulsarClientArtifactBindingSmoke'
+    mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactBindingSmoke'
 }
 
 tasks.register('runRealPulsarServiceSmoke', JavaExec) {
@@ -479,7 +480,7 @@ tasks.register('runRealPulsarServiceSmoke', JavaExec) {
     classpath = files(sourceSets.main.output,
             sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
             fileTree(realPulsarRuntimeDir).include('**/*.jar'))
-    mainClass = 'io.nereusstream.delay.transport.PulsarClientArtifactRealServiceSmoke'
+    mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactRealServiceSmoke'
     args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarTopic')
 }
 
@@ -506,7 +507,7 @@ tasks.register('runRealPulsarDestinationSmoke', JavaExec) {
     classpath = files(sourceSets.main.output,
             sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
             fileTree(realPulsarRuntimeDir).include('**/*.jar'))
-    mainClass = 'io.nereusstream.delay.transport.PulsarClientArtifactDestinationSmoke'
+    mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactDestinationSmoke'
     args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarDestinationTopic')
 }
 
@@ -533,7 +534,7 @@ tasks.register('runRealPulsarSourceSmoke', JavaExec) {
     classpath = files(sourceSets.main.output,
             sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
             fileTree(realPulsarRuntimeDir).include('**/*.jar'))
-    mainClass = 'io.nereusstream.delay.transport.PulsarClientArtifactSourceSmoke'
+    mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactSourceSmoke'
     args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarTopic')
 }
 
@@ -560,7 +561,7 @@ tasks.register('runRealPulsarMutationSmoke', JavaExec) {
     classpath = files(sourceSets.main.output,
             sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
             fileTree(realPulsarRuntimeDir).include('**/*.jar'))
-    mainClass = 'io.nereusstream.delay.transport.PulsarClientArtifactMutationSmoke'
+    mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactMutationSmoke'
     args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarMutationTopic')
 }
 
@@ -589,7 +590,7 @@ tasks.register('runRealPulsarMutationWorkerSmoke', JavaExec) {
     classpath = files(sourceSets.main.output,
             sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
             fileTree(realPulsarRuntimeDir).include('**/*.jar'), optionalOxiaClasspath)
-    mainClass = 'io.nereusstream.delay.transport.PulsarClientArtifactMutationWorkerSmoke'
+    mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactMutationWorkerSmoke'
     args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarMutationWorkerTopic')
 }
 
@@ -618,7 +619,7 @@ tasks.register('runRealPulsarRouteWorkerSmoke', JavaExec) {
     classpath = files(sourceSets.main.output,
             sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
             fileTree(realPulsarRuntimeDir).include('**/*.jar'), optionalOxiaClasspath)
-    mainClass = 'io.nereusstream.delay.transport.PulsarClientArtifactRouteWorkerSmoke'
+    mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactRouteWorkerSmoke'
     args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarRouteWorkerTopic')
 }
 
@@ -647,7 +648,7 @@ tasks.register('runRealPulsarWorkerSmoke', JavaExec) {
     classpath = files(sourceSets.main.output,
             sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
             fileTree(realPulsarRuntimeDir).include('**/*.jar'), optionalOxiaClasspath)
-    mainClass = 'io.nereusstream.delay.transport.PulsarClientArtifactWorkerSmoke'
+    mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactWorkerSmoke'
     args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarTopic'),
             findProperty('pulsarWorkerMode') ?: 'run', findProperty('pulsarWorkerDestinationTopic') ?: ''
 }
@@ -675,7 +676,7 @@ tasks.register('runRealPulsarBrokerRecoveryStateSmoke', JavaExec) {
     classpath = files(sourceSets.main.output,
             sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
             fileTree(realPulsarRuntimeDir).include('**/*.jar'))
-    mainClass = 'io.nereusstream.delay.transport.PulsarClientArtifactBrokerProcessCrashStateSmoke'
+    mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactBrokerProcessCrashStateSmoke'
     args findProperty('pulsarAdminUrl'), findProperty('pulsarBrokerRecoveryTopic')
 }
 
@@ -703,7 +704,7 @@ tasks.register('runRealPulsarLargePayloadGatewaySmoke', JavaExec) {
     classpath = files(sourceSets.main.output,
             sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
             fileTree(realPulsarRuntimeDir).include('**/*.jar'), optionalOxiaClasspath)
-    mainClass = 'io.nereusstream.delay.transport.PulsarClientArtifactLargePayloadGatewaySmoke'
+    mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactLargePayloadGatewaySmoke'
     args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarLargePayloadTopic')
 }
 
@@ -730,7 +731,7 @@ tasks.register('runRealPulsarCapacityProducer', JavaExec) {
     }
     classpath = files(sourceSets.main.output, sourceSets.realPulsar.output,
             realPulsarClientClasspath.split(File.pathSeparator), fileTree(realPulsarRuntimeDir).include('**/*.jar'))
-    mainClass = 'io.nereusstream.delay.transport.PulsarClientArtifactCapacityProducer'
+    mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactCapacityProducer'
     args requiredProperties.collect { findProperty(it) }
 }
 
@@ -783,7 +784,7 @@ tasks.register('runRealCrossLargePayloadGatewaySmoke', JavaExec) {
             sourceSets.realCross.output, realKafkaClientJar,
             realPulsarClientClasspath.split(File.pathSeparator),
             fileTree(realPulsarRuntimeDir).include('**/*.jar'), sourceSets.main.runtimeClasspath)
-    mainClass = 'io.nereusstream.delay.transport.CrossAdapterLargePayloadGatewaySmoke'
+    mainClass = 'com.nereusstream.delay.transport.CrossAdapterLargePayloadGatewaySmoke'
     args findProperty('kafkaBootstrap'), findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'),
             findProperty('crossDirection')
 }
@@ -826,13 +827,17 @@ tasks.withType(Test).configureEach {
 }
 
 checkstyle {
-    toolVersion = '10.26.1'
+    toolVersion = '13.3.0'
     configFile = file('config/checkstyle/checkstyle.xml')
+    maxErrors = 0
     maxWarnings = 0
 }
 
 tasks.withType(Checkstyle).configureEach {
+    maxHeapSize = '1g'
     exclude '**/generated/**'
+    exclude '**/generated-sources/**'
+    exclude '**/generated-test-sources/**'
 }
 
 tasks.named('checkstyleMain').configure {
@@ -840,7 +845,18 @@ tasks.named('checkstyleMain').configure {
 }
 
 tasks.named('checkstyleTest').configure {
-    enabled = false
+    source = fileTree('src/test/java')
+}
+
+spotless {
+    java {
+        target 'src/**/*.java'
+        palantirJavaFormat('2.80.0')
+        importOrder '\\#|'
+        removeUnusedImports()
+        trimTrailingWhitespace()
+        endWithNewline()
+    }
 }
 
 def v1DocumentPaths = [

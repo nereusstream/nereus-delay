@@ -84,9 +84,9 @@ set +e
   env NEREUS_DELAY_OXIA_ENDPOINT="127.0.0.1:${oxia_port}" \
     GRADLE_USER_HOME="${gradle_home}" \
     ./gradlew test \
-      --tests io.nereusstream.delay.ownership.OxiaRealProtocolCapabilitySmokeTest \
-      --tests io.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest \
-      --tests io.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest \
+      --tests com.nereusstream.delay.ownership.OxiaRealProtocolCapabilitySmokeTest \
+      --tests com.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest \
+      --tests com.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest \
       --rerun-tasks --no-daemon --console=plain
 ) >>"${log_file}" 2>&1
 test_status=$?

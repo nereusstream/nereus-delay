@@ -238,10 +238,10 @@ NEREUS_DELAY_MINIO_REGION="$minio_region" \
 NEREUS_DELAY_MINIO_FAULT_STATE_DUMP_DIR="$state_dump_dir" \
 GRADLE_USER_HOME="$gradle_user_home" \
     "$delay_root/gradlew" test \
-        --tests io.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioFiveHundredAfterCommitResolvesByExactReadback \
-        --tests io.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioFiveHundredBeforeCommitRemainsFailClosed \
-        --tests io.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioTimeoutAfterCommitResolvesByExactReadback \
-        --tests io.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioCredentialConfigurationDriftFailsClosed \
+        --tests com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioFiveHundredAfterCommitResolvesByExactReadback \
+        --tests com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioFiveHundredBeforeCommitRemainsFailClosed \
+        --tests com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioTimeoutAfterCommitResolvesByExactReadback \
+        --tests com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioCredentialConfigurationDriftFailsClosed \
         -Dorg.gradle.test.retries.max=0 \
         --rerun-tasks --no-daemon --console=plain
 first_test_status=$?
@@ -261,7 +261,7 @@ NEREUS_DELAY_MINIO_REGION="$minio_region" \
 NEREUS_DELAY_MINIO_FAULT_STATE_DUMP_DIR="$state_dump_dir" \
 GRADLE_USER_HOME="$gradle_user_home" \
     "$delay_root/gradlew" test \
-        --tests io.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioFaultRecoveryRunsInFreshProcess \
+        --tests com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest.realMinioFaultRecoveryRunsInFreshProcess \
         -Dorg.gradle.test.retries.max=0 \
         --rerun-tasks --no-daemon --console=plain
 recovery_test_status=$?

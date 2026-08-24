@@ -99,7 +99,7 @@ for case_name in smoke burst sustained; do
         "$image" \
         bash -lc '
             cd /workspace
-            if ./gradlew test --tests io.nereusstream.delay.store.BoundedCapacitySloProbeTest --rerun-tasks --no-daemon --console=plain > /tmp/nereus-delay-capacity-gradle.log 2>&1; then
+            if ./gradlew test --tests com.nereusstream.delay.store.BoundedCapacitySloProbeTest --rerun-tasks --no-daemon --console=plain > /tmp/nereus-delay-capacity-gradle.log 2>&1; then
                 cat /tmp/nereus-delay-capacity-gradle.log
             else
                 status=$?
@@ -108,7 +108,7 @@ for case_name in smoke burst sustained; do
                     exit "$status"
                 fi
                 find /gradle/caches/modules-2/files-2.1 -type f \( -name "*.exe" -o -name "*linux*" \) -exec chmod u+x {} +
-                ./gradlew test --tests io.nereusstream.delay.store.BoundedCapacitySloProbeTest --rerun-tasks --no-daemon --console=plain
+                ./gradlew test --tests com.nereusstream.delay.store.BoundedCapacitySloProbeTest --rerun-tasks --no-daemon --console=plain
             fi
         '
     active_project=""

@@ -1,0 +1,1709 @@
+package com.nereusstream.delay.client;
+
+import com.nereusstream.delay.adapter.CommandResultRetentionPolicy;
+import com.nereusstream.delay.adapter.ControlOperationQueryPolicy;
+import com.nereusstream.delay.adapter.InMemoryPayloadObjectStore;
+import com.nereusstream.delay.adapter.PreparedSubmissionAdapter;
+import com.nereusstream.delay.adapter.QueuedReceiptQueryPolicy;
+import com.nereusstream.delay.ownership.ControlOperationAuthority;
+import com.nereusstream.delay.ownership.ControlTargetRegistrationAuthority;
+import com.nereusstream.delay.ownership.InMemoryControlOperationAuthority;
+import com.nereusstream.delay.ownership.InMemoryControlTargetRegistrationAuthority;
+import com.nereusstream.delay.protocol.AdapterKindV1;
+import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CommandAppliedReceiptV1;
+import com.nereusstream.delay.protocol.CommandApplyStatusV1;
+import com.nereusstream.delay.protocol.CommandBodies;
+import com.nereusstream.delay.protocol.CommandCodec;
+import com.nereusstream.delay.protocol.CommandQueryResponseV1;
+import com.nereusstream.delay.protocol.CommandQueryResult;
+import com.nereusstream.delay.protocol.CommandQueuedReceiptV1;
+import com.nereusstream.delay.protocol.CommandQueuedReceiptV1.KafkaQueuedAck;
+import com.nereusstream.delay.protocol.ControlOperationQueryResponseV1;
+import com.nereusstream.delay.protocol.ControlOperationReceiptV1;
+import com.nereusstream.delay.protocol.ControlRegistrationBindingV1;
+import com.nereusstream.delay.protocol.ControlRegistrationOutcomeMessageV1;
+import com.nereusstream.delay.protocol.ControlRegistrationProjectionV1;
+import com.nereusstream.delay.protocol.CurrentControlOperationV1;
+import com.nereusstream.delay.protocol.DefinitelyNotQueuedV1;
+import com.nereusstream.delay.protocol.DelayMessageId;
+import com.nereusstream.delay.protocol.DeliveryCapabilitySemanticV1;
+import com.nereusstream.delay.protocol.DestinationProfileSemanticV1;
+import com.nereusstream.delay.protocol.DlqExportStateV1;
+import com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1;
+import com.nereusstream.delay.protocol.EnqueueUncertainV1;
+import com.nereusstream.delay.protocol.FailureStageV1;
+import com.nereusstream.delay.protocol.FirstScheduleEligibilityV1;
+import com.nereusstream.delay.protocol.KafkaSourcePosition;
+import com.nereusstream.delay.protocol.LargeScheduleIntent;
+import com.nereusstream.delay.protocol.MessagePreconditionV1;
+import com.nereusstream.delay.protocol.MessageQueryResponseV1;
+import com.nereusstream.delay.protocol.NativeDefinitelyNotQueuedV1;
+import com.nereusstream.delay.protocol.NativePreparedDeliveryV1;
+import com.nereusstream.delay.protocol.NativePreparedRefV1;
+import com.nereusstream.delay.protocol.NonPersistenceProofKindV1;
+import com.nereusstream.delay.protocol.NonPersistenceProofV1;
+import com.nereusstream.delay.protocol.OpaquePayloadUploadHandleV1;
+import com.nereusstream.delay.protocol.PayloadAttestationOutcomeV1;
+import com.nereusstream.delay.protocol.PayloadAttestationResponseV1;
+import com.nereusstream.delay.protocol.PayloadCommitProofV1;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
+import com.nereusstream.delay.protocol.PayloadReservationReceiptV1;
+import com.nereusstream.delay.protocol.PayloadUploadHandleOutcomeV1;
+import com.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
+import com.nereusstream.delay.protocol.PreparedCommand;
+import com.nereusstream.delay.protocol.PreparedControlOperationV1;
+import com.nereusstream.delay.protocol.PreparedSubmissionV1;
+import com.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
+import com.nereusstream.delay.protocol.PublicEvidenceRefV1;
+import com.nereusstream.delay.protocol.ScheduleIntent;
+import com.nereusstream.delay.protocol.ScheduleIntentV1;
+import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.SourcePosition;
+import com.nereusstream.delay.protocol.SourcePositionCodec;
+import com.nereusstream.delay.protocol.StableCode;
+import com.nereusstream.delay.protocol.StableErrorV1;
+import com.nereusstream.delay.protocol.SubmissionModeV1;
+import com.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import com.nereusstream.delay.protocol.TargetPartitionHashInputV1;
+import com.nereusstream.delay.protocol.TargetPartitionHashV1;
+import com.nereusstream.delay.protocol.TimingCapabilityV1;
+import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+import com.nereusstream.delay.protocol.UploadHandleKindV1;
+import com.nereusstream.delay.protocol.V1ScheduleBinding;
+import com.nereusstream.delay.runtime.ApplyStatus;
+import com.nereusstream.delay.runtime.CommandResult;
+import com.nereusstream.delay.runtime.DelayShard;
+import com.nereusstream.delay.runtime.DelayShardConfig;
+import com.nereusstream.delay.runtime.MessageQuerySnapshot;
+import com.nereusstream.delay.runtime.PayloadReservation;
+import com.nereusstream.delay.store.ShardStore;
+import com.nereusstream.delay.store.ShardStoreConfig;
+import com.nereusstream.delay.store.SharedRocksDbResources;
+import java.security.SecureRandom;
+import java.time.Clock;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Deque;
+import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+
+/**
+ * In-process conformance service. It models the durable Command Topic boundary
+ * explicitly and is intentionally not presented as a Kafka/Pulsar adapter.
+ */
+public final class EmbeddedDelayService implements DelayClient {
+    private static final String EMBEDDED_CLUSTER_ID = "embedded";
+    private static final UUID EMBEDDED_TOPIC_UUID = UUID.nameUUIDFromBytes(Bytes.utf8("embedded-command-topic"));
+    private static final SecureRandom NATIVE_DELIVERY_ID_RANDOM = new SecureRandom();
+
+    private final ShardId shardId;
+    private final Clock clock;
+    private final SharedRocksDbResources resources;
+    private final ShardStore store;
+    private final DelayShard shard;
+    private final ControlOperationAuthority controlOperationAuthority;
+    private final ControlTargetRegistrationAuthority controlTargetRegistrationAuthority;
+    private final EmbeddedDelayServiceConfig clientConfig;
+    private final InMemoryPayloadObjectStore payloadObjectStore;
+    private final PreparedSubmissionAdapter preparedSubmissionAdapter;
+    private final Deque<QueuedRecord> pending = new ArrayDeque<>();
+    /**
+     * Bounded local evidence for records applied by an explicit drain call.
+     * POSITION is only a locator and does not carry a physical outcome, so a
+     * later legacy await must not fall back to the first logical result when
+     * the physical record was a conflict or fence rejection.
+     */
+    private final Deque<RetainedPhysicalResult> retainedPhysicalResults = new ArrayDeque<>();
+
+    private long nextOffset;
+    /**
+     * Kafka offsets are an unsigned 64-bit sequence.  Do not use {@code -1}
+     * as an exhaustion sentinel: the all-ones offset is a valid final offset.
+     */
+    private boolean offsetExhausted;
+
+    private long pendingBytes;
+    /** Fences new client work while Store/Worker teardown can be retried. */
+    private boolean closeStarted;
+
+    private boolean closed;
+
+    public EmbeddedDelayService(final ShardStoreConfig storeConfig, final ShardId shardId) {
+        this(storeConfig, shardId, Clock.systemUTC(), EmbeddedDelayServiceConfig.defaults());
+    }
+
+    public EmbeddedDelayService(final ShardStoreConfig storeConfig, final ShardId shardId, final Clock clock) {
+        this(storeConfig, shardId, clock, EmbeddedDelayServiceConfig.defaults());
+    }
+
+    public EmbeddedDelayService(
+            final ShardStoreConfig storeConfig,
+            final ShardId shardId,
+            final Clock clock,
+            final EmbeddedDelayServiceConfig clientConfig) {
+        this(storeConfig, shardId, clock, clientConfig, null);
+    }
+
+    /** Creates an embedded client with an optional deterministic local payload adapter. */
+    public EmbeddedDelayService(
+            final ShardStoreConfig storeConfig,
+            final ShardId shardId,
+            final Clock clock,
+            final EmbeddedDelayServiceConfig clientConfig,
+            final InMemoryPayloadObjectStore payloadObjectStore) {
+        this(storeConfig, shardId, clock, clientConfig, payloadObjectStore, null);
+    }
+
+    /**
+     * Creates an embedded client with optional payload and prepared-submission
+     * adapters. The service owns the injected submission adapter and closes it
+     * as part of its retryable lifecycle teardown.
+     */
+    public EmbeddedDelayService(
+            final ShardStoreConfig storeConfig,
+            final ShardId shardId,
+            final Clock clock,
+            final EmbeddedDelayServiceConfig clientConfig,
+            final InMemoryPayloadObjectStore payloadObjectStore,
+            final PreparedSubmissionAdapter preparedSubmissionAdapter) {
+        this.shardId = Objects.requireNonNull(shardId, "shardId");
+        this.clock = Objects.requireNonNull(clock, "clock");
+        this.clientConfig = Objects.requireNonNull(clientConfig, "clientConfig");
+        this.payloadObjectStore = payloadObjectStore;
+        this.preparedSubmissionAdapter = preparedSubmissionAdapter;
+        final SharedRocksDbResources openedResources = new SharedRocksDbResources(storeConfig);
+        final ShardStore openedStore;
+        try {
+            openedStore = ShardStore.open(storeConfig, shardId, openedResources);
+        } catch (RuntimeException | Error failure) {
+            closeAfterConstructionFailure(failure, null, openedResources);
+            throw failure;
+        }
+        try {
+            final ControlOperationAuthority openedControlOperationAuthority = new InMemoryControlOperationAuthority();
+            final ControlTargetRegistrationAuthority openedControlTargetRegistrationAuthority =
+                    new InMemoryControlTargetRegistrationAuthority();
+            final DelayShard openedShard = new DelayShard(
+                    openedStore,
+                    DelayShardConfig.defaults(),
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    openedControlTargetRegistrationAuthority);
+            final SourcePosition last = openedShard.lastAppliedSourcePosition();
+            if (last != null) {
+                if (!(last instanceof KafkaSourcePosition kafka)
+                        || !EMBEDDED_CLUSTER_ID.equals(kafka.authenticatedClusterId())
+                        || !kafka.nativeTopicUuid().equals(EMBEDDED_TOPIC_UUID)) {
+                    throw new IllegalStateException(
+                            "embedded service cannot reopen a shard with another source identity");
+                }
+                if (kafka.offset() == -1L) {
+                    offsetExhausted = true;
+                } else {
+                    nextOffset = kafka.offset() + 1;
+                }
+            }
+            resources = openedResources;
+            store = openedStore;
+            controlOperationAuthority = openedControlOperationAuthority;
+            controlTargetRegistrationAuthority = openedControlTargetRegistrationAuthority;
+            shard = openedShard;
+        } catch (RuntimeException | Error failure) {
+            closeAfterConstructionFailure(failure, openedStore, openedResources);
+            throw failure;
+        }
+    }
+
+    /**
+     * Releases every resource acquired before a constructor can publish a
+     * usable service. A source-identity or metadata mismatch is a normal
+     * fail-closed startup outcome; it must not strand the RocksDB handle,
+     * ownership slot, or shared native resources needed by the next retry.
+     */
+    private static void closeAfterConstructionFailure(
+            final Throwable failure, final ShardStore openedStore, final SharedRocksDbResources openedResources) {
+        try {
+            if (openedStore != null) {
+                openedStore.close();
+            }
+        } catch (RuntimeException | Error closeFailure) {
+            failure.addSuppressed(closeFailure);
+        }
+        try {
+            openedResources.close();
+        } catch (RuntimeException | Error closeFailure) {
+            failure.addSuppressed(closeFailure);
+        }
+    }
+
+    @Override
+    public PreparedCommand prepareSchedule(final ScheduleIntent intent, final long retryUntilEpochMs) {
+        ensureOpen();
+        try {
+            return PreparedCommand.schedule(shardId, intent, retryUntilEpochMs);
+        } catch (RuntimeException invalidCommand) {
+            throw PreparationFailure.of(StableCode.INVALID_COMMAND, invalidCommand);
+        }
+    }
+
+    @Override
+    public PreparedCommand prepareScheduleV1(final ScheduleIntentV1 intent, final long retryUntilEpochMs) {
+        ensureOpen();
+        try {
+            return PreparedCommand.scheduleV1(shardId, intent, retryUntilEpochMs);
+        } catch (RuntimeException invalidCommand) {
+            throw PreparationFailure.of(StableCode.INVALID_COMMAND, invalidCommand);
+        }
+    }
+
+    @Override
+    public PreparedCommand prepareLargeSchedule(final LargeScheduleIntent intent, final long retryUntilEpochMs) {
+        ensureOpen();
+        try {
+            return PreparedCommand.prepareLarge(shardId, intent, retryUntilEpochMs);
+        } catch (RuntimeException invalidCommand) {
+            throw PreparationFailure.of(StableCode.INVALID_COMMAND, invalidCommand);
+        }
+    }
+
+    @Override
+    public PreparedCommand prepareLargeScheduleV1(
+            final ScheduleIntentV1 intentWithoutPayload,
+            final long expectedPayloadLength,
+            final byte[] payloadSha256,
+            final long reservationTtlMs,
+            final PayloadProofTrustSetRefV1 trustSet,
+            final com.nereusstream.delay.protocol.ProfileRefV1 objectStoreProfile,
+            final long retryUntilEpochMs) {
+        ensureOpen();
+        try {
+            return PreparedCommand.prepareLargeV1(
+                    shardId,
+                    intentWithoutPayload,
+                    expectedPayloadLength,
+                    payloadSha256,
+                    reservationTtlMs,
+                    trustSet,
+                    objectStoreProfile,
+                    retryUntilEpochMs);
+        } catch (RuntimeException invalidCommand) {
+            throw PreparationFailure.of(StableCode.INVALID_COMMAND, invalidCommand);
+        }
+    }
+
+    @Override
+    public PreparedCommand prepareLargePayloadCommit(
+            final PayloadReservationReceiptV1 reservation,
+            final PayloadCommitProofV1 proof,
+            final long retryUntilEpochMs) {
+        ensureOpen();
+        try {
+            requireLargePayloadCommitBinding(reservation, proof);
+            return PreparedCommand.commitLargeV1(
+                    shardId, reservation.delayMessageId(), reservation.reservationId(), proof, retryUntilEpochMs);
+        } catch (RuntimeException invalidProof) {
+            throw PreparationFailure.of(StableCode.PAYLOAD_PROOF_INVALID, invalidProof);
+        }
+    }
+
+    @Override
+    public PreparedCommand prepareCancel(
+            final DelayMessageId messageId, final int expectedGeneration, final long retryUntilEpochMs) {
+        ensureOpen();
+        try {
+            return PreparedCommand.cancel(shardId, messageId, expectedGeneration, retryUntilEpochMs);
+        } catch (RuntimeException invalidCommand) {
+            throw PreparationFailure.of(StableCode.INVALID_COMMAND, invalidCommand);
+        }
+    }
+
+    @Override
+    public PreparedCommand prepareCancelV1(
+            final DelayMessageId messageId, final MessagePreconditionV1 precondition, final long retryUntilEpochMs) {
+        ensureOpen();
+        try {
+            return PreparedCommand.cancelV1(shardId, messageId, precondition, retryUntilEpochMs);
+        } catch (RuntimeException invalidCommand) {
+            throw PreparationFailure.of(StableCode.INVALID_COMMAND, invalidCommand);
+        }
+    }
+
+    @Override
+    public PreparedCommand prepareReschedule(
+            final DelayMessageId messageId,
+            final int expectedGeneration,
+            final long deliverAtEpochMs,
+            final long expireAtEpochMs,
+            final long retryUntilEpochMs) {
+        ensureOpen();
+        try {
+            return PreparedCommand.reschedule(
+                    shardId, messageId, expectedGeneration, deliverAtEpochMs, expireAtEpochMs, retryUntilEpochMs);
+        } catch (RuntimeException invalidCommand) {
+            throw PreparationFailure.of(StableCode.INVALID_DELIVERY_WINDOW, invalidCommand);
+        }
+    }
+
+    @Override
+    public PreparedCommand prepareRescheduleV1(
+            final DelayMessageId messageId,
+            final MessagePreconditionV1 precondition,
+            final long deliverAtEpochMs,
+            final long expireAtEpochMs,
+            final long retryUntilEpochMs) {
+        ensureOpen();
+        try {
+            return PreparedCommand.rescheduleV1(
+                    shardId, messageId, precondition, deliverAtEpochMs, expireAtEpochMs, retryUntilEpochMs);
+        } catch (RuntimeException invalidCommand) {
+            throw PreparationFailure.of(StableCode.INVALID_DELIVERY_WINDOW, invalidCommand);
+        }
+    }
+
+    @Override
+    public PreparedSubmissionV1 prepareManagedSubmissionV1(final PreparedCommand command) {
+        ensureOpen();
+        try {
+            return PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(Objects.requireNonNull(command, "command")));
+        } catch (RuntimeException invalidCommand) {
+            throw PreparationFailure.of(StableCode.INVALID_PREPARED_COMMAND, invalidCommand);
+        }
+    }
+
+    @Override
+    public PreparedSubmissionV1 prepareScheduleSubmissionV1(
+            final ScheduleIntentV1 intent, final long retryUntilEpochMs, final SubmissionModeV1 submissionMode) {
+        ensureOpen();
+        if (submissionMode != SubmissionModeV1.MANAGED) {
+            throw PreparationFailure.of(StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE);
+        }
+        return prepareManagedSubmissionV1(prepareScheduleV1(intent, retryUntilEpochMs));
+    }
+
+    @Override
+    public PreparedSubmissionV1 prepareAutoFast(final AutoFastSchedule request) {
+        ensureOpen();
+        try {
+            Objects.requireNonNull(request, "request");
+            final byte[] managedFrame = CommandCodec.encodeFrameV1(request.managedCommand());
+            final NativePreparedDeliveryV1 nativePrepared = prepareNative(request);
+            return nativePrepared == null
+                    ? PreparedSubmissionV1.managed(managedFrame)
+                    : PreparedSubmissionV1.nativePrepared(nativePrepared);
+        } catch (PreparationFailure failure) {
+            throw failure;
+        } catch (RuntimeException invalidRequest) {
+            throw PreparationFailure.of(StableCode.INVALID_COMMAND, invalidRequest);
+        }
+    }
+
+    @Override
+    public List<PreparedSubmissionV1> prepareAutoFastBatch(final List<AutoFastSchedule> requests) {
+        ensureOpen();
+        try {
+            Objects.requireNonNull(requests, "requests");
+            final List<PreparedSubmissionV1> prepared = new ArrayList<>(requests.size());
+            for (AutoFastSchedule request : requests) {
+                prepared.add(prepareAutoFast(request));
+            }
+            return List.copyOf(prepared);
+        } catch (PreparationFailure failure) {
+            throw failure;
+        } catch (RuntimeException invalidRequest) {
+            throw PreparationFailure.of(StableCode.INVALID_COMMAND, invalidRequest);
+        }
+    }
+
+    /**
+     * Performs only local selection. Any failed native prerequisite returns
+     * the already-validated managed frame; it never performs I/O or changes
+     * the branch after this method returns.
+     */
+    private NativePreparedDeliveryV1 prepareNative(final AutoFastSchedule request) {
+        final AutoFastSchedule.NativeCandidate candidate = request.nativeCandidate();
+        if (candidate == null) {
+            return null;
+        }
+        try {
+            final var managedBody = com.nereusstream.delay.protocol.CommandBodies.decodeScheduleV1(
+                    request.managedCommand().canonicalBody());
+            final var intent = managedBody.intent();
+            if (!intent.hasInlinePayload()
+                    || !intent.profile().equals(candidate.destinationProfile().ref())
+                    || !Arrays.equals(intent.inlinePayload(), candidate.inlinePayload())
+                    || intent.deliverAtEpochMs() != candidate.deliverAtEpochMs()
+                    || !Objects.equals(intent.eventTimeEpochMs(), candidate.eventTimeEpochMs())
+                    || intent.adapterMetadata().kind() != com.nereusstream.delay.protocol.AdapterMetadataV1.Kind.PULSAR
+                    || !intent.adapterMetadata().pulsar().equals(candidate.metadata())) {
+                return null;
+            }
+            if (!candidate.directTargetAuthority()) {
+                return null;
+            }
+            final var destinationEnvelope = candidate.destinationProfile();
+            final var capabilityEnvelope = candidate.capabilityProfile();
+            if (destinationEnvelope.profileKind() != com.nereusstream.delay.protocol.ProfileKindV1.DESTINATION
+                    || capabilityEnvelope.profileKind()
+                            != com.nereusstream.delay.protocol.ProfileKindV1.DELIVERY_CAPABILITY) {
+                return null;
+            }
+            if (!(destinationEnvelope.body() instanceof DestinationProfileSemanticV1 destination)
+                    || !(capabilityEnvelope.body() instanceof DeliveryCapabilitySemanticV1 capability)) {
+                return null;
+            }
+            if (destination.adapterKind() != AdapterKindV1.PULSAR
+                    || capability.adapterKind() != AdapterKindV1.PULSAR
+                    || !TimingCapabilityV1.includes(
+                            capability.timingCapabilityBits(), TimingCapabilityV1.PULSAR_AUTO_FAST)
+                    || !destination.deliveryCapability().equals(capabilityEnvelope.ref())
+                    || destination.targetResource().kind()
+                            != com.nereusstream.delay.protocol.BrokerResourceIdentityV1.Kind.PULSAR
+                    || !destination.targetResource().pulsar().equals(candidate.target())) {
+                return null;
+            }
+            final var snapshot = candidate.capabilitySnapshot();
+            final long candidatePartition = Integer.toUnsignedLong(candidate.physicalPartition());
+            final long targetPartitionCount = Integer.toUnsignedLong(destination.targetPartitionCount());
+            final boolean explicitPartition =
+                    destination.allowedExplicitPartitions().contains(candidate.physicalPartition());
+            final boolean partitionPolicyMatches =
+                    switch (destination.targetPartitionPolicy()) {
+                        case EXPLICIT_ONLY -> explicitPartition;
+                        case HASH_ONLY, EXPLICIT_OR_HASH ->
+                            explicitPartition
+                                    || TargetPartitionHashV1.partition(
+                                                    destinationEnvelope.ref(),
+                                                    destination.targetPartitionCount(),
+                                                    nativeRoutingBytes(
+                                                            request, candidate, destination.targetPartitionHashInput()))
+                                            == candidatePartition;
+                    };
+            if (!destinationEnvelope.ref().equals(snapshot.destination())
+                    || !capabilityEnvelope.ref().equals(snapshot.capability())
+                    || !snapshot.target().equals(candidate.target())
+                    || snapshot.physicalPartition() != candidate.physicalPartition()
+                    || candidatePartition >= targetPartitionCount
+                    || !partitionPolicyMatches
+                    || !snapshot.verifySignature(candidate.issuerKey())) {
+                return null;
+            }
+            final long now = clock.millis();
+            if (now < 0
+                    || now < snapshot.issuedAt().earliestEpochMs()
+                    || now >= snapshot.notAfterEpochMs()
+                    || candidate.deliverAtEpochMs() < now
+                    || candidate.deliverAtEpochMs() - now > candidate.nativeDelayBudgetMs()) {
+                return null;
+            }
+            final byte[] metadataBytes = candidate.metadata().canonicalBytes();
+            final long payloadBytes = candidate.inlinePayload().length;
+            if (payloadBytes > destination.maxPayloadBytes()
+                    || metadataBytes.length > destination.maxAdapterMetadataBytes()
+                    || payloadBytes > destination.maxTargetRecordBytes() - metadataBytes.length) {
+                return null;
+            }
+            final long brokerDeliverAt =
+                    Math.addExact(candidate.deliverAtEpochMs(), destination.targetClockAheadBoundMs());
+            final byte[] nativeDeliveryId = nextNativeDeliveryId();
+            return NativePreparedDeliveryV1.create(
+                    nativeDeliveryId,
+                    destinationEnvelope.ref(),
+                    capabilityEnvelope.ref(),
+                    candidate.target(),
+                    candidate.physicalPartition(),
+                    candidate.inlinePayload(),
+                    candidate.metadata(),
+                    candidate.eventTimeEpochMs(),
+                    candidate.deliverAtEpochMs(),
+                    brokerDeliverAt,
+                    snapshot);
+        } catch (RuntimeException ineligible) {
+            // Selection failure is a managed fallback. The strict managed frame
+            // has already been validated and is returned by the caller.
+            return null;
+        }
+    }
+
+    private static byte[] nativeRoutingBytes(
+            final AutoFastSchedule request,
+            final AutoFastSchedule.NativeCandidate candidate,
+            final TargetPartitionHashInputV1 hashInput) {
+        return switch (hashInput) {
+            case ORDERING_KEY -> nullableBytes(candidate.metadata().orderingKey());
+            case ADAPTER_MESSAGE_KEY -> nullableBytes(candidate.metadata().partitionKey());
+            case DELAY_MESSAGE_ID -> request.managedCommand().delayMessageId().bytes();
+        };
+    }
+
+    private static byte[] nullableBytes(final byte[] value) {
+        return value == null ? new byte[0] : value;
+    }
+
+    private static byte[] nextNativeDeliveryId() {
+        final byte[] value = new byte[32];
+        do {
+            NATIVE_DELIVERY_ID_RANDOM.nextBytes(value);
+        } while (allZero(value));
+        return value;
+    }
+
+    private static boolean allZero(final byte[] value) {
+        for (byte item : value) {
+            if (item != 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    @Override
+    public CompletionStage<SubmissionOutcomeMessageV1> submit(
+            final PreparedSubmissionV1 submission,
+            final long receiptQueryUntilEpochMs,
+            final byte[] physicalEnqueueAttemptId) {
+        ensureOpen();
+        Objects.requireNonNull(submission, "submission");
+        if (preparedSubmissionAdapter != null) {
+            return preparedSubmissionAdapter.submit(submission, receiptQueryUntilEpochMs, physicalEnqueueAttemptId);
+        }
+        synchronized (this) {
+            ensureOpen();
+            if (!submission.isManaged()) {
+                return CompletableFuture.completedFuture(nativeSubmissionUnavailable(submission.nativePrepared()));
+            }
+            final PreparedCommand command = CommandCodec.decodeFrameV1(submission.managedFrame());
+            if (!validPhysicalAttempt(physicalEnqueueAttemptId)) {
+                return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
+                        localDefiniteOutcome(command, StableCode.INVALID_PREPARED_COMMAND)));
+            }
+            final EnqueueOutcome outcome = enqueueInternal(command, true);
+            return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
+                    enqueueOutcomeV1(outcome, receiptQueryUntilEpochMs, physicalEnqueueAttemptId)));
+        }
+    }
+
+    /** Strict managed submission path bound to an immutable Route query policy. */
+    public CompletionStage<SubmissionOutcomeMessageV1> submit(
+            final PreparedSubmissionV1 submission,
+            final QueuedReceiptQueryPolicy routePolicy,
+            final byte[] physicalEnqueueAttemptId) {
+        ensureOpen();
+        Objects.requireNonNull(submission, "submission");
+        Objects.requireNonNull(routePolicy, "routePolicy");
+        if (preparedSubmissionAdapter != null) {
+            return preparedSubmissionAdapter.submit(submission, routePolicy, physicalEnqueueAttemptId);
+        }
+        synchronized (this) {
+            ensureOpen();
+            if (!submission.isManaged()) {
+                return CompletableFuture.completedFuture(nativeSubmissionUnavailable(submission.nativePrepared()));
+            }
+            final PreparedCommand command = CommandCodec.decodeFrameV1(submission.managedFrame());
+            if (!validPhysicalAttempt(physicalEnqueueAttemptId)) {
+                return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
+                        localDefiniteOutcome(command, StableCode.INVALID_PREPARED_COMMAND)));
+            }
+            final EnqueueOutcome outcome = enqueueInternal(command, true);
+            return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
+                    enqueueOutcomeV1(outcome, routePolicy, physicalEnqueueAttemptId)));
+        }
+    }
+
+    @Override
+    public synchronized CompletionStage<EnqueueOutcome> enqueue(final PreparedCommand command) {
+        ensureOpen();
+        return CompletableFuture.completedFuture(enqueueInternal(command, false));
+    }
+
+    @Override
+    public synchronized CompletionStage<EnqueueOutcome> enqueueV1(final PreparedCommand command) {
+        ensureOpen();
+        return CompletableFuture.completedFuture(enqueueInternal(command, true));
+    }
+
+    @Override
+    public synchronized CompletionStage<List<EnqueueOutcome>> enqueueBatch(final List<PreparedCommand> commands) {
+        ensureOpen();
+        Objects.requireNonNull(commands, "commands");
+        final List<EnqueueOutcome> outcomes = new ArrayList<>(commands.size());
+        for (PreparedCommand command : commands) {
+            outcomes.add(enqueueInternal(command, false));
+        }
+        return CompletableFuture.completedFuture(List.copyOf(outcomes));
+    }
+
+    @Override
+    public synchronized CompletionStage<List<EnqueueOutcome>> enqueueBatchV1(final List<PreparedCommand> commands) {
+        ensureOpen();
+        Objects.requireNonNull(commands, "commands");
+        final List<EnqueueOutcome> outcomes = new ArrayList<>(commands.size());
+        for (PreparedCommand command : commands) {
+            outcomes.add(enqueueInternal(command, true));
+        }
+        return CompletableFuture.completedFuture(List.copyOf(outcomes));
+    }
+
+    @Override
+    public synchronized CompletionStage<CommandQueryResponseV1> getCommandResult(
+            final CommandQueuedReceiptV1 receipt,
+            final long nowEpochMs,
+            final long fullResultRetainUntilEpochMs,
+            final PublicDestinationBindingViewV1 binding) {
+        return CompletableFuture.completedFuture(
+                queryCommand(receipt, nowEpochMs, fullResultRetainUntilEpochMs, binding));
+    }
+
+    @Override
+    public synchronized CompletionStage<CommandQueryResponseV1> getCommandResult(
+            final CommandQueuedReceiptV1 receipt,
+            final long nowEpochMs,
+            final CommandResultRetentionPolicy retentionPolicy,
+            final PublicDestinationBindingViewV1 binding) {
+        return CompletableFuture.completedFuture(queryCommand(receipt, nowEpochMs, retentionPolicy, binding));
+    }
+
+    @Override
+    public synchronized CompletionStage<CommandQueryResponseV1> awaitAppliedV1(
+            final CommandQueuedReceiptV1 receipt,
+            final long nowEpochMs,
+            final long fullResultRetainUntilEpochMs,
+            final PublicDestinationBindingViewV1 binding) {
+        ensureOpen();
+        if (receipt == null || !isEmbeddedReceipt(receipt)) {
+            return CompletableFuture.completedFuture(CommandQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null));
+        }
+        CommandQueryResponseV1 result = queryCommand(receipt, nowEpochMs, fullResultRetainUntilEpochMs, binding);
+        if (result.resultKind() == CommandQueryResult.PENDING) {
+            drain();
+            result = queryCommand(receipt, nowEpochMs, fullResultRetainUntilEpochMs, binding);
+        }
+        return CompletableFuture.completedFuture(result);
+    }
+
+    @Override
+    public synchronized CompletionStage<CommandQueryResponseV1> awaitAppliedV1(
+            final CommandQueuedReceiptV1 receipt,
+            final long nowEpochMs,
+            final CommandResultRetentionPolicy retentionPolicy,
+            final PublicDestinationBindingViewV1 binding) {
+        ensureOpen();
+        Objects.requireNonNull(retentionPolicy, "retentionPolicy");
+        if (receipt == null || !isEmbeddedReceipt(receipt)) {
+            return CompletableFuture.completedFuture(CommandQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null));
+        }
+        CommandQueryResponseV1 result = queryCommand(receipt, nowEpochMs, retentionPolicy, binding);
+        if (result.resultKind() == CommandQueryResult.PENDING) {
+            drain();
+            result = queryCommand(receipt, nowEpochMs, retentionPolicy, binding);
+        }
+        return CompletableFuture.completedFuture(result);
+    }
+
+    @Override
+    public synchronized CompletionStage<MessageQueryResponseV1> getMessage(
+            final DelayMessageId messageId,
+            final PublicDestinationBindingViewV1 binding,
+            final DlqExportStateV1 dlqExportState,
+            final PublicEvidenceRefV1 evidence,
+            final FirstScheduleEligibilityV1 unknownEligibility) {
+        return CompletableFuture.completedFuture(
+                queryMessage(messageId, binding, dlqExportState, evidence, unknownEligibility));
+    }
+
+    @Override
+    public synchronized CompletionStage<PayloadUploadHandleResponseV1> issuePayloadUploadHandle(
+            final PayloadReservationReceiptV1 receipt, final UploadHandleKindV1 kind, final long nowEpochMs) {
+        ensureOpen();
+        if (nowEpochMs < 0) {
+            return CompletableFuture.completedFuture(payloadUploadError(PayloadUploadHandleOutcomeV1.INTEGRITY_ERROR));
+        }
+        if (payloadObjectStore == null) {
+            return CompletableFuture.completedFuture(payloadStoreUnavailableForUpload(nowEpochMs));
+        }
+        if (kind == null || receipt == null) {
+            return CompletableFuture.completedFuture(
+                    payloadUploadError(PayloadUploadHandleOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED));
+        }
+        final PayloadReceiptBinding binding = bindPayloadReceipt(receipt);
+        if (binding.status() != PayloadReceiptBindingStatus.BOUND) {
+            return CompletableFuture.completedFuture(payloadUploadError(binding.uploadOutcome()));
+        }
+        return CompletableFuture.completedFuture(payloadObjectStore.issueUploadHandle(receipt, kind, nowEpochMs));
+    }
+
+    @Override
+    public synchronized CompletionStage<PayloadAttestationResponseV1> attestPayloadUpload(
+            final PayloadReservationReceiptV1 receipt,
+            final OpaquePayloadUploadHandleV1 handle,
+            final long nowEpochMs) {
+        ensureOpen();
+        if (nowEpochMs < 0) {
+            return CompletableFuture.completedFuture(
+                    payloadAttestationError(PayloadAttestationOutcomeV1.INTEGRITY_ERROR));
+        }
+        if (payloadObjectStore == null) {
+            return CompletableFuture.completedFuture(payloadStoreUnavailableForAttestation(nowEpochMs));
+        }
+        if (receipt == null || handle == null) {
+            return CompletableFuture.completedFuture(
+                    payloadAttestationError(PayloadAttestationOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED));
+        }
+        final PayloadReceiptBinding binding = bindPayloadReceipt(receipt);
+        if (binding.status() != PayloadReceiptBindingStatus.BOUND) {
+            return CompletableFuture.completedFuture(payloadAttestationError(binding.attestationOutcome()));
+        }
+        return CompletableFuture.completedFuture(payloadObjectStore.attest(receipt, handle, nowEpochMs));
+    }
+
+    /** Enqueues one command without reacquiring the service monitor. */
+    private EnqueueOutcome enqueueInternal(final PreparedCommand command, final boolean strictV1) {
+        if (!shardId.equals(command.shardId())) {
+            return EnqueueOutcome.definitelyNotQueued(command, 0x110a);
+        }
+        final int frameBytes;
+        try {
+            frameBytes = (strictV1 ? CommandCodec.encodeFrameV1(command) : CommandCodec.encodeFrame(command)).length;
+        } catch (IllegalArgumentException invalidPreparedCommand) {
+            return EnqueueOutcome.definitelyNotQueued(command, StableCode.INVALID_PREPARED_COMMAND.wireValue());
+        }
+        if (pending.size() >= clientConfig.maxPendingCommandCount()
+                || (long) frameBytes > clientConfig.maxPendingCommandBytes()
+                || pendingBytes > clientConfig.maxPendingCommandBytes() - frameBytes) {
+            return EnqueueOutcome.definitelyNotQueued(command, StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED.wireValue());
+        }
+        final long now = clock.millis();
+        if (offsetExhausted) {
+            throw new IllegalStateException("embedded Kafka source offset exhausted");
+        }
+        final long offset = nextOffset;
+        final SourcePosition position =
+                new KafkaSourcePosition(shardId, EMBEDDED_CLUSTER_ID, EMBEDDED_TOPIC_UUID, offset, null, now);
+        // Advance only after the position has been validated.  A failed
+        // position construction must not poison the next enqueue.  The
+        // all-ones offset is valid, but there is no representable successor.
+        if (offset == -1L) {
+            offsetExhausted = true;
+        } else {
+            nextOffset = offset + 1;
+        }
+        final CommandQueuedReceipt receipt =
+                new CommandQueuedReceipt(command.commandId(), command.delayMessageId(), shardId, position);
+        pending.addLast(new QueuedRecord(command, position, frameBytes));
+        pendingBytes = Math.addExact(pendingBytes, frameBytes);
+        return EnqueueOutcome.queued(command, receipt);
+    }
+
+    private void requireLargePayloadCommitBinding(
+            final PayloadReservationReceiptV1 reservation, final PayloadCommitProofV1 proof) {
+        Objects.requireNonNull(reservation, "reservation");
+        Objects.requireNonNull(proof, "proof");
+        if (!shardId.equals(reservation.shardId())
+                || !shardId.equals(proof.delayMessageId().routingId().shardId())
+                || !reservation.delayMessageId().equals(proof.delayMessageId())
+                || !Arrays.equals(reservation.reservationId(), proof.reservationId())
+                || !reservation.objectStoreProfile().equals(proof.objectStoreProfile())
+                || !Arrays.equals(reservation.container(), proof.container())
+                || !Arrays.equals(reservation.objectKey(), proof.objectKey())
+                || reservation.expectedLength() != proof.length()
+                || !Bytes.constantTimeEquals(reservation.payloadSha256(), proof.payloadSha256())
+                || reservation.trustSet().version() != proof.trustSetVersion()
+                || proof.notAfterEpochMs() > reservation.reservationExpiryEpochMs()
+                || !Arrays.equals(reservation.shardId().routeIncarnation().bytes(), proof.routeIncarnationUuid())
+                || reservation.shardId().partition() != proof.partition()) {
+            throw new IllegalArgumentException("payload reservation receipt and proof do not bind");
+        }
+    }
+
+    /** Registers and validates the exact durable reservation before Object Store authority is used. */
+    private PayloadReceiptBinding bindPayloadReceipt(final PayloadReservationReceiptV1 receipt) {
+        if (!shardId.equals(receipt.shardId())) {
+            return PayloadReceiptBinding.notFound();
+        }
+        try {
+            final PayloadReservation reservation = shard.getReservation(receipt.reservationId());
+            if (reservation == null) {
+                return PayloadReceiptBinding.notFound();
+            }
+            final V1ScheduleBinding binding = shard.getV1ScheduleBinding(reservation.delayMessageId());
+            if (binding == null) {
+                payloadObjectStore.register(reservation);
+            } else {
+                if (binding.commandType() != com.nereusstream.delay.protocol.CommandType.PREPARE_LARGE_SCHEDULE) {
+                    throw new IllegalStateException("payload reservation has a non-Prepare V1 binding");
+                }
+                final var prepare = CommandBodies.decodePrepareLargeV1(binding.canonicalBody());
+                payloadObjectStore.register(reservation, prepare.trustSet(), prepare.objectStoreProfile());
+            }
+            return payloadObjectStore.reservationReceipt(reservation).equals(receipt)
+                    ? PayloadReceiptBinding.bound()
+                    : PayloadReceiptBinding.notFound();
+        } catch (RuntimeException integrityFailure) {
+            // A shard read, local adapter registration or service-owned receipt
+            // projection failure is not evidence that the object is absent.
+            // Keep the closed API fail-closed as INTEGRITY_ERROR; external
+            // provider/credential outages are mapped by the real adapter to
+            // OBJECT_STORE_UNAVAILABLE_RETRYABLE before this local seam.
+            return PayloadReceiptBinding.integrityError();
+        }
+    }
+
+    private enum PayloadReceiptBindingStatus {
+        BOUND,
+        NOT_FOUND_OR_NOT_AUTHORIZED,
+        INTEGRITY_ERROR
+    }
+
+    private record PayloadReceiptBinding(PayloadReceiptBindingStatus status) {
+        private static PayloadReceiptBinding bound() {
+            return new PayloadReceiptBinding(PayloadReceiptBindingStatus.BOUND);
+        }
+
+        private static PayloadReceiptBinding notFound() {
+            return new PayloadReceiptBinding(PayloadReceiptBindingStatus.NOT_FOUND_OR_NOT_AUTHORIZED);
+        }
+
+        private static PayloadReceiptBinding integrityError() {
+            return new PayloadReceiptBinding(PayloadReceiptBindingStatus.INTEGRITY_ERROR);
+        }
+
+        private PayloadUploadHandleOutcomeV1 uploadOutcome() {
+            return status == PayloadReceiptBindingStatus.INTEGRITY_ERROR
+                    ? PayloadUploadHandleOutcomeV1.INTEGRITY_ERROR
+                    : PayloadUploadHandleOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED;
+        }
+
+        private PayloadAttestationOutcomeV1 attestationOutcome() {
+            return status == PayloadReceiptBindingStatus.INTEGRITY_ERROR
+                    ? PayloadAttestationOutcomeV1.INTEGRITY_ERROR
+                    : PayloadAttestationOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED;
+        }
+    }
+
+    private static PayloadUploadHandleResponseV1 payloadStoreUnavailableForUpload(final long nowEpochMs) {
+        return payloadUploadError(
+                PayloadUploadHandleOutcomeV1.OBJECT_STORE_UNAVAILABLE_RETRYABLE, safeRetryAt(Math.max(0, nowEpochMs)));
+    }
+
+    private static PayloadUploadHandleResponseV1 payloadUploadError(final PayloadUploadHandleOutcomeV1 outcome) {
+        return payloadUploadError(outcome, null);
+    }
+
+    private static PayloadUploadHandleResponseV1 payloadUploadError(
+            final PayloadUploadHandleOutcomeV1 outcome, final Long retryAtEpochMs) {
+        return PayloadUploadHandleResponseV1.error(
+                outcome,
+                StableErrorV1.of(FailureStageV1.PAYLOAD, stableCode(outcome), retryAtEpochMs, null, null, null));
+    }
+
+    private static PayloadAttestationResponseV1 payloadStoreUnavailableForAttestation(final long nowEpochMs) {
+        return payloadAttestationError(
+                PayloadAttestationOutcomeV1.OBJECT_STORE_UNAVAILABLE_RETRYABLE, safeRetryAt(Math.max(0, nowEpochMs)));
+    }
+
+    private static PayloadAttestationResponseV1 payloadAttestationError(final PayloadAttestationOutcomeV1 outcome) {
+        return payloadAttestationError(outcome, null);
+    }
+
+    private static PayloadAttestationResponseV1 payloadAttestationError(
+            final PayloadAttestationOutcomeV1 outcome, final Long retryAtEpochMs) {
+        return PayloadAttestationResponseV1.error(
+                outcome,
+                StableErrorV1.of(FailureStageV1.PAYLOAD, stableCode(outcome), retryAtEpochMs, null, null, null));
+    }
+
+    private static StableCode stableCode(final PayloadUploadHandleOutcomeV1 outcome) {
+        return switch (outcome) {
+            case RESERVATION_EXPIRED -> StableCode.RESERVATION_EXPIRED;
+            case RESERVATION_ABANDONED -> StableCode.RESERVATION_ABANDONED;
+            case RESERVATION_CLOSED -> StableCode.PAYLOAD_RESERVATION_CLOSED;
+            case NOT_FOUND_OR_NOT_AUTHORIZED -> StableCode.NOT_FOUND_OR_NOT_AUTHORIZED;
+            case SHARD_TRANSITIONING -> StableCode.SHARD_TRANSITIONING;
+            case SHARD_UNAVAILABLE -> StableCode.SHARD_UNAVAILABLE;
+            case INTEGRITY_ERROR -> StableCode.INTEGRITY_ERROR;
+            case OBJECT_STORE_UNAVAILABLE_RETRYABLE -> StableCode.OBJECT_STORE_UNAVAILABLE_RETRYABLE;
+            case ISSUED -> throw new IllegalArgumentException("ISSUED has no error");
+        };
+    }
+
+    private static StableCode stableCode(final PayloadAttestationOutcomeV1 outcome) {
+        return switch (outcome) {
+            case OBJECT_NOT_READY_RETRYABLE -> StableCode.OBJECT_NOT_READY_RETRYABLE;
+            case OBJECT_STORE_UNAVAILABLE_RETRYABLE -> StableCode.OBJECT_STORE_UNAVAILABLE_RETRYABLE;
+            case OBJECT_IDENTITY_CONFLICT -> StableCode.OBJECT_IDENTITY_CONFLICT;
+            case RESERVATION_EXPIRED -> StableCode.RESERVATION_EXPIRED;
+            case RESERVATION_ABANDONED -> StableCode.RESERVATION_ABANDONED;
+            case RESERVATION_CLOSED -> StableCode.PAYLOAD_RESERVATION_CLOSED;
+            case NOT_FOUND_OR_NOT_AUTHORIZED -> StableCode.NOT_FOUND_OR_NOT_AUTHORIZED;
+            case SHARD_TRANSITIONING -> StableCode.SHARD_TRANSITIONING;
+            case SHARD_UNAVAILABLE -> StableCode.SHARD_UNAVAILABLE;
+            case INTEGRITY_ERROR -> StableCode.INTEGRITY_ERROR;
+            case ATTESTED -> throw new IllegalArgumentException("ATTESTED has no error");
+        };
+    }
+
+    /** Applies all queued records in Source Position order. */
+    public synchronized void drain() {
+        ensureOpen();
+        while (!pending.isEmpty()) {
+            // Keep the head charged until apply returns.  A malformed or
+            // otherwise fatal local apply must not make close/drain silently
+            // forget the command that was already reported as QUEUED.
+            final QueuedRecord record = pending.peekFirst();
+            final CommandResult result = shard.apply(record.command(), record.position());
+            retainPhysicalResult(record.position(), result);
+            pending.removeFirst();
+            pendingBytes -= record.frameBytes();
+        }
+    }
+
+    public synchronized int pendingCommandCount() {
+        ensureOpen();
+        return pending.size();
+    }
+
+    public synchronized long pendingCommandBytes() {
+        ensureOpen();
+        return pendingBytes;
+    }
+
+    @Override
+    public synchronized CompletionStage<CommandResult> awaitApplied(final CommandQueuedReceipt receipt) {
+        ensureOpen();
+        validateEmbeddedQueuedReceipt(receipt);
+        final QueuedRecord pendingRecord = validateEmbeddedQueuedReceiptLocator(receipt);
+        CommandResult physicalResult = null;
+        if (pendingRecord == null) {
+            drain();
+        } else {
+            // Keep the result returned by the exact pending physical record.
+            // Looking it up by commandId after drain would collapse a later
+            // position-level rejection (for example COMMAND_ID_CONFLICT) into
+            // the first logical result, and would return null for a fence-only
+            // rejection that intentionally has no logical dedupe result.
+            while (!pending.isEmpty()) {
+                final QueuedRecord record = pending.peekFirst();
+                final CommandResult result = shard.apply(record.command(), record.position());
+                retainPhysicalResult(record.position(), result);
+                pending.removeFirst();
+                pendingBytes -= record.frameBytes();
+                if (record == pendingRecord) {
+                    physicalResult = result;
+                }
+            }
+        }
+        if (!shard.matchesCommandPosition(receipt.commandId(), receipt.sourcePosition())) {
+            throw new IllegalArgumentException("queued receipt source position does not identify the command");
+        }
+        final CommandResult retained =
+                physicalResult == null ? findRetainedPhysicalResult(receipt.sourcePosition()) : physicalResult;
+        final CommandResult result = retained == null ? shard.getCommandResult(receipt.commandId()) : retained;
+        if (result == null) {
+            throw new IllegalStateException("physical command result is no longer locally retained");
+        }
+        if (retained == null
+                && !Bytes.constantTimeEquals(
+                        result.appliedSourcePosition(), receipt.sourcePosition().canonicalBytes())) {
+            // A logical dedupe result anchored at another position may be a
+            // same-hash duplicate or a position-level conflict. The legacy
+            // receipt has no command hash, so returning it without the exact
+            // physical result would be an unsafe ambiguity.
+            throw new IllegalStateException("physical command result is no longer locally retained");
+        }
+        return CompletableFuture.completedFuture(result);
+    }
+
+    private void retainPhysicalResult(final SourcePosition position, final CommandResult result) {
+        if (retainedPhysicalResults.size() >= clientConfig.maxPendingCommandCount()) {
+            retainedPhysicalResults.removeFirst();
+        }
+        retainedPhysicalResults.addLast(new RetainedPhysicalResult(position.canonicalBytes(), result));
+    }
+
+    private CommandResult findRetainedPhysicalResult(final SourcePosition position) {
+        for (RetainedPhysicalResult retained : retainedPhysicalResults) {
+            if (Bytes.constantTimeEquals(retained.sourcePosition(), position.canonicalBytes())) {
+                return retained.result();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The embedded service can only resolve locators from its pinned source.
+     * Validate before draining so a foreign or forged receipt cannot trigger
+     * source application as a side effect of an invalid query.
+     */
+    private void validateEmbeddedQueuedReceipt(final CommandQueuedReceipt receipt) {
+        Objects.requireNonNull(receipt, "receipt");
+        if (!shardId.equals(receipt.shardId())
+                || !shardId.equals(receipt.commandId().routingId().shardId())
+                || !shardId.equals(receipt.delayMessageId().routingId().shardId())
+                || !(receipt.sourcePosition() instanceof KafkaSourcePosition kafka)
+                || !isEmbeddedSource(kafka)) {
+            throw new IllegalArgumentException("queued receipt does not belong to embedded source");
+        }
+    }
+
+    /**
+     * A queued command has no durable POSITION audit until it is applied, so a
+     * valid receipt may be proven by the exact pending record before drain. An
+     * otherwise well-typed receipt is rejected before any pending record can be
+     * applied; the command id alone is never a sufficient locator.
+     */
+    private QueuedRecord validateEmbeddedQueuedReceiptLocator(final CommandQueuedReceipt receipt) {
+        if (shard.matchesCommandPosition(receipt.commandId(), receipt.sourcePosition())) {
+            return null;
+        }
+        for (QueuedRecord record : pending) {
+            if (record.command().commandId().equals(receipt.commandId())
+                    && record.command().delayMessageId().equals(receipt.delayMessageId())
+                    && Bytes.constantTimeEquals(
+                            record.position().canonicalBytes(),
+                            receipt.sourcePosition().canonicalBytes())) {
+                return record;
+            }
+        }
+        throw new IllegalArgumentException("queued receipt source position does not identify a pending command");
+    }
+
+    /**
+     * Converts the local queued locator into the canonical NDR1 receipt. The
+     * method is an embedded adapter only; production callers must obtain the
+     * broker acknowledgement and physical attempt id from the real ingress
+     * adapter.
+     */
+    public synchronized CommandQueuedReceiptV1 queuedReceiptV1(
+            final EnqueueOutcome outcome, final long receiptQueryUntilEpochMs, final byte[] physicalAttemptId) {
+        ensureOpen();
+        Objects.requireNonNull(outcome, "outcome");
+        if (outcome.status() != EnqueueStatus.QUEUED || outcome.receipt() == null) {
+            throw new IllegalArgumentException("only QUEUED outcomes have a queued receipt");
+        }
+        final SourcePosition source = outcome.receipt().sourcePosition();
+        if (!(source instanceof KafkaSourcePosition kafka)
+                || !isEmbeddedSource(kafka)
+                || !shardId.equals(source.shardId())) {
+            throw new IllegalArgumentException("embedded outcome has an unexpected source identity");
+        }
+        final byte[] responseHash = Bytes.sha256(Bytes.utf8("embedded-queued-ack\0"), source.canonicalBytes());
+        final KafkaQueuedAck ack = new KafkaQueuedAck(
+                kafka.authenticatedClusterId(),
+                kafka.nativeTopicUuid(),
+                kafka.shardId().partition(),
+                kafka.offset(),
+                kafka.leaderEpoch(),
+                kafka.brokerLogAppendTimeEpochMs(),
+                responseHash);
+        return outcome.receipt().toV1(outcome.preparedCommand(), ack, receiptQueryUntilEpochMs, physicalAttemptId);
+    }
+
+    /** Converts an embedded queued outcome using the immutable Route policy. */
+    public synchronized CommandQueuedReceiptV1 queuedReceiptV1(
+            final EnqueueOutcome outcome, final QueuedReceiptQueryPolicy routePolicy, final byte[] physicalAttemptId) {
+        Objects.requireNonNull(routePolicy, "routePolicy");
+        ensureOpen();
+        Objects.requireNonNull(outcome, "outcome");
+        if (outcome.status() != EnqueueStatus.QUEUED || outcome.receipt() == null) {
+            throw new IllegalArgumentException("only QUEUED outcomes have a queued receipt");
+        }
+        return queuedReceiptV1(outcome, routePolicy.queryUntil(outcome.receipt().sourcePosition()), physicalAttemptId);
+    }
+
+    /**
+     * Maps the embedded three-state ingress result to the closed wire union.
+     * This bridge only emits a local pre-ownership proof for deterministic
+     * embedded rejection; real adapters must supply authenticated Broker proof.
+     */
+    public synchronized EnqueueOutcomeMessageV1 enqueueOutcomeV1(
+            final EnqueueOutcome outcome, final long receiptQueryUntilEpochMs, final byte[] physicalAttemptId) {
+        ensureOpen();
+        Objects.requireNonNull(outcome, "outcome");
+        return switch (outcome.status()) {
+            case QUEUED -> {
+                if (!validPhysicalAttempt(physicalAttemptId)) {
+                    yield localDefiniteOutcome(outcome.preparedCommand(), StableCode.INVALID_PREPARED_COMMAND);
+                }
+                try {
+                    yield EnqueueOutcomeMessageV1.queued(
+                            queuedReceiptV1(outcome, receiptQueryUntilEpochMs, physicalAttemptId));
+                } catch (RuntimeException malformedReceipt) {
+                    // A queued command may already be durable; a malformed
+                    // receipt projection is therefore not proof of rejection.
+                    yield uncertainOutcome(
+                            outcome.preparedCommand(), physicalAttemptId, StableCode.INTEGRITY_ERROR.wireValue());
+                }
+            }
+            case DEFINITELY_NOT_QUEUED -> localDefiniteOutcome(outcome.preparedCommand(), stableErrorCode(outcome));
+            case ENQUEUE_UNCERTAIN -> {
+                if (!validPhysicalAttempt(physicalAttemptId)) {
+                    yield localDefiniteOutcome(outcome.preparedCommand(), StableCode.INVALID_PREPARED_COMMAND);
+                }
+                final StableCode code = stableErrorCode(outcome);
+                final CommandQueuedReceiptV1.PreparedCommandRef command =
+                        CommandQueuedReceiptV1.PreparedCommandRef.from(outcome.preparedCommand());
+                yield EnqueueOutcomeMessageV1.uncertain(new EnqueueUncertainV1(
+                        command,
+                        physicalAttemptId,
+                        StableErrorV1.of(FailureStageV1.ENQUEUE, code, null, command, null, null)));
+            }
+        };
+    }
+
+    /**
+     * Maps an embedded outcome while deriving a queued receipt boundary from
+     * the immutable Route policy. A policy overflow is not proof of Broker
+     * rejection, so a queued result becomes an integrity-class uncertainty.
+     */
+    public synchronized EnqueueOutcomeMessageV1 enqueueOutcomeV1(
+            final EnqueueOutcome outcome, final QueuedReceiptQueryPolicy routePolicy, final byte[] physicalAttemptId) {
+        ensureOpen();
+        Objects.requireNonNull(outcome, "outcome");
+        Objects.requireNonNull(routePolicy, "routePolicy");
+        long derivedBoundary = 0;
+        if (outcome.status() == EnqueueStatus.QUEUED) {
+            try {
+                derivedBoundary = routePolicy.queryUntil(outcome.receipt().sourcePosition());
+            } catch (RuntimeException policyFailure) {
+                return validPhysicalAttempt(physicalAttemptId)
+                        ? uncertainOutcome(
+                                outcome.preparedCommand(), physicalAttemptId, StableCode.INTEGRITY_ERROR.wireValue())
+                        : localDefiniteOutcome(outcome.preparedCommand(), StableCode.INVALID_PREPARED_COMMAND);
+            }
+        }
+        return enqueueOutcomeV1(outcome, derivedBoundary, physicalAttemptId);
+    }
+
+    private static EnqueueOutcomeMessageV1 localDefiniteOutcome(final PreparedCommand command, final StableCode code) {
+        final CommandQueuedReceiptV1.PreparedCommandRef ref = CommandQueuedReceiptV1.PreparedCommandRef.from(command);
+        final NonPersistenceProofV1 proof = NonPersistenceProofV1.create(
+                NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP, null, ref.frameSha256(), null, null, null);
+        return EnqueueOutcomeMessageV1.definitelyNotQueued(new DefinitelyNotQueuedV1(
+                ref, proof, StableErrorV1.of(FailureStageV1.ENQUEUE, code, null, ref, null, null)));
+    }
+
+    private static EnqueueOutcomeMessageV1 uncertainOutcome(
+            final PreparedCommand command, final byte[] physicalAttemptId, final Integer diagnosticCode) {
+        final CommandQueuedReceiptV1.PreparedCommandRef ref = CommandQueuedReceiptV1.PreparedCommandRef.from(command);
+        return EnqueueOutcomeMessageV1.uncertain(new EnqueueUncertainV1(
+                ref,
+                physicalAttemptId,
+                StableErrorV1.of(
+                        FailureStageV1.ENQUEUE, StableCode.ENQUEUE_RESULT_UNCERTAIN, null, ref, null, diagnosticCode)));
+    }
+
+    /**
+     * No native submission can be admitted by an embedded service without a
+     * pinned Pulsar adapter. Keep the branch typed and definitive before any
+     * Producer ownership rather than silently converting it to managed.
+     */
+    private static SubmissionOutcomeMessageV1 nativeSubmissionUnavailable(final NativePreparedDeliveryV1 prepared) {
+        final NativePreparedRefV1 ref = prepared.preparedRef();
+        final NonPersistenceProofV1 proof = NonPersistenceProofV1.create(
+                NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP,
+                null,
+                ref.submissionHash(),
+                null,
+                null,
+                null);
+        final StableErrorV1 error = StableErrorV1.of(
+                FailureStageV1.ENQUEUE, StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE, null, null, ref, null);
+        return SubmissionOutcomeMessageV1.nativeDefinitelyNotQueued(new NativeDefinitelyNotQueuedV1(ref, proof, error));
+    }
+
+    private static boolean validPhysicalAttempt(final byte[] physicalAttemptId) {
+        if (physicalAttemptId == null || physicalAttemptId.length != NonPersistenceProofV1.ATTEMPT_ID_LENGTH) {
+            return false;
+        }
+        for (byte value : physicalAttemptId) {
+            if (value != 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Performs the bounded local query chain: receipt validation, fixed-shard
+     * source barrier, durable result lookup and retention projection. It does
+     * not route across workers, authorize a tenant, or wait for a broker.
+     */
+    public synchronized CommandQueryResponseV1 queryCommand(
+            final CommandQueuedReceiptV1 receipt,
+            final long nowEpochMs,
+            final long fullResultRetainUntilEpochMs,
+            final PublicDestinationBindingViewV1 binding) {
+        return queryCommandInternal(receipt, nowEpochMs, fullResultRetainUntilEpochMs, null, binding);
+    }
+
+    /** Queries a command with retention derived from its applied Source Position. */
+    public synchronized CommandQueryResponseV1 queryCommand(
+            final CommandQueuedReceiptV1 receipt,
+            final long nowEpochMs,
+            final CommandResultRetentionPolicy retentionPolicy,
+            final PublicDestinationBindingViewV1 binding) {
+        Objects.requireNonNull(retentionPolicy, "retentionPolicy");
+        return queryCommandInternal(receipt, nowEpochMs, null, retentionPolicy, binding);
+    }
+
+    private CommandQueryResponseV1 queryCommandInternal(
+            final CommandQueuedReceiptV1 receipt,
+            final long nowEpochMs,
+            final Long fullResultRetainUntilEpochMs,
+            final CommandResultRetentionPolicy retentionPolicy,
+            final PublicDestinationBindingViewV1 binding) {
+        ensureOpen();
+        if (receipt == null) {
+            return CommandQueryResponseV1.error(StableCode.INVALID_RECEIPT, null);
+        }
+        if (!isEmbeddedReceipt(receipt)) {
+            return CommandQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
+        }
+        if (nowEpochMs < 0 || (fullResultRetainUntilEpochMs != null && fullResultRetainUntilEpochMs < 0)) {
+            return CommandQueryResponseV1.error(StableCode.INVALID_RECEIPT, null);
+        }
+        if (nowEpochMs > receipt.receiptQueryUntilEpochMs()) {
+            return CommandQueryResponseV1.resultEvidenceExpired();
+        }
+        final SourcePosition awaited = receipt.sourcePosition();
+        final SourcePosition current;
+        try {
+            current = shard.lastAppliedSourcePosition();
+        } catch (RuntimeException invalidDurableRead) {
+            return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+        }
+        if (current == null) {
+            return CommandQueryResponseV1.pending(
+                    new com.nereusstream.delay.protocol.PendingCommandViewV1(awaited, null, safeRetryAt(nowEpochMs)));
+        }
+        try {
+            if (!current.sameSourceIdentity(awaited)) {
+                return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+            }
+            final int order = current.compareTo(awaited);
+            if (order < 0) {
+                return CommandQueryResponseV1.pending(new com.nereusstream.delay.protocol.PendingCommandViewV1(
+                        awaited, current, safeRetryAt(nowEpochMs)));
+            }
+            if (order == 0 && !Bytes.constantTimeEquals(current.canonicalBytes(), awaited.canonicalBytes())) {
+                return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+            }
+        } catch (IllegalArgumentException mismatch) {
+            return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+        }
+        try {
+            if (!shard.matchesCommandPosition(receipt.command().commandId(), awaited)) {
+                return CommandQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
+            }
+            final CommandResult result =
+                    shard.getCommandResult(receipt.command().commandId());
+            if (result == null) {
+                return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+            }
+            if (!shard.matchesCommandHash(
+                    receipt.command().commandId(), receipt.command().commandHash())) {
+                return CommandQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
+            }
+            return projectCommandResult(result, nowEpochMs, fullResultRetainUntilEpochMs, retentionPolicy, binding);
+        } catch (RuntimeException invalidDurableRead) {
+            // A local POSITION/result read failure is not evidence of a
+            // receipt mismatch.  Keep the closed query union fail-closed.
+            return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+        }
+    }
+
+    private CommandQueryResponseV1 projectCommandResult(
+            final CommandResult result,
+            final long nowEpochMs,
+            final Long fullResultRetainUntilEpochMs,
+            final CommandResultRetentionPolicy retentionPolicy,
+            final PublicDestinationBindingViewV1 binding) {
+        final SourcePosition appliedPosition;
+        final long retentionBoundary;
+        try {
+            appliedPosition = SourcePositionCodec.decode(result.appliedSourcePosition());
+            retentionBoundary = retentionPolicy == null
+                    ? Objects.requireNonNull(fullResultRetainUntilEpochMs, "fullResultRetainUntilEpochMs")
+                    : retentionPolicy.retainUntil(appliedPosition);
+            if (retentionBoundary < appliedPosition.brokerPersistenceTimeEpochMs()) {
+                return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+            }
+        } catch (RuntimeException invalidPolicy) {
+            return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+        }
+        try {
+            if (nowEpochMs > retentionBoundary) {
+                return retentionPolicy == null
+                        ? BoundedLocalQueryProjector.compactCommand(result, retentionBoundary)
+                        : BoundedLocalQueryProjector.compactCommand(result, retentionPolicy);
+            }
+            return retentionPolicy == null
+                    ? BoundedLocalQueryProjector.command(result, retentionBoundary, binding)
+                    : BoundedLocalQueryProjector.command(result, retentionPolicy, binding);
+        } catch (RuntimeException invalidProjection) {
+            return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+        }
+    }
+
+    /**
+     * Emits an applied receipt only after this local shard has crossed the
+     * queued receipt's source barrier. A queued receipt is never upgraded in
+     * place; the applied frame retains its queued-payload digest.
+     */
+    public synchronized CommandAppliedReceiptV1 appliedReceiptV1(
+            final CommandQueuedReceiptV1 queuedReceipt,
+            final long fullResultRetainUntilEpochMs,
+            final PublicDestinationBindingViewV1 binding) {
+        return appliedReceiptV1Internal(queuedReceipt, fullResultRetainUntilEpochMs, null, binding);
+    }
+
+    /** Emits an applied receipt with a policy-derived full-result boundary. */
+    public synchronized CommandAppliedReceiptV1 appliedReceiptV1(
+            final CommandQueuedReceiptV1 queuedReceipt,
+            final CommandResultRetentionPolicy retentionPolicy,
+            final PublicDestinationBindingViewV1 binding) {
+        Objects.requireNonNull(retentionPolicy, "retentionPolicy");
+        return appliedReceiptV1Internal(queuedReceipt, null, retentionPolicy, binding);
+    }
+
+    private CommandAppliedReceiptV1 appliedReceiptV1Internal(
+            final CommandQueuedReceiptV1 queuedReceipt,
+            final Long fullResultRetainUntilEpochMs,
+            final CommandResultRetentionPolicy retentionPolicy,
+            final PublicDestinationBindingViewV1 binding) {
+        ensureOpen();
+        Objects.requireNonNull(queuedReceipt, "queuedReceipt");
+        if (!isEmbeddedReceipt(queuedReceipt)) {
+            throw new IllegalArgumentException("queued receipt does not belong to embedded shard");
+        }
+        if (fullResultRetainUntilEpochMs != null && fullResultRetainUntilEpochMs < 0) {
+            throw new IllegalArgumentException("full result retention deadline must be non-negative");
+        }
+        final SourcePosition current = shard.lastAppliedSourcePosition();
+        if (current == null || !current.sameSourceIdentity(queuedReceipt.sourcePosition())) {
+            throw new IllegalStateException("command has not crossed its source barrier");
+        }
+        final int order = current.compareTo(queuedReceipt.sourcePosition());
+        if (order < 0
+                || (order == 0
+                        && !Bytes.constantTimeEquals(
+                                current.canonicalBytes(),
+                                queuedReceipt.sourcePosition().canonicalBytes()))) {
+            throw new IllegalStateException("command has not crossed its exact source barrier");
+        }
+        if (!shard.matchesCommandPosition(queuedReceipt.command().commandId(), queuedReceipt.sourcePosition())) {
+            throw new IllegalArgumentException("queued receipt source position does not identify the command");
+        }
+        final CommandResult result =
+                shard.getCommandResult(queuedReceipt.command().commandId());
+        if (result == null) {
+            throw new IllegalStateException("source barrier crossed without a durable command result");
+        }
+        if (!shard.matchesCommandHash(
+                queuedReceipt.command().commandId(), queuedReceipt.command().commandHash())) {
+            throw new IllegalArgumentException("queued receipt command hash does not match durable command identity");
+        }
+        final CommandApplyStatusV1 status = result.applyStatus() == ApplyStatus.APPLIED
+                ? CommandApplyStatusV1.APPLIED
+                : CommandApplyStatusV1.REJECTED;
+        final SourcePosition appliedPosition = SourcePositionCodec.decode(result.appliedSourcePosition());
+        final Integer generation =
+                status == CommandApplyStatusV1.APPLIED && result.hasGeneration() ? result.generation() : null;
+        final Long stateVersion =
+                status == CommandApplyStatusV1.APPLIED && result.stateVersion() > 0 ? result.stateVersion() : null;
+        final PublicDestinationBindingViewV1 appliedBinding = status == CommandApplyStatusV1.APPLIED ? binding : null;
+        final long retentionBoundary = retentionPolicy == null
+                ? Objects.requireNonNull(fullResultRetainUntilEpochMs, "fullResultRetainUntilEpochMs")
+                : retentionPolicy.retainUntil(appliedPosition);
+        return CommandAppliedReceiptV1.create(
+                queuedReceipt,
+                status,
+                result.stableCode(),
+                appliedPosition,
+                generation,
+                stateVersion,
+                appliedBinding,
+                retentionBoundary);
+    }
+
+    /** Projects a local message snapshot after the caller supplies policy inputs. */
+    public synchronized MessageQueryResponseV1 queryMessage(
+            final DelayMessageId messageId,
+            final PublicDestinationBindingViewV1 binding,
+            final com.nereusstream.delay.protocol.PublicEvidenceRefV1 evidence,
+            final FirstScheduleEligibilityV1 unknownEligibility) {
+        ensureOpen();
+        if (messageId == null) {
+            return MessageQueryResponseV1.error(StableCode.INVALID_RECEIPT, null);
+        }
+        if (!shardId.equals(messageId.routingId().shardId())) {
+            return MessageQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
+        }
+        try {
+            if (shard.getRetiredMessageIdentity(messageId) != null) {
+                return MessageQueryResponseV1.identityRetired();
+            }
+            final MessageQuerySnapshot snapshot = shard.queryMessageSnapshot(messageId);
+            if (snapshot == null) {
+                return MessageQueryResponseV1.unknown(Objects.requireNonNull(unknownEligibility, "unknownEligibility"));
+            }
+            return BoundedLocalQueryProjector.message(snapshot, binding, evidence);
+        } catch (RuntimeException invalidProjection) {
+            // A durable snapshot/read or caller-supplied public projection
+            // mismatch is not a reason to leak an exceptional Future.  The
+            // closed query union must preserve the shard's fail-closed
+            // integrity boundary; cross-shard identity was handled above as
+            // RECEIPT_MISMATCH.
+            return MessageQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+        }
+    }
+
+    /** Projects a local message snapshot after the caller supplies policy inputs. */
+    public synchronized MessageQueryResponseV1 queryMessage(
+            final DelayMessageId messageId,
+            final PublicDestinationBindingViewV1 binding,
+            final DlqExportStateV1 dlqExportState,
+            final com.nereusstream.delay.protocol.PublicEvidenceRefV1 evidence,
+            final FirstScheduleEligibilityV1 unknownEligibility) {
+        ensureOpen();
+        if (messageId == null) {
+            return MessageQueryResponseV1.error(StableCode.INVALID_RECEIPT, null);
+        }
+        if (!shardId.equals(messageId.routingId().shardId())) {
+            return MessageQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
+        }
+        try {
+            if (shard.getRetiredMessageIdentity(messageId) != null) {
+                return MessageQueryResponseV1.identityRetired();
+            }
+            final MessageQuerySnapshot snapshot = shard.queryMessageSnapshot(messageId);
+            if (snapshot == null) {
+                return MessageQueryResponseV1.unknown(Objects.requireNonNull(unknownEligibility, "unknownEligibility"));
+            }
+            return BoundedLocalQueryProjector.message(snapshot, binding, dlqExportState, evidence);
+        } catch (RuntimeException invalidProjection) {
+            // Keep the message response closed when a local read or the
+            // supplied public DLQ/binding projection cannot be proven.
+            return MessageQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+        }
+    }
+
+    /**
+     * Registers a control operation in the bounded embedded authority. This
+     * local entry point preserves the complete receipt and is not a substitute
+     * for production Oxia routing or authorization.
+     */
+    public synchronized ControlOperationQueryResponseV1 registerControlOperation(
+            final ControlOperationReceiptV1 receipt, final CurrentControlOperationV1 initial) {
+        ensureOpen();
+        return controlOperationAuthority.register(receipt, initial);
+    }
+
+    /**
+     * Registers an exact Prepared Control Operation through both local
+     * registration seams and returns the receipt/current projection pair.
+     * This is an embedded conformance path; production uses one Oxia
+     * transaction plus authenticated actor/resource checks.
+     */
+    public synchronized ControlRegistrationProjectionV1 registerPreparedControlOperation(
+            final PreparedControlOperationV1 prepared,
+            final TrustedUtcIntervalEvidence registeredAt,
+            final long controlOperationQueryWindowMs) {
+        ensureOpen();
+        Objects.requireNonNull(prepared, "prepared");
+        return registerPreparedControlOperationInternal(prepared, registeredAt, controlOperationQueryWindowMs);
+    }
+
+    /**
+     * Registers a Prepared Control Operation with the immutable policy bound
+     * into its pre-I/O envelope. Callers cannot replace the policy window or
+     * version after preparation.
+     */
+    public synchronized ControlRegistrationProjectionV1 registerPreparedControlOperation(
+            final PreparedControlOperationV1 prepared,
+            final TrustedUtcIntervalEvidence registeredAt,
+            final ControlOperationQueryPolicy policy) {
+        ensureOpen();
+        Objects.requireNonNull(prepared, "prepared");
+        Objects.requireNonNull(policy, "policy");
+        if (prepared.controlQueryPolicyVersion() != policy.policyVersion()) {
+            throw new IllegalArgumentException("Control query policy version does not match Prepared operation");
+        }
+        // Derive before registering the target so a malformed or overflowing
+        // policy cannot leave a partial local registration behind.
+        policy.queryUntil(Objects.requireNonNull(registeredAt, "registeredAt"));
+        return registerPreparedControlOperationInternal(prepared, registeredAt, policy.queryWindowMs());
+    }
+
+    private ControlRegistrationProjectionV1 registerPreparedControlOperationInternal(
+            final PreparedControlOperationV1 prepared,
+            final TrustedUtcIntervalEvidence registeredAt,
+            final long controlOperationQueryWindowMs) {
+        // Build and validate every local projection before publishing the
+        // target registration.  The raw-window overload is retained as an
+        // embedded compatibility seam, so invalid timestamps/windows must not
+        // leave a target-only registration behind for a control operation that
+        // never obtained a receipt/current projection.
+        final ControlRegistrationProjectionV1 projection = ControlRegistrationProjectionV1.initialWithQueryWindow(
+                prepared, registeredAt, controlOperationQueryWindowMs);
+        ControlRegistrationBindingV1.validate(
+                prepared, ControlRegistrationOutcomeMessageV1.recorded(projection.receipt()));
+        controlTargetRegistrationAuthority.register(prepared);
+        final ControlOperationQueryResponseV1 response =
+                controlOperationAuthority.register(projection.receipt(), projection.current());
+        if (response.resultKind() != com.nereusstream.delay.protocol.ControlOperationQueryResultV1.CURRENT
+                || !projection.current().equals(response.current())) {
+            throw new IllegalStateException("embedded Control registration did not return its exact projection");
+        }
+        return projection;
+    }
+
+    /** Advances one embedded control operation through its exact revision CAS. */
+    public synchronized ControlOperationQueryResponseV1 advanceControlOperation(
+            final ControlOperationReceiptV1 receipt,
+            final long expectedRevision,
+            final CurrentControlOperationV1 next) {
+        ensureOpen();
+        return controlOperationAuthority.advance(receipt, expectedRevision, next);
+    }
+
+    /** Queries one embedded control operation before its fixed receipt boundary. */
+    public synchronized ControlOperationQueryResponseV1 queryControlOperation(
+            final ControlOperationReceiptV1 receipt, final long nowEpochMs) {
+        ensureOpen();
+        if (receipt == null || nowEpochMs < 0) {
+            return ControlOperationQueryResponseV1.invalidReceipt();
+        }
+        try {
+            return Objects.requireNonNull(
+                    controlOperationAuthority.query(receipt, nowEpochMs), "control operation query response");
+        } catch (RuntimeException invalidProjection) {
+            // Keep the public control-query union closed when a local authority
+            // read or response binding cannot be proven.
+            return ControlOperationQueryResponseV1.integrityError();
+        }
+    }
+
+    public synchronized DelayShard shard() {
+        ensureOpen();
+        return shard;
+    }
+
+    @Override
+    public synchronized void close() {
+        if (closed) {
+            return;
+        }
+        if (!closeStarted) {
+            // The embedded service has no asynchronous Broker producer to
+            // await, so its close-drain deadline is represented by a
+            // synchronous drain before the local DB is closed.  A failed
+            // apply leaves the service open and the head record charged for
+            // an explicit retry instead of acknowledging data loss.
+            drain();
+            // Fence only after the final allowed drain operation. Any later
+            // Store/Worker close failure must leave this state retryable.
+            closeStarted = true;
+        }
+        Throwable closeFailure = null;
+        if (preparedSubmissionAdapter != null) {
+            try {
+                preparedSubmissionAdapter.close();
+            } catch (RuntimeException | Error exception) {
+                closeFailure = appendCloseFailure(closeFailure, exception);
+            }
+        }
+        try {
+            store.close();
+        } catch (RuntimeException | Error exception) {
+            closeFailure = appendCloseFailure(closeFailure, exception);
+        }
+        try {
+            resources.close();
+        } catch (RuntimeException | Error exception) {
+            closeFailure = appendCloseFailure(closeFailure, exception);
+        }
+        if (closeFailure != null) {
+            throwUnchecked(closeFailure);
+        }
+        closed = true;
+    }
+
+    private static Throwable appendCloseFailure(final Throwable first, final Throwable failure) {
+        if (first == null) {
+            return failure;
+        }
+        if (failure != first) {
+            first.addSuppressed(failure);
+        }
+        return first;
+    }
+
+    private static void throwUnchecked(final Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error errorFailure) {
+            throw errorFailure;
+        }
+        throw new IllegalStateException("unexpected checked teardown failure", failure);
+    }
+
+    private synchronized void ensureOpen() {
+        if (closed || closeStarted) {
+            throw new IllegalStateException("client is closed");
+        }
+    }
+
+    private static StableCode stableErrorCode(final EnqueueOutcome outcome) {
+        if (outcome.stableCode() <= 0) {
+            throw new IllegalArgumentException("non-queued outcome must carry a nonzero stable code");
+        }
+        return StableCode.fromWire(outcome.stableCode());
+    }
+
+    private boolean isEmbeddedReceipt(final CommandQueuedReceiptV1 receipt) {
+        if (!shardId.equals(receipt.command().shardId())
+                || !shardId.equals(receipt.sourcePosition().shardId())
+                || !(receipt.sourcePosition() instanceof KafkaSourcePosition kafka)
+                || !isEmbeddedSource(kafka)) {
+            return false;
+        }
+        return receipt.brokerAck() instanceof KafkaQueuedAck ack
+                && EMBEDDED_CLUSTER_ID.equals(ack.authenticatedClusterId())
+                && EMBEDDED_TOPIC_UUID.equals(ack.nativeTopicUuid())
+                && ack.partition() == shardId.partition()
+                && ack.offset() == kafka.offset();
+    }
+
+    private boolean isEmbeddedSource(final KafkaSourcePosition source) {
+        return shardId.equals(source.shardId())
+                && EMBEDDED_CLUSTER_ID.equals(source.authenticatedClusterId())
+                && EMBEDDED_TOPIC_UUID.equals(source.nativeTopicUuid());
+    }
+
+    private static long safeRetryAt(final long nowEpochMs) {
+        return nowEpochMs == Long.MAX_VALUE ? Long.MAX_VALUE : nowEpochMs + 1;
+    }
+
+    private record QueuedRecord(PreparedCommand command, SourcePosition position, int frameBytes) {}
+
+    private record RetainedPhysicalResult(byte[] sourcePosition, CommandResult result) {
+        private RetainedPhysicalResult {
+            sourcePosition = Bytes.copy(sourcePosition);
+            Objects.requireNonNull(result, "result");
+        }
+
+        @Override
+        public byte[] sourcePosition() {
+            return Bytes.copy(sourcePosition);
+        }
+    }
+}

@@ -1,0 +1,1911 @@
+package com.nereusstream.delay.client;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.nereusstream.delay.adapter.CommandResultRetentionPolicy;
+import com.nereusstream.delay.adapter.ControlOperationQueryPolicy;
+import com.nereusstream.delay.adapter.InMemoryPayloadObjectStore;
+import com.nereusstream.delay.ownership.ControlTargetRegistrationAuthority;
+import com.nereusstream.delay.protocol.AdapterKindV1;
+import com.nereusstream.delay.protocol.AdapterMetadataV1;
+import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CommandAppliedReceiptV1;
+import com.nereusstream.delay.protocol.CommandBodies;
+import com.nereusstream.delay.protocol.CommandId;
+import com.nereusstream.delay.protocol.CommandQueryResult;
+import com.nereusstream.delay.protocol.CommandQueuedReceiptV1;
+import com.nereusstream.delay.protocol.CommandType;
+import com.nereusstream.delay.protocol.ControlAuthorV1;
+import com.nereusstream.delay.protocol.ControlOperationQueryResultV1;
+import com.nereusstream.delay.protocol.ControlOperationReceiptV1;
+import com.nereusstream.delay.protocol.ControlOperationRequestV1;
+import com.nereusstream.delay.protocol.ControlOperationStateV1;
+import com.nereusstream.delay.protocol.ControlReasonKindV1;
+import com.nereusstream.delay.protocol.ControlReasonV1;
+import com.nereusstream.delay.protocol.ControlTargetKindV1;
+import com.nereusstream.delay.protocol.ControlTargetRefV1;
+import com.nereusstream.delay.protocol.CurrentControlOperationV1;
+import com.nereusstream.delay.protocol.DelayMessageId;
+import com.nereusstream.delay.protocol.DeliveryMode;
+import com.nereusstream.delay.protocol.DestinationLaneId;
+import com.nereusstream.delay.protocol.DlqExportStateV1;
+import com.nereusstream.delay.protocol.EnqueueOutcomeKindV1;
+import com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1;
+import com.nereusstream.delay.protocol.ForceCheckpointRequestV1;
+import com.nereusstream.delay.protocol.KafkaMetadataV1;
+import com.nereusstream.delay.protocol.KafkaSourcePosition;
+import com.nereusstream.delay.protocol.LargeScheduleIntent;
+import com.nereusstream.delay.protocol.MessagePreconditionV1;
+import com.nereusstream.delay.protocol.MessageQueryResponseV1;
+import com.nereusstream.delay.protocol.MessageQueryResult;
+import com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
+import com.nereusstream.delay.protocol.ObjectStoreProviderKindV1;
+import com.nereusstream.delay.protocol.OpaquePayloadUploadHandleV1;
+import com.nereusstream.delay.protocol.OrderingMode;
+import com.nereusstream.delay.protocol.PayloadAttestationOutcomeV1;
+import com.nereusstream.delay.protocol.PayloadAttestationResponseV1;
+import com.nereusstream.delay.protocol.PayloadCommitProofV1;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
+import com.nereusstream.delay.protocol.PayloadProofVerifierKeyV1;
+import com.nereusstream.delay.protocol.PayloadReservationReceiptV1;
+import com.nereusstream.delay.protocol.PayloadUploadHandleOutcomeV1;
+import com.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
+import com.nereusstream.delay.protocol.PreparedCommand;
+import com.nereusstream.delay.protocol.PreparedControlOperationV1;
+import com.nereusstream.delay.protocol.PreparedSubmissionV1;
+import com.nereusstream.delay.protocol.ProfileKindV1;
+import com.nereusstream.delay.protocol.ProfileRefV1;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
+import com.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
+import com.nereusstream.delay.protocol.RetryPolicyRefV1;
+import com.nereusstream.delay.protocol.RouteIncarnation;
+import com.nereusstream.delay.protocol.ScheduleIntent;
+import com.nereusstream.delay.protocol.ScheduleIntentV1;
+import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.StableCode;
+import com.nereusstream.delay.protocol.SubmissionOutcomeKindV1;
+import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
+import com.nereusstream.delay.protocol.UploadHandleKindV1;
+import com.nereusstream.delay.runtime.ApplyStatus;
+import com.nereusstream.delay.runtime.CommandResult;
+import com.nereusstream.delay.runtime.DelayShard;
+import com.nereusstream.delay.runtime.DelayShardConfig;
+import com.nereusstream.delay.runtime.GenerationAggregateState;
+import com.nereusstream.delay.runtime.MessageQuerySnapshot;
+import com.nereusstream.delay.runtime.MessageStatus;
+import com.nereusstream.delay.runtime.PayloadAvailability;
+import com.nereusstream.delay.runtime.PayloadReservation;
+import com.nereusstream.delay.runtime.V1ScheduleResolver;
+import com.nereusstream.delay.store.ShardStore;
+import com.nereusstream.delay.store.ShardStoreConfig;
+import com.nereusstream.delay.store.SharedRocksDbResources;
+import java.lang.reflect.Field;
+import java.nio.file.Path;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class EmbeddedDelayServiceTest {
+    @TempDir
+    Path tempDir;
+
+    @Test
+    void delayClientPreparesStrictV1CommandsWithoutIo() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 25);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("v1-prepare")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final DelayClient client = service;
+            final PreparedCommand schedule =
+                    client.prepareScheduleV1(scheduleIntentV1("v1-prepare-lane", 2_000, 5_000, "payload"), 10_000);
+            assertEquals(
+                    schedule.delayMessageId(),
+                    CommandBodies.decodeScheduleV1(schedule.canonicalBody()).delayMessageId());
+
+            final PreparedCommand cancel =
+                    client.prepareCancelV1(schedule.delayMessageId(), new MessagePreconditionV1(0L, null), 10_000);
+            assertEquals(
+                    schedule.delayMessageId(),
+                    CommandBodies.decodeCancelV1(cancel.canonicalBody()).delayMessageId());
+
+            final PreparedCommand reschedule = client.prepareRescheduleV1(
+                    schedule.delayMessageId(), new MessagePreconditionV1(0L, null), 2_500, 5_500, 10_000);
+            assertEquals(
+                    schedule.delayMessageId(),
+                    CommandBodies.decodeRescheduleV1(reschedule.canonicalBody()).delayMessageId());
+        }
+    }
+
+    @Test
+    void strictV1IngressRejectsLegacyBodiesBeforeSourceAdmission() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 26);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("v1-ingress")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final DelayClient client = service;
+            final PreparedCommand v1 =
+                    client.prepareScheduleV1(scheduleIntentV1("v1-ingress-lane", 2_000, 5_000, "payload"), 10_000);
+            final PreparedCommand legacy = client.prepareSchedule(
+                    new ScheduleIntent(
+                            DestinationLaneId.derive(Bytes.utf8("legacy-ingress-lane")),
+                            2_000,
+                            5_000,
+                            OrderingMode.BEST_EFFORT,
+                            Bytes.utf8("payload")),
+                    10_000);
+
+            final EnqueueOutcome queued =
+                    client.enqueueV1(v1).toCompletableFuture().join();
+            final EnqueueOutcome rejected =
+                    client.enqueueV1(legacy).toCompletableFuture().join();
+
+            assertEquals(EnqueueStatus.QUEUED, queued.status());
+            assertEquals(EnqueueStatus.DEFINITELY_NOT_QUEUED, rejected.status());
+            assertEquals(StableCode.INVALID_PREPARED_COMMAND.wireValue(), rejected.stableCode());
+            assertEquals(1, service.pendingCommandCount());
+        }
+    }
+
+    @Test
+    void managedPreparedSubmissionKeepsStrictBranchAndAttemptFence() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 27);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("managed-submission")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final DelayClient client = service;
+            final PreparedCommand command =
+                    client.prepareCancelV1(DelayMessageId.random(shard), new MessagePreconditionV1(0L, null), 10_000);
+            final PreparedSubmissionV1 submission = client.prepareManagedSubmissionV1(command);
+            assertEquals(submission, PreparedSubmissionV1.decode(submission.canonicalBytes()));
+
+            final var invalidAttempt = client.submit(submission, 10_000, new byte[16])
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(SubmissionOutcomeKindV1.MANAGED, invalidAttempt.kind());
+            assertEquals(
+                    StableCode.INVALID_PREPARED_COMMAND,
+                    invalidAttempt.managed().definitelyNotQueued().error().code());
+
+            final byte[] attempt = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("managed-submit-attempt")), 16);
+            final var queued = client.submit(submission, 10_000, attempt)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(SubmissionOutcomeKindV1.MANAGED, queued.kind());
+            assertEquals(EnqueueOutcomeKindV1.QUEUED, queued.managed().kind());
+            assertEquals(
+                    command.commandId(), queued.managed().queued().command().commandId());
+            assertArrayEquals(attempt, queued.managed().queued().physicalEnqueueAttemptId());
+        }
+    }
+
+    @Test
+    void queuedReceiptIsNotAppliedReceipt() {
+        final long now = 1_000;
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
+        final Clock clock = Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC);
+        try (EmbeddedDelayService service =
+                new EmbeddedDelayService(ShardStoreConfig.defaults(tempDir), shard, clock)) {
+            final var command = service.prepareSchedule(
+                    new ScheduleIntent(
+                            DestinationLaneId.derive(Bytes.utf8("embedded-lane")),
+                            2_000,
+                            5_000,
+                            OrderingMode.BEST_EFFORT,
+                            Bytes.utf8("payload")),
+                    10_000);
+            final EnqueueOutcome outcome =
+                    service.enqueue(command).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.QUEUED, outcome.status());
+            assertNull(service.shard().getCommandResult(command.commandId()));
+
+            final CommandResultView result = new CommandResultView(service.awaitApplied(outcome.receipt())
+                    .toCompletableFuture()
+                    .join()
+                    .stableCode());
+            assertEquals(StableCode.SCHEDULED, result.code());
+        }
+    }
+
+    @Test
+    void prepareLargePayloadCommitBindsReceiptAndProof() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 22);
+        final DelayMessageId messageId = DelayMessageId.random(shard);
+        final byte[] payload = Bytes.utf8("payload");
+        final byte[] payloadHash = Bytes.sha256(payload);
+        final ProfileRefV1 objectStoreProfile = new ProfileRefV1(
+                Bytes.utf8("object-store"),
+                1,
+                Bytes.sha256(Bytes.utf8("object-store-semantic")),
+                ProfileKindV1.OBJECT_STORE);
+        final PayloadProofTrustSetRefV1 trustSet =
+                new PayloadProofTrustSetRefV1(1, Bytes.sha256(Bytes.utf8("payload-trust-set")));
+        final KafkaSourcePosition source =
+                new KafkaSourcePosition(shard, "embedded", UUID.randomUUID(), 3, null, 1_000);
+        final PayloadReservationReceiptV1 receipt = PayloadReservationReceiptV1.create(
+                Bytes.sha256(Bytes.utf8("reservation")),
+                messageId,
+                shard,
+                source,
+                1,
+                objectStoreProfile,
+                Bytes.utf8("container"),
+                Bytes.utf8("object-key"),
+                payload.length,
+                payloadHash,
+                5_000,
+                trustSet);
+        final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final PayloadCommitProofV1 proof = PayloadCommitProofV1.signed(
+                receipt.reservationId(),
+                Bytes.sha256(Bytes.utf8("tenant-scope")),
+                shard.routeIncarnation().bytes(),
+                shard.partition(),
+                messageId,
+                objectStoreProfile,
+                trustSet.version(),
+                1,
+                receipt.container(),
+                receipt.objectKey(),
+                Bytes.utf8("sha256-version"),
+                payloadHash,
+                payload.length,
+                payloadHash,
+                4_500,
+                keyPair.getPrivate());
+
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("prepare-large-commit")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PreparedCommand prepared = service.prepareLargePayloadCommit(receipt, proof, 10_000);
+            assertEquals(messageId, prepared.delayMessageId());
+            assertEquals(
+                    proof,
+                    CommandBodies.decodeCommitLargeV1(prepared.canonicalBody()).proof());
+
+            final PayloadCommitProofV1 drifted = PayloadCommitProofV1.signed(
+                    receipt.reservationId(),
+                    Bytes.sha256(Bytes.utf8("tenant-scope")),
+                    shard.routeIncarnation().bytes(),
+                    shard.partition(),
+                    messageId,
+                    objectStoreProfile,
+                    trustSet.version(),
+                    1,
+                    receipt.container(),
+                    Bytes.utf8("different-object-key"),
+                    Bytes.utf8("sha256-version"),
+                    payloadHash,
+                    payload.length,
+                    payloadHash,
+                    4_500,
+                    keyPair.getPrivate());
+            assertThrows(
+                    IllegalArgumentException.class, () -> service.prepareLargePayloadCommit(receipt, drifted, 10_000));
+        }
+    }
+
+    @Test
+    void payloadClientWithoutLocalObjectStoreReturnsTypedRetryableOutcome() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 23);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("payload-store-unavailable")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PayloadUploadHandleResponseV1 handle = service.issuePayloadUploadHandle(
+                            null, UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_000)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(PayloadUploadHandleOutcomeV1.OBJECT_STORE_UNAVAILABLE_RETRYABLE, handle.outcome());
+            assertEquals(
+                    StableCode.OBJECT_STORE_UNAVAILABLE_RETRYABLE,
+                    handle.error().code());
+            final PayloadAttestationResponseV1 attestation = service.attestPayloadUpload(null, null, 1_000)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(PayloadAttestationOutcomeV1.OBJECT_STORE_UNAVAILABLE_RETRYABLE, attestation.outcome());
+            assertEquals(
+                    StableCode.OBJECT_STORE_UNAVAILABLE_RETRYABLE,
+                    attestation.error().code());
+            final PayloadUploadHandleResponseV1 negativeHandle = service.issuePayloadUploadHandle(
+                            null, UploadHandleKindV1.OPAQUE_SINGLE_PUT, -1)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(PayloadUploadHandleOutcomeV1.INTEGRITY_ERROR, negativeHandle.outcome());
+            assertEquals(StableCode.INTEGRITY_ERROR, negativeHandle.error().code());
+            final PayloadAttestationResponseV1 negativeAttestation = service.attestPayloadUpload(null, null, -1)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(PayloadAttestationOutcomeV1.INTEGRITY_ERROR, negativeAttestation.outcome());
+            assertEquals(StableCode.INTEGRITY_ERROR, negativeAttestation.error().code());
+        }
+    }
+
+    @Test
+    void receiptBoundPayloadFacadeRereadsTheShardReservation() throws Exception {
+        final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final PayloadProofTrustSetSemanticV1 trustSet = payloadTrustSet(keyPair);
+        final ProfileSemanticEnvelopeV1 profile = payloadObjectStoreProfile();
+        final byte[] payload = new byte[(1 << 20) + 1];
+        payload[0] = 1;
+        final InMemoryPayloadObjectStore objectStore = new InMemoryPayloadObjectStore(
+                profile, Bytes.sha256(Bytes.utf8("tenant")), trustSet, 7, 500, keyPair.getPrivate());
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 24);
+        final LargeScheduleIntent intent = new LargeScheduleIntent(
+                DestinationLaneId.derive(Bytes.utf8("payload-facade-lane")),
+                2_000,
+                5_000,
+                OrderingMode.BEST_EFFORT,
+                payload.length,
+                Bytes.sha256(payload),
+                4_000,
+                trustSet.version());
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("payload-facade")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC),
+                EmbeddedDelayServiceConfig.defaults(),
+                objectStore)) {
+            final PreparedCommand prepare = service.prepareLargeSchedule(intent, 10_000);
+            final EnqueueOutcome queued =
+                    service.enqueue(prepare).toCompletableFuture().join();
+            final CommandResult applied =
+                    service.awaitApplied(queued.receipt()).toCompletableFuture().join();
+            assertEquals(StableCode.OK, applied.stableCode());
+            final byte[] reservationId = Bytes.sha256(
+                    Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                    prepare.commandId().bytes(),
+                    prepare.delayMessageId().bytes(),
+                    prepare.commandHash());
+            final var reservation = service.shard().getReservation(reservationId);
+            objectStore.register(reservation);
+            final PayloadReservationReceiptV1 receipt = objectStore.reservationReceipt(reservation);
+
+            final PayloadUploadHandleResponseV1 handle = service.issuePayloadUploadHandle(
+                            receipt, UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_100)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(PayloadUploadHandleOutcomeV1.ISSUED, handle.outcome());
+            objectStore.upload(receipt, handle.issued(), payload, 1_101);
+            final PayloadAttestationResponseV1 attestation = service.attestPayloadUpload(
+                            receipt, handle.issued(), 1_102)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(PayloadAttestationOutcomeV1.ATTESTED, attestation.outcome());
+            assertEquals(EnqueueStatus.QUEUED, queued.status());
+        }
+    }
+
+    @Test
+    void payloadFacadeMapsSourceOrderedReservationCloseToTypedOutcome() throws Exception {
+        final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final PayloadProofTrustSetSemanticV1 trustSet = payloadTrustSet(keyPair);
+        final ProfileSemanticEnvelopeV1 profile = payloadObjectStoreProfile();
+        final byte[] payload = new byte[(1 << 20) + 1];
+        final InMemoryPayloadObjectStore objectStore = new InMemoryPayloadObjectStore(
+                profile, Bytes.sha256(Bytes.utf8("tenant")), trustSet, 7, keyPair.getPrivate());
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 29);
+        final LargeScheduleIntent intent = new LargeScheduleIntent(
+                DestinationLaneId.derive(Bytes.utf8("payload-facade-close-lane")),
+                2_000,
+                5_000,
+                OrderingMode.BEST_EFFORT,
+                payload.length,
+                Bytes.sha256(payload),
+                4_000,
+                trustSet.version());
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("payload-facade-close")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC),
+                EmbeddedDelayServiceConfig.defaults(),
+                objectStore)) {
+            final PreparedCommand prepare = service.prepareLargeSchedule(intent, 10_000);
+            final EnqueueOutcome queuedPrepare =
+                    service.enqueue(prepare).toCompletableFuture().join();
+            assertEquals(
+                    StableCode.OK,
+                    service.awaitApplied(queuedPrepare.receipt())
+                            .toCompletableFuture()
+                            .join()
+                            .stableCode());
+            final var reservation = service.shard()
+                    .getReservation(Bytes.sha256(
+                            Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                                    prepare.commandId().bytes(),
+                            prepare.delayMessageId().bytes(), prepare.commandHash()));
+            objectStore.register(reservation);
+            final PayloadReservationReceiptV1 receipt = objectStore.reservationReceipt(reservation);
+
+            final PreparedCommand cancel = service.prepareCancel(prepare.delayMessageId(), 0, 10_000);
+            final EnqueueOutcome queuedCancel =
+                    service.enqueue(cancel).toCompletableFuture().join();
+            assertEquals(
+                    StableCode.PAYLOAD_RESERVATION_ABANDONED,
+                    service.awaitApplied(queuedCancel.receipt())
+                            .toCompletableFuture()
+                            .join()
+                            .stableCode());
+
+            final PayloadUploadHandleResponseV1 result = service.issuePayloadUploadHandle(
+                            receipt, UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_100)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(PayloadUploadHandleOutcomeV1.RESERVATION_ABANDONED, result.outcome());
+            assertEquals(StableCode.RESERVATION_ABANDONED, result.error().code());
+        }
+    }
+
+    @Test
+    void payloadFacadeMapsLocalReservationBindingFailureAsIntegrityError() throws Exception {
+        final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final PayloadProofTrustSetSemanticV1 reservationTrustSet = payloadTrustSet(keyPair);
+        final PayloadProofTrustSetSemanticV1 adapterTrustSet = new PayloadProofTrustSetSemanticV1(
+                10, List.of(PayloadProofVerifierKeyV1.fromPublicKey(7, keyPair.getPublic(), 0, 9_000)));
+        final ProfileSemanticEnvelopeV1 profile = payloadObjectStoreProfile();
+        final InMemoryPayloadObjectStore mismatchedAdapter = new InMemoryPayloadObjectStore(
+                profile, Bytes.sha256(Bytes.utf8("tenant")), adapterTrustSet, 7, keyPair.getPrivate());
+        final InMemoryPayloadObjectStore receiptProjector = new InMemoryPayloadObjectStore(
+                profile, Bytes.sha256(Bytes.utf8("tenant")), reservationTrustSet, 7, keyPair.getPrivate());
+        final byte[] payload = new byte[(1 << 20) + 1];
+        payload[0] = 1;
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 28);
+        final LargeScheduleIntent intent = new LargeScheduleIntent(
+                DestinationLaneId.derive(Bytes.utf8("payload-binding-failure-lane")),
+                2_000,
+                5_000,
+                OrderingMode.BEST_EFFORT,
+                payload.length,
+                Bytes.sha256(payload),
+                4_000,
+                reservationTrustSet.version());
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("payload-binding-failure")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC),
+                EmbeddedDelayServiceConfig.defaults(),
+                mismatchedAdapter)) {
+            final PreparedCommand prepare = service.prepareLargeSchedule(intent, 10_000);
+            final EnqueueOutcome queued =
+                    service.enqueue(prepare).toCompletableFuture().join();
+            assertEquals(
+                    StableCode.OK,
+                    service.awaitApplied(queued.receipt())
+                            .toCompletableFuture()
+                            .join()
+                            .stableCode());
+            final byte[] reservationId = Bytes.sha256(
+                    Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                    prepare.commandId().bytes(),
+                    prepare.delayMessageId().bytes(),
+                    prepare.commandHash());
+            final var reservation = service.shard().getReservation(reservationId);
+            receiptProjector.register(reservation);
+            final PayloadReservationReceiptV1 receipt = receiptProjector.reservationReceipt(reservation);
+
+            final PayloadUploadHandleResponseV1 handle = service.issuePayloadUploadHandle(
+                            receipt, UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_100)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(PayloadUploadHandleOutcomeV1.INTEGRITY_ERROR, handle.outcome());
+            assertEquals(StableCode.INTEGRITY_ERROR, handle.error().code());
+            final PayloadAttestationResponseV1 attestation = service.attestPayloadUpload(receipt, null, 1_100)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(PayloadAttestationOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED, attestation.outcome());
+
+            final PayloadAttestationResponseV1 attestationWithHandle = service.attestPayloadUpload(
+                            receipt,
+                            OpaquePayloadUploadHandleV1.create(
+                                    receipt.reservationId(),
+                                    profile.ref(),
+                                    UploadHandleKindV1.OPAQUE_SINGLE_PUT,
+                                    2_000,
+                                    Bytes.utf8("handle")),
+                            1_100)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(PayloadAttestationOutcomeV1.INTEGRITY_ERROR, attestationWithHandle.outcome());
+            assertEquals(
+                    StableCode.INTEGRITY_ERROR, attestationWithHandle.error().code());
+        }
+    }
+
+    @Test
+    void payloadFacadeRejectsAdapterSemanticDriftFromDurableV1PrepareBinding() throws Exception {
+        final KeyPair pinnedKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final KeyPair foreignKey = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final PayloadProofTrustSetSemanticV1 pinnedTrustSet = payloadTrustSet(pinnedKey);
+        final PayloadProofTrustSetSemanticV1 foreignTrustSet = payloadTrustSet(foreignKey);
+        final ProfileSemanticEnvelopeV1 profile = payloadObjectStoreProfile();
+        final byte[] payload = new byte[(1 << 20) + 1];
+        payload[0] = 1;
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 46);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("payload-v1-semantic-drift"));
+        final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("payload-v1-semantic-drift-lane"));
+        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+            @Override
+            public ResolvedSchedule resolveSchedule(
+                    final ShardId shard,
+                    final DelayMessageId messageId,
+                    final ScheduleIntentV1 intent,
+                    final com.nereusstream.delay.protocol.SourcePosition position) {
+                throw new AssertionError("Prepare regression must not resolve Schedule");
+            }
+
+            @Override
+            public ResolvedPrepare resolvePrepare(
+                    final ShardId shard,
+                    final DelayMessageId messageId,
+                    final com.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1 body,
+                    final com.nereusstream.delay.protocol.SourcePosition position) {
+                return new ResolvedPrepare(lane, Bytes.utf8("payload-v1-semantic-drift-lane"));
+            }
+        };
+        final ScheduleIntentV1 intent = ScheduleIntentV1.forPrepare(
+                new ProfileRefV1(
+                        Bytes.utf8("payload-v1-destination"),
+                        1,
+                        Bytes.sha256(Bytes.utf8("payload-v1-destination-semantic")),
+                        ProfileKindV1.DESTINATION),
+                new RetryPolicyRefV1(
+                        Bytes.utf8("payload-v1-retry"), 1, Bytes.sha256(Bytes.utf8("payload-v1-retry-semantic"))),
+                2_000,
+                5_000,
+                DeliveryMode.MANAGED,
+                OrderingMode.BEST_EFFORT,
+                new byte[0],
+                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())),
+                null,
+                null);
+        final PreparedCommand prepare = PreparedCommand.prepareLargeV1(
+                shardId,
+                intent,
+                payload.length,
+                Bytes.sha256(payload),
+                4_000,
+                pinnedTrustSet.ref(),
+                profile.ref(),
+                10_000);
+        final KafkaSourcePosition preparePosition = new KafkaSourcePosition(
+                shardId, "embedded", UUID.nameUUIDFromBytes(Bytes.utf8("embedded-command-topic")), 0, null, 1_000);
+        final PayloadReservation reservation;
+
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shardId, resources)) {
+            final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver);
+            assertEquals(StableCode.OK, shard.apply(prepare, preparePosition).stableCode());
+            reservation = shard.getReservation(Bytes.sha256(
+                    Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                    prepare.commandId().bytes(),
+                    prepare.delayMessageId().bytes(),
+                    prepare.commandHash()));
+        }
+
+        final InMemoryPayloadObjectStore receiptProjector = new InMemoryPayloadObjectStore(
+                profile, Bytes.sha256(Bytes.utf8("tenant")), pinnedTrustSet, 7, pinnedKey.getPrivate());
+        receiptProjector.register(reservation, pinnedTrustSet.ref(), profile.ref());
+        final PayloadReservationReceiptV1 receipt = receiptProjector.reservationReceipt(reservation);
+        final InMemoryPayloadObjectStore foreignAdapter = new InMemoryPayloadObjectStore(
+                profile, Bytes.sha256(Bytes.utf8("tenant")), foreignTrustSet, 7, foreignKey.getPrivate());
+
+        assertEquals(pinnedTrustSet.version(), foreignTrustSet.version());
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                config,
+                shardId,
+                Clock.fixed(Instant.ofEpochMilli(1_100), ZoneOffset.UTC),
+                EmbeddedDelayServiceConfig.defaults(),
+                foreignAdapter)) {
+            final PayloadUploadHandleResponseV1 result = service.issuePayloadUploadHandle(
+                            receipt, UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_100)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(PayloadUploadHandleOutcomeV1.INTEGRITY_ERROR, result.outcome());
+            assertEquals(StableCode.INTEGRITY_ERROR, result.error().code());
+            assertEquals(
+                    PayloadUploadHandleOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED,
+                    foreignAdapter
+                            .issueUploadHandle(reservation.reservationId(), UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_100)
+                            .outcome());
+        }
+    }
+
+    @Test
+    void enqueueBatchReturnsIndependentOutcomesInInputOrder() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 1);
+        final ShardId foreignShard = new ShardId(RouteIncarnation.random(), 2);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("batch-enqueue")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PreparedCommand first = scheduleV1(shard, "batch-first", 2_000, 5_000, 10_000);
+            final PreparedCommand foreign = scheduleV1(foreignShard, "batch-foreign", 2_000, 5_000, 10_000);
+            final PreparedCommand last = scheduleV1(shard, "batch-last", 2_000, 5_000, 10_000);
+
+            final List<EnqueueOutcome> outcomes = service.enqueueBatch(List.of(first, foreign, last))
+                    .toCompletableFuture()
+                    .join();
+
+            assertEquals(3, outcomes.size());
+            assertEquals(first, outcomes.get(0).preparedCommand());
+            assertEquals(EnqueueStatus.QUEUED, outcomes.get(0).status());
+            assertEquals(foreign, outcomes.get(1).preparedCommand());
+            assertEquals(EnqueueStatus.DEFINITELY_NOT_QUEUED, outcomes.get(1).status());
+            assertEquals(last, outcomes.get(2).preparedCommand());
+            assertEquals(EnqueueStatus.QUEUED, outcomes.get(2).status());
+            assertEquals(2, service.pendingCommandCount());
+            assertEquals(0L, ((KafkaSourcePosition) outcomes.get(0).receipt().sourcePosition()).offset());
+            assertEquals(1L, ((KafkaSourcePosition) outcomes.get(2).receipt().sourcePosition()).offset());
+        }
+    }
+
+    @Test
+    void awaitAppliedRejectsForeignSourceBeforeDraining() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 34);
+        final ScheduleIntent intent = new ScheduleIntent(
+                DestinationLaneId.derive(Bytes.utf8("receipt-source-lane")),
+                2_000,
+                5_000,
+                OrderingMode.BEST_EFFORT,
+                Bytes.utf8("payload"));
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("receipt-source")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PreparedCommand command = service.prepareSchedule(intent, 10_000);
+            final EnqueueOutcome queued =
+                    service.enqueue(command).toCompletableFuture().join();
+            final CommandQueuedReceipt foreign = new CommandQueuedReceipt(
+                    command.commandId(),
+                    command.delayMessageId(),
+                    shard,
+                    new KafkaSourcePosition(shard, "foreign-cluster", UUID.randomUUID(), 0, null, 1_000));
+
+            assertThrows(IllegalArgumentException.class, () -> service.awaitApplied(foreign));
+            assertEquals(1, service.pendingCommandCount());
+            assertEquals(EnqueueStatus.QUEUED, queued.status());
+        }
+    }
+
+    @Test
+    void awaitAppliedRejectsSameShardReceiptWithWrongPhysicalPositionBeforeDraining() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 37);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("await-position-fence")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final EnqueueOutcome first = service.enqueue(cancelV1(shard, 10_000))
+                    .toCompletableFuture()
+                    .join();
+            final EnqueueOutcome target = service.enqueue(cancelV1(shard, 10_000))
+                    .toCompletableFuture()
+                    .join();
+            final CommandQueuedReceipt forged = new CommandQueuedReceipt(
+                    target.preparedCommand().commandId(),
+                    target.preparedCommand().delayMessageId(),
+                    shard,
+                    first.receipt().sourcePosition());
+
+            assertThrows(IllegalArgumentException.class, () -> service.awaitApplied(forged));
+            assertEquals(2, service.pendingCommandCount());
+            assertNull(service.shard().getCommandResult(target.preparedCommand().commandId()));
+
+            final CommandResult applied =
+                    service.awaitApplied(target.receipt()).toCompletableFuture().join();
+            assertEquals(ApplyStatus.APPLIED, applied.applyStatus());
+        }
+    }
+
+    @Test
+    void awaitAppliedReturnsTheExactPendingPhysicalConflictResult() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 38);
+        final ScheduleIntent firstIntent = new ScheduleIntent(
+                DestinationLaneId.derive(Bytes.utf8("await-conflict-first")),
+                2_000,
+                5_000,
+                OrderingMode.BEST_EFFORT,
+                Bytes.utf8("first"));
+        final ScheduleIntent conflictingIntent = new ScheduleIntent(
+                DestinationLaneId.derive(Bytes.utf8("await-conflict-second")),
+                2_000,
+                5_000,
+                OrderingMode.BEST_EFFORT,
+                Bytes.utf8("second"));
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("await-physical-conflict")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PreparedCommand first = service.prepareSchedule(firstIntent, 10_000);
+            final EnqueueOutcome firstOutcome =
+                    service.enqueue(first).toCompletableFuture().join();
+            final PreparedCommand conflicting = PreparedCommand.create(
+                    shard,
+                    first.commandId(),
+                    first.delayMessageId(),
+                    first.type(),
+                    first.retryUntilEpochMs(),
+                    CommandBodies.schedule(conflictingIntent));
+            final EnqueueOutcome conflictingOutcome =
+                    service.enqueue(conflicting).toCompletableFuture().join();
+
+            final CommandResult physical = service.awaitApplied(conflictingOutcome.receipt())
+                    .toCompletableFuture()
+                    .join();
+
+            assertEquals(ApplyStatus.REJECTED, physical.applyStatus());
+            assertEquals(StableCode.COMMAND_ID_CONFLICT, physical.stableCode());
+            assertEquals(
+                    StableCode.SCHEDULED,
+                    service.shard().getCommandResult(first.commandId()).stableCode());
+            assertEquals(0, service.pendingCommandCount());
+            assertEquals(EnqueueStatus.QUEUED, firstOutcome.status());
+        }
+    }
+
+    @Test
+    void awaitAppliedReturnsTheExactPhysicalConflictAfterAnExplicitDrain() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 39);
+        final ScheduleIntent firstIntent = new ScheduleIntent(
+                DestinationLaneId.derive(Bytes.utf8("await-drained-conflict-first")),
+                2_000,
+                5_000,
+                OrderingMode.BEST_EFFORT,
+                Bytes.utf8("first"));
+        final ScheduleIntent conflictingIntent = new ScheduleIntent(
+                DestinationLaneId.derive(Bytes.utf8("await-drained-conflict-second")),
+                2_000,
+                5_000,
+                OrderingMode.BEST_EFFORT,
+                Bytes.utf8("second"));
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("await-drained-physical-conflict")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PreparedCommand first = service.prepareSchedule(firstIntent, 10_000);
+            service.enqueue(first).toCompletableFuture().join();
+            final PreparedCommand conflicting = PreparedCommand.create(
+                    shard,
+                    first.commandId(),
+                    first.delayMessageId(),
+                    first.type(),
+                    first.retryUntilEpochMs(),
+                    CommandBodies.schedule(conflictingIntent));
+            final EnqueueOutcome conflictingOutcome =
+                    service.enqueue(conflicting).toCompletableFuture().join();
+
+            service.drain();
+
+            final CommandResult physical = service.awaitApplied(conflictingOutcome.receipt())
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(ApplyStatus.REJECTED, physical.applyStatus());
+            assertEquals(StableCode.COMMAND_ID_CONFLICT, physical.stableCode());
+            assertEquals(
+                    StableCode.SCHEDULED,
+                    service.shard().getCommandResult(first.commandId()).stableCode());
+        }
+    }
+
+    @Test
+    void queuedReceiptRejectsMessageIdFromAnotherShard() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 35);
+        final ShardId foreignShard = new ShardId(RouteIncarnation.random(), 36);
+        final CommandId commandId = CommandId.random(shard);
+        final KafkaSourcePosition source =
+                new KafkaSourcePosition(shard, "embedded", UUID.randomUUID(), 0, null, 1_000);
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new CommandQueuedReceipt(commandId, DelayMessageId.random(foreignShard), shard, source));
+    }
+
+    @Test
+    void sdkBackpressureRejectsBeforeSourcePositionAndByteBudgetAreConsumed() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 30);
+        final ScheduleIntent intent = new ScheduleIntent(
+                DestinationLaneId.derive(Bytes.utf8("backpressure-lane")),
+                2_000,
+                5_000,
+                OrderingMode.BEST_EFFORT,
+                Bytes.utf8("payload"));
+        final EmbeddedDelayServiceConfig bounded = new EmbeddedDelayServiceConfig(1, Long.MAX_VALUE);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("backpressure-count")), shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC), bounded)) {
+            final PreparedCommand first = service.prepareSchedule(intent, 10_000);
+            final PreparedCommand second = service.prepareSchedule(intent, 10_000);
+            assertEquals(
+                    EnqueueStatus.QUEUED,
+                    service.enqueue(first).toCompletableFuture().join().status());
+            final EnqueueOutcome rejected =
+                    service.enqueue(second).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.DEFINITELY_NOT_QUEUED, rejected.status());
+            assertEquals(StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED.wireValue(), rejected.stableCode());
+            assertEquals(1, service.pendingCommandCount());
+            assertTrue(service.pendingCommandBytes() > 0);
+
+            service.drain();
+            assertEquals(0, service.pendingCommandCount());
+            assertEquals(0, service.pendingCommandBytes());
+            final PreparedCommand third = service.prepareSchedule(intent, 10_000);
+            final EnqueueOutcome afterDrain =
+                    service.enqueue(third).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.QUEUED, afterDrain.status());
+            assertEquals(1, ((KafkaSourcePosition) afterDrain.receipt().sourcePosition()).offset());
+        }
+
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("backpressure-bytes")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC),
+                new EmbeddedDelayServiceConfig(4, 1))) {
+            final PreparedCommand command = service.prepareSchedule(intent, 10_000);
+            final EnqueueOutcome rejected =
+                    service.enqueue(command).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.DEFINITELY_NOT_QUEUED, rejected.status());
+            assertEquals(StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED.wireValue(), rejected.stableCode());
+            assertEquals(0, service.pendingCommandCount());
+            assertEquals(0, service.pendingCommandBytes());
+        }
+    }
+
+    @Test
+    void closeDrainsQueuedCommandsBeforeClosingTheShardDb() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 31);
+        final ScheduleIntent intent = new ScheduleIntent(
+                DestinationLaneId.derive(Bytes.utf8("close-drain-lane")),
+                2_000,
+                5_000,
+                OrderingMode.BEST_EFFORT,
+                Bytes.utf8("payload"));
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("close-drain"));
+        final PreparedCommand command;
+        final CommandQueuedReceipt receipt;
+        try (EmbeddedDelayService service =
+                new EmbeddedDelayService(config, shard, Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            command = service.prepareSchedule(intent, 10_000);
+            receipt = service.enqueue(command).toCompletableFuture().join().receipt();
+            assertEquals(1, service.pendingCommandCount());
+        }
+
+        try (EmbeddedDelayService reopened =
+                new EmbeddedDelayService(config, shard, Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final CommandResult result =
+                    reopened.awaitApplied(receipt).toCompletableFuture().join();
+            assertEquals(ApplyStatus.APPLIED, result.applyStatus());
+            assertEquals(0, reopened.pendingCommandCount());
+        }
+    }
+
+    @Test
+    void failedEmbeddedConstructionClosesStoreAfterSourceIdentityMismatch() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 33);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("constructor-failure-cleanup"));
+        final PreparedCommand command = PreparedCommand.cancel(shard, DelayMessageId.random(shard), -1, 10_000);
+        final KafkaSourcePosition foreignPosition =
+                new KafkaSourcePosition(shard, "foreign-cluster", UUID.randomUUID(), 0, null, 1_000);
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore store = ShardStore.open(config, shard, resources)) {
+            new DelayShard(store, DelayShardConfig.defaults()).apply(command, foreignPosition);
+        }
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> new EmbeddedDelayService(
+                        config, shard, Clock.fixed(Instant.ofEpochMilli(1_001), ZoneOffset.UTC)));
+
+        // The failed constructor must not leave its internally-created DB
+        // handle or resource envelope holding the shard path. A raw reopen
+        // proves that the next owner can retry the fail-closed inspection.
+        try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
+                ShardStore reopened = ShardStore.open(config, shard, resources)) {
+            assertEquals(
+                    foreignPosition, new DelayShard(reopened, DelayShardConfig.defaults()).lastAppliedSourcePosition());
+        }
+    }
+
+    @Test
+    void closedEmbeddedServiceDoesNotExposeShardOrBufferState() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 32);
+        final EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("closed-access")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC));
+        service.close();
+        try {
+            assertThrows(IllegalStateException.class, service::shard);
+            assertThrows(IllegalStateException.class, service::pendingCommandCount);
+            assertThrows(IllegalStateException.class, service::pendingCommandBytes);
+        } finally {
+            service.close();
+        }
+    }
+
+    @Test
+    void reopenedEmbeddedServiceContinuesSourceOffsets() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 1);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("reopen"));
+        final ScheduleIntent intent = new ScheduleIntent(
+                DestinationLaneId.derive(Bytes.utf8("reopen-lane")),
+                2_000,
+                5_000,
+                OrderingMode.BEST_EFFORT,
+                Bytes.utf8("payload"));
+        try (EmbeddedDelayService first =
+                new EmbeddedDelayService(config, shard, Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PreparedCommand command = first.prepareSchedule(intent, 10_000);
+            final EnqueueOutcome outcome =
+                    first.enqueue(command).toCompletableFuture().join();
+            first.awaitApplied(outcome.receipt()).toCompletableFuture().join();
+        }
+        try (EmbeddedDelayService second =
+                new EmbeddedDelayService(config, shard, Clock.fixed(Instant.ofEpochMilli(1_001), ZoneOffset.UTC))) {
+            final PreparedCommand command =
+                    second.prepareCancel(com.nereusstream.delay.protocol.DelayMessageId.random(shard), -1, 10_000);
+            final EnqueueOutcome outcome =
+                    second.enqueue(command).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.QUEUED, outcome.status());
+            assertEquals(
+                    1,
+                    ((com.nereusstream.delay.protocol.KafkaSourcePosition)
+                                    outcome.receipt().sourcePosition())
+                            .offset());
+        }
+    }
+
+    @Test
+    void embeddedSourceOffsetExhaustionFailsBeforeMutatingOffset() throws ReflectiveOperationException {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 19);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("offset-exhaustion")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PreparedCommand command = service.prepareSchedule(
+                    new ScheduleIntent(
+                            DestinationLaneId.derive(Bytes.utf8("offset-exhaustion-lane")),
+                            2_000,
+                            5_000,
+                            OrderingMode.BEST_EFFORT,
+                            Bytes.utf8("payload")),
+                    10_000);
+            final var nextOffset = EmbeddedDelayService.class.getDeclaredField("nextOffset");
+            nextOffset.setAccessible(true);
+            final var offsetExhausted = EmbeddedDelayService.class.getDeclaredField("offsetExhausted");
+            offsetExhausted.setAccessible(true);
+            offsetExhausted.setBoolean(service, true);
+
+            assertThrows(IllegalStateException.class, () -> service.enqueue(command));
+            assertEquals(0L, nextOffset.getLong(service));
+            assertTrue(offsetExhausted.getBoolean(service));
+        }
+    }
+
+    @Test
+    void embeddedSourceAcceptsUnsignedMaximumOffsetThenExhausts() throws ReflectiveOperationException {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 21);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("offset-maximum")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PreparedCommand command = service.prepareSchedule(
+                    new ScheduleIntent(
+                            DestinationLaneId.derive(Bytes.utf8("offset-maximum-lane")),
+                            2_000,
+                            5_000,
+                            OrderingMode.BEST_EFFORT,
+                            Bytes.utf8("payload")),
+                    10_000);
+            final var nextOffset = EmbeddedDelayService.class.getDeclaredField("nextOffset");
+            nextOffset.setAccessible(true);
+            nextOffset.setLong(service, Long.MAX_VALUE);
+
+            final EnqueueOutcome outcome =
+                    service.enqueue(command).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.QUEUED, outcome.status());
+            assertEquals(
+                    Long.MAX_VALUE, ((KafkaSourcePosition) outcome.receipt().sourcePosition()).offset());
+
+            // The all-ones offset is also a valid unsigned Kafka offset; it
+            // must be accepted once before the sequence is exhausted.
+            nextOffset.setLong(service, -1L);
+            final PreparedCommand maximum = service.prepareCancel(DelayMessageId.random(shard), -1, 10_000);
+            final EnqueueOutcome maximumOutcome =
+                    service.enqueue(maximum).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.QUEUED, maximumOutcome.status());
+            assertEquals(-1L, ((KafkaSourcePosition) maximumOutcome.receipt().sourcePosition()).offset());
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> service.enqueue(service.prepareCancel(DelayMessageId.random(shard), -1, 10_000)));
+        }
+    }
+
+    @Test
+    void reopenedEmbeddedServiceKeepsUnsignedMaximumSourceOffsetExhaustion() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 20);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("reopen-offset-exhaustion"));
+        final ScheduleIntent intent = new ScheduleIntent(
+                DestinationLaneId.derive(Bytes.utf8("reopen-offset-exhaustion-lane")),
+                2_000,
+                5_000,
+                OrderingMode.BEST_EFFORT,
+                Bytes.utf8("payload"));
+        try (EmbeddedDelayService first =
+                new EmbeddedDelayService(config, shard, Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PreparedCommand command = first.prepareSchedule(intent, 10_000);
+            first.shard()
+                    .apply(
+                            command,
+                            new KafkaSourcePosition(
+                                    shard,
+                                    "embedded",
+                                    UUID.nameUUIDFromBytes(Bytes.utf8("embedded-command-topic")),
+                                    -1L,
+                                    null,
+                                    1_000));
+        }
+        try (EmbeddedDelayService second =
+                new EmbeddedDelayService(config, shard, Clock.fixed(Instant.ofEpochMilli(1_001), ZoneOffset.UTC))) {
+            final PreparedCommand command = second.prepareCancel(DelayMessageId.random(shard), -1, 10_000);
+            assertThrows(IllegalStateException.class, () -> second.enqueue(command));
+        }
+    }
+
+    @Test
+    void boundedLocalProjectorRequiresSafeBindingAndPreservesRuntimeStates() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 2);
+        final KafkaSourcePosition source = new KafkaSourcePosition(shard, "projector", UUID.randomUUID(), 4, 1, 1_000);
+        final PublicDestinationBindingViewV1 binding = publicBinding();
+        final CommandResult rejected = new CommandResult(
+                ApplyStatus.REJECTED, StableCode.INVALID_COMMAND, -1, 0, null, source.canonicalBytes());
+        assertEquals(
+                com.nereusstream.delay.protocol.CommandQueryResult.REJECTED,
+                BoundedLocalQueryProjector.command(rejected, 5_000, null).resultKind());
+
+        final CommandResult applied = new CommandResult(
+                ApplyStatus.APPLIED, StableCode.SCHEDULED, 0, 1, MessageStatus.SCHEDULED, source.canonicalBytes());
+        assertEquals(
+                com.nereusstream.delay.protocol.CommandQueryResult.APPLIED,
+                BoundedLocalQueryProjector.command(applied, 5_000, binding).resultKind());
+
+        final com.nereusstream.delay.protocol.DelayMessageId messageId =
+                com.nereusstream.delay.protocol.DelayMessageId.random(shard);
+        final MessageQuerySnapshot active = new MessageQuerySnapshot(
+                messageId,
+                0,
+                1,
+                GenerationAggregateState.SCHEDULED,
+                2_000,
+                5_000,
+                PayloadAvailability.INLINE_RETAINED,
+                false,
+                null);
+        final MessageQuerySnapshot terminal = new MessageQuerySnapshot(
+                messageId,
+                0,
+                2,
+                GenerationAggregateState.PUBLISHED,
+                2_000,
+                5_000,
+                PayloadAvailability.INLINE_RETAINED,
+                false,
+                StableCode.OK);
+        assertEquals(
+                com.nereusstream.delay.protocol.MessageQueryResult.ACTIVE,
+                BoundedLocalQueryProjector.message(active, binding, DlqExportStateV1.NOT_CONFIGURED, null)
+                        .resultKind());
+        assertEquals(
+                com.nereusstream.delay.protocol.MessageQueryResult.TERMINAL,
+                BoundedLocalQueryProjector.message(terminal, binding, DlqExportStateV1.NOT_CONFIGURED, null)
+                        .resultKind());
+        assertThrows(
+                IllegalArgumentException.class, () -> BoundedLocalQueryProjector.command(rejected, 5_000, binding));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> BoundedLocalQueryProjector.message(terminal, binding, DlqExportStateV1.PUBLISHED, null));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new MessageQuerySnapshot(
+                        messageId,
+                        0,
+                        2,
+                        GenerationAggregateState.PUBLISHED,
+                        2_000,
+                        5_000,
+                        PayloadAvailability.INLINE_RETAINED,
+                        false,
+                        StableCode.OK,
+                        DlqExportStateV1.PUBLISHED));
+    }
+
+    @Test
+    void embeddedQueryUsesQueuedReceiptAsSourceBarrier() {
+        final long now = 1_000;
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
+        final Clock clock = Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC);
+        try (EmbeddedDelayService service =
+                new EmbeddedDelayService(ShardStoreConfig.defaults(tempDir.resolve("query")), shard, clock)) {
+            final PreparedCommand command = cancelV1(shard, 10_000);
+            final EnqueueOutcome outcome =
+                    service.enqueue(command).toCompletableFuture().join();
+            final var queued = service.queuedReceiptV1(
+                    outcome, 10_000, java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("attempt")), 16));
+
+            assertEquals(
+                    CommandQueryResult.PENDING,
+                    service.queryCommand(queued, now, 10_000, publicBinding()).resultKind());
+            service.drain();
+            assertEquals(
+                    CommandQueryResult.APPLIED,
+                    service.queryCommand(queued, now, 10_000, null).resultKind());
+            final CommandAppliedReceiptV1 applied = service.appliedReceiptV1(queued, 10_000, null);
+            assertEquals(
+                    com.nereusstream.delay.protocol.ReceiptKind.COMMAND_APPLIED,
+                    com.nereusstream.delay.protocol.ReceiptFrame.decode(applied.frame())
+                            .kind());
+            assertEquals(applied, CommandAppliedReceiptV1.decodeFrame(applied.frame()));
+            assertEquals(
+                    CommandQueryResult.RESULT_EXPIRED,
+                    service.queryCommand(queued, 3_000, 2_000, publicBinding()).resultKind());
+            assertEquals(
+                    CommandQueryResult.INTEGRITY_ERROR,
+                    service.queryCommand(queued, now, 999, publicBinding()).resultKind());
+            assertEquals(
+                    CommandQueryResult.RESULT_EVIDENCE_EXPIRED,
+                    service.queryCommand(queued, 10_001, 10_000, publicBinding())
+                            .resultKind());
+
+            assertEquals(
+                    MessageQueryResult.UNKNOWN,
+                    service.queryMessage(
+                                    DelayMessageId.random(shard),
+                                    publicBinding(),
+                                    DlqExportStateV1.NOT_CONFIGURED,
+                                    null,
+                                    com.nereusstream.delay.protocol.FirstScheduleEligibilityV1.NOT_PROVEN)
+                            .resultKind());
+            assertEquals(
+                    MessageQueryResult.INVALID_RECEIPT,
+                    service.queryMessage(
+                                    null,
+                                    publicBinding(),
+                                    null,
+                                    com.nereusstream.delay.protocol.FirstScheduleEligibilityV1.NOT_PROVEN)
+                            .resultKind());
+            assertEquals(
+                    MessageQueryResult.INVALID_RECEIPT,
+                    service.getMessage(
+                                    null,
+                                    publicBinding(),
+                                    DlqExportStateV1.NOT_CONFIGURED,
+                                    null,
+                                    com.nereusstream.delay.protocol.FirstScheduleEligibilityV1.NOT_PROVEN)
+                            .toCompletableFuture()
+                            .join()
+                            .resultKind());
+            assertEquals(
+                    CommandQueryResult.INVALID_RECEIPT,
+                    service.getCommandResult(null, now, 10_000, publicBinding())
+                            .toCompletableFuture()
+                            .join()
+                            .resultKind());
+        }
+    }
+
+    @Test
+    void messageQueryMapsPublicProjectionDriftToClosedIntegrityError() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 29);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("message-query-projection")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PreparedCommand command = service.prepareSchedule(
+                    new ScheduleIntent(
+                            DestinationLaneId.derive(Bytes.utf8("message-query-lane")),
+                            2_000,
+                            5_000,
+                            OrderingMode.BEST_EFFORT,
+                            Bytes.utf8("payload")),
+                    10_000);
+            service.enqueue(command).toCompletableFuture().join();
+            service.drain();
+
+            final MessageQueryResponseV1 response = service.getMessage(
+                            command.delayMessageId(),
+                            publicBinding(),
+                            DlqExportStateV1.PUBLISHED,
+                            null,
+                            com.nereusstream.delay.protocol.FirstScheduleEligibilityV1.NOT_PROVEN)
+                    .toCompletableFuture()
+                    .join();
+            assertEquals(MessageQueryResult.INTEGRITY_ERROR, response.resultKind());
+            assertEquals(StableCode.INTEGRITY_ERROR, response.error().code());
+            final MessageQueryResponseV1 missingBinding = service.queryMessage(
+                    command.delayMessageId(),
+                    null,
+                    null,
+                    com.nereusstream.delay.protocol.FirstScheduleEligibilityV1.NOT_PROVEN);
+            assertEquals(MessageQueryResult.INTEGRITY_ERROR, missingBinding.resultKind());
+            assertEquals(StableCode.INTEGRITY_ERROR, missingBinding.error().code());
+        }
+    }
+
+    @Test
+    void retiredMessageIdentitySurvivesQueryAndFreshProcessReopen() {
+        final ShardId shardId = new ShardId(RouteIncarnation.random(), 42);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("retired-message-query"));
+        final ScheduleIntent intent = new ScheduleIntent(
+                DestinationLaneId.derive(Bytes.utf8("retired-message-lane")),
+                2_000,
+                5_000,
+                OrderingMode.BEST_EFFORT,
+                Bytes.utf8("retired-message"));
+        final DelayMessageId messageId;
+        try (EmbeddedDelayService service =
+                new EmbeddedDelayService(config, shardId, Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PreparedCommand schedule = service.prepareSchedule(intent, 10_000);
+            messageId = schedule.delayMessageId();
+            service.enqueue(schedule).toCompletableFuture().join();
+            service.drain();
+            final PreparedCommand cancel = PreparedCommand.cancel(shardId, messageId, 0, 10_000);
+            service.enqueue(cancel).toCompletableFuture().join();
+            service.drain();
+
+            final long reuseUntil = messageId.routingId().logicalTimestampEpochMs()
+                    + com.nereusstream.delay.runtime.DelayShardConfig.defaults().maxMessageLifetimeMs();
+            final com.nereusstream.delay.runtime.RetiredMessageIdentityRecord retired =
+                    com.nereusstream.delay.runtime.DelayShardTestSupport.retireMessageIdentity(
+                            service.shard(), messageId, reuseUntil);
+            assertEquals(reuseUntil, retired.messageIdentityReuseUntilEpochMs());
+            assertNull(service.shard().getMessage(messageId));
+            assertEquals(
+                    MessageQueryResult.IDENTITY_RETIRED,
+                    service.queryMessage(
+                                    messageId,
+                                    null,
+                                    DlqExportStateV1.NOT_CONFIGURED,
+                                    null,
+                                    com.nereusstream.delay.protocol.FirstScheduleEligibilityV1.NOT_PROVEN)
+                            .resultKind());
+
+            final PreparedCommand reused = PreparedCommand.create(
+                    shardId,
+                    CommandId.random(shardId),
+                    messageId,
+                    CommandType.SCHEDULE,
+                    10_000,
+                    CommandBodies.schedule(intent));
+            service.enqueue(reused).toCompletableFuture().join();
+            service.drain();
+            assertEquals(
+                    com.nereusstream.delay.protocol.StableCode.DELAY_MESSAGE_ID_CONFLICT,
+                    service.shard().getCommandResult(reused.commandId()).stableCode());
+        }
+
+        try (EmbeddedDelayService reopened =
+                new EmbeddedDelayService(config, shardId, Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            assertNull(reopened.shard().getMessage(messageId));
+            assertTrue(reopened.shard().getRetiredMessageIdentity(messageId) != null);
+            assertEquals(
+                    MessageQueryResult.IDENTITY_RETIRED,
+                    reopened.queryMessage(
+                                    messageId,
+                                    null,
+                                    DlqExportStateV1.NOT_CONFIGURED,
+                                    null,
+                                    com.nereusstream.delay.protocol.FirstScheduleEligibilityV1.NOT_PROVEN)
+                            .resultKind());
+        }
+    }
+
+    @Test
+    void embeddedQueryDerivesFullResultRetentionFromAppliedSourceTime() {
+        final long now = 1_000;
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 41);
+        final CommandResultRetentionPolicy policy = new CommandResultRetentionPolicy(3, 4_000);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("query-retention-policy")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC))) {
+            final PreparedCommand command = cancelV1(shard, 20_000);
+            final EnqueueOutcome outcome =
+                    service.enqueue(command).toCompletableFuture().join();
+            final CommandQueuedReceiptV1 queued = service.queuedReceiptV1(
+                    outcome, 20_000, java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("retention-policy-attempt")), 16));
+            service.drain();
+
+            assertEquals(
+                    CommandQueryResult.APPLIED,
+                    service.queryCommand(queued, 4_999, policy, null).resultKind());
+            assertEquals(
+                    CommandQueryResult.RESULT_EXPIRED,
+                    service.queryCommand(queued, 5_001, policy, null).resultKind());
+            assertEquals(5_000, service.appliedReceiptV1(queued, policy, null).fullResultRetainUntilEpochMs());
+        }
+    }
+
+    @Test
+    void awaitAppliedV1DrainsOnlyAfterReceiptValidation() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 27);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("await-v1")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final DelayClient client = service;
+            final PreparedCommand command =
+                    client.prepareCancelV1(DelayMessageId.random(shard), new MessagePreconditionV1(0L, null), 10_000);
+            final EnqueueOutcome queued =
+                    client.enqueueV1(command).toCompletableFuture().join();
+            final CommandQueuedReceiptV1 receipt = service.queuedReceiptV1(
+                    queued, 10_000, java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("await-v1-attempt")), 16));
+
+            assertEquals(
+                    CommandQueryResult.APPLIED,
+                    client.awaitAppliedV1(receipt, 1_000, 10_000, null)
+                            .toCompletableFuture()
+                            .join()
+                            .resultKind());
+            assertEquals(0, service.pendingCommandCount());
+
+            final PreparedCommand foreign = PreparedCommand.scheduleV1(
+                    shard, scheduleIntentV1("foreign-await-v1", 2_000, 5_000, "payload"), 10_000);
+            final CommandQueuedReceiptV1 forged = CommandQueuedReceiptV1.create(
+                    foreign,
+                    receipt.sourcePosition(),
+                    receipt.brokerAck(),
+                    receipt.receiptQueryUntilEpochMs(),
+                    receipt.physicalEnqueueAttemptId());
+            assertEquals(
+                    CommandQueryResult.RECEIPT_MISMATCH,
+                    client.awaitAppliedV1(forged, 1_000, 10_000, null)
+                            .toCompletableFuture()
+                            .join()
+                            .resultKind());
+        }
+    }
+
+    @Test
+    void delayClientExposesBoundedCommandAndMessageQueries() {
+        final long now = 1_000;
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 21);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("client-query")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC))) {
+            final DelayClient client = service;
+            final PreparedCommand command = cancelV1(shard, 10_000);
+            final EnqueueOutcome outcome =
+                    client.enqueue(command).toCompletableFuture().join();
+            final CommandQueuedReceiptV1 receipt = service.queuedReceiptV1(
+                    outcome, 10_000, java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("client-query-attempt")), 16));
+
+            assertEquals(
+                    CommandQueryResult.PENDING,
+                    client.getCommandResult(receipt, now, 10_000, publicBinding())
+                            .toCompletableFuture()
+                            .join()
+                            .resultKind());
+            service.drain();
+            assertEquals(
+                    CommandQueryResult.APPLIED,
+                    client.getCommandResult(receipt, now, 10_000, null)
+                            .toCompletableFuture()
+                            .join()
+                            .resultKind());
+            assertEquals(
+                    MessageQueryResult.UNKNOWN,
+                    client.getMessage(
+                                    DelayMessageId.random(shard),
+                                    publicBinding(),
+                                    DlqExportStateV1.NOT_CONFIGURED,
+                                    null,
+                                    com.nereusstream.delay.protocol.FirstScheduleEligibilityV1.NOT_PROVEN)
+                            .toCompletableFuture()
+                            .join()
+                            .resultKind());
+        }
+    }
+
+    @Test
+    void embeddedQueryRejectsSameOffsetReceiptWithConflictingCanonicalMetadata() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 18);
+        final Clock clock = Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("query-position-fence")), shard, clock)) {
+            final PreparedCommand command = cancelV1(shard, 10_000);
+            final EnqueueOutcome outcome =
+                    service.enqueue(command).toCompletableFuture().join();
+            final byte[] attemptId = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("query-position-attempt")), 16);
+            final CommandQueuedReceiptV1 queued = service.queuedReceiptV1(outcome, 10_000, attemptId);
+            final KafkaSourcePosition actual = (KafkaSourcePosition) queued.sourcePosition();
+            final KafkaSourcePosition conflicting = new KafkaSourcePosition(
+                    shard,
+                    actual.authenticatedClusterId(),
+                    actual.nativeTopicUuid(),
+                    actual.offset(),
+                    7,
+                    Math.addExact(actual.brokerLogAppendTimeEpochMs(), 1));
+            final CommandQueuedReceiptV1 forged = CommandQueuedReceiptV1.create(
+                    command,
+                    conflicting,
+                    new CommandQueuedReceiptV1.KafkaQueuedAck(
+                            actual.authenticatedClusterId(),
+                            actual.nativeTopicUuid(),
+                            shard.partition(),
+                            actual.offset(),
+                            7,
+                            conflicting.brokerLogAppendTimeEpochMs(),
+                            Bytes.sha256(Bytes.utf8("query-position-conflicting-ack"))),
+                    10_000,
+                    attemptId);
+
+            service.drain();
+            assertEquals(
+                    com.nereusstream.delay.protocol.CommandQueryResult.INTEGRITY_ERROR,
+                    service.queryCommand(forged, 1_000, 10_000, null).resultKind());
+            assertThrows(IllegalStateException.class, () -> service.appliedReceiptV1(forged, 10_000, null));
+        }
+    }
+
+    @Test
+    void embeddedQueryBindsReceiptCommandHashToDurableDedupeIdentity() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 19);
+        final Clock clock = Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("query-command-hash")), shard, clock)) {
+            final PreparedCommand command = cancelV1(shard, 10_000);
+            final EnqueueOutcome outcome =
+                    service.enqueue(command).toCompletableFuture().join();
+            final CommandQueuedReceiptV1 queued = service.queuedReceiptV1(
+                    outcome,
+                    10_000,
+                    java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("query-command-hash-attempt")), 16));
+            final PreparedCommand forgedCommand = PreparedCommand.create(
+                    shard,
+                    command.commandId(),
+                    command.delayMessageId(),
+                    command.type(),
+                    command.retryUntilEpochMs(),
+                    CommandBodies.cancelV1(
+                            command.delayMessageId(),
+                            command.retryUntilEpochMs(),
+                            new MessagePreconditionV1(1L, null)));
+            final CommandQueuedReceiptV1 forged = CommandQueuedReceiptV1.create(
+                    forgedCommand,
+                    queued.sourcePosition(),
+                    queued.brokerAck(),
+                    queued.receiptQueryUntilEpochMs(),
+                    queued.physicalEnqueueAttemptId());
+
+            service.drain();
+            assertEquals(
+                    CommandQueryResult.RECEIPT_MISMATCH,
+                    service.queryCommand(forged, 1_000, 10_000, publicBinding()).resultKind());
+            assertThrows(IllegalArgumentException.class, () -> service.appliedReceiptV1(forged, 10_000, null));
+            assertEquals(
+                    CommandQueryResult.APPLIED,
+                    service.queryCommand(queued, 1_000, 10_000, null).resultKind());
+        }
+    }
+
+    @Test
+    void embeddedQueryBindsReceiptToExactPhysicalPositionAudit() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 20);
+        final Clock clock = Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("query-position-audit")), shard, clock)) {
+            final PreparedCommand filler = cancelV1(shard, 10_000);
+            final PreparedCommand target = cancelV1(shard, 10_000);
+            final EnqueueOutcome fillerOutcome =
+                    service.enqueue(filler).toCompletableFuture().join();
+            final EnqueueOutcome targetOutcome =
+                    service.enqueue(target).toCompletableFuture().join();
+            final byte[] attemptId =
+                    java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("query-position-audit-attempt")), 16);
+            final CommandQueuedReceiptV1 fillerReceipt = service.queuedReceiptV1(fillerOutcome, 10_000, attemptId);
+            final CommandQueuedReceiptV1 targetReceipt = service.queuedReceiptV1(targetOutcome, 10_000, attemptId);
+            final CommandQueuedReceiptV1 forged = CommandQueuedReceiptV1.create(
+                    target,
+                    fillerReceipt.sourcePosition(),
+                    fillerReceipt.brokerAck(),
+                    targetReceipt.receiptQueryUntilEpochMs(),
+                    targetReceipt.physicalEnqueueAttemptId());
+
+            service.drain();
+            assertEquals(
+                    CommandQueryResult.RECEIPT_MISMATCH,
+                    service.queryCommand(forged, 1_000, 10_000, null).resultKind());
+            assertThrows(IllegalArgumentException.class, () -> service.appliedReceiptV1(forged, 10_000, null));
+            assertEquals(
+                    CommandQueryResult.APPLIED,
+                    service.queryCommand(targetReceipt, 1_000, 10_000, null).resultKind());
+        }
+    }
+
+    @Test
+    void embeddedQueuedReceiptRejectsNonQueuedOutcome() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("reject")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final ShardId otherShard = new ShardId(RouteIncarnation.random(), 0);
+            final PreparedCommand otherShardCommand = scheduleV1(otherShard, "other-lane", 2_000, 5_000, 10_000);
+            final EnqueueOutcome outcome =
+                    service.enqueue(otherShardCommand).toCompletableFuture().join();
+            assertEquals(EnqueueStatus.DEFINITELY_NOT_QUEUED, outcome.status());
+            assertThrows(IllegalArgumentException.class, () -> service.queuedReceiptV1(outcome, 10_000, new byte[16]));
+        }
+    }
+
+    @Test
+    void embeddedControlOperationEntryPointsPreserveReceiptBoundCas() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
+        final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("control-operation"));
+        final ControlOperationReceiptV1 receipt = controlReceipt();
+        final CurrentControlOperationV1 initial = new CurrentControlOperationV1(
+                receipt.operationId(),
+                receipt.requestHash(),
+                receipt.authenticatedScopeHash(),
+                ControlOperationStateV1.PENDING,
+                1,
+                List.of(),
+                null);
+        try (EmbeddedDelayService service =
+                new EmbeddedDelayService(config, shard, Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            assertEquals(
+                    ControlOperationQueryResultV1.CURRENT,
+                    service.registerControlOperation(receipt, initial).resultKind());
+            assertEquals(initial, service.queryControlOperation(receipt, 2_000).current());
+            assertEquals(
+                    ControlOperationQueryResultV1.INVALID_RECEIPT,
+                    service.queryControlOperation(null, 2_000).resultKind());
+            assertEquals(
+                    ControlOperationQueryResultV1.INVALID_RECEIPT,
+                    service.queryControlOperation(receipt, -1).resultKind());
+            final CurrentControlOperationV1 dispatching = new CurrentControlOperationV1(
+                    receipt.operationId(),
+                    receipt.requestHash(),
+                    receipt.authenticatedScopeHash(),
+                    ControlOperationStateV1.DISPATCHING,
+                    2,
+                    List.of(),
+                    null);
+            assertEquals(
+                    ControlOperationQueryResultV1.CURRENT,
+                    service.advanceControlOperation(receipt, 1, dispatching).resultKind());
+            final CurrentControlOperationV1 next = new CurrentControlOperationV1(
+                    receipt.operationId(),
+                    receipt.requestHash(),
+                    receipt.authenticatedScopeHash(),
+                    ControlOperationStateV1.IN_PROGRESS,
+                    3,
+                    List.of(),
+                    null);
+            assertEquals(
+                    ControlOperationQueryResultV1.CURRENT,
+                    service.advanceControlOperation(receipt, 2, next).resultKind());
+            assertEquals(next, service.queryControlOperation(receipt, 2_000).current());
+        }
+    }
+
+    @Test
+    void embeddedPreparedControlRegistrationUsesOneExactProjection() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 7);
+        final ControlOperationRequestV1 request = ControlOperationRequestV1.forceCheckpoint(
+                new ForceCheckpointRequestV1(new ControlReasonV1(ControlReasonKindV1.MAINTENANCE, null, null)));
+        final ControlTargetRefV1 target =
+                new ControlTargetRefV1(0, ControlTargetKindV1.SHARD, new ShardSubjectV1(shard), null, null);
+        final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final PreparedControlOperationV1 prepared = PreparedControlOperationV1.prepare(
+                Bytes.sha256(Bytes.utf8("embedded-prepared-control")),
+                request.kind(),
+                new ControlAuthorV1(
+                        Bytes.sha256(Bytes.utf8("actor")),
+                        Bytes.sha256(Bytes.utf8("roles")),
+                        Bytes.sha256(Bytes.utf8("scope"))),
+                request,
+                List.of(target),
+                1,
+                2,
+                1,
+                keyPair.getPrivate());
+        final TrustedUtcIntervalEvidence registeredAt = new TrustedUtcIntervalEvidence(
+                1_000,
+                1_100,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                Bytes.utf8("embedded-control-clock"),
+                1,
+                1,
+                1,
+                Bytes.sha256(Bytes.utf8("control-evidence")),
+                0,
+                null);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("prepared-control")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final var projection = service.registerPreparedControlOperation(
+                    prepared, registeredAt, new ControlOperationQueryPolicy(1, 1_000));
+            assertArrayEquals(prepared.operationId(), projection.receipt().operationId());
+            assertEquals(ControlOperationStateV1.PENDING, projection.current().state());
+            assertEquals(2_100, projection.receipt().queryUntilEpochMs());
+            assertEquals(
+                    ControlOperationQueryResultV1.CURRENT,
+                    service.queryControlOperation(projection.receipt(), 1_500).resultKind());
+        }
+    }
+
+    @Test
+    void strictPreparedControlRegistrationRejectsPolicyDriftAndOverflowBeforeRegistration() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 8);
+        final ControlOperationRequestV1 request = ControlOperationRequestV1.forceCheckpoint(
+                new ForceCheckpointRequestV1(new ControlReasonV1(ControlReasonKindV1.MAINTENANCE, null, null)));
+        final ControlTargetRefV1 target =
+                new ControlTargetRefV1(0, ControlTargetKindV1.SHARD, new ShardSubjectV1(shard), null, null);
+        final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final PreparedControlOperationV1 prepared = PreparedControlOperationV1.prepare(
+                Bytes.sha256(Bytes.utf8("strict-control-policy")),
+                request.kind(),
+                new ControlAuthorV1(
+                        Bytes.sha256(Bytes.utf8("actor")),
+                        Bytes.sha256(Bytes.utf8("roles")),
+                        Bytes.sha256(Bytes.utf8("scope"))),
+                request,
+                List.of(target),
+                1,
+                2,
+                1,
+                keyPair.getPrivate());
+        final TrustedUtcIntervalEvidence registeredAt = new TrustedUtcIntervalEvidence(
+                1_000,
+                1_100,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                Bytes.utf8("strict-control-clock"),
+                1,
+                1,
+                1,
+                Bytes.sha256(Bytes.utf8("strict-control-evidence")),
+                0,
+                null);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("strict-control-policy")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> service.registerPreparedControlOperation(
+                            prepared, registeredAt, new ControlOperationQueryPolicy(2, 1_000)));
+            final TrustedUtcIntervalEvidence overflowAt = new TrustedUtcIntervalEvidence(
+                    Long.MAX_VALUE,
+                    Long.MAX_VALUE,
+                    TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                    Bytes.utf8("strict-control-overflow-clock"),
+                    1,
+                    1,
+                    1,
+                    Bytes.sha256(Bytes.utf8("strict-control-overflow-evidence")),
+                    0,
+                    null);
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> service.registerPreparedControlOperation(
+                            prepared, overflowAt, new ControlOperationQueryPolicy(1, 1)));
+        }
+    }
+
+    @Test
+    void compatibilityPreparedControlRegistrationValidatesBeforeTargetRegistration() throws Exception {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 9);
+        final ControlOperationRequestV1 request = ControlOperationRequestV1.forceCheckpoint(
+                new ForceCheckpointRequestV1(new ControlReasonV1(ControlReasonKindV1.MAINTENANCE, null, null)));
+        final ControlTargetRefV1 target =
+                new ControlTargetRefV1(0, ControlTargetKindV1.SHARD, new ShardSubjectV1(shard), null, null);
+        final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final PreparedControlOperationV1 prepared = PreparedControlOperationV1.prepare(
+                Bytes.sha256(Bytes.utf8("compatibility-control-window")),
+                request.kind(),
+                new ControlAuthorV1(
+                        Bytes.sha256(Bytes.utf8("compatibility-actor")),
+                        Bytes.sha256(Bytes.utf8("compatibility-roles")),
+                        Bytes.sha256(Bytes.utf8("compatibility-scope"))),
+                request,
+                List.of(target),
+                1,
+                2,
+                1,
+                keyPair.getPrivate());
+        final TrustedUtcIntervalEvidence registeredAt = new TrustedUtcIntervalEvidence(
+                1_000,
+                1_100,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                Bytes.utf8("compatibility-clock"),
+                1,
+                1,
+                1,
+                Bytes.sha256(Bytes.utf8("compatibility-evidence")),
+                0,
+                null);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("compatibility-control-window")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> service.registerPreparedControlOperation(prepared, registeredAt, -1));
+
+            final Field authorityField =
+                    EmbeddedDelayService.class.getDeclaredField("controlTargetRegistrationAuthority");
+            authorityField.setAccessible(true);
+            final ControlTargetRegistrationAuthority authority =
+                    (ControlTargetRegistrationAuthority) authorityField.get(service);
+            assertTrue(authority.find(prepared.operationId()).isEmpty());
+        }
+    }
+
+    @Test
+    void embeddedIngressProjectsAllManagedOutcomeBranches() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
+        try (EmbeddedDelayService service = new EmbeddedDelayService(
+                ShardStoreConfig.defaults(tempDir.resolve("outcome")),
+                shard,
+                Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC))) {
+            final PreparedCommand queuedCommand = scheduleV1(shard, "outcome-queued", 2_000, 5_000, 10_000);
+            final EnqueueOutcome queued =
+                    service.enqueue(queuedCommand).toCompletableFuture().join();
+            final byte[] attemptId = java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("outcome-attempt")), 16);
+            final EnqueueOutcomeMessageV1 queuedWire = service.enqueueOutcomeV1(queued, 10_000, attemptId);
+            assertEquals(EnqueueOutcomeKindV1.QUEUED, queuedWire.kind());
+            assertEquals(queuedWire, EnqueueOutcomeMessageV1.decode(queuedWire.canonicalBytes()));
+            final EnqueueOutcomeMessageV1 malformedBoundary = service.enqueueOutcomeV1(queued, 999, attemptId);
+            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, malformedBoundary.kind());
+            assertEquals(
+                    StableCode.ENQUEUE_RESULT_UNCERTAIN,
+                    malformedBoundary.uncertain().error().code());
+            assertEquals(
+                    StableCode.INTEGRITY_ERROR.wireValue(),
+                    malformedBoundary.uncertain().error().diagnosticCode());
+            assertArrayEquals(attemptId, malformedBoundary.uncertain().physicalEnqueueAttemptId());
+            final EnqueueOutcomeMessageV1 invalidQueuedAttempt = service.enqueueOutcomeV1(queued, 10_000, new byte[16]);
+            assertEquals(EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED, invalidQueuedAttempt.kind());
+            assertEquals(
+                    StableCode.INVALID_PREPARED_COMMAND,
+                    invalidQueuedAttempt.definitelyNotQueued().error().code());
+
+            final ShardId rejectedShard = new ShardId(RouteIncarnation.random(), 0);
+            final PreparedCommand rejectedCommand = scheduleV1(rejectedShard, "outcome-rejected", 2_000, 5_000, 10_000);
+            final EnqueueOutcome rejected =
+                    service.enqueue(rejectedCommand).toCompletableFuture().join();
+            final EnqueueOutcomeMessageV1 definiteWire = service.enqueueOutcomeV1(rejected, 10_000, attemptId);
+            assertEquals(EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED, definiteWire.kind());
+            assertEquals(definiteWire, EnqueueOutcomeMessageV1.decode(definiteWire.canonicalBytes()));
+
+            final PreparedCommand uncertainCommand = scheduleV1(shard, "outcome-uncertain", 2_000, 5_000, 10_000);
+            final EnqueueOutcome uncertain =
+                    EnqueueOutcome.uncertain(uncertainCommand, StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue());
+            final EnqueueOutcomeMessageV1 uncertainWire = service.enqueueOutcomeV1(uncertain, 10_000, attemptId);
+            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, uncertainWire.kind());
+            assertEquals(uncertainWire, EnqueueOutcomeMessageV1.decode(uncertainWire.canonicalBytes()));
+            final EnqueueOutcomeMessageV1 invalidUncertainAttempt =
+                    service.enqueueOutcomeV1(uncertain, 10_000, new byte[16]);
+            assertEquals(EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED, invalidUncertainAttempt.kind());
+            assertEquals(
+                    StableCode.INVALID_PREPARED_COMMAND,
+                    invalidUncertainAttempt.definitelyNotQueued().error().code());
+        }
+    }
+
+    private record CommandResultView(StableCode code) {}
+
+    private static PublicDestinationBindingViewV1 publicBinding() {
+        final ProfileRefV1 destination = new ProfileRefV1(
+                Bytes.utf8("destination"),
+                1,
+                Bytes.sha256(Bytes.utf8("destination-semantic")),
+                ProfileKindV1.DESTINATION);
+        final ProfileRefV1 capability = new ProfileRefV1(
+                Bytes.utf8("capability"),
+                1,
+                Bytes.sha256(Bytes.utf8("capability-semantic")),
+                ProfileKindV1.DELIVERY_CAPABILITY);
+        return new PublicDestinationBindingViewV1(
+                destination,
+                capability,
+                AdapterKindV1.KAFKA,
+                Bytes.utf8("safe-destination"),
+                1,
+                OrderingMode.BEST_EFFORT);
+    }
+
+    private static PreparedCommand scheduleV1(
+            final ShardId shard, final String lane, final long deliverAt, final long expireAt, final long retryUntil) {
+        return PreparedCommand.scheduleV1(shard, scheduleIntentV1(lane, deliverAt, expireAt, "payload"), retryUntil);
+    }
+
+    private static PreparedCommand cancelV1(final ShardId shard, final long retryUntil) {
+        return PreparedCommand.cancelV1(
+                shard, DelayMessageId.random(shard), new MessagePreconditionV1(0L, null), retryUntil);
+    }
+
+    private static ScheduleIntentV1 scheduleIntentV1(
+            final String lane, final long deliverAt, final long expireAt, final String payload) {
+        final ProfileRefV1 destination = new ProfileRefV1(
+                Bytes.utf8("destination-" + lane),
+                1,
+                Bytes.sha256(Bytes.utf8("destination-semantic-" + lane)),
+                ProfileKindV1.DESTINATION);
+        final RetryPolicyRefV1 retryPolicy = new RetryPolicyRefV1(
+                Bytes.utf8("retry-" + lane), 1, Bytes.sha256(Bytes.utf8("retry-semantic-" + lane)));
+        return ScheduleIntentV1.create(
+                destination,
+                retryPolicy,
+                deliverAt,
+                expireAt,
+                DeliveryMode.MANAGED,
+                OrderingMode.BEST_EFFORT,
+                new byte[0],
+                Bytes.utf8(payload),
+                null,
+                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())),
+                null,
+                null);
+    }
+
+    private static ProfileSemanticEnvelopeV1 payloadObjectStoreProfile() {
+        final ObjectStoreProfileSemanticV1 body = new ObjectStoreProfileSemanticV1(
+                ObjectStoreProviderKindV1.S3,
+                Bytes.sha256(Bytes.utf8("endpoint")),
+                Bytes.sha256(Bytes.utf8("credential-scope")),
+                1,
+                true,
+                true,
+                true,
+                true,
+                Bytes.sha256(Bytes.utf8("encryption")),
+                2 << 20,
+                ObjectStoreProfileSemanticV1.SINGLE_PUT,
+                1,
+                Bytes.sha256(Bytes.utf8("lifecycle")));
+        return new ProfileSemanticEnvelopeV1(ProfileKindV1.OBJECT_STORE, Bytes.utf8("object-store"), 1, body);
+    }
+
+    private static PayloadProofTrustSetSemanticV1 payloadTrustSet(final KeyPair keyPair) {
+        return new PayloadProofTrustSetSemanticV1(
+                9, List.of(PayloadProofVerifierKeyV1.fromPublicKey(7, keyPair.getPublic(), 0, 9_000)));
+    }
+
+    private static ControlOperationReceiptV1 controlReceipt() {
+        final TrustedUtcIntervalEvidence registered = new TrustedUtcIntervalEvidence(
+                1_000,
+                1_100,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                Bytes.utf8("embedded-control-clock"),
+                1,
+                1,
+                1,
+                Bytes.sha256(Bytes.utf8("control-evidence")),
+                0,
+                null);
+        return ControlOperationReceiptV1.create(
+                Bytes.sha256(Bytes.utf8("operation")),
+                Bytes.sha256(Bytes.utf8("request")),
+                Bytes.sha256(Bytes.utf8("scope")),
+                Bytes.sha256(Bytes.utf8("targets")),
+                1,
+                registered,
+                4_000);
+    }
+}

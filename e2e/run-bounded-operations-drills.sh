@@ -118,34 +118,34 @@ run_probe() {
 run_local_operations() {
   cd "${delay_dir}"
   env GRADLE_USER_HOME="${gradle_home}/local" ./gradlew test \
-    --tests io.nereusstream.delay.store.CheckpointRestoreCoordinatorTest \
-    --tests io.nereusstream.delay.store.RecoveryCatalogTest \
-    --tests 'io.nereusstream.delay.store.ShardStoreTest.checkpointUsesTemporaryNamespaceAndRejectsExistingTarget' \
-    --tests 'io.nereusstream.delay.store.ShardStoreTest.checkpointIdentityIsCopiedWithTheDbAndFailedAttemptRollsBackProjection' \
-    --tests 'io.nereusstream.delay.store.ShardStoreTest.completeCheckpointRestoresIntoFreshStoreIncarnation' \
-    --tests 'io.nereusstream.delay.store.ShardStoreTest.restoreCanReplaceAnOrphanIncarnationWhenActivePointerWasNotInstalled' \
-    --tests 'io.nereusstream.delay.store.ShardStoreTest.failedStagedRestoreCleansRuntimeValidationTree' \
-    --tests 'io.nereusstream.delay.store.ShardStoreTest.failedActivePointerInstallRemovesUnpublishedDb' \
-    --tests 'io.nereusstream.delay.store.ShardStoreTest.catalogBoundRestoreRejectsPinDriftBeforeActivePublication' \
-    --tests io.nereusstream.delay.ownership.OwnerRecoveryCoordinatorTest \
-    --tests 'io.nereusstream.delay.ownership.OwnerLeaseTest.strictCatchupCasPublishesTheAuthoritativeLifecycleBeforeReplay' \
-    --tests 'io.nereusstream.delay.ownership.OwnerLeaseTest.strictCatchupAcceptsOnlyAnExactResponseLossReread' \
-    --tests 'io.nereusstream.delay.ownership.OwnerLeaseTest.strictReplayFencesBeforeApplyingAfterAuthoritativeOwnerReplacement' \
-    --tests 'io.nereusstream.delay.ownership.OwnerLeaseTest.activationRequeuesRestoredClaimBeforeOpeningCommandGate' \
-    --tests 'io.nereusstream.delay.ownership.OwnerLeaseTest.ownerCannotApplyBeforeRestoreAndCatchUpBarriers' \
-    --tests 'io.nereusstream.delay.ownership.OwnerLeaseTest.catchupReplayAppliesCommandsBeforeActivationAndAdvancesOnlyAfterCommit' \
-    --tests 'io.nereusstream.delay.ownership.OwnerLeaseTest.boundedCatchupTurnRetainsTheCursorForTheNextTurn' \
-    --tests 'io.nereusstream.delay.ownership.OwnerLeaseTest.sourceCursorFailureFencesEveryReplayPathBeforeApplyingOrAdvancing' \
-    --tests 'io.nereusstream.delay.ownership.OwnerLeaseTest.v1CatchupPinsTheAdapterSuccessorAndRejectsAKafkaGapBeforeApplyingIt' \
-    --tests 'io.nereusstream.delay.ownership.OwnerLeaseTest.authorityGatedActivationKeepsLocalGateClosedDuringLeaseCas' \
-    --tests 'io.nereusstream.delay.ownership.OwnerLeaseTest.authorityGatedDrainRequiresTheExactLeaseSuccessor' \
-    --tests 'io.nereusstream.delay.ownership.OwnerLeaseTest.authorityGatedDrainFailsClosedWhenLeaseIsExpired' \
-    --tests 'io.nereusstream.delay.runtime.DelayShardTest.replayDeadLetterCreatesNextGenerationAndRetainsOldTerminalSummary' \
-    --tests 'io.nereusstream.delay.runtime.DelayShardTest.terminalSummaryRetainsASecondOpenObligationAndReopensSafely' \
-    --tests 'io.nereusstream.delay.runtime.DelayShardTest.sourceOrderedResolveUncertainPublishedEvidenceSettlesExactObligation' \
-    --tests 'io.nereusstream.delay.runtime.DelayShardTest.sourceOrderedResolveUncertainNotPublishedEvidenceNormalizesDefinitiveRetry' \
-    --tests 'io.nereusstream.delay.runtime.DelayShardTest.sourceOrderedResolveUncertainRetryMaterializesControlOverrideTimeline' \
-    --tests 'io.nereusstream.delay.runtime.DelayShardTest.sourceOrderedResolveUncertainTerminalizesPossibleDeliveryAndRetainsObligation' \
+    --tests com.nereusstream.delay.store.CheckpointRestoreCoordinatorTest \
+    --tests com.nereusstream.delay.store.RecoveryCatalogTest \
+    --tests 'com.nereusstream.delay.store.ShardStoreTest.checkpointUsesTemporaryNamespaceAndRejectsExistingTarget' \
+    --tests 'com.nereusstream.delay.store.ShardStoreTest.checkpointIdentityIsCopiedWithTheDbAndFailedAttemptRollsBackProjection' \
+    --tests 'com.nereusstream.delay.store.ShardStoreTest.completeCheckpointRestoresIntoFreshStoreIncarnation' \
+    --tests 'com.nereusstream.delay.store.ShardStoreTest.restoreCanReplaceAnOrphanIncarnationWhenActivePointerWasNotInstalled' \
+    --tests 'com.nereusstream.delay.store.ShardStoreTest.failedStagedRestoreCleansRuntimeValidationTree' \
+    --tests 'com.nereusstream.delay.store.ShardStoreTest.failedActivePointerInstallRemovesUnpublishedDb' \
+    --tests 'com.nereusstream.delay.store.ShardStoreTest.catalogBoundRestoreRejectsPinDriftBeforeActivePublication' \
+    --tests com.nereusstream.delay.ownership.OwnerRecoveryCoordinatorTest \
+    --tests 'com.nereusstream.delay.ownership.OwnerLeaseTest.strictCatchupCasPublishesTheAuthoritativeLifecycleBeforeReplay' \
+    --tests 'com.nereusstream.delay.ownership.OwnerLeaseTest.strictCatchupAcceptsOnlyAnExactResponseLossReread' \
+    --tests 'com.nereusstream.delay.ownership.OwnerLeaseTest.strictReplayFencesBeforeApplyingAfterAuthoritativeOwnerReplacement' \
+    --tests 'com.nereusstream.delay.ownership.OwnerLeaseTest.activationRequeuesRestoredClaimBeforeOpeningCommandGate' \
+    --tests 'com.nereusstream.delay.ownership.OwnerLeaseTest.ownerCannotApplyBeforeRestoreAndCatchUpBarriers' \
+    --tests 'com.nereusstream.delay.ownership.OwnerLeaseTest.catchupReplayAppliesCommandsBeforeActivationAndAdvancesOnlyAfterCommit' \
+    --tests 'com.nereusstream.delay.ownership.OwnerLeaseTest.boundedCatchupTurnRetainsTheCursorForTheNextTurn' \
+    --tests 'com.nereusstream.delay.ownership.OwnerLeaseTest.sourceCursorFailureFencesEveryReplayPathBeforeApplyingOrAdvancing' \
+    --tests 'com.nereusstream.delay.ownership.OwnerLeaseTest.v1CatchupPinsTheAdapterSuccessorAndRejectsAKafkaGapBeforeApplyingIt' \
+    --tests 'com.nereusstream.delay.ownership.OwnerLeaseTest.authorityGatedActivationKeepsLocalGateClosedDuringLeaseCas' \
+    --tests 'com.nereusstream.delay.ownership.OwnerLeaseTest.authorityGatedDrainRequiresTheExactLeaseSuccessor' \
+    --tests 'com.nereusstream.delay.ownership.OwnerLeaseTest.authorityGatedDrainFailsClosedWhenLeaseIsExpired' \
+    --tests 'com.nereusstream.delay.runtime.DelayShardTest.replayDeadLetterCreatesNextGenerationAndRetainsOldTerminalSummary' \
+    --tests 'com.nereusstream.delay.runtime.DelayShardTest.terminalSummaryRetainsASecondOpenObligationAndReopensSafely' \
+    --tests 'com.nereusstream.delay.runtime.DelayShardTest.sourceOrderedResolveUncertainPublishedEvidenceSettlesExactObligation' \
+    --tests 'com.nereusstream.delay.runtime.DelayShardTest.sourceOrderedResolveUncertainNotPublishedEvidenceNormalizesDefinitiveRetry' \
+    --tests 'com.nereusstream.delay.runtime.DelayShardTest.sourceOrderedResolveUncertainRetryMaterializesControlOverrideTimeline' \
+    --tests 'com.nereusstream.delay.runtime.DelayShardTest.sourceOrderedResolveUncertainTerminalizesPossibleDeliveryAndRetainsObligation' \
     --rerun-tasks --no-daemon --console=plain
 }
 

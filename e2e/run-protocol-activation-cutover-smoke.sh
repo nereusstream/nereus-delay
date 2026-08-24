@@ -39,12 +39,12 @@ log_file="${artifact_dir}/protocol-activation-cutover-gradle.log"
 artifact="${artifact_dir}/protocol-activation-cutover.json"
 
 test_names=(
-  "io.nereusstream.delay.protocol.ProtocolActivationStateV1Test"
-  "io.nereusstream.delay.protocol.ProtocolActivationCutoverContractTest"
-  "io.nereusstream.delay.runtime.InitialRouteControlApplyTest"
-  "io.nereusstream.delay.runtime.ProtocolVersionActivationApplyTest"
-  "io.nereusstream.delay.runtime.CommandProtocolDedupeApplyTest"
-  "io.nereusstream.delay.store.CheckpointRestoreCoordinatorTest"
+  "com.nereusstream.delay.protocol.ProtocolActivationStateV1Test"
+  "com.nereusstream.delay.protocol.ProtocolActivationCutoverContractTest"
+  "com.nereusstream.delay.runtime.InitialRouteControlApplyTest"
+  "com.nereusstream.delay.runtime.ProtocolVersionActivationApplyTest"
+  "com.nereusstream.delay.runtime.CommandProtocolDedupeApplyTest"
+  "com.nereusstream.delay.store.CheckpointRestoreCoordinatorTest"
 )
 test_args=()
 for test_name in "${test_names[@]}"; do

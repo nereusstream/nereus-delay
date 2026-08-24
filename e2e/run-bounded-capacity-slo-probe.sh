@@ -28,7 +28,7 @@ NEREUS_DELAY_CAPACITY_ARTIFACT_DIR="$artifact_dir" \
 NEREUS_DELAY_CAPACITY_SOURCE_LOCK="$delay_source" \
 GRADLE_USER_HOME="$gradle_user_home" \
     "$delay_root/gradlew" test \
-        --tests io.nereusstream.delay.store.BoundedCapacitySloProbeTest \
+        --tests com.nereusstream.delay.store.BoundedCapacitySloProbeTest \
         --rerun-tasks \
         --no-daemon --console=plain
 

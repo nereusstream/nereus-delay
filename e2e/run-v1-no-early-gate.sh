@@ -59,29 +59,29 @@ done
 
 source_audit_status="PASS"
 source_audit_files=(
-  src/main/java/io/nereusstream/delay/runtime/TrustedUtcClock.java
-  src/main/java/io/nereusstream/delay/runtime/TrustedUtcInterval.java
-  src/main/java/io/nereusstream/delay/semantic/NativePreparationEligibilityV1.java
-  src/main/java/io/nereusstream/delay/protocol/DestinationProfileSemanticV1.java
-  src/main/java/io/nereusstream/delay/protocol/SourceActivationBarrier.java
-  src/test/java/io/nereusstream/delay/runtime/TrustedUtcClockTest.java
-  src/test/java/io/nereusstream/delay/client/AutoFastScheduleTest.java
-  src/test/java/io/nereusstream/delay/protocol/SourceActivationBarrierTest.java
-  src/test/java/io/nereusstream/delay/ownership/PulsarSourceReactivationTest.java
+  src/main/java/com/nereusstream/delay/runtime/TrustedUtcClock.java
+  src/main/java/com/nereusstream/delay/runtime/TrustedUtcInterval.java
+  src/main/java/com/nereusstream/delay/semantic/NativePreparationEligibilityV1.java
+  src/main/java/com/nereusstream/delay/protocol/DestinationProfileSemanticV1.java
+  src/main/java/com/nereusstream/delay/protocol/SourceActivationBarrier.java
+  src/test/java/com/nereusstream/delay/runtime/TrustedUtcClockTest.java
+  src/test/java/com/nereusstream/delay/client/AutoFastScheduleTest.java
+  src/test/java/com/nereusstream/delay/protocol/SourceActivationBarrierTest.java
+  src/test/java/com/nereusstream/delay/ownership/PulsarSourceReactivationTest.java
 )
 for file in "${source_audit_files[@]}"; do
   [[ -s "${delay_dir}/${file}" ]] || source_audit_status="FAIL"
 done
-rg -Fq 'earliestEpochMs >= actionAtEpochMs' "${delay_dir}/src/main/java/io/nereusstream/delay/runtime/TrustedUtcInterval.java" || source_audit_status=FAIL
+rg -Fq 'earliestEpochMs >= actionAtEpochMs' "${delay_dir}/src/main/java/com/nereusstream/delay/runtime/TrustedUtcInterval.java" || source_audit_status=FAIL
 rg -Fq 'candidate.brokerDeliverAtEpochMs() < intent.deliverAtEpochMs()' \
-  "${delay_dir}/src/main/java/io/nereusstream/delay/semantic/NativePreparationEligibilityV1.java" || source_audit_status=FAIL
-rg -Fq 'targetClockAheadBoundMs' "${delay_dir}/src/main/java/io/nereusstream/delay/semantic/NativePreparationEligibilityV1.java" || source_audit_status=FAIL
+  "${delay_dir}/src/main/java/com/nereusstream/delay/semantic/NativePreparationEligibilityV1.java" || source_audit_status=FAIL
+rg -Fq 'targetClockAheadBoundMs' "${delay_dir}/src/main/java/com/nereusstream/delay/semantic/NativePreparationEligibilityV1.java" || source_audit_status=FAIL
 rg -Fq 'dueProofNeverUsesTheLatestEdgeToAdmitEarly' \
-  "${delay_dir}/src/test/java/io/nereusstream/delay/runtime/TrustedUtcClockTest.java" || source_audit_status=FAIL
+  "${delay_dir}/src/test/java/com/nereusstream/delay/runtime/TrustedUtcClockTest.java" || source_audit_status=FAIL
 rg -Fq 'nativeBrokerTimestampNeverExceedsTheActivatedTargetClockBound' \
-  "${delay_dir}/src/test/java/io/nereusstream/delay/client/AutoFastScheduleTest.java" || source_audit_status=FAIL
+  "${delay_dir}/src/test/java/com/nereusstream/delay/client/AutoFastScheduleTest.java" || source_audit_status=FAIL
 rg -Fq 'pulsarBarrierPinsBatchShapeForTheInclusiveEntry' \
-  "${delay_dir}/src/test/java/io/nereusstream/delay/protocol/SourceActivationBarrierTest.java" || source_audit_status=FAIL
+  "${delay_dir}/src/test/java/com/nereusstream/delay/protocol/SourceActivationBarrierTest.java" || source_audit_status=FAIL
 
 cross_repo_status="BLOCKED"
 if [[ "${source_status}" == PASS ]]; then
@@ -99,14 +99,14 @@ if [[ "${source_status}" == PASS && "${source_audit_status}" == PASS && "${cross
   (
     cd "${delay_dir}"
     GRADLE_USER_HOME="${gradle_home}" ./gradlew clean test \
-      --tests io.nereusstream.delay.runtime.TrustedUtcClockTest \
-      --tests io.nereusstream.delay.client.AutoFastScheduleTest \
-      --tests io.nereusstream.delay.protocol.SourceActivationBarrierTest \
-      --tests io.nereusstream.delay.ownership.PulsarSourceReactivationTest \
-      --tests io.nereusstream.delay.ownership.DueSchedulerWorkClassExecutorTest \
-      --tests io.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest \
-      --tests io.nereusstream.delay.ownership.PublishAdmissionWorkClassExecutorTest \
-      --tests io.nereusstream.delay.ownership.WorkerPhysicalPublishExecutorTest \
+      --tests com.nereusstream.delay.runtime.TrustedUtcClockTest \
+      --tests com.nereusstream.delay.client.AutoFastScheduleTest \
+      --tests com.nereusstream.delay.protocol.SourceActivationBarrierTest \
+      --tests com.nereusstream.delay.ownership.PulsarSourceReactivationTest \
+      --tests com.nereusstream.delay.ownership.DueSchedulerWorkClassExecutorTest \
+      --tests com.nereusstream.delay.ownership.ClaimHandoffWorkClassExecutorTest \
+      --tests com.nereusstream.delay.ownership.PublishAdmissionWorkClassExecutorTest \
+      --tests com.nereusstream.delay.ownership.WorkerPhysicalPublishExecutorTest \
       --rerun-tasks --no-daemon --console=plain
   ) >"${log_file}" 2>&1
   test_exit_code=$?

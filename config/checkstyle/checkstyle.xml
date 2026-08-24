@@ -4,11 +4,30 @@
     "https://checkstyle.org/dtds/configuration_1_3.dtd">
 <module name="Checker">
     <property name="charset" value="UTF-8"/>
+
+    <module name="LineLength">
+        <property name="max" value="120"/>
+        <property name="fileExtensions" value="java"/>
+        <property name="ignorePattern"
+                  value="^(package .*;\s*)|(import .*;\s*)|( *\* .*https?://.*)$"/>
+    </module>
+
+    <module name="FileTabCharacter"/>
+
+    <module name="RegexpSingleline">
+        <property name="format" value="\s+$"/>
+        <property name="message" value="Trailing whitespace"/>
+    </module>
+
     <module name="TreeWalker">
         <module name="AvoidStarImport"/>
+        <module name="ImportOrder">
+            <property name="option" value="top"/>
+            <property name="sortStaticImportsAlphabetically" value="true"/>
+            <property name="tokens" value="STATIC_IMPORT, IMPORT"/>
+        </module>
         <module name="NeedBraces"/>
         <module name="RedundantImport"/>
         <module name="UnusedImports"/>
     </module>
 </module>
-

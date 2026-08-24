@@ -93,9 +93,9 @@ wait_for_oxia_health() {
 }
 
 run_route_restart_smoke() {
-    local route_restart_test="io.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest.signedRouteProviderRecoversAfterRealOxiaRestart"
+    local route_restart_test="com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest.signedRouteProviderRecoversAfterRealOxiaRestart"
     if [[ "$route_restart_notifications" == 1 ]]; then
-        route_restart_test="io.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest.signedRouteNotificationsRecoverAfterRealOxiaRestart"
+        route_restart_test="com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest.signedRouteNotificationsRecoverAfterRealOxiaRestart"
     fi
     NEREUS_DELAY_OXIA_ENDPOINT="127.0.0.1:$oxia_port" \
     NEREUS_DELAY_OXIA_NAMESPACE=default \
@@ -163,15 +163,15 @@ NEREUS_DELAY_OXIA_ENDPOINT="127.0.0.1:$oxia_port" \
 NEREUS_DELAY_OXIA_NAMESPACE=default \
 GRADLE_USER_HOME="$delay_gradle_user_home" \
     "$delay_root/gradlew" test \
-        --tests io.nereusstream.delay.ownership.OxiaRealServiceSmokeTest \
-        --tests io.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest \
-        --tests io.nereusstream.delay.runtime.OxiaRealProfileCatalogSmokeTest \
-        --tests io.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
-        --tests io.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest \
-        --tests io.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest \
-        --tests io.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest \
-        --tests io.nereusstream.delay.gateway.OxiaRealGatewayAuditSinkSmokeTest \
-        --tests io.nereusstream.delay.gateway.OxiaRealGatewayAdmissionSmokeTest \
+        --tests com.nereusstream.delay.ownership.OxiaRealServiceSmokeTest \
+        --tests com.nereusstream.delay.ownership.OxiaRealControlAuthoritySmokeTest \
+        --tests com.nereusstream.delay.runtime.OxiaRealProfileCatalogSmokeTest \
+        --tests com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest \
+        --tests com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest \
+        --tests com.nereusstream.delay.route.OxiaRealRouteAuthoritySmokeTest \
+        --tests com.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest \
+        --tests com.nereusstream.delay.gateway.OxiaRealGatewayAuditSinkSmokeTest \
+        --tests com.nereusstream.delay.gateway.OxiaRealGatewayAdmissionSmokeTest \
         --no-daemon --console=plain
 
 echo "Dockerized Oxia real-service smoke passed for $oxia_sha"

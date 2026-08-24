@@ -4777,11 +4777,11 @@ partition、offset/floor/LSO、commit 和不同 process PID，并由 chaos audit
 
 ```text
 nereus-delay/
-├── src/main/java/io/nereusstream/delay/protocol  # delay-api / client-core boundary
-├── src/main/java/io/nereusstream/delay/store     # delay-store-rocksdb boundary
-├── src/main/java/io/nereusstream/delay/runtime   # delay-core boundary
-├── src/main/java/io/nereusstream/delay/scheduler # delay-core boundary
-├── src/main/java/io/nereusstream/delay/adapter   # broker adapter boundary
+├── src/main/java/com/nereusstream/delay/protocol  # delay-api / client-core boundary
+├── src/main/java/com/nereusstream/delay/store     # delay-store-rocksdb boundary
+├── src/main/java/com/nereusstream/delay/runtime   # delay-core boundary
+├── src/main/java/com/nereusstream/delay/scheduler # delay-core boundary
+├── src/main/java/com/nereusstream/delay/adapter   # broker adapter boundary
 ├── delay-api                                     # future physical module split
 │   ├── public models
 │   ├── protobuf

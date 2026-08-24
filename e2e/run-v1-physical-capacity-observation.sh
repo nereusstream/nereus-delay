@@ -213,23 +213,23 @@ matrix_status="$(jq -r '.matrix_status // "MISSING"' "${matrix_artifact}" 2>/dev
 contract_log="${artifact_dir}/delay-physical-capacity-contract-tests.log"
 contract_gradle_home="${seeded_gradle_home:-${artifact_dir}/contract-gradle-user-home}"
 contract_tests=(
-  io.nereusstream.delay.protocol.CapacityVectorV1Test
-  io.nereusstream.delay.protocol.ShardCapacityEnvelopeV1Test
-  io.nereusstream.delay.store.WorkerCapacityAdmissionTest
-  io.nereusstream.delay.store.WorkerNativeResourceLedgerTest
-  io.nereusstream.delay.store.WorkerResourceEnvelopeTest
-  io.nereusstream.delay.store.WorkerPlacementPolicyTest
-  io.nereusstream.delay.store.WorkerRuntimeResourceMonitorTest
-  io.nereusstream.delay.store.WorkerRuntimeResourceProbeTest
-  io.nereusstream.delay.store.SharedRocksDbResourcesTest
-  io.nereusstream.delay.scheduler.WorkClassResourcePoolTest
-  io.nereusstream.delay.scheduler.WorkClassDispatcherTest
-  io.nereusstream.delay.scheduler.LaneSchedulerTest
-  io.nereusstream.delay.store.CheckpointRestoreCoordinatorTest
-  io.nereusstream.delay.store.BoundedDestinationPublishAdapterTest
-  io.nereusstream.delay.scheduler.TargetIsolationDurableChaosTest
-  io.nereusstream.delay.store.SloObservationCollectorTest
-  io.nereusstream.delay.store.PersistentSloObservationCollectorTest
+  com.nereusstream.delay.protocol.CapacityVectorV1Test
+  com.nereusstream.delay.protocol.ShardCapacityEnvelopeV1Test
+  com.nereusstream.delay.store.WorkerCapacityAdmissionTest
+  com.nereusstream.delay.store.WorkerNativeResourceLedgerTest
+  com.nereusstream.delay.store.WorkerResourceEnvelopeTest
+  com.nereusstream.delay.store.WorkerPlacementPolicyTest
+  com.nereusstream.delay.store.WorkerRuntimeResourceMonitorTest
+  com.nereusstream.delay.store.WorkerRuntimeResourceProbeTest
+  com.nereusstream.delay.store.SharedRocksDbResourcesTest
+  com.nereusstream.delay.scheduler.WorkClassResourcePoolTest
+  com.nereusstream.delay.scheduler.WorkClassDispatcherTest
+  com.nereusstream.delay.scheduler.LaneSchedulerTest
+  com.nereusstream.delay.store.CheckpointRestoreCoordinatorTest
+  com.nereusstream.delay.store.BoundedDestinationPublishAdapterTest
+  com.nereusstream.delay.scheduler.TargetIsolationDurableChaosTest
+  com.nereusstream.delay.store.SloObservationCollectorTest
+  com.nereusstream.delay.store.PersistentSloObservationCollectorTest
 )
 contract_args=()
 for test_name in "${contract_tests[@]}"; do

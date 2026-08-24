@@ -39,7 +39,7 @@ docker run --rm --name "${project}" \
     -v "${gradle_dir}:/gradle" \
     -v "${artifact_dir}:/artifacts" \
     "${image}" \
-    bash -lc 'cd /workspace && ./gradlew test --tests io.nereusstream.delay.store.BoundedCapacitySloProbeTest --rerun-tasks --no-daemon --console=plain'
+    bash -lc 'cd /workspace && ./gradlew test --tests com.nereusstream.delay.store.BoundedCapacitySloProbeTest --rerun-tasks --no-daemon --console=plain'
 
 artifact="${artifact_dir}/bounded-capacity-slo-probe.json"
 if [[ ! -s "${artifact}" ]]; then

@@ -116,7 +116,7 @@ NEREUS_DELAY_MINIO_BUCKET="$minio_bucket" \
 NEREUS_DELAY_MINIO_REGION="$minio_region" \
 GRADLE_USER_HOME="$gradle_user_home" \
     "$delay_root/gradlew" test \
-        --tests io.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest \
+        --tests com.nereusstream.delay.store.S3CompatibleMinioRealSmokeTest \
         --rerun-tasks \
         --no-daemon --console=plain
 

@@ -1,0 +1,533 @@
+package com.nereusstream.delay.scheduler;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.nereusstream.delay.protocol.DelayMessageId;
+import com.nereusstream.delay.protocol.DestinationLaneId;
+import com.nereusstream.delay.protocol.RouteIncarnation;
+import com.nereusstream.delay.protocol.ShardId;
+import com.nereusstream.delay.runtime.AdmissionGate;
+import com.nereusstream.delay.runtime.LaneRecord;
+import com.nereusstream.delay.runtime.RuntimeReadiness;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.Test;
+
+class WorkerSchedulerTest {
+    @Test
+    void untimedWorkerPollIsNotPublicProductionApi() throws Exception {
+        assertFalse(java.lang.reflect.Modifier.isPublic(WorkerScheduler.class
+                .getDeclaredMethod("poll", SchedulerBudget.class)
+                .getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(WorkerScheduler.class
+                .getDeclaredMethod("offer", ScheduleWorkItem.class)
+                .getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(WorkerScheduler.class
+                .getDeclaredMethod("registerShard", ShardId.class, int.class, LaneScheduler.class)
+                .getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(WorkerScheduler.class
+                .getDeclaredMethod("registerLane", ShardId.class, LaneRecord.class)
+                .getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(WorkerScheduler.class
+                .getDeclaredMethod("markShardBlocked", ShardId.class)
+                .getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(WorkerScheduler.class
+                .getDeclaredMethod("markShardReady", ShardId.class)
+                .getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(WorkerScheduler.class
+                .getDeclaredMethod("unregisterShard", ShardId.class)
+                .getModifiers()));
+        assertFalse(java.lang.reflect.Modifier.isPublic(WorkerScheduler.class
+                .getDeclaredMethod("restore", WorkerScheduler.WorkerSnapshot.class)
+                .getModifiers()));
+    }
+
+    @Test
+    void blockedShardDoesNotPauseAnotherShard() {
+        final ShardId blockedShard = shard(1);
+        final ShardId healthyShard = shard(2);
+        final DestinationLaneId blockedLane = lane(1);
+        final DestinationLaneId healthyLane = lane(2);
+        final WorkerScheduler worker = WorkerScheduler.defaults();
+        final LaneScheduler blockedScheduler = LaneScheduler.defaults();
+        final LaneScheduler healthyScheduler = LaneScheduler.defaults();
+        worker.registerShard(blockedShard, 1, blockedScheduler);
+        worker.registerShard(healthyShard, 1, healthyScheduler);
+        worker.registerLane(blockedShard, laneRecord(blockedLane));
+        worker.registerLane(healthyShard, laneRecord(healthyLane));
+        worker.offer(item(blockedShard, blockedLane, 1));
+        worker.offer(item(healthyShard, healthyLane, 2));
+        worker.markShardBlocked(blockedShard);
+
+        final List<ScheduleWorkItem> result = worker.poll(new SchedulerBudget(8, 1024, 1_000_000_000));
+
+        assertEquals(
+                List.of(healthyLane),
+                result.stream().map(ScheduleWorkItem::laneId).toList());
+    }
+
+    @Test
+    void blockedShardLeavesOuterRingBeforeAOneVisitBudgetCanStarveHealthyWork() {
+        final ShardId blockedShard = shard(3);
+        final ShardId healthyShard = shard(4);
+        final DestinationLaneId blockedLane = lane(3);
+        final DestinationLaneId healthyLane = lane(4);
+        final WorkerScheduler worker = new WorkerScheduler(10, 1);
+        worker.registerShard(blockedShard, 1, LaneScheduler.defaults());
+        worker.registerShard(healthyShard, 1, LaneScheduler.defaults());
+        worker.registerLane(blockedShard, laneRecord(blockedLane));
+        worker.registerLane(healthyShard, laneRecord(healthyLane));
+        worker.offer(item(blockedShard, blockedLane, 1));
+        worker.offer(item(healthyShard, healthyLane, 2));
+
+        worker.markShardBlocked(blockedShard);
+
+        assertEquals(
+                List.of(healthyLane),
+                worker.poll(new SchedulerBudget(1, 100, 1_000_000_000)).stream()
+                        .map(ScheduleWorkItem::laneId)
+                        .toList());
+        worker.markShardReady(blockedShard);
+        assertFalse(worker.snapshot().shards().stream()
+                .filter(snapshot -> snapshot.shardId().equals(blockedShard))
+                .findFirst()
+                .orElseThrow()
+                .blocked());
+    }
+
+    @Test
+    void shardUnregisterRequiresBlockedAndDrainedLocalQueue() {
+        final ShardId shard = shard(29);
+        final DestinationLaneId lane = lane(29);
+        final WorkerScheduler worker = new WorkerScheduler(10, 4);
+        worker.registerShard(shard, 1, LaneScheduler.defaults());
+        worker.registerLane(shard, laneRecord(lane));
+        worker.offer(item(shard, lane, 1));
+
+        assertThrows(IllegalStateException.class, () -> worker.unregisterShard(shard));
+        worker.markShardBlocked(shard);
+        assertThrows(IllegalStateException.class, () -> worker.unregisterShard(shard));
+
+        worker.markShardReady(shard);
+        assertEquals(
+                List.of(lane),
+                worker.poll(new SchedulerBudget(1, 100, 1_000_000_000)).stream()
+                        .map(ScheduleWorkItem::laneId)
+                        .toList());
+        worker.markShardBlocked(shard);
+        worker.unregisterShard(shard);
+
+        assertEquals(List.of(), worker.snapshot().shards());
+        assertEquals(List.of(), worker.poll(new SchedulerBudget(1, 100, 1_000_000_000)));
+    }
+
+    @Test
+    void unregisteringHighestWeightShardRecomputesOuterDeficitCap() {
+        final ShardId high = shard(30);
+        final ShardId low = shard(31);
+        final DestinationLaneId highLane = lane(30);
+        final DestinationLaneId lowLane = lane(31);
+        final WorkerScheduler worker = new WorkerScheduler(10, 4);
+        worker.registerShard(high, 8, LaneScheduler.defaults());
+        worker.registerShard(low, 1, LaneScheduler.defaults());
+        worker.registerLane(high, laneRecord(highLane));
+        worker.registerLane(low, laneRecord(lowLane));
+        worker.markShardBlocked(high);
+        worker.offer(item(low, lowLane, 1));
+        worker.restore(new WorkerScheduler.WorkerSnapshot(
+                0, 0, List.of(new WorkerScheduler.ShardSnapshot(low, 1, Long.MAX_VALUE, 0, false))));
+
+        worker.unregisterShard(high);
+
+        assertEquals(40, worker.snapshot().shards().get(0).deficit());
+        assertEquals(
+                List.of(lowLane),
+                worker.poll(new SchedulerBudget(1, 100, 1_000_000_000)).stream()
+                        .map(ScheduleWorkItem::laneId)
+                        .toList());
+        assertEquals(39, worker.snapshot().shards().get(0).deficit());
+    }
+
+    @Test
+    void workerPollCarriesTheInclusiveDueThroughBoundaryToShardScheduler() {
+        final ShardId shard = shard(26);
+        final DestinationLaneId lane = lane(26);
+        final WorkerScheduler worker = WorkerScheduler.defaults();
+        worker.registerShard(shard, 1, LaneScheduler.defaults());
+        worker.registerLane(shard, laneRecord(lane));
+        worker.offer(new ScheduleWorkItem(lane, DelayMessageId.random(shard), 1, 2_000, 1));
+
+        assertEquals(List.of(), worker.poll(1_999, new SchedulerBudget(1, 1024, 1_000_000_000)));
+        assertEquals(
+                List.of(lane),
+                worker.poll(2_000, new SchedulerBudget(1, 1024, 1_000_000_000)).stream()
+                        .map(ScheduleWorkItem::laneId)
+                        .toList());
+    }
+
+    @Test
+    void futureShardDoesNotHoldRecoveryFirstPassOpenForDueWork() {
+        final ShardId dueShard = shard(27);
+        final ShardId futureShard = shard(28);
+        final DestinationLaneId dueLane = lane(27);
+        final DestinationLaneId futureLane = lane(28);
+        final WorkerScheduler worker = WorkerScheduler.defaults();
+        worker.registerShard(dueShard, 1, LaneScheduler.defaults());
+        worker.registerShard(futureShard, 1, LaneScheduler.defaults());
+        worker.registerLane(dueShard, laneRecord(dueLane));
+        worker.registerLane(futureShard, laneRecord(futureLane));
+        worker.offer(new ScheduleWorkItem(dueLane, DelayMessageId.random(dueShard), 1, 1_000, 1));
+        worker.offer(new ScheduleWorkItem(futureLane, DelayMessageId.random(futureShard), 1, 10_000, 1));
+
+        assertEquals(
+                List.of(dueLane),
+                worker.poll(1_000, new SchedulerBudget(1, 1024, 1_000_000_000)).stream()
+                        .map(ScheduleWorkItem::laneId)
+                        .toList());
+        worker.offer(new ScheduleWorkItem(dueLane, DelayMessageId.random(dueShard), 2, 1_001, 1));
+        assertEquals(
+                List.of(dueLane),
+                worker.poll(1_001, new SchedulerBudget(1, 1024, 1_000_000_000)).stream()
+                        .map(ScheduleWorkItem::laneId)
+                        .toList());
+    }
+
+    @Test
+    void oversizedHeadDoesNotHoldRecoveryFirstPassOpenForSmallerShard() {
+        final ShardId oversizedShard = shard(32);
+        final ShardId smallShard = shard(33);
+        final DestinationLaneId oversizedLane = lane(32);
+        final DestinationLaneId smallLane = lane(33);
+        final WorkerScheduler worker = new WorkerScheduler(10, 4);
+        worker.registerShard(oversizedShard, 1, LaneScheduler.defaults());
+        worker.registerShard(smallShard, 1, LaneScheduler.defaults());
+        worker.registerLane(oversizedShard, laneRecord(oversizedLane));
+        worker.registerLane(smallShard, laneRecord(smallLane));
+        worker.offer(new ScheduleWorkItem(oversizedLane, DelayMessageId.random(oversizedShard), 1, 1_000, 20));
+        worker.offer(new ScheduleWorkItem(smallLane, DelayMessageId.random(smallShard), 1, 1_000, 1));
+
+        final SchedulerBudget budget = new SchedulerBudget(1, 10, 1_000_000_000);
+        assertEquals(
+                List.of(smallLane),
+                worker.poll(1_000, budget).stream()
+                        .map(ScheduleWorkItem::laneId)
+                        .toList());
+
+        worker.offer(new ScheduleWorkItem(smallLane, DelayMessageId.random(smallShard), 2, 1_001, 1));
+        assertEquals(
+                List.of(smallLane),
+                worker.poll(1_001, budget).stream()
+                        .map(ScheduleWorkItem::laneId)
+                        .toList());
+    }
+
+    @Test
+    void clockFailureAfterAHeadWasSelectedRollsBackTheWholeWorkerPoll() {
+        final AtomicInteger calls = new AtomicInteger();
+        final WorkerScheduler worker = new WorkerScheduler(10, 4, () -> {
+            if (calls.incrementAndGet() <= 3) {
+                return 0;
+            }
+            throw new IllegalStateException("worker clock failure");
+        });
+        final ShardId shard = shard(34);
+        final DestinationLaneId lane = lane(34);
+        final LaneScheduler laneScheduler = LaneScheduler.defaults();
+        worker.registerShard(shard, 1, laneScheduler);
+        worker.registerLane(shard, laneRecord(lane));
+        final ScheduleWorkItem first = item(shard, lane, 1);
+        worker.offer(first);
+        worker.offer(item(shard, lane, 2));
+        final WorkerScheduler.WorkerSnapshot workerBefore = worker.snapshot();
+        final LaneScheduler.SchedulerSnapshot laneBefore = laneScheduler.snapshot();
+
+        assertThrows(IllegalStateException.class, () -> worker.poll(new SchedulerBudget(10, 100, 1_000_000_000)));
+
+        assertEquals(workerBefore, worker.snapshot());
+        assertEquals(laneBefore, laneScheduler.snapshot());
+        assertEquals(2, laneScheduler.pendingItems(lane));
+        assertEquals(first, laneScheduler.pendingHead(lane));
+    }
+
+    @Test
+    void clockRegressionAfterAHeadWasSelectedRollsBackTheWholeWorkerPoll() {
+        final AtomicInteger calls = new AtomicInteger();
+        final WorkerScheduler worker = new WorkerScheduler(10, 4, () -> calls.incrementAndGet() <= 3 ? 0 : -1);
+        final ShardId shard = shard(35);
+        final DestinationLaneId lane = lane(35);
+        final LaneScheduler laneScheduler = LaneScheduler.defaults();
+        worker.registerShard(shard, 1, laneScheduler);
+        worker.registerLane(shard, laneRecord(lane));
+        final ScheduleWorkItem first = item(shard, lane, 1);
+        worker.offer(first);
+        worker.offer(item(shard, lane, 2));
+        final WorkerScheduler.WorkerSnapshot workerBefore = worker.snapshot();
+        final LaneScheduler.SchedulerSnapshot laneBefore = laneScheduler.snapshot();
+
+        assertThrows(IllegalStateException.class, () -> worker.poll(new SchedulerBudget(10, 100, 1_000_000_000)));
+
+        assertEquals(workerBefore, worker.snapshot());
+        assertEquals(laneBefore, laneScheduler.snapshot());
+        assertEquals(2, laneScheduler.pendingItems(lane));
+        assertEquals(first, laneScheduler.pendingHead(lane));
+    }
+
+    @Test
+    void emptyShardDoesNotConsumeOuterDeficitVisit() {
+        final ShardId emptyShard = shard(5);
+        final ShardId healthyShard = shard(6);
+        final DestinationLaneId emptyLane = lane(5);
+        final DestinationLaneId healthyLane = lane(6);
+        final WorkerScheduler worker = new WorkerScheduler(10, 64);
+        worker.registerShard(emptyShard, 1, LaneScheduler.defaults());
+        worker.registerShard(healthyShard, 1, LaneScheduler.defaults());
+        worker.registerLane(emptyShard, laneRecord(emptyLane));
+        worker.registerLane(healthyShard, laneRecord(healthyLane));
+        worker.offer(item(healthyShard, healthyLane, 1));
+
+        final List<ScheduleWorkItem> result = worker.poll(new SchedulerBudget(1, 100, 1_000_000_000));
+
+        assertEquals(
+                List.of(healthyLane),
+                result.stream().map(ScheduleWorkItem::laneId).toList());
+    }
+
+    @Test
+    void recoveryFirstPassServesEveryEligibleShardBeforeRepeatingOne() {
+        final ShardId first = shard(7);
+        final ShardId second = shard(8);
+        final DestinationLaneId firstLane = lane(7);
+        final DestinationLaneId secondLane = lane(8);
+        final WorkerScheduler worker = new WorkerScheduler(10, 64);
+        worker.registerShard(first, 1, LaneScheduler.defaults());
+        worker.registerShard(second, 1, LaneScheduler.defaults());
+        worker.registerLane(first, laneRecord(firstLane));
+        worker.registerLane(second, laneRecord(secondLane));
+        worker.offer(item(first, firstLane, 1));
+        worker.offer(item(first, firstLane, 2));
+        worker.offer(item(second, secondLane, 1));
+        worker.offer(item(second, secondLane, 2));
+
+        final List<ScheduleWorkItem> result = worker.poll(new SchedulerBudget(3, 100, 1_000_000_000));
+
+        assertEquals(3, result.size());
+        assertTrue(!result.get(0)
+                .messageId()
+                .routingId()
+                .shardId()
+                .equals(result.get(1).messageId().routingId().shardId()));
+    }
+
+    @Test
+    void outerDeficitCapDoesNotMakeLargeHeadUnserviceable() {
+        final ShardId shard = shard(11);
+        final DestinationLaneId lane = lane(11);
+        final WorkerScheduler worker = new WorkerScheduler(10, 1);
+        worker.registerShard(shard, 1, LaneScheduler.defaults());
+        worker.registerLane(shard, laneRecord(lane));
+        worker.offer(new ScheduleWorkItem(lane, DelayMessageId.random(shard), 1, 1, 100));
+
+        final List<ScheduleWorkItem> result = worker.poll(new SchedulerBudget(1, 100, 1_000_000_000));
+
+        assertEquals(1, result.size());
+        assertEquals(100, result.get(0).accountedBytes());
+    }
+
+    @Test
+    void highWeightRetainsItsConfiguredOuterDeficitQuantum() {
+        final ShardId shard = shard(12);
+        final DestinationLaneId lane = lane(12);
+        final WorkerScheduler worker = new WorkerScheduler(10, 1);
+        worker.registerShard(shard, 8, LaneScheduler.defaults());
+        worker.registerLane(shard, laneRecord(lane));
+        worker.offer(item(shard, lane, 1));
+
+        worker.poll(new SchedulerBudget(1, 100, 1_000_000_000));
+
+        assertEquals(79, worker.snapshot().shards().get(0).deficit());
+    }
+
+    @Test
+    void restoreStartsANewOuterFirstPass() {
+        final ShardId first = shard(9);
+        final ShardId second = shard(10);
+        final DestinationLaneId firstLane = lane(9);
+        final DestinationLaneId secondLane = lane(10);
+        final WorkerScheduler original = new WorkerScheduler(10, 64);
+        original.registerShard(first, 1, LaneScheduler.defaults());
+        original.registerShard(second, 1, LaneScheduler.defaults());
+        original.registerLane(first, laneRecord(firstLane));
+        original.registerLane(second, laneRecord(secondLane));
+        original.offer(item(first, firstLane, 1));
+        original.offer(item(second, secondLane, 1));
+        original.poll(new SchedulerBudget(1, 100, 1_000_000_000));
+        final WorkerScheduler.WorkerSnapshot saved = original.snapshot();
+
+        final WorkerScheduler restored = new WorkerScheduler(10, 64);
+        restored.registerShard(first, 1, LaneScheduler.defaults());
+        restored.registerShard(second, 1, LaneScheduler.defaults());
+        restored.registerLane(first, laneRecord(firstLane));
+        restored.registerLane(second, laneRecord(secondLane));
+        restored.offer(item(first, firstLane, 2));
+        restored.offer(item(second, secondLane, 2));
+        restored.restore(saved);
+
+        final List<ScheduleWorkItem> result = restored.poll(new SchedulerBudget(2, 100, 1_000_000_000));
+
+        assertEquals(2, result.size());
+        assertTrue(!result.get(0)
+                .messageId()
+                .routingId()
+                .shardId()
+                .equals(result.get(1).messageId().routingId().shardId()));
+    }
+
+    @Test
+    void rejectsQuantumAndWeightArithmeticOverflow() {
+        assertThrows(IllegalArgumentException.class, () -> new WorkerScheduler(Long.MAX_VALUE, 1));
+
+        final WorkerScheduler worker = new WorkerScheduler(Long.MAX_VALUE / 4, 1);
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> worker.registerShard(shard(20), Integer.MAX_VALUE, LaneScheduler.defaults()));
+    }
+
+    @Test
+    void conflictingShardRegistrationDoesNotMutateOuterDeficitCap() {
+        final ShardId shard = shard(25);
+        final DestinationLaneId lane = lane(25);
+        final WorkerScheduler worker = new WorkerScheduler(10, 1);
+        worker.registerShard(shard, 1, new LaneScheduler(1, 1));
+        worker.registerLane(shard, laneRecord(lane));
+        worker.offer(new ScheduleWorkItem(lane, DelayMessageId.random(shard), 1, 1, 100));
+
+        assertThrows(IllegalArgumentException.class, () -> worker.registerShard(shard, 8, LaneScheduler.defaults()));
+
+        for (int index = 0; index < 8; index++) {
+            worker.poll(new SchedulerBudget(1, 100, 1_000_000_000));
+        }
+        assertEquals(40, worker.snapshot().shards().get(0).deficit());
+    }
+
+    @Test
+    void outerVisitLimitUsesWideArithmetic() {
+        assertEquals(0, WorkerScheduler.boundedVisitLimit(64, 0));
+        assertEquals(64, WorkerScheduler.boundedVisitLimit(64, Integer.MAX_VALUE));
+        assertEquals((long) Integer.MAX_VALUE, WorkerScheduler.boundedVisitLimit(Integer.MAX_VALUE, Integer.MAX_VALUE));
+    }
+
+    @Test
+    void saturatesRestoredDeficitBeforeServing() {
+        final ShardId shard = shard(21);
+        final DestinationLaneId lane = lane(21);
+        final WorkerScheduler worker = new WorkerScheduler(10, 1);
+        worker.registerShard(shard, 1, LaneScheduler.defaults());
+        worker.registerLane(shard, laneRecord(lane));
+        worker.offer(item(shard, lane, 1));
+        worker.restore(new WorkerScheduler.WorkerSnapshot(
+                0, 0, List.of(new WorkerScheduler.ShardSnapshot(shard, 1, Long.MAX_VALUE, 0, false))));
+
+        assertEquals(40, worker.snapshot().shards().get(0).deficit());
+        assertEquals(
+                List.of(lane),
+                worker.poll(new SchedulerBudget(1, 100, 1_000_000_000)).stream()
+                        .map(ScheduleWorkItem::laneId)
+                        .toList());
+        assertEquals(39, worker.snapshot().shards().get(0).deficit());
+    }
+
+    @Test
+    void duplicateWorkerRestoreIdentityDoesNotPartiallyApplyEarlierCounters() {
+        final ShardId first = shard(23);
+        final ShardId second = shard(24);
+        final WorkerScheduler worker = new WorkerScheduler(10, 4);
+        worker.registerShard(first, 1, LaneScheduler.defaults());
+        worker.registerShard(second, 1, LaneScheduler.defaults());
+        final WorkerScheduler.WorkerSnapshot before = worker.snapshot();
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> worker.restore(new WorkerScheduler.WorkerSnapshot(
+                        0,
+                        0,
+                        List.of(
+                                new WorkerScheduler.ShardSnapshot(first, 1, 40, 7, true),
+                                new WorkerScheduler.ShardSnapshot(first, 1, 0, 0, false)))));
+        assertEquals(before, worker.snapshot());
+    }
+
+    @Test
+    void saturatesRoundGenerationBeforeServingAtLongMaximum() {
+        final ShardId shard = shard(22);
+        final DestinationLaneId lane = lane(22);
+        final WorkerScheduler worker = new WorkerScheduler(10, 1);
+        worker.registerShard(shard, 1, LaneScheduler.defaults());
+        worker.registerLane(shard, laneRecord(lane));
+        worker.offer(item(shard, lane, 1));
+        worker.restore(new WorkerScheduler.WorkerSnapshot(
+                0, Long.MAX_VALUE, List.of(new WorkerScheduler.ShardSnapshot(shard, 1, 10, Long.MAX_VALUE, false))));
+
+        assertEquals(
+                List.of(lane),
+                worker.poll(new SchedulerBudget(1, 100, 1_000_000_000)).stream()
+                        .map(ScheduleWorkItem::laneId)
+                        .toList());
+        assertEquals(Long.MAX_VALUE, worker.snapshot().roundGeneration());
+        assertEquals(Long.MAX_VALUE, worker.snapshot().shards().get(0).lastServedRound());
+    }
+
+    @Test
+    void outerFairnessCountersCanBeRestored() {
+        final ShardId first = shard(3);
+        final ShardId second = shard(4);
+        final DestinationLaneId firstLane = lane(3);
+        final DestinationLaneId secondLane = lane(4);
+        final WorkerScheduler worker = new WorkerScheduler(10, 64);
+        worker.registerShard(first, 2, LaneScheduler.defaults());
+        worker.registerShard(second, 1, LaneScheduler.defaults());
+        worker.registerLane(first, laneRecord(firstLane));
+        worker.registerLane(second, laneRecord(secondLane));
+        worker.markShardBlocked(first);
+        for (int index = 0; index < 4; index++) {
+            worker.offer(item(first, firstLane, index));
+            worker.offer(item(second, secondLane, index));
+        }
+        worker.poll(new SchedulerBudget(1, 100, 1_000_000_000));
+        final WorkerScheduler.WorkerSnapshot saved = worker.snapshot();
+
+        final WorkerScheduler restored = new WorkerScheduler(10, 64);
+        restored.registerShard(first, 2, LaneScheduler.defaults());
+        restored.registerShard(second, 1, LaneScheduler.defaults());
+        restored.registerLane(first, laneRecord(firstLane));
+        restored.registerLane(second, laneRecord(secondLane));
+        restored.restore(saved);
+
+        assertEquals(saved.roundGeneration(), restored.snapshot().roundGeneration());
+        assertFalse(restored.snapshot().shards().isEmpty());
+        assertTrue(restored.snapshot().shards().stream()
+                .filter(snapshot -> snapshot.shardId().equals(first))
+                .findFirst()
+                .orElseThrow()
+                .blocked());
+    }
+
+    private static LaneRecord laneRecord(final DestinationLaneId lane) {
+        return new LaneRecord(lane, new byte[16], 1, 0, AdmissionGate.OPEN, RuntimeReadiness.READY, 1, 0);
+    }
+
+    private static ScheduleWorkItem item(final ShardId shard, final DestinationLaneId lane, final int generation) {
+        return new ScheduleWorkItem(lane, DelayMessageId.random(shard), generation, generation, 1);
+    }
+
+    private static ShardId shard(final int partition) {
+        return new ShardId(RouteIncarnation.random(), partition);
+    }
+
+    private static DestinationLaneId lane(final int value) {
+        final byte[] bytes = new byte[32];
+        bytes[31] = (byte) value;
+        return new DestinationLaneId(bytes);
+    }
+}

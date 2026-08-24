@@ -161,7 +161,7 @@ run_session_churn_smoke() {
     NEREUS_DELAY_GATEWAY_OXIA_SESSION_CHURN_STATE_DUMP_DIR="$session_churn_state_dump_dir" \
     GRADLE_USER_HOME="$delay_gradle_user_home" \
         "$delay_root/gradlew" test \
-            --tests io.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.gatewayDurableRecordsRecoverAfterOxiaSessionChurn \
+            --tests com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest.gatewayDurableRecordsRecoverAfterOxiaSessionChurn \
             --rerun-tasks \
             --no-daemon --console=plain >"$session_churn_log" 2>&1 &
     session_churn_pid=$!
@@ -274,7 +274,7 @@ NEREUS_DELAY_GATEWAY_ROTATED_CLIENT_CERT="$tls_dir/rotated-client.crt" \
 NEREUS_DELAY_GATEWAY_ROTATED_CLIENT_KEY="$tls_dir/rotated-client.key" \
 GRADLE_USER_HOME="$delay_gradle_user_home" \
     "$delay_root/gradlew" test \
-        --tests io.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest \
+        --tests com.nereusstream.delay.gateway.OxiaRealGatewayGrpcSmokeTest \
         --rerun-tasks \
         --no-daemon --console=plain
 

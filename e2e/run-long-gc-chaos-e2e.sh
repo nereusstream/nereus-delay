@@ -10,7 +10,7 @@ artifact_dir="${NEREUS_DELAY_LONG_GC_E2E_ARTIFACT_DIR:-/private/tmp/nereus-delay
 gradle_home="${NEREUS_DELAY_LONG_GC_GRADLE_USER_HOME:-${GRADLE_USER_HOME:-${artifact_dir}/gradle-user-home}}"
 source_lock_file="${NEREUS_DELAY_LONG_GC_SOURCE_LOCK:-}"
 java_tool_options="${NEREUS_DELAY_LONG_GC_JAVA_TOOL_OPTIONS:--Xmx512m -XX:+UseSerialGC}"
-class_name="io.nereusstream.delay.scheduler.LongGcDurableChaosTest"
+class_name="com.nereusstream.delay.scheduler.LongGcDurableChaosTest"
 schema="nereus-delay-long-gc-e2e-v1"
 
 fail() {

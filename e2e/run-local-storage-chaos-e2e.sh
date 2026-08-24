@@ -15,7 +15,7 @@ fail() {
 }
 
 mkdir -p "${artifact_dir}"
-class_name="io.nereusstream.delay.store.LocalStorageDurableChaosTest"
+class_name="com.nereusstream.delay.store.LocalStorageDurableChaosTest"
 cells=(fsync-error sst-corruption enospc disaster-host-fault)
 cell_records=()
 enospc_image=""
