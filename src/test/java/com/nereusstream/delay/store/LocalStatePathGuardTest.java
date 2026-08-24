@@ -43,10 +43,12 @@ class LocalStatePathGuardTest {
     }
 
     @Test
-    void directoryPathRejectsExistingIntermediateSymlinkEvenWhenTargetExists() throws Exception {
+    void directoryPathRejectsIntermediateSymlinkOutsideLexicalParentEvenWhenTargetExists() throws Exception {
         final Path outside = tempDirectory.resolve("outside");
         Files.createDirectories(outside.resolve("nested"));
-        final Path linked = tempDirectory.resolve("linked");
+        final Path stateParent = tempDirectory.resolve("state");
+        Files.createDirectory(stateParent);
+        final Path linked = stateParent.resolve("linked");
         Files.createSymbolicLink(linked, outside);
 
         assertThrows(
