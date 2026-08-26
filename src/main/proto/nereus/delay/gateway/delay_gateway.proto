@@ -1,0 +1,132 @@
+syntax = "proto3";
+
+package nereus.delay.gateway;
+
+option java_multiple_files = true;
+option java_package = "com.nereusstream.delay.gateway.wire";
+
+// Transport DTOs only. Embedded values remain the canonical Registry bytes.
+service DelayGateway {
+  rpc Schedule(GatewayScheduleRequest) returns (GatewaySubmissionOutcome);
+  rpc PrepareLargeSchedule(GatewayPrepareLargeScheduleRequest)
+      returns (GatewaySubmissionOutcome);
+  rpc IssuePayloadUploadHandle(GatewayIssuePayloadUploadHandleRequest)
+      returns (GatewayPayloadUploadHandleResponse);
+  rpc AttestPayloadUpload(GatewayAttestPayloadUploadRequest)
+      returns (GatewayPayloadAttestationResponse);
+  rpc CommitLargeSchedule(GatewayCommitLargeScheduleRequest)
+      returns (GatewaySubmissionOutcome);
+  rpc Cancel(GatewayCancelRequest) returns (GatewaySubmissionOutcome);
+  rpc Reschedule(GatewayRescheduleRequest) returns (GatewaySubmissionOutcome);
+  rpc RetryUncertain(GatewayRetryUncertainRequest) returns (GatewaySubmissionOutcome);
+  rpc GetCommandResult(GatewayGetCommandResultRequest)
+      returns (GatewayCommandQueryResponse);
+  rpc AwaitApplied(GatewayAwaitAppliedRequest)
+      returns (stream GatewayCommandQueryResponse);
+  rpc GetMessage(GatewayGetMessageRequest) returns (GatewayMessageQueryResponse);
+}
+
+message GatewayRouteSelector {
+  uint32 ingress_adapter_kind = 1;
+  bytes route_alias_utf8_nfc = 2;
+}
+
+message GatewayScheduleRequest {
+  bytes idempotency_key = 1;
+  GatewayRouteSelector route = 2;
+  bytes canonical_schedule_intent = 3;
+  int64 retry_until_epoch_ms = 4;
+  uint32 submission_mode = 5;
+}
+
+message GatewayPrepareLargeScheduleRequest {
+  bytes idempotency_key = 1;
+  GatewayRouteSelector route = 2;
+  bytes canonical_schedule_intent = 3;
+  uint64 expected_payload_length = 4;
+  bytes payload_sha256 = 5;
+  uint64 reservation_ttl_ms = 6;
+  bytes payload_proof_trust_set_ref = 7;
+  bytes object_store_profile_ref = 8;
+  int64 retry_until_epoch_ms = 9;
+}
+
+message GatewayCommitLargeScheduleRequest {
+  bytes idempotency_key = 1;
+  bytes payload_reservation_receipt = 2;
+  bytes canonical_payload_commit_proof = 3;
+  int64 retry_until_epoch_ms = 4;
+}
+
+message GatewayCancelRequest {
+  bytes idempotency_key = 1;
+  bytes delay_message_id = 2;
+  bytes message_precondition = 3;
+  int64 retry_until_epoch_ms = 4;
+}
+
+message GatewayRescheduleRequest {
+  bytes idempotency_key = 1;
+  bytes delay_message_id = 2;
+  bytes message_precondition = 3;
+  int64 deliver_at_epoch_ms = 4;
+  int64 expire_at_epoch_ms = 5;
+  int64 retry_until_epoch_ms = 6;
+}
+
+message GatewayRetryUncertainRequest {
+  bytes original_idempotency_key = 1;
+  bytes expected_prior_physical_attempt_id = 2;
+  bytes retry_request_id = 3;
+}
+
+message GatewayIssuePayloadUploadHandleRequest {
+  bytes payload_reservation_receipt = 1;
+  uint32 upload_handle_kind = 2;
+}
+
+message GatewayAttestPayloadUploadRequest {
+  bytes payload_reservation_receipt = 1;
+  bytes opaque_payload_upload_handle = 2;
+}
+
+message GatewayGetCommandResultRequest {
+  oneof locator {
+    bytes canonical_command_queued_receipt = 1;
+    bytes command_id = 2;
+  }
+}
+
+message GatewayAwaitAppliedRequest {
+  bytes canonical_command_queued_receipt = 1;
+}
+
+message GatewayGetMessageRequest {
+  oneof locator {
+    bytes delay_message_id = 1;
+    bytes canonical_command_queued_receipt = 2;
+  }
+}
+
+message GatewaySubmissionOutcome {
+  oneof result {
+    bytes submission_outcome_ndr1 = 1;
+    bytes preparation_error = 2;
+  }
+}
+
+message GatewayPayloadUploadHandleResponse {
+  bytes payload_upload_handle_response = 1;
+}
+
+message GatewayPayloadAttestationResponse {
+  bytes payload_attestation_response = 1;
+}
+
+message GatewayCommandQueryResponse {
+  bytes command_query_response = 1;
+}
+
+message GatewayMessageQueryResponse {
+  bytes message_query_response = 1;
+}

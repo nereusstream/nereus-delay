@@ -4,27 +4,27 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import com.nereusstream.delay.protocol.AdapterMetadataV1;
+import com.nereusstream.delay.protocol.AdapterMetadata;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.DeliveryMode;
-import com.nereusstream.delay.protocol.KafkaMetadataV1;
-import com.nereusstream.delay.protocol.NativeCapabilitySnapshotV1;
-import com.nereusstream.delay.protocol.NativeDeliveryReceiptV1;
-import com.nereusstream.delay.protocol.NativePreparedDeliveryV1;
-import com.nereusstream.delay.protocol.NonPersistenceProofKindV1;
+import com.nereusstream.delay.protocol.KafkaMetadata;
+import com.nereusstream.delay.protocol.NativeCapabilitySnapshot;
+import com.nereusstream.delay.protocol.NativeDeliveryReceipt;
+import com.nereusstream.delay.protocol.NativePreparedDelivery;
+import com.nereusstream.delay.protocol.NonPersistenceProofKind;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.PulsarMetadataV1;
-import com.nereusstream.delay.protocol.RetryPolicyRefV1;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.PulsarMetadata;
+import com.nereusstream.delay.protocol.RetryPolicyRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.StableCode;
-import com.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import com.nereusstream.delay.protocol.SubmissionOutcomeMessage;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -58,15 +58,15 @@ class NativeSubmissionAdapterTest {
                     evidence));
         };
         try (PinnedPulsarNativeSubmissionAdapter adapter = fixture.adapter(transport)) {
-            final SubmissionOutcomeMessageV1 outcome = adapter.submit(fixture.prepared, attempt(1))
+            final SubmissionOutcomeMessage outcome = adapter.submit(fixture.prepared, attempt(1))
                     .toCompletableFuture()
                     .join();
-            assertEquals(com.nereusstream.delay.protocol.SubmissionOutcomeKindV1.NATIVE_RECEIPT, outcome.kind());
-            final NativeDeliveryReceiptV1 receipt = outcome.nativeReceipt();
+            assertEquals(com.nereusstream.delay.protocol.SubmissionOutcomeKind.NATIVE_RECEIPT, outcome.kind());
+            final NativeDeliveryReceipt receipt = outcome.nativeReceipt();
             assertEquals(fixture.prepared.preparedRef(), receipt.prepared());
             assertEquals(0, receipt.brokerAck().partition());
             assertArrayEquals(Bytes.sha256(evidence), receipt.brokerAck().sendReceiptSha256());
-            assertEquals(outcome, SubmissionOutcomeMessageV1.decode(outcome.canonicalBytes()));
+            assertEquals(outcome, SubmissionOutcomeMessage.decode(outcome.canonicalBytes()));
         }
     }
 
@@ -78,19 +78,18 @@ class NativeSubmissionAdapterTest {
                 request -> CompletableFuture.completedFuture(PulsarSendResult.definitelyNotPersisted(
                         StableCode.BROKER_DEFINITIVE_NOT_PERSISTED.wireValue(), evidence));
         try (PinnedPulsarNativeSubmissionAdapter adapter = fixture.adapter(transport)) {
-            final SubmissionOutcomeMessageV1 outcome = adapter.submit(fixture.prepared, attempt(2))
+            final SubmissionOutcomeMessage outcome = adapter.submit(fixture.prepared, attempt(2))
                     .toCompletableFuture()
                     .join();
             assertEquals(
-                    com.nereusstream.delay.protocol.SubmissionOutcomeKindV1.NATIVE_DEFINITELY_NOT_QUEUED,
-                    outcome.kind());
+                    com.nereusstream.delay.protocol.SubmissionOutcomeKind.NATIVE_DEFINITELY_NOT_QUEUED, outcome.kind());
             assertEquals(
-                    NonPersistenceProofKindV1.PULSAR_GUARD_REJECTION,
+                    NonPersistenceProofKind.PULSAR_GUARD_REJECTION,
                     outcome.nativeDefinitelyNotQueued().proof().kind());
             assertEquals(
                     StableCode.NATIVE_GUARD_DEFINITIVE_NOT_PERSISTED,
                     outcome.nativeDefinitelyNotQueued().error().code());
-            assertEquals(outcome, SubmissionOutcomeMessageV1.decode(outcome.canonicalBytes()));
+            assertEquals(outcome, SubmissionOutcomeMessage.decode(outcome.canonicalBytes()));
         }
     }
 
@@ -101,11 +100,11 @@ class NativeSubmissionAdapterTest {
                 request -> CompletableFuture.completedFuture(PulsarSendResult.definitelyNotPersisted(
                         StableCode.BROKER_RESOURCE_UNCERTIFIED.wireValue(), Bytes.utf8("not-a-guard-rejection")));
         try (PinnedPulsarNativeSubmissionAdapter adapter = fixture.adapter(transport)) {
-            final SubmissionOutcomeMessageV1 outcome = adapter.submit(fixture.prepared, attempt(21))
+            final SubmissionOutcomeMessage outcome = adapter.submit(fixture.prepared, attempt(21))
                     .toCompletableFuture()
                     .join();
             assertEquals(
-                    com.nereusstream.delay.protocol.SubmissionOutcomeKindV1.NATIVE_ENQUEUE_UNCERTAIN, outcome.kind());
+                    com.nereusstream.delay.protocol.SubmissionOutcomeKind.NATIVE_ENQUEUE_UNCERTAIN, outcome.kind());
             assertEquals(
                     StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN,
                     outcome.nativeUncertain().error().code());
@@ -122,11 +121,11 @@ class NativeSubmissionAdapterTest {
             throw new IllegalStateException("connection lost after Producer ownership");
         };
         try (PinnedPulsarNativeSubmissionAdapter adapter = fixture.adapter(transport)) {
-            final SubmissionOutcomeMessageV1 outcome = adapter.submit(fixture.prepared, attempt(3))
+            final SubmissionOutcomeMessage outcome = adapter.submit(fixture.prepared, attempt(3))
                     .toCompletableFuture()
                     .join();
             assertEquals(
-                    com.nereusstream.delay.protocol.SubmissionOutcomeKindV1.NATIVE_ENQUEUE_UNCERTAIN, outcome.kind());
+                    com.nereusstream.delay.protocol.SubmissionOutcomeKind.NATIVE_ENQUEUE_UNCERTAIN, outcome.kind());
             assertEquals(
                     StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN,
                     outcome.nativeUncertain().error().code());
@@ -140,11 +139,11 @@ class NativeSubmissionAdapterTest {
         final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport transport =
                 request -> new HandleRegistrationFailureFuture<>();
         try (PinnedPulsarNativeSubmissionAdapter adapter = fixture.adapter(transport)) {
-            final SubmissionOutcomeMessageV1 outcome = adapter.submit(fixture.prepared, attempt(31))
+            final SubmissionOutcomeMessage outcome = adapter.submit(fixture.prepared, attempt(31))
                     .toCompletableFuture()
                     .join();
             assertEquals(
-                    com.nereusstream.delay.protocol.SubmissionOutcomeKindV1.NATIVE_ENQUEUE_UNCERTAIN, outcome.kind());
+                    com.nereusstream.delay.protocol.SubmissionOutcomeKind.NATIVE_ENQUEUE_UNCERTAIN, outcome.kind());
             assertEquals(
                     StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN,
                     outcome.nativeUncertain().error().code());
@@ -163,12 +162,11 @@ class NativeSubmissionAdapterTest {
         final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
         try (PinnedPulsarNativeSubmissionAdapter adapter = new PinnedPulsarNativeSubmissionAdapter(
                 fixture.resource, keyPairGenerator.generateKeyPair().getPublic(), fixture.clock, transport)) {
-            final SubmissionOutcomeMessageV1 outcome = adapter.submit(fixture.prepared, attempt(4))
+            final SubmissionOutcomeMessage outcome = adapter.submit(fixture.prepared, attempt(4))
                     .toCompletableFuture()
                     .join();
             assertEquals(
-                    com.nereusstream.delay.protocol.SubmissionOutcomeKindV1.NATIVE_DEFINITELY_NOT_QUEUED,
-                    outcome.kind());
+                    com.nereusstream.delay.protocol.SubmissionOutcomeKind.NATIVE_DEFINITELY_NOT_QUEUED, outcome.kind());
             assertEquals(
                     StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE,
                     outcome.nativeDefinitelyNotQueued().error().code());
@@ -176,7 +174,7 @@ class NativeSubmissionAdapterTest {
 
         final Fixture expired = fixture(4_000, 4_000);
         try (PinnedPulsarNativeSubmissionAdapter adapter = expired.adapter(transport)) {
-            final SubmissionOutcomeMessageV1 outcome = adapter.submit(expired.prepared, attempt(5))
+            final SubmissionOutcomeMessage outcome = adapter.submit(expired.prepared, attempt(5))
                     .toCompletableFuture()
                     .join();
             assertEquals(
@@ -200,14 +198,14 @@ class NativeSubmissionAdapterTest {
                 fixture.clock,
                 transport,
                 prepared -> Bytes.sha256(Bytes.utf8("rotated-credential")))) {
-            final SubmissionOutcomeMessageV1 outcome = adapter.submit(fixture.prepared, attempt(41))
+            final SubmissionOutcomeMessage outcome = adapter.submit(fixture.prepared, attempt(41))
                     .toCompletableFuture()
                     .join();
             assertEquals(
                     StableCode.CREDENTIAL_BINDING_DRIFT,
                     outcome.nativeDefinitelyNotQueued().error().code());
             assertEquals(
-                    NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP,
+                    NonPersistenceProofKind.LOCAL_BEFORE_PRODUCER_OWNERSHIP,
                     outcome.nativeDefinitelyNotQueued().proof().kind());
         }
         assertFalse(called.get());
@@ -223,7 +221,7 @@ class NativeSubmissionAdapterTest {
         };
         try (PinnedPulsarNativeSubmissionAdapter adapter = new PinnedPulsarNativeSubmissionAdapter(
                 fixture.resource, fixture.keyPair.getPublic(), fixture.clock, transport, prepared -> null)) {
-            final SubmissionOutcomeMessageV1 outcome = adapter.submit(fixture.prepared, attempt(42))
+            final SubmissionOutcomeMessage outcome = adapter.submit(fixture.prepared, attempt(42))
                     .toCompletableFuture()
                     .join();
             assertEquals(
@@ -259,7 +257,7 @@ class NativeSubmissionAdapterTest {
         };
         try (PinnedPulsarNativeSubmissionAdapter adapter = new PinnedPulsarNativeSubmissionAdapter(
                 fixture.resource, fixture.keyPair.getPublic(), throwingClock, transport)) {
-            final SubmissionOutcomeMessageV1 outcome = adapter.submit(fixture.prepared, attempt(43))
+            final SubmissionOutcomeMessage outcome = adapter.submit(fixture.prepared, attempt(43))
                     .toCompletableFuture()
                     .join();
             assertEquals(
@@ -270,7 +268,7 @@ class NativeSubmissionAdapterTest {
         final Clock negativeClock = Clock.fixed(Instant.ofEpochMilli(-1), ZoneOffset.UTC);
         try (PinnedPulsarNativeSubmissionAdapter adapter = new PinnedPulsarNativeSubmissionAdapter(
                 fixture.resource, fixture.keyPair.getPublic(), negativeClock, transport)) {
-            final SubmissionOutcomeMessageV1 outcome = adapter.submit(fixture.prepared, attempt(44))
+            final SubmissionOutcomeMessage outcome = adapter.submit(fixture.prepared, attempt(44))
                     .toCompletableFuture()
                     .join();
             assertEquals(
@@ -297,7 +295,7 @@ class NativeSubmissionAdapterTest {
                 fixture.resource.partition());
         try (PinnedPulsarNativeSubmissionAdapter adapter = new PinnedPulsarNativeSubmissionAdapter(
                 mismatched, fixture.keyPair.getPublic(), fixture.clock, transport)) {
-            final SubmissionOutcomeMessageV1 outcome = adapter.submit(fixture.prepared, attempt(6))
+            final SubmissionOutcomeMessage outcome = adapter.submit(fixture.prepared, attempt(6))
                     .toCompletableFuture()
                     .join();
             assertEquals(
@@ -320,8 +318,8 @@ class NativeSubmissionAdapterTest {
             }
 
             @Override
-            public java.util.concurrent.CompletionStage<com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1>
-                    enqueueOutcomeV1(final PreparedCommand actual, final long queryUntil, final byte[] attemptId) {
+            public java.util.concurrent.CompletionStage<com.nereusstream.delay.protocol.EnqueueOutcomeMessage>
+                    enqueueOutcome(final PreparedCommand actual, final long queryUntil, final byte[] attemptId) {
                 assertEquals(command, actual);
                 assertEquals(9_000, queryUntil);
                 assertArrayEquals(attempt(7), attemptId);
@@ -338,14 +336,14 @@ class NativeSubmissionAdapterTest {
                 request -> CompletableFuture.failedFuture(new AssertionError("native branch was selected"));
         try (PinnedPulsarNativeSubmissionAdapter nativeAdapter = fixture.adapter(transport);
                 PreparedSubmissionAdapter adapter = new PreparedSubmissionAdapter(managed, nativeAdapter)) {
-            final SubmissionOutcomeMessageV1 outcome = adapter.submit(
-                            com.nereusstream.delay.protocol.PreparedSubmissionV1.managed(
-                                    CommandCodec.encodeFrameV1(command)),
+            final SubmissionOutcomeMessage outcome = adapter.submit(
+                            com.nereusstream.delay.protocol.PreparedSubmission.managed(
+                                    CommandCodec.encodeManagedFrame(command)),
                             9_000,
                             attempt(7))
                     .toCompletableFuture()
                     .join();
-            assertEquals(com.nereusstream.delay.protocol.SubmissionOutcomeKindV1.MANAGED, outcome.kind());
+            assertEquals(com.nereusstream.delay.protocol.SubmissionOutcomeKind.MANAGED, outcome.kind());
             assertEquals(
                     StableCode.CLIENT_CLOSED,
                     outcome.managed().definitelyNotQueued().error().code());
@@ -367,14 +365,14 @@ class NativeSubmissionAdapterTest {
             }
 
             @Override
-            public java.util.concurrent.CompletionStage<com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1>
-                    enqueueOutcomeV1(final PreparedCommand actual, final long queryUntil, final byte[] attemptId) {
+            public java.util.concurrent.CompletionStage<com.nereusstream.delay.protocol.EnqueueOutcomeMessage>
+                    enqueueOutcome(final PreparedCommand actual, final long queryUntil, final byte[] attemptId) {
                 return CompletableFuture.failedFuture(new AssertionError("absolute boundary path was used"));
             }
 
             @Override
-            public java.util.concurrent.CompletionStage<com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1>
-                    enqueueOutcomeV1(
+            public java.util.concurrent.CompletionStage<com.nereusstream.delay.protocol.EnqueueOutcomeMessage>
+                    enqueueOutcome(
                             final PreparedCommand actual,
                             final QueuedReceiptQueryPolicy actualPolicy,
                             final byte[] attemptId) {
@@ -395,14 +393,14 @@ class NativeSubmissionAdapterTest {
                 request -> CompletableFuture.failedFuture(new AssertionError("native branch was selected"));
         try (PinnedPulsarNativeSubmissionAdapter nativeAdapter = fixture.adapter(transport);
                 PreparedSubmissionAdapter adapter = new PreparedSubmissionAdapter(managed, nativeAdapter)) {
-            final SubmissionOutcomeMessageV1 outcome = adapter.submit(
-                            com.nereusstream.delay.protocol.PreparedSubmissionV1.managed(
-                                    CommandCodec.encodeFrameV1(command)),
+            final SubmissionOutcomeMessage outcome = adapter.submit(
+                            com.nereusstream.delay.protocol.PreparedSubmission.managed(
+                                    CommandCodec.encodeManagedFrame(command)),
                             policy,
                             attempt(12))
                     .toCompletableFuture()
                     .join();
-            assertEquals(com.nereusstream.delay.protocol.SubmissionOutcomeKindV1.MANAGED, outcome.kind());
+            assertEquals(com.nereusstream.delay.protocol.SubmissionOutcomeKind.MANAGED, outcome.kind());
             assertEquals(
                     StableCode.CLIENT_CLOSED,
                     outcome.managed().definitelyNotQueued().error().code());
@@ -423,8 +421,8 @@ class NativeSubmissionAdapterTest {
             }
 
             @Override
-            public java.util.concurrent.CompletionStage<com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1>
-                    enqueueOutcomeV1(final PreparedCommand actual, final long queryUntil, final byte[] attemptId) {
+            public java.util.concurrent.CompletionStage<com.nereusstream.delay.protocol.EnqueueOutcomeMessage>
+                    enqueueOutcome(final PreparedCommand actual, final long queryUntil, final byte[] attemptId) {
                 invoked.set(true);
                 return CompletableFuture.completedFuture(
                         WireIngressOutcomeSupport.localDefinite(actual, StableCode.INTEGRITY_ERROR));
@@ -435,14 +433,14 @@ class NativeSubmissionAdapterTest {
         try (PinnedPulsarNativeSubmissionAdapter nativeAdapter = fixture.adapter(transport)) {
             final PreparedSubmissionAdapter adapter = new PreparedSubmissionAdapter(managed, nativeAdapter);
             adapter.close();
-            final SubmissionOutcomeMessageV1 outcome = adapter.submit(
-                            com.nereusstream.delay.protocol.PreparedSubmissionV1.managed(
-                                    CommandCodec.encodeFrameV1(command)),
+            final SubmissionOutcomeMessage outcome = adapter.submit(
+                            com.nereusstream.delay.protocol.PreparedSubmission.managed(
+                                    CommandCodec.encodeManagedFrame(command)),
                             9_000,
                             attempt(9))
                     .toCompletableFuture()
                     .join();
-            assertEquals(com.nereusstream.delay.protocol.SubmissionOutcomeKindV1.MANAGED, outcome.kind());
+            assertEquals(com.nereusstream.delay.protocol.SubmissionOutcomeKind.MANAGED, outcome.kind());
             assertEquals(
                     StableCode.CLIENT_CLOSED,
                     outcome.managed().definitelyNotQueued().error().code());
@@ -463,8 +461,8 @@ class NativeSubmissionAdapterTest {
             }
 
             @Override
-            public java.util.concurrent.CompletionStage<com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1>
-                    enqueueOutcomeV1(final PreparedCommand actual, final long queryUntil, final byte[] attemptId) {
+            public java.util.concurrent.CompletionStage<com.nereusstream.delay.protocol.EnqueueOutcomeMessage>
+                    enqueueOutcome(final PreparedCommand actual, final long queryUntil, final byte[] attemptId) {
                 assertEquals(command, actual);
                 assertEquals(9_000, queryUntil);
                 assertArrayEquals(attempt(8), attemptId);
@@ -480,14 +478,14 @@ class NativeSubmissionAdapterTest {
                 request -> CompletableFuture.failedFuture(new AssertionError("native branch was selected"));
         try (PinnedPulsarNativeSubmissionAdapter nativeAdapter = fixture.adapter(transport);
                 PreparedSubmissionAdapter adapter = new PreparedSubmissionAdapter(managed, nativeAdapter)) {
-            final SubmissionOutcomeMessageV1 outcome = adapter.submit(
-                            com.nereusstream.delay.protocol.PreparedSubmissionV1.managed(
-                                    CommandCodec.encodeFrameV1(command)),
+            final SubmissionOutcomeMessage outcome = adapter.submit(
+                            com.nereusstream.delay.protocol.PreparedSubmission.managed(
+                                    CommandCodec.encodeManagedFrame(command)),
                             9_000,
                             attempt(8))
                     .toCompletableFuture()
                     .join();
-            assertEquals(com.nereusstream.delay.protocol.SubmissionOutcomeKindV1.MANAGED, outcome.kind());
+            assertEquals(com.nereusstream.delay.protocol.SubmissionOutcomeKind.MANAGED, outcome.kind());
             assertEquals(
                     StableCode.ENQUEUE_RESULT_UNCERTAIN,
                     outcome.managed().uncertain().error().code());
@@ -508,8 +506,8 @@ class NativeSubmissionAdapterTest {
             }
 
             @Override
-            public java.util.concurrent.CompletionStage<com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1>
-                    enqueueOutcomeV1(final PreparedCommand actual, final long queryUntil, final byte[] attemptId) {
+            public java.util.concurrent.CompletionStage<com.nereusstream.delay.protocol.EnqueueOutcomeMessage>
+                    enqueueOutcome(final PreparedCommand actual, final long queryUntil, final byte[] attemptId) {
                 assertEquals(command, actual);
                 assertEquals(9_000, queryUntil);
                 assertArrayEquals(attempt(9), attemptId);
@@ -520,14 +518,14 @@ class NativeSubmissionAdapterTest {
                 request -> CompletableFuture.failedFuture(new AssertionError("native branch was selected"));
         try (PinnedPulsarNativeSubmissionAdapter nativeAdapter = fixture.adapter(transport);
                 PreparedSubmissionAdapter adapter = new PreparedSubmissionAdapter(managed, nativeAdapter)) {
-            final SubmissionOutcomeMessageV1 outcome = adapter.submit(
-                            com.nereusstream.delay.protocol.PreparedSubmissionV1.managed(
-                                    CommandCodec.encodeFrameV1(command)),
+            final SubmissionOutcomeMessage outcome = adapter.submit(
+                            com.nereusstream.delay.protocol.PreparedSubmission.managed(
+                                    CommandCodec.encodeManagedFrame(command)),
                             9_000,
                             attempt(9))
                     .toCompletableFuture()
                     .join();
-            assertEquals(com.nereusstream.delay.protocol.SubmissionOutcomeKindV1.MANAGED, outcome.kind());
+            assertEquals(com.nereusstream.delay.protocol.SubmissionOutcomeKind.MANAGED, outcome.kind());
             assertEquals(
                     StableCode.ENQUEUE_RESULT_UNCERTAIN,
                     outcome.managed().uncertain().error().code());
@@ -548,8 +546,8 @@ class NativeSubmissionAdapterTest {
             }
 
             @Override
-            public java.util.concurrent.CompletionStage<com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1>
-                    enqueueOutcomeV1(final PreparedCommand actual, final long queryUntil, final byte[] attemptId) {
+            public java.util.concurrent.CompletionStage<com.nereusstream.delay.protocol.EnqueueOutcomeMessage>
+                    enqueueOutcome(final PreparedCommand actual, final long queryUntil, final byte[] attemptId) {
                 assertEquals(command, actual);
                 assertEquals(9_000, queryUntil);
                 assertArrayEquals(attempt(10), attemptId);
@@ -562,14 +560,14 @@ class NativeSubmissionAdapterTest {
         };
         try (PinnedPulsarNativeSubmissionAdapter nativeAdapter = fixture.adapter(transport);
                 PreparedSubmissionAdapter adapter = new PreparedSubmissionAdapter(managed, nativeAdapter)) {
-            final SubmissionOutcomeMessageV1 outcome = adapter.submit(
-                            com.nereusstream.delay.protocol.PreparedSubmissionV1.managed(
-                                    CommandCodec.encodeFrameV1(command)),
+            final SubmissionOutcomeMessage outcome = adapter.submit(
+                            com.nereusstream.delay.protocol.PreparedSubmission.managed(
+                                    CommandCodec.encodeManagedFrame(command)),
                             9_000,
                             attempt(10))
                     .toCompletableFuture()
                     .join();
-            assertEquals(com.nereusstream.delay.protocol.SubmissionOutcomeKindV1.MANAGED, outcome.kind());
+            assertEquals(com.nereusstream.delay.protocol.SubmissionOutcomeKind.MANAGED, outcome.kind());
             assertEquals(
                     StableCode.ENQUEUE_RESULT_UNCERTAIN,
                     outcome.managed().uncertain().error().code());
@@ -590,8 +588,8 @@ class NativeSubmissionAdapterTest {
             }
 
             @Override
-            public java.util.concurrent.CompletionStage<com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1>
-                    enqueueOutcomeV1(final PreparedCommand actual, final long queryUntil, final byte[] attemptId) {
+            public java.util.concurrent.CompletionStage<com.nereusstream.delay.protocol.EnqueueOutcomeMessage>
+                    enqueueOutcome(final PreparedCommand actual, final long queryUntil, final byte[] attemptId) {
                 assertEquals(command, actual);
                 assertEquals(9_000, queryUntil);
                 assertEquals(null, attemptId);
@@ -607,33 +605,33 @@ class NativeSubmissionAdapterTest {
                 request -> CompletableFuture.failedFuture(new AssertionError("native branch was selected"));
         try (PinnedPulsarNativeSubmissionAdapter nativeAdapter = fixture.adapter(transport);
                 PreparedSubmissionAdapter adapter = new PreparedSubmissionAdapter(managed, nativeAdapter)) {
-            final SubmissionOutcomeMessageV1 outcome = adapter.submit(
-                            com.nereusstream.delay.protocol.PreparedSubmissionV1.managed(
-                                    CommandCodec.encodeFrameV1(command)),
+            final SubmissionOutcomeMessage outcome = adapter.submit(
+                            com.nereusstream.delay.protocol.PreparedSubmission.managed(
+                                    CommandCodec.encodeManagedFrame(command)),
                             9_000,
                             null)
                     .toCompletableFuture()
                     .join();
-            assertEquals(com.nereusstream.delay.protocol.SubmissionOutcomeKindV1.MANAGED, outcome.kind());
+            assertEquals(com.nereusstream.delay.protocol.SubmissionOutcomeKind.MANAGED, outcome.kind());
             assertEquals(
                     StableCode.INVALID_PREPARED_COMMAND,
                     outcome.managed().definitelyNotQueued().error().code());
             assertEquals(
-                    NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP,
+                    NonPersistenceProofKind.LOCAL_BEFORE_PRODUCER_OWNERSHIP,
                     outcome.managed().definitelyNotQueued().proof().kind());
         }
     }
 
     private static PreparedCommand managedCommand() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 11);
-        final ProfileRefV1 destination = new ProfileRefV1(
+        final ProfileRef destination = new ProfileRef(
                 Bytes.utf8("managed-destination"),
                 1,
                 Bytes.sha256(Bytes.utf8("managed-destination-semantic")),
-                ProfileKindV1.DESTINATION);
-        final RetryPolicyRefV1 retryPolicy = new RetryPolicyRefV1(
-                Bytes.utf8("managed-retry"), 1, Bytes.sha256(Bytes.utf8("managed-retry-semantic")));
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
+                ProfileKind.DESTINATION);
+        final RetryPolicyRef retryPolicy =
+                new RetryPolicyRef(Bytes.utf8("managed-retry"), 1, Bytes.sha256(Bytes.utf8("managed-retry-semantic")));
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
                 destination,
                 retryPolicy,
                 2_000,
@@ -643,28 +641,28 @@ class NativeSubmissionAdapterTest {
                 new byte[0],
                 Bytes.utf8("managed-payload"),
                 null,
-                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, java.util.List.of())),
+                AdapterMetadata.kafka(new KafkaMetadata(null, java.util.List.of())),
                 null,
                 null);
-        return PreparedCommand.scheduleV1(shard, intent, 8_000);
+        return PreparedCommand.schedule(shard, intent, 8_000);
     }
 
     private static Fixture fixture(final long expiry, final long now) throws Exception {
         final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
         final KeyPair keyPair = keyPairGenerator.generateKeyPair();
         final byte[] resourceBytes = nonZero(32, 7);
-        final PulsarBrokerResourceIdentityV1 target = new PulsarBrokerResourceIdentityV1(
+        final PulsarBrokerResourceIdentity target = new PulsarBrokerResourceIdentity(
                 "native-cluster", resourceBytes, "persistent://tenant/ns/native", Long.MIN_VALUE);
-        final ProfileRefV1 destination = new ProfileRefV1(
+        final ProfileRef destination = new ProfileRef(
                 Bytes.utf8("native-destination"),
                 1,
                 Bytes.sha256(Bytes.utf8("native-destination-semantic")),
-                ProfileKindV1.DESTINATION);
-        final ProfileRefV1 capability = new ProfileRefV1(
+                ProfileKind.DESTINATION);
+        final ProfileRef capability = new ProfileRef(
                 Bytes.utf8("native-capability"),
                 1,
                 Bytes.sha256(Bytes.utf8("native-capability-semantic")),
-                ProfileKindV1.DELIVERY_CAPABILITY);
+                ProfileKind.DELIVERY_CAPABILITY);
         final TrustedUtcIntervalEvidence issuedAt = new TrustedUtcIntervalEvidence(
                 2_100,
                 2_110,
@@ -676,7 +674,7 @@ class NativeSubmissionAdapterTest {
                 Bytes.sha256(Bytes.utf8("native-sample")),
                 0,
                 null);
-        final NativeCapabilitySnapshotV1 snapshot = NativeCapabilitySnapshotV1.create(
+        final NativeCapabilitySnapshot snapshot = NativeCapabilitySnapshot.create(
                 destination,
                 capability,
                 target,
@@ -691,14 +689,14 @@ class NativeSubmissionAdapterTest {
                 expiry,
                 1,
                 keyPair.getPrivate());
-        final NativePreparedDeliveryV1 prepared = NativePreparedDeliveryV1.create(
+        final NativePreparedDelivery prepared = NativePreparedDelivery.create(
                 nonZero(32, 8),
                 destination,
                 capability,
                 target,
                 0,
                 Bytes.utf8("native-payload"),
-                new PulsarMetadataV1(null, null, null, java.util.List.of()),
+                new PulsarMetadata(null, null, null, java.util.List.of()),
                 null,
                 2_200,
                 2_300,
@@ -744,7 +742,7 @@ class NativeSubmissionAdapterTest {
     }
 
     private record Fixture(
-            KeyPair keyPair, PulsarTargetResource resource, NativePreparedDeliveryV1 prepared, Clock clock) {
+            KeyPair keyPair, PulsarTargetResource resource, NativePreparedDelivery prepared, Clock clock) {
         private PinnedPulsarNativeSubmissionAdapter adapter(
                 final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport transport) {
             return new PinnedPulsarNativeSubmissionAdapter(resource, keyPair.getPublic(), clock, transport);

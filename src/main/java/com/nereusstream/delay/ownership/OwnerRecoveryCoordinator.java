@@ -2,7 +2,7 @@ package com.nereusstream.delay.ownership;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CommandCodec;
-import com.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
+import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.scheduler.WorkClassTask;
@@ -16,7 +16,7 @@ import java.util.function.LongSupplier;
  * Bounded local orchestration for one strict owner takeover.
  *
  * <p>The coordinator deliberately starts after the caller has selected and
- * opened a validated local Store incarnation.  It owns only the ordering
+ * opened a validated local Store incarnation. It owns only the ordering
  * boundary from the context-bound Owner Lease CAS through source replay and
  * strict activation; source assignment publication, checkpoint selection,
  * Object Store download, and Oxia session creation remain external inputs.</p>
@@ -34,7 +34,7 @@ public final class OwnerRecoveryCoordinator {
     private final SourceReplaySuccessor successor;
     private final SourceReplayCursor<? extends SourceReplayEntry> source;
     private final PublicKey verificationKey;
-    private final CompatibleControlSnapshotV1 controlSnapshot;
+    private final CompatibleControlSnapshot controlSnapshot;
     private final LongSupplier clock;
     private final ReplayTurnBudget turnBudget;
     private final WorkClassExecutionRegistry workClasses;
@@ -52,7 +52,7 @@ public final class OwnerRecoveryCoordinator {
             final SourceReplaySuccessor successor,
             final SourceReplayCursor<? extends SourceReplayEntry> source,
             final PublicKey verificationKey,
-            final CompatibleControlSnapshotV1 controlSnapshot,
+            final CompatibleControlSnapshot controlSnapshot,
             final LongSupplier clock,
             final ReplayTurnBudget turnBudget,
             final WorkClassExecutionRegistry workClasses) {
@@ -219,7 +219,7 @@ public final class OwnerRecoveryCoordinator {
             }
             return now;
         } catch (RuntimeException | Error failure) {
-            // A clock read is part of the strict Owner proof.  Close the
+            // A clock read is part of the strict Owner proof. Close the
             // local gate even if the failure happens before the first replay
             // turn or between the last replay turn and activation.
             ownedShard.fence();

@@ -10,35 +10,35 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
+import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
-import com.nereusstream.delay.protocol.QuotaGrantRefV1;
-import com.nereusstream.delay.protocol.RecoveryCandidateKindV1;
-import com.nereusstream.delay.protocol.RecoveryCandidateRefV1;
-import com.nereusstream.delay.protocol.RecoveryFloorRefV1;
-import com.nereusstream.delay.protocol.RecoveryInstallPhaseV1;
-import com.nereusstream.delay.protocol.RecoveryInstallStateV1;
-import com.nereusstream.delay.protocol.RecoveryPinV1;
+import com.nereusstream.delay.protocol.QuotaGrantRef;
+import com.nereusstream.delay.protocol.RecoveryCandidateKind;
+import com.nereusstream.delay.protocol.RecoveryCandidateRef;
+import com.nereusstream.delay.protocol.RecoveryFloorRef;
+import com.nereusstream.delay.protocol.RecoveryInstallPhase;
+import com.nereusstream.delay.protocol.RecoveryInstallState;
+import com.nereusstream.delay.protocol.RecoveryPin;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
-import com.nereusstream.delay.protocol.SloFinalOutcomeV1;
-import com.nereusstream.delay.protocol.SloObjectiveNameV1;
-import com.nereusstream.delay.protocol.SloObservationOutboxV1;
-import com.nereusstream.delay.protocol.SloPathV1;
-import com.nereusstream.delay.protocol.SloPopulationV1;
-import com.nereusstream.delay.protocol.SloSampleEventIdentityV1;
-import com.nereusstream.delay.protocol.SloSampleFinalV1;
-import com.nereusstream.delay.protocol.SloSampleStartV1;
-import com.nereusstream.delay.protocol.SloThresholdDirectionV1;
-import com.nereusstream.delay.protocol.SloThresholdUnitV1;
-import com.nereusstream.delay.protocol.SloTimeEndpointKindV1;
-import com.nereusstream.delay.protocol.SloTimeEndpointV1;
+import com.nereusstream.delay.protocol.ShardSubject;
+import com.nereusstream.delay.protocol.SloFinalOutcome;
+import com.nereusstream.delay.protocol.SloObjectiveName;
+import com.nereusstream.delay.protocol.SloObservationOutbox;
+import com.nereusstream.delay.protocol.SloPath;
+import com.nereusstream.delay.protocol.SloPopulation;
+import com.nereusstream.delay.protocol.SloSampleEventIdentity;
+import com.nereusstream.delay.protocol.SloSampleFinal;
+import com.nereusstream.delay.protocol.SloSampleStart;
+import com.nereusstream.delay.protocol.SloThresholdDirection;
+import com.nereusstream.delay.protocol.SloThresholdUnit;
+import com.nereusstream.delay.protocol.SloTimeEndpoint;
+import com.nereusstream.delay.protocol.SloTimeEndpointKind;
 import com.nereusstream.delay.protocol.SourcePosition;
 import java.lang.reflect.Modifier;
 import java.nio.file.Files;
@@ -166,7 +166,7 @@ class ShardStoreTest {
         final byte[] lineage = bytes(44);
         final byte[] checkpointId = bytes(45);
         final RecoveryCatalog catalog = new RecoveryCatalog();
-        final RecoveryFloorRefV1 observedFloor;
+        final RecoveryFloorRef observedFloor;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final KafkaSourcePosition appliedPosition =
@@ -193,8 +193,8 @@ class ShardStoreTest {
             catalog.publish(manifest, 0);
             observedFloor = catalog.advanceFloor(checkpointId, 1, List.of());
             store.recordRecoveryMetadata(
-                    new RecoveryCandidateRefV1(
-                            RecoveryCandidateKindV1.LOCAL_STORE,
+                    new RecoveryCandidateRef(
+                            RecoveryCandidateKind.LOCAL_STORE,
                             lineage,
                             checkpointId,
                             manifest.manifestSha256(),
@@ -203,7 +203,7 @@ class ShardStoreTest {
         }
 
         // The catalog must see the persisted recovery projection, not an
-        // OPEN marker written speculatively by the native open path.  A
+        // OPEN marker written speculatively by the native open path. A
         // previously cleanly closed store therefore reaches validation as
         // CLOSED_CLEAN and is only published OPEN after this callback returns.
         final RecoveryCatalogAuthority proofBeforeOpen = new RecoveryCatalogAuthority() {
@@ -249,7 +249,7 @@ class ShardStoreTest {
                     final ShardId candidateShard, final StoreRecoveryMetadata localMetadata) {
                 assertNotNull(localMetadata.installState());
                 assertEquals(
-                        RecoveryInstallPhaseV1.CLOSED_CLEAN,
+                        RecoveryInstallPhase.CLOSED_CLEAN,
                         localMetadata.installState().phase());
                 catalog.validateLocalStoreRecovery(candidateShard, localMetadata);
             }
@@ -259,7 +259,7 @@ class ShardStoreTest {
                 ShardStore reused = ShardStore.openForLocalRecoveryReuse(config, shardId, resources, proofBeforeOpen)) {
             assertEquals(observedFloor, reused.recoveryMetadata().lastObservedFloor());
             assertEquals(
-                    RecoveryInstallPhaseV1.OPEN,
+                    RecoveryInstallPhase.OPEN,
                     reused.recoveryMetadata().installState().phase());
         }
 
@@ -462,7 +462,7 @@ class ShardStoreTest {
             dbPath = store.dbPath();
         }
         final ShardId foreignShard = new ShardId(RouteIncarnation.random(), 36);
-        final RecoveryFloorRefV1 foreignFloor = new RecoveryFloorRefV1(
+        final RecoveryFloorRef foreignFloor = new RecoveryFloorRef(
                 bytes(37),
                 bytes(38),
                 bytes(32, 39),
@@ -490,8 +490,8 @@ class ShardStoreTest {
             dbPath = store.dbPath();
             storeIncarnation = store.metadata().storeIncarnation();
             store.recordRecoveryMetadata(
-                    new RecoveryCandidateRefV1(
-                            RecoveryCandidateKindV1.LOCAL_STORE,
+                    new RecoveryCandidateRef(
+                            RecoveryCandidateKind.LOCAL_STORE,
                             bytes(58),
                             checkpointId,
                             bytes(32, 59),
@@ -504,7 +504,7 @@ class ShardStoreTest {
                 KeyCodec.metaRecovery(4),
                 ValueEnvelope.encode(
                         1,
-                        new RecoveryInstallStateV1(RecoveryInstallPhaseV1.CLOSED_CLEAN, storeIncarnation, bytes(60))
+                        new RecoveryInstallState(RecoveryInstallPhase.CLOSED_CLEAN, storeIncarnation, bytes(60))
                                 .canonicalBytes()));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config)) {
             assertThrows(IllegalStateException.class, () -> ShardStore.open(config, shardId, resources));
@@ -550,11 +550,11 @@ class ShardStoreTest {
     void compatibleControlSnapshotIsPersistedAndRevalidatedForItsShard() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("control-snapshot"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 39);
-        final CompatibleControlSnapshotV1 snapshot = new CompatibleControlSnapshotV1(
-                new ShardSubjectV1(shardId),
-                List.of(new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1)),
-                List.of(new ProfileRefV1(bytes(32, 61), 1, bytes(32, 62), ProfileKindV1.DESTINATION)),
-                new QuotaGrantRefV1(
+        final CompatibleControlSnapshot snapshot = new CompatibleControlSnapshot(
+                new ShardSubject(shardId),
+                List.of(new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1)),
+                List.of(new ProfileRef(bytes(32, 61), 1, bytes(32, 62), ProfileKind.DESTINATION)),
+                new QuotaGrantRef(
                         bytes(32, 63),
                         1,
                         new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));
@@ -574,8 +574,8 @@ class ShardStoreTest {
             assertEquals(snapshot, reopened.controlSnapshot());
         }
         final ShardId foreignShard = new ShardId(RouteIncarnation.random(), 40);
-        final CompatibleControlSnapshotV1 foreign = new CompatibleControlSnapshotV1(
-                new ShardSubjectV1(foreignShard),
+        final CompatibleControlSnapshot foreign = new CompatibleControlSnapshot(
+                new ShardSubject(foreignShard),
                 snapshot.protocolTuples(),
                 snapshot.profiles(),
                 snapshot.initialQuotaGrant());
@@ -796,32 +796,32 @@ class ShardStoreTest {
     void sloOutboxStartAndMergedFinalSurviveReopen() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("slo-outbox"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 22);
-        final SloSampleStartV1 start = sloStart();
+        final SloSampleStart start = sloStart();
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final SloObservationOutboxStore outbox = new SloObservationOutboxStore(store);
             assertEquals(start, outbox.ensureStart(start).start());
             assertEquals(1, outbox.scan(10).size());
-            final SloSampleFinalV1 finalObservation = new SloSampleFinalV1(
+            final SloSampleFinal finalObservation = new SloSampleFinal(
                     start.sampleId(),
                     start.startDigest(),
-                    SloFinalOutcomeV1.BAD_TIMEOUT,
-                    SloThresholdUnitV1.MILLISECONDS,
+                    SloFinalOutcome.BAD_TIMEOUT,
+                    SloThresholdUnit.MILLISECONDS,
                     10,
                     12,
                     null,
                     endpoint(200),
                     bytes(32, 9),
                     1);
-            outbox.mergeFinal(finalObservation, SloThresholdDirectionV1.AT_MOST);
+            outbox.mergeFinal(finalObservation, SloThresholdDirection.AT_MOST);
         }
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore reopened = ShardStore.open(config, shardId, resources)) {
-            final SloObservationOutboxV1 value = new SloObservationOutboxStore(reopened).get(start.sampleId());
-            assertEquals(SloFinalOutcomeV1.BAD_TIMEOUT, value.finalObservation().outcome());
+            final SloObservationOutbox value = new SloObservationOutboxStore(reopened).get(start.sampleId());
+            assertEquals(SloFinalOutcome.BAD_TIMEOUT, value.finalObservation().outcome());
             assertArrayEquals(
                     value.canonicalBytes(),
-                    SloObservationOutboxV1.decode(value.canonicalBytes()).canonicalBytes());
+                    SloObservationOutbox.decode(value.canonicalBytes()).canonicalBytes());
             assertThrows(IllegalStateException.class, () -> new SloObservationOutboxStore(reopened)
                     .deleteAfterCollectorAck(start.sampleId(), Bytes.sha256(Bytes.utf8("wrong-digest"))));
             assertEquals(1, new SloObservationOutboxStore(reopened).scan(10).size());
@@ -859,7 +859,7 @@ class ShardStoreTest {
 
             // restoreFromCheckpoint must release the worker-wide download slot
             // before returning the opened active DB, not only after the caller
-            // closes that DB.  This exercises the real restore path rather
+            // closes that DB. This exercises the real restore path rather
             // than only testing the semaphore API in isolation.
             resources.acquireCheckpointDownloadSlot();
             resources.releaseCheckpointDownloadSlot();
@@ -1113,7 +1113,7 @@ class ShardStoreTest {
         final byte[] checkpointId = bytes(30);
         final KafkaSourcePosition appliedPosition =
                 new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(), 0, null, 1_000);
-        final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshotFor(shardId);
+        final CompatibleControlSnapshot controlSnapshot = controlSnapshotFor(shardId);
         final byte[] dbIdentity;
         final UUID sourceStoreIncarnation;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
@@ -1175,7 +1175,7 @@ class ShardStoreTest {
         catalog.publish(manifest, 0);
         final RecoveryFloor floor =
                 catalog.advanceFloor(manifest.checkpointId(), 1, Bytes.sha256(Bytes.utf8("catalog-floor")));
-        final RecoveryFloorRefV1 floorRef = new RecoveryFloorRefV1(
+        final RecoveryFloorRef floorRef = new RecoveryFloorRef(
                 floor.recoveryLineageId(),
                 floor.checkpointId(),
                 floor.manifestSha256(),
@@ -1183,16 +1183,16 @@ class ShardStoreTest {
                 floor.appliedSourcePosition(),
                 floor.includedMutationSequence(),
                 List.of());
-        final RecoveryPinV1 pin = new RecoveryPinV1(
+        final RecoveryPin pin = new RecoveryPin(
                 java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("catalog-pin"), Bytes.utf8("id")), 16),
-                new ShardSubjectV1(shardId),
-                new OwnerIdentityV1(
+                new ShardSubject(shardId),
+                new OwnerIdentity(
                         manifest.createdBy().deploymentId(),
                         manifest.createdBy().workerRunId(),
                         manifest.createdBy().ownerEpoch(),
                         Bytes.sha256(Bytes.utf8("catalog-lease"))),
-                new RecoveryCandidateRefV1(
-                        RecoveryCandidateKindV1.CATALOG_CHECKPOINT,
+                new RecoveryCandidateRef(
+                        RecoveryCandidateKind.CATALOG_CHECKPOINT,
                         manifest.recoveryLineageId(),
                         manifest.checkpointId(),
                         manifest.manifestSha256(),
@@ -1211,7 +1211,7 @@ class ShardStoreTest {
             assertEquals(
                     floorRef.catalogGeneration(), restored.recoveryMetadata().catalogGeneration());
             assertEquals(
-                    RecoveryCandidateKindV1.LOCAL_STORE,
+                    RecoveryCandidateKind.LOCAL_STORE,
                     restored.recoveryMetadata().lineageBase().kind());
             assertArrayEquals(
                     restored.metadata().storeIncarnation(),
@@ -1259,9 +1259,9 @@ class ShardStoreTest {
             }
 
             @Override
-            public Optional<RecoveryPinV1> activeRecoveryPin() {
+            public Optional<RecoveryPin> activeRecoveryPin() {
                 // The first three reads cover admission, staged validation and
-                // the pre-rename install fence.  The fourth read simulates a
+                // the pre-rename install fence. The fourth read simulates a
                 // session/pin change while the formally opened incarnation is
                 // being prepared for ACTIVE publication.
                 if (++pinReads == 4) {
@@ -1721,11 +1721,11 @@ class ShardStoreTest {
         final byte[] checkpointId = bytes(90);
         final KafkaSourcePosition appliedPosition =
                 new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(), 6, null, 1_006);
-        final CompatibleControlSnapshotV1 snapshot = new CompatibleControlSnapshotV1(
-                new ShardSubjectV1(shardId),
-                List.of(new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1)),
-                List.of(new ProfileRefV1(bytes(32, 91), 1, bytes(32, 92), ProfileKindV1.DESTINATION)),
-                new QuotaGrantRefV1(
+        final CompatibleControlSnapshot snapshot = new CompatibleControlSnapshot(
+                new ShardSubject(shardId),
+                List.of(new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1)),
+                List.of(new ProfileRef(bytes(32, 91), 1, bytes(32, 92), ProfileKind.DESTINATION)),
+                new QuotaGrantRef(
                         bytes(32, 93),
                         1,
                         new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));
@@ -1866,7 +1866,7 @@ class ShardStoreTest {
         final byte[] checkpointId = bytes(50);
         final KafkaSourcePosition appliedPosition =
                 new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(), 4, null, 1_004);
-        final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshotFor(shardId);
+        final CompatibleControlSnapshot controlSnapshot = controlSnapshotFor(shardId);
         final byte[] dbIdentity;
         final UUID sourceStoreIncarnation;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
@@ -1879,8 +1879,8 @@ class ShardStoreTest {
                 batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(5), Bytes.u64be(9));
             });
             store.recordRecoveryMetadata(
-                    new RecoveryCandidateRefV1(
-                            RecoveryCandidateKindV1.LOCAL_STORE,
+                    new RecoveryCandidateRef(
+                            RecoveryCandidateKind.LOCAL_STORE,
                             bytes(51),
                             checkpointId,
                             bytes(32, 52),
@@ -1959,7 +1959,7 @@ class ShardStoreTest {
         final byte[] lineage = bytes(70 + partition);
         final KafkaSourcePosition appliedPosition =
                 new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(), partition, null, 1_000L + partition);
-        final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshotFor(shardId);
+        final CompatibleControlSnapshot controlSnapshot = controlSnapshotFor(shardId);
         final byte[] dbIdentity;
         final UUID sourceStoreIncarnation;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(sourceConfig);
@@ -1972,8 +1972,8 @@ class ShardStoreTest {
                 batch.putValue(ColumnFamily.META, 1, KeyCodec.metaFixed(5), Bytes.u64be(11));
             });
             store.recordRecoveryMetadata(
-                    new RecoveryCandidateRefV1(
-                            RecoveryCandidateKindV1.LOCAL_STORE,
+                    new RecoveryCandidateRef(
+                            RecoveryCandidateKind.LOCAL_STORE,
                             lineage,
                             candidateCheckpointId,
                             candidateManifestHash,
@@ -2048,35 +2048,35 @@ class ShardStoreTest {
         return result;
     }
 
-    private static CompatibleControlSnapshotV1 controlSnapshotFor(final ShardId shardId) {
-        return new CompatibleControlSnapshotV1(
-                new ShardSubjectV1(shardId),
-                List.of(new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1)),
-                List.of(new ProfileRefV1(bytes(32, 107), 1, bytes(32, 108), ProfileKindV1.DESTINATION)),
-                new QuotaGrantRefV1(
+    private static CompatibleControlSnapshot controlSnapshotFor(final ShardId shardId) {
+        return new CompatibleControlSnapshot(
+                new ShardSubject(shardId),
+                List.of(new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1)),
+                List.of(new ProfileRef(bytes(32, 107), 1, bytes(32, 108), ProfileKind.DESTINATION)),
+                new QuotaGrantRef(
                         bytes(32, 109),
                         1,
                         new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));
     }
 
-    private static SloSampleStartV1 sloStart() {
+    private static SloSampleStart sloStart() {
         final byte[] identityPayload = com.nereusstream.delay.protocol.CanonicalProtobuf.message(
                 output -> com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(output, 1, bytes(16, 8)));
-        final SloSampleEventIdentityV1 identity =
-                new SloSampleEventIdentityV1(SloObjectiveNameV1.QUERY_LATENCY, identityPayload);
-        return new SloSampleStartV1(
+        final SloSampleEventIdentity identity =
+                new SloSampleEventIdentity(SloObjectiveName.QUERY_LATENCY, identityPayload);
+        return new SloSampleStart(
                 Bytes.sha256(Bytes.utf8("slo-objective")),
-                SloObjectiveNameV1.QUERY_LATENCY,
-                SloPopulationV1.ALL_ACCEPTED,
-                SloPathV1.NOT_APPLICABLE,
+                SloObjectiveName.QUERY_LATENCY,
+                SloPopulation.ALL_ACCEPTED,
+                SloPath.NOT_APPLICABLE,
                 identity,
                 endpoint(100),
                 200L);
     }
 
-    private static SloTimeEndpointV1 endpoint(final long epochMs) {
-        return new SloTimeEndpointV1(
-                SloTimeEndpointKindV1.SEMANTIC_FIXED_EPOCH, epochMs, epochMs, bytes(32, (int) epochMs));
+    private static SloTimeEndpoint endpoint(final long epochMs) {
+        return new SloTimeEndpoint(
+                SloTimeEndpointKind.SEMANTIC_FIXED_EPOCH, epochMs, epochMs, bytes(32, (int) epochMs));
     }
 
     private static void assertRawRocksDbCanBeOpened(final Path dbPath) throws Exception {

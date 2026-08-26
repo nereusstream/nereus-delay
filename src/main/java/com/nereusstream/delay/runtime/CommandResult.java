@@ -23,7 +23,7 @@ public record CommandResult(
             throw new IllegalArgumentException("invalid command result");
         }
         // A durable result is only meaningful when its source-order anchor is
-        // a complete canonical Source Position.  Without this constructor
+        // a complete canonical Source Position. Without this constructor
         // fence, an empty or non-canonical byte string could survive in a
         // result value until a later shard-specific lookup happened to read
         // it, allowing other local projections to observe an invalid anchor.

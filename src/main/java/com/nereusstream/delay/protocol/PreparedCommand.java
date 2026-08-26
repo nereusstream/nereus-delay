@@ -10,7 +10,7 @@ public final class PreparedCommand {
     private final CommandId commandId;
     private final DelayMessageId delayMessageId;
     private final CommandType type;
-    private final ProtocolTupleV1 protocolTuple;
+    private final ProtocolTuple protocolTuple;
     private final long retryUntilEpochMs;
     private final byte[] canonicalBody;
     private final byte[] commandHash;
@@ -28,7 +28,7 @@ public final class PreparedCommand {
                 commandId,
                 delayMessageId,
                 type,
-                ProtocolTupleV1.managedCommandV1(),
+                ProtocolTuple.managedCommand(),
                 retryUntilEpochMs,
                 canonicalBody,
                 commandHash);
@@ -39,7 +39,7 @@ public final class PreparedCommand {
             final CommandId commandId,
             final DelayMessageId delayMessageId,
             final CommandType type,
-            final ProtocolTupleV1 protocolTuple,
+            final ProtocolTuple protocolTuple,
             final long retryUntilEpochMs,
             final byte[] canonicalBody,
             final byte[] commandHash) {
@@ -48,7 +48,7 @@ public final class PreparedCommand {
         this.delayMessageId = Objects.requireNonNull(delayMessageId, "delayMessageId");
         this.type = Objects.requireNonNull(type, "type");
         this.protocolTuple = Objects.requireNonNull(protocolTuple, "protocolTuple");
-        if (protocolTuple.recordKind() != ProtocolTupleV1.CLIENT_COMMAND) {
+        if (protocolTuple.recordKind() != ProtocolTuple.CLIENT_COMMAND) {
             throw new IllegalArgumentException("PreparedCommand requires a Client Command protocol tuple");
         }
         if (!commandId.routingId().shardId().equals(shardId)
@@ -69,6 +69,7 @@ public final class PreparedCommand {
         this.commandHash = Bytes.copy(commandHash);
     }
 
+    /** Creates a command using the Registry-shaped Schedule body seam. */
     public static PreparedCommand schedule(
             final ShardId shardId, final ScheduleIntent intent, final long retryUntilEpochMs) {
         final CommandId commandId = CommandId.random(shardId);
@@ -77,9 +78,9 @@ public final class PreparedCommand {
                 shardId, commandId, messageId, CommandType.SCHEDULE, retryUntilEpochMs, CommandBodies.schedule(intent));
     }
 
-    /** Creates a command using the Registry-shaped ScheduleV1 body seam. */
-    public static PreparedCommand scheduleV1(
-            final ShardId shardId, final ScheduleIntentV1 intent, final long retryUntilEpochMs) {
+    /** Creates a command using the Registry-shaped Schedule body seam. */
+    public static PreparedCommand schedule(
+            final ShardId shardId, final CanonicalScheduleIntent intent, final long retryUntilEpochMs) {
         final CommandId commandId = CommandId.random(shardId);
         final DelayMessageId messageId = DelayMessageId.random(shardId);
         return create(
@@ -88,15 +89,15 @@ public final class PreparedCommand {
                 messageId,
                 CommandType.SCHEDULE,
                 retryUntilEpochMs,
-                CommandBodies.scheduleV1(messageId, retryUntilEpochMs, intent));
+                CommandBodies.schedule(messageId, retryUntilEpochMs, intent));
     }
 
-    /** Creates a V1 schedule with identities selected by the Semantic Core. */
-    public static PreparedCommand scheduleV1(
+    /** Creates a schedule with identities selected by the Semantic Core. */
+    public static PreparedCommand schedule(
             final ShardId shardId,
             final UUID logicalMessageUuidV7,
             final UUID logicalCommandUuidV7,
-            final ScheduleIntentV1 intent,
+            final CanonicalScheduleIntent intent,
             final long retryUntilEpochMs) {
         final DelayMessageId messageId = new DelayMessageId(
                 SelfRoutingId.fromLogicalUuid(shardId, logicalMessageUuidV7).bytes());
@@ -108,9 +109,10 @@ public final class PreparedCommand {
                 messageId,
                 CommandType.SCHEDULE,
                 retryUntilEpochMs,
-                CommandBodies.scheduleV1(messageId, retryUntilEpochMs, intent));
+                CommandBodies.schedule(messageId, retryUntilEpochMs, intent));
     }
 
+    /** Creates a command using the Registry-shaped PrepareLargeSchedule body seam. */
     public static PreparedCommand prepareLarge(
             final ShardId shardId, final LargeScheduleIntent intent, final long retryUntilEpochMs) {
         final CommandId commandId = CommandId.random(shardId);
@@ -124,15 +126,15 @@ public final class PreparedCommand {
                 CommandBodies.prepareLarge(intent));
     }
 
-    /** Creates a command using the Registry-shaped PrepareLargeScheduleV1 body seam. */
-    public static PreparedCommand prepareLargeV1(
+    /** Creates a command using the Registry-shaped PrepareLargeSchedule body seam. */
+    public static PreparedCommand prepareLarge(
             final ShardId shardId,
-            final ScheduleIntentV1 intentWithoutPayload,
+            final CanonicalScheduleIntent intentWithoutPayload,
             final long expectedPayloadLength,
             final byte[] payloadSha256,
             final long reservationTtlMs,
-            final PayloadProofTrustSetRefV1 trustSet,
-            final ProfileRefV1 objectStoreProfile,
+            final PayloadProofTrustSetRef trustSet,
+            final ProfileRef objectStoreProfile,
             final long retryUntilEpochMs) {
         final CommandId commandId = CommandId.random(shardId);
         final DelayMessageId messageId = DelayMessageId.random(shardId);
@@ -142,7 +144,7 @@ public final class PreparedCommand {
                 messageId,
                 CommandType.PREPARE_LARGE_SCHEDULE,
                 retryUntilEpochMs,
-                CommandBodies.prepareLargeV1(
+                CommandBodies.prepareLarge(
                         messageId,
                         retryUntilEpochMs,
                         intentWithoutPayload,
@@ -153,17 +155,17 @@ public final class PreparedCommand {
                         objectStoreProfile));
     }
 
-    /** Creates a V1 large-payload preparation with identities selected by the Semantic Core. */
-    public static PreparedCommand prepareLargeV1(
+    /** Creates a large-payload preparation with identities selected by the Semantic Core. */
+    public static PreparedCommand prepareLarge(
             final ShardId shardId,
             final UUID logicalMessageUuidV7,
             final UUID logicalCommandUuidV7,
-            final ScheduleIntentV1 intentWithoutPayload,
+            final CanonicalScheduleIntent intentWithoutPayload,
             final long expectedPayloadLength,
             final byte[] payloadSha256,
             final long reservationTtlMs,
-            final PayloadProofTrustSetRefV1 trustSet,
-            final ProfileRefV1 objectStoreProfile,
+            final PayloadProofTrustSetRef trustSet,
+            final ProfileRef objectStoreProfile,
             final long retryUntilEpochMs) {
         final DelayMessageId messageId = new DelayMessageId(
                 SelfRoutingId.fromLogicalUuid(shardId, logicalMessageUuidV7).bytes());
@@ -175,7 +177,7 @@ public final class PreparedCommand {
                 messageId,
                 CommandType.PREPARE_LARGE_SCHEDULE,
                 retryUntilEpochMs,
-                CommandBodies.prepareLargeV1(
+                CommandBodies.prepareLarge(
                         messageId,
                         retryUntilEpochMs,
                         intentWithoutPayload,
@@ -186,6 +188,7 @@ public final class PreparedCommand {
                         objectStoreProfile));
     }
 
+    /** Creates a command using the Registry-shaped CommitLargeSchedule body seam. */
     public static PreparedCommand commitLarge(
             final ShardId shardId,
             final DelayMessageId messageId,
@@ -203,12 +206,12 @@ public final class PreparedCommand {
                 CommandBodies.commitLarge(proof));
     }
 
-    /** Creates a command using the Registry-shaped CommitLargeScheduleV1 body seam. */
-    public static PreparedCommand commitLargeV1(
+    /** Creates a command using the Registry-shaped CommitLargeSchedule body seam. */
+    public static PreparedCommand commitLarge(
             final ShardId shardId,
             final DelayMessageId messageId,
             final byte[] reservationId,
-            final PayloadCommitProofV1 proof,
+            final CanonicalPayloadCommitProof proof,
             final long retryUntilEpochMs) {
         return create(
                 shardId,
@@ -216,16 +219,16 @@ public final class PreparedCommand {
                 messageId,
                 CommandType.COMMIT_LARGE_SCHEDULE,
                 retryUntilEpochMs,
-                CommandBodies.commitLargeV1(messageId, retryUntilEpochMs, reservationId, proof));
+                CommandBodies.commitLarge(messageId, retryUntilEpochMs, reservationId, proof));
     }
 
-    /** Creates a V1 payload commit with a Semantic-Core-selected Command ID. */
-    public static PreparedCommand commitLargeV1(
+    /** Creates a payload commit with a Semantic-Core-selected Command ID. */
+    public static PreparedCommand commitLarge(
             final ShardId shardId,
             final CommandId commandId,
             final DelayMessageId messageId,
             final byte[] reservationId,
-            final PayloadCommitProofV1 proof,
+            final CanonicalPayloadCommitProof proof,
             final long retryUntilEpochMs) {
         return create(
                 shardId,
@@ -233,40 +236,10 @@ public final class PreparedCommand {
                 messageId,
                 CommandType.COMMIT_LARGE_SCHEDULE,
                 retryUntilEpochMs,
-                CommandBodies.commitLargeV1(messageId, retryUntilEpochMs, reservationId, proof));
+                CommandBodies.commitLarge(messageId, retryUntilEpochMs, reservationId, proof));
     }
 
-    /** Creates a command using the Registry-shaped CancelV1 body seam. */
-    public static PreparedCommand cancelV1(
-            final ShardId shardId,
-            final DelayMessageId messageId,
-            final MessagePreconditionV1 precondition,
-            final long retryUntilEpochMs) {
-        return create(
-                shardId,
-                CommandId.random(shardId),
-                messageId,
-                CommandType.CANCEL,
-                retryUntilEpochMs,
-                CommandBodies.cancelV1(messageId, retryUntilEpochMs, precondition));
-    }
-
-    /** Creates a V1 cancel with a Semantic-Core-selected Command ID. */
-    public static PreparedCommand cancelV1(
-            final ShardId shardId,
-            final CommandId commandId,
-            final DelayMessageId messageId,
-            final MessagePreconditionV1 precondition,
-            final long retryUntilEpochMs) {
-        return create(
-                shardId,
-                Objects.requireNonNull(commandId, "commandId"),
-                messageId,
-                CommandType.CANCEL,
-                retryUntilEpochMs,
-                CommandBodies.cancelV1(messageId, retryUntilEpochMs, precondition));
-    }
-
+    /** Creates a command using the Registry-shaped Cancel body seam. */
     public static PreparedCommand cancel(
             final ShardId shardId,
             final DelayMessageId messageId,
@@ -281,6 +254,38 @@ public final class PreparedCommand {
                 CommandBodies.cancel(expectedGeneration));
     }
 
+    /** Creates a command using the Registry-shaped Cancel body seam. */
+    public static PreparedCommand cancel(
+            final ShardId shardId,
+            final DelayMessageId messageId,
+            final MessagePrecondition precondition,
+            final long retryUntilEpochMs) {
+        return create(
+                shardId,
+                CommandId.random(shardId),
+                messageId,
+                CommandType.CANCEL,
+                retryUntilEpochMs,
+                CommandBodies.cancel(messageId, retryUntilEpochMs, precondition));
+    }
+
+    /** Creates a cancel with a Semantic-Core-selected Command ID. */
+    public static PreparedCommand cancel(
+            final ShardId shardId,
+            final CommandId commandId,
+            final DelayMessageId messageId,
+            final MessagePrecondition precondition,
+            final long retryUntilEpochMs) {
+        return create(
+                shardId,
+                Objects.requireNonNull(commandId, "commandId"),
+                messageId,
+                CommandType.CANCEL,
+                retryUntilEpochMs,
+                CommandBodies.cancel(messageId, retryUntilEpochMs, precondition));
+    }
+
+    /** Creates a command using the Registry-shaped Reschedule body seam. */
     public static PreparedCommand reschedule(
             final ShardId shardId,
             final DelayMessageId messageId,
@@ -297,11 +302,11 @@ public final class PreparedCommand {
                 CommandBodies.reschedule(expectedGeneration, deliverAt, expireAt));
     }
 
-    /** Creates a command using the Registry-shaped RescheduleV1 body seam. */
-    public static PreparedCommand rescheduleV1(
+    /** Creates a command using the Registry-shaped Reschedule body seam. */
+    public static PreparedCommand reschedule(
             final ShardId shardId,
             final DelayMessageId messageId,
-            final MessagePreconditionV1 precondition,
+            final MessagePrecondition precondition,
             final long deliverAt,
             final long expireAt,
             final long retryUntilEpochMs) {
@@ -311,15 +316,15 @@ public final class PreparedCommand {
                 messageId,
                 CommandType.RESCHEDULE,
                 retryUntilEpochMs,
-                CommandBodies.rescheduleV1(messageId, retryUntilEpochMs, precondition, deliverAt, expireAt));
+                CommandBodies.reschedule(messageId, retryUntilEpochMs, precondition, deliverAt, expireAt));
     }
 
-    /** Creates a V1 reschedule with a Semantic-Core-selected Command ID. */
-    public static PreparedCommand rescheduleV1(
+    /** Creates a reschedule with a Semantic-Core-selected Command ID. */
+    public static PreparedCommand reschedule(
             final ShardId shardId,
             final CommandId commandId,
             final DelayMessageId messageId,
-            final MessagePreconditionV1 precondition,
+            final MessagePrecondition precondition,
             final long deliverAt,
             final long expireAt,
             final long retryUntilEpochMs) {
@@ -329,7 +334,7 @@ public final class PreparedCommand {
                 messageId,
                 CommandType.RESCHEDULE,
                 retryUntilEpochMs,
-                CommandBodies.rescheduleV1(messageId, retryUntilEpochMs, precondition, deliverAt, expireAt));
+                CommandBodies.reschedule(messageId, retryUntilEpochMs, precondition, deliverAt, expireAt));
     }
 
     public static PreparedCommand create(
@@ -339,7 +344,7 @@ public final class PreparedCommand {
             final CommandType type,
             final long retryUntilEpochMs,
             final byte[] body) {
-        return create(shardId, commandId, messageId, type, ProtocolTupleV1.managedCommandV1(), retryUntilEpochMs, body);
+        return create(shardId, commandId, messageId, type, ProtocolTuple.managedCommand(), retryUntilEpochMs, body);
     }
 
     /** Creates a command under an explicitly selected Client Command tuple. */
@@ -348,7 +353,7 @@ public final class PreparedCommand {
             final CommandId commandId,
             final DelayMessageId messageId,
             final CommandType type,
-            final ProtocolTupleV1 protocolTuple,
+            final ProtocolTuple protocolTuple,
             final long retryUntilEpochMs,
             final byte[] body) {
         final byte[] hash = CommandHash.compute(protocolTuple, type, commandId, messageId, retryUntilEpochMs, body);
@@ -371,7 +376,7 @@ public final class PreparedCommand {
         return type;
     }
 
-    public ProtocolTupleV1 protocolTuple() {
+    public ProtocolTuple protocolTuple() {
         return protocolTuple;
     }
 

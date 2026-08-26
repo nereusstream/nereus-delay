@@ -9,18 +9,18 @@ import com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
 import com.nereusstream.delay.ownership.ShardLifecycleState;
 import com.nereusstream.delay.ownership.SourceAssignment;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
-import com.nereusstream.delay.protocol.ObjectStoreProviderKindV1;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
+import com.nereusstream.delay.protocol.ObjectStoreProfileSemantic;
+import com.nereusstream.delay.protocol.ObjectStoreProviderKind;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -70,7 +70,7 @@ class OxiaRealCheckpointReapingSmokeTest {
         final String bucket = required("NEREUS_DELAY_MINIO_BUCKET");
         final String accessKey = required("NEREUS_DELAY_MINIO_ACCESS_KEY");
         final String secretKey = required("NEREUS_DELAY_MINIO_SECRET_KEY");
-        final ProfileSemanticEnvelopeV1 profile = profile(minioEndpoint, region, bucket, accessKey);
+        final ProfileSemanticEnvelope profile = profile(minioEndpoint, region, bucket, accessKey);
         final S3CompatibleCheckpointObjectStoreAdapter uploader =
                 adapter(profile, minioEndpoint, region, bucket, accessKey, secretKey);
         final S3CompatibleCheckpointObjectStoreAdapter reaper =
@@ -84,8 +84,8 @@ class OxiaRealCheckpointReapingSmokeTest {
         Files.createDirectories(checkpointDirectory);
         Files.writeString(checkpointDirectory.resolve("CURRENT"), "REAPING-CURRENT\n");
         final List<CheckpointFileInventory> inventory = CheckpointFileInventory.collect(checkpointDirectory, LIMITS);
-        final OwnerIdentityV1 ownerIdentity =
-                new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("reaping-owner"), 1, id32(4));
+        final OwnerIdentity ownerIdentity =
+                new OwnerIdentity(Bytes.utf8("deployment"), Bytes.utf8("reaping-owner"), 1, id32(4));
         final CheckpointManifest.CreatedAt createdAt = new CheckpointManifest.CreatedAt(
                 startedAt, startedAt + 1, "CERTIFIED_HOST_CLOCK", id32(5), 1, 2, 3, id32(6), 0, null);
         final List<CheckpointManifest.FileEntry> files = inventory.stream()
@@ -118,7 +118,7 @@ class OxiaRealCheckpointReapingSmokeTest {
                 id32(9),
                 List.of(),
                 files);
-        final CheckpointUploadIntentV1 pending;
+        final CheckpointUploadIntent pending;
 
         final String authorityPrefix = "nereus-delay-real-reaping/" + UUID.randomUUID();
         try (OxiaSyncOwnerLeaseBackend.ClientHandle client = OxiaSyncOwnerLeaseBackend.connect(
@@ -139,13 +139,13 @@ class OxiaRealCheckpointReapingSmokeTest {
             final OwnerLease active = ownerAuthority
                     .transitionOrRead(acquiring, ShardLifecycleState.ACTIVE_FOR_COMMANDS)
                     .orElseThrow();
-            final OwnerIdentityV1 exactOwner = new OwnerIdentityV1(
+            final OwnerIdentity exactOwner = new OwnerIdentity(
                     ownerIdentity.deploymentId(),
                     ownerIdentity.workerRunId(),
                     active.ownerEpoch(),
                     ownerIdentity.leaseFencingDigest());
-            final CheckpointUploadIntentV1 requested = new CheckpointUploadIntentV1(
-                    new ShardSubjectV1(shard),
+            final CheckpointUploadIntent requested = new CheckpointUploadIntent(
+                    new ShardSubject(shard),
                     lineage,
                     checkpointId,
                     exactOwner,
@@ -157,7 +157,7 @@ class OxiaRealCheckpointReapingSmokeTest {
                     profile.ref(),
                     evidence(startedAt),
                     startedAt - 1,
-                    CheckpointUploadStateV1.PENDING_UPLOAD,
+                    CheckpointUploadState.PENDING_UPLOAD,
                     1,
                     null,
                     null);
@@ -185,7 +185,7 @@ class OxiaRealCheckpointReapingSmokeTest {
             final CheckpointReapingSweepResult result = new CheckpointReapingSweepCoordinator(intent, reaper)
                     .reap(pending, catalogAuthority, ownerProof, quiescence, 100);
 
-            assertEquals(CheckpointUploadStateV1.REAPING, result.reapingIntent().state());
+            assertEquals(CheckpointUploadState.REAPING, result.reapingIntent().state());
             assertEquals(result.reapingIntent(), intent.current(pending).orElseThrow());
             assertEquals(inventory.size() + 1, result.prefixSweep().listedVersionCount());
             assertEquals(
@@ -207,7 +207,7 @@ class OxiaRealCheckpointReapingSmokeTest {
         final String bucket = required("NEREUS_DELAY_MINIO_BUCKET");
         final String accessKey = required("NEREUS_DELAY_MINIO_ACCESS_KEY");
         final String secretKey = required("NEREUS_DELAY_MINIO_SECRET_KEY");
-        final ProfileSemanticEnvelopeV1 profile = profile(minioEndpoint, region, bucket, accessKey);
+        final ProfileSemanticEnvelope profile = profile(minioEndpoint, region, bucket, accessKey);
         final S3CompatibleCheckpointObjectStoreAdapter uploader =
                 adapter(profile, minioEndpoint, region, bucket, accessKey, secretKey);
         final long startedAt = System.currentTimeMillis();
@@ -219,8 +219,8 @@ class OxiaRealCheckpointReapingSmokeTest {
         Files.createDirectories(checkpointDirectory);
         Files.writeString(checkpointDirectory.resolve("CURRENT"), "REAPING-CURRENT\n");
         final List<CheckpointFileInventory> inventory = CheckpointFileInventory.collect(checkpointDirectory, LIMITS);
-        final OwnerIdentityV1 ownerIdentity =
-                new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("reaping-owner"), 1, id32(4));
+        final OwnerIdentity ownerIdentity =
+                new OwnerIdentity(Bytes.utf8("deployment"), Bytes.utf8("reaping-owner"), 1, id32(4));
         final CheckpointManifest.CreatedAt createdAt = new CheckpointManifest.CreatedAt(
                 startedAt, startedAt + 1, "CERTIFIED_HOST_CLOCK", id32(5), 1, 2, 3, id32(6), 0, null);
         final List<CheckpointManifest.FileEntry> files = inventory.stream()
@@ -271,13 +271,13 @@ class OxiaRealCheckpointReapingSmokeTest {
             final OwnerLease active = ownerAuthority
                     .transitionOrRead(acquiring, ShardLifecycleState.ACTIVE_FOR_COMMANDS)
                     .orElseThrow();
-            final OwnerIdentityV1 exactOwner = new OwnerIdentityV1(
+            final OwnerIdentity exactOwner = new OwnerIdentity(
                     ownerIdentity.deploymentId(),
                     ownerIdentity.workerRunId(),
                     active.ownerEpoch(),
                     ownerIdentity.leaseFencingDigest());
-            final CheckpointUploadIntentV1 pending = new CheckpointUploadIntentV1(
-                    new ShardSubjectV1(shard),
+            final CheckpointUploadIntent pending = new CheckpointUploadIntent(
+                    new ShardSubject(shard),
                     lineage,
                     checkpointId,
                     exactOwner,
@@ -289,7 +289,7 @@ class OxiaRealCheckpointReapingSmokeTest {
                     profile.ref(),
                     evidence(startedAt),
                     startedAt - 1,
-                    CheckpointUploadStateV1.PENDING_UPLOAD,
+                    CheckpointUploadState.PENDING_UPLOAD,
                     1,
                     null,
                     null);
@@ -307,7 +307,7 @@ class OxiaRealCheckpointReapingSmokeTest {
             writeForcedJson(
                     statePath,
                     json(
-                            "schema", "nereus-delay-chaos-durable-state-dump-v1",
+                            "schema", "nereus-delay-chaos-durable-state-dump",
                             "cell", "checkpoint-reaping",
                             "phase", "REAPING_READY",
                             "process_pid", Long.toString(ProcessHandle.current().pid()),
@@ -352,12 +352,12 @@ class OxiaRealCheckpointReapingSmokeTest {
         final String accessKey = required("NEREUS_DELAY_MINIO_ACCESS_KEY");
         final String secretKey = required("NEREUS_DELAY_MINIO_SECRET_KEY");
         final String state = Files.readString(statePath("before-process-crash.json"));
-        assertEquals("nereus-delay-chaos-durable-state-dump-v1", field(state, "schema"));
+        assertEquals("nereus-delay-chaos-durable-state-dump", field(state, "schema"));
         assertEquals("checkpoint-reaping", field(state, "cell"));
         assertEquals("REAPING_READY", field(state, "phase"));
         assertEquals("true", field(state, "owner_released"));
-        final CheckpointUploadIntentV1 pending =
-                CheckpointUploadIntentV1.decode(decode(field(state, "pending_intent_base64")));
+        final CheckpointUploadIntent pending =
+                CheckpointUploadIntent.decode(decode(field(state, "pending_intent_base64")));
         assertEquals(field(state, "pending_intent_digest_base64"), encode(pending.intentDigest()));
         assertEquals(
                 field(state, "route_uuid"),
@@ -376,7 +376,7 @@ class OxiaRealCheckpointReapingSmokeTest {
                         decode(field(state, "owner_session_identity_base64"))),
                 ShardLifecycleState.valueOf(field(state, "owner_state")));
         assertEquals(pending.owner().ownerEpoch(), recordedLease.ownerEpoch());
-        final ProfileSemanticEnvelopeV1 profile = profile(minioEndpoint, region, bucket, accessKey);
+        final ProfileSemanticEnvelope profile = profile(minioEndpoint, region, bucket, accessKey);
         final S3CompatibleCheckpointObjectStoreAdapter reaper =
                 adapter(profile, minioEndpoint, region, bucket, accessKey, secretKey);
         final String authorityPrefix = field(state, "authority_prefix");
@@ -403,7 +403,7 @@ class OxiaRealCheckpointReapingSmokeTest {
                     new OxiaSyncRecoveryCatalogBackend(client, authorityPrefix + "/catalog", LIMITS);
             final CheckpointReapingSweepResult result = new CheckpointReapingSweepCoordinator(intent, reaper)
                     .reap(pending, new OxiaRecoveryCatalog(catalog), ownerProof, quiescence, 100);
-            assertEquals(CheckpointUploadStateV1.REAPING, result.reapingIntent().state());
+            assertEquals(CheckpointUploadState.REAPING, result.reapingIntent().state());
             assertEquals(result.reapingIntent(), intent.current(pending).orElseThrow());
             assertEquals(
                     Integer.parseInt(field(state, "expected_version_count")),
@@ -415,7 +415,7 @@ class OxiaRealCheckpointReapingSmokeTest {
             writeForcedJson(
                     afterPath,
                     json(
-                            "schema", "nereus-delay-chaos-durable-state-dump-v1",
+                            "schema", "nereus-delay-chaos-durable-state-dump",
                             "cell", "checkpoint-reaping",
                             "phase", "RECOVERED_AFTER_FRESH_PROCESS",
                             "process_pid", Long.toString(ProcessHandle.current().pid()),
@@ -517,7 +517,7 @@ class OxiaRealCheckpointReapingSmokeTest {
     }
 
     private S3CompatibleCheckpointObjectStoreAdapter adapter(
-            final ProfileSemanticEnvelopeV1 profile,
+            final ProfileSemanticEnvelope profile,
             final URI endpoint,
             final String region,
             final String bucket,
@@ -539,10 +539,10 @@ class OxiaRealCheckpointReapingSmokeTest {
                 0);
     }
 
-    private static ProfileSemanticEnvelopeV1 profile(
+    private static ProfileSemanticEnvelope profile(
             final URI endpoint, final String region, final String bucket, final String accessKey) {
-        final ObjectStoreProfileSemanticV1 semantic = new ObjectStoreProfileSemanticV1(
-                ObjectStoreProviderKindV1.S3_COMPATIBLE,
+        final ObjectStoreProfileSemantic semantic = new ObjectStoreProfileSemantic(
+                ObjectStoreProviderKind.S3_COMPATIBLE,
                 S3CompatibleCheckpointObjectStoreAdapter.endpointConfigDigest(endpoint, region, bucket),
                 S3CompatibleCheckpointObjectStoreAdapter.credentialAuthorizationScopeDigest(accessKey, region, bucket),
                 1,
@@ -552,10 +552,10 @@ class OxiaRealCheckpointReapingSmokeTest {
                 true,
                 id32(20),
                 1 << 20,
-                ObjectStoreProfileSemanticV1.SINGLE_PUT,
+                ObjectStoreProfileSemantic.SINGLE_PUT,
                 1,
                 id32(21));
-        return new ProfileSemanticEnvelopeV1(ProfileKindV1.OBJECT_STORE, Bytes.utf8("checkpoint-store"), 1, semantic);
+        return new ProfileSemanticEnvelope(ProfileKind.OBJECT_STORE, Bytes.utf8("checkpoint-store"), 1, semantic);
     }
 
     private static CheckpointReapingQuiescenceProof quiescenceAfter(

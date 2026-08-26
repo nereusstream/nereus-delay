@@ -36,7 +36,7 @@ public record LargeScheduleIntent(
         return Bytes.copy(payloadSha256);
     }
 
-    /** Fixed versioned binary projection used by the current embedded codec. */
+    /** Fixed binary projection used by the compact embedded codec. */
     public byte[] canonicalBytes() {
         return ByteBuffer.allocate(4 + 8 + 8 + DestinationLaneId.LENGTH + 1 + 8 + 32 + 8 + 8)
                 .putInt(1)

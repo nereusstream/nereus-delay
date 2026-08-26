@@ -14,14 +14,14 @@ import java.util.Objects;
  * Bounded process-local checkpoint scheduler for the independently stored
  * Delay Shards in one Worker.
  *
- * <p>The schedule is deliberately not a durability authority.  A claimed
+ * <p>The schedule is deliberately not a durability authority. A claimed
  * task must still create the complete shard checkpoint and publish its intent
- * through the checkpoint/catalog protocol.  This class only provides stable
+ * through the checkpoint/catalog protocol. This class only provides stable
  * interval/jitter placement and prevents one shard from being claimed twice
  * before the caller reports completion.</p>
  */
 public final class CheckpointScheduler {
-    private static final byte[] JITTER_DOMAIN = Bytes.utf8("nereus-delay-checkpoint-jitter-v1\0");
+    private static final byte[] JITTER_DOMAIN = Bytes.utf8("nereus-delay-checkpoint-jitter\0");
     private static final Comparator<ScheduledCheckpoint> ORDER = Comparator.comparingLong(
                     ScheduledCheckpoint::dueAtEpochMs)
             .thenComparing(value -> Bytes.hex(value.shardId().routeIncarnation().bytes()))
@@ -70,7 +70,7 @@ public final class CheckpointScheduler {
     }
 
     /**
-     * Claims at most {@code limit} due shards.  Claimed shards are omitted
+     * Claims at most {@code limit} due shards. Claimed shards are omitted
      * from later polls until the exact {@link ScheduledCheckpoint} returned
      * by this method is passed to {@link #complete(ScheduledCheckpoint, long)}.
      * The returned value is a process-local claim handle; callers must not
@@ -131,7 +131,7 @@ public final class CheckpointScheduler {
         requireTime(completedAtEpochMs, "completedAtEpochMs");
         Objects.requireNonNull(claimed, "claimed");
         final State state = requireState(claimed.shardId());
-        // The returned value is deliberately a process-local capability.  A
+        // The returned value is deliberately a process-local capability. A
         // value-equal ScheduledCheckpoint reconstructed from shardId/dueAt
         // must not be able to complete the attempt or reset a newer schedule.
         if (!state.inFlight() || state.claim() != claimed) {
@@ -152,12 +152,12 @@ public final class CheckpointScheduler {
 
     /**
      * A completion that carries only a shard ID cannot be fenced against a
-     * late callback from an earlier checkpoint attempt.  Keep this overload
+     * late callback from an earlier checkpoint attempt. Keep this overload
      * as a source-compatible fail-closed trap for callers that have not yet
      * migrated to the exact claim handle.
      *
      * @deprecated pass the exact value returned by {@link #claimDue(long, int)}
-     *             to {@link #complete(ScheduledCheckpoint, long)}.
+     * to {@link #complete(ScheduledCheckpoint, long)}.
      */
     @Deprecated
     public synchronized long complete(final ShardId shardId, final long completedAtEpochMs) {
@@ -220,7 +220,7 @@ public final class CheckpointScheduler {
 
     private static long maxJitter(final long intervalMs, final int jitterPercent) {
         // Divide before multiplying so a valid percentage of a large interval
-        // does not overflow an intermediate product.  The quotient times the
+        // does not overflow an intermediate product. The quotient times the
         // bounded percentage is itself within the signed long range; the
         // remainder product is at most 99 * 99.
         final long quotient = intervalMs / 100;

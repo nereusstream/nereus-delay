@@ -11,10 +11,10 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Canonical {@code TimelineWorkRefV1} projection.
+ * Canonical {@code TimelineWorkRef} projection.
  *
  * <p>The semantic digest intentionally excludes {@code runtimeRevision}; the instance
- * digest includes it and fences one local runtime snapshot.  Control references and
+ * digest includes it and fences one local runtime snapshot. Control references and
  * source positions are retained as canonical nested bytes after strict typed decode;
  * the external operation/evidence authority is still checked by the source mutation
  * path.</p>
@@ -305,7 +305,7 @@ public final class TimelineWorkRef {
                 CanonicalProtobuf.bytes(output, 11, controlPosition);
             }
         });
-        return Bytes.sha256(Bytes.utf8("nereus-delay-timeline-work-semantic-v1\0"), fields);
+        return Bytes.sha256(Bytes.utf8("nereus-delay-timeline-work-semantic\0"), fields);
     }
 
     private static byte[] computeInstanceDigest(
@@ -338,7 +338,7 @@ public final class TimelineWorkRef {
             }
             CanonicalProtobuf.bytes(output, 12, semanticDigest);
         });
-        return Bytes.sha256(Bytes.utf8("nereus-delay-timeline-work-instance-v1\0"), fields);
+        return Bytes.sha256(Bytes.utf8("nereus-delay-timeline-work-instance\0"), fields);
     }
 
     private void validateAuthority() {
@@ -378,7 +378,7 @@ public final class TimelineWorkRef {
 
     /**
      * Keeps the physical timeline key and rich value on the same eligibility
-     * boundary.  DUE keys are ordered by the maximum of the action and retry
+     * boundary. DUE keys are ordered by the maximum of the action and retry
      * gates; ORDERED keys retain business deliverAt as their ordering time but
      * must not precede the value's eligibility gate.
      */
@@ -398,14 +398,14 @@ public final class TimelineWorkRef {
             throw new IllegalArgumentException("timeline key is truncated");
         }
         // KeyCodec uses unsigned big-endian u64 for the physical timestamp;
-        // V1 time values are non-negative and therefore fit Java's signed
+        // time values are non-negative and therefore fit Java's signed
         // long domain here.
         return java.nio.ByteBuffer.wrap(key, 2 + 32, Long.BYTES).getLong();
     }
 
     /**
      * Returns the self-routing Message identity embedded in a DUE/ORDERED
-     * timeline key.  The key shape is validated before this helper is used.
+     * timeline key. The key shape is validated before this helper is used.
      */
     private DelayMessageId timelineMessageId() {
         final int tokenOffset = 2 + 32 + Long.BYTES;
@@ -418,7 +418,7 @@ public final class TimelineWorkRef {
     private static byte[] requireTimelineKey(final byte[] value) {
         Objects.requireNonNull(value, "encodedTimelineKey");
         if (value.length < 2 || (value[0] != 1 && value[0] != 2) || value[1] != 1) {
-            throw new IllegalArgumentException("timeline key is not a V1 DUE/ORDERED key");
+            throw new IllegalArgumentException("timeline key is not a currentDUE/ORDERED key");
         }
         final int tokenOffset = 2 + 32 + Long.BYTES;
         final int tokenLength = value.length > tokenOffset && value[tokenOffset] == 1
@@ -427,7 +427,7 @@ public final class TimelineWorkRef {
         final int expectedLength =
                 tokenLength < 0 ? -1 : tokenOffset + tokenLength + DelayMessageId.LENGTH + Integer.BYTES;
         if (value.length != expectedLength) {
-            throw new IllegalArgumentException("timeline key is not a complete V1 DUE/ORDERED key");
+            throw new IllegalArgumentException("timeline key is not a complete DUE/ORDERED key");
         }
         return Bytes.copy(value);
     }

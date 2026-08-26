@@ -5,40 +5,40 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import com.nereusstream.delay.protocol.ActivationBarrierV1;
-import com.nereusstream.delay.protocol.AdapterKindV1;
-import com.nereusstream.delay.protocol.AdapterMetadataV1;
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.ActivationBarrier;
+import com.nereusstream.delay.protocol.AdapterKind;
+import com.nereusstream.delay.protocol.AdapterMetadata;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.CommandBodies;
 import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.DeliveryMode;
-import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.KafkaIngressRouteResourceV1;
-import com.nereusstream.delay.protocol.KafkaMetadataV1;
+import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.KafkaIngressRouteResource;
+import com.nereusstream.delay.protocol.KafkaMetadata;
 import com.nereusstream.delay.protocol.OrderingMode;
-import com.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
-import com.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetRef;
+import com.nereusstream.delay.protocol.PrepareLargeScheduleBody;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.PreparedSubmissionV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
+import com.nereusstream.delay.protocol.PreparedSubmission;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
-import com.nereusstream.delay.protocol.PulsarMetadataV1;
-import com.nereusstream.delay.protocol.QuotaGrantRefV1;
-import com.nereusstream.delay.protocol.RetryPolicyRefV1;
+import com.nereusstream.delay.protocol.PulsarMetadata;
+import com.nereusstream.delay.protocol.QuotaGrantRef;
+import com.nereusstream.delay.protocol.RetryPolicyRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.RouteLifecycleV1;
-import com.nereusstream.delay.protocol.RoutePartitionPolicyV1;
-import com.nereusstream.delay.protocol.RouteSnapshotV1;
-import com.nereusstream.delay.protocol.RoutingHashVersionV1;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
+import com.nereusstream.delay.protocol.RouteLifecycle;
+import com.nereusstream.delay.protocol.RoutePartitionPolicy;
+import com.nereusstream.delay.protocol.RouteSnapshot;
+import com.nereusstream.delay.protocol.RoutingHashVersion;
 import com.nereusstream.delay.protocol.SelfRoutingId;
 import com.nereusstream.delay.protocol.StableCode;
-import com.nereusstream.delay.protocol.SubmissionModeV1;
+import com.nereusstream.delay.protocol.SubmissionMode;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
-import com.nereusstream.delay.route.RouteHashV1;
+import com.nereusstream.delay.route.RouteHash;
 import com.nereusstream.delay.route.RouteSnapshotProvider;
 import java.security.KeyPairGenerator;
 import java.util.List;
@@ -48,21 +48,20 @@ import org.junit.jupiter.api.Test;
 class DefaultDelaySemanticCoreTest {
     @Test
     void managedScheduleUsesOneRouteHashAndIndependentPreIoIdentities() throws Exception {
-        final RouteSnapshotV1 snapshot = kafkaSnapshot();
+        final RouteSnapshot snapshot = kafkaSnapshot();
         final AuthenticatedTenantContext tenant = tenant();
-        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKindV1.KAFKA, Bytes.utf8("primary"));
-        final ScheduleIntentV1 intent = schedule();
+        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKind.KAFKA, Bytes.utf8("primary"));
+        final CanonicalScheduleIntent intent = schedule();
         final UUID logicalMessage = uuidV7(210, 1);
         final UUID logicalCommand = uuidV7(211, 2);
         final CountingRoutes routes = new CountingRoutes(snapshot);
         final DefaultDelaySemanticCore core =
                 new DefaultDelaySemanticCore(routes, new SequenceUuids(logicalMessage, logicalCommand), () -> 200);
 
-        final PreparedSubmissionV1 submission =
-                core.prepareSchedule(tenant, hint, intent, 600, SubmissionModeV1.MANAGED);
+        final PreparedSubmission submission = core.prepareSchedule(tenant, hint, intent, 600, SubmissionMode.MANAGED);
         assertTrue(submission.isManaged());
-        final PreparedCommand command = CommandCodec.decodeFrameV1(submission.managedFrame());
-        final int expectedPartition = RouteHashV1.partition(snapshot, tenant.tenantRoutingScope(), Bytes.utf8("key"));
+        final PreparedCommand command = CommandCodec.decodeManagedFrame(submission.managedFrame());
+        final int expectedPartition = RouteHash.partition(snapshot, tenant.tenantRoutingScope(), Bytes.utf8("key"));
         assertEquals(expectedPartition, command.shardId().partition());
         assertEquals(
                 logicalMessage,
@@ -77,26 +76,26 @@ class DefaultDelaySemanticCoreTest {
 
     @Test
     void directAndGatewayCompositionsCanProduceIdenticalBytes() throws Exception {
-        final RouteSnapshotV1 snapshot = kafkaSnapshot();
+        final RouteSnapshot snapshot = kafkaSnapshot();
         final AuthenticatedTenantContext tenant = tenant();
-        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKindV1.KAFKA, Bytes.utf8("primary"));
+        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKind.KAFKA, Bytes.utf8("primary"));
 
-        final PreparedSubmissionV1 direct = new DefaultDelaySemanticCore(
+        final PreparedSubmission direct = new DefaultDelaySemanticCore(
                         new CountingRoutes(snapshot), new SequenceUuids(uuidV7(210, 1), uuidV7(211, 2)), () -> 200)
-                .prepareSchedule(tenant, hint, schedule(), 600, SubmissionModeV1.MANAGED);
-        final PreparedSubmissionV1 gateway = new DefaultDelaySemanticCore(
+                .prepareSchedule(tenant, hint, schedule(), 600, SubmissionMode.MANAGED);
+        final PreparedSubmission gateway = new DefaultDelaySemanticCore(
                         new CountingRoutes(snapshot), new SequenceUuids(uuidV7(210, 1), uuidV7(211, 2)), () -> 200)
-                .prepareSchedule(tenant, hint, schedule(), 600, SubmissionModeV1.MANAGED);
+                .prepareSchedule(tenant, hint, schedule(), 600, SubmissionMode.MANAGED);
 
         assertArrayEquals(direct.canonicalBytes(), gateway.canonicalBytes());
     }
 
     @Test
     void largePreparationUsesTheIntentOrderingKeyForTheSameRoutingContract() throws Exception {
-        final RouteSnapshotV1 snapshot = kafkaSnapshot();
+        final RouteSnapshot snapshot = kafkaSnapshot();
         final AuthenticatedTenantContext tenant = tenant();
-        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKindV1.KAFKA, Bytes.utf8("primary"));
-        final ScheduleIntentV1 intent = ScheduleIntentV1.forPrepare(
+        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKind.KAFKA, Bytes.utf8("primary"));
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.forPrepare(
                 destination(),
                 retryPolicy(),
                 300,
@@ -104,32 +103,32 @@ class DefaultDelaySemanticCoreTest {
                 DeliveryMode.MANAGED,
                 OrderingMode.BEST_EFFORT,
                 Bytes.utf8("large-key"),
-                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())),
+                AdapterMetadata.kafka(new KafkaMetadata(null, List.of())),
                 null,
                 null);
-        final LargeSchedulePreparationV1 request = new LargeSchedulePreparationV1(
+        final LargeSchedulePreparation request = new LargeSchedulePreparation(
                 intent,
                 10,
                 bytes(32, 80),
                 100,
-                new PayloadProofTrustSetRefV1(1, bytes(32, 81)),
-                new ProfileRefV1(Bytes.utf8("object-store"), 1, bytes(32, 82), ProfileKindV1.OBJECT_STORE));
+                new PayloadProofTrustSetRef(1, bytes(32, 81)),
+                new ProfileRef(Bytes.utf8("object-store"), 1, bytes(32, 82), ProfileKind.OBJECT_STORE));
         final PreparedCommand command = new DefaultDelaySemanticCore(
                         new CountingRoutes(snapshot), new SequenceUuids(uuidV7(210, 1), uuidV7(211, 2)), () -> 200)
                 .prepareLargeSchedule(tenant, hint, request, 600);
 
         assertEquals(
-                RouteHashV1.partition(snapshot, tenant.tenantRoutingScope(), Bytes.utf8("large-key")),
+                RouteHash.partition(snapshot, tenant.tenantRoutingScope(), Bytes.utf8("large-key")),
                 command.shardId().partition());
-        assertEquals(command, CommandCodec.decodeFrameV1(CommandCodec.encodeFrameV1(command)));
+        assertEquals(command, CommandCodec.decodeManagedFrame(CommandCodec.encodeManagedFrame(command)));
     }
 
     @Test
     void largePreparationSeparatesIngressRouteFromDestinationMetadata() throws Exception {
-        final RouteSnapshotV1 snapshot = kafkaSnapshot();
+        final RouteSnapshot snapshot = kafkaSnapshot();
         final AuthenticatedTenantContext tenant = tenant();
-        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKindV1.KAFKA, Bytes.utf8("primary"));
-        final ScheduleIntentV1 intent = ScheduleIntentV1.forPrepare(
+        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKind.KAFKA, Bytes.utf8("primary"));
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.forPrepare(
                 destination(),
                 retryPolicy(),
                 300,
@@ -137,32 +136,32 @@ class DefaultDelaySemanticCoreTest {
                 DeliveryMode.MANAGED,
                 OrderingMode.BEST_EFFORT,
                 Bytes.utf8("cross-key"),
-                AdapterMetadataV1.pulsar(new PulsarMetadataV1(null, null, null, List.of())),
+                AdapterMetadata.pulsar(new PulsarMetadata(null, null, null, List.of())),
                 null,
                 null);
-        final LargeSchedulePreparationV1 request = new LargeSchedulePreparationV1(
+        final LargeSchedulePreparation request = new LargeSchedulePreparation(
                 intent,
                 10,
                 bytes(32, 80),
                 100,
-                new PayloadProofTrustSetRefV1(1, bytes(32, 81)),
-                new ProfileRefV1(Bytes.utf8("object-store"), 1, bytes(32, 82), ProfileKindV1.OBJECT_STORE));
+                new PayloadProofTrustSetRef(1, bytes(32, 81)),
+                new ProfileRef(Bytes.utf8("object-store"), 1, bytes(32, 82), ProfileKind.OBJECT_STORE));
 
         final PreparedCommand command = new DefaultDelaySemanticCore(
                         new CountingRoutes(snapshot), new SequenceUuids(uuidV7(210, 1), uuidV7(211, 2)), () -> 200)
                 .prepareLargeSchedule(tenant, hint, request, 600);
-        final PrepareLargeScheduleBodyV1 body = CommandBodies.decodePrepareLargeV1(command.canonicalBody());
+        final PrepareLargeScheduleBody body = CommandBodies.decodePrepareLarge(command.canonicalBody());
 
         assertEquals(
-                AdapterMetadataV1.Kind.PULSAR,
+                AdapterMetadata.Kind.PULSAR,
                 body.intentWithoutPayload().adapterMetadata().kind());
-        assertEquals(command, CommandCodec.decodeFrameV1(CommandCodec.encodeFrameV1(command)));
+        assertEquals(command, CommandCodec.decodeManagedFrame(CommandCodec.encodeManagedFrame(command)));
     }
 
     @Test
     void tenantMismatchFailsClosedBeforeCommandPreparation() throws Exception {
-        final RouteSnapshotV1 snapshot = kafkaSnapshot();
-        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKindV1.KAFKA, Bytes.utf8("primary"));
+        final RouteSnapshot snapshot = kafkaSnapshot();
+        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKind.KAFKA, Bytes.utf8("primary"));
         final DefaultDelaySemanticCore core = new DefaultDelaySemanticCore(
                 new CountingRoutes(snapshot), new SequenceUuids(uuidV7(210, 1), uuidV7(211, 2)), () -> 200);
 
@@ -173,12 +172,12 @@ class DefaultDelaySemanticCoreTest {
                         hint,
                         schedule(),
                         600,
-                        SubmissionModeV1.MANAGED));
+                        SubmissionMode.MANAGED));
         assertEquals(StableCode.ROUTE_SNAPSHOT_UNAVAILABLE, failure.error().code());
     }
 
-    private static ScheduleIntentV1 schedule() {
-        return ScheduleIntentV1.create(
+    private static CanonicalScheduleIntent schedule() {
+        return CanonicalScheduleIntent.create(
                 destination(),
                 retryPolicy(),
                 300,
@@ -188,43 +187,43 @@ class DefaultDelaySemanticCoreTest {
                 Bytes.utf8("key"),
                 Bytes.utf8("payload"),
                 null,
-                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())),
+                AdapterMetadata.kafka(new KafkaMetadata(null, List.of())),
                 null,
                 null);
     }
 
-    private static ProfileRefV1 destination() {
-        return new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 60), ProfileKindV1.DESTINATION);
+    private static ProfileRef destination() {
+        return new ProfileRef(Bytes.utf8("destination"), 1, bytes(32, 60), ProfileKind.DESTINATION);
     }
 
-    private static RetryPolicyRefV1 retryPolicy() {
-        return new RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 61));
+    private static RetryPolicyRef retryPolicy() {
+        return new RetryPolicyRef(Bytes.utf8("retry"), 1, bytes(32, 61));
     }
 
     private static AuthenticatedTenantContext tenant() {
         return new AuthenticatedTenantContext(bytes(32, 1), bytes(32, 2), bytes(32, 3));
     }
 
-    private static RouteSnapshotV1 kafkaSnapshot() throws Exception {
+    private static RouteSnapshot kafkaSnapshot() throws Exception {
         final UUID topicUuid = UUID.fromString("12345678-1234-7abc-8def-1234567890ab");
-        final KafkaIngressRouteResourceV1 ingress =
-                new KafkaIngressRouteResourceV1("cluster", "persistent://tenant/ns/delay", topicUuid, 2);
-        final BrokerResourceIdentityV1 broker =
-                BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1("cluster", topicUuid));
-        final QuotaGrantRefV1 quota = new QuotaGrantRefV1(
+        final KafkaIngressRouteResource ingress =
+                new KafkaIngressRouteResource("cluster", "persistent://tenant/ns/delay", topicUuid, 2);
+        final BrokerResourceIdentity broker =
+                BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity("cluster", topicUuid));
+        final QuotaGrantRef quota = new QuotaGrantRef(
                 bytes(32, 20),
                 1,
                 new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
-        final List<RoutePartitionPolicyV1> partitions = List.of(policy(0, broker, quota), policy(1, broker, quota));
-        return RouteSnapshotV1.create(
+        final List<RoutePartitionPolicy> partitions = List.of(policy(0, broker, quota), policy(1, broker, quota));
+        return RouteSnapshot.create(
                 new RouteIncarnation(bytes(16, 30)),
                 bytes(32, 1),
                 bytes(32, 2),
-                RouteLifecycleV1.ACTIVE_FOR_NEW,
+                RouteLifecycle.ACTIVE_FOR_NEW,
                 900,
                 ingress,
-                RoutingHashVersionV1.ROUTING_HASH_V1,
-                new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1),
+                RoutingHashVersion.ROUTING_HASH,
+                new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1),
                 1,
                 partitions,
                 100,
@@ -236,7 +235,7 @@ class DefaultDelaySemanticCoreTest {
                 500,
                 100,
                 1000,
-                new com.nereusstream.delay.protocol.IngressCredentialBindingRefV1(
+                new com.nereusstream.delay.protocol.IngressCredentialBindingRef(
                         bytes(32, 40), 1, bytes(32, 41), bytes(32, 42), bytes(32, 43)),
                 bytes(32, 44),
                 new TrustedUtcIntervalEvidence(
@@ -254,10 +253,10 @@ class DefaultDelaySemanticCoreTest {
                 KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPrivate());
     }
 
-    private static RoutePartitionPolicyV1 policy(
-            final int number, final BrokerResourceIdentityV1 broker, final QuotaGrantRefV1 quota) {
-        return new RoutePartitionPolicyV1(
-                number, ActivationBarrierV1.kafka(broker, number, 0, 0), quota, 1, bytes(32, 50 + number));
+    private static RoutePartitionPolicy policy(
+            final int number, final BrokerResourceIdentity broker, final QuotaGrantRef quota) {
+        return new RoutePartitionPolicy(
+                number, ActivationBarrier.kafka(broker, number, 0, 0), quota, 1, bytes(32, 50 + number));
     }
 
     private static UUID uuidV7(final long timestamp, final int entropy) {
@@ -291,23 +290,23 @@ class DefaultDelaySemanticCoreTest {
     }
 
     private static final class CountingRoutes implements RouteSnapshotProvider {
-        private final RouteSnapshotV1 snapshot;
+        private final RouteSnapshot snapshot;
         private int activeReads;
         private int exactReads;
 
-        private CountingRoutes(final RouteSnapshotV1 snapshot) {
+        private CountingRoutes(final RouteSnapshot snapshot) {
             this.snapshot = snapshot;
         }
 
         @Override
-        public RouteSnapshotV1 activeForNewSchedule(
+        public RouteSnapshot activeForNewSchedule(
                 final AuthenticatedTenantContext context, final RouteSelectionHint hint) {
             activeReads++;
             return snapshot;
         }
 
         @Override
-        public RouteSnapshotV1 exact(final RouteIncarnation incarnation, final AuthenticatedTenantContext context) {
+        public RouteSnapshot exact(final RouteIncarnation incarnation, final AuthenticatedTenantContext context) {
             exactReads++;
             return snapshot;
         }

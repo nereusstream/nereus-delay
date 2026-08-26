@@ -2,8 +2,8 @@ package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.ownership.OwnerLease;
 import com.nereusstream.delay.ownership.OxiaOwnerLeaseStore;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.util.Objects;
 import java.util.Optional;
@@ -21,7 +21,7 @@ public final class CheckpointReapingOwnerProofIssuer {
 
     /** Releases the exact recorded lease and proves the authority no longer exposes it. */
     public static CheckpointReapingOwnerProof explicitOwnerAbandon(
-            final CheckpointUploadIntentV1 pending,
+            final CheckpointUploadIntent pending,
             final OxiaOwnerLeaseStore authority,
             final OwnerLease expectedLease,
             final TrustedUtcIntervalEvidence observedAt) {
@@ -45,7 +45,7 @@ public final class CheckpointReapingOwnerProofIssuer {
 
     /** Reads the exact lease authority and proves that the recorded identity is no longer current. */
     public static CheckpointReapingOwnerProof proveRecordedOwnerNotCurrent(
-            final CheckpointUploadIntentV1 pending,
+            final CheckpointUploadIntent pending,
             final OxiaOwnerLeaseStore authority,
             final OwnerLease recordedLease,
             final TrustedUtcIntervalEvidence observedAt) {
@@ -65,7 +65,7 @@ public final class CheckpointReapingOwnerProofIssuer {
     }
 
     private static void validateInputs(
-            final CheckpointUploadIntentV1 pending,
+            final CheckpointUploadIntent pending,
             final OxiaOwnerLeaseStore authority,
             final OwnerLease lease,
             final TrustedUtcIntervalEvidence observedAt) {
@@ -73,7 +73,7 @@ public final class CheckpointReapingOwnerProofIssuer {
         Objects.requireNonNull(authority, "authority");
         Objects.requireNonNull(lease, "lease");
         Objects.requireNonNull(observedAt, "observedAt");
-        if (pending.state() != CheckpointUploadStateV1.PENDING_UPLOAD) {
+        if (pending.state() != CheckpointUploadState.PENDING_UPLOAD) {
             throw new IllegalArgumentException("Owner proof requires a PENDING_UPLOAD intent");
         }
         if (!pending.shard().shardId().equals(lease.shardId())

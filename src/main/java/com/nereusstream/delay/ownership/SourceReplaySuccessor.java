@@ -10,9 +10,9 @@ import java.util.Objects;
  * Adapter-owned proof that a replay record immediately follows the previous
  * record in the physical Shard Log.
  *
- * <p>Exact redelivery of the same canonical position is always accepted.  It
+ * <p>Exact redelivery of the same canonical position is always accepted. It
  * is not a successor, but broker replay can deliver it again and the durable
- * shard apply path already fences it by the command/mutation identity.  Any
+ * shard apply path already fences it by the command/mutation identity. Any
  * later position must be accepted by this proof; a merely monotonic cursor is
  * only a compatibility seam and does not prove that no source records were
  * skipped.</p>
@@ -60,7 +60,7 @@ public interface SourceReplaySuccessor {
     }
 
     /**
-     * Strict Pulsar successor for members within one batch entry.  Transition
+     * Strict Pulsar successor for members within one batch entry. Transition
      * to a later entry is adapter-specific (entry IDs can have broker-level
      * gaps), so a production adapter must provide its own successor for that
      * boundary rather than guessing entry contiguity.

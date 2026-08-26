@@ -11,8 +11,8 @@ pulsar_dir="${NEREUS_DELAY_PULSAR_CHECKOUT:-${delay_dir}/../../pulsar-worktrees/
 oxia_dir="${NEREUS_DELAY_OXIA_CHECKOUT:-${delay_dir}/../../oxia}"
 artifact_dir="${NEREUS_DELAY_CERTIFIED_ACTIVATION_ARTIFACT_DIR:-$(mktemp -d -t nereus-delay-certified-activation.XXXXXX)}"
 gradle_home="${NEREUS_DELAY_CERTIFIED_ACTIVATION_GRADLE_USER_HOME:-${artifact_dir}/gradle-user-home}"
-expected_branch="nereus/delay-full-implementation-v1"
-profile_id="${NEREUS_DELAY_CERTIFIED_ACTIVATION_PROFILE_ID:-nereus-delay-v1-rc1-activation-r1}"
+expected_branch="nereus/delay-full-implementation"
+profile_id="${NEREUS_DELAY_CERTIFIED_ACTIVATION_PROFILE_ID:-nereus-delay-rc1-activation-r1}"
 started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 local_dir="${artifact_dir}/local-activation"
 local_artifact="${local_dir}/protocol-activation-cutover.json"
@@ -46,8 +46,8 @@ kafka_source="unknown"
 pulsar_source="unknown"
 oxia_source="unknown"
 if ! delay_source="$(require_checkout Delay "${delay_dir}" "${expected_branch}")"; then source_status="BLOCKED"; fi
-if ! kafka_source="$(require_checkout Kafka "${kafka_dir}" "nereus/delay-guarded-producer-v1")"; then source_status="BLOCKED"; fi
-if ! pulsar_source="$(require_checkout Pulsar "${pulsar_dir}" "nereus/delay-resource-guard-v1")"; then source_status="BLOCKED"; fi
+if ! kafka_source="$(require_checkout Kafka "${kafka_dir}" "nereus/delay-guarded-producer")"; then source_status="BLOCKED"; fi
+if ! pulsar_source="$(require_checkout Pulsar "${pulsar_dir}" "nereus/delay-resource-guard")"; then source_status="BLOCKED"; fi
 if ! oxia_source="$(require_checkout Oxia "${oxia_dir}" main)"; then source_status="BLOCKED"; fi
 
 local_status="BLOCKED"
@@ -102,7 +102,7 @@ if [[ "${source_status}" == "PASS" && "${local_status}" == "PASS" \
 fi
 
 jq -n \
-  --arg schema "nereus-delay-certified-protocol-activation-cutover-v1" \
+  --arg schema "nereus-delay-certified-protocol-activation-cutover" \
   --arg status "${activation_status}" \
   --arg profile_id "${profile_id}" \
   --arg execution "strict-sequential" \

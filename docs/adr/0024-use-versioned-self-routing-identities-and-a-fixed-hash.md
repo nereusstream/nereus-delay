@@ -1,10 +1,10 @@
 # Use versioned self-routing identities and a fixed hash
 
-Nereus Delay V1 prepares every Command with self-routing `delayMessageId` and `commandId` values before network I/O. Both carry the immutable Route Incarnation and physical partition selected from a fixed cross-language routing algorithm. Later control and query calls decode that locator rather than consulting a mutable modulo mapping. The identity is opaque location metadata, not an authorization credential.
+Nereus Delay prepares every Command with self-routing `delayMessageId` and `commandId` values before network I/O. Both carry the immutable Route Incarnation and physical partition selected from a fixed cross-language routing algorithm. Later control and query calls decode that locator rather than consulting a mutable modulo mapping. The identity is opaque location metadata, not an authorization credential.
 
 ## Binary and text format
 
-V1 uses fixed-width canonical binary:
+Nereus Delay uses fixed-width canonical binary:
 
 ```text
 byte 0       formatVersion = 1
@@ -22,11 +22,11 @@ The UUID timestamp is not proof of current time or elapsed time. Once validated 
 
 ## Routing hash
 
-`ROUTING_HASH_V1` is:
+`ROUTING_HASH` is:
 
 ```text
 digest = SHA-256(
-    "nereus-delay-routing-v1" ||
+    "nereus-delay-routing" ||
     length-prefixed routeIncarnation bytes ||
     length-prefixed tenantRoutingScope bytes ||
     length-prefixed routingKey bytes)
@@ -41,6 +41,6 @@ Preparation chooses the active Route Incarnation, generates the logical UUIDs, c
 
 ## Topology changes
 
-An existing Route Incarnation never changes partition count or hash version. Capacity expansion creates a new incarnation and SDK route snapshot. Old messages and all of their Client Commands/signed control mutations remain on the old route until its lifecycle safely retires. V1 does not move active messages between route partitions, and it makes no strict Ordering Domain guarantee across an explicit route-incarnation cutover.
+An existing Route Incarnation never changes partition count or hash version. Capacity expansion creates a new incarnation and SDK route snapshot. Old messages and all of their Client Commands/signed control mutations remain on the old route until its lifecycle safely retires. Nereus Delay does not move active messages between route partitions, and it makes no strict Ordering Domain guarantee across an explicit route-incarnation cutover.
 
 If a stale SDK queues a first-seen Schedule after the route's immutable Broker-time acceptance cutoff, the shard durably rejects it as `ROUTE_NOT_ACTIVE`. The cutoff activation is source-ordered and cannot be retroactive to before its authenticated control request. A within-window duplicate of a Command already applied before cutoff remains an idempotent no-op rather than being revalidated under the later lifecycle state. Only the first logical Command's authoritative rejection or Definitive Not Queued result permits the caller to prepare a new Schedule on another route with new identities; an uncertain enqueue is retried unchanged.

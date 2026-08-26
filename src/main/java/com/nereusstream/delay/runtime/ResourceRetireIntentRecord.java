@@ -31,8 +31,7 @@ public record ResourceRetireIntentRecord(
         Bytes.requireLength(resourceIdentityHash, HASH_LENGTH, "resourceIdentityHash");
         ResourceRetireIntentBody.decodeResourceIdentity(resourceKind, resourceIdentity);
         if (!Bytes.constantTimeEquals(
-                resourceIdentityHash,
-                Bytes.sha256(Bytes.utf8("nereus-delay-resource-identity-v1\0"), resourceIdentity))) {
+                resourceIdentityHash, Bytes.sha256(Bytes.utf8("nereus-delay-resource-identity\0"), resourceIdentity))) {
             throw new IllegalArgumentException("resource identity hash does not match canonical identity");
         }
         final ResourceRetireIntentBody.ProtectionSet protectionSet =

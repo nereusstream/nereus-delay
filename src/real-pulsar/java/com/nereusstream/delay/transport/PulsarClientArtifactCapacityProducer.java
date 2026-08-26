@@ -590,7 +590,7 @@ public final class PulsarClientArtifactCapacityProducer {
             final long bytesPerSecond = Math.round(inputBytes / elapsedSeconds);
             final StringBuilder json = new StringBuilder(4_096);
             json.append("{\n");
-            field(json, "schema", "nereus-delay-v1-physical-pulsar-capacity-observation-v1", true);
+            field(json, "schema", "nereus-delay-physical-pulsar-capacity-observation", true);
             field(json, "status", pass ? "PASS" : "FAIL", true);
             field(json, "broker", "pulsar-p1", true);
             field(json, "topic", topic, true);
@@ -615,7 +615,7 @@ public final class PulsarClientArtifactCapacityProducer {
             numberField(json, "bytes_per_second", bytesPerSecond, true);
             numberField(json, "min_entry_id", minEntry == Long.MAX_VALUE ? -1 : minEntry, true);
             numberField(json, "max_entry_id", maxEntry, true);
-            json.append("  \"partition_counts\": [");
+            json.append(" \"partition_counts\": [");
             for (int index = 0; index < partitions.length(); index++) {
                 if (index > 0) {
                     json.append(",");
@@ -623,7 +623,7 @@ public final class PulsarClientArtifactCapacityProducer {
                 json.append(partitions.get(index));
             }
             json.append("],\n");
-            json.append("  \"configuration\": {");
+            json.append(" \"configuration\": {");
             field(json, "batch_messages", configuration.batchMessages(), true, false);
             numberField(json, "effective_guarded_batch_messages", 1, true);
             field(json, "batch_bytes", configuration.batchBytes(), true, false);
@@ -634,8 +634,8 @@ public final class PulsarClientArtifactCapacityProducer {
             field(json, "source_lock_kafka", sourceLock("NEREUS_DELAY_CAPACITY_SOURCE_LOCK_KAFKA"), true, true);
             field(json, "source_lock_pulsar", sourceLock("NEREUS_DELAY_CAPACITY_SOURCE_LOCK_PULSAR"), true, true);
             field(json, "source_lock_oxia", sourceLock("NEREUS_DELAY_CAPACITY_SOURCE_LOCK_OXIA"), false, true);
-            json.append("  },\n");
-            json.append("  \"invariants\": [\"resource guard was stamped before producer creation\","
+            json.append(" },\n");
+            json.append(" \"invariants\": [\"resource guard was stamped before producer creation\","
                     + "\"every accepted record has P1 guarded SEND evidence\","
                     + "\"bad target never produced an accepted record\"],\n");
             field(json, "failure", failure == null ? "" : failure, false);
@@ -658,7 +658,7 @@ public final class PulsarClientArtifactCapacityProducer {
             final Object value,
             final boolean comma,
             final boolean quoted) {
-        json.append("  \"").append(name).append("\": ");
+        json.append(" \"").append(name).append("\": ");
         if (quoted) {
             json.append('"').append(escape(String.valueOf(value))).append('"');
         } else {

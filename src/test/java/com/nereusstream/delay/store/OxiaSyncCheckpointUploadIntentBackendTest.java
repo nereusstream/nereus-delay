@@ -4,15 +4,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
@@ -34,19 +34,19 @@ class OxiaSyncCheckpointUploadIntentBackendTest {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncCheckpointUploadIntentBackend backend =
                 new OxiaSyncCheckpointUploadIntentBackend(records, "delay/upload");
-        final CheckpointUploadIntentV1 pending = pending(1);
+        final CheckpointUploadIntent pending = pending(1);
 
         assertEquals(pending, backend.create(pending));
-        final CheckpointResourceV1 resource = resource(pending);
-        final CheckpointUploadIntentV1 published = backend.publish(pending, resource);
-        assertEquals(CheckpointUploadStateV1.PUBLISHED, published.state());
+        final CheckpointResource resource = resource(pending);
+        final CheckpointUploadIntent published = backend.publish(pending, resource);
+        assertEquals(CheckpointUploadState.PUBLISHED, published.state());
         assertEquals(published, backend.currentPublishedFor(pending).orElseThrow());
 
-        final CheckpointUploadIntentV1 pendingReaping = pending(2);
+        final CheckpointUploadIntent pendingReaping = pending(2);
         backend.create(pendingReaping);
         final TrustedUtcIntervalEvidence evidence = evidence(5_000);
-        final CheckpointUploadIntentV1 reaping = backend.beginReaping(pendingReaping, evidence);
-        assertEquals(CheckpointUploadStateV1.REAPING, reaping.state());
+        final CheckpointUploadIntent reaping = backend.beginReaping(pendingReaping, evidence);
+        assertEquals(CheckpointUploadState.REAPING, reaping.state());
         assertEquals(reaping, backend.current(pendingReaping).orElseThrow());
     }
 
@@ -55,7 +55,7 @@ class OxiaSyncCheckpointUploadIntentBackendTest {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncCheckpointUploadIntentBackend backend =
                 new OxiaSyncCheckpointUploadIntentBackend(records, "delay/lost-upload");
-        final CheckpointUploadIntentV1 pending = pending(3);
+        final CheckpointUploadIntent pending = pending(3);
         records.failNextPutAfterCommit = true;
         assertEquals(pending, backend.create(pending));
         assertEquals(pending, backend.current(pending).orElseThrow());
@@ -74,7 +74,7 @@ class OxiaSyncCheckpointUploadIntentBackendTest {
                         throw new IllegalStateException("simulated Oxia session fence");
                     }
                 });
-        final CheckpointUploadIntentV1 pending = pending(5);
+        final CheckpointUploadIntent pending = pending(5);
         records.afterPut = () -> sessionAlive.set(false);
 
         assertThrows(IllegalStateException.class, () -> backend.create(pending));
@@ -89,38 +89,38 @@ class OxiaSyncCheckpointUploadIntentBackendTest {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncCheckpointUploadIntentBackend backend =
                 new OxiaSyncCheckpointUploadIntentBackend(records, "delay/strict-upload");
-        final CheckpointUploadIntentV1 pending = pending(4);
+        final CheckpointUploadIntent pending = pending(4);
         backend.create(pending);
         assertThrows(IllegalArgumentException.class, () -> backend.beginReaping(pending, evidence(999)));
         assertEquals(
-                CheckpointUploadStateV1.PENDING_UPLOAD,
+                CheckpointUploadState.PENDING_UPLOAD,
                 backend.current(pending).orElseThrow().state());
         assertTrue(backend.currentPublishedFor(pending).isEmpty());
     }
 
-    private static CheckpointUploadIntentV1 pending(final int seed) {
+    private static CheckpointUploadIntent pending(final int seed) {
         final ShardId shard = new ShardId(new RouteIncarnation(id16(seed + 1)), seed);
-        return new CheckpointUploadIntentV1(
-                new ShardSubjectV1(shard),
+        return new CheckpointUploadIntent(
+                new ShardSubject(shard),
                 id16(seed + 2),
                 id16(seed + 3),
-                new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(seed + 4)),
+                new OwnerIdentity(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(seed + 4)),
                 id16(seed + 5),
                 id32(seed + 6),
                 1,
                 null,
                 null,
-                new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, id32(seed + 7), ProfileKindV1.OBJECT_STORE),
+                new ProfileRef(Bytes.utf8("checkpoint-store"), 1, id32(seed + 7), ProfileKind.OBJECT_STORE),
                 evidence(1_000),
                 4_000,
-                CheckpointUploadStateV1.PENDING_UPLOAD,
+                CheckpointUploadState.PENDING_UPLOAD,
                 1,
                 null,
                 null);
     }
 
-    private static CheckpointResourceV1 resource(final CheckpointUploadIntentV1 pending) {
-        return new CheckpointResourceV1(
+    private static CheckpointResource resource(final CheckpointUploadIntent pending) {
+        return new CheckpointResource(
                 pending.recoveryLineageId(),
                 pending.checkpointId(),
                 pending.objectStoreProfile(),
@@ -145,7 +145,7 @@ class OxiaSyncCheckpointUploadIntentBackendTest {
                 null);
     }
 
-    private static String keyToken(final CheckpointUploadIntentV1 intent) {
+    private static String keyToken(final CheckpointUploadIntent intent) {
         return Bytes.hex(Bytes.concat(intent.shard().canonicalHashBytes(), intent.checkpointId()));
     }
 

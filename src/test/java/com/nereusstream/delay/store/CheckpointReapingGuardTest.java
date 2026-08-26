@@ -3,19 +3,19 @@ package com.nereusstream.delay.store;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.RecoveryCandidateKindV1;
-import com.nereusstream.delay.protocol.RecoveryCandidateRefV1;
-import com.nereusstream.delay.protocol.RecoveryFloorRefV1;
-import com.nereusstream.delay.protocol.RecoveryPinV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.RecoveryCandidateKind;
+import com.nereusstream.delay.protocol.RecoveryCandidateRef;
+import com.nereusstream.delay.protocol.RecoveryFloorRef;
+import com.nereusstream.delay.protocol.RecoveryPin;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.util.Optional;
@@ -25,7 +25,7 @@ import org.junit.jupiter.api.Test;
 class CheckpointReapingGuardTest {
     @Test
     void failsClosedWhenCatalogProtectionCannotBeRead() {
-        final CheckpointUploadIntentV1 pending = pending();
+        final CheckpointUploadIntent pending = pending();
         assertEquals(
                 CheckpointReapingGuard.Decision.CATALOG_STATE_UNAVAILABLE,
                 CheckpointReapingGuard.evaluate(pending, evidence(5_000), authority(null, true)));
@@ -33,7 +33,7 @@ class CheckpointReapingGuardTest {
 
     @Test
     void failsClosedWhenCatalogReadThrowsFatalError() {
-        final CheckpointUploadIntentV1 pending = pending();
+        final CheckpointUploadIntent pending = pending();
         assertEquals(
                 CheckpointReapingGuard.Decision.CATALOG_STATE_UNAVAILABLE,
                 CheckpointReapingGuard.evaluate(
@@ -42,7 +42,7 @@ class CheckpointReapingGuardTest {
 
     @Test
     void failsClosedWhenRecoveryPinReadThrowsFatalError() {
-        final CheckpointUploadIntentV1 pending = pending();
+        final CheckpointUploadIntent pending = pending();
         assertEquals(
                 CheckpointReapingGuard.Decision.RECOVERY_PIN_STATE_UNAVAILABLE,
                 CheckpointReapingGuard.evaluate(
@@ -53,8 +53,8 @@ class CheckpointReapingGuardTest {
 
     @Test
     void activeRecoveryPinBlocksReapingAndUnpinnedCatalogAllowsIt() {
-        final CheckpointUploadIntentV1 pending = pending();
-        final RecoveryPinV1 pin = pin(pending);
+        final CheckpointUploadIntent pending = pending();
+        final RecoveryPin pin = pin(pending);
         assertEquals(
                 CheckpointReapingGuard.Decision.RECOVERY_PIN_PROTECTION,
                 CheckpointReapingGuard.evaluate(pending, evidence(5_000), authority(pin, false)));
@@ -64,64 +64,64 @@ class CheckpointReapingGuardTest {
         assertThrows(
                 IllegalStateException.class, () -> store.beginReaping(pending, evidence(5_000), authority(pin, false)));
         assertEquals(
-                CheckpointUploadStateV1.PENDING_UPLOAD,
+                CheckpointUploadState.PENDING_UPLOAD,
                 store.current().orElseThrow().state());
 
         final CheckpointUploadIntentStore unpinnedStore = new CheckpointUploadIntentStore();
         unpinnedStore.create(pending);
         assertEquals(
-                CheckpointUploadStateV1.REAPING,
+                CheckpointUploadState.REAPING,
                 unpinnedStore
                         .beginReaping(pending, evidence(5_000), new RecoveryCatalog())
                         .state());
     }
 
-    private static CheckpointUploadIntentV1 pending() {
-        return new CheckpointUploadIntentV1(
-                new ShardSubjectV1(new RouteIncarnation(bytes(16, 1)), 3),
+    private static CheckpointUploadIntent pending() {
+        return new CheckpointUploadIntent(
+                new ShardSubject(new RouteIncarnation(bytes(16, 1)), 3),
                 bytes(16, 2),
                 bytes(16, 3),
-                new OwnerIdentityV1(bytes(8, 4), bytes(8, 5), 9, bytes(32, 6)),
+                new OwnerIdentity(bytes(8, 4), bytes(8, 5), 9, bytes(32, 6)),
                 bytes(16, 7),
                 bytes(32, 8),
                 11,
                 bytes(16, 9),
                 bytes(32, 10),
-                new ProfileRefV1(Bytes.utf8("store"), 1, bytes(32, 15), ProfileKindV1.OBJECT_STORE),
+                new ProfileRef(Bytes.utf8("store"), 1, bytes(32, 15), ProfileKind.OBJECT_STORE),
                 evidence(1_000),
                 5_000,
-                CheckpointUploadStateV1.PENDING_UPLOAD,
+                CheckpointUploadState.PENDING_UPLOAD,
                 2,
                 null,
                 null);
     }
 
-    private static RecoveryPinV1 pin(final CheckpointUploadIntentV1 pending) {
+    private static RecoveryPin pin(final CheckpointUploadIntent pending) {
         final ShardId shard = pending.shard().shardId();
         final SourcePosition position = new KafkaSourcePosition(
                 shard, "cluster", UUID.fromString("00000000-0000-0000-0000-000000000001"), 1, null, 1_001);
         final byte[] manifestHash = bytes(32, 18);
-        final RecoveryFloorRefV1 floor = new RecoveryFloorRefV1(
+        final RecoveryFloorRef floor = new RecoveryFloorRef(
                 pending.recoveryLineageId(), pending.checkpointId(), manifestHash, 1, position, 1, java.util.List.of());
-        final RecoveryCandidateRefV1 candidate = new RecoveryCandidateRefV1(
-                RecoveryCandidateKindV1.CATALOG_CHECKPOINT,
+        final RecoveryCandidateRef candidate = new RecoveryCandidateRef(
+                RecoveryCandidateKind.CATALOG_CHECKPOINT,
                 pending.recoveryLineageId(),
                 pending.checkpointId(),
                 manifestHash,
                 null);
-        return new RecoveryPinV1(bytes(16, 19), pending.shard(), pending.owner(), candidate, floor, 1, bytes(32, 20));
+        return new RecoveryPin(bytes(16, 19), pending.shard(), pending.owner(), candidate, floor, 1, bytes(32, 20));
     }
 
-    private static RecoveryCatalogAuthority authority(final RecoveryPinV1 pin, final boolean failCatalog) {
+    private static RecoveryCatalogAuthority authority(final RecoveryPin pin, final boolean failCatalog) {
         return authority(pin, failCatalog ? new IllegalStateException("catalog read unavailable") : null, null);
     }
 
-    private static RecoveryCatalogAuthority authority(final RecoveryPinV1 pin, final Throwable catalogFailure) {
+    private static RecoveryCatalogAuthority authority(final RecoveryPin pin, final Throwable catalogFailure) {
         return authority(pin, catalogFailure, null);
     }
 
     private static RecoveryCatalogAuthority authority(
-            final RecoveryPinV1 pin, final Throwable catalogFailure, final Throwable pinFailure) {
+            final RecoveryPin pin, final Throwable catalogFailure, final Throwable pinFailure) {
         return new RecoveryCatalogAuthority() {
             @Override
             public RecoveryCatalog.Publication publish(
@@ -164,7 +164,7 @@ class CheckpointReapingGuardTest {
             }
 
             @Override
-            public Optional<RecoveryPinV1> activeRecoveryPin() {
+            public Optional<RecoveryPin> activeRecoveryPin() {
                 if (pinFailure != null) {
                     throwUnchecked(pinFailure);
                 }

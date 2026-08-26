@@ -6,12 +6,12 @@ export LANG=C
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 delay_dir="$(cd "${script_dir}/.." && pwd)"
-artifact_dir="${NEREUS_DELAY_LONG_GC_E2E_ARTIFACT_DIR:-/private/tmp/nereus-delay-v1-long-gc-$(date +%Y%m%d-%H%M%S)}"
+artifact_dir="${NEREUS_DELAY_LONG_GC_E2E_ARTIFACT_DIR:-/private/tmp/nereus-delay-long-gc-$(date +%Y%m%d-%H%M%S)}"
 gradle_home="${NEREUS_DELAY_LONG_GC_GRADLE_USER_HOME:-${GRADLE_USER_HOME:-${artifact_dir}/gradle-user-home}}"
 source_lock_file="${NEREUS_DELAY_LONG_GC_SOURCE_LOCK:-}"
 java_tool_options="${NEREUS_DELAY_LONG_GC_JAVA_TOOL_OPTIONS:--Xmx512m -XX:+UseSerialGC}"
 class_name="com.nereusstream.delay.scheduler.LongGcDurableChaosTest"
-schema="nereus-delay-long-gc-e2e-v1"
+schema="nereus-delay-long-gc-e2e"
 
 fail() {
   echo "long-GC E2E: $*" >&2
@@ -74,8 +74,8 @@ if [[ "${before_exit}" == "0" && "${after_exit}" == "0" \
     && jq -n --slurpfile before "${before_dump}" --slurpfile after "${after_dump}" \
       --arg expected_delay "${expected_delay}" \
       '($before | length) == 1 and ($after | length) == 1
-       and $before[0].schema == "nereus-delay-long-gc-durable-state-dump-v1"
-       and $after[0].schema == "nereus-delay-long-gc-durable-state-dump-v1"
+       and $before[0].schema == "nereus-delay-long-gc-durable-state-dump"
+       and $after[0].schema == "nereus-delay-long-gc-durable-state-dump"
        and $before[0].cell == "long-gc" and $after[0].cell == "long-gc"
        and $before[0].phase == "BEFORE_FRESH_PROCESS_RECOVERY"
        and $after[0].phase == "RECOVERED_AFTER_FRESH_PROCESS"

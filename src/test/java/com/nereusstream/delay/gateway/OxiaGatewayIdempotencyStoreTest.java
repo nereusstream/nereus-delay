@@ -5,25 +5,25 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import com.nereusstream.delay.protocol.AdapterMetadataV1;
+import com.nereusstream.delay.protocol.AdapterMetadata;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CanonicalCommandQueuedReceipt;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.CommandCodec;
-import com.nereusstream.delay.protocol.CommandQueuedReceiptV1;
 import com.nereusstream.delay.protocol.DeliveryMode;
-import com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1;
-import com.nereusstream.delay.protocol.KafkaMetadataV1;
+import com.nereusstream.delay.protocol.EnqueueOutcomeMessage;
+import com.nereusstream.delay.protocol.KafkaMetadata;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.PreparedSubmissionV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.RetryPolicyRefV1;
+import com.nereusstream.delay.protocol.PreparedSubmission;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.RetryPolicyRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.SubmissionOutcomeKindV1;
-import com.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import com.nereusstream.delay.protocol.SubmissionOutcomeKind;
+import com.nereusstream.delay.protocol.SubmissionOutcomeMessage;
 import com.nereusstream.delay.semantic.TrustedClock;
 import com.nereusstream.delay.transport.Digest32;
 import com.nereusstream.delay.transport.PhysicalEnqueueAttemptId;
@@ -47,21 +47,21 @@ class OxiaGatewayIdempotencyStoreTest {
     void gatewayRecordAndAttemptCodecsRoundTripCanonicalBytes() {
         final TrustedClock clock = () -> 100;
         final InMemoryGatewayIdempotencyStore store = new InMemoryGatewayIdempotencyStore(clock, 10, 20);
-        final PreparedSubmissionV1 prepared = prepared();
+        final PreparedSubmission prepared = prepared();
         final Digest32 keyHash = new Digest32(bytes(32, 1));
         final Digest32 bodyHash = new Digest32(bytes(32, 2));
 
-        store.prepareIfAbsent(keyHash, GatewayOperationKindV1.SCHEDULE, bodyHash, prepared, 800);
+        store.prepareIfAbsent(keyHash, GatewayOperationKind.SCHEDULE, bodyHash, prepared, 800);
         final InMemoryGatewayIdempotencyStoreAdapter adapter =
                 new InMemoryGatewayIdempotencyStoreAdapter(store, keyHash, prepared);
-        final GatewayIdempotencyRecordV1 decoded =
-                GatewayIdempotencyRecordV1.decode(adapter.record().canonicalBytes());
+        final GatewayIdempotencyRecord decoded =
+                GatewayIdempotencyRecord.decode(adapter.record().canonicalBytes());
 
         assertArrayEquals(adapter.record().canonicalBytes(), decoded.canonicalBytes());
         assertEquals(1, decoded.attempts().size());
         assertArrayEquals(
                 decoded.attempts().get(0).canonicalBytes(),
-                GatewayPhysicalAttemptV1.decode(decoded.attempts().get(0).canonicalBytes())
+                GatewayPhysicalAttempt.decode(decoded.attempts().get(0).canonicalBytes())
                         .canonicalBytes());
     }
 
@@ -70,22 +70,22 @@ class OxiaGatewayIdempotencyStoreTest {
         final PhysicalEnqueueAttemptId attemptId = PhysicalEnqueueAttemptId.require(bytes(16, 4));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new GatewayPhysicalAttemptV1(
-                        1, attemptId, GatewayPhysicalAttemptStateV1.STARTED, bytes(1, 5), 100, 120, 2, 110));
+                () -> new GatewayPhysicalAttempt(
+                        1, attemptId, GatewayPhysicalAttemptState.STARTED, bytes(1, 5), 100, 120, 2, 110));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new GatewayPhysicalAttemptV1(
-                        1, attemptId, GatewayPhysicalAttemptStateV1.UNCERTAIN, null, 100, 120, 2, 110));
+                () -> new GatewayPhysicalAttempt(
+                        1, attemptId, GatewayPhysicalAttemptState.UNCERTAIN, null, 100, 120, 2, 110));
 
-        final PreparedSubmissionV1 prepared = prepared();
+        final PreparedSubmission prepared = prepared();
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new GatewayIdempotencyRecordV1(
+                () -> new GatewayIdempotencyRecord(
                         new Digest32(bytes(32, 6)),
-                        GatewayOperationKindV1.SCHEDULE,
+                        GatewayOperationKind.SCHEDULE,
                         new Digest32(bytes(32, 7)),
                         prepared.canonicalBytes(),
-                        GatewayIdempotencyPhaseV1.QUIESCENT,
+                        GatewayIdempotencyPhase.QUIESCENT,
                         List.of(),
                         null,
                         100,
@@ -93,25 +93,25 @@ class OxiaGatewayIdempotencyStoreTest {
                         1));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new GatewayIdempotencyRecordV1(
+                () -> new GatewayIdempotencyRecord(
                         new Digest32(bytes(32, 25)),
-                        GatewayOperationKindV1.CANCEL,
+                        GatewayOperationKind.CANCEL,
                         new Digest32(bytes(32, 26)),
                         prepared.canonicalBytes(),
-                        GatewayIdempotencyPhaseV1.PREPARED,
+                        GatewayIdempotencyPhase.PREPARED,
                         List.of(),
                         null,
                         100,
                         200,
                         1));
 
-        final SubmissionOutcomeMessageV1 uncertain = GatewayOutcomeSupport.uncertain(prepared, attemptId);
-        final GatewayPhysicalAttemptV1 first = new GatewayPhysicalAttemptV1(
-                1, attemptId, GatewayPhysicalAttemptStateV1.UNCERTAIN, uncertain.canonicalBytes(), 100, 120, 2, 110);
-        final GatewayPhysicalAttemptV1 duplicate = new GatewayPhysicalAttemptV1(
+        final SubmissionOutcomeMessage uncertain = GatewayOutcomeSupport.uncertain(prepared, attemptId);
+        final GatewayPhysicalAttempt first = new GatewayPhysicalAttempt(
+                1, attemptId, GatewayPhysicalAttemptState.UNCERTAIN, uncertain.canonicalBytes(), 100, 120, 2, 110);
+        final GatewayPhysicalAttempt duplicate = new GatewayPhysicalAttempt(
                 2,
                 attemptId,
-                GatewayPhysicalAttemptStateV1.UNCERTAIN,
+                GatewayPhysicalAttemptState.UNCERTAIN,
                 uncertain.canonicalBytes(),
                 100,
                 120,
@@ -121,12 +121,12 @@ class OxiaGatewayIdempotencyStoreTest {
                 110);
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new GatewayIdempotencyRecordV1(
+                () -> new GatewayIdempotencyRecord(
                         new Digest32(bytes(32, 8)),
-                        GatewayOperationKindV1.SCHEDULE,
+                        GatewayOperationKind.SCHEDULE,
                         new Digest32(bytes(32, 9)),
                         prepared.canonicalBytes(),
-                        GatewayIdempotencyPhaseV1.QUIESCENT,
+                        GatewayIdempotencyPhase.QUIESCENT,
                         List.of(first, duplicate),
                         uncertain.canonicalBytes(),
                         100,
@@ -135,18 +135,18 @@ class OxiaGatewayIdempotencyStoreTest {
 
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new GatewayPhysicalAttemptV1(
-                        1, attemptId, GatewayPhysicalAttemptStateV1.STARTED, null, 100, 100, 2, 110));
+                () -> new GatewayPhysicalAttempt(
+                        1, attemptId, GatewayPhysicalAttemptState.STARTED, null, 100, 100, 2, 110));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new GatewayPhysicalAttemptV1(
-                        1, attemptId, GatewayPhysicalAttemptStateV1.STARTED, null, 100, 120, 2, 100));
+                () -> new GatewayPhysicalAttempt(
+                        1, attemptId, GatewayPhysicalAttemptState.STARTED, null, 100, 120, 2, 100));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new GatewayPhysicalAttemptV1(
+                () -> new GatewayPhysicalAttempt(
                         1,
                         attemptId,
-                        GatewayPhysicalAttemptStateV1.STARTED,
+                        GatewayPhysicalAttemptState.STARTED,
                         null,
                         100,
                         120,
@@ -156,10 +156,10 @@ class OxiaGatewayIdempotencyStoreTest {
                         110));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new GatewayPhysicalAttemptV1(
+                () -> new GatewayPhysicalAttempt(
                         2,
                         PhysicalEnqueueAttemptId.require(bytes(16, 40)),
-                        GatewayPhysicalAttemptStateV1.STARTED,
+                        GatewayPhysicalAttemptState.STARTED,
                         null,
                         100,
                         120,
@@ -168,12 +168,12 @@ class OxiaGatewayIdempotencyStoreTest {
 
         final PhysicalEnqueueAttemptId firstStartedId = PhysicalEnqueueAttemptId.require(bytes(16, 27));
         final PhysicalEnqueueAttemptId secondStartedId = PhysicalEnqueueAttemptId.require(bytes(16, 28));
-        final GatewayPhysicalAttemptV1 firstStarted = new GatewayPhysicalAttemptV1(
-                1, firstStartedId, GatewayPhysicalAttemptStateV1.STARTED, null, 100, 120, 2, 110);
-        final GatewayPhysicalAttemptV1 secondStarted = new GatewayPhysicalAttemptV1(
+        final GatewayPhysicalAttempt firstStarted = new GatewayPhysicalAttempt(
+                1, firstStartedId, GatewayPhysicalAttemptState.STARTED, null, 100, 120, 2, 110);
+        final GatewayPhysicalAttempt secondStarted = new GatewayPhysicalAttempt(
                 2,
                 secondStartedId,
-                GatewayPhysicalAttemptStateV1.STARTED,
+                GatewayPhysicalAttemptState.STARTED,
                 null,
                 121,
                 140,
@@ -183,12 +183,12 @@ class OxiaGatewayIdempotencyStoreTest {
                 130);
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new GatewayIdempotencyRecordV1(
+                () -> new GatewayIdempotencyRecord(
                         new Digest32(bytes(32, 29)),
-                        GatewayOperationKindV1.SCHEDULE,
+                        GatewayOperationKind.SCHEDULE,
                         new Digest32(bytes(32, 30)),
                         prepared.canonicalBytes(),
-                        GatewayIdempotencyPhaseV1.ACTIVE,
+                        GatewayIdempotencyPhase.ACTIVE,
                         List.of(firstStarted, secondStarted),
                         null,
                         100,
@@ -199,28 +199,28 @@ class OxiaGatewayIdempotencyStoreTest {
         final PhysicalEnqueueAttemptId nonFinalStartedId = PhysicalEnqueueAttemptId.require(bytes(16, 32));
         final PhysicalEnqueueAttemptId laterAttemptId = PhysicalEnqueueAttemptId.require(bytes(16, 33));
         final PhysicalEnqueueAttemptId retryRequestId = PhysicalEnqueueAttemptId.require(bytes(16, 34));
-        final SubmissionOutcomeMessageV1 laterUncertain = GatewayOutcomeSupport.uncertain(prepared, laterAttemptId);
-        final GatewayPhysicalAttemptV1 laterUncertainAttempt = new GatewayPhysicalAttemptV1(
+        final SubmissionOutcomeMessage laterUncertain = GatewayOutcomeSupport.uncertain(prepared, laterAttemptId);
+        final GatewayPhysicalAttempt laterUncertainAttempt = new GatewayPhysicalAttempt(
                 2,
                 laterAttemptId,
-                GatewayPhysicalAttemptStateV1.UNCERTAIN,
+                GatewayPhysicalAttemptState.UNCERTAIN,
                 laterUncertain.canonicalBytes(),
                 121,
                 140,
                 retryRequestId,
-                GatewayIdempotencyHashV1.retryRequestHash(nonFinalStartedKey, nonFinalStartedId, retryRequestId),
+                GatewayIdempotencyHash.retryRequestHash(nonFinalStartedKey, nonFinalStartedId, retryRequestId),
                 3,
                 130);
-        final GatewayPhysicalAttemptV1 nonFinalStarted = new GatewayPhysicalAttemptV1(
-                1, nonFinalStartedId, GatewayPhysicalAttemptStateV1.STARTED, null, 100, 120, 2, 110);
+        final GatewayPhysicalAttempt nonFinalStarted = new GatewayPhysicalAttempt(
+                1, nonFinalStartedId, GatewayPhysicalAttemptState.STARTED, null, 100, 120, 2, 110);
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new GatewayIdempotencyRecordV1(
+                () -> new GatewayIdempotencyRecord(
                         nonFinalStartedKey,
-                        GatewayOperationKindV1.SCHEDULE,
+                        GatewayOperationKind.SCHEDULE,
                         new Digest32(bytes(32, 35)),
                         prepared.canonicalBytes(),
-                        GatewayIdempotencyPhaseV1.ACTIVE,
+                        GatewayIdempotencyPhase.ACTIVE,
                         List.of(nonFinalStarted, laterUncertainAttempt),
                         laterUncertain.canonicalBytes(),
                         100,
@@ -231,49 +231,49 @@ class OxiaGatewayIdempotencyStoreTest {
         final PhysicalEnqueueAttemptId queuedTailFirstId = PhysicalEnqueueAttemptId.require(bytes(16, 44));
         final PhysicalEnqueueAttemptId queuedTailSecondId = PhysicalEnqueueAttemptId.require(bytes(16, 45));
         final PhysicalEnqueueAttemptId queuedTailRetryId = PhysicalEnqueueAttemptId.require(bytes(16, 46));
-        final SubmissionOutcomeMessageV1 queuedTailUncertain =
+        final SubmissionOutcomeMessage queuedTailUncertain =
                 GatewayOutcomeSupport.uncertain(prepared, queuedTailFirstId);
-        final SubmissionOutcomeMessageV1 queuedTailQueued = queued(prepared, queuedTailSecondId);
-        final GatewayPhysicalAttemptV1 queuedTailFirst = new GatewayPhysicalAttemptV1(
+        final SubmissionOutcomeMessage queuedTailQueued = queued(prepared, queuedTailSecondId);
+        final GatewayPhysicalAttempt queuedTailFirst = new GatewayPhysicalAttempt(
                 1,
                 queuedTailFirstId,
-                GatewayPhysicalAttemptStateV1.UNCERTAIN,
+                GatewayPhysicalAttemptState.UNCERTAIN,
                 queuedTailUncertain.canonicalBytes(),
                 100,
                 120,
                 2,
                 110);
-        final GatewayPhysicalAttemptV1 queuedTailSecond = new GatewayPhysicalAttemptV1(
+        final GatewayPhysicalAttempt queuedTailSecond = new GatewayPhysicalAttempt(
                 2,
                 queuedTailSecondId,
-                GatewayPhysicalAttemptStateV1.QUEUED,
+                GatewayPhysicalAttemptState.QUEUED,
                 queuedTailQueued.canonicalBytes(),
                 121,
                 140,
                 queuedTailRetryId,
-                GatewayIdempotencyHashV1.retryRequestHash(queuedTailKey, queuedTailFirstId, queuedTailRetryId),
+                GatewayIdempotencyHash.retryRequestHash(queuedTailKey, queuedTailFirstId, queuedTailRetryId),
                 3,
                 130);
-        final GatewayPhysicalAttemptV1 queuedTailStarted = new GatewayPhysicalAttemptV1(
+        final GatewayPhysicalAttempt queuedTailStarted = new GatewayPhysicalAttempt(
                 3,
                 PhysicalEnqueueAttemptId.require(bytes(16, 47)),
-                GatewayPhysicalAttemptStateV1.STARTED,
+                GatewayPhysicalAttemptState.STARTED,
                 null,
                 141,
                 160,
                 PhysicalEnqueueAttemptId.require(bytes(16, 48)),
-                GatewayIdempotencyHashV1.retryRequestHash(
+                GatewayIdempotencyHash.retryRequestHash(
                         queuedTailKey, queuedTailFirstId, PhysicalEnqueueAttemptId.require(bytes(16, 48))),
                 4,
                 150);
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new GatewayIdempotencyRecordV1(
+                () -> new GatewayIdempotencyRecord(
                         queuedTailKey,
-                        GatewayOperationKindV1.SCHEDULE,
+                        GatewayOperationKind.SCHEDULE,
                         new Digest32(bytes(32, 49)),
                         prepared.canonicalBytes(),
-                        GatewayIdempotencyPhaseV1.ACTIVE,
+                        GatewayIdempotencyPhase.ACTIVE,
                         List.of(queuedTailFirst, queuedTailSecond, queuedTailStarted),
                         queuedTailQueued.canonicalBytes(),
                         100,
@@ -283,13 +283,13 @@ class OxiaGatewayIdempotencyStoreTest {
 
     @Test
     void gatewayProjectionRejectsOutcomeStateAndAggregateMismatches() {
-        final PreparedSubmissionV1 prepared = prepared();
+        final PreparedSubmission prepared = prepared();
         final PhysicalEnqueueAttemptId attemptId = PhysicalEnqueueAttemptId.require(bytes(16, 14));
-        final SubmissionOutcomeMessageV1 uncertain = GatewayOutcomeSupport.uncertain(prepared, attemptId);
-        final GatewayPhysicalAttemptV1 stateMismatch = new GatewayPhysicalAttemptV1(
+        final SubmissionOutcomeMessage uncertain = GatewayOutcomeSupport.uncertain(prepared, attemptId);
+        final GatewayPhysicalAttempt stateMismatch = new GatewayPhysicalAttempt(
                 1,
                 attemptId,
-                GatewayPhysicalAttemptStateV1.DEFINITELY_NOT_QUEUED,
+                GatewayPhysicalAttemptState.DEFINITELY_NOT_QUEUED,
                 uncertain.canonicalBytes(),
                 100,
                 120,
@@ -298,30 +298,30 @@ class OxiaGatewayIdempotencyStoreTest {
 
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new GatewayIdempotencyRecordV1(
+                () -> new GatewayIdempotencyRecord(
                         new Digest32(bytes(32, 15)),
-                        GatewayOperationKindV1.SCHEDULE,
+                        GatewayOperationKind.SCHEDULE,
                         new Digest32(bytes(32, 16)),
                         prepared.canonicalBytes(),
-                        GatewayIdempotencyPhaseV1.QUIESCENT,
+                        GatewayIdempotencyPhase.QUIESCENT,
                         List.of(stateMismatch),
                         uncertain.canonicalBytes(),
                         100,
                         200,
                         1));
 
-        final GatewayPhysicalAttemptV1 valid = new GatewayPhysicalAttemptV1(
-                1, attemptId, GatewayPhysicalAttemptStateV1.UNCERTAIN, uncertain.canonicalBytes(), 100, 120, 2, 110);
-        final SubmissionOutcomeMessageV1 foreignAggregate =
+        final GatewayPhysicalAttempt valid = new GatewayPhysicalAttempt(
+                1, attemptId, GatewayPhysicalAttemptState.UNCERTAIN, uncertain.canonicalBytes(), 100, 120, 2, 110);
+        final SubmissionOutcomeMessage foreignAggregate =
                 GatewayOutcomeSupport.uncertain(prepared, PhysicalEnqueueAttemptId.require(bytes(16, 17)));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new GatewayIdempotencyRecordV1(
+                () -> new GatewayIdempotencyRecord(
                         new Digest32(bytes(32, 18)),
-                        GatewayOperationKindV1.SCHEDULE,
+                        GatewayOperationKind.SCHEDULE,
                         new Digest32(bytes(32, 19)),
                         prepared.canonicalBytes(),
-                        GatewayIdempotencyPhaseV1.QUIESCENT,
+                        GatewayIdempotencyPhase.QUIESCENT,
                         List.of(valid),
                         foreignAggregate.canonicalBytes(),
                         100,
@@ -330,10 +330,10 @@ class OxiaGatewayIdempotencyStoreTest {
 
         final PhysicalEnqueueAttemptId retryPhysicalId = PhysicalEnqueueAttemptId.require(bytes(16, 20));
         final PhysicalEnqueueAttemptId retryRequestId = PhysicalEnqueueAttemptId.require(bytes(16, 21));
-        final GatewayPhysicalAttemptV1 retry = new GatewayPhysicalAttemptV1(
+        final GatewayPhysicalAttempt retry = new GatewayPhysicalAttempt(
                 2,
                 retryPhysicalId,
-                GatewayPhysicalAttemptStateV1.STARTED,
+                GatewayPhysicalAttemptState.STARTED,
                 null,
                 121,
                 140,
@@ -343,12 +343,12 @@ class OxiaGatewayIdempotencyStoreTest {
                 130);
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new GatewayIdempotencyRecordV1(
+                () -> new GatewayIdempotencyRecord(
                         new Digest32(bytes(32, 23)),
-                        GatewayOperationKindV1.SCHEDULE,
+                        GatewayOperationKind.SCHEDULE,
                         new Digest32(bytes(32, 24)),
                         prepared.canonicalBytes(),
-                        GatewayIdempotencyPhaseV1.ACTIVE,
+                        GatewayIdempotencyPhase.ACTIVE,
                         List.of(valid, retry),
                         null,
                         100,
@@ -362,12 +362,12 @@ class OxiaGatewayIdempotencyStoreTest {
         final FakeGatewayClient client = new FakeGatewayClient();
         final OxiaGatewayIdempotencyStore store =
                 new OxiaGatewayIdempotencyStore(client, "/nereus/gateway", clock, 10, 20);
-        final PreparedSubmissionV1 prepared = prepared();
+        final PreparedSubmission prepared = prepared();
         final Digest32 keyHash = new Digest32(bytes(32, 11));
         final Digest32 bodyHash = new Digest32(bytes(32, 12));
-        store.prepareIfAbsent(keyHash, GatewayOperationKindV1.SCHEDULE, bodyHash, prepared, 800);
+        store.prepareIfAbsent(keyHash, GatewayOperationKind.SCHEDULE, bodyHash, prepared, 800);
         final var started = store.startAttempt(keyHash);
-        final SubmissionOutcomeMessageV1 uncertain =
+        final SubmissionOutcomeMessage uncertain =
                 GatewayOutcomeSupport.uncertain(prepared, started.permit().physicalAttemptId());
         store.finish(keyHash, started.permit().physicalAttemptId(), uncertain);
 
@@ -391,37 +391,37 @@ class OxiaGatewayIdempotencyStoreTest {
         final FakeGatewayClient client = new FakeGatewayClient();
         final OxiaGatewayIdempotencyStore store =
                 new OxiaGatewayIdempotencyStore(client, "/nereus/gateway", clock, 10, 20);
-        final PreparedSubmissionV1 prepared = prepared();
+        final PreparedSubmission prepared = prepared();
         final Digest32 keyHash = new Digest32(bytes(32, 21));
         final Digest32 bodyHash = new Digest32(bytes(32, 22));
-        store.prepareIfAbsent(keyHash, GatewayOperationKindV1.SCHEDULE, bodyHash, prepared, 800);
+        store.prepareIfAbsent(keyHash, GatewayOperationKind.SCHEDULE, bodyHash, prepared, 800);
 
         client.loseNextPutResponse = true;
         final GatewayIdempotencyStore.AttemptStart responseLost = store.startAttempt(keyHash);
         assertNull(responseLost.permit());
-        assertEquals(GatewayIdempotencyPhaseV1.ACTIVE, responseLost.record().phase());
+        assertEquals(GatewayIdempotencyPhase.ACTIVE, responseLost.record().phase());
         assertNull(responseLost.record().aggregateOutcomeBytes());
         assertEquals(
-                GatewayPhysicalAttemptStateV1.STARTED,
+                GatewayPhysicalAttemptState.STARTED,
                 responseLost.record().attempts().get(0).state());
 
         now[0] = 119;
         final GatewayIdempotencyStore.AttemptStart beforeDeadline = store.startAttempt(keyHash);
         assertNull(beforeDeadline.permit());
-        assertEquals(GatewayIdempotencyPhaseV1.ACTIVE, beforeDeadline.record().phase());
+        assertEquals(GatewayIdempotencyPhase.ACTIVE, beforeDeadline.record().phase());
         assertNull(beforeDeadline.record().aggregateOutcomeBytes());
 
         now[0] = 120;
         final GatewayIdempotencyStore.AttemptStart recovered = store.startAttempt(keyHash);
         assertNull(recovered.permit());
-        assertEquals(GatewayIdempotencyPhaseV1.QUIESCENT, recovered.record().phase());
+        assertEquals(GatewayIdempotencyPhase.QUIESCENT, recovered.record().phase());
         assertEquals(
-                GatewayPhysicalAttemptStateV1.UNCERTAIN,
+                GatewayPhysicalAttemptState.UNCERTAIN,
                 recovered.record().attempts().get(0).state());
         assertNotNull(recovered.record().aggregateOutcomeBytes());
         assertEquals(
-                SubmissionOutcomeKindV1.MANAGED,
-                SubmissionOutcomeMessageV1.decode(recovered.record().aggregateOutcomeBytes())
+                SubmissionOutcomeKind.MANAGED,
+                SubmissionOutcomeMessage.decode(recovered.record().aggregateOutcomeBytes())
                         .kind());
     }
 
@@ -431,16 +431,16 @@ class OxiaGatewayIdempotencyStoreTest {
         final FakeGatewayClient client = new FakeGatewayClient();
         final OxiaGatewayIdempotencyStore store =
                 new OxiaGatewayIdempotencyStore(client, "/nereus/gateway", clock, 10, 20);
-        final PreparedSubmissionV1 prepared = prepared();
+        final PreparedSubmission prepared = prepared();
         final Digest32 keyHash = new Digest32(bytes(32, 35));
-        store.prepareIfAbsent(keyHash, GatewayOperationKindV1.SCHEDULE, new Digest32(bytes(32, 36)), prepared, 100);
+        store.prepareIfAbsent(keyHash, GatewayOperationKind.SCHEDULE, new Digest32(bytes(32, 36)), prepared, 100);
         final byte[] before = store.exact(keyHash).canonicalBytes();
 
         final GatewayIdempotencyStore.AttemptStart expired = store.startAttempt(keyHash);
 
         assertNull(expired.permit());
         assertArrayEquals(before, store.exact(keyHash).canonicalBytes());
-        assertEquals(GatewayIdempotencyPhaseV1.PREPARED, expired.record().phase());
+        assertEquals(GatewayIdempotencyPhase.PREPARED, expired.record().phase());
         assertEquals(0, expired.record().attempts().size());
     }
 
@@ -451,12 +451,12 @@ class OxiaGatewayIdempotencyStoreTest {
         final FakeGatewayClient client = new FakeGatewayClient();
         final OxiaGatewayIdempotencyStore store =
                 new OxiaGatewayIdempotencyStore(client, "/nereus/gateway", clock, 10, 20);
-        final PreparedSubmissionV1 prepared = prepared();
+        final PreparedSubmission prepared = prepared();
         final Digest32 keyHash = new Digest32(bytes(32, 31));
         final Digest32 bodyHash = new Digest32(bytes(32, 32));
-        store.prepareIfAbsent(keyHash, GatewayOperationKindV1.SCHEDULE, bodyHash, prepared, 800);
+        store.prepareIfAbsent(keyHash, GatewayOperationKind.SCHEDULE, bodyHash, prepared, 800);
         final GatewayIdempotencyStore.AttemptStart first = store.startAttempt(keyHash);
-        final SubmissionOutcomeMessageV1 uncertain =
+        final SubmissionOutcomeMessage uncertain =
                 GatewayOutcomeSupport.uncertain(prepared, first.permit().physicalAttemptId());
         store.finish(keyHash, first.permit().physicalAttemptId(), uncertain);
         final PhysicalEnqueueAttemptId retryRequestId = PhysicalEnqueueAttemptId.require(bytes(16, 93));
@@ -466,10 +466,10 @@ class OxiaGatewayIdempotencyStoreTest {
                 store.startRetry(keyHash, first.permit().physicalAttemptId(), retryRequestId);
         assertEquals(GatewayIdempotencyStore.RetryState.EXISTING_RETRY, responseLost.state());
         assertNull(responseLost.permit());
-        assertEquals(GatewayIdempotencyPhaseV1.ACTIVE, responseLost.record().phase());
+        assertEquals(GatewayIdempotencyPhase.ACTIVE, responseLost.record().phase());
         assertNull(responseLost.record().aggregateOutcomeBytes());
         assertEquals(
-                GatewayPhysicalAttemptStateV1.STARTED,
+                GatewayPhysicalAttemptState.STARTED,
                 responseLost.record().attempts().get(1).state());
 
         now[0] = 120;
@@ -477,9 +477,9 @@ class OxiaGatewayIdempotencyStoreTest {
                 store.startRetry(keyHash, first.permit().physicalAttemptId(), retryRequestId);
         assertEquals(GatewayIdempotencyStore.RetryState.EXISTING_RETRY, recovered.state());
         assertNull(recovered.permit());
-        assertEquals(GatewayIdempotencyPhaseV1.QUIESCENT, recovered.record().phase());
+        assertEquals(GatewayIdempotencyPhase.QUIESCENT, recovered.record().phase());
         assertEquals(
-                GatewayPhysicalAttemptStateV1.UNCERTAIN,
+                GatewayPhysicalAttemptState.UNCERTAIN,
                 recovered.record().attempts().get(1).state());
         assertNotNull(recovered.record().aggregateOutcomeBytes());
     }
@@ -490,24 +490,24 @@ class OxiaGatewayIdempotencyStoreTest {
         final FakeGatewayClient client = new FakeGatewayClient();
         final OxiaGatewayIdempotencyStore store =
                 new OxiaGatewayIdempotencyStore(client, "/nereus/gateway", clock, 10, 20);
-        final PreparedSubmissionV1 prepared = prepared();
+        final PreparedSubmission prepared = prepared();
         final Digest32 keyHash = new Digest32(bytes(32, 41));
-        store.prepareIfAbsent(keyHash, GatewayOperationKindV1.SCHEDULE, new Digest32(bytes(32, 42)), prepared, 800);
+        store.prepareIfAbsent(keyHash, GatewayOperationKind.SCHEDULE, new Digest32(bytes(32, 42)), prepared, 800);
 
         final GatewayIdempotencyStore.AttemptStart started = store.startAttempt(keyHash);
         final PhysicalEnqueueAttemptId attemptId = started.permit().physicalAttemptId();
-        final SubmissionOutcomeMessageV1 uncertain = GatewayOutcomeSupport.uncertain(prepared, attemptId);
+        final SubmissionOutcomeMessage uncertain = GatewayOutcomeSupport.uncertain(prepared, attemptId);
         store.finish(keyHash, attemptId, uncertain);
 
-        final SubmissionOutcomeMessageV1 queued = queued(prepared, attemptId);
-        final GatewayIdempotencyRecordV1 promoted = store.finish(keyHash, attemptId, queued);
+        final SubmissionOutcomeMessage queued = queued(prepared, attemptId);
+        final GatewayIdempotencyRecord promoted = store.finish(keyHash, attemptId, queued);
 
-        assertEquals(GatewayIdempotencyPhaseV1.QUIESCENT, promoted.phase());
+        assertEquals(GatewayIdempotencyPhase.QUIESCENT, promoted.phase());
         assertEquals(
-                GatewayPhysicalAttemptStateV1.QUEUED, promoted.attempts().get(0).state());
+                GatewayPhysicalAttemptState.QUEUED, promoted.attempts().get(0).state());
         assertEquals(
-                com.nereusstream.delay.protocol.EnqueueOutcomeKindV1.QUEUED,
-                SubmissionOutcomeMessageV1.decode(promoted.aggregateOutcomeBytes())
+                com.nereusstream.delay.protocol.EnqueueOutcomeKind.QUEUED,
+                SubmissionOutcomeMessage.decode(promoted.aggregateOutcomeBytes())
                         .managed()
                         .kind());
         final byte[] beforeIdempotentRetry = promoted.canonicalBytes();
@@ -521,19 +521,19 @@ class OxiaGatewayIdempotencyStoreTest {
         final FakeGatewayClient client = new FakeGatewayClient();
         final OxiaGatewayIdempotencyStore store =
                 new OxiaGatewayIdempotencyStore(client, "/nereus/gateway", clock, 10, 20);
-        final PreparedSubmissionV1 prepared = prepared();
+        final PreparedSubmission prepared = prepared();
         final Digest32 keyHash = new Digest32(bytes(32, 51));
-        store.prepareIfAbsent(keyHash, GatewayOperationKindV1.SCHEDULE, new Digest32(bytes(32, 52)), prepared, 800);
+        store.prepareIfAbsent(keyHash, GatewayOperationKind.SCHEDULE, new Digest32(bytes(32, 52)), prepared, 800);
 
         final GatewayIdempotencyStore.AttemptStart first = store.startAttempt(keyHash);
         final PhysicalEnqueueAttemptId firstId = first.permit().physicalAttemptId();
-        final SubmissionOutcomeMessageV1 firstUncertain = GatewayOutcomeSupport.uncertain(prepared, firstId);
+        final SubmissionOutcomeMessage firstUncertain = GatewayOutcomeSupport.uncertain(prepared, firstId);
         store.finish(keyHash, firstId, firstUncertain);
         final PhysicalEnqueueAttemptId retryRequestId = PhysicalEnqueueAttemptId.require(bytes(16, 53));
         final GatewayIdempotencyStore.RetryStart retry = store.startRetry(keyHash, firstId, retryRequestId);
         final PhysicalEnqueueAttemptId retryId = retry.permit().physicalAttemptId();
-        final SubmissionOutcomeMessageV1 retryUncertain = GatewayOutcomeSupport.uncertain(prepared, retryId);
-        final GatewayIdempotencyRecordV1 newest = store.finish(keyHash, retryId, retryUncertain);
+        final SubmissionOutcomeMessage retryUncertain = GatewayOutcomeSupport.uncertain(prepared, retryId);
+        final GatewayIdempotencyRecord newest = store.finish(keyHash, retryId, retryUncertain);
 
         final byte[] beforeLateEvidence = newest.canonicalBytes();
         assertArrayEquals(
@@ -548,9 +548,9 @@ class OxiaGatewayIdempotencyStoreTest {
         final FakeGatewayClient client = new FakeGatewayClient();
         final OxiaGatewayIdempotencyStore store =
                 new OxiaGatewayIdempotencyStore(client, "/nereus/gateway", clock, 10, 20);
-        final PreparedSubmissionV1 prepared = prepared();
+        final PreparedSubmission prepared = prepared();
         final Digest32 keyHash = new Digest32(bytes(32, 55));
-        store.prepareIfAbsent(keyHash, GatewayOperationKindV1.SCHEDULE, new Digest32(bytes(32, 56)), prepared, 800);
+        store.prepareIfAbsent(keyHash, GatewayOperationKind.SCHEDULE, new Digest32(bytes(32, 56)), prepared, 800);
 
         final GatewayIdempotencyStore.AttemptStart first = store.startAttempt(keyHash);
         final PhysicalEnqueueAttemptId firstId = first.permit().physicalAttemptId();
@@ -578,15 +578,15 @@ class OxiaGatewayIdempotencyStoreTest {
         final FakeGatewayClient client = new FakeGatewayClient();
         final OxiaGatewayIdempotencyStore store =
                 new OxiaGatewayIdempotencyStore(client, "/nereus/gateway", clock, 10, 20);
-        final PreparedSubmissionV1 prepared = prepared();
+        final PreparedSubmission prepared = prepared();
         final Digest32 keyHash = new Digest32(bytes(32, 61));
-        store.prepareIfAbsent(keyHash, GatewayOperationKindV1.SCHEDULE, new Digest32(bytes(32, 62)), prepared, 800);
+        store.prepareIfAbsent(keyHash, GatewayOperationKind.SCHEDULE, new Digest32(bytes(32, 62)), prepared, 800);
 
         final GatewayIdempotencyStore.AttemptStart started = store.startAttempt(keyHash);
         final PhysicalEnqueueAttemptId attemptId = started.permit().physicalAttemptId();
-        final SubmissionOutcomeMessageV1 uncertain = GatewayOutcomeSupport.uncertain(prepared, attemptId);
+        final SubmissionOutcomeMessage uncertain = GatewayOutcomeSupport.uncertain(prepared, attemptId);
         store.finish(keyHash, attemptId, uncertain);
-        final GatewayIdempotencyRecordV1 promoted = store.finish(keyHash, attemptId, queued(prepared, attemptId));
+        final GatewayIdempotencyRecord promoted = store.finish(keyHash, attemptId, queued(prepared, attemptId));
 
         assertThrows(
                 IllegalStateException.class, () -> store.finish(keyHash, attemptId, queued(prepared, attemptId, 4)));
@@ -599,18 +599,18 @@ class OxiaGatewayIdempotencyStoreTest {
         assertArrayEquals(promoted.canonicalBytes(), store.exact(keyHash).canonicalBytes());
     }
 
-    private static SubmissionOutcomeMessageV1 queued(
-            final PreparedSubmissionV1 prepared, final PhysicalEnqueueAttemptId attemptId) {
+    private static SubmissionOutcomeMessage queued(
+            final PreparedSubmission prepared, final PhysicalEnqueueAttemptId attemptId) {
         return queued(prepared, attemptId, 3);
     }
 
-    private static SubmissionOutcomeMessageV1 queued(
-            final PreparedSubmissionV1 prepared, final PhysicalEnqueueAttemptId attemptId, final long offset) {
-        final PreparedCommand command = CommandCodec.decodeFrameV1(prepared.managedFrame());
+    private static SubmissionOutcomeMessage queued(
+            final PreparedSubmission prepared, final PhysicalEnqueueAttemptId attemptId, final long offset) {
+        final PreparedCommand command = CommandCodec.decodeManagedFrame(prepared.managedFrame());
         final UUID topic = UUID.nameUUIDFromBytes(Bytes.utf8("gateway-late-queued-topic"));
         final KafkaSourcePosition source =
                 new KafkaSourcePosition(command.shardId(), "gateway", topic, offset, null, 100);
-        final CommandQueuedReceiptV1.KafkaQueuedAck ack = new CommandQueuedReceiptV1.KafkaQueuedAck(
+        final CanonicalCommandQueuedReceipt.KafkaQueuedAck ack = new CanonicalCommandQueuedReceipt.KafkaQueuedAck(
                 "gateway",
                 topic,
                 command.shardId().partition(),
@@ -618,21 +618,21 @@ class OxiaGatewayIdempotencyStoreTest {
                 null,
                 100,
                 Bytes.sha256(Bytes.utf8("gateway-late-queued-ack-" + offset)));
-        final CommandQueuedReceiptV1 receipt =
-                CommandQueuedReceiptV1.create(command, source, ack, 5_000, attemptId.bytes());
-        return SubmissionOutcomeMessageV1.managed(EnqueueOutcomeMessageV1.queued(receipt));
+        final CanonicalCommandQueuedReceipt receipt =
+                CanonicalCommandQueuedReceipt.create(command, source, ack, 5_000, attemptId.bytes());
+        return SubmissionOutcomeMessage.managed(EnqueueOutcomeMessage.queued(receipt));
     }
 
-    private static PreparedSubmissionV1 prepared() {
+    private static PreparedSubmission prepared() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
-        final PreparedCommand command = PreparedCommand.scheduleV1(shard, schedule(), 600);
-        return PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(command));
+        final PreparedCommand command = PreparedCommand.schedule(shard, schedule(), 600);
+        return PreparedSubmission.managed(CommandCodec.encodeManagedFrame(command));
     }
 
-    private static ScheduleIntentV1 schedule() {
-        return ScheduleIntentV1.create(
-                new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 60), ProfileKindV1.DESTINATION),
-                new RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 61)),
+    private static CanonicalScheduleIntent schedule() {
+        return CanonicalScheduleIntent.create(
+                new ProfileRef(Bytes.utf8("destination"), 1, bytes(32, 60), ProfileKind.DESTINATION),
+                new RetryPolicyRef(Bytes.utf8("retry"), 1, bytes(32, 61)),
                 300,
                 800,
                 DeliveryMode.MANAGED,
@@ -640,7 +640,7 @@ class OxiaGatewayIdempotencyStoreTest {
                 Bytes.utf8("key"),
                 Bytes.utf8("payload"),
                 null,
-                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())),
+                AdapterMetadata.kafka(new KafkaMetadata(null, List.of())),
                 null,
                 null);
     }
@@ -654,19 +654,19 @@ class OxiaGatewayIdempotencyStoreTest {
     }
 
     private static final class InMemoryGatewayIdempotencyStoreAdapter {
-        private final GatewayIdempotencyRecordV1 record;
+        private final GatewayIdempotencyRecord record;
 
         private InMemoryGatewayIdempotencyStoreAdapter(
                 final InMemoryGatewayIdempotencyStore store,
                 final Digest32 keyHash,
-                final PreparedSubmissionV1 prepared) {
+                final PreparedSubmission prepared) {
             final var started = store.startAttempt(keyHash);
-            final SubmissionOutcomeMessageV1 outcome =
+            final SubmissionOutcomeMessage outcome =
                     GatewayOutcomeSupport.uncertain(prepared, started.permit().physicalAttemptId());
             record = store.finish(keyHash, started.permit().physicalAttemptId(), outcome);
         }
 
-        private GatewayIdempotencyRecordV1 record() {
+        private GatewayIdempotencyRecord record() {
             return record;
         }
     }

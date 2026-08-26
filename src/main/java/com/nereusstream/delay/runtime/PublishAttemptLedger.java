@@ -14,22 +14,22 @@ import java.util.Objects;
  * Durable open publish-attempt projection.
  *
  * <p>The admission and outcome bytes are retained verbatim so replay can later validate the full Registry body
- * without reconstructing it from mutable runtime state. Version 1 remains readable for legacy opaque ledgers;
- * canonical source-applied Admissions use version 2 to persist the immutable retry window alongside those bytes.
- * Version 3 is an optional local projection for a target adapter's Pulsar Attempt Journal binding: it records the
- * allocated sequence, the latest acknowledged Journal position and the retirement-pending fence. These fields are
- * not new wire fields in {@code PublishAdmissionV1}; they are only populated after the adapter has an exact local
- * producer identity and durable Journal evidence. This embedded V1 subset does not yet interpret all nested
+ * without reconstructing it from mutable runtime state. The leading integer is a local value-shape discriminator,
+ * not a Nereus Delay project version: the baseline shape stores opaque admission bytes, the retry-window shape adds
+ * immutable retry timing, and the Journal shape adds a target adapter's Pulsar Attempt Journal binding. Journal
+ * fields record the allocated sequence, latest acknowledged position and retirement-pending fence. They are not new
+ * wire fields in {@code PublishAdmission}; they are populated only after the adapter has an exact local producer
+ * identity and durable Journal evidence. This embedded subset does not yet interpret all nested
  * Claim/Certificate/Channel fields.</p>
  */
 public final class PublishAttemptLedger {
     public static final int VALUE_TYPE = 8;
     public static final int HASH_LENGTH = 32;
     public static final int INCARNATION_LENGTH = 16;
-    private static final int LEGACY_VERSION = 1;
-    private static final int RETRY_WINDOW_VERSION = 2;
-    private static final int JOURNAL_VERSION = 3;
-    /** A legacy ledger does not carry the independently typed retry window. */
+    private static final int BASE_LEDGER_FORMAT = 1;
+    private static final int RETRY_WINDOW_FORMAT = 2;
+    private static final int JOURNAL_FORMAT = 3;
+    /** The baseline ledger does not carry the independently typed retry window. */
     private static final long ABSENT_RETRY_WINDOW = -1L;
     /** A ledger without a target-specific Journal binding has no allocated sequence. */
     private static final long ABSENT_SEQUENCE_ID = -1L;
@@ -217,7 +217,7 @@ public final class PublishAttemptLedger {
                 sourcePosition);
     }
 
-    /** Creates a canonical V2 Admission ledger with the immutable retry window. */
+    /** Creates a canonical Current Admission ledger with the immutable retry window. */
     public static PublishAttemptLedger publishingWithRetryWindow(
             final DelayMessageId delayMessageId,
             final int generation,
@@ -399,14 +399,14 @@ public final class PublishAttemptLedger {
 
     public long firstAttemptAtEpochMs() {
         if (!hasRetryWindow()) {
-            throw new IllegalStateException("legacy publish attempt ledger has no retry window");
+            throw new IllegalStateException("baseline publish attempt ledger has no retry window");
         }
         return firstAttemptAtEpochMs;
     }
 
     public long retryDeadlineEpochMs() {
         if (!hasRetryWindow()) {
-            throw new IllegalStateException("legacy publish attempt ledger has no retry window");
+            throw new IllegalStateException("baseline publish attempt ledger has no retry window");
         }
         return retryDeadlineEpochMs;
     }
@@ -470,13 +470,13 @@ public final class PublishAttemptLedger {
         final byte[] retryWindow = (hasRetryWindow() || hasJournalProjection())
                 ? Bytes.concat(Bytes.i64be(firstAttemptAtEpochMs), Bytes.i64be(retryDeadlineEpochMs))
                 : new byte[0];
-        final int version =
-                hasJournalProjection() ? JOURNAL_VERSION : hasRetryWindow() ? RETRY_WINDOW_VERSION : LEGACY_VERSION;
+        final int format =
+                hasJournalProjection() ? JOURNAL_FORMAT : hasRetryWindow() ? RETRY_WINDOW_FORMAT : BASE_LEDGER_FORMAT;
         final byte[] journal = hasJournalProjection()
                 ? Bytes.concat(Bytes.u64beBits(sequenceId), Bytes.u8(journalFlags()), Bytes.lp32(journalPosition))
                 : new byte[0];
         return Bytes.concat(
-                Bytes.u32be(version),
+                Bytes.u32be(format),
                 delayMessageId.bytes(),
                 Bytes.u32beBits(generation),
                 publishAttemptId,
@@ -500,9 +500,9 @@ public final class PublishAttemptLedger {
     public static PublishAttemptLedger decode(final byte[] encoded) {
         final ByteBuffer input = ByteBuffer.wrap(encoded);
         requireRemaining(input, Integer.BYTES);
-        final int version = input.getInt();
-        if (version != LEGACY_VERSION && version != RETRY_WINDOW_VERSION && version != JOURNAL_VERSION) {
-            throw new IllegalArgumentException("unsupported publish attempt ledger version");
+        final int format = input.getInt();
+        if (format != BASE_LEDGER_FORMAT && format != RETRY_WINDOW_FORMAT && format != JOURNAL_FORMAT) {
+            throw new IllegalArgumentException("unsupported publish attempt ledger format");
         }
         final byte[] message = readFixed(input, DelayMessageId.LENGTH, "delayMessageId");
         final int generation = readU32Int(input, "generation");
@@ -514,10 +514,10 @@ public final class PublishAttemptLedger {
         final byte[] laneIncarnation = readFixed(input, INCARNATION_LENGTH, "laneIncarnation");
         final long firstAttemptAt;
         final long retryDeadline;
-        if (version == RETRY_WINDOW_VERSION) {
+        if (format == RETRY_WINDOW_FORMAT) {
             firstAttemptAt = readI64(input, "firstAttemptAt");
             retryDeadline = readI64(input, "retryDeadline");
-        } else if (version == JOURNAL_VERSION) {
+        } else if (format == JOURNAL_FORMAT) {
             firstAttemptAt = readRetryWindowValue(input, "firstAttemptAt");
             retryDeadline = readRetryWindowValue(input, "retryDeadline");
         } else {
@@ -537,7 +537,7 @@ public final class PublishAttemptLedger {
         final boolean mappingDurable;
         final byte[] journalPosition;
         final boolean retirementPending;
-        if (version == JOURNAL_VERSION) {
+        if (format == JOURNAL_FORMAT) {
             sequenceId = readU64(input, "journalSequenceId");
             requireRemaining(input, 1);
             final int flags = input.get() & 0xff;

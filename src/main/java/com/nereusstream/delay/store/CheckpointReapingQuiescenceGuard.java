@@ -1,8 +1,8 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -24,8 +24,8 @@ public final class CheckpointReapingQuiescenceGuard {
     }
 
     public static Decision evaluate(
-            final CheckpointUploadIntentV1 expectedPending,
-            final CheckpointUploadIntentV1 reaping,
+            final CheckpointUploadIntent expectedPending,
+            final CheckpointUploadIntent reaping,
             final CheckpointReapingOwnerProof ownerProof,
             final CheckpointReapingQuiescenceProof proof) {
         Objects.requireNonNull(expectedPending, "expectedPending");
@@ -33,11 +33,11 @@ public final class CheckpointReapingQuiescenceGuard {
         Objects.requireNonNull(ownerProof, "ownerProof");
         Objects.requireNonNull(proof, "proof");
         if (!Bytes.constantTimeEquals(expectedPending.intentDigest(), proof.pendingIntentDigest())
-                || expectedPending.state() != CheckpointUploadStateV1.PENDING_UPLOAD
+                || expectedPending.state() != CheckpointUploadState.PENDING_UPLOAD
                 || !sameStableIdentity(expectedPending, reaping)) {
             return Decision.PENDING_INTENT_MISMATCH;
         }
-        if (reaping.state() != CheckpointUploadStateV1.REAPING) {
+        if (reaping.state() != CheckpointUploadState.REAPING) {
             return Decision.REAPING_STATE_MISMATCH;
         }
         if (!proof.reapingEvidence().equals(reaping.reapingStartedAt())) {
@@ -75,8 +75,8 @@ public final class CheckpointReapingQuiescenceGuard {
     }
 
     public static void require(
-            final CheckpointUploadIntentV1 expectedPending,
-            final CheckpointUploadIntentV1 reaping,
+            final CheckpointUploadIntent expectedPending,
+            final CheckpointUploadIntent reaping,
             final CheckpointReapingOwnerProof ownerProof,
             final CheckpointReapingQuiescenceProof proof) {
         final Decision decision = evaluate(expectedPending, reaping, ownerProof, proof);
@@ -86,7 +86,7 @@ public final class CheckpointReapingQuiescenceGuard {
     }
 
     private static boolean sameStableIdentity(
-            final CheckpointUploadIntentV1 pending, final CheckpointUploadIntentV1 reaping) {
+            final CheckpointUploadIntent pending, final CheckpointUploadIntent reaping) {
         return pending.shard().equals(reaping.shard())
                 && Arrays.equals(pending.recoveryLineageId(), reaping.recoveryLineageId())
                 && Arrays.equals(pending.checkpointId(), reaping.checkpointId())

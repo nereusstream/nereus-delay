@@ -1,6 +1,6 @@
 package com.nereusstream.delay.runtime;
 
-/** Registry {@code CurrentSendWorkKindV1} values. */
+/** Registry {@code CurrentSendWorkKind} values. */
 public enum CurrentSendWorkKind {
     NONE(1),
     TIMELINE(2),

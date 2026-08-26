@@ -5,22 +5,22 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import com.nereusstream.delay.protocol.AdapterKindV1;
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.AdapterKind;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.ChannelKindV1;
-import com.nereusstream.delay.protocol.ChannelResourceIdentityV1;
-import com.nereusstream.delay.protocol.CredentialUseKindV1;
-import com.nereusstream.delay.protocol.CredentialUseLeaseV1;
+import com.nereusstream.delay.protocol.ChannelKind;
+import com.nereusstream.delay.protocol.ChannelResourceIdentity;
+import com.nereusstream.delay.protocol.CredentialUseKind;
+import com.nereusstream.delay.protocol.CredentialUseLease;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.EvidenceKindV1;
-import com.nereusstream.delay.protocol.EvidenceVerificationStatusV1;
-import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.EvidenceKind;
+import com.nereusstream.delay.protocol.EvidenceVerificationStatus;
+import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentity;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.StableCode;
@@ -290,23 +290,23 @@ class KafkaReceiptJournalTest {
                 appended.record().mapping().mappingId(),
                 recovered.unresolved(producer).orElseThrow().mappingId());
 
-        final com.nereusstream.delay.protocol.EvidenceCursorV1 cursor =
+        final com.nereusstream.delay.protocol.EvidenceCursor cursor =
                 recovered.evidenceCursor(producer, 7).orElseThrow();
-        assertEquals(EvidenceKindV1.KAFKA_RECEIPT_CONTIGUOUS, cursor.evidenceKind());
+        assertEquals(EvidenceKind.KAFKA_RECEIPT_CONTIGUOUS, cursor.evidenceKind());
         assertEquals(resource.receiptPartition(), cursor.physicalPartition());
         assertEquals(21, cursor.nextOffsetExclusive());
         assertEquals(21, cursor.lastObservedLsoExclusive());
 
-        final com.nereusstream.delay.protocol.PublishEvidenceV1 evidence =
+        final com.nereusstream.delay.protocol.PublishEvidence evidence =
                 recovered.publishedEvidence(appended.record().mapping(), 7);
         assertEquals(
-                com.nereusstream.delay.protocol.PublishEvidenceKindV1.KAFKA_TRANSACTIONAL_RECEIPT,
+                com.nereusstream.delay.protocol.PublishEvidenceKind.KAFKA_TRANSACTIONAL_RECEIPT,
                 evidence.evidenceKind());
-        assertEquals(EvidenceVerificationStatusV1.VERIFIED_PUBLISHED, evidence.verificationStatus());
+        assertEquals(EvidenceVerificationStatus.VERIFIED_PUBLISHED, evidence.verificationStatus());
         evidence.requireBusinessMutation(appended.record().mapping().publishAttemptId(), true);
         assertArrayEquals(
                 evidence.canonicalBytes(),
-                com.nereusstream.delay.protocol.PublishEvidenceV1.decode(evidence.canonicalBytes())
+                com.nereusstream.delay.protocol.PublishEvidence.decode(evidence.canonicalBytes())
                         .canonicalBytes());
     }
 
@@ -322,7 +322,7 @@ class KafkaReceiptJournalTest {
                 journal.appendNext(producer, identity(shard, 6)).record().mapping();
         final KafkaReceiptJournal.ReceiptPosition position =
                 journal.records().get(0).position();
-        final com.nereusstream.delay.protocol.EvidenceCursorV1 cursor =
+        final com.nereusstream.delay.protocol.EvidenceCursor cursor =
                 journal.evidenceCursor(producer, 8).orElseThrow();
         final KafkaReceiptJournal.ReceiptMatch exact = new KafkaReceiptJournal.ReceiptMatch(
                 position.offset(),
@@ -370,15 +370,15 @@ class KafkaReceiptJournalTest {
                 IllegalArgumentException.class,
                 () -> journal.notPublishedEvidence(mapping, 9, fencedChannel(producer, resource, 9), new byte[31]));
 
-        final com.nereusstream.delay.protocol.PublishEvidenceV1 evidence = journal.notPublishedEvidence(
+        final com.nereusstream.delay.protocol.PublishEvidence evidence = journal.notPublishedEvidence(
                 mapping, 9, fencedChannel(producer, resource, 9), Bytes.sha256(Bytes.utf8("fence-and-lso")));
         assertEquals(
-                com.nereusstream.delay.protocol.PublishEvidenceKindV1.KAFKA_RECEIPT_ABSENCE, evidence.evidenceKind());
-        assertEquals(EvidenceVerificationStatusV1.VERIFIED_NOT_PUBLISHED, evidence.verificationStatus());
+                com.nereusstream.delay.protocol.PublishEvidenceKind.KAFKA_RECEIPT_ABSENCE, evidence.evidenceKind());
+        assertEquals(EvidenceVerificationStatus.VERIFIED_NOT_PUBLISHED, evidence.verificationStatus());
         evidence.requireBusinessMutation(mapping.publishAttemptId(), false);
         assertArrayEquals(
                 evidence.canonicalBytes(),
-                com.nereusstream.delay.protocol.PublishEvidenceV1.decode(evidence.canonicalBytes())
+                com.nereusstream.delay.protocol.PublishEvidence.decode(evidence.canonicalBytes())
                         .canonicalBytes());
 
         final KafkaReceiptJournal.ProducerKey wrongLane = new KafkaReceiptJournal.ProducerKey(
@@ -421,21 +421,21 @@ class KafkaReceiptJournalTest {
                 new KafkaTargetResource("receipt-cluster", UUID.fromString("00000000-0000-0000-0000-000000000003"), 4));
     }
 
-    private static ChannelResourceIdentityV1 fencedChannel(
+    private static ChannelResourceIdentity fencedChannel(
             final KafkaReceiptJournal.ProducerKey producer,
             final KafkaReceiptResource resource,
             final long evidenceGeneration) {
-        final BrokerResourceIdentityV1 target = BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+        final BrokerResourceIdentity target = BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(
                 producer.target().authenticatedClusterId(), producer.target().nativeTopicUuid()));
-        final BrokerResourceIdentityV1 evidence = BrokerResourceIdentityV1.kafka(
-                new KafkaBrokerResourceIdentityV1(resource.authenticatedClusterId(), resource.nativeTopicUuid()));
+        final BrokerResourceIdentity evidence = BrokerResourceIdentity.kafka(
+                new KafkaBrokerResourceIdentity(resource.authenticatedClusterId(), resource.nativeTopicUuid()));
         final byte[] producerIdentity = Bytes.utf8("stable-transaction");
         final byte[] guardDigest = Bytes.sha256(Bytes.utf8("receipt-guard"));
         final byte[] bindingDigest = Bytes.sha256(Bytes.utf8("receipt-binding"));
         final byte[] fingerprint = Bytes.sha256(Bytes.utf8("receipt-fingerprint"));
         final byte[] prefix = CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.uint32(output, 1, AdapterKindV1.KAFKA.wireValue());
-            CanonicalProtobuf.uint32(output, 2, ChannelKindV1.KAFKA_TRANSACTIONAL_RECEIPT.wireValue());
+            CanonicalProtobuf.uint32(output, 1, AdapterKind.KAFKA.wireValue());
+            CanonicalProtobuf.uint32(output, 2, ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT.wireValue());
             CanonicalProtobuf.bytes(output, 3, producer.laneId().bytes());
             CanonicalProtobuf.bytes(output, 4, producer.laneIncarnation());
             CanonicalProtobuf.bytes(output, 5, target.canonicalBytes());
@@ -448,11 +448,11 @@ class KafkaReceiptJournalTest {
             CanonicalProtobuf.uint64(output, 12, evidenceGeneration);
             CanonicalProtobuf.bytes(output, 13, guardDigest);
         });
-        final ProfileRefV1 profile = new ProfileRefV1(
+        final ProfileRef profile = new ProfileRef(
                 Bytes.utf8("receipt-destination"),
                 1,
                 Bytes.sha256(Bytes.utf8("receipt-destination-semantic")),
-                ProfileKindV1.DESTINATION);
+                ProfileKind.DESTINATION);
         final TrustedUtcIntervalEvidence issuedAt = new TrustedUtcIntervalEvidence(
                 1_000,
                 1_001,
@@ -464,19 +464,19 @@ class KafkaReceiptJournalTest {
                 Bytes.sha256(Bytes.utf8("receipt-time")),
                 0,
                 null);
-        final CredentialUseLeaseV1 lease = new CredentialUseLeaseV1(
+        final CredentialUseLease lease = new CredentialUseLease(
                 profile,
-                CredentialUseKindV1.DESTINATION_CHANNEL,
-                CredentialUseLeaseV1.destinationChannelHolderScope(prefix),
+                CredentialUseKind.DESTINATION_CHANNEL,
+                CredentialUseLease.destinationChannelHolderScope(prefix),
                 1,
                 bindingDigest,
                 fingerprint,
                 issuedAt,
                 9_000,
                 1);
-        return new ChannelResourceIdentityV1(
-                AdapterKindV1.KAFKA,
-                ChannelKindV1.KAFKA_TRANSACTIONAL_RECEIPT,
+        return new ChannelResourceIdentity(
+                AdapterKind.KAFKA,
+                ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT,
                 producer.laneId().bytes(),
                 producer.laneIncarnation(),
                 target,

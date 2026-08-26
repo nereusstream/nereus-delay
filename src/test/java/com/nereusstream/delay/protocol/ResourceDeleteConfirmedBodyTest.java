@@ -278,7 +278,7 @@ class ResourceDeleteConfirmedBodyTest {
             CanonicalProtobuf.bytes(output, 1, Bytes.utf8("object-store"));
             CanonicalProtobuf.uint32(output, 2, 1);
             CanonicalProtobuf.bytes(output, 3, Bytes.sha256(Bytes.utf8("profile")));
-            CanonicalProtobuf.uint32(output, 4, ProfileKindV1.OBJECT_STORE.wireValue());
+            CanonicalProtobuf.uint32(output, 4, ProfileKind.OBJECT_STORE.wireValue());
         });
     }
 }

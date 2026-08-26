@@ -384,7 +384,7 @@ public record PayloadCommitProof(
             final byte[] sha,
             final long notAfter) {
         return Bytes.sha256(
-                Bytes.utf8("nereus-delay-payload-proof-id-v1\0"),
+                Bytes.utf8("nereus-delay-payload-proof-id\0"),
                 Bytes.u32be(1),
                 Bytes.u64beBits(trustSetVersion),
                 route,
@@ -418,7 +418,7 @@ public record PayloadCommitProof(
             final long notAfter,
             final byte[] proofId) {
         return Bytes.sha256(
-                Bytes.utf8("nereus-delay-payload-proof-signature-v1\0"),
+                Bytes.utf8("nereus-delay-payload-proof-signature\0"),
                 Bytes.u32be(1),
                 Bytes.u64beBits(trustSetVersion),
                 Bytes.u32beBits(proofKeyVersion),

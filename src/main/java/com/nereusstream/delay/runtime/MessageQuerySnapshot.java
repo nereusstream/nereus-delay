@@ -1,14 +1,14 @@
 package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.DelayMessageId;
-import com.nereusstream.delay.protocol.DlqExportStateV1;
+import com.nereusstream.delay.protocol.DlqExportState;
 import com.nereusstream.delay.protocol.StableCode;
 import java.util.Objects;
 
 /**
  * Bounded local projection of one current Message generation.
  *
- * <p>This is intentionally not the wire-level V1 {@code MessageQueryResponseV1}:
+ * <p>This is intentionally not the wire-level {@code MessageQueryResponse}:
  * it contains no tenant authorization result, receipt branch, safe destination
  * binding, evidence reference or retention decision.</p>
  */
@@ -22,7 +22,7 @@ public record MessageQuerySnapshot(
         PayloadAvailability payloadAvailability,
         boolean possibleDestinationDuplicate,
         StableCode terminalCode,
-        DlqExportStateV1 dlqExportState) {
+        DlqExportState dlqExportState) {
     /** Compatibility constructor for callers that do not expose DLQ state. */
     public MessageQuerySnapshot(
             final DelayMessageId messageId,
@@ -44,7 +44,7 @@ public record MessageQuerySnapshot(
                 payloadAvailability,
                 possibleDestinationDuplicate,
                 terminalCode,
-                DlqExportStateV1.NOT_CONFIGURED);
+                DlqExportState.NOT_CONFIGURED);
     }
 
     public MessageQuerySnapshot {
@@ -63,7 +63,7 @@ public record MessageQuerySnapshot(
         if (terminal != (terminalCode != null)) {
             throw new IllegalArgumentException("terminal code presence does not match message state");
         }
-        if (state != GenerationAggregateState.DEAD_LETTER && dlqExportState != DlqExportStateV1.NOT_CONFIGURED) {
+        if (state != GenerationAggregateState.DEAD_LETTER && dlqExportState != DlqExportState.NOT_CONFIGURED) {
             throw new IllegalArgumentException("only a dead-letter generation may have a DLQ export state");
         }
     }

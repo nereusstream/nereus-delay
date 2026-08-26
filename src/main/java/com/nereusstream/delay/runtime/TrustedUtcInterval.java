@@ -31,7 +31,7 @@ public record TrustedUtcInterval(
         return qualified && expireAtEpochMs >= 0 && latestEpochMs < expireAtEpochMs;
     }
 
-    /** Applies the strict V1 due and pre-expiry gates together. */
+    /** Applies the strict due and pre-expiry gates together. */
     public boolean allowsAdmission(final long actionAtEpochMs, final long expireAtEpochMs) {
         return provesDue(actionAtEpochMs) && provesBeforeExpiry(expireAtEpochMs);
     }

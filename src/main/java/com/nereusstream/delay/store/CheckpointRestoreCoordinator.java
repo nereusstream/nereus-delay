@@ -1,6 +1,6 @@
 package com.nereusstream.delay.store;
 
-import com.nereusstream.delay.protocol.RecoveryPinV1;
+import com.nereusstream.delay.protocol.RecoveryPin;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import java.io.IOException;
@@ -53,7 +53,7 @@ public final class CheckpointRestoreCoordinator {
      * must use {@link CheckpointRestoreWorkClassExecutor} so the complete
      * download-to-install interval enters the bounded CHECKPOINT class.
      */
-    ShardStore restore(final CheckpointDownloadRequest request, final RecoveryPinV1 pin) {
+    ShardStore restore(final CheckpointDownloadRequest request, final RecoveryPin pin) {
         requireRestoreSubmission(request, pin);
         final Path downloadRoot = config.rootPath()
                 .toAbsolutePath()
@@ -112,7 +112,7 @@ public final class CheckpointRestoreCoordinator {
      * not read the catalog, touch the filesystem, acquire a slot, or call the
      * provider; the physical restore repeats the same check after queue wait.
      */
-    void requireRestoreSubmission(final CheckpointDownloadRequest request, final RecoveryPinV1 pin) {
+    void requireRestoreSubmission(final CheckpointDownloadRequest request, final RecoveryPin pin) {
         final CheckpointDownloadRequest exact = Objects.requireNonNull(request, "request");
         if (!shardId.equals(exact.manifest().shardId())) {
             throw new IllegalArgumentException("checkpoint restore request belongs to another shard");

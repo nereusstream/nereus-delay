@@ -38,7 +38,7 @@ public record LaneRecord(
 
     public static LaneRecord initial(final DestinationLaneId laneId, final SourcePosition sourcePosition) {
         final byte[] incarnationDigest = Bytes.sha256(
-                Bytes.utf8("nereus-delay-lane-incarnation-v1\0"),
+                Bytes.utf8("nereus-delay-lane-incarnation\0"),
                 laneId.bytes(),
                 Bytes.lp32(sourcePosition.canonicalBytes()));
         return new LaneRecord(
@@ -87,7 +87,7 @@ public record LaneRecord(
 
     /**
      * Updates the scheduler wake-up projection while retaining the management
-     * and runtime gates.  READY keys carry this incremented runtime version so
+     * and runtime gates. READY keys carry this incremented runtime version so
      * a cursor cannot reuse a key from an older projection.
      */
     public LaneRecord withNextEligibleAt(final long next) {
@@ -138,7 +138,7 @@ public record LaneRecord(
             case ABSENT -> throw new IllegalArgumentException("LaneRecord cannot use ABSENT gate");
         }
         // Physical retirement is not a new source-ordered management
-        // operation.  The terminal guard retains the final Close control
+        // operation. The terminal guard retains the final Close control
         // version so a late Resume/Close cannot manufacture a new CAS epoch.
         final long nextControlVersion = nextGate == AdmissionGate.RETIRED
                 ? laneControlVersion

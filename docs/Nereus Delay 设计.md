@@ -1,0 +1,5877 @@
+# Nereus Delay 设计
+
+状态：持续演进的当前设计基线（`DESIGN-BASELINE-2026-08-25`）
+日期：2026-08-25
+适用范围：Kafka/Pulsar 入口，Kafka/Pulsar 目标，单 Active Recovery Cell
+
+本文是 Nereus Delay 当前实现与验收基线。重大变更遵循 [`NDP`](proposals/README.md)，接受后直接修订本基线，不复制整体版本。术语以仓库根目录的 [`CONTEXT.md`](../CONTEXT.md) 为准；关键取舍及其理由见 [`ADR index`](adr/README.md) 中编号 `0001` 至 `0044` 的 Accepted ADR；wire enum、canonical preimage、key tag/width 与 closed code 以 [`Protocol Registry`](PROTOCOL-REGISTRY.md) 为唯一数值注册表；Direct SDK、可选 Delay Gateway 和 Kafka/Pulsar guarded transport 的类/模块/线程/协议实现见 [`双入口与 Guarded Transport 代码级详细设计`](DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md)；交叉审计结果与 release-evidence checklist 见 [`Design Audit`](DESIGN-AUDIT.md)。若代码、配置示例或旧材料与本文冲突，以本文、Protocol Registry 和对应 ADR 的更具体约束为准；三者仍冲突时发布 gate 失败，不能由实现自行选择。
+
+可执行路径没有留给实现阶段自行决定的语义空位。吞吐、内存、时间间隔等数值必须由发布基准给出；相应配置项、交叉约束和停止条件属于当前设计约束。Registry 中尚未闭合 value schema 的非空 subtype 必须保持不可写、不可恢复的 fail-closed 状态，不能由实现自行补语义。
+
+## 1. 摘要
+
+Nereus Delay 是面向 Kafka 和 Pulsar 的统一延迟消息服务。Java 应用默认使用 Direct SDK；需要多语言或集中认证、配额、审计与凭证托管时使用可选 Delay Gateway。两个入口调用同一 Semantic Core，产生逐字相同的 NDL1 Command 和 NDR1 outcome，不形成两套业务协议。客户端把 managed 命令异步写入持久 Command Topic；同一物理 partition 同时作为该 shard 的完整 Shard Log，按 Source Position 排序 tenant Command 与受认证的 service System Mutation。Worker 原子应用 Shard Log 到 RocksDB；调度器到期后经目标 Adapter 发布。Oxia 保存配置、placement、Owner Lease 和 checkpoint catalog；Object Store 保存 checkpoint 与大 payload。
+
+当前设计的核心等式是：
+
+```text
+Delay Shard
+  = 一个 Ingress Route 的一个物理 partition
+  = Shard Log Source Position 顺序与原子提交单元
+  = Oxia ownership / ownerEpoch 单元
+  = 一个独立 RocksDB DB
+  = checkpoint / restore / 本地删除 / 迁移单元
+```
+
+核心冻结项：
+
+| 主题 | 契约 |
+|---|---|
+| `deliverAt` | 消费者最早可见时间，不是开始 publish 的时间 |
+| 默认模式 | `MANAGED`；`AUTO_FAST` 必须显式选择 |
+| 接入面 | Direct Java SDK 为默认；Delay Gateway 可选；共享一个 Semantic Core/RouteSnapshot/Command codec |
+| 入口确认 | Broker 持久化只返回 `CommandQueuedReceipt`，不代表 Schedule 已应用 |
+| 状态顺序 | 同一入口分区 Shard Log 的物理 Source Position；删除 `command_sequence` |
+| 命令幂等 | `commandId + commandHash`，固定 `retryUntil`，Broker time fence 回收 |
+| 交付幂等 | `delayMessageId + generation`；baseline 为有界 at-least-once |
+| 取消边界 | durable `PUBLISHING` 即 Publish Admission，是不可逆分界 |
+| 远端 fencing | `ownerEpoch` 只 fence Nereus 本地状态；远端未知结果为 `UNCERTAIN` |
+| 目标隔离 | Command 应用不因目标故障暂停；按持久 Destination Lane 两级 DRR |
+| Broker 资源身份 | Kafka request pin native topic UUID；Pulsar Broker 在持久化前校验受保护 incarnation token |
+| RocksDB | 一 shard 一 DB，固定 7 个 application CF，加 application-empty mandatory `default` CF |
+| 恢复 | Recovery Set 中的 shard checkpoint + 完整 Shard Log replay |
+| 大消息 | reserve → immutable upload → attest → commit；不接受任意 object pointer |
+| 保序 | 仅单入口分区、单目标物理分区、强 outcome capability 下的 Delivery-Time FIFO |
+| 租户身份 | 从 tenant 独占 Ingress Route 和 Broker ACL 推导，不信任 payload |
+| 灾备 | 一个 Active Recovery Cell；不假设跨集群复制保留 Source Position |
+
+## 2. 目标、非目标与成功标准
+
+### 2.1 目标
+
+- 支持 Kafka/Pulsar Command Topic 和 Kafka/Pulsar 目标的四种组合。
+- 默认异步、高吞吐地排队 Schedule、Cancel、Reschedule、Payload Commit 和 Replay 命令。
+- 在 Worker/进程/本地盘丢失后，从 checkpoint 与入口日志恢复所有仍受保护的命令状态。
+- 在健康容量范围内，不早于 `deliverAt`，并以可测 due lag 反映晚到。
+- 明确表达 Broker ACK 不确定、publish 不确定、可能重复、取消过晚和结果过期。
+- 使一个故障目标只影响相应 Lane，而不阻塞 Command 应用或健康目标。
+- 提供 checkpoint、查询、DLQ、配额、审计、告警、故障注入和容量验收闭环。
+
+### 2.2 非目标
+
+- 不承诺精确时刻到达、消费者处理成功或通用 exactly-once。
+- 不支持任意 endpoint/credential/object URL 随消息传入。
+- 不支持跨 Destination Profile 改目标、修改 payload 的 Reschedule 或在线消息迁移。
+- 不支持同一 Route Incarnation 在线扩 partition；扩容使用新 incarnation。
+- 不支持一个 Worker 级 RocksDB 内的 shard range export/import。
+- 不支持只消费 Command Topic 的 warm standby。
+- 不支持同一 route 的跨独立 cell active-active 或自动跨 Broker 集群灾备。
+- 不引入第二条 Nereus 状态日志；现有 Command Topic partition 就是唯一 Shard Log，同时承载 Client Command 与受认证 System Mutation。
+- 不在到期时反序列化业务对象或访问 Schema Registry。
+
+### 2.3 正确性与性能分开验收
+
+以下是无条件正确性门：
+
+1. 未满足时间下界时没有 Publish Admission。
+2. Producer 调用之前已有可恢复的 durable `PUBLISHING`。
+3. Source ACK/commit 之前，record 结果、业务状态和 `appliedShardLogPosition` 已在同一同步 WriteBatch。
+4. Owner Lease/Source Assignment 不明确时 fail closed。
+5. 恢复 source/evidence 有 gap 时 fail closed。
+6. 受 Recovery Floor 保护的 payload、结果和 checkpoint 不被 GC。
+7. 任何未知目标结果都保持 `UNCERTAIN`，不伪造成功或失败。
+8. 在 runtime side effects 关闭时，从同一允许 checkpoint 重放同一 source prefix，得到相同的 Command 结果和 command-derived state projection。
+9. 目标故障、Lane backlog、circuit-open 或 Lane executor 饱和不暂停 Command application；它们只能关闭对应 Lane 的 publish/claim/admission gate。
+10. 在 certified healthy-load envelope、`ACTIVE_FOR_COMMANDS`、可用保留容量、非零 weight 与有界 READY shard/Lane 数的前提下，任何持续 `OPEN + READY` 的健康 Lane 都在注册的 discovery/round/service-gap 上界内获得机会，不能被坏 Lane 或 hot Lane 无限饥饿。
+11. 每个 Kafka Fetch/Produce 和 Pulsar SEND 都在实际 Broker 操作边界绑定已 pin 的 Broker Resource Incarnation；一次 activation probe 不能替代该约束。
+
+吞吐、p99 due lag、RTO、查询延迟、checkpoint 带宽、最大打开 DB 数等属于容量认证。发布构建必须携带由基准生成的完整参数集；本文不虚构默认数值。
+
+## 3. 语义契约
+
+### 3.1 时间
+
+`deliverAt` 是 UTC Unix epoch milliseconds，表示消费者最早可被允许看到消息的业务边界：
+
+- Kafka managed：`actionAt = deliverAt`，Worker 在安全时间下界到达后才调用 Producer。
+- Pulsar 普通 managed：同样在 `deliverAt` 后普通发送，适用于任意订阅类型。
+- Pulsar certified delayed handoff：可在固定 `handoffAt` 提前交给 Broker，但 Broker timestamp 会加入目标时钟 ahead bound，保证不早于业务 `deliverAt`。
+
+消息可以晚到。目标限流、Lane backlog、retry、Broker dispatch 和消费者不可用都会增加延迟。
+
+`expireAt` 是新 Publish Admission 在 Shard Log 内持久化并通过资格判定的最晚时间，不是 Worker apply 时重新采样的墙钟，也不撤销已 admitted 的请求。一条按时持久化的 Admission 可在 source lag/replay 导致 Worker 超过 `expireAt` 后才 apply，但仍必须重建同一 durable attempt；只要 Admission 未在边界前持久化，就不得再新建 attempt。首次 Schedule/成功 Reschedule 的 deterministic timing validation 使用该 Command 的 Broker persistence time `bp`：
+
+```text
+expireAt >= max(deliverAt, bp) + minDeliveryWindow
+deliverAt <= bp + maxDelayHorizon
+expireAt  <= bp + maxMessageLifetime
+```
+
+超界为 stable `REJECTED(INVALID_DELIVERY_WINDOW)`。`deliverAt < bp` 但仍有窗口时合法并立即 due。若 record 在 Broker 内按时持久化、只是 apply/replay 时已经超过 `expireAt`，Schedule 仍按原输入 `APPLIED` 并确定性创建 `SCHEDULED`；独立的 Trusted-Time runtime turn 随后把 generation 变为 `EXPIRED`，不能把 source lag 改写成 Command rejection。
+
+时间区间跨越边界时采用 fail-closed 三态判定：
+
+```text
+允许 Publish Admission: latestUtcNow < expireAt
+确定已经过期:         earliestUtcNow >= expireAt
+两者都不成立:         暂停该记录，不 Admission，也不提前写 EXPIRED
+```
+
+因此时钟 uncertainty 只会使消息更晚，不会使它早发或被过早终态化。
+
+### 3.2 管理模式
+
+`MANAGED` 是默认值，始终进入 Command Topic，支持：
+
+- `awaitApplied` / Query；
+- 在 `PUBLISHING` 前 Cancel/Reschedule；
+- quota、audit、checkpoint、DLQ 和 replay。
+
+`AUTO_FAST` 只表示调用方允许 SDK 在任何 I/O 前选择 managed 或 direct Pulsar native。`prepareScheduleSubmission(..., AUTO_FAST)` 返回 sealed `PreparedSubmission`：
+
+- `ManagedPreparedCommand`；
+- `NativePreparedDelivery`。
+
+随后 `submit()` 返回 sealed `SubmissionOutcome`：managed 分支是普通 `EnqueueOutcome`；native 分支是 `NativeDeliveryReceipt | NativeDefinitelyNotQueued | NativeEnqueueUncertain`。只有 acknowledged concrete result 才称 receipt。
+
+选择与提交是两阶段：`prepareScheduleSubmission(..., AUTO_FAST)` 在任何 I/O 前返回可序列化的 `PreparedSubmission = ManagedPreparedCommand | NativePreparedDelivery`，调用方可先持久化；`submit()` 只能提交 exact object。 不暴露可在 uncertainty/crash 后重新选分支的 retryable one-shot `submitAutoFast(request)`。native I/O 开始后绝不自动回退 managed；native prerequisite 在 Producer 接管前失效则返回 `NativeDefinitelyNotQueued`。Native receipt 没有服务端 query/cancel/reschedule/quota/audit 权限。
+
+`AUTO_FAST` 仍绑定 exact Pulsar Broker Resource Incarnation：只有目标 cluster 的 `PULSAR_RESOURCE_GUARD` attestation 有效，SDK/Producer 携 pinned expected token，且其它 delayed-delivery prerequisite 全部满足时才可选择 native。当前 physical attempt 没有更早 ambiguous network write 时，correlated typed guard rejection 才是 definitive not queued；response loss 或历史 ambiguity 是 `NativeEnqueueUncertain`，绝不改走 managed。
+
+### 3.3 交付保证
+
+基础 `AT_LEAST_ONCE` capability：
+
+- Nereus crash 或 ACK 丢失不会把未知请求当作成功；
+- 在 pinned retry/expiration policy 内会重试；
+- 目标可能看到重复；
+- 应用在需要时用 `delayMessageId + generation` 去重。
+
+Kafka transactional receipt 和 Pulsar Broker dedup 是显式 opt-in 的更强 capability，只有所有 prerequisite 可持续验证时才生效。能力漂移会删除 READY 并把 `runtimeReadiness` 置为 `BLOCKED`，不会把 Lane 写成管理员 `ADMIN_PAUSED`，也不会 silent downgrade。
+
+“at-least-once”不表示无限重试。永久错误、`expireAt`、retry budget 或明确 operator policy 可以终态化消息。
+
+### 3.4 顺序
+
+ 不提供全局顺序。严格模式仅为 `DELIVERY_TIME_FIFO`：
+
+```text
+(deliverAt, effectiveScheduleSourcePosition, delayMessageId)
+```
+
+其中有效 Schedule position 是创建当前 generation 的 Schedule 或 Reschedule 的 Source Position。严格模式要求：
+
+- Ordering Domain 固定为 `(tenant, Destination Profile version, orderingKey bytes)`；
+- 同一个 ordering key 固定到一个 Delay Shard；
+- Schedule 应用时固定一个目标物理 partition；
+- 一个 Ordering Domain 对应一个有界 Lane；
+- Lane 最多一个 unresolved head；
+- capability 能闭合旧 Owner/未知请求。
+
+Baseline at-least-once 只能标记 `BEST_EFFORT` order。不同 Ordering Domain 可以在同一 Broker partition 上交错。
+
+`DELIVERY_TIME_FIFO` 首先承诺同一 Ordering Domain 的 Broker durable append/handoff 顺序。只有 Destination Profile 同时认证目标 subscription/consumer 的 partition 或 key ordering 语义时，API 才能声明相同顺序可延伸到 consumer receive； 从不承诺 consumer 并行处理完成顺序。
+
+Profile version、Route Incarnation 或明确 migration boundary 改变时属于新的 Ordering Domain； 不跨该边界声称连续 FIFO。
+
+## 4. 总体架构
+
+```mermaid
+flowchart LR
+    SDK["Direct Java SDK"] --> EC["Entry Composition"]
+    LS["Light SDK"] --> GW["Optional Delay Gateway"]
+    GW --> EC
+    EC --> SC["Shared Semantic Core"]
+    SC -->|"Exact PreparedSubmission"| CO["Shared Submission Coordinator"]
+    CO --> GT["Guarded Kafka / Pulsar Command Transport"]
+    GT -->|"Exact NDL1 Prepared Command"| CT["Kafka / Pulsar Command Topic = Shard Log"]
+    SR -->|"Signed System Mutation"| CT
+    CT --> IC["Ingress Adapter"]
+    IC --> SR["Shard Runtime"]
+    SR <--> DB["One RocksDB per Delay Shard"]
+    SR --> SCH["Two-level DRR Scheduler"]
+    SCH --> KA["Kafka Destination Adapter"]
+    SCH --> PA["Pulsar Destination Adapter"]
+    KA --> KT["Kafka Target"]
+    PA --> PT["Pulsar Target"]
+    KA <--> KE["Kafka Receipt Partitions"]
+    PA <--> PE["Pulsar Attempt Journal"]
+    SR <--> OX["Oxia: config, placement, lease, checkpoint catalog"]
+    DB --> CP["RocksDB Checkpoint"]
+    CP --> OS["Object Store"]
+    SDK -->|"large payload"| OS
+    GW -->|"large payload"| OS
+    Q["Admin / Control Gateway"] --> OX
+    Q --> SR
+```
+
+组件职责：
+
+| 组件 | 职责 | 不负责 |
+|---|---|---|
+| Semantic Core | immutable RouteSnapshot、路由、ID、canonical body/hash、AUTO_FAST branch freeze | 网络监听、Broker client、Worker DB |
+| Direct SDK | 本地快照、bounded admission/outbox、transport/query 组合 | 集中租户认证与全局 Gateway quota |
+| Delay Gateway | 认证 tenant、请求幂等、集中 quota/凭证/审计；调用同一 Semantic Core | Gateway-only Command/receipt 语义 |
+| Guarded Command Transport | exact Kafka TopicId/Pulsar resource token 的请求级发送和三态结果 | Nereus 路由、Command 编码或 applied 状态 |
+| Command Topic / Shard Log | Client Command 与 System Mutation 的完整持久顺序、削峰、重放 | 物化业务状态 |
+| Ingress Adapter | Shard Log Source Position/time、seek、ACK-after-sync | 目标发布 |
+| Shard Runtime | 单写者状态机、原子 batch、lease gate | 跨 shard 原子事务 |
+| RocksDB | 活跃状态、索引、结果、runtime mutation | 远端复制 |
+| Scheduler | eligibility、fairness、Claim/Admission | 绕过状态机发送 |
+| Destination Adapter | 精确 target record、能力证据、错误分类 | 改写 binding/payload |
+| Capability Evidence Log | Kafka committed receipt / Pulsar sequence mapping 与恢复 cursor | Command 顺序或通用业务状态 |
+| Oxia | immutable config、placement、lease、catalog CAS | 大 payload |
+| Object Store | immutable checkpoint/payload | 恢复选择权威 |
+| Query/Admin | owner 路由、barrier read、控制操作 | 读取 stale 本地 DB |
+
+## 5. Route、Shard、ID 与租户
+
+### 5.1 Ingress Route
+
+一个 Route Incarnation 固定：
+
+- Broker cluster/topic resource incarnation；
+- partition count；
+- `ROUTING_HASH`；
+- Command envelope/body versions；
+- tenant Security Domain；
+- durability、retention、record-size policy；
+- Shard Quota Grants；
+- canonical quota accounting 和 payload-proof verification versions；
+- worker source adapter。
+
+Route 生命周期：
+
+```text
+ACTIVE_FOR_NEW -> CONTROL_ONLY -> DRAINING -> RETIRED
+```
+
+Route 版本保存 immutable Broker-time `newScheduleAcceptUntil`。进入 `CONTROL_ONLY` 的操作先停止 SDK 新选择该 route，再以 source-ordered marker 在各 shard 激活一个不得追溯到 control request 之前的 cutoff。首次逻辑 Schedule 只有在 Broker persistence time 不晚于 cutoff 时才可应用；已存在的同 Command retry/no-op、Cancel、Reschedule，以及受权 signed Replay/Resolve/control System Mutation 不使用这个 cutoff。旧 route 在存在活跃消息、System Mutation、retry window、result obligation 或 Recovery Set 引用时必须保持可写/可读。
+
+Broker resource identity 固定为：
+
+```text
+Kafka  = authenticated clusterId + native topicId + partition
+Pulsar = authenticated cluster identity
+         + administrator-protected random nereusResourceIncarnation property
+         + physical-partition topicCreationTimestamp
+```
+
+Pulsar Route/Profile 注册必须为**每个 physical partition topic**（不是只写 partitioned base metadata）创建或 attest service-owned random token，锁定 base/partition property 管理 ACL，并记录每个会使用的物理 partition creation identity；SEND/SUBSCRIBE guard 读取的是 actual persistent Topic ManagedLedger property。Token 是运行时 fencing 字段，creation identity 是额外的注册/审计交叉检查。Token 不得在删除重建时复制。无法逐 partition stamp、保护或查询这些身份的部署不能注册 resource。Topic 删除重建、同名替换或 token/creation identity mismatch 必须分配新 Route Incarnation。Source Assignment 激活时先验证 identity；不匹配为 `SOURCE_INCARNATION_MISMATCH` fail closed。
+
+Broker Resource Incarnation 不是“Lane activation 时查一次”的弱前置检查。 固定以下 request-level enforcement：
+
+**Kafka `PINNED_TOPIC_ID` channel**
+
+- Kafka Command/evidence source 使用 FetchRequest v13+，Command/fence/control/target/receipt/DLQ writer 使用 ProduceRequest v13；请求中携 Route/Profile 固定的 exact native topic UUID 和 physical partition。
+- TLS endpoint identity/authentication 与每个连接看到的 Kafka cluster ID 必须匹配 pinned cluster；在证明 cluster identity 前不得 Fetch/Produce。
+- Metadata 仍可更新 leader/epoch，但只能为 pinned UUID 找 leader；name → UUID 变更产生 `RESOURCE_INCARNATION_MISMATCH`，不得把请求改写成新 UUID。
+- 禁止协商回退到只携 topic name 的 Fetch/Produce 版本。任一可能承载该 partition 的 Broker 不支持要求的版本时，Route/Lane 不得激活。
+- stock `KafkaProducer` 在 request build 时从当前 metadata 重新取得 topic UUID，因此它本身不满足这个契约； Kafka Adapter 必须使用经验证的 pinned-topic-id client patch/transport。Transactional target 与 receipt 必须在同一 transaction 中分别携各自 pinned UUID。
+- Broker 对已删除 UUID 返回 `UNKNOWN_TOPIC_ID` 等结果时，Adapter 将其归类为 incarnation loss 并 block，而不是刷新到同名 replacement。
+
+**Pulsar `PULSAR_RESOURCE_GUARD`**
+
+- 每个可能承载 Command/fence/control writer、managed target、Attempt Journal、DLQ Export 或 `AUTO_FAST` target 的 Broker 都必须支持 source-locked first-class `TopicResourceGuard` protocol v22；cluster capability attestation 固定 protocol/version、Broker binary digest、完整 Broker set/config generation，并由受信部署控制器签名。缺失、过期、旧协议或成员覆盖不完整使 Route/Profile 注册或 writer/Lane 激活失败。
+- guarded Producer 创建携 expected authenticated cluster、32-byte resource token 和 service-owned physical-topic creation identity。Broker 在把 Producer 加入 actual persistent physical Topic 前读取并比较 ManagedLedger properties，并在 `CommandProducerSuccess` 回显 exact typed attestation。
+- 每个 SEND（包括 reconnect retransmission）在 `Producer.checkAndStartPublish` 最前部重新比较 actual Topic properties；不匹配以 `ServerError.ResourceIncarnationMismatch = 26` 返回 correlated `CommandSendError`，且必须发生在 `startPublishOperation`/`topic.publishMessage`/持久化之前；`ServerCnx` 已收取的 connection pending-send admission 必须成对回滚。成功的 `CommandSendReceipt` 回显 typed resource attestation 和 Broker entry timestamp。
+- exact pending operation 在没有更早 ambiguous attempt 时收到该 typed rejection，才是 `NOT_PUBLISHED + LANE_UNAVAILABLE`；连接关闭、关联失败、成功 receipt 缺失/不匹配、错误响应丢失，或历史 attempt 已 ambiguous，仍是 `UNKNOWN + LANE_UNAVAILABLE`。普通 `NotAllowedError`、异常字符串或 BrokerInterceptor callback 不是 definitive evidence。
+- Pulsar auto-topic-creation 对所有 resource 关闭；创建、删除和 incarnation property mutation 只授权给资源控制器。任何 replacement 必须生成新 token。
+- 所有 guarded Pulsar Producer channel（Command/system、managed target、Attempt Journal、DLQ 与 AUTO_FAST）固定 `batching=false` 且每 channel 最多一个 unresolved SEND，以使 typed response 与 exact pending operation/sequence 一一对应；并发通过有界的 Lane/Route channel slots 获得。旧 Broker、stock unguarded、transaction、自动 partition 切换和 name-only fallback 不进入发布包。
+
+Pulsar Command source 没有目标 side effect，但也不能让 client reconnect 悄悄切到 replacement。Ingress Adapter 为每个 consumer connection generation 设置 `UNCERTIFIED` gate；每次 initial connect/reconnect 后，先验证 actual physical topic token/creation identity，再允许该 generation 的 record 进入 Shard Runtime。Identity mismatch 关闭 Source Assignment，且该 generation 的 record 一条也不能 apply/ACK。Kafka Command source 则由 pinned Fetch request 在 Broker 边界完成同一约束。
+
+### 5.2 路由算法
+
+`tenantRoutingScope` 是 Route registry 为一个 Security Domain 生成并永久绑定的 exact 32-byte opaque value；它随 authenticated SDK Route snapshot 分发，不是 tenant 名称、payload field 或 caller input。Route Incarnation 内不可改变。
+
+Direct SDK/Gateway 使用的 signed `IngressRouteSnapshot`、Kafka/Pulsar ingress resource union、
+逐 partition barrier/grant/guard attestation、安全 Credential Binding ref、validity、digest 和 Ed25519
+signature 的 exact fields/preimage 由 Protocol Registry §6.6 固定。Snapshot 只分发 safe digest/
+fingerprint，不含 secret reference；任一 canonical/signature/tenant/cross-field 校验失败都不能进入
+本地 Route cache 或 Producer ownership。
+
+```text
+digest = SHA-256(
+  "nereus-delay-routing" ||
+  lp32(routeIncarnationUuid[16]) ||
+  lp32(tenantRoutingScope[32]) ||
+  lp32(routingKey)
+)
+
+partition = unsignedBigEndian64(digest[0..7]) mod partitionCount
+```
+
+- ordered：`routingKey = orderingKey`；
+- unordered：`routingKey = delayMessage UUID bytes`。
+
+所有 SDK 使用规范 test vectors。partition count 在 incarnation 内不可变化。
+
+这里及后续 hash 的 `lp32(x)` 均为 `u32be(byteLength(x)) || x`；不得使用语言默认整数、字符长度或省略固定为空的字段。
+
+### 5.3 Self-routing ID
+
+`delayMessageId` 和 `commandId` 使用同一 fixed-width locator：
+
+```text
+byte 0       formatVersion = 1
+bytes 1..16  routeIncarnation UUID
+bytes 17..20 partition uint32 big endian
+bytes 21..36 logical UUIDv7
+bytes 37..40 CRC32C(bytes 0..36)
+```
+
+文本分别为 `ndm1_` / `ndc1_` + unpadded Base64url。CRC 只防误码，不授权。UUIDv7 timestamp 只用于 first-seen age validation 和追踪，不用于命令顺序。
+
+Decoder 必须在 CRC 校验前同时验证 logical locator 的 UUID version=7 和 RFC
+variant=10；只有这两个 bit-level 条件满足时，bytes 21..36 才是合法的
+logical UUID。CRC 正确但 logical UUID 不是 UUIDv7 的值必须 fail closed，不能
+被当作 `commandId` 或 `delayMessageId` 继续路由、去重或查询。UUIDv7 timestamp
+的未来偏差和 first-seen age 仍由 Route policy 在 preparation/apply 阶段校验，
+不能在 fixed-width decoder 中改成顺序字段。
+
+初始 Schedule generation 为 `0`。Reschedule 和 Dead Letter Replay 做 checked `generation + 1`；retry 不变 generation。
+
+### 5.4 租户身份
+
+ 每个 Ingress Route 只属于一个 tenant Security Domain。Worker 从 route registry 与 Broker ACL 推导 tenant，不信任 payload 中的 tenant、endpoint 或 credential。
+
+若多个调用方共享 route，它们被视为共享同一数据面权限。需要 per-producer 身份时必须分 route；共享多租户 Topic + signed command 不属于 。
+
+## 6. Client API 与 receipt
+
+生产入口由 ADR 0043 固定为 Direct Java SDK 和可选 Delay Gateway，共享一个零 I/O
+Semantic Core。Gateway 只增加认证、请求幂等、集中 quota/audit 和凭证托管；它返回与
+Direct SDK 相同的 NDR1 union，Worker 看不到入口差异。类、模块和逐调用流程见
+[` 双入口与 Guarded Transport 代码级详细设计`](DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md)。
+
+概念 API：
+
+```java
+interface DelayClient extends AutoCloseable {
+    PreparedCommand prepareSchedule(ManagedSchedule request);
+    PreparedCommand prepareCancel(DelayMessageId id, Optional<Precondition> p);
+    PreparedCommand prepareReschedule(
+            DelayMessageId id, Instant deliverAt, Instant expireAt,
+            Optional<Precondition> p);
+    PreparedCommand prepareLargeSchedule(
+            ManagedLargeScheduleIntent request);
+    PreparedCommand prepareLargePayloadCommit(
+            PayloadReservationReceipt reservation,
+            PayloadCommitProof proof);
+
+    CompletionStage<EnqueueOutcome> enqueue(PreparedCommand command);
+    CompletionStage<List<EnqueueOutcome>> enqueueBatch(
+            List<PreparedCommand> commands);
+
+    CompletionStage<CommandQueryResult> awaitApplied(
+            QueuedCommandLocator locator, Duration timeout);
+    CompletionStage<CommandQueryResult> getCommandResult(
+            CommandLocator locator);
+    CompletionStage<MessageQueryResult> getMessage(
+            MessageLocator locator);
+    CompletionStage<PayloadUploadHandleOutcome> issuePayloadUploadHandle(
+            PayloadReservationReceipt reservation);
+    CompletionStage<PayloadAttestationOutcome> attestPayloadUpload(
+            PayloadReservationReceipt reservation);
+
+    PreparedSubmission prepareScheduleSubmission(
+            ManagedSchedule request, SubmissionMode mode);
+    CompletionStage<SubmissionOutcome> submit(
+            PreparedSubmission submission);
+}
+```
+
+`prepare*` 不做网络 I/O。它固定 route/partition、IDs、canonical bytes、hash 和 `retryUntil`，并允许调用方把 Prepared Command 持久化。
+
+进入 managed submission 的 frame 必须通过 Registry-shaped body 的严格
+`encodeFrame/decodeFrame` 校验；兼容旧 body 不能被包装成
+`PreparedSubmission`，也不能到达 Producer ownership。旧版 `enqueue()` 兼容桥仍可
+使用 legacy frame，但不能冒充 receipt/submission。任何 receipt/union 中的
+`PreparedCommandRef` 也必须从同一 strict frame digest 派生；embedded 或旧
+SDK bridge 遇到 legacy body 必须 fail closed，不能把 compatibility bytes 标成
+`ProtocolTuple`。
+
+同步 `prepare*` 只可抛出携 `StableError(stage=PREPARATION)` 的 typed `PreparationFailure`，对应本地可确定的 invalid input/snapshot/size/metadata；失败时不存在 Command identity enqueue obligation。已有 `PreparedCommand` 的 `enqueue` 对所有预期网络/容量结果正常完成为三态，不让调用方从异常类猜是否入 Broker；只有损坏的 Prepared bytes、SDK invariant 或进程级不可恢复错误才 exceptional completion。
+
+`prepareScheduleSubmission(..., AUTO_FAST)` 只接受同一个 bounded inline managed Schedule
+intent 和显式 mode。production request 不携 target/token、issuer `PublicKey` 或 native candidate；
+SDK 从构造时注入的本地已验证、尚未过期 immutable capability-snapshot provider 选择分支，不发
+网络请求。当前 embedded `AutoFastSchedule.NativeCandidate` 只留在 conformance/test artifact，
+不能成为 production trust-root 输入。该方法返回：
+
+```text
+ManagedPreparedCommand:
+  exact PreparedCommand bytes/hash
+
+NativePreparedDelivery:
+  nativeDeliveryId
+  exact target record and shifted Broker timestamp
+  pinned Profile/Broker Resource Incarnation
+  full signed NativeCapabilitySnapshot with resource-guard and Credential Binding authorization lease
+  canonical bytes and submissionHash
+```
+
+该 native type 的 exact field numbers、inline/Pulsar metadata、business/shifted timestamps、Profile/resource/attestation fields、完整 signed `NativeCapabilitySnapshot` 与 domain-separated submission-hash preimage 由 Protocol Registry §6.3 固定；`nativeDeliveryId` 是 prepare 时、I/O 前生成并与 bytes 一起持久化的 nonzero 32-byte identity，不含 managed `delayMessageId`。Snapshot 绑定 exact Destination/Capability Profile、Pulsar resource/partition、guard attestation/config generation、Credential Binding generation/digest/resolved fingerprint、SDK principal scope、Trusted-UTC validity 和 issuer signature；secret reference/plaintext 永不进入 snapshot/prepared bytes。
+
+Native credential authority 在线下 snapshot issuer 用一个 Oxia transaction 同时 compare current Head triplet 并对 exact generation 的 `CredentialBindingProtection.nativeCapabilityProtectionUntil` 做 monotonic max-CAS，durable reread 后才线性化；protection-before-rotation 允许该 bounded old-generation snapshot，rotation-before-protection 则拒绝 stale issuer。`prepareScheduleSubmission(..., AUTO_FAST)` 只消费已分发且未过期的 signed snapshot，所以仍是 zero I/O。等价 Credential Binding 轮换不追溯撤销已经签发的 snapshot；它只阻止新 snapshot 使用旧 generation。旧 binding/audit material 必须保留到 protectionUntil、所有可能已取得 Producer ownership 的 native request 和 quiescence 都结束。snapshot 不是紧急吊销：紧急停止要撤销 Pulsar resource guard/实际 credential，Producer 已接管的竞态仍是 uncertain。
+
+`prepareScheduleSubmission(..., AUTO_FAST)` 不把 signed snapshot 中的 `physicalPartition` 当作独立的路由授权。对于
+`HASH_ONLY`，以及 `EXPLICIT_OR_HASH` 中未命中允许显式集合的候选，它必须从 exact managed
+Command 的 adapter metadata 或 Delay Message ID 取出 Profile 指定的 routing bytes，按
+`TARGET_PARTITION_HASH` 重新计算并逐字比较；不匹配即在任何网络 I/O 前回退到同一份
+managed Prepared Command。该公式由 `TargetPartitionHash` 与 Shard Log Admission
+共用，避免 native snapshot 伪造一个合法范围内但错误的目标分区。
+
+`submit` 的所有结果都带 exact prepared type/identity/hash。Producer ownership 前必须验证 full snapshot signature/expiry/projections、guard prerequisite，以及 SDK credential provider 解析出的 immutable version/public-fingerprint digest 等于 snapshot；expiry、普通 prerequisite 失效、credential drift 分别返回 `NATIVE_PREPARED_SUBMISSION_EXPIRED`、`AUTO_FAST_PREREQUISITE_UNAVAILABLE`、`CREDENTIAL_BINDING_DRIFT` 的 `NativeDefinitelyNotQueued` 和 exact local non-persistence proof。Producer ownership 后的 response loss 返回指向同一 prepared object 的 `NativeEnqueueUncertain`，retry 复用原 bytes/ID，不重新 prepare。超过 inline/native limit 的调用方显式使用 managed Large Payload API；AUTO_FAST 不隐藏 reserve/upload/attest/commit 多阶段协议。
+
+### 6.1 Enqueue outcome
+
+| 结果 | 含义 | 调用方动作 |
+|---|---|---|
+| `QUEUED` | Broker 已按 route durability 持久化 | 可 await/query；不等于 applied |
+| `DEFINITELY_NOT_QUEUED` | Adapter 携闭合 `NonPersistenceProof` 证明 Broker 不会持久化 | 可修正或原样重试；新逻辑命令才重新 prepare |
+| `ENQUEUE_UNCERTAIN` | 可能已持久化 | 原样 retry 同一 Prepared Command |
+
+Future timeout、取消等待、连接断开、进程退出不自动等价于 `DEFINITELY_NOT_QUEUED`。
+
+Managed ingress 在 Producer ownership 前先验证 nonzero 16-byte
+`physicalEnqueueAttemptId`；无效 attempt 只产生本地 definitive rejection，绝不调用
+transport。对 transport 返回的 result 也执行 closed-product 校验：`PERSISTED`
+必须使用 `OK` stable code、完整的 canonical Broker resource/position 字段，
+`DEFINITIVELY_NOT_PERSISTED`/`UNKNOWN` 不得携带成功 position 或 `OK`。适配器
+result 无法构造成合法 receipt（包括 malformed projection、缺少 response evidence
+或 query boundary 与 Broker persistence time 冲突）时，不能让异常穿透 Future，也
+不能生成非持久化 proof；必须返回带同一 Prepared Command/physical attempt 的
+`ENQUEUE_UNCERTAIN`，并把 `INTEGRITY_ERROR` 仅作为 bounded diagnostic。
+这一条也适用于 managed submission wrapper 收到的异步 exceptional
+`CompletionStage` 或空 stage value：wrapper 必须使用同一 physical attempt
+收敛为 `ENQUEUE_UNCERTAIN`，不能把可能已经取得 Producer ownership 的调用泄漏为
+exceptional Future，也不能切换到 native branch。
+如果 transport 的 `handle(...)` 本身返回 null，也视为 callback 未建立；必须按同一
+规则返回 `ENQUEUE_UNCERTAIN`。Destination adapter 对这个分支必须保留
+“physical completion 未观察”的标记，不能让外层 physical admission 把它当成已完成
+而提前释放 zombie/in-flight charge。
+Embedded conformance bridge 也遵守同一规则：queued receipt 的 ACK/query-boundary
+projection 若在本地 admission 后失败，保留该 physical attempt 并返回
+`ENQUEUE_UNCERTAIN`；不能把已进入本地队列的命令伪造成
+`DEFINITELY_NOT_QUEUED`。
+
+physical destination wrapper 还必须区分“执行器在 delegate 调用前拒绝任务”和
+“执行器已经接受任务后在内联执行或回调路径抛出 fatal `Error`”。只有前一种路径
+能够证明没有取得 target ownership，才可以释放 physical reservation；后一种路径
+必须先把逻辑结果收敛为 `UNKNOWN` 并保留 zombie/in-flight charge，不能因为异常从
+`submit` 外层传播就按 executor rejection 提前释放。该围栏同样适用于自定义或同步
+执行器，因为 `Executor` 合法地可以在 `execute` 内联运行任务。
+
+合法 non-persistence proof 仅为 Producer ownership 前本地拒绝、Kafka registered authenticated definitive rejection、Pulsar pre-persistence guard rejection，或已认证 Adapter/library 的 pre-ownership cancel。Timeout、Future cancel、丢 callback、连接/进程退出及未验证 exception 没有 proof branch，必须 `ENQUEUE_UNCERTAIN`。
+
+Batch 结果逐条返回且保持输入顺序；Broker batching 不提供跨命令原子性。
+
+### 6.2 Receipts
+
+所有可序列化 receipt 使用 Protocol Registry 固定的 `NDR1` type/version/length/CRC32C frame；CRC 只区分损坏字节，不授权 tenant，也不替代 Source Position/DB reread。`CanonicalCommandQueuedReceipt` 只属于 tenant Client Command，exact fields 为 Registry §6.3 的闭合表，语义包括：
+
+- `commandId` 和 `MessageSubject(delayMessageId)`；shard-scoped System Mutation 使用 `ControlOperationReceipt`/internal audit，不能伪装成 Command receipt；
+- Route Incarnation、partition、Source Position；
+- command hash/body version；
+- 本次 16-byte `physicalEnqueueAttemptId`；它只用于 tracing/三态关联，不进入 Prepared Command 或 `commandHash`，下一次物理 retry 使用新值；
+- allowlisted `SafeBrokerAck`（Broker kind、cluster-safe acknowledgement position/ID、persistence timestamp；不接受开放 metadata map）；
+- receipt 类型和可用能力。
+- `receiptQueryUntil = checkedAdd(sourcePosition.brokerPersistenceTime, queuedReceiptQueryWindow)`；其 position audit/evidence 受 TIME_FENCE 与 Recovery Floor 保护到该边界关闭。不能从 SDK receipt time 或 Worker apply wall clock 起算。
+
+任何 legacy/in-process queued receipt 也必须先绑定同一个 `ShardId` 的
+`commandId`、`delayMessageId` 与 Source Position；固定 source 的 embedded
+client 还必须验证 pinned source identity。`awaitApplied`/query 在校验失败时
+必须立即返回 typed receipt mismatch（或本地等价的确定性错误），不得先 drain、
+apply 或推进 Source Position。Receipt 是定位与查询凭证，不是可跨 shard/source
+重解释的 bare command locator。
+
+在 embedded `awaitApplied` 中，若命令尚未 apply、因而还没有 POSITION 审计，只有
+pending 队列中 exact `(commandId, delayMessageId, Source Position)` 记录可以暂时
+证明该 locator；其它同 shard receipt 仍必须在 drain 前拒绝。drain 后必须再次读取
+POSITION 审计，不能以 `commandId` 单独暴露逻辑结果。若该 exact pending record
+的 apply 结果是 position-level rejection（例如 `COMMAND_ID_CONFLICT` 或
+`COMMAND_RETRY_WINDOW_EXPIRED`），`awaitApplied` 必须返回这次物理 apply 的结果；
+不能在 drain 后改按 `commandId` 读取首次逻辑结果，或把没有逻辑 `Command Result`
+的 fence rejection 返回为 `null`。已经完成 apply、没有 pending record 时，仍须先
+验证 durable POSITION，再读取可用的逻辑结果； wire query 的 command-hash 与
+POSITION 审计校验边界不因此放宽。
+
+Embedded conformance service 若由测试或本地驱动先显式调用 `drain()`，会在
+`EmbeddedDelayServiceConfig.maxPendingCommandCount` 规定的有界窗口内保留已完成
+physical apply result，供之后的 legacy `awaitApplied` 按 exact Source Position
+返回；窗口淘汰后若 POSITION 只能定位到一个不同 Source Position 的逻辑结果，
+必须 fail closed，而不能把该逻辑结果冒充为本次物理结果，也不能返回 `null`。
+这只是本地 seam 的结果保留，不改变 wire receipt 或 durable POSITION schema。
+
+`CommandAppliedReceipt` 只在 shard 已 durable `APPLIED` 或 `REJECTED` 后存在，包含 stable outcome、reason、applied Source Position，以及该 outcome 适用的 generation/Message Control Version (`stateVersion`)/`PublicDestinationBindingView`；拒绝或 `NOT_FOUND` 不伪造不存在的 message fields，也永不序列化内部 Binding/secret/evidence/object descriptor。
+
+`NativeDeliveryReceipt` 使用独立 `nativeDeliveryId`，不伪装为 managed Delay Message。
+
+`PreparedCommandRef`、`SafeBrokerAck` Kafka/Pulsar branches、`PayloadReservationReceipt`、`ControlOperationReceipt`、`NativePreparedRef`、`StableError`、所有 union presence 与 digest preimage 均由 Registry 固定；开放 metadata map、exception-class-as-code 或实现自选 locator field 被禁止。
+
+Submission outcome 中的 managed/native `DefinitelyNotQueued` 与 `EnqueueUncertain`
+错误必须使用 `FailureStage=ENQUEUE`，不能把 query/application/payload 等其它
+stage 冒充 ingress 结果；`StableError` 也禁止使用成功码 `OK`。`OK` 只属于
+成功持久化/应用结果，错误 branch 必须使用 Registry 中的非 `OK` stable code，且
+managed/native prepared ref、retryability 与 proof 仍由各自 union branch 绑定。
+
+`CommandApplyStatus` 与业务 outcome 是两个维度：
+
+| Apply status | 含义 | 例子 |
+|---|---|---|
+| `APPLIED` | 合法命令已按当前状态求值并持久化结果；不要求一定改变状态 | `SCHEDULED`、`CANCELED`、`TOO_LATE`、`ALREADY_PUBLISHED`、`NOT_FOUND`、`VERSION_CONFLICT` |
+| `REJECTED` | 命令未获准进入对应业务状态转换 | `INVALID_DELIVERY_WINDOW`、`UNAUTHORIZED`、`DESTINATION_NOT_ALLOWED`、`HARD_QUOTA_EXCEEDED`、`ROUTE_NOT_ACTIVE` |
+
+机器只依赖 stable code、stage、Registry 的六类 closed retryability 和 typed details，不依赖诊断文本。尤其 `RETRY_EXACT_BYTES` 与 `NEW_PREPARATION_REQUIRED` 不可混用：前者禁止换 ID/body，后者禁止复用已经终态拒绝/过期的 Prepared identity。被拒绝的 Schedule 不创建 Delay Message，但结果必须可查询。`SubmissionOutcome` 是穷尽式 union：managed 分支包含 `EnqueueOutcome`，native 分支包含 `NativeDeliveryReceipt`、`NativeDefinitelyNotQueued` 或 `NativeEnqueueUncertain`；native I/O 后没有 managed fallback。
+
+### 6.3 SDK backpressure
+
+SDK 必须配置 pending command count/bytes、Producer buffer、batch/linger、request/delivery timeout、close drain deadline。Producer 尚未接管请求时的本地 buffer full 可以是 definitive；接管之后按 uncertainty 处理。SDK 不无限阻塞应用线程。
+
+Kafka/Pulsar Command Producer 与 system TIME_FENCE/control writer 都绑定 Route Broker Resource Incarnation：Kafka guarded ProducerBatch 固定 Produce v13 topic UUID；Pulsar typed `TopicResourceGuard` 在 Producer create 和每次 SEND 经过 Broker core 校验。否则同名重建会把 `QUEUED` 赋给错误的 Route resource， 禁止注册或启用这种 writer。
+
+Destination Profile 绑定的 Kafka/Pulsar target resource 也必须在 Adapter 构造边界
+验证 canonical UTF-8/NFC 的 cluster/topic identity；不能先以非 canonical 文本创建
+Producer request，再依赖返回 receipt 或 query 阶段发现身份错误。
+
+## 7. Command wire protocol
+
+### 7.1 Shard Log envelope
+
+Broker value 使用固定外层 frame；Broker key/header、Source Position、trace 与 Producer metadata 不进入该 frame：
+
+```text
+ShardLogFrame =
+  magic:u32be                 = 0x4e444c31  // ASCII "NDL1"
+  framingVersion:u8           = 0x01
+  recordKind:u8               = 0x01 CLIENT_COMMAND | 0x02 SYSTEM_MUTATION
+  flags:u16be                 = 0x0000
+  payloadLength:u32be
+  payload[payloadLength]      = canonical ShardLogEnvelope bytes
+  crc32c:u32be                = CRC32C(all preceding frame bytes)
+```
+
+`payloadLength` 必须不超过 Route 的 `maxShardLogPayloadBytes`，总 frame 必须恰好消费 Broker value；trailing bytes、unknown flags、kind/oneof 不一致、bad CRC 或非最小 Protobuf 都是 malformed framing。只有 frame、outer identity、Route binding 和 bounded diagnostic 都无法可信建立时才写 `QUARANTINED_SOURCE_RECORD`；不能把其伪装成某个 Command rejection。所有数值、schema field 与 test vector 由 Protocol Registry 固定。
+
+```protobuf
+message ShardLogEnvelope {
+  uint32 log_envelope_version = 1;      // exactly 1
+  oneof record {
+    DelayCommandEnvelope client_command = 2;
+    ShardSystemMutationEnvelope system_mutation = 3;
+  }
+}
+
+message ShardSubject {
+  bytes route_incarnation_uuid = 1;     // exactly 16 bytes
+  uint32 partition = 2;
+}
+
+message DelayCommandEnvelope {
+  uint32 envelope_version = 1;       // exactly 1
+  bytes command_id = 2;              // canonical ndc1 binary
+  bytes delay_message_id = 3;        // message/reservation Client Commands only
+  reserved 4;
+  reserved "tenant_id";
+  CommandType command_type = 5;
+  reserved 6;
+  reserved "command_sequence";
+  int64 retry_until_epoch_ms = 7;
+  bytes canonical_body = 8;
+  bytes command_hash_sha256 = 9;
+  uint32 body_version = 10;           // exactly 1
+  reserved 11;
+  reserved "shard_subject";
+}
+
+message ShardSystemMutationEnvelope {
+  uint32 envelope_version = 1;        // exactly 1
+  bytes system_mutation_id = 2;       // stable 32-byte identity
+  ShardSubject shard_subject = 3;
+  SystemMutationType mutation_type = 4;
+  int64 retry_until_epoch_ms = 5;
+  bytes canonical_body = 6;
+  bytes mutation_hash_sha256 = 7;
+  uint32 body_version = 8;             // exactly 1
+  bytes author_identity = 9;            // typed Owner/Control/Fence/Service writer
+  uint32 signing_key_version = 10;
+  bytes signature = 11;                // covers the exact outer semantic fields
+}
+```
+
+ Client Commands 必须且只能使用 `delay_message_id`；旧草案的 `shard_subject` field number/name 永久 reserved。Shard-wide control、TIME_FENCE、Replay/Resolve 与 runtime mutation 全部使用 signed `ShardSystemMutationEnvelope` 和 exact `shard_subject`；需要 Message locator 时只放在 canonical mutation body，禁止 dummy outer Message ID。body 重复 identity-sensitive locator/type/deadline，envelope/body 必须相等。`command_sequence` 的编号与名字永久保留。Source Position 是 Client Command 与 System Mutation 的唯一 shard-state 顺序。
+
+### 7.2 Canonical body
+
+```text
+commandHash =
+  SHA-256(
+    "nereus-delay-command-hash\0" ||
+    u8(framingVersion) || u32be(logEnvelopeVersion) ||
+    u32be(envelopeVersion) || u32be(bodyVersion) ||
+    u16be(commandType) || lp32(commandId) || lp32(delayMessageId) ||
+    i64be(retryUntilEpochMs) || lp32(canonicalBody)
+  )
+
+systemMutationHash =
+  SHA-256(
+    "nereus-delay-system-mutation-hash\0" ||
+    u8(framingVersion) || u32be(logEnvelopeVersion) ||
+    u32be(envelopeVersion) || u32be(bodyVersion) ||
+    u16be(systemMutationType) || canonicalShardSubject ||
+    i64be(mutationRetryUntilEpochMs) || lp32(canonicalBody)
+  )
+```
+
+`lp32(x) = u32be(length(x)) || x`；`canonicalShardSubject = routeIncarnationUuid[16] || u32be(partition)`。hash preimage 不依赖 Protobuf field emission order；它按上式精确拼接。这样任何 log/envelope/body version、type、subject、identity 或 deadline 的变化都会改变 hash，新格式不能用相同 bytes 冒充先前语义。System Mutation ID 依赖 `mutationHash`，所以 mutation hash 不反向包含 ID；签名则覆盖 ID 与 hash。
+
+所有 System Mutation 的 Ed25519 signature 都验证以下 digest，而不是只签 `canonical_body`：
+
+```text
+SHA-256(
+  "nereus-delay-system-mutation-signature\0" ||
+  u32be(frameMagic) || u8(framingVersion) || u8(SYSTEM_MUTATION) ||
+  u32be(logEnvelopeVersion) || u32be(envelopeVersion) ||
+  u32be(bodyVersion) || u16be(systemMutationType) ||
+  lp32(systemMutationId) || canonicalShardSubject ||
+  i64be(mutationRetryUntilEpochMs) || lp32(canonicalBody) ||
+  lp32(mutationHash) || lp32(authorIdentity) || u32be(signingKeyVersion)
+)
+```
+
+`signature` 自身不进入 digest。`APPLY_SHARD_CONTROL` 的 canonical body 还必须逐字段绑定下文列出的 operation/target/precondition；通用签名公式不能替代这些 body-level required fields。
+
+ body 的 enum number、field number/type、presence、长度/计数上限和 oneof 由 Protocol Registry 的 closed body tables 固定；正文中的字段清单不是另一个可扩展 schema。共同 canonical 规则是：
+
+- 禁止 map、`Any`、float、unknown field、duplicate singular field；
+- 对所有长度、递归和 collection count 设上限；
+- optional presence 显式；
+- set-like repeated field 按规定 byte comparator 排序；
+- Kafka headers 保留顺序和重复；
+- 每个文本字段单独规定 UTF-8/normalization；
+- 服务端 parse 后规范重编码，必须与原 bytes 完全相等。
+
+通用 Protobuf deterministic 开关本身不被当作跨语言 canonical 证明。
+
+### 7.3 Operation
+
+| Command | 关键字段 | 成功效果 |
+|---|---|---|
+| `SCHEDULE` | exact profile/policy versions、timing、mode、payload、adapter metadata | 创建 generation 0 |
+| `PREPARE_LARGE_SCHEDULE` | 完整 Schedule intent、length/checksum、reservation TTL | 创建 reservation |
+| `COMMIT_LARGE_SCHEDULE` | reservation、exact object identity、`PayloadCommitProof` | reservation → generation 0 |
+| `CANCEL` | optional expected generation/version | 当前 generation → CANCELED |
+| `RESCHEDULE` | optional expected generation/version、new deliver/expire | old → SUPERSEDED；new generation |
+
+Reschedule 不改 payload、binding、ordering mode 或 Retry Policy。
+
+Privileged/System Mutation 闭集是：
+
+| System Mutation | 关键字段 | 成功效果 |
+|---|---|---|
+| `APPLY_SHARD_CONTROL` | exact Control Operation/request/target、control kind/version/hash/expected prior version；computed mutation ID/hash在 Oxia target 外部登记 | source-ordered Profile/quota/admission/Lane control |
+| `REPLAY_DEAD_LETTER` | exact Control Operation、terminal precondition、new timing、duplicate acknowledgement | new generation |
+| `RESOLVE_UNCERTAIN` | exact Control Operation、attempt、evidence/override | resolve、retry 或 terminalize |
+| `TIME_FENCE` | signed route/partition、`closeThrough`、fence key version、Trusted-UTC proof 与 deterministic Proof ID | 单调关闭 ingress deadlines |
+| `PUBLISH_ADMISSION` | exact generation/attempt、完整可重建 `PreparedPublishDescriptor` + hash、channel/Ready Certificate/resource charge | durable `PUBLISHING` boundary |
+| `PUBLISH_OUTCOME` | exact attempt/outcome/evidence、Trusted-UTC interval、closed retry decision/charge transfer | apply outcome/counter |
+| `EXPIRE_GENERATION` | exact generation/Trusted-UTC interval evidence | source-ordered expiry |
+| `EVIDENCE_RESOLUTION` | exact attempt/cursor/evidence | recover outcome |
+| `RESOURCE_RETIRE_INTENT` | exact external/local identity/version | guarded delete intent |
+| `RESOURCE_DELETE_CONFIRMED` | exact intent/delete evidence | finish external delete |
+| `CLAIM_RESULT` | exact Claim/precondition、permanent pre-send failure、Trusted-UTC/charge | source-ordered `DEAD_LETTER` before Admission |
+| `DLQ_EXPORT_RESULT` | exact export ID/envelope、numbered attempt outcome 或 evidence resolution、retry/charge | source-ordered DLQ outbox state |
+
+System Mutation envelope 的 `author_identity` 是带 closed branch tag 的
+`AuthorIdentity`；body、`ClaimPrecondition`、`ReadyCertificate` 等字段表中写明的
+`OwnerIdentity` 则必须编码为裸 nested value。两者即使表达同一个 Owner 也不是相同
+bytes：签名 envelope 使用前者，body 内重复 Owner 使用后者，再按字段逐项验证相等。
+实现不得把 `AuthorIdentity.owner` wrapper 塞入一个声明为 `OwnerIdentity` 的字段，
+也不得用宽松 parser 同时接受两种编码。
+
+它们不是 tenant API；Route 固定 schema/signing-key set，service-only Broker ACL 与 canonical signature 同时通过才可应用。Callback/timer/evidence/GC worker 只能准备并 enqueue exact mutation，不能绕过 Shard Log 直接改变会影响未来 Command 的权威状态。
+
+`SCHEDULE`、`PREPARE_LARGE_SCHEDULE` 与 `REPLAY_DEAD_LETTER` 必须携带精确的 Destination Profile/Retry Policy version，不允许 apply/replay 解析“latest”。Replay、Resolve 与 shard control body 引用 Oxia 中已认证、hash/scope/target 匹配的 immutable Control Operation；`TIME_FENCE` 使用 Route 固定的 ingress-fence writer/key set，不为每次 fence 创建 operation。
+
+`APPLY_SHARD_CONTROL` 的 signature domain 必须绑定 record kind、mutation ID/hash、Route Incarnation、physical partition/exact shard subject、body version/body/hash、retry deadline、Control Operation ID/request hash、target index、semantic version/hash、expected prior control version、author identity 与 signing-key version。Marker body 的 `ControlRef` 只含 operation ID/request hash/target index；不得把本条 expected mutation ID/hash 放入自身被 hash 的 body，避免不可生成的自引用。完成 canonical body 后计算 mutation hash/ID，再由 Oxia operation 逐 target 外部登记 expected mutation ID/hash；apply 必须与该登记逐 byte 相等。exact duplicate 是 no-op，changed bytes、cross-target/shard reuse、未登记 marker 或 scope/hash mismatch 都是 position-level `UNAUTHORIZED_SYSTEM_MUTATION`，无控制效果。Oxia transient/unproven absence 停在该 Source Position；authoritative mismatch 写 bounded position audit 并继续。非法 fence 同样不得推进关闭水位。仅凭 tenant Route produce 权限不能伪造这些操作。
+
+### 7.4 Version rollout
+
+Route Incarnation 维护 source-ordered activated writable version set。只有所有 eligible Worker 已声明支持，控制面才可先写 activation marker、再允许 writer 选择新 body version。
+
+- frame、outer identity、Route binding 和 version fields 可可信解析，但 version 不在该 Route 当时已激活集合：它没有合法写入权，固定写 position-level `REJECTED(UNACTIVATED_PROTOCOL_VERSION)` 并推进；不能在 reject 与 quarantine 间任选；
+- framing/identity/hash scope 无法可信解析：固定写 bounded `QUARANTINED_SOURCE_RECORD(MALFORMED_OR_UNTRUSTED_IDENTITY)` 并推进，不声称某个 Command ID 的结果；
+- version 已由前置 authenticated marker 激活、但当前 eligible Worker 不支持：这是 deployment invariant violation；停在该 position，并把 shard lifecycle 写为 `FAILED(reason=UNSUPPORTED_ACTIVATED_PROTOCOL)`，禁止跳过；
+- System Mutation version 还必须通过 service signature 和 Route system schema set；well-framed 但未激活为 `UNACTIVATED_SYSTEM_PROTOCOL_VERSION`，签名/ACL/scope 不合法为 `UNAUTHORIZED_SYSTEM_MUTATION`，二者都写 bounded position audit并推进且没有 mutation authority。
+
+Activated writable set 同时固定 `(framingVersion, logEnvelopeVersion, recordKind, envelopeVersion, bodyVersion)`；writer 只有在 marker 前置、全 eligible reader 支持且旧 reader 已从 assignment 排除后才可选择新 tuple。dedupe 保存并比较该 version tuple；不存在“同 hash、不同 version 仍算 duplicate”的兼容捷径。
+
+当前实现边界（2026-08-17）：Client Command 的 `commandHash` 已按该 tuple
+计算，`dedupe/COMMAND` 新写入保存 tuple，旧 payload version 1 会绑定到当前
+managed tuple 后读取；tuple 不同的同 `commandId` 返回
+`COMMAND_ID_CONFLICT`，不会复用旧结果。现有 wire codec 仍只发出 managed ，
+对未激活/未支持 tuple fail closed。该切片不等同于 writer-before-reader、
+eligible-reader assignment、升级/降级或发布包演练已完成。
+
+当前实现补充（2026-08-20）：`ProtocolCapabilityDeclaration` 是 Worker
+session 的 canonical capability 声明；`OxiaSyncProtocolCapabilityBackend`
+按 Worker 做 revision-CAS，并在 handle-backed 模式把声明写成绑定同一 Oxia
+session 的 ephemeral record。`ProtocolActivationAuthorityCoordinator` 在
+activation marker 前重新读取全部 eligible reader，要求每个 Worker 支持精确
+tuple，并计算包含 Worker、revision、声明 digest 与 session identity 的
+reader-set evidence hash。Route assignment 通过该 authority 的可选门控后才
+发布/接受 Worker assignment；本地 key-14 projection 仍不替代该外部 authority。
+这已覆盖“capability-before-marker”的实现与 real Oxia smoke，但不把单次
+smoke 自动提升为 writer-before-reader、升级/降级或发布包认证。
+
+## 8. Shard Log 与 Source Position
+
+### 8.1 Kafka
+
+必须验证：
+
+```text
+cleanup.policy=delete
+message.timestamp.type=LogAppendTime
+fixed partition count
+acks=all
+enable.idempotence=true
+certified replication / min ISR
+unclean leader election disabled
+retention >= recovery formula
+FetchRequest >= 13 with pinned native topicId
+ProduceRequest >= 13 with pinned native topicId
+```
+
+Worker：
+
+```text
+enable.auto.commit=false
+isolation.level=read_committed
+cooperative weighted assignor
+group offset commit disabled in
+```
+
+Ingress Kafka client 必须是 `PINNED_TOPIC_ID` channel：Fetch session 和每次 FetchRequest 都使用 Route 中的 native topic UUID，metadata 只能更新该 UUID 的 leader。若 Broker 只能协商 Fetch v12 或更低、UUID 不存在、同名 topic 映射到另一 UUID，Source Assignment 保持 paused/uncertified，绝不按新 topic name 继续消费。
+
+Kafka Source Position：
+
+```text
+routeIncarnation
+authenticated clusterId / native topicId
+partition
+offset
+optional leaderEpoch
+brokerLogAppendTime
+```
+
+read-committed Activation Barrier 不使用 name-only `ListOffsets/endOffsets`。Pinned transport 发 FetchRequest v13+，并从**同一个** FetchResponse partition block 同时验证 exact topic UUID 与 `lastStableOffset`，保存 `KAFKA_EXCLUSIVE_OFFSET(b)`；该 LSO 是下一条可读位置的排他游标，不是假造出的 record Source Position。Kafka 禁用 stock name-based group OffsetCommit；RocksDB position 是唯一恢复权威。若未来启用 hint commit，必须使用经验证的 topic-ID OffsetCommit v10+ patch，且仍只能在 DB sync 后提交。
+
+### 8.2 Pulsar
+
+必须验证：
+
+- persistent partitioned topic；
+- fixed partition count、无 compaction；
+- acknowledged entry retention；
+- certified ensemble/write/ack quorum；
+- Broker entry timestamp interceptor；
+- Broker timestamp exposure enabled、client protocol >= 18，并逐 Broker probe exact interceptor/exposure；
+- durable subscription；
+- Oxia desired placement 下每个物理 partition 一个 Broker-enforced Exclusive consumer。
+- auto-topic-creation disabled、incarnation property/delete ACL 受资源控制器保护。
+- `PULSAR_SUBSCRIBE_RESOURCE_GUARD` 在每个 eligible Broker 启用。
+
+Pulsar Source Position：
+
+```text
+routeIncarnation
+Broker Resource Incarnation / physical partition topic / creation identity
+ledgerId
+entryId
+batchIndex
+batchSize
+brokerEntryTimestamp
+```
+
+Ingress consumer 必须支持 batch-aware 外部/升级记录，但 自有 guarded Pulsar writer 固定 `batching=false`、每 channel 一个 in-flight SEND。一个 Broker entry 的所有 batch member 都 durable applied/quarantined 后，Exclusive source 才 cumulative ACK 该 entry 的最后一个 batch-aware `MessageId`； client protocol >= 18 并启用 ACK receipt，只有 DB sync 后才发 ACK，receipt 丢失仍按安全重复处理。半 batch crash 会重放整个 entry，前半依赖 record dedupe。
+
+每次 initial connect/reconnect 创建新的 source connection generation。Patched client 在每个 `SUBSCRIBE` metadata 携 expected token、physical topic/partition、creation identity 和 guard protocol；Broker 在 `PersistentTopic.subscribe` 对 exact `this` Topic/ManagedLedger 同步比较，只有验证成功才 add Consumer/返回 success，失败用 source-path stable `PULSAR_SUBSCRIBE_RESOURCE_GUARD_REJECTED`。该 generation 在 guarded success 前保持 `UNCERTIFIED`，零 FLOW/record 进入 apply queue；旧 generation 的 queued callback 带 token，晚到时只 audit，不 apply/ACK。Admin name lookup 或 `consumerCreated` callback 不能替代这个 Broker-bound gate。同一机制必须用于 Pulsar Attempt Journal、DLQ/evidence reader 的每次 reconnect。ADR 0044 的 Producer writer patch 完成不能替代这一独立 source gate。
+
+### 8.3 Position 比较、successor 与稳定排序
+
+Source Position 只在同一 Route Incarnation、物理 topic 和 partition 内可比较：
+
+```text
+Kafka position order:
+  offset:uint64
+
+Pulsar position order:
+  (ledgerId:uint64, entryId:uint64, normalizedBatchIndex:uint32)
+```
+
+Kafka 的 `sourceOrderToken` 是 offset 的 8-byte unsigned big-endian 编码。Pulsar 使用 ledger、entry、batch index 的 fixed-width big-endian 拼接；非 batch entry 的 normalized batch index 为 `0`，且 entry 类型也进入 position audit，禁止把 batch/non-batch 误认为同一位置。
+
+Kafka successor 是 `offset + 1`，按 raw `uint64` 解释：跨过 Java `long` 符号位仍是合法 successor，只有全 1 的 offset 没有后继。这个规则同时适用于 Kafka receipt journal 的 receipt position、精确 receipt match、`lastStableOffsetExclusive` 边界和位置排序；receipt journal 不得用有符号 `long` 比较、拒绝高位 offset，或把 `Long.MAX_VALUE` 错当成耗尽。应用层的本地 mapping/producer sequence 仍是独立的有界计数器，不能与物理 offset 域混用。Pulsar checkpoint 若停在 batch member，则 restore seek 到包含它的 entry，逐 member 重放并用 position audit/dedupe 跳过已应用成员；subscription cursor 只在整个 entry 处理完成后 ACK。
+
+`canonicalSourcePosition` 的解码必须重新编码为完全相同的字节；非法 UTF-8、替换字符
+或任何其它非 canonical wire 变体都不是合法 Source Position，必须在进入
+`meta_cf`、dedupe、receipt 或 checkpoint manifest 前 fail closed。
+
+Activation Barrier 是带 Broker 类型和边界方向的 cursor，不与普通 record Source Position 混用：
+
+- Kafka：取得 lease 后从一个 pinned Fetch v13+ response 的同一 exact topic UUID partition block 捕获 read-committed `lastStableOffset`，保存为 `KAFKA_EXCLUSIVE_OFFSET(b)`；当 consumer 的 next fetch position `>= b` 时达到 barrier。`ListOffsets/endOffsets` 只有 topic name，禁止作为 correctness barrier。事务 marker、aborted record 会形成 offset gap，但不要求伪造 position audit。
+- Pulsar：取得 lease 后，Exclusive consumer 的 initial connect/reconnect 先由 source-locked `PULSAR_SUBSCRIBE_RESOURCE_GUARD` 在 Broker add-consumer 前验证 exact Command Topic resource token、physical-topic creation identity、partition 与 principal。只允许从这个仍有效的 guarded consumer connection generation 调用 batch-aware `getLastMessageId`；response 与其 resource identity/partition/connection-generation attestation 一起写 `PULSAR_INCLUSIVE_MESSAGE_ID(resource,partition,m)`。API/transport 若只能给 name-bound MessageId 而不能证明同一 guarded resource generation，Route 不得激活。只有 `m` 及其最后一个 batch member都已 durable apply/quarantine 后才达到 barrier。
+
+Kafka barrier 的 `authenticatedClusterId` 也必须在构造时满足 Source Position 的 canonical UTF-8/NFC 约束；无效文本不能先进入 assignment 再在 replay 阶段失败。
+
+运行时 Pulsar barrier 必须同时保存 inclusive 最后 member 的 `normalizedBatchIndex` 和该 entry 的 `batchSize`；若恢复 cursor 或 catch-up record 位于同一 `(ledgerId, entryId)`，batch shape 不一致必须在 apply 前 fail closed。只保存 member index 的旧兼容构造器不属于 source-assignment 证据。
+
+空 partition 使用显式 `EMPTY_BARRIER`（Kafka pinned Fetch LSO `0` 或 Pulsar negative-entry sentinel 经 Adapter 规范化）。Barrier 固定 Route Incarnation、物理 topic/partition、Broker type 和 captured value；捕获失败、类型错误或身份不匹配时不能进入 `ACTIVE_FOR_COMMANDS`。
+即使是空 Pulsar barrier，也必须先校验本地已有非空 cursor 的 resource incarnation 与 physical topic；空边界只表示无需重放记录，不会放宽物理 source identity。旧 DB 中来自另一 Pulsar resource 的 cursor 必须 fail closed，不能直接激活。
+
+### 8.4 ACK-after-sync
+
+对连续 Shard Log records，Shard Runtime 可以一次 WriteBatch 应用多个 Client Command/System Mutation，但 source turn 必须受配置的 record、canonical bytes 与 elapsed-time cap；达到任一 cap 就让出 event loop 给 lease、callback-to-log、expiry、control 和 scheduling work：
+
+```text
+validate each record in position order
+write dedupe/result/position audit
+write message/timeline/inflight/terminal state
+write lane/quota counters
+meta.appliedShardLogPosition = last position
+RocksDB WAL sync
+then ACK/commit source
+```
+
+WriteBatch 任一部分失败则整体不推进。Broker committed cursor 比 DB 更靠前时也必须 rewind。
+Source consumer 的 look-ahead cursor 只能在该记录的 shard WriteBatch 成功返回后推进；
+校验、fencing 或存储失败必须让同一 physical record 保留在 cursor 上，供下一次
+bounded replay turn 原样重试。不能先消费 source cursor、再把失败记录交给调用方自行
+猜测或重新定位。
+
+Source cursor 的 `hasNext`、look-ahead `peek` 或推进操作如果从 backing iterator
+抛出异常，也属于 source continuity 未知：Owner 必须先进入 `FENCED`，再重新抛出，且
+不得推进 `lastCatchupPosition`。这与 Store/clock failure 使用同一个 fail-closed
+边界；不能让损坏或暂时不可读的 cursor 把 shard 留在 `CATCHING_UP` 并继续持有本地
+replay authority。
+
+当前代码中的 `SourceApplyCoordinator` 是这一边界的本地组合入口：它只保留一个
+caller-owned cursor 的 exact look-ahead record，每个 bounded turn 最多提交一个
+`SOURCE_APPLY` action；`SourceApplyWorkClassExecutor` 报告同步 WriteBatch 结果后，
+它才调用外部 `SourceAcknowledgement`。只有明确 `ACKED` 且再次校验 position、NDL1
+frame、guard digest 与 source connection generation 完全一致时才推进 cursor。
+`DEFINITIVELY_NOT_ACKED`、`UNKNOWN`、queue rejection、apply failure 或 ACK 异常都保留
+同一 physical record；cursor read/advance failure 先 fence Owner 再向上抛出。该类不
+分配 Source Position、不伪造 Broker commit，也不拥有 Kafka/Pulsar Fetch/ACK authority；
+真实 source adapter 必须把 pinned resource/session、Broker ACK/commit 和 rewind 证明
+接到这个边界上。
+
+该 coordinator 必须从同一组 exact `OwnedDelayShard`、`OxiaOwnerLeaseStore`、
+verification key 与 shared `WorkClassExecutionRegistry` 内部构造 active source executor；
+调用方不得再注入另一份可能绑定到不同 owner、authority、key 或 queue 的 executor。
+低层 active executor 可以作为独立 bounded action 入口保留，但生产 consumer 的
+ACK/cursor 顺序必须经 coordinator 组合。
+
+如果同步 `db.write` 返回 native failure，或 WriteBatch 已返回成功但 Store 无法完成
+提交后的 ingress-fence 重读/解码校验，Store 必须进入本地
+`WRITE_OUTCOME_UNCERTAIN` 状态：禁止继续读写、禁止写 clean-close marker，source
+consumer 不得 ACK/commit 后续 record；Owner 必须关闭该 Store，并从其 durable
+incarnation 或受保护 checkpoint 重新打开后再恢复 replay。这个状态不等同于远端
+Publish 的 `UNCERTAIN`，也不表示 batch 一定已经提交；它表示当前进程不能证明
+提交结果，继续使用内存 projection 会破坏 Source Position 原子性。
+
+写入 `dedupe_cf` 的 `CommandResult` 与 `SystemMutationResult` 必须携带完整、canonical
+的 `SourcePosition` bytes；空值、截断值或非 canonical wire 变体在结果对象构造/解码时
+就 fail closed，不能等到某个查询路径再决定是否接受该 source anchor。
+
+每个 physical record 先按 outer kind 分支；Client Command 与 System Mutation 不共享 identity/query namespace。
+
+Client Command 先验证 source-ordered `closedIngressDeadlineThrough` 和 Broker persistence time：若 `retryUntil <= closedIngressDeadlineThrough`，或 persistence time 晚于 `retryUntil`，则无论 compact dedupe 是否仍存在，都产生该 position 的 `REJECTED(COMMAND_RETRY_WINDOW_EXPIRED)`，且不覆盖已有逻辑结果。前一个条件使 Broker 时钟在栅栏之后回拨也不能重新打开已关闭的 retry window。窗内先查 Command Identity：同一 `commandId + commandHash` 的后续记录是 no-op，保留首次权威结果，只写 Source Position audit并推进；相同 `commandId`、不同 hash 产生 position-level `REJECTED(COMMAND_ID_CONFLICT)`。只有 first-seen identity 才进入 Client operation validation。携 Source Position 的 queued receipt 可查询这次物理结果；bare `commandId` 始终指向首次合法占用。
+
+`dedupe_cf/POSITION` 是按 record kind 分支的 closed physical-record audit：Client Command value 为该 physical record 的 `commandId[41]`，System Mutation value 为 `systemMutationId[32]`，两者都不是逻辑 Result。若 RocksDB batch 已成功而 source ACK 丢失，exact 同一 Source Position 重放必须先用匹配的 POSITION audit 识别已经产生的 position-level result 或已应用 mutation，返回首次权威结果且不重复执行/追加审计；后续 physical duplicate 会写入新的 POSITION locator，但逻辑 `SYSTEM_MUTATION` 仍保留 first Source Position。缺少匹配的 POSITION/COMMAND 或 POSITION/SYSTEM_MUTATION evidence、cross-shard identity 或同一位置的 record-kind 冲突仍 fail closed。
+
+System Mutation 使用：
+
+```text
+systemMutationId =
+  SHA-256(
+    "nereus-delay-system-mutation-id" ||
+    mutationType || logicalOperationIdentity ||
+    exact shard subject || mutationHash
+  )
+```
+
+它是 deterministic 32-byte ID，不是 UUIDv7，不适用 Command preparation-age/future-skew 公式。Canonical signed body 固定 `mutationRetryUntil`，并满足 `bp <= mutationRetryUntil <= checkedAdd(bp, maximumSystemMutationRetryWindow)`；超出或已被 `closedIngressDeadlineThrough` 关闭时写 position-level `SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED`，无 mutation authority。
+
+`logicalOperationIdentity` 不是一律取 operation/attempt ID。Control marker 精确 hash `(controlOperationId,targetIndex,controlKind-or-mutationType)`，因此同一 quota plan 在同 shard 的 decrease/drained/increase 必须占不同 target index；Evidence Resolution hash `(publishAttemptId,evidenceId)`。每个 business Publish Attempt 只允许一个 initial `PUBLISH_OUTCOME`，其后晚到证据必须用 `EVIDENCE_RESOLUTION`。每个 Claim 只有一个 `CLAIM_RESULT`，它与该 Claim 的 Admission 按 Source Position 竞争。DLQ Export 的每个 numbered physical attempt 只有一个 `(dlqExportId,physicalAttemptNo)` outcome，后续 proof 绑定 exact `(dlqExportId,evidenceId)`。Retire identity 还绑定 exact resource identity hash + expected resource-state version。完整 preimage 由 Protocol Registry 固定。
+
+`dedupe_cf/SYSTEM_MUTATION` 保存 ID、hash、type、author/scope、first Source Position、retryUntil 和 stable apply result。同 ID/hash retry 是 no-op；同 ID/different hash、同 Control target/different expected mutation hash，或一个已签名 logical operation 映射多个 ID 都是 integrity violation并 fail closed。first-seen mutation 还要验证 service ACL category、signature、activated schema、author/Owner/Control target 与 exact precondition。无权 mutation 写 bounded `UNAUTHORIZED_SYSTEM_MUTATION` position audit并推进；需要证明但 Oxia 暂不可证明的 control target 停在该 position。
+
+同一已验证 `System Mutation` 若在后续 physical Source Position 再次出现，只推进该 position 并复用首次 durable result；若该 position 的 WriteBatch 已成功但 source ACK 丢失，exact replay 在已持久化的当前 position 上仍返回该 result，不重复执行 mutation，也不因 result 的 first Source Position 仍指向首次记录而误报 source-position conflict。
+
+这里的 author 验证是**记录生成时的历史授权**，不是把 apply 时 current Owner 当作签名内容。Control/Fence/Service writer generation 必须在该 Source Position 受保护的 accepted-writer set 中；Owner-authored record 必须由 accepted Worker signing key 签名、携 exact `OwnerIdentity/leaseFencingDigest`，并满足各 body 的 Owner/precondition equality。一个合法旧 Owner Admission 在新 Owner apply 时不能仅因 epoch 已变化被拒绝；否则 checkpoint/replay 会改变结果。current lease/Store/certificate 只决定此刻能否发出首次 Producer call。 的安全 TCB 假设 service writers 与 Workers 非 Byzantine并在本地 lease guard 关闭后停止生成 Owner mutation；tenant ACL/signature 防伪不声称能抵御已攻陷的 service signing key。writer key、generation、Owner audit 和撤销历史至少保留到所有相关 mutation retry window 与 Recovery Floor replay window关闭。
+
+System Mutation dedupe 只有在 deadline 被 TIME_FENCE 关闭、source 越过 fence、descendant Recovery Floor 包含 apply 且 `systemMutationAuditMinimum` 已过后才能 GC。Replay/Resolve/control 的结果只通过 `ControlOperationReceipt`/audit 查询；runtime mutation 不进入 `CommandQueryResult`。所有 mutation 仍写 position audit并推进同一 `appliedShardLogPosition`。
+
+不同 first-seen Schedule Command 复用 active、retained 或 compact retired identity 的 `delayMessageId` 时稳定 `REJECTED(DELAY_MESSAGE_ID_CONFLICT)`，不得覆盖实体。Identity tombstone 被安全删除后，同一 ID 因 source-closed freshness deadline 稳定 `REJECTED(DELAY_MESSAGE_ID_EXPIRED)`。Cancel/Reschedule 在初始 Schedule 尚未按 Source Position 出现时返回 `APPLIED(NOT_FOUND)`； 不保存 deferred cancel tombstone，也不按调用方时间重排。
+
+### 8.5 确定性应用与有序控制
+
+对任一 Shard Log record，权威 apply 必须是以下输入的确定性函数：
+
+```text
+canonical Client Command or signed System Mutation bytes
++ Source Position / Broker persistence time
++ 此 position 之前的 shard durable state
++ record 精确引用的 immutable config versions
++ 此 position 之前已应用的 APPLY_SHARD_CONTROL
+```
+
+因此：
+
+- apply 不访问目标 Broker，不用实时 topic/auth/capability 状态决定 APPLIED/REJECTED；
+- apply 不以 Worker wall clock、当前本地磁盘水位、watch 到达时刻或 cache miss 决定稳定结果；
+- timing validation 使用 record 的 Broker persistence time、Route cutoff 和 pinned limits；重放时不会因“现在更晚”改写原 Command 结果；
+- immutable config 的暂时不可读、Oxia 不可证明或 physical disk safety 问题会停在当前 Source Position，不会被伪装成业务拒绝；Command apply 不访问 Object Store；
+- live target/capability drift 只删除对应 Lane 的 READY 并写 runtime `BLOCKED`；已经 pin 的语义不被改写；
+- Profile acceptance、Lane/tenant/shard quota、`StopNewSchedules`、grant activation 和要求精确边界的 Lane control 通过 signed `APPLY_SHARD_CONTROL` 在同一 partition 排序。
+
+完整性规则：任何会改变后续 Command 的 state eligibility、Command outcome、logical quota credit、query result 或 external-delete obligation 的非 Command 事件，都必须先成为同一 partition 中的 canonical System Mutation。Publish/DLQ callback、permanent pre-send materialization result、Trusted-Time expiry、evidence resolution 和 GC worker 只能 enqueue exact record；其 callback/timer 本身不是权威写入点。可逆 Claim 的创建/撤销、transient materialization backoff、circuit probe、Ready index/cursor 和 executor permits 是可丢失或可重建 runtime state；一旦 permanent Claim 结果要进入 `DEAD_LETTER`，或 DLQ Export 结果要改变 outbox/GC 义务，就必须分别经 `CLAIM_RESULT` / `DLQ_EXPORT_RESULT`。
+
+Publish Admission 也由 `PUBLISH_ADMISSION` 线性化：Claim 后先把 exact mutation 持久化到 Shard Log。消费到该 record 时先按 source-replayable per-shard reserve grant 检查完整 worst-case vector：
+
+- fit：同一 WriteBatch charge reserve 并写 `PUBLISHING + attempt ledger + appliedShardLogPosition`；
+- 不 fit：写 deterministic `ADMISSION_CAPACITY_GATED`，撤销可逆 Claim、按 bounded backoff 恢复原 timeline eligibility、记录 mutation result 并推进 `appliedShardLogPosition`；不分配 attempt/attemptNo、不写 `PUBLISHING`、不调用 Producer。这不是 Schedule rejection，后续 outcome/retirement 释放容量后 scheduler 可生成新的 exact Admission mutation。
+
+因此 reserve 不足不能把 source 停在 Admission record 上，也不能阻止后续 Outcome/Resolution/Cancel/terminal/GC。只有**已 charge** obligation 连其 outcome 都无法 durable apply 才进入 Shard Safety Backpressure。
+
+只有成功 Admission WAL sync 后，仍持 lease 且持有该 exact locally-authored ephemeral admission token 的 Owner 才可调用 Producer。恢复/replay、Owner/Store 改变或 token 丢失时不补发“第一次调用”：Admission 本身仍确定性恢复 `PUBLISHING`，然后由后续 exact `PUBLISH_OUTCOME(UNKNOWN, OWNER_FENCED, RECOVERY_FIRST_SEND_UNCERTAIN, UNCERTAIN_HOLD)` 进入 `UNCERTAIN`。Admission record 若排在 Cancel/Close/Break/expiry 后则为 `STALE_SYSTEM_MUTATION`；若排在其前，后续 Command 稳定 `TOO_LATE`。
+
+`PUBLISH_OUTCOME`、`EXPIRE_GENERATION`、`EVIDENCE_RESOLUTION`、`CLAIM_RESULT` 与 `DLQ_EXPORT_RESULT` 同样在 apply 时转移各自的 quota/counter。故障恢复重放的是原始 runtime/Command 交错，不能重新读取当前时钟或重新决定旧 Command。
+
+Control target 只有在 marker 的 Source Position durable applied 后才从 `QUEUED` 变为 `EFFECTIVE`。Route-wide operation 要等所有目标 shard marker；marker 之前的 Command 仍按旧版本执行，之后按新版本执行。初始 Profile/grant/control version 在 Route 开放 tenant produce 之前先写入每个 shard。
+
+Marker body 携 canonical control payload；Oxia record 用于认证 actor/scope/hash。该 record、所引用 config version 和认证材料在所有可能重放 marker 的 Recovery Floor/source window 内受保护， 不物理删除 semantic versions。
+
+批量 apply 在第一个无法确定性推进的 record 处截断；它可以提交此前的连续前缀，不能越过该位置。
+
+### 8.6 Time fence 与 dedupe GC
+
+Kafka 必须是 LogAppendTime；Pulsar 必须使用 Broker entry timestamp。它们决定每个业务 Command 是否在自身 retry/timing window 内，但普通业务 record 不推进 GC 关闭水位，避免一次 Broker 时钟跳跃提前关闭其他 Command。
+
+独立 system fence writer 只在其 Trusted UTC `earliestUtcNow` 已超过候选 boundary 加 safety margin 后，为 exact Route/partition 生成 canonical `TimeFence` body/proof：
+
+```text
+routeIncarnation / partition
+closeThroughEpochMs
+fenceProofKeyVersion
+TrustedUtcIntervalEvidence proofTime
+proofId
+deterministic Ed25519 signature
+```
+
+其中 `proofTime.earliestEpochMs >= checkedAdd(closeThroughEpochMs, timeFenceSafetyMargin)`；host-derived evidence 由外层 fence writer 签名背书，signed time-service evidence 还验证自身 key/signature。Proof ID 不由 writer 随机选择：
+
+```text
+proofId = SHA-256(
+  "nereus-delay-time-fence-proof\0" ||
+  routeIncarnationUuid[16] || partition:u32be ||
+  closeThroughEpochMs:i64be || fenceProofKeyVersion:u32be ||
+  lp32(canonicalProtobuf(proofTime))
+)
+```
+
+外层 System Mutation `signingKeyVersion` 必须等于 `fenceProofKeyVersion`。签名 key/version 由 Route immutable config 固定，public key 保留到所有可重放 fence 都越过 Recovery Floor；private key 只在 fence writer。Shard apply 验证 canonical proof/time、route/partition/scope/key 后，在同一 WriteBatch：
+
+```text
+closedIngressDeadlineThrough =
+  max(previousClosedIngressDeadlineThrough, closeThroughEpochMs)
+```
+
+该 Source Position 之后的 record 不得再使用 `deadline <= closedIngressDeadlineThrough` 获得“仍在窗口内”的结果，即使 Broker timestamp 回拨。Response loss 重试 exact Prepared Fence；同 proof 重复是 no-op。Fence 缺失会停止 GC/expiry reclamation并告警；普通 Command apply 只可在专用 fence-evidence budget 仍能容纳下一条 record 的最坏 durable dedupe/result/quarantine evidence 时继续。
+
+首次见到 Command 时：
+
+- `retryUntil` 必须等于 UUIDv7 time + route 固定 retry window；
+- Broker persistence time 必须不晚于 `retryUntil`；
+- 对 Broker persistence time `bp`，checked arithmetic 必须证明：
+
+```text
+checkedSub(bp, maximumPreparationAge)
+  <= uuidV7Time
+  <= checkedAdd(bp, maximumUuidFutureSkew)
+```
+
+overflow/underflow 或越界稳定 validation rejection；future-skew 不能只留作未配置的文字上限。
+
+上述公式先独立校验 `commandId.uuidV7Time`。对首次创建 absent Message Identity 的 Schedule，还要用同一个 `bp` 独立校验 `delayMessageId.uuidV7Time`；Command ID 合法不代表 Message ID 合法。其 `messageIdentityReuseUntil` 也使用后者做 checked addition。
+
+Owner 可以 bounded fetch 并严格 decode exact next Shard Log record，以区分 signed fence 与业务 record；但在 apply/consume/ACK 一个业务 record 前必须计算：
+
+```text
+remainingFenceEvidenceBytes
+  >= worstCaseNextRecordEvidenceBytes + fenceStopSafetyMarginBytes
+remainingFenceEvidenceRecords
+  >= 1 + fenceStopSafetyMarginRecords
+```
+
+任一不成立时，必须停在下一条 record **之前**，不 ACK/commit 它，保留 exact `appliedShardLogPosition`，进入 runtime `FENCE_STALLED_CAPACITY`，并发布 `source_partition_paused{reason="time-fence-capacity"}`。reserve/high watermark 还必须容纳已读取 bounded batch prefix 的结果和 stop/audit record。
+
+排在被阻塞 business record 之后的新 fence 不能越过 Source Position 自救。唯一不扩容的例外是 exact next record 本身就是 authenticated `TIME_FENCE`，且专用 fence reserve 足以 apply 它；否则必须先激活更大的 certified evidence envelope，或迁移到有该 envelope 的 Worker，再从同一 successor 按序重放到 fence。其后还要完成 guarded GC、完整 counter/invariant audit 和同位置 recheck 才恢复普通 apply。Destination failure 不能触发该 reason。
+
+dedupe 只有在 persisted `closedIngressDeadlineThrough >= retryUntil`、Source Position 已通过形成该关闭水位的 fence、Recovery Floor 包含该 mutation 且最小 retention 已过后才能 GC。
+
+首次 Schedule 还计算：
+
+```text
+messageIdentityReuseUntil =
+  checkedAdd(delayMessageId.uuidV7Time, maximumPreparationAge)
+```
+
+只要实体仍 active/retained，`id_cf/MESSAGE` 指向它；完整 terminal/history/payload 可按各自 retention 回收后，该 key 仍降级保留 compact `RETIRED_IDENTITY(messageIdentityReuseUntil, retirementMutationSequence)`，阻止另一个 first-seen Schedule 复用 ID。该 tombstone 只有在 `closedIngressDeadlineThrough >= messageIdentityReuseUntil`、source 已越过形成关闭水位的 fence、Recovery Floor 包含 retirement 且最小 identity retention 已过后才可删。此后任何携旧 ID 的 first Schedule 即使 Broker timestamp 回拨，也因 closed deadline 稳定 `REJECTED(DELAY_MESSAGE_ID_EXPIRED)`；因此不存在 terminal GC 与 UUID age check 之间的复活窗口。
+
+本地 Store 对上述 identity branch 已固定为 `id_cf/MESSAGE` 同 key、valueType=1、payload version=5 的 compact record；它携带 `delayMessageId`、`messageIdentityReuseUntil`、`retirementMutationSequence` 和 applied Source Position。`getMessage` 将其视为非当前实体，Message query 返回 `IDENTITY_RETIRED`，重启扫描必须校验后跳过而不能把它当作 live Message。`DelayShard.retireMessageIdentity` 只负责 shard-local terminal/history/DLQ projection 的原子压缩；`compactRetiredMessageIdentity` 仅在 source fence 与 Recovery Floor coverage 都可证明时删除。两者都只是 `runtime` 包内算法/测试 seam，不是跨包生产 API。Route policy 的 maximum preparation age、Oxia CAS、provider quiescence、minimum identity retention 和完整外部 GC authority 仍是生产接线与发布门槛；生产 Worker 在这些 authority 闭合前不能直接触发对应本地 WriteBatch。
+
+### 8.7 Retention invariant
+
+实际最早 retained position 必须不晚于 Recovery Floor checkpoint 的 replay successor。静态时间/容量覆盖：
+
+```text
+Recovery Set span
++ maximum checkpoint age and jitter
++ detection/outage budget
++ restore/download budget
++ worst-case replay duration at certified rate
++ time uncertainty
++ safety margin
+```
+
+低 margin 时阻止 SDK/Route 新生产并在当前 Source Position 进入 `ShardPauseReason.RECOVERY_RETENTION_RISK`，同时推进 checkpoint/floor；不按瞬时 margin 生成业务拒绝。已经形成 gap 时 shard `FAILED(SOURCE_GAP)` fail closed。
+
+## 9. Oxia control plane 与 ownership
+
+固定 keyspace：
+
+```text
+/nereus-delay/routes/<routeIncarnation>
+/nereus-delay/destinations/<profileId>/<version>
+/nereus-delay/credential-bindings/<profileKind>/<profileId>/<version>/head
+/nereus-delay/credential-bindings/<profileKind>/<profileId>/<version>/generations/<secretGeneration>
+/nereus-delay/credential-bindings/<profileKind>/<profileId>/<version>/protections/<secretGeneration>
+/nereus-delay/retry-policies/<id>/<version>
+/nereus-delay/quota-grants/<tenant>/<route>/<partition>/<version>
+/nereus-delay/placements/<route>/<partition>
+/nereus-delay/shards/<route>/<partition>/owner-lease
+/nereus-delay/shards/<route>/<partition>/checkpoint-catalog
+/nereus-delay/shards/<route>/<partition>/checkpoint-uploads/<checkpointId>
+/nereus-delay/shards/<route>/<partition>/recovery-pins/<ownerEpoch>/<pinId>
+/nereus-delay/control-operations/<operationId>
+```
+
+路径 component 使用统一安全编码，不拼接未校验业务字符串。
+
+Route、Profile、Retry Policy、capability prerequisite 和 grant 都是 immutable version；lifecycle/blocked/desired state 是分离的 versioned record。Worker 只有在取得完整兼容 control snapshot、验证所有已 pin version 可读取，并把 snapshot identity 写入 shard DB 后才能进入 `ACTIVE_FOR_COMMANDS`。本地 `meta_cf/FIXED` key 10 持久 canonical `CompatibleControlSnapshot`，绑定 shard subject、ProtocolTuple/Profile/initial grant 集合和 digest；打开或恢复时必须逐项严格解码、校验 digest 并确认 shard identity 一致。该本地 projection 只记录已取得的 control input，不替代 Oxia authoritative catalog、session-bound Owner Lease 或版本读取证明。Watch 只作刷新提示；cache miss 不等于 `DESTINATION_NOT_FOUND`，无法向 Oxia 证明 authoritative absence 时停在当前 Source Position。
+
+### 9.1 双闸门
+
+Shard mutation/publish 同时要求：
+
+1. 当前 Source Assignment；
+2. 当前 Oxia session-bound Owner Lease。
+
+`ownerEpoch` 从 Oxia monotonic sequence 分配，允许有 gap。canonical lease 是 single-holder ephemeral record，包含 shard、worker/process run、epoch、random fencing digest、assignment identity、state 和 session identity。
+
+Worker 为一个本地 Shard Owner 组装 runtime 时，必须把该 lease 显式绑定到完整
+`OwnerIdentity(deploymentId, workerRunId, ownerEpoch, leaseFencingDigest)`；不得只把
+`ownerEpoch` 当作 scheduler、READY certificate、Claim、Publish Admission、expiry 或
+Owner-authored outcome 的完整身份。`OwnedDelayShard` 与
+`PersistentLaneScheduler` 必须持有 byte-equal 的 Owner identity，所有新生成的实时
+Owner action 在入队前及执行前都按完整 identity 复核；即使 epoch 相同，deployment、
+worker run 或 fencing digest 任一不同也必须 fail closed。两参数、没有协议 Owner
+identity 的本地兼容构造不能进入这些严格实时路径。 不从自由文本 `ownerId` 或
+未冻结公式推导该 identity；其与认证 Oxia lease/session 的组装仍由生产 Worker
+coordinator 明确完成并提供可审计证据。
+
+`PersistentLaneScheduler` 还必须持有与 `OwnedDelayShard` runtime byte-equal 的
+Store Incarnation。due discovery 和 READY-to-Claim handoff 共用的无 I/O preflight
+必须同时比较 ShardId、完整 Owner identity 和 Store Incarnation；同一逻辑
+Shard、同一 Owner 但来自另一 DB incarnation 的 scheduler 必须在 action 注册和
+任何 scheduler/Store 读写前 fail closed。不得在一个 Store 读 READY/公平投影后，
+把 Claim WriteBatch 写入另一 Store。
+
+包外 Worker 组装不得直接调用 lease renewal、`RESTORING -> CATCHING_UP`、catch-up
+cursor 记录、activation 或 `ACTIVE -> DRAINING` 的 shard-local lifecycle primitive；
+这些原语只能由 ownership 包内、完成相应 Oxia/source/control/Store 顺序校验的
+`OwnerRecoveryCoordinator` 与 `OwnerDrainCoordinator` 组合。只读 lease/state/
+assignment projection 可以暴露；显式 `fence()` 也可以暴露，因为它只能关闭本地
+authority，不能推进 lifecycle 或延长租约。该 API 边界不代表生产 Worker、真实
+consumer stop/rewind 或跨进程 placement 已完成。
+
+`OwnerRecoveryCoordinator` 必须用其自身接收的 exact `OwnedDelayShard`、
+`OxiaOwnerLeaseStore`、verification key 与 shared `WorkClassExecutionRegistry` 在内部
+构造 recovery source executor；禁止调用方再注入一份可能绑定到其它 Shard、authority、
+key 或 registry 的 executor。活动 source apply 可以保留独立公开入口，但
+recovery-only submit 必须是 coordinator 内部原语，避免绕过 cursor 保留、bounded turn
+和最终 activation 顺序。
+
+`OwnerDrainCoordinator` 构造时必须证明 `OwnedDelayShard` runtime 与待关闭
+`ShardStore` 不仅 ShardId 相同，而且 Store Incarnation byte-equal；同一逻辑 Shard 的
+另一 DB incarnation 也不得被 drain。公开生产构造必须提供非空 shared
+`WorkClassExecutionRegistry`，使可选 final checkpoint 必然经过 bounded `CHECKPOINT`
+action；无 registry 的兼容构造只能包内使用，不能成为包外静默降级。
+
+任何 `ShardStore.open`、local reuse 或 restore 必须使用创建当前
+`SharedRocksDbResources` 时的 exact `ShardStoreConfig`；root、DB limits、共享 cache/
+memtable、后台线程、文件句柄、checkpoint/drain/acquire slots 与 rate limiter 不得来自
+两套 config。mismatch 必须在目录创建、slot acquisition 或 provider download 前拒绝。
+同理，`CheckpointExecutionCoordinator` 使用的 publication/upload coordinator 必须与
+active Store 共享同一个 `SharedRocksDbResources` 实例，不能把上传并发/I/O 计入另一
+Worker envelope。
+
+Owner drain 的 final checkpoint 在入队前和执行前都必须要求 Store runtime 的
+`lastOpenedOwnerEpoch` exact 等于 DRAINING lease 的 `ownerEpoch`。ShardId 相同、lease
+当前有效仍不足以允许对一个由旧/其它 Owner epoch 打开的 DB 创建“最终”镜像；正常
+drain coordinator 必须先持久化当前 epoch，再提交 bounded checkpoint action。
+
+Renewal CAS 必须保留 exact fencing/assignment/session identity 与当前
+lifecycle state；旧 Owner 携带的 stale state 不能通过续租把状态投影回退，expiry
+也只能单调延长。response loss 只能 reread 同一 identity、同一 state 的 successor。
+
+### 9.2 接管
+
+```text
+UNASSIGNED
+  -> ACQUIRING
+  -> RESTORING
+  -> CATCHING_UP
+  -> ACTIVE_FOR_COMMANDS
+  -> DRAINING
+  -> UNASSIGNED
+
+any nonterminal -> FENCED -> UNASSIGNED | ACQUIRING
+any nonterminal -> FAILED
+```
+
+`FENCED` 表示 assignment/lease/guard 已关闭且本 Worker 零 mutation/publication authority；它是可重新分配的 transition stop。`FAILED` 只用于已证明的 source gap、store/catalog integrity failure 或无法自动恢复的 protocol invariant；原因与 repair operation 持久化在 Oxia shard status/audit，未经显式修复不能自动回 ACTIVE。
+
+任何 Source replay 分支（Command、System Mutation 或 mixed replay）在本地
+Store/Delegate 应用抛出 `RocksDbWriteFailure` 或 fatal `Error` 时，都必须先把
+Owner 置为 `FENCED` 再重新抛出；不能把该异常转换成业务 rejection，也不能推进
+Source cursor 或 `lastCatchupPosition`。原始 record 必须保留给新 Store
+incarnation 校验和重放，直到提交边界被重新证明。
+
+同一 fail-closed 规则适用于 source cursor 的 backing iterator：`hasNext`、look-ahead
+`peek` 或推进操作抛出 `RuntimeException`/`Error` 时，Owner 必须先置为 `FENCED`，再
+重新抛出；不得把 source continuity 未知解释成仍可继续 replay。若记录尚未成功写入
+Shard Store，cursor 与 `lastCatchupPosition` 都必须保持在原位置。
+
+live-clock replay 的时钟读取也是 lease-validity proof 的一部分。Command、System
+Mutation 和 mixed replay 在每个 bounded turn 开始及每条 record 前读取该时钟；若
+时钟供应器抛出异常或返回负的 epoch-ms，Owner 必须先置为 `FENCED`，再重新抛出，
+且不得读取/推进 source cursor 或 `lastCatchupPosition`。不能把 lease-validity
+未知解释成仍可继续 replay；固定 `nowEpochMs` overload 仅是确定性兼容 seam。
+
+如果 Store 已标记为 `writeOutcomeUncertain`，Owner drain 必须先关闭本地
+Command/Claim/Admission authority，再调用 source/scheduler stop callback。该
+callback 只是编排通知，失败不能让一个提交边界不确定的 Store 继续保持
+`ACTIVE_FOR_COMMANDS`；随后仍须按可重试的 close/release 顺序处理原 lease。
+即使 Store 已被其它 teardown 调用方提前标记为 `closeStarted` 或完成 native
+close，也不能把它当成 source/scheduler 已停止的证明；协调器仍必须执行一次
+stop callback，并在 close/release 重试期间保留该 callback 已完成的标记，不能
+因重复 drain 而重复停止或跳过停止。
+正常 `ACTIVE_FOR_COMMANDS -> DRAINING` 路径也必须在 callback 成功后记录同一
+完成标记，再执行 authority CAS；若 CAS、flush、close 或 release 失败，后续
+retry 只能复用该标记，不能再次调用 stop callback。
+
+Drain 的 `flush/sync` 失败也属于未确认的 durability boundary：Store 必须在
+异常向外传播前标记 `writeOutcomeUncertain`，不能把这次失败当成“尚未发生写入”
+而继续复用同一 Store。编排器保持本地 shard 为 `DRAINING`；后续 drain retry
+走上述 uncertain-Store 分支，先 fencing 本地 authority，再按 exact Store/lease
+identity 执行可重试 close/release。
+
+激活阶段写入 `lastOpenedOwnerEpoch` 或重排恢复 Claim 后，在本地 Store
+projection 过程中出现 `RocksDbWriteFailure`、其它 `RuntimeException` 或 fatal
+`Error`，也必须在向外抛出前把 Owner 置为 `FENCED`，且不得执行后续的
+`ACTIVE_FOR_COMMANDS` Owner Lease CAS。仅有尚未满足 Source Activation Barrier、
+control snapshot 或 lease-validity 等激活前置条件时，才保留 `CATCHING_UP` 等待
+修复；这类前置条件检查不是已开始的 Store activation failure。
+
+状态、暂停 overlay 与失败原因是三个闭合维度，禁止把 reason 当成临时新增 lifecycle state：
+
+| 维度 | closed values / 语义 |
+|---|---|
+| `ShardLifecycleState` | 上图的 `UNASSIGNED/ACQUIRING/RESTORING/CATCHING_UP/ACTIVE_FOR_COMMANDS/DRAINING/FENCED/FAILED` |
+| `ShardPauseReason` | `NONE/OWNERSHIP_GUARD/RESTORE_IN_PROGRESS/ROCKSDB_WRITE_UNSAFE/DISK_SAFETY/CONTROL_INTEGRITY/TIME_FENCE_CAPACITY/INGRESS_ABUSE/PLACEMENT_NO_CAPACITY/RECOVERY_RETENTION_RISK`；只关闭相应 acquisition/source/Claim gate，不凭名称制造业务结果 |
+| `ShardFailureReason` | `SOURCE_GAP/STORE_CORRUPTION/CATALOG_OR_LINEAGE_INTEGRITY/UNSUPPORTED_ACTIVATED_PROTOCOL/CONTROL_PROTOCOL_INTEGRITY/UNRECOVERABLE_EVIDENCE_GAP`；仅在 durable proof 存在时配合 `FAILED` |
+
+所以 `FENCE_STALLED_CAPACITY` 是 `ACTIVE_FOR_COMMANDS + ShardPauseReason.TIME_FENCE_CAPACITY` 的 runtime/audit 别名，不是第九种 lifecycle state；`SOURCE_GAP` 与 `UNSUPPORTED_ACTIVATED_PROTOCOL` 是 `FAILED` reason。所有稳定编号、query projection 和 retryability 由 Protocol Registry 固定。
+
+接管步骤：
+
+1. 获得 Source Assignment 并 pause partition；建立 pinned/uncertified source channel。
+2. 分配新 epoch，以 expected-not-exists 创建 owner lease。
+3. response loss 时 reread exact lease identity。
+4. 选择并验证 local Store Incarnation；必要时 restore checkpoint。
+5. DB 打开并完成本地 identity/recovery 校验后，使用带 assignment identity、assignment epoch
+   和 session identity 的同一 Owner Lease CAS 到 `CATCHING_UP`；只有 exact successor
+   或 response-loss reread 成功，才打开本地 source replay gate。无 context 的 legacy
+   lease 不能进入生产 catch-up。
+6. 按 Adapter-defined replay successor 从 `appliedShardLogPosition` 恢复（Kafka 下一 offset；Pulsar containing entry + batch-aware skip）。严格 `CATCHING_UP` replay 在每个 bounded turn 及每条 record 前重新读取同一 Oxia session-bound Owner Lease；identity、assignment/session context、lifecycle state 或有效期不再精确匹配时，先把本地 Owner 置为 `FENCED`，再停止读取/应用 source record。兼容 assignment-only replay 不提供这条 authority reread 证明。
+   Source writer 对已激活 shard 的每次 Command mutation 也必须使用同一
+   context-bound strict owner gate；`applyAuthoritativelyStrict` 在进入 Delegate
+   前验证 strict catch-up context，再 reread `ACTIVE_FOR_COMMANDS` lease。普通
+   `applyAuthoritatively` 只保留给 embedded compatibility seam，不能作为生产
+   assignment/session authority 证明。
+7. 证明 exact Broker Resource Incarnation；Kafka 开启 pinned UUID Fetch，Pulsar 认证当前 connection generation；随后捕获 typed Activation Barrier，并按 Adapter 的 inclusive/exclusive reached predicate replay。
+8. 把每个 Destination Lane 恢复为 `RECOVERING_EVIDENCE`；baseline/strong capability 分别做自己的 channel fence/evidence barrier。
+9. 复核 assignment、lease、DB/store、source continuity 和 shard invariant。
+10. 先确认 `meta_cf/FIXED` key 10 中的完整 `CompatibleControlSnapshot` 与本次
+    activation input exact match，再 CAS 同一 ephemeral lease 为
+    `ACTIVE_FOR_COMMANDS`，恢复 source application/query；缺少或漂移的 control
+    snapshot 不能打开 command gate。生产 strict activation 入口还必须证明该
+    lease 由 context-bound strict catch-up 建立（assignment/session context 仍在
+    replay window 内）；contextless legacy lease 只能用于 embedded compatibility
+    activation，不能进入  production command gate。该入口在写入本地
+    `lastOpenedOwnerEpoch` 或恢复 Claim 前，还必须 reread 同一 authority 上的
+    `CATCHING_UP` lease；Owner replacement、session/assignment drift 或 authority
+    read failure 时先 `FENCED`，不得留下旧 Owner 的 activation projection。
+11. 每个 Lane 独立完成 evidence/capability 验证后进入 `runtimeReadiness=READY`；Scheduler 只 scan/Claim/Admission `admissionGate=OPEN && runtimeReadiness=READY` 的 Lane。
+
+仓库内的 `OwnerRecoveryCoordinator` 是上述接管顺序的本地编排边界：它从已完成
+Store Incarnation 选择、打开和本地 recovery 校验之后开始，首个 `runTurn()` 先
+用同一 assignment/session-bound Owner Lease CAS 到 `CATCHING_UP`，每次只执行一个
+受 `ReplayTurnBudget` 限制的 mixed replay turn；每条物理记录都经共享
+`SOURCE_APPLY` action，恢复 action 在 `CATCHING_UP` 下执行，source cursor 只有在
+action outcome 成功且 exact look-ahead identity 仍匹配时才推进。队列公平调度尚未
+选中该 action 时返回 waiting，不得通过协调器外层循环绕过 event-loop；只有 source
+cursor exhausted 后，才用同一 control snapshot 进入 strict `ACTIVE_FOR_COMMANDS`
+CAS。调用方必须在 `OwnerRecoveryTurn.complete=false` 时把下一 turn 重新交给 event
+loop，不能在协调器外层一次性循环来绕过 record/byte/elapsed 上限。Source Assignment
+发布、Oxia session 创建、checkpoint 选择/下载、Broker resource guard 和 Lane 外部
+evidence 仍是该协调器的输入与生产集成边界，不由本地编排器臆造。
+
+某 Lane 的 target/receipt/journal 不可用只让该 Lane 留在 `RECOVERING_EVIDENCE`/`BLOCKED`，不得阻止 shard Command application 或其他健康 Lane。Shard 生命周期只使用精确状态 `ACTIVE_FOR_COMMANDS`；Lane readiness 是独立闸门，不用含混的 `ACTIVE` 同时表示两者。
+
+嵌入式/一致性测试可以使用 `PersistentOwnerLeaseStore` 验证 Owner Lease
+在进程重启、response loss 和本地 CAS 竞争下的 exact identity、epoch history
+与 lifecycle projection；这只是本地 crash-durable projection，不是 Oxia 的
+session-bound ephemeral record、跨 Worker ownership 或 production CAS。生产接管
+仍必须执行本节定义的 Oxia lease/session 流程，不能把本地文件成功误当成
+`ACTIVE_FOR_COMMANDS` 的外部 authority proof。
+
+### 9.3 Lease guard
+
+Worker 使用 Oxia session activity + monotonic local deadline 建立比 server session timeout 更保守的 lease guard。以下任一情况先关闭 shard event gate：
+
+- session/assignment loss 或不确定；
+- lease epoch/token/store mismatch；
+- JVM pause 越过 guard；
+- Oxia timeout 无法重新证明；
+- revocation。
+
+关闭后禁止新 command batch、Claim、Admission、callback mutation 和 checkpoint publication。正确性不依赖 watch callback 及时到达。
+
+Lease validity 只对非负的观测时间成立：`nowEpochMs >= 0 && nowEpochMs < expiresAtEpochMs`。所有接收时间的 authority API 都必须拒绝负值；本地 shard gate 也不能因为绕过 authority 直接调用 `validAt(-1)` 而重新获得 mutation 或 publication authority。
+
+### 9.4 Drain
+
+planned drain：
+
+1. 停止 source fetch、due Claim 和新 Admission；
+2. 撤销 `CLAIMED`；
+3. 在 lease 有效期内有界等待已 admitted callback；
+4. flush/sync DB；如提交 source hint，必须只提交不超过该次 flush 已持久化的
+   `appliedShardLogPosition`，并在 transport callback 返回后重新确认 lease；
+   flush/sync 的 native、JNI/runtime 或 fatal failure 都必须把 Store 标记为
+   `writeOutcomeUncertain` 并停止该 incarnation 的后续复用；本地状态保留
+   `DRAINING`，由下一次 drain 只执行 fencing、close 和 exact lease release
+   retry，不得重新执行 Claim revoke、callback poll 或 checkpoint；
+5. 可选 final checkpoint；生产 Worker 必须先取得该 manifest 的 16-byte
+   `checkpointId`，再把包含 exact path、identity、DRAINING Owner Lease、owner
+   clock 和 deadline 的请求提交到共享 `CHECKPOINT` bounded work class。队列
+   admission 只做本地纯校验；拒绝时不得写 Store、创建文件或改变 lease。只有
+   被 event loop 选中的 action 才能把 identity 传入物理 checkpoint primitive，使
+   完整镜像中的 `lastCheckpointId` 与该产物绑定。若 action 尚未被选中，drain
+   返回显式 pending task 并保持 `DRAINING`；后续调用只继续同一个 checkpoint
+   handoff，不得重新执行 Claim revoke、callback poll 或 flush。action 成功后
+   必须重新证明 lease，才能 close DB 和 release lease；checkpoint action failure
+   也必须先重新证明或 fence 当前 Owner。没有共享 `CHECKPOINT` registry 的
+   contextless compatibility seam 不得创建 final checkpoint；不能由 coordinator
+   直接调用 `ShardStore.createCheckpoint` 绕过队列；
+6. close DB，释放 lease。
+
+生产编排在完成过 context-bound catch-up 后，planned drain 必须继续使用同一
+assignment/session-bound Owner Lease 执行 `ACTIVE_FOR_COMMANDS -> DRAINING`
+authority CAS。`OwnedDelayShard.beginDrainStrict` 会在 CAS 前验证 lease context、
+已接受的 Source Assignment 和 strict replay authority；contextless 或
+assignment-only owner 只能留在嵌入式 compatibility seam，不能冒充 生产 drain
+边界。`OwnerDrainCoordinator` 对 strict owner 自动选择该入口，旧 owner 则显式
+走兼容路径。
+
+超时/宕机依赖 session expiry；旧 Admission 在新 Owner 下先重放为同一 `PUBLISHING`，再由新 Owner 的 exact recovery-unknown Outcome 进入 `UNCERTAIN`。
+
+## 10. RocksDB 物理模型
+
+### 10.1 一 shard 一 DB
+
+目录：
+
+```text
+<root>/shards/<routeIncarnation>/<partition>/
+  ACTIVE
+  incarnations/
+    <storeIncarnation>/
+      db/
+        CURRENT
+        MANIFEST-*
+        OPTIONS-*
+        *.sst
+        *.log
+  checkpoint-tmp/<checkpointId>/
+  restore-tmp/<checkpointId>-<nonce>/db/
+```
+
+部署可以让 `<root>` 本身指向一个受控的数据卷，但 `shards/<routeIncarnation>/<partition>`
+这三个 worker-owned path component 必须是 `NOFOLLOW_LINKS` 下的真实目录，不能用
+符号链接把 shard DB、checkpoint 或 restore staging 重定向到另一个物理 ownership
+边界。open 和 restore 都必须在创建 RocksDB 或复制 checkpoint 前逐级创建/验证这些
+目录；任何组件不是目录或是符号链接时都 fail closed。
+
+`ACTIVE` 是 checksummed pointer record，只含 format version 与 current Store Incarnation。创建 fresh DB 或 restore 总是在 temp 完成；安装时 rename 到新的 `incarnations/<newStoreIncarnation>`，以 install-mode 打开并同步写入新的 Store Incarnation/owner-open metadata，关闭后才用 `ACTIVE.tmp -> ACTIVE` atomic rename 切换，并 fsync file 与父目录。Crash 在 pointer 前只留下 orphan incarnation；pointer 后即使尚未 normal open，下次启动也能验证并继续。禁止覆盖已打开 DB 或把完整 checkpoint merge 到另一个 DB。
+
+`checkpoint-tmp`、`restore-tmp` 和 `ACTIVE.tmp` 都属于该 shard 的本地临时边界：目录和文件必须在 `NOFOLLOW_LINKS` 下通过真实目录/文件校验，不能用符号链接把 checkpoint、restore 或 pointer 写入另一个物理路径。
+
+同一 Worker 进程的 owned-shard reservation 必须绑定 exact `ShardId`，不能只按
+数量计数；同一个 Shard 在第二次 `open` 时必须在 RocksDB open/create 前拒绝。
+这样即使两个接管线程同时看到尚不存在 `ACTIVE`，也不会各自创建可写的不同
+Store Incarnation 后再互相覆盖 active pointer。
+
+RocksDB 已经成功 `open` 后，任何 `meta_cf` 读取/解码、format/identity 校验或 install-mode 写入失败，都必须在释放 Worker 的 DB/owned-shard slot 前关闭 DB、默认 Column Family、所有命名 Column Family handle 及其 options；失败的 activation 不得遗留活跃 native handle 或文件锁。这个失败清理边界与 `restore-tmp` 的清理边界相同，保证下一次修复、重试或接管可以重新打开同一物理 DB，而不把一次本地校验异常变成永久资源泄漏。
+
+Restore 的 staged validation、install-mode probe 和正式 installed open 都必须显式纳入同一个失败清理边界。任一 `ShardStore.close()` 报告可重试的 native/slot teardown 失败时，清理路径最多再重试一次；在仍不能证明对应 Store 已完整关闭前，禁止删除它可能持有的 `restore-tmp` 或未发布 incarnation 目录，必须保留该目录供离线修复。只有所有相关 Store 都已完成 teardown，且 `ACTIVE` 未指向该 incarnation，失败路径才可以删除自有目录。
+
+Fresh open 在写入 `ACTIVE` 之前也遵循同一规则：pointer 安装失败会有界重试已打开 Store 的关闭并保留原始 I/O 错误；若仍无法证明关闭完成，不得丢弃该 orphan incarnation，必须留给离线修复。
+
+Store close 的顺序也是固定协议：先写 clean-close marker，随后立即 fence 所有公开 Store 操作，再逐项关闭默认/命名 Column Family handle、RocksDB、options；只有全部 native DB teardown 成功后才能释放 DB/owned-shard Worker slot。每一项关闭和 slot release 都必须独立记账；JNI/native 关闭失败时仍继续尝试其余 native 项，但不得提前释放仍代表活跃 native handle 的容量 slot，也不得把 Store 或 shared resources 标成永久 closed，后续 close 必须只重试尚未成功的项，直到资源完全释放。共享 Worker 资源对 rate limiter、WriteBufferManager 和 block cache 使用相同的 retryable teardown 语义；关闭失败不能让容量 slot 或 native handle 永久丢失。Embedded client 也必须保持 fenced-but-retryable，不能在 Store/Worker teardown 首次失败时永久吞掉后续 close。
+
+计划内 drain 若 Store close 报告可重试失败，或 Store 已关闭但 exact lease release 未得到确认，OwnerDrainCoordinator 必须保持本地 shard 为 `DRAINING`、保留 authoritative lease，并在后续 drain 调用中只重试尚未确认的 teardown/release；不得重新执行 Claim revoke、callback poll、flush 或 checkpoint，也不得把仍可重试的状态标为 `FENCED` 后丢失重试入口。只有 Store 完整关闭并确认 exact lease release 后才进入 `FENCED`。
+
+如果某个外部 teardown 已先把 Store 标记为 `closeStarted`，但 Owner 仍是
+`ACTIVE_FOR_COMMANDS`，coordinator 不能把该组合永久判成非法并留下 lease。它必须先
+用同一 Owner identity 完成 `ACTIVE_FOR_COMMANDS -> DRAINING` authority CAS，停止
+source/scheduling，然后只执行已开始的 Store close 与 exact lease release；不再重新
+执行 Claim revoke、in-flight callback poll、flush 或 final checkpoint。停止 callback
+失败时保持 `DRAINING`，后续 bounded retry 继续尝试 callback/teardown；只有 Store
+完整关闭且 release 确认后才进入 `FENCED`。`OwnerDrainCoordinatorTest`
+`externallyStartedStoreCloseEntersDrainAndReleasesTheMatchingLease` 覆盖该本地
+emergency-drain 边界。
+
+若 Store 已进入 `WRITE_OUTCOME_UNCERTAIN`，则不再尝试 `ACTIVE_FOR_COMMANDS -> DRAINING` 的普通 CAS：本地 replay/apply 已将 Owner gate 置为 `FENCED`，OwnerDrainCoordinator 必须先停止 source/scheduling（同一 teardown 重试不得重复触发），关闭这一个 exact Store，再读取 Oxia 当前 lease identity。只有 identity 与旧 Owner 的 `shardId/owner/epoch/token/context` 全部相同，才允许 release；close 失败、release response 丢失或 authority 暂不可读都必须保留可重试入口，identity 已变化时禁止释放新 Owner 的 lease。
+
+`meta_cf` 必须验证：
+
+```text
+storeFormatVersion
+routeIncarnation
+partition
+shardIdentity
+dbIdentity
+storeIncarnation
+appliedShardLogPosition
+closedIngressDeadlineThrough
+lastIngressFenceProofId
+shardMutationSequence
+nextClaimSequence
+evidenceCursors
+lastCheckpointId
+lastOpenedOwnerEpoch
+cleanCloseMarker
+recoveryLineageBase
+lastObservedRecoveryFloor
+recoveryCatalogGeneration
+recoveryInstallOpenState
+```
+
+本地物理 checkpoint primitive 若已经取得本次 checkpoint 的 16-byte
+`checkpointId`，必须在创建 RocksDB 镜像前把它写入上述 `lastCheckpointId`，使
+该 metadata 随完整 DB 镜像一起恢复；物理创建失败时要同步恢复此前的 projection，
+不能让运行中的 DB 声称一个并不存在的 checkpoint。未携带 checkpoint identity
+的兼容性调用只能创建本地镜像，不能宣称已经完成 manifest/catalog publication。
+
+### 10.2 固定 Column Families
+
+“固定七个”指七个 application CF。RocksDB mandatory `default` CF 作为第八个 physical CF 一并 open，但 application 禁止读写且必须为空；它仍计入 descriptor、cache/memtable/file budgets、checkpoint manifest 与 restore/open validation。缺任一 application/default CF、出现未知 CF，或 default 非空都 fail activation。
+
+| CF | namespace | 用途 |
+|---|---|---|
+| `timeline_cf` | DUE / ORDERED / READY / EXPIRY / SYSTEM | 到期记录、ordered queue、Lane ready index、独立 expiry index |
+| `id_cf` | MESSAGE / RESERVATION / PAYLOAD_REF | 当前实体 locator、retired identity tombstone 与 payload ownership |
+| `inflight_cf` | CLAIMED / PUBLISHING / UNCERTAIN | 可恢复 runtime side-effect state，含完整 Prepared Publish descriptor/hash |
+| `dedupe_cf` | COMMAND / RESULT / POSITION / FENCE / SYSTEM_MUTATION | Client Command 与 signed mutation 幂等、查询结果、位置审计、时间 fence |
+| `terminal_cf` | GENERATION / DLQ_EXPORT | 不可变 generation 历史和 export 结果 |
+| `gc_cf` | TASK / PROTECTION | time-ordered guarded deletion |
+| `meta_cf` | FIXED / LANE / QUOTA / PRODUCER / SCHEDULER / CONTROL_RESERVE / RECOVERY / SLO_OUTBOX | shard identity、Lane、quota、producer sequence、持久公平游标、控制保留量、lineage/Floor 与独立观测 outbox 状态 |
+
+不增加 per-feature application CF，避免每个 shard 的 memtable/metadata 放大。
+
+`meta_cf/RECOVERY` 的四个固定 key 只承载本地物理恢复投影，并且使用同一个
+WAL-synchronised WriteBatch：`recoveryKeyKind=1` 是
+`RecoveryCandidateRef` lineage/base（`LOCAL_STORE` 必须带当前 Store
+Incarnation）；`2` 是本 Store 最后观察到的完整 `RecoveryFloorRef`，其
+Source Position 必须属于当前 Shard；`3` 是非零 raw `uint64`
+`catalog_generation`（Floor 存在时必须与 Floor field 4 相等）；`4` 是带
+digest 的 `RecoveryInstallState` install/open phase、Store Incarnation 和可选
+checkpoint identity。Fresh Store 不写 synthetic candidate，目录名和 checksummed
+`ACTIVE` pointer 都不能替代这四项事实。缺失任一项只表示本地没有 recovery-reuse
+proof；是否仍在 current Floor ancestry 内必须由 Recovery Catalog/Oxia authority
+另行证明，不能由 Store 自己推断。
+打开已有 DB 时还必须在任何 open-phase 重写之前验证 install state 的 checkpoint
+identity 与 lineage/base 一致；没有 lineage/base 的 install state 不得携带 checkpoint
+identity。这样原始 `meta_cf/RECOVERY` 的漂移不会被 open 流程先写成新的 `OPEN`
+projection 后掩盖。
+
+`meta_cf/LANE` 的 ACTIVE branch 在 Protocol Registry 上是直接嵌套的
+`ActiveLaneState`（`LaneRecordEnvelope` field 10）；它与同一个 shard 的
+READY key/certificate、immutable Profile refs、canonical Lane tuple 和 per-Lane
+`ChargeVector` 一起构成完整 Lane projection。读取时必须先区分 typed branch 和
+旧兼容适配值：typed bytes 解码失败不得回退成 `LaneRecord`，也不得把 typed state
+静默降级再写回。兼容适配只允许覆盖尚未具备完整 Profile/tuple/certificate 输入的
+历史本地存储；一旦触碰 typed ACTIVE，任何 readiness/gate/scheduler/quota 更新都
+必须保留不可变字段并在同一个 WriteBatch 写入最新 per-Lane usage；缺少 BLOCKED
+reason、READY key/certificate 或超出本地数值范围时必须 fail closed。这个兼容边界
+不改变 的 wire/recovery 语义，待 Schedule/Profile/Oxia activation 输入完整后
+再移除适配路径。
+
+Typed `ActiveLaneState` 和 `LaneTerminalGuard` 还必须把 canonical Lane
+tuple 当作 Registry-shaped bytes 解析到两个 immutable Profile 槽位：tuple 中的
+`destinationProfileId/version/semanticHash` 与 field 9 完全一致，
+`capabilityProfileId/version/semanticHash` 与 field 10 完全一致，并拒绝截断、未知
+分支、尾随 bytes 或 adapter/resource/ordering 结构不一致的 tuple。该本地 parser
+只证明 tuple 的 canonical shape 和 Profile byte projection，不代替 Profile
+resolver、catalog、Oxia 或 Broker authority；历史兼容 adapter 仍可保存 opaque
+bytes，但 typed branch 不得借此绕过投影校验。
+
+### 10.3 Key
+
+所有 key 以 record type + key format version 开头。整数为 fixed-width unsigned big endian，variable bytes 长度前缀且有上限。
+
+关键形态：
+
+```text
+unordered:
+  [DUE=0x01][format=0x01][destinationLaneId][eligibleAt][sourceOrderToken][delayMessageId][generation]
+
+ordered:
+  [ORDERED=0x02][format=0x01][destinationLaneId][deliverAt][sourceOrderToken][delayMessageId][generation]
+
+lane ready:
+  [READY=0x03][format=0x01][nextEligibleAt][destinationLaneId][laneVersion]
+
+expiry:
+  [EXPIRY=0x04][format=0x01][expireAt][destinationLaneId][delayMessageId][generation]
+
+payload reservation expiry:
+  [RESERVATION_EXPIRY=0x05][format=0x01][reservationExpireAt][reservationId]
+
+message index / identity tombstone:
+  [MESSAGE=0x01][format=0x01][delayMessageId]
+
+inflight:
+  [CLAIMED|PUBLISHING|UNCERTAIN][format=0x01][ownerEpoch][claimId|publishAttemptId]
+
+command dedupe:
+  [COMMAND=0x01][format=0x01][commandId]
+
+system mutation dedupe:
+  [SYSTEM_MUTATION=0x05][format=0x01][systemMutationId]
+
+position audit:
+  [POSITION=0x03][format=0x01][typedCanonicalSourcePosition]
+
+SLO observation outbox:
+  [SLO_OUTBOX=0x08][format=0x01][sampleId]
+
+terminal:
+  [GENERATION=0x01][format=0x01][delayMessageId][generation]
+
+GC:
+  [TASK=0x01][format=0x01][notBefore][kind][resourceId][expectedVersion]
+```
+
+`EXPIRY` 只解码 Message Generation；`RESERVATION_EXPIRY` 只解码 Payload Reservation，scanner 不靠 value 或长度猜 subtype。timestamp 为 nonnegative `u64be` epoch-ms，Generation 为 checked `u32be`，Lane/runtime/control/Owner generation 为 checked `u64be`；canonical fixed identities 不再加长度，真正 variable components 使用 bounded `u32be length + bytes`。完整 CF tag、component width/order、empty/max/overflow golden vectors由 Protocol Registry 固定，任一实现不得把符号名当字符串写入 key。Value 使用 typed version envelope + required-field validation + CRC32C。禁止 Java serialization、native endian、字符串 delimiter key 和 wall-clock TTL compaction filter。
+
+`ORDERED` key 中的 `deliverAt` 是严格业务顺序字段，不是 scheduler 唤醒时间。其 value 必须携 canonical `actionAt`、当前 retry eligibility 和 head-blocking state；同 Lane 的 READY key 使用 blocking head 的 `headEligibilityAt=max(actionAt,retryEligibilityAt)`。普通 managed 的 `actionAt=deliverAt`；certified Pulsar handoff 的 fixed Profile-version lead 使 `actionAt=deliverAt-handoffLead` 在该 Lane 内保持同序。 禁止 per-message handoff lead；若未来允许它改变上述同序关系，必须升级 key/protocol，而不能复用 ORDERED layout。
+
+当前嵌入式 `DelayShard` 已将这条时间投影接入 Schedule apply：当同时提供 raw
+ resolver 和 exact `ProfileCatalog` 时，`DelayShard` 自动使用
+`ProfileCatalogScheduleResolver`，从 immutable Destination
+Profile/Delivery Capability 推导固定 handoff 的 `actionAt`，并把它持久化到
+`MessageRecord`/`TimelineWorkRef`；catalog-less 或普通 managed compatibility
+path 明确归一化为 `actionAt=deliverAt`。因此 ORDERED 物理 key 仍只按业务
+`deliverAt` 排序，而 Lane READY/唤醒使用 `max(actionAt,retryEligibility)`。
+调用方若已经提供 `ProfileCatalogScheduleResolver`，`DelayShard` 只有在同时收到该
+decorator 绑定的 exact 同一 `ProfileCatalog` 实例时才允许复用；缺少 catalog、传入另一
+实例或嵌套第二个 Profile decorator 都必须在读取 Store projection 前拒绝。Schedule
+的 `actionAt` 推导、Publish Admission timing/profile 校验以及 Commit/Reschedule/recovery
+的 actionAt 重建必须使用一个 authority graph，不能由两份内容暂时相同但生命周期可
+独立变化的 catalog 分别提供语义。
+Prepare→Commit 也必须遵守同一恢复边界：Prepare 成功后即使 Worker 退出并重新打开
+shard DB，Commit 也必须从持久化的 `ScheduleBinding` 重新取得 exact Destination
+ProfileRef，再由同一个 `ProfileCatalog` 的 immutable Destination/Delivery Capability
+语义重算固定 handoff `actionAt`；不得依赖 Prepare apply turn 的进程内 resolver scratch，
+也不得在 Profile/Capability 缺失时回退到 `deliverAt`。本地恢复回归
+`DelayShardTest.largeCommitAfterReopenRecoversCertifiedActionAtFromDurablePrepareBinding`
+以 `deliverAt=3000`、fixed lead `500` 证明重开后 Commit 仍持久化
+`actionAt=2500`，且 scheduler 不会在该边界前发现消息。
+同一推导校验必须在 Prepare 保留配额、返回上传授权之前执行；若 certified fixed lead
+使 `actionAt` 下溢，Prepare 直接稳定拒绝为 `INVALID_DELIVERY_WINDOW`，不得先创建
+Reservation/Lane/ binding 或让客户端完成无效对象上传，再延迟到 Commit 才失败。
+同理，Registry Schedule/Prepare 的 source-ordered apply 不能信任 SDK 已做过 Profile
+校验：在 Lane resolver 和任何 shard 状态写入前，必须用 exact Destination Profile
+重验 Adapter metadata branch、allowed ordering-mode bit、`maxPayloadBytes` 和
+`maxAdapterMetadataBytes`；committed Schedule 与 Prepare 还必须重验 exact Object Store
+Profile 的 source-ordered first binding、current credential Head 与 `maxObjectBytes`。
+对应稳定拒绝分别是 `INVALID_METADATA`、`ORDERING_CAPABILITY_UNAVAILABLE` 或
+`PAYLOAD_TOO_LARGE`，且不得创建 Message/Reservation/Lane/`ScheduleBinding` 或增加
+quota。`maxTargetRecordBytes` 依赖最终 Adapter serialization/reserved metadata，必须在
+Claim/serialization prerequisite gate 对完整 `PreparedPublishDescriptor` 验证，不能在
+Schedule apply 用原始 payload 长度近似替代。
+这只是 shard-local projection evidence；Profile publication、Broker visibility
+guard 和真实 Producer authority 仍必须通过 release gate。
+
+`timeline_cf/DUE|ORDERED` value 是 exact `TimelineWorkRef`，其 closed work kind 为 `INITIAL_SCHEDULE | DEFINITIVE_RETRY | UNCERTAIN_RETRY`，并自校验完整 encoded key/hash、`actionAt`、retry eligibility、candidate attempt number、runtime revision、semantic-work digest 与 work-instance digest。前者排除本地 runtime revision，供 source replay precondition；后者包含它，供 snapshot/Claim fencing。`UNCERTAIN_RETRY` 还必须绑定 `PINNED_POLICY` 或 exact source-ordered `CONTROL_OVERRIDE` authority；后者携 `ResolveUncertain` ControlRef/Source Position，不能成为无来源的本地 flag。`id_cf/MESSAGE` 不只保存 public aggregate state；它保存 exact `GenerationRuntimeIndex`：当前工作 oneof（无、timeline、Claim、PUBLISHING）、canonical `AttemptObligationRef` set、Admissions/uncertain-retry 计数、duplicate risk 与 digest。每个 ref 含 exact inflight encoded key/hash、ledger state、attempt/generation，所以旧 Owner ledger 可直接定位。`inflight_cf/PUBLISHING|UNCERTAIN` 每个 key 是一个独立不可变 attempt ledger，而不是 aggregate Message 状态的替代品。
+
+所有新的 DUE/ORDERED（以及同一 generation 的 EXPIRY）projection 都必须直接写入
+`TimelineWorkRef.canonicalBytes()`；不能再写只有 `messageId + generation` 的
+`TimelineEntry` 指针。读取时必须校验 embedded key 与 RocksDB key 一致，并在当前
+`MessageRecord` 有 runtime projection 时要求与 `GenerationRuntimeIndex.timeline`
+byte-identical。旧本地 DB 中的 `TimelineEntry` 只作为有界、只读的迁移兼容输入接受，
+不得作为新写入格式，也不得通过 scheduler discovery 静默升级；缺失 runtime
+projection 的旧 `MessageRecord` 只能按可验证的 scalar schedule fields 读取，后续
+source-ordered mutation 才能产生新的完整 projection。
+
+`GenerationRuntimeIndex` 的 canonical v4 projection 还必须让 public aggregate
+与 current work oneof 一致：非 terminal generation 的 `NONE` 只能表示全量
+`UNCERTAIN` attempt obligations，`TIMELINE` 必须与 `INITIAL_SCHEDULE`/
+`DEFINITIVE_RETRY`/`UNCERTAIN_RETRY` 及 aggregate 状态相容，`CLAIMED`/
+`PUBLISHING` 也必须分别有对应的 current-work identity；任一 UNCERTAIN obligation
+都要求 aggregate 为 `UNCERTAIN`，并且只能由 `UNCERTAIN_RETRY` timeline 作为当前
+可逆 work。Terminal generation 可以保留 open obligations，
+但不能再有 current send work。这样 `id_cf/MESSAGE` 的 scalar status 与 runtime
+ projection 不会各自表达另一套生命周期；typed `MessageRecord` 还必须让 status
+ 与这两个 runtime 投影字段保持允许的对应关系。为保留旧 UNCERTAIN obligation
+ 在撤销 current work 后的本地管理语义，`SCHEDULED + NONE + UNCERTAIN` 是显式
+ 允许的兼容投影；它仍然不能被当作可调度 work，Cancel/Reschedule 必须返回
+ `TOO_LATE`，而不是重新 materialize 一个 Claim 或 retry。
+
+`HANDED_OFF` 是与 Registry `MessageGenerationState.HANDED_OFF` 对齐的本地
+terminal status（追加 wire value，不重排既有 status）。它只表示经过固定
+Pulsar handoff `actionAt < deliverAt` 的 Admission 已由已验证的
+`PULSAR_SEND_ACK` 证明 Broker durable responsibility；它不表示 consumer 已处理。
+普通 managed publish 以及无法提供该 handoff 证明的兼容 Admission 仍投影为
+`PUBLISHED`。`PUBLISH_OUTCOME`/`EVIDENCE_RESOLUTION` 的 wire
+`PublishSideEffect.PUBLISHED` 不增加新的分支，source-ordered apply 根据保留的
+Admission timing、channel adapter 和证据 kind 选择 `PUBLISHED` 或 `HANDED_OFF`；
+证明缺失或 early timing 与证据不匹配时 fail closed 为 stale mutation。旧 opaque
+Admission ledger 只能走普通 `PUBLISHED` compatibility seam，不能凭空获得 handoff
+语义。两种成功终态都必须通过同一个 typed runtime/terminal projection fence，且
+仍受 `TOO_LATE` 管理语义和 terminal guard 约束。
+
+对 early `HANDED_OFF`，`PULSAR_SEND_ACK` 还必须逐字段绑定 retained
+`PublishAdmission`：证据中的 Pulsar `targetResource`、physical partition 和
+`preparedPublishHash` 必须分别与 Admission 的 `ChannelResourceIdentity` 和
+prepared hash canonical bytes 完全一致；任一 mismatch 都是 stale mutation，不能
+把一份属于其他目标、分区或 prepared payload 的 Broker ACK 升级为 handoff。该绑定
+只收紧 certified early handoff，普通 `PUBLISHED` 证据和旧 opaque compatibility
+路径不因此引入新的全量 evidence-binding 要求。
+
+为读取旧的 scalar-only `MessageRecord`，实现保留一个明确的 migration seam：旧值
+按 legacy v3 value 读取为 `NONE` placeholder，绝不把它当作合法 typed runtime
+value；在下一次 source-ordered mutation 或 runtime replacement 前必须被完整 typed
+projection 替换，新的写入只能使用 v4。canonical `GenerationRuntimeIndex` decoder
+不接受这种 placeholder，因此伪造的 v4 `NONE + non-terminal aggregate` 会 fail
+closed。
+
+TimelineWorkRef 的物理时间也必须与 key 一致：DUE key 的 eligibility 字段严格等于
+`max(actionAt,retryEligibilityAt)`；ORDERED key 仍按业务 `deliverAt` 排序，但不得早于
+value 中的 head eligibility。`UNCERTAIN_RETRY` 只能属于 unordered Lane，不能把 ordered
+head 当作可重试 work。这样 action gate 不会因为 DUE key 只编码 retry 时间而被提前扫描；
+该关系由 `TimelineWorkRef` 构造/解码和 scheduler rebuild 同时校验。
+`CONTROL_OVERRIDE` 的嵌套 `ControlRef` 与 `SourcePosition` 也必须先通过各自
+canonical codec；这只是 value 完整性校验，不替代 source-ordered mutation 的
+authenticated control/evidence authority。
+
+### 10.4 单写者与 invariant
+
+Shard event loop 是唯一 writer。Scheduler 用 bounded RocksDB snapshot 读索引，Claim 前在 event loop 重新验证 exact ID locator、generation/runtime revision、Owner Lease 和 permits。
+
+每个 WAL-enabled authoritative WriteBatch 在 `meta_cf` 里 checked unsigned increment `shardMutationSequence`；同一 batch 的 mutation 共用该值。它只用于 checkpoint/GC barrier，不用作 Command 顺序或外部 ID。`0xffffffffffffffff` 是耗尽值，不能继续递增或 wrap；`0x7fff... -> 0x8000...` 仍是合法 successor。
+
+当前-attempt callback 比较 generation/runtime/owner/store；保留的 prior-`UNKNOWN` callback 比较 immutable attempt-ledger token 与 owner/store，再对当前 generation 做 reconciliation。两者都不能用一个旧 aggregate revision 直接覆盖当前状态。
+
+必须持续审计：
+
+- 一个当前 Delay Message 只有一个 `id_cf/MESSAGE` aggregate/current-work index；
+- 对同一 Message Generation，恰有零或一个当前 TIMELINE/CLAIMED/PUBLISHING work；同时允许零到 pinned max Admissions 个尚未闭合的 PUBLISHING/UNCERTAIN attempt ledger。当前 PUBLISHING 既是 current work 又在 obligation set，历史 UNCERTAIN 只在 obligation set；
+- terminal generation 的当前 work 必为 NONE，但其 immutable terminal history 可与已经 admitted、尚未完成 evidence/charge retirement 的 attempt ledger 共存；旧 generation terminal history 也可与新 generation current index 共存；
+- 当前非终态 generation 的 canonical obligation set 与各 `inflight_cf` ledger 双向一致；当前 generation 终态后，该 set 与 terminal open-obligation summary byte-equal。Replay 创建新 generation 时，旧 obligation 只留在旧 terminal summary，绝不能拷入新 runtime index；每个 ledger 的 message/generation 必须恰由适用的 current/terminal locator 覆盖；
+- counters 与 records 总和一致；
+- ordered head/ready version 一致；
+- Source Position 单调；
+- terminal generation 的 decision state/code/time 与 pinned semantic inputs 不可修改；其 open-obligation/evidence/charge summary 只能随 exact attempt ledger 单调结算，duplicate risk 只能 false→true；
+- active entity 或 compact retired identity tombstone 必有其一，直到该 ID 的 freshness deadline 已被 source fence 关闭；
+- producer sequence 不回退。
+
+歧义 fail closed；repair 只能在 fenced shard 上确定性执行。
+
+## 11. 状态机与控制线性化
+
+Client Command/System Mutation 的线性化点都是包含 record result 与 Source Position 的 durable WriteBatch。Publish 的不可逆点是 `PUBLISH_ADMISSION` 被 shard consumer durable apply 为 `PUBLISHING`。
+
+```mermaid
+stateDiagram-v2
+    [*] --> PAYLOAD_RESERVED: Prepare large
+    PAYLOAD_RESERVED --> SCHEDULED: Commit payload
+    PAYLOAD_RESERVED --> ABANDONED: Cancel / Lane Close
+    PAYLOAD_RESERVED --> RESERVATION_EXPIRED: applied TIME_FENCE closes reservationExpiry
+
+    [*] --> SCHEDULED: Schedule generation 0
+    SCHEDULED --> CLAIMED: Claim
+    RETRY_WAIT --> CLAIMED: Claim
+    SCHEDULED --> EXPIRED: expiry proven
+    RETRY_WAIT --> EXPIRED: expiry proven
+    CLAIMED --> SCHEDULED: revoke
+    CLAIMED --> SCHEDULED: transient pre-send revoke
+    CLAIMED --> CANCELED: Cancel wins
+    CLAIMED --> SUPERSEDED: Reschedule wins
+    CLAIMED --> EXPIRED: expiry
+    CLAIMED --> DEAD_LETTER: applied CLAIM_RESULT permanent
+    CLAIMED --> PUBLISHING: applied PUBLISH_ADMISSION
+
+    PUBLISHING --> PUBLISHED: logged proven ordinary publish
+    PUBLISHING --> HANDED_OFF: logged proven delayed handoff
+    PUBLISHING --> RETRY_WAIT: logged definitely not published
+    PUBLISHING --> DEAD_LETTER: logged non-publication + permanent/exhausted
+    PUBLISHING --> UNCERTAIN: logged/recovered unknown
+
+    UNCERTAIN --> PUBLISHED: evidence success
+    UNCERTAIN --> HANDED_OFF: delayed-handoff evidence
+    UNCERTAIN --> RETRY_WAIT: all admitted attempts proven absent/retired
+    UNCERTAIN --> DEAD_LETTER: explicit bounded policy
+
+    SUPERSEDED --> SCHEDULED: next generation
+    DEAD_LETTER --> SCHEDULED: explicit replay, next generation
+```
+
+上图只表示 public aggregate state，不表示物理 locator。`GenerationRuntimeIndex` 把 aggregate state 与唯一 current send work 分离：current work 是 `NONE | TIMELINE | CLAIMED | PUBLISHING`；TIMELINE 又固定为 `INITIAL_SCHEDULE | DEFINITIVE_RETRY | UNCERTAIN_RETRY`。一个 generation 同时最多有一个新的 send work，但可保留多个由 pinned max Admissions 有界的 attempt obligations。
+
+`RETRY_WAIT` 的硬 invariant 是该 generation 的全部 admitted attempts 都已证明 `NOT_PUBLISHED` 并完成 strong-capability retirement；只要任一旧 attempt ledger 为 `UNCERTAIN`，aggregate state 保持 `UNCERTAIN`，即使 current work 已是 timeline、Claim 或新的 PUBLISHING。Baseline 只能在 unordered `BEST_EFFORT` Lane 内插入 `UNCERTAIN_RETRY` work；strict `DELIVERY_TIME_FIFO` 必须 HOLD/evidence/显式 break-or-close，不能在 偷跑 possible-duplicate retry。这个模型不得借 current work 恢复 Cancel/Reschedule，也不能把旧 possible-delivery obligation 藏进普通 `RETRY_WAIT`。
+
+一次 `UNKNOWN + policy SCHEDULED` apply 在同一 WriteBatch 把该 attempt 变为 UNCERTAIN ledger，并把 obligation ref 原子替换为 exact UNCERTAIN-key ref，保持 aggregate `UNCERTAIN`，再插入一个 `UNCERTAIN_RETRY` timeline work；只有后续新 Admission 真正 durable apply 时才同时消耗一个 Admission 和一个 uncertain-retry count。若旧 attempt 后来全部证明 absent，任何基于旧 obligation-set digest 的 reversible Claim 先撤销，再把剩余 timeline work 规范化为 `DEFINITIVE_RETRY`/`RETRY_WAIT`；若任一旧 attempt 证明 success，则删除 timeline 或撤销 Claim并 terminalize。已经 durable Admission 的另一个 PUBLISHING attempt 不可撤销：它作为 terminal record 的 open obligation 留存，后续只结算自身 evidence/charge，结果标记 possible duplicate。
+
+Strict Ordering Lane 若把 unresolved `UNCERTAIN` 通过 operator policy terminalize，必须在同一 source-ordered mutation 保留 `ORDER_OUTCOME_UNRESOLVED(destinationLaneId, laneIncarnation, generation, attemptSet)` barrier。它继续占据 ordered head、没有 successor READY key，直到可验证 outcome proof，或 `BreakOrderingDomain`/strict `CloseDestinationLane` 的显式 order-loss acknowledgement 生效。
+
+### 11.1 Claim
+
+Claim 是 reversible reservation：
+
+- 先获取 Worker/Lane message + byte permit；
+- timeline → `inflight_cf/CLAIMED`；
+- 在 `meta_cf/FIXED` checked reserve/WAL-sync 本 Store 单调 `claimSequence`，按 Protocol Registry 的无环 preimage 生成并 persist `claimId`、deadline、owner/store/runtime revision；
+- Claim source precondition 冻结 original `TimelineWorkKind`、timeline semantic-work digest（含 key/time/candidate/policy-or-control authority，但不含 local runtime revision）、Admissions/uncertain-retry counters 与 canonical attempt-obligation-set digest；Claim record 另存 work-instance digest 做本地 fencing。旧 attempt 的 Outcome/Resolution 改变语义/set 时必须撤销 Claim；纯 restore/requeue 只换 instance digest，不得使已经进 Shard Log 的合法 Admission stale；
+- payload materialization、checksum、serialization、target size validation 都在 Claim 阶段；
+- 生成不含 attempt/channel/sequence/reserved outcome metadata 的 immutable `PreparedPublishTemplate`；
+- timeout/Cancel/Reschedule/ownership loss 可撤销；
+- 不允许调用目标 Producer。
+
+当前本地协议实现已把 Registry 中的 replay-stable materialization 从私有
+`byte[]` 校验提升为共享的 `PayloadForPublish` 与
+`ClaimMaterialization` canonical codec。Claim Result、Publish Admission 和
+Prepared Publish Descriptor 共用同一套 field/oneof、Profile slot kind、Broker
+resource、metadata、payload length/SHA-256、时序和 materialization digest 校验，
+并可从 `ClaimRecord` 读取 typed projection。这个闭环只证明 shard-local 的
+canonical bytes 与 fail-closed 解析；Profile/catalog、Object Store、Adapter 和
+Producer 的真实 authority 仍必须在后续外部集成 gate 中证明。
+
+`PublishAdmissionBody` 的主解析路径现在直接使用完整的
+`PreparedPublishDescriptor`（以及嵌套的 `ReservedPublishMetadata`）canonical
+decoder；`Descriptor.value()` 暴露的 typed projection 与 Admission 校验使用同一份
+bytes、等值规则和 prepared-hash domain-separated 公式。它统一本地解析和等值校验，
+不能被解释为已经取得 Broker channel、Producer 或外部 Profile/catalog authority。
+Registry descriptor 的 generation/attemptNo 仍按完整 `uint32` 保留在 typed wire
+projection；现有兼容运行时的 `PublishAdmissionBody.Descriptor` 仍是有界 signed-
+`int` 视图，因此遇到高位值会以明确的 `IllegalArgumentException` fail closed，
+而不会把它误当作已经支持高位 runtime state。要开放该范围，必须连同
+Message/Claim/Admission ledger、key、查询和调度的 signed narrowing 一起完成，不能
+只放宽一个解析器。
+
+运行时现在另提供严格的 `DelayShard.claimForPublish` 入口：在构造 Claim
+WriteBatch 前，它把 typed materialization 的 message identity、generation、
+delivery window、current timeline 的 `actionAt` 以及 inline/object payload
+引用逐项绑定到当前 `MessageRecord`。对于存在 durable
+`ScheduleBinding` 的消息，Claim 还必须重新解码原始 Schedule/Prepare body：
+Destination Profile、business metadata 和交付窗口必须精确一致；普通
+Schedule 的 inline/committed payload 必须与原始 payload branch 精确一致；
+Prepare→Commit 分支必须使用 Prepare 冻结的完整 Object Store ProfileRef，并匹配
+expected length 与 SHA-256。不得用“相同 semantic hash、不同 Profile 身份”的
+descriptor 替换已接受的 command 语义。Claim 还必须解析该 binding 中保留的
+exact `canonicalLaneTuple`，并要求 materialization 的 Destination Profile、Delivery
+Capability Profile、Broker target resource 和 physical partition 与 tuple 投影完全一致；
+Kafka tuple 中重复的 native-topic UUID/physical-topic identity 也必须一致。旧的
+`byte[]` primitive 已降为 runtime
+包内可见，只供 typed 实现和测试搭建本地状态使用；`claimForPublish` 是
+`DelayShard` 唯一公开的 Claim 创建入口，生产调度仍必须经
+`ClaimHandoffWorkClassExecutor` 与 `OwnedDelayShard` 的 authority/lifecycle
+复核。tuple 比较只证明 Schedule apply 时已冻结的 immutable identity，仍不会
+自行证明 Profile semantic/current credential 仍可用、Broker resource 未被替换、
+Object Store fetch/immutability、Adapter 序列化/大小、channel/credential lease 或 Producer
+ownership；这些 live authority 仍由后续外部 gate 闭合。
+
+Claim handoff 必须在 discovery 已经精确 poll 出一个 READY head 后，作为另一个
+有界 `DUE_SCHEDULER` action 完成。action identity 要绑定 shard、Lane/head
+identity、完整 trusted-time evidence、Claim deadline、typed
+`ClaimMaterialization` 与 canonical charge；queue wait 结束后必须重新读取
+READY value、Message、Timeline、typed Lane 和 `ReadyCertificate`，并再次检查
+Owner/Store/Shard/ownerEpoch。外部 Profile/catalog、payload/object、Adapter
+serialization/target-size、channel/credential generation 等 live prerequisite
+由注入的 authority gate 提供，不能从 shard-local bytes 推断。
+
+通过前置检查后，Claim 才能同时取得 Lane、Shard、Worker 的 logical message/byte
+permit，并调用不含 Producer 的 typed Claim WriteBatch。queue 拒绝、前置条件不可用
+或 permit 不足时，必须精确恢复同一个已 poll 的 READY head 和 scheduler projection；
+任何无法证明尚未发生 Claim 的异常都必须 fence Owner，交给恢复重建，不能制造第二个
+本地 retry authority。Claim WriteBatch 成功消费 READY 后才释放 scheduler 的 retained
+head identity；Claim 成功只表示可逆 reservation，Publish Admission 仍是后续独立的
+Shard Log action。当前实现的 handoff/permit seam 只提供本地可验证组合，不代表真实
+Profile/Object Store/Adapter/channel/Oxia authority 或 Producer/Admission 已接通。
+
+当前 Claim→Publish Admission 的本地组合入口是
+`PublishAdmissionWorkClassExecutor`，归入 `OUTCOME_AND_CONTROL` bounded work class。
+它在入队前固定 exact Claim、reservation、descriptor、Ready Certificate、Trusted UTC
+decision evidence 与 canonical `PUBLISH_ADMISSION` body，完成签名并把完整 mutation
+identity 绑定到 task。在注册 work-class action 前，它必须要求
+`decision_time.earliest >= descriptor.actionAt` 且
+`decision_time.earliest >= ready_certificate.issued_at.latest`，同时保留已有的
+certificate/expire/Claim-deadline/retryUntil 上界检查；决策时间不得早于业务
+action 起点，也不得早于它依赖的 Ready Certificate 签发完成时间。queue
+wait 之后再次读取 Oxia owner/ownerEpoch、exact Claim 和
+注入的 admission prerequisite gate，只有通过后才调用外部
+`ShardLogMutationAppender`。该 appender 是唯一的 Shard Log/Source Position authority；
+本地 executor 不分配 Source Position，也不调用 `DelayShard.applySystemMutation`。
+持久化返回的 position 必须再次通过 shard assignment、physical activation barrier
+以及（Pulsar 时）source connection generation/guard attestation 校验。已知 prerequisite
+不可用、明确未持久化或结果未知时，exact Claim/reservation 保持不变，直到 source-ordered
+Admission apply 或显式 Claim revoke；未知结果仍必须 fence Owner。这个入口只闭合
+Claim→Admission 的本地边界，不宣称真实 Broker append/ACK/cursor、Oxia authority、
+Producer 或外部 Profile/Object Store 已接通。
+
+除 Claim→Admission 外，`PUBLISH_OUTCOME`、`EVIDENCE_RESOLUTION`、
+`CLAIM_RESULT` 与 `DLQ_EXPORT_RESULT` 的 callback/evidence producer 也只能把
+已经准备并签名的 exact System Mutation 交给 `OutcomeWorkClassExecutor`，进入同一个
+`OUTCOME_AND_CONTROL` bounded work class。该入口只校验允许的 mutation type、Shard
+identity、AuthorIdentity branch、strict Owner/ownerEpoch 与执行时 Oxia lease，再调用
+外部 `ShardLogMutationAppender`；它不生成业务结果、不调用
+`DelayShard.applySystemMutation`、不分配本地 Source Position。task identity 和 byte
+charge 绑定完整 canonical mutation frame；queue rejection 不产生 Store/append 副作用。
+外部追加返回 `PERSISTED` 时必须携带并通过当前 source assignment/activation barrier
+校验的 Source Position；`DEFINITIVELY_NOT_PERSISTED` 与 `UNKNOWN` 必须保持可区分，
+writer exception 或 position proof failure 一律 fence Owner 并保留 exact bytes 供恢复。
+真正改变 outcome、evidence、Claim terminal state 或 DLQ outbox 的唯一入口仍是
+source-ordered apply。该本地桥不宣称真实 callback/evidence authority、Broker
+append/ACK/cursor、Oxia session、签名 key history 或 recovery replay 已接通。
+
+控制面 mutation 使用同一 bounded class 的独立 `ControlWorkClassExecutor` 入口：
+`APPLY_SHARD_CONTROL`、`REPLAY_DEAD_LETTER`、`RESOLVE_UNCERTAIN` 与
+`TIME_FENCE` 必须由控制面先准备并签名 exact mutation，再按完整 canonical frame
+进入 `OUTCOME_AND_CONTROL`。入口只校验 mutation type、Shard identity、control
+body/target identity、`TIME_FENCE` proof/`signingKeyVersion` 和 AuthorIdentity branch，
+并在执行时重读 strict Owner Lease/clock 后调用外部 `ShardLogMutationAppender`。
+它不执行 Control Target registration、不会本地 apply、不会写控制状态或分配 Source
+Position；queue rejection 无副作用。外部追加的 `PERSISTED` position 必须通过当前
+source assignment/activation barrier，`DEFINITIVELY_NOT_PERSISTED` 与 `UNKNOWN` 保持
+区分，append/proof failure fence Owner 并保留 exact mutation。控制注册、授权和最终
+状态改变仍只能由 source-ordered apply 完成。
+
+Claim 的纯撤销/超时和 transient pre-send failure 都回到相同 semantic timeline key/work kind/authority/candidate attempt，可更新可重建的 Lane circuit/backoff，不消耗 Publish Admission count，也不把 generation 伪造成 `RETRY_WAIT`；重新插入时 semantic digest 保持一致，必须 checked increment runtime revision 并重算 instance digest，不能 byte-reuse 旧 snapshot token。payload checksum/immutable object loss、deterministic serialization/record-size 等已证明 permanent pre-send 结果若要把 generation 改为 `DEAD_LETTER`，executor 只能准备 exact `CLAIM_RESULT`并等它按 Shard Log Source Position apply。该 mutation 携 Claim precondition、`CLAIM_PERMANENT_FAILURE`、Trusted-UTC 和 charge transfer；它与 Cancel/Reschedule/Expiry/Close 以及同 Claim Admission 排序，callback 不得直写 terminal state。
+ 中 field 20 的 `ChargeVector transfer` 必须与 Claim precondition field 12 的 `claimed_charge` 做 canonical byte-equality；它只能释放该 reversible Claim 已冻结的 charge projection，不能由 callback 另行改写 quota。完整 grant policy、外部 charge authority 与 materialization/recovery accounting 仍按本设计的 release boundary 单独完成。
+
+### 11.2 Publish Admission
+
+executor 持有 `PreparedPublishTemplate`，请求 shard event loop 准备 Admission；真正线性化必须经过 Shard Log：
+
+```text
+revalidate current message/generation/runtime,
+           source semantic-work digest/kind/authority,
+           counters/attempt-obligation-set digest
+revalidate ACTIVE_FOR_COMMANDS lease, admissionGate=OPEN,
+           runtimeReadiness=READY, and safe time
+revalidate expireAt and capability
+reserve exact attemptNo / target channel or sequence candidate
+derive publishAttemptId from exact claimId/message/generation/attemptNo
+finalize reserved metadata and immutable Prepared Publish
+compute exact Prepared Publish hash
+freeze exact ClaimPrecondition + ReadyCertificate + TrustedUtc decision evidence
+prepare/sign exact PUBLISH_ADMISSION
+enqueue exact System Mutation to this shard's Shard Log
+when that Source Position is consumed:
+  validate exact body/descriptor/certificate/time evidence and Broker persistence time
+  compare only source-ordered Message/Lane/attempt/quota preconditions
+  consume matching Claim, or reconstruct from its signed precondition when replay omitted it
+  persist PUBLISHING + attempt ledger + reproducible descriptor
+          + checked Admissions counters + canonical obligation set
+          + appliedShardLogPosition
+  RocksDB WAL sync
+only then, and only with matching live Owner/Store/Claim/token/certificate/time gate:
+  producer.sendAsync
+```
+
+`PUBLISHING durable happens-before Producer call` 是硬 invariant。Admission enqueue uncertain 只重试同一 System Mutation；它不能直接调用 Producer。若 source-ordered replay-stable 前置状态已被更早的 Cancel/Close/Break/expiry/evidence 改变，record 成为 `STALE_SYSTEM_MUTATION`。相反，Owner/Store/runtime Lane/work-instance 更换、apply 时墙钟已超过 `expireAt`、或本地 Claim/token 因 checkpoint/replay 不存在，不得改写一条在 Broker 内按时持久化且 message/Lane-control/semantic-work/counters/obligation-set 前置条件匹配的 Admission：apply 仍确定性写入同一 `PUBLISHING`。只有 matching live Owner/Store/Claim/token/certificate/monotonic-time gate 可做 first send；无此 gate 时，recovery 在后续 Shard Log position 写入唯一 initial `PUBLISH_OUTCOME(UNKNOWN, OWNER_FENCED, RECOVERY_FIRST_SEND_UNCERTAIN, UNCERTAIN_HOLD)`，再按 capability/policy 解析，不在 Admission apply 分支为本地实现状态。后续可验证结果只能走 `EVIDENCE_RESOLUTION`，不得竞争写第二个 initial Outcome。
+
+这条边界也适用于 Admission 的本地持久化失败：RocksDB `WriteBatch` 或其同步后状态重读失败不是语义 stale，必须把该 native-store failure 原样传播并停在当前 Source Position，不能捕获为 `STALE_SYSTEM_MUTATION`、再写一个替代结果或推进 Source ACK。只有 batch 成功后，才允许更新内存投影和返回 Admission 结果。
+
+Admission 的时间资格只由 body 内 Trusted UTC decision evidence 和该 record 的 Broker persistence time确定：decision 区间必须证明 `actionAt` 已到、`expireAt` 与 Ready Certificate 尚未过期；Broker time 与 decision evidence 必须在已认证 divergence/enqueue-age 上界内。失败为 `STALE_SYSTEM_MUTATION`，撤销 matching Claim、不分配 attempt、不调 Producer。一旦该 record 按时成功 Admission，后续 physical send 可晚于 `expireAt`；`expireAt` 不撤销已线性化的发送义务。Exact field/equality/formula 见 Protocol Registry。
+
+Admission parser 只在没有 Profile semantic catalog 时采用保守的 ordinary-managed 关系；配置了 exact immutable `ProfileCatalog` 的 shard，必须先按 descriptor 的两个 ProfileRef 取回 Destination 与 Delivery Capability semantic bytes，再验证 ordinary managed 或固定 lead 的 certified Pulsar handoff，并检查已 pin 的 physical partition 位于 Profile 的 count/explicit policy 内。缺少 catalog、ProfileRef/hash 不一致、能力位不足、目标资源/分区不一致或 handoff lead 计算下溢，均在 Producer 前 fail closed 为 `STALE_SYSTEM_MUTATION`；不能把 `actionAt < deliverAt` 当作任意提前发送许可。
+
+实现层的 `DelayShardConfig` 必须携带 `maxIngressBrokerTimestampDivergenceMs` 与
+`maximumAdmissionMutationEnqueueAgeMs` 两个已激活边界。`DelayShard` 在每个
+`PUBLISH_ADMISSION` apply/replay 中把 source position 的 Broker persistence time
+`bp` 传给 `PublishAdmissionBody.requireBrokerTiming`，用 checked arithmetic 强制：
+`bp + divergence < min(expireAt, readyCertificate.validUntil)`，且 `bp` 到
+Trusted UTC decision interval 的距离不超过 `enqueueAge + divergence`。边界缺失、负值或
+加减溢出均 fail closed 为 `STALE_SYSTEM_MUTATION`，不会创建 attempt 或调用 Producer。
+嵌入式兼容构造器只提供受限的本地回归上界；发布构建仍必须从 Broker-time certification
+与 capacity artifact 注入这两个正式值，不能把兼容值当作生产认证结果。
+本地 apply/replay 在这些 timing/profile fence 失败时，会先撤销仍与 body 完全匹配的 live Claim，
+再持久化 `STALE_SYSTEM_MUTATION`；因此不会留下可继续执行的 Claim，也不会分配 attempt。
+
+`PublishAttemptId` 不能只由 generation/attemptNo 生成：capacity-gated/stale Admission 不消耗 attemptNo。 额外绑定 exact `claimId`；被 gate 的 Claim 被撤销，下一次 Claim/Admission 得到新 ID，而 uncertain enqueue 继续复用原 exact ID/body。Claim sequence 或 generation/attempt overflow 都 fence shard，禁止 wrap。
+
+```text
+preparedPublishHash =
+  SHA-256(
+    "nereus-delay-prepared-publish\0" ||
+    canonicalProtobuf(PreparedPublishDescriptor)
+  )
+```
+
+`PreparedPublishDescriptor` 的 exact field numbers、nested target/channel/payload/business/reserved metadata 和 Kafka/Pulsar reserved-field mapping 全由 Protocol Registry 固定；它不含 `preparedPublishHash` 自身。`PUBLISH_ADMISSION` 同时携完整 descriptor 与 hash，apply 要求所有重复 identity 与 body/Ready Certificate byte-equal，并把完整 descriptor 在授权 Producer 前持久化。Descriptor 保存 inline bytes 或 immutable payload reference + checksum，足以在 crash 后重建同一 logical target record；Producer compression、protocol framing 和 Broker batching不进入 hash。
+
+其中 descriptor 的 `adapter_kind`、`adapter_encoding_version`、`target_resource` 和 `physical_partition` 必须分别与嵌套 `ChannelResourceIdentity` 的 adapter、版本、目标资源和物理分区完全一致；descriptor 的 `business_metadata` branch 也必须与 adapter 一致。descriptor 的 Destination Profile 还必须与 channel credential lease 绑定的 ProfileRef 完全一致，并且其 immutable `adapter_encoding_version` 必须与 descriptor 的固定版本 `1` 一致。`HASH_ONLY` 和未命中显式允许集合的 `EXPLICIT_OR_HASH` 必须按 Profile 固定的 routing input、Profile id/version 和 hash domain 重算 physical partition；无法从 descriptor 证明 routing bytes 时 fail closed。Profile 字段的 kind 也按字段位置固定为 Destination 与 Delivery Capability。哈希正确但这些跨对象 identity 不一致的 Admission 在解析阶段 fail closed，不能靠后续 Producer 或 callback 才发现。
+
+每个 durable Admission 创建不可变 `PublishAttempt` ledger entry，并把 exact PUBLISHING-key `AttemptObligationRef` 加入 `GenerationRuntimeIndex.attemptObligations`。如果 apply 前已有旧 UNCERTAIN ledger，它只允许来自 `UNCERTAIN_RETRY`、只允许 unordered `BEST_EFFORT`，并 checked increment `uncertainRetryAdmissionsUsed`：`PINNED_POLICY` 还要求 pre-count 小于 policy 自动预算，`CONTROL_OVERRIDE` 则要求 byte-exact authenticated Resolve ControlRef/Source Position，但两者都不能超过 max Admissions/time/expiry/capacity gate。仅仅写 retry timeline、Claim 或重试同一 Admission enqueue 不计数。Message Generation 是聚合状态：同一时刻最多有一个“当前”新 send，但 baseline callback deadline 后开始重试时，旧 `UNKNOWN` attempt 仍可能在远端完成，其 identity/evidence 不得被新 attempt 覆盖。`inflight_cf` 保留所有尚需解释的 admitted attempts，数量受 pinned max Admissions 限制；generation terminal 时把 canonical open-obligation ref 摘要和 duplicate-risk 移入 `terminal_cf`，而未闭合 ledger 本身继续保留到 outcome/evidence/charge retirement 完成。
+
+`PUBLISH_ADMISSION` 的 canonical body 一旦进入 durable attempt ledger，解析失败不是 legacy adapter 分支，必须 fail closed；运行时只有不带 canonical System Mutation common-body prefix（field 1 nested 的 protobuf tag `0x0a`）的 pre-registry synthetic ledger 才允许使用 all-zero charge compatibility projection。该兼容边界只服务嵌入式旧适配器，不改变 source-ordered production path：生产 Admission 必须保留 exact canonical body，不能因 charge decode 失败降级为零、释放容量或继续 publish。
+
+任何已经携带 retry window 的 canonical Current attempt ledger，在进入 durable `PUBLISHING` WriteBatch 前还必须重新验证其 Admission body 与 ledger 的完整 identity：`publishAttemptId`、generation、message、Claim、Lane/Lane incarnation、Owner/Store、prepared hash、attempt number、owner generation 以及当前 Message 的 delivery/expiry timing 都必须 byte/value-equal；body 的 Lane incarnation 还必须等于当前 durable Lane。该检查适用于嵌入式 Admission 入口，防止一个可解析但错挂的 ledger 先被写入、再等后续 outcome 才暴露；旧的无 retry-window opaque ledger 仍只保留历史兼容夹层，不能凭本地猜测升级为 canonical Current，生产升级必须来自 authoritative source-ordered Admission replay。
+
+同一 Owner/Store 下的迟到 callback 按 exact attempt 记入 ledger。若该 generation 尚未 terminal，任何可验证 success 都可使其 terminal；可逆 TIMELINE/CLAIMED work 同 batch 删除，另一个已经 admitted 的 attempt 则不能撤销，继续列入 open obligations 并使结果标记 possible duplicate。Terminal 后的合法 callback/evidence 只能减少该 attempt 的 obligation/charge 或单调提高 duplicate risk，不得重写 terminal state/code/time。若 Replay 已创建新 generation，旧 callback 只比较旧 ledger/terminal summary，绝不读取或 terminalize 新 `id_cf/MESSAGE` runtime index。旧 Owner、旧 Store、错误 generation 或无法验证的 callback 只作 audit；跨 Owner 的可验证结果只能走 Profile 已定义的 external evidence path。Strong capability 在允许新 retry 前先解析旧 attempt。
+
+### 11.3 Cancel / Reschedule
+
+- `PAYLOAD_RESERVED`：Cancel → `ABANDONED`；Reschedule 返回 `RESERVATION_NOT_COMMITTED`。
+- `SCHEDULED`、`RETRY_WAIT`、`CLAIMED`：可成功。
+- `PUBLISHING`（含 strong-capability retirement pending）、`UNCERTAIN`、`HANDED_OFF`：`TOO_LATE`。
+- `PUBLISHED`：`ALREADY_PUBLISHED`。
+- `CANCELED`：`ALREADY_CANCELED`。
+- `ABANDONED` reservation：`ALREADY_ABANDONED`。
+- `EXPIRED`：`ALREADY_EXPIRED`；`DEAD_LETTER`：`ALREADY_DEAD_LETTERED`；caller 明确引用旧 `SUPERSEDED` generation：`GENERATION_SUPERSEDED`。不存在 free-form “terminal conflict”。
+
+判断先看 `GenerationRuntimeIndex.attemptObligations`，不能只看 current work：只要存在任一 `ledgerState=UNCERTAIN` ref，public aggregate 必为 `UNCERTAIN`，Cancel/Reschedule 固定 `TOO_LATE`，即使 current work 物理上是可逆 timeline 或 Claim；该失败结果不撤销 policy-authorized retry。相反，没有 admitted obligation 的普通 Claim 才按上表可撤销。Expiry/Lane Close 是安全收口而非管理成功：它们删除可逆 current work，但绝不删除 admitted obligation，随后保持 `UNCERTAIN` 或走 pinned possible-delivery terminal policy。
+
+`expectedStateVersion` 是可选 CAS，不承担排序。初始 Message Control Version (`stateVersion`) 为 1；成功 Reschedule/Cancel 递增。内部 Claim/retry/callback 只递增 runtime revision。
+
+Reschedule 原子写旧 generation `SUPERSEDED` 和新 generation timeline。Dead Letter Replay 创建下一 generation 并递增 Message Control Version。Retry 保持 generation 和 Message Control Version。
+
+对已经存在的 Message 或 Payload Reservation，`Cancel`、`Reschedule` 和大消息
+`Commit` 都必须先读取并校验其 durable Destination Lane。Lane 缺失、错挂或身份不匹配
+是 Store integrity failure，必须在任何状态结果、quota/READY projection 和
+`WriteBatch` 之前 fail closed；不得推进 `appliedSourcePosition`，也不得让通用投影通过
+`LaneRecord.initial(...)` 偷创建 Lane。只有首次 `Schedule` 或 `PrepareLarge` 在明确允许
+新 Lane 的路径上才能创建 Lane projection。
+
+`SCHEDULED`/`RETRY_WAIT` 只有在 `earliestUtcNow >= expireAt` 时进入 `EXPIRED`。`UNCERTAIN` 不能因到达 `expireAt` 被改写成“从未发布”：它先尝试 capability resolution，最终只能保留 unknown，或按显式 bounded policy 进入带 `possibleDestinationDuplicate=true` 的 `DEAD_LETTER`。
+
+## 12. Scheduler、Lane 与时钟
+
+### 12.1 Destination Lane
+
+Lane ID 由有界 canonical tuple 计算：
+
+```text
+tenantRoutingScope: exact 32 bytes
+adapterKind:  numeric enum
+authenticated targetClusterId: bounded canonical bytes
+BrokerResourceIncarnation: canonical tagged bytes
+physical topic identity + partition
+DestinationProfileId + version
+OrderingDomainHash | unorderedBucket
+DeliveryCapabilityProfile
+```
+
+Destination Profile reference 必须是 `ProfileKind.DESTINATION`，Delivery Capability reference 必须是 `ProfileKind.DELIVERY_CAPABILITY` 且其 Adapter 与 Destination Adapter 相同。两者的 domain-separated semantic hash 已绑定 kind； Lane tuple 不再重复编码 kind byte，任何错 kind ref 都在构造 tuple 前 fail closed。
+
+因此 source-position-pinned resolver 在把 Schedule/Prepare 交给 Lane projection 前，必须 exact-resolve Destination Profile、其 credential Head，以及该 Profile 引用的 Delivery Capability semantic；capability 缺失、ref/kind 不一致或 Adapter 不匹配都固定 `ROUTE_SNAPSHOT_UNAVAILABLE`，不得让下游 resolver 猜测或降级到 legacy body。
+
+Lane 是 quota、concurrency、retry、circuit、fairness、due lag 和 failure metric 单元，不是 ownership/recovery 单元。
+
+variable components 使用 unsigned-u32 big-endian length prefix，integers/enum 使用 registry 固定 width/value，不能用 display name、delimiter string 或语言默认序列化。`destinationLaneId` 是：
+
+```text
+SHA-256(
+  "nereus-delay-destination-lane" ||
+  0x01 ||
+  canonicalTupleBytes
+)
+```
+
+Protocol Registry 固定 empty/max/ordered/unordered/Broker-incarnation golden vectors。首次创建 Lane 还生成：
+
+```text
+laneIncarnation =
+  first128Bits(
+    SHA-256(
+      "nereus-delay-lane-incarnation\0" ||
+      destinationLaneId[32] ||
+      lp32(canonicalSourcePosition)
+    )
+  )
+```
+
+它是 replay-deterministic，并进入 producer/channel/evidence identity。若该 Lane 后来 `ORDERING_BROKEN/CLOSED/RETIRED`，compact terminal guard 使同一 tuple 永不能重新 `OPEN`；继续业务必须使用新 Profile/Ordering Domain/Broker Resource Incarnation，产生新的 `destinationLaneId`。`laneIncarnation` 不是绕过 terminal guard 的重开旋钮。
+
+Ordered message 的 bucket 是完整 Ordering Domain hash。Unordered message 使用 Profile 固定的 `unorderedLaneBucketCount`：
+
+```text
+unorderedBucket =
+  unsignedBigEndian64(
+    SHA-256("nereus-delay-lane" || delayMessageId[41])[0..7]
+  ) mod unorderedLaneBucketCount
+```
+
+该 count 属于 immutable Profile version；不得按单条消息创建 Lane。创建新 Lane 要在同一 Command WriteBatch 检查持久 Lane-count grant。
+
+Lane 使用两个正交持久轴，禁止把可重放的管理语义与 live capability 混成一个状态。`OPEN`/Pause/Resume/Break/Close 的管理边界都由 Command Source Position 决定；`CLOSED -> RETIRED` 只是 Recovery Floor 保护下的物理退休，不改变已经冻结的 Lane 管理语义。
+
+```text
+admissionGate (source-ordered):
+  ABSENT -> OPEN
+  OPEN <-> ADMIN_PAUSED
+  OPEN | ADMIN_PAUSED -> ORDERING_BROKEN | CLOSED
+  ORDERING_BROKEN -> CLOSED
+  CLOSED -> RETIRED
+
+runtimeReadiness (owner/runtime-derived):
+  RECOVERING_EVIDENCE -> READY | BLOCKED
+  READY -> BLOCKED | RECOVERING_EVIDENCE
+  BLOCKED -> RECOVERING_EVIDENCE
+```
+
+首次 Schedule 创建 Lane 时，同一 deterministic Command WriteBatch 分配 Lane Incarnation、逻辑 quota/strong slot grant，初始化 `laneControlVersion=1`，并写 `admissionGate=OPEN`、`runtimeReadiness=RECOVERING_EVIDENCE`；Command 不等待 Producer、target、receipt 或 journal 连接。异步 Lane activator 验证 pinned runtime prerequisite、建立/fence Lane-scoped channel并追平 evidence barrier，成功后在 shard event loop 写 `READY`。只有 `admissionGate=OPEN && runtimeReadiness=READY` 才可 scan/Claim/Admission。
+
+`READY` 只表示当前 Owner 已取得该 Lane 的发送权与证据前置条件，不保证目标此刻健康；普通 publish failure 进入 circuit/backoff。Capability/auth/topic drift 只把 runtimeReadiness 写为 `BLOCKED`，不改 admissionGate 或已应用 Command 结果；修复后重新 `RECOVERING_EVIDENCE -> READY`。Owner/Store 改变时所有未 retired Lane 的 runtimeReadiness 都回到 `RECOVERING_EVIDENCE`，但 source-ordered `ADMIN_PAUSED/ORDERING_BROKEN/CLOSED` 绝不因恢复被清除。
+
+本地 `DelayShard.updateLaneReadiness` 只允许作为 `runtime` 包内 projection
+算法/测试 seam，不是生产 activator API。跨包 Worker 不能在没有 pinned
+Profile/capability/credential generation、Lane-scoped channel fencing、evidence barrier、
+Owner authority 和 event-loop admission 的情况下直接写 `READY` 或 `BLOCKED`。
+生产 Lane activator 仍是发布门槛；未来入口必须把上述证明与同一 READY projection
+WriteBatch 绑定，而不能重新公开 raw readiness setter。
+
+`READY` 不是无期限 boolean。每次 transition 写 exact `ReadyCertificate`：
+
+```text
+OwnerIdentity / Store Incarnation / Lane Incarnation
+Adapter channel generation
+evidence barrier and typed evidence cursors
+Broker resource attestation/config generation
+Credential Binding generation/digest and resolved immutable credential-version fingerprint digest
+protected CredentialUseLease and lease expiry
+Trusted-UTC certificate expiry
+```
+
+Lane activation/credential renewal 先解析 immutable reference，再在一个 Oxia transaction compare current Head triplet并把 exact generation 的 managed-channel protectionUntil monotonic 扩展到 lease expiry；durable reread 后才生成 `CredentialUseLease`、checked-incremented new channel generation 和 certificate，lease bytes 绝不原地替换到旧 channel identity。Claim、Admission preparation 和 first Producer call 都重验 live certificate/lease generation、digest、expiry 和 locally loaded credential fingerprint；首次 physical call 从本地 gate 到 library ownership 必须小于 `maximumCredentialAuthorizationToProducerCallAge`，不做 per-message Oxia read。不匹配时在调用前 fail closed；若 exclusive send token 仍能证明 `BEFORE_LIBRARY_OWNERSHIP`，expired/wrong-holder lease 写 initial `NOT_PUBLISHED/LANE_UNAVAILABLE/CAPABILITY_UNAVAILABLE`，binding/fingerprint mismatch 写 `.../CREDENTIAL_BINDING_DRIFT`，都携 exact non-submission evidence；若在该 Outcome 持久化前 crash，恢复仍保守进入 `RECOVERY_FIRST_SEND_UNCERTAIN`。`PUBLISH_ADMISSION` apply/replay 只把 body 内 certificate 作为历史决策证据：验 digest、captured generations、decision interval 和 Broker persistence-time 不等式，不用当前 Owner/channel/config/credential binding 反向改写已持久化的 Admission。Head rotation 通知会提前使旧 Lane 失去 READY并阻止续租，但等价轮换不追溯撤销已保护且未过期的 call lease。Owner/store/channel/evidence/attestation/credential lease 改变、loaded fingerprint drift 或 certificate/lease 即将过期时，shard event loop 先在一个 WriteBatch 删除旧 READY/certificate、递增 `laneVersion`，安装新 generation/certificate 后才放回 READY，之后 fence/close 旧 channel。旧 activator/callback/Claim 不得用较旧 generation 重建 READY 或准备新 Admission。
+
+`PauseDestinationLane` marker 只把 `OPEN -> ADMIN_PAUSED`，撤销可逆 Claim、删除 READY key并阻止新 Admission；`ResumeDestinationLane` 只允许 exact `ADMIN_PAUSED -> OPEN`。Resume 不能清除 capability `BLOCKED`，也不能重开 `ORDERING_BROKEN/CLOSED`。若恢复 OPEN 时 runtimeReadiness 已 READY，marker 同 batch 重建当前 READY key；否则等待 activator。
+
+### 12.2 Ready 与 Expiry indexes
+
+每个满足 `admissionGate=OPEN && runtimeReadiness=READY` 且仍有可调度 work 的 Lane 在 `timeline_cf` 恰有一个 versioned READY head；其它 Lane 必须为零个。`meta_cf/LANE` 保存 optional exact current READY key；Cancel/Reschedule/Claim/retry/circuit、Pause/Resume/Break/Close、readiness/owner change 在同一 WriteBatch `delete(oldReadyKey) + optional put(newReadyKey)` 并递增 runtime `laneVersion`。`laneVersion` 用于拒绝并发 snapshot/cursor 中看到的旧 key，不把 append-only stale keys 当正常状态；它不参与 `expectedLaneControlVersion` CAS。
+
+对 typed ACTIVE branch，上述 READY/key 更新必须同时更新 `ActiveLaneState` 的
+`encodedReadyKey`、certificate 及 per-Lane `ChargeVector` projection；READY 必须
+保留 certificate；仅当存在当前可调度 work 时才同时具备 key、action/eligibility
+时间投影与 certificate。当前 work 被 Claim/terminalize 消费后，READY 可以暂时只
+保留 certificate，物理 key 与当前时间投影必须清除；非 READY 必须清除 key 与
+certificate。若当前本地输入无法无损提供这些字段，更新应停在 fail-closed，而不是
+写入一个看似可调度但缺少证明的 Lane。
+
+生产 READY discovery 必须读取 typed `ActiveLaneState`，并在 promote head 前把
+`ReadyCertificate.owner` byte-equal 绑定到当前 scheduler `OwnerIdentity`、把 Store
+Incarnation byte-equal 绑定到当前 shard DB。调用方必须传完整
+`TrustedUtcIntervalEvidence`：`evidence.earliest >= certificate.issuedAt.latest` 且
+`evidence.latest < certificate.validUntil`；等于过期边界即不可授权。任一检查失败都在
+offer/cursor/ring 持久化前 fail closed，并回滚本轮进程内 queue/fairness 投影。只传
+`dueThroughEpochMs`、允许 legacy Lane value 的 overload 仅是 embedded/rebuild
+兼容 seam，不是生产 Claim authority。
+
+READY discovery 看 `GenerationRuntimeIndex.currentWork` 与 exact `TimelineWorkRef`，不能把 public aggregate `UNCERTAIN` 当作“一定没有 timeline”的捷径。unordered Lane 的 policy-authorized `UNCERTAIN_RETRY` 因而可以有 READY；ordered Lane 禁止该 work kind，旧 UNCERTAIN head 只保留 order barrier、没有 successor READY。Claim 前必须同时复核 work kind、candidate attempt number、runtime revision、obligation-set digest 和两类剩余 budget。
+
+ordered Lane 的 ready time 来自 blocking head；`ORDERED` key 按业务 `(deliverAt, effective Schedule Source Position, delayMessageId)` 选择该 head，而 `headEligibilityAt=max(actionAt,retryEligibilityAt)` 决定何时唤醒。后续消息不能越过 `CLAIMED/PUBLISHING/UNCERTAIN/RETRY_WAIT` head。
+
+每次 READY discovery 和 scheduler poll 都必须携带由 Trusted UTC/evidence barrier
+证明的 `dueThroughEpochMs`，并以 `eligibleAtEpochMs <= dueThroughEpochMs` 作为
+包含边界；不能因为 `actionAt` 或本地 wall clock 较早就提前 Claim/Admission。
+未来 READY head 可以暂时保留在进程内队列，但 due-aware poll 必须继续 fence 它，且
+durable discovery cursor 不能消费一个尚未到 due 边界的唯一 future key，避免重启后
+无法 rediscover。现有不带时间参数的 scheduler overload 只保留为 embedded/test
+兼容 seam；生产 Worker/Shard 路径必须使用带 trusted due-through 的接口。
+
+```text
+nextEligibleAt =
+  max(
+    ordered headEligibilityAt or unordered earliest eligibility,
+    circuitOpenUntil,
+    laneRetryBackoffUntil,
+    executorRetryAt
+  )
+```
+
+正常打开的 DB 必须物理上每 Lane 至多一个 READY key，并满足上述 gate/readiness 双向不变量。发现无法由 snapshot 并发解释的 orphan/stale key、schedulable Lane missing key、非 schedulable Lane 残留 key 或 version mismatch 时停止该 shard scheduling，告警并在 fenced 状态做 deterministic index rebuild；不允许依赖后台 GC，也不允许退化为全 timeline 热路径扫描。
+
+本地 deterministic repair 算法 `DelayShard.rebuildReadyIndexes()` 只允许作为
+`runtime` 包内恢复/测试 seam，不是跨包 Worker API。它会扫描 Lane/Timeline 并重写
+全部 READY projection；在生产恢复 coordinator 尚未把 fenced lifecycle、strict
+Owner/Oxia authority、record/actual-byte/elapsed I/O budget 与该 WriteBatch 绑定之前，
+包外调用者不能直接触发 rebuild。
+
+Expiry discovery 与 publish readiness 完全分离。每个仍可能因 `expireAt` 禁止未来 Admission 的 active generation，在 `timeline_cf/EXPIRY` 恰有一个：
+
+```text
+[EXPIRY][format=0x01][expireAt][destinationLaneId][delayMessageId][generation]
+```
+
+`ADMIN_PAUSED`、`ORDERING_BROKEN`、`BLOCKED`、`RECOVERING_EVIDENCE`、circuit-open 或远期 retry 都不能删除/推迟该 key。独立 bounded expiry scanner 只在 `earliestUtcNow >= expireAt` 后准备 exact `EXPIRE_GENERATION`；其 Shard Log Source Position 与 Cancel/Reschedule/Admission 决定胜者。无 unresolved attempt 时该 record 终态为 `EXPIRED`；仍有 possible-delivery attempt 时只关闭新 Admission/retry 并保持 `UNCERTAIN` 或执行 pinned possible-delivery terminal policy。Terminal/Reschedule/Close 同 batch 删除旧 expiry key；stale generation event 是 no-op。当前本地 scanner 入口 `ExpiryDiscoveryWorkClassExecutor` 把 exact Shard、canonical Trusted-UTC evidence 以及完整 record/byte/elapsed scan budget 绑定进 `EXPIRY` task；task byte charge 是 canonical request identity 与完整 `maxBytes` envelope 的 checked sum。queue admission 只做本地 lifecycle preflight，不读取 Oxia、时钟或 RocksDB；bounded action 开始后才重读 strict Owner Lease，并用独立 monotonic clock 扫描。一次 candidate 的预算同时覆盖 `timeline_cf/EXPIRY` key/value 与对应 `id_cf/MESSAGE` key/value 的实际字节；首个 candidate 本身超过 byte envelope 时 fail closed，后续 candidate 只因剩余预算不足时留给下一 turn。discovery 只返回仍与 Message projection 完全一致的 candidate，不改变 Message 状态。随后 `ExpiryWorkClassExecutor` 接收一个 candidate，在进入同一 `EXPIRY` bounded queue 前准备并签名 exact mutation，queue rejection 不读取/写入 Store；执行时重新校验 Owner Lease、Trusted-UTC boundary 和 Shard identity，只调用外部 `ShardLogMutationAppender`，不本地 apply、不分配 Source Position。`PERSISTED` 必须返回并校验外部 Source Position，`DEFINITIVELY_NOT_PERSISTED` 与 `UNKNOWN` 保留 exact mutation 语义；source-ordered apply 仍是唯一能够改变 Message generation 状态的路径。真实 scanner 调度、Broker append/ACK、Oxia/Trusted-Time authority 和 source replay 接线仍须由生产适配器完成。Payload Reservation 使用独立 `[RESERVATION_EXPIRY=0x05][format=0x01][reservationExpireAt][reservationId]`，由 reservation scanner 解码并走同样的 Trusted-Time/source-fence GC 规则；它不能与 Message Generation `EXPIRY` 共用 tag。
+
+### 12.3 两级 DRR
+
+Worker 先在至少有一个 `admissionGate=OPEN && runtimeReadiness=READY` Lane 的 `ACTIVE_FOR_COMMANDS` shards 间 weighted DRR，选中 shard 后只在这些可调度 Lanes 间 weighted DRR：
+
+- 每轮 deficit 加 `weight * baseQuantumBytes`；
+- cost 为 `max(accountedPublishBytes, minimumRecordCost)`；
+- deficit 可累积但有 cap，cap 必须覆盖最大 admitted record；
+- `weight * baseQuantumBytes`、`baseQuantumBytes * deficitMultiplier` 与 deficit 累加必须使用 checked/saturating arithmetic；任何配置或恢复值导致的溢出都必须 fail closed，禁止整数 wrap-around；
+- 恢复出的 deficit 在进入运行时 projection 时立即截断到当前 cap；不能把旧配置遗留的超 cap 值留在空闲 Lane/Shard 上，等待下一次 poll 才修正；
+- 每次 visit 同时受 message、byte、elapsed-time cap；
+- ordered Lane 每次最多 head；unordered 可有界多条；
+- global permit 不足时不再 Claim。
+
+Ready discovery 使用持久 rotating cursor 与 active DRR ring：bounded scan/permit exhaustion 从 successor 续跑，走到末尾 wrap；已经 active 的 hot early key 不重复占 discovery prefix。每个 shard DB 的 inner Lane cursor、ring generation、`lastServedRound` 与 capped deficit 以 Protocol Registry 的五个 closed value 持久在自己的 `meta_cf/SCHEDULER`，每 bounded cycle/成功 Claim 同步推进；恢复的 first round 在所有 discovered Lane 各获一次机会前不能重复服务同一 Lane。Worker-level outer shard DRR 是从有限 `ACTIVE_FOR_COMMANDS` shard DB 集合重建的 bounded process state；构建后同样先给每个 eligible shard 一次机会， 不跨独立 shard DB 伪造一个原子持久 Worker ring。ownership loss 先把 shard 从 outer visit 中 fence，待本地 scheduler queue 排空后才允许从进程内 registry 注销，并重算当前 shard 集合的 outer deficit cap，同时截断保留下来的 deficit；该注销只回收可重建 process state，不替代 source-ordered terminal guard、Store close 或 Oxia ownership。进展保证以连续 ownership interval 为边界。
+
+任何会同时改变本地 queue、discovery cursor、active ring、fairness counter 或 readiness projection 的 scheduler turn（包括 fenced READY rebuild），都必须把内存 projection 与五值 `WriteBatch` 视为一个成功边界。`WriteBatch` 失败时必须先回滚已 poll/offer/rebuild 的 work、ring/cursor、DRR counters、discovery heads 和 recovery-first-pass bookkeeping，再向调用方返回失败；恢复快照也必须先完整校验所有已注册 Lane 的计数和唯一身份，再统一应用，重复 Lane/Shard entry 或后一个坏 entry 都不能让前一个 Lane/Shard 留下半恢复状态。持久化 projection 的语义 generation、owner 和跨值 identity 校验也必须在重建 active ring 之前完成；active ring 与 deficit entry 必须匹配当前 Lane incarnation 和 `observedLaneVersion`，stale deficit 不得恢复为当前 credit；若校验或 `restore` 失败，已注册 Lane 的原 ring、counter 和 recovery bookkeeping 必须保持不变。不得因为结果已在异常前暂时生成，就丢失仍由 durable READY 支持的 head，也不得把未落盘的 readiness 当成成功。这样失败后重试仍从原 successor/队列状态继续，重启时也能由 authoritative READY 重建。
+
+任何用于标记 work class 已服务的时钟样本也必须在移除 queue head、扣减 deficit 或推进公平计数之前成功读取；单调时钟回拨、负值或其它时钟采样错误必须在这些内存变更之前 fail closed，不能让一次失败的 bounded turn 丢失仍由队列支持的 head。
+
+一个 bounded work-class poll 本身也是单一的内存 mutation boundary：如果首个或后续
+head 已被暂时取出后，下一次时钟采样、选择或 checked arithmetic 失败，poll 必须
+恢复该 turn 开始时的所有 queue、queued-bytes、credits、cursor、last-served 和
+preemption-debt projection，再把原异常返回；不能因为异常发生在前一个 task 已选中
+之后就丢失该 task，调用方也不能拿到一个未返回的部分结果。时钟的 monotonic
+high-water 可以保留为保守观测，但不能把未返回的 poll 记成已服务。
+
+work-class resource acquisition 与 Turn close 的清理边界必须同时覆盖
+`RuntimeException` 和 fatal `Error`。即使 borrowed-hold/单调时钟检查本身抛出
+fatal error，也必须尝试释放本 turn 的每个 exact lease、清除 active-turn fence
+并把 Turn 标记为 closed 后再重新抛出首个 failure；后续 cleanup failure 只作为
+suppressed evidence 保留，不能中断剩余 lease 的释放尝试。否则一次本地 fatal
+检查会把共享 record/byte token 永久留给失败 class，并间接饿死健康 work class。
+active-turn 检查也不能在持有 event-loop monitor 时再取得 Turn monitor，而 Turn
+close 又以相反顺序清除 event-loop 状态；该可见性必须使用 lock-free/volatile 状态
+或统一锁顺序。close 尚未清除 active Turn 时，并发 poll 只能立即拒绝；close 清除后
+才允许下一 turn，不能死锁，也不能让新旧两个 bounded turn 同时持有共享 lease。
+一个 bounded Turn 已经从 queue 取出多条 task 后，某个 handler 的普通
+`RuntimeException` 只表示该 handler 必须按自己的 durable identity 收敛当前 task；
+它不能让后续已选中但尚未调用 handler 的 task 静默消失。只要 exact lease 的
+borrowed-hold 检查仍通过，event loop 必须继续执行该 Turn 的剩余 task，最后重新抛出
+首个 handler failure，并把后续 handler/close failure 作为 suppressed evidence。
+fatal `Error` 或 hold-boundary failure 仍立即停止 handler 执行并进入全 lease cleanup；
+已经调用过 handler 的 task 不做不安全的隐式 requeue。停止点之后、尚未调用过
+handler 的 exact trailing tasks 必须按原 selection order 放回各自 class 的队首，
+保持 class-local FIFO 和 queued-bytes；active Turn 关闭前还必须为全部 selected tasks
+保留原 queue record/byte capacity，使并发 offer 不能占用这块恢复空间。这样 fatal
+handler 或首个 borrowed-hold 检查既不会重复可能已有副作用的 task，也不会丢失从未
+开始的 task；requeue/cleanup 的后续 failure 只作为首个 failure 的 suppressed evidence。
+
+生产组合入口在向 bounded work-class queue 提交任务前，必须把 exact
+`(workClass, taskId, bytes)` 与一个同步、有界的本地 mutation 或 durable
+external handoff action 绑定。同一 class/task identity 已注册时不得被覆盖；
+queue admission 失败必须在返回前撤销该绑定。task 被选中时先从
+`QUEUED` 转为 `RUNNING`；action 成功才删除注册，已开始 action 的
+`RuntimeException` 或 fatal `Error` 都必须保留 exact action 并转为 `FAILED`。
+只有显式提交同一 complete task 的 retry 才能将 `FAILED` 重新入队；不得
+仅凭 `taskId`、改变 byte charge，或对 `QUEUED/RUNNING` action 执行隐式 retry。
+fatal/hold stop 后从未开始的 trailing action 保持 `QUEUED`，并与 EventLoop
+恢复的 exact task 一致。该 registry 只是进程内执行投影，不是任务的 durable
+authority；进程丢失后必须从 shard/source/checkpoint 的权威索引重建，不得把
+内存中的 `FAILED` 当成唯一恢复来源。
+
+同一个进程内 Worker 的 execution graph 还必须与物理资源 graph 一一对应。exact
+`SharedRocksDbResources` 只能绑定一个 `WorkClassExecutionRegistry`，而一个 registry 的
+`STORE_RESOURCE_ENVELOPE` 也只能绑定该 exact resources 实例；Owner-side 的全部
+work-class executor，以及 scheduled checkpoint、restore 和 final-drain checkpoint 的
+生产构造入口，都必须在构造时经 Store/coordinator 回溯并建立该双向 identity fence。
+Claim 与 target physical admission 同样必须双向绑定：一个 exact
+`ClaimExecutionAdmission` 或 `DestinationPhysicalAdmission` 不能再被第二个 registry
+接受。任何误配必须在 action registration、queue admission、Store/provider I/O 或
+transport charge 前失败，不能通过为同一资源 authority 创建多套 registry 放大 queue
+records/bytes、权重或公平份额。这里证明的是同一资源对象图内部不可分叉；生产
+bootstrap 仍必须创建唯一 Worker 根图，它不等于 JVM 内全局 singleton、Oxia capacity
+authority、动态 I/O admission 或集群级 placement 证明。
+
+Worker 外层 bounded poll 也必须是一个完整的进程内 mutation boundary：它除了外层
+ring、cursor、Shard deficit、last-served、round generation 与 recovery-first-pass
+集合，还必须保存每个已注册 shard 的 inner cursor、inner deficit 和 inner round
+snapshot，并记录本轮实际取出的 heads。若首个或后续 shard 的 Lane head 已被
+inner poll 取出，而下一次本地时钟、selection 或 checked arithmetic 检查失败，必须
+按取出顺序逆序把这些 heads 放回对应 Lane FIFO，再恢复两级公平计数和外层 ring；
+不能把一个没有返回给调用方的 shard work 当成已服务。`WorkerSchedulerTest`
+`clockFailureAfterAHeadWasSelectedRollsBackTheWholeWorkerPoll` 是该本地回归证据。
+`LaneScheduler` 的 inner poll 也会在自身异常时按同一逆序规则恢复已取出的
+Lane heads 和 inner counters，避免外层无法获得返回列表时出现局部丢失。
+三层本地 scheduler（`LaneScheduler`、`PersistentLaneScheduler` READY discovery、
+`WorkerScheduler`）的 monotonic clock provider 都必须拒绝负值和回拨样本；
+READY discovery 在解码前遇到时钟异常时不得推进 cursor 或 offer，Lane/Worker
+poll 在异常时恢复整轮 projection。`LaneSchedulerTest.clockRegressionAfterAHeadWasSelectedRollsBackTheWholeLanePoll`
+和 `WorkerSchedulerTest.clockRegressionAfterAHeadWasSelectedRollsBackTheWholeWorkerPoll`
+是该 guard 的本地回归证据。这里的 clock 只用于 bounded elapsed-time guard；它不替代
+Trusted UTC、Owner 或 Oxia authority。
+
+READY recovery 的全量 queue replacement 也必须先验证并组装所有 item，再清理旧 queue；未知 Lane、非 schedulable Lane、null 或其它 malformed item 只能在原 projection 仍完整时 fail closed，不能留下部分重建的 FIFO。
+
+这里的 `eligible` 必须按本轮 trusted due-through 重新计算：只有存在
+`eligibleAt <= dueThrough` 的 schedulable head 的 Lane/Shard 才进入 recovery
+first pass、outer deficit 或 service-gap 分母。仅有 future head 的 Lane/Shard 可以
+继续保留在 READY/pending projection，但不能让恢复首轮等待它到期，也不能因此阻塞
+同一连续 ownership interval 内已经 due 的其它 work。
+
+`eligible` 还必须满足本轮调用方的全局 byte budget：如果某个 due head
+大于当前剩余 budget，它本轮不能 Claim，也不能被计入 recovery first pass
+的待服务集合。该 head 必须保留在 READY/pending projection，等待拥有足够
+全局预算的后续 turn；它不能让 inner 或 outer 的恢复首轮保持打开并阻塞其它
+仍可在当前预算内完成的 Lane/Shard。
+
+在 ready 数有界、weight 非零、全局保留容量持续可用、record 同时不超过 deficit/visit/Lane/shard/Worker/Adapter 全部 byte cap 的前提下，每个健康 Lane 每完整一轮至少被访问一次，并在：
+
+```text
+ceil(recordCost / (weight * baseQuantumBytes))
+```
+
+轮内获得足够 deficit。发布 capacity artifact 必须由最大 shard/Lane 数、visit time、discovery cap、event-loop scheduler share 推导 `maxSchedulerRoundDuration` 与 `maxHealthyLaneServiceGap`，runtime 对这两个 exact threshold 出证据。
+
+一次 visit 只完成 bounded snapshot scan、Claim/Admission handoff，不等待 Broker future。Lane/Shard/Worker 各自有 message 与 byte inflight cap；单个 Lane 或 shard 在存在其他 ready work 时不得占满 Worker 全部 permits。Logical callback deadline 把 Future 结果记录为 `UNKNOWN` 并释放逻辑 execution turn，但 underlying request/buffer/connection 的 physical/zombie charge 一直保留到真实 completion、cancel confirmation 或 fenced channel teardown；达到 Lane zombie cap 只 block 该 Lane。
+
+### 12.4 Trusted UTC Interval
+
+Worker 维护：
+
+```text
+[earliestUtcNow, latestUtcNow]
+```
+
+其来源为批准的时间同步、测得 uncertainty、drift bound 与 monotonic elapsed time。
+
+- due：`earliestUtcNow >= actionAt`；
+- Admission before expiry：`latestUtcNow < expireAt`；
+- forward/backward step、sync loss、过大 uncertainty、长 pause 会关闭 Admission；
+- stabilization window 后恢复；
+- raw `currentTimeMillis()` 不直接触发批量 due。
+
+定义 `trustedUtcIntervalWidth = latestUtcNow - earliestUtcNow`。发布配置必须证明：
+
+```text
+minDeliveryWindow
+  > maxTrustedUtcIntervalWidth
+    + maxHealthyAdmissionDecisionDelay
+```
+
+严格大于来自 `latestUtcNow < expireAt`。其中 decision delay 包括 expiry/source/event-loop arbitration 与 Admission System Mutation round trip 的认证上界；不满足则 timing policy/Worker 启动失败，不能接受一个在健康无 backlog 情形也永远无法同时满足 due/expiry gate 的消息。
+
+### 12.5 Work-class isolation
+
+Shard Log apply、lease event、callback-to-System-Mutation、expiry、scheduler、query、GC、checkpoint 使用独立有界 queue/pool。Shard event loop 仍是单 writer，但按配置的 class weight 和 record/byte/elapsed caps 轮转；lease loss 可立即关闭 gate。一个 source/expiry/outcome/due turn 都有硬上限，任何持续有 work 的 class 在 `maxEventLoopClassDelay` 内获得 turn；due burst 不能无限推迟 source，Command flood 也不能饿死 outcome/expiry。`LEASE_FENCE` 的 preemptive 语义只保证首个 bounded turn 可抢占；若它持续有队列，scheduler 必须跨小预算 poll 保留一次未偿还的 preemption debt，并在存在可服务普通 class 时先让出一个 turn；只有没有其他可服务 work 时才可继续 preempt。
+
+active Shard Log reader 对 Client Command 和 System Mutation 使用同一
+`SOURCE_APPLY` FIFO/action 入口。每个 task 的 identity 必须用 domain-separated
+hash 同时绑定 exact canonical Source Position 与 NDL1 frame，byte charge 必须是
+两者 exact byte length 的 checked sum；不允许 source adapter 用估算值少计费。queue
+admission 拒绝不得读写 Store、改变 lease 或提交 Broker ACK/offset，exact source
+record 仍由调用方保留。bounded action 开始后，必须用执行时时钟重读 exact
+Owner Lease/session，重新校验 assignment、Activation Barrier、physical source identity
+和 Pulsar connection/guard，然后才允许 Command 或签名 System Mutation 进入同一
+Shard 的同步 WriteBatch 路径。返回 outcome 必须投影到当前物理 Source Position；
+逻辑 duplicate 的 durable result 仍保持首次 apply anchor。
+
+普通 apply/lease/WriteBatch failure 会先 fence 本地 Owner，再返回可查询的 source
+attempt failure outcome。物理 Broker record/cursor 是唯一 retry authority，该 handler
+必须正常结束并删除进程内 action，不得再产生一条 WorkClass `FAILED` retry
+流。fatal `Error` 仍记录 outcome 并重新抛出。绕过 queue 的 direct active apply
+方法只能保留为 ownership 包内的本地测试/组合 seam，不得暴露为跨包生产 API。
+
+严格接管 replay 也必须复用同一个 `SOURCE_APPLY` work-class，而不能由
+`OwnerRecoveryCoordinator` 直接调用绕过队列的 mixed `replayTurn`。恢复 action
+仍然绑定 exact Source Position/frame identity 和 checked byte charge，但只在
+`CATCHING_UP` lifecycle 下执行；它重新读取同一 context-bound Owner Lease、clock、
+assignment/barrier/guard，并在同一 shard WriteBatch 成功后返回当前物理位置的
+`SourceReplayOutcome`。恢复协调器保留 caller-owned source look-ahead：队列未选中时
+返回 `WAITING_FOR_WORK_CLASS`，queue rejection 或 action failure 不推进 cursor；只有
+action outcome 已证明且 look-ahead identity 未变化时才调用 `next()` 并更新
+`lastCatchupPosition`。恢复 replay 不发送 Broker ACK，也不创建第二条 generic retry
+流；cursor/physical source record 仍是唯一恢复 retry authority。这样 active apply 和
+takeover replay 共享公平性、资源限额和 fencing 边界，同时保持 `CATCHING_UP` 与
+`ACTIVE_FOR_COMMANDS` 的 lifecycle 语义分离。
+
+`OwnedDelayShard` 的 `replayCatchup*`、`replaySystemMutations*` 和 mixed `replay*`
+方法只保留为 ownership 包内的本地测试/组合 seam，全部为 package-local；包外
+Worker 不能通过 whole-iterable、fixed-time 或 bounded direct replay overload 绕过
+`SOURCE_APPLY` queue。生产 source/recovery 入口必须使用相应的
+`SourceApplyWorkClassExecutor` handoff。
+
+Message expiry 的 durable index discovery 也必须在 `EXPIRY` work-class 内完成，
+不能由跨包 Worker 先直接扫描 RocksDB、再只把发现结果送入 queue。
+`ExpiryDiscoveryWorkClassExecutor` 的 submission 只做 strict-active 本地 preflight，
+并把 exact Shard、canonical Trusted-UTC evidence 与 record/byte/elapsed scan budget
+绑定进 task；queue rejection 不得读取 Oxia、owner clock、scan clock 或 Store。
+action 开始后重读 Owner Lease，以 evidence 的 `earliestEpochMs` 为 inclusive cutoff，
+并使用与 owner UTC clock 分离的 monotonic scan clock。共享 `BoundedReadBudget`
+必须同时计入每个 `EXPIRY` index key/value 和 dependent `id_cf/MESSAGE` key/value
+的实际字节及 elapsed time，不能只限制返回 candidate 数。首个完整 candidate 本身
+超过 envelope 时必须 fence/fail closed；后续 candidate 仅因剩余预算不足时停止 turn，
+由下次从 durable index 重新发现。discovery 不改变 Message；每个 exact candidate
+仍须交给 `ExpiryWorkClassExecutor` 签名并 append source-ordered mutation。
+
+Payload Reservation expiry discovery 属于 `GC` work-class，但不能重新读取 wall
+clock 来决定过期。`ReservationExpiryDiscoveryWorkClassExecutor` 的 submission 只做
+strict-active 本地 preflight，并把 exact Shard 与 record/byte/elapsed scan budget
+绑定进 task；queue rejection 不得读取 Oxia、owner clock、scan clock 或 Store。
+action 开始后重读 Owner Lease，inclusive cutoff 只能取 Store 已持久化的
+source-ordered `closedIngressDeadlineThrough`。同一个 `BoundedReadBudget` 必须覆盖
+`RESERVATION_EXPIRY` index 与 dependent `id_cf/RESERVATION` 的实际 key/value bytes
+和 elapsed time；过大单 candidate fail closed，剩余预算不足则留到下一 turn。
+discovery 不物化、不释放 quota；每个 byte-identical candidate 仍须经
+`ReservationExpiryWorkClassExecutor` 的第二个 strict `GC` handoff 才能写 batch。
+按 `reservationId` 直接调用的本地 materialization overload 只允许作为 `runtime`
+包内算法/测试 seam；跨包调用方必须携 exact candidate 进入上述 strict handoff。
+
+Lane Close 的 source-ordered marker 已经冻结语义结果，但 cursor discovery 与物化
+都属于 `GC` work-class。`LaneCloseDiscoveryWorkClassExecutor` 的 submission 只做
+strict-active 本地 preflight，并把 exact Shard 与 record/byte/elapsed scan budget
+绑定进 task；queue rejection 不读取 Oxia、owner clock、scan clock 或 Store。action
+开始后重读 Owner Lease，以独立 monotonic clock 扫描 durable SYSTEM cursor，并用
+一个 `BoundedReadBudget` 同时计入 cursor index 与对应 Lane projection 的实际
+key/value bytes 及 elapsed time。首个完整 cursor candidate 超过 envelope 时 fail
+closed，后续 candidate 仅因剩余预算不足时留给下一 turn；discovery 不推进 cursor，
+不改变 Message。随后跨包 Worker 每次只能把一个 exact
+`LaneCloseMaterializationWork` 与 `maxRecords`、Owner Lease 和执行时钟提交给
+`LaneCloseWorkClassExecutor`；queue admission 不得 discover 或写 Store，action
+开始后必须重读 strict Owner Lease 并重新验证 cursor identity。会自行 discover
+多个 Lane 并连续调用 Store primitive 的 `LaneCloseMaterializer.runTurn` 只允许作为
+`runtime` 包内算法/测试 seam，类与动作均为 package-local，不能成为无 authority、
+无 bounded queue 的生产入口。底层单候选 primitive 只保留给 strict owner wrapper；
+这不替代生产 GC scanner、Recovery Floor protection 或 Oxia owner orchestration。
+按 Lane ID 直接推进 cursor 的 overload 也只允许作为 `runtime` 包内算法/测试 seam；
+跨包路径必须携 exact cursor candidate，不能绕过 stale identity recheck。
+
+checkpoint 的物理创建/上传与接管时的下载/restore 都属于同一个独立的
+`CHECKPOINT` work-class。Restore task 的 identity 必须绑定 exact canonical manifest、
+checkpoint resource 和可选 `RecoveryPin`，byte charge 使用该 request envelope 的
+checked exact length；queue admission 只能做本地纯校验，拒绝时不得读 catalog、调用
+Object Store/provider、创建 staging 目录或改变 Store/Recovery 状态。bounded action
+开始后必须再次执行同一校验，并把完整的 download → inventory validation → staged
+Store-Incarnation install 区间放在 CHECKPOINT action 内；成功 outcome 移交一个由调用方
+负责关闭的已安装 `ShardStore`，普通失败返回 restore-owned outcome，fatal `Error`
+仍交给 event-loop stop path。`CheckpointRestoreCoordinator` 的 direct restore 只保留为
+store 包内测试/组合 seam，跨包 Worker 生产组合必须使用
+`CheckpointRestoreWorkClassExecutor`，不得绕过 CHECKPOINT queue。
+
+planned drain 的 final checkpoint 也必须使用同一个 `CHECKPOINT` queue。生产
+组合通过 `CheckpointDrainWorkClassExecutor` 提交 exact checkpoint path、16-byte
+identity、DRAINING Owner Lease 和 deadline；它在 bounded action 内重新读取
+Owner Lease、执行 `ShardStore.createCheckpoint(path, checkpointId)`，并在物理
+镜像完成后再次读取 lease。`OwnerDrainCoordinator` 只能消费该 action 的成功或
+失败 outcome：公平调度尚未选中时返回 pending task 并保留 DRAINING，队列满时
+保持 admission side-effect free 并允许用同一 identity 重试。不得把 final
+checkpoint 写成 coordinator 内层循环，也不得提供跨包 direct physical seam。
+
+`ShardStore.createCheckpoint(...)` 与全部
+`ShardStore.restoreFromCheckpoint(...)` overload 只是 `store` 包内 executor、
+coordinator 和物理存储测试使用的 primitive， 固定为 package-local，不能作为
+跨包生产 API。定时 checkpoint、planned-drain final checkpoint 和接管 restore
+必须分别由 `CheckpointWorkClassExecutor`、`CheckpointDrainWorkClassExecutor`
+和 `CheckpointRestoreWorkClassExecutor` 提交到共享 `CHECKPOINT` work-class；
+新增 Worker 组合不得把底层 primitive 重新暴露为 public wrapper 绕过 admission、
+fairness、lease reread 或 side-effect-free rejection 契约。
+
+同样，定时 checkpoint pipeline 内的
+`CheckpointExecutionCoordinator.execute(...)`、
+`CheckpointPublicationCoordinator.publish(...)` 和
+`CheckpointUploadCoordinator.upload(...)` 只允许作为 `store` 包内组合动作，
+全部为 package-local。跨包 Worker 只能提交
+`CheckpointWorkClassExecutor.ExecutionRequest`；不能跳过 bounded turn 后直接执行
+RocksDB 创建、Object Store upload、upload-intent CAS 或 catalog publication。
+`CheckpointUploadAdapter`、`CheckpointUploadIntentAuthority` 与
+`RecoveryCatalogAuthority` 仍是可替换的外部 authority/transport 接口，这一可见性
+收口不改变它们的实现边界。
+
+`LEASE_FENCE` 是唯一允许抢占首个 bounded turn 的 work-class。每个 fence task
+必须绑定触发事件所观察到的完整 Owner Lease identity（Shard、owner、ownerEpoch、
+lease token、assignment/session context 和 lifecycle value）。进入队列前只做本地
+identity 校验；执行时必须先重读 Oxia lease 和 owner clock。若 exact lease 仍然有效，
+该 task 返回 `OWNER_STILL_VALID`，不得误 fence；若 lease 已过期、被替换或 lifecycle
+identity 不再匹配，必须先用同一 identity fence 本地 Owner，再调用一次外部
+`stopSourceAndScheduling` 回调。旧 Owner 的延迟 fence task 不能 fence 已在同一进程
+接管的新 Owner。Oxia 读失败、clock 失败或 stop 回调失败都不能证明安全完成，结果保留
+为 `UNKNOWN` 并让本地 gate 保持 fenced；队列拒绝不得触发 fence 或 stop 副作用。
+当前 `LeaseFenceWorkClassExecutor` 只闭合这个本地 preemptive handoff 和精确 task
+identity；真实 Oxia session watch、Broker consumer pause/rewind、scheduler shutdown
+以及跨 Worker stop authority 仍由生产 Worker 接线完成。
+
+active shard 的持久 READY discovery 必须通过 `DUE_SCHEDULER` action 进入
+work-class runtime。task identity 用 domain-separated hash 绑定 exact Shard、canonical
+`TrustedUtcIntervalEvidence` 与本轮 `maxMessages/maxBytes/maxElapsedNanos`；byte charge
+是上述 canonical request envelope 与完整 scan `maxBytes` 上界的 checked sum，不能只按
+最终返回 head 大小计费。queue admission 前只允许检查本地 strict-owner lifecycle、Shard
+与 scheduler owner epoch，不得读 Oxia、scan RocksDB、offer Lane head 或推进 scheduler
+cursor/ring。bounded action 开始后必须用执行时时钟重读 exact Owner Lease/session，并把
+完整 evidence 交给 scanner：`earliestEpochMs` 是 inclusive `dueThroughEpochMs`，
+`latestEpochMs` 用于严格检查 certificate expiry；随后只能调用持久 READY scanner
+自己的 byte/time/record cap、typed ACTIVE/certificate binding 与全 projection rollback
+边界。旧的 timeline `discoverDue(earliest, limit)` 只有条数边界，不能证明 trusted
+time、Owner authority 或 byte/elapsed scan envelope，因而只保留为 runtime 包内的
+兼容/语义测试 primitive；它不是 Worker 可调用的生产调度 API。同理，expiry、
+reservation-expiry 与 Lane-close 的 count-only discovery overload 也只能包内可见；
+跨包生产组合只能调用携带 `SchedulerBudget + monotonic clock`、再由对应
+work-class/Owner wrapper 补齐 authority 的严格 overload。`DelayShard` 自身的
+count-only `discoverReady(earliest, limit)` 也只保留包内用于索引语义测试；生产
+READY scan 由 `PersistentLaneScheduler` 的完整 evidence+budget overload 执行，
+外部只能从 `DueSchedulerWorkClassExecutor` 提交 bounded action。scheduler 自身的
+无 evidence `discoverReady(budget)` 与仅有 due-through scalar 的 overload 同样是
+包内兼容面，不能从 Worker/ownership 包直接调用。持久 scheduler 的无时间
+`poll(budget)` 也只允许包内兼容测试；跨包 Worker 必须显式传递 trusted
+due-through，不能用 `Long.MAX_VALUE` 隐式选择尚未到期的 head。Worker 级 DRR
+的 `poll(budget)` 同样只保留 scheduler 包内；对外唯一 poll 形式必须显式携带
+due-through，并把它原样传到 shard-local scheduler。
+Lane、Persistent Shard、Worker 三层 scheduler 的对外 poll 契约因此完全一致：
+必须传显式 due-through；三层无时间 overload 都只是 scheduler 包内算法/兼容测试面。
+三层 `offer(ScheduleWorkItem)` 也只能包内可见：生产 READY work 必须由持久索引扫描
+验证 READY key/value、Message、Timeline、Lane、certificate 与 Owner/Store identity 后
+在 scheduler 内部注入，外部 Worker/ownership 代码不得自造 work item 绕过该链路。
+`PersistentLaneScheduler` 的裸 registry/恢复/readiness/retirement primitive（包括
+`register`、projection restore/rebuild、`mark*`、`unregister`、裸 requeue 和
+`persist`）也只能 scheduler 包内可见。它们本身没有 Owner、source-ordered Lane
+lifecycle 或 terminal-guard authority；未来生产接线必须由明确 coordinator 在完成相应
+authority 复核后组合这些 primitive，不能直接把它们重新公开给 Worker。
+同一原则适用于内层 `LaneScheduler` 和外层 `WorkerScheduler`：register、readiness/
+blocked 切换、ring rebuild、snapshot restore、direct requeue、terminal unregister 与
+READY replacement 均为 scheduler 包内组合 primitive。包外只保留构造、显式 timed
+poll 和只读 projection；生产 Worker scheduler coordinator 尚未实现前，不允许用这些
+裸方法拼出一条表面可运行但绕过 ownership/readiness authority 的接线路径。
+`PersistentLaneScheduler` 的生产构造还必须显式传入当前 `OwnerIdentity`；自动生成
+`embedded-scheduler/ownerEpoch=1` 的二参构造与 `defaults(store)` 只能 scheduler 包内
+和测试 fixture 使用。生产不得用伪 Owner 生成/校验 `ReadyCertificate`，否则 scheduler
+projection 虽自洽却不代表当前 Oxia ownership。
+
+一次 discovery 成功只返回本轮新 promote 的 due heads；它不等于 Claim，也不能越过
+Claim materialization、permit、Ready Certificate 或 Publish Admission gate。queue 拒绝
+以及 future-only scan 都不得消费唯一 future READY key。scanner/authority/WriteBatch
+failure 必须 fence 当前 Owner，并把已开始的 exact WorkClass action 留作 failed
+process-local evidence；authoritative READY/index 与新的 fenced recovery 才是重建来源，
+不能把内存 failure 当作 durable cursor advancement。Claim/Admission handoff 必须作为
+后续有界 action 单独闭合，不能因为 discovery 已接入就标记完整 publish path 已实现。
+当前 Claim handoff 复用 `DUE_SCHEDULER` 的 bounded action class，但不把 Claim
+伪装成 discovery：它只接受已经 poll 的 exact head，并在 queue wait 后重新验证
+typed READY/certificate、materialization、live prerequisite 与三层 logical permit。
+已知的 queue rejection、prerequisite/permit deferral 会 exact requeue；未知异常
+直接 fence Owner，避免本地 retry 与 Shard Log/恢复 authority 竞争。
+同一 Worker 的 `WorkClassExecutionRegistry` 必须只绑定一个 exact
+`ClaimExecutionAdmission` 实例；该 Worker 上所有 Shard 的 Claim handoff 和
+Publish Admission handoff 必须共享该实例。不得为每个 executor/shard 另行
+new 一个带完整 Worker max 的 permit pool，从而把 Worker cap 放大成 N 倍。
+该 exact permit pool 也只能反向绑定这一个 registry；把同一 pool 传给第二个 registry
+必须在 executor 构造时 fail closed，不能只依赖 registry 到 pool 的单向检查。
+Publish Admission 提交时还必须验证 `Reservation` 由该 exact pool 创建；
+仅 Message/Generation/Lane 字段相同不足以证明容量归属。这只是进程内
+Worker 组合不变量，不等于 Oxia capacity grant 或生产动态 I/O authority。
+
+## 13. Destination Profile 与 Adapter
+
+### 13.1 Versioned binding
+
+Schedule 只能引用预注册 Destination Profile 的精确 version。应用时从 immutable version 确定并持久化：
+
+```text
+profileId / profileVersion
+adapter type
+canonical cluster/topic + Broker Resource Incarnation
+physical partition
+partition/hash policy version
+ordering mode
+timing capability
+outcome capability
+immutable credential authorization-scope/policy digest
+credential binding protocol version
+record-size/schema/TTL policy
+destinationLaneId
+```
+
+Profile publication 只创建 immutable semantic version，不授权任意 Source Position 使用它。每个获授权 Route partition 在 `meta_cf` 持久：
+
+`ProfileRef` 不是只信 Oxia value 的 `(id,version)` 指针：它还固定 `ProfileKind` 与 Protocol Registry §5.1.1 的 domain-separated `profileSemanticHash`。Destination、Delivery Capability、Object Store 与 Evidence Verifier Profile 各有 closed canonical body；runtime endpoint discovery、secret plaintext/reference/current generation 和 health overlay 不进入 semantic hash。Profile kind/body/hash 不一致、semantic body 有 unknown field，或 capability Adapter 与 Destination Adapter 不同都使 publication/activation fail closed。
+
+Credential 不得在“immutable Profile”里又当可变字段。Destination/Object Store Profile 只 hash 不可变的 authorization scope/policy 与 binding protocol；每代 service-owned secret reference 是 immutable `CredentialBinding(profileRef, secretGeneration, privateReference, referenceDigest, CredentialEquivalenceAttestation, bindingDigest)`，`CredentialBindingHead` 以 checked revision 指向 current generation，`CredentialBindingProtection` 单调保存 native snapshot/upload-handle protection high-watermark。Attestation 绑定 Profile/generation/reference digest/scope digest、resolved immutable credential-version/public-fingerprint digest、verifier/key version、Trusted UTC 区间/接受截止、exact probe-evidence digest 和 Ed25519 签名，不是 operator boolean。Private reference 必须指向 immutable provider version，禁止 `latest`/可变 alias；runtime resolve 到不同 version/fingerprint 时只把相关 Lane `BLOCKED(CREDENTIAL_BINDING_DRIFT)`。Profile 发布在 lifecycle 激活前原子创建已验证的 generation 1、head revision 1 和 protection record。Schedule apply 只 pin semantic Profile/Destination Binding，不 pin当前 secret generation；因此等价轮换不改 command result、Lane ID 或旧消息路由。
+
+`RotateEquivalentSecretReference` 是 private control-plane CAS，仅适用于 `DESTINATION`/`OBJECT_STORE`。Prepared request/PROFILE target 同时固定 expected Head `(secretGeneration,bindingDigest,headRevision)`；`newGeneration = checkedAdd(expectedGeneration, 1)`，new reference digest 必须匹配 private reference，且 platform verifier 必须证明其 principal/resource/operation scope 与 Profile immutable scope digest 完全一致。验证失败为 `CREDENTIAL_EQUIVALENCE_NOT_PROVEN`，不能由 operator boolean 越过。一个 Oxia transaction 验 expected Head triplet 和 retained-generation budget，创建 exact immutable next generation/protection 并推进 Head；response loss 只 reread/retry 这些 bytes，成功结果携 new generation/binding digest/Head revision/digest。CAS 生效后，受影响 Lane 先原子删 READY/certificate并进入 `RECOVERING_EVIDENCE`，再关闭旧 channel；新 `ChannelResourceIdentity`/certificate 同时绑定 new generation、binding digest、attested resolved credential-version/public-fingerprint digest 和 new protected lease。保护 transaction 先于 rotation 时，旧 lease 可在 exact expiry 内继续；rotation 先于保护/renewal 时，stale issuer CAS 失败。旧 binding/reference 必须保留到所有 protectionUntil、physical/zombie completion/fenced teardown 和 quiescence horizon 都结束。等价轮换不是远端 Broker fencing 或紧急吊销；需要即时停止新发送时必须同时 source-order Pause/Close Lane，必要时撤销 Broker resource guard/credential 本身，并按可能已发送处理竞态。Command application 与其它 Profile/Lane 不等待该轮换。
+
+```text
+profileAcceptance(profileId, version):
+  ABSENT
+  | ACTIVE_FOR_FIRST_BINDING
+  | CLOSED_FOR_FIRST_BINDING
+```
+
+`PublishDestinationProfileVersion` 的 target snapshot 对每个 shard 写 signed `APPLY_SHARD_CONTROL(PROFILE_BINDING_ACTIVATE)`，绑定 exact Profile semantic hash/operation target。只有排在 activation marker **之后**的 first-seen Schedule/Prepare 才可新建 binding；marker 前稳定 `REJECTED(PROFILE_VERSION_NOT_ACTIVE_AT_SOURCE_POSITION)`。新 Route 在所有初始 Profile activation marker applied 前不得开放 tenant produce 或 SDK selection。
+
+deprecation 先停止 SDK 新选择，再向冻结 target set 写 `PROFILE_NEW_BINDING_CLOSE`。marker 后的 first binding 稳定 `REJECTED(PROFILE_DEPRECATED_FOR_NEW_USE)`；exact duplicate 在 identity lookup 后复用 marker 前首次结果，已创建 reservation 的 Commit、现有 Message Identity 的 Cancel/Reschedule 和保留原 binding 的受权 Replay 不被追溯改写。deprecated version 不得在后来 Route 激活；新业务发布新 Profile version。运行时 `BLOCKED` overlay 只移除已有 Lane 的 READY；它不写 `ADMIN_PAUSED`、不 reroute，也不把 Schedule replay 改写为不同结果。Schedule apply 不连接目标 Broker；live topic/auth/capability/resource-incarnation 检查属于 Lane activation/publish path。
+
+Kafka Profile pin authenticated cluster ID + native topic UUID，并要求实际 Fetch/Produce request 使用该 UUID。Pulsar Profile pin 管理员 ACL 保护的 random `nereusResourceIncarnation` topic property 和每个物理 partition 的 Broker creation timestamp，并要求每次 SEND 经过 `PULSAR_RESOURCE_GUARD`。Kafka receipt topic 与 Pulsar Attempt Journal 也 pin 同等级身份。Lane activation 证明同名资源 identity 不同后写 `BLOCKED(DESTINATION_INCARNATION_MISMATCH)`；evidence topic mismatch 是 gap，不是空日志。旧消息绝不投向 replacement incarnation，新资源必须发布新 Profile version。
+
+ 目标物理分区只允许：
+
+```text
+EXPLICIT_PARTITION
+TARGET_PARTITION_HASH
+```
+
+Profile 固定 target partition-count snapshot、允许的显式范围，以及 hash 输入字段（ordering key、message key 或 Delay Message UUID）。Hash：
+
+```text
+digest = SHA-256(
+  "nereus-delay-target-partition" ||
+  lp32(profileId) || u64be(profileVersion) ||
+  lp32(routingBytes)
+)
+physicalPartition =
+  unsignedBigEndian64(digest[0..7]) mod targetPartitionCount
+```
+
+`profileVersion` 使用完整的 `uint64` bit pattern；Java signed high-bit 值不得被当作
+负数拒绝或改用另一种编码。Admission 在重算该哈希时必须与 ProfileRef 的 canonical
+`u64be` 字节完全一致。
+
+Worker 把整数 partition 直接交给 Adapter，不调用 Kafka/Pulsar 默认 partitioner。目标扩 partition 或修改输入策略创建新 Profile version。
+
+### 13.2 Adapter SPI
+
+```java
+interface DestinationAdapter {
+    CapabilityProbe probe(DestinationBinding binding);
+    CompletionStage<FenceResult> fencePreviousOwner(
+            DestinationBinding binding, OwnerIdentity owner);
+    CompletionStage<PublishOutcome> publish(PreparedPublish publish);
+    CompletionStage<PublishOutcome> resolveUncertain(
+            PublishAttempt attempt, EvidenceCursor cursor);
+}
+```
+
+`publish()` 与 `resolveUncertain()` 返回同一个 nominal `PublishOutcome` closed product；resolution 仍可合法返回 `UNKNOWN`，区别只在调用阶段与 evidence cursor，不另造一个含义不明的 `ResolvedPublishOutcome`。Future/remote evidence 只产生候选结果；Adapter 必须把 exact attempt 与证据编码成 `PUBLISH_OUTCOME` 或 `EVIDENCE_RESOLUTION` 并写回同一 Shard Log。只有该 Source Position durable apply 后，结果、retry schedule、quota/counter 才权威生效；callback 线程不得直接改 RocksDB。`PublishOutcome` 不是把 side effect 与故障作用域揉在一起的枚举，而是 closed product：
+
+```text
+sideEffect:
+  PUBLISHED | NOT_PUBLISHED | UNKNOWN
+
+disposition:
+  NONE
+  | MESSAGE_RETRIABLE
+  | MESSAGE_PERMANENT
+  | LANE_UNAVAILABLE
+  | OWNER_FENCED
+  | ADAPTER_BUG
+
+stableCode / evidenceDescriptor / diagnostic
+```
+
+合法组合由 protocol version 固定：
+
+- `PUBLISHED` 只能配 `NONE`，并携 capability 所需 durability evidence；
+- `NOT_PUBLISHED + MESSAGE_RETRIABLE|MESSAGE_PERMANENT` 才能进入普通 retry/terminal message policy；
+- `NOT_PUBLISHED + LANE_UNAVAILABLE` 结束 exact attempt、打开/block Lane，并把 generation 放回受 Lane gate 的等待状态；它不是永久消息失败；
+- `UNKNOWN` 无论同时发现 Lane/Owner/Adapter 故障，都必须先持久化 `UNCERTAIN`，故障作用域只决定 circuit/safety 动作，不能把 side effect 改成 failure；
+- `OWNER_FENCED`/`ADAPTER_BUG` 触发 shard safety path；若当前 Owner 已不能写，callback 只 audit，由新 Owner 从 durable `PUBLISHING` 与 evidence 恢复。
+
+`PUBLISH_OUTCOME(UNKNOWN)` 的 apply 还必须先验证当前 `Message` 的
+`destinationLaneId`、durable `Lane` 记录和 `laneIncarnation` 与 `PUBLISHING`
+attempt ledger 完全一致。Lane 记录缺失或 incarnation 漂移属于 Store 状态损坏/错挂，
+必须在 WriteBatch 前 fail closed：不允许通用 READY projection 通过
+`LaneRecord.initial(...)` 偷创建一个新 Lane，不改变 Message、attempt、quota 或
+source position。该边界是恢复完整性校验，不是把 UNKNOWN 改成业务失败。
+
+同一完整性闸门适用于已有 publish obligation 的 definitive/retry
+`PUBLISH_OUTCOME`、`EVIDENCE_RESOLUTION`、`RESOLVE_UNCERTAIN`、
+`CLAIM_RESULT` 和 Trusted-Time `EXPIRE_GENERATION`。这些路径若发现
+durable Lane 缺失，必须在任何 stale-result、quota/READY projection 或 source-position
+写入前 fail closed；只能把 incarnation 不匹配作为已存在 Lane 上的 stale/precondition
+结果，不能把物理缺失伪装成业务过期、重试或“未发布”。
+
+对 `PUBLISHED`/`NOT_PUBLISHED` 这类 definitive Outcome，以及
+`EVIDENCE_RESOLUTION` 的 verified result，body 中的 `ChargeVector transfer`
+必须与该 attempt 的 Admission ledger 所保留 charge 做 canonical byte-equality。
+不相等时 apply 只写 `REJECTED(STALE_SYSTEM_MUTATION)` 和 source position，不得改变
+attempt、message、timeline 或 quota；`UNKNOWN` 的 transfer 仍是 opaque placeholder，不能
+触发 definitive charge release。
+
+timeout/connection loss after submission 默认 `UNKNOWN`。收到 Kafka pinned UUID 的 registered authenticated rejection（K1 首版仅 Produce v13 `UNKNOWN_TOPIC_ID(100)`）或 Pulsar typed `ResourceIncarnationMismatch`，且该物理 attempt 从未有更早 ambiguous network write，才是 `NOT_PUBLISHED + LANE_UNAVAILABLE`；对应 response 丢失或已有历史 ambiguity 仍是 `UNKNOWN + LANE_UNAVAILABLE`。
+
+Adapter Channel 是 Lane-scoped 的本地提交/缓冲隔离单元：
+
+- Producer API 调用不在 shard event loop 或 Scheduler visit 内阻塞；
+- Claim 在 Admission 前同时取得 Lane/shard/Worker 的 logical task/byte permit 与 Lane-owned physical-outstanding **requests/bytes** permit；Admission 把 exact attempt 原子计入 Lane、Worker 和 target-cluster 的 connection/producer/request/physical-byte/buffer/thread envelope；
+- 每 Lane、Worker 和 target cluster 的 submit tasks、buffered messages/bytes、connections/producers、同步调用线程、physical outstanding requests/bytes、zombie requests/bytes 和 call deadline 都有硬上限；
+- 目标库的同步 `send`/metadata/auth/buffer wait 必须在 Lane-bounded Adapter executor 中运行并受 `adapterSubmitDeadline` 约束，绝不占 shard correctness thread；
+- `callbackDeadline` 只释放 logical waiter。physical/zombie charge 必须保留到 exact completion、library-confirmed pre-ownership cancellation，或 exact Producer/channel generation 被 fenced teardown；丢弃 Future、timer timeout 或 thread interrupt 都不算物理释放；
+- Adapter executor 在 delegate invocation 之前拒绝任务时，无论是普通拒绝还是同步抛出的 fatal `Error`，都属于 pre-ownership 分支：必须先释放本次 physical reservation，再把 fatal failure 继续交给调用方/进程监督器；不能把该分支留成 active charge，也不能把它解释成 target `UNKNOWN`；
+- physical reservation release 必须先同时校验 Lane、target-cluster、Worker 与 zombie bucket 的 successor 不会 underflow，再一次性扣减并标记 `RELEASED`；任何 accounting inconsistency 都保持 reservation active，不能留下部分扣减或不可重试的 charge；
+- Lane 达到 zombie cap 时只把该 Lane `runtimeReadiness=BLOCKED` 并停止新的 Admission；不能把其 charge 转嫁给其它 Lane；
+- 一个共享 Producer/transport 只有在能够证明 per-Lane reserve、物理 charge 归属、无跨 Lane head blocking、独立 outcome/circuit，以及 Worker/cluster 为其它 READY Lane 固定保留 connection/producer/thread/request/byte minima 时才可复用；
+- 否则 Kafka/Pulsar Adapter 为 Lane 建立独立 bounded producer channel；达到持久 shard channel/Lane grant 时确定性拒绝新建 Lane，而不在运行时无限打开资源。Worker 瞬时 connection cap 不改变 Command 结果，只使该 Lane `runtimeReadiness=BLOCKED(CAPACITY)` 并触发 placement/容量修复；绝不写管理员 `ADMIN_PAUSED`。
+- Kafka channel 必须把 pinned topic UUID 作为 immutable batch guard 带到实际 ProduceRequest；Pulsar channel 必须把 typed expected incarnation 带入 Producer create，并由 Broker core 在每次 SEND 前重检且在成功 receipt 回显。单独的 `probe()` 成功不是 publication authority。
+- Adapter close 一旦被请求就立即 fence 新的 ingress、submission 和 publish；底层 channel/Producer teardown 若失败，必须保留该 fence 并把 close 视为未完成，允许后续生命周期重试，直到底层关闭成功。首次失败不能把后续 close 变成 no-op，也不能把未完成 teardown 当作 physical charge 已释放。
+
+包外 Worker 组装 `BoundedDestinationPublishAdapter` 时必须同时传入 shared
+`WorkClassExecutionRegistry`、exact `DestinationPhysicalAdmission` 和 caller-owned bounded
+Adapter executor。该 registry 的 `DESTINATION_PHYSICAL_ADMISSION` singleton key 只能
+绑定一个 exact pool 实例；同一 Worker 的所有 bounded target adapters 必须
+共享它。不得为每个 Lane/adapter 另建一个带完整 Worker max 的 physical
+pool，从而放大 Worker request/byte cap。不携 Worker registry 的构造只能是
+`adapter` 包内算法/测试 seam，不能成为跨包生产入口。
+该 physical pool 也只能反向绑定这一个 registry；把同一 pool 接到第二套 queue graph
+必须在 adapter 构造时、transport invocation 和 physical charge 之前拒绝。
+
+  Close gate 必须把“是否接受一次同步 transport invocation”与 close 请求放在同一个线性化边界内；禁止先独立读取 closed 标志、再在 gate 外调用 transport 的 check-then-call 竞态。已经在线性化点前接受的 invocation 可以在 close 请求后完成并按 UNKNOWN/physical charge 规则收敛，但 close 线性化后不得再开始新的 transport invocation。该 gate 不得为了同步 transport 而长期持有 adapter monitor；阻塞调用仍必须运行在 Lane-bounded Adapter executor。
+
+Worker 和每个 target cluster 还分别限制 Adapter connections/producers/threads/requests 总量。新 channel 只有在其完整 Lane minimum envelope 可容纳且 `minOtherReadyLane*` reserve 仍成立时才可创建。允许临时借用空闲容量，但借用者必须在下一次 Admission 前可被抢占，不能把其它 READY Lane 降到认证最小值以下。
+
+每次 Admission 必须按 request 和 byte 两个维度同时预留“所有当前 physical request 同时变成 zombie”的最坏向量；并对 Worker 与 target-cluster 每个维度证明：
+
+```text
+retainedPhysical
++ candidatePhysicalAndPotentialZombieCharge
++ sum(committed minima of every other READY Lane)
+<= hardCap
+```
+
+借用只撤销未来 Admission；尚未真实释放的 borrowed physical/zombie charge 不能算 free。无法完整承诺 minimum envelope 的 Lane 保持 `BLOCKED(CAPACITY)`，不得签发 `ReadyCertificate` 或报告 `READY`。
+
+Cluster-wide outage 可以使同 cluster 的多个 Lane 同时不可用，但单 topic、credential、buffer 或 Future 故障不能借共享 Adapter queue 消耗健康 Lane 的保留容量。隔离测试必须包含永久阻塞的同步 metadata call、忽略 cancellation 的 Future、callback 丢失和反复 channel churn；逻辑 timeout 必须最终停在故障 Lane 的 zombie cap，同时健康 Lane 在认证 service-gap 内继续 Admission。
+
+Physical admission registry 的注册生命周期不等于 Lane 的 ownership 或 retirement authority。Source-ordered terminal retirement 只有在对应 Adapter channel/Producer generation 已 fenced、所有 physical 与 zombie reservation 都已 quiesce、且 READY 已关闭后，才能调用带 exact `laneIncarnation` 的本地 `unregisterLane` 释放进程内登记和容量元数据；注销遇到 READY、残留 charge 或 incarnation mismatch 必须 fail closed。旧 channel 的迟到 teardown callback 不得删除新 incarnation 的登记。该操作只回收本地可重建资源，不替代 Oxia grant release、terminal guard、Recovery Floor 或 source-ordered retirement proof。
+
+同一边界适用于 scheduler registry：terminal Lane 的 source-ordered guard 已安装、exact incarnation 已 fencing 且其本地 work queue 为空后，scheduler 才能 unregister 该 Lane，并在一个持久 projection WriteBatch 中同时移除 active ring、deficit、last-served 和 discovery 账本。非 terminal、仍有 pending work 或旧 incarnation 必须拒绝；WriteBatch 失败时内存 registry 必须回滚到原 projection，active ring 也必须精确恢复（原本被 BLOCKED/terminal readiness 排除的 Lane 不得因回滚重新加入 ring）。这样 retired Lane 不会无限占用调度 ring、fairness state 或 Worker 进程内索引，但 scheduler unregister 仍不是 terminal-guard/Oxia retirement authority。
+
+### 13.3 Opaque payload 与 metadata
+
+ payload 是 caller 已序列化 bytes。Command 使用 adapter-specific oneof：
+
+- Kafka：value、optional key、ordered duplicate-preserving headers、event timestamp；
+- Pulsar：value、partition key encoding、ordering key、unique UTF-8 properties、event time。
+
+Kafka 使用 byte-array Producer。Pulsar 使用 `Schema.BYTES` 且关闭 client chunking；delayed message 由 Pulsar client 单条发送。无法在一个目标 Broker record 上容纳 payload 的 Profile/消息注册或 pre-send validation 失败，Large Payload 不是目标端 chunking 协议。两种 Adapter 都拒绝 caller 使用 `nereus.delay.*` reserved metadata。
+
+### 13.4 Baseline
+
+所有 Adapter 支持 `AT_LEAST_ONCE`。`resolveUncertain` 没有证据时返回 `UNKNOWN`，按 pinned policy retry，可能重复。
+
+Baseline 只弱化重复/outcome 保证，不弱化资源身份：Kafka baseline 仍要求 pinned UUID ProduceRequest；Pulsar baseline、DLQ Export 与 native delayed send 仍要求 Broker resource guard。
+
+### 13.5 Kafka transactional receipt
+
+`KAFKA_TRANSACTIONAL_RECEIPT` 要求：
+
+- target 和 Nereus receipt topic 在同一个 Kafka cluster；
+- cluster finalized feature `transaction.version >= 2`；transaction 把 transactional ProduceRequest 上限固定在 v11，无法携 topic UUID，因此不得注册该 capability；
+- Route 固定 `receiptLaneSlotsPerShard = K`，在目标 cluster 创建 `routePartitionCount * K` partitions 的非 compacted receipt topic；
+- strong Lane 创建时从其 shard 的 K 个 slot 中独占、持久分配 `(receiptLaneSlot, receiptSlotGeneration)`，不并发跨 Lane 复用；
+- 每个 strong Lane 的 stable channel：
+
+```text
+(deploymentId, targetClusterId, routeIncarnation,
+ shardPartition, receiptLaneSlot, receiptSlotGeneration,
+ destinationLaneId, laneIncarnation, channelSlot)
+```
+
+- transaction 同时写 target record 与 keyed receipt；receipt value 绑定 exact `publishAttemptId`、Prepared Publish hash、target partition 和 channel；
+- 新 Owner 在该 Lane publish 前 `initTransactions()` 它的 fixed slots；
+- receipt partition 固定为 `shardPartition * K + receiptLaneSlot`；
+- receipt consumer 使用 `read_committed`，通过 receipt topic 的 pinned Fetch v13 response 同时验证 UUID/partition 并捕获该 Lane receipt partition LSO；禁止用 name-only ListOffsets；
+- receipt cursor 进入 DB/checkpoint，retention 覆盖 Recovery Floor。
+- target Produce、receipt Produce 和 receipt Fetch 都使用各自 Profile 固定的 native topic UUID，且禁止 protocol/name fallback。
+
+同 generation 的任一 hash/attempt 匹配 receipt 证明 `PUBLISHED`；对 exact attempt，fence 后读到 LSO 仍无 receipt 才证明 `NOT_PUBLISHED`。同 key 不同 Prepared Publish hash 是 integrity violation。该能力不自动等于 end-to-end exactly-once；business consumer 必须 `read_committed`，否则可能看到 aborted record。
+
+实现中的本地 receipt-journal projection 若用于重建 transactional-channel sequence，`MAPPED` 与
+`RETIRED_NOT_PUBLISHED` 都必须是带 non-null journal position 的 durable record；retirement 的
+append/position 尚未确认时，unresolved lower sequence 继续阻塞，不能释放后续 sequence。该
+position 只用于本地 shard recovery cursor 与 replay projection，不替代同一 Kafka transaction、
+`read_committed` LSO/Fetch 或 retention proof，也不把本地 seam 伪装成 Broker authority。
+如果 target transaction sender 返回 `null CompletionStage`，这不是 non-publication proof；调用方必须把它
+作为未知结果进入 evidence/UNKNOWN 路径，保留该 mapping 的 unresolved lower-sequence fence，不能释放
+sequence、伪造失败或推进后续 Admission。Journal seam 应以 typed integrity/divergence failure fail closed，
+而不是泄漏未分类的空指针异常。
+
+Strong Lane/receipt/channel slot 数受 shard 和 Worker hard limit；K 耗尽时的新 ordered/strong Schedule 被确定性拒绝。一个 Lane 的 unresolved transaction 最多推进/阻塞它自己的 receipt partition LSO，不能阻塞健康 Lane 的证据重放。
+
+Receipt slot 只有在旧 Lane 无 active/retained evidence、所有 transactional channels 已 fence/close、receipt/dedupe retention 与 Checkpoint Safety Barrier 都满足后才能释放；重新分配必须 checked increment `receiptSlotGeneration`。旧 generation 的 receipt/transactional ID 永不解释为新 Lane 证据。
+
+### 13.6 Pulsar Broker dedup
+
+`PULSAR_BROKER_DEDUP` 要求：
+
+- persistent physical topic partition；
+- dedup enabled；
+- `brokerDeduplicationMaxNumberOfProducers` 与实际 snapshot retained producer-key cardinality 可观测；对每个 physical topic，认证上界加 safety margin 必须严格小于 Broker snapshot cap，任何接近/超限或 reload 后 producer key 缺失都会 block capability；
+- target cluster 中每 Route Incarnation 有 Nereus-owned、non-compacted Pulsar Attempt Journal，partition count 等于 Route partition count，journal partition 等于 shard partition，ACL 只允许 Nereus，retention 覆盖 Recovery Floor；
+- service principal 的 Nereus-only ACL 不声称区分 Owner；当前 shard Owner 通过 topic-wide `ExclusiveWithFencing` 成为该 physical journal partition 唯一 writer；
+- 每个 strong Lane 和物理目标 partition 使用 stable producer name：
+
+```text
+(deploymentId, routeIncarnation, shardPartition,
+ destinationLaneId, laneIncarnation,
+ targetClusterId, physicalTopicPartition)
+```
+
+- 每个 durable Publish Admission 在 DB 中分配严格递增的 sequence ID，并把它绑定到 exact `publishAttemptId` 与 Prepared Publish hash；
+- 同一个 admitted attempt 的 client/network wire retransmission 必须复用同一 sequence、attempt identity 和 exact bytes；从 `RETRY_WAIT` 发起的新 Publish Admission 即使仍是同一 generation，也使用下一个 sequence；
+- unresolved lower sequence 阻塞后续 sequence；
+- 该 capability 的 client batching=false，每个 Broker send 只承载一个 Publish Attempt；
+- reconnect exact physical-partition producer 后读取 Broker last sequence。
+- target 与 Attempt Journal Producer 都携 exact expected incarnation token；自动 reconnect/resend 的每个 SEND 仍经过 `PULSAR_RESOURCE_GUARD`。
+
+Attempt Journal 的 `MAPPED` record 固定：
+
+```text
+mappingId
+route/shard/Lane/Lane Incarnation
+stable producer name hash
+sequenceId
+delayMessageId / generation
+publishAttemptId
+Prepared Publish hash
+journal Broker entry timestamp / guarded Source Position
+```
+
+发送协议：
+
+1. Admission 在 DB 分配/持久化 sequence 与 `PUBLISHING(mappingDurable=false)`。
+2. 先向 Attempt Journal append canonical `MAPPED`；response unknown 只原样重试 mapping，绝不调用业务 target。
+3. Broker ACK 后把 journal Source Position 写入 DB 并再次复核 lease/attempt。
+4. 只有此后才调用 target Producer。
+   target sender 返回 null stage、同步异常或无法观察 completion 都不构成 non-publication proof；exact
+   mapping 继续保持 unresolved，调用方必须按 `UNKNOWN`/evidence 处理。
+5. definitive non-publication 后先保持该 attempt 为 `PUBLISHING(retirementPending=true)`，durable append `RETIRED_NOT_PUBLISHED` 并把其 journal position 写回 DB；只有随后才能进入 `RETRY_WAIT`/terminal，且未来新的 Admission 才能分配下一个 sequence。
+
+Journal duplicate 的 same ID/hash 是 no-op，different hash 是 integrity failure。每个 mapping 绑定 exact attempt；同一 generation 的不同 Admission 不能复用旧 mapping。恢复在取得 lease 后先用 `ExclusiveWithFencing` 建立 journal writer，fence 旧 Owner 的 late append；reader 的每次 initial connect/reconnect 使用 `PULSAR_SUBSCRIBE_RESOURCE_GUARD` 对 exact physical Journal ManagedLedger token/creation identity 做 pre-subscribe 验证，再捕获 batch-aware last MessageId。随后按 batch-aware contiguous-applied cursor 重放到此 barrier，重建 sequence→attempt/generation 映射，再查询 exact physical Producer：
+
+- Broker last sequence ≥ 某个未 retired mapping 的 sequence：该 mapping `PUBLISHED`；
+- Broker last sequence 更低：只有 mapping 的 guarded Broker timestamp 尚在 inactivity horizon 内、producer key 被 snapshot-cap cardinality proof 保留且 reload/retention 未发生 gap时才证明 `NOT_PUBLISHED`；
+- Broker sequence 超过最大 journal mapping、mapping conflict 或 journal retention gap：`PULSAR_EVIDENCE_DIVERGENCE`，fail closed。
+
+普通 partitioned producer 返回的跨 partition max 不能作为单 partition 证据。没有 Attempt Journal 或 mapping retention proof 的 Broker dedup 只能作为 baseline 的局部重复抑制，不能注册 `PULSAR_BROKER_DEDUP` outcome capability。
+
+Pulsar `ExclusiveWithFencing` 是 topic-wide，不能用于共享业务 topic 的通用 producer fencing；它只用于一 shard 独占且 ACL 隔离的 Attempt Journal physical partition。
+
+同一 producer sequence domain 不跨 Lane 复用；否则一个 Lane 的 unresolved lower sequence 会把无关 Lane 变成隐含 head-of-line blocking。新 Owner 若因旧同名 Producer 仍活跃而不能创建该 Lane Producer，只让该 Lane 保持 `RECOVERING_EVIDENCE` 并重试，不写 `ADMIN_PAUSED`，也不降低为新 producer name。
+
+严格 ordered Lane 的 unknown sequence 必须证明 `PUBLISHED` 或 `NOT_PUBLISHED` 后才能越过。若 dedup horizon/evidence 永久丢失，runtimeReadiness 保持 `BLOCKED`；只有 source-ordered Break/Close 才能写 `ORDERING_BROKEN/CLOSED`。operator 可显式结束旧 Ordering Domain 并创建可见的新 domain/incarnation，但不能一边继续旧 domain 一边保留严格顺序声明。
+
+### 13.7 Pulsar delayed handoff
+
+普通 managed Pulsar 在 `deliverAt` 后发送。提前 handoff 只在以下条件全部认证时允许：
+
+- delayed delivery enabled；
+- physical target TopicPolicies 把 allowed subscription types 锁为 `Shared` / `Key_Shared`，Broker 在 subscribe 时拒绝 Exclusive/Failover，激活时确认没有已连接的不兼容 consumer；
+- `isDelayedDeliveryDeliverAtTimeStrict=true`；
+- 每个 eligible Broker 运行 source-locked `PULSAR_DELAY_VISIBILITY_GUARD`：Nereus record 携 business `deliverAt` 与 guard version；delayed tracker/dispatcher 只有在 Broker 的 Trusted UTC lower bound 已到该 business time 时才允许 consumer eligibility，clock step/uncertainty 只会 hold；
+- signed all-Broker capability attestation 固定 guard binary/config generation、time-source/drift/step policy和 protected TopicPolicies；target Broker clock-ahead bound 既监控也由 guard fail-closed 执行；
+- topic TTL/retention 不会早于 delayed visibility 删除消息；
+- fixed handoff lead。
+
+发送：
+
+```text
+actionAt = businessDeliverAt - handoffLead
+brokerDeliverAt = businessDeliverAt + targetClockAheadBound
+```
+
+ACK 后状态 `HANDED_OFF`；它表示 Broker durable responsibility，不表示 consumer 已处理。Broker/resource controller 必须把 strictness、subscription policy、visibility-guard binary/config 和 topic retention 保护到该 physical resource 上所有 Nereus delayed records 的 `businessDeliverAt` 已由 trusted lower bound 越过；现有 handed-off/AUTO_FAST record 未过期时不能卸载 guard、放宽订阅或关闭 strictness。Prerequisite drift 会阻止新 handoff；若部署绕过受保护控制面破坏 already-handed-off guard，属于 capability TCB violation 并触发 release-blocking incident，不能靠暂停未来发送修复。
+
+若 `DELIVERY_TIME_FIFO` 使用提前 handoff，Profile 还必须对精确 Pulsar Broker version、delayed tracker、subscription type 和 key/partition dispatch 做顺序认证；未通过该门时 ordered Profile 使用到 `deliverAt` 后的普通 managed send，或注册失败，不能只凭 timestamp 单调推断 consumer order。
+
+`AUTO_FAST` native record 同样必须携 `PULSAR_DELAY_VISIBILITY_GUARD` metadata并经过受保护 Broker policy；SDK 侧的一次 probe 或后续监控不能代替 dispatch-time guard。
+
+## 14. Large payload
+
+超过 inline threshold 使用：
+
+```text
+PREPARE_LARGE_SCHEDULE
+  -> PAYLOAD_RESERVED
+  -> PayloadReservationReceipt
+  -> authenticated issue of scoped upload handle
+  -> immutable conditional upload
+  -> COMMIT_LARGE_SCHEDULE
+  -> SCHEDULED generation 0
+```
+
+Prepare 保存完整 Schedule intent、tenant/shard/message identity、object-store Profile、service-owned object key、expected length/checksum、upload deadline、quota，以及该 Source Position 已激活的 immutable `PayloadProofTrustSetRef(version, semanticHash)`。Registry Prepare canonical field 15 必须携 `OBJECT_STORE ProfileRef`；它与 exact trust-set ref、完整 canonical body 一起作为 durable `ScheduleBinding` 同 batch 落盘。以后 Commit 使用何种 command-body 表示或 adapter 当前加载何种配置，都不能改变这两项权威。typed receipt/proof 必须完整等于 Prepare 固定的 Profile ref；legacy proof 只能比较该 ref 的 semantic hash，不能借此替换 Profile identity。首次 Commit 与已 `COMMITTED` 的重试 fast path 都先做这项校验。也就是说， Prepare 后即使收到 legacy Commit body，仍必须按 Prepare 固定的 exact semantic、source-ordered activation/issuance-close marker 和历史 key 窗口校验，不能降级为只比较 trust-set version 的兼容 verifier。只有由 legacy Prepare 创建、没有 durable binding 的 reservation 才可继续走 legacy trust-set compatibility branch； binding 或其 exact catalog semantic/Profile/credential Head 不可读时停在 Source Position，不能回退。
+
+Reservation expiry 不是本地 timer 的直接状态写入。`TIME_FENCE` 在 Source Position 上把 `closedIngressDeadlineThrough` 推过 `reservationExpiry` 时，逻辑上原子关闭所有尚未 Commit/Cancel/Close 且 deadline 不大于该 fence 的 reservation；Commit、Query、handle 和 attestation 立即按该 source-ordered overlay 返回 `RESERVATION_EXPIRED`。`RESERVATION_EXPIRY` scanner 只按 bounded cursor 把这一已冻结结果物化到 reservation/tombstone/counter/GC 索引，重启可重做且不再作语义选择，因此不为每条 reservation 另写 System Mutation。当前本地 discovery 入口 `ReservationExpiryDiscoveryWorkClassExecutor` 不接收 wall-clock cutoff，而是把 exact Shard 与完整 record/byte/elapsed scan budget 绑定进 `GC` task；queue admission 只做本地 lifecycle preflight，不读取 Oxia、时钟或 Store。action 开始后重读 strict Owner Lease，并以 Store 中 source-ordered `closedIngressDeadlineThrough` 为唯一 inclusive cutoff；独立 monotonic scan clock 和共享 `BoundedReadBudget` 同时计入 `timeline_cf/RESERVATION_EXPIRY` 与对应 `id_cf/RESERVATION` key/value 的实际字节及 elapsed time。首个完整 candidate 超过 envelope 时 fail closed，后续 candidate 仅因剩余预算不足时留给下一 turn。discovery 只返回与当前 reservation projection byte-identical 的已冻结 candidate，不物化、不释放 quota。随后 `ReservationExpiryWorkClassExecutor` 接收一个 exact candidate，把 reservation/message/expiry/state-version identity 绑定进另一个 `GC` task；执行时重新检查 strict Owner Lease、执行时钟、Shard identity 和当前 reservation projection，并在一个 Store batch 中完成 reservation、expiry index 与 quota 的物化。队列拒绝不触碰 Store；source-ordered Commit/Cancel/Lane Close 已先改变 projection 时返回 `STALE` 或 `ALREADY_TERMINAL`，不会写入新 reservation。两层入口都不创建 System Mutation、不分配 Source Position，也不替代真实 `TIME_FENCE`/scanner 调度、Oxia authority、Recovery-Floor barrier、Object Store deletion evidence 或 source replay。Cancel 或 Lane Close 先出现则仍是 `ABANDONED`（携各自 stable cause）；Commit 先出现则 reservation 已成为 `COMMITTED`，后续 fence 不回写它。
+
+`ReservationId` 不是 upload session 或随机 provider key；apply 按 `SHA-256("nereus-delay-reservation-id\0" || commandId[41] || delayMessageId[41] || commandHash[32])` 生成。exact duplicate 因而复用同一 reservation，另一 Prepared Command 即使复用 Message ID 也不能别名为原 reservation。
+
+Payload Object 是 caller application-serialized 的原始 bytes； 不增加服务层压缩编码。Checksum 固定为 SHA-256 over exact bytes，length 是未改写 bytes 长度。Object Store 自身的透明传输/静态加密不改变这个身份。
+
+仓库提供的 `FilesystemPayloadObjectStore` 是上述 Object Store adapter 的本地/测试
+物理 seam：它把 service-owned payload identity 映射到受保护的本地目录，使用
+no-follow 文件句柄、完整字节校验、临时文件 fsync、atomic rename 和
+immutable-if-absent 重试。它只持久化 payload bytes；重启后仍必须由当前
+Source-ordered reservation 重新注册，不能把本地文件当成 reservation、Oxia
+protection、credential lease 或 provider availability authority。真实 Object
+Store 的认证、quiescence、远端不可变性和删除 evidence 仍按本节的生产边界执行。
+
+`PayloadUploadHandle` 是 scoped capability，不允许 caller 选择 bucket/key/endpoint/credential。Upload 采用 if-absent；已存在 exact length/SHA-256/etag 视为幂等，different bytes 为 conflict。
+
+只有 `PREPARE_LARGE_SCHEDULE` 已 durable APPLIED 后，`PayloadReservationReceipt` 才返回 reservation identity、exact object identity、expiry、length/SHA-256、Prepare field 15 固定的 exact Object Store `ProfileRef` 和 exact `PayloadProofTrustSetRef`。handle/attestation adapter 在注册 durable reservation 时必须重读同 batch 的 `ScheduleBinding`，并证明本地 Object Store Profile 与签名 trust-set semantic ref 分别和这两个 exact ref 完全相等；只相等 version 或 semantic hash 不足以取得 provider authority。任一 identity/semantic 漂移、binding 缺失/错型或 adapter 无法证明 exact ref 时，在注册 reservation、签发 receipt/handle/proof 和任何 Object Store 调用前 fail closed 为 `INTEGRITY_ERROR`，不得自行生成一张使用 adapter 当前配置的替代 receipt。只有 legacy Prepare 没有 binding 时才可保留 compatibility registration。短期 `PayloadUploadHandle` 由 authenticated API 针对仍有效 reservation 按需签发；issuer 必须在一个 Oxia transaction compare current Head triplet，并把 exact Object Store binding generation 的 `CredentialBindingProtection.uploadHandleProtectionUntil` monotonic max-CAS 到 handle expiry，durable reread 后才暴露 capability。rotation-before-protection 迫使 issuer 用 new binding；CAS uncertain 只重试相同 transaction intent/maximum。Handle 可重签但不进入 Command result、DB、checkpoint、日志或普通 receipt。
+
+Handle/attestation API 先授权 tenant，并 read through reservation receipt 的 Query Barrier；queued 但尚未 APPLIED 的 Prepare 不能签发 object authority。返回闭合 outcome，不以 exception class/text 作为协议：
+
+```text
+PayloadUploadHandleOutcome:
+  ISSUED
+  | RESERVATION_EXPIRED
+  | RESERVATION_ABANDONED
+  | RESERVATION_CLOSED
+  | NOT_FOUND_OR_NOT_AUTHORIZED
+  | SHARD_TRANSITIONING
+  | SHARD_UNAVAILABLE
+  | INTEGRITY_ERROR
+  | OBJECT_STORE_UNAVAILABLE_RETRYABLE
+
+PayloadAttestationOutcome:
+  ATTESTED
+  | OBJECT_NOT_READY_RETRYABLE
+  | OBJECT_STORE_UNAVAILABLE_RETRYABLE
+  | OBJECT_IDENTITY_CONFLICT
+  | RESERVATION_EXPIRED
+  | RESERVATION_ABANDONED
+  | RESERVATION_CLOSED
+  | NOT_FOUND_OR_NOT_AUTHORIZED
+  | SHARD_TRANSITIONING
+  | SHARD_UNAVAILABLE
+  | INTEGRITY_ERROR
+```
+
+每项携 stable stage/code/retryability 与 allowlisted safe details；跨 tenant/unknown route/object 统一 non-enumerating denial。
+
+每个 service-owned Object Store Adapter instance 在激活/续租时解析 immutable reference，并用一个 Oxia transaction compare current Head triplet、monotonic 扩展 exact generation 的 object-store-lease protectionUntil；durable reread 后取得 `CredentialUseLease`。每次续租使用 checked-incremented adapter-instance generation，旧 holder scope/lease 不原地改写。handle/presign、attestation HEAD/read、publish payload read、checkpoint upload/download、multipart abort、HEAD/delete 每次在 provider/client ownership 前只验证本地 lease kind/holder/generation/digest/expiry 与 loaded fingerprint，从 gate 到 provider ownership不超过 `maximumCredentialAuthorizationToObjectStoreCallAge`，不做 per-call Oxia read。lease-before-rotation 可在 bounded expiry 内完成；rotation-before-lease/renewal 阻断旧 binding，绝不把 CAS 夸大为 provider-side fencing。
+
+故障隔离按 operation class 冻结：handle/attestation 返回 `OBJECT_STORE_UNAVAILABLE_RETRYABLE`（public safe error 不泄漏 credential，private metric 标出 `CREDENTIAL_BINDING_DRIFT`）；publish payload fetch 只撤销该 reversible Claim 回相同 semantic timeline work（same semantic digest, new runtime revision/instance digest），不消耗 Publish Admission；checkpoint create/upload 重试，只有既有 Recovery Set 的时间/字节 margin 真正越过安全阈值时才按已有 `RECOVERY_RETENTION_RISK` gate 暂停；restore 留在 `RESTORING`；GC 保留 Protection、object-byte quota 与 tombstone 并重试，不得把 auth failure 当 `ALREADY_ABSENT`。这些失败都不能单独暂停 Command application 或其它 Destination Lane。
+
+Upload 完成后，调用方必须先调用 authenticated `attestPayloadUpload`。该 API 从当前 Owner 读取 exact reservation，HEAD/读取 service-owned immutable object，验证 version/etag/length/SHA-256/metadata，然后返回非秘密的 `PayloadCommitProof`：
+
+```text
+proofVersion = 1
+payloadProofTrustSetVersion
+proofKeyVersion
+reservation / tenant / route / shard / message identity
+object-store Profile ID/version/semantic hash + exact key/version/etag
+length + SHA-256
+notAfter = reservationExpiry
+proofId = SHA-256(
+  "nereus-delay-payload-proof-id\0" ||
+  canonicalProtobuf(CanonicalPayloadCommitProof fields 1..8 and 10..16)
+)
+signatureDigest = SHA-256(
+  "nereus-delay-payload-proof-signature\0" ||
+  canonicalProtobuf(CanonicalPayloadCommitProof fields 1..17)
+)
+signature = deterministic Ed25519 over signatureDigest
+```
+
+Field 9 `proofKeyVersion` 与 fields 17–18 `proofId/signature` 不进入 Proof ID；只有最终 signature field 18 不进入 signature digest。Exact field numbers、optional etag presence 和 typed object-store Profile ref 由 Protocol Registry 固定。
+
+Trust set 分开“历史可验证 key”和“可为 first-seen Commit 签发的 key”。`PAYLOAD_PROOF_TRUST_SET_ACTIVATE` / `PAYLOAD_PROOF_ISSUANCE_CLOSE` 是 signed source-ordered shard controls。Reservation 固定 Prepare position 已激活的 exact trust-set ref；Commit 的 Registry/legacy 编码分支只负责解码 proof，不参与选择验证权威。该 set 必须让旧 signer 覆盖 reservation TTL，或预授权能对 exact object 重签同一 `proofId` 的 successor。issuer close marker 后，使用该 key 的 later first-seen Commit 稳定 `REJECTED(PAYLOAD_PROOF_KEY_NOT_AUTHORIZED_AT_SOURCE_POSITION)`；marker 前已接受 Commit 的 public verifier bytes 仍保留到所有 Recovery Floor 越过 replay window。已激活 trust set 的 verifier bytes 不可读是 deployment invariant，停在 position，不伪装成业务 reject。
+
+private key 只在 attestation service。同一 key version 对相同 reservation/object 必须产生相同 canonical proof bytes；authorized rotation 后的新签名只要 `proofId` 与 object identity 相同也语义等价。response loss 可安全重试。HEAD transient/not-yet-uploaded 只使 attestation retryable，不创建 Commit Command，也不阻塞 source。调用方持久保存 reservation receipt、proof 和之后的 Prepared Commit。
+
+Commit：
+
+- 验证 reservation 未 abandon/expire；
+- 在任何首次/已提交 lifecycle fast path 前，验证 proof 的 Object Store Profile 与 Prepare field 15 的 pinned identity 一致；
+- 纯本地验证 `PayloadCommitProof` 的 canonical form、pinned trust-set/signature/key-at-this-Source-Position authorization、scope、object identity、length/checksum 和 `notAfter`；
+- 不访问 Object Store；伪造、scope/hash mismatch 或 Commit Broker persistence time 晚于 proof/reservation deadline 时 stable reject；
+- 首次成功时把 Registry `CommittedPayloadDescriptor` 的 ReservationId/accepted ProofId 连同 object identity 写入本地 `PayloadReference`；已提交重试只有 exact ProofId/object identity 相同且 retained historical public key 验签成功时才返回 `ALREADY_COMMITTED`。issuer close 只关闭新的 first-seen ProofId，不使已接受 ProofId 失去历史验证；
+- timeline/id/payload ownership/quota/result/source position 同 batch。
+
+Reservation expiry 固定为 Prepare record Broker persistence time 加 pinned TTL。Commit 使用自己的 Broker persistence time 比较 reservation expiry 和 Schedule `expireAt`；超过任一边界稳定 reject/abandon。按时进入 Broker 但因 replay 晚处理的 Commit 不改变原结果。
+
+未 Commit 的 reservation 不按 Worker wall clock直接变成可回收 `EXPIRED`。只有 persisted `closedIngressDeadlineThrough >= reservationExpiry`，且形成该关闭水位的 Source Position 与 Recovery Floor/GC barrier 都安全后，才可终态化并删除对象；之后的 Commit 即使携回拨的 Broker timestamp 也稳定过期。因此一个已在 deadline 前且位于 fence 前持久化、但因 source lag 晚应用的 Commit 不会被提前清理。
+
+Cancel 可在 Commit 前 abandon；Cancel/Commit 由 Source Position 决胜。对象即使随后完成上传，也只能作为 orphan guarded GC。
+
+同 reservation 的首个成功 Commit 决定 accepted ProofId 与 object identity。后续不同 Command 只有在重现相同 `proofId`/semantic fields/object identity，且签名可由 retained historical trust-set public key 验证时，才返回 `APPLIED(ALREADY_COMMITTED)` 且不重复计 quota；这允许另一仍受信 key 对同一 ProofId 重签，但不允许只靠对象字段相同冒充历史接受。不同 ProofId、object identity、length 或 checksum 为 `REJECTED(PAYLOAD_COMMIT_CONFLICT)`；Profile identity 或签名无效按对应 proof stable code 拒绝。Cancel 或 closing TIME_FENCE 已先线性化时，Commit 返回精确 `RESERVATION_ABANDONED` / `RESERVATION_EXPIRED`；结果不取决于 expiry cursor 是否已物化到该 record。
+
+`COMMITTED` reservation 的 durable value 还必须把对象引用的 `length` 与 `payloadSha256` 逐字节绑定到 Prepare 时冻结的 expected length/digest；只有“存在 object reference”而没有这两个一致性检查的 value 是损坏状态，打开、恢复和 query 都必须 fail closed，不能把它当作已提交 payload。
+
+到期 materialization 发生在 reversible Claim 阶段。Object Store outage 不消耗 Publish Attempt；在所有 retention/protection invariant 成立时仍 proven missing/corrupt 的 object 才形成 message-level terminal error，同时触发 storage-integrity 告警。
+
+## 15. Retry、Circuit、DLQ 与 GC
+
+### 15.1 Retry Policy
+
+Schedule pin versioned policy：
+
+- initial/capped exponential backoff；
+- deterministic full jitter；
+- max Publish Admissions；
+- max retry duration；
+- uncertain policy；
+- terminal/DLQ export behavior。
+
+这些不是 policy service 的开放 map。`RetryPolicySemantic` 固定 initial/max backoff、max Admissions/duration、uncertain policy/count、DLQ export mode/backoff/attempt/duration/duplicate rule、jitter version 与 terminal-policy digest；`RetryPolicyRef.semanticHash` 按 Protocol Registry §5.1.1 重算。Schedule/Replay apply、Outcome 和 DLQ Result 都使用同一 immutable bytes，不能在 replay 时读取后来修改的 policy。
+Policy publication visibility 也使用完整 Source Position identity：同一 Kafka
+offset 或 Pulsar ledger/entry/batch token 若 canonical metadata 不同，不得被
+当作同一 source position 的可见 policy。
+
+`BOUNDED_RETRY_POSSIBLE_DUPLICATE` 必须满足 `0 < maxUncertainRetries < maxPublishAdmissions`，且只能与 `BEST_EFFORT` ordering 组合；其它 uncertain policy 的 `maxUncertainRetries` 必须为 0。该字段限制 `PINNED_POLICY` 自动 uncertain retry；经 source-ordered `ResolveUncertain(retry + acknowledgement)` 产生的 `CONTROL_OVERRIDE` 可超过自动预算，但仍受 `maxPublishAdmissions`、retry deadline、`expireAt` 与全部 live Admission/capacity gate 限制。每次在**已有更早 UNCERTAIN attempt ledger** 的 source-ordered状态上成功 apply 一个新 Admission，才递增 generation 的 total uncertain-retry count；同一 Admission 的 enqueue 重试、UNKNOWN callback、timeline/Claim、以及 obligation set 已清空后的 definitive retry 都不消耗。Outcome Reserve 与物理 envelope 必须按 `maxPublishAdmissions` 个可同时未闭合 attempt 的最坏情况证明，不得只按一个 aggregate Message 计费。
+
+第一次 Admission：
+
+```text
+firstAttemptAt = PUBLISH_ADMISSION.decision_time.latest_epoch_ms
+retryDeadline = min(
+  expireAt,
+  checkedAdd(firstAttemptAt, maxRetryDuration)
+)
+attemptNo = 1
+```
+
+每次 durable Admission 消耗 attempt；Claim/materialization failure 不消耗。 `RETRY_JITTER`：
+
+```text
+cap = min(maxBackoff, initialBackoff * 2^(attemptNo - 1))
+r = unsignedBigEndian64(
+      SHA-256(
+        "nereus-delay-retry" ||
+        retryDomain:u8 ||
+        delayMessageId[41] || generation:u32be || attemptNo:u32be
+      )[0..7]
+    )
+jitterDelay = floor(r * (cap + 1) / 2^64)  // [0, cap]
+nextRetryAt = checkedAdd(persisted latestUtcNow at outcome, jitterDelay)
+```
+
+大整数算术后再 range check，禁止 64-bit 乘法 overflow 偏差。business Publish 使用 `retryDomain=MESSAGE_PUBLISH`；DLQ Export 使用独立 `DLQ_EXPORT` domain，不能碰巧复用相同 message attempt 的 jitter stream。`nextRetryAt`、domain 与算法 version 持久化，replay 不重算出更早时间。
+
+没有 unresolved attempt 时，因 `expireAt` 不能再 Admission 的 generation 进入 `EXPIRED`；因 max Admissions 或较短 `maxRetryDuration` 耗尽则进入 `DEAD_LETTER`。存在 unresolved attempt 时不能声称 `EXPIRED` 表示未发布：expiry 会删除尚未 admitted 的 current timeline/Claim，之后只能继续解析或按明确 policy 以 possible-delivery/possible-duplicate Dead Letter 收口。任何 terminal record 都保留未闭合 `AttemptObligationRef` summary，直到各 attempt 的 evidence/physical/outcome charge 被独立结算。
+
+### 15.2 Lane-level failure
+
+credential/auth/topic/capability/metadata/cluster/throttle 等系统性错误进入 persistent Lane circuit，不逐条烧光 message retry budget。bounded half-open probe 控制恢复，其他 Lane 继续。
+
+### 15.3 Dead Letter
+
+`DEAD_LETTER` 是 RocksDB 内部权威 terminal，不等于外部 DLQ Broker 已接受。
+
+Dead Letter Record 保存 generation、binding/capability、timing、retry summary、last error/attempt/evidence、payload descriptor、terminal time、`possibleDestinationDuplicate`。
+
+可选 DLQ Export 使用 stable：
+
+```text
+dlqExportId = SHA-256(
+  "nereus-delay-dlq-export-id\0" ||
+  delayMessageId[41] || generation:u32be || terminalRevision:u64be
+)
+```
+
+`terminalRevision` 是非零完整 `uint64`；高位 bit pattern 必须原样进入
+`dlqExportId`、terminal outbox 和 `DLQ_EXPORT_RESULT`，只有零值非法。
+
+并在独立 system Lane 运行。状态：
+
+```text
+NOT_CONFIGURED / PENDING / PUBLISHED / UNCERTAIN / FAILED_PERMANENT
+```
+
+export failure 不改变业务 terminal；baseline export 可重复。
+
+Dead Letter terminalization 在同一 WriteBatch 持久化 immutable export envelope/hash、deterministic `dlqExportId`、首个 `physicalAttemptNo=1` 和 `firstExportAt=terminalizing record Broker persistence time`，所以任何外部 export call 之前已有可恢复 outbox。`physicalAttemptNo` 与 `RetryDecision.completed_attempt_no` 都使用完整无符号 `uint32` 语义；高位 bit 必须原样保留，超过 `0xffffffff` 或 all-ones successor 都 fail closed，不能用 Java signed 比较或回绕。Exporter 不得直接写 `PUBLISHED/UNCERTAIN/FAILED_PERMANENT`；每个 physical attempt 的 callback/timeout 都准备一个以 `(dlqExportId, physicalAttemptNo)` 为逻辑身份的 exact `DLQ_EXPORT_RESULT(ATTEMPT_OUTCOME)`，后续可验证证据使用 `(dlqExportId, evidenceId)` 的 `EVIDENCE_RESOLUTION`。只有前一 outcome 已 source-ordered apply 且 pinned policy 的 DLQ fields 给出 `SCHEDULED`，才授权 `physicalAttemptNo + 1`；retry decision 使用独立 `DLQ_EXPORT` jitter domain 与 persisted first-export time，checked overflow 不 wrap。各次 baseline retry 始终复用 exact export envelope/ID，可能产生外部 duplicate，但第二次 timeout 也有独立合法日志位置，不会伪装成 evidence。 无 `ABANDONED` state；只有可验证 success 或闭合 policy 的 permanent failure 可释放 export obligation。
+
+### 15.4 Replay
+
+`ReplayDeadLetter`：
+
+- 走原 route/partition；
+- 要求 expected generation/Message Control Version (`stateVersion`)；
+- 新 deliver/expire 与 retry policy；
+- 消耗 fresh active quota；
+- 保留 payload/binding；
+- 创建 `generation + 1`；
+- 保留旧 terminal/export audit。
+
+Replay WriteBatch 在替换 `id_cf/MESSAGE` 时，为新 generation 创建空 obligation set/fresh counters；旧 generation 的任何 open attempt ref 只保留在旧 `terminal_cf/GENERATION` summary 和各自 ledger，绝不复制给新 generation。旧 callback/evidence 用 ref 的 exact encoded key 直接定位，并只按其 embedded message/generation 更新旧 terminal auxiliary summary/charge，不能改变新 generation。旧 terminal decision fields 不变，summary 在 obligation close 时可单调缩小。
+
+每个 Dead Letter terminal 在其 source-ordered terminal mutation 中固定：
+
+```text
+deadLetterReplayUntil =
+  checkedAdd(terminalRecordBrokerPersistenceTime, pinnedReplayWindow)
+```
+
+Replay first-seen record 必须在自身 Broker persistence time 不晚于该 deadline、此前 `closedIngressDeadlineThrough < deadLetterReplayUntil`、payload/binding/evidence 仍受保护时才可成功。apply lag 不改变结果；signed TIME_FENCE 关闭 deadline 后稳定 `REPLAY_WINDOW_EXPIRED`。Route 只有在所有 replay deadline 已关闭、相关 mutation/fence 被 Recovery Floor 包含且无 replay-eligible terminal 时才可 RETIRED。
+
+若旧 generation 从 `UNCERTAIN` terminalize 或 terminal summary 仍有 open possible-delivery obligation，必须 `allowPossibleDuplicate=true`。 replay 不改 payload 或目标。
+
+对 strict Ordering Domain，unknown side effect 的 Dead Letter/override 不会自动解除 head。只有 outcome proof，或显式 `BreakOrderingDomain` 控制操作把旧 Lane 置为独立 `ORDERING_BROKEN`、记录 order-break audit，并要求新 Schedule 使用新 Profile/domain 后，新的域才可继续。Break 不等同于 Close，也不迁移、冻结或悄悄释放旧 Lane 中的 pending messages；旧 Lane 仍需后续 exact Close/Resolve 收口。
+
+### 15.5 GC
+
+所有可能改变恢复、Query、Replay 或外部引用的删除先通过同一 Shard Log：
+
+```text
+apply RESOURCE_RETIRE_INTENT with exact identity/version
+and reconstructible gc_cf task/tombstone
+wait retention and Checkpoint Safety Barrier
+perform idempotent external/local delete
+resolve response loss with HEAD/read
+apply RESOURCE_DELETE_CONFIRMED
+wait a later descendant Recovery Floor
+then compact completion tombstone
+```
+
+当前本地 `GC` work class 的外部追加入口是 `GcWorkClassExecutor`。GC/provider
+worker 必须先准备并签名 exact `RESOURCE_RETIRE_INTENT` 或
+`RESOURCE_DELETE_CONFIRMED`，再把完整 canonical mutation frame 交给该入口；它在
+queue admission 前校验 mutation type、Shard identity、retire logical identity、
+protection source shard 与 service AuthorIdentity，执行时重新读取 strict Owner Lease
+和 clock，然后只调用外部 `ShardLogMutationAppender`。它不执行 provider delete、
+不写本地 `gc_cf`、不调用 `DelayShard.applySystemMutation`、不分配 Source Position。
+task identity/byte charge 绑定 exact frame；queue rejection 不产生副作用。
+`PERSISTED` 必须返回并校验当前 source assignment/activation barrier 的 Source Position；
+`DEFINITIVELY_NOT_PERSISTED` 与 `UNKNOWN` 保持区分，append 或 position-proof failure
+一律 fence Owner 并保留 exact mutation 供恢复。只有 source-ordered apply 才能写入
+retire intent/delete-confirmed tombstone；provider delete、Recovery Floor、quiescence、
+quota release 和 tombstone compaction 仍是独立的外部/恢复边界。
+
+同理，`DelayShard` 内部的 Lane gate CAS、control/system-writer reserve/release、
+Attempt Journal mapping/retirement，以及 direct Publish Admission/unknown/published
+outcome apply 都只能作为 `runtime` 包内算法/测试 seam。它们分别必须由
+source-ordered Control/Publish mutation、fenced adapter single-writer、immutable
+capacity grant 和相应 work-class admission 授权；跨包 Worker 不能直接调用本地
+WriteBatch 来代替这些 authority。未来生产 coordinator 应按各自域提供窄入口，
+不能重新公开这些 raw mutation 方法。
+
+底层物理 GC 写动作 `retireMessageIdentity`、`compactRetiredMessageIdentity`、
+`compactResourceDeleteConfirmation` 和 `retireLaneWithTerminalGuard` 全部只允许作为
+`runtime` 包内算法/测试 seam，不能成为跨包 Worker API。它们分别缺少 Route
+identity-retention policy、Oxia CAS/session、provider ownership/quiescence、grant
+release 或完整 Recovery-Floor authority；公开本地 WriteBatch 会制造错误的生产授权边界。
+ 必须等相应 strict `GC` coordinator 把这些外部证明、Owner fencing、bounded
+resource admission 与本地动作绑定为一个可审计入口后，才能暴露生产组合面。
+
+`RESOURCE_DELETE_CONFIRMED` 携带的 nested RetireIntentRef 必须解析到与
+`RESOURCE_RETIRE_INTENT` 完全相同的 canonical retire-intent record bytes，包含
+protection set、applied mutation sequence 和 applied Source Position；只比较 mutation
+identity/resource hash/version 的字段子集不足以授权 tombstone compaction。
+
+删除 payload 还要求无 active read/publish、Dead Letter replay deadline 已由 TIME_FENCE 关闭，并且所有 DLQ Export obligation 已成为 `PUBLISHED` 或由闭合 policy 证明的 `FAILED_PERMANENT`。 没有无 mutation 来源的手工 `ABANDONED` 捷径。DLQ outbox 固定 canonical export envelope；若 envelope 引用 payload/object/binding，则 terminal、exact bytes/reference 和 charge 全部保留到 export completion mutation 被 descendant Floor 包含。终态只释放 active backlog quota；physical retained bytes 到实际 GC 后才释放。GC 对 catalog/Floor/Recovery Pin 的读取若返回异常（含 fatal `Error`）也必须 fail closed，不得把异常当作“没有保护”。
+
+取消、Close 或过期一个 `PAYLOAD_RESERVED` 不会立即使已签发 upload handle 失效于 Object Store。Reservation tombstone、object-byte quota 与 GC task 至少保留到 `closedIngressDeadlineThrough >= uploadDeadline`，再等待配置的 upload credential/request quiescence horizon、abort exact multipart upload，并做最后一次 exact version-aware HEAD/delete。只有该 `RESOURCE_DELETE_CONFIRMED` 被应用后才结束；`HEAD not found` 后到达的旧 PUT 不能成为无主对象。
+
+对 `PAYLOAD_OBJECT` 和 `CHECKPOINT`，`RESOURCE_DELETE_CONFIRMED` 的 `DELETED` evidence 必须携带与 retire intent 完全一致的 immutable version；若 payload identity 还固定了 etag，则必须同时携带该 exact etag。缺失这些 provider-returned identity 字段时不能证明删除的是被 pin 的对象，必须 fail closed；`ALREADY_ABSENT` 仍然禁止携带 identity 字段。其它 resource kind 的字段解释仍由其认证的 adapter/provider 合同决定。
+
+删除完整 terminal/history 不等于释放 Delay Message Identity。最后一个实体/terminal locator 被清理的同一 WriteBatch 必须把 `id_cf/MESSAGE` 转为 compact retired identity tombstone；tombstone 的删除再受 `messageIdentityReuseUntil` time fence、Recovery Floor 和 identity retention 保护。
+
+Lane retirement 是两阶段：先应用 `RESOURCE_RETIRE_INTENT`；只有 active gate 已按 source order 到达 `CLOSED`、pending/inflight/READY 都为零、所有 attempt/receipt/dedupe/terminal 引用不再需要、Adapter channels 已 close/fence 且 descendant Recovery Floor 包含该 intent 后，才在同一个 `[meta_cf/LANE][destinationLaneId]` key 上把 active `LaneRecord` 原子替换为 compact `LaneTerminalGuard(finalGate=RETIRED, laneControlVersion, laneIncarnation, terminalSourcePosition, Profile refs, exact canonical Lane tuple+digest, retire intent/sequence)`，并释放 Lane/strong slot grant。 没有另一个 `LANE_TERMINAL_GUARD` key/tag。Terminal guard 在 Route Incarnation/Profile 仍可被任何 retained Prepared Command、Replay 或 Recovery Set 引用期间不得删；相同旧 tuple 的 Schedule/Prepare/Commit/Replay 稳定 `LANE_TERMINALLY_CLOSED`。只有新 Profile/Ordering Domain 形成不同 `destinationLaneId` 才可创建 OPEN Lane，不能仅换 `laneIncarnation` 绕过 Break/Close。
+Retirement progress 与 terminal guard 的 Source Position 在 equal order token 时必须 canonical-byte 相等；同一 physical record 的 metadata 变体不能伪造“已 apply”或跳过关闭边界。
+
+## 16. Checkpoint、Recovery Set 与恢复
+
+### 16.1 Manifest
+
+`checkpointId` 与 `recoveryLineageId` 都是 I/O 前固定的 nonzero cryptographic-random 16-byte identity，以 unpadded Base64url 写 manifest/Oxia；它们不是 32-byte digest。一个 checkpoint create/upload/catalog retry 必须复用同一 `checkpointId`、draft directory、pending token 和最终 immutable prefix，不能因 response loss 重新生成。只有创建 lineage genesis 时生成新的 `recoveryLineageId`；正常 descendant checkpoint 继承它，受控 fallback 分叉只增加 `lineageGeneration` 并按 §16.3 建立显式 ancestry。
+
+`EvidenceCursor` 是 tagged closed union，不是任意 JSON object：
+
+```text
+common:
+  evidenceKind
+  destinationLaneId / laneIncarnation
+  evidenceResourceIncarnation
+  physicalPartition
+  evidenceGeneration
+  maxBrokerPersistedAtThroughCursor
+
+KAFKA_RECEIPT_CONTIGUOUS:
+  topicUuid
+  nextOffsetExclusive
+  lastObservedLsoExclusive
+
+PULSAR_ATTEMPT_JOURNAL_CONTIGUOUS:
+  resourceToken + physicalTopicCreationIdentity
+  lastAppliedLedgerId / entryId / batchIndex / batchSize
+```
+
+Kafka cursor 证明 read-committed scan 已连续处理所有 `< nextOffsetExclusive` 的可见 record；aborted/gap offset 不伪造 receipt。Pulsar cursor 是 inclusive last-applied batch member；restore seek containing entry 并跳过 `<=` cursor member。Dominance 只在 common identity/evidence generation 完全相同的 cursor 间比较：Kafka 比 `nextOffsetExclusive`，Pulsar 按 `(ledgerId, entryId, batchIndex)`；其它情况 incomparable。`maxBrokerPersistedAtThroughCursor` 是 guarded Broker-time anchor，用于 dedup horizon 证明，不能由 Worker wall clock伪造。
+
+对于 `PULSAR_ATTEMPT_JOURNAL_CONTIGUOUS`，`physicalTopic` 和
+`physicalTopicCreationIdentity` 也是 evidence stream 的完整物理身份。即使
+resource token 被错误复用，只要 topic 或 creation identity 发生变化，两个
+cursor 就不可互相 `sameIdentity` 或 `dominates`；不能把 replacement Journal
+当成旧 cursor 的 successor。`EvidenceCursor` 的本地 identity fence 必须在
+Recovery Floor、parent cursor coverage 和 evidence resolution 复用这一规则。
+
+Manifest/meta/Floor 将 cursor 按 `(evidenceKind, destinationLaneId, laneIncarnation, evidenceResourceIncarnation, physicalPartition, evidenceGeneration)` canonical byte order保存为严格递增 array；generation 是 identity key 的一部分，不是可忽略 value。旧、新 generation 在 Recovery Set 同时受保护时可并存；只有旧 generation 已被 evidence retention 与 descendant Recovery Floor 明确释放后才可删除。missing/duplicate/unknown kind、同完整 key 不可比较、或实际 retained successor range 不覆盖任何 required cursor 都是 evidence gap并 fail closed。
+
+每个 manifest 只描述一个完整 shard DB：
+
+```json
+{
+  "manifestVersion": 1,
+  "shardId": {
+    "routeIncarnation": "...",
+    "partition": 17
+  },
+  "checkpointId": "...",
+  "recoveryLineageId": "...",
+  "lineageGeneration": "7",
+  "parentCheckpoint": {
+    "checkpointId": "...",
+    "manifestSha256": "..."
+  },
+  "restoredFromCheckpointId": "...",
+  "createdBy": {
+    "deploymentId": "...",
+    "workerRunId": "...",
+    "ownerEpoch": "42"
+  },
+  "createdAt": {
+    "earliestEpochMs": "...",
+    "latestEpochMs": "...",
+    "source": "CERTIFIED_HOST_CLOCK",
+    "sourceId": "...",
+    "sourceConfigGeneration": "...",
+    "sampleSequence": "...",
+    "monotonicAnchorNs": "...",
+    "sourceEvidenceSha256": "...",
+    "sourceKeyVersion": 0,
+    "sourceSignature": null
+  },
+  "dbIdentity": "...",
+  "sourceStoreIncarnation": "...",
+  "storeFormatVersion": 1,
+  "shardMutationSequence": "9182",
+  "appliedShardLogPosition": {
+    "kind": "KAFKA",
+    "routeIncarnation": "...",
+    "clusterId": "...",
+    "topicUuid": "...",
+    "partition": 17,
+    "offset": "981273",
+    "leaderEpoch": null,
+    "brokerLogAppendTime": "..."
+  },
+  "controlStateDigest": "...",
+  "referencedSemanticVersionsDigest": "...",
+  "evidenceCursors": [
+    {
+      "evidenceKind": "KAFKA_RECEIPT_CONTIGUOUS",
+      "destinationLaneId": "...",
+      "laneIncarnation": "...",
+      "evidenceResourceIncarnation": "...",
+      "physicalPartition": 3,
+      "evidenceGeneration": "9",
+      "topicUuid": "...",
+      "nextOffsetExclusive": "1204",
+      "lastObservedLsoExclusive": "1220",
+      "maxBrokerPersistedAtThroughCursor": "..."
+    }
+  ],
+  "files": [
+    {
+      "name": "000123.sst",
+      "length": "1234567",
+      "checksum": "...",
+      "objectKey": "...",
+      "objectVersion": "...",
+      "etag": null
+    }
+  ]
+}
+```
+
+`sourceStoreIncarnation` 只标识创建 checkpoint 的旧本地安装，用于审计和防 manifest 拼接；restore 绝不复用它作为当前 Store token。`lineageGeneration` 与 `shardMutationSequence` 都是 Registry 的完整 `u64Text` 域，manifest/Floor 必须保留原始 64 位模式；parent successor、ancestry 和 Floor coverage 使用 unsigned order，只有全 1 lineage generation 没有 successor。`recoveryLineageId + parentCheckpoint/manifest hash` 定义可验证 ancestry；`shardMutationSequence` 只允许在该 ancestry 内比较，另一个 branch 上更大的数字没有包含关系。
+
+路径必须 relative、normalized、无 traversal。总文件数/bytes 有 manifest limits。
+
+`CHECKPOINT_MANIFEST_JSON` 的 exact required/nullable keys、UUID/Base64url/SHA-256/decimal encoding、Kafka/Pulsar Source Position 和 Evidence Cursor branches、file object identity/path constraints 由 Protocol Registry §10 固定；上例只展示 Kafka branch 的结构。它固定为 UTF-8 RFC 8785 JCS、无 BOM/duplicate key/float/NaN/Infinity。所有 uint64、文件长度、epoch、offset 用无符号、无前导零的十进制 JSON string；只在明确列出的 schema version/uint32 field 使用 JSON integer。`files` 按 normalized UTF-8 name byte order 严格递增，任何重复/未排序 entry、未知 key 或非 canonical bytes 都拒绝。`checksum` 固定为每个完整文件的 SHA-256；manifest SHA-256 覆盖 exact JCS bytes，Oxia catalog entry 固定 manifest object identity/version、length 和该 hash。Object version/etag 只作额外 identity，不替代内容 hash。恢复必须先验证 manifest limits/path 和 canonical hash，再创建文件。
+
+### 16.2 Publication
+
+Worker 内的 checkpoint scheduler 只是 process-local 的错峰调度器，不是
+checkpoint manifest、Upload Intent 或 Oxia catalog authority。一次 due claim
+必须返回不可由 `shardId + dueAt` 重建的本地 claim 句柄；完成或失败回调只能用
+该 exact 句柄与当前 in-flight 状态做匹配。仅带 shard identity 的迟到回调必须
+fail closed，不能重置较新的 checkpoint attempt 的 next-due 时间，也不能把旧
+attempt 当成当前 attempt 完成。scheduler 重启或状态丢失不改变恢复正确性，必须
+回到 durable Upload Intent/Catalog 状态重新竞争。
+
+Scheduler 的 process-local epoch 算术也必须保持有界：当 interval、jitter 或
+completion time 使下一次 due 超出非负 `int64` epoch 域时，next-due 饱和为
+`Long.MAX_VALUE` 并清除当前 in-flight claim；不能让一个已经完成的 claim 因
+算术异常永久占用 scheduler 状态。该边界只影响本地错峰时间，不产生 checkpoint
+manifest、Upload Intent 或恢复 authority 结论。
+
+完成回调的 `completedAt` 不能早于该 claim 返回时携带的 `dueAt`。这种时间倒退
+不是有效的调度证据，必须在清除 in-flight claim 前拒绝并保留原 claim，避免迟到或
+乱序回调把下一次 due 推回过去并形成立即重复领取。
+
+`ShardStore.createCheckpoint` 必须先取得 Worker 级 checkpoint-create slot，
+再把本次固定的 `checkpointId` 写入 live Store 的 runtime metadata 并创建物理镜像。
+create slot 已满时必须在任何 metadata WriteBatch 之前拒绝；不能先写入身份再依赖
+补偿写恢复原 projection。物理创建失败且身份已经写入时，才按同一 Store 边界恢复
+此前的 metadata；slot admission 本身不能产生 checkpoint identity 副作用。
+
+嵌入式/一致性测试实现可以把 `CheckpointUploadIntentStore` 绑定到一个专用本地
+state file，以保留完整 `CheckpointUploadIntent` canonical bytes。该文件使用
+checksum、临时文件、atomic rename、目录 fsync 和跨实例锁，重启或 response loss
+只接受 exact intent/revision successor；损坏、截断、身份漂移或非原子替换必须
+fail closed。无参实现仍是仅用于纯单进程测试的内存 projection；无论哪一种本地
+实现都不替代生产 Oxia 的 Owner Lease/session、lineage-head、catalog-generation
+CAS，或 Object Store 的上传、quiescence、attestation 和删除 authority。
+
+1. active DB 创建 unique local checkpoint；读取其 `meta_cf`，绑定 current lineage head/manifest hash，并读取 key 10 的 `CompatibleControlSnapshot` shard/digest（若是旧兼容 DB 则明确记录缺失），再生成 canonical file inventory/checksum；成功创建物理 checkpoint 后立即取得一次 `TrustedUtcIntervalEvidence createdAt`，并把其 exact JSON projection 固定进 draft。此时只是 draft inventory，不是最终 manifest，但后续 retry 不得重采样或改善该时间区间。
+2. Oxia CAS 创建 Registry 的 exact `CheckpointUploadIntent(PENDING_UPLOAD)`，固定 checkpoint/lineage/parent、upload token、Owner/Store、base catalog、Object Store Profile、`createdAt` 与 bounded upload deadline；事务比较 exact active Owner Lease/session/Store 和 base catalog。
+3. 向 immutable unique prefix 上传每个 inventory file，取得 exact object key/version/etag，逐个 HEAD/read + SHA-256 校验。
+4. 用已验证的 object identity 生成最终 JCS manifest，上传并校验 manifest 自身 exact key/version/length/SHA-256；此前不得把 draft 暴露给 catalog。
+5. 复核 assignment、lease、store、source/evidence margin、lineage head、base catalog version 和 pending token。
+6. 单个 Oxia transaction/CAS 比较 intent state/revision/token、Owner Lease/session、lineage head 与 base catalog，做 `PENDING_UPLOAD -> PUBLISHED` 并把 exact manifest object identity/version/length/hash 加入 Recovery Set；reaper 只能竞争 `PENDING_UPLOAD -> REAPING`，两者互斥。
+7. CAS response loss 用 exact checkpoint ID/token reread；只有与最终 manifest byte-equal 的 `PUBLISHED` 是成功。
+
+本地上传协调器取得 Worker upload slot 之后，必须在调用 provider adapter
+之前再次读取 exact Upload Intent。slot 只限制进程级并发，不是 intent lock；如果
+并发 Owner/reaper 已经把 intent 推进为 `PUBLISHED`，直接返回该 exact successor，
+不得再次调用 provider；如果 intent 已变为其它 revision/state，则 fail closed，
+不得以旧的 `PENDING_UPLOAD` 发起 provider I/O。这样不会把迟到上传变成必然无法
+完成 CAS 的 orphan object；这条本地 reread 仍不替代生产 Oxia 的跨 record
+Owner Lease/session、catalog 和 Object Store transaction。
+
+任何读取路径得到的 `PUBLISHED` successor——包括初次读取、取得 Worker upload
+slot 后的再次读取和 CAS response-loss reread——都必须重新执行完整
+`CheckpointResource` 上限校验，并把其 recovery lineage、checkpoint、Object
+Store Profile、manifest object identity/version、exact manifest length 与 SHA-256
+绑定到当前 canonical manifest。并发 publication 只允许省略重复 provider I/O，
+不能成为跳过 manifest/resource validation 的信任捷径；绑定错误必须 fail closed，
+且本地协调器不得把外部 authority 已推进的 `PUBLISHED` 倒退或改写回 pending。
+
+上传未 catalog publish 的对象不是 recovery state，只是 orphan candidate。只有赢得 `REAPING` CAS 的 reaper 才可删除；仅 upload deadline 到达、callback 丢失或 watch 缺失都不够。旧 Owner 主动 abandon，或其 exact Owner Lease/session 已不再 current 且 Trusted UTC 越过 deadline，才可竞争该 CAS。`REAPING` 永久禁止后来 publish；reaper 还必须等待 `checkpointUploadRequestQuiescenceHorizon`、证明旧 Owner local guard 与 provider-owned request horizon 已关闭、确认无 active `RecoveryPin`/`PUBLISHED` catalog protection，再对 unique checkpoint prefix 做 exact-version delete 和 final empty-prefix sweep。任何 catalog、Floor 或 Recovery Pin 读取异常（包括适配器/进程边界抛出的 fatal `Error`）都只能解释为保护状态不可用，必须保持 `PENDING_UPLOAD` 或保留 GC tombstone，不能继续回收。这样旧 SDK/provider 的 late PUT 不能在一次 `HEAD not found` 后制造无主对象。
+
+本地 `CheckpointPublicationCoordinator` 把 upload 与 catalog 绑定的调用顺序固定为
+`PENDING_UPLOAD -> PUBLISHED` 后再提交 exact `publishUploadedCheckpoint`，并在进入
+provider I/O 前检查 intent 的 `baseCatalogGeneration` 与请求 generation 一致。若
+catalog 写入响应丢失或暂时失败，重试会复用同一 PUBLISHED intent 和 checkpoint
+identity；本地 Catalog 对已存在的 byte-identical manifest 只做幂等绑定。该类只是
+本地编排/重试边界，不能把两个本地或 Oxia 单记录 CAS 宣称为 要求的跨
+Owner Lease/session、Upload Intent 与 Catalog 的单事务；生产 Oxia adapter 仍必须
+提供真正的跨记录 transaction，否则应 fail closed。
+
+`CheckpointExecutionCoordinator` 把上述本地步骤接到 process-local
+`CheckpointScheduler`：调用方必须先交回 scheduler 返回的 exact claim，随后用
+`PENDING_UPLOAD` intent 中已经固定的 `checkpointId` 创建该 shard 的 RocksDB
+checkpoint；若同一 identity 的本地目录已经存在，则只允许在 Store 的
+`lastCheckpointId` 与 intent 完全一致时复用。manifest factory 之后必须描述同一
+Store 的 DB identity、Store Incarnation、applied Source Position、mutation
+sequence、evidence cursors 和 control snapshot；物理 checkpoint verifier 会从
+`meta_cf` 重读这些字段并与 manifest 做 canonical 比较。只有这些检查通过才进入
+upload/catalog 编排。无论 provider 或 catalog 是否失败，执行器都用同一 exact
+claim 完成并安排下一次 due；完成时钟异常或 claim 已被替换则保持 in-flight 并
+fail closed。若执行体已经失败而 completion 又失败，执行体 failure 保持 primary，
+completion failure 只作为 suppressed evidence；不能用清理错误掩盖原始 I/O/校验
+错误，也不能在 completion 未成功时把 claim 当成已清除。该执行器只闭合本地
+create/upload/catalog 的顺序和 response-loss
+重试，不产生 Owner Lease、Source Assignment、Object Store attestation 或生产
+Oxia 跨记录事务结论。
+
+scheduled checkpoint 不得从 `CheckpointScheduler` claim 直接跳到上述物理执行器。
+生产组合路径必须先用 exact claim 和 `PENDING_UPLOAD` intent 做无 I/O 的
+shard/Store/identity preflight，再把完整 action 提交到独立的 `CHECKPOINT`
+work-class queue。queue admission 拒绝时不得创建目录、改写 Store metadata 或调用
+provider，且原 scheduler claim 必须保持 current，以便同一请求重新入队。action
+真正运行时还必须在任何 filesystem/provider I/O 前重复检查 exact claim 与 intent。
+`ExecutionRequest` 不允许 caller 自报 work-class byte charge。admission 的 canonical
+value identity 必须绑定 exact Shard route incarnation/partition、claim due time、normalized
+absolute checkpoint directory、完整 canonical `CheckpointUploadIntent` 和 upload time；
+`taskId` 是该 identity 的 domain-separated SHA-256，byte charge 就是同一 identity
+的实际长度。manifest factory、completion clock 和 upload adapter 作为同一注册
+action 的 capability 保持强引用，不另外导出不稳定的进程对象 identity。负的
+upload time 属于本地格式错误，必须在 request 构造时拒绝，不得占用
+`CHECKPOINT` queue。这个静态 charge 只覆盖排队 request envelope；实际 checkpoint
+文件、upload bytes 和占用时间仍必须由 Worker 的动态 I/O/temp-headroom authority
+独立计费，不得用该静态值冒充。
+普通 checkpoint attempt failure 已由 `CheckpointExecutionCoordinator` 用同一 claim 完成或
+保留 in-flight，因此 work-class handler 只返回一个可查询的 attempt outcome，不得另外
+留下一份通用 `FAILED` retry authority；下次物理尝试只能使用 scheduler 返回的
+新 exact claim。fatal `Error` 仍必须记录 outcome 并重新抛出，不得吞掉
+EventLoop 的 fatal-stop/fencing 语义。
+
+本地/测试 provider seam `FilesystemCheckpointUploadAdapter` 只模拟上述上传阶段的
+物理边界：它在配置的本地 root 下为每个 opaque `(objectKey, objectVersion)` 生成
+domain-separated immutable object path，流式复制并重新计算完整文件 SHA-256，拒绝
+符号链接、非 regular file、源文件漂移和超出 manifest limits 的 inventory；所有文件
+对象成功后才写 manifest object，并通过临时文件、`force`、atomic create-new rename
+和 immutable-if-absent 校验处理 crash/retry。重复请求只接受 byte/hash 相同的既有对象，
+否则 fail closed。这个 seam 不提供生产凭据、provider quiescence、远端一致性、
+attestation、删除 authority 或 Oxia/Catalog transaction；生产 adapter 仍必须证明
+这些边界，不能把本地文件树当成已发布 Recovery Set。
+
+### 16.3 Recovery Set / Floor
+
+Catalog 保存有界 checkpoint count/age、lineage parent-hash chain 和 monotonic Recovery Floor。Floor 固定 exact `(recoveryLineageId, checkpointId, manifestHash, catalogGeneration, appliedShardLogPosition, includedMutationSequence, evidenceCursors)`；`includedMutationSequence` 是完整 `u64`，Floor coverage 以 unsigned order 比较。恢复从 newest 开始，只可 fallback 到 parent chain 能到达该 exact Floor 的 candidate；scalar position/sequence 大小不能替代 ancestry。
+
+嵌入式实现可以用 `PersistentRecoveryCatalog(Path)` 保存这一 Catalog 的 crash-durable
+本地 projection：snapshot 包含已发布 manifest、immutable manifest-object identity、
+scalar/typed Floor 和 active Recovery Pin，manifest entry 以 canonical bytes 排序并
+带有 bounded count/size。state file 使用 domain-separated checksum、临时文件、
+atomic rename、文件/目录 fsync 以及 JVM 与 on-disk lock；每次读写都重新加载并验证
+canonical snapshot，损坏、截断、身份漂移、父链或 Floor/Pin projection 不一致时
+fail closed。它只闭合本地重启和 response-loss 语义，不是 Oxia Owner Lease/session、
+catalog/Floor CAS、Object Store publication 或 source-retention authority；生产实现
+仍必须把相同的不变量放进 Oxia transaction。
+在判断 Floor 是否覆盖某个 mutation 的 Source Position 时，若 covered 与 required 的 order token 相等，还必须比较完整 canonical bytes；同一 Kafka offset 或 Pulsar ledger/entry/batch 携不同 metadata 不是覆盖证明。order token 严格更晚时才可按单调顺序覆盖。
+
+资源 retirement mutation sequence 为 `r`，只有：
+
+```text
+candidate ancestry reaches RecoveryFloor.checkpointId/manifestHash
+AND RecoveryFloor.includedMutationSequence >= r within that lineage
+```
+
+才取得 Checkpoint Safety Barrier。先 CAS 提高 floor，再释放旧 checkpoint 保护并删除对象。若从较早但仍是 Floor descendant 的 checkpoint 继续，必须 CAS 创建新的 lineage generation并把之后不兼容 descendants 标为 `SUPERSEDED`；不得伪造原 head 的 predecessor 或复用自由 scalar sequence。fallback 都坏时 fail closed，不能越过 floor 找更老 snapshot。
+
+### 16.4 Restore
+
+1. 读取 current Floor/catalog，选择 local `ACTIVE` 或 catalog checkpoint；用一个比较 exact Owner Lease/session 与 catalog generation 的 Oxia transaction 创建 Registry 的 session-bound ephemeral `RecoveryPin`。Pin 无 client-clock expiry；只要 exact record 存在，candidate/Floor checkpoint 对象就不能删除。
+2. local Store 只有在 DB 内 lineage/base checkpoint、last-observed Floor、source/evidence cursors、目录/lock/shard/DB/Store identity 全部证明它是 current Floor descendant 时才可复用；旧 host 的 checksummed pointer 本身不是资格。
+   本地 `RecoveryCatalog.validateLocalStoreRecovery` 只能验证已持久的
+   `StoreRecoveryMetadata` 与 exact typed current Floor、published base manifest、
+   parent-hash ancestry 和 Store Incarnation/install-state 一致；真正的 current
+   Floor/Oxia Owner Lease/session transaction 仍是外部 authority，缺失或不一致时
+   必须重新选择 checkpoint，不能把本地 proof 当成接管授权。
+   `meta/RECOVERY` 的 `catalogGeneration` 必须保留完整非零 `uint64` 位模式；
+   Java signed high-bit 值不能被当作非法负数，shard DB 重开后必须恢复同一
+   generation 并继续执行 exact Floor 校验。
+3. 否则下载 newest permitted pinned checkpoint 到 `restore-tmp/<checkpointId>-<nonce>/db`，验证 canonical manifest/ancestry/object/file checksum、DB/shard/route、`sourceStoreIncarnation`、store format 和 source/evidence retention；打开 staged DB 后必须把 `meta_cf/FIXED` key 10 中已有的 `CompatibleControlSnapshot.snapshotDigest` 与 manifest 的 `controlStateDigest` 做 exact 校验，并把 `meta_cf/RECOVERY` 中已有的 lineage/base（`recoveryLineageId`、`checkpointId`、`manifestSha256`，以及 `LOCAL_STORE` 的 Store Incarnation）、last-observed Floor lineage 与 install-state checkpoint identity 同 manifest 的 recovery lineage/checkpoint 做 exact 校验，且 install-state 必须同时与 lineage/base 一致，拒绝把合法 DB 文件与另一条本地 recovery projection 拼接。 生产路径若缺少 key 10，不能证明完整 control prerequisite；仅为旧本地 DB 保留的兼容 seam 不得进入 `ACTIVE_FOR_COMMANDS`。
+   本地/测试 `FilesystemCheckpointDownloadAdapter` 接受已经由 Catalog 绑定的
+   `(CheckpointManifest, CheckpointResource)`，先读取并验证 manifest object 的
+   canonical bytes、length 和 SHA-256，再按 manifest 中每个 opaque object key/version
+   流式下载文件到私有临时目录，重新 inventory 全部文件并逐项比较 length/checksum，
+   最后才以 atomic rename 发布目标目录。对象、manifest、目标路径中的符号链接、
+   traversal、现有目标目录、对象漂移或不完整文件集都必须 fail closed；失败只能清理
+   本次创建的临时目录。它只是本地 provider/download 证据，不能替代生产 Object Store
+   credentials、quiescence/attestation、RecoveryPin/Oxia transaction 或 Source Log replay。
+   `CheckpointRestoreCoordinator` 再把该下载结果限制在每次独立的
+   `checkpoint-download-tmp/<attempt>/db` staging boundary，确认 provider 没有返回
+   越界或符号链接目录，重新校验完整 inventory 后才调用
+   `ShardStore.restoreFromCheckpoint`；Store Incarnation 安装完成后才删除本次下载树。
+   协调器必须在调用 provider 之前取得 Worker 级 checkpoint-download permit，并一直
+   持有到 provider 返回、完整 inventory 校验和 `ShardStore` 安装结束；不能只在
+   `ShardStore` 内部限制 restore 阶段，否则实际 provider I/O 会绕过进程级并发边界。
+   Worker 生产组合必须先把这个 restore request 提交给 `CHECKPOINT` work-class；只有
+   被选中的 bounded action 才能调用上述 coordinator。queue rejection 发生在 provider
+   I/O、staging 创建和 catalog read 之前；action outcome 交回已安装 Store 或 restore
+   failure evidence，direct coordinator seam 不得作为跨包 Worker API。这个边界闭合的
+   仍是本地 download → restore 调用顺序，不产生 Owner Lease、Source Assignment、
+   RecoveryPin 或 Source Log replay authority。
+4. 生成全新 Store Incarnation，rename temp 到 `incarnations/<newStoreIncarnation>`；install-mode open，WAL-sync 写入新的 Store Incarnation、current Owner open metadata 和 unclean marker，再 close。
+5. 在替换 `ACTIVE` 前重读 exact pin/Floor/catalog/retention；Floor 已越过 candidate、session-bound pin 消失或 lineage 改变则关闭并丢弃安装、再重新选择。否则 fsync parent，写/fsync `ACTIVE.tmp`，atomic rename、fsync shard parent并 normal open。
+6. 按 Adapter successor seek/replay完整 Shard Log；普通 reversible `CLAIMED` 恢复为相同 semantic timeline work/authority/candidate attempt与 semantic digest、checked increment runtime revision/instance digest，并原样保留旧 attempt obligation set/aggregate projection（所以可能仍是 `UNCERTAIN`）；Close-overlay owned Claim 只续跑 materializer。合法 Admission 先确定性恢复 `PUBLISHING`，无 live first-send gate 的旧 owner attempt 再追加 exact recovery `UNKNOWN` Outcome，各 Lane 标记 `RECOVERING_EVIDENCE`。
+   本地接管实现必须在打开新的 Command gate 前，对当前 `inflight_cf/CLAIMED` 做一次受 `maxPendingMessages` 约束的完整扫描；每个 Claim 通过与 owner drain 相同的同步 WriteBatch 原子恢复原 timeline/work kind、Message runtime index、READY 和 quota，并为 runtime revision/instance digest 生成 checked successor。该恢复入口只处理 reversible `CLAIMED`，不触碰 `PUBLISHING`/`UNCERTAIN` attempt obligation；扫描超界或 Claim/key/value 不一致时 fail closed。它不把旧 Owner Epoch 当作新的 Producer authority，也不替代后续 Source Log replay、Outcome/Evidence recovery。
+7. invariant audit、catch up typed source Activation Barrier；在激活前再次复核 exact recovery pin/Floor/catalog/retention。把同一 Owner Lease CAS 为 `ACTIVE_FOR_COMMANDS` 与删除 exact pin 放在一个 Oxia transaction；response loss reread lease/pin，不能留下“已 ACTIVE 但仍靠旧 recovery pin”的含混状态。
+8. 每个 Lane 独立 replay Kafka receipt partition 或 Pulsar Attempt Journal 到自己的 post-lease barrier。
+9. 单 Lane gate 为 `OPEN`、fresh evidence/capability proof 完成后才写 runtime `READY`；失败 Lane 保持 blocked，不阻塞其他 Lane。
+
+Client Command 与 command-affecting runtime System Mutation 都可重放。Admission 后 remote side effect 若没有 Outcome record仍是 `UNCERTAIN`；unordered bounded baseline 可能 duplicate，ordered Lane 保留 head，强 capability 用 evidence 解析。
+
+### 16.5 无 warm standby
+
+ 不运行 standby。未来实现可用独立 replay subscription 消费完整 Shard Log，但仍必须定义 snapshot cut、资源预算、integrity proof，并在取得 Source Assignment/Owner Lease 前保持 non-publishing；加入 active subscription 或复制 live DB 都不合格。
+
+### 16.6 Active Recovery Cell 边界
+
+每个 Route Incarnation 只有一个 Active Recovery Cell，固定：
+
+```text
+一个 authoritative Command Topic identity
+一个 Oxia ownership/control/catalog namespace
+一个 checkpoint/payload Object Store authority
+一组可取得其 shard lease 的 Workers
+```
+
+ 覆盖上述权威服务仍保持连续性时的 Worker、进程、本地盘、主机和 Broker 节点故障。Checkpoint 不是独立完整备份；它还依赖 checkpoint position 之后的 Command records、所选 capability evidence、Oxia Recovery Set/Floor 和受保护 payload。
+
+Kafka MirrorMaker offset 或 Pulsar geo-replicated MessageId 不被假设保持原 Source Position。若 authoritative source/catalog/object continuity 无法证明，正常恢复 fail closed。接受丢失或重复的 disaster override 必须创建新 Route Incarnation、写明确 audit boundary，并使旧 receipt 不再声称连续可管理。
+
+## 17. Query、Admin 与 Control Operation
+
+### 17.1 Query routing
+
+Queued receipt 的 Broker Source Position 是 Command query 的路由权威；bare Command/Message ID 使用其 self-routing locator。若 consumed physical partition 与 envelope locator 不同，实际 shard 写 position-level `REJECTED(INGRESS_ROUTE_MISMATCH)`，不创建消息；只有携该 queued receipt 的查询能定位这次错误物理记录。Gateway 从 Oxia 找 `ACTIVE_FOR_COMMANDS` lease，携 observed epoch 转发；owner mismatch 时 refresh 一次。
+
+进入 Worker 的本地 Query 必须使用独立 `QUERY` bounded action。Gateway 在外部完成
+Route/Owner 定位、Authenticated Tenant Context 授权、receipt/retention policy 校验后，
+把已授权的 canonical request envelope 和目标 Shard 交给该 action；task identity 必须
+绑定 exact Shard 与 request bytes，byte charge 使用同一 canonical envelope 的实际长度。
+queue admission 只做本地格式/Shard 检查，不读 Oxia、不读 RocksDB，也不改变任何 runtime
+projection。action 执行时先重读 Owner Lease/clock，再执行一次 bounded shard-local
+read-only projection，并在读完成后再次重读同一 lease。前后 identity 不一致、lease
+过期或 Store/authority 读失败时丢弃已读 snapshot，返回 `SHARD_TRANSITIONING` 或
+`INTEGRITY_ERROR`，不得把 stale DB 结果暴露给调用方。Query action 不分配 Source
+Position、不写 RocksDB、不调用 Broker/Object Store，也不自行决定租户授权、路由、
+retention 或 non-enumerating error；这些仍由生产 Gateway/authority 提供。
+
+Locator 是闭合 ADT：
+
+```text
+CommandLocator =
+  QueuedCommandLocator(CommandQueuedReceipt)
+  | BareCommandLocator(CommandId)
+
+MessageLocator =
+  ManagedMessageId(DelayMessageId)
+  | ManagedMessageReceipt(CommandQueuedReceipt with MessageSubject)
+```
+
+`awaitApplied` 只接受 `QueuedCommandLocator`。Native receipt/identity 在类型层面不能成为 managed query locator。Receipt 先做 bounded syntax/integrity/type validation；失败为 `INVALID_RECEIPT`。随后 Gateway 必须从 trusted Route registry 与 Authenticated Tenant Context 授权，**再**解析 owner/position 或暴露 mismatch；unknown route 与 cross-tenant 统一返回 non-enumerating `NOT_FOUND_OR_NOT_AUTHORIZED`。
+
+达到 queued barrier 后，Owner 必须把 receipt 中的 `commandId` 与 `commandHash` 同 shard `dedupe_cf` 的完整命令身份证据核对，再投影结果；hash/identity 不匹配返回 `RECEIPT_MISMATCH`，不得仅按 `commandId` 暴露另一个命令的结果。Applied receipt 也必须经过同一核对。该核对是本地 shard 读取边界，不能替代 Gateway 的租户授权与 Owner 路由。
+
+以下状态不读 stale DB：
+
+```text
+UNASSIGNED / ACQUIRING / RESTORING / CATCHING_UP / DRAINING / FENCED
+FAILED
+absent or ambiguous lease
+```
+
+存在 current desired placement/可证明 bounded transition 时，前六个非 active 状态返回 `SHARD_TRANSITIONING(retryAfter)`。`FAILED`、已超 placement/ownership deadline 的 UNASSIGNED、无 recovery candidate、或 authoritative lease/catalog ambiguity 返回 `SHARD_UNAVAILABLE`。任何状态都不得读 stale DB。
+
+### 17.2 Query barrier
+
+带 queued Source Position 的 query 等待：
+
+```text
+appliedShardLogPosition >= receipt.sourcePosition
+```
+
+这里的 `>=` 只在 Source Position canonical bytes 完全一致或当前 position
+严格晚于 receipt position 时成立；同一 Kafka offset 或 Pulsar
+ledger/entry/batch token 携带不同 leader/append-time、batch 或其它 canonical
+metadata 时必须返回 integrity failure，不能把 comparator equality 当作已跨过
+receipt barrier。
+
+之前 Queued locator 可返回 `PENDING + currentPosition`。达到 barrier 后不能返回 `UNKNOWN`：必须返回 exact result、compact `RESULT_EXPIRED`、caller receipt/position audit `RECEIPT_MISMATCH`，或 contractually expired audit 的 `RESULT_EVIDENCE_EXPIRED`。`RECEIPT_MISMATCH` 是不可信 locator 的 typed error，不是服务端 `INTEGRITY_ERROR`；safe mismatch details 只在 tenant authorization 后可见。Bare locator 可 `UNKNOWN`，但没有 barrier，绝不返回 `PENDING`。
+
+达到 barrier 后，Owner 还必须读取该精确 Source Position 的
+`dedupe_cf/POSITION` 审计，并确认它命名 receipt 的 `commandId`，然后才能投影保留的逻辑结果。仅有同 shard 的 `commandId` 和匹配 `commandHash` 不足以授权一个伪造的物理位置；缺失、跨类型（System Mutation）或命令身份不匹配的 POSITION 审计统一返回 `RECEIPT_MISMATCH`。该检查属于本地 shard 物理 locator 边界，不替代 Gateway 的租户授权与 Owner 路由。
+
+`CommandQueryResult` 是 closed union：
+
+```text
+PENDING
+APPLIED
+REJECTED
+RESULT_EXPIRED
+RESULT_EVIDENCE_EXPIRED
+UNKNOWN
+INVALID_RECEIPT
+RECEIPT_MISMATCH
+NOT_FOUND_OR_NOT_AUTHORIZED
+SHARD_TRANSITIONING
+SHARD_UNAVAILABLE
+INTEGRITY_ERROR
+```
+
+`MessageQueryResult` 是独立 closed union：
+
+```text
+RESERVED
+ACTIVE
+TERMINAL
+IDENTITY_RETIRED
+UNKNOWN
+INVALID_RECEIPT
+RECEIPT_MISMATCH
+NOT_FOUND_OR_NOT_AUTHORIZED
+SHARD_TRANSITIONING
+SHARD_UNAVAILABLE
+INTEGRITY_ERROR
+```
+
+`RESERVED/ACTIVE/TERMINAL` 返回适用的 Message Control Version (`stateVersion`)、capability、payload availability 与 DLQ Export 状态。完整 terminal/history 已 GC、但 compact identity tombstone 仍在时返回 `IDENTITY_RETIRED`，只声明该 ID 已被占用且详情过期，不伪造 terminal 内容。`UNKNOWN` 不证明消息从未存在，也不授权复用 ID；若其 UUID freshness deadline 已被 source fence 关闭，可附 `firstScheduleEligibility=EXPIRED`，但这仍不是历史存在证据。它不把 `QUEUED` Command 当作 Delay Message。
+
+以上 response 不是开放 JSON map。`CommandQueryResponse`、`MessageQueryResponse`、safe binding/payload/evidence view 的 exact field numbers、state subset、presence matrix 和 receipt-only branch 由 Protocol Registry §6.3.1 固定。Bare Command query 返回不含 queued-receipt digest 的 `PublicCommandResult`，不能为凑字段伪造 `CommandAppliedReceipt`；bare locator 也不能产生 `PENDING`/receipt mismatch/evidence-expired 分支。
+
+这些 closed union 的 `result_kind`、`stable_code` 和 `CommandType` 在 Java runtime 中只接受非负 `int` 子集；wire 上落入高位的 `uint32` 不得通过 `Math.toIntExact` 等隐式窄化进入枚举，而必须以明确的 `IllegalArgumentException` fail closed。该边界只限制当前本地 runtime projection，不改变 Registry wire 的完整 `uint32` 域；若未来开放更宽的 runtime 值，必须同步迁移对应枚举、状态/查询 projection 和持久化兼容测试。
+
+`PublicQueryError` 的可选 `retryAt` 只接受 Registry 规定的 varint wire type；length-delimited、fixed-width 或其它 malformed field 必须在 stable-code projection 前以明确的 `IllegalArgumentException` fail closed，不能让底层字段访问异常泄漏为未定义协议结果。
+
+没有 source position 的 uncertain enqueue 查询可为 `UNKNOWN`；absence 不能证明未入 Broker。可靠动作仍是 retry 原 Prepared Command。
+
+Position audit 不能按普通 full-result TTL 删除。Queued receipt 的 `receiptQueryUntil` 按该 record Broker persistence time + immutable Route `queuedReceiptQueryWindow` 计算；full result 的 `fullResultRetainUntil` 同样按 first Source Position Broker time + `fullCommandResultRetention` 计算，replay 不读取 apply wall clock。`dedupe_cf/POSITION` 只有在 `closedIngressDeadlineThrough >= receiptQueryUntil`、source 越过 fence、descendant Recovery Floor 包含 audit mutation 且 minimum audit retention 已过后才能回收。之后 queued query 返回 `RESULT_EVIDENCE_EXPIRED`，不伪造 `UNKNOWN` 或 mismatch。该 retention 进入 checkpoint/source/object capacity proof。
+
+Long poll 使用 register → durable re-read → wait，避免注册竞态。waiter 不持久，owner loss 返回 retryable transition。
+
+达到 barrier 后，Owner 在同一 lease/Store Incarnation 下取得一致 RocksDB snapshot，再返回 Command result 与 message state；响应线性化到该 snapshot 时刻。若 lease/store 在读期间改变则丢弃结果并返回 transition，不能把关闭 DB 的读包装成成功。
+
+### 17.3 Admin actions
+
+ 使用窄操作：
+
+- `StopNewSchedules`
+- `PauseDestinationLane`
+- `ResumeDestinationLane`
+- `CloseDestinationLane`
+- `BreakOrderingDomain`
+- `DrainShard`
+- `FenceShardForMaintenance`
+- `ForceCheckpoint`
+- `GetCheckpointCatalog`
+- `ReplayDeadLetter`
+- `ResolveUncertain`
+- `PublishDestinationProfileVersion`
+- `DeprecateDestinationProfileVersion`
+- `PublishQuotaGrant`
+- `RotateEquivalentSecretReference`
+
+不提供会同时堵住 Cancel 的模糊 `PauseIngressRoute`。
+
+Lane 管理使用独立的 source-ordered `laneControlVersion`。首次创建 Lane 为 1；每次成功 Pause、Resume、Break 或 Close 做 checked increment。调用方提交 `expectedLaneControlVersion`；same operation ID/hash 重试返回首次结果，stale expected version 为 `VERSION_CONFLICT`。运行时 readiness/circuit/Ready-index 变化只递增 `laneVersion`/runtime revision，绝不改变 `laneControlVersion`；message 的 `stateVersion` 也不是 Lane 管理 CAS。Recovery-safe `CLOSED -> RETIRED` 保留最终 `laneControlVersion/laneCloseVersion`，不制造一个未经过 Source Position 的新管理版本。
+
+`BreakOrderingDomain` 要求 exact Lane Incarnation/`expectedLaneControlVersion` 和显式 duplicate/order-loss acknowledgement。其 marker 在一个 WriteBatch 把旧 Lane 标成独立 `ORDERING_BROKEN`、删除 READY key、递增 `laneVersion`、撤销全部可逆 `CLAIMED` 并释放对应 executor permits，因而禁止任何新 Admission。它不执行 `CloseDestinationLane` 的批量冻结/计数转移；已有 `SCHEDULED`/合法 `RETRY_WAIT` 和已 admitted/possible-delivery obligation 仍需通过后续 exact Close/Resolve 操作可审计处置。继续业务必须发布/选择新的 Profile version，从而形成新的 Ordering Domain。
+
+`PauseDestinationLane` 与 `ResumeDestinationLane` 只改变 source-ordered admissionGate。Pause 的 marker 同 batch 删除 READY key、递增 `laneVersion`、撤销全部可逆 `CLAIMED` 并释放对应 executor permits；Resume 只允许 exact `ADMIN_PAUSED -> OPEN`，若 runtimeReadiness 已 `READY` 则同 batch 重建 READY key。Resume 对 `OPEN` 返回 `ALREADY_OPEN`；对 `ORDERING_BROKEN/CLOSED/RETIRED` 分别返回 `ORDERING_DOMAIN_BROKEN`、`LANE_CLOSED`、`LANE_TERMINALLY_CLOSED`，且永不清除 runtime capability block。
+
+`CloseDestinationLane` 要求 exact Lane Incarnation/`expectedLaneControlVersion` 和 reason。Strict Lane 还必须在同一个 Close operation 携 `allowOrderBreak=true` 与 duplicate/order-loss acknowledgement；这可直接执行 `OPEN|ADMIN_PAUSED|ORDERING_BROKEN -> CLOSED` 并写 order-break audit，不要求先发第二个 Break marker。
+
+Lane marker 的 ACK presence 查询必须复用 `AcknowledgementSet` 的完整 canonical
+decoder；不能仅按嵌套字段位置读取 ACK kind。畸形 wire type、未知 kind、重复/乱序
+entry 或非 canonical ACK set 都必须在控制语义判断前 fail closed。
+
+Marker 的单个 WriteBatch 把 Lane 置为不可逆 `CLOSED`，把 resulting `laneControlVersion` 固定为 `laneCloseVersion`，记录 `closedAtSourcePosition`、canonical close reason/time/dead-letter/GC inputs，删除 READY key并递增 `laneVersion`。它以 close overlay **语义上**撤销全部可逆 Claim并释放对应 executor permits；仍物理存在的 `inflight_cf/CLAIMED` 带 `closeOwnedByVersion`，restore/materializer 绝不 requeue。
+
+Lane 的 **generation/reservation state buckets** 必须互斥分裂为 `unadmittedScheduled`、`unadmittedRetry`、`reservations`、`claimedReversible`、`admittedOutstanding`、`possibleDeliveryEscrow` 和 `retained`，而不是只保留混合 pending 总数。每个非终态 generation 恰在一个 bucket：存在 UNCERTAIN ledger 时固定在 `possibleDeliveryEscrow`，即使 current work 是 timeline/Claim/PUBLISHING；无旧 uncertainty 的 current PUBLISHING 才在 `admittedOutstanding`。Claim record 和每个 attempt obligation 的 inflight/physical charge另行计数，不能把 generation 再算一遍。
+
+Marker 仅把真正没有 admitted obligation 的前四类 aggregate 一次转入 frozen/terminal escrow；cursor materialization quota-neutral。若 `possibleDeliveryEscrow` generation 同时有 current timeline/Claim，Marker 删除/revoke 该 reversible work并只释放它自身的 Claim/executor charge，generation 仍在 possible-delivery bucket，各 attempt ledger charge原样保留。任何 attempt ledger 仍含 `UNKNOWN` 的 generation 绝不能归类成 “closed before Admission”。
+
+真正无 admitted obligation 的 `SCHEDULED`/合法 `RETRY_WAIT`/`CLAIMED` 逻辑结果冻结为 `DEAD_LETTER(LANE_CLOSED_BEFORE_ADMISSION)`；未 Commit 的 `PAYLOAD_RESERVED` 冻结为 `PAYLOAD_RESERVATION_ABANDONED(LANE_CLOSED_BEFORE_COMMIT)`，停止新 handle/attestation，后续 Commit 返回 stable `PAYLOAD_RESERVATION_CLOSED`。已经签发或 in-flight 的 upload handle 仍按 upload-deadline fence/quiescence/late-PUT GC 规则保留 tombstone与 quota。其后按 canonical key order 的持久 close cursor 分 bounded batch 物化 message/reservation terminal/history 和 guarded object-GC task，并写 `counterTransferredByCloseVersion`；restart 从 cursor 续跑，不再作语义选择。当前本地 discovery 入口 `LaneCloseDiscoveryWorkClassExecutor` 把 exact Shard 和完整 record/byte/elapsed scan budget 绑定进 `GC` task，action 重读 strict Owner Lease，并以共享 `BoundedReadBudget` 覆盖 SYSTEM cursor 与对应 Lane projection 的实际读取；queue rejection 不读 Oxia、时钟或 Store，discovery 不推进 cursor。随后 `LaneCloseWorkClassExecutor` 把 exact `LaneCloseMaterializationCursor` 和本批 record bound 绑定进另一个 `GC` task，queue rejection 不触碰 Store；执行时重新校验 strict Owner Lease、close Source Position 的 Shard identity 和 cursor bytes，再调用既有 materializer。cursor 在排队期间被推进或删除时只返回 `STALE`/`NOT_FOUND`，不把旧 batch 应用到新的 close version；两层入口都不创建 System Mutation、不分配 Source Position。生产 close scheduling、Oxia/session authority、admitted-obligation retirement、Object Store quiescence 与 Recovery-Floor GC proof 仍由外部适配器完成。Marker 之后的 Schedule 稳定 `REJECTED(LANE_CLOSED)`；对已冻结未 admitted message，Cancel 为 `ALREADY_DEAD_LETTERED`、Reschedule 为 `LANE_CLOSED`；reservation Commit 为 `PAYLOAD_RESERVATION_CLOSED`；admitted/possible-delivery attempt 仍为 `TOO_LATE` 或其 exact Resolve outcome。
+
+Close 不把 marker 前的 `PUBLISHING`/`UNCERTAIN` 伪装成未发布，这些 attempt 仍走 evidence/`ResolveUncertain`，也不在汇总 counter 转移中提前释放其 retained/outcome obligation。Marker 后的 admitted outcome 固定为：
+
+- `PUBLISHED`/`HANDED_OFF`：按原 success terminalize；
+- `NOT_PUBLISHED`：先完成 strong-capability retirement，再 `DEAD_LETTER(LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED)` 并释放该 outstanding counter，绝不回到 `RETRY_WAIT`；
+- `UNKNOWN`：保留 `UNCERTAIN` 与 possible-delivery obligation；closed Lane 上的 `ResolveUncertain(retry)` 被拒绝，只允许附可验证 success evidence或 terminalize-with-possible-delivery。
+
+Close target 在 marker 应用后为 `EFFECTIVE`，cursor 运行时为 `MATERIALIZING`；overall operation 为 `IN_PROGRESS`，直到所有 target 完成。有 admitted outstanding 时 terminal state 为 `SUCCEEDED_WITH_OUTSTANDING`，typed result 为 `CLOSED_WITH_OUTSTANDING_ATTEMPTS`，不能声称全清空。Strict Lane 必须同时满足 `BreakOrderingDomain` 的显式 order-loss acknowledgement。replacement topic 只能用新 Profile/incarnation 接受新 Schedule， 不迁移旧消息。
+
+每个 Control Operation 有 stable operation ID、actor、scope、request hash、expected/result version、reason/ticket 和 audit result。response loss exact reread。
+
+`ResolveUncertain` 只能：
+
+- 附加可验证 success evidence；
+- 附加可验证 definitive nonpublication evidence，并按 obligation-set normalization 收口；
+- `retry + allowPossibleDuplicate`；
+- terminalize 并标 possible delivery。
+
+它不能重新开放 Cancel/Reschedule。
+
+证据分支的 `ControlMessageTarget` 可指当前 generation，或指 Replay 后仍在 retained terminal summary 中列出该 exact attempt 的旧 generation；后一种只结算旧 evidence/charge，绝不触碰新 generation。`retry` 与 possible-delivery terminalize 分支只能指当前非终态 generation。
+
+`retry + allowPossibleDuplicate` 不是无界 policy bypass。target 必须是当前 canonical obligation set 内的 exact UNCERTAIN attempt，current work 必须为 NONE，Lane 必须为 unordered `BEST_EFFORT`，且 remaining max Admission/retry deadline/`expireAt` 允许另一 attempt；否则 source-ordered target result 为 `TOO_LATE` 或更具体的 Lane terminal code。成功 marker 插入 `UNCERTAIN_RETRY(CONTROL_OVERRIDE)`，把 exact ControlRef 与该 marker Source Position 写进 semantic-work digest，`retryEligibilityAt=max(actionAt, marker Broker timestamp)`；此时不计 retry，真正 Admission apply 才递增。瞬时 permit/capacity 不改变 marker 结果，只在 Claim/Admission gate 等待。
+
+若 Lane 已 `CLOSED` 或 `ORDERING_BROKEN`，`retry + allowPossibleDuplicate` 都不合法，因为它需要新的 Publish Admission；分别返回 `LANE_CLOSED` 或 `ORDERING_DOMAIN_BROKEN`。ordered Lane 同样不允许 override retry。这些 Lane 只允许 success evidence、definitive nonpublication retirement，或带 possible-delivery 的 terminal override；strict successor 还受 `ORDER_OUTCOME_UNRESOLVED` barrier 约束。
+
+### 17.4 Control Operation 的传输与完成点
+
+Authenticated gateway 在任何 control write/Shard Log enqueue 前生成可序列化 `PreparedControlOperation`，固定：
+
+```text
+operationId / canonical request / requestHash
+authenticated actor / tenant and resource scope
+exact target snapshot and targetIndex
+expected versions / acknowledgements
+expected signed mutationId + mutationHash per source-ordered target
+```
+
+它的 `ControlOperationKind`、operation-specific request、typed target set、canonical hashes/signature、Oxia non-persistence proof 和三态 registration response 均由 Protocol Registry §6.3 固定。Replay/Resolve 只能有一个 Message target；Lane/Shard/Profile/Quota/Route/secret 操作各有闭合 target presence matrix。任何 target 缺失、额外混入或 response loss 时重建 target snapshot 都是 invalid/conflict，不能当作 partial success。
+
+注册 outcome：
+
+```text
+RECORDED(ControlOperationReceipt)
+DEFINITELY_NOT_RECORDED
+RECORD_UNCERTAIN
+```
+
+uncertain 只 reread/retry exact prepared bytes，不生成新 ID/hash/target set。
+
+`ControlOperationReceipt` 的 exact NDR1 fields 包含 fixed registered Trusted-UTC interval，且 `queryUntil = checkedAdd(registeredAt.latest, controlOperationQueryWindow)`；response/replay wall clock 不得移动该 retention boundary。
+
+任何嵌入式或兼容注册入口都必须先构造并校验完整的 receipt/current projection，再发布 immutable target registration；窗口、注册时间或 binding 校验失败不得留下只有 target、没有 receipt 的半注册状态。生产实现仍需把 target registration、receipt/current CAS 和 authenticated authorization 放在同一个 Oxia registration transaction 中。
+
+嵌入式/一致性测试实现可以使用 crash-durable 的本地 Control Operation authority：每个 operation 以完整 receipt 与 current projection 的 canonical bytes 写入独立状态文件，文件内 checksum、临时文件、atomic rename 与目录 fsync 共同形成 durable CAS 边界。重启或 response loss 只允许用同一 receipt 和 exact revision successor 重读；损坏、截断、身份漂移或过期查询必须 fail closed。这个本地实现不替代生产 Oxia 的跨 Worker routing、租户授权、session fencing 和 source-ordered marker authority。
+
+```text
+TargetMarkerState:
+  PENDING
+  | ENQUEUE_UNCERTAIN
+  | QUEUED
+  | EFFECTIVE
+  | MATERIALIZING
+  | COMPLETED
+  | REJECTED
+  | FAILED_BEFORE_EFFECT
+
+ControlOperationState:
+  PENDING
+  | DISPATCHING
+  | PARTIALLY_EFFECTIVE
+  | IN_PROGRESS
+  | SUCCEEDED
+  | SUCCEEDED_WITH_OUTSTANDING
+  | REJECTED
+  | FAILED_BEFORE_EFFECT
+```
+
+`EFFECTIVE` 只表示 exact signed marker 在 Source Position durable applied；不表示 Close cursor、admitted attempt、Drain、checkpoint upload 或其它 target 完成。`PARTIALLY_EFFECTIVE`/`IN_PROGRESS` 是非终态，必须用同一 operation roll forward。`REJECTED`/`FAILED_BEFORE_EFFECT` 只允许在零 target effective 时成为终态；一旦产生效果不得用 FAILED 假装 rollback。operation-specific typed result 承载 `CLOSED_WITH_OUTSTANDING_ATTEMPTS` 等精确信息。
+
+`getControlOperation(ControlOperationReceipt)` 返回闭合 `ControlOperationQueryResult = CURRENT(state,targetStates,typedResult) | INVALID_RECEIPT | NOT_FOUND_OR_NOT_AUTHORIZED | INTEGRITY_ERROR`。`CURRENT` 可承载上述任一非终态/终态并带 monotonic operation revision；receipt 必须匹配 operation ID/request hash/scope/actor-safe tenant projection。Replay/Resolve/Lane control 从该 API 查询，不转成 `CommandQueryResult`，也不允许 bare Message ID 枚举管理操作。
+
+`ControlOperationQueryResponse`、每个 target state 和 Lane/Shard/Checkpoint/Profile/Quota/Message/Catalog/Route/Secret typed result 的 exact public-safe union 由 Protocol Registry §6.3.1 固定。成功终态必须携与 operation kind 匹配的 typed result；不能用 free-form map、日志字符串或只给一个 generic `SUCCEEDED` 来替代 outstanding/checkpoint/version details。
+
+控制动作分三类：
+
+| 类别 | 传输与线性化 |
+|---|---|
+| message/shard apply 语义 | `REPLAY_DEAD_LETTER`、`RESOLVE_UNCERTAIN`、Profile/grant/admission/Lane control 写成 signed System Mutation，按 Source Position 在 RocksDB 线性化 |
+| ownership/work request | Drain、Fence、ForceCheckpoint 写 Oxia desired operation，由当前 Owner 在 lease 下执行并回写 typed result |
+| immutable config publication | Oxia CAS 创建新 version；只有兼容性/分发 gate 完成后才允许 SDK 选择 |
+
+Oxia request recorded、System Mutation queued 或 watch delivered 都不是“控制已生效”。Owner 只有在 DB 已记录 exact mutation/operation/version 后，才可在仍持 lease 时 CAS target state 为 `EFFECTIVE` 或后续状态。Route-wide operation 等待全部目标 result；部分生效保持 `PARTIALLY_EFFECTIVE` 并用同一 operation ID 续跑。response loss 只 reread exact operation，不创建新操作。
+
+Lane pause marker 与 Claim/Admission 在同一 shard event loop 线性化：marker 之后禁止新 Admission并撤销可逆 Claim，但不撤销 marker 之前已经 durable `PUBLISHING` 的 attempt。完成结果必须报告这些 outstanding admitted attempts。
+
+## 18. Quota、Worker 资源与 Placement
+
+### 18.1 Shard Quota Grant
+
+租户 hard quota 预先静态切为：
+
+```text
+(tenant, route, partition, grantVersion)
+```
+
+所有 grant 之和不超过 tenant policy。Shard 本地原子检查 active messages/bytes、retained logical bytes、reservations、Lane count、inflight 和 record classes。
+
+业务 quota 与 DRR 只使用固定 `QUOTA_ACCOUNTING`，不读取 SST/WAL/文件系统大小：
+
+```text
+payloadOwnedBytes =
+  exact inline payload length or reserved immutable object length
+
+accountedPublishBytes =
+  payload length
+  + canonical adapter metadata encoded length
+  + fixed adapter envelope charge from QUOTA_ACCOUNTING
+
+logicalStateBytes(record) =
+  canonical key length
+  + canonical typed value length
+  + fixed record charge from QUOTA_ACCOUNTING
+```
+
+每个 reservation/message/retained/attempt record 在创建时持久化其 checked resource-charge vector；payload ownership 在同一 Message Identity 下只计一次，Reschedule 和 possible-duplicate attempt 不重复计 payload。`ACTIVE_MESSAGES`/Lane pending message 对每个非终态 generation 恰计一次，不因 aggregate `UNCERTAIN` 下同时存在 timeline/Claim/PUBLISHING work 与多个 attempt ledgers 而重复。`INFLIGHT_MESSAGES` 则独立计每个 reversible Claim 加每个 canonical attempt obligation；对应 bytes 是 versioned execution/attempt charge，不是第二份 payload ownership。Terminal 释放 active/pending，但未闭合 attempt 继续占 inflight/outcome/physical charge，历史/对象转入 retained 到 guarded GC。Duplicate/no-op 复用首次 charge。`QUOTA_ACCOUNTING` 是 Route/Grant 兼容性的一部分；未知 version 停在当前 Source Position。RocksDB compression、memtable、WAL、SST block、compaction amplification 和 Object Store billing size 不影响 APPLIED/REJECTED，只进入 Worker 物理容量证明和 Shard Safety Backpressure。
+
+当前 Registry 只冻结了 `meta/QUOTA` class 2 的 aggregate vector 和 class 3 的 per-Lane map；class 4（retained/object usage）与 class 5（grandfathered transfer state）目前只有 subtype 名称，尚未冻结 value schema、digest 和 source-ordered accounting transition。 代码对这两个 class 的非空值 fail closed，不能把它们当作空 projection；在 Registry revision 定义完整编码和转移规则前，不得写入或恢复这两个 class。
+
+class 3 map 的身份键是完整的 `(DestinationLaneId, LaneIncarnation)` tuple，而不是只按
+`DestinationLaneId` 索引。旧 terminal/retired incarnation 与 replacement incarnation
+在受保护过渡期间可以同时保留；所有 quota projection 更新、读取和释放都必须继续扫描到
+exact incarnation，不能让同 Lane ID 的第一条 foreign entry 遮蔽目标 incarnation。
+
+每个 active grant 同时固定：
+
+```text
+per-Lane pending messages / bytes
+per-Lane inflight messages / bytes
+per-shard pending / retained / reservation bytes
+Lane count / strong-capability Lane count
+bounded result / dedupe / quarantine budgets
+```
+
+Lane pending usage 包含 `PAYLOAD_RESERVED` 的 reservation bucket，以及全部非终态 generation：`SCHEDULED`、`CLAIMED`、`PUBLISHING`、`RETRY_WAIT`、`UNCERTAIN`，每个 entity/generation 一次。Lane inflight usage 另按 Claim/attempt obligation 记录数和 execution bytes 计；终态只释放 active/pending，open attempt 仍 inflight，retained logical/object ownership charge 到 guarded GC 完成才释放。
+
+某 Lane 达到 hard pending limit 时，该 Lane 的新 Schedule 仍被消费，并以同一 WriteBatch 写：
+
+```text
+REJECTED(HARD_QUOTA_EXCEEDED, scope=DESTINATION_LANE)
+command dedupe/result
+position audit
+appliedShardLogPosition
+```
+
+它不创建 timeline/message。该 Lane 的 Cancel、容量不增加的 Reschedule、其他 Lane 的 Schedule 和所有已有 outcome 仍继续。Destination outage、retry backlog、open circuit、target throttle 和 Lane executor full 都是禁止的 source-pause reason。
+
+ 不在线动态借 hard capacity。低于当前 usage 的缩减 grandfather existing state，并且只阻止会增加 quota usage 的 first Schedule、`PrepareLargeSchedule` 与 Dead Letter Replay；既有已计费 work 的 Claim、Publish Admission、outcome、Cancel、terminalization 与 GC 必须继续，才能真正 drain 到新上限。
+
+跨 shard 额度重分配冻结为 serialized shrink-first Control Operation：
+
+1. Oxia CAS 创建 immutable `QuotaTransferPlan(operationId, requestHash, tenantPolicyVersion, oldGrantSet, newGrantSet)`，所有新 grant 先保持 inactive；
+2. 对所有减额 shard 先写 source-ordered `GRANT_DECREASE_OR_HOLD` marker；低于 usage 时进入 grandfather drain，仅阻止上述 capacity-increasing operations；grandfather excess 仍占 tenant hard envelope 与 donor Worker committed physical envelope；
+3. 每个 resource dimension 都满足 `persistedUsage <= newGrant` 后，donor 才 source-order `GRANT_SHRINK_DRAINED(planHash, counterDigest, usageVector)`；apply 重算 counter，虚假 drained marker fail closed；
+4. 等所有 drained marker durable applied，并在 recipient Worker 为完整 physical-envelope delta 做 plan-bound placement reservation 后，才写 `GRANT_INCREASE_ACTIVATE`；
+5. 同 tenant/policy 同时只能有一个 plan；increase 前 abort 保留安全的缩减状态，任一 increase 发出后只能用同 plan roll forward。
+
+因此任意 old/new marker 混合下，每个维度都满足 `sum(max(effectiveGrant, grandfatheredUsage)) <= tenant hard quota`。仅应用 decrease marker 不能把仍在使用的差额转给别人。response loss 只查询/续跑同一 operation，不创建新 plan。
+
+### 18.2 Disk pressure
+
+Worker 必须保留 Control Capacity Reserve，并显式切分：
+
+```text
+sum(shardOutcomeReserveGrant)
++ nonOutcomeControlReserve
++ recoveryWorkingReserve
++ emergencyControlHeadroom
+<= controlReserveBytes
+```
+
+上式是四个 registered `CapacityGrant` 在 `CONTROL_RESERVE_BYTES` 维度的投影；同一 checked 不等式对它们 1–66 维度中每个 nonzero 量逐维成立，包括 result/evidence/System-Mutation records/bytes、Broker-writer rate、WAL 与 control records/bytes。`NON_OUTCOME_CONTROL` 内再做不重叠 charge class，至少包含每 shard fence-evidence bytes/records、position/quarantine/control audit、terminal/GC metadata；`RECOVERY_WORKING` 只覆盖 restore/open/repair correctness writes；`EMERGENCY_HEADROOM` 只覆盖停止、fence 和最后可诊断记录。compaction/checkpoint/restore **temporary file bytes** 使用下文独立 temp headroom，不能消耗上述四个 logical control pools，也不能一字节重复计费。
+
+`meta_cf/CONTROL_RESERVE` 的 class 3 和 class 6 都绑定
+`NON_OUTCOME_CONTROL` grant identity。classes 3–5 的 vector 对
+`SYSTEM_WRITER_RESERVED_RECORDS/BYTES/BYTES_PER_SECOND`（维度 51–53）必须为
+零；class 6 只能包含这三个维度，且 class 3 + class 6 的 checked
+componentwise sum 必须落在同一个 immutable `NON_OUTCOME_CONTROL` grant 内。
+class 6 是 shard-local 的持久投影，不能把本地 WriteBatch 成功当成 Route
+Broker system-writer quota 已获批或已完成远端 charge；后者仍需独立的
+source-writer/Control authority。
+
+placement/Owner activation 时为每 shard 分配 Protocol Registry 的 exact `CapacityGrant(OUTCOME_RESERVE)`；其 `reserveSourceVersion + grantId + CapacityVector/vectorDigest` 同时进入 `ShardCapacityEnvelope`、Oxia placement 与 `meta_cf`，Owner/Store 改变时重验。Route 还必须在 Broker 上拥有 non-borrowable System Mutation writer records/bytes/rate quota，且该 quota 的完整 vector 纳入同一 grant；tenant ingress ACL/quota 不能消费它。独立 shard DB 不通过“同时读取当前余量”在线借用同一份 reserve。发布前容量证明要求：
+
+Store 打开时必须先完成所有已持久化 reserve、quota 和 obligation projection 的校验，成功后才首次写入 `CapacityEnvelope` binding；失败的打开不得留下新的 binding marker，也不能用一次失败尝试把修复后的 envelope 误判为 identity drift。
+
+```text
+sum(logical shard grants + worst-case amplification)
+  < physical disk safety watermark
+    - control reserve
+    - compaction/checkpoint temporary headroom
+```
+
+正常的 Schedule rejection 由 source-ordered logical grant/admission state 决定，不由重放时可能不同的瞬时 `df` 数值决定。若实际 physical disk/RSS/FD/shared-WBM guard 越过已认证 envelope，Worker 先关闭共享该 guard 的所有 shard acquisition 与 Claim/Admission；一旦该 shared failure domain 已不能保证下一次 authoritative WriteBatch，同域所有 shard 在各自 exact successor 前关闭 source gate并进入 `Shard Safety Backpressure`。只有真正独立、硬 enforce 的 per-shard limit 才允许只关一个 shard，事后 attribution 不能缩小安全边界。它不能越过当前 Schedule 去执行后面的 Cancel，也不能把环境事故伪装成可重放的业务拒绝。Control Reserve 用于已 admitted outcome、fence/close、recovery metadata、terminalization 和 capacity-releasing control work；compaction/checkpoint temporary bytes 只用独立 headroom。
+
+worst-case vector 同时覆盖 Publish Outcome/Evidence Resolution、permanent `CLAIM_RESULT`、每个允许的 numbered `DLQ_EXPORT_RESULT` retry/evidence、expiry/retire callback candidate outbox、Shard Log System Mutation producer queue records/bytes、Route Broker non-borrowable system-writer quota、本地 WAL/DB outcome 与 retained recovery state；max Admission、DLQ retry policy 和 mutation retry window 给出同时 outstanding 上界。tenant ingress 不能消耗 system-writer quota。`SLO_OUTBOX` 使用另一个观测预算，不得拿 outcome reserve 重复证明。
+
+成功的 `PUBLISH_ADMISSION` 在同一 WriteBatch 按 exact attempt 的该 vector 原子 charge 本 shard partition；logical timeout 不释放。只有 logged outcome/retirement 与实际 retained charge 已 durable 且 checkpoint-safe 才可释放/缩减。该 shard reserve 不足时禁止新的 Admission，即使别的 shard 看起来空闲；已经有序到达的 Admission mutation 必须以 `ADMISSION_CAPACITY_GATED` no-attempt 结果推进，绝不堵住后续释放容量的 mutation。跨 shard 重分片必须在 fenced placement/control operation 中先证明所有 outstanding charges。只有无法记录已 charge obligation 的 outcome 才触发 source safety backpressure。
+
+### 18.3 多 DB 共享资源
+
+所有 shard DB 共享：
+
+- RocksDB Env/background thread pool；
+- block cache；
+- WriteBufferManager；
+- rate limiter/statistics；
+- process SST/file/disk accounting。
+
+必须配置：
+
+```text
+maxOwnedShards
+maxOpenShardDbs
+maxConcurrentAcquires / restores / drains
+JVM heap / direct buffer / RocksDB native / other native / in-process headroom / total RSS / container headroom envelopes
+sharedBlockCacheBytes
+sharedWriteBufferBudgetBytes
+per-DB write-buffer ceiling
+reserved flush jobs / max compaction jobs / per-DB background-job ceilings
+per-shard correctness-WAL / due-read / expiry I/O minima
+maxOpenFilesPerDb
+maxTotalOpenFiles
+per-DB and process WAL/MANIFEST/SST bytes/files
+pinned cache/iterator bytes、per-DB/process FD 与 RLIMIT headroom
+filesystem physical disk safety watermark、restore/checkpoint/compaction temp bytes
+L0/compaction-pending/write-stall hard guards
+controlReserveBytes
+compaction/checkpoint temp headroom
+per-Lane/per-cluster Adapter connections/producers/threads/physical requests/zombies
+publish/query/object/checkpoint concurrency and byte limits
+```
+
+缺失或交叉不一致时 startup fail。
+
+内存 bucket 必须互斥。RocksDB-native 包含 block cache、mutable/immutable memtable、table-reader metadata、pinned blocks/iterators 和 flush/compaction scratch；已计入 direct 或 other-native 的 bytes 不能再计。启动必须从实际 JVM/cgroup 读值并证明：
+
+```text
+actualXmx <= certifiedJvmHeapBytes
+actualMaxDirectMemory <= maxDirectMemoryBytes
+sharedBlockCacheBytes + sharedWriteBufferBudgetBytes <= maxRocksDbNativeBytes
+certifiedJvmHeapBytes + maxDirectMemoryBytes
+  + maxRocksDbNativeBytes + maxOtherNativeBytes
+  + minInProcessControlHeadroomBytes
+  <= maxProcessRssBytes
+maxProcessRssBytes + minContainerHeadroomBytes
+  <= effectiveCgroupMemoryLimitBytes
+```
+
+runtime limit unknown/unbounded、container limit 小于认证值或任一 checked sum overflow 都 startup fail。Runtime probe 还必须读取当前进程的实际打开文件描述符数量（Linux 为 `/proc/self/fd` entry count），并以 checked 不等式保持 `currentProcessOpenFiles + minProcessFdHeadroom <= maxProcessOpenFiles`；目录不可读、非真实目录或计数溢出都 fail closed。FD/WAL/MANIFEST/SST/temp bytes 同样同时证明 per-DB、process 和 exact filesystem/quota 三层；`rootPath` 所在卷的安全 watermark 不是 `df` 全机推测。
+
+进程级 native reservation 的 release 也必须是 fail-closed 的小事务：先 checked 计算两个 successor bucket，确认不会 underflow，再移除 allocation identity 并发布新总量。若 release arithmetic 失败，reservation 仍保持 active、handle 仍可重试，不能先删 identity 再留下不可归因的容量泄漏。
+
+共享总上限不等于 shard 隔离。每个 `grantVersion` 绑定 Protocol Registry 的 immutable `ShardCapacityEnvelope`：它以 1–66 全维度、zero-explicit 的 `CapacityVector` 覆盖完整 logical grant、最坏 write/compaction amplification 已折算的物理承诺、WAL/MANIFEST/FD、memtable、Adapter minima 和四个 Control Capacity component grant，并绑定 release capacity-artifact digest。未使用部分也不能再次承诺给别的 shard。component grant 已是 full vector 投影，hard filter 只逐维计算一次 `sum(committed shard envelopes) + Worker fixed cost + transition temporary demand <= hard caps`，不能再把 component 加到外层。
+
+envelope 从 assignment acceptance 起一直 charge 到 DB/channel 物理关闭；`ACQUIRING/RESTORING/CATCHING_UP/DRAINING` 都不免费。迁移期间旧、新 Worker 同时 charge，new Worker 还 charge restore temp demand。Owner Lease acquisition 必须校验 exact envelope version/digest；unknown/mismatch 不得取得 lease。
+
+Worker 在 RocksDB 之上强制 per-shard ceiling 和 work-class reserve：
+
+- lease/fence、Shard Log WAL sync、admitted outcome、recovery metadata 有不可借用 correctness minimum；
+- due-index read 与 expiry scanner 有独立 minimum；
+- flush 保留 forward-progress job；compaction/checkpoint/restore 使用低优先级、per-DB 和进程级并发/I/O tokens；
+- 一个 DB 的 WBM pressure、L0 slowdown、compaction debt 或 checkpoint 不能吃掉另一 DB 的 WAL/due minimum；
+- cache/I/O/background-job 的空闲份额可借用，但在下一次 work admission 可回收。
+
+每个 event-loop/work class 都有正 weight、bounded queue records/bytes、per-turn record/byte/time caps 和 `maxEventLoopClassDelay`。lease/fence closure 可抢占；correctness/outcome、expiry、flush 和 capacity-releasing GC minima 不可借。借出的 cache/I/O/job token 每个 bounded chunk 重取，并在 configured maximum hold time 内可回收；每个 DB 至少保留一个可产生 flush forward progress 的 job/token，compaction storm 不能占满全部 background slots。`maxWriteBufferBytesPerDb` 必须绑定 RocksDB 的 DB-level `db_write_buffer_size`；各 CF 的 `write_buffer_size` 只能作为单 CF ceiling，不能把八个 physical CF 的上限相加后冒充 DB 聚合上限。
+
+Work-class runtime configuration 没有未经认证的默认值：启动时必须一次性提供全部八类
+policy、`maxEventLoopClassDelay`、`maxBorrowedResourceHoldTime` 和共享 record/byte pool。
+每类 per-turn record/byte cap 必须不大于其 queue cap；只有 `LEASE_FENCE` 可标记为
+preemptive；`LEASE_FENCE`、`SOURCE_APPLY`、`OUTCOME_AND_CONTROL`、`EXPIRY`、
+`DUE_SCHEDULER` 与 capacity-releasing `GC` 的 record/byte non-borrowable minima
+都必须非零，且八类 minima 的 checked sum 不得超过共享 pool。任一 class 缺失、额外、
+错误抢占或超卖都必须在构造 event loop/handler dispatcher 前 fail closed。scheduler 与
+resource-pool 使用同一个注入的 monotonic clock authority，不能各自从未绑定时钟取样。
+
+降低 Worker/container memory、FD、disk、open-DB 或 Adapter envelope 必须 `STAGED -> DRAIN_OR_MIGRATE -> ACTIVE`：staged version 先拒绝新 ownership，等全部 committed envelope/fixed cost/transition demand fit 后才能激活。外部提前 hot-shrink 是 shared safety breach，不是 replay-dependent Schedule rejection。
+
+认证必须注入单 shard compaction/write-amplification storm，证明另一 shard 的 WAL sync、expiry 和健康 Lane service gap 仍满足容量文件。
+
+### 18.4 Weighted placement
+
+Shard load vector 至少包含：
+
+- owned/open DB 与 live data；
+- active message count/bytes；
+- command ingress rate；
+- due/admitted publish rate；
+- memtable/compaction pending/WAL fsync/stall；
+- checkpoint size/age；
+- source/due lag；
+- Lane count/failure；
+- disk contribution。
+
+Planner 先 hard filter，再 dominant-resource score。hard filter 使用所有已承诺 shard 的**完整 grant envelope**之和、配置 amplification、Control Capacity 分片、DB/WAL/MANIFEST/FD minima 与 Adapter channel minima；当前 usage 只用于 score/提前迁移，不能用于超卖 hard promise。Planner 还使用 hysteresis、minimum residence、stale telemetry penalty、checkpoint/replay movement cost 和 migration concurrency cap。相同 shard 数不等于相同容量。
+
+Pulsar 的意外超容量 desired assignment 必须拒绝 Owner Lease并回到 Oxia placement repair。Kafka assignor 若所有 member 都不 fit，必须产出稳定 `UNASSIGNED(NO_CAPACITY)` set，不能把 partition 塞给“最不超载”member；membership/capacity/config epoch 未变化时，不得自触发无限 assign/rejoin。
+
+Kafka Worker 收到意外超容量 partition 时，在 fetch delivery 前 pause；不得 open DB、取 lease、apply、ACK 或 commit，然后对 exact partitions 发起 cooperative revocation/rejoin。若 `overCapacityAssignmentDeadline` 内 group 未移除，Worker 显式 leave group并令 source readiness 失败；直到 material epoch change 或 configured backoff 结束前不得 rejoin。`source_partition_paused{reason="placement-no-capacity"}` 是允许值，长期仅 pause 而钉住 assignment 仍被禁止。
+
+### 18.5 Ingress traffic isolation
+
+Destination failure isolation不允许越过 Source Position。若一个 tenant 持续把 A 的 Commands 以超过 shard apply capacity 的速率写在 B 之前，B 仍会承受 source lag；这是 ingress traffic contention，不是 publish backlog。
+
+ 以 tenant-isolated Route、Broker produce-rate/byte-rate quota、topic backlog/retention guard、SDK pending limits 和 shard apply SLO 约束该风险。一个 Security Domain 内的调用方共享该入口容量；需要彼此硬隔离时必须使用不同 Route/partition policy。Rejected-command flood 也受 Broker quota 和 bounded result/dedupe retention 约束。
+
+## 19. 安全
+
+### 19.1 数据面
+
+- Command Topic ACL：tenant producer 只写自己的 route；Worker 可 read/seek。
+- Destination Profile allowlist：topic/partition/capability/payload/ordering 都 server-side 验证。
+- Secret 只以 service-owned reference 保存；明文不进入 Command、DB、checkpoint、receipt、DLQ、metric、log。
+- Object key 由服务分配；tenant prefix、encryption、checksum、version/etag、least privilege。
+- Query/Cancel/Replay 从 authenticated tenant context 授权，跨 tenant 返回 non-enumerating denial。
+- Worker、Fence、Evidence、GC 与 Control writer 属于 service TCB；签名和 service-only ACL 防 tenant/cross-role 伪造，但 不把已攻陷 service key 或 Byzantine Worker 误称为可容错故障。发现 compromise 必须停止相关 Route、撤销 writer generation并走新 Route Incarnation/disaster boundary，不能靠 `ownerEpoch` 宣称远端已 fencing。
+
+### 19.2 API/RBAC
+
+生产 API 使用 TLS，并通过 deployment 的 mTLS/SPIFFE 或 OAuth2/JWT 集成生成 principal。角色至少区分：
+
+```text
+command producer
+query reader
+dead-letter operator
+tenant policy administrator
+platform operator
+```
+
+角色可组合但互不隐式继承；`PLATFORM_OPERATOR` 不自动拥有 tenant payload/query 权限。所有检查绑定 Authenticated Tenant Context、exact tenant/Route/Profile scope 和 expected version；先授权再做 route/receipt/position/object 细节检查。
+
+| Action | 最低角色与附加条件 |
+|---|---|
+| managed Schedule/Prepare/Commit/Cancel/Reschedule enqueue | `COMMAND_PRODUCER`，exact tenant/Route |
+| issue upload handle / attest payload | `COMMAND_PRODUCER`，exact tenant/Route/reservation，barrier-applied |
+| await/get Command / get Message | `QUERY_READER`，exact tenant |
+| Replay Dead Letter / attach verifiable success or nonpublication evidence | `DEAD_LETTER_OPERATOR`，exact tenant |
+| possible-duplicate retry / possible-delivery terminal override | `DEAD_LETTER_OPERATOR` **和** `TENANT_POLICY_ADMINISTRATOR`，显式 acknowledgement |
+| StopNewSchedules / Pause/Resume Lane | `TENANT_POLICY_ADMINISTRATOR`，exact tenant scope |
+| Close/Break Lane | `TENANT_POLICY_ADMINISTRATOR`，exact Lane/version，加 loss acknowledgement |
+| publish/deprecate tenant-selectable Profile version | `TENANT_POLICY_ADMINISTRATOR`，只能引用 platform-approved resource/capability |
+| Route/protocol/trust-set/Broker resource registration、Quota Grant | `PLATFORM_OPERATOR` |
+| Drain/Fence/ForceCheckpoint/GetCheckpointCatalog/secret rotation/recovery override | `PLATFORM_OPERATOR` |
+
+每个 privileged call 都先生成 `PreparedControlOperation` 并进入统一 audit；角色、scope、acknowledgement、request hash、target set 和结果均保留到审计/Recovery Floor 要求满足。unknown route 与 cross-tenant query/object/control lookup 使用相同 `NOT_FOUND_OR_NOT_AUTHORIZED` 外层投影。
+
+Public API 永不直接序列化内部 `DestinationBinding`、payload descriptor、evidence descriptor、Control Operation 或 audit record。只允许：
+
+```text
+PublicDestinationBindingView:
+  destinationProfileKind/id/version/semanticHash
+  capabilityProfileKind/id/version/semanticHash
+  adapterKind
+  policy-approved destinationAlias/partition
+  orderingMode
+
+PublicEvidenceRef:
+  evidenceType
+  opaqueEvidenceId
+  verificationStatus
+```
+
+它们排除 canonical topic、endpoint、cluster/resource token、Destination Lane ID、credential/secret reference、object key/version/etag、upload handle、signature/raw evidence、operator ticket 和任意开放 metadata map。`destinationAlias` 只能来自 immutable Profile 中明确标为 public-safe 的 bounded display alias；不得回填真实资源名。Tenant receipt/query 只使用这些 safe projection。Platform diagnostic projection 是另一条 audited API，且 `PLATFORM_OPERATOR` 若无 `QUERY_READER` 仍不能读取 tenant payload/content。
+
+### 19.3 Untrusted ingress
+
+解码前先检查 magic/version、长度、collection count、canonical form 和 route binding。
+
+- valid but unauthorized：durable `REJECTED`；
+- identity 无法可信解码：按 Source Position 写 bounded Quarantined Source Record；
+- quarantine 只保存 content hash、size、reason、truncated safe diagnostic；
+- 同 WriteBatch 推进 Source Position；
+- rate 超限使用 Broker tenant quota/SDK throttling；若仍威胁 bounded quarantine/control reserve，可用明确 `ingress-abuse` safety reason pause tenant route 并告警，不永久 poison partition，也不把目标故障伪装成 ingress abuse。
+
+## 20. Observability、SLO 与告警
+
+### 20.1 正确性指标
+
+```text
+source_applied_position / source_end_position / source_retention_margin
+owner_epoch / lease_guard_remaining / activation_state
+checkpoint_age / recovery_floor_age / replay_required
+publish_admission_total
+publish_outcome{published,not_published,unknown}
+uncertain_age
+generation_duplicate_risk
+clock_uncertainty / clock_gate_paused
+invariant_violation_total
+quarantine_total
+```
+
+### 20.2 调度与容量
+
+下列是 logical metric names；Prometheus exporter 统一加 `nereus_delay_` prefix，因此例如 `lane_pending_messages` 的 wire name 是 `nereus_delay_lane_pending_messages`。Lane label 只使用 bounded opaque Lane identity/approved low-cardinality dimensions，不暴露 topic 或 credential。
+
+```text
+pending_messages / pending_bytes / retained_bytes
+lane_pending_messages / lane_pending_bytes
+lane_inflight_messages / lane_inflight_bytes
+lane_due_lag_ms
+due_admission_lag_upper histogram{path=ordinary|managed_pulsar_handoff,population=HEALTHY|ALL_ACCEPTED}
+due_admission_lag_lower histogram{path=ordinary|managed_pulsar_handoff,population=HEALTHY|ALL_ACCEPTED}
+native_handoff_ack_lag histogram{population=HEALTHY|ALL_ACCEPTED}
+due_not_admitted_age{reason}
+ready_lanes / scheduler_round_duration / lane_starvation_age
+healthy_lane_discovery_age / healthy_lane_service_gap
+lane_scheduler_service_gap_ms
+lane_scheduler_rounds_since_service
+lane_next_eligible_at / lane_circuit_state / lane_consecutive_failures
+lane_quota_rejected_total{quota_dimension}
+claim_materialization_latency
+publish_latency / retry / circuit state
+RocksDB live data / memtable / block cache
+compaction_pending_bytes / L0 files / write_stall / WAL sync
+open DB / file descriptors / disk watermarks
+checkpoint create/upload/download bytes and latency
+quota usage / rejection
+source_partition_paused{reason}
+DLQ and audit export state
+slo_outbox_records / slo_outbox_bytes / slo_open_sample_age
+slo_evidence_gap_total{component,objective} / slo_export_lag
+```
+
+message ID、完整 topic、error text 不作为 Prometheus label。高基数详情通过受控 debug/query API。
+
+`lane_pending_messages/bytes` 与 quota 相同：每个 reservation entity 和每个非终态 generation 各计一次，payload ownership 不随 attempt 数重复。`lane_inflight_messages/bytes` 同样与 `ChargeVector` 对齐：每个 reversible Claim 加每个 canonical PUBLISHING/UNCERTAIN attempt obligation 各计一份 execution charge；terminal 但仍有 open attempt 的 generation 因而可以 `pending=0, inflight>0`。Exporter 只能从 persisted counters/ledger reconciliation 投影，不能按 public aggregate state 猜数。
+
+`source_partition_paused{reason}` 使用 closed `ShardPauseReason`；`FAILED` shard 另带 closed `ShardFailureReason`，不把 `SOURCE_GAP`/协议不兼容伪装成 pause overlay。`destination_backlog`、`destination_unavailable`、`lane_circuit_open` 和 `publish_executor_lane_full` 若出现即为 invariant violation。
+
+计时定义固定如下：
+
+- ordinary managed path 的 start 是 business `deliverAt`；managed Pulsar delayed handoff 的 start 是内部 `actionAt`，使用独立 `path=managed_pulsar_handoff`，绝不把它混成 business 可见时间；
+- managed path 的 semantic success event 是 exact `PUBLISH_ADMISSION` 的 RocksDB WAL sync，不是 Claim、Producer call、callback 或 Broker ACK；
+- 只有该 WAL sync 返回后才能取 `admissionSuccessObserved` Trusted UTC interval 并 durable 写 SLO Final outbox。这个观测可能保守地晚于线性化点；绝不能用 Admission body 中 enqueue 前的 `decision_time` 冒充 end。记录：
+
+```text
+lagLower = max(0, admissionSuccessObserved.earliest - pathStart)
+lagUpper = max(0, admissionSuccessObserved.latest - pathStart)
+```
+
+SLO 判定使用保守 `lagUpper`。若进程在 Admission WAL sync 后、Final outbox sync 前崩溃，recovery 从仍可证明的 Admission 与 Message start 重建同一 sample ID，并以恢复后的 later observation 或 `BAD_UNQUALIFIED_TIME` 收口；它只能把样本算得更差，不能丢掉或倒填更早时间。Broker-enforced Pulsar consumer eligibility 另以 business `deliverAt` 为 start，不能用早期 handoff Admission 冒充 visibility SLO。
+
+`AUTO_FAST` native 没有 Shard/Admission，因此绝不能进入 `due_admission_lag`。它单独记录 `native_handoff_ack_lag`：start 是 `NativePreparedDelivery` Registry field 10 的未平移 business `deliverAt`（ native wire 没有另一个 `actionAt` 字段），success 是 pinned Broker durable `NativeDeliveryReceipt`；definitive-not-queued、uncertain 或 threshold 内无 receipt 为 bad sample。不能用 field 11 的 shifted Broker `deliverAt` 代替该起点。business visibility 仍由 guard 以同一个 business `deliverAt` 独立证明。
+
+`population=HEALTHY` 只包含在整个 eligible-to-admission interval 内满足 `admissionGate=OPEN`、`runtimeReadiness=READY`、Trusted UTC 有效、capacity envelope 未触发 safety gate、且 ordered message 未被更早 unresolved head 阻塞的 record。其它 accepted due record 仍进入 `population=ALL_ACCEPTED`，并以 mutually exclusive reason `ADMIN_PAUSED|ORDERING_BROKEN|CLOSED|RECOVERING_EVIDENCE|CAPABILITY_BLOCKED|CLOCK_GATED|ORDER_HEAD_BLOCKED|CAPACITY_GATED|ADAPTER_LANE_FULL` 暴露 `due_not_admitted_age`、count 与 bytes；任何排除都必须可从 durable/runtime state 重建，不能静默移出分母。
+
+`healthy_lane_discovery_age` 从 Lane 首次持续满足 READY-index eligible 到进入 active DRR ring；`lane_scheduler_rounds_since_service` 按持久 DRR round generation；`healthy_lane_service_gap` 从一次成功 visit/Admission 后到下一次有 permit 的 visit。容量文件必须从 configured discovery cursor、ring、quantum、turn-share 和 byte/message/time caps 推导 `maxHealthyLaneDiscoveryAge`、`maxHealthyLaneServiceRounds`、`maxHealthyLaneServiceGap`，并用最坏合法 record size 验证。
+
+### 20.3 SLO
+
+每个发布 SLO 不是一段 dashboard 说明，而是 immutable `SloObjective`：
+
+```text
+(name,
+ population,
+ thresholdDirection + thresholdUnit + threshold,
+ objectiveNumerator/objectiveDenominator,
+ rollingWindowMs,
+ minimumSamples,
+ timeoutTreatment=BAD,
+ exclusionSet,
+ healthyLoadEnvelopeVersion + digest,
+ objectiveDigest)
+```
+
+Exact numeric fields/presence/rational encoding 由 Protocol Registry 固定；`sampleId/startEvent/successEvent` 不是 dashboard 可配置字符串，而是下表按 `SloObjectiveName` 固定的事件 schema。`source_retention_margin` 必须发布独立的 TIME 与 BYTE 两个 objective，不能用一个无单位 threshold。
+
+到达 threshold 尚无 success 的 sample 固定为 bad；重启、timeout、异常、结果分类或窗口切换都不能丢 sample。`population=HEALTHY` 是在 exact certified load/prerequisite envelope 下的条件性能；同一个入口还必须有 `population=ALL_ACCEPTED` availability objective，不能靠扩大 exclusion 把 outage 变绿。exclusion 必须是 Protocol Registry 的 closed reason、有起止 evidence，且每个被排除 sample 仍进入 all-accepted 分母。
+
+ SLI 的线性化事件固定如下：
+
+| SLI | start / sample ID | success event |
+|---|---|---|
+| `command_queued_latency` | SDK 把 exact `PreparedCommand` 交给 ingress Adapter；`commandId + commandHash + physicalEnqueueAttemptId` | exact Broker durability receipt；`DEFINITELY_NOT_QUEUED`、`ENQUEUE_UNCERTAIN` 或 threshold 内无 receipt 都是该 attempt 的 bad sample |
+| `command_applied_latency` | `brokerPersistedAt`；typed Source Position | result/state/position 的 RocksDB sync；stable `REJECTED` 也算成功完成，另按 result code分层 |
+| `due_admission_lag` | §20.2 的 ordinary `deliverAt` 或 managed handoff `actionAt`；exact `(objectiveDigest, delayMessageId, generation, pathStart, path)` | exact Admission mutation WAL sync 后的 first qualified durable Final observation；`HEALTHY/ALL_ACCEPTED` population 分开 |
+| `native_handoff_ack_lag` | `NativePreparedDelivery` field 10 的未平移 business `deliverAt`；`nativeDeliveryId + submissionHash` | guarded Broker durable Native receipt；native path 从不伪造 managed Admission |
+| `query_latency` | authenticated Gateway request accepted；`requestId` | barrier-qualified closed typed response；`awaitApplied` 同时报告 queue-to-barrier wait 与 barrier-complete 后 response latency，不把长轮询等待藏进普通 query |
+| `ownership_failover_rto` | fault cut 使旧 Owner gate 必须关闭；`shard + ownershipLossEpoch` | 新 Owner 达到 source Activation Barrier、CAS `ACTIVE_FOR_COMMANDS` 并完成第一个 bounded source turn；每 Lane publish-ready 另做 `lane_recovery_ready_rto` SLI |
+| `local_disk_loss_rto` | active Store 被证明 unreadable/lost；`shard + lostStoreIncarnation` | checkpoint restore + full replay + barrier + `ACTIVE_FOR_COMMANDS` + first source turn |
+| `checkpoint_age` | selected checkpoint manifest 的 mandatory `createdAt` trusted interval；`shard + RecoverySetGeneration + durableProbeSequence` | durable probe interval；age 只取 Recovery Set 中已 canonical 验证、对象/manifest checksum 通过且仍为 Floor descendant 的 newest member，local/unpublished upload 不计 |
+| `source_retention_margin` | 每次 durable catalog/source probe；`shard + RecoverySetGeneration + brokerLogEpoch + durableProbeSequence` | 从**最坏仍允许** recovery candidate 的 Adapter successor 到 Broker retention edge，同时以独立 TIME/BYTE objective 报告 exact probe evidence 的 conservative minimum；newest checkpoint 不能遮住旧 Floor risk |
+| `possible_duplicate_window` | successful Publish Admission；`publishAttemptId` | `PUBLISHED`、可验证 definitive nonpublication retirement，或显式 possible-delivery terminal override；`UNCERTAIN` age 不得从分母消失 |
+| `healthy_lane_discovery_age` | READY key 首次在 Trusted UTC 下持续 eligible；`destinationLaneId + laneIncarnation + READY laneVersion` | 该 exact READY generation 进入 active DRR ring 且 cursor/ring metadata WAL sync；stale/replaced generation 不伪造 success |
+| `healthy_lane_service_gap` | 一次有 required permit 的 service opportunity 持久 `lastServedRound/serviceGapGeneration`；`destinationLaneId + laneIncarnation + serviceGapGeneration` | 下一次同样合格的 bounded visit 持久 successor generation；Broker Future completion 不是 scheduler service |
+| `lane_recovery_ready_rto` | old Owner gate 必须关闭的 durable fault-cut interval；`shard + destinationLaneId + laneIncarnation + ownershipLossEpoch + laneRecoveryGeneration` | 新 Owner 下 exact Lane evidence barrier/channel/resource guard 完成，且新 `ReadyCertificate`/READY key 在 shard WAL sync；非 `OPEN` Lane 不创建 sample，capability/evidence 无法恢复为 bad timeout |
+
+`due_admission_lag` 的 population materialization 不得删样本：每个 accepted due record 立即从持久 Message/eligibility authority 物化 `ALL_ACCEPTED` Start。只有在 Final 时已用持久证据证明整个 start→Final 区间满足全部 healthy predicate，才从同一 authority 在配对 HEALTHY objective digest 下物化 byte-identical semantic Start/Final。不合格区间只留在 ALL_ACCEPTED 分母并带唯一 closed exclusion reason；不存在“先创建 HEALTHY Start 再删除”的路径。
+
+发布容量/SLO artifact 必须给出：
+
+- healthy load envelope；
+- `QUEUED` latency；
+- Command applied latency；
+- ordinary/managed-handoff 分开的 p50/p95/p99 `due_admission_lag_upper`，同时报告 lower bound；AUTO_FAST native 单独报告 `native_handoff_ack_lag`；
+- `population=ALL_ACCEPTED` 的 blocked reason/count/bytes/age，以及 `HEALTHY` 与 `ALL_ACCEPTED` 的差值；
+- max healthy Lane discovery age、scheduler rounds since service 与 wall-time service gap；
+- query/await latency；
+- ownership failover RTO；
+- per-Lane recovery-ready RTO；
+- local-disk-loss restore RTO；
+- checkpoint age/throughput；
+- max source retention margin consumption；
+- baseline duplicate-window measurement。
+
+无早发、无 source gap 忽略、无未 admitted Producer call 是 correctness，不是百分位 SLO。
+
+Release gate 不只看 percentile：在 certified healthy load envelope 内，任何 READY Lane 的 discovery age、rounds since service 或 service gap 越过容量文件上限都失败；持续 blocked population 不能靠 SLO exclusion 变绿。
+
+### 20.4 Durable SLO evidence
+
+每个 production/release SLO 使用 Protocol Registry 的 exact `SloSampleStart` / `SloSampleFinal` 和 domain-separated sample ID，不以 Prometheus scrape 是否恰好成功作为分母。持久化边界固定为：
+
+- Shard 内 `command_applied`、`due_admission`、Lane、checkpoint 与 duplicate-window sample 的 start 已由 Source Position、Message/Attempt/Lane/Recovery record 权威保存；`meta_cf/SLO_OUTBOX` 物化同一 sample。若 crash 发生在物化前，recovery 从这些 authority 重建同一 Start，不能宣称样本不存在。
+- `command_queued` / native SDK 在把 exact prepared bytes 交给 Producer 前，先把 `(identity, physical attempt, trusted start, timeout)` sync 到 SDK durable outbox；没有这个能力的 SDK 实例不得被纳入 production objective。Gateway query 与 control-plane/RTO detector 同理，先 durable Start 再取得被测操作 ownership。
+- success Final 只能在表中 exact Broker/RocksDB/barrier event 已 durable 后写入；Start 已存在但 threshold 前没有合法 Final时为 `BAD_TIMEOUT`，unknown 为 `BAD_UNCERTAIN`，无法取得合格时间为 `BAD_UNQUALIFIED_TIME`。组件重启不得删除 open sample。
+- outbox at-least-once 导出；collector 以 `(sampleId,startDigest)` 幂等并按 Registry 的 conservative merge 规则处理重复/重放：bad 不变好，`AT_MOST` 取较大值，`AT_LEAST` 取较小值。不同 Start bytes 是 integrity failure。
+- Shard 的 SLO outbox 是观测状态，不进入 command-derived semantic digest，也不授权/回滚 Admission、Command 或 Producer。它使用与 correctness/outcome reserve 分离的 bounded budget；在 certified envelope 内不得耗尽。越界时 objective 立即成为 `BAD_EVIDENCE_GAP` 并告警，不能静默缩小分母，也不能把目标故障变成 source pause。
+- collector ack 后本地记录才可删除；collector 的 raw Start/Final/merge history 保留完整 rolling window 加 late-finalization、replay 和审计 margin。发布报告固定 objective digest、load-envelope digest、source/binary digest、sample count、bad 分类和 evidence-gap count。
+
+对 `DUE_ADMISSION_LAG` 的 `ALL_ACCEPTED` exclusion，durable Final merge 必须同时拿到
+当前 Start 对应的 exact `ALL_ACCEPTED` objective 和同事件 `HEALTHY` companion。
+实现必须先用 `ALL_ACCEPTED` objective digest 校验 Start，再用
+`HEALTHY.validateDueCompanion(ALL_ACCEPTED)` 校验 threshold、比例、窗口、timeout、
+healthy-load envelope 和 exclusion set 的完整策略相等；只检查 reason 是否出现在某个
+HEALTHY objective 中不足以授权 exclusion。缺少任一 objective 或 pair 校验失败时，Final
+不得写入 `SLO_OUTBOX`。
+
+嵌入式 shard store 的恢复/重放 seam 可以调用
+`SloObservationOutboxStore.reconcileDurableStarts(...)`，传入已经由
+Message/Admission/Lane/Recovery authority 重建的 exact `SloSampleStart`。该入口按
+`sampleId` 的 canonical unsigned bytes 排序，合并 byte-identical 重复输入，对同一
+`sampleId` 的不同 Start 直接 integrity fail，并在写入前完成 record/byte capacity
+预检；所有缺失 Start 在一个同步 RocksDB WriteBatch 中物化，已有 Final 不会被覆盖。
+它不从任意业务消息猜测 Start，也不证明调用方拥有 Source Position、Admission 或
+生产 collector authority；真实的 Message/Admission/Recovery 重建、source-ordered
+接管编排和 evidence-gap `BAD_EVIDENCE_GAP` 记录仍是 production release gate。
+
+当 source apply 已经拥有一个业务 `ShardStore.Batch` 时，必须使用同一逻辑的
+`reconcileDurableStartsInBatch(batch, starts)` 入口，把 Message/Admission/Source Position
+与 SLO Start 放进同一个同步 WriteBatch。该入口在向 caller-owned batch 添加任何值前完成
+排序、冲突和容量预检，并保留已有 Final；调用方一次提交该 apply turn 的完整 Start 集，
+不得把不同 Store 的 batch 传入，或把同一批次拆成多个不可见的 outbox reconciliation call。
+这样保证本地 crash 不会
+只提交业务状态或只提交 SLO denominator；它仍不替代生产 authority 的 source-order
+编排和 evidence-gap 记录。
+
+当前嵌入式 `DelayShard` 已把这条边界接入客户端 Command 的 source-ordered apply：
+由外部冻结的 `COMMAND_APPLIED_LATENCY` objective 注入后，正常结果、稳定拒绝、
+Command-ID conflict、位置级 retry fence 以及同一 Command 在新 Source Position 上的
+幂等 position audit，都在各自的业务 `ShardStore.Batch` 中调用
+`reconcileDurableStartsInBatch(batch, [commandAppliedStart])`。因此 command result、
+业务 projection、`appliedSourcePosition` 与 SLO Start 共享一次同步 WAL commit；SLO
+outbox 的 record/byte envelope 在 RocksDB write 前预检，超限会使整个 source turn
+失败，不能只提交业务状态或只丢弃 SLO denominator。旧的无 objective 构造器保留为
+兼容 seam，不宣称已启用 production SLO；如果重放发现一个在 objective 激活前已经
+提交的 source turn 缺少 Start，只允许按同一 typed Source Position 做幂等补写，不能
+重新生成不同 sample identity。该 replay repair 只在
+`COMMAND_APPLIED_LATENCY` objective 实际存在时调用 command-applied Start factory；如果
+shard 只配置 `DUE_ADMISSION_LAG`，command replay 不得把空的 command objective 当作
+command-applied Start 物化输入。
+
+对 source-ordered `PUBLISH_ADMISSION`，嵌入式实现还可注入一个
+`DUE_ADMISSION_LAG` 的 `ALL_ACCEPTED` objective。Admission descriptor 已经由签名、
+Profile/timing 和 shard-state 校验确定 `messageId`、unsigned generation、ordinary
+managed 或 managed Pulsar handoff path 以及 `deliverAt/actionAt`；实现以 descriptor
+的 canonical bytes 作为本地 semantic-evidence digest，使用
+`SloAuthoritativeStartFactory.dueAdmission(...)` 生成 Start，并在成功 Admission 或
+`ADMISSION_CAPACITY_GATED` 的同一 WriteBatch 中物化。SLO capacity/integrity failure
+必须穿透 Admission 的 stale-result 兼容 catch，保持 source position、Message 和
+System Mutation result 不推进；不能把证据容量故障伪装成 `STALE_SYSTEM_MUTATION`。
+这只是本地 typed evidence seam；Schedule/eligibility authority 对每个 accepted due
+record 的立即 Start、HEALTHY 配对 objective 的完整区间证明，以及生产 Profile/Oxia/
+Broker authority 仍必须在 release gate 中闭合。
+
+协议层提供 `SloAuthoritativeStartFactory` 作为同一重建边界的 typed helper：
+`commandApplied(objective, sourcePosition)` 把 Registry `SourcePosition` 的 canonical
+bytes 放入 `COMMAND_APPLIED_LATENCY` identity，并以该 Source Position 的
+`brokerPersistenceTimeEpochMs` 和 SHA-256 作为 `BROKER_PERSISTENCE` Start；
+`dueAdmission(objective, delayMessageId, generation, path, pathStartEpochMs,
+semanticEvidenceSha256)` 要求调用方明确提供完整 unsigned-32 generation、
+`ORDINARY_MANAGED`/`MANAGED_PULSAR_HANDOFF` path、ordinary `deliverAt` 或 handoff
+`actionAt`，以及已由 Message/eligibility authority 证明的 semantic evidence digest。
+两条路径都重新计算 sample ID、Start digest 和 checked timeout；非法 objective、path、
+时间、generation 或 evidence shape 直接 fail closed。`SloObservationOutboxStore` 的
+对应 convenience entry 先验证 Source Position/Delay Message ID 属于当前 Shard，再调用
+这个 helper；它不替代 authority，也不从任意 Message 字段推断证据。
+
+嵌入式/一致性实现可以使用 `PersistentSloObservationCollector(Path)` 保存 collector
+的 canonical sample projection：按 `sampleId` 排序写入完整 `SloObservationOutbox`
+bytes，重启或 response loss 只接受相同 Start digest 和 direction-aware conservative
+merge；state file 使用 bounded size、checksum、临时文件、atomic rename、文件/目录
+fsync 及跨实例 lock，损坏、截断、非 canonical 顺序或 sample identity 漂移必须
+fail closed。这个 projection 只证明本地 crash/replay 边界，不替代生产 collector
+的 rolling-window retention、授权、ACK/export 或 metric publication authority。
+
+### 20.5 必须告警
+
+- lease/assignment flapping 或 guard close；
+- source lag/retention margin；
+- checkpoint overdue/floor stalled/corrupt fallback；
+- due lag/starvation；
+- clock uncertainty/gate pause；
+- RocksDB stall/compaction/disk/FD/native memory；
+- aged `UNCERTAIN`；
+- Lane capability/auth/topic circuit；
+- DLQ/audit export aged/failed；
+- quarantine burst；
+- quota/control reserve；
+- invariant/counter mismatch；
+- Oxia/Object Store/Broker dependency health。
+
+## 21. 配置契约
+
+以下是结构，不提供未经基准验证的数值：
+
+```yaml
+deployment:
+  deploymentId: required
+  activeCellId: required
+
+worker:
+  shardCapacityEnvelopeVersion: required
+  capacityVectorAccountingVersion: 1
+  maxOwnedShards: required
+  maxOpenShardDbs: required
+  maxConcurrentAcquires: required
+  maxConcurrentRestores: required
+  maxConcurrentDrains: required
+  overCapacityAssignmentDeadline: required
+  certifiedJvmHeapBytes: required
+  maxDirectMemoryBytes: required
+  maxRocksDbNativeBytes: required
+  maxOtherNativeBytes: required
+  maxProcessRssBytes: required
+  minInProcessControlHeadroomBytes: required
+  minContainerHeadroomBytes: required
+  effectiveCgroupMemoryLimitBytes: required-from-runtime
+  maxProcessOpenFiles: required-from-runtime-and-policy
+  minProcessFdHeadroom: required
+  capacityShrinkActivationDeadline: required
+
+ownership:
+  oxiaSessionTimeout: required
+  localLeaseGuardDeadline: required
+  localLeaseGuardSafetyMargin: required
+  maxRecoveryPinsPerShard: 1
+
+clock:
+  provider: required
+  maxUncertainty: required
+  maxSampleAge: required
+  maxWallMonotonicDivergence: required
+  stabilizationWindow: required
+
+rocksdb:
+  rootPath: required
+  requireAtomicRenameAndDirectoryFsync: true
+  requireApplicationEmptyDefaultColumnFamily: true
+  sharedBlockCacheBytes: required
+  sharedWriteBufferBudgetBytes: required
+  maxWriteBufferBytesPerDb: required
+  maxBackgroundJobs: required
+  reservedFlushJobs: required
+  maxCompactionJobs: required
+  maxBackgroundJobsPerDb: required
+  rateLimitBytesPerSecond: required
+  minShardCorrectnessIoBytesPerSecond: required
+  minShardDueReadOpsPerSecond: required
+  minShardExpiryReadOpsPerSecond: required
+  maxOpenFilesPerDb: required
+  maxTotalOpenFiles: required
+  maxWalBytesPerDb: required
+  maxTotalWalBytes: required
+  maxWalFilesPerDb: required
+  maxTotalWalFiles: required
+  maxManifestBytesPerDb: required
+  maxTotalManifestBytes: required
+  maxManifestFilesPerDb: required
+  maxTotalManifestFiles: required
+  maxLiveSstBytesPerDb: required
+  maxTotalLiveSstBytes: required
+  maxSstFilesPerDb: required
+  maxTotalSstFiles: required
+  maxPinnedCacheBytesPerDb: required
+  maxTotalPinnedCacheBytes: required
+  maxPinnedIteratorBytesPerDb: required
+  maxTotalPinnedIteratorBytes: required
+  maxLocalLiveDataBytes: required
+  physicalDiskSafetyWatermarkBytes: required-for-exact-filesystem
+  minimumFilesystemFreeBytes: required
+  checkpointCreateTempHeadroomBytes: required
+  restoreTempHeadroomBytes: required
+  compactionTempHeadroomBytes: required
+  maxCompactionPendingBytesPerDb: required
+  maxTotalCompactionPendingBytes: required
+  maxL0FilesPerDb: required
+  maxWriteStallDuration: required
+
+controlCapacity:
+  controlReserveBytes: required
+  controlReserveRecords: required
+  shardOutcomeReserveGrantCatalog: required-by-placement
+  nonOutcomeControlReserveBytes: required
+  nonOutcomeControlReserveRecords: required
+  recoveryWorkingReserveBytes: required
+  recoveryWorkingReserveRecords: required
+  emergencyControlHeadroomBytes: required
+  emergencyControlHeadroomRecords: required
+  fenceEvidenceReservePartition: required-by-shard-grant
+  brokerSystemWriterReservedRecords: required-by-route
+  brokerSystemWriterReservedBytes: required-by-route
+  brokerSystemWriterReservedBytesPerSecond: required-by-route
+
+scheduler:
+  baseQuantumBytes: required
+  minimumRecordCostBytes: required
+  maxDeficitBytes: required
+  maxShardWeight: required
+  maxLaneWeight: required
+  maxMessagesPerVisit: required
+  maxBytesPerVisit: required
+  maxTimePerVisit: required
+  maxReadyKeysPerCycle: required
+  maxReadyIndexRepairKeysPerBatch: required
+  maxSourceRecordsPerTurn: required
+  maxSourceBytesPerTurn: required
+  maxSourceTimePerTurn: required
+  maxCallbackRecordsPerTurn: required
+  maxExpiryRecordsPerTurn: required
+  minimumSchedulerTurnShare: required
+  maxEventLoopClassDelay: required
+  maxBorrowedResourceHoldTime: required
+  readyCertificateTtl: required
+  readyCertificateRenewalLead: required
+  workClasses:
+    leaseFence: { weight: required, maxQueueRecords: required, maxQueueBytes: required, maxRecordsPerTurn: required, maxBytesPerTurn: required, maxTimePerTurn: required, nonBorrowableMinimum: required }
+    sourceApply: { weight: required, maxQueueRecords: required, maxQueueBytes: required, maxRecordsPerTurn: required, maxBytesPerTurn: required, maxTimePerTurn: required, nonBorrowableMinimum: required }
+    outcomeAndControl: { weight: required, maxQueueRecords: required, maxQueueBytes: required, maxRecordsPerTurn: required, maxBytesPerTurn: required, maxTimePerTurn: required, nonBorrowableMinimum: required }
+    expiry: { weight: required, maxQueueRecords: required, maxQueueBytes: required, maxRecordsPerTurn: required, maxBytesPerTurn: required, maxTimePerTurn: required, nonBorrowableMinimum: required }
+    dueScheduler: { weight: required, maxQueueRecords: required, maxQueueBytes: required, maxRecordsPerTurn: required, maxBytesPerTurn: required, maxTimePerTurn: required, nonBorrowableMinimum: required }
+    query: { weight: required, maxQueueRecords: required, maxQueueBytes: required, maxRecordsPerTurn: required, maxBytesPerTurn: required, maxTimePerTurn: required }
+    gc: { weight: required, maxQueueRecords: required, maxQueueBytes: required, maxRecordsPerTurn: required, maxBytesPerTurn: required, maxTimePerTurn: required, capacityReleasingMinimum: required }
+    checkpoint: { weight: required, maxQueueRecords: required, maxQueueBytes: required, maxRecordsPerTurn: required, maxBytesPerTurn: required, maxTimePerTurn: required }
+  # 八类必须一次性完整提供； 不带 benchmark 前的 fallback/default policy。
+  sharedWorkClassResourceRecords: required
+  sharedWorkClassResourceBytes: required
+  maxHealthyLaneDiscoveryAge: required-from-capacity-artifact
+  maxHealthyLaneServiceRounds: required-from-capacity-artifact
+  maxHealthyLaneServiceGap: required-from-capacity-artifact
+
+quota:
+  maxPendingMessagesPerLane: required-by-grant
+  maxPendingBytesPerLane: required-by-grant
+  maxInflightMessagesPerLane: required-by-grant
+  maxInflightBytesPerLane: required-by-grant
+  maxLanesPerShard: required-by-grant
+  maxStrongCapabilityLanesPerShard: required-by-grant
+
+checkpoint:
+  interval: required
+  jitter: required
+  manifestLimitsVersion: required
+  maxManifestBytes: required
+  maxFilesPerCheckpoint: required
+  maxFileBytes: required
+  maxTotalCheckpointBytes: required
+  maxRelativePathBytes: required
+  maxObjectIdentityBytes: required
+  recoverySetMaxCount: required
+  recoverySetMaxAge: required
+  uploadIntentDeadline: required
+  checkpointUploadRequestQuiescenceHorizon: required
+  maxConcurrentCreatesPerWorker: required
+  maxConcurrentUploadsPerWorker: required
+  maxConcurrentDownloadsPerWorker: required
+  maxBytesPerSecond: required
+  tempBytesLimit: required
+
+ingress:
+  maxShardLogPayloadBytes: required
+  tenantBrokerProduceRecordsPerSecond: required-by-route
+  tenantBrokerProduceBytesPerSecond: required-by-route
+  maxRouteBacklogBytes: required-by-route-and-retention
+  maxSdkPendingCommands: required-by-client-profile
+  maxSdkPendingCommandBytes: required-by-client-profile
+  commandRetryWindow: required
+  maximumSystemMutationRetryWindow: required
+  timeFenceInterval: required
+  timeFenceSafetyMargin: required
+  timeFenceSigningKeyRef: required
+  acceptedTimeFencePublicKeyVersions: required
+  maximumPreparationAge: required
+  maximumUuidFutureSkew: required
+  fenceEvidenceReserveBytesPerShard: required-by-grant
+  fenceEvidenceReserveRecordsPerShard: required-by-grant
+  worstCaseNextRecordEvidenceBytes: required-by-accounting-version
+  fenceStopSafetyMarginBytes: required
+  fenceStopSafetyMarginRecords: required
+  retentionSafetyMargin: required
+  maximumReplayDuration: required
+  maximumCertifiedSourceApplicationDelay: required-from-capacity-artifact
+  maxIngressBrokerTimestampDivergence: required-from-broker-time-certification
+  maximumAdmissionMutationEnqueueAge: required-from-capacity-artifact
+
+timingPolicy:
+  minDeliveryWindow: required-by-version
+  maxDelayHorizon: required-by-version
+  maxMessageLifetime: required-by-version
+
+retryPolicy:
+  maxPublishAdmissions: required-by-pinned-policy
+  maxUncertainRetries: required-by-pinned-policy
+  requireInitialAdmissionsAtMostMax: true
+  requireAutomaticUncertainBudgetBelowTotal: true
+  controlOverrideMayExceedAutomaticUncertainBudget: true
+  controlOverrideMayNotExceedTotalAdmissionBudget: true
+
+payload:
+  inlineThresholdBytes: required
+  maxPayloadBytes: required
+  reservationTtl: required
+  maxUploadHandleLifetime: required
+  uploadCredentialRequestQuiescenceHorizon: required
+  maxConcurrentFetches: required
+  proofAlgorithm: Ed25519
+  attestationSigningKeyRef: required
+  payloadProofTrustSetCatalog: required
+  activePayloadProofTrustSetVersion: source-ordered
+  historicalVerifierRetention: required-through-recovery-floor
+  objectStoreProfile: required-if-large-payload
+  minimumVersionedObjectRetention: required-if-large-payload
+  requireExactVersionDelete: true
+  requireLifecycleDriftProbe: true
+
+retention:
+  fullCommandResult: required
+  compactCommandDedupe: required
+  compactMessageIdentity: required
+  terminal: required
+  deadLetterReplay: required
+  audit: required
+  systemMutationAuditMinimum: required
+  positionAuditMinimum: required
+  checkpointObjectMinimum: required
+  kafkaReceiptTopicMinimum: required-if-enabled
+  pulsarAttemptJournalMinimum: required-if-enabled
+
+publish:
+  maxWorkerMessages: required
+  maxWorkerBytes: required
+  maxShardMessages: required
+  maxShardBytes: required
+  maxAdapterTasksPerLane: required
+  maxAdapterBufferedMessagesPerLane: required
+  maxAdapterBufferedBytesPerLane: required
+  maxAdapterConnectionsPerLane: required
+  maxAdapterProducersPerLane: required
+  maxAdapterThreadsPerLane: required
+  maxPhysicalOutstandingPerLane: required
+  maxPhysicalOutstandingBytesPerLane: required
+  maxZombieRequestsPerLane: required
+  maxZombieBytesPerLane: required
+  maxWorkerAdapterConnections: required
+  maxWorkerAdapterProducers: required
+  maxWorkerAdapterThreads: required
+  maxWorkerPhysicalRequests: required
+  maxWorkerPhysicalBytes: required
+  maxWorkerZombieRequests: required
+  maxWorkerZombieBytes: required
+  minOtherReadyLaneReserveMessages: required
+  minOtherReadyLaneReserveBytes: required
+  minOtherReadyLaneConnectionReserve: required
+  minOtherReadyLaneProducerReserve: required
+  minOtherReadyLaneThreadReserve: required
+  minOtherReadyLanePhysicalRequestReserve: required
+  minOtherReadyLanePhysicalByteReserve: required
+  maxPerClusterConnections: required
+  maxPerClusterProducers: required
+  maxPerClusterAdapterThreads: required
+  maxPerClusterPhysicalRequests: required
+  maxPerClusterPhysicalBytes: required
+  maxPerClusterZombieRequests: required
+  maxPerClusterZombieBytes: required
+  adapterSubmitDeadline: required
+  callbackDeadline: required
+
+placement:
+  kafkaNoCapacityRejoinBackoff: required
+  capacityEpochSource: required
+  transitionTemporaryDemandAccountingVersion: required
+
+credential:
+  bindingProtocolVersion: 1
+  requireImmutableProviderVersionQualifiedReference: true
+  requireResolvedVersionFingerprintAtLeaseIssueAndLocalCall: true
+  managedChannelCredentialLeaseTtl: required
+  objectStoreCredentialLeaseTtl: required
+  credentialLeaseRenewalLead: required
+  maximumCredentialAuthorizationToProducerCallAge: required
+  maximumCredentialAuthorizationToObjectStoreCallAge: required
+  maximumObjectStoreProviderOwnershipLifetime: required
+  equivalenceVerifierVersion: required
+  equivalenceVerifierTrustRoots: required
+  equivalenceAttestationMaxAge: required
+  bindingQuiescenceHorizon: required
+  maxRetainedBindingGenerationsPerProfile: required
+  redactPrivateReferenceFromPublicAndAuditExport: true
+
+capability:
+  kafkaPinnedTopicIdProtocol: PINNED_TOPIC_ID
+  kafkaMinFetchRequestVersion: 13
+  kafkaMinProduceRequestVersion: 13
+  kafkaForbidTopicNameFallback: true
+  kafkaReceiptLaneSlotsPerShard: required-if-enabled
+  kafkaTransactionalChannelsPerLane: required-if-enabled
+  kafkaReceiptTopicPolicy: required-if-enabled
+  kafkaReceiptTopicRetention: required-if-enabled
+  kafkaTransactionVersion: ">=2-if-transactional-receipt"
+  pulsarResourceGuardProtocol: PULSAR_RESOURCE_GUARD
+  pulsarResourceGuardAttestationTrustRoots: required-if-pulsar-resource
+  pulsarResourceGuardAttestationMaxAge: required-if-pulsar-resource
+  nativeCapabilitySnapshotTrustRoots: required-if-auto-fast
+  maxNativeCapabilitySnapshotLifetime: required-if-auto-fast
+  nativeCapabilitySnapshotProtectionClockMargin: required-if-auto-fast
+  pulsarResourceGuardRequiredOnEveryBroker: true
+  pulsarAutoTopicCreationForResources: false
+  pulsarAttemptJournalTopicPolicy: required-if-enabled
+  pulsarAttemptJournalRetention: required-if-enabled
+  pulsarDedupRetentionHorizon: required-if-enabled
+  pulsarDedupMaxProducerKeys: required-if-enabled
+  pulsarDedupProducerKeySafetyMargin: required-if-enabled
+
+slo:
+  objectiveCatalogVersion: required
+  healthyLoadEnvelopeVersion: required-from-capacity-artifact
+  objectives: required-closed-list-of-SloObjective
+  requireAllAcceptedPairForEveryHealthyDueObjective: true
+  requireNoDroppedTimedOutSamples: true
+  requireDurableStartBeforeOperationOwnership: true
+  shardOutboxMaxRecords: required
+  shardOutboxMaxBytes: required
+  componentOutboxCatalog: required-for-sdk-gateway-control-plane
+  collectorIdentityAndSchemaVersion: required
+  maxExportLag: required
+  durableProbeInterval: required-for-point-gauge-objectives
+  evidenceGapIsBad: true
+  minimumSamplePolicy: required
+  evidenceRetention: required
+
+query:
+  queuedReceiptQueryWindow: required-by-route
+  controlOperationQueryWindow: required-by-control-policy
+  maxWaitersPerWorker: required
+  maxWaitersPerTenant: required
+  maxLongPoll: required
+```
+
+交叉验证至少包括：
+
+```text
+maxDeficitBytes >= max admitted record cost
+every per-visit/per-Lane/per-shard/Worker byte cap >= max admitted record cost
+one Lane/shard cannot consume Worker capacity reserved for other ready work
+configured discovery/round/turn bounds imply maxHealthyLaneServiceGap
+checkpoint/source retention >= Recovery Floor replay requirement
+dedupe retention >= commandRetryWindow + maximumUuidFutureSkew + fence/checkpoint/recovery margins
+message identity freshness/retention >= maximumPreparationAge + maximumUuidFutureSkew + fence/checkpoint/recovery margins
+checkedSub(brokerPersistedAt, maximumPreparationAge) <= uuidV7Time <= checkedAdd(brokerPersistedAt, maximumUuidFutureSkew)
+fence evidence reserve >= bounded batch prefix evidence + worst next-record evidence + stop/audit margin
+time-fence public keys remain verifiable through every source/Recovery Floor replay window
+compact message identity retention lasts until its freshness deadline is source-closed and checkpoint-safe
+payload retention >= terminal + DLQ replay + checkpoint barriers
+0 < localLeaseGuardDeadline + localLeaseGuardSafetyMargin < oxiaSessionTimeout
+Pulsar dedup horizon >= maximum unresolved recovery horizon
+Kafka receipt partitions = route partitions * receipt Lane slots per shard
+Kafka transactional receipt requires finalized transaction.version >= 2
+Pulsar Attempt Journal partitions = route partitions
+Pulsar Attempt Journal retention >= Recovery Floor replay requirement
+Pulsar handoff lead/TTL/clock bounds mutually safe
+minDeliveryWindow > maxTrustedUtcIntervalWidth + maxHealthyAdmissionDecisionDelay
+maximumAdmissionMutationEnqueueAge + maxIngressBrokerTimestampDivergence < minDeliveryWindow
+Admission decision/Broker-time checked arithmetic cannot overflow and must satisfy the Protocol Registry action/expiry/certificate inequalities
+every Kafka Broker supports pinned Fetch/Produce versions; no name fallback
+every Pulsar target Broker is covered by one current signed resource-guard attestation
+Pulsar resource create/delete/property ACL excludes SDK and Worker principals
+sum(shard quota grants) <= tenant hard quota
+every shrink-first mixed grant phase preserves sum(max(effectiveGrant, grandfatheredUsage)) <= tenant hard quota in every resource dimension
+sum(per-shard outcomeReserveGrant)
+  + nonOutcomeControlReserveBytes
+  + recoveryWorkingReserveBytes
+  + emergencyControlHeadroomBytes
+  <= controlReserveBytes
+sum(per-shard fenceEvidenceReserveBytes) <= its disjoint nonOutcomeControlReserveBytes partition
+sum(per-shard fenceEvidenceReserveRecords) <= its disjoint nonOutcomeControlReserveRecords partition
+each reserve grant identity/sourceVersion/vectorDigest matches Oxia placement and meta_cf
+every CapacityVector contains registered dimensions 1–66 exactly once; component grants and logical ChargeVector project into, but are not re-added to, the full ShardCapacityEnvelope
+Oxia placement, Owner Lease and meta_cf bind the same envelope ID/version/digest and release capacity-artifact digest before DB open
+Broker System Mutation writer records/bytes/rate quota covers the admitted worst-case mutation outbox and is non-borrowable by tenant ingress
+logical grants + amplification + temp headroom + control reserve < disk safety watermark
+sum(full committed shard envelopes) + Worker fixed costs fits memory/disk/FD/WAL/MANIFEST/Adapter limits
+actualXmx <= certifiedJvmHeapBytes
+actualMaxDirectMemory <= maxDirectMemoryBytes
+certifiedJvmHeapBytes + maxDirectMemoryBytes + maxRocksDbNativeBytes
+  + maxOtherNativeBytes + minInProcessControlHeadroomBytes <= maxProcessRssBytes
+maxProcessRssBytes + minContainerHeadroomBytes <= effectiveCgroupMemoryLimitBytes
+RocksDB native/direct/other buckets are disjoint and include pinned iterator/cache/compaction scratch exactly once
+per-DB/process WAL/MANIFEST/SST file+byte, pinned cache/iterator and FD sums fit RLIMIT and exact rootPath filesystem/quota
+checkpoint-create/restore/compaction temp headroom is disjoint from every control/outcome reserve
+checkpoint inventory/manifest file count, individual/total bytes, path bytes and object-identity bytes fit the activated manifest limits and local/upload headroom
+checkpoint upload intent deadline is bounded; REAPING requires old Owner Lease/session loss or exact-owner abandon, and checkpointUploadRequestQuiescenceHorizon >= maximumObjectStoreProviderOwnershipLifetime + maxTrustedUtcIntervalWidth
+RecoveryPin is session-bound with no client-clock expiry; maxRecoveryPinsPerShard=1 and ACTIVE_FOR_COMMANDS CAS deletes the exact pin atomically
+reserved flush/correctness/due/expiry shares fit shared RocksDB jobs and I/O
+every work class has positive weight, bounded record/byte queue and record/byte/time turn caps; certified maximum delay <= maxEventLoopClassDelay
+each DB retains nonzero flush forward progress under maximum certified compaction debt/L0 pressure
+retained physical + candidate physical/potential-zombie charge + all other READY Lane minima <= Worker and target-cluster hard caps in requests and bytes
+per-cluster Adapter minima and other-READY-Lane reserves fit connection/producer/thread/request/physical-byte/zombie totals
+readyCertificateRenewalLead < readyCertificateTtl <= managedChannelCredentialLeaseTtl and every bound attestation/channel/evidence validity interval
+every credentialed Profile has one verified current CredentialBinding of the registered protocol before activation
+every READY Channel/Certificate embeds a Head-compared, protection-CASed, unexpired DESTINATION_CHANNEL CredentialUseLease with matching generation/digest/fingerprint
+0 < credentialLeaseRenewalLead < min(managedChannelCredentialLeaseTtl, objectStoreCredentialLeaseTtl)
+0 < maximumCredentialAuthorizationToProducerCallAge < managedChannelCredentialLeaseTtl and every local first-send gate closes before lease expiry
+0 < maximumCredentialAuthorizationToObjectStoreCallAge < objectStoreCredentialLeaseTtl and every provider call closes before lease expiry
+0 < maxUploadHandleLifetime <= reservationTtl; issued handle expiry <= min(reservation expiry, trusted issue latest + maxUploadHandleLifetime)
+credential rotation newGeneration = checkedAdd(expectedGeneration, 1), reference digest matches, and the signed, still-valid verifier attestation proves the immutable authorization-scope digest and exact candidate binding
+old CredentialBinding deletion waits for exact physical/zombie/provider request release, every issued handle expiry, or fenced channel teardown, then bindingQuiescenceHorizon and audit retention; retained generations never exceed their hard catalog budget, and rotation is rejected with `HARD_QUOTA_EXCEEDED` rather than deleting a protected generation
+every issued NativeCapabilitySnapshot has a durable per-binding protectionUntil before exposure; old binding deletion waits through that time plus clock margin and unresolved native ownership
+0 < maxNativeCapabilitySnapshotLifetime <= every bound Route/Profile/guard prerequisite validity interval; snapshot notAfter and protectionUntil use checked Trusted-UTC arithmetic
+BOUNDED_RETRY_POSSIBLE_DUPLICATE requires BEST_EFFORT and 0 < maxUncertainRetries < maxPublishAdmissions; every other uncertain policy requires maxUncertainRetries=0
+every AttemptObligationRef has the exact registered PUBLISHING/UNCERTAIN key, matching tag/Owner Epoch/attempt/generation/state/hash/digest, and resolves byte-for-byte to one ledger; every open ledger has exactly one applicable current-runtime or terminal-summary ref
+PUBLISHING->UNCERTAIN changes old key, new key, ref state/key/hash/digest, aggregate/current work and charges in one WriteBatch; no intermediate two-key/no-ref state is valid
+current-terminal runtime and terminal summary refs are byte-equal; Replay creates an empty new-generation set and leaves old refs only in the old terminal summary
+Timeline semantic digest excludes runtime revision while instance digest includes it; Claim source replay compares only the semantic digest/counters/obligation refs, never current Owner/Store/Lane/runtime instance
+CONTROL_OVERRIDE uncertain retry binds one exact authenticated ControlRef/Source Position and may exceed only the automatic uncertain budget, never maxPublishAdmissions/time/expiry/capacity bounds
+ChargeVector active/pending counts one nonterminal generation once, inflight counts every reversible Claim and every attempt-obligation ref independently, and payload ownership is never multiplied by attempt count
+each `meta_cf/LANE` key contains exactly one ACTIVE or TERMINAL_GUARD branch; ACTIVE fields, READY key/certificate, per-Lane quota and all five scheduler projections satisfy the Protocol Registry cross-invariants
+one shard DB never stores or atomically updates another shard's scheduler state; Worker outer DRR rebuild gives every eligible shard one first-pass opportunity before repeat
+systemMutationAuditMinimum >= maximumSystemMutationRetryWindow + fence/checkpoint/recovery margins
+activated PayloadProofTrustSet marker precedes first authorized Commit; historical verifier retention covers source and Recovery Floor replay
+lower Worker/container envelope is not activated before all committed envelopes and transition temporary demand fit
+every DUE_ADMISSION_LAG/HEALTHY objective has the same-event ALL_ACCEPTED companion, closed exclusions, minimum samples and timeout-as-bad treatment
+SLO evidence retention covers its full rolling window plus late finalization/repair audit margin
+every instrumented component durably persists or can reconstruct Start before the measured operation can be lost; success Final is strictly after the registered durable success event
+SLO outbox record/byte/export-rate envelope covers maximum open+finalized-unacked samples and is disjoint from correctness/outcome reserve
+collector merge is idempotent by sample ID/start digest and monotonic-conservative; any evidence gap invalidates the objective instead of shrinking its denominator
+queuedReceiptQueryWindow >= maximumCertifiedSourceApplicationDelay + maximumReplayDuration + checkpoint/failover/audit safety margins
+local filesystem certifies atomic rename, file/directory fsync, DB locking, and crash recovery
+```
+
+## 22. Failure-cut matrix
+
+| Cut | Durable authority | 恢复动作 / outcome |
+|---|---|---|
+| prepare 后、enqueue 前 crash | caller Prepared Command | 原 bytes retry |
+| Producer 接管后 ACK 丢失 | Broker unknown | `ENQUEUE_UNCERTAIN`，原命令 retry |
+| Command topic 在 enqueue/retry 前同名重建 | pinned Kafka Produce UUID / Pulsar per-SEND guard | 不写 replacement；无 prior ambiguity 的 exact guard rejection 可 definitive，response loss/历史 ambiguity 仍 uncertain |
+| Broker durable、DB write 前 crash | Command Topic | source replay |
+| DB sync 后、source ACK 丢失 | RocksDB + Topic duplicate | commandId/hash idempotent |
+| retry window 内同 commandId/same hash | 首次 result + position audit | no-op，只推进新 position |
+| retry window 内同 commandId/different hash | 首次 result + 新 position | position-level `COMMAND_ID_CONFLICT`，不覆盖首次结果 |
+| 任意 Command 超过 retryUntil 才持久化 | Broker time + position audit | position-level `COMMAND_RETRY_WINDOW_EXPIRED` |
+| source ACK 先于 DB | 协议违规 | test/release gate 必须阻止 |
+| apply 时 immutable config cache miss | Oxia immutable version | 停在该 position，证明后再 apply，不误拒绝 |
+| grant/StopNew 控制切换时 crash | source-ordered control marker | replay 得到同一边界和结果 |
+| well-framed 但 version tuple 未激活 | source-ordered protocol activation set | position-level `UNACTIVATED_PROTOCOL_VERSION` 并推进，不 quarantine/停 shard |
+| activated tuple 当前 Worker 不支持 | activation marker + Worker compatibility | 停在 exact position，`FAILED(UNSUPPORTED_ACTIVATED_PROTOCOL)` |
+| frame/outer identity 无法可信解析 | NDL1 frame + bounded quarantine reserve | `QUARANTINED_SOURCE_RECORD`，不伪造 Command ID |
+| 同 System Mutation ID/hash/version retry | mutation dedupe | no-op；不同 hash/version 或同 logical op 多 ID 为 integrity failure |
+| System Mutation retry deadline 越界/已关闭 | Broker time + signed deadline + TIME_FENCE | `SYSTEM_MUTATION_RETRY_WINDOW_EXPIRED`，无 authority |
+| Profile first binding 位于 activation 前/close 后 | source-ordered profile markers | 分别稳定 reject；已有 binding/duplicate 保留首次结果 |
+| forged/cross-target `APPLY_SHARD_CONTROL` | signature + enumerated Oxia target ID/hash/precondition | `UNAUTHORIZED_SYSTEM_MUTATION`，零 control effect |
+| forged/wrong-scope TIME_FENCE | immutable fence public key | position-level reject；不推进关闭水位 |
+| TIME_FENCE writer outage | prior closed deadline + fence-evidence budget | 仅在 evidence gate 内继续；到 stop watermark 前停在 exact successor，进入 `FENCE_STALLED_CAPACITY`；later fence 不得越位自救 |
+| terminal/history 已 GC、旧 delayMessageId 被复用 | compact identity tombstone or closed freshness deadline | 窗口内 `DELAY_MESSAGE_ID_CONFLICT`；关闭后 `DELAY_MESSAGE_ID_EXPIRED` |
+| live target/profile capability drift | pinned binding + Lane runtime overlay | Command 继续 apply；Lane 删除 READY 并进入 `BLOCKED` |
+| Kafka topic 在 metadata refresh/request build 间同名重建 | pinned native topic UUID in Fetch/Produce v13 | old UUID 请求被拒；Route/Lane blocked；不读写 replacement |
+| Kafka Broker 只能协商 name-based Fetch/Produce | `PINNED_TOPIC_ID` prerequisite | Route/Lane 不激活；禁止自动降级 |
+| Pulsar target 在 probe 后或 reconnect/resend 前同名重建 | per-SEND Broker resource guard | replacement token mismatch 在 persist 前 `SEND_ERROR`；不写 replacement |
+| Pulsar resource guard attestation 缺失/过期/漏 Broker | signed cluster capability prerequisite | Profile 注册或 Lane/native activation fail closed |
+| Pulsar Command consumer reconnect 到 replacement | uncertified source connection generation | 验证前零 apply/ACK；mismatch 关闭 Source Assignment |
+| evidence topic 同名重建 | pinned request/guard + evidence cursor | mismatch 是 retention gap，不是空日志；fail closed |
+| Close Lane marker 后、cursor 完成前 crash | closedAt + aggregate transfer + cursor | frozen outcomes 不变；bounded materialization 续跑 |
+| Close marker 前 PUBLISHING、marker 后证明 NOT_PUBLISHED | close version + attempt evidence | strong retirement 后 `LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED`；不得 retry |
+| large reservation 后 upload 前 crash | reservation | retry upload/abandon/expiry |
+| object PUT 成功 response loss | immutable object identity | `attestPayloadUpload` HEAD exact object，幂等签发同一 proof |
+| attestation HEAD transient/not found | no Commit authority | retry attestation；Command source 不受影响 |
+| forged/mismatched PayloadCommitProof | canonical Command + immutable proof key | stable `REJECTED(PAYLOAD_PROOF_INVALID)` |
+| proof key 仅可历史验证、已关闭新 issuance | source-ordered trust-set/key markers | old replay 可验证；new first-seen Commit 稳定 key-not-authorized |
+| Claim 后 materialize 前 crash | `CLAIMED` | 恢复 same semantic digest/new runtime instance digest；旧 obligation set/aggregate 不丢，无 side effect |
+| Admission sync 前 crash | reversible Claim | 同上 requeue；不消费 attempt/count |
+| Admission sync 后 send 前 crash | `PUBLISHING` | `UNCERTAIN`；resolve/retry |
+| checkpoint 早于 Claim 但 replay 遇到合法 Admission | signed Claim precondition + Admission body | 重建同一 `PUBLISHING`；无 live send gate 则在后续 position 写 exact `UNKNOWN` Outcome |
+| Admission 在 Broker 按时持久化但 apply 晚于 `expireAt` | Broker persistence time + captured decision evidence | 仍确定性 Admission；不用 apply 墙钟改写结果 |
+| Admission Broker time/decision evidence 超 divergence/enqueue-age 界 | immutable timing evidence | `STALE_SYSTEM_MUTATION`；撤销 matching Claim，无 attempt/Producer |
+| permanent Claim result 与 Cancel/Admission 交错 | source-ordered `CLAIM_RESULT` + exact Claim precondition | 最早合法 record 胜；transient revoke 不消耗 retry/attempt，callback 不直写 terminal |
+| Pulsar mapping append ACK unknown | no target-send authority | retry same mapping；禁止 target send |
+| Pulsar mapping durable、target send 前 crash | Attempt Journal + DB intent | replay mapping；用 exact producer last sequence resolve/retry |
+| Pulsar Broker sequence 高于 journal mapping | contradictory evidence | `PULSAR_EVIDENCE_DIVERGENCE` fail closed |
+| send accepted、ACK 丢失 | destination unknown | `UNCERTAIN` |
+| old UNKNOWN 后 baseline retry 到期 | aggregate/runtime index + pinned policy | unordered Lane 原子写 `UNCERTAIN_RETRY` current timeline，aggregate 仍 `UNCERTAIN`；此时不消耗 uncertain-retry count |
+| old UNCERTAIN 存在时新 Admission apply | Claim obligation-set digest + budgets | 新 PUBLISHING ledger 加入 canonical set，并同时消耗 Admission/uncertain-retry count；ordered/closed/exhausted 为 stale/invalid，绝不 send |
+| PUBLISHING initial Outcome 变 UNKNOWN | exact old/new inflight keys + obligation ref | 同 batch 删除 PUBLISHING key、写 UNCERTAIN key并替换 exact ref；任一 crash cut 后 replay 都无双 key/orphan，旧 Owner Epoch 无需 range scan |
+| old attempt 在 current timeline/Claim 时证明 success | exact attempt evidence | 删除 timeline/撤销 Claim并 terminalize `PUBLISHED`，不再 Admission |
+| old attempt 在 newer PUBLISHING 时证明 success | two exact attempt ledgers | terminal `PUBLISHED(possibleDuplicate=true)`；newer attempt 作为 open obligation 留存，callback 只结算自身 charge/evidence |
+| old UNCERTAIN 全部证明 absent | canonical obligation set | 撤销 stale-digest Claim；current work 规范化为 definitive state，aggregate 才可离开 `UNCERTAIN` |
+| ResolveUncertain retry 与自动 retry/late evidence 交错 | exact ControlRef + Source Position | 最早合法 record 胜；只创建一个 current work，control authority 进入 semantic digest，Admission 才计数；ordered/closed/broken/过期/total-exhausted 不建 timeline |
+| target ACK 后 terminal DB write 前 crash | target + old DB state | baseline 可重复；strong evidence resolve |
+| DLQ export ACK/timeout 后 result apply 前 crash | immutable export envelope + numbered attempt | retry exact result mutation；不生成新 attempt number，不释放 GC protection |
+| DLQ baseline retry 再次 unknown | preceding result + pinned export retry policy | 记录 next numbered `ATTEMPT_OUTCOME`；保持 `UNCERTAIN`/retained charge，不能伪装 evidence |
+| DLQ result DB sync 后 source ACK 丢失 | mutation dedupe + exact attempt/evidence logical ID | replay same bytes no-op；different bytes/number conflict fail closed |
+| Lane A target 永久不可用 | A circuit/timeline | source 与健康 Lane B 继续；A quota 后只拒绝 A 新 Schedule |
+| Lane A 数百万 due records | Lane READY head + DRR | B 在有界 round 获得 service opportunity |
+| Lane A Future 永不完成 | durable PUBLISHING + callback deadline | A → UNKNOWN，只释放 logical turn；physical/zombie charge 保留到真实释放，B 使用预留容量 |
+| 多 Lane request 同时 timeout | pre-reserved physical/potential-zombie vectors | retained charge 不提前释放，停在各自 cap，Worker/cluster hard cap 不超 |
+| Ready certificate expiry/attestation generation change | exact certificate + atomic READY removal | 先删 READY/增 laneVersion，再关 channel；stale Claim/activator 不能 Admission |
+| Credential Binding CAS 或 immutable reference/fingerprint drift | protected channel lease + local first-send gate | rotation-before-renewal 阻断旧通道；lease-before-rotation 仅到 exact expiry；其它 Lane/source 继续 |
+| AUTO_FAST snapshot 后 Credential Binding 轮换 | signed bounded snapshot + durable protectionUntil | exact snapshot 在到期前仍可提交；新 snapshot 用新 binding；紧急 revoke 后 Producer-owned 竞态为 uncertain |
+| Object Store binding drift/unavailable | protected Adapter lease + local call gate | handle/attest retry、fetch 撤销 Claim、checkpoint/restore 等待、GC 保留 protection；不能伪装删除或暂停 source |
+| Cancel 与 Claim 竞争 | shard event order | Cancel 可撤销 Claim |
+| Cancel 与 Admission 竞争 | shard event order | 前者成功；后者 `TOO_LATE` |
+| Owner session ambiguity | local guard | 先关 Admission/event gate |
+| old callback 到达新 epoch | token mismatch | audit-only |
+| checkpoint local create crash | no catalog | 删除 temp |
+| checkpoint upload crash/late provider PUT | exact Upload Intent + competing REAPING CAS + quiescence | 永不 catalog partial；final prefix sweep 后无 orphan resurrection |
+| recovery download 时 Floor advance | session-bound exact Recovery Pin + final reread | candidate objects 保留到 pin release；安装丢弃并重选，不激活旧 candidate |
+| restore install crash before ACTIVE switch | old ACTIVE + orphan incarnation | 继续旧 active 或重做 restore |
+| restore install crash after ACTIVE switch | checksummed pointer + new Store identity | 验证并 normal open 新 incarnation |
+| upload partial/crash | no catalog | orphan delay 后 GC |
+| catalog CAS response loss | Oxia exact record | reread exact checkpoint ID |
+| newest checkpoint corrupt | Recovery Set | fallback ≥ floor |
+| source/evidence retention gap | no complete proof | fail closed |
+| GC delete response loss | durable GC task | HEAD/retry exact delete |
+| clock forward/backward step | time interval invalid | pause Admission，稳定后恢复 |
+| UTC interval 跨 expireAt | interval evidence | 不 Admission，也不提前 EXPIRED |
+| Admission WAL sync 后、SLO Final sync 前 crash | Admission/Message authority + reconstructible sample ID | recovery 写 later/worse Final 或 bad-time；样本不消失、不倒填 decision time |
+| SLO outbox/collector ACK response loss | exact Start/Final digest + collector merge | at-least-once resend；same bytes no-op，bad/value 只保守合并 |
+| SLO evidence capacity 超出 certified envelope | bounded outbox + gap counter | correctness 继续按自身 gate；objective `BAD_EVIDENCE_GAP` 并 release/alert fail，不缩分母 |
+| destination auth/topic drift | Lane state | 删除 READY、置 `BLOCKED`，不停 Command apply |
+| physical disk 超出认证 envelope | reserve + safety gate | 禁止 Claim/Admission，pause source；不产生环境依赖的业务结果 |
+| control reserve exhausted | cannot commit safely | Shard Safety Backpressure |
+| Admission 的 shard outcome reserve 不 fit | ordered mutation + no-side-effect result | `ADMISSION_CAPACITY_GATED` 并推进；无 attempt/Producer，后续 outcome/GC 可释放容量 |
+| 两 shard 同时消费 outcome/control reserve | immutable disjoint grants + Broker system-writer quota | 各自最坏 outcome 都可记录；一 shard 不借另一 shard grant |
+| quota donor marker 已降但 usage 未 drain | `max(effectiveGrant, grandfatheredUsage)` + drained proof | recipient increase 不激活，tenant hard quota 不超 |
+| single shard compaction/L0 storm | per-DB job/I/O/FD/temp guards | 其它 shard WAL/expiry/healthy Lane service gap 保持认证上界 |
+| Kafka 无 member 可容纳 full envelope | capacity-aware assignor | stable `UNASSIGNED(NO_CAPACITY)`；不反复 assign/rejoin、不 fetch/open/lease |
+| whole active cell authority loss | no valid continuity proof | fail closed / new incarnation disaster override |
+
+## 23. 测试与发布验收
+
+### 23.1 Codec 与属性测试
+
+- 所有 SDK/system writer 的 NDL1 frame/CRC、enum/body field、version-bound hash/signature、ID 和 canonical Protobuf positive/negative golden vectors；Protocol Registry 每个 registered variant 都有跨语言覆盖。
+- Checkpoint Manifest RFC 8785/JCS、uint64 decimal-string、file ordering 与 manifest hash 的跨语言 golden/negative vectors。
+- big-endian key 顺序、Source Position comparator、Kafka exclusive LSO/offset gap/empty partition、Pulsar inclusive batch/empty boundary。
+- duplicate/same hash、duplicate/different hash、UUID age/retry window、Broker timestamp 回拨后的 closed-window behavior。
+- terminal/payload/history 先于 `maximumPreparationAge` 回收时 identity tombstone 仍阻止复用；tombstone 回收后 time fence 在 Broker timestamp 回拨下仍稳定拒绝旧 ID。
+- Message query 在 active/terminal/tombstone/fully-reclaimed 各阶段分别返回 exact union；`IDENTITY_RETIRED` 与 `UNKNOWN(firstScheduleEligibility=EXPIRED)` 不混淆存在性。
+- state-machine model checking：Cancel/Reschedule/Admission/owner loss。
+- Claim Result/Cancel/Reschedule/Expiry/Close/Admission 全 interleaving；permanent result 只有 source-ordered mutation 可 terminalize，transient revoke 始终回 exact timeline 且不消耗 attempt/retry budget。
+- baseline uncertain-retry model/property tests：0..max Admissions 个 attempt ledger，与 TIMELINE/CLAIMED/PUBLISHING current work 全组合；验证 aggregate/state projection、canonical obligation-set digest、exactly-one current work、count 只在 Admission apply 消耗、unordered-only、late success、all-absent normalization、Cancel/Expiry/Close 差异以及 terminal/open-obligation 共存。
+- Attempt-obligation direct-lookup golden/property tests：跨多个 Owner Epoch 生成 PUBLISHING/UNCERTAIN ledger，验证 ref 的 full encoded key/tag/hash/generation/state/digest、PUBLISHING→UNCERTAIN 原子 key/ref replacement、current-terminal mirror、Replay 后 old-terminal-only locator、每个 orphan/duplicate/wrong-tag/wrong-generation 均 fence scheduling，且 lookup 不做 ownerEpoch range scan。
+- Claim checkpoint/requeue golden test：同一 semantic work 在 Owner/Store/runtime revision 改变后 semantic digest 不变、instance digest 必变；在换 instance 前已 Broker-persisted 且前置语义匹配的 Admission 仍 deterministic apply 为同一 PUBLISHING，但没有 live old token 时不能 first-send，只能后续记录 recovery UNKNOWN。
+- possible-delivery Dead Letter Replay tests：旧 terminal 有 1..N open obligations 时新 generation runtime set 从空开始，旧 summary 独立保留；每个旧 late Outcome/evidence/GC interleaving只改变旧 summary/charge，不能改变新 generation state、counters、READY 或 policy，且 acknowledgement presence与 replay deadline稳定。
+- `ResolveUncertain` 四分支 presence/golden tests；CONTROL_OVERRIDE 与 policy timeline、Claim、Admission、expiry、Close/Break、success/absence evidence 的全 Source Position interleaving，验证 marker Broker-time eligibility、semantic/instance digest 与 ControlRef、automatic-budget override 仍不越 total Admission/time/capacity bounds。
+- 对每个 UNKNOWN/Resolution/Admission source-position interleaving做 crash-at-every-WriteBatch-boundary replay；checkpoint 可位于 Claim 前、Admission 前、任一 Outcome/Resolution 前后，恢复后 `GenerationRuntimeIndex.runtimeDigest`、attempt ledgers、READY/expiry index和 charge totals 必须 byte-identical。
+- generation/Message Control Version/Lane Control Version/runtime revision overflow与 stale callback。
+- `QUOTA_ACCOUNTING` 跨语言 golden vectors、quota/counter conservation、无 double count、GC barrier、Recovery Floor 单调。
+- `CapacityVector` 1–66 全维度、component-grant projection、envelope digest、checked sum/no-double-count 与 placement/lease/meta 三方 identity golden tests。
+- DRR fairness、large record、ordered head blocking。
+- clock interval、step、pause、overflow。
+- Admission decision/Broker-time 边界、divergence/enqueue-age checked overflow、apply 跨 `expireAt`、checkpoint 早于 Claim 与 Owner/Store/token 丢失的 model/golden tests；同一 source prefix 必须得到同一 `PUBLISHING` 和后续 exact `UNKNOWN` Outcome。
+- DLQ Export numbered attempt/outcome/evidence logical-ID golden/model tests：response loss same bytes no-op、same attempt different bytes fail closed、repeated unknown 递增 attempt、late evidence、success/permanent completion 与 Recovery Floor/GC protection。
+- `ADAPTER_NON_SUBMISSION` / `BROKER_DEFINITIVE_REJECTION` evidence branches 对 business Publish 与 DLQ identity/hash 的 positive/negative vectors；任何 Future cancellation/timeout 不得冒充它们。
+- SLO Start/Final/sample-ID golden vectors、crash 在 success WAL 与 Final sync 之间、outbox/collector ACK loss、checkpoint replay 产生 later observation、timeout/bad/evidence-gap 与 `AT_MOST max`/`AT_LEAST min` conservative merge；同一 sample 永不因重启变好或从分母消失。
+- due sample 的 ALL_ACCEPTED-immediate / HEALTHY-after-full-interval-proof 配对；无 health/exclusion evidence 不得删分母，Lane recovery-ready identity 在重启后不变。
+- runtime side effects 关闭时，同一 checkpoint/source prefix 在不同 apply batch、重启时刻、config-cache 时序和 Worker 容量下产生相同 canonical command-derived state digest。
+- service-only signed System Mutation 的 Control Operation hash/scope/auth、signed TIME_FENCE 与 marker 边界。
+- unactivated/version-activated-unsupported/malformed 三分支、System Mutation retry window、same-ID/version/hash no-op 与所有 conflict fail-closed。
+- Profile/trust-set activation与 issuance-close marker 前后 first binding/Commit、historical replay 和 duplicate 的不变结果。
+- EvidenceCursor old/new generation coexist、canonical sort、same-generation dominance、cross-generation incomparable 与 gap rejection。
+- Close Lane marker/cursor 与后续 Cancel/Reschedule、crash/replay 的所有 interleaving 保持同一 frozen outcome/counter digest。
+- Close 前 admitted attempt 在 close 后分别返回 PUBLISHED、NOT_PUBLISHED、UNKNOWN 的 model tests；只有 success terminal、closed-after-admission terminal、UNCERTAIN 三种收口，永不重新 Admission。
+
+### 23.2 Real-service integration
+
+- Kafka→Kafka、Kafka→Pulsar、Pulsar→Kafka、Pulsar→Pulsar。
+- Kafka LogAppendTime/read_committed/transaction receipt/LSO，覆盖 open transaction、aborted records、marker gap 和空 partition。
+- Pulsar batching、Broker timestamp、Exclusive source、inclusive last MessageId、空 partition、strict/non-strict delayed delivery、subscription type。
+- Pulsar dedup reconnect、inactivity purge、physical partition last sequence。
+- Pulsar Attempt Journal mapping-before-send、duplicate/conflict、retention gap、checkpoint 后 mapping recovery。
+- Kafka exclusive receipt-Lane partition/LSO、slot generation/reuse。
+- Kafka `transaction.version=1` 时 transactional Produce 只能到 v11，`KAFKA_TRANSACTIONAL_RECEIPT` 注册必须失败；version 2 才执行 target/receipt 双 pinned UUID transaction。
+- Kafka pinned Fetch/Produce v13 使用 Profile UUID，而不是 send-time name metadata；在 metadata refresh、request build、Broker failover 和 transaction retry 各切点删除重建，replacement 始终为空。
+- Kafka 任一 Broker 只支持 name-based request 时 Route/Lane activation 失败，不发生 protocol downgrade。
+- Pulsar `PULSAR_RESOURCE_GUARD` 覆盖每个 Broker；在 probe、Producer create、SEND、reconnect auto-resend 各切点删除重建，guard error 在 persist 前返回且 replacement 始终为空。
+- Pulsar guard 缺失/过期/partial rollout、expected token/topic/partition/principal mismatch，以及 source consumer reconnect replacement 都 fail closed。
+- Credential rotation 在 verification 前、binding CAS 前后、READY removal 前后、old-channel teardown、native snapshot protection/expiry 和 response loss 各切点崩溃；只允许 old 或 new generation 成为 current，错 scope 永远 `CREDENTIAL_EQUIVALENCE_NOT_PROVEN`，受影响 Lane 先失去 READY，已签 native snapshot 只在 durable protection window 内有效，其它 Lane/Command apply 继续。
+- Credential Use Lease 的 protection-before-rotation 与 rotation-before-protection 两种线性化顺序、Head CAS response loss、Destination Channel/Object Store Adapter checked generation renewal、holder/kind/loaded-fingerprint mismatch、Oxia outage 跨 lease expiry 都必须覆盖；普通 message/provider call 必须通过 trace/assertion 证明不执行 per-message/per-call Oxia read。
+- Pulsar delayed handoff/AUTO_FAST 在 ACK 后至 business `deliverAt` 之间注入 Broker restart、clock drift、guard/config rollout 和 incompatible subscription；已有 record 始终不早可见。
+- strong capability 每 Lane 独立 channel/producer；一个 unresolved Lane 不阻塞另一个。
+- Lane terminal retirement 后同一 canonical tuple 永不重开；继续业务必须用新 Profile/Ordering Domain/Broker Resource Incarnation 产生新的 Lane ID 与 incarnation，Pulsar 旧 dedup sequence 不吞新消息。
+- RocksDB multi-DB shared resources、checkpoint hardlink/upload/restore、ACTIVE pointer crash/fsync cuts。
+- Checkpoint Upload Intent 在 PENDING/PUBLISHED/REAPING CAS 前后、Owner session loss、late provider-owned PUT、delete response loss 与 final prefix sweep 各切点；RECOVERY_PIN create/activation-delete response loss、Floor advance、session expiry 与 checkpoint delete 竞争都必须证明不误删、不激活失效 candidate。
+- memory/FD/WAL/MANIFEST/SST/pinned iterator/temp headroom startup formulas、cgroup hot-shrink stage/drain/activate、single-DB compaction storm 和 shared-guard failure-domain gate。
+- Oxia ephemeral session、sequence/CAS response loss。
+- Object Store conditional put/version/checksum/response loss、deterministic proof reissue、proof key rotation/retention。
+- ACL/RBAC/secret redaction/quarantine。
+
+当前 source 的故障证据实现还明确增加了两个 Kafka source cut 的 durable
+before/after 边界：Fetch response-loss 在固定 topic/group/Route 上由独立
+prepare/resume JVM 重开同一 source cursor，retention-floor 则在独立 JVM
+重开 stale-offset rejection 后的当前 floor Fetch。两者都以 fsync 后的
+`nereus-delay-chaos-durable-state-dump` 保存 topic identity、Route、
+partition、offset/floor/LSO、commit 和不同 process PID，并由 chaos audit
+逐字段比较。它们与已有的两个 Pulsar Worker response-loss dump 一起属于
+已实现的 cell-specific durable evidence；这不代表剩余 failure cuts 已经
+满足本节的完整 fresh-process/durable/invariant 要求。
+
+### 23.3 Chaos cuts
+
+每个 failure-cut matrix 行都需要：
+
+- deterministic injection point；
+- durable state dump；
+- source/target/Oxia/Object evidence；
+- expected state and duplicate boundary；
+- fresh-process recovery；
+- invariant audit。
+
+必须覆盖 SIGKILL、长 GC pause、network partition、half-open connection、disk ENOSPC、fsync error、SST corruption、Broker leader failover、Oxia session expiry、Object Store 5xx/timeout 和配置漂移。
+
+目标隔离 gate 至少固定：
+
+- A 完全不可用、B 健康时，source position 和 B publish 持续推进；
+- A 有远多于 B 的更早 due records，B 在证明的 scheduler round 内被访问；
+- A 达 Lane quota 后只拒绝 A 新 Schedule，A Cancel/Reschedule 与 B Schedule 继续；
+- A 占满自身 permits 或 Future hang 时，Worker memory 有界且 B 使用保留 permits；
+- A 的 Producer buffer/metadata call 阻塞时，Adapter Channel deadline 与独立 reserve 保持 B 可提交；
+- restart 从 `meta_cf/LANE` 与 `timeline_cf/READY` 恢复，不用全 timeline scan 才发现 B。
+- A 的全部 physical requests 同时成为 ignoring-cancel zombies 时，request/byte charges 不提前释放，Worker/cluster caps 不越界且独立 B 仍获保留容量。
+- Ready Certificate 到期或 Owner/Store/channel/evidence/attestation generation 改变时，READY removal 先于 channel close，stale activator/callback 无法复活。
+- Credential Binding 轮换、mutable alias、provider version/fingerprint mismatch 时，只有受影响 Lane 失去 READY；rotation-before-lease/renewal 阻断旧 channel，protected lease-before-rotation 只在 exact expiry 内有效，历史 Admission replay 不被反向改写。
+- Object Store Credential Binding 漂移时，handle/attestation 产生闭合 retryable response，payload fetch 不消耗 Publish Attempt，checkpoint/restore/GC 保持各自保护边界，Command source 与无关 Lane 继续。
+- outcome reserve 不 fit 的 Admission 记录 no-attempt result并继续 source，后续 Outcome/GC 能释放容量；多 shard 并发 outcome 与 Broker system writer quota 不自锁。
+
+### 23.4 Performance
+
+矩阵至少包括：
+
+- command size、payload size、batch/linger、WriteBatch/fsync；
+- 1M/10M/100M active records；
+- uniform、single-time burst、Zipf hot Lane；
+- ordered/unordered、baseline/strong capability；
+- healthy与坏目标并存；
+- shard/Worker 数、one-DB overhead、WAL/FD/open time；
+- compaction/checkpoint 同时运行；
+- local loss restore 与 replay；
+- query/long-poll；
+- inline/object payload。
+
+输出不是单一 TPS，而是 capacity envelope 与配置文件。
+
+### 23.5 Release gates
+
+1. 协议、状态、key codec golden tests 全语言通过。
+2. correctness failure cuts 全部 fresh-process 通过。
+3. real Kafka/Pulsar/Oxia/Object gates 通过。
+4. no-early tests 覆盖 Worker/target clock bound 和 Pulsar strictness。
+5. benchmark 产出所有 required configuration。
+6. capacity artifact 逐维证明 memory/RSS/cgroup、FD/file、disk/temp、Control Reserve、Adapter physical/zombie、work-class 与 Lane fairness 公式；SLO catalog 为每个 HEALTHY objective 配同事件 `ALL_ACCEPTED` objective，并证明 durable outbox/collector capacity、timeout 不丢样本和 monotonic-conservative merge。
+7. soak 持续时间覆盖发布配置中最长的 checkpoint/floor、retry、uncertainty 与 GC 交互周期，且无 source gap、counter drift、unbounded memory/FD、aged unexplained uncertainty。
+8. upgrade/downgrade gate 证明 writer-before-reader 被阻止，且同 bytes 不同 version 不会命中旧 dedupe。
+9. 运维 runbook 完成 restore、fence、DLQ replay、uncertain override 和 disaster boundary 演练。
+10. Kafka guarded client patch 与 Pulsar v22 first-class resource guard 的 source-lock、binary digest、全 Broker rollout、typed receipt/rejection 和 delete/recreate cut 全部通过；stock/name-fallback path 不得进入发布包。
+
+## 24. 仓库模块
+
+当前仓库从单 Gradle Java 21 library 开始实现，代码包先按目标模块保持边界；
+模块拆分和外部 Broker/Oxia/Object Store 适配器必须在不改变这些边界的前提下演进。
+逐项实现证据和未完成 release blocker 见 [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md)。
+
+```text
+nereus-delay/
+├── src/main/java/com/nereusstream/delay/protocol  # delay-api / client-core boundary
+├── src/main/java/com/nereusstream/delay/store     # delay-store-rocksdb boundary
+├── src/main/java/com/nereusstream/delay/runtime   # delay-core boundary
+├── src/main/java/com/nereusstream/delay/scheduler # delay-core boundary
+├── src/main/java/com/nereusstream/delay/adapter   # broker adapter boundary
+├── delay-api                                     # future physical module split
+│   ├── public models
+│   ├── protobuf
+│   ├── canonical codec
+│   └── adapter SPI
+├── delay-route-spi
+├── delay-route-oxia
+├── delay-transport-spi
+├── delay-semantic-core
+├── delay-client-core
+├── delay-client-kafka
+├── delay-client-pulsar
+├── delay-gateway-api
+├── delay-gateway
+├── delay-core
+│   ├── shard state machine
+│   ├── scheduler / clock
+│   ├── retry / dlq / gc
+│   └── quota
+├── delay-server
+│   ├── worker lifecycle
+│   ├── query/admin gateway
+│   └── placement
+├── delay-ingress-kafka
+├── delay-ingress-pulsar
+├── delay-store-rocksdb
+├── delay-metadata-oxia
+├── delay-object-store
+├── delay-adapter-kafka
+├── delay-adapter-pulsar
+├── delay-testkit
+├── delay-chaos
+├── delay-benchmarks
+└── delay-distribution
+```
+
+`delay-core` 只依赖：
+
+```text
+IngressRecord / SourcePosition
+DelayStore
+OwnerLeaseStore
+ImmutableControlConfigStore
+CheckpointCatalog / ObjectStore
+DestinationAdapter
+TrustedTime
+```
+
+Kafka/Pulsar client类型不得泄漏到核心状态机；adapter-specific message metadata 是 API 中的 closed value type。
+
+## 25. 实施里程碑
+
+| Milestone | 范围 | 完成门 |
+|---|---|---|
+| M0 | ID、canonical schema、state model、key codec | golden/property/model tests |
+| M1 | 单 Worker pinned-topic-id Kafka ingress + RocksDB + Kafka baseline target | enqueue/apply/cancel/reschedule/restart/resource-recreation |
+| M2 | Pulsar ingress/guarded target strict-send baseline | batching position、ACK-after-sync/resource-recreation |
+| M3 | Oxia placement/Owner Lease、多 Worker、一 shard 一 DB | revoke/takeover/fencing chaos |
+| M4 | checkpoint catalog、Recovery Floor、local-disk-loss restore | source gap/fallback/response loss |
+| M5 | large payload、quota/control reserve、GC | reserve/upload-attest/commit/orphan/barrier |
+| M6 | DRR Lane、DLQ/query/admin/security/observability | failure isolation/runbook |
+| M7 | AUTO_FAST、Pulsar handoff、Kafka receipt、Pulsar dedup、strict order | capability-specific gates |
+| M8 | full chaos、benchmark、soak、upgrade、distribution | release gates 全通过 |
+
+当前实现进度、可执行证据和未完成 blocker 以 [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) 为准；
+已完成的 core/embedded 里程碑不等于 Kafka/Pulsar/Oxia 生产集成或 release-ready。
+
+双入口与 guarded transport 按详细设计 Phase D0/D1/K1/D2/P1/D3/D4/D5/D6 独立切片；
+Kafka 从 `trunk@c300006a7705c240642db6950b5a95fec982bfc5` 开始，Pulsar 从
+`5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551` 创建独立分支。任何 client patch PASS
+都只证明 transport slice，不得提升 Worker、Gateway 或整体 release 状态。
+
+功能不得因为 milestone 靠后而在早期代码中使用更弱的隐含语义；未实现 capability 必须注册失败。
+
+## 26. 最终基线
+
+默认路径：
+
+```text
+MANAGED:
+  SDK Prepared Command
+    -> Kafka/Pulsar Command Topic
+    -> one Delay Shard / one RocksDB
+    -> two-level DRR
+    -> Kafka/Pulsar target
+
+AUTO_FAST (explicit):
+  prepareScheduleSubmission(AUTO_FAST, zero I/O)
+    -> ManagedPreparedCommand
+       -> submit exact Prepared Command to Shard Log
+    | NativePreparedDelivery (eligible certified Pulsar only)
+       -> persist exact prepared branch if crash-safe retry is required
+       -> guarded native delayed SEND
+       -> Native outcome/receipt, unmanaged
+  branch selection never reruns after submission I/O
+```
+
+持久化职责：
+
+```text
+Command Topic = command WAL / order / replay
+RocksDB       = active + runtime state + indexes + results
+Object Store  = immutable checkpoint + large payload
+Oxia          = config + placement + owner lease + checkpoint catalog
+Destination evidence = optional stronger outcome proof
+Broker resource guard = mandatory exact-resource request fencing
+```
+
+ 不用本地 epoch 冒充远端 fencing，不用 Broker ACK 冒充 Schedule applied，不用最新 checkpoint 冒充完整恢复，不用多个局部 quota 冒充全局 hard limit，也不用非 strict Pulsar delayed delivery 冒充 `deliverAt`。
+
+## 27. 2026-08-21 RC1 发布认证快照
+
+本节记录当前发布收口的证据边界。前文按日期记录的 receipt 是冻结历史；当前 Gate 只接受本节列出的、在本节提交之后重新生成的 source-locked receipt。Delay 的精确 SHA 不在文档中自引用，而以每个 receipt 的 `source_locks.delay` 为唯一权威；K1、P1 和 Oxia 的锁分别为：
+
+- Kafka K1：`05849884ca81fad767fda058444d1e17c7f9cbf9`
+- Pulsar P1：`0a2536484cd3932801a98dc88ff112b2df88a1c7`
+- Oxia：`37a17bef17202d5fd6e23282da5fd26d94865484`
+
+最终证据路径固定为：
+
+```text
+/private/tmp/nereus-delay-rc1-capacity-20260821-r4/certified-capacity-benchmark.json
+/private/tmp/nereus-delay-rc1-soak-20260821-r7/certified-production-chain-soak.json
+/private/tmp/nereus-delay-rc1-activation-20260821-r5/protocol-activation-cutover.json
+/private/tmp/nereus-delay-rc1-operations-20260821-r4/operations-drills.json
+/private/tmp/nereus-delay-certified-chaos-20260821-r5/certified-chaos-matrix.json
+/private/tmp/nereus-delay-rc1-release-gate-20260821-r4/release-candidate-gate.json
+```
+
+容量、真实 Kafka/Pulsar/Oxia/Worker/MinIO production-chain soak、协议激活/切换和 operations drills 分别只有在其声明 profile、四仓库 source lock、资源覆盖、独立字段 invariant 和清理检查同时通过时才能标记 `PASS_CERTIFIED`。14-cell chaos 的 bounded 子矩阵可以是 `PASS_BOUNDED`，但 certified wrapper 还要求每个单元都有 durable before/after dump、fresh-process recovery 和 `PASS`；当前只有 4/14 单元达到该证据级别，因此 certified chaos 必须保持 `BLOCKED`。
+
+因此当前 release gate 必须保持 `release_status=NOT_READY`。这不是功能链未实现的结论，而是故障证明和发布证据尚未达到 promotion gate 的结论；不得用 bounded PASS、局部 E2E 或 operator flag 覆盖它。full Gradle check、四仓库 source checks 和 cross-repository contract validator 仍是 Gate 的前置条件。
+
+证据运行结束后，只保留上述 canonical receipt、锁定的 `nereus/oxia-o1:37a17bef1720` 和 `quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z` 基础镜像。相关 Gradle cache、失败诊断、过期 receipt 和本轮 `nereus-delay` 临时目录必须先确认没有进程、`.git` 或源码，再按精确路径移入 Trash；禁止 global Docker prune、宽泛 glob 或针对源码/worktree 根目录的递归删除。
+
+## 28. 2026-08-21 当前源码故障证明与发布边界
+
+当前实现切片包含 Kafka Worker ACK 崩溃恢复的 durable Store/fresh JVM/真实
+Oxia Owner Lease/ACK 证据（`9a55403e1f493fad8db73956db9dcd50c4429964`），以及
+chaos 启动前等待三个 Kafka broker 的修复
+（`71068209dff3915e17ac2d81324154d79074e6f5`）。ACK 恢复测试中的
+Recovery Catalog/Floor 是本地 harness seam，不等于生产 Recovery Catalog
+authority 已被证明。
+
+本次文档提交前的当前源码 chaos receipt 为：
+
+```text
+/private/tmp/nereus-delay-certified-chaos-20260821-r9/certified-chaos-matrix.json
+```
+
+它的 bounded child 是 `PASS_BOUNDED`（14/14），Docker postcheck 是 `PASS`，
+但 certified wrapper 仍为 `BLOCKED`：durable state、fresh-process recovery
+和 independent-field invariant 为 `FAIL`，只有 5/14 cell 达到该证据级别。
+r8 曾记录 Kafka network-partition survivor resume 的 timing-sensitive
+timeout；r9 的 bounded PASS 不能把这段历史提升为 certified stability。
+本次对应的 Gate receipt 为：
+
+```text
+/private/tmp/nereus-delay-rc1-release-gate-20260821-r5/release-candidate-gate.json
+```
+
+它的 source/cross-repository/full-Gradle 检查通过，但
+`release_status=NOT_READY`，因为旧 capacity/soak/activation/operations
+receipt 与当前源码锁不一致，且 chaos 不是 `PASS_CERTIFIED`。文档提交后
+将用 r10 chaos receipt 和 r6 release-gate receipt 重新生成当前 source lock；
+只接受这些 receipt 自身的 `source_locks`。在十四个 cell 全部具备 durable
+before/after、fresh-process recovery 和 invariant 之前， 必须保持
+`NOT_READY`。清理只允许对精确临时路径执行并移入 Trash；源码、worktree、
+`.git` 和代码内容不是清理目标。
+
+## 29. 2026-08-21 Pulsar Worker 崩溃证据切片
+
+提交 `83a47900ef3de4cfa110f7ca43d13fcde1376628` 为已有的 Pulsar Worker
+process-crash real-broker 路径补齐 certified 所需的 fsync-forced durable
+before/after Store dump。独立审计比较 physical topic、Route/shard、Store
+incarnation、DB identity、source apply/ACK 边界和 fresh JVM PID，并保留真实
+Oxia Owner Lease 与最终 checkpoint 证据。focused dump 保留在：
+
+```text
+/private/tmp/nereus-delay-pulsar-worker-process-crash-20260821-r1/
+```
+
+r10 chaos 和 r6 gate receipt 的 source lock 早于该实现提交，现为历史证据；
+本节提交后用 r11 chaos 与 r7 gate 生成当前 source lock。十四个 cell 全部
+满足 durable/fresh/invariant 前，certified chaos 和 Gate 仍保持
+`BLOCKED`/`NOT_READY`。
+
+## 30. 2026-08-21 current-source Large Payload production-authority 链
+
+在本次文档提交之前，当前源码完成了一轮严格串行的 bounded production-chain
+soak，receipt 为：
+
+```text
+/private/tmp/nereus-delay-production-chain-soak-20260821-r1/production-chain-soak.json
+```
+
+schema 为 `nereus-delay-bounded-production-chain-soak`，状态为
+`PASS_BOUNDED`，四个 case 全部 `PASS`。source lock 为：Delay
+`d5dfa990c22f7659ebdb68f84e800646f34e7d46`、Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`、Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`、Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`。
+
+四个真实链路分别是：
+
+1. Kafka 两分片 destination：signed Route、Oxia Assignment/Owner、Worker
+   fleet、Gateway mTLS/JWT、真实 MinIO、两个 `PUBLISHED` destination outcome，
+   exact payload readback；对象版本为
+   `6f92b8cb-7c08-4cf2-818f-7a9b5e43342b`、
+   `7d88d85d-52bc-4109-8b0c-8fb6e35369d9`。
+2. Pulsar 两分片 destination：两个 guarded source barrier、Oxia 多分片
+   Assignment/Owner、两个 Worker、真实 MinIO、两个 `PUBLISHED` outcome，
+   exact payload readback；对象版本为
+   `5cbbf2ca-44a4-4993-bcc5-360ef1be6903`、
+   `9dbda3ce-6eef-45db-adfe-93dfb2b99b6c`。
+3. Kafka `PUT_TIMEOUT_AFTER_COMMIT`：对象提交后的响应不确定路径最终完成
+   source apply/ACK、destination readback 和 exact Gateway idempotency。
+4. Pulsar `PUT_503_AFTER_COMMIT`：对象提交后的 503 不确定路径最终完成
+   source apply/ACK、destination readback 和 exact Gateway idempotency。
+
+四个 Compose 项目都通过了精确 cleanup：run-scoped containers、networks、
+volumes 和 generated provider images 均为空，锁定的 MinIO base image 保留。
+这证明的是当前源码的 bounded functional production-authority 链，不是
+release certification；十四 cell fresh-process chaos、capacity、aged soak、
+activation/cutover、operations、upgrade 和 disaster continuity 仍需独立 gate。
+
+本节提交会改变 Delay source lock，因此 r1 是文档提交前 receipt。提交后重新
+生成 `/private/tmp/nereus-delay-production-chain-soak-20260821-r2/`，只有 r2
+receipt 的 exact `source_locks` 可作为当前交接依据。清理继续遵循精确路径、可恢复
+Trash 规则，不删除源码、worktree、`.git` 或代码。
+
+## 31. 2026-08-21 checkpoint-reaping fresh-process authority 证据
+
+提交 `6e163de1` 把 checkpoint REAPING 从单 JVM marker 路径提升为真实两 JVM
+证据路径。WRITE JVM 在真实 Oxia 中创建 `PENDING_UPLOAD`，向真实 MinIO 上传
+exact versioned prefix，关闭 provider ownership，显式放弃 session-bound Owner，
+并 fsync 强制写出 before dump。READ JVM 重新连接 Oxia，验证 Owner current 为空，
+CAS `PENDING_UPLOAD -> REAPING`，再通过真实 MinIO adapter 执行 exact-version
+sweep。
+
+focused receipt 保留在：
+
+```text
+/private/tmp/nereus-delay-checkpoint-reaping-fresh-20260821-r1/before-process-crash.json
+/private/tmp/nereus-delay-checkpoint-reaping-fresh-20260821-r1/after-fresh-process.json
+```
+
+两次 Gradle/JUnit JVM 的 PID 为 `35845 -> 35997`。独立字段审计确认 intent
+digest、Route/partition、recovery lineage、checkpoint ID、source-store
+incarnation 不变；READ 结果为 `REAPING`，`listed=2`、`deleted=2`、prefix
+为空，并确认 Owner absence、durable read 和 forced dump。该结果只关闭
+`checkpoint-reaping` 的 durable/fresh-process/invariant 缺口，不代表 14-cell
+chaos 或 release PASS；在全部 cell 和其他 `PASS_CERTIFIED` 输入完成前，
+Gate 继续保持 `release_status=NOT_READY`。
+
+## 32. 2026-08-21 Pulsar destination response-loss fresh-process 证据
+
+提交 `b42135d4` 为 direct `pulsar-destination-response-loss` cell 补齐真实两 JVM
+证据。WRITE JVM 通过 guarded P1 Producer 只发送一次，Broker 已提交后丢弃
+response，并 fsync 强制保存完整 request 与 guarded SEND evidence。READ JVM 不创建
+Producer、不再发送，只重建并验证 exact `PULSAR_SEND_ACK`，然后从同一真实 topic
+读回唯一 payload。
+
+focused dump 为：
+
+```text
+/private/tmp/nereus-delay-pulsar-destination-response-loss-fresh-20260821-r1/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-destination-response-loss-fresh-20260821-r1/after-fresh-process.json
+```
+
+PID 为 `42487 -> 42581`；topic/guard/attempt/prepared hash 和 Broker position
+`ledger=9, entry=0, sequence=0` 保持一致，`physical_send_count=1`，exact payload
+readback 成功，duplicate 为 `0`。该证据只关闭 direct destination adapter cell，
+不替代独立的 Worker destination response-loss cell，也不代表完整 chaos 或
+release PASS；在当前 source-locked wrapper 重跑前，Gate 继续保持
+`release_status=NOT_READY`。
+
+## 33. 2026-08-21 Kafka Broker process-crash durable rejoin 证据
+
+提交 `75a008fc` 为真实 Kafka `kafka-broker-process-crash` cell 补齐了
+durable/fresh-process/invariant 证据边界。流程是：先完成 guarded Worker
+准备，由第一个 Java Admin JVM 从真实 Broker 读取并 fsync 保存 topic/cluster
+identity、topic ID、replica、ISR、live Broker 和 end offset；然后对
+`kafka-1` 执行 SIGKILL，等待 survivor leader 收敛，由真实 Oxia authority
+下的 Worker 通过 `kafka-2,kafka-3` 完成 source apply/ACK、typed
+`KAFKA_TRANSACTIONAL_RECEIPT` 和 exact destination readback；最后启动
+`kafka-1`，等待它重新进入 ISR，再由第二个 Admin JVM 写出 after dump。
+
+focused evidence：
+
+```text
+/private/tmp/nereus-delay-kafka-broker-process-crash-20260821-r3/state/before-process-crash.json
+/private/tmp/nereus-delay-kafka-broker-process-crash-20260821-r3/state/after-fresh-process.json
+```
+
+本次真实运行的 source lock 是 Delay `75a008fc`、Kafka
+`05849884ca81fad767fda058444d1e17c7f9cbf9`、Pulsar
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`、Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`。before 观察到 leader `3`、
+replica/ISR/live 为 `[1,2,3]`、end offset `1`；after 观察到 ISR/live
+仍为 `[1,2,3]`、end offset `5`、`broker_1_rejoined=true`，两个独立 JVM
+PID 为 `51328 -> 51612`。独立审计比较 topic/cluster/topic identity、replica
+和 ISR、Broker-1 rejoin、offset advancement、forced durable read 与 process
+identity。这里记录真实 leader，而不强制声称 Broker-1 是 leader；本次
+assignment 的实际 leader 是 Broker-3。
+
+第一次尝试还证明 survivor leader convergence 不能用简单端口等待替代：
+如果立刻让 Worker Fetch，真实客户端可能暂时观察到
+`UNKNOWN_LEADER_EPOCH`。因此 convergence smoke 是恢复流程的明确 barrier。
+该结果只关闭 `kafka-broker-process-crash` cell 的证据缺口，不代表完整
+14-cell chaos 或 release PASS；旧 receipt 的 Delay source lock 早于
+`75a008fc`，必须在实现和文档提交后重新生成。focused Docker cleanup 已通过，
+没有留下 scoped container、network、volume 或 generated image，只保留锁定
+base image；源码、worktree、`.git` 和代码目录不属于清理目标。
+
+## 34. 2026-08-21 durable-state JSON 类型边界修复
+
+r12 bounded chaos 已经实际运行到 checkpoint REAPING 和 direct Pulsar
+destination response-loss 两条路径；审计失败的原因不是 runtime recovery，
+而是两个手写 durable-state JSON writer 把布尔值写成了字符串 `"true"`。
+Delay commit `33b546f6` 统一输出真正的 JSON boolean，并让 fresh-process
+reader 同时接受 quoted/scalar field，保持 JVM 交接和 shell audit 对同一
+schema 的解释一致。
+
+修复后的 focused receipt：
+
+```text
+/private/tmp/nereus-delay-checkpoint-reaping-20260821-r13-state/before-process-crash.json
+/private/tmp/nereus-delay-checkpoint-reaping-20260821-r13-state/after-fresh-process.json
+/private/tmp/nereus-delay-pulsar-destination-response-loss-20260821-r13-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-destination-response-loss-20260821-r13-state/after-fresh-process.json
+```
+
+两条 focused run 都使用独立 WRITE/READ JVM，并通过真实 Oxia、MinIO 或
+Pulsar。REAPING 验证了 exact version count、删除后 prefix 为空；Pulsar
+验证了 typed `PULSAR_SEND_ACK`、exact payload readback、single SEND 和零
+duplicate。该切片只修复 evidence contract，不把 focused 或 bounded 结果
+提升为 release PASS；文档提交后仍需重新生成完整 source-locked chaos
+wrapper 和 fail-closed release gate。清理只针对精确的 run-scoped 资源，不能
+删除源码、worktree、`.git` 或代码目录。
+
+## 35. 2026-08-21 certified chaos r13 与 release gate r10 边界
+
+文档同步前的 strict-sequential r13 已经让 14 个 child scenario 全部返回
+`0`，bounded matrix 为 `PASS_BOUNDED`。其中 9 个 cell 已具备 durable
+before/after dump、fresh-process recovery 和 independent invariant：Kafka
+Broker crash、Kafka Worker ACK crash、Pulsar Worker crash、Pulsar Worker
+admission/destination response loss、checkpoint REAPING、Kafka Fetch、Kafka
+retention floor 和 direct Pulsar destination response loss。Kafka TCP cut、
+Kafka network partition、Pulsar multi-Broker crash、Pulsar source ACK response
+loss、Gateway/Oxia session churn 仍明确处于 marker-only 或 not-covered。
+
+receipt：
+
+```text
+/private/tmp/nereus-delay-certified-chaos-20260821-r13/certified-chaos-matrix.json
+/private/tmp/nereus-delay-rc1-release-gate-20260821-r10/release-candidate-gate.json
+```
+
+r13 source lock 为 Delay `4be08ee917e045b1466046aa69318645ac689ea5`、Kafka
+`05849884ca81fad767fda058444d1e17c7f9cbf9`、Pulsar
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`、Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`。certified wrapper 虽然
+Docker cleanup `PASS`，仍为 `BLOCKED`。gate r10 的 source、cross-repo 和
+full Gradle check 为 `PASS`，但由于 capacity/soak/activation/operations
+receipt 的 Delay source lock 较旧，且 chaos artifact 不是 `PASS_CERTIFIED`，
+最终保持 `release_status=NOT_READY`。这只是 fault evidence handoff，不是
+ release approval。
+
+## 36. 2026-08-21 Kafka Broker TCP cut / network partition durable evidence
+
+Delay commit `ae10068e` 把 Kafka Broker 的 durable state handoff 从进程崩溃
+扩展到 TCP endpoint cut 和 Compose network partition。TCP 场景先把 source
+与 group coordinator placement 固定到 Broker-2，再让 one-shot raw proxy
+拒绝 Broker-1 endpoint；network 场景只把 `kafka-1` 从精确 Compose network
+断开而不杀 Broker 进程。两条链都通过真实 Oxia Worker 完成 source apply、
+ACK、checkpoint 和恢复后的 Broker 观测。
+
+focused receipt：
+
+```text
+/private/tmp/nereus-delay-kafka-broker-tcp-cut-20260821-r1-state/before-process-crash.json
+/private/tmp/nereus-delay-kafka-broker-tcp-cut-20260821-r1-state/after-fresh-process.json
+/private/tmp/nereus-delay-kafka-broker-network-partition-20260821-r1-state/before-process-crash.json
+/private/tmp/nereus-delay-kafka-broker-network-partition-20260821-r1-state/after-fresh-process.json
+```
+
+两条真实三 Broker run 均通过独立 audit：cluster/topic identity 不变，
+replicas、ISR、live 均为 `[1,2,3]`，end offset 都从 `1` 增长到 `2`，
+`broker_1_recovery_observed` 为 `false -> true`，并且 before/after 是不同
+JVM PID、`durable_broker_read=true`、`dump_forced=true`。source lock 为
+Delay `ae10068e`、Kafka `05849884ca81fad767fda058444d1e17c7f9cbf9`、Pulsar
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`、Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`。focused Docker cleanup 没有
+留下本次的 container/network，只保留锁定的 base image。
+
+这使当前独立 durable evidence union 达到 14 个 cell 中的 11 个；Pulsar
+multi-Broker failover、Pulsar source ACK response loss、Gateway/Oxia session
+churn 仍需补齐。完整 current-source chaos wrapper 和 release gate 尚未
+针对 `ae10068e` 重跑，因此 release boundary 仍是
+`release_status=NOT_READY`，不能把 focused receipt 当作 release approval。
+
+## 37. 2026-08-21 Pulsar multi-Broker process-crash durable evidence
+
+Delay commit `a48cd33a00ecd566d149ddb300efa22cf670747a` 为
+`pulsar-multi-broker-process-crash` 增加了独立的 durable-state collector 和
+字段审计。r4 使用两台真实 Pulsar Broker、ZooKeeper、BookKeeper、真实 Oxia
+authority 和真实 Worker：guarded preparation 完成后 SIGKILL Broker-1，由
+Broker-2 完成 survivor Admin read，再由 fresh Worker 恢复 source apply、typed
+destination publish、ACK/checkpoint，最后重启 Broker-1 并观察到 rejoin。
+
+Receipt：
+
+```text
+/private/tmp/nereus-delay-pulsar-multi-broker-process-crash-20260821-r4-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-multi-broker-process-crash-20260821-r4-state/after-process-crash.json
+```
+
+独立 jq 审计通过了 schema、topic/physical-topic/cluster、ledger identity、
+entries/confirmed position 单调性、不同的 Admin endpoint `31741 -> 31743`、
+不同的 collector JVM PID `12676 -> 12738`，以及显式的
+`durable_broker_read=true`、`dump_forced=true`。两份 dump 都通过
+`internalStats?metadata=true` 读取，并得到 ledger IDs `[-1,2]`、`1` 条 entry、
+confirmed position `2:0` 和 `LedgerOpened`。source locks 为 Delay
+`a48cd33a00ecd566d149ddb300efa22cf670747a`、K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`、P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`、Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`。
+
+这里保留一个重要边界：survivor Admin dump 在 Broker-2 ready 后、fresh
+Worker resume 前采集；本 setup 中 source consumer 关闭后再查
+`internalStats`/`internal-info` 可能返回 404/500，因此没有把 post-Worker
+Admin read 写成证据。该 focused cell 将独立审计 union 推进到 12/14，但
+Pulsar source-ACK response loss、Gateway/Oxia session churn 以及完整
+current-source wrapper/release gate 仍需继续收口。
+
+## 38. 2026-08-21 Pulsar source ACK 与 Gateway/Oxia churn evidence
+
+Delay commit `63b72ee9944995a88b0cfe4505ede2051e4392f` 补齐了最后两个
+focused durable-evidence cell。Pulsar source ACK response-loss 路径在 cut 前
+显式执行真实 Store/WAL 的 flush/sync；Broker 已接受 ACK 但本地 response 被
+丢弃后，runner SIGKILL 真实 Worker JVM，fresh Worker 重新打开同一 Store。
+当 exact source record 已经 durable apply、恢复时没有旧 entry 需要 replay，
+fresh Worker 现在接受已持久化 source position，并继续完成 vertical path。
+Gateway 路径则在真实 Oxia 进程 restart 前后写入 forced durable-record dump，
+同时保持旧 session fail-closed。
+
+focused receipts：
+
+```text
+/private/tmp/nereus-delay-pulsar-source-ack-response-loss-20260821-r3-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-source-ack-response-loss-20260821-r3-state/after-fresh-process.json
+/private/tmp/nereus-delay-gateway-oxia-session-churn-20260821-r1-state/before-oxia-restart.json
+/private/tmp/nereus-delay-gateway-oxia-session-churn-20260821-r1-state/after-oxia-restart.json
+```
+
+Pulsar receipt 保持了同一个 physical topic、Route/Store identity、
+`store_incarnation=87e9c9ecfb3a42499970b75927cfb661` 与
+`db_identity=77fa231eacc87edc595e5ef82567bbf7b579ff7cc32adf325bf2a4e6bed2405e`，
+before/after Worker PID 为 `31393 -> 31470`。before dump 中
+`source_ack_source_position == applied_source_position`，并明确记录
+`source_apply_durable=true`、Broker ACK 已接受、response 已丢失。fresh
+Worker recovery 后 ACK position 保持不变，
+`recovery_replayed_entries=0`、`recovery_replayed_ack_source=false`、
+`duplicate_source_apply_observed=false`，随后完成新的 active record、真实
+Oxia lease 与 final checkpoint。
+
+Gateway/Oxia receipt 保持一个 admission record、一个 `QUIESCENT` idempotency
+record（一个 attempt 和 aggregate outcome）、两个 audit record、零 active
+lease，以及一次 prepare/submit。before/after response digest 相同；旧
+admission/idempotency session 在 Oxia 不可用时 fail-closed，Oxia restart 后
+fresh session reread 同一个 durable outcome。这是 bounded Oxia
+session/process-churn 证据，不是完整 Gateway HA/provider failover 证明。
+
+这两个 focused receipt 使当前独立审计 durable union 达到 `14/14`。但这不
+会把历史 wrapper 或 release artifact 自动提升为 current：必须针对 Delay
+`63b72ee9944995a88b0cfe4505ede2051e4392f` 重跑完整 current-source chaos
+wrapper，并重新生成 fail-closed release gate；在 capacity、soak、
+activation/cutover、operations 和 chaos 输入都满足要求前， 仍保持
+`release_status=NOT_READY`。无用的 source-ACK r2 diagnostic 已移入可恢复
+废纸篓；源码、worktree、`.git` 和未标记的既有 Docker volume 不在清理目标内。
+
+## 39. 2026-08-21 current-source 14-cell bounded chaos r15
+
+在 Delay commit `d14d9a6a7e55d77bd1a3a42ea3f2e30291896e` 修正 Kafka
+process-crash marker audit 规则后，重新执行了完整的 strict-sequential
+current-source wrapper。此前 r14 的真实 Kafka recovery 和 durable dump 已经
+通过，失败只来自 wrapper 期待的 marker 少了 cell name；r15 是修正后的
+canonical receipt。
+
+Receipt：
+
+```text
+/private/tmp/nereus-delay-chaos-current-20260821-r15/bounded-chaos-matrix.json
+```
+
+r15 报告 `matrix_status=PASS_BOUNDED`，14 个 child status 全部为 `0`。每个
+cell 都通过 `audit_status=PASS`、
+`durable_state_dump=CAPTURED_AND_VERIFIED`、
+`fresh_process_recovery=PASS` 和
+`invariant_audit=INDEPENDENT_FIELDS_PASS`。四仓 source locks 为 Delay
+`d14d9a6a7e55d77bd1a3a42ea3f2e30291896b61`、K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`、P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`、Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`。
+
+这使 current-source bounded durable evidence union 达到 `14/14`，但仍然是
+`PASS_BOUNDED`，不是 release certification。Certified chaos wrapper
+必须以本次 documentation commit 为 source lock 重新生成；capacity、soak、
+activation/cutover、operations 以及最终 release gate 仍然独立、fail-closed。
+
+## 40. 2026-08-21 Pulsar failover 与 Worker admission response-loss 收口
+
+在 r15 之后，Delay 依次提交 `16c3792e`、`2f57b5f8` 和 `b7b156e6`：Broker
+Admin state read 在 survivor 尚未稳定时重试；multi-Broker runner 要求三次
+连续 readiness；managed-ledger invariant 改成“post-failover ledger set 必须
+保留 pre-failure set，同时允许合法的 ledger extension”。这是因为实际
+failover 会从 `[-1,3]` 扩展为 `[-1,3,4]`，不能用静态 ledger ID 相等作为
+恢复条件。
+
+multi-Broker focused receipt：
+
+```text
+/private/tmp/nereus-delay-pulsar-multi-broker-process-crash-20260821-r7-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-multi-broker-process-crash-20260821-r7-state/after-fresh-process.json
+```
+
+真实 Broker-1 SIGKILL 后，survivor Broker-2/Admin 读取保持相同 topic、cluster
+和确认位置 `3:0`，ledger 从 `[-1,3]` 变为 `[-1,3,4]`；fresh Worker 完成
+source-applied physical publish、real Oxia authority 和 Broker-1 rejoin。
+独立 subset audit 通过。
+
+Worker Publish Admission response-loss focused receipt：
+
+```text
+/private/tmp/nereus-delay-pulsar-worker-admission-response-loss-20260821-r1-state/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-worker-admission-response-loss-20260821-r1-state/after-fresh-process.json
+```
+
+SIGKILL 前 forced durable dump 是 `PUBLISHING`；fresh Worker 重开相同的
+`publish_attempt_id`、message、DB identity 和 Store incarnation 后，状态收敛
+为 `PUBLISHED`，typed destination receipt、source-applied Outcome 与 exact
+payload readback 全部完成，独立字段审计为 `INDEPENDENT_FIELDS_PASS`。
+
+这些是 Delay `b7b156e6` 下的 focused current-source 证据；它们不把 r15
+自动提升为当前矩阵，也不等同于 certified chaos、generic transport
+response-loss、multi-shard placement 或 release PASS。最终 release 仍需
+在最终 source/documentation lock 上重跑 full matrix、certified wrapper 和
+fail-closed gate。
+
+## 41. 2026-08-21 current-source bounded chaos r17 与 Kafka TCP-cut 复验
+
+在 documentation commit `257161a203090fdf5657acdea896d6b8b5777040` 之后，重新
+执行完整 strict-sequential bounded matrix，canonical receipt 为：
+
+```text
+/private/tmp/nereus-delay-chaos-current-20260821-r17/bounded-chaos-matrix.json
+```
+
+结果为 `matrix_status=PASS_BOUNDED`，14 个 child 全部返回 `0`；每个 cell
+独立通过 `audit_status=PASS`、
+`durable_state_dump=CAPTURED_AND_VERIFIED`、
+`fresh_process_recovery=PASS` 和
+`invariant_audit=INDEPENDENT_FIELDS_PASS`。四仓 source locks 为 Delay
+`257161a203090fdf5657acdea896d6b8b5777040`、K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`、P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`、Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`。
+
+r16 的 Kafka `broker-tcp-cut` 因 producer 临时 `TimeoutException` 没有
+after dump，保留为 diagnostic，不提升为 PASS。相同 source 的 focused r2
+receipt 位于：
+
+```text
+/private/tmp/nereus-delay-kafka-broker-tcp-cut-20260821-r2-state/
+```
+
+r2 独立通过 fresh process/新 PID、相同 topic/cluster/topic ID、end offset
+单调增长、Broker-1 recovery 和 `INDEPENDENT_FIELDS_PASS`。r17 是当前
+bounded fault evidence，但不是 certified chaos 或 release PASS；仍需在
+最终 source lock 上执行 certified wrapper 与 fail-closed release gate。
+
+## 42. 2026-08-21 candidate source lock 与 evidence-manifest lock
+
+r19 certified chaos 与 r20 release gate 必须保留为历史证据；二者都绑定
+Delay cec7641b96a57d3108723c8cb27eb51594846543：
+
+~~~text
+/private/tmp/nereus-delay-certified-chaos-20260821-r19/certified-chaos-matrix.json
+/private/tmp/nereus-delay-release-gate-20260821-r20/release-candidate-gate.json
+~~~
+
+r19 只证明既有 14-cell chaos profile 的 PASS_CERTIFIED，不代表完整 ；
+r20 是 NOT_READY，因为 capacity/soak/activation/operations receipt 仍是
+旧 98eaa5cf source lock，fail-closed 结论正确。
+
+完整 的证据流程必须把两类 lock 分开：先在最后一次实现和规范文档
+冻结后记录四仓 candidate source lock，再严格顺序执行十项独立 gate。若要
+把最终结果写回文档，只允许一次 documentation-only overlay，且只能修改
+以下六份 evidence ledger：
+
+~~~text
+docs/IMPLEMENTATION-STATUS.md
+docs/Nereus Delay 设计.md
+docs/DESIGN-AUDIT.md
+docs/DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md
+docs/OPERATIONS-RUNBOOK.md
+e2e/README.md
+~~~
+
+随后在仓库外生成 nereus-delay-evidence-manifest JSON，记录
+candidate 四仓 HEAD、overlay Delay commit、六份文档的精确 SHA-256、十个
+PASS_CERTIFIED artifact 的路径/哈希/source lock，以及最终 PASS release
+gate。e2e/verify-evidence-manifest.sh 对 candidate→overlay diff、文档
+字节、artifact 字节、状态和 source lock 全部 fail closed；manifest 不放入
+Delay checkout，避免文档记录结果时产生自指哈希。
+
+实现侧的稳定入口仍是 `e2e/run-release-gate.sh`，其实际执行
+`e2e/run-full-release-gate.sh`。该 gate 必须接收仓库外的候选四仓锁和
+十个独立 artifact；artifact 统一要求
+`nereus-delay-full-gate-input`、`scope=full`、
+`complete=true`、`PASS_CERTIFIED`、精确 candidate lock、空 exclusions
+和空 boundaries。旧 bounded/RC1 schema、缺失 gate 或带有未覆盖完整
+声明的 receipt 都只能得到 `NOT_READY`，不能被转换为完整 PASS。
+
+## 参考资料
+
+- [R1] [DDMQ README @ 2f30b61a](https://github.com/didi/DDMQ/blob/2f30b61a5741d55a5b515f3d8d19a8a35be8c9e2/README.md)
+- [R2] [DDMQ Chronos README @ 2f30b61a](https://github.com/didi/DDMQ/blob/2f30b61a5741d55a5b515f3d8d19a8a35be8c9e2/carrera-chronos/README.md)
+- [R3] [DDMQ MqPullService @ 2f30b61a](https://github.com/didi/DDMQ/blob/2f30b61a5741d55a5b515f3d8d19a8a35be8c9e2/carrera-chronos/src/main/java/com/xiaojukeji/chronos/services/MqPullService.java)
+- [R4] [DDMQ Batcher @ 2f30b61a](https://github.com/didi/DDMQ/blob/2f30b61a5741d55a5b515f3d8d19a8a35be8c9e2/carrera-chronos/src/main/java/com/xiaojukeji/chronos/autobatcher/Batcher.java)
+- [R5] [DDMQ MqPushService @ 2f30b61a](https://github.com/didi/DDMQ/blob/2f30b61a5741d55a5b515f3d8d19a8a35be8c9e2/carrera-chronos/src/main/java/com/xiaojukeji/chronos/services/MqPushService.java)
+- [R6] [RocketMQ TimerMessageRocksDBStore](https://github.com/apache/rocketmq/blob/00e45b8a6db23efbe756d0306f10716156cfd4dd/store/src/main/java/org/apache/rocketmq/store/timer/rocksdb/TimerMessageRocksDBStore.java)
+- [R7] [RocketMQ Timeline](https://github.com/apache/rocketmq/blob/00e45b8a6db23efbe756d0306f10716156cfd4dd/store/src/main/java/org/apache/rocketmq/store/timer/rocksdb/Timeline.java)
+- [R8] [RocksDB v10.1.3 DBOptions：shared Env/rate limiter](https://github.com/facebook/rocksdb/blob/5823cf08d69e4d9cba6953d51fb7d6996c72df94/include/rocksdb/options.h)
+- [R9] [RocksDB v10.1.3 Cache API](https://github.com/facebook/rocksdb/blob/5823cf08d69e4d9cba6953d51fb7d6996c72df94/include/rocksdb/cache.h)
+- [R10] [RocksDB v10.1.3 options：shared WriteBufferManager](https://github.com/facebook/rocksdb/blob/5823cf08d69e4d9cba6953d51fb7d6996c72df94/include/rocksdb/options.h)
+- [R11] [RocksDB v10.1.3 Checkpoint API](https://github.com/facebook/rocksdb/blob/5823cf08d69e4d9cba6953d51fb7d6996c72df94/include/rocksdb/utilities/checkpoint.h)
+- [R12] [KafkaProducer：idempotence、transactions、application resend 边界](https://github.com/nereusstream/kafka/blob/76f62f3b83e882105219b6c7687dbde594a8b8a2/clients/src/main/java/org/apache/kafka/clients/producer/KafkaProducer.java)
+- [R13] [Kafka ProducerFencedException](https://github.com/nereusstream/kafka/blob/76f62f3b83e882105219b6c7687dbde594a8b8a2/clients/src/main/java/org/apache/kafka/common/errors/ProducerFencedException.java)
+- [R14] [Kafka read_committed、LSO 与 endOffsets](https://github.com/nereusstream/kafka/blob/76f62f3b83e882105219b6c7687dbde594a8b8a2/clients/src/main/java/org/apache/kafka/clients/consumer/KafkaConsumer.java)
+- [R15] [Pulsar TypedMessageBuilder：deliverAt 与 subscription 限制](https://github.com/nereusstream/pulsar/blob/50fc70fe4620febcf0fd31d97ff7d2be447af3d4/pulsar-client-api/src/main/java/org/apache/pulsar/client/api/TypedMessageBuilder.java)
+- [R16] [Pulsar delayed delivery strict/non-strict cutoff](https://github.com/nereusstream/pulsar/blob/50fc70fe4620febcf0fd31d97ff7d2be447af3d4/pulsar-broker/src/main/java/org/apache/pulsar/broker/delayed/AbstractDelayedDeliveryTracker.java)
+- [R17] [Pulsar delayed delivery 配置](https://github.com/nereusstream/pulsar/blob/50fc70fe4620febcf0fd31d97ff7d2be447af3d4/pulsar-broker-common/src/main/java/org/apache/pulsar/broker/ServiceConfiguration.java)
+- [R18] [Pulsar MessageDeduplication](https://github.com/nereusstream/pulsar/blob/50fc70fe4620febcf0fd31d97ff7d2be447af3d4/pulsar-broker/src/main/java/org/apache/pulsar/broker/service/persistent/MessageDeduplication.java)
+- [R19] [Pulsar Producer last sequence contract](https://github.com/nereusstream/pulsar/blob/50fc70fe4620febcf0fd31d97ff7d2be447af3d4/pulsar-client-api/src/main/java/org/apache/pulsar/client/api/Producer.java)
+- [R20] [Pulsar ProducerAccessMode](https://github.com/nereusstream/pulsar/blob/50fc70fe4620febcf0fd31d97ff7d2be447af3d4/pulsar-client-api/src/main/java/org/apache/pulsar/client/api/ProducerAccessMode.java)
+- [R21] [Oxia client v0.16.1：CAS、ephemeral、session、sequence keys](https://pkg.go.dev/github.com/oxia-db/oxia/oxia@v0.16.1)
+- [R22] [Oxia repository @ e859dd45](https://github.com/oxia-db/oxia/tree/e859dd45e53f5367bfb33fcd4350f05ee3f1f7fb)
+- [R23] [RFC 9562 UUIDv7](https://www.rfc-editor.org/rfc/rfc9562.html)
+- [R24] [Nereus repository @ 46eafc40](https://github.com/nereusstream/nereus/tree/46eafc40f6a1b012b9c92e173ec2a1e7a7883ac7)
+- [R25] [Pulsar Consumer batch-aware last MessageId API](https://github.com/nereusstream/pulsar/blob/50fc70fe4620febcf0fd31d97ff7d2be447af3d4/pulsar-client-api/src/main/java/org/apache/pulsar/client/api/Consumer.java)
+- [R26] [Pulsar Producer sends delayed messages individually](https://github.com/nereusstream/pulsar/blob/50fc70fe4620febcf0fd31d97ff7d2be447af3d4/pulsar-client/src/main/java/org/apache/pulsar/client/impl/ProducerImpl.java)
+- [R27] [Kafka TopicDescription native topicId](https://github.com/nereusstream/kafka/blob/76f62f3b83e882105219b6c7687dbde594a8b8a2/clients/src/main/java/org/apache/kafka/clients/admin/TopicDescription.java)
+- [R28] [Pulsar topic properties API](https://github.com/nereusstream/pulsar/blob/50fc70fe4620febcf0fd31d97ff7d2be447af3d4/pulsar-client-admin-api/src/main/java/org/apache/pulsar/client/admin/Topics.java)
+- [R29] [Pulsar topic creation identity in stats](https://github.com/nereusstream/pulsar/blob/50fc70fe4620febcf0fd31d97ff7d2be447af3d4/pulsar-client-admin-api/src/main/java/org/apache/pulsar/common/policies/data/TopicStats.java)
+- [R30] [Kafka ProduceRequest v13 replaces names with topic IDs](https://github.com/nereusstream/kafka/blob/76f62f3b83e882105219b6c7687dbde594a8b8a2/clients/src/main/resources/common/message/ProduceRequest.json)
+- [R31] [Kafka Sender resolves topic IDs from current metadata](https://github.com/nereusstream/kafka/blob/76f62f3b83e882105219b6c7687dbde594a8b8a2/clients/src/main/java/org/apache/kafka/clients/producer/internals/Sender.java)
+- [R32] [Kafka FetchRequest v13 replaces names with topic IDs](https://github.com/nereusstream/kafka/blob/76f62f3b83e882105219b6c7687dbde594a8b8a2/clients/src/main/resources/common/message/FetchRequest.json)
+- [R33] [PulsarDecoder runs `onPulsarCommand` before `handleSend` and returns `SEND_ERROR`](https://github.com/nereusstream/pulsar/blob/50fc70fe4620febcf0fd31d97ff7d2be447af3d4/pulsar-common/src/main/java/org/apache/pulsar/common/protocol/PulsarDecoder.java)
+- [R34] [Pulsar BrokerInterceptor command and publish hooks](https://github.com/nereusstream/pulsar/blob/50fc70fe4620febcf0fd31d97ff7d2be447af3d4/pulsar-broker/src/main/java/org/apache/pulsar/broker/intercept/BrokerInterceptor.java)
+- [R35] [Pulsar Producer invokes publish interceptor immediately before Topic persistence](https://github.com/nereusstream/pulsar/blob/50fc70fe4620febcf0fd31d97ff7d2be447af3d4/pulsar-broker/src/main/java/org/apache/pulsar/broker/service/Producer.java)
+- [R36] [Pulsar ManagedLedger exposes the loaded persistent Topic property map](https://github.com/nereusstream/pulsar/blob/50fc70fe4620febcf0fd31d97ff7d2be447af3d4/managed-ledger/src/main/java/org/apache/bookkeeper/mledger/ManagedLedger.java)
+- [R37] [Kafka transaction caps ProduceRequest at v11](https://github.com/nereusstream/kafka/blob/76f62f3b83e882105219b6c7687dbde594a8b8a2/clients/src/main/java/org/apache/kafka/common/requests/ProduceRequest.java)
+- [R38] [RFC 8785 JSON Canonicalization Scheme](https://www.rfc-editor.org/rfc/rfc8785)
+
+## 2026-08-21 current-source protocol-golden PASS_CERTIFIED
+
+The current candidate source is Delay
+`dc37d2c2093eb46d3bf85f2bd964d5055a086194`, with Kafka
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The protocol-golden receipt is
+`/private/tmp/nereus-delay-protocol-golden-run-20260821-f.1N9Xji/protocol-golden.json`
+(`e144407304580231c879ff3ed9f4c84951f85f537bcda2f06a9f101b1f375365`), with
+schema `nereus-delay-full-gate-input`, exact source locks, empty
+exclusions and `PASS_CERTIFIED` status.
+
+The run executed Delay's 392 protocol/store/clock tests, Kafka's 17 guarded
+tests, and Pulsar's 6 common plus 2 broker guarded tests; all exits were zero
+and all failure/error/skip counts were zero. This is an independently verified
+Gate 1 result only. It does not close the remaining nine §23 release gates or
+promote the historical bounded r17/r19/r20 evidence.
+
+## 2026-08-21 current-source no-early PASS_CERTIFIED
+
+The no-early gate passed against Delay `f82e914d22c5b7d84f618e0ca31fa378a27bf3a2`,
+Kafka `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+The receipt is
+`/private/tmp/nereus-delay-no-early-20260821-a.bOg67w/no-early.json`,
+SHA-256 `91692a7301b5e4fc99605ef6698c0c9208a12ea1379f7123d9db928ae7138d37`.
+It is `PASS_CERTIFIED` with 34 tests, no failure/error/skip, `max_early_ms=0`,
+and explicit 20 ms worker uncertainty and target clock bounds. This certifies
+the no-early gate only and does not close the other eight full- gates.
+
+## 2026-08-21 current-source Large Payload production-authority egress
+
+Delay `2f38677f491bd0b9071269dc27937ec691827c49` passed the real two-shard
+Large Payload destination path against K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`
+and P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7`, with real Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` and the locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+The Kafka run is recorded at
+`/private/tmp/nereus-delay-real-service-kafka-20260821-c.4owPvQ/run.log`
+(`358271def7aeb50bc503c8a09f4eda430fbd7e4db8850f6775ba6d22de60f4d8`) and the
+Pulsar run at
+`/private/tmp/nereus-delay-real-service-pulsar-20260821-a.WCUeKp/run.log`
+(`84bf7f5171c0124463dd5efe40ca061ef7cea7bbc240bce14a569d77877c8d11`). Both
+include Gateway mTLS/JWT, real MinIO upload/attest/Commit/readback, Worker
+apply/ACK, two destination `PUBLISHED` outcomes, checkpoint and exact
+idempotency evidence.
+
+This is a same-adapter production-authority PASS only. The full real-service
+gate remains open for Kafka-to-Pulsar and Pulsar-to-Kafka cross-adapter paths,
+activation cutover and the remaining §23 fault, capacity, soak, operations and
+patch evidence.
+
+## 2026-08-21 current-source cross-adapter Large Payload authority
+
+The current Delay source `6b5c357c207169f98ec78be7f7007e2ebf3c1209` was run
+against Kafka K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`, using Kafka client SHA-256
+`1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, Pulsar
+distribution SHA-256 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`
+and locked MinIO digest
+`sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
+
+Canonical evidence is retained at
+`/private/tmp/nereus-delay-cross-20260821-r29/`; `K_TO_P.log` has SHA-256
+`02db290caafda6d4cc814f2e2397726c50dcd91a2a3f1e0d9f2b27cfcdd76f40` and
+`P_TO_K.log` has SHA-256
+`44ffccb5e043f59ed15e60de6696e324359bd7d738a2276bbb816a259dee3608`.
+K→P proves real Kafka source to Pulsar target with `PULSAR_SEND_ACK`; P→K
+proves real Pulsar source to Kafka target with `KAFKA_TRANSACTIONAL_RECEIPT`.
+Both paths cover Gateway mTLS/JWT, real Oxia authority, MinIO exact payload
+readback, Worker due→Claim→Admission→target publish→source Outcome and exact
+idempotency. The runner returned
+`CROSS_ADAPTER_LARGE_PAYLOAD_GATEWAY_E2E=PASS_CERTIFIED` and cleaned its exact
+scoped runtime resources.
+
+This closes those two named cross-adapter Large Payload cells only. Full
+still requires activation/cutover, the full 19-cell chaos matrix, capacity,
+soak, upgrade/downgrade, operations/disaster-continuity and patch-distribution
+evidence before release certification.
+
+## 2026-08-21 current-source closure audit
+
+The frozen candidate lock is Delay
+`e44a23ccd76e9976c49427ebf46240fda8410abd`, Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`; the lock file SHA-256 is
+`5fe71747ac103bd543badcc3350bdec264ac7c217562af445510ef3f1065afa3`.
+
+The current source receipts are `PASS_CERTIFIED` for protocol-golden,
+no-early and the complete real-service chain:
+
+- `/private/tmp/nereus-delay-protocol-golden-current-20260821-r2/protocol-golden.json`
+  SHA-256 `362f54f6cec0d6041be3be07f1b8ba6188322980f00fa853a4eae2fb4791d90c`;
+- `/private/tmp/nereus-delay-no-early-current-20260821-r2/no-early.json`
+  SHA-256 `d424f5017a110ff884355b4d7f28c5367a2855d2562eac97606efce6054d1a3a`;
+- `/private/tmp/nereus-delay-real-service-candidate-20260821/real-service-r6/real-service.json`
+  SHA-256 `db0297371961dbc8d3791a80f24940eaa07ca27da5938e6aa4fb547097e779c0`.
+
+The real-service receipt includes Gateway mTLS/JWT, real Oxia authority, real
+Kafka and Pulsar brokers, Worker ingress/egress, MinIO object authority,
+same-adapter and cross-adapter Large Payload paths, exact payload readback,
+source Outcome application and activation cutover. The standalone activation
+receipt is also `PASS_CERTIFIED` at
+`/private/tmp/nereus-delay-activation-current-20260821-r2/protocol-activation-cutover.json`.
+Worker egress is consequently a completed implementation and certified
+production-path result, not a pending abstraction.
+
+The current capacity, soak and operations receipts are retained as explicit
+bounded profiles (all `PASS_CERTIFIED`, with underlying `PASS_BOUNDED` matrix
+boundaries) at the `capacity-current-20260821-r2`, `soak-current-20260821-r3`
+and `operations-current-20260821-r2` directories. The 19-cell chaos receipt
+at `/private/tmp/nereus-delay-full-chaos-20260821-r44/full-chaos-matrix.json`
+has 11 `PASS` cells and 8 honest blockers: credential-binding-drift, long-GC,
+half-open, ENOSPC, fsync-error, SST corruption, broker-leader-failover and
+disaster-host-fault.
+
+The strict release audit at
+`/private/tmp/nereus-delay-release-gate-current-20260821-r6/release-candidate-gate.json`
+(SHA-256 `bd64e1897210f834b6160223221c3b65360b74c7861fa6b37c874b0f202fd597`)
+is `NOT_READY`: source locks, cross-repo contracts, full Gradle check,
+protocol-golden, real-service and no-early pass, while the remaining full-
+inputs remain fail-closed. This audit must not be read as a release PASS.
+
+## 2026-08-21 full contract runner boundary
+
+\`e2e/run-full-contract-gate.sh\` is the source-locked producer for the
+Delay-owned contract evidence required by §23.5. It runs fresh protocol,
+restore, resource, DLQ and activation tests against an explicit four-repository
+candidate lock, then records exact required/observed coverage and an
+independent-audit result. A bounded child receipt is never relabeled by this
+runner.
+
+The first verified slice passed the upgrade/downgrade matrix on Delay
+\`f3a0fd8f93a66e491825ee921179f8ede17dd4e6\`; it does not close the release gate.
+The physical Broker/Lane capacity envelope, full long-cycle soak, operations
+authority and patch-distribution evidence remain independent requirements.
+
+Patch distribution is therefore a separate source-locked gate:
+\`e2e/run-full-patch-distribution-gate.sh\` must prove K1/P1 full and
+partial rollout, immutable binary digests, typed rejection, delete/recreate,
+and stock/name/old-protocol fail-closed behavior. It may not promote a client
+compile or a bounded Broker smoke to the §23.5 distribution gate.
+
+## 2026-08-21 full physical capacity-envelope boundary
+
+`e2e/run-full-capacity-envelope-gate.sh` is the source-locked entry point
+for the §23 benchmark/capacity evidence. It runs the Delay capacity/resource
+contracts and, when requested, real Kafka/Pulsar multi-shard Large Payload
+chains. A physical observation file with schema
+`nereus-delay-capacity-observation` is mandatory for a boundary-free
+PASS; functional Large Payload success is not a capacity measurement.
+
+The base candidate Delay is
+`9ab82d11c0b1b8bd60547d94ea695403d2c73b1c`, with K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The retained probe is
+`/private/tmp/nereus-delay-full-capacity-real-current-20260821-r3/`:
+local contracts and both real children passed, while the full gate remains
+`FAIL` with `measurement_status=MISSING`. No throughput, fairness, resource
+or SLO certification is claimed, and remains `NOT_READY`.
+
+## 2026-08-22 current-source guarded patch-distribution certification
+
+The gate fix is Delay `1631f8c1821116e8c7b3ef3f7166bab06c4b8a76`: K1, P1 and
+Delay tests now use `--rerun-tasks`, so an up-to-date Gradle result cannot be
+mistaken for fresh execution. The canonical artifact is
+`/private/tmp/nereus-delay-patch-distribution-current-20260822-r3/full-gate-input.json`
+with SHA-256
+`c92104c707d208035aff782a3def37d84c409830bd2214bc543381e5eeab2ebb`.
+
+It locks Kafka K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The artifact is
+`PASS_CERTIFIED`, exclusion-free and source-lock exact: Kafka guarded producer
+cases passed, Pulsar guarded common/broker tests and Delay guarded transport
+tests were freshly executed, and the real two-Broker Pulsar partial-rollout
+child passed broker stop/recovery, physical publish, ACK and checkpoint
+release. Binary digests are in
+`/private/tmp/nereus-delay-patch-distribution-current-20260822-r3/binary-digests.tsv`.
+
+This certifies only the patch-distribution input, not the release. Capacity
+measurement, complete chaos, soak, upgrade/downgrade, operations/disaster and
+the remaining release inputs stay fail-closed. Exact scoped Docker postchecks
+were empty; base images were retained.
+
+## 2026-08-22 current-source release audit boundary
+
+The final audit for candidate lock Delay
+`1631f8c1821116e8c7b3ef3f7166bab06c4b8a76`, Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484` is retained at
+`/private/tmp/nereus-delay-release-gate-current-20260822-r1/release-candidate-gate.json`
+with SHA-256
+`6436c4279cf3be7e579cbd0bae5c48fa6a1684e857bc711691dca015cba0b3d0`.
+The documentation-only overlay is Delay `03e285c7d2d99c1389cf6d8d73338a9e8f8205c0`.
+
+Source checks, cross-repository contracts and the full Gradle `check` passed;
+the patch-distribution input is also exact-source `PASS`. The nine other full
+ inputs were absent and therefore `BLOCKED` by the validator, leaving the
+strict release result `NOT_READY`. The Gradle run still skips opt-in external
+Oxia/MinIO/chaos methods when their endpoints are unset; this audit does not
+promote those skips or any bounded receipt into release PASS.
+
+## 2026-08-22 current-source Large Payload and operations evidence refresh
+
+The current documentation-overlay source is Delay `336f6586a7013938356eea6bd3093225a646d7b1`, with Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`.
+
+The source-locked physical-capacity runner produced
+`/private/tmp/nereus-delay-full-capacity-current-20260822-r1/full-gate-input.json`
+(SHA-256 `1e69acee2181ba87ec0d03bea9cc8689ed40951eda1db1ff5bb8ddd4361cba0d`).
+Its Delay contract tests and both real children passed. Kafka's two-shard
+Gateway mTLS/JWT -> Oxia Assignment/Owner -> Worker -> real MinIO -> destination
+`PUBLISHED` receipt is recorded in
+`kafka-large-payload-multi-shard.log` (SHA-256
+`7e1a8ac79733a8b86e28ea1683787a01863ae3d5dfc757b0a449f9ade47311ad`); Pulsar's
+corresponding two-guarded-partition/two-Worker chain is recorded in
+`pulsar-large-payload-multi-shard.log` (SHA-256
+`54617e4489106e56e183a771244af5bb8401a4df914dca66c8ced8a79c9ffdc8`).
+The full capacity artifact remains `FAIL` with `measurement_status=MISSING`:
+functional Large Payload E2E is now current-source evidence, but it is not a
+Broker/Lane/resource capacity envelope.
+
+The current-source operations retry is retained at
+`/private/tmp/nereus-delay-operations-current-20260822-r2/full-gate-input.json`
+(SHA-256 `69cc717120703bba10fdf0650f2187298a68b87fb52d9e6c0e32d99d4247af2a`).
+Its bounded child is `PASS_BOUNDED` (SHA-256
+`bca3dcdfb55fcb871396ca0af484a30a32ca389795086027398ea277d0acac59`): local
+state-machine, real Oxia/MinIO checkpoint recovery, separate fresh-process
+recovery and exact Docker cleanup all passed. The certified operations wrapper
+remains `BLOCKED` only because the independent multi-Worker soak artifact is
+missing; no operations or disaster-continuity release PASS is claimed.
+
+For the candidate source lock itself, the upgrade/downgrade full artifact was
+rerun in an isolated candidate clone at
+`/private/tmp/nereus-delay-upgrade-downgrade-candidate-20260822-r1/full-gate-input.json`
+(SHA-256 `023460f978fcc6a74c752419521e86e0869eb087fbb08aa4419e8af2547778a1`).
+It is `PASS_CERTIFIED`, exclusion-free and covers all six required cells. The
+capacity, soak, operations, chaos and remaining release obligations stay
+fail-closed. Exact related Docker postchecks were empty; retained base images
+were not globally pruned.
+
+## 2026-08-22 release audit after candidate upgrade refresh
+
+The strict audit artifact is
+`/private/tmp/nereus-delay-release-gate-current-20260822-r2/release-candidate-gate.json`
+with SHA-256 `6a3f7ff024933555613fd93c682d41d9b56b00c711e8d531947e086aac13c375`.
+It used candidate Delay `1631f8c1821116e8c7b3ef3f7166bab06c4b8a76`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`; the audit-time documentation
+overlay was Delay `ea3a76e24b7c7aa5e4bb20a3be50e0b101d13172`.
+
+Source checks, cross-repository contracts and full Gradle `check` passed. The
+candidate-source upgrade/downgrade and patch-distribution artifacts passed
+exactly. Capacity and operations were present but rejected because they were
+not complete `PASS_CERTIFIED` full inputs (`measurement_status=MISSING` and
+missing independent soak, respectively); protocol-golden, chaos, real-service,
+no-early, benchmark and soak had no complete full artifact. The resulting
+release status is therefore `NOT_READY`; no complete ten-gate manifest exists.
+
+## 2026-08-22 current full- candidate and production-authority evidence
+
+Current candidate locks: Delay `a40588bec6d363a4cfd2a4b7d3df5695649a0d79`, K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The candidate worktree is clean,
+and the cross-repository contract validator passed at these exact locks.
+
+Large Payload Gateway production-authority E2E
+`/private/tmp/nereus-delay-large-payload-production-20260822-r3/` is
+`PASS_CERTIFIED`: both adapter directions proved exact payload readback and
+idempotency through real Kafka, Pulsar, Oxia and MinIO.
+
+Full receipts pass for protocol-golden r3, no-early r4, real-service r2,
+chaos r6 (19/19 cells), upgrade-downgrade r4, patch-distribution r5, soak r15
+and operations r16. Soak covers 3 configured cycles / 12 cases and 800 seconds
+with exact cleanup, but the release checker records `gate-soak=BLOCKED` because
+the wrapper omits `policy.longest_configured_period_seconds`. Capacity r10 and
+benchmark r11 remain blocked by the missing physical Broker/Lane measurement.
+The strict audit
+`/private/tmp/nereus-delay-full-gates-20260822-r20/release/release-candidate-gate.json`
+therefore remains `NOT_READY`; no certification manifest is claimed.
+
+## 2026-08-22 current full- release certification
+
+The exact candidate locks are Delay `c448e52607c8ff8bf3206c443fed35137a0c4cdc`,
+K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`. The strict release artifact
+`/private/tmp/nereus-delay-release-gate-20260822-r1/release-candidate-gate.json`
+is `PASS` (SHA-256
+`e25fcec81e766afb6d9ba8c2e68149439bd25ced902ab3b260d346be11e563e9`).
+Source checks, cross-repository contracts and full Gradle `check` all passed.
+
+All ten release inputs are current-source, exclusion-free `PASS_CERTIFIED`:
+protocol-golden r3, full chaos r1 (19/19 cells), real-service r1, no-early r2,
+benchmark r24, capacity r24, soak r25, upgrade-downgrade r3, operations r2 and
+patch-distribution r1. The benchmark/capacity inputs include independent
+physical observation artifacts. Soak uses 3 configured cycles / 12 cases and
+records `longest_configured_period_seconds=600` as the explicit certification
+profile input; this value is not silently promoted into a semantic design
+constant. Operations accepts the soak receipt only through the explicit gate
+input added by commit `c448e526`, so no bounded operations result is promoted.
+
+The result closes the functional architecture and release-evidence gate for
+this candidate. It remains distinct from merging K1/P1/Oxia into any target
+branch or publishing a distribution artifact.
+
+## 2026-08-22 §23.1–§23.5 latest authority boundary — f4b7e005
+
+本节是当前最新的完整 结论，覆盖主设计要求的 §23.1–§23.5，并明确
+覆盖此前同日的历史 PASS 记录。候选 source lock 为 Delay
+`f4b7e005c217d938c26bdba1eaa107cadb355da`、Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`、Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`、Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`。
+
+功能架构链已经进入收尾：Gateway mTLS/JWT、real Oxia、real Kafka/Pulsar、
+Worker、real MinIO、Large Payload、PUBLISHED outcome、source apply 和
+checkpoint/recovery 已经形成 source-locked production-authority E2E；
+full chaos 的 19 个故障 cell、no-early、soak、upgrade/downgrade、operations
+和 patch-distribution 均已 `PASS_CERTIFIED`。
+
+但完整 release 仍不是 PASS。严格 receipt
+`/private/tmp/nereus-delay-release-gate-20260822-f4b7e005-rerun/release-candidate-gate.json`
+为 `NOT_READY`，唯一剩余 release blockers 是 §23.4 的独立物理
+Benchmark 与 Capacity measurement matrix 缺失。当前真实 Large Payload
+链路证明了功能与 authority，不证明 Broker/Lane/resource capacity
+envelope；bounded probe 不得晋升为 full- measurement。
+
+因此当前的设计结论是：实现主线基本完成，发布认证尚未完成；下一条主线
+是生成并审计独立的 Benchmark/Capacity 物理矩阵，之后才进入最终 release
+manifest，而不是增加新的 abstraction。历史 receipt 保留为 provenance，
+不得与 f4 source lock 混用。
+
+## 2026-08-22 §23.4 physical measurement implementation boundary — a11d281c
+
+`a11d281cbc39416359c9a03085146c40d2142053` 已把 §23.4 的物理测量执行面
+补齐到代码：K1/P1 guarded artifact producer、1M/10M/100M cardinality、
+burst/uniform/Zipf、ordered/unordered、baseline/strong、healthy/bad target、
+single/multi-shard 和 inline/object 模式均有明确参数；
+`e2e/run-physical-capacity-matrix.sh` 负责串行启动真实 Broker、真实
+MinIO、收集 broker/resource/WAL/FD/磁盘证据并生成 source-locked matrix。
+
+该提交已通过 K1/P1 编译、完整 Gradle `test checkDocumentation`、shell
+语法和 diff 检查，但物理矩阵尚未运行，因此不能把实现 harness 晋升为
+`PASS_CERTIFIED`。源已从 f4 移到 `a11d281c`，旧 f4 receipts 只能作为
+历史 provenance；必须先生成新的 candidate source lock，再重跑物理
+Benchmark/Capacity 及其依赖的完整 gates。当前 release 结论仍为
+`NOT_READY`。
+
+## 2026-08-22 §23.4 producer lifecycle correction — 6209d824
+
+当前 candidate source lock 已推进到 Delay
+`6209d824d9df77478cc6a8d8ba6dfdf6ba8e5a05`；K1/P1/Oxia locks 保持为
+`05849884ca81fad767fda058444d1e17c7f9cbf9`、
+`0a2536484cd3932801a98dc88ff112b2df88a1c7`、
+`37a17bef17202d5fd6e23282da5fd26d94865484`。
+
+为避免大 cardinality 测量过程中把已完成的 guarded future 保留在单个
+producer 生命周期内，K1/P1 capacity producer 均按 500,000 条记录重建
+producer；记录仍写入同一个真实 topic，完整 cardinality、ACK/evidence、bad
+target rejection 和分区聚合结果均保留。该修正只属于物理 measurement
+harness，不是新的 runtime abstraction，也不改变 §23.4 的 1M/10M/100M
+要求。
+
+`/private/tmp/nereus-delay-capacity-smoke-6209d824/capacity-matrix.json`
+的 FAST 编排 smoke 已得到 8/8 observation `PASS` 和 cleanup `PASS`，但
+matrix status 按约定为 `FAIL`，因为 FAST cardinality 只有
+1,000/2,000/4,000，不能晋升为 `PASS_CERTIFIED`。正式 physical matrix
+尚未完成，故当前完整 release 仍为 `NOT_READY`。
+
+## 2026-08-22 current-source full certification — 6f9ab51c
+
+当前冻结的 candidate source lock 是 Delay
+`6f9ab51c392ea47dba46e0d6d67ff7f7d0aa0312`、Kafka K1
+`05849884ca81fad767fda058444d1e17c7f9cbf9`、Pulsar P1
+`0a2536484cd3932801a98dc88ff112b2df88a1c7` 和 Oxia
+`37a17bef17202d5fd6e23282da5fd26d94865484`。pre-overlay candidate receipt
+`/private/tmp/nereus-delay-release-candidate-6f9ab51c/release-candidate-gate.json`
+已经是 `release_status=PASS`：source、cross-repository contract、完整 Gradle
+`check` 以及十个 full- gate 全部通过。
+
+十个精确 source 的 `PASS_CERTIFIED` 输入如下：
+
+| gate | artifact | SHA-256 |
+| --- | --- | --- |
+| protocol-golden | `/private/tmp/nereus-delay-protocol-golden-6f9ab51c/protocol-golden.json` | `987f29b85496a296a7375d72eca5a3749335773a80f3d18e8b021e554e313253` |
+| chaos | `/private/tmp/nereus-delay-full-chaos-6f9ab51c/full-chaos-matrix.json` | `49fb28741abafc12db03185b83a6d53b44c900d4ee4a16dca126b1876a91de80` |
+| real-service | `/private/tmp/nereus-delay-real-service-6f9ab51c/real-service.json` | `2886a91d44f10900395c62fa821e435144c236c431295af74a6705b75a9cd43a` |
+| no-early | `/private/tmp/nereus-delay-no-early-6f9ab51c/no-early.json` | `667de31953e8cdb665a2eb13b8e905c33dc3f10124c3767176e6f42e088e7c14` |
+| benchmark | `/private/tmp/nereus-delay-benchmark-envelope-6f9ab51c/full-gate-input.json` | `bcf78ac3cc4584502f311b9102af9b34a888ac6e192b97859a44618797ea0bed` |
+| capacity | `/private/tmp/nereus-delay-capacity-envelope-6f9ab51c/full-gate-input.json` | `cd9de96dc830a5d466c4a8679cf2b51ee5927545f75cc521c3ad66ba32139fb1` |
+| soak | `/private/tmp/nereus-delay-soak-6f9ab51c/full-gate-input.json` | `fdf3c369bf2b1ce2b649a858d0654de13864bb82c95407b1e9d0f4a2a606fe96` |
+| upgrade-downgrade | `/private/tmp/nereus-delay-upgrade-downgrade-6f9ab51c/full-gate-input.json` | `0f98682a7578fab55914f457cb33502bbb336cccddad2a8bd52196e1439c275f` |
+| operations | `/private/tmp/nereus-delay-operations-6f9ab51c-r4/full-gate-input.json` | `5bebe0adec9b0c6cf6742f6a530cf67d5151e7e9f5ff68e1e86a6c373aa5f04a` |
+| patch-distribution | `/private/tmp/nereus-delay-patch-distribution-6f9ab51c/full-gate-input.json` | `f763a9ea27e1bafc8009c91d895653e0d4a6002030e7ff392f83a3492b2672ab` |
+
+Benchmark/Capacity 的 supporting physical receipts、soak child 和 activation
+cutover child 分别是：
+
+- `/private/tmp/nereus-delay-benchmark-observation-6f9ab51c-r2/capacity-observation.json`，SHA-256 `c836707323db0298cf15b4121b5f0614a140875cd18f992c359d4dca5d5ca6e3`。
+- `/private/tmp/nereus-delay-capacity-observation-6f9ab51c/capacity-observation.json`，SHA-256 `c86ff0cbca4101e286f94a81971579af8ea203566fd62577422cc7b41ef38b32`。
+- `/private/tmp/nereus-delay-capacity-full-6f9ab51c-r3/capacity-matrix.json`，SHA-256 `dc79514ab74671c28a8e608803cb6c43d3c2f2408a0388a36e076a87fb2390c4`。
+- `/private/tmp/nereus-delay-soak-6f9ab51c/production-chain-soak/certified-production-chain-soak.json`，SHA-256 `9d5cc72e6789ec7c0bfe497b15f7be27a7d20bf0031fa25aff0dcc5dfb47b9c6`。
+- `/private/tmp/nereus-delay-upgrade-downgrade-6f9ab51c/protocol-activation-cutover/protocol-activation-cutover.json`，SHA-256 `d5bb3ff56c130dac8bb7a9e4e0ee54978c74d14be1a60c7b59f6ce72450a84c7`。
+
+文档 overlay 后的最终 receipt 固定为
+`/private/tmp/nereus-delay-release-final-6f9ab51c/release-candidate-gate.json`。
+该 overlay 不修改 runtime source，也不代表 feature branch 已 merge、部署或
+promotion 到任何指定的 `main`。
+
+本次清理使用 exact generated-resource cleanup，未执行 global Docker prune；
+保留 pinned Oxia、MinIO 和 benchmark 使用的精确
+`eclipse-temurin@sha256:57865c22b954cf920cb05a610af81d577e89783282514ba071e99c7357f6c769`
+镜像。88 个未被 ledger 引用的 `/private/tmp/nereus-delay*` 文件夹已可恢复地
+移动到 `/Users/liusinan/.Trash/nereus-delay-cleanup-20260822-full`，逐个确认
+不含 `.git`；当前十个 evidence tree、candidate lock 和仍被文档引用的历史目录
+均保留，未移动 source checkout 或代码。

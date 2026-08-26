@@ -1,6 +1,6 @@
 package com.nereusstream.delay.store;
 
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
@@ -85,7 +85,7 @@ public record CheckpointManifestLimits(
     }
 
     /** Validates the immutable Object Store identity returned for the manifest object. */
-    public void validateResource(final CheckpointResourceV1 resource) {
+    public void validateResource(final CheckpointResource resource) {
         Objects.requireNonNull(resource, "resource");
         validateIdentityBytes(resource.container(), "checkpoint object container");
         validateIdentityBytes(resource.objectKey(), "checkpoint manifest object key");

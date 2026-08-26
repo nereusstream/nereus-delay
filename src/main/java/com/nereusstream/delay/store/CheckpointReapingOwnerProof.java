@@ -3,7 +3,7 @@ package com.nereusstream.delay.store;
 import com.nereusstream.delay.ownership.OwnerLease;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.util.Objects;
 
@@ -19,7 +19,7 @@ import java.util.Objects;
  */
 public record CheckpointReapingOwnerProof(
         byte[] pendingIntentDigest,
-        OwnerIdentityV1 owner,
+        OwnerIdentity owner,
         byte[] sourceStoreIncarnation,
         OwnerLease recordedLease,
         Kind kind,
@@ -27,7 +27,7 @@ public record CheckpointReapingOwnerProof(
         TrustedUtcIntervalEvidence observedAt) {
     private static final int DIGEST_LENGTH = 32;
     private static final int STORE_INCARNATION_LENGTH = 16;
-    private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-checkpoint-reaping-owner-proof-v1\0");
+    private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-checkpoint-reaping-owner-proof\0");
 
     public enum Kind {
         EXACT_OWNER_EXPLICIT_ABANDON(1),

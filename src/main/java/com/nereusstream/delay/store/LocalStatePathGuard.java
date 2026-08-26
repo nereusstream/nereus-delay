@@ -70,11 +70,11 @@ public final class LocalStatePathGuard {
 
     /**
      * Reads one bounded regular file through the same no-follow handle that
-     * was opened for the read.  A missing path returns {@code null}; a raced
+     * was opened for the read. A missing path returns {@code null}; a raced
      * replacement, size change or short read fails closed.
      *
      * <p>The caller must hold any higher-level lock that serializes the
-     * projection.  This helper only closes the check-then-open window for the
+     * projection. This helper only closes the check-then-open window for the
      * file itself; directory/path ownership is enforced by
      * {@link #ensureRealDirectoryPath(Path, String)}.</p>
      */

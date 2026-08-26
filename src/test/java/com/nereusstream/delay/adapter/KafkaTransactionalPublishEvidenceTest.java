@@ -6,12 +6,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
-import com.nereusstream.delay.protocol.EvidenceKindV1;
-import com.nereusstream.delay.protocol.EvidenceVerificationStatusV1;
+import com.nereusstream.delay.protocol.EvidenceCursor;
+import com.nereusstream.delay.protocol.EvidenceKind;
+import com.nereusstream.delay.protocol.EvidenceVerificationStatus;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.PublishEvidenceKindV1;
-import com.nereusstream.delay.protocol.PublishEvidenceV1;
+import com.nereusstream.delay.protocol.PublishEvidence;
+import com.nereusstream.delay.protocol.PublishEvidenceKind;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import java.nio.ByteBuffer;
@@ -40,7 +40,7 @@ class KafkaTransactionalPublishEvidenceTest {
                 "receipt-topic",
                 fixture.receipt,
                 mapping);
-        final EvidenceCursorV1 cursor = EvidenceCursorV1.kafka(
+        final EvidenceCursor cursor = EvidenceCursor.kafka(
                 fixture.lane.bytes(),
                 fixture.laneIncarnation,
                 uuidBytes(fixture.receipt.nativeTopicUuid()),
@@ -50,15 +50,15 @@ class KafkaTransactionalPublishEvidenceTest {
                 11,
                 12);
 
-        final PublishEvidenceV1 evidence = KafkaTransactionalPublishEvidence.published(
+        final PublishEvidence evidence = KafkaTransactionalPublishEvidence.published(
                 transaction, cursor, 10, transaction.canonicalReceiptRecordHash());
 
-        assertEquals(PublishEvidenceKindV1.KAFKA_TRANSACTIONAL_RECEIPT, evidence.evidenceKind());
-        assertEquals(EvidenceVerificationStatusV1.VERIFIED_PUBLISHED, evidence.verificationStatus());
+        assertEquals(PublishEvidenceKind.KAFKA_TRANSACTIONAL_RECEIPT, evidence.evidenceKind());
+        assertEquals(EvidenceVerificationStatus.VERIFIED_PUBLISHED, evidence.verificationStatus());
         assertEquals(
-                EvidenceKindV1.KAFKA_RECEIPT_CONTIGUOUS,
-                EvidenceCursorV1.decode(cursor.canonicalBytes()).evidenceKind());
-        PublishEvidenceV1.decode(evidence.canonicalBytes()).requireBusinessMutation(mapping.publishAttemptId(), true);
+                EvidenceKind.KAFKA_RECEIPT_CONTIGUOUS,
+                EvidenceCursor.decode(cursor.canonicalBytes()).evidenceKind());
+        PublishEvidence.decode(evidence.canonicalBytes()).requireBusinessMutation(mapping.publishAttemptId(), true);
         KafkaTransactionalPublishEvidence.requireExactBinding(evidence, transaction, 10);
         assertArrayEquals(
                 transaction.canonicalReceiptRecordHash(),
@@ -87,7 +87,7 @@ class KafkaTransactionalPublishEvidenceTest {
                 "receipt-topic",
                 fixture.receipt,
                 mapping);
-        final EvidenceCursorV1 foreignCursor = EvidenceCursorV1.kafka(
+        final EvidenceCursor foreignCursor = EvidenceCursor.kafka(
                 DestinationLaneId.derive(Bytes.utf8("foreign-lane")).bytes(),
                 fixture.laneIncarnation,
                 uuidBytes(fixture.receipt.nativeTopicUuid()),
@@ -128,7 +128,7 @@ class KafkaTransactionalPublishEvidenceTest {
                 "receipt-topic",
                 fixture.receipt,
                 mapping);
-        final PublishEvidenceV1 evidence = KafkaTransactionalPublishEvidence.published(
+        final PublishEvidence evidence = KafkaTransactionalPublishEvidence.published(
                 transaction, cursor(fixture), 10, transaction.canonicalReceiptRecordHash());
 
         assertThrows(
@@ -136,8 +136,8 @@ class KafkaTransactionalPublishEvidenceTest {
                 () -> KafkaTransactionalPublishEvidence.requireExactBinding(evidence, transaction, 11));
     }
 
-    private static EvidenceCursorV1 cursor(final Fixture fixture) {
-        return EvidenceCursorV1.kafka(
+    private static EvidenceCursor cursor(final Fixture fixture) {
+        return EvidenceCursor.kafka(
                 fixture.lane.bytes(),
                 fixture.laneIncarnation,
                 uuidBytes(fixture.receipt.nativeTopicUuid()),

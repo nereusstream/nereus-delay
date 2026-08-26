@@ -14,8 +14,8 @@ import java.util.Objects;
  * Fail-closed probe for the runtime limits required by the Worker envelope.
  *
  * <p>The probe intentionally supports the Linux procfs/cgroup layouts used by
- * the service runtime.  It does not infer an unlimited value when a file is
- * absent, contains {@code max}, or reports a kernel unlimited sentinel.  The
+ * the service runtime. It does not infer an unlimited value when a file is
+ * absent, contains {@code max}, or reports a kernel unlimited sentinel. The
  * package-private overloads and parsers are deterministic seams for tests and
  * for a platform adapter that supplies equivalent authoritative files.</p>
  */

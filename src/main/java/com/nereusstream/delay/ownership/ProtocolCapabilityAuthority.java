@@ -1,19 +1,19 @@
 package com.nereusstream.delay.ownership;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.ProtocolCapabilityDeclarationV1;
+import com.nereusstream.delay.protocol.ProtocolCapabilityDeclaration;
 import java.util.Objects;
 import java.util.Optional;
 
 /** Durable authority for the protocol capabilities of one live Worker session. */
 public interface ProtocolCapabilityAuthority {
-    Publication publish(ProtocolCapabilityDeclarationV1 declaration, long expectedRevision);
+    Publication publish(ProtocolCapabilityDeclaration declaration, long expectedRevision);
 
     Optional<Publication> current(String workerId);
 
     boolean withdraw(Publication expected);
 
-    record Publication(long revision, ProtocolCapabilityDeclarationV1 declaration) {
+    record Publication(long revision, ProtocolCapabilityDeclaration declaration) {
         public Publication {
             if (revision <= 0) {
                 throw new IllegalArgumentException("protocol capability revision must be positive");

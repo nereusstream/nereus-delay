@@ -9,25 +9,25 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
+import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
 import com.nereusstream.delay.protocol.ControlRef;
 import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.OrderingMode;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
 import com.nereusstream.delay.protocol.PulsarActivationBarrier;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
-import com.nereusstream.delay.protocol.QuotaGrantRefV1;
+import com.nereusstream.delay.protocol.QuotaGrantRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ScheduleIntent;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
@@ -84,7 +84,7 @@ class OwnerLeaseTest {
                 .getDeclaredConstructor(DelayShard.class, OwnerLease.class)
                 .getModifiers()));
         assertTrue(Modifier.isPublic(OwnedDelayShard.class
-                .getDeclaredConstructor(DelayShard.class, OwnerLease.class, OwnerIdentityV1.class)
+                .getDeclaredConstructor(DelayShard.class, OwnerLease.class, OwnerIdentity.class)
                 .getModifiers()));
     }
 
@@ -93,7 +93,7 @@ class OwnerLeaseTest {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 26);
         final OwnerLease lease = new OwnerLease(
                 shard, "worker-owner-binding", 7, Bytes.sha256(Bytes.utf8("owner-binding-lease")), 1_000);
-        final OwnerIdentityV1 matching = new OwnerIdentityV1(
+        final OwnerIdentity matching = new OwnerIdentity(
                 Bytes.utf8("owner-binding-deployment"),
                 Bytes.utf8("owner-binding-worker"),
                 lease.ownerEpoch(),
@@ -109,7 +109,7 @@ class OwnerLeaseTest {
                     () -> new OwnedDelayShard(
                             delayShard,
                             lease,
-                            new OwnerIdentityV1(
+                            new OwnerIdentity(
                                     matching.deploymentId(),
                                     matching.workerRunId(),
                                     lease.ownerEpoch() + 1,
@@ -648,7 +648,7 @@ class OwnerLeaseTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             // Simulate a durable image that already observed a newer Owner
-            // Epoch.  Reusing it for this older lease is an integrity failure,
+            // Epoch. Reusing it for this older lease is an integrity failure,
             // not a reason to leave the local owner in CATCHING_UP.
             store.recordOpenedOwnerEpoch(2);
             final OwnedDelayShard owned =
@@ -744,7 +744,7 @@ class OwnerLeaseTest {
         final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("strict-control-activation"));
         final KafkaSourcePosition position = new KafkaSourcePosition(shardId, "cluster", topic, 0, null, 1_000);
-        final CompatibleControlSnapshotV1 snapshot = controlSnapshot(shardId);
+        final CompatibleControlSnapshot snapshot = controlSnapshot(shardId);
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
@@ -780,7 +780,7 @@ class OwnerLeaseTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("contextless-activation"));
         final UUID topic = UUID.randomUUID();
         final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 0);
-        final CompatibleControlSnapshotV1 snapshot = controlSnapshot(shardId);
+        final CompatibleControlSnapshot snapshot = controlSnapshot(shardId);
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
@@ -818,7 +818,7 @@ class OwnerLeaseTest {
                 .orElseThrow();
         final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("replacement-activation"));
-        final CompatibleControlSnapshotV1 snapshot = controlSnapshot(shardId);
+        final CompatibleControlSnapshot snapshot = controlSnapshot(shardId);
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final OwnedDelayShard owned =
@@ -1459,7 +1459,7 @@ class OwnerLeaseTest {
     }
 
     @Test
-    void v1CatchupPinsTheAdapterSuccessorAndRejectsAKafkaGapBeforeApplyingIt() {
+    void catchupPinsTheAdapterSuccessorAndRejectsAKafkaGapBeforeApplyingIt() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 11);
         final InMemoryOwnerLeaseStore authority = new InMemoryOwnerLeaseStore();
         final OwnerLease lease =
@@ -1534,7 +1534,7 @@ class OwnerLeaseTest {
                 0,
                 null);
         final byte[] proofId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                Bytes.utf8("nereus-delay-time-fence-proof\0"),
                 shardId.routeIncarnation().bytes(),
                 Bytes.u32be(shardId.partition()),
                 Bytes.i64be(2_000),
@@ -1613,19 +1613,19 @@ class OwnerLeaseTest {
         final ControlTargetRegistrationAuthority fatalAuthority = new ControlTargetRegistrationAuthority() {
             @Override
             public RegistrationResult register(
-                    final com.nereusstream.delay.protocol.PreparedControlOperationV1 prepared) {
+                    final com.nereusstream.delay.protocol.PreparedControlOperation prepared) {
                 throw new AssertionError("control registration write failed fatally");
             }
 
             @Override
-            public Optional<com.nereusstream.delay.protocol.PreparedControlOperationV1> find(final byte[] operationId) {
+            public Optional<com.nereusstream.delay.protocol.PreparedControlOperation> find(final byte[] operationId) {
                 throw new AssertionError("control registration read failed fatally");
             }
 
             @Override
             public void validateMutation(
-                    final com.nereusstream.delay.protocol.PreparedControlOperationV1 prepared,
-                    final com.nereusstream.delay.protocol.ControlTargetRefV1 target,
+                    final com.nereusstream.delay.protocol.PreparedControlOperation prepared,
+                    final com.nereusstream.delay.protocol.ControlTargetRef target,
                     final SystemMutation requested) {
                 throw new AssertionError("control registration validation failed fatally");
             }
@@ -1689,7 +1689,7 @@ class OwnerLeaseTest {
                 0,
                 null);
         final byte[] proofId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                Bytes.utf8("nereus-delay-time-fence-proof\0"),
                 shardId.routeIncarnation().bytes(),
                 Bytes.u32be(shardId.partition()),
                 Bytes.i64be(2_000),
@@ -1802,7 +1802,7 @@ class OwnerLeaseTest {
     }
 
     @Test
-    void legacyZeroEpochLeaseContextCannotAuthorizeV1Assignment() {
+    void legacyZeroEpochLeaseContextCannotAuthorizeAssignment() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 12);
         final UUID topic = UUID.randomUUID();
         final KafkaActivationBarrier barrier = new KafkaActivationBarrier(shardId, "cluster", topic, 0);
@@ -2039,12 +2039,12 @@ class OwnerLeaseTest {
         }
     }
 
-    private static CompatibleControlSnapshotV1 controlSnapshot(final ShardId shardId) {
-        return new CompatibleControlSnapshotV1(
-                new ShardSubjectV1(shardId),
-                List.of(new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1)),
-                List.of(new ProfileRefV1(bytes(32, 101), 1, bytes(32, 102), ProfileKindV1.DESTINATION)),
-                new QuotaGrantRefV1(
+    private static CompatibleControlSnapshot controlSnapshot(final ShardId shardId) {
+        return new CompatibleControlSnapshot(
+                new ShardSubject(shardId),
+                List.of(new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1)),
+                List.of(new ProfileRef(bytes(32, 101), 1, bytes(32, 102), ProfileKind.DESTINATION)),
+                new QuotaGrantRef(
                         bytes(32, 103),
                         1,
                         new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));

@@ -2,28 +2,28 @@ package com.nereusstream.delay.submission;
 
 import com.nereusstream.delay.adapter.PulsarNativeSendRequest;
 import com.nereusstream.delay.adapter.PulsarSendResult;
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CommandQueuedReceiptV1;
-import com.nereusstream.delay.protocol.FailureStageV1;
-import com.nereusstream.delay.protocol.NativeDefinitelyNotQueuedV1;
-import com.nereusstream.delay.protocol.NativeDeliveryReceiptV1;
-import com.nereusstream.delay.protocol.NativeEnqueueUncertainV1;
-import com.nereusstream.delay.protocol.NativePreparedDeliveryV1;
-import com.nereusstream.delay.protocol.NonPersistenceProofKindV1;
-import com.nereusstream.delay.protocol.NonPersistenceProofV1;
-import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.RetryabilityV1;
+import com.nereusstream.delay.protocol.CanonicalCommandQueuedReceipt;
+import com.nereusstream.delay.protocol.FailureStage;
+import com.nereusstream.delay.protocol.NativeDefinitelyNotQueued;
+import com.nereusstream.delay.protocol.NativeDeliveryReceipt;
+import com.nereusstream.delay.protocol.NativeEnqueueUncertain;
+import com.nereusstream.delay.protocol.NativePreparedDelivery;
+import com.nereusstream.delay.protocol.NonPersistenceProof;
+import com.nereusstream.delay.protocol.NonPersistenceProofKind;
+import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.Retryability;
 import com.nereusstream.delay.protocol.StableCode;
-import com.nereusstream.delay.protocol.StableErrorV1;
-import com.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import com.nereusstream.delay.protocol.StableError;
+import com.nereusstream.delay.protocol.SubmissionOutcomeMessage;
 import com.nereusstream.delay.transport.PhysicalEnqueueAttemptId;
 import com.nereusstream.delay.transport.TransportResult;
 
 /** Native Pulsar NDR1 projector; native results never become managed receipts. */
 public final class PulsarNativeSubmissionOutcomeProjector implements SubmissionOutcomeProjector {
-    private static final com.nereusstream.delay.protocol.AdapterKindV1 KIND =
-            com.nereusstream.delay.protocol.AdapterKindV1.PULSAR;
+    private static final com.nereusstream.delay.protocol.AdapterKind KIND =
+            com.nereusstream.delay.protocol.AdapterKind.PULSAR;
 
     @Override
     public SubmissionProjectionKey key() {
@@ -31,7 +31,7 @@ public final class PulsarNativeSubmissionOutcomeProjector implements SubmissionO
     }
 
     @Override
-    public SubmissionOutcomeMessageV1 project(
+    public SubmissionOutcomeMessage project(
             final SubmissionTransportPlan plan,
             final PhysicalEnqueueAttemptId physicalAttemptId,
             final TransportResult result) {
@@ -42,7 +42,7 @@ public final class PulsarNativeSubmissionOutcomeProjector implements SubmissionO
                         && !pulsar.physicalAttemptId().equals(physicalAttemptId))) {
             return uncertain(plan, physicalAttemptId, StableCode.INTEGRITY_ERROR);
         }
-        final NativePreparedDeliveryV1 prepared = authority.prepared();
+        final NativePreparedDelivery prepared = authority.prepared();
         return switch (pulsar.disposition()) {
             case PERSISTED -> persisted(prepared, physicalAttemptId, pulsar);
             case DEFINITIVELY_NOT_PERSISTED -> definite(prepared, request, physicalAttemptId, pulsar);
@@ -53,40 +53,35 @@ public final class PulsarNativeSubmissionOutcomeProjector implements SubmissionO
     }
 
     @Override
-    public SubmissionOutcomeMessageV1 localFailure(
+    public SubmissionOutcomeMessage localFailure(
             final SubmissionTransportPlan plan,
             final PhysicalEnqueueAttemptId physicalAttemptId,
             final StableCode code) {
-        final NativePreparedDeliveryV1 prepared = ((NativeTargetAuthority) plan.routeAuthority()).prepared();
+        final NativePreparedDelivery prepared = ((NativeTargetAuthority) plan.routeAuthority()).prepared();
         final var ref = prepared.preparedRef();
-        final var proof = NonPersistenceProofV1.create(
-                NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP,
-                null,
-                ref.submissionHash(),
-                null,
-                null,
-                null);
-        final var error = StableErrorV1.of(FailureStageV1.ENQUEUE, code, null, null, ref, null);
-        return SubmissionOutcomeMessageV1.nativeDefinitelyNotQueued(new NativeDefinitelyNotQueuedV1(ref, proof, error));
+        final var proof = NonPersistenceProof.create(
+                NonPersistenceProofKind.LOCAL_BEFORE_PRODUCER_OWNERSHIP, null, ref.submissionHash(), null, null, null);
+        final var error = StableError.of(FailureStage.ENQUEUE, code, null, null, ref, null);
+        return SubmissionOutcomeMessage.nativeDefinitelyNotQueued(new NativeDefinitelyNotQueued(ref, proof, error));
     }
 
     @Override
-    public SubmissionOutcomeMessageV1 uncertain(
+    public SubmissionOutcomeMessage uncertain(
             final SubmissionTransportPlan plan,
             final PhysicalEnqueueAttemptId physicalAttemptId,
             final StableCode code) {
-        final NativePreparedDeliveryV1 prepared = ((NativeTargetAuthority) plan.routeAuthority()).prepared();
+        final NativePreparedDelivery prepared = ((NativeTargetAuthority) plan.routeAuthority()).prepared();
         final var ref = prepared.preparedRef();
-        final StableCode retryCode = RetryabilityV1.forCode(code) == RetryabilityV1.RETRY_EXACT_BYTES
+        final StableCode retryCode = Retryability.forCode(code) == Retryability.RETRY_EXACT_BYTES
                 ? code
                 : StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN;
-        final var error = StableErrorV1.of(FailureStageV1.ENQUEUE, retryCode, null, null, ref, null);
-        return SubmissionOutcomeMessageV1.nativeUncertain(
-                new NativeEnqueueUncertainV1(ref, physicalAttemptId.bytes(), error));
+        final var error = StableError.of(FailureStage.ENQUEUE, retryCode, null, null, ref, null);
+        return SubmissionOutcomeMessage.nativeUncertain(
+                new NativeEnqueueUncertain(ref, physicalAttemptId.bytes(), error));
     }
 
-    private static SubmissionOutcomeMessageV1 persisted(
-            final NativePreparedDeliveryV1 prepared,
+    private static SubmissionOutcomeMessage persisted(
+            final NativePreparedDelivery prepared,
             final PhysicalEnqueueAttemptId attempt,
             final PulsarSendResult result) {
         final var target = prepared.target();
@@ -98,7 +93,7 @@ public final class PulsarNativeSubmissionOutcomeProjector implements SubmissionO
                 || result.responseEvidenceBytes() == null) {
             return uncertainStatic(prepared, attempt, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN);
         }
-        final CommandQueuedReceiptV1.PulsarQueuedAck ack = new CommandQueuedReceiptV1.PulsarQueuedAck(
+        final CanonicalCommandQueuedReceipt.PulsarQueuedAck ack = new CanonicalCommandQueuedReceipt.PulsarQueuedAck(
                 result.authenticatedClusterId(),
                 result.resourceIncarnation(),
                 result.physicalTopic(),
@@ -110,12 +105,12 @@ public final class PulsarNativeSubmissionOutcomeProjector implements SubmissionO
                 result.batchSize(),
                 result.brokerEntryTimestampEpochMs(),
                 Bytes.sha256(result.responseEvidenceBytes()));
-        return SubmissionOutcomeMessageV1.nativeReceipt(
-                NativeDeliveryReceiptV1.create(prepared.preparedRef(), ack, attempt.bytes()));
+        return SubmissionOutcomeMessage.nativeReceipt(
+                NativeDeliveryReceipt.create(prepared.preparedRef(), ack, attempt.bytes()));
     }
 
-    private static SubmissionOutcomeMessageV1 definite(
-            final NativePreparedDeliveryV1 prepared,
+    private static SubmissionOutcomeMessage definite(
+            final NativePreparedDelivery prepared,
             final PulsarNativeSendRequest request,
             final PhysicalEnqueueAttemptId attempt,
             final PulsarSendResult result) {
@@ -132,36 +127,36 @@ public final class PulsarNativeSubmissionOutcomeProjector implements SubmissionO
             return uncertainStatic(prepared, attempt, StableCode.INTEGRITY_ERROR);
         }
         final var target = prepared.target();
-        final BrokerResourceIdentityV1 resource = BrokerResourceIdentityV1.pulsar(new PulsarBrokerResourceIdentityV1(
+        final BrokerResourceIdentity resource = BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
                 target.authenticatedClusterId(),
                 target.resourceIncarnation(),
                 target.physicalTopic(),
                 target.physicalTopicCreationTimestamp()));
-        final var proof = NonPersistenceProofV1.create(
-                NonPersistenceProofKindV1.PULSAR_GUARD_REJECTION,
+        final var proof = NonPersistenceProof.create(
+                NonPersistenceProofKind.PULSAR_GUARD_REJECTION,
                 attempt.bytes(),
                 prepared.submissionHash(),
                 resource,
                 Bytes.sha256(result.requestEvidenceBytes()),
                 Bytes.sha256(result.responseEvidenceBytes()));
-        final var error = StableErrorV1.of(
-                FailureStageV1.ENQUEUE,
+        final var error = StableError.of(
+                FailureStage.ENQUEUE,
                 StableCode.NATIVE_GUARD_DEFINITIVE_NOT_PERSISTED,
                 null,
                 null,
                 prepared.preparedRef(),
                 null);
-        return SubmissionOutcomeMessageV1.nativeDefinitelyNotQueued(
-                new NativeDefinitelyNotQueuedV1(prepared.preparedRef(), proof, error));
+        return SubmissionOutcomeMessage.nativeDefinitelyNotQueued(
+                new NativeDefinitelyNotQueued(prepared.preparedRef(), proof, error));
     }
 
-    private static SubmissionOutcomeMessageV1 uncertainStatic(
-            final NativePreparedDeliveryV1 prepared, final PhysicalEnqueueAttemptId attempt, final StableCode code) {
-        final StableCode retryCode = RetryabilityV1.forCode(code) == RetryabilityV1.RETRY_EXACT_BYTES
+    private static SubmissionOutcomeMessage uncertainStatic(
+            final NativePreparedDelivery prepared, final PhysicalEnqueueAttemptId attempt, final StableCode code) {
+        final StableCode retryCode = Retryability.forCode(code) == Retryability.RETRY_EXACT_BYTES
                 ? code
                 : StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN;
-        final var error = StableErrorV1.of(FailureStageV1.ENQUEUE, retryCode, null, null, prepared.preparedRef(), null);
-        return SubmissionOutcomeMessageV1.nativeUncertain(
-                new NativeEnqueueUncertainV1(prepared.preparedRef(), attempt.bytes(), error));
+        final var error = StableError.of(FailureStage.ENQUEUE, retryCode, null, null, prepared.preparedRef(), null);
+        return SubmissionOutcomeMessage.nativeUncertain(
+                new NativeEnqueueUncertain(prepared.preparedRef(), attempt.bytes(), error));
     }
 }

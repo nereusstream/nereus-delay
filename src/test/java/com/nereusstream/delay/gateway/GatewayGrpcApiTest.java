@@ -1,8 +1,8 @@
 package com.nereusstream.delay.gateway;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import com.nereusstream.delay.gateway.v1.DelayGatewayV1Grpc;
-import com.nereusstream.delay.gateway.v1.GatewayScheduleRequestV1;
+import com.nereusstream.delay.gateway.wire.DelayGatewayGrpc;
+import com.nereusstream.delay.gateway.wire.GatewayScheduleRequest;
 import io.grpc.MethodDescriptor;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -10,31 +10,31 @@ import org.junit.jupiter.api.Test;
 
 class GatewayGrpcApiTest {
     @Test
-    void generatedDescriptorContainsEveryV1Rpc() {
-        Set<String> actual = DelayGatewayV1Grpc.getServiceDescriptor().getMethods().stream()
+    void generatedDescriptorContainsEveryRpc() {
+        Set<String> actual = DelayGatewayGrpc.getServiceDescriptor().getMethods().stream()
                 .map(MethodDescriptor::getFullMethodName)
                 .collect(Collectors.toSet());
 
         assertEquals(
                 Set.of(
-                        "nereus.delay.gateway.v1.DelayGatewayV1/Schedule",
-                        "nereus.delay.gateway.v1.DelayGatewayV1/PrepareLargeSchedule",
-                        "nereus.delay.gateway.v1.DelayGatewayV1/IssuePayloadUploadHandle",
-                        "nereus.delay.gateway.v1.DelayGatewayV1/AttestPayloadUpload",
-                        "nereus.delay.gateway.v1.DelayGatewayV1/CommitLargeSchedule",
-                        "nereus.delay.gateway.v1.DelayGatewayV1/Cancel",
-                        "nereus.delay.gateway.v1.DelayGatewayV1/Reschedule",
-                        "nereus.delay.gateway.v1.DelayGatewayV1/RetryUncertain",
-                        "nereus.delay.gateway.v1.DelayGatewayV1/GetCommandResult",
-                        "nereus.delay.gateway.v1.DelayGatewayV1/AwaitApplied",
-                        "nereus.delay.gateway.v1.DelayGatewayV1/GetMessage"),
+                        "nereus.delay.gateway.DelayGateway/Schedule",
+                        "nereus.delay.gateway.DelayGateway/PrepareLargeSchedule",
+                        "nereus.delay.gateway.DelayGateway/IssuePayloadUploadHandle",
+                        "nereus.delay.gateway.DelayGateway/AttestPayloadUpload",
+                        "nereus.delay.gateway.DelayGateway/CommitLargeSchedule",
+                        "nereus.delay.gateway.DelayGateway/Cancel",
+                        "nereus.delay.gateway.DelayGateway/Reschedule",
+                        "nereus.delay.gateway.DelayGateway/RetryUncertain",
+                        "nereus.delay.gateway.DelayGateway/GetCommandResult",
+                        "nereus.delay.gateway.DelayGateway/AwaitApplied",
+                        "nereus.delay.gateway.DelayGateway/GetMessage"),
                 actual);
     }
 
     @Test
     void generatedMessageUsesTheFrozenJavaPackageAndProtoName() {
         assertEquals(
-                "nereus.delay.gateway.v1.GatewayScheduleRequestV1",
-                GatewayScheduleRequestV1.getDescriptor().getFullName());
+                "nereus.delay.gateway.GatewayScheduleRequest",
+                GatewayScheduleRequest.getDescriptor().getFullName());
     }
 }

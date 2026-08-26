@@ -5,20 +5,20 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
+import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
 import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
-import com.nereusstream.delay.protocol.QuotaGrantRefV1;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProtocolTuple;
+import com.nereusstream.delay.protocol.QuotaGrantRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ScheduleIntent;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.runtime.DelayShard;
 import com.nereusstream.delay.runtime.DelayShardConfig;
 import com.nereusstream.delay.scheduler.WorkClass;
@@ -77,7 +77,7 @@ class OwnerRecoveryCoordinatorTest {
         final KafkaSourcePosition secondPosition = new KafkaSourcePosition(shardId, "cluster", topic, 1, null, 1_001);
         final PreparedCommand first = schedule(shardId, "first");
         final PreparedCommand second = schedule(shardId, "second");
-        final CompatibleControlSnapshotV1 snapshot = controlSnapshot(shardId);
+        final CompatibleControlSnapshot snapshot = controlSnapshot(shardId);
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
@@ -151,7 +151,7 @@ class OwnerRecoveryCoordinatorTest {
                 .orElseThrow();
         final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("clock"));
-        final CompatibleControlSnapshotV1 snapshot = controlSnapshot(shardId);
+        final CompatibleControlSnapshot snapshot = controlSnapshot(shardId);
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             store.recordControlSnapshot(snapshot);
@@ -193,12 +193,12 @@ class OwnerRecoveryCoordinatorTest {
                 10_000);
     }
 
-    private static CompatibleControlSnapshotV1 controlSnapshot(final ShardId shardId) {
-        return new CompatibleControlSnapshotV1(
-                new ShardSubjectV1(shardId),
-                List.of(new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1)),
-                List.of(new ProfileRefV1(bytes(32, 101), 1, bytes(32, 102), ProfileKindV1.DESTINATION)),
-                new QuotaGrantRefV1(
+    private static CompatibleControlSnapshot controlSnapshot(final ShardId shardId) {
+        return new CompatibleControlSnapshot(
+                new ShardSubject(shardId),
+                List.of(new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1)),
+                List.of(new ProfileRef(bytes(32, 101), 1, bytes(32, 102), ProfileKind.DESTINATION)),
+                new QuotaGrantRef(
                         bytes(32, 103),
                         1,
                         new com.nereusstream.delay.protocol.PublishAdmissionBody.ChargeVector(

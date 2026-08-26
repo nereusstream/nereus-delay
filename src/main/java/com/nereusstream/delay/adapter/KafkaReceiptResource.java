@@ -1,6 +1,6 @@
 package com.nereusstream.delay.adapter;
 
-import com.nereusstream.delay.protocol.KafkaReceiptSlotResourceV1;
+import com.nereusstream.delay.protocol.KafkaReceiptSlotResource;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
@@ -48,8 +48,8 @@ public record KafkaReceiptResource(
     }
 
     /** Returns the same slot identity in the Registry's typed resource value. */
-    public KafkaReceiptSlotResourceV1 protocolResource() {
-        return new KafkaReceiptSlotResourceV1(
+    public KafkaReceiptSlotResource protocolResource() {
+        return new KafkaReceiptSlotResource(
                 authenticatedClusterId,
                 nativeTopicUuid,
                 routeIncarnation,

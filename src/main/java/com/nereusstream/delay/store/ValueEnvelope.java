@@ -8,7 +8,7 @@ import java.util.Arrays;
 public final class ValueEnvelope {
     private static final int PREFIX_LENGTH = 8;
     private static final int MAGIC = 0x4e56;
-    /** Highest payload-schema discriminator registered by V1. */
+    /** Highest payload-schema discriminator registered by the current design. */
     public static final int MAX_REGISTERED_VALUE_TYPE = 11;
 
     private ValueEnvelope() {}
@@ -35,9 +35,9 @@ public final class ValueEnvelope {
 
     /**
      * Decodes and validates the envelope without assuming its CF-local
-     * payload type.  Callers that share one key namespace across multiple
+     * payload type. Callers that share one key namespace across multiple
      * value branches can inspect the registered discriminator and then apply
-     * the branch-specific codec.  Unknown types still fail closed.
+     * the branch-specific codec. Unknown types still fail closed.
      */
     public static Decoded decodeAny(final byte[] encoded) {
         if (encoded.length < PREFIX_LENGTH + 4) {

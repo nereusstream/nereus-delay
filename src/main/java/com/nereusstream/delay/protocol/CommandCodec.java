@@ -8,7 +8,7 @@ public final class CommandCodec {
     private CommandCodec() {}
 
     public static byte[] encodeEnvelope(final PreparedCommand command) {
-        requireManagedV1Tuple(command);
+        requireManagedTuple(command);
         final byte[] client = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, 1);
             CanonicalProtobuf.bytes(output, 2, command.commandId().bytes());
@@ -25,27 +25,20 @@ public final class CommandCodec {
         });
     }
 
-    /** Encodes a command after validating the currently supported V1 body branches. */
-    public static byte[] encodeEnvelopeV1(final PreparedCommand command) {
-        validateV1Body(command);
+    /** Encodes a managed command after validating the current Registry body branch. */
+    public static byte[] encodeManagedEnvelope(final PreparedCommand command) {
+        validateBody(command);
         return encodeEnvelope(command);
     }
 
+    /** Encodes the exact command body selected by the caller. */
     public static byte[] encodeFrame(final PreparedCommand command) {
         return ShardLogFrame.encodeClientCommand(encodeEnvelope(command));
     }
 
-    /** Encodes a frame after validating the currently supported V1 body branches. */
-    public static byte[] encodeFrameV1(final PreparedCommand command) {
-        return ShardLogFrame.encodeClientCommand(encodeEnvelopeV1(command));
-    }
-
-    public static PreparedCommand decodeFrame(final byte[] frame) {
-        final ShardLogFrame.Decoded decoded = ShardLogFrame.decode(frame);
-        if (decoded.recordKind() != ShardLogFrame.CLIENT_COMMAND_KIND) {
-            throw new IllegalArgumentException("frame is not a Client Command");
-        }
-        return decodeEnvelope(decoded.canonicalEnvelope());
+    /** Encodes a managed frame after validating the current Registry body branch. */
+    public static byte[] encodeManagedFrame(final PreparedCommand command) {
+        return ShardLogFrame.encodeClientCommand(encodeManagedEnvelope(command));
     }
 
     public static PreparedCommand decodeEnvelope(final byte[] envelope) {
@@ -87,49 +80,58 @@ public final class CommandCodec {
             throw new IllegalArgumentException("command and message route mismatch");
         }
         return new PreparedCommand(
-                shardId, commandId, messageId, type, ProtocolTupleV1.managedCommandV1(), retryUntil, body, hash);
+                shardId, commandId, messageId, type, ProtocolTuple.managedCommand(), retryUntil, body, hash);
     }
 
-    /** Decodes and validates the Registry-shaped Schedule/Prepare body branches. */
-    public static PreparedCommand decodeEnvelopeV1(final byte[] envelope) {
+    /** Decodes and validates a managed command with the current Registry body branch. */
+    public static PreparedCommand decodeManagedEnvelope(final byte[] envelope) {
         final PreparedCommand command = decodeEnvelope(envelope);
-        validateV1Body(command);
+        validateBody(command);
         return command;
     }
 
-    /** Decodes a frame and validates the Registry-shaped Schedule/Prepare body branches. */
-    public static PreparedCommand decodeFrameV1(final byte[] frame) {
+    /** Decodes the exact command body selected by the caller. */
+    public static PreparedCommand decodeFrame(final byte[] frame) {
         final ShardLogFrame.Decoded decoded = ShardLogFrame.decode(frame);
         if (decoded.recordKind() != ShardLogFrame.CLIENT_COMMAND_KIND) {
             throw new IllegalArgumentException("frame is not a Client Command");
         }
-        return decodeEnvelopeV1(decoded.canonicalEnvelope());
+        return decodeEnvelope(decoded.canonicalEnvelope());
     }
 
-    private static void validateV1Body(final PreparedCommand command) {
-        requireManagedV1Tuple(command);
+    /** Decodes a managed frame and validates the current Registry body branch. */
+    public static PreparedCommand decodeManagedFrame(final byte[] frame) {
+        final ShardLogFrame.Decoded decoded = ShardLogFrame.decode(frame);
+        if (decoded.recordKind() != ShardLogFrame.CLIENT_COMMAND_KIND) {
+            throw new IllegalArgumentException("frame is not a Client Command");
+        }
+        return decodeManagedEnvelope(decoded.canonicalEnvelope());
+    }
+
+    private static void validateBody(final PreparedCommand command) {
+        requireManagedTuple(command);
         switch (command.type()) {
             case SCHEDULE -> {
-                final ScheduleCommandBodyV1 body = ScheduleCommandBodyV1.decode(command.canonicalBody());
+                final ScheduleCommandBody body = ScheduleCommandBody.decode(command.canonicalBody());
                 requireCommonBodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
             }
             case PREPARE_LARGE_SCHEDULE -> {
-                final PrepareLargeScheduleBodyV1 body = PrepareLargeScheduleBodyV1.decode(command.canonicalBody());
+                final PrepareLargeScheduleBody body = PrepareLargeScheduleBody.decode(command.canonicalBody());
                 requireCommonBodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
             }
             case COMMIT_LARGE_SCHEDULE -> {
-                final CommitLargeScheduleBodyV1 body = CommitLargeScheduleBodyV1.decode(command.canonicalBody());
+                final CommitLargeScheduleBody body = CommitLargeScheduleBody.decode(command.canonicalBody());
                 requireCommonBodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
             }
             case CANCEL -> {
-                final CancelCommandBodyV1 body = CancelCommandBodyV1.decode(command.canonicalBody());
+                final CancelCommandBody body = CancelCommandBody.decode(command.canonicalBody());
                 requireCommonBodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
             }
             case RESCHEDULE -> {
-                final RescheduleCommandBodyV1 body = RescheduleCommandBodyV1.decode(command.canonicalBody());
+                final RescheduleCommandBody body = RescheduleCommandBody.decode(command.canonicalBody());
                 requireCommonBodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
             }
-            default -> throw new IllegalArgumentException("V1 body codec is not implemented for " + command.type());
+            default -> throw new IllegalArgumentException(" body codec is not implemented for " + command.type());
         }
     }
 
@@ -178,8 +180,8 @@ public final class CommandCodec {
         return field.rawValue();
     }
 
-    private static void requireManagedV1Tuple(final PreparedCommand command) {
-        if (!ProtocolTupleV1.managedCommandV1().equals(command.protocolTuple())) {
+    private static void requireManagedTuple(final PreparedCommand command) {
+        if (!ProtocolTuple.managedCommand().equals(command.protocolTuple())) {
             throw new IllegalArgumentException("CommandCodec does not downgrade an unsupported protocol tuple");
         }
     }

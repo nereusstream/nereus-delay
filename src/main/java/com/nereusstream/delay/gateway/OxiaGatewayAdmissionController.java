@@ -22,9 +22,9 @@ import java.util.Set;
 /**
  * Durable tenant-scoped Gateway admission backed by one canonical Oxia CAS record.
  *
- * <p>The record contains expiring leases rather than a reconstructed counter.  A
+ * <p>The record contains expiring leases rather than a reconstructed counter. A
  * reserve or release is accepted only after its exact successor is committed or
- * reread after a lost response.  The in-memory implementation remains useful for
+ * reread after a lost response. The in-memory implementation remains useful for
  * local conformance tests; this class is the authority for a distributed Gateway
  * composition.</p>
  */
@@ -65,7 +65,7 @@ public final class OxiaGatewayAdmissionController implements GatewayAdmissionCon
     }
 
     @Override
-    public synchronized Decision reserve(final GatewayAdmissionRequestV1 request) {
+    public synchronized Decision reserve(final GatewayAdmissionRequest request) {
         Objects.requireNonNull(request, "request");
         final Digest32 tenantScopeHash = new Digest32(request.tenant().authenticatedTenantScopeHash());
         final String key = recordKey(tenantScopeHash);
@@ -74,21 +74,21 @@ public final class OxiaGatewayAdmissionController implements GatewayAdmissionCon
         RuntimeException lastFailure = null;
         for (int attempt = 0; attempt <= limits.maxCasRetries(); attempt++) {
             final Entry current = read(key, tenantScopeHash);
-            final GatewayAdmissionRecordV1 base =
-                    current == null ? GatewayAdmissionRecordV1.empty(tenantScopeHash) : current.record();
-            final List<GatewayAdmissionRecordV1.Lease> liveLeases = liveLeases(base.leases(), now);
+            final GatewayAdmissionRecord base =
+                    current == null ? GatewayAdmissionRecord.empty(tenantScopeHash) : current.record();
+            final List<GatewayAdmissionRecord.Lease> liveLeases = liveLeases(base.leases(), now);
             final StableCode rejection = rejectionFor(liveLeases, request);
             if (rejection != null) {
                 return Decision.rejected(rejection);
             }
-            final GatewayAdmissionRecordV1.Lease candidate = new GatewayAdmissionRecordV1.Lease(
+            final GatewayAdmissionRecord.Lease candidate = new GatewayAdmissionRecord.Lease(
                     PhysicalEnqueueAttemptId.random().bytes(),
                     request.operation(),
                     request.estimatedRequestBytes(),
                     expiresAt);
-            final List<GatewayAdmissionRecordV1.Lease> nextLeases = new ArrayList<>(liveLeases);
+            final List<GatewayAdmissionRecord.Lease> nextLeases = new ArrayList<>(liveLeases);
             nextLeases.add(candidate);
-            final GatewayAdmissionRecordV1 next = base.withLeases(nextLeases);
+            final GatewayAdmissionRecord next = base.withLeases(nextLeases);
             try {
                 put(
                         key,
@@ -110,7 +110,7 @@ public final class OxiaGatewayAdmissionController implements GatewayAdmissionCon
         throw new IllegalStateException("Gateway admission CAS did not converge", lastFailure);
     }
 
-    private synchronized void release(final Digest32 tenantScopeHash, final GatewayAdmissionRecordV1.Lease expected) {
+    private synchronized void release(final Digest32 tenantScopeHash, final GatewayAdmissionRecord.Lease expected) {
         final String key = recordKey(tenantScopeHash);
         RuntimeException lastFailure = null;
         for (int attempt = 0; attempt <= limits.maxCasRetries(); attempt++) {
@@ -119,9 +119,9 @@ public final class OxiaGatewayAdmissionController implements GatewayAdmissionCon
                 return;
             }
             final long now = now();
-            final List<GatewayAdmissionRecordV1.Lease> nextLeases = new ArrayList<>();
+            final List<GatewayAdmissionRecord.Lease> nextLeases = new ArrayList<>();
             boolean found = false;
-            for (GatewayAdmissionRecordV1.Lease lease : current.record().leases()) {
+            for (GatewayAdmissionRecord.Lease lease : current.record().leases()) {
                 if (sameLeaseId(lease, expected)) {
                     if (!sameLease(lease, expected)) {
                         throw new IllegalStateException("Gateway admission lease identity changed");
@@ -134,7 +134,7 @@ public final class OxiaGatewayAdmissionController implements GatewayAdmissionCon
             if (!found) {
                 return;
             }
-            final GatewayAdmissionRecordV1 next = current.record().withLeases(nextLeases);
+            final GatewayAdmissionRecord next = current.record().withLeases(nextLeases);
             try {
                 put(key, next, Set.of(PutOption.IfVersionIdEquals(current.versionId())));
                 return;
@@ -170,9 +170,9 @@ public final class OxiaGatewayAdmissionController implements GatewayAdmissionCon
                 || result.value().length > MAX_RECORD_BYTES) {
             throw new IllegalStateException("Oxia Gateway admission response is not exact");
         }
-        final GatewayAdmissionRecordV1 record;
+        final GatewayAdmissionRecord record;
         try {
-            record = GatewayAdmissionRecordV1.decode(result.value());
+            record = GatewayAdmissionRecord.decode(result.value());
         } catch (RuntimeException malformed) {
             throw new IllegalStateException("Oxia Gateway admission record is malformed", malformed);
         }
@@ -182,7 +182,7 @@ public final class OxiaGatewayAdmissionController implements GatewayAdmissionCon
         return new Entry(record, result.version().versionId());
     }
 
-    private void put(final String key, final GatewayAdmissionRecordV1 record, final Set<PutOption> options) {
+    private void put(final String key, final GatewayAdmissionRecord record, final Set<PutOption> options) {
         final byte[] value = record.canonicalBytes();
         if (value.length > MAX_RECORD_BYTES) {
             throw new IllegalStateException("Gateway admission record exceeds bounded size");
@@ -198,9 +198,9 @@ public final class OxiaGatewayAdmissionController implements GatewayAdmissionCon
     }
 
     private StableCode rejectionFor(
-            final List<GatewayAdmissionRecordV1.Lease> leases, final GatewayAdmissionRequestV1 request) {
+            final List<GatewayAdmissionRecord.Lease> leases, final GatewayAdmissionRequest request) {
         final Usage usage = usage(leases);
-        if (request.operation() == GatewayIngressOperationV1.SCHEDULE) {
+        if (request.operation() == GatewayIngressOperation.SCHEDULE) {
             if (request.estimatedRequestBytes() > limits.maxScheduleBytes()
                     || usage.scheduleBytes() > limits.maxScheduleBytes() - request.estimatedRequestBytes()) {
                 return StableCode.HARD_QUOTA_EXCEEDED;
@@ -208,7 +208,7 @@ public final class OxiaGatewayAdmissionController implements GatewayAdmissionCon
             if (usage.scheduleInFlight() >= limits.maxScheduleInFlight()) {
                 return StableCode.ADMISSION_CAPACITY_GATED;
             }
-        } else if (request.operation() == GatewayIngressOperationV1.RETRY_UNCERTAIN) {
+        } else if (request.operation() == GatewayIngressOperation.RETRY_UNCERTAIN) {
             if (usage.retryInFlight() >= limits.maxRetryInFlight()) {
                 return StableCode.ADMISSION_CAPACITY_GATED;
             }
@@ -218,12 +218,12 @@ public final class OxiaGatewayAdmissionController implements GatewayAdmissionCon
         return null;
     }
 
-    private static Usage usage(final List<GatewayAdmissionRecordV1.Lease> leases) {
+    private static Usage usage(final List<GatewayAdmissionRecord.Lease> leases) {
         int scheduleInFlight = 0;
         long scheduleBytes = 0;
         int retryInFlight = 0;
         int controlInFlight = 0;
-        for (GatewayAdmissionRecordV1.Lease lease : leases) {
+        for (GatewayAdmissionRecord.Lease lease : leases) {
             switch (lease.operation()) {
                 case SCHEDULE -> {
                     scheduleInFlight++;
@@ -236,10 +236,10 @@ public final class OxiaGatewayAdmissionController implements GatewayAdmissionCon
         return new Usage(scheduleInFlight, scheduleBytes, retryInFlight, controlInFlight);
     }
 
-    private static List<GatewayAdmissionRecordV1.Lease> liveLeases(
-            final List<GatewayAdmissionRecordV1.Lease> leases, final long now) {
-        final List<GatewayAdmissionRecordV1.Lease> live = new ArrayList<>(leases.size());
-        for (GatewayAdmissionRecordV1.Lease lease : leases) {
+    private static List<GatewayAdmissionRecord.Lease> liveLeases(
+            final List<GatewayAdmissionRecord.Lease> leases, final long now) {
+        final List<GatewayAdmissionRecord.Lease> live = new ArrayList<>(leases.size());
+        for (GatewayAdmissionRecord.Lease lease : leases) {
             if (lease.expiresAtEpochMs() > now) {
                 live.add(lease);
             }
@@ -248,22 +248,22 @@ public final class OxiaGatewayAdmissionController implements GatewayAdmissionCon
     }
 
     private static boolean containsExact(
-            final GatewayAdmissionRecordV1 record, final GatewayAdmissionRecordV1.Lease expected) {
+            final GatewayAdmissionRecord record, final GatewayAdmissionRecord.Lease expected) {
         return record.leases().stream().anyMatch(lease -> sameLease(lease, expected));
     }
 
     private static boolean containsLeaseId(
-            final GatewayAdmissionRecordV1 record, final GatewayAdmissionRecordV1.Lease expected) {
+            final GatewayAdmissionRecord record, final GatewayAdmissionRecord.Lease expected) {
         return record.leases().stream().anyMatch(lease -> sameLeaseId(lease, expected));
     }
 
     private static boolean sameLeaseId(
-            final GatewayAdmissionRecordV1.Lease left, final GatewayAdmissionRecordV1.Lease right) {
+            final GatewayAdmissionRecord.Lease left, final GatewayAdmissionRecord.Lease right) {
         return Bytes.constantTimeEquals(left.leaseId(), right.leaseId());
     }
 
     private static boolean sameLease(
-            final GatewayAdmissionRecordV1.Lease left, final GatewayAdmissionRecordV1.Lease right) {
+            final GatewayAdmissionRecord.Lease left, final GatewayAdmissionRecord.Lease right) {
         return sameLeaseId(left, right)
                 && left.operation() == right.operation()
                 && left.estimatedRequestBytes() == right.estimatedRequestBytes()
@@ -332,7 +332,7 @@ public final class OxiaGatewayAdmissionController implements GatewayAdmissionCon
         }
     }
 
-    private record Entry(GatewayAdmissionRecordV1 record, long versionId) {}
+    private record Entry(GatewayAdmissionRecord record, long versionId) {}
 
     private record Usage(int scheduleInFlight, long scheduleBytes, int retryInFlight, int controlInFlight) {}
 
@@ -347,20 +347,20 @@ public final class OxiaGatewayAdmissionController implements GatewayAdmissionCon
     private static final class DurableLease implements GatewayAdmissionLease {
         private final OxiaGatewayAdmissionController owner;
         private final Digest32 tenantScopeHash;
-        private final GatewayAdmissionRecordV1.Lease lease;
+        private final GatewayAdmissionRecord.Lease lease;
         private boolean closed;
 
         private DurableLease(
                 final OxiaGatewayAdmissionController owner,
                 final Digest32 tenantScopeHash,
-                final GatewayAdmissionRecordV1.Lease lease) {
+                final GatewayAdmissionRecord.Lease lease) {
             this.owner = owner;
             this.tenantScopeHash = tenantScopeHash;
             this.lease = lease;
         }
 
         @Override
-        public GatewayIngressOperationV1 operation() {
+        public GatewayIngressOperation operation() {
             return lease.operation();
         }
 

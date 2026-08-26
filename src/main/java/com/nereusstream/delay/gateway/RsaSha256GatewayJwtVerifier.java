@@ -30,9 +30,9 @@ import javax.net.ssl.SSLSession;
 /**
  * Strict RS256 JWT verifier for the Gateway mTLS authority boundary.
  *
- * <p>The token is an authentication input only.  The verifier emits fixed
+ * <p>The token is an authentication input only. The verifier emits fixed
  * digest projections and never exposes a tenant string to the Delay request
- * or audit layers.  The issuer must sign the control-plane routing scope and
+ * or audit layers. The issuer must sign the control-plane routing scope and
  * authenticated tenant scope; deriving either value from a display name is
  * deliberately forbidden.</p>
  */
@@ -42,7 +42,7 @@ public final class RsaSha256GatewayJwtVerifier implements GatewayJwtVerifier {
     private static final int HASH_LENGTH = 32;
     private static final int MAX_TOKEN_CHARS = 16 * 1024;
     private static final int MAX_JSON_DEPTH = 16;
-    private static final byte[] PRINCIPAL_DOMAIN = Bytes.utf8("nereus-delay-gateway-principal-scope-v1\0");
+    private static final byte[] PRINCIPAL_DOMAIN = Bytes.utf8("nereus-delay-gateway-principal-scope\0");
 
     private final PublicKey verificationKey;
     private final String expectedIssuer;

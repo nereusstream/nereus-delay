@@ -1,10 +1,10 @@
 package com.nereusstream.delay.ownership;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.ControlOperationQueryResponseV1;
-import com.nereusstream.delay.protocol.ControlOperationReceiptV1;
-import com.nereusstream.delay.protocol.ControlOperationStateTransitionV1;
-import com.nereusstream.delay.protocol.CurrentControlOperationV1;
+import com.nereusstream.delay.protocol.ControlOperationQueryResponse;
+import com.nereusstream.delay.protocol.ControlOperationReceipt;
+import com.nereusstream.delay.protocol.ControlOperationStateTransition;
+import com.nereusstream.delay.protocol.CurrentControlOperation;
 import com.nereusstream.delay.store.LocalStatePathGuard;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -38,7 +38,7 @@ public final class PersistentControlOperationAuthority implements ControlOperati
     private static final int DIGEST_LENGTH = 32;
     private static final int HEADER_LENGTH = Integer.BYTES * 4;
     private static final int MAX_COMPONENT_BYTES = 8 * 1024 * 1024;
-    private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-control-operation-state-v1\\0");
+    private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-control-operation-state\\0");
     private static final Object JVM_LOCK = new Object();
 
     private final Path root;
@@ -54,82 +54,80 @@ public final class PersistentControlOperationAuthority implements ControlOperati
     }
 
     @Override
-    public ControlOperationQueryResponseV1 register(
-            final ControlOperationReceiptV1 receipt, final CurrentControlOperationV1 initial) {
+    public ControlOperationQueryResponse register(
+            final ControlOperationReceipt receipt, final CurrentControlOperation initial) {
         Objects.requireNonNull(receipt, "receipt");
         Objects.requireNonNull(initial, "initial");
         if (!matchesIdentity(receipt, initial) || initial.operationRevision() != receipt.operationRevision()) {
-            return ControlOperationQueryResponseV1.integrityError();
+            return ControlOperationQueryResponse.integrityError();
         }
         return withExclusiveLock(() -> {
             final Path statePath = statePath(receipt);
             final State existing = readIfPresent(statePath, receipt.operationId());
             if (existing == null) {
                 write(statePath, new State(receipt, initial));
-                return ControlOperationQueryResponseV1.current(initial);
+                return ControlOperationQueryResponse.current(initial);
             }
             if (!existing.receipt().equals(receipt)) {
-                return ControlOperationQueryResponseV1.notFoundOrNotAuthorized();
+                return ControlOperationQueryResponse.notFoundOrNotAuthorized();
             }
             if (existing.current().equals(initial)) {
-                return ControlOperationQueryResponseV1.current(existing.current());
+                return ControlOperationQueryResponse.current(existing.current());
             }
-            return ControlOperationQueryResponseV1.integrityError();
+            return ControlOperationQueryResponse.integrityError();
         });
     }
 
     @Override
-    public ControlOperationQueryResponseV1 advance(
-            final ControlOperationReceiptV1 receipt,
-            final long expectedRevision,
-            final CurrentControlOperationV1 next) {
+    public ControlOperationQueryResponse advance(
+            final ControlOperationReceipt receipt, final long expectedRevision, final CurrentControlOperation next) {
         Objects.requireNonNull(receipt, "receipt");
         Objects.requireNonNull(next, "next");
         if (expectedRevision <= 0) {
-            return ControlOperationQueryResponseV1.invalidReceipt();
+            return ControlOperationQueryResponse.invalidReceipt();
         }
         if (expectedRevision == Long.MAX_VALUE) {
-            return ControlOperationQueryResponseV1.integrityError();
+            return ControlOperationQueryResponse.integrityError();
         }
         if (!matchesIdentity(receipt, next) || !isExactSuccessor(expectedRevision, next.operationRevision())) {
-            return ControlOperationQueryResponseV1.integrityError();
+            return ControlOperationQueryResponse.integrityError();
         }
         return withExclusiveLock(() -> {
             final State existing = readIfPresent(statePath(receipt), receipt.operationId());
             if (existing == null || !existing.receipt().equals(receipt)) {
-                return ControlOperationQueryResponseV1.notFoundOrNotAuthorized();
+                return ControlOperationQueryResponse.notFoundOrNotAuthorized();
             }
             try {
-                ControlOperationStateTransitionV1.validate(existing.current().state(), next.state());
-                ControlOperationStateTransitionV1.validateTargets(
+                ControlOperationStateTransition.validate(existing.current().state(), next.state());
+                ControlOperationStateTransition.validateTargets(
                         existing.current().targetStates(), next.targetStates());
             } catch (IllegalArgumentException invalidTransition) {
-                return ControlOperationQueryResponseV1.integrityError();
+                return ControlOperationQueryResponse.integrityError();
             }
             if (existing.current().equals(next)) {
                 // The first CAS may have committed before its response was
                 // lost. Exact CURRENT reread is the only idempotent success.
-                return ControlOperationQueryResponseV1.current(existing.current());
+                return ControlOperationQueryResponse.current(existing.current());
             }
             if (existing.current().operationRevision() != expectedRevision) {
-                return ControlOperationQueryResponseV1.integrityError();
+                return ControlOperationQueryResponse.integrityError();
             }
             write(statePath(receipt), new State(receipt, next));
-            return ControlOperationQueryResponseV1.current(next);
+            return ControlOperationQueryResponse.current(next);
         });
     }
 
     @Override
-    public ControlOperationQueryResponseV1 query(final ControlOperationReceiptV1 receipt, final long nowEpochMs) {
+    public ControlOperationQueryResponse query(final ControlOperationReceipt receipt, final long nowEpochMs) {
         if (receipt == null || nowEpochMs < 0) {
-            return ControlOperationQueryResponseV1.invalidReceipt();
+            return ControlOperationQueryResponse.invalidReceipt();
         }
         return withExclusiveLock(() -> {
             final State existing = readIfPresent(statePath(receipt), receipt.operationId());
             if (existing == null || !existing.receipt().equals(receipt) || nowEpochMs > receipt.queryUntilEpochMs()) {
-                return ControlOperationQueryResponseV1.notFoundOrNotAuthorized();
+                return ControlOperationQueryResponse.notFoundOrNotAuthorized();
             }
-            return ControlOperationQueryResponseV1.current(existing.current());
+            return ControlOperationQueryResponse.current(existing.current());
         });
     }
 
@@ -258,11 +256,11 @@ public final class PersistentControlOperationAuthority implements ControlOperati
         if (!Bytes.constantTimeEquals(digest, Bytes.sha256(DIGEST_DOMAIN, receiptBytes, currentBytes))) {
             throw corrupt(statePath, "control operation state checksum mismatch");
         }
-        final ControlOperationReceiptV1 receipt;
-        final CurrentControlOperationV1 current;
+        final ControlOperationReceipt receipt;
+        final CurrentControlOperation current;
         try {
-            receipt = ControlOperationReceiptV1.decodeFrame(receiptBytes);
-            current = CurrentControlOperationV1.decode(currentBytes);
+            receipt = ControlOperationReceipt.decodeFrame(receiptBytes);
+            current = CurrentControlOperation.decode(currentBytes);
         } catch (RuntimeException malformed) {
             throw corrupt(statePath, "control operation state contains malformed canonical values", malformed);
         }
@@ -275,7 +273,7 @@ public final class PersistentControlOperationAuthority implements ControlOperati
         return new State(receipt, current);
     }
 
-    private Path statePath(final ControlOperationReceiptV1 receipt) {
+    private Path statePath(final ControlOperationReceipt receipt) {
         return root.resolve(stateFileName(receipt.operationId()));
     }
 
@@ -306,7 +304,7 @@ public final class PersistentControlOperationAuthority implements ControlOperati
     }
 
     private static boolean matchesIdentity(
-            final ControlOperationReceiptV1 receipt, final CurrentControlOperationV1 current) {
+            final ControlOperationReceipt receipt, final CurrentControlOperation current) {
         return Bytes.constantTimeEquals(receipt.operationId(), current.operationId())
                 && Bytes.constantTimeEquals(receipt.requestHash(), current.requestHash())
                 && Bytes.constantTimeEquals(receipt.authenticatedScopeHash(), current.authenticatedScopeHash());
@@ -335,7 +333,7 @@ public final class PersistentControlOperationAuthority implements ControlOperati
         T run() throws IOException;
     }
 
-    private record State(ControlOperationReceiptV1 receipt, CurrentControlOperationV1 current) {
+    private record State(ControlOperationReceipt receipt, CurrentControlOperation current) {
         private State {
             Objects.requireNonNull(receipt, "receipt");
             Objects.requireNonNull(current, "current");

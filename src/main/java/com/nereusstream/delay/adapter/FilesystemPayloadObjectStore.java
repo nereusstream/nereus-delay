@@ -1,14 +1,14 @@
 package com.nereusstream.delay.adapter;
 
-import com.nereusstream.delay.protocol.OpaquePayloadUploadHandleV1;
-import com.nereusstream.delay.protocol.PayloadAttestationResponseV1;
-import com.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
-import com.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
-import com.nereusstream.delay.protocol.PayloadReservationReceiptV1;
-import com.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
-import com.nereusstream.delay.protocol.UploadHandleKindV1;
+import com.nereusstream.delay.protocol.OpaquePayloadUploadHandle;
+import com.nereusstream.delay.protocol.PayloadAttestationResponse;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetRef;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetSemantic;
+import com.nereusstream.delay.protocol.PayloadReservationReceipt;
+import com.nereusstream.delay.protocol.PayloadUploadHandleResponse;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
+import com.nereusstream.delay.protocol.UploadHandleKind;
 import com.nereusstream.delay.runtime.PayloadReservation;
 import com.nereusstream.delay.store.LocalStatePathGuard;
 import java.io.IOException;
@@ -42,9 +42,9 @@ public final class FilesystemPayloadObjectStore {
 
     public FilesystemPayloadObjectStore(
             final Path rootPath,
-            final ProfileSemanticEnvelopeV1 profile,
+            final ProfileSemanticEnvelope profile,
             final byte[] tenantRoutingScope,
-            final PayloadProofTrustSetSemanticV1 trustSet,
+            final PayloadProofTrustSetSemantic trustSet,
             final int proofKeyVersion,
             final PrivateKey proofSigningKey) {
         this(rootPath, profile, tenantRoutingScope, trustSet, proofKeyVersion, Long.MAX_VALUE, proofSigningKey);
@@ -52,9 +52,9 @@ public final class FilesystemPayloadObjectStore {
 
     public FilesystemPayloadObjectStore(
             final Path rootPath,
-            final ProfileSemanticEnvelopeV1 profile,
+            final ProfileSemanticEnvelope profile,
             final byte[] tenantRoutingScope,
-            final PayloadProofTrustSetSemanticV1 trustSet,
+            final PayloadProofTrustSetSemantic trustSet,
             final int proofKeyVersion,
             final long maxUploadHandleLifetimeMs,
             final PrivateKey proofSigningKey) {
@@ -80,45 +80,43 @@ public final class FilesystemPayloadObjectStore {
      */
     public void register(
             final PayloadReservation reservation,
-            final PayloadProofTrustSetRefV1 pinnedTrustSet,
-            final ProfileRefV1 pinnedObjectStoreProfile) {
+            final PayloadProofTrustSetRef pinnedTrustSet,
+            final ProfileRef pinnedObjectStoreProfile) {
         delegate.register(reservation, pinnedTrustSet, pinnedObjectStoreProfile);
     }
 
-    public PayloadReservationReceiptV1 reservationReceipt(final PayloadReservation reservation) {
+    public PayloadReservationReceipt reservationReceipt(final PayloadReservation reservation) {
         return delegate.reservationReceipt(reservation);
     }
 
-    public PayloadUploadHandleResponseV1 issueUploadHandle(
-            final byte[] reservationId, final UploadHandleKindV1 kind, final long nowEpochMs) {
+    public PayloadUploadHandleResponse issueUploadHandle(
+            final byte[] reservationId, final UploadHandleKind kind, final long nowEpochMs) {
         return delegate.issueUploadHandle(reservationId, kind, nowEpochMs);
     }
 
-    public PayloadUploadHandleResponseV1 issueUploadHandle(
-            final PayloadReservationReceiptV1 receipt, final UploadHandleKindV1 kind, final long nowEpochMs) {
+    public PayloadUploadHandleResponse issueUploadHandle(
+            final PayloadReservationReceipt receipt, final UploadHandleKind kind, final long nowEpochMs) {
         return delegate.issueUploadHandle(receipt, kind, nowEpochMs);
     }
 
-    public void upload(final OpaquePayloadUploadHandleV1 handle, final byte[] payload, final long nowEpochMs) {
+    public void upload(final OpaquePayloadUploadHandle handle, final byte[] payload, final long nowEpochMs) {
         delegate.upload(handle, payload, nowEpochMs);
     }
 
     public void upload(
-            final PayloadReservationReceiptV1 receipt,
-            final OpaquePayloadUploadHandleV1 handle,
+            final PayloadReservationReceipt receipt,
+            final OpaquePayloadUploadHandle handle,
             final byte[] payload,
             final long nowEpochMs) {
         delegate.upload(receipt, handle, payload, nowEpochMs);
     }
 
-    public PayloadAttestationResponseV1 attest(final OpaquePayloadUploadHandleV1 handle, final long nowEpochMs) {
+    public PayloadAttestationResponse attest(final OpaquePayloadUploadHandle handle, final long nowEpochMs) {
         return delegate.attest(handle, nowEpochMs);
     }
 
-    public PayloadAttestationResponseV1 attest(
-            final PayloadReservationReceiptV1 receipt,
-            final OpaquePayloadUploadHandleV1 handle,
-            final long nowEpochMs) {
+    public PayloadAttestationResponse attest(
+            final PayloadReservationReceipt receipt, final OpaquePayloadUploadHandle handle, final long nowEpochMs) {
         return delegate.attest(receipt, handle, nowEpochMs);
     }
 
@@ -126,9 +124,9 @@ public final class FilesystemPayloadObjectStore {
         private final Path objectsRoot;
         private final long maxObjectBytes;
 
-        private ObjectFileBackend(final Path rootPath, final ProfileSemanticEnvelopeV1 profile) {
+        private ObjectFileBackend(final Path rootPath, final ProfileSemanticEnvelope profile) {
             Objects.requireNonNull(profile, "profile");
-            if (!(profile.body() instanceof com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1 objectStore)) {
+            if (!(profile.body() instanceof com.nereusstream.delay.protocol.ObjectStoreProfileSemantic objectStore)) {
                 throw new IllegalArgumentException("payload adapter requires an Object Store profile");
             }
             this.maxObjectBytes = objectStore.maxObjectBytes();

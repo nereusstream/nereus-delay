@@ -6,23 +6,23 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
+import com.nereusstream.delay.protocol.EvidenceCursor;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.RecoveryCandidateKindV1;
-import com.nereusstream.delay.protocol.RecoveryCandidateRefV1;
-import com.nereusstream.delay.protocol.RecoveryFloorRefV1;
-import com.nereusstream.delay.protocol.RecoveryInstallPhaseV1;
-import com.nereusstream.delay.protocol.RecoveryInstallStateV1;
-import com.nereusstream.delay.protocol.RecoveryPinV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.RecoveryCandidateKind;
+import com.nereusstream.delay.protocol.RecoveryCandidateRef;
+import com.nereusstream.delay.protocol.RecoveryFloorRef;
+import com.nereusstream.delay.protocol.RecoveryInstallPhase;
+import com.nereusstream.delay.protocol.RecoveryInstallState;
+import com.nereusstream.delay.protocol.RecoveryPin;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.util.List;
 import java.util.Map;
@@ -66,7 +66,7 @@ class RecoveryCatalogTest {
                 3,
                 3,
                 new CheckpointManifest.ParentCheckpoint(genesis.checkpointId(), Bytes.hex(genesis.manifestSha256())));
-        final RecoveryFloorRefV1 currentTypedFloor = new RecoveryFloorRefV1(
+        final RecoveryFloorRef currentTypedFloor = new RecoveryFloorRef(
                 sibling.recoveryLineageId(),
                 sibling.checkpointId(),
                 sibling.manifestSha256(),
@@ -82,7 +82,7 @@ class RecoveryCatalogTest {
                 sibling.appliedShardLogPosition(),
                 sibling.shardMutationSequence(),
                 currentTypedFloor.floorDigest());
-        final RecoveryFloorRefV1 observedGenesisFloor = new RecoveryFloorRefV1(
+        final RecoveryFloorRef observedGenesisFloor = new RecoveryFloorRef(
                 genesis.recoveryLineageId(),
                 genesis.checkpointId(),
                 genesis.manifestSha256(),
@@ -90,12 +90,12 @@ class RecoveryCatalogTest {
                 genesis.appliedShardLogPosition(),
                 genesis.shardMutationSequence(),
                 List.of());
-        final RecoveryPinV1 pin = new RecoveryPinV1(
+        final RecoveryPin pin = new RecoveryPin(
                 id16(324),
-                new ShardSubjectV1(shard),
-                new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(325)),
-                new RecoveryCandidateRefV1(
-                        RecoveryCandidateKindV1.CATALOG_CHECKPOINT,
+                new ShardSubject(shard),
+                new OwnerIdentity(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(325)),
+                new RecoveryCandidateRef(
+                        RecoveryCandidateKind.CATALOG_CHECKPOINT,
                         lineage,
                         first.checkpointId(),
                         first.manifestSha256(),
@@ -257,7 +257,7 @@ class RecoveryCatalogTest {
         final RecoveryCatalog catalog = new RecoveryCatalog();
         catalog.publish(genesis, 0);
         final RecoveryFloor floor = catalog.advanceFloor(genesis.checkpointId(), 1, id32(62));
-        final RecoveryFloorRefV1 floorRef = new RecoveryFloorRefV1(
+        final RecoveryFloorRef floorRef = new RecoveryFloorRef(
                 floor.recoveryLineageId(),
                 floor.checkpointId(),
                 floor.manifestSha256(),
@@ -265,22 +265,22 @@ class RecoveryCatalogTest {
                 floor.appliedSourcePosition(),
                 floor.includedMutationSequence(),
                 List.of());
-        final RecoveryCandidateRefV1 candidate = new RecoveryCandidateRefV1(
-                RecoveryCandidateKindV1.CATALOG_CHECKPOINT,
+        final RecoveryCandidateRef candidate = new RecoveryCandidateRef(
+                RecoveryCandidateKind.CATALOG_CHECKPOINT,
                 lineage,
                 genesis.checkpointId(),
                 genesis.manifestSha256(),
                 null);
-        final RecoveryPinV1 pin = new RecoveryPinV1(
+        final RecoveryPin pin = new RecoveryPin(
                 id16(63),
-                new ShardSubjectV1(shard),
-                new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(64)),
+                new ShardSubject(shard),
+                new OwnerIdentity(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(64)),
                 candidate,
                 floorRef,
                 floor.catalogGeneration(),
                 id32(65));
-        final EvidenceCursorV1 unbound = EvidenceCursorV1.kafka(id32(67), id16(68), id16(69), 1, 1, 10, 2, 1);
-        final RecoveryFloorRefV1 mismatchedFloorRef = new RecoveryFloorRefV1(
+        final EvidenceCursor unbound = EvidenceCursor.kafka(id32(67), id16(68), id16(69), 1, 1, 10, 2, 1);
+        final RecoveryFloorRef mismatchedFloorRef = new RecoveryFloorRef(
                 floor.recoveryLineageId(),
                 floor.checkpointId(),
                 floor.manifestSha256(),
@@ -290,9 +290,9 @@ class RecoveryCatalogTest {
                 List.of(unbound));
         assertThrows(
                 IllegalStateException.class,
-                () -> catalog.createRecoveryPin(new RecoveryPinV1(
+                () -> catalog.createRecoveryPin(new RecoveryPin(
                         id16(70),
-                        new ShardSubjectV1(shard),
+                        new ShardSubject(shard),
                         pin.owner(),
                         candidate,
                         mismatchedFloorRef,
@@ -303,9 +303,9 @@ class RecoveryCatalogTest {
         assertEquals(java.util.Optional.of(pin), catalog.activeRecoveryPin());
         assertThrows(
                 IllegalStateException.class,
-                () -> catalog.createRecoveryPin(new RecoveryPinV1(
+                () -> catalog.createRecoveryPin(new RecoveryPin(
                         id16(66),
-                        new ShardSubjectV1(shard),
+                        new ShardSubject(shard),
                         pin.owner(),
                         candidate,
                         floorRef,
@@ -338,18 +338,18 @@ class RecoveryCatalogTest {
         final CheckpointManifest genesis = manifest(shard, topic, lineage, id16(141), 0, 1, 1, null);
         final RecoveryCatalog catalog = new RecoveryCatalog();
         catalog.publish(genesis, 0);
-        final RecoveryFloorRefV1 floor = catalog.advanceFloor(genesis.checkpointId(), 1, List.of());
+        final RecoveryFloorRef floor = catalog.advanceFloor(genesis.checkpointId(), 1, List.of());
         final byte[] storeIncarnation = id16(142);
         final StoreRecoveryMetadata local = new StoreRecoveryMetadata(
-                new RecoveryCandidateRefV1(
-                        RecoveryCandidateKindV1.LOCAL_STORE,
+                new RecoveryCandidateRef(
+                        RecoveryCandidateKind.LOCAL_STORE,
                         lineage,
                         genesis.checkpointId(),
                         genesis.manifestSha256(),
                         storeIncarnation),
                 floor,
                 floor.catalogGeneration(),
-                new RecoveryInstallStateV1(RecoveryInstallPhaseV1.OPEN, storeIncarnation, genesis.checkpointId()));
+                new RecoveryInstallState(RecoveryInstallPhase.OPEN, storeIncarnation, genesis.checkpointId()));
 
         catalog.validateLocalStoreRecovery(shard, local);
 
@@ -374,18 +374,18 @@ class RecoveryCatalogTest {
         final CheckpointManifest genesis = manifest(shard, UUID.randomUUID(), lineage, id16(151), 0, 1, 1, null);
         final RecoveryCatalog delegate = new RecoveryCatalog();
         delegate.publish(genesis, 0);
-        final RecoveryFloorRefV1 floor = delegate.advanceFloor(genesis.checkpointId(), 1, List.of());
+        final RecoveryFloorRef floor = delegate.advanceFloor(genesis.checkpointId(), 1, List.of());
         final byte[] storeIncarnation = id16(152);
         final StoreRecoveryMetadata local = new StoreRecoveryMetadata(
-                new RecoveryCandidateRefV1(
-                        RecoveryCandidateKindV1.LOCAL_STORE,
+                new RecoveryCandidateRef(
+                        RecoveryCandidateKind.LOCAL_STORE,
                         lineage,
                         genesis.checkpointId(),
                         genesis.manifestSha256(),
                         storeIncarnation),
                 floor,
                 floor.catalogGeneration(),
-                new RecoveryInstallStateV1(RecoveryInstallPhaseV1.OPEN, storeIncarnation, genesis.checkpointId()));
+                new RecoveryInstallState(RecoveryInstallPhase.OPEN, storeIncarnation, genesis.checkpointId()));
         final OxiaRecoveryCatalog authority = new OxiaRecoveryCatalog(delegate);
 
         authority.validateLocalStoreRecovery(shard, local);
@@ -405,15 +405,15 @@ class RecoveryCatalogTest {
         final CheckpointManifest manifest = manifest(shard, UUID.randomUUID(), lineage, id16(71), 0, 1, 1, null);
         final RecoveryCatalog catalog = new RecoveryCatalog();
         catalog.publish(manifest, 0);
-        final ProfileRefV1 profile =
-                new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, id32(72), ProfileKindV1.OBJECT_STORE);
-        final OwnerIdentityV1 owner = new OwnerIdentityV1(
+        final ProfileRef profile =
+                new ProfileRef(Bytes.utf8("checkpoint-store"), 1, id32(72), ProfileKind.OBJECT_STORE);
+        final OwnerIdentity owner = new OwnerIdentity(
                 manifest.createdBy().deploymentId(),
                 manifest.createdBy().workerRunId(),
                 manifest.createdBy().ownerEpoch(),
                 id32(73));
-        final CheckpointUploadIntentV1 published = new CheckpointUploadIntentV1(
-                new ShardSubjectV1(shard),
+        final CheckpointUploadIntent published = new CheckpointUploadIntent(
+                new ShardSubject(shard),
                 lineage,
                 manifest.checkpointId(),
                 owner,
@@ -425,9 +425,9 @@ class RecoveryCatalogTest {
                 profile,
                 evidence(1_000),
                 5_000,
-                CheckpointUploadStateV1.PUBLISHED,
+                CheckpointUploadState.PUBLISHED,
                 2,
-                new CheckpointResourceV1(
+                new CheckpointResource(
                         lineage,
                         manifest.checkpointId(),
                         profile,
@@ -453,7 +453,7 @@ class RecoveryCatalogTest {
 
             @Override
             public RecoveryCatalog.Publication publishUploadedCheckpoint(
-                    final CheckpointUploadIntentV1 ignoredIntent,
+                    final CheckpointUploadIntent ignoredIntent,
                     final CheckpointManifest ignoredManifest,
                     final long expected) {
                 throw new AssertionError("invalid upload intent reached Oxia upload publication");
@@ -492,8 +492,8 @@ class RecoveryCatalogTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> catalog.publishUploadedCheckpoint(
-                        new CheckpointUploadIntentV1(
-                                new ShardSubjectV1(shard),
+                        new CheckpointUploadIntent(
+                                new ShardSubject(shard),
                                 lineage,
                                 manifest.checkpointId(),
                                 owner,
@@ -505,7 +505,7 @@ class RecoveryCatalogTest {
                                 profile,
                                 evidence(1_000),
                                 5_000,
-                                CheckpointUploadStateV1.PENDING_UPLOAD,
+                                CheckpointUploadState.PENDING_UPLOAD,
                                 1,
                                 null,
                                 null),
@@ -528,15 +528,15 @@ class RecoveryCatalogTest {
                 1,
                 1,
                 new CheckpointManifest.ParentCheckpoint(parent.checkpointId(), Bytes.hex(parent.manifestSha256())));
-        final ProfileRefV1 profile =
-                new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, id32(92), ProfileKindV1.OBJECT_STORE);
-        final OwnerIdentityV1 owner = new OwnerIdentityV1(
+        final ProfileRef profile =
+                new ProfileRef(Bytes.utf8("checkpoint-store"), 1, id32(92), ProfileKind.OBJECT_STORE);
+        final OwnerIdentity owner = new OwnerIdentity(
                 manifest.createdBy().deploymentId(),
                 manifest.createdBy().workerRunId(),
                 manifest.createdBy().ownerEpoch(),
                 id32(93));
-        final CheckpointUploadIntentV1 published = new CheckpointUploadIntentV1(
-                new ShardSubjectV1(shard),
+        final CheckpointUploadIntent published = new CheckpointUploadIntent(
+                new ShardSubject(shard),
                 lineage,
                 manifest.checkpointId(),
                 owner,
@@ -548,9 +548,9 @@ class RecoveryCatalogTest {
                 profile,
                 evidence(2_000),
                 6_000,
-                CheckpointUploadStateV1.PUBLISHED,
+                CheckpointUploadState.PUBLISHED,
                 2,
-                new CheckpointResourceV1(
+                new CheckpointResource(
                         lineage,
                         manifest.checkpointId(),
                         profile,
@@ -579,14 +579,14 @@ class RecoveryCatalogTest {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 14);
         final byte[] lineage = id16(100);
         final CheckpointManifest manifest = manifest(shard, UUID.randomUUID(), lineage, id16(101), 0, 1, 1, null);
-        final ProfileRefV1 profile =
-                new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, id32(102), ProfileKindV1.OBJECT_STORE);
-        final OwnerIdentityV1 owner = new OwnerIdentityV1(
+        final ProfileRef profile =
+                new ProfileRef(Bytes.utf8("checkpoint-store"), 1, id32(102), ProfileKind.OBJECT_STORE);
+        final OwnerIdentity owner = new OwnerIdentity(
                 manifest.createdBy().deploymentId(),
                 manifest.createdBy().workerRunId(),
                 manifest.createdBy().ownerEpoch(),
                 id32(103));
-        final CheckpointResourceV1 resource = new CheckpointResourceV1(
+        final CheckpointResource resource = new CheckpointResource(
                 lineage,
                 manifest.checkpointId(),
                 profile,
@@ -595,8 +595,8 @@ class RecoveryCatalogTest {
                 Bytes.utf8("version-1"),
                 manifest.canonicalJsonBytes().length,
                 manifest.manifestSha256());
-        final CheckpointUploadIntentV1 published = new CheckpointUploadIntentV1(
-                new ShardSubjectV1(shard),
+        final CheckpointUploadIntent published = new CheckpointUploadIntent(
+                new ShardSubject(shard),
                 lineage,
                 manifest.checkpointId(),
                 owner,
@@ -608,12 +608,12 @@ class RecoveryCatalogTest {
                 profile,
                 evidence(3_000),
                 7_000,
-                CheckpointUploadStateV1.PUBLISHED,
+                CheckpointUploadState.PUBLISHED,
                 2,
                 resource,
                 null);
-        final CheckpointUploadIntentV1 conflicting = new CheckpointUploadIntentV1(
-                new ShardSubjectV1(shard),
+        final CheckpointUploadIntent conflicting = new CheckpointUploadIntent(
+                new ShardSubject(shard),
                 lineage,
                 manifest.checkpointId(),
                 owner,
@@ -625,9 +625,9 @@ class RecoveryCatalogTest {
                 profile,
                 evidence(3_000),
                 7_000,
-                CheckpointUploadStateV1.PUBLISHED,
+                CheckpointUploadState.PUBLISHED,
                 2,
-                new CheckpointResourceV1(
+                new CheckpointResource(
                         lineage,
                         manifest.checkpointId(),
                         profile,
@@ -648,14 +648,13 @@ class RecoveryCatalogTest {
     void typedFloorRequiresSameGenerationCursorDominance() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 12);
         final byte[] lineage = id16(80);
-        final EvidenceCursorV1 older = EvidenceCursorV1.kafka(id32(82), id16(83), id16(84), 1, 4, 100, 11, 10);
+        final EvidenceCursor older = EvidenceCursor.kafka(id32(82), id16(83), id16(84), 1, 4, 100, 11, 10);
         final CheckpointManifest genesis =
                 manifest(shard, UUID.randomUUID(), lineage, id16(81), 0, 1, 1, null, List.of(older));
         final RecoveryCatalog catalog = new RecoveryCatalog();
         catalog.publish(genesis, 0);
         assertThrows(IllegalArgumentException.class, () -> catalog.advanceFloor(genesis.checkpointId(), 1, List.of()));
-        final EvidenceCursorV1 regressedChildCursor =
-                EvidenceCursorV1.kafka(id32(82), id16(83), id16(84), 1, 4, 99, 10, 9);
+        final EvidenceCursor regressedChildCursor = EvidenceCursor.kafka(id32(82), id16(83), id16(84), 1, 4, 99, 10, 9);
         final CheckpointManifest regressedChild = manifest(
                 shard,
                 ((KafkaSourcePosition) genesis.appliedShardLogPosition()).nativeTopicUuid(),
@@ -667,11 +666,11 @@ class RecoveryCatalogTest {
                 new CheckpointManifest.ParentCheckpoint(genesis.checkpointId(), Bytes.hex(genesis.manifestSha256())),
                 List.of(regressedChildCursor));
         assertThrows(IllegalArgumentException.class, () -> catalog.publish(regressedChild, 1));
-        final RecoveryFloorRefV1 first = catalog.advanceFloor(genesis.checkpointId(), 1, List.of(older));
+        final RecoveryFloorRef first = catalog.advanceFloor(genesis.checkpointId(), 1, List.of(older));
         assertEquals(first, catalog.currentFloorRef().orElseThrow());
         assertEquals(first, catalog.advanceFloor(genesis.checkpointId(), 1, List.of(older)));
 
-        final EvidenceCursorV1 newer = EvidenceCursorV1.kafka(id32(82), id16(83), id16(84), 1, 4, 101, 12, 11);
+        final EvidenceCursor newer = EvidenceCursor.kafka(id32(82), id16(83), id16(84), 1, 4, 101, 12, 11);
         final CheckpointManifest child = manifest(
                 shard,
                 ((KafkaSourcePosition) genesis.appliedShardLogPosition()).nativeTopicUuid(),
@@ -683,10 +682,10 @@ class RecoveryCatalogTest {
                 new CheckpointManifest.ParentCheckpoint(genesis.checkpointId(), Bytes.hex(genesis.manifestSha256())),
                 List.of(newer));
         catalog.publish(child, 2);
-        final RecoveryFloorRefV1 second = catalog.advanceFloor(child.checkpointId(), 3, List.of(newer));
+        final RecoveryFloorRef second = catalog.advanceFloor(child.checkpointId(), 3, List.of(newer));
         assertEquals(second, catalog.currentFloorRef().orElseThrow());
 
-        final EvidenceCursorV1 regressed = EvidenceCursorV1.kafka(id32(82), id16(83), id16(84), 1, 4, 102, 10, 11);
+        final EvidenceCursor regressed = EvidenceCursor.kafka(id32(82), id16(83), id16(84), 1, 4, 102, 10, 11);
         assertThrows(
                 IllegalArgumentException.class,
                 () -> catalog.advanceFloor(child.checkpointId(), 4, List.of(regressed)));
@@ -953,7 +952,7 @@ class RecoveryCatalogTest {
                 manifest.appliedShardLogPosition(),
                 manifest.shardMutationSequence(),
                 id32(77));
-        final RecoveryFloorRefV1 validTypedFloor = new RecoveryFloorRefV1(
+        final RecoveryFloorRef validTypedFloor = new RecoveryFloorRef(
                 manifest.recoveryLineageId(),
                 manifest.checkpointId(),
                 manifest.manifestSha256(),
@@ -961,7 +960,7 @@ class RecoveryCatalogTest {
                 manifest.appliedShardLogPosition(),
                 manifest.shardMutationSequence(),
                 List.of());
-        final RecoveryFloorRefV1 wrongTypedFloor = new RecoveryFloorRefV1(
+        final RecoveryFloorRef wrongTypedFloor = new RecoveryFloorRef(
                 manifest.recoveryLineageId(),
                 manifest.checkpointId(),
                 id32(78),
@@ -974,7 +973,7 @@ class RecoveryCatalogTest {
 
         final class Backend implements OxiaRecoveryCatalog.CasBackend {
             private RecoveryFloor scalarFloor = wrongFloor;
-            private RecoveryFloorRefV1 typedFloor = wrongTypedFloor;
+            private RecoveryFloorRef typedFloor = wrongTypedFloor;
             private java.util.Optional<RecoveryCatalog.FloorCoverage> coverage = java.util.Optional.of(
                     new RecoveryCatalog.FloorCoverage(validFloor, wrongCandidate, List.of(wrongCandidate)));
 
@@ -999,7 +998,7 @@ class RecoveryCatalogTest {
             }
 
             @Override
-            public java.util.Optional<RecoveryFloorRefV1> currentFloorRef() {
+            public java.util.Optional<RecoveryFloorRef> currentFloorRef() {
                 return java.util.Optional.of(typedFloor);
             }
 
@@ -1125,10 +1124,10 @@ class RecoveryCatalogTest {
     @Test
     void OxiaBoundaryRejectsTypedFloorBoundaryAndCursorDrift() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 6);
-        final EvidenceCursorV1 cursor = EvidenceCursorV1.kafka(id32(56), id16(57), id16(58), 1, 1, 1_001, 2, 1);
+        final EvidenceCursor cursor = EvidenceCursor.kafka(id32(56), id16(57), id16(58), 1, 1, 1_001, 2, 1);
         final CheckpointManifest manifest =
                 manifest(shard, UUID.randomUUID(), id16(53), id16(54), 0, 1, 1, null, List.of(cursor));
-        final RecoveryFloorRefV1 wrongManifest = new RecoveryFloorRefV1(
+        final RecoveryFloorRef wrongManifest = new RecoveryFloorRef(
                 manifest.recoveryLineageId(),
                 manifest.checkpointId(),
                 id32(59),
@@ -1136,7 +1135,7 @@ class RecoveryCatalogTest {
                 manifest.appliedShardLogPosition(),
                 manifest.shardMutationSequence(),
                 List.of(cursor));
-        final RecoveryFloorRefV1 wrongCursors = new RecoveryFloorRefV1(
+        final RecoveryFloorRef wrongCursors = new RecoveryFloorRef(
                 manifest.recoveryLineageId(),
                 manifest.checkpointId(),
                 manifest.manifestSha256(),
@@ -1146,7 +1145,7 @@ class RecoveryCatalogTest {
                 List.of());
 
         final class Backend implements OxiaRecoveryCatalog.CasBackend {
-            private RecoveryFloorRefV1 typedResult = wrongManifest;
+            private RecoveryFloorRef typedResult = wrongManifest;
 
             @Override
             public RecoveryCatalog.Publication publish(final CheckpointManifest ignored, final long expected) {
@@ -1166,8 +1165,8 @@ class RecoveryCatalogTest {
             }
 
             @Override
-            public RecoveryFloorRefV1 advanceFloor(
-                    final byte[] ignored, final long expected, final List<EvidenceCursorV1> ignoredCursors) {
+            public RecoveryFloorRef advanceFloor(
+                    final byte[] ignored, final long expected, final List<EvidenceCursor> ignoredCursors) {
                 return typedResult;
             }
 
@@ -1277,7 +1276,7 @@ class RecoveryCatalogTest {
             final long offset,
             final long mutationSequence,
             final CheckpointManifest.ParentCheckpoint parent,
-            final List<EvidenceCursorV1> evidenceCursors) {
+            final List<EvidenceCursor> evidenceCursors) {
         final KafkaSourcePosition position =
                 new KafkaSourcePosition(shard, "cluster", topic, offset, null, 1_000 + offset);
         final CheckpointManifest.FileEntry file = new CheckpointManifest.FileEntry(

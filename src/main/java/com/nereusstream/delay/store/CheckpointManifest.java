@@ -1,8 +1,8 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
-import com.nereusstream.delay.protocol.EvidenceKindV1;
+import com.nereusstream.delay.protocol.EvidenceCursor;
+import com.nereusstream.delay.protocol.EvidenceKind;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
 import com.nereusstream.delay.protocol.ShardId;
@@ -20,7 +20,7 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Closed V1 checkpoint manifest projection. The object-store publication
+ * Closed checkpoint manifest projection. The object-store publication
  * fields are supplied by the adapter; this class only emits the canonical JCS
  * JSON and never treats a local draft as catalog-visible.
  */
@@ -40,7 +40,7 @@ public record CheckpointManifest(
         SourcePosition appliedShardLogPosition,
         byte[] controlStateDigest,
         byte[] referencedSemanticVersionsDigest,
-        List<EvidenceCursorV1> evidenceCursors,
+        List<EvidenceCursor> evidenceCursors,
         List<FileEntry> files) {
     private static final int ID_LENGTH = 16;
 
@@ -232,8 +232,8 @@ public record CheckpointManifest(
     }
 
     /**
-     * Decodes only the exact V1 canonical JSON projection emitted by this
-     * class.  A downloaded manifest is recovery authority only after this
+     * Decodes only the exact canonical JSON projection emitted by this
+     * class. A downloaded manifest is recovery authority only after this
      * byte-for-byte canonicality check succeeds.
      */
     public static CheckpointManifest decodeCanonicalJson(final byte[] encoded) {
@@ -275,9 +275,9 @@ public record CheckpointManifest(
                 + quote(pulsar.shardId().routeIncarnation().uuid().toString()) + "}";
     }
 
-    private static String evidenceCursorJson(final EvidenceCursorV1 cursor) {
+    private static String evidenceCursorJson(final EvidenceCursor cursor) {
         final StringBuilder json = new StringBuilder(512).append('{');
-        if (cursor.evidenceKind() == EvidenceKindV1.KAFKA_RECEIPT_CONTIGUOUS) {
+        if (cursor.evidenceKind() == EvidenceKind.KAFKA_RECEIPT_CONTIGUOUS) {
             field(json, "destinationLaneId", quote(b64(cursor.destinationLaneId())));
             field(json, "evidenceGeneration", quote(u64Bits(cursor.evidenceGeneration())));
             field(json, "evidenceKind", quote(cursor.evidenceKind().name()));

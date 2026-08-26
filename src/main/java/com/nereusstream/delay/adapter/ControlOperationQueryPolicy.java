@@ -12,7 +12,7 @@ public record ControlOperationQueryPolicy(long policyVersion, long queryWindowMs
     }
 
     /**
-     * Computes the only V1 control receipt boundary permitted by this policy.
+     * Computes the only control receipt boundary permitted by this policy.
      * A wrapped timestamp would make an otherwise valid receipt immediately
      * expire, so overflow is an integrity/configuration failure.
      */

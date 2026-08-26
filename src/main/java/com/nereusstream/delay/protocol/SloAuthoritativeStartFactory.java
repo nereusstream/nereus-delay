@@ -3,7 +3,7 @@ package com.nereusstream.delay.protocol;
 import java.util.Objects;
 
 /**
- * Reconstructs the two Shard-derived V1 SLO Start branches from typed
+ * Reconstructs the two Shard-derived SLO Start branches from typed
  * authority fields.
  *
  * <p>This class intentionally does not inspect an arbitrary business message
@@ -26,21 +26,21 @@ public final class SloAuthoritativeStartFactory {
      * The Source Position itself is the event identity, so a replay of the
      * same record produces byte-identical sample and Start identities.</p>
      */
-    public static SloSampleStartV1 commandApplied(final SloObjectiveV1 objective, final SourcePosition sourcePosition) {
-        requireObjective(objective, SloObjectiveNameV1.COMMAND_APPLIED_LATENCY);
+    public static SloSampleStart commandApplied(final SloObjective objective, final SourcePosition sourcePosition) {
+        requireObjective(objective, SloObjectiveName.COMMAND_APPLIED_LATENCY);
         Objects.requireNonNull(sourcePosition, "sourcePosition");
         final byte[] sourcePositionBytes = QueryCodecSupport.encodeSourcePosition(sourcePosition);
-        final SloSampleEventIdentityV1 identity = new SloSampleEventIdentityV1(
-                SloObjectiveNameV1.COMMAND_APPLIED_LATENCY,
+        final SloSampleEventIdentity identity = new SloSampleEventIdentity(
+                SloObjectiveName.COMMAND_APPLIED_LATENCY,
                 CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1, sourcePositionBytes)));
         final long brokerPersistenceAt = sourcePosition.brokerPersistenceTimeEpochMs();
-        final SloTimeEndpointV1 start = new SloTimeEndpointV1(
-                SloTimeEndpointKindV1.BROKER_PERSISTENCE,
+        final SloTimeEndpoint start = new SloTimeEndpoint(
+                SloTimeEndpointKind.BROKER_PERSISTENCE,
                 brokerPersistenceAt,
                 brokerPersistenceAt,
                 Bytes.sha256(sourcePositionBytes));
-        return new SloSampleStartV1(
-                objective, SloPathV1.NOT_APPLICABLE, identity, start, timeoutAt(objective, brokerPersistenceAt));
+        return new SloSampleStart(
+                objective, SloPath.NOT_APPLICABLE, identity, start, timeoutAt(objective, brokerPersistenceAt));
     }
 
     /**
@@ -49,51 +49,51 @@ public final class SloAuthoritativeStartFactory {
      *
      * @param generation the complete unsigned-32 generation value
      * @param pathStartEpochMs the authoritative {@code deliverAt} or managed
-     *        handoff {@code actionAt}, depending on {@code path}
+     * handoff {@code actionAt}, depending on {@code path}
      * @param semanticEvidenceSha256 the exact digest of the durable semantic
-     *        evidence that established this path start
+     * evidence that established this path start
      */
-    public static SloSampleStartV1 dueAdmission(
-            final SloObjectiveV1 objective,
+    public static SloSampleStart dueAdmission(
+            final SloObjective objective,
             final DelayMessageId delayMessageId,
             final long generation,
-            final SloPathV1 path,
+            final SloPath path,
             final long pathStartEpochMs,
             final byte[] semanticEvidenceSha256) {
-        requireObjective(objective, SloObjectiveNameV1.DUE_ADMISSION_LAG);
+        requireObjective(objective, SloObjectiveName.DUE_ADMISSION_LAG);
         Objects.requireNonNull(delayMessageId, "delayMessageId");
         Objects.requireNonNull(path, "path");
         if (generation < 0 || generation > 0xffff_ffffL) {
             throw new IllegalArgumentException("generation must be an unsigned 32-bit value");
         }
-        if (path == SloPathV1.NOT_APPLICABLE || path == SloPathV1.AUTO_FAST_NATIVE) {
+        if (path == SloPath.NOT_APPLICABLE || path == SloPath.AUTO_FAST_NATIVE) {
             throw new IllegalArgumentException("due-admission Start requires a managed path");
         }
         if (pathStartEpochMs < 0) {
             throw new IllegalArgumentException("pathStartEpochMs must be non-negative");
         }
-        Bytes.requireLength(semanticEvidenceSha256, SloTimeEndpointV1.HASH_LENGTH, "semanticEvidenceSha256");
-        final SloSampleEventIdentityV1 identity =
-                new SloSampleEventIdentityV1(SloObjectiveNameV1.DUE_ADMISSION_LAG, CanonicalProtobuf.message(output -> {
+        Bytes.requireLength(semanticEvidenceSha256, SloTimeEndpoint.HASH_LENGTH, "semanticEvidenceSha256");
+        final SloSampleEventIdentity identity =
+                new SloSampleEventIdentity(SloObjectiveName.DUE_ADMISSION_LAG, CanonicalProtobuf.message(output -> {
                     CanonicalProtobuf.bytes(output, 1, delayMessageId.bytes());
                     CanonicalProtobuf.uint32(output, 2, generation);
                     CanonicalProtobuf.int64(output, 3, pathStartEpochMs);
                     CanonicalProtobuf.uint32(output, 4, path.wireValue());
                 }));
-        final SloTimeEndpointV1 start = new SloTimeEndpointV1(
-                SloTimeEndpointKindV1.SEMANTIC_FIXED_EPOCH, pathStartEpochMs, pathStartEpochMs, semanticEvidenceSha256);
-        return new SloSampleStartV1(objective, path, identity, start, timeoutAt(objective, pathStartEpochMs));
+        final SloTimeEndpoint start = new SloTimeEndpoint(
+                SloTimeEndpointKind.SEMANTIC_FIXED_EPOCH, pathStartEpochMs, pathStartEpochMs, semanticEvidenceSha256);
+        return new SloSampleStart(objective, path, identity, start, timeoutAt(objective, pathStartEpochMs));
     }
 
-    private static void requireObjective(final SloObjectiveV1 objective, final SloObjectiveNameV1 expected) {
+    private static void requireObjective(final SloObjective objective, final SloObjectiveName expected) {
         Objects.requireNonNull(objective, "objective");
         if (objective.name() != expected) {
             throw new IllegalArgumentException("SLO objective must be " + expected);
         }
     }
 
-    private static Long timeoutAt(final SloObjectiveV1 objective, final long startEpochMs) {
-        if (objective.direction() != SloThresholdDirectionV1.AT_MOST) {
+    private static Long timeoutAt(final SloObjective objective, final long startEpochMs) {
+        if (objective.direction() != SloThresholdDirection.AT_MOST) {
             return null;
         }
         if (objective.threshold() < 0) {

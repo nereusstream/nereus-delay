@@ -218,25 +218,25 @@ public final class PulsarClientArtifactBrokerProcessCrashStateSmoke {
         final Path directory = Path.of(directoryValue).toAbsolutePath().normalize();
         Files.createDirectories(directory);
         final String json = "{\n"
-                + "  \"schema\": \"nereus-delay-chaos-durable-state-dump-v1\",\n"
-                + "  \"cell\": " + jsonString(cell) + ",\n"
-                + "  \"phase\": "
+                + " \"schema\": \"nereus-delay-chaos-durable-state-dump\",\n"
+                + " \"cell\": " + jsonString(cell) + ",\n"
+                + " \"phase\": "
                 + jsonString(
                         phase.equals("before") ? "PULSAR_BROKER_PROCESS_CRASH_READY" : "RECOVERED_AFTER_FRESH_PROCESS")
                 + ",\n"
-                + "  \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
-                + "  \"topic\": " + jsonString(topic) + ",\n"
-                + "  \"physical_topic\": " + jsonString("persistent://public/default/" + topic) + ",\n"
-                + "  \"cluster_id\": \"standalone\",\n"
-                + "  \"admin_endpoint\": " + jsonString(endpointLabel) + ",\n"
-                + "  \"admin_read_path\": " + jsonString(adminReadPath) + ",\n"
-                + "  \"ledger_ids\": " + state.ledgerIds() + ",\n"
-                + "  \"number_of_entries\": " + state.numberOfEntries() + ",\n"
-                + "  \"last_confirmed_ledger\": " + state.lastConfirmedLedger() + ",\n"
-                + "  \"last_confirmed_entry\": " + state.lastConfirmedEntry() + ",\n"
-                + "  \"managed_ledger_state\": " + jsonString(state.managedLedgerState()) + ",\n"
-                + "  \"durable_broker_read\": true,\n"
-                + "  \"dump_forced\": true\n"
+                + " \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
+                + " \"topic\": " + jsonString(topic) + ",\n"
+                + " \"physical_topic\": " + jsonString("persistent://public/default/" + topic) + ",\n"
+                + " \"cluster_id\": \"standalone\",\n"
+                + " \"admin_endpoint\": " + jsonString(endpointLabel) + ",\n"
+                + " \"admin_read_path\": " + jsonString(adminReadPath) + ",\n"
+                + " \"ledger_ids\": " + state.ledgerIds() + ",\n"
+                + " \"number_of_entries\": " + state.numberOfEntries() + ",\n"
+                + " \"last_confirmed_ledger\": " + state.lastConfirmedLedger() + ",\n"
+                + " \"last_confirmed_entry\": " + state.lastConfirmedEntry() + ",\n"
+                + " \"managed_ledger_state\": " + jsonString(state.managedLedgerState()) + ",\n"
+                + " \"durable_broker_read\": true,\n"
+                + " \"dump_forced\": true\n"
                 + "}\n";
         final String fileName = phase.equals("before") ? "before-process-crash.json" : "after-fresh-process.json";
         final Path target = directory.resolve(fileName);

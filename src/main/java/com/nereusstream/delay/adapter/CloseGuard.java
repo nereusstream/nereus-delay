@@ -5,7 +5,7 @@ import java.util.function.Supplier;
 
 /**
  * Fences new work as soon as close is requested while allowing a failed
- * underlying close operation to be retried.  A transport close can fail after
+ * underlying close operation to be retried. A transport close can fail after
  * it has released only part of its resources; treating the first failure as
  * terminal would make a later lifecycle retry a no-op and could strand the
  * channel or producer.
@@ -23,10 +23,10 @@ final class CloseGuard {
 
     /**
      * Atomically accepts one synchronous transport invocation against the
-     * same gate that linearizes {@link #close(Runnable)}.  A plain
+     * same gate that linearizes {@link #close(Runnable)}. A plain
      * {@code isClosed()} check followed by a call is not sufficient: close
      * could otherwise complete between the check and the transport
-     * invocation.  Once accepted, the invocation is allowed to finish while
+     * invocation. Once accepted, the invocation is allowed to finish while
      * close performs its retryable teardown; it is an already accepted call,
      * not new work admitted after the close linearization point.
      */
@@ -51,7 +51,7 @@ final class CloseGuard {
         }
         // Do not hold the guard while executing transport code: a synchronous
         // transport may block, and close must still be able to fence future
-        // calls and run its retryable teardown.  The accepted-invocation
+        // calls and run its retryable teardown. The accepted-invocation
         // count makes the decision above atomic with the close fence; there
         // is no check-then-call window after the lock is released.
         try {
@@ -76,7 +76,7 @@ final class CloseGuard {
             if (closing) {
                 return;
             }
-            // Keep completed=false when the action throws.  The next close
+            // Keep completed=false when the action throws. The next close
             // call remains fenced against new work but can retry the native
             // teardown.
             closing = true;

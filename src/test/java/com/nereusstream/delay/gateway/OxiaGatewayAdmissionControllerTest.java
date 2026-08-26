@@ -26,19 +26,19 @@ class OxiaGatewayAdmissionControllerTest {
     @Test
     void admissionRecordRoundTripsAndRejectsTampering() {
         final Digest32 tenant = new Digest32(bytes(32, 1));
-        final GatewayAdmissionRecordV1 record = new GatewayAdmissionRecordV1(
+        final GatewayAdmissionRecord record = new GatewayAdmissionRecord(
                 tenant,
                 4,
                 List.of(
-                        new GatewayAdmissionRecordV1.Lease(bytes(16, 2), GatewayIngressOperationV1.SCHEDULE, 77, 900),
-                        new GatewayAdmissionRecordV1.Lease(bytes(16, 3), GatewayIngressOperationV1.CONTROL, 9, 901)));
+                        new GatewayAdmissionRecord.Lease(bytes(16, 2), GatewayIngressOperation.SCHEDULE, 77, 900),
+                        new GatewayAdmissionRecord.Lease(bytes(16, 3), GatewayIngressOperation.CONTROL, 9, 901)));
         final byte[] encoded = record.canonicalBytes();
-        final GatewayAdmissionRecordV1 decoded = GatewayAdmissionRecordV1.decode(encoded);
+        final GatewayAdmissionRecord decoded = GatewayAdmissionRecord.decode(encoded);
 
         assertArrayEquals(encoded, decoded.canonicalBytes());
         assertEquals(2, decoded.leases().size());
         encoded[encoded.length - 1] ^= 1;
-        assertThrows(IllegalArgumentException.class, () -> GatewayAdmissionRecordV1.decode(encoded));
+        assertThrows(IllegalArgumentException.class, () -> GatewayAdmissionRecord.decode(encoded));
     }
 
     @Test
@@ -49,22 +49,22 @@ class OxiaGatewayAdmissionControllerTest {
                 client, "/nereus/gateway", clock, new OxiaGatewayAdmissionController.Limits(1, 100, 1, 1, 1_000, 4));
         final AuthenticatedTenantContext tenant = tenant(10);
 
-        final GatewayAdmissionLease schedule = reserve(controller, tenant, GatewayIngressOperationV1.SCHEDULE, 60);
-        final GatewayAdmissionLease retry = reserve(controller, tenant, GatewayIngressOperationV1.RETRY_UNCERTAIN, 1);
-        final GatewayAdmissionLease control = reserve(controller, tenant, GatewayIngressOperationV1.CONTROL, 1);
+        final GatewayAdmissionLease schedule = reserve(controller, tenant, GatewayIngressOperation.SCHEDULE, 60);
+        final GatewayAdmissionLease retry = reserve(controller, tenant, GatewayIngressOperation.RETRY_UNCERTAIN, 1);
+        final GatewayAdmissionLease control = reserve(controller, tenant, GatewayIngressOperation.CONTROL, 1);
         assertEquals(
                 GatewayAdmissionController.State.REJECTED,
                 controller
-                        .reserve(new GatewayAdmissionRequestV1(tenant, GatewayIngressOperationV1.SCHEDULE, 1))
+                        .reserve(new GatewayAdmissionRequest(tenant, GatewayIngressOperation.SCHEDULE, 1))
                         .state());
         assertEquals(
                 com.nereusstream.delay.protocol.StableCode.ADMISSION_CAPACITY_GATED,
                 controller
-                        .reserve(new GatewayAdmissionRequestV1(tenant, GatewayIngressOperationV1.SCHEDULE, 1))
+                        .reserve(new GatewayAdmissionRequest(tenant, GatewayIngressOperation.SCHEDULE, 1))
                         .rejectionCode());
 
         schedule.close();
-        final GatewayAdmissionLease replacement = reserve(controller, tenant, GatewayIngressOperationV1.SCHEDULE, 90);
+        final GatewayAdmissionLease replacement = reserve(controller, tenant, GatewayIngressOperation.SCHEDULE, 90);
         replacement.close();
         control.close();
         retry.close();
@@ -80,13 +80,13 @@ class OxiaGatewayAdmissionControllerTest {
                 client, "/nereus/gateway", clock, new OxiaGatewayAdmissionController.Limits(2, 100, 1, 1, 10, 4));
         final AuthenticatedTenantContext tenant = tenant(20);
 
-        final GatewayAdmissionLease first = reserve(controller, tenant, GatewayIngressOperationV1.SCHEDULE, 80);
+        final GatewayAdmissionLease first = reserve(controller, tenant, GatewayIngressOperation.SCHEDULE, 80);
         final GatewayAdmissionController.Decision tooLarge =
-                controller.reserve(new GatewayAdmissionRequestV1(tenant, GatewayIngressOperationV1.SCHEDULE, 30));
+                controller.reserve(new GatewayAdmissionRequest(tenant, GatewayIngressOperation.SCHEDULE, 30));
         assertEquals(com.nereusstream.delay.protocol.StableCode.HARD_QUOTA_EXCEEDED, tooLarge.rejectionCode());
 
         clock.value = 110;
-        final GatewayAdmissionLease afterExpiry = reserve(controller, tenant, GatewayIngressOperationV1.SCHEDULE, 100);
+        final GatewayAdmissionLease afterExpiry = reserve(controller, tenant, GatewayIngressOperation.SCHEDULE, 100);
         first.close();
         afterExpiry.close();
         assertEquals(0, client.leases(tenant).size());
@@ -101,7 +101,7 @@ class OxiaGatewayAdmissionControllerTest {
         final AuthenticatedTenantContext tenant = tenant(30);
 
         client.loseNextPutResponse = true;
-        final GatewayAdmissionLease lease = reserve(controller, tenant, GatewayIngressOperationV1.SCHEDULE, 8);
+        final GatewayAdmissionLease lease = reserve(controller, tenant, GatewayIngressOperation.SCHEDULE, 8);
         assertEquals(1, client.leases(tenant).size());
 
         client.loseNextPutResponse = true;
@@ -118,8 +118,8 @@ class OxiaGatewayAdmissionControllerTest {
                 () -> 100,
                 new OxiaGatewayAdmissionController.Limits(1, 100, 1, 1, 1_000, 4));
 
-        final GatewayAdmissionLease first = reserve(controller, tenant(40), GatewayIngressOperationV1.SCHEDULE, 100);
-        final GatewayAdmissionLease second = reserve(controller, tenant(41), GatewayIngressOperationV1.SCHEDULE, 100);
+        final GatewayAdmissionLease first = reserve(controller, tenant(40), GatewayIngressOperation.SCHEDULE, 100);
+        final GatewayAdmissionLease second = reserve(controller, tenant(41), GatewayIngressOperation.SCHEDULE, 100);
         first.close();
         second.close();
     }
@@ -133,7 +133,7 @@ class OxiaGatewayAdmissionControllerTest {
                 () -> 100,
                 new OxiaGatewayAdmissionController.Limits(1, 100, 1, 1, 1_000, 4));
         final AuthenticatedTenantContext tenant = tenant(50);
-        final GatewayAdmissionLease lease = reserve(controller, tenant, GatewayIngressOperationV1.SCHEDULE, 10);
+        final GatewayAdmissionLease lease = reserve(controller, tenant, GatewayIngressOperation.SCHEDULE, 10);
         client.releaseFailures = 5;
 
         assertThrows(IllegalStateException.class, lease::close);
@@ -148,10 +148,10 @@ class OxiaGatewayAdmissionControllerTest {
     private static GatewayAdmissionLease reserve(
             final OxiaGatewayAdmissionController controller,
             final AuthenticatedTenantContext tenant,
-            final GatewayIngressOperationV1 operation,
+            final GatewayIngressOperation operation,
             final long bytes) {
         final GatewayAdmissionController.Decision decision =
-                controller.reserve(new GatewayAdmissionRequestV1(tenant, operation, bytes));
+                controller.reserve(new GatewayAdmissionRequest(tenant, operation, bytes));
         assertEquals(GatewayAdmissionController.State.ACCEPTED, decision.state());
         return decision.lease();
     }
@@ -226,14 +226,14 @@ class OxiaGatewayAdmissionControllerTest {
         @Override
         public void close() {}
 
-        private List<GatewayAdmissionRecordV1.Lease> leases(final AuthenticatedTenantContext tenant) {
+        private List<GatewayAdmissionRecord.Lease> leases(final AuthenticatedTenantContext tenant) {
             final String key = "/nereus/gateway/admission/"
                     + Bytes.hex(new Digest32(tenant.authenticatedTenantScopeHash()).bytes());
             final Stored stored = records.get(key);
             return stored == null
                     ? List.of()
                     : new ArrayList<>(
-                            GatewayAdmissionRecordV1.decode(stored.value()).leases());
+                            GatewayAdmissionRecord.decode(stored.value()).leases());
         }
 
         private record Stored(byte[] value, Version version) {}

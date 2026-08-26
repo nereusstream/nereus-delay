@@ -1,7 +1,7 @@
 package com.nereusstream.delay.ownership;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.ClaimMaterializationV1;
+import com.nereusstream.delay.protocol.ClaimMaterialization;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.ClaimRecord;
@@ -21,15 +21,15 @@ import java.util.function.LongSupplier;
  * Bounded active-owner handoff from one polled READY head to a reversible Claim.
  *
  * <p>The caller may supply an exact typed materialization or ask this
- * executor to derive the local V1 projection from the durable Message and
- * binding.  In both forms the executor repeats every local fence after the
- * queue wait.  The injected prerequisite gate is the production integration
+ * executor to derive the local projection from the durable Message and
+ * binding. In both forms the executor repeats every local fence after the
+ * queue wait. The injected prerequisite gate is the production integration
  * point for immutable Profile/Object Store/Adapter serialization and current
  * channel/evidence/credential generations; this class does not invent those
  * external authorities.</p>
  */
 public final class ClaimHandoffWorkClassExecutor {
-    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-claim-handoff-task-v1\0");
+    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-claim-handoff-task\0");
 
     private final WorkClassExecutionRegistry workClasses;
     private final OwnedDelayShard ownedShard;
@@ -64,8 +64,8 @@ public final class ClaimHandoffWorkClassExecutor {
     }
 
     /**
-     * Derives the accepted V1 binding projection before queueing the exact
-     * Claim handoff.  The charge, deadline, and live prerequisite gate remain
+     * Derives the accepted binding projection before queueing the exact
+     * Claim handoff. The charge, deadline, and live prerequisite gate remain
      * explicit caller inputs.
      */
     public Submission submit(
@@ -74,7 +74,7 @@ public final class ClaimHandoffWorkClassExecutor {
             final long claimDeadlineEpochMs,
             final byte[] claimedCharge,
             final LongSupplier ownerClock) {
-        final ClaimMaterializationV1 materialization = ownedShard.resolveClaimMaterializationAuthoritativelyStrict(
+        final ClaimMaterialization materialization = ownedShard.resolveClaimMaterializationAuthoritativelyStrict(
                 authority, scheduler, item, evidence, ownerClock);
         return submit(item, evidence, claimDeadlineEpochMs, materialization, claimedCharge, ownerClock);
     }
@@ -87,7 +87,7 @@ public final class ClaimHandoffWorkClassExecutor {
             final ScheduleWorkItem item,
             final TrustedUtcIntervalEvidence evidence,
             final long claimDeadlineEpochMs,
-            final ClaimMaterializationV1 materialization,
+            final ClaimMaterialization materialization,
             final byte[] claimedCharge,
             final LongSupplier ownerClock) {
         final ClaimRequest request =
@@ -201,7 +201,7 @@ public final class ClaimHandoffWorkClassExecutor {
     public record ClaimPrerequisite(
             PersistentLaneScheduler.ClaimCandidate candidate,
             TrustedUtcIntervalEvidence evidence,
-            ClaimMaterializationV1 materialization,
+            ClaimMaterialization materialization,
             long claimDeadlineEpochMs) {
         public ClaimPrerequisite {
             Objects.requireNonNull(candidate, "candidate");
@@ -314,7 +314,7 @@ public final class ClaimHandoffWorkClassExecutor {
         private final ScheduleWorkItem item;
         private final TrustedUtcIntervalEvidence evidence;
         private final long claimDeadlineEpochMs;
-        private final ClaimMaterializationV1 materialization;
+        private final ClaimMaterialization materialization;
         private final byte[] claimedCharge;
         private final LongSupplier ownerClock;
 
@@ -322,7 +322,7 @@ public final class ClaimHandoffWorkClassExecutor {
                 final ScheduleWorkItem item,
                 final TrustedUtcIntervalEvidence evidence,
                 final long claimDeadlineEpochMs,
-                final ClaimMaterializationV1 materialization,
+                final ClaimMaterialization materialization,
                 final byte[] claimedCharge,
                 final LongSupplier ownerClock) {
             this.item = item;
@@ -337,12 +337,12 @@ public final class ClaimHandoffWorkClassExecutor {
                 final ScheduleWorkItem item,
                 final TrustedUtcIntervalEvidence evidence,
                 final long claimDeadlineEpochMs,
-                final ClaimMaterializationV1 materialization,
+                final ClaimMaterialization materialization,
                 final byte[] claimedCharge,
                 final LongSupplier ownerClock) {
             final ScheduleWorkItem selected = Objects.requireNonNull(item, "item");
             final TrustedUtcIntervalEvidence trusted = Objects.requireNonNull(evidence, "evidence");
-            final ClaimMaterializationV1 prepared = Objects.requireNonNull(materialization, "materialization");
+            final ClaimMaterialization prepared = Objects.requireNonNull(materialization, "materialization");
             final byte[] chargeBytes = Objects.requireNonNull(claimedCharge, "claimedCharge");
             final PublishAdmissionBody.ChargeVector charge =
                     PublishAdmissionBody.ChargeVector.decodeCanonical(chargeBytes);

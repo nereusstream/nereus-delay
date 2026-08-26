@@ -18,7 +18,7 @@ import java.util.function.LongSupplier;
  * Mutation and allocates no Source Position.</p>
  */
 public final class LaneCloseWorkClassExecutor {
-    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-lane-close-materialization-v1\0");
+    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-lane-close-materialization\0");
 
     private final WorkClassExecutionRegistry workClasses;
     private final OwnedDelayShard ownedShard;

@@ -1,21 +1,21 @@
 package com.nereusstream.delay.adapter;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CommittedPayloadDescriptorV1;
-import com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
-import com.nereusstream.delay.protocol.ObjectStoreProviderKindV1;
-import com.nereusstream.delay.protocol.OpaquePayloadUploadHandleV1;
-import com.nereusstream.delay.protocol.PayloadAttestationResponseV1;
-import com.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
-import com.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
+import com.nereusstream.delay.protocol.CommittedPayloadDescriptor;
+import com.nereusstream.delay.protocol.ObjectStoreProfileSemantic;
+import com.nereusstream.delay.protocol.ObjectStoreProviderKind;
+import com.nereusstream.delay.protocol.OpaquePayloadUploadHandle;
+import com.nereusstream.delay.protocol.PayloadAttestationResponse;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetRef;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetSemantic;
 import com.nereusstream.delay.protocol.PayloadReference;
-import com.nereusstream.delay.protocol.PayloadReservationReceiptV1;
-import com.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
+import com.nereusstream.delay.protocol.PayloadReservationReceipt;
+import com.nereusstream.delay.protocol.PayloadUploadHandleResponse;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
-import com.nereusstream.delay.protocol.UploadHandleKindV1;
+import com.nereusstream.delay.protocol.UploadHandleKind;
 import com.nereusstream.delay.runtime.PayloadReservation;
 import com.nereusstream.delay.runtime.PublishAttemptLedger;
 import com.nereusstream.delay.store.ObjectStoreCredentialUseLeaseGate;
@@ -44,7 +44,7 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
 /**
- * S3-compatible large-payload adapter backed by the V1 reservation state
+ * S3-compatible large-payload adapter backed by the reservation state
  * machine.
  *
  * <p>The adapter keeps reservation/handle/proof authority in the existing
@@ -58,8 +58,8 @@ import javax.crypto.spec.SecretKeySpec;
  * never used.</p>
  */
 public final class S3CompatiblePayloadObjectStore {
-    private static final byte[] ENDPOINT_DOMAIN = Bytes.utf8("nereus-delay-s3-endpoint-v1\0");
-    private static final byte[] CREDENTIAL_DOMAIN = Bytes.utf8("nereus-delay-s3-credential-scope-v1\0");
+    private static final byte[] ENDPOINT_DOMAIN = Bytes.utf8("nereus-delay-s3-endpoint\0");
+    private static final byte[] CREDENTIAL_DOMAIN = Bytes.utf8("nereus-delay-s3-credential-scope\0");
     private static final byte[] CONTAINER_PREFIX = Bytes.utf8("nereus-delay-local/");
     private static final byte[] OBJECT_KEY_PREFIX = Bytes.utf8("reservation/");
     private static final String SERVICE = "s3";
@@ -70,8 +70,8 @@ public final class S3CompatiblePayloadObjectStore {
     private static final DateTimeFormatter SHORT_DATE =
             DateTimeFormatter.ofPattern("yyyyMMdd").withZone(ZoneOffset.UTC);
 
-    private final ProfileSemanticEnvelopeV1 profile;
-    private final ObjectStoreProfileSemanticV1 objectStore;
+    private final ProfileSemanticEnvelope profile;
+    private final ObjectStoreProfileSemantic objectStore;
     private final URI endpoint;
     private final String region;
     private final String bucket;
@@ -87,7 +87,7 @@ public final class S3CompatiblePayloadObjectStore {
 
     /** Creates an ungated adapter for an explicitly authorized test/service account. */
     public S3CompatiblePayloadObjectStore(
-            final ProfileSemanticEnvelopeV1 profile,
+            final ProfileSemanticEnvelope profile,
             final URI endpoint,
             final String region,
             final String bucket,
@@ -95,7 +95,7 @@ public final class S3CompatiblePayloadObjectStore {
             final String secretAccessKey,
             final String sessionToken,
             final byte[] tenantRoutingScope,
-            final PayloadProofTrustSetSemanticV1 trustSet,
+            final PayloadProofTrustSetSemantic trustSet,
             final int proofKeyVersion,
             final java.security.PrivateKey proofSigningKey) {
         this(
@@ -122,7 +122,7 @@ public final class S3CompatiblePayloadObjectStore {
 
     /** Creates an adapter whose every remote call is guarded by one exact credential-use lease. */
     public S3CompatiblePayloadObjectStore(
-            final ProfileSemanticEnvelopeV1 profile,
+            final ProfileSemanticEnvelope profile,
             final URI endpoint,
             final String region,
             final String bucket,
@@ -130,7 +130,7 @@ public final class S3CompatiblePayloadObjectStore {
             final String secretAccessKey,
             final String sessionToken,
             final byte[] tenantRoutingScope,
-            final PayloadProofTrustSetSemanticV1 trustSet,
+            final PayloadProofTrustSetSemantic trustSet,
             final int proofKeyVersion,
             final long maxUploadHandleLifetimeMs,
             final java.security.PrivateKey proofSigningKey,
@@ -139,12 +139,12 @@ public final class S3CompatiblePayloadObjectStore {
             final Clock clock,
             final Duration requestTimeout) {
         this.profile = Objects.requireNonNull(profile, "profile");
-        if (profile.profileKind() != ProfileKindV1.OBJECT_STORE
-                || !(profile.body() instanceof ObjectStoreProfileSemanticV1 semantic)) {
+        if (profile.profileKind() != ProfileKind.OBJECT_STORE
+                || !(profile.body() instanceof ObjectStoreProfileSemantic semantic)) {
             throw new IllegalArgumentException("S3 payload adapter requires an OBJECT_STORE Profile");
         }
-        if (semantic.providerKind() != ObjectStoreProviderKindV1.S3
-                && semantic.providerKind() != ObjectStoreProviderKindV1.S3_COMPATIBLE) {
+        if (semantic.providerKind() != ObjectStoreProviderKind.S3
+                && semantic.providerKind() != ObjectStoreProviderKind.S3_COMPATIBLE) {
             throw new IllegalArgumentException("S3 payload adapter does not support the selected provider");
         }
         this.objectStore = semantic;
@@ -207,45 +207,43 @@ public final class S3CompatiblePayloadObjectStore {
 
     public void register(
             final PayloadReservation reservation,
-            final PayloadProofTrustSetRefV1 pinnedTrustSet,
-            final ProfileRefV1 pinnedObjectStoreProfile) {
+            final PayloadProofTrustSetRef pinnedTrustSet,
+            final ProfileRef pinnedObjectStoreProfile) {
         delegate.register(reservation, pinnedTrustSet, pinnedObjectStoreProfile);
     }
 
-    public PayloadReservationReceiptV1 reservationReceipt(final PayloadReservation reservation) {
+    public PayloadReservationReceipt reservationReceipt(final PayloadReservation reservation) {
         return delegate.reservationReceipt(reservation);
     }
 
-    public PayloadUploadHandleResponseV1 issueUploadHandle(
-            final byte[] reservationId, final UploadHandleKindV1 kind, final long nowEpochMs) {
+    public PayloadUploadHandleResponse issueUploadHandle(
+            final byte[] reservationId, final UploadHandleKind kind, final long nowEpochMs) {
         return delegate.issueUploadHandle(reservationId, kind, nowEpochMs);
     }
 
-    public PayloadUploadHandleResponseV1 issueUploadHandle(
-            final PayloadReservationReceiptV1 receipt, final UploadHandleKindV1 kind, final long nowEpochMs) {
+    public PayloadUploadHandleResponse issueUploadHandle(
+            final PayloadReservationReceipt receipt, final UploadHandleKind kind, final long nowEpochMs) {
         return delegate.issueUploadHandle(receipt, kind, nowEpochMs);
     }
 
-    public void upload(final OpaquePayloadUploadHandleV1 handle, final byte[] payload, final long nowEpochMs) {
+    public void upload(final OpaquePayloadUploadHandle handle, final byte[] payload, final long nowEpochMs) {
         delegate.upload(handle, payload, nowEpochMs);
     }
 
     public void upload(
-            final PayloadReservationReceiptV1 receipt,
-            final OpaquePayloadUploadHandleV1 handle,
+            final PayloadReservationReceipt receipt,
+            final OpaquePayloadUploadHandle handle,
             final byte[] payload,
             final long nowEpochMs) {
         delegate.upload(receipt, handle, payload, nowEpochMs);
     }
 
-    public PayloadAttestationResponseV1 attest(final OpaquePayloadUploadHandleV1 handle, final long nowEpochMs) {
+    public PayloadAttestationResponse attest(final OpaquePayloadUploadHandle handle, final long nowEpochMs) {
         return delegate.attest(handle, nowEpochMs);
     }
 
-    public PayloadAttestationResponseV1 attest(
-            final PayloadReservationReceiptV1 receipt,
-            final OpaquePayloadUploadHandleV1 handle,
-            final long nowEpochMs) {
+    public PayloadAttestationResponse attest(
+            final PayloadReservationReceipt receipt, final OpaquePayloadUploadHandle handle, final long nowEpochMs) {
         return delegate.attest(receipt, handle, nowEpochMs);
     }
 
@@ -262,7 +260,7 @@ public final class S3CompatiblePayloadObjectStore {
     public Optional<byte[]> load(final PublishAttemptLedger attempt) {
         Objects.requireNonNull(attempt, "attempt");
         final PublishAdmissionBody admission = PublishAdmissionBody.decode(attempt.admissionBytes());
-        final CommittedPayloadDescriptorV1 descriptor =
+        final CommittedPayloadDescriptor descriptor =
                 admission.descriptor().value().payload().hasObject()
                         ? admission.descriptor().value().payload().object()
                         : null;

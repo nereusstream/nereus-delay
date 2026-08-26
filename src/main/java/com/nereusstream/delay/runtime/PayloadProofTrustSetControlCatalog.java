@@ -1,7 +1,7 @@
 package com.nereusstream.delay.runtime;
 
-import com.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
-import com.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetRef;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetSemantic;
 
 /**
  * Source-side catalog seam for immutable payload-proof trust-set values.
@@ -10,5 +10,5 @@ import com.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
  */
 @FunctionalInterface
 public interface PayloadProofTrustSetControlCatalog {
-    PayloadProofTrustSetSemanticV1 resolve(PayloadProofTrustSetRefV1 reference);
+    PayloadProofTrustSetSemantic resolve(PayloadProofTrustSetRef reference);
 }

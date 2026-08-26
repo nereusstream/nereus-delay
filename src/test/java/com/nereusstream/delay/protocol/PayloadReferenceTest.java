@@ -10,8 +10,8 @@ import org.junit.jupiter.api.Test;
 class PayloadReferenceTest {
     @Test
     void descriptorProjectionPreservesAbsentOptionalEtagAcrossTheLegacyValueCodec() {
-        final CommittedPayloadDescriptorV1 descriptor = new CommittedPayloadDescriptorV1(
-                new ProfileRefV1(Bytes.utf8("object-store"), 1, bytes(32, 1), ProfileKindV1.OBJECT_STORE),
+        final CommittedPayloadDescriptor descriptor = new CommittedPayloadDescriptor(
+                new ProfileRef(Bytes.utf8("object-store"), 1, bytes(32, 1), ProfileKind.OBJECT_STORE),
                 Bytes.utf8("bucket"),
                 Bytes.utf8("object"),
                 Bytes.utf8("version"),

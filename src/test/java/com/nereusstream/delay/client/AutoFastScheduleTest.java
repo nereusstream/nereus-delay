@@ -6,36 +6,36 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import com.nereusstream.delay.protocol.AdapterKindV1;
-import com.nereusstream.delay.protocol.AdapterMetadataV1;
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.AdapterKind;
+import com.nereusstream.delay.protocol.AdapterMetadata;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.DeliveryCapabilitySemanticV1;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
+import com.nereusstream.delay.protocol.DeliveryCapabilitySemantic;
 import com.nereusstream.delay.protocol.DeliveryMode;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.DestinationProfileSemanticV1;
-import com.nereusstream.delay.protocol.FailureStageV1;
-import com.nereusstream.delay.protocol.NativeCapabilitySnapshotV1;
-import com.nereusstream.delay.protocol.NativePreparedDeliveryV1;
+import com.nereusstream.delay.protocol.DestinationProfileSemantic;
+import com.nereusstream.delay.protocol.FailureStage;
+import com.nereusstream.delay.protocol.NativeCapabilitySnapshot;
+import com.nereusstream.delay.protocol.NativePreparedDelivery;
 import com.nereusstream.delay.protocol.OrderingMode;
-import com.nereusstream.delay.protocol.OutcomeCapabilityV1;
+import com.nereusstream.delay.protocol.OutcomeCapability;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.PreparedSubmissionV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
-import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.PulsarMetadataV1;
-import com.nereusstream.delay.protocol.RetryPolicyRefV1;
+import com.nereusstream.delay.protocol.PreparedSubmission;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
+import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.PulsarMetadata;
+import com.nereusstream.delay.protocol.RetryPolicyRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ScheduleIntent;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.StableCode;
-import com.nereusstream.delay.protocol.StableErrorV1;
-import com.nereusstream.delay.protocol.TargetPartitionHashInputV1;
-import com.nereusstream.delay.protocol.TargetPartitionHashV1;
-import com.nereusstream.delay.protocol.TargetPartitionPolicyV1;
-import com.nereusstream.delay.protocol.TimingCapabilityV1;
+import com.nereusstream.delay.protocol.StableError;
+import com.nereusstream.delay.protocol.TargetPartitionHash;
+import com.nereusstream.delay.protocol.TargetPartitionHashInput;
+import com.nereusstream.delay.protocol.TargetPartitionPolicy;
+import com.nereusstream.delay.protocol.TimingCapability;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.store.ShardStoreConfig;
 import java.nio.file.Path;
@@ -56,18 +56,18 @@ class AutoFastScheduleTest {
     void preparesEligibleNativeBranchBeforeAnyCommandAdmission() throws Exception {
         final Fixture fixture = fixture();
         try (EmbeddedDelayService service = fixture.service(tempDir.resolve("eligible"))) {
-            final PreparedSubmissionV1 prepared =
+            final PreparedSubmission prepared =
                     service.prepareAutoFast(AutoFastSchedule.withNativeCandidate(fixture.command, fixture.candidate));
 
             assertFalse(prepared.isManaged());
-            final NativePreparedDeliveryV1 nativePrepared = prepared.nativePrepared();
+            final NativePreparedDelivery nativePrepared = prepared.nativePrepared();
             assertNotNull(nativePrepared);
             assertEquals(fixture.target, nativePrepared.target());
             assertEquals(4_020, nativePrepared.brokerDeliverAtEpochMs());
             assertTrue(nativePrepared.nativeDeliveryId().length == 32);
             assertTrue(java.util.Arrays.stream(toUnsigned(nativePrepared.nativeDeliveryId()))
                     .anyMatch(value -> value != 0));
-            assertEquals(prepared, PreparedSubmissionV1.decode(prepared.canonicalBytes()));
+            assertEquals(prepared, PreparedSubmission.decode(prepared.canonicalBytes()));
             assertEquals(0, service.pendingCommandCount());
         }
     }
@@ -76,9 +76,9 @@ class AutoFastScheduleTest {
     void nativeBrokerTimestampNeverExceedsTheActivatedTargetClockBound() throws Exception {
         final Fixture fixture = fixture();
         try (EmbeddedDelayService service = fixture.service(tempDir.resolve("target-clock-bound"))) {
-            final PreparedSubmissionV1 prepared =
+            final PreparedSubmission prepared =
                     service.prepareAutoFast(AutoFastSchedule.withNativeCandidate(fixture.command, fixture.candidate));
-            final DestinationProfileSemanticV1 destination = (DestinationProfileSemanticV1)
+            final DestinationProfileSemantic destination = (DestinationProfileSemantic)
                     fixture.candidate.destinationProfile().body();
 
             assertFalse(prepared.isManaged());
@@ -109,13 +109,13 @@ class AutoFastScheduleTest {
                 fixture.keyPair.getPublic(),
                 false);
         try (EmbeddedDelayService service = fixture.service(tempDir.resolve("fallback"))) {
-            final PreparedSubmissionV1 prepared =
+            final PreparedSubmission prepared =
                     service.prepareAutoFast(AutoFastSchedule.withNativeCandidate(fixture.command, noDirectAuthority));
-            final PreparedSubmissionV1 expected = service.prepareManagedSubmissionV1(fixture.command);
+            final PreparedSubmission expected = service.prepareManagedSubmission(fixture.command);
 
             assertTrue(prepared.isManaged());
             assertArrayEquals(expected.managedFrame(), prepared.managedFrame());
-            assertEquals(expected, PreparedSubmissionV1.decode(prepared.canonicalBytes()));
+            assertEquals(expected, PreparedSubmission.decode(prepared.canonicalBytes()));
             assertEquals(0, service.pendingCommandCount());
         }
     }
@@ -124,7 +124,7 @@ class AutoFastScheduleTest {
     void batchSelectionIsIndependentAndKeepsInputOrder() throws Exception {
         final Fixture fixture = fixture();
         try (EmbeddedDelayService service = fixture.service(tempDir.resolve("batch"))) {
-            final List<PreparedSubmissionV1> prepared = service.prepareAutoFastBatch(List.of(
+            final List<PreparedSubmission> prepared = service.prepareAutoFastBatch(List.of(
                     AutoFastSchedule.withNativeCandidate(fixture.command, fixture.candidate),
                     AutoFastSchedule.managed(fixture.command)));
 
@@ -133,7 +133,7 @@ class AutoFastScheduleTest {
             assertTrue(prepared.get(1).isManaged());
             assertArrayEquals(
                     prepared.get(1).managedFrame(),
-                    service.prepareManagedSubmissionV1(fixture.command).managedFrame());
+                    service.prepareManagedSubmission(fixture.command).managedFrame());
             assertEquals(0, service.pendingCommandCount());
         }
     }
@@ -141,17 +141,16 @@ class AutoFastScheduleTest {
     @Test
     void hashOnlyNativeSelectionRecomputesTheSignedPartition() throws Exception {
         final Fixture base = fixture();
-        final PulsarMetadataV1 metadata =
-                new PulsarMetadataV1(null, null, Bytes.utf8("native-ordering-key"), List.of());
-        final ProfileSemanticEnvelopeV1 destination = destination(
+        final PulsarMetadata metadata = new PulsarMetadata(null, null, Bytes.utf8("native-ordering-key"), List.of());
+        final ProfileSemanticEnvelope destination = destination(
                 base.candidate.capabilityProfile().ref(),
                 base.target,
-                TargetPartitionPolicyV1.HASH_ONLY,
+                TargetPartitionPolicy.HASH_ONLY,
                 List.of(),
-                TargetPartitionHashInputV1.ORDERING_KEY);
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
+                TargetPartitionHashInput.ORDERING_KEY);
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
                 destination.ref(),
-                new RetryPolicyRefV1(Bytes.utf8("autofast-hash-retry"), 1, bytes(32, 30)),
+                new RetryPolicyRef(Bytes.utf8("autofast-hash-retry"), 1, bytes(32, 30)),
                 4_000,
                 9_000,
                 DeliveryMode.MANAGED,
@@ -159,10 +158,10 @@ class AutoFastScheduleTest {
                 new byte[0],
                 base.payload,
                 null,
-                AdapterMetadataV1.pulsar(metadata),
+                AdapterMetadata.pulsar(metadata),
                 null,
                 null);
-        final PreparedCommand command = PreparedCommand.scheduleV1(base.shard, intent, 10_000);
+        final PreparedCommand command = PreparedCommand.schedule(base.shard, intent, 10_000);
         final TrustedUtcIntervalEvidence issuedAt = new TrustedUtcIntervalEvidence(
                 2_000,
                 2_010,
@@ -174,9 +173,8 @@ class AutoFastScheduleTest {
                 Bytes.sha256(Bytes.utf8("autofast-hash-sample")),
                 0,
                 null);
-        final int expectedPartition =
-                (int) TargetPartitionHashV1.partition(destination.ref(), 2, metadata.orderingKey());
-        final NativeCapabilitySnapshotV1 expectedSnapshot = NativeCapabilitySnapshotV1.create(
+        final int expectedPartition = (int) TargetPartitionHash.partition(destination.ref(), 2, metadata.orderingKey());
+        final NativeCapabilitySnapshot expectedSnapshot = NativeCapabilitySnapshot.create(
                 destination.ref(),
                 base.candidate.capabilityProfile().ref(),
                 base.target,
@@ -205,7 +203,7 @@ class AutoFastScheduleTest {
                 base.keyPair.getPublic(),
                 true);
         final int wrongPartition = expectedPartition == 0 ? 1 : 0;
-        final NativeCapabilitySnapshotV1 wrongSnapshot = NativeCapabilitySnapshotV1.create(
+        final NativeCapabilitySnapshot wrongSnapshot = NativeCapabilitySnapshot.create(
                 destination.ref(),
                 base.candidate.capabilityProfile().ref(),
                 base.target,
@@ -239,10 +237,10 @@ class AutoFastScheduleTest {
                     .isManaged());
         }
         try (EmbeddedDelayService service = base.service(tempDir.resolve("hash-only-wrong"))) {
-            final PreparedSubmissionV1 prepared =
+            final PreparedSubmission prepared =
                     service.prepareAutoFast(AutoFastSchedule.withNativeCandidate(command, wrongCandidate));
             assertTrue(prepared.isManaged());
-            assertArrayEquals(service.prepareManagedSubmissionV1(command).managedFrame(), prepared.managedFrame());
+            assertArrayEquals(service.prepareManagedSubmission(command).managedFrame(), prepared.managedFrame());
         }
     }
 
@@ -251,16 +249,16 @@ class AutoFastScheduleTest {
         final Fixture base = fixture();
         final int highBitPartition = Integer.MIN_VALUE;
         final int partitionCount = Integer.MIN_VALUE + 1;
-        final ProfileSemanticEnvelopeV1 destination = destination(
+        final ProfileSemanticEnvelope destination = destination(
                 base.candidate.capabilityProfile().ref(),
                 base.target,
                 partitionCount,
-                TargetPartitionPolicyV1.EXPLICIT_ONLY,
+                TargetPartitionPolicy.EXPLICIT_ONLY,
                 List.of(highBitPartition),
-                TargetPartitionHashInputV1.ORDERING_KEY);
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
+                TargetPartitionHashInput.ORDERING_KEY);
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
                 destination.ref(),
-                new RetryPolicyRefV1(Bytes.utf8("autofast-high-bit-retry"), 1, bytes(32, 70)),
+                new RetryPolicyRef(Bytes.utf8("autofast-high-bit-retry"), 1, bytes(32, 70)),
                 4_000,
                 9_000,
                 DeliveryMode.MANAGED,
@@ -268,10 +266,10 @@ class AutoFastScheduleTest {
                 new byte[0],
                 base.payload,
                 null,
-                AdapterMetadataV1.pulsar(base.metadata),
+                AdapterMetadata.pulsar(base.metadata),
                 null,
                 null);
-        final PreparedCommand command = PreparedCommand.scheduleV1(base.shard, intent, 10_000);
+        final PreparedCommand command = PreparedCommand.schedule(base.shard, intent, 10_000);
         final TrustedUtcIntervalEvidence issuedAt = new TrustedUtcIntervalEvidence(
                 2_000,
                 2_010,
@@ -283,7 +281,7 @@ class AutoFastScheduleTest {
                 Bytes.sha256(Bytes.utf8("autofast-high-bit-sample")),
                 0,
                 null);
-        final NativeCapabilitySnapshotV1 snapshot = NativeCapabilitySnapshotV1.create(
+        final NativeCapabilitySnapshot snapshot = NativeCapabilitySnapshot.create(
                 destination.ref(),
                 base.candidate.capabilityProfile().ref(),
                 base.target,
@@ -313,7 +311,7 @@ class AutoFastScheduleTest {
                 true);
 
         try (EmbeddedDelayService service = base.service(tempDir.resolve("high-bit-partition"))) {
-            final PreparedSubmissionV1 prepared =
+            final PreparedSubmission prepared =
                     service.prepareAutoFast(AutoFastSchedule.withNativeCandidate(command, candidate));
             assertFalse(prepared.isManaged());
             assertEquals(highBitPartition, prepared.nativePrepared().physicalPartition());
@@ -335,24 +333,24 @@ class AutoFastScheduleTest {
 
         final PreparationFailure failure =
                 assertThrows(PreparationFailure.class, () -> AutoFastSchedule.managed(legacy));
-        assertEquals(FailureStageV1.PREPARATION, failure.error().stage());
+        assertEquals(FailureStage.PREPARATION, failure.error().stage());
         assertEquals(StableCode.INVALID_COMMAND, failure.error().code());
-        final StableErrorV1 decoded = StableErrorV1.decode(failure.error().canonicalBytes());
+        final StableError decoded = StableError.decode(failure.error().canonicalBytes());
         assertEquals(failure.error(), decoded);
     }
 
     private static Fixture fixture() throws Exception {
         final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final ShardId shard = new ShardId(RouteIncarnation.random(), 9);
-        final PulsarBrokerResourceIdentityV1 target = new PulsarBrokerResourceIdentityV1(
+        final PulsarBrokerResourceIdentity target = new PulsarBrokerResourceIdentity(
                 "autofast-cluster", bytes(32, 3), "persistent://tenant/ns/autofast", 17);
-        final ProfileSemanticEnvelopeV1 capability = capability();
-        final ProfileSemanticEnvelopeV1 destination = destination(capability.ref(), target);
+        final ProfileSemanticEnvelope capability = capability();
+        final ProfileSemanticEnvelope destination = destination(capability.ref(), target);
         final byte[] payload = Bytes.utf8("autofast-payload");
-        final PulsarMetadataV1 metadata = new PulsarMetadataV1(null, null, null, List.of());
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
+        final PulsarMetadata metadata = new PulsarMetadata(null, null, null, List.of());
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
                 destination.ref(),
-                new RetryPolicyRefV1(Bytes.utf8("autofast-retry"), 1, bytes(32, 30)),
+                new RetryPolicyRef(Bytes.utf8("autofast-retry"), 1, bytes(32, 30)),
                 4_000,
                 9_000,
                 DeliveryMode.MANAGED,
@@ -360,10 +358,10 @@ class AutoFastScheduleTest {
                 new byte[0],
                 payload,
                 null,
-                AdapterMetadataV1.pulsar(metadata),
+                AdapterMetadata.pulsar(metadata),
                 null,
                 null);
-        final PreparedCommand command = PreparedCommand.scheduleV1(shard, intent, 10_000);
+        final PreparedCommand command = PreparedCommand.schedule(shard, intent, 10_000);
         final TrustedUtcIntervalEvidence issuedAt = new TrustedUtcIntervalEvidence(
                 2_000,
                 2_010,
@@ -375,7 +373,7 @@ class AutoFastScheduleTest {
                 Bytes.sha256(Bytes.utf8("autofast-sample")),
                 0,
                 null);
-        final NativeCapabilitySnapshotV1 snapshot = NativeCapabilitySnapshotV1.create(
+        final NativeCapabilitySnapshot snapshot = NativeCapabilitySnapshot.create(
                 destination.ref(),
                 capability.ref(),
                 target,
@@ -406,37 +404,36 @@ class AutoFastScheduleTest {
         return new Fixture(shard, target, payload, metadata, command, candidate, snapshot, keyPair);
     }
 
-    private static ProfileSemanticEnvelopeV1 destination(
-            final com.nereusstream.delay.protocol.ProfileRefV1 capability,
-            final PulsarBrokerResourceIdentityV1 target) {
+    private static ProfileSemanticEnvelope destination(
+            final com.nereusstream.delay.protocol.ProfileRef capability, final PulsarBrokerResourceIdentity target) {
         return destination(
                 capability,
                 target,
                 2,
-                TargetPartitionPolicyV1.EXPLICIT_ONLY,
+                TargetPartitionPolicy.EXPLICIT_ONLY,
                 List.of(0),
-                TargetPartitionHashInputV1.ORDERING_KEY);
+                TargetPartitionHashInput.ORDERING_KEY);
     }
 
-    private static ProfileSemanticEnvelopeV1 destination(
-            final com.nereusstream.delay.protocol.ProfileRefV1 capability,
-            final PulsarBrokerResourceIdentityV1 target,
-            final TargetPartitionPolicyV1 policy,
+    private static ProfileSemanticEnvelope destination(
+            final com.nereusstream.delay.protocol.ProfileRef capability,
+            final PulsarBrokerResourceIdentity target,
+            final TargetPartitionPolicy policy,
             final List<Integer> allowedPartitions,
-            final TargetPartitionHashInputV1 hashInput) {
+            final TargetPartitionHashInput hashInput) {
         return destination(capability, target, 2, policy, allowedPartitions, hashInput);
     }
 
-    private static ProfileSemanticEnvelopeV1 destination(
-            final com.nereusstream.delay.protocol.ProfileRefV1 capability,
-            final PulsarBrokerResourceIdentityV1 target,
+    private static ProfileSemanticEnvelope destination(
+            final com.nereusstream.delay.protocol.ProfileRef capability,
+            final PulsarBrokerResourceIdentity target,
             final int targetPartitionCount,
-            final TargetPartitionPolicyV1 policy,
+            final TargetPartitionPolicy policy,
             final List<Integer> allowedPartitions,
-            final TargetPartitionHashInputV1 hashInput) {
-        final DestinationProfileSemanticV1 body = new DestinationProfileSemanticV1(
-                AdapterKindV1.PULSAR,
-                BrokerResourceIdentityV1.pulsar(target),
+            final TargetPartitionHashInput hashInput) {
+        final DestinationProfileSemantic body = new DestinationProfileSemantic(
+                AdapterKind.PULSAR,
+                BrokerResourceIdentity.pulsar(target),
                 targetPartitionCount,
                 policy,
                 hashInput,
@@ -455,14 +452,14 @@ class AutoFastScheduleTest {
                 0,
                 1,
                 bytes(32, 51));
-        return new ProfileSemanticEnvelopeV1(ProfileKindV1.DESTINATION, Bytes.utf8("autofast-destination"), 1, body);
+        return new ProfileSemanticEnvelope(ProfileKind.DESTINATION, Bytes.utf8("autofast-destination"), 1, body);
     }
 
-    private static ProfileSemanticEnvelopeV1 capability() {
-        final DeliveryCapabilitySemanticV1 body = new DeliveryCapabilitySemanticV1(
-                AdapterKindV1.PULSAR,
-                OutcomeCapabilityV1.AT_LEAST_ONCE,
-                TimingCapabilityV1.ORDINARY_MANAGED | TimingCapabilityV1.PULSAR_AUTO_FAST,
+    private static ProfileSemanticEnvelope capability() {
+        final DeliveryCapabilitySemantic body = new DeliveryCapabilitySemantic(
+                AdapterKind.PULSAR,
+                OutcomeCapability.AT_LEAST_ONCE,
+                TimingCapability.ORDINARY_MANAGED | TimingCapability.PULSAR_AUTO_FAST,
                 null,
                 0,
                 0,
@@ -472,8 +469,7 @@ class AutoFastScheduleTest {
                 bytes(32, 61),
                 0,
                 0);
-        return new ProfileSemanticEnvelopeV1(
-                ProfileKindV1.DELIVERY_CAPABILITY, Bytes.utf8("autofast-capability"), 1, body);
+        return new ProfileSemanticEnvelope(ProfileKind.DELIVERY_CAPABILITY, Bytes.utf8("autofast-capability"), 1, body);
     }
 
     private static byte[] bytes(final int length, final int seed) {
@@ -494,12 +490,12 @@ class AutoFastScheduleTest {
 
     private record Fixture(
             ShardId shard,
-            PulsarBrokerResourceIdentityV1 target,
+            PulsarBrokerResourceIdentity target,
             byte[] payload,
-            PulsarMetadataV1 metadata,
+            PulsarMetadata metadata,
             PreparedCommand command,
             AutoFastSchedule.NativeCandidate candidate,
-            NativeCapabilitySnapshotV1 snapshot,
+            NativeCapabilitySnapshot snapshot,
             KeyPair keyPair) {
         private EmbeddedDelayService service(final Path path) {
             return new EmbeddedDelayService(

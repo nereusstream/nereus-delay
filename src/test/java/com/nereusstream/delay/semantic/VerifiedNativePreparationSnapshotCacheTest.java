@@ -5,38 +5,38 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import com.nereusstream.delay.protocol.ActivationBarrierV1;
-import com.nereusstream.delay.protocol.AdapterKindV1;
-import com.nereusstream.delay.protocol.AdapterMetadataV1;
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.ActivationBarrier;
+import com.nereusstream.delay.protocol.AdapterKind;
+import com.nereusstream.delay.protocol.AdapterMetadata;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.DeliveryCapabilitySemanticV1;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
+import com.nereusstream.delay.protocol.DeliveryCapabilitySemantic;
 import com.nereusstream.delay.protocol.DeliveryMode;
-import com.nereusstream.delay.protocol.DestinationProfileSemanticV1;
-import com.nereusstream.delay.protocol.NativeCapabilitySnapshotV1;
+import com.nereusstream.delay.protocol.DestinationProfileSemantic;
+import com.nereusstream.delay.protocol.NativeCapabilitySnapshot;
 import com.nereusstream.delay.protocol.OrderingMode;
-import com.nereusstream.delay.protocol.OutcomeCapabilityV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
+import com.nereusstream.delay.protocol.OutcomeCapability;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
+import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
-import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.PulsarIngressRouteResourceV1;
-import com.nereusstream.delay.protocol.PulsarMetadataV1;
-import com.nereusstream.delay.protocol.PulsarPhysicalPartitionIdentityV1;
-import com.nereusstream.delay.protocol.QuotaGrantRefV1;
-import com.nereusstream.delay.protocol.RetryPolicyRefV1;
+import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.PulsarIngressRouteResource;
+import com.nereusstream.delay.protocol.PulsarMetadata;
+import com.nereusstream.delay.protocol.PulsarPhysicalPartitionIdentity;
+import com.nereusstream.delay.protocol.QuotaGrantRef;
+import com.nereusstream.delay.protocol.RetryPolicyRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.RouteLifecycleV1;
-import com.nereusstream.delay.protocol.RoutePartitionPolicyV1;
-import com.nereusstream.delay.protocol.RouteSnapshotV1;
-import com.nereusstream.delay.protocol.RoutingHashVersionV1;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
-import com.nereusstream.delay.protocol.SubmissionModeV1;
-import com.nereusstream.delay.protocol.TargetPartitionHashInputV1;
-import com.nereusstream.delay.protocol.TargetPartitionHashV1;
-import com.nereusstream.delay.protocol.TargetPartitionPolicyV1;
-import com.nereusstream.delay.protocol.TimingCapabilityV1;
+import com.nereusstream.delay.protocol.RouteLifecycle;
+import com.nereusstream.delay.protocol.RoutePartitionPolicy;
+import com.nereusstream.delay.protocol.RouteSnapshot;
+import com.nereusstream.delay.protocol.RoutingHashVersion;
+import com.nereusstream.delay.protocol.SubmissionMode;
+import com.nereusstream.delay.protocol.TargetPartitionHash;
+import com.nereusstream.delay.protocol.TargetPartitionHashInput;
+import com.nereusstream.delay.protocol.TargetPartitionPolicy;
+import com.nereusstream.delay.protocol.TimingCapability;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -53,7 +53,7 @@ class VerifiedNativePreparationSnapshotCacheTest {
                 new VerifiedNativePreparationSnapshotCache(fixture.keys().getPublic());
         cache.install(fixture.candidate());
 
-        final Optional<NativePreparationSnapshotV1> selected = cache.eligibleFor(
+        final Optional<NativePreparationSnapshot> selected = cache.eligibleFor(
                 fixture.tenant(), fixture.route(), fixture.intent(), fixture.command(), new TrustedTimeSnapshot(300));
         assertTrue(selected.isPresent());
         assertArrayEquals(
@@ -66,8 +66,8 @@ class VerifiedNativePreparationSnapshotCacheTest {
                 () -> 300,
                 cache,
                 (command, intent) -> bytes(32, 90));
-        final var prepared = core.prepareSchedule(
-                fixture.tenant(), fixture.hint(), fixture.intent(), 700, SubmissionModeV1.AUTO_FAST);
+        final var prepared =
+                core.prepareSchedule(fixture.tenant(), fixture.hint(), fixture.intent(), 700, SubmissionMode.AUTO_FAST);
         assertFalse(prepared.isManaged());
         assertEquals(fixture.candidate().target(), prepared.nativePrepared().target());
         assertEquals(
@@ -79,7 +79,7 @@ class VerifiedNativePreparationSnapshotCacheTest {
     void cacheRejectsWrongTargetPartitionAndFallsBackToTheExactManagedFrame() throws Exception {
         final Fixture fixture = fixture();
         final int wrongPartition = fixture.candidate().physicalPartition() == 0 ? 1 : 0;
-        final NativeCapabilitySnapshotV1 wrongSnapshot = NativeCapabilitySnapshotV1.create(
+        final NativeCapabilitySnapshot wrongSnapshot = NativeCapabilitySnapshot.create(
                 fixture.candidate().destination().ref(),
                 fixture.candidate().capability().ref(),
                 fixture.target(),
@@ -94,7 +94,7 @@ class VerifiedNativePreparationSnapshotCacheTest {
                 900,
                 1,
                 fixture.keys().getPrivate());
-        final NativePreparationSnapshotV1 wrongCandidate = new NativePreparationSnapshotV1(
+        final NativePreparationSnapshot wrongCandidate = new NativePreparationSnapshot(
                 fixture.candidate().destination(),
                 fixture.candidate().capability(),
                 fixture.target(),
@@ -112,7 +112,7 @@ class VerifiedNativePreparationSnapshotCacheTest {
                 cache,
                 (command, intent) -> bytes(32, 91));
         final var managed = managedCore.prepareSchedule(
-                fixture.tenant(), fixture.hint(), fixture.intent(), 700, SubmissionModeV1.MANAGED);
+                fixture.tenant(), fixture.hint(), fixture.intent(), 700, SubmissionMode.MANAGED);
         final DefaultDelaySemanticCore autoCore = new DefaultDelaySemanticCore(
                 new SingleRouteProvider(fixture.route()),
                 new SequenceUuids(uuidV7(300, 1), uuidV7(300, 2)),
@@ -120,7 +120,7 @@ class VerifiedNativePreparationSnapshotCacheTest {
                 cache,
                 (command, intent) -> bytes(32, 91));
         final var observed = autoCore.prepareSchedule(
-                fixture.tenant(), fixture.hint(), fixture.intent(), 700, SubmissionModeV1.AUTO_FAST);
+                fixture.tenant(), fixture.hint(), fixture.intent(), 700, SubmissionMode.AUTO_FAST);
         assertTrue(observed.isManaged());
         assertArrayEquals(managed.managedFrame(), observed.managedFrame());
     }
@@ -130,8 +130,8 @@ class VerifiedNativePreparationSnapshotCacheTest {
         final Fixture fixture = fixture();
         final byte[] encoded = fixture.candidate().capabilitySnapshot().canonicalBytes();
         encoded[encoded.length - 1] ^= 0x01;
-        final NativeCapabilitySnapshotV1 tampered = NativeCapabilitySnapshotV1.decode(encoded);
-        final NativePreparationSnapshotV1 candidate = new NativePreparationSnapshotV1(
+        final NativeCapabilitySnapshot tampered = NativeCapabilitySnapshot.decode(encoded);
+        final NativePreparationSnapshot candidate = new NativePreparationSnapshot(
                 fixture.candidate().destination(),
                 fixture.candidate().capability(),
                 fixture.target(),
@@ -147,15 +147,15 @@ class VerifiedNativePreparationSnapshotCacheTest {
         final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final AuthenticatedTenantContext tenant =
                 new AuthenticatedTenantContext(bytes(32, 1), bytes(32, 2), bytes(32, 3));
-        final PulsarBrokerResourceIdentityV1 target = new PulsarBrokerResourceIdentityV1(
+        final PulsarBrokerResourceIdentity target = new PulsarBrokerResourceIdentity(
                 "target-cluster", bytes(32, 10), "persistent://tenant/ns/destination", 20);
-        final ProfileSemanticEnvelopeV1 capability = capability();
-        final DestinationProfileSemanticV1 destinationBody = new DestinationProfileSemanticV1(
-                AdapterKindV1.PULSAR,
-                BrokerResourceIdentityV1.pulsar(target),
+        final ProfileSemanticEnvelope capability = capability();
+        final DestinationProfileSemantic destinationBody = new DestinationProfileSemantic(
+                AdapterKind.PULSAR,
+                BrokerResourceIdentity.pulsar(target),
                 2,
-                TargetPartitionPolicyV1.HASH_ONLY,
-                TargetPartitionHashInputV1.ORDERING_KEY,
+                TargetPartitionPolicy.HASH_ONLY,
+                TargetPartitionHashInput.ORDERING_KEY,
                 List.of(),
                 capability.ref(),
                 1,
@@ -171,12 +171,12 @@ class VerifiedNativePreparationSnapshotCacheTest {
                 0,
                 1,
                 bytes(32, 41));
-        final ProfileSemanticEnvelopeV1 destination =
-                new ProfileSemanticEnvelopeV1(ProfileKindV1.DESTINATION, Bytes.utf8("destination"), 1, destinationBody);
-        final PulsarMetadataV1 metadata = new PulsarMetadataV1(null, null, Bytes.utf8("native-ordering"), List.of());
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
+        final ProfileSemanticEnvelope destination =
+                new ProfileSemanticEnvelope(ProfileKind.DESTINATION, Bytes.utf8("destination"), 1, destinationBody);
+        final PulsarMetadata metadata = new PulsarMetadata(null, null, Bytes.utf8("native-ordering"), List.of());
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
                 destination.ref(),
-                new RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 42)),
+                new RetryPolicyRef(Bytes.utf8("retry"), 1, bytes(32, 42)),
                 400,
                 800,
                 DeliveryMode.MANAGED,
@@ -184,13 +184,12 @@ class VerifiedNativePreparationSnapshotCacheTest {
                 Bytes.utf8("delay-ordering"),
                 Bytes.utf8("payload"),
                 null,
-                AdapterMetadataV1.pulsar(metadata),
+                AdapterMetadata.pulsar(metadata),
                 null,
                 null);
-        final int physicalPartition =
-                (int) TargetPartitionHashV1.partition(destination.ref(), 2, metadata.orderingKey());
+        final int physicalPartition = (int) TargetPartitionHash.partition(destination.ref(), 2, metadata.orderingKey());
         final TrustedUtcIntervalEvidence nativeIssuedAt = nativeIssuedAt();
-        final NativeCapabilitySnapshotV1 capabilitySnapshot = NativeCapabilitySnapshotV1.create(
+        final NativeCapabilitySnapshot capabilitySnapshot = NativeCapabilitySnapshot.create(
                 destination.ref(),
                 capability.ref(),
                 target,
@@ -205,21 +204,21 @@ class VerifiedNativePreparationSnapshotCacheTest {
                 900,
                 1,
                 keys.getPrivate());
-        final NativePreparationSnapshotV1 candidate = new NativePreparationSnapshotV1(
+        final NativePreparationSnapshot candidate = new NativePreparationSnapshot(
                 destination, capability, target, physicalPartition, capabilitySnapshot, 420);
-        final RouteSnapshotV1 route = route(keys);
-        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKindV1.PULSAR, Bytes.utf8("primary"));
+        final RouteSnapshot route = route(keys);
+        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKind.PULSAR, Bytes.utf8("primary"));
         final com.nereusstream.delay.protocol.ShardId shard =
                 new com.nereusstream.delay.protocol.ShardId(route.routeIncarnation(), 0);
-        final var command = com.nereusstream.delay.protocol.PreparedCommand.scheduleV1(shard, intent, 700);
+        final var command = com.nereusstream.delay.protocol.PreparedCommand.schedule(shard, intent, 700);
         return new Fixture(keys, tenant, route, hint, target, intent, candidate, command, nativeIssuedAt);
     }
 
-    private static ProfileSemanticEnvelopeV1 capability() {
-        final DeliveryCapabilitySemanticV1 body = new DeliveryCapabilitySemanticV1(
-                AdapterKindV1.PULSAR,
-                OutcomeCapabilityV1.AT_LEAST_ONCE,
-                TimingCapabilityV1.ORDINARY_MANAGED | TimingCapabilityV1.PULSAR_AUTO_FAST,
+    private static ProfileSemanticEnvelope capability() {
+        final DeliveryCapabilitySemantic body = new DeliveryCapabilitySemantic(
+                AdapterKind.PULSAR,
+                OutcomeCapability.AT_LEAST_ONCE,
+                TimingCapability.ORDINARY_MANAGED | TimingCapability.PULSAR_AUTO_FAST,
                 null,
                 0,
                 0,
@@ -229,35 +228,35 @@ class VerifiedNativePreparationSnapshotCacheTest {
                 bytes(32, 61),
                 0,
                 0);
-        return new ProfileSemanticEnvelopeV1(ProfileKindV1.DELIVERY_CAPABILITY, Bytes.utf8("capability"), 1, body);
+        return new ProfileSemanticEnvelope(ProfileKind.DELIVERY_CAPABILITY, Bytes.utf8("capability"), 1, body);
     }
 
-    private static RouteSnapshotV1 route(final KeyPair keys) {
+    private static RouteSnapshot route(final KeyPair keys) {
         final String base = "persistent://tenant/ns/commands";
-        final PulsarPhysicalPartitionIdentityV1 physical =
-                new PulsarPhysicalPartitionIdentityV1(0, base + "-partition-0", bytes(32, 80), 81);
-        final PulsarIngressRouteResourceV1 ingress =
-                new PulsarIngressRouteResourceV1("source-cluster", base, List.of(physical));
-        final BrokerResourceIdentityV1 source = BrokerResourceIdentityV1.pulsar(new PulsarBrokerResourceIdentityV1(
+        final PulsarPhysicalPartitionIdentity physical =
+                new PulsarPhysicalPartitionIdentity(0, base + "-partition-0", bytes(32, 80), 81);
+        final PulsarIngressRouteResource ingress =
+                new PulsarIngressRouteResource("source-cluster", base, List.of(physical));
+        final BrokerResourceIdentity source = BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
                 "source-cluster",
                 physical.resourceIncarnation(),
                 physical.physicalTopic(),
                 physical.physicalTopicCreationTimestamp()));
-        final QuotaGrantRefV1 quota = new QuotaGrantRefV1(
+        final QuotaGrantRef quota = new QuotaGrantRef(
                 bytes(32, 82),
                 1,
                 new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
-        final RoutePartitionPolicyV1 policy = new RoutePartitionPolicyV1(
-                0, ActivationBarrierV1.empty(source, 0, 1L, bytes(32, 83)), quota, 1, bytes(32, 84));
-        return RouteSnapshotV1.create(
+        final RoutePartitionPolicy policy = new RoutePartitionPolicy(
+                0, ActivationBarrier.empty(source, 0, 1L, bytes(32, 83)), quota, 1, bytes(32, 84));
+        return RouteSnapshot.create(
                 new RouteIncarnation(bytes(16, 85)),
                 bytes(32, 1),
                 bytes(32, 2),
-                RouteLifecycleV1.ACTIVE_FOR_NEW,
+                RouteLifecycle.ACTIVE_FOR_NEW,
                 900,
                 ingress,
-                RoutingHashVersionV1.ROUTING_HASH_V1,
-                new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1),
+                RoutingHashVersion.ROUTING_HASH,
+                new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1),
                 1,
                 List.of(policy),
                 100,
@@ -269,7 +268,7 @@ class VerifiedNativePreparationSnapshotCacheTest {
                 500,
                 100,
                 1000,
-                new com.nereusstream.delay.protocol.IngressCredentialBindingRefV1(
+                new com.nereusstream.delay.protocol.IngressCredentialBindingRef(
                         bytes(32, 86), 1, bytes(32, 87), bytes(32, 88), bytes(32, 89)),
                 bytes(32, 90),
                 new TrustedUtcIntervalEvidence(
@@ -317,29 +316,29 @@ class VerifiedNativePreparationSnapshotCacheTest {
     private record Fixture(
             KeyPair keys,
             AuthenticatedTenantContext tenant,
-            RouteSnapshotV1 route,
+            RouteSnapshot route,
             RouteSelectionHint hint,
-            PulsarBrokerResourceIdentityV1 target,
-            ScheduleIntentV1 intent,
-            NativePreparationSnapshotV1 candidate,
+            PulsarBrokerResourceIdentity target,
+            CanonicalScheduleIntent intent,
+            NativePreparationSnapshot candidate,
             com.nereusstream.delay.protocol.PreparedCommand command,
             TrustedUtcIntervalEvidence nativeIssuedAt) {}
 
     private static final class SingleRouteProvider implements com.nereusstream.delay.route.RouteSnapshotProvider {
-        private final RouteSnapshotV1 route;
+        private final RouteSnapshot route;
 
-        private SingleRouteProvider(final RouteSnapshotV1 route) {
+        private SingleRouteProvider(final RouteSnapshot route) {
             this.route = route;
         }
 
         @Override
-        public RouteSnapshotV1 activeForNewSchedule(
+        public RouteSnapshot activeForNewSchedule(
                 final AuthenticatedTenantContext context, final RouteSelectionHint hint) {
             return route;
         }
 
         @Override
-        public RouteSnapshotV1 exact(final RouteIncarnation incarnation, final AuthenticatedTenantContext context) {
+        public RouteSnapshot exact(final RouteIncarnation incarnation, final AuthenticatedTenantContext context) {
             return route;
         }
 

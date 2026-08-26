@@ -1,17 +1,17 @@
 package com.nereusstream.delay.semantic;
 
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.RouteSnapshotV1;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
+import com.nereusstream.delay.protocol.RouteSnapshot;
 import java.util.Optional;
 
 /** Read-only local AUTO_FAST eligibility view. */
 @FunctionalInterface
 public interface NativePreparationSnapshotProvider {
-    Optional<NativePreparationSnapshotV1> eligibleFor(
+    Optional<NativePreparationSnapshot> eligibleFor(
             AuthenticatedTenantContext context,
-            RouteSnapshotV1 managedRoute,
-            ScheduleIntentV1 intent,
+            RouteSnapshot managedRoute,
+            CanonicalScheduleIntent intent,
             TrustedTimeSnapshot trustedTime);
 
     /**
@@ -20,10 +20,10 @@ public interface NativePreparationSnapshotProvider {
      * method; target partition policies that hash the Delay Message ID use
      * this overload.
      */
-    default Optional<NativePreparationSnapshotV1> eligibleFor(
+    default Optional<NativePreparationSnapshot> eligibleFor(
             final AuthenticatedTenantContext context,
-            final RouteSnapshotV1 managedRoute,
-            final ScheduleIntentV1 intent,
+            final RouteSnapshot managedRoute,
+            final CanonicalScheduleIntent intent,
             final PreparedCommand managedCommand,
             final TrustedTimeSnapshot trustedTime) {
         return eligibleFor(context, managedRoute, intent, trustedTime);

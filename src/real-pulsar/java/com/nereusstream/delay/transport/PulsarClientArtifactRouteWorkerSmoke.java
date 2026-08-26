@@ -23,47 +23,47 @@ import com.nereusstream.delay.ownership.WorkerAssignmentAuthority;
 import com.nereusstream.delay.ownership.WorkerAssignmentCoordinator;
 import com.nereusstream.delay.ownership.WorkerShardFleetRuntime;
 import com.nereusstream.delay.ownership.WorkerShardRuntime;
-import com.nereusstream.delay.protocol.ActivationBarrierV1;
-import com.nereusstream.delay.protocol.AdapterKindV1;
-import com.nereusstream.delay.protocol.AdapterMetadataV1;
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.ActivationBarrier;
+import com.nereusstream.delay.protocol.AdapterKind;
+import com.nereusstream.delay.protocol.AdapterMetadata;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CapacityDimensionV1;
-import com.nereusstream.delay.protocol.CapacityVectorV1;
-import com.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
+import com.nereusstream.delay.protocol.CapacityDimension;
+import com.nereusstream.delay.protocol.CapacityVector;
+import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
 import com.nereusstream.delay.protocol.DeliveryMode;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.IngressCredentialBindingRefV1;
+import com.nereusstream.delay.protocol.IngressCredentialBindingRef;
 import com.nereusstream.delay.protocol.OrderingMode;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
 import com.nereusstream.delay.protocol.PulsarActivationBarrier;
-import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.PulsarIngressRouteResourceV1;
-import com.nereusstream.delay.protocol.PulsarMetadataV1;
-import com.nereusstream.delay.protocol.PulsarPhysicalPartitionIdentityV1;
+import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.PulsarIngressRouteResource;
+import com.nereusstream.delay.protocol.PulsarMetadata;
+import com.nereusstream.delay.protocol.PulsarPhysicalPartitionIdentity;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
-import com.nereusstream.delay.protocol.QuotaGrantRefV1;
-import com.nereusstream.delay.protocol.RetryPolicyRefV1;
+import com.nereusstream.delay.protocol.QuotaGrantRef;
+import com.nereusstream.delay.protocol.RetryPolicyRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.RouteLifecycleV1;
-import com.nereusstream.delay.protocol.RoutePartitionPolicyV1;
-import com.nereusstream.delay.protocol.RouteSnapshotV1;
-import com.nereusstream.delay.protocol.RoutingHashVersionV1;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
+import com.nereusstream.delay.protocol.RouteLifecycle;
+import com.nereusstream.delay.protocol.RoutePartitionPolicy;
+import com.nereusstream.delay.protocol.RouteSnapshot;
+import com.nereusstream.delay.protocol.RoutingHashVersion;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.route.OxiaRouteAuthoritySession;
 import com.nereusstream.delay.route.OxiaSignedRouteSnapshotProvider;
 import com.nereusstream.delay.route.OxiaSignedRouteSnapshotPublisher;
 import com.nereusstream.delay.runtime.DelayShard;
 import com.nereusstream.delay.runtime.DelayShardConfig;
-import com.nereusstream.delay.runtime.V1ScheduleResolver;
+import com.nereusstream.delay.runtime.ScheduleResolver;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClass;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
@@ -143,7 +143,7 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
             final PreparedCommand beforeRoute = command(shard, "route-before");
             final PreparedCommand afterRoute = command(shard, "route-after");
             final KeyPair signingKeys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-            final RouteSelectionHint hint = new RouteSelectionHint(AdapterKindV1.PULSAR, Bytes.utf8("primary"));
+            final RouteSelectionHint hint = new RouteSelectionHint(AdapterKind.PULSAR, Bytes.utf8("primary"));
             final AuthenticatedTenantContext tenant =
                     new AuthenticatedTenantContext(bytes(32, 1), bytes(32, 2), bytes(32, 3));
             final String namespace = configured("NEREUS_DELAY_OXIA_NAMESPACE", "default");
@@ -167,7 +167,7 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
                             PulsarClientArtifactRecoverySourcePositioner.awaitStableProof(
                                     nativeConsumer, guard, physicalTopic, shard.partition(), Duration.ofSeconds(5));
 
-                    final RouteSnapshotV1 snapshot = routeSnapshot(
+                    final RouteSnapshot snapshot = routeSnapshot(
                             physicalTopicBase,
                             physicalTopic,
                             routeIncarnation,
@@ -228,7 +228,7 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
                         final WorkClassExecutionRegistry workClasses = workClasses();
                         final KeyPair verificationKey =
                                 KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-                        final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshot(shard);
+                        final CompatibleControlSnapshot controlSnapshot = controlSnapshot(shard);
                         final Path root = Files.createTempDirectory("nereus-delay-pulsar-route-worker-");
                         try {
                             final ShardStoreConfig storeConfig = ShardStoreConfig.defaults(root);
@@ -241,7 +241,7 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
                                 final OwnedDelayShard ownedShard = new OwnedDelayShard(
                                         delayShard,
                                         lease,
-                                        new OwnerIdentityV1(
+                                        new OwnerIdentity(
                                                 bytes(16, 70),
                                                 bytes(16, 71),
                                                 lease.ownerEpoch(),
@@ -370,7 +370,7 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
         try {
             final RouteIncarnation routeIncarnation = RouteIncarnation.random();
             final KeyPair signingKeys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-            final RouteSelectionHint hint = new RouteSelectionHint(AdapterKindV1.PULSAR, Bytes.utf8("primary"));
+            final RouteSelectionHint hint = new RouteSelectionHint(AdapterKind.PULSAR, Bytes.utf8("primary"));
             final AuthenticatedTenantContext tenant =
                     new AuthenticatedTenantContext(bytes(32, 1), bytes(32, 2), bytes(32, 3));
             final String namespace = configured("NEREUS_DELAY_OXIA_NAMESPACE", "default");
@@ -431,7 +431,7 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
                     }
                 }
 
-                final RouteSnapshotV1 snapshot =
+                final RouteSnapshot snapshot =
                         multiRouteSnapshot(physicalTopicBase, routeIncarnation, probes, signingKeys);
                 final boolean[] runtimeOwned = new boolean[shardCount];
                 final boolean[] runtimeDrained = new boolean[shardCount];
@@ -526,14 +526,14 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
                                 final ShardId shard = probe.shard();
                                 final ShardStore store = ShardStore.open(storeConfig, shard, resources);
                                 stores.add(store);
-                                final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshot(shard);
+                                final CompatibleControlSnapshot controlSnapshot = controlSnapshot(shard);
                                 store.recordControlSnapshot(controlSnapshot);
                                 final DelayShard delayShard = new DelayShard(
                                         store, DelayShardConfig.defaults(), null, null, scheduleResolver());
                                 final OwnedDelayShard ownedShard = new OwnedDelayShard(
                                         delayShard,
                                         admission.lease(),
-                                        new OwnerIdentityV1(
+                                        new OwnerIdentity(
                                                 bytes(16, 70 + index),
                                                 bytes(16, 90 + index),
                                                 admission.lease().ownerEpoch(),
@@ -763,7 +763,7 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
             final OwnedDelayShard ownedShard,
             final SourceReplayEntry entry,
             final KeyPair verificationKey,
-            final CompatibleControlSnapshotV1 controlSnapshot,
+            final CompatibleControlSnapshot controlSnapshot,
             final WorkClassExecutionRegistry workClasses) {
         final SourceReplayCursor<SourceReplayEntry> cursor =
                 SourceReplayCursor.of(List.of(entry).iterator());
@@ -809,15 +809,15 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
         throw new IllegalStateException("Pulsar Route Worker source record did not become visible");
     }
 
-    private static V1ScheduleResolver scheduleResolver() {
-        final byte[] tuple = Bytes.utf8("pulsar-route-worker-canonical-lane-tuple-v1");
+    private static ScheduleResolver scheduleResolver() {
+        final byte[] tuple = Bytes.utf8("pulsar-route-worker-canonical-lane-tuple");
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
-        return new V1ScheduleResolver() {
+        return new ScheduleResolver() {
             @Override
             public ResolvedSchedule resolveSchedule(
                     final ShardId shard,
                     final com.nereusstream.delay.protocol.DelayMessageId message,
-                    final ScheduleIntentV1 intent,
+                    final CanonicalScheduleIntent intent,
                     final com.nereusstream.delay.protocol.SourcePosition source) {
                 return new ResolvedSchedule(lane, tuple, intent.inlinePayload(), null);
             }
@@ -826,19 +826,19 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
             public ResolvedPrepare resolvePrepare(
                     final ShardId shard,
                     final com.nereusstream.delay.protocol.DelayMessageId message,
-                    final com.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1 body,
+                    final com.nereusstream.delay.protocol.PrepareLargeScheduleBody body,
                     final com.nereusstream.delay.protocol.SourcePosition source) {
                 return new ResolvedPrepare(lane, tuple);
             }
         };
     }
 
-    private static CompatibleControlSnapshotV1 controlSnapshot(final ShardId shard) {
-        return new CompatibleControlSnapshotV1(
-                new ShardSubjectV1(shard),
-                List.of(new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1)),
-                List.of(new ProfileRefV1(bytes(32, 50), 1, bytes(32, 51), ProfileKindV1.DESTINATION)),
-                new QuotaGrantRefV1(
+    private static CompatibleControlSnapshot controlSnapshot(final ShardId shard) {
+        return new CompatibleControlSnapshot(
+                new ShardSubject(shard),
+                List.of(new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1)),
+                List.of(new ProfileRef(bytes(32, 50), 1, bytes(32, 51), ProfileKind.DESTINATION)),
+                new QuotaGrantRef(
                         bytes(32, 52),
                         1,
                         new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));
@@ -871,26 +871,26 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
                 System::nanoTime);
     }
 
-    private static RouteSnapshotV1 multiRouteSnapshot(
+    private static RouteSnapshot multiRouteSnapshot(
             final String physicalTopicBase,
             final RouteIncarnation incarnation,
             final List<RouteShardProbe> probes,
             final KeyPair signingKeys) {
         final long now = System.currentTimeMillis();
-        final List<PulsarPhysicalPartitionIdentityV1> physicalPartitions = probes.stream()
-                .map(probe -> new PulsarPhysicalPartitionIdentityV1(
+        final List<PulsarPhysicalPartitionIdentity> physicalPartitions = probes.stream()
+                .map(probe -> new PulsarPhysicalPartitionIdentity(
                         probe.shard().partition(), probe.physicalTopic(), INCARNATION, CREATION_TIMESTAMP))
                 .toList();
-        final PulsarIngressRouteResourceV1 ingress =
-                new PulsarIngressRouteResourceV1(CLUSTER, physicalTopicBase, physicalPartitions);
-        final List<RoutePartitionPolicyV1> policies = probes.stream()
+        final PulsarIngressRouteResource ingress =
+                new PulsarIngressRouteResource(CLUSTER, physicalTopicBase, physicalPartitions);
+        final List<RoutePartitionPolicy> policies = probes.stream()
                 .map(probe -> {
-                    final BrokerResourceIdentityV1 broker =
-                            BrokerResourceIdentityV1.pulsar(new PulsarBrokerResourceIdentityV1(
+                    final BrokerResourceIdentity broker =
+                            BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
                                     CLUSTER, INCARNATION, probe.physicalTopic(), CREATION_TIMESTAMP));
                     final PulsarSourcePosition position = probe.firstPosition();
                     final var proof = probe.barrierProof();
-                    final ActivationBarrierV1 barrier = ActivationBarrierV1.pulsar(
+                    final ActivationBarrier barrier = ActivationBarrier.pulsar(
                             broker,
                             probe.shard().partition(),
                             position.ledgerId(),
@@ -899,7 +899,7 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
                             position.batchSize(),
                             proof.connectionGeneration(),
                             proof.attestationDigest());
-                    return new RoutePartitionPolicyV1(
+                    return new RoutePartitionPolicy(
                             probe.shard().partition(),
                             barrier,
                             zeroQuota(),
@@ -918,15 +918,15 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
                 Bytes.sha256(Bytes.utf8("pulsar-route-issued-at")),
                 0,
                 null);
-        return RouteSnapshotV1.create(
+        return RouteSnapshot.create(
                 incarnation,
                 bytes(32, 1),
                 bytes(32, 2),
-                RouteLifecycleV1.ACTIVE_FOR_NEW,
+                RouteLifecycle.ACTIVE_FOR_NEW,
                 now + 30_000,
                 ingress,
-                RoutingHashVersionV1.ROUTING_HASH_V1,
-                new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1),
+                RoutingHashVersion.ROUTING_HASH,
+                new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1),
                 1,
                 policies,
                 100,
@@ -938,14 +938,14 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
                 500,
                 now - 1_000,
                 now + 60_000,
-                new IngressCredentialBindingRefV1(bytes(32, 40), 1, bytes(32, 41), bytes(32, 42), bytes(32, 43)),
+                new IngressCredentialBindingRef(bytes(32, 40), 1, bytes(32, 41), bytes(32, 42), bytes(32, 43)),
                 Bytes.sha256(Bytes.utf8("pulsar-route-prerequisite")),
                 issuedAt,
                 1,
                 signingKeys.getPrivate());
     }
 
-    private static RouteSnapshotV1 routeSnapshot(
+    private static RouteSnapshot routeSnapshot(
             final String physicalTopicBase,
             final String physicalTopic,
             final RouteIncarnation incarnation,
@@ -953,9 +953,9 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
             final PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof proof,
             final KeyPair signingKeys) {
         final long now = System.currentTimeMillis();
-        final BrokerResourceIdentityV1 broker = BrokerResourceIdentityV1.pulsar(
-                new PulsarBrokerResourceIdentityV1(CLUSTER, INCARNATION, physicalTopic, CREATION_TIMESTAMP));
-        final ActivationBarrierV1 barrier = ActivationBarrierV1.pulsar(
+        final BrokerResourceIdentity broker = BrokerResourceIdentity.pulsar(
+                new PulsarBrokerResourceIdentity(CLUSTER, INCARNATION, physicalTopic, CREATION_TIMESTAMP));
+        final ActivationBarrier barrier = ActivationBarrier.pulsar(
                 broker,
                 0,
                 position.ledgerId(),
@@ -964,7 +964,7 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
                 position.batchSize(),
                 proof.connectionGeneration(),
                 proof.attestationDigest());
-        final RoutePartitionPolicyV1 policy = new RoutePartitionPolicyV1(
+        final RoutePartitionPolicy policy = new RoutePartitionPolicy(
                 0, barrier, zeroQuota(), proof.connectionGeneration(), proof.attestationDigest());
         final TrustedUtcIntervalEvidence issuedAt = new TrustedUtcIntervalEvidence(
                 now - 100,
@@ -977,19 +977,19 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
                 Bytes.sha256(Bytes.utf8("pulsar-route-issued-at")),
                 0,
                 null);
-        final PulsarIngressRouteResourceV1 ingress = new PulsarIngressRouteResourceV1(
+        final PulsarIngressRouteResource ingress = new PulsarIngressRouteResource(
                 CLUSTER,
                 physicalTopicBase,
-                List.of(new PulsarPhysicalPartitionIdentityV1(0, physicalTopic, INCARNATION, CREATION_TIMESTAMP)));
-        return RouteSnapshotV1.create(
+                List.of(new PulsarPhysicalPartitionIdentity(0, physicalTopic, INCARNATION, CREATION_TIMESTAMP)));
+        return RouteSnapshot.create(
                 incarnation,
                 bytes(32, 1),
                 bytes(32, 2),
-                RouteLifecycleV1.ACTIVE_FOR_NEW,
+                RouteLifecycle.ACTIVE_FOR_NEW,
                 now + 30_000,
                 ingress,
-                RoutingHashVersionV1.ROUTING_HASH_V1,
-                new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1),
+                RoutingHashVersion.ROUTING_HASH,
+                new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1),
                 1,
                 List.of(policy),
                 100,
@@ -1001,7 +1001,7 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
                 500,
                 now - 1_000,
                 now + 60_000,
-                new IngressCredentialBindingRefV1(bytes(32, 40), 1, bytes(32, 41), bytes(32, 42), bytes(32, 43)),
+                new IngressCredentialBindingRef(bytes(32, 40), 1, bytes(32, 41), bytes(32, 42), bytes(32, 43)),
                 Bytes.sha256(Bytes.utf8("pulsar-route-prerequisite")),
                 issuedAt,
                 1,
@@ -1023,7 +1023,7 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
                 List.of(new WorkerPlacementPolicy.WorkerCandidate(
                         workerId,
                         capacity(2),
-                        CapacityVectorV1.empty(),
+                        CapacityVector.empty(),
                         0,
                         16,
                         0,
@@ -1034,8 +1034,8 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
                         true,
                         0)),
                 capacity(1),
-                CapacityVectorV1.empty(),
-                CapacityVectorV1.empty(),
+                CapacityVector.empty(),
+                CapacityVector.empty(),
                 null,
                 now,
                 0,
@@ -1043,7 +1043,7 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
     }
 
     private static void requireRouteAssignment(
-            final WorkerAssignment assignment, final RouteSnapshotV1 snapshot, final RouteShardProbe probe) {
+            final WorkerAssignment assignment, final RouteSnapshot snapshot, final RouteShardProbe probe) {
         if (!assignment.routeBound()
                 || !Arrays.equals(snapshot.snapshotDigest(), assignment.routeSnapshotDigest())
                 || !(assignment.sourceAssignment().activationBarrier() instanceof PulsarActivationBarrier barrier)
@@ -1066,7 +1066,7 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
 
     private static void requireRouteAssignment(
             final WorkerAssignment assignment,
-            final RouteSnapshotV1 snapshot,
+            final RouteSnapshot snapshot,
             final PulsarSourcePosition firstPosition,
             final PulsarClientArtifactRecoverySourcePositioner.PositionedGuardProof proof) {
         if (!assignment.routeBound()
@@ -1119,7 +1119,7 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
                             CREATION_TIMESTAMP,
                             partition,
                             command.commandId(),
-                            com.nereusstream.delay.protocol.CommandCodec.encodeFrameV1(command)))
+                            com.nereusstream.delay.protocol.CommandCodec.encodeManagedFrame(command)))
                     .toCompletableFuture()
                     .get(15, TimeUnit.SECONDS);
             if (result.disposition() != PulsarSendResult.Disposition.PERSISTED) {
@@ -1132,16 +1132,16 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
     }
 
     private static PreparedCommand command(final ShardId shard, final String identity) {
-        final ProfileRefV1 destination = new ProfileRefV1(
+        final ProfileRef destination = new ProfileRef(
                 Bytes.utf8("destination-" + identity),
                 1,
                 Bytes.sha256(Bytes.utf8("destination-semantic-" + identity)),
-                ProfileKindV1.DESTINATION);
-        final RetryPolicyRefV1 retryPolicy = new RetryPolicyRefV1(
+                ProfileKind.DESTINATION);
+        final RetryPolicyRef retryPolicy = new RetryPolicyRef(
                 Bytes.utf8("retry-" + identity), 1, Bytes.sha256(Bytes.utf8("retry-semantic-" + identity)));
         final long deliverAt = System.currentTimeMillis() + 1_000;
-        final com.nereusstream.delay.protocol.ScheduleIntentV1 intent =
-                com.nereusstream.delay.protocol.ScheduleIntentV1.create(
+        final com.nereusstream.delay.protocol.CanonicalScheduleIntent intent =
+                com.nereusstream.delay.protocol.CanonicalScheduleIntent.create(
                         destination,
                         retryPolicy,
                         deliverAt,
@@ -1151,23 +1151,23 @@ public final class PulsarClientArtifactRouteWorkerSmoke {
                         new byte[0],
                         Bytes.utf8("source-" + identity),
                         null,
-                        AdapterMetadataV1.pulsar(new PulsarMetadataV1(null, null, null, List.of())),
+                        AdapterMetadata.pulsar(new PulsarMetadata(null, null, null, List.of())),
                         null,
                         null);
-        return PreparedCommand.scheduleV1(shard, intent, deliverAt + 20_000);
+        return PreparedCommand.schedule(shard, intent, deliverAt + 20_000);
     }
 
-    private static QuotaGrantRefV1 zeroQuota() {
-        return new QuotaGrantRefV1(
+    private static QuotaGrantRef zeroQuota() {
+        return new QuotaGrantRef(
                 bytes(32, 20),
                 1,
                 new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
     }
 
-    private static CapacityVectorV1 capacity(final long dbInstances) {
-        final long[] values = new long[CapacityDimensionV1.COUNT];
-        values[CapacityDimensionV1.DB_INSTANCES.wireValue() - 1] = dbInstances;
-        return new CapacityVectorV1(values);
+    private static CapacityVector capacity(final long dbInstances) {
+        final long[] values = new long[CapacityDimension.COUNT];
+        values[CapacityDimension.DB_INSTANCES.wireValue() - 1] = dbInstances;
+        return new CapacityVector(values);
     }
 
     private static void requireAcked(final SourceAcknowledgement.AcknowledgementResult result) {

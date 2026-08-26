@@ -1,14 +1,14 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CredentialBindingHeadV1;
-import com.nereusstream.delay.protocol.CredentialBindingProtectionV1;
-import com.nereusstream.delay.protocol.CredentialBindingV1;
-import com.nereusstream.delay.protocol.CredentialUseKindV1;
-import com.nereusstream.delay.protocol.CredentialUseLeaseV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
+import com.nereusstream.delay.protocol.CredentialBinding;
+import com.nereusstream.delay.protocol.CredentialBindingHead;
+import com.nereusstream.delay.protocol.CredentialBindingProtection;
+import com.nereusstream.delay.protocol.CredentialUseKind;
+import com.nereusstream.delay.protocol.CredentialUseLease;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.CredentialProfileAuthority;
 import java.net.URI;
@@ -82,16 +82,16 @@ public final class OxiaObjectStoreCredentialLeaseActivator {
 
     private Activated activate(final ActivationRequest request) {
         Objects.requireNonNull(request, "request");
-        final ProfileSemanticEnvelopeV1 profile = authority.resolve(request.profile());
+        final ProfileSemanticEnvelope profile = authority.resolve(request.profile());
         if (profile == null || !profile.ref().equals(request.profile())) {
             throw new IllegalStateException("Object Store Profile authority did not return the exact Profile");
         }
-        if (profile.profileKind() != ProfileKindV1.OBJECT_STORE) {
+        if (profile.profileKind() != ProfileKind.OBJECT_STORE) {
             throw new IllegalArgumentException("Object Store activation requires an OBJECT_STORE Profile");
         }
-        final CredentialBindingHeadV1 head = Objects.requireNonNull(
+        final CredentialBindingHead head = Objects.requireNonNull(
                 authority.resolveHead(profile.ref()), "Object Store Profile has no credential Head");
-        final CredentialBindingV1 binding = Objects.requireNonNull(
+        final CredentialBinding binding = Objects.requireNonNull(
                 authority.resolveBinding(profile.ref(), head.secretGeneration()),
                 "Object Store Profile Head has no immutable binding");
         if (!profile.ref().equals(binding.profile())
@@ -106,10 +106,10 @@ public final class OxiaObjectStoreCredentialLeaseActivator {
                 binding.equivalenceAttestation().resolvedCredentialFingerprintDigest())) {
             throw new IllegalStateException("resolved Object Store credential fingerprint differs from binding");
         }
-        final CredentialUseLeaseV1 lease = Objects.requireNonNull(
+        final CredentialUseLease lease = Objects.requireNonNull(
                 authority.issueCredentialUseLease(
                         profile.ref(),
-                        CredentialUseKindV1.OBJECT_STORE_ADAPTER,
+                        CredentialUseKind.OBJECT_STORE_ADAPTER,
                         request.holderScopeDigest(),
                         head.secretGeneration(),
                         binding.bindingDigest(),
@@ -118,7 +118,7 @@ public final class OxiaObjectStoreCredentialLeaseActivator {
                         request.validUntilEpochMs(),
                         head.headRevision()),
                 "Object Store credential lease");
-        final CredentialBindingProtectionV1 protection = Objects.requireNonNull(
+        final CredentialBindingProtection protection = Objects.requireNonNull(
                 authority.resolveProtection(profile.ref(), lease.secretGeneration()),
                 "Object Store credential protection");
         lease.requireBinding(binding);
@@ -151,8 +151,8 @@ public final class OxiaObjectStoreCredentialLeaseActivator {
     private record Activated(
             S3CompatibleCheckpointObjectStoreAdapter adapter,
             ObjectStoreCredentialUseLeaseGate gate,
-            ProfileSemanticEnvelopeV1 profile,
-            CredentialBindingV1 binding) {
+            ProfileSemanticEnvelope profile,
+            CredentialBinding binding) {
         private Activated {
             Objects.requireNonNull(adapter, "adapter");
             Objects.requireNonNull(gate, "gate");
@@ -163,7 +163,7 @@ public final class OxiaObjectStoreCredentialLeaseActivator {
 
     @FunctionalInterface
     public interface CredentialMaterialResolver {
-        ObjectStoreCredentialMaterial resolve(ProfileSemanticEnvelopeV1 profile, CredentialBindingV1 binding);
+        ObjectStoreCredentialMaterial resolve(ProfileSemanticEnvelope profile, CredentialBinding binding);
     }
 
     /** Private activation material; it is never part of a command/receipt/checkpoint projection. */
@@ -177,7 +177,7 @@ public final class OxiaObjectStoreCredentialLeaseActivator {
             Objects.requireNonNull(secretAccessKey, "secretAccessKey");
             Bytes.requireLength(
                     resolvedCredentialFingerprintDigest,
-                    CredentialBindingV1.HASH_LENGTH,
+                    CredentialBinding.HASH_LENGTH,
                     "resolvedCredentialFingerprintDigest");
             resolvedCredentialFingerprintDigest = Bytes.copy(resolvedCredentialFingerprintDigest);
         }
@@ -190,7 +190,7 @@ public final class OxiaObjectStoreCredentialLeaseActivator {
 
     /** Exact activation inputs; all provider/lease bounds remain explicit at the call site. */
     public record ActivationRequest(
-            ProfileRefV1 profile,
+            ProfileRef profile,
             URI endpoint,
             String region,
             String bucket,
@@ -206,7 +206,7 @@ public final class OxiaObjectStoreCredentialLeaseActivator {
             Objects.requireNonNull(endpoint, "endpoint");
             Objects.requireNonNull(region, "region");
             Objects.requireNonNull(bucket, "bucket");
-            Bytes.requireLength(holderScopeDigest, CredentialUseLeaseV1.HASH_LENGTH, "holderScopeDigest");
+            Bytes.requireLength(holderScopeDigest, CredentialUseLease.HASH_LENGTH, "holderScopeDigest");
             Objects.requireNonNull(issuedAt, "issuedAt");
             Objects.requireNonNull(limits, "limits");
             Objects.requireNonNull(client, "client");

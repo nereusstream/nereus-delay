@@ -64,7 +64,7 @@ public record PayloadReference(
     }
 
     /** Projects the Registry committed-payload descriptor without losing an absent etag. */
-    public static PayloadReference fromDescriptor(final CommittedPayloadDescriptorV1 descriptor) {
+    public static PayloadReference fromDescriptor(final CommittedPayloadDescriptor descriptor) {
         Objects.requireNonNull(descriptor, "descriptor");
         return new PayloadReference(
                 descriptor.objectStoreProfile().semanticHash(),

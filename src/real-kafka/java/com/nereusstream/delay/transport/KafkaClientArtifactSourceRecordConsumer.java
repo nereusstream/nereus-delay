@@ -20,7 +20,7 @@ import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
 
 /**
- * Source-set Kafka binding for one assigned V1 Shard Log partition.
+ * Source-set Kafka binding for one assigned Shard Log partition.
  *
  * <p>The consumer deliberately has no Nereus apply authority: it decodes one
  * canonical Client Command or signed System Mutation, exposes the exact

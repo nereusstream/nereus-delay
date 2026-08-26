@@ -1,26 +1,26 @@
 package com.nereusstream.delay.adapter;
 
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.EvidenceVerificationStatusV1;
-import com.nereusstream.delay.protocol.ExternalDeliveryIdentityV1;
-import com.nereusstream.delay.protocol.PublishEvidenceKindV1;
-import com.nereusstream.delay.protocol.PublishEvidenceV1;
-import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.EvidenceVerificationStatus;
+import com.nereusstream.delay.protocol.ExternalDeliveryIdentity;
+import com.nereusstream.delay.protocol.PublishEvidence;
+import com.nereusstream.delay.protocol.PublishEvidenceKind;
+import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
-/** Builds the typed V1 Pulsar SEND acknowledgement evidence branch. */
+/** Builds the typed Pulsar SEND acknowledgement evidence branch. */
 public final class PulsarSendAckEvidence {
     private static final int HASH_LENGTH = 32;
 
     private PulsarSendAckEvidence() {}
 
     /** Creates a verified PUBLISHED branch bound to one exact prepared attempt. */
-    public static PublishEvidenceV1 published(
+    public static PublishEvidence published(
             final PulsarDestinationRequest request,
             final byte[] preparedPublishHash,
             final byte[] producerNameHash,
@@ -42,7 +42,7 @@ public final class PulsarSendAckEvidence {
                 || sequenceId < 0) {
             throw new IllegalArgumentException("Pulsar SEND ACK position values must be non-negative");
         }
-        final BrokerResourceIdentityV1 target = BrokerResourceIdentityV1.pulsar(new PulsarBrokerResourceIdentityV1(
+        final BrokerResourceIdentity target = BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
                 request.authenticatedClusterId(),
                 request.resourceIncarnation(),
                 request.physicalTopic(),
@@ -59,22 +59,22 @@ public final class PulsarSendAckEvidence {
             CanonicalProtobuf.bytes(
                     output,
                     9,
-                    ExternalDeliveryIdentityV1.publishAttempt(request.publishAttemptId())
+                    ExternalDeliveryIdentity.publishAttempt(request.publishAttemptId())
                             .canonicalBytes());
             CanonicalProtobuf.bytes(output, 10, preparedPublishHash);
             CanonicalProtobuf.bytes(output, 11, authenticatedResponseSha256);
         });
-        return PublishEvidenceV1.create(
-                PublishEvidenceKindV1.PULSAR_SEND_ACK, EvidenceVerificationStatusV1.VERIFIED_PUBLISHED, branch);
+        return PublishEvidence.create(
+                PublishEvidenceKind.PULSAR_SEND_ACK, EvidenceVerificationStatus.VERIFIED_PUBLISHED, branch);
     }
 
     /**
      * Verifies provider-returned evidence before an uncertain SEND is
-     * promoted to PUBLISHED.  The provider supplies the broker reread; this
+     * promoted to PUBLISHED. The provider supplies the broker reread; this
      * method binds that reread to the exact destination attempt and timestamp.
      */
     public static void requireExactBinding(
-            final PublishEvidenceV1 evidence,
+            final PublishEvidence evidence,
             final PulsarDestinationRequest request,
             final byte[] preparedPublishHash,
             final byte[] producerNameHash,
@@ -83,8 +83,8 @@ public final class PulsarSendAckEvidence {
         Objects.requireNonNull(request, "request");
         Bytes.requireLength(preparedPublishHash, HASH_LENGTH, "preparedPublishHash");
         Bytes.requireLength(producerNameHash, HASH_LENGTH, "producerNameHash");
-        if (evidence.evidenceKind() != PublishEvidenceKindV1.PULSAR_SEND_ACK
-                || evidence.verificationStatus() != EvidenceVerificationStatusV1.VERIFIED_PUBLISHED) {
+        if (evidence.evidenceKind() != PublishEvidenceKind.PULSAR_SEND_ACK
+                || evidence.verificationStatus() != EvidenceVerificationStatus.VERIFIED_PUBLISHED) {
             throw new IllegalArgumentException("Pulsar SEND evidence has the wrong branch");
         }
         evidence.requireBusinessMutation(request.publishAttemptId(), true);
@@ -92,13 +92,12 @@ public final class PulsarSendAckEvidence {
             throw new IllegalArgumentException("brokerPersistenceTime must be non-negative");
         }
         final List<CanonicalProtobuf.Reader.Field> fields = branchFields(evidence.branch());
-        final BrokerResourceIdentityV1 expectedTarget =
-                BrokerResourceIdentityV1.pulsar(new PulsarBrokerResourceIdentityV1(
-                        request.authenticatedClusterId(),
-                        request.resourceIncarnation(),
-                        request.physicalTopic(),
-                        request.physicalTopicCreationTimestamp()));
-        if (!BrokerResourceIdentityV1.decode(bytes(fields.get(0), 1)).equals(expectedTarget)
+        final BrokerResourceIdentity expectedTarget = BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
+                request.authenticatedClusterId(),
+                request.resourceIncarnation(),
+                request.physicalTopic(),
+                request.physicalTopicCreationTimestamp()));
+        if (!BrokerResourceIdentity.decode(bytes(fields.get(0), 1)).equals(expectedTarget)
                 || uint(fields.get(1), 2) != request.partition()
                 || uint(fields.get(5), 6) != brokerPersistenceTime
                 || !Arrays.equals(bytes(fields.get(6), 7), producerNameHash)

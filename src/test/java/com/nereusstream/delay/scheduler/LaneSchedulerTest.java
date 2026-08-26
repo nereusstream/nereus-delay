@@ -7,11 +7,11 @@ import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.LaneRecordEnvelopeV1;
+import com.nereusstream.delay.protocol.LaneRecordEnvelope;
 import com.nereusstream.delay.protocol.OrderingMode;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.SchedulerProjectionsV1;
+import com.nereusstream.delay.protocol.SchedulerProjections;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.runtime.AdmissionGate;
@@ -498,8 +498,8 @@ class LaneSchedulerTest {
         final DestinationLaneId second = lane(19);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 18);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("owner-change-first-pass"));
-        final OwnerIdentityV1 firstOwner = owner(1);
-        final OwnerIdentityV1 secondOwner = owner(2);
+        final OwnerIdentity firstOwner = owner(1);
+        final OwnerIdentity secondOwner = owner(2);
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
@@ -565,9 +565,9 @@ class LaneSchedulerTest {
                     store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(4), 5));
             org.junit.jupiter.api.Assertions.assertNotNull(
                     store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(5), 5));
-            SchedulerProjectionsV1.ActiveRing.decode(store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(2), 5)
+            SchedulerProjections.ActiveRing.decode(store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(2), 5)
                     .payload());
-            SchedulerProjectionsV1.Round.decode(store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(4), 5)
+            SchedulerProjections.Round.decode(store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(4), 5)
                     .payload());
         }
     }
@@ -587,19 +587,19 @@ class LaneSchedulerTest {
             assertEquals(List.of(), scheduler.snapshot().lanes());
             assertEquals(
                     List.of(),
-                    SchedulerProjectionsV1.ActiveRing.decode(
+                    SchedulerProjections.ActiveRing.decode(
                                     store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(2), 5)
                                             .payload())
                             .entries());
             assertEquals(
                     List.of(),
-                    SchedulerProjectionsV1.DeficitMap.decode(
+                    SchedulerProjections.DeficitMap.decode(
                                     store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(3), 5)
                                             .payload())
                             .entries());
             assertEquals(
                     List.of(),
-                    SchedulerProjectionsV1.LastServedMap.decode(
+                    SchedulerProjections.LastServedMap.decode(
                                     store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(5), 5)
                                             .payload())
                             .entries());
@@ -688,7 +688,7 @@ class LaneSchedulerTest {
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
-            final SchedulerProjectionsV1.ActiveRing activeRing = SchedulerProjectionsV1.ActiveRing.decode(
+            final SchedulerProjections.ActiveRing activeRing = SchedulerProjections.ActiveRing.decode(
                     store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(2), 5)
                             .payload());
             assertEquals(persistedGeneration, activeRing.ringGeneration());
@@ -814,7 +814,7 @@ class LaneSchedulerTest {
             final LaneRecord registeredOnly = record(lane(33), 1);
             initial.register(registeredOnly);
             initial.persist();
-            final long ringGeneration = SchedulerProjectionsV1.ActiveRing.decode(
+            final long ringGeneration = SchedulerProjections.ActiveRing.decode(
                             store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(2), 5)
                                     .payload())
                     .ringGeneration();
@@ -822,7 +822,7 @@ class LaneSchedulerTest {
                     ColumnFamily.META,
                     5,
                     KeyCodec.metaScheduler(1),
-                    new SchedulerProjectionsV1.ReadyDiscoveryCursor(last.readyKey(), 0, ringGeneration)
+                    new SchedulerProjections.ReadyDiscoveryCursor(last.readyKey(), 0, ringGeneration)
                             .canonicalBytes()));
 
             final PersistentLaneScheduler recovered = PersistentLaneScheduler.defaults(store);
@@ -846,11 +846,11 @@ class LaneSchedulerTest {
             scheduler.offer(item(lane, 1));
             scheduler.poll(new SchedulerBudget(1, 1024, 1_000_000_000));
 
-            final SchedulerProjectionsV1.ReadyDiscoveryCursor discovery =
-                    SchedulerProjectionsV1.ReadyDiscoveryCursor.decode(
+            final SchedulerProjections.ReadyDiscoveryCursor discovery =
+                    SchedulerProjections.ReadyDiscoveryCursor.decode(
                             store.getValue(ColumnFamily.META, KeyCodec.metaScheduler(1), 5)
                                     .payload());
-            final SchedulerProjectionsV1.ReadyDiscoveryCursor drifted = new SchedulerProjectionsV1.ReadyDiscoveryCursor(
+            final SchedulerProjections.ReadyDiscoveryCursor drifted = new SchedulerProjections.ReadyDiscoveryCursor(
                     discovery.lastScannedReadyKey(), discovery.wrapGeneration(), discovery.activeRingGeneration() + 1);
             store.write(
                     batch -> batch.putValue(ColumnFamily.META, 5, KeyCodec.metaScheduler(1), drifted.canonicalBytes()));
@@ -868,13 +868,12 @@ class LaneSchedulerTest {
                 ShardStoreConfig.defaults(tempDir.resolve("scheduler-restore-partial-generation"));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
-            final SchedulerProjectionsV1.ReadyDiscoveryCursor discovery =
-                    new SchedulerProjectionsV1.ReadyDiscoveryCursor(null, 0, 1);
-            final SchedulerProjectionsV1.ActiveRing activeRing =
-                    new SchedulerProjectionsV1.ActiveRing(1, -1, 0, List.of());
-            final SchedulerProjectionsV1.DeficitMap deficits = new SchedulerProjectionsV1.DeficitMap(List.of());
-            final SchedulerProjectionsV1.Round round = new SchedulerProjectionsV1.Round(-1, owner(1), false);
-            final SchedulerProjectionsV1.LastServedMap lastServed = new SchedulerProjectionsV1.LastServedMap(List.of());
+            final SchedulerProjections.ReadyDiscoveryCursor discovery =
+                    new SchedulerProjections.ReadyDiscoveryCursor(null, 0, 1);
+            final SchedulerProjections.ActiveRing activeRing = new SchedulerProjections.ActiveRing(1, -1, 0, List.of());
+            final SchedulerProjections.DeficitMap deficits = new SchedulerProjections.DeficitMap(List.of());
+            final SchedulerProjections.Round round = new SchedulerProjections.Round(-1, owner(1), false);
+            final SchedulerProjections.LastServedMap lastServed = new SchedulerProjections.LastServedMap(List.of());
             store.write(batch -> {
                 batch.putValue(ColumnFamily.META, 5, KeyCodec.metaScheduler(1), discovery.canonicalBytes());
                 batch.putValue(ColumnFamily.META, 5, KeyCodec.metaScheduler(2), activeRing.canonicalBytes());
@@ -901,15 +900,15 @@ class LaneSchedulerTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 49);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("scheduler-stale-deficit-version"));
         final byte[] incarnation = new byte[16];
-        final SchedulerProjectionsV1.ReadyDiscoveryCursor discovery =
-                new SchedulerProjectionsV1.ReadyDiscoveryCursor(null, 0, 1);
-        final SchedulerProjectionsV1.ActiveRing activeRing = new SchedulerProjectionsV1.ActiveRing(
-                1, 5, 0, List.of(new SchedulerProjectionsV1.RingEntry(lane, incarnation, 1)));
-        final SchedulerProjectionsV1.DeficitMap deficits = new SchedulerProjectionsV1.DeficitMap(
-                List.of(new SchedulerProjectionsV1.DeficitEntry(lane, incarnation, 64, 1)));
-        final SchedulerProjectionsV1.Round round = new SchedulerProjectionsV1.Round(5, owner(1), false);
-        final SchedulerProjectionsV1.LastServedMap lastServed = new SchedulerProjectionsV1.LastServedMap(
-                List.of(new SchedulerProjectionsV1.LastServedEntry(lane, incarnation, 4, 1)));
+        final SchedulerProjections.ReadyDiscoveryCursor discovery =
+                new SchedulerProjections.ReadyDiscoveryCursor(null, 0, 1);
+        final SchedulerProjections.ActiveRing activeRing = new SchedulerProjections.ActiveRing(
+                1, 5, 0, List.of(new SchedulerProjections.RingEntry(lane, incarnation, 1)));
+        final SchedulerProjections.DeficitMap deficits = new SchedulerProjections.DeficitMap(
+                List.of(new SchedulerProjections.DeficitEntry(lane, incarnation, 64, 1)));
+        final SchedulerProjections.Round round = new SchedulerProjections.Round(5, owner(1), false);
+        final SchedulerProjections.LastServedMap lastServed = new SchedulerProjections.LastServedMap(
+                List.of(new SchedulerProjections.LastServedEntry(lane, incarnation, 4, 1)));
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             store.write(batch -> {
@@ -968,7 +967,7 @@ class LaneSchedulerTest {
                         ColumnFamily.META,
                         2,
                         KeyCodec.metaLane(lane),
-                        LaneRecordEnvelopeV1.active(laneRecord.encode()).canonicalBytes());
+                        LaneRecordEnvelope.active(laneRecord.encode()).canonicalBytes());
                 batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(messageId), message.encode());
                 batch.putValue(
                         ColumnFamily.TIMELINE,
@@ -988,7 +987,7 @@ class LaneSchedulerTest {
                             .poll(new SchedulerBudget(1, 1024, 1_000_000_000))
                             .get(0)
                             .messageId());
-            final SchedulerProjectionsV1.ReadyDiscoveryCursor cursor = scheduler.discoveryCursor();
+            final SchedulerProjections.ReadyDiscoveryCursor cursor = scheduler.discoveryCursor();
             org.junit.jupiter.api.Assertions.assertArrayEquals(readyKey, cursor.lastScannedReadyKey());
         }
     }
@@ -1032,7 +1031,7 @@ class LaneSchedulerTest {
                         ColumnFamily.META,
                         2,
                         KeyCodec.metaLane(lane),
-                        LaneRecordEnvelopeV1.active(laneRecord.encode()).canonicalBytes());
+                        LaneRecordEnvelope.active(laneRecord.encode()).canonicalBytes());
                 batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(messageId), message.encode());
                 batch.putValue(
                         ColumnFamily.TIMELINE,
@@ -1087,7 +1086,7 @@ class LaneSchedulerTest {
                         ColumnFamily.META,
                         2,
                         KeyCodec.metaLane(lane),
-                        LaneRecordEnvelopeV1.active(laneRecord.encode()).canonicalBytes());
+                        LaneRecordEnvelope.active(laneRecord.encode()).canonicalBytes());
                 batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(messageId), message.encode());
                 batch.putValue(
                         ColumnFamily.TIMELINE,
@@ -1143,7 +1142,7 @@ class LaneSchedulerTest {
                             ColumnFamily.META,
                             2,
                             KeyCodec.metaLane(lane),
-                            LaneRecordEnvelopeV1.active(laneRecord.encode()).canonicalBytes());
+                            LaneRecordEnvelope.active(laneRecord.encode()).canonicalBytes());
                     batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(messageId), message.encode());
                     batch.putValue(
                             ColumnFamily.TIMELINE,
@@ -1158,7 +1157,7 @@ class LaneSchedulerTest {
             lanes.forEach(initial::register);
             assertEquals(4, initial.rebuildFromAuthoritativeReady(4));
 
-            // A recovery cursor points at the last scanned entry.  A complete
+            // A recovery cursor points at the last scanned entry. A complete
             // pass must still detect all four authoritative READY entries;
             // it must not treat the cursor as an item that can be discarded
             // from the bounded scan.
@@ -1207,7 +1206,7 @@ class LaneSchedulerTest {
                     1,
                     scheduler.poll(new SchedulerBudget(1, 1024, 1_000_000_000)).size());
 
-            // The cursor wraps to the already-polled first head.  The exact
+            // The cursor wraps to the already-polled first head. The exact
             // discovered-head identity prevents a second offer while the
             // Claim result is still pending.
             assertEquals(List.of(), scheduler.discoverReady(new SchedulerBudget(1, 1024, 1_000_000_000)));
@@ -1277,7 +1276,7 @@ class LaneSchedulerTest {
             assertEquals(List.of(), scheduler.discoverReady(new SchedulerBudget(1, 1024, 1_000_000_000)));
 
             // The Claim/READY transition changes only the Lane version and
-            // physical READY key.  Message identity and generation remain
+            // physical READY key. Message identity and generation remain
             // unchanged, so work-item equality alone must not suppress it.
             final LaneRecord transitionedLane =
                     new LaneRecord(lane, new byte[16], 1, 2, AdmissionGate.OPEN, RuntimeReadiness.READY, 1, 1_000);
@@ -1517,7 +1516,7 @@ class LaneSchedulerTest {
                 ColumnFamily.META,
                 2,
                 KeyCodec.metaLane(fixture.lane().laneId()),
-                LaneRecordEnvelopeV1.active(fixture.lane().encode()).canonicalBytes());
+                LaneRecordEnvelope.active(fixture.lane().encode()).canonicalBytes());
         batch.putValue(
                 ColumnFamily.ID,
                 1,
@@ -1540,8 +1539,8 @@ class LaneSchedulerTest {
             byte[] timelineKey,
             ReadyIndexValue ready) {}
 
-    private static OwnerIdentityV1 owner(final long epoch) {
-        return new OwnerIdentityV1(
+    private static OwnerIdentity owner(final long epoch) {
+        return new OwnerIdentity(
                 Bytes.utf8("scheduler-deployment"),
                 Bytes.utf8("scheduler-worker-" + epoch),
                 epoch,

@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-/** Semantic parser for the bounded {@code ReplayDeadLetterV1} body. */
+/** Semantic parser for the bounded {@code ReplayDeadLetter} body. */
 public final class ReplayDeadLetterBody {
     private static final int HASH_LENGTH = 32;
     private final ControlRef controlRef;
@@ -14,7 +14,7 @@ public final class ReplayDeadLetterBody {
     private final long deliverAtEpochMs;
     private final long expireAtEpochMs;
     private final byte[] retryPolicy;
-    private final RetryPolicyRefV1 retryPolicyRef;
+    private final RetryPolicyRef retryPolicyRef;
     private final boolean allowPossibleDuplicate;
     private final byte[] acknowledgementHash;
 
@@ -38,7 +38,7 @@ public final class ReplayDeadLetterBody {
         this.deliverAtEpochMs = deliverAtEpochMs;
         this.expireAtEpochMs = expireAtEpochMs;
         this.retryPolicy = copyNested(retryPolicy, "retryPolicy");
-        this.retryPolicyRef = RetryPolicyRefV1.decode(this.retryPolicy);
+        this.retryPolicyRef = RetryPolicyRef.decode(this.retryPolicy);
         this.allowPossibleDuplicate = allowPossibleDuplicate;
         this.acknowledgementHash = Bytes.copy(acknowledgementHash);
         if (allowPossibleDuplicate != (acknowledgementHash.length == ControlRef.HASH_LENGTH)) {
@@ -60,7 +60,7 @@ public final class ReplayDeadLetterBody {
             final long expectedStateVersion,
             final long deliverAtEpochMs,
             final long expireAtEpochMs,
-            final RetryPolicyRefV1 retryPolicy,
+            final RetryPolicyRef retryPolicy,
             final boolean allowPossibleDuplicate,
             final byte[] acknowledgementHash) {
         Objects.requireNonNull(shardId, "shardId");
@@ -83,7 +83,7 @@ public final class ReplayDeadLetterBody {
             throw new IllegalArgumentException("acknowledgementHash requires possible-duplicate acknowledgement");
         }
         final byte[] encoded = CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.bytes(output, 1, new ShardSubjectV1(shardId).canonicalBytes());
+            CanonicalProtobuf.bytes(output, 1, new ShardSubject(shardId).canonicalBytes());
             CanonicalProtobuf.uint32(output, 2, SystemMutationType.REPLAY_DEAD_LETTER.wireValue());
             CanonicalProtobuf.int64(output, 3, retryUntilEpochMs);
             CanonicalProtobuf.bytes(output, 10, controlRef.canonicalBytes());
@@ -106,7 +106,7 @@ public final class ReplayDeadLetterBody {
         final List<CanonicalProtobuf.Reader.Field> fields =
                 SystemMutationBodyCodec.fields(SystemMutationType.REPLAY_DEAD_LETTER, canonicalBody);
         final ShardId subjectShard =
-                ShardSubjectV1.decode(bytes(fields.get(0), 1)).shardId();
+                ShardSubject.decode(bytes(fields.get(0), 1)).shardId();
         final ControlRef controlRef = ControlRef.decode(nested(field(fields, 10), 10));
         final DelayMessageId messageId = new DelayMessageId(fixed(field(fields, 11), 11, DelayMessageId.LENGTH));
         if (!subjectShard.equals(messageId.routingId().shardId())) {
@@ -160,7 +160,7 @@ public final class ReplayDeadLetterBody {
     }
 
     /** Returns the typed immutable policy reference carried by field 16. */
-    public RetryPolicyRefV1 retryPolicyRef() {
+    public RetryPolicyRef retryPolicyRef() {
         return retryPolicyRef;
     }
 

@@ -3,17 +3,17 @@ package com.nereusstream.delay.ownership;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import com.nereusstream.delay.protocol.ControlAuthorV1;
-import com.nereusstream.delay.protocol.ControlOperationRequestV1;
-import com.nereusstream.delay.protocol.ControlReasonKindV1;
-import com.nereusstream.delay.protocol.ControlReasonV1;
-import com.nereusstream.delay.protocol.ControlTargetKindV1;
-import com.nereusstream.delay.protocol.ControlTargetRefV1;
-import com.nereusstream.delay.protocol.ForceCheckpointRequestV1;
-import com.nereusstream.delay.protocol.PreparedControlOperationV1;
+import com.nereusstream.delay.protocol.ControlAuthor;
+import com.nereusstream.delay.protocol.ControlOperationRequest;
+import com.nereusstream.delay.protocol.ControlReason;
+import com.nereusstream.delay.protocol.ControlReasonKind;
+import com.nereusstream.delay.protocol.ControlTargetKind;
+import com.nereusstream.delay.protocol.ControlTargetRef;
+import com.nereusstream.delay.protocol.ForceCheckpointRequest;
+import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SystemMutation;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -25,25 +25,25 @@ class OxiaControlTargetRegistrationAuthorityTest {
     @Test
     void adapterRequiresExactPreparedRereadAfterCas() throws Exception {
         final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-        final PreparedControlOperationV1 prepared = prepared(keyPair, 1);
+        final PreparedControlOperation prepared = prepared(keyPair, 1);
         final InMemoryControlTargetRegistrationAuthority local = new InMemoryControlTargetRegistrationAuthority();
         final OxiaControlTargetRegistrationAuthority authority =
                 new OxiaControlTargetRegistrationAuthority(new OxiaControlTargetRegistrationAuthority.CasBackend() {
                     @Override
                     public ControlTargetRegistrationAuthority.RegistrationResult register(
-                            final PreparedControlOperationV1 value) {
+                            final PreparedControlOperation value) {
                         return local.register(value);
                     }
 
                     @Override
-                    public Optional<PreparedControlOperationV1> find(final byte[] operationId) {
+                    public Optional<PreparedControlOperation> find(final byte[] operationId) {
                         return local.find(operationId);
                     }
 
                     @Override
                     public void validateMutation(
-                            final PreparedControlOperationV1 value,
-                            final ControlTargetRefV1 target,
+                            final PreparedControlOperation value,
+                            final ControlTargetRef target,
                             final SystemMutation mutation) {
                         local.validateMutation(value, target, mutation);
                     }
@@ -51,14 +51,14 @@ class OxiaControlTargetRegistrationAuthorityTest {
         assertEquals(ControlTargetRegistrationAuthority.RegistrationResult.RECORDED, authority.register(prepared));
         assertEquals(
                 ControlTargetRegistrationAuthority.RegistrationResult.ALREADY_RECORDED,
-                authority.register(PreparedControlOperationV1.decode(prepared.canonicalBytes())));
+                authority.register(PreparedControlOperation.decode(prepared.canonicalBytes())));
     }
 
     @Test
     void adapterRejectsMissingOrChangedRegistrationReread() throws Exception {
         final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-        final PreparedControlOperationV1 prepared = prepared(keyPair, 2);
-        final PreparedControlOperationV1 changed = prepared(keyPair, 3);
+        final PreparedControlOperation prepared = prepared(keyPair, 2);
+        final PreparedControlOperation changed = prepared(keyPair, 3);
         final OxiaControlTargetRegistrationAuthority.CasBackend missing =
                 new StubBackend(ControlTargetRegistrationAuthority.RegistrationResult.RECORDED, Optional.empty());
         assertThrows(IllegalStateException.class, () -> new OxiaControlTargetRegistrationAuthority(missing)
@@ -73,8 +73,8 @@ class OxiaControlTargetRegistrationAuthorityTest {
     @Test
     void adapterRejectsLookupForAnotherOperation() throws Exception {
         final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-        final PreparedControlOperationV1 requested = prepared(keyPair, 4);
-        final PreparedControlOperationV1 other = prepared(keyPair, 5);
+        final PreparedControlOperation requested = prepared(keyPair, 4);
+        final PreparedControlOperation other = prepared(keyPair, 5);
         final OxiaControlTargetRegistrationAuthority.CasBackend backend = new StubBackend(
                 ControlTargetRegistrationAuthority.RegistrationResult.ALREADY_RECORDED, Optional.of(other));
         assertThrows(IllegalStateException.class, () -> new OxiaControlTargetRegistrationAuthority(backend)
@@ -84,26 +84,26 @@ class OxiaControlTargetRegistrationAuthorityTest {
     @Test
     void adapterKeepsLookupIdentitySnapshotWhenBackendMutatesBuffer() throws Exception {
         final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-        final PreparedControlOperationV1 prepared = prepared(keyPair, 6);
+        final PreparedControlOperation prepared = prepared(keyPair, 6);
         final byte[] requestedOperationId = prepared.operationId();
         final OxiaControlTargetRegistrationAuthority.CasBackend backend =
                 new OxiaControlTargetRegistrationAuthority.CasBackend() {
                     @Override
                     public ControlTargetRegistrationAuthority.RegistrationResult register(
-                            final PreparedControlOperationV1 ignored) {
+                            final PreparedControlOperation ignored) {
                         throw new UnsupportedOperationException();
                     }
 
                     @Override
-                    public Optional<PreparedControlOperationV1> find(final byte[] operationId) {
+                    public Optional<PreparedControlOperation> find(final byte[] operationId) {
                         operationId[0] ^= 0x44;
                         return Optional.of(prepared);
                     }
 
                     @Override
                     public void validateMutation(
-                            final PreparedControlOperationV1 ignored,
-                            final ControlTargetRefV1 target,
+                            final PreparedControlOperation ignored,
+                            final ControlTargetRef target,
                             final SystemMutation mutation) {
                         throw new UnsupportedOperationException();
                     }
@@ -116,16 +116,16 @@ class OxiaControlTargetRegistrationAuthorityTest {
         assertArrayEquals(prepared.operationId(), requestedOperationId);
     }
 
-    private static PreparedControlOperationV1 prepared(final KeyPair keyPair, final int seed) {
-        final ControlOperationRequestV1 request = ControlOperationRequestV1.forceCheckpoint(
-                new ForceCheckpointRequestV1(new ControlReasonV1(ControlReasonKindV1.MAINTENANCE, null, null)));
+    private static PreparedControlOperation prepared(final KeyPair keyPair, final int seed) {
+        final ControlOperationRequest request = ControlOperationRequest.forceCheckpoint(
+                new ForceCheckpointRequest(new ControlReason(ControlReasonKind.MAINTENANCE, null, null)));
         final ShardId shardId = new ShardId(new RouteIncarnation(bytes(16, seed + 1)), seed);
-        final ControlTargetRefV1 target =
-                new ControlTargetRefV1(0, ControlTargetKindV1.SHARD, new ShardSubjectV1(shardId), null, null);
-        return PreparedControlOperationV1.prepare(
+        final ControlTargetRef target =
+                new ControlTargetRef(0, ControlTargetKind.SHARD, new ShardSubject(shardId), null, null);
+        return PreparedControlOperation.prepare(
                 bytes(32, seed),
                 request.kind(),
-                new ControlAuthorV1(bytes(32, seed + 2), bytes(32, seed + 3), bytes(32, seed + 4)),
+                new ControlAuthor(bytes(32, seed + 2), bytes(32, seed + 3), bytes(32, seed + 4)),
                 request,
                 List.of(target),
                 1,
@@ -143,24 +143,21 @@ class OxiaControlTargetRegistrationAuthorityTest {
     }
 
     private record StubBackend(
-            ControlTargetRegistrationAuthority.RegistrationResult result, Optional<PreparedControlOperationV1> found)
+            ControlTargetRegistrationAuthority.RegistrationResult result, Optional<PreparedControlOperation> found)
             implements OxiaControlTargetRegistrationAuthority.CasBackend {
         @Override
-        public ControlTargetRegistrationAuthority.RegistrationResult register(
-                final PreparedControlOperationV1 prepared) {
+        public ControlTargetRegistrationAuthority.RegistrationResult register(final PreparedControlOperation prepared) {
             return result;
         }
 
         @Override
-        public Optional<PreparedControlOperationV1> find(final byte[] operationId) {
+        public Optional<PreparedControlOperation> find(final byte[] operationId) {
             return found;
         }
 
         @Override
         public void validateMutation(
-                final PreparedControlOperationV1 prepared,
-                final ControlTargetRefV1 target,
-                final SystemMutation mutation) {
+                final PreparedControlOperation prepared, final ControlTargetRef target, final SystemMutation mutation) {
             // Registration/lookup tests do not need a completed mutation.
         }
     }

@@ -1,15 +1,15 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CredentialBindingProtectionV1;
-import com.nereusstream.delay.protocol.CredentialBindingV1;
-import com.nereusstream.delay.protocol.CredentialEquivalenceAttestationV1;
-import com.nereusstream.delay.protocol.CredentialUseKindV1;
-import com.nereusstream.delay.protocol.CredentialUseLeaseV1;
-import com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
+import com.nereusstream.delay.protocol.CredentialBinding;
+import com.nereusstream.delay.protocol.CredentialBindingProtection;
+import com.nereusstream.delay.protocol.CredentialEquivalenceAttestation;
+import com.nereusstream.delay.protocol.CredentialUseKind;
+import com.nereusstream.delay.protocol.CredentialUseLease;
+import com.nereusstream.delay.protocol.ObjectStoreProfileSemantic;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import java.time.Clock;
 import java.util.Objects;
 
@@ -27,18 +27,18 @@ import java.util.Objects;
 public final class ObjectStoreCredentialUseLeaseGate {
     private static final int HASH_LENGTH = 32;
 
-    private final ProfileSemanticEnvelopeV1 profile;
-    private final CredentialBindingV1 binding;
+    private final ProfileSemanticEnvelope profile;
+    private final CredentialBinding binding;
     private volatile Projection projection;
     private final Clock clock;
     private final long maximumLeaseTtlMs;
     private final long maximumAttestationAgeMs;
 
     public ObjectStoreCredentialUseLeaseGate(
-            final ProfileSemanticEnvelopeV1 profile,
-            final CredentialBindingV1 binding,
-            final CredentialBindingProtectionV1 protection,
-            final CredentialUseLeaseV1 lease,
+            final ProfileSemanticEnvelope profile,
+            final CredentialBinding binding,
+            final CredentialBindingProtection protection,
+            final CredentialUseLease lease,
             final byte[] loadedCredentialFingerprintDigest,
             final Clock clock,
             final long maximumLeaseTtlMs,
@@ -59,11 +59,11 @@ public final class ObjectStoreCredentialUseLeaseGate {
     /** Checks the complete local gate immediately before provider ownership. */
     public void requireBeforeProviderCall() {
         final Projection current = projection;
-        final CredentialUseLeaseV1 lease = current.lease();
+        final CredentialUseLease lease = current.lease();
         lease.requireBinding(binding);
         lease.requireProtectedBy(current.protection());
         lease.requireTtlAtMost(maximumLeaseTtlMs);
-        final CredentialEquivalenceAttestationV1 attestation = binding.equivalenceAttestation();
+        final CredentialEquivalenceAttestation attestation = binding.equivalenceAttestation();
         attestation.requireNotAfterAtMost(maximumAttestationAgeMs);
         if (!Bytes.constantTimeEquals(
                 current.loadedCredentialFingerprintDigest(), lease.resolvedCredentialFingerprintDigest())) {
@@ -81,11 +81,11 @@ public final class ObjectStoreCredentialUseLeaseGate {
         }
     }
 
-    public ProfileRefV1 profile() {
+    public ProfileRef profile() {
         return profile.ref();
     }
 
-    public CredentialUseLeaseV1 lease() {
+    public CredentialUseLease lease() {
         return projection.lease();
     }
 
@@ -96,8 +96,8 @@ public final class ObjectStoreCredentialUseLeaseGate {
 
     /** Atomically replaces the control-plane projection after a successful renewal. */
     public synchronized void replace(
-            final CredentialBindingProtectionV1 protection,
-            final CredentialUseLeaseV1 lease,
+            final CredentialBindingProtection protection,
+            final CredentialUseLease lease,
             final byte[] loadedCredentialFingerprintDigest) {
         final Projection next = new Projection(protection, lease, loadedCredentialFingerprintDigest);
         validateStaticIdentity(next);
@@ -108,24 +108,24 @@ public final class ObjectStoreCredentialUseLeaseGate {
     }
 
     private void validateStaticIdentity(final Projection candidate) {
-        final CredentialBindingProtectionV1 protection = candidate.protection();
-        final CredentialUseLeaseV1 lease = candidate.lease();
+        final CredentialBindingProtection protection = candidate.protection();
+        final CredentialUseLease lease = candidate.lease();
         final byte[] loadedCredentialFingerprintDigest = candidate.loadedCredentialFingerprintDigest();
         if (!profile.ref().equals(binding.profile())
                 || !profile.ref().equals(protection.profile())
                 || !profile.ref().equals(lease.profile())) {
             throw new IllegalArgumentException("Object Store credential gate Profile identity differs");
         }
-        if (lease.kind() != CredentialUseKindV1.OBJECT_STORE_ADAPTER) {
+        if (lease.kind() != CredentialUseKind.OBJECT_STORE_ADAPTER) {
             throw new IllegalArgumentException("Object Store credential gate requires OBJECT_STORE_ADAPTER lease");
         }
         lease.requireBinding(binding);
         lease.requireProtectedBy(protection);
         lease.requireTtlAtMost(maximumLeaseTtlMs);
-        final CredentialEquivalenceAttestationV1 attestation = binding.equivalenceAttestation();
+        final CredentialEquivalenceAttestation attestation = binding.equivalenceAttestation();
         attestation.requireCandidate(profile.ref(), binding.secretGeneration(), binding.secretReferenceSha256());
         attestation.requireAuthorizationScopeDigest(
-                ((ObjectStoreProfileSemanticV1) profile.body()).credentialAuthorizationScopeDigest());
+                ((ObjectStoreProfileSemantic) profile.body()).credentialAuthorizationScopeDigest());
         attestation.requireNotAfterAtMost(maximumAttestationAgeMs);
         if (lease.validUntilEpochMs() > attestation.notAfterEpochMs()) {
             throw new IllegalArgumentException("Object Store credential lease outlives its attestation");
@@ -141,8 +141,8 @@ public final class ObjectStoreCredentialUseLeaseGate {
     }
 
     private record Projection(
-            CredentialBindingProtectionV1 protection,
-            CredentialUseLeaseV1 lease,
+            CredentialBindingProtection protection,
+            CredentialUseLease lease,
             byte[] loadedCredentialFingerprintDigest) {
         private Projection {
             Objects.requireNonNull(protection, "protection");
@@ -157,10 +157,10 @@ public final class ObjectStoreCredentialUseLeaseGate {
         }
     }
 
-    private static ProfileSemanticEnvelopeV1 requireObjectStoreProfile(final ProfileSemanticEnvelopeV1 value) {
-        final ProfileSemanticEnvelopeV1 profile = Objects.requireNonNull(value, "profile");
-        if (profile.profileKind() != ProfileKindV1.OBJECT_STORE
-                || !(profile.body() instanceof ObjectStoreProfileSemanticV1)) {
+    private static ProfileSemanticEnvelope requireObjectStoreProfile(final ProfileSemanticEnvelope value) {
+        final ProfileSemanticEnvelope profile = Objects.requireNonNull(value, "profile");
+        if (profile.profileKind() != ProfileKind.OBJECT_STORE
+                || !(profile.body() instanceof ObjectStoreProfileSemantic)) {
             throw new IllegalArgumentException("Object Store credential gate requires an OBJECT_STORE Profile");
         }
         return profile;

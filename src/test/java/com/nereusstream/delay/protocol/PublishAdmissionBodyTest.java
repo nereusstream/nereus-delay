@@ -40,7 +40,7 @@ public class PublishAdmissionBodyTest {
         final byte[] rebuilt = PublishAdmissionBody.canonicalBytes(
                 shard,
                 retryUntil,
-                OwnerIdentityV1.decode(admission.ownerIdentity()),
+                OwnerIdentity.decode(admission.ownerIdentity()),
                 admission.storeIncarnation(),
                 admission.claimId(),
                 new DestinationLaneId(admission.laneId()),
@@ -50,7 +50,7 @@ public class PublishAdmissionBodyTest {
                 admission.publishAttemptId(),
                 admission.descriptor().value(),
                 admission.chargeVector(),
-                ReadyCertificateV1.decode(admission.readyCertificate().canonicalBytes()),
+                ReadyCertificate.decode(admission.readyCertificate().canonicalBytes()),
                 admission.decisionTime(),
                 admission.claimPrecondition().canonicalBytes());
 
@@ -65,7 +65,7 @@ public class PublishAdmissionBodyTest {
         final byte[] derived = SystemMutation.computePublishAttemptLogicalIdentity(
                 new byte[32], new byte[DelayMessageId.LENGTH], 0, 1);
 
-        assertEquals("888d8b8e428f28ac7a090c9bdf872983d8b52e545022961a5fee2fafe3497509", Bytes.hex(derived));
+        assertEquals("df2936367ba3cf0f8247b3a8c25845c8bc5333470833dd6924d02a2fbb71dffa", Bytes.hex(derived));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> SystemMutation.computePublishAttemptLogicalIdentity(
@@ -84,11 +84,11 @@ public class PublishAdmissionBodyTest {
         final PublishAdmissionBody admission = PublishAdmissionBody.decode(fixture.body());
 
         assertArrayEquals(fixture.ownerIdentity(), admission.ownerIdentity());
-        assertDoesNotThrow(() -> OwnerIdentityV1.decode(admission.ownerIdentity()));
+        assertDoesNotThrow(() -> OwnerIdentity.decode(admission.ownerIdentity()));
         assertDoesNotThrow(
-                () -> OwnerIdentityV1.decode(admission.readyCertificate().ownerIdentity()));
+                () -> OwnerIdentity.decode(admission.readyCertificate().ownerIdentity()));
         assertDoesNotThrow(
-                () -> OwnerIdentityV1.decode(admission.claimPrecondition().ownerIdentity()));
+                () -> OwnerIdentity.decode(admission.claimPrecondition().ownerIdentity()));
         assertThrows(IllegalArgumentException.class, () -> AuthorIdentity.decode(admission.ownerIdentity()));
         assertArrayEquals(fixture.messageId().bytes(), admission.messageId());
         assertEquals(1, admission.descriptor().attemptNo());
@@ -117,23 +117,23 @@ public class PublishAdmissionBodyTest {
     @Test
     void preservesUnsignedProfileReferenceVersionsAcrossAdmissionMaterialization() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 13);
-        final byte[] destination = new ProfileRefV1(
+        final byte[] destination = new ProfileRef(
                         Bytes.utf8("destination-high-bit"),
                         Long.MIN_VALUE,
                         Bytes.sha256(Bytes.utf8("destination-high-bit-hash")),
-                        ProfileKindV1.DESTINATION)
+                        ProfileKind.DESTINATION)
                 .canonicalBytes();
-        final byte[] capability = new ProfileRefV1(
+        final byte[] capability = new ProfileRef(
                         Bytes.utf8("capability-high-bit"),
                         -1L,
                         Bytes.sha256(Bytes.utf8("capability-high-bit-hash")),
-                        ProfileKindV1.DELIVERY_CAPABILITY)
+                        ProfileKind.DELIVERY_CAPABILITY)
                 .canonicalBytes();
 
-        final BrokerResourceIdentityV1 target = BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+        final BrokerResourceIdentity target = BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(
                 "cluster", java.util.UUID.nameUUIDFromBytes(Bytes.utf8("profile-high-bit-target"))));
         final PublishAdmissionBody admission = PublishAdmissionBody.decode(
-                Fixture.createWithProfiles(shard, destination, capability, target, AdapterKindV1.KAFKA, 2_000)
+                Fixture.createWithProfiles(shard, destination, capability, target, AdapterKind.KAFKA, 2_000)
                         .body());
 
         assertArrayEquals(destination, admission.descriptor().destinationProfile());
@@ -146,9 +146,9 @@ public class PublishAdmissionBodyTest {
             CanonicalProtobuf.bytes(output, 1, Bytes.utf8("malformed-destination"));
             CanonicalProtobuf.uint64Bits(output, 2, Long.MIN_VALUE);
             CanonicalProtobuf.bytes(output, 3, bytes(31, 75));
-            CanonicalProtobuf.uint32(output, 4, ProfileKindV1.DESTINATION.wireValue());
+            CanonicalProtobuf.uint32(output, 4, ProfileKind.DESTINATION.wireValue());
         });
-        final BrokerResourceIdentityV1 target = BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+        final BrokerResourceIdentity target = BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(
                 "cluster", java.util.UUID.nameUUIDFromBytes(Bytes.utf8("malformed-profile-target"))));
 
         assertThrows(
@@ -158,7 +158,7 @@ public class PublishAdmissionBodyTest {
                                 malformedDestination,
                                 Fixture.profileRef("capability", 2),
                                 target,
-                                AdapterKindV1.KAFKA,
+                                AdapterKind.KAFKA,
                                 2_000)
                         .body()));
     }
@@ -166,8 +166,7 @@ public class PublishAdmissionBodyTest {
     @Test
     void rejectsClaimMaterializationProfileSlotKindDrift() {
         final Fixture fixture = Fixture.create(new ShardId(RouteIncarnation.random(), 17));
-        final byte[] wrongDestination =
-                Fixture.profileRef("claim-object-store", ProfileKindV1.OBJECT_STORE.wireValue());
+        final byte[] wrongDestination = Fixture.profileRef("claim-object-store", ProfileKind.OBJECT_STORE.wireValue());
 
         assertThrows(
                 IllegalArgumentException.class,
@@ -177,12 +176,12 @@ public class PublishAdmissionBodyTest {
 
     @Test
     void hashedPartitionValidationPreservesHighBitDestinationProfileVersion() {
-        final BrokerResourceIdentityV1 target = BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+        final BrokerResourceIdentity target = BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(
                 "cluster", java.util.UUID.nameUUIDFromBytes(Bytes.utf8("high-bit-hash-target"))));
-        final DeliveryCapabilitySemanticV1 capabilityBody = new DeliveryCapabilitySemanticV1(
-                AdapterKindV1.KAFKA,
-                OutcomeCapabilityV1.AT_LEAST_ONCE,
-                TimingCapabilityV1.ORDINARY_MANAGED,
+        final DeliveryCapabilitySemantic capabilityBody = new DeliveryCapabilitySemantic(
+                AdapterKind.KAFKA,
+                OutcomeCapability.AT_LEAST_ONCE,
+                TimingCapability.ORDINARY_MANAGED,
                 null,
                 0,
                 0,
@@ -192,14 +191,14 @@ public class PublishAdmissionBodyTest {
                 bytes(32, 72),
                 0,
                 0);
-        final ProfileSemanticEnvelopeV1 capability = new ProfileSemanticEnvelopeV1(
-                ProfileKindV1.DELIVERY_CAPABILITY, Bytes.utf8("high-bit-hash-capability"), -1L, capabilityBody);
-        final DestinationProfileSemanticV1 destinationBody = new DestinationProfileSemanticV1(
-                AdapterKindV1.KAFKA,
+        final ProfileSemanticEnvelope capability = new ProfileSemanticEnvelope(
+                ProfileKind.DELIVERY_CAPABILITY, Bytes.utf8("high-bit-hash-capability"), -1L, capabilityBody);
+        final DestinationProfileSemantic destinationBody = new DestinationProfileSemantic(
+                AdapterKind.KAFKA,
                 target,
                 2,
-                TargetPartitionPolicyV1.HASH_ONLY,
-                TargetPartitionHashInputV1.ADAPTER_MESSAGE_KEY,
+                TargetPartitionPolicy.HASH_ONLY,
+                TargetPartitionHashInput.ADAPTER_MESSAGE_KEY,
                 List.of(),
                 capability.ref(),
                 1,
@@ -215,12 +214,12 @@ public class PublishAdmissionBodyTest {
                 0,
                 1,
                 bytes(32, 74));
-        final ProfileSemanticEnvelopeV1 destination = new ProfileSemanticEnvelopeV1(
-                ProfileKindV1.DESTINATION, Bytes.utf8("high-bit-hash-destination"), Long.MIN_VALUE, destinationBody);
+        final ProfileSemanticEnvelope destination = new ProfileSemanticEnvelope(
+                ProfileKind.DESTINATION, Bytes.utf8("high-bit-hash-destination"), Long.MIN_VALUE, destinationBody);
         final long expectedPartition = Long.remainderUnsigned(
                 Bytes.readU64be(
                         Bytes.sha256(
-                                Bytes.utf8("nereus-delay-target-partition-v1"),
+                                Bytes.utf8("nereus-delay-target-partition"),
                                         Bytes.lp32(destination.ref().profileId()),
                                 Bytes.u64beBits(destination.ref().version()), Bytes.lp32(Bytes.utf8("key"))),
                         0),
@@ -230,7 +229,7 @@ public class PublishAdmissionBodyTest {
                 destination.ref().canonicalBytes(),
                 capability.ref().canonicalBytes(),
                 target,
-                AdapterKindV1.KAFKA,
+                AdapterKind.KAFKA,
                 2_000,
                 expectedPartition);
 
@@ -263,21 +262,21 @@ public class PublishAdmissionBodyTest {
     void rejectsDescriptorAdapterIdentityDrift() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
         final Fixture fixture = Fixture.create(shard);
-        final byte[] drifted = tamperDescriptorScalar(fixture.body(), 2, AdapterKindV1.PULSAR.wireValue());
+        final byte[] drifted = tamperDescriptorScalar(fixture.body(), 2, AdapterKind.PULSAR.wireValue());
 
         assertThrows(IllegalArgumentException.class, () -> PublishAdmissionBody.decode(drifted));
     }
 
     @Test
     void rejectsDescriptorMetadataAdapterIdentityDrift() {
-        final BrokerResourceIdentityV1 target = BrokerResourceIdentityV1.pulsar(new PulsarBrokerResourceIdentityV1(
-                "cluster", bytes(32, 70), "persistent://tenant/ns/metadata-drift", 1));
+        final BrokerResourceIdentity target = BrokerResourceIdentity.pulsar(
+                new PulsarBrokerResourceIdentity("cluster", bytes(32, 70), "persistent://tenant/ns/metadata-drift", 1));
         final Fixture fixture = Fixture.createWithProfiles(
                 new ShardId(RouteIncarnation.random(), 12),
                 Fixture.profileRef("destination", 1),
                 Fixture.profileRef("capability", 2),
                 target,
-                AdapterKindV1.PULSAR,
+                AdapterKind.PULSAR,
                 2_000);
 
         assertThrows(
@@ -312,12 +311,12 @@ public class PublishAdmissionBodyTest {
 
     @Test
     void acceptsOnlyThePinnedPulsarHandoffLead() {
-        final BrokerResourceIdentityV1 target = BrokerResourceIdentityV1.pulsar(
-                new PulsarBrokerResourceIdentityV1("cluster", bytes(32, 40), "persistent://tenant/ns/topic", 1));
-        final DeliveryCapabilitySemanticV1 capabilityBody = new DeliveryCapabilitySemanticV1(
-                AdapterKindV1.PULSAR,
-                OutcomeCapabilityV1.AT_LEAST_ONCE,
-                TimingCapabilityV1.ORDINARY_MANAGED | TimingCapabilityV1.PULSAR_GUARDED_HANDOFF,
+        final BrokerResourceIdentity target = BrokerResourceIdentity.pulsar(
+                new PulsarBrokerResourceIdentity("cluster", bytes(32, 40), "persistent://tenant/ns/topic", 1));
+        final DeliveryCapabilitySemantic capabilityBody = new DeliveryCapabilitySemantic(
+                AdapterKind.PULSAR,
+                OutcomeCapability.AT_LEAST_ONCE,
+                TimingCapability.ORDINARY_MANAGED | TimingCapability.PULSAR_GUARDED_HANDOFF,
                 null,
                 0,
                 0,
@@ -327,14 +326,14 @@ public class PublishAdmissionBodyTest {
                 bytes(32, 42),
                 0,
                 0);
-        final ProfileSemanticEnvelopeV1 capability = new ProfileSemanticEnvelopeV1(
-                ProfileKindV1.DELIVERY_CAPABILITY, Bytes.utf8("pulsar-capability"), 1, capabilityBody);
-        final DestinationProfileSemanticV1 destinationBody = new DestinationProfileSemanticV1(
-                AdapterKindV1.PULSAR,
+        final ProfileSemanticEnvelope capability = new ProfileSemanticEnvelope(
+                ProfileKind.DELIVERY_CAPABILITY, Bytes.utf8("pulsar-capability"), 1, capabilityBody);
+        final DestinationProfileSemantic destinationBody = new DestinationProfileSemantic(
+                AdapterKind.PULSAR,
                 target,
                 1,
-                TargetPartitionPolicyV1.HASH_ONLY,
-                TargetPartitionHashInputV1.ORDERING_KEY,
+                TargetPartitionPolicy.HASH_ONLY,
+                TargetPartitionHashInput.ORDERING_KEY,
                 List.of(),
                 capability.ref(),
                 1,
@@ -350,14 +349,14 @@ public class PublishAdmissionBodyTest {
                 0,
                 1,
                 bytes(32, 44));
-        final ProfileSemanticEnvelopeV1 destination = new ProfileSemanticEnvelopeV1(
-                ProfileKindV1.DESTINATION, Bytes.utf8("pulsar-destination"), 1, destinationBody);
+        final ProfileSemanticEnvelope destination = new ProfileSemanticEnvelope(
+                ProfileKind.DESTINATION, Bytes.utf8("pulsar-destination"), 1, destinationBody);
         final Fixture fixture = Fixture.createWithProfiles(
                 new ShardId(RouteIncarnation.random(), 8),
                 destination.ref().canonicalBytes(),
                 capability.ref().canonicalBytes(),
                 target,
-                AdapterKindV1.PULSAR,
+                AdapterKind.PULSAR,
                 1_500);
         final PublishAdmissionBody admission = PublishAdmissionBody.decode(fixture.body());
 
@@ -366,10 +365,10 @@ public class PublishAdmissionBodyTest {
                 IllegalArgumentException.class,
                 () -> admission.requireTimingPolicy(
                         destinationBody,
-                        new DeliveryCapabilitySemanticV1(
-                                AdapterKindV1.PULSAR,
-                                OutcomeCapabilityV1.AT_LEAST_ONCE,
-                                TimingCapabilityV1.ORDINARY_MANAGED,
+                        new DeliveryCapabilitySemantic(
+                                AdapterKind.PULSAR,
+                                OutcomeCapability.AT_LEAST_ONCE,
+                                TimingCapability.ORDINARY_MANAGED,
                                 null,
                                 0,
                                 0,
@@ -379,12 +378,12 @@ public class PublishAdmissionBodyTest {
                                 bytes(32, 46),
                                 0,
                                 0)));
-        final DestinationProfileSemanticV1 encodingMismatchBody = new DestinationProfileSemanticV1(
-                AdapterKindV1.PULSAR,
+        final DestinationProfileSemantic encodingMismatchBody = new DestinationProfileSemantic(
+                AdapterKind.PULSAR,
                 target,
                 1,
-                TargetPartitionPolicyV1.HASH_ONLY,
-                TargetPartitionHashInputV1.ORDERING_KEY,
+                TargetPartitionPolicy.HASH_ONLY,
+                TargetPartitionHashInput.ORDERING_KEY,
                 List.of(),
                 capability.ref(),
                 1,
@@ -404,12 +403,12 @@ public class PublishAdmissionBodyTest {
                 IllegalArgumentException.class,
                 () -> admission.requireTimingPolicy(encodingMismatchBody, capabilityBody));
 
-        final DestinationProfileSemanticV1 partitionMismatchBody = new DestinationProfileSemanticV1(
-                AdapterKindV1.PULSAR,
+        final DestinationProfileSemantic partitionMismatchBody = new DestinationProfileSemantic(
+                AdapterKind.PULSAR,
                 target,
                 2,
-                TargetPartitionPolicyV1.EXPLICIT_ONLY,
-                TargetPartitionHashInputV1.ORDERING_KEY,
+                TargetPartitionPolicy.EXPLICIT_ONLY,
+                TargetPartitionHashInput.ORDERING_KEY,
                 List.of(1),
                 capability.ref(),
                 1,
@@ -425,14 +424,14 @@ public class PublishAdmissionBodyTest {
                 0,
                 1,
                 bytes(32, 48));
-        final ProfileSemanticEnvelopeV1 partitionMismatch = new ProfileSemanticEnvelopeV1(
-                ProfileKindV1.DESTINATION, Bytes.utf8("pulsar-partition-mismatch"), 1, partitionMismatchBody);
+        final ProfileSemanticEnvelope partitionMismatch = new ProfileSemanticEnvelope(
+                ProfileKind.DESTINATION, Bytes.utf8("pulsar-partition-mismatch"), 1, partitionMismatchBody);
         final Fixture partitionFixture = Fixture.createWithProfiles(
                 new ShardId(RouteIncarnation.random(), 9),
                 partitionMismatch.ref().canonicalBytes(),
                 capability.ref().canonicalBytes(),
                 target,
-                AdapterKindV1.PULSAR,
+                AdapterKind.PULSAR,
                 1_500);
         final PublishAdmissionBody partitionAdmission = PublishAdmissionBody.decode(partitionFixture.body());
         assertThrows(
@@ -442,12 +441,12 @@ public class PublishAdmissionBodyTest {
 
     @Test
     void rejectsAProfileHashPartitionThatDoesNotMatchDescriptorMetadata() {
-        final BrokerResourceIdentityV1 target = BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+        final BrokerResourceIdentity target = BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(
                 "cluster", java.util.UUID.nameUUIDFromBytes(Bytes.utf8("hash-partition-target"))));
-        final DeliveryCapabilitySemanticV1 capabilityBody = new DeliveryCapabilitySemanticV1(
-                AdapterKindV1.KAFKA,
-                OutcomeCapabilityV1.AT_LEAST_ONCE,
-                TimingCapabilityV1.ORDINARY_MANAGED,
+        final DeliveryCapabilitySemantic capabilityBody = new DeliveryCapabilitySemantic(
+                AdapterKind.KAFKA,
+                OutcomeCapability.AT_LEAST_ONCE,
+                TimingCapability.ORDINARY_MANAGED,
                 null,
                 0,
                 0,
@@ -457,14 +456,14 @@ public class PublishAdmissionBodyTest {
                 bytes(32, 62),
                 0,
                 0);
-        final ProfileSemanticEnvelopeV1 capability = new ProfileSemanticEnvelopeV1(
-                ProfileKindV1.DELIVERY_CAPABILITY, Bytes.utf8("hash-capability"), 1, capabilityBody);
-        final DestinationProfileSemanticV1 destinationBody = new DestinationProfileSemanticV1(
-                AdapterKindV1.KAFKA,
+        final ProfileSemanticEnvelope capability = new ProfileSemanticEnvelope(
+                ProfileKind.DELIVERY_CAPABILITY, Bytes.utf8("hash-capability"), 1, capabilityBody);
+        final DestinationProfileSemantic destinationBody = new DestinationProfileSemantic(
+                AdapterKind.KAFKA,
                 target,
                 2,
-                TargetPartitionPolicyV1.HASH_ONLY,
-                TargetPartitionHashInputV1.ADAPTER_MESSAGE_KEY,
+                TargetPartitionPolicy.HASH_ONLY,
+                TargetPartitionHashInput.ADAPTER_MESSAGE_KEY,
                 List.of(),
                 capability.ref(),
                 1,
@@ -480,10 +479,10 @@ public class PublishAdmissionBodyTest {
                 0,
                 1,
                 bytes(32, 64));
-        final ProfileSemanticEnvelopeV1 destination = new ProfileSemanticEnvelopeV1(
-                ProfileKindV1.DESTINATION, Bytes.utf8("hash-destination"), 1, destinationBody);
+        final ProfileSemanticEnvelope destination = new ProfileSemanticEnvelope(
+                ProfileKind.DESTINATION, Bytes.utf8("hash-destination"), 1, destinationBody);
         final byte[] digest = Bytes.sha256(
-                Bytes.utf8("nereus-delay-target-partition-v1"),
+                Bytes.utf8("nereus-delay-target-partition"),
                 Bytes.lp32(destination.ref().profileId()),
                 Bytes.u64be(destination.ref().version()),
                 Bytes.lp32(Bytes.utf8("key")));
@@ -494,7 +493,7 @@ public class PublishAdmissionBodyTest {
                 destination.ref().canonicalBytes(),
                 capability.ref().canonicalBytes(),
                 target,
-                AdapterKindV1.KAFKA,
+                AdapterKind.KAFKA,
                 2_000,
                 wrongPartition);
         final PublishAdmissionBody admission = PublishAdmissionBody.decode(fixture.body());
@@ -563,8 +562,7 @@ public class PublishAdmissionBodyTest {
                     CanonicalProtobuf.bytes(
                             output,
                             11,
-                            Bytes.sha256(
-                                    Bytes.utf8("nereus-delay-claim-materialization-v1\0"), changedMaterialization));
+                            Bytes.sha256(Bytes.utf8("nereus-delay-claim-materialization\0"), changedMaterialization));
                 } else {
                     writeField(output, field);
                 }
@@ -643,7 +641,7 @@ public class PublishAdmissionBodyTest {
                 }
             }
         });
-        final byte[] driftedHash = Bytes.sha256(Bytes.utf8("nereus-delay-prepared-publish-v1\0"), driftedDescriptor);
+        final byte[] driftedHash = Bytes.sha256(Bytes.utf8("nereus-delay-prepared-publish\0"), driftedDescriptor);
         return CanonicalProtobuf.message(output -> {
             for (CanonicalProtobuf.Reader.Field field : outerFields) {
                 if (field.number() == 18) {
@@ -691,8 +689,7 @@ public class PublishAdmissionBodyTest {
                     CanonicalProtobuf.bytes(
                             output,
                             11,
-                            Bytes.sha256(
-                                    Bytes.utf8("nereus-delay-claim-materialization-v1\0"), driftedMaterialization));
+                            Bytes.sha256(Bytes.utf8("nereus-delay-claim-materialization\0"), driftedMaterialization));
                 } else {
                     writeField(output, field);
                 }
@@ -735,7 +732,7 @@ public class PublishAdmissionBodyTest {
                 }
             }
         });
-        final byte[] driftedHash = Bytes.sha256(Bytes.utf8("nereus-delay-prepared-publish-v1\0"), driftedDescriptor);
+        final byte[] driftedHash = Bytes.sha256(Bytes.utf8("nereus-delay-prepared-publish\0"), driftedDescriptor);
         return CanonicalProtobuf.message(output -> {
             for (CanonicalProtobuf.Reader.Field field : outerFields) {
                 if (field.number() == 18) {
@@ -777,7 +774,7 @@ public class PublishAdmissionBodyTest {
                 }
             }
         });
-        final byte[] driftedHash = Bytes.sha256(Bytes.utf8("nereus-delay-prepared-publish-v1\0"), driftedDescriptor);
+        final byte[] driftedHash = Bytes.sha256(Bytes.utf8("nereus-delay-prepared-publish\0"), driftedDescriptor);
         return CanonicalProtobuf.message(output -> {
             for (CanonicalProtobuf.Reader.Field field : outerFields) {
                 if (field.number() == 18) {
@@ -835,8 +832,8 @@ public class PublishAdmissionBodyTest {
                 final ShardId shard,
                 final byte[] destinationProfile,
                 final byte[] capabilityProfile,
-                final BrokerResourceIdentityV1 target,
-                final AdapterKindV1 adapterKind,
+                final BrokerResourceIdentity target,
+                final AdapterKind adapterKind,
                 final long actionAt) {
             return createWithProfiles(shard, destinationProfile, capabilityProfile, target, adapterKind, actionAt, 0);
         }
@@ -845,8 +842,8 @@ public class PublishAdmissionBodyTest {
                 final ShardId shard,
                 final byte[] destinationProfile,
                 final byte[] capabilityProfile,
-                final BrokerResourceIdentityV1 target,
-                final AdapterKindV1 adapterKind,
+                final BrokerResourceIdentity target,
+                final AdapterKind adapterKind,
                 final long actionAt,
                 final long physicalPartition) {
             final DelayMessageId messageId = DelayMessageId.random(shard);
@@ -866,7 +863,7 @@ public class PublishAdmissionBodyTest {
                     bindingDigest,
                     fingerprint,
                     time,
-                    CredentialUseLeaseV1.destinationChannelHolderScope(channelPrefix));
+                    CredentialUseLease.destinationChannelHolderScope(channelPrefix));
             final byte[] channel = channel(channelPrefix, bindingDigest, fingerprint, lease);
             final byte[] payload = payload(Bytes.utf8("hello"));
             final byte[] metadata = metadata(adapterKind);
@@ -885,6 +882,7 @@ public class PublishAdmissionBodyTest {
                     payload,
                     metadata,
                     reserved,
+                    physicalPartition,
                     1,
                     actionAt);
             final byte[] materialization = materialization(
@@ -895,6 +893,7 @@ public class PublishAdmissionBodyTest {
                     payload,
                     metadata,
                     descriptor,
+                    physicalPartition,
                     actionAt);
             final byte[] claim = claim(
                     shard,
@@ -925,7 +924,7 @@ public class PublishAdmissionBodyTest {
                 CanonicalProtobuf.uint32(output, 16, 0);
                 CanonicalProtobuf.bytes(output, 17, attempt);
                 CanonicalProtobuf.bytes(
-                        output, 18, Bytes.sha256(Bytes.utf8("nereus-delay-prepared-publish-v1\0"), descriptor));
+                        output, 18, Bytes.sha256(Bytes.utf8("nereus-delay-prepared-publish\0"), descriptor));
                 CanonicalProtobuf.bytes(output, 19, charge());
                 CanonicalProtobuf.bytes(output, 20, certificateDigest(certificate));
                 CanonicalProtobuf.bytes(output, 21, channel);
@@ -1154,7 +1153,7 @@ public class PublishAdmissionBodyTest {
                     bindingDigest,
                     fingerprint,
                     time,
-                    CredentialUseLeaseV1.destinationChannelHolderScope(channelPrefix));
+                    CredentialUseLease.destinationChannelHolderScope(channelPrefix));
             final byte[] channel = channel(channelPrefix, bindingDigest, fingerprint, lease);
             final byte[] payload = payload(Bytes.utf8("hello"));
             final byte[] metadata = metadata();
@@ -1172,10 +1171,19 @@ public class PublishAdmissionBodyTest {
                     payload,
                     metadata,
                     reserved,
+                    0,
                     attemptNo,
                     actionAt);
             final byte[] materialization = materialization(
-                    destinationProfile, capabilityProfile, target, messageId, payload, metadata, descriptor, actionAt);
+                    destinationProfile,
+                    capabilityProfile,
+                    target,
+                    messageId,
+                    payload,
+                    metadata,
+                    descriptor,
+                    0,
+                    actionAt);
             final byte[] claim = claim(
                     shard,
                     messageId,
@@ -1205,7 +1213,7 @@ public class PublishAdmissionBodyTest {
                 CanonicalProtobuf.uint32(output, 16, 0);
                 CanonicalProtobuf.bytes(output, 17, attempt);
                 CanonicalProtobuf.bytes(
-                        output, 18, Bytes.sha256(Bytes.utf8("nereus-delay-prepared-publish-v1\0"), descriptor));
+                        output, 18, Bytes.sha256(Bytes.utf8("nereus-delay-prepared-publish\0"), descriptor));
                 CanonicalProtobuf.bytes(output, 19, charge());
                 CanonicalProtobuf.bytes(output, 20, certificateDigest(certificate));
                 CanonicalProtobuf.bytes(output, 21, channel);
@@ -1278,20 +1286,20 @@ public class PublishAdmissionBodyTest {
                 CanonicalProtobuf.int64(output, 9, 9_000);
                 CanonicalProtobuf.uint32(output, 10, 1);
             });
-            return appendHash(prefix, 11, "nereus-delay-credential-use-lease-v1\0");
+            return appendHash(prefix, 11, "nereus-delay-credential-use-lease\0");
         }
 
         private static byte[] channelPrefix(final byte[] lane, final byte[] laneIncarnation, final byte[] target) {
-            return channelPrefix(AdapterKindV1.KAFKA, lane, laneIncarnation, target, 0);
+            return channelPrefix(AdapterKind.KAFKA, lane, laneIncarnation, target, 0);
         }
 
         private static byte[] channelPrefix(
-                final AdapterKindV1 adapterKind, final byte[] lane, final byte[] laneIncarnation, final byte[] target) {
+                final AdapterKind adapterKind, final byte[] lane, final byte[] laneIncarnation, final byte[] target) {
             return channelPrefix(adapterKind, lane, laneIncarnation, target, 0);
         }
 
         private static byte[] channelPrefix(
-                final AdapterKindV1 adapterKind,
+                final AdapterKind adapterKind,
                 final byte[] lane,
                 final byte[] laneIncarnation,
                 final byte[] target,
@@ -1345,8 +1353,8 @@ public class PublishAdmissionBodyTest {
                     CanonicalProtobuf.message(inner -> CanonicalProtobuf.bytes(inner, 1, Bytes.utf8("key")))));
         }
 
-        private static byte[] metadata(final AdapterKindV1 adapterKind) {
-            return adapterKind == AdapterKindV1.KAFKA
+        private static byte[] metadata(final AdapterKind adapterKind) {
+            return adapterKind == AdapterKind.KAFKA
                     ? metadata()
                     : CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(
                             output,
@@ -1399,6 +1407,7 @@ public class PublishAdmissionBodyTest {
                     payload,
                     metadata,
                     reserved,
+                    0,
                     attemptNo,
                     2_000);
         }
@@ -1415,10 +1424,11 @@ public class PublishAdmissionBodyTest {
                 final byte[] payload,
                 final byte[] metadata,
                 final byte[] reserved,
+                final long physicalPartition,
                 final int attemptNo,
                 final long actionAt) {
             return descriptor(
-                    AdapterKindV1.KAFKA,
+                    AdapterKind.KAFKA,
                     lane,
                     laneIncarnation,
                     destinationProfile,
@@ -1430,12 +1440,13 @@ public class PublishAdmissionBodyTest {
                     payload,
                     metadata,
                     reserved,
+                    physicalPartition,
                     attemptNo,
                     actionAt);
         }
 
         private static byte[] descriptor(
-                final AdapterKindV1 adapterKind,
+                final AdapterKind adapterKind,
                 final byte[] lane,
                 final byte[] laneIncarnation,
                 final byte[] destinationProfile,
@@ -1447,6 +1458,7 @@ public class PublishAdmissionBodyTest {
                 final byte[] payload,
                 final byte[] metadata,
                 final byte[] reserved,
+                final long physicalPartition,
                 final int attemptNo,
                 final long actionAt) {
             return CanonicalProtobuf.message(output -> {
@@ -1458,7 +1470,7 @@ public class PublishAdmissionBodyTest {
                 CanonicalProtobuf.bytes(output, 6, destinationProfile);
                 CanonicalProtobuf.bytes(output, 7, capabilityProfile);
                 CanonicalProtobuf.bytes(output, 8, target);
-                CanonicalProtobuf.uint32(output, 9, 0);
+                CanonicalProtobuf.uint32(output, 9, physicalPartition);
                 CanonicalProtobuf.bytes(output, 10, channel);
                 CanonicalProtobuf.bytes(output, 11, messageId.bytes());
                 CanonicalProtobuf.uint32(output, 12, 0);
@@ -1482,7 +1494,7 @@ public class PublishAdmissionBodyTest {
                 final byte[] metadata,
                 final byte[] descriptor) {
             return materialization(
-                    destinationProfile, capabilityProfile, target, messageId, payload, metadata, descriptor, 2_000);
+                    destinationProfile, capabilityProfile, target, messageId, payload, metadata, descriptor, 0, 2_000);
         }
 
         private static byte[] materialization(
@@ -1493,12 +1505,13 @@ public class PublishAdmissionBodyTest {
                 final byte[] payload,
                 final byte[] metadata,
                 final byte[] descriptor,
+                final long physicalPartition,
                 final long actionAt) {
             return CanonicalProtobuf.message(output -> {
                 CanonicalProtobuf.bytes(output, 1, destinationProfile);
                 CanonicalProtobuf.bytes(output, 2, capabilityProfile);
                 CanonicalProtobuf.bytes(output, 3, target);
-                CanonicalProtobuf.uint32(output, 4, 0);
+                CanonicalProtobuf.uint32(output, 4, physicalPartition);
                 CanonicalProtobuf.bytes(output, 5, messageId.bytes());
                 CanonicalProtobuf.uint32(output, 6, 0);
                 CanonicalProtobuf.bytes(output, 7, payload);
@@ -1535,9 +1548,7 @@ public class PublishAdmissionBodyTest {
                 CanonicalProtobuf.bytes(output, 9, timelineKeySha256);
                 CanonicalProtobuf.bytes(output, 10, materialization);
                 CanonicalProtobuf.bytes(
-                        output,
-                        11,
-                        Bytes.sha256(Bytes.utf8("nereus-delay-claim-materialization-v1\0"), materialization));
+                        output, 11, Bytes.sha256(Bytes.utf8("nereus-delay-claim-materialization\0"), materialization));
                 CanonicalProtobuf.bytes(output, 12, charge());
                 CanonicalProtobuf.int64(output, 13, 4_000);
                 CanonicalProtobuf.bytes(output, 14, ownerBody(owner));
@@ -1583,12 +1594,12 @@ public class PublishAdmissionBodyTest {
                 CanonicalProtobuf.bytes(output, 14, bindingDigest);
                 CanonicalProtobuf.bytes(output, 15, fingerprint);
             });
-            return appendHash(prefix, 16, "nereus-delay-ready-certificate-v1\0");
+            return appendHash(prefix, 16, "nereus-delay-ready-certificate\0");
         }
 
         private static byte[] evidenceCursor(final byte[] lane, final byte[] laneIncarnation) {
             final byte[] topicUuid = new byte[16];
-            return EvidenceCursorV1.kafka(lane, laneIncarnation, topicUuid, 0, 1, 8_000, 1, 1)
+            return EvidenceCursor.kafka(lane, laneIncarnation, topicUuid, 0, 1, 8_000, 1, 1)
                     .canonicalBytes();
         }
 
@@ -1629,7 +1640,7 @@ public class PublishAdmissionBodyTest {
                     CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
                 }
             }
-            return Bytes.sha256(Bytes.utf8("nereus-delay-ready-certificate-v1\0"), output.toByteArray());
+            return Bytes.sha256(Bytes.utf8("nereus-delay-ready-certificate\0"), output.toByteArray());
         }
 
         private static byte[] profileHash(final byte[] profile) {

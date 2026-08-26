@@ -6,8 +6,8 @@ import com.nereusstream.delay.adapter.DestinationPublishAdapter;
 import com.nereusstream.delay.adapter.DestinationPublishRequest;
 import com.nereusstream.delay.adapter.DestinationPublishResult;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.PayloadForPublishV1;
-import com.nereusstream.delay.protocol.PreparedPublishDescriptorV1;
+import com.nereusstream.delay.protocol.PayloadForPublish;
+import com.nereusstream.delay.protocol.PreparedPublishDescriptor;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
 import com.nereusstream.delay.protocol.StableCode;
@@ -107,10 +107,10 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
     public static DestinationPublishRequest prepareRequest(final PublishAttemptLedger attempt, final byte[] payload) {
         requirePublishingAttempt(attempt);
         final PublishAdmissionBody admission = PublishAdmissionBody.decode(attempt.admissionBytes());
-        final PreparedPublishDescriptorV1 descriptor = admission.descriptor().value();
+        final PreparedPublishDescriptor descriptor = admission.descriptor().value();
         requireAttemptIdentity(attempt, descriptor, admission);
         final byte[] exactPayload = Objects.requireNonNull(payload, "payload");
-        final PayloadForPublishV1 payloadProjection = descriptor.payload();
+        final PayloadForPublish payloadProjection = descriptor.payload();
         if (payloadProjection.hasInlinePayload()) {
             if (!Arrays.equals(payloadProjection.inlinePayload(), exactPayload)) {
                 throw new IllegalArgumentException("physical payload differs from inline Publish Admission");
@@ -255,7 +255,7 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
 
     private static void requireAttemptIdentity(
             final PublishAttemptLedger attempt,
-            final PreparedPublishDescriptorV1 descriptor,
+            final PreparedPublishDescriptor descriptor,
             final PublishAdmissionBody admission) {
         if (!Arrays.equals(attempt.publishAttemptId(), descriptor.publishAttemptId())
                 || !Arrays.equals(attempt.publishAttemptId(), admission.publishAttemptId())

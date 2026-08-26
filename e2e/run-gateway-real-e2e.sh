@@ -228,14 +228,14 @@ run_session_churn_smoke() {
         return 1
     fi
     jq -e '
-        .schema == "nereus-delay-chaos-durable-state-dump-v1"
+        .schema == "nereus-delay-chaos-durable-state-dump"
         and .cell == "gateway-oxia-session-churn"
         and .phase == "BEFORE_OXIA_RESTART"
         and .durable_store_read == true
         and .dump_forced == true
     ' "$session_churn_state_dump_dir/before-oxia-restart.json" >/dev/null
     jq -e '
-        .schema == "nereus-delay-chaos-durable-state-dump-v1"
+        .schema == "nereus-delay-chaos-durable-state-dump"
         and .cell == "gateway-oxia-session-churn"
         and .phase == "RECOVERED_AFTER_OXIA_RESTART"
         and .stale_session_failed_closed == true

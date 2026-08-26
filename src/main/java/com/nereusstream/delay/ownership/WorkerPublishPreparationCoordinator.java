@@ -1,9 +1,9 @@
 package com.nereusstream.delay.ownership;
 
-import com.nereusstream.delay.protocol.ActiveLaneStateV1;
-import com.nereusstream.delay.protocol.ChannelResourceIdentityV1;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.ReadyCertificateV1;
+import com.nereusstream.delay.protocol.ActiveLaneState;
+import com.nereusstream.delay.protocol.ChannelResourceIdentity;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.ReadyCertificate;
 import com.nereusstream.delay.runtime.AdmissionGate;
 import com.nereusstream.delay.runtime.ClaimRecord;
 import com.nereusstream.delay.runtime.RuntimeReadiness;
@@ -17,10 +17,10 @@ import java.util.function.LongSupplier;
  * successful Claim.
  *
  * <p>The external authority still owns credential/channel resolution, signing
- * keys and trusted publish timing.  This coordinator owns the local identity
+ * keys and trusted publish timing. This coordinator owns the local identity
  * boundary around that callback: it rereads the live Owner/Claim, then reads
  * the persisted typed READY Lane and passes its exact certificate/channel to
- * the authority.  A returned preparation must carry those same immutable
+ * the authority. A returned preparation must carry those same immutable
  * identities before it can enter Publish Admission.</p>
  */
 public final class WorkerPublishPreparationCoordinator implements WorkerShardRuntime.PublishPreparationProvider {
@@ -53,15 +53,15 @@ public final class WorkerPublishPreparationCoordinator implements WorkerShardRun
         final ClaimRecord claim = exactResult.claim();
         ownedShard.requirePublishAdmissionAuthoritativelyStrict(authority, claim, ownerClock);
 
-        final ActiveLaneStateV1 lane = ownedShard.shard().getActiveLaneStateV1(claim.laneId());
+        final ActiveLaneState lane = ownedShard.shard().getActiveLaneState(claim.laneId());
         if (lane == null
                 || lane.admissionGate() != AdmissionGate.OPEN
                 || lane.runtimeReadiness() != RuntimeReadiness.READY
                 || lane.readyCertificate() == null) {
             throw new IllegalStateException("Claim Lane is not backed by a typed READY certificate");
         }
-        final ReadyCertificateV1 certificate = ReadyCertificateV1.decode(lane.readyCertificate());
-        final ChannelResourceIdentityV1 channel = ChannelResourceIdentityV1.decode(certificate.channel());
+        final ReadyCertificate certificate = ReadyCertificate.decode(lane.readyCertificate());
+        final ChannelResourceIdentity channel = ChannelResourceIdentity.decode(certificate.channel());
         validateClaimBinding(claim, lane, certificate, channel);
 
         final Optional<WorkerCommandRuntime.PublishPreparation> prepared = Objects.requireNonNull(
@@ -79,10 +79,10 @@ public final class WorkerPublishPreparationCoordinator implements WorkerShardRun
 
     private static void validateClaimBinding(
             final ClaimRecord claim,
-            final ActiveLaneStateV1 lane,
-            final ReadyCertificateV1 certificate,
-            final ChannelResourceIdentityV1 channel) {
-        final OwnerIdentityV1 owner = OwnerIdentityV1.decode(claim.ownerIdentity());
+            final ActiveLaneState lane,
+            final ReadyCertificate certificate,
+            final ChannelResourceIdentity channel) {
+        final OwnerIdentity owner = OwnerIdentity.decode(claim.ownerIdentity());
         if (!Arrays.equals(owner.canonicalBytes(), certificate.ownerIdentity())
                 || !Arrays.equals(claim.storeIncarnation(), certificate.storeIncarnation())
                 || !Arrays.equals(claim.laneId().bytes(), certificate.destinationLaneId())
@@ -114,9 +114,9 @@ public final class WorkerPublishPreparationCoordinator implements WorkerShardRun
     /** Immutable identity bundle supplied to the external prerequisite authority. */
     public record PreparationRequest(
             ClaimRecord claim,
-            ActiveLaneStateV1 lane,
-            ChannelResourceIdentityV1 channel,
-            ReadyCertificateV1 readyCertificate) {
+            ActiveLaneState lane,
+            ChannelResourceIdentity channel,
+            ReadyCertificate readyCertificate) {
         public PreparationRequest {
             Objects.requireNonNull(claim, "claim");
             Objects.requireNonNull(lane, "lane");

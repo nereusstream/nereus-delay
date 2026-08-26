@@ -2,9 +2,9 @@ package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.CredentialBindingV1;
-import com.nereusstream.delay.protocol.CredentialEquivalenceAttestationV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
+import com.nereusstream.delay.protocol.CredentialBinding;
+import com.nereusstream.delay.protocol.CredentialEquivalenceAttestation;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -18,12 +18,12 @@ import java.util.Objects;
  *
  * <p>The trust set selects an exact verifier-version, verifier-id and signing
  * key-version tuple, checks the attestation's verification window against the
- * retained key window, and verifies the Ed25519 signature.  It intentionally
+ * retained key window, and verifies the Ed25519 signature. It intentionally
  * does not resolve private material or authorize a control actor.</p>
  */
 public final class CredentialAttestationTrustSet {
     private static final int MAX_KEYS = 1024;
-    private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-credential-attestation-trust-set-v1\0");
+    private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-credential-attestation-trust-set\0");
 
     private final List<VerifierKey> keys;
     private final byte[] semanticDigest;
@@ -31,7 +31,7 @@ public final class CredentialAttestationTrustSet {
     public CredentialAttestationTrustSet(final List<VerifierKey> keys) {
         Objects.requireNonNull(keys, "keys");
         if (keys.isEmpty() || keys.size() > MAX_KEYS) {
-            throw new IllegalArgumentException("credential attestation trust set size is outside the V1 bound");
+            throw new IllegalArgumentException("credential attestation trust set size is outside the bound");
         }
         final List<VerifierKey> ordered = new ArrayList<>(keys.size());
         for (VerifierKey key : keys) {
@@ -74,13 +74,13 @@ public final class CredentialAttestationTrustSet {
     }
 
     /** Verifies one exact Profile binding against this immutable trust set. */
-    public void verify(final ProfileSemanticEnvelopeV1 profile, final CredentialBindingV1 binding) {
+    public void verify(final ProfileSemanticEnvelope profile, final CredentialBinding binding) {
         Objects.requireNonNull(profile, "profile");
         Objects.requireNonNull(binding, "binding");
         if (!profile.ref().equals(binding.profile())) {
             throw new IllegalArgumentException("credential attestation Profile differs");
         }
-        final CredentialEquivalenceAttestationV1 attestation = binding.equivalenceAttestation();
+        final CredentialEquivalenceAttestation attestation = binding.equivalenceAttestation();
         final VerifierKey key = keys.stream()
                 .filter(candidate -> candidate.matches(attestation))
                 .findFirst()
@@ -142,7 +142,7 @@ public final class CredentialAttestationTrustSet {
             }
             Objects.requireNonNull(verifierId, "verifierId");
             if (verifierId.length == 0 || verifierId.length > MAX_VERIFIER_ID_BYTES) {
-                throw new IllegalArgumentException("verifierId is outside the V1 bound");
+                throw new IllegalArgumentException("verifierId is outside the bound");
             }
             if (verifyNotBeforeEpochMs < 0 || verifyNotAfterEpochMs <= verifyNotBeforeEpochMs) {
                 throw new IllegalArgumentException("invalid credential verifier key window");
@@ -188,7 +188,7 @@ public final class CredentialAttestationTrustSet {
             return verifyNotAfterEpochMs;
         }
 
-        private boolean matches(final CredentialEquivalenceAttestationV1 attestation) {
+        private boolean matches(final CredentialEquivalenceAttestation attestation) {
             return verifierVersion == attestation.verifierVersion()
                     && signingKeyVersion == attestation.signingKeyVersion()
                     && Bytes.constantTimeEquals(verifierId, attestation.verifierId());

@@ -1,7 +1,7 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -49,7 +49,7 @@ public final class FilesystemCheckpointDownloadAdapter implements CheckpointDown
         Objects.requireNonNull(request, "request");
         final CheckpointManifest manifest = request.manifest();
         manifest.validateLimits(limits);
-        final CheckpointResourceV1 resource = request.resource();
+        final CheckpointResource resource = request.resource();
         final Path target = normalizeTarget(targetDirectory);
         final Path targetParent = Objects.requireNonNull(target.getParent(), "target parent");
         ensureDirectory(targetParent);
@@ -124,7 +124,7 @@ public final class FilesystemCheckpointDownloadAdapter implements CheckpointDown
     }
 
     private void verifyManifestObject(
-            final Path manifestObject, final CheckpointManifest expected, final CheckpointResourceV1 resource) {
+            final Path manifestObject, final CheckpointManifest expected, final CheckpointResource resource) {
         try {
             final byte[] bytes = LocalStatePathGuard.readRegularFileNoFollow(
                     manifestObject, limits.maxManifestBytes(), "checkpoint manifest object");

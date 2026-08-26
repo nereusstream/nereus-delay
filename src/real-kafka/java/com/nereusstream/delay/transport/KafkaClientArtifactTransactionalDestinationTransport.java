@@ -3,12 +3,12 @@ package com.nereusstream.delay.transport;
 import com.nereusstream.delay.adapter.DestinationPublishResult;
 import com.nereusstream.delay.adapter.KafkaTransactionalDestinationAdapter;
 import com.nereusstream.delay.adapter.KafkaTransactionalDestinationRequest;
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.EvidenceVerificationStatusV1;
-import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.PublishEvidenceKindV1;
-import com.nereusstream.delay.protocol.PublishEvidenceV1;
+import com.nereusstream.delay.protocol.EvidenceVerificationStatus;
+import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.PublishEvidence;
+import com.nereusstream.delay.protocol.PublishEvidenceKind;
 import com.nereusstream.delay.protocol.StableCode;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -291,7 +291,7 @@ public final class KafkaClientArtifactTransactionalDestinationTransport
         final GuardedResponseEvidence targetEvidence = target.responseEvidence();
         if (publishEvidenceProvider == null) {
             return DestinationPublishResult.published(
-                    BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+                    BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(
                             request.target().authenticatedClusterId(),
                             request.target().nativeTopicUuid())),
                     request.target().partition(),
@@ -304,16 +304,16 @@ public final class KafkaClientArtifactTransactionalDestinationTransport
             if (candidate == null || candidate.isEmpty()) {
                 return DestinationPublishResult.unknown(StableCode.ENQUEUE_RESULT_UNCERTAIN, evidence(target, receipt));
             }
-            final PublishEvidenceV1 typed = PublishEvidenceV1.decode(candidate.get());
-            if (typed.evidenceKind() != PublishEvidenceKindV1.KAFKA_TRANSACTIONAL_RECEIPT
-                    || typed.verificationStatus() != EvidenceVerificationStatusV1.VERIFIED_PUBLISHED) {
+            final PublishEvidence typed = PublishEvidence.decode(candidate.get());
+            if (typed.evidenceKind() != PublishEvidenceKind.KAFKA_TRANSACTIONAL_RECEIPT
+                    || typed.verificationStatus() != EvidenceVerificationStatus.VERIFIED_PUBLISHED) {
                 throw new IllegalArgumentException("K2 provider returned the wrong typed evidence branch");
             }
             typed.requireBusinessMutation(request.mapping().publishAttemptId(), true);
             com.nereusstream.delay.adapter.KafkaTransactionalPublishEvidence.requireExactBinding(
                     typed, request, receipt.recordMetadata().offset());
             return DestinationPublishResult.published(
-                    BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+                    BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(
                             request.target().authenticatedClusterId(),
                             request.target().nativeTopicUuid())),
                     request.target().partition(),
@@ -340,7 +340,7 @@ public final class KafkaClientArtifactTransactionalDestinationTransport
 
     private static byte[] encode(final GuardedResponseEvidence evidence) {
         return Bytes.concat(
-                Bytes.utf8("nereus-delay-kafka-k2-guarded-evidence-v1\0"),
+                Bytes.utf8("nereus-delay-kafka-k2-guarded-evidence\0"),
                 evidence.produceRequestBodySha256(),
                 evidence.produceResponseBodySha256(),
                 evidence.selectedBatchRecordsSha256(),

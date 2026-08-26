@@ -1,6 +1,6 @@
 package com.nereusstream.delay.protocol;
 
-/** Closed V1 resource kinds accepted by resource-retirement mutations. */
+/** Closed resource kinds accepted by resource-retirement mutations. */
 public enum ResourceKind {
     PAYLOAD_OBJECT(1),
     CHECKPOINT(2),

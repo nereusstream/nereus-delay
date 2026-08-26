@@ -10,6 +10,6 @@ public final class DestinationLaneId extends FixedBytes {
 
     public static DestinationLaneId derive(final byte[] canonicalLaneTuple) {
         return new DestinationLaneId(Bytes.sha256(
-                Bytes.concat(Bytes.utf8("nereus-delay-destination-lane-v1"), new byte[] {1}, canonicalLaneTuple)));
+                Bytes.concat(Bytes.utf8("nereus-delay-destination-lane"), new byte[] {1}, canonicalLaneTuple)));
     }
 }

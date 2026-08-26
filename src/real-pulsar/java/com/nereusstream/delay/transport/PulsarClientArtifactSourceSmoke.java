@@ -8,20 +8,20 @@ import com.nereusstream.delay.ownership.SourceRecordConsumer;
 import com.nereusstream.delay.ownership.SourceReplayCursor;
 import com.nereusstream.delay.ownership.SourceReplayEntry;
 import com.nereusstream.delay.ownership.SourceReplayRecord;
-import com.nereusstream.delay.protocol.AdapterMetadataV1;
+import com.nereusstream.delay.protocol.AdapterMetadata;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.DeliveryMode;
-import com.nereusstream.delay.protocol.KafkaMetadataV1;
+import com.nereusstream.delay.protocol.KafkaMetadata;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.PulsarActivationBarrier;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
-import com.nereusstream.delay.protocol.RetryPolicyRefV1;
+import com.nereusstream.delay.protocol.RetryPolicyRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
 import com.nereusstream.delay.protocol.ShardId;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -256,7 +256,7 @@ public final class PulsarClientArtifactSourceSmoke {
                             CREATION_TIMESTAMP,
                             0,
                             command.commandId(),
-                            CommandCodec.encodeFrameV1(command)))
+                            CommandCodec.encodeManagedFrame(command)))
                     .toCompletableFuture()
                     .get(15, TimeUnit.SECONDS);
             if (result.disposition() != PulsarSendResult.Disposition.PERSISTED) {
@@ -336,15 +336,15 @@ public final class PulsarClientArtifactSourceSmoke {
     }
 
     private static PreparedCommand command(final ShardId shard, final String identity) {
-        final ProfileRefV1 destination = new ProfileRefV1(
+        final ProfileRef destination = new ProfileRef(
                 Bytes.utf8("destination-" + identity),
                 1,
                 Bytes.sha256(Bytes.utf8("destination-semantic-" + identity)),
-                ProfileKindV1.DESTINATION);
-        final RetryPolicyRefV1 retryPolicy = new RetryPolicyRefV1(
+                ProfileKind.DESTINATION);
+        final RetryPolicyRef retryPolicy = new RetryPolicyRef(
                 Bytes.utf8("retry-" + identity), 1, Bytes.sha256(Bytes.utf8("retry-semantic-" + identity)));
         final long deliverAt = System.currentTimeMillis() + 1_000;
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
                 destination,
                 retryPolicy,
                 deliverAt,
@@ -354,10 +354,10 @@ public final class PulsarClientArtifactSourceSmoke {
                 new byte[0],
                 Bytes.utf8("source-" + identity),
                 null,
-                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())),
+                AdapterMetadata.kafka(new KafkaMetadata(null, List.of())),
                 null,
                 null);
-        return PreparedCommand.scheduleV1(shard, intent, deliverAt + 20_000);
+        return PreparedCommand.schedule(shard, intent, deliverAt + 20_000);
     }
 
     private static void createTopic(final HttpClient client, final String adminUrl, final String topic)

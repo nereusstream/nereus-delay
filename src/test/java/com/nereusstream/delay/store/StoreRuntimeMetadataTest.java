@@ -7,7 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
+import com.nereusstream.delay.protocol.EvidenceCursor;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import java.nio.file.Path;
@@ -37,7 +37,7 @@ class StoreRuntimeMetadataTest {
 
     @Test
     void malformedProjectionAndDuplicateEvidenceFailClosed() {
-        final EvidenceCursorV1 cursor = kafkaCursor(1);
+        final EvidenceCursor cursor = kafkaCursor(1);
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new StoreRuntimeMetadata(null, null, 1, false, List.of(cursor, cursor)));
@@ -107,8 +107,8 @@ class StoreRuntimeMetadataTest {
         assertTrue(closedProjection.cleanCloseMarker());
     }
 
-    private static EvidenceCursorV1 kafkaCursor(final long generation) {
-        return EvidenceCursorV1.kafka(
+    private static EvidenceCursor kafkaCursor(final long generation) {
+        return EvidenceCursor.kafka(
                 bytes(20),
                 java.util.Arrays.copyOf(bytes(21), 16),
                 uuidBytes(22),

@@ -2,17 +2,17 @@ package com.nereusstream.delay.ownership;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import com.nereusstream.delay.protocol.ControlAuthorV1;
-import com.nereusstream.delay.protocol.ControlOperationRequestV1;
-import com.nereusstream.delay.protocol.ControlReasonKindV1;
-import com.nereusstream.delay.protocol.ControlReasonV1;
-import com.nereusstream.delay.protocol.ControlTargetKindV1;
-import com.nereusstream.delay.protocol.ControlTargetRefV1;
-import com.nereusstream.delay.protocol.ForceCheckpointRequestV1;
-import com.nereusstream.delay.protocol.PreparedControlOperationV1;
+import com.nereusstream.delay.protocol.ControlAuthor;
+import com.nereusstream.delay.protocol.ControlOperationRequest;
+import com.nereusstream.delay.protocol.ControlReason;
+import com.nereusstream.delay.protocol.ControlReasonKind;
+import com.nereusstream.delay.protocol.ControlTargetKind;
+import com.nereusstream.delay.protocol.ControlTargetRef;
+import com.nereusstream.delay.protocol.ForceCheckpointRequest;
+import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.util.List;
@@ -23,15 +23,15 @@ class ControlTargetRegistrationAuthorityTest {
     void registersExactPreparedBytesIdempotentlyAndRejectsConflicts() throws Exception {
         final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final InMemoryControlTargetRegistrationAuthority authority = new InMemoryControlTargetRegistrationAuthority();
-        final PreparedControlOperationV1 prepared = prepared(keyPair, 1);
+        final PreparedControlOperation prepared = prepared(keyPair, 1);
         assertEquals(ControlTargetRegistrationAuthority.RegistrationResult.RECORDED, authority.register(prepared));
         assertEquals(
                 ControlTargetRegistrationAuthority.RegistrationResult.ALREADY_RECORDED,
-                authority.register(PreparedControlOperationV1.decode(prepared.canonicalBytes())));
+                authority.register(PreparedControlOperation.decode(prepared.canonicalBytes())));
         assertEquals(prepared, authority.find(prepared.operationId()).orElseThrow());
 
-        final PreparedControlOperationV1 conflict = preparedWithOperationId(keyPair, bytes(32, 99), 2);
-        final PreparedControlOperationV1 sameIdDifferentBytes = PreparedControlOperationV1.prepare(
+        final PreparedControlOperation conflict = preparedWithOperationId(keyPair, bytes(32, 99), 2);
+        final PreparedControlOperation sameIdDifferentBytes = PreparedControlOperation.prepare(
                 prepared.operationId(),
                 conflict.kind(),
                 conflict.author(),
@@ -44,21 +44,21 @@ class ControlTargetRegistrationAuthorityTest {
         assertThrows(IllegalArgumentException.class, () -> authority.register(sameIdDifferentBytes));
     }
 
-    private static PreparedControlOperationV1 prepared(final KeyPair keyPair, final int seed) {
+    private static PreparedControlOperation prepared(final KeyPair keyPair, final int seed) {
         return preparedWithOperationId(keyPair, bytes(32, seed), seed);
     }
 
-    private static PreparedControlOperationV1 preparedWithOperationId(
+    private static PreparedControlOperation preparedWithOperationId(
             final KeyPair keyPair, final byte[] operationId, final int seed) {
-        final ControlOperationRequestV1 request = ControlOperationRequestV1.forceCheckpoint(
-                new ForceCheckpointRequestV1(new ControlReasonV1(ControlReasonKindV1.MAINTENANCE, null, null)));
+        final ControlOperationRequest request = ControlOperationRequest.forceCheckpoint(
+                new ForceCheckpointRequest(new ControlReason(ControlReasonKind.MAINTENANCE, null, null)));
         final ShardId shardId = new ShardId(new RouteIncarnation(bytes(16, seed + 1)), seed);
-        final ControlTargetRefV1 target =
-                new ControlTargetRefV1(0, ControlTargetKindV1.SHARD, new ShardSubjectV1(shardId), null, null);
-        return PreparedControlOperationV1.prepare(
+        final ControlTargetRef target =
+                new ControlTargetRef(0, ControlTargetKind.SHARD, new ShardSubject(shardId), null, null);
+        return PreparedControlOperation.prepare(
                 operationId,
                 request.kind(),
-                new ControlAuthorV1(bytes(32, seed + 2), bytes(32, seed + 3), bytes(32, seed + 4)),
+                new ControlAuthor(bytes(32, seed + 2), bytes(32, seed + 3), bytes(32, seed + 4)),
                 request,
                 List.of(target),
                 1,

@@ -1,9 +1,9 @@
 package com.nereusstream.delay.route;
 
-import com.nereusstream.delay.protocol.AdapterKindV1;
+import com.nereusstream.delay.protocol.AdapterKind;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.RouteSnapshotV1;
+import com.nereusstream.delay.protocol.RouteSnapshot;
 import com.nereusstream.delay.semantic.AuthenticatedTenantContext;
 import com.nereusstream.delay.semantic.RouteSelectionHint;
 import com.nereusstream.delay.semantic.TrustedClock;
@@ -23,8 +23,8 @@ import java.util.concurrent.CompletionStage;
 public final class InMemorySignedRouteSnapshotProvider implements RouteSnapshotProvider, RouteSnapshotRefresher {
     private final PublicKey verificationKey;
     private final TrustedClock trustedClock;
-    private final Map<RouteKey, RouteSnapshotV1> active = new HashMap<>();
-    private final Map<RouteIncarnation, RouteSnapshotV1> history = new HashMap<>();
+    private final Map<RouteKey, RouteSnapshot> active = new HashMap<>();
+    private final Map<RouteIncarnation, RouteSnapshot> history = new HashMap<>();
     private final Map<RouteIncarnation, RouteKey> activeKeyByIncarnation = new HashMap<>();
     private long publishedRevision;
     private RouteCacheHealth health = RouteCacheHealth.UNAVAILABLE;
@@ -43,7 +43,7 @@ public final class InMemorySignedRouteSnapshotProvider implements RouteSnapshotP
             final long revision,
             final long previousRevision,
             final RouteSelectionHint route,
-            final RouteSnapshotV1 snapshot) {
+            final RouteSnapshot snapshot) {
         requireOpen();
         Objects.requireNonNull(route, "route");
         Objects.requireNonNull(snapshot, "snapshot");
@@ -54,17 +54,17 @@ public final class InMemorySignedRouteSnapshotProvider implements RouteSnapshotP
             health = RouteCacheHealth.WATCH_GAP;
             throw new IllegalArgumentException("Route watch revision is not contiguous");
         }
-        final RouteSnapshotV1 verified;
+        final RouteSnapshot verified;
         try {
-            verified = RouteSnapshotV1.decode(snapshot.canonicalBytes(), verificationKey);
+            verified = RouteSnapshot.decode(snapshot.canonicalBytes(), verificationKey);
         } catch (RuntimeException invalidSignatureOrBytes) {
             health = RouteCacheHealth.SIGNATURE_INVALID;
             throw new IllegalArgumentException("Route snapshot signature/digest is invalid", invalidSignatureOrBytes);
         }
-        final RouteSnapshotV1 previous = history.get(verified.routeIncarnation());
+        final RouteSnapshot previous = history.get(verified.routeIncarnation());
         if (previous != null) {
             try {
-                RouteSnapshotCompatibilityV1.requireCompatibleSuccessor(previous, verified);
+                RouteSnapshotCompatibility.requireCompatibleSuccessor(previous, verified);
             } catch (IllegalArgumentException incompatible) {
                 health = RouteCacheHealth.QUARANTINED;
                 throw new IllegalArgumentException("Route incarnation changed immutable fields", incompatible);
@@ -84,10 +84,10 @@ public final class InMemorySignedRouteSnapshotProvider implements RouteSnapshotP
     }
 
     @Override
-    public synchronized RouteSnapshotV1 activeForNewSchedule(
+    public synchronized RouteSnapshot activeForNewSchedule(
             final AuthenticatedTenantContext context, final RouteSelectionHint hint) {
         requireHealthy();
-        final RouteSnapshotV1 snapshot = active.get(new RouteKey(hint.adapterKind(), hint.routeAliasUtf8Nfc()));
+        final RouteSnapshot snapshot = active.get(new RouteKey(hint.adapterKind(), hint.routeAliasUtf8Nfc()));
         if (snapshot == null) {
             throw new IllegalArgumentException("Route alias is unavailable");
         }
@@ -97,10 +97,10 @@ public final class InMemorySignedRouteSnapshotProvider implements RouteSnapshotP
     }
 
     @Override
-    public synchronized RouteSnapshotV1 exact(
+    public synchronized RouteSnapshot exact(
             final RouteIncarnation incarnation, final AuthenticatedTenantContext context) {
         requireHealthy();
-        final RouteSnapshotV1 snapshot = history.get(Objects.requireNonNull(incarnation, "incarnation"));
+        final RouteSnapshot snapshot = history.get(Objects.requireNonNull(incarnation, "incarnation"));
         if (snapshot == null) {
             return null;
         }
@@ -150,8 +150,8 @@ public final class InMemorySignedRouteSnapshotProvider implements RouteSnapshotP
         }
     }
 
-    private record RouteKey(AdapterKindV1 adapterKind, String routeAlias) {
-        private RouteKey(final AdapterKindV1 adapterKind, final byte[] routeAlias) {
+    private record RouteKey(AdapterKind adapterKind, String routeAlias) {
+        private RouteKey(final AdapterKind adapterKind, final byte[] routeAlias) {
             this(adapterKind, Base64.getUrlEncoder().withoutPadding().encodeToString(Bytes.copy(routeAlias)));
         }
     }

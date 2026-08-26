@@ -9,14 +9,14 @@ import com.nereusstream.delay.ownership.OwnerLease;
 import com.nereusstream.delay.ownership.OxiaOwnerLeaseStore;
 import com.nereusstream.delay.ownership.SourceAssignment;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -24,7 +24,7 @@ import org.junit.jupiter.api.Test;
 class CheckpointReapingOwnerProofIssuerTest {
     @Test
     void explicitOwnerAbandonmentReleasesExactSessionBoundLease() {
-        final CheckpointUploadIntentV1 pending = pending();
+        final CheckpointUploadIntent pending = pending();
         final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(new InMemoryOwnerLeaseStore());
         final OwnerLease lease = acquire(authority, pending, "old-owner", 1);
 
@@ -40,7 +40,7 @@ class CheckpointReapingOwnerProofIssuerTest {
 
     @Test
     void anotherActorCanProveTheRecordedLeaseWasReplaced() {
-        final CheckpointUploadIntentV1 pending = pending();
+        final CheckpointUploadIntent pending = pending();
         final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(new InMemoryOwnerLeaseStore());
         final OwnerLease oldLease = acquire(authority, pending, "old-owner", 1);
         assertTrue(authority.release(oldLease));
@@ -58,7 +58,7 @@ class CheckpointReapingOwnerProofIssuerTest {
 
     @Test
     void currentRecordedLeaseAndUnclosedDeadlineFailClosed() {
-        final CheckpointUploadIntentV1 pending = pending();
+        final CheckpointUploadIntent pending = pending();
         final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(new InMemoryOwnerLeaseStore());
         final OwnerLease lease = acquire(authority, pending, "current-owner", 1);
 
@@ -75,7 +75,7 @@ class CheckpointReapingOwnerProofIssuerTest {
 
     private static OwnerLease acquire(
             final OxiaOwnerLeaseStore authority,
-            final CheckpointUploadIntentV1 pending,
+            final CheckpointUploadIntent pending,
             final String ownerId,
             final int seed) {
         final SourceAssignment assignment = new SourceAssignment(
@@ -88,23 +88,23 @@ class CheckpointReapingOwnerProofIssuerTest {
                 .orElseThrow();
     }
 
-    private static CheckpointUploadIntentV1 pending() {
+    private static CheckpointUploadIntent pending() {
         final com.nereusstream.delay.protocol.ShardId shard =
                 new com.nereusstream.delay.protocol.ShardId(new RouteIncarnation(bytes(16, 1)), 3);
-        return new CheckpointUploadIntentV1(
-                new ShardSubjectV1(shard),
+        return new CheckpointUploadIntent(
+                new ShardSubject(shard),
                 bytes(16, 2),
                 bytes(16, 3),
-                new OwnerIdentityV1(bytes(8, 4), bytes(8, 5), 1, bytes(32, 6)),
+                new OwnerIdentity(bytes(8, 4), bytes(8, 5), 1, bytes(32, 6)),
                 bytes(16, 7),
                 bytes(32, 8),
                 11,
                 bytes(16, 9),
                 bytes(32, 10),
-                new ProfileRefV1(Bytes.utf8("store"), 1, bytes(32, 15), ProfileKindV1.OBJECT_STORE),
+                new ProfileRef(Bytes.utf8("store"), 1, bytes(32, 15), ProfileKind.OBJECT_STORE),
                 evidence(1_000),
                 5_000,
-                CheckpointUploadStateV1.PENDING_UPLOAD,
+                CheckpointUploadState.PENDING_UPLOAD,
                 2,
                 null,
                 null);

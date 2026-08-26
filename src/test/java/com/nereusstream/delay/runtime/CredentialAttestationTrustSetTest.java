@@ -3,12 +3,12 @@ package com.nereusstream.delay.runtime;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CredentialBindingV1;
-import com.nereusstream.delay.protocol.CredentialEquivalenceAttestationV1;
-import com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
-import com.nereusstream.delay.protocol.ObjectStoreProviderKindV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
+import com.nereusstream.delay.protocol.CredentialBinding;
+import com.nereusstream.delay.protocol.CredentialEquivalenceAttestation;
+import com.nereusstream.delay.protocol.ObjectStoreProfileSemantic;
+import com.nereusstream.delay.protocol.ObjectStoreProviderKind;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -38,8 +38,8 @@ class CredentialAttestationTrustSetTest {
     }
 
     private static Fixture fixture() throws Exception {
-        final ObjectStoreProfileSemanticV1 semantic = new ObjectStoreProfileSemanticV1(
-                ObjectStoreProviderKindV1.S3_COMPATIBLE,
+        final ObjectStoreProfileSemantic semantic = new ObjectStoreProfileSemantic(
+                ObjectStoreProviderKind.S3_COMPATIBLE,
                 bytes(32, 1),
                 bytes(32, 2),
                 1,
@@ -49,14 +49,14 @@ class CredentialAttestationTrustSetTest {
                 true,
                 bytes(32, 3),
                 1 << 20,
-                ObjectStoreProfileSemanticV1.SINGLE_PUT,
+                ObjectStoreProfileSemantic.SINGLE_PUT,
                 1,
                 bytes(32, 4));
-        final ProfileSemanticEnvelopeV1 profile = new ProfileSemanticEnvelopeV1(
-                ProfileKindV1.OBJECT_STORE, Bytes.utf8("attestation-profile"), 1, semantic);
+        final ProfileSemanticEnvelope profile =
+                new ProfileSemanticEnvelope(ProfileKind.OBJECT_STORE, Bytes.utf8("attestation-profile"), 1, semantic);
         final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-        final byte[] reference = Bytes.utf8("secret://trust-set/v1");
-        final CredentialEquivalenceAttestationV1 attestation = CredentialEquivalenceAttestationV1.signed(
+        final byte[] reference = Bytes.utf8("secret://trust-set/initial");
+        final CredentialEquivalenceAttestation attestation = CredentialEquivalenceAttestation.signed(
                 profile.ref(),
                 1,
                 Bytes.sha256(reference),
@@ -69,7 +69,7 @@ class CredentialAttestationTrustSetTest {
                 bytes(32, 6),
                 3,
                 keyPair.getPrivate());
-        return new Fixture(profile, CredentialBindingV1.create(profile.ref(), 1, reference, attestation), keyPair);
+        return new Fixture(profile, CredentialBinding.create(profile.ref(), 1, reference, attestation), keyPair);
     }
 
     private static TrustedUtcIntervalEvidence evidence(final long earliest) {
@@ -94,5 +94,5 @@ class CredentialAttestationTrustSetTest {
         return value;
     }
 
-    private record Fixture(ProfileSemanticEnvelopeV1 profile, CredentialBindingV1 binding, KeyPair keyPair) {}
+    private record Fixture(ProfileSemanticEnvelope profile, CredentialBinding binding, KeyPair keyPair) {}
 }

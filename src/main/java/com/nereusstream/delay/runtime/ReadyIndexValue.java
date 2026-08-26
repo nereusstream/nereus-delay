@@ -9,7 +9,7 @@ import java.util.Arrays;
 /**
  * Small canonical value stored beside one timeline/READY key.
  *
- * <p>The complete V1 value is a registry protobuf.  This embedded core keeps
+ * <p>The complete value is a registry protobuf. This embedded core keeps
  * the same physical identity checks (lane, lane version and exact timeline
  * work) in a fixed binary value until the registry binding is wired in.</p>
  */

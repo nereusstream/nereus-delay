@@ -6,7 +6,7 @@ import java.util.Objects;
  * Local timing guard for the managed Pulsar destination adapter.
  *
  * <p>The immutable Destination/Delivery Capability Profile remains the
- * authority for whether a certified handoff may be used.  This value is only
+ * authority for whether a certified handoff may be used. This value is only
  * the adapter-side fail-closed seam: the default policy accepts ordinary
  * managed sends, while an explicitly constructed handoff policy accepts one
  * fixed {@code deliverAt - handoffLead} relationship and nothing else.</p>

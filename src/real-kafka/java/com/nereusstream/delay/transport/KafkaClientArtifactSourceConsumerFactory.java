@@ -11,7 +11,7 @@ import org.apache.kafka.clients.consumer.GuardedConsumer;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.Uuid;
 
-/** Creates a Kafka source consumer bound to one immutable V1 resource identity. */
+/** Creates a Kafka source consumer bound to one immutable resource identity. */
 public final class KafkaClientArtifactSourceConsumerFactory {
     private KafkaClientArtifactSourceConsumerFactory() {}
 

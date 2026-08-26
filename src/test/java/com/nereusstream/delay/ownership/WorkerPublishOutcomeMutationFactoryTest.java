@@ -7,17 +7,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.adapter.DestinationPublishRequest;
 import com.nereusstream.delay.adapter.DestinationPublishResult;
 import com.nereusstream.delay.protocol.AuthorIdentity;
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.EvidenceVerificationStatusV1;
-import com.nereusstream.delay.protocol.ExternalDeliveryIdentityV1;
-import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.EvidenceVerificationStatus;
+import com.nereusstream.delay.protocol.ExternalDeliveryIdentity;
+import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentity;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
-import com.nereusstream.delay.protocol.PublishEvidenceKindV1;
-import com.nereusstream.delay.protocol.PublishEvidenceV1;
+import com.nereusstream.delay.protocol.PublishEvidence;
+import com.nereusstream.delay.protocol.PublishEvidenceKind;
 import com.nereusstream.delay.protocol.PublishOutcomeBody;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
@@ -147,13 +147,13 @@ class WorkerPublishOutcomeMutationFactoryTest {
     }
 
     private static byte[] evidence(final byte[] attemptId, final boolean published) {
-        final ExternalDeliveryIdentityV1 owner = ExternalDeliveryIdentityV1.publishAttempt(attemptId);
+        final ExternalDeliveryIdentity owner = ExternalDeliveryIdentity.publishAttempt(attemptId);
         final byte[] branch = published
                 ? CanonicalProtobuf.message(output -> {
                     CanonicalProtobuf.bytes(
                             output,
                             1,
-                            BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+                            BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(
                                             "cluster-a", UUID.nameUUIDFromBytes(Bytes.utf8("topic"))))
                                     .canonicalBytes());
                     CanonicalProtobuf.uint32(output, 2, 0);
@@ -172,13 +172,11 @@ class WorkerPublishOutcomeMutationFactoryTest {
                     CanonicalProtobuf.uint32(output, 6, 1);
                     CanonicalProtobuf.uint32(output, 7, StableCode.CAPABILITY_UNAVAILABLE.wireValue());
                 });
-        return PublishEvidenceV1.create(
+        return PublishEvidence.create(
+                        published ? PublishEvidenceKind.KAFKA_PRODUCE_ACK : PublishEvidenceKind.ADAPTER_NON_SUBMISSION,
                         published
-                                ? PublishEvidenceKindV1.KAFKA_PRODUCE_ACK
-                                : PublishEvidenceKindV1.ADAPTER_NON_SUBMISSION,
-                        published
-                                ? EvidenceVerificationStatusV1.VERIFIED_PUBLISHED
-                                : EvidenceVerificationStatusV1.VERIFIED_NOT_PUBLISHED,
+                                ? EvidenceVerificationStatus.VERIFIED_PUBLISHED
+                                : EvidenceVerificationStatus.VERIFIED_NOT_PUBLISHED,
                         branch)
                 .canonicalBytes();
     }

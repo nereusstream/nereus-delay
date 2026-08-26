@@ -1,16 +1,16 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
-import com.nereusstream.delay.protocol.RecoveryCandidateKindV1;
-import com.nereusstream.delay.protocol.RecoveryCandidateRefV1;
-import com.nereusstream.delay.protocol.RecoveryFloorRefV1;
-import com.nereusstream.delay.protocol.RecoveryPinV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
+import com.nereusstream.delay.protocol.EvidenceCursor;
+import com.nereusstream.delay.protocol.RecoveryCandidateKind;
+import com.nereusstream.delay.protocol.RecoveryCandidateRef;
+import com.nereusstream.delay.protocol.RecoveryFloorRef;
+import com.nereusstream.delay.protocol.RecoveryPin;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SourcePosition;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -22,18 +22,18 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Deterministic local model of the V1 checkpoint catalog. Production wiring
+ * Deterministic local model of the checkpoint catalog. Production wiring
  * supplies the same CAS semantics through Oxia; this class deliberately has no
  * network or object-store side effects.
  */
 public final class RecoveryCatalog implements RecoveryCatalogAuthority {
     private final Map<String, CheckpointManifest> manifests = new HashMap<>();
-    private final Map<String, CheckpointResourceV1> manifestResources = new HashMap<>();
+    private final Map<String, CheckpointResource> manifestResources = new HashMap<>();
     private long catalogGeneration;
     private RecoveryFloor floor;
-    private RecoveryFloorRefV1 typedFloorRef;
+    private RecoveryFloorRef typedFloorRef;
     private com.nereusstream.delay.protocol.ShardId catalogShard;
-    private RecoveryPinV1 activeRecoveryPin;
+    private RecoveryPin activeRecoveryPin;
 
     public synchronized Publication publish(final CheckpointManifest manifest, final long expectedCatalogGeneration) {
         Objects.requireNonNull(manifest, "manifest");
@@ -126,10 +126,10 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
      * the complete typed cursor set.
      */
     @Override
-    public synchronized RecoveryFloorRefV1 advanceFloor(
+    public synchronized RecoveryFloorRef advanceFloor(
             final byte[] checkpointId,
             final long expectedCatalogGeneration,
-            final List<EvidenceCursorV1> evidenceCursors) {
+            final List<EvidenceCursor> evidenceCursors) {
         Objects.requireNonNull(checkpointId, "checkpointId");
         Objects.requireNonNull(evidenceCursors, "evidenceCursors");
         if (typedFloorRef != null
@@ -164,7 +164,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
                 throw new IllegalArgumentException("recovery floor cannot regress");
             }
         }
-        final RecoveryFloorRefV1 next = new RecoveryFloorRefV1(
+        final RecoveryFloorRef next = new RecoveryFloorRef(
                 candidate.recoveryLineageId(),
                 candidate.checkpointId(),
                 candidate.manifestSha256(),
@@ -173,8 +173,8 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
                 candidate.shardMutationSequence(),
                 evidenceCursors);
         if (typedFloorRef != null) {
-            for (EvidenceCursorV1 previous : typedFloorRef.evidenceCursors()) {
-                final EvidenceCursorV1 successor = next.evidenceCursors().stream()
+            for (EvidenceCursor previous : typedFloorRef.evidenceCursors()) {
+                final EvidenceCursor successor = next.evidenceCursors().stream()
                         .filter(cursor -> cursor.sameIdentity(previous))
                         .findFirst()
                         .orElse(null);
@@ -203,13 +203,12 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
      */
     @Override
     public synchronized Publication publishUploadedCheckpoint(
-            final CheckpointUploadIntentV1 publishedIntent,
+            final CheckpointUploadIntent publishedIntent,
             final CheckpointManifest manifest,
             final long expectedCatalogGeneration) {
         Objects.requireNonNull(publishedIntent, "publishedIntent");
         Objects.requireNonNull(manifest, "manifest");
-        if (publishedIntent.state() != CheckpointUploadStateV1.PUBLISHED
-                || publishedIntent.publishedManifest() == null) {
+        if (publishedIntent.state() != CheckpointUploadState.PUBLISHED || publishedIntent.publishedManifest() == null) {
             throw new IllegalArgumentException("catalog publication requires a PUBLISHED upload intent");
         }
         if (expectedCatalogGeneration != publishedIntent.baseCatalogGeneration()) {
@@ -220,7 +219,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
                 || !Bytes.constantTimeEquals(publishedIntent.checkpointId(), manifest.checkpointId())) {
             throw new IllegalArgumentException("upload intent and manifest shard/checkpoint identity differ");
         }
-        final com.nereusstream.delay.protocol.CheckpointResourceV1 resource = publishedIntent.publishedManifest();
+        final com.nereusstream.delay.protocol.CheckpointResource resource = publishedIntent.publishedManifest();
         if (!Bytes.constantTimeEquals(resource.manifestSha256(), manifest.manifestSha256())
                 || resource.manifestLength() != manifest.canonicalJsonBytes().length) {
             throw new IllegalArgumentException("published manifest object identity does not match manifest bytes");
@@ -255,7 +254,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
             if (!Bytes.constantTimeEquals(existing.manifestSha256(), manifest.manifestSha256())) {
                 throw new IllegalStateException("checkpoint identity conflict");
             }
-            final com.nereusstream.delay.protocol.CheckpointResourceV1 existingResource =
+            final com.nereusstream.delay.protocol.CheckpointResource existingResource =
                     manifestResources.get(key(manifest.checkpointId()));
             if (existingResource != null && !existingResource.equals(resource)) {
                 throw new IllegalStateException("checkpoint object identity conflict");
@@ -282,13 +281,13 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
     }
 
     @Override
-    public synchronized Optional<RecoveryFloorRefV1> currentFloorRef() {
+    public synchronized Optional<RecoveryFloorRef> currentFloorRef() {
         return Optional.ofNullable(typedFloorRef);
     }
 
     /**
      * Validates that an exact manifest is catalog-published and still belongs
-     * to the floor-bounded recovery set.  It performs no catalog mutation and
+     * to the floor-bounded recovery set. It performs no catalog mutation and
      * is the local counterpart of an Oxia recovery-candidate read/verification.
      */
     public synchronized void validatePublishedRestoreCandidate(final CheckpointManifest candidate) {
@@ -302,7 +301,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
 
     /**
      * Validates the four local meta/RECOVERY projections before a Store can be
-     * considered for reuse.  This is deliberately read-only: a production
+     * considered for reuse. This is deliberately read-only: a production
      * Oxia implementation must bind the same checks to its catalog/Floor
      * transaction and current Owner Lease/session.
      */
@@ -313,7 +312,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
         Objects.requireNonNull(localMetadata, "localMetadata");
         if (!localMetadata.hasReusableProof()
                 || localMetadata.lineageBase() == null
-                || localMetadata.lineageBase().kind() != RecoveryCandidateKindV1.LOCAL_STORE
+                || localMetadata.lineageBase().kind() != RecoveryCandidateKind.LOCAL_STORE
                 || localMetadata.lastObservedFloor() == null
                 || typedFloorRef == null) {
             throw new IllegalArgumentException("local Store lacks a complete recovery-reuse projection");
@@ -322,7 +321,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
                 || localMetadata.catalogGeneration() != typedFloorRef.catalogGeneration()) {
             throw new IllegalStateException("local Store Recovery Floor observation is stale");
         }
-        final RecoveryCandidateRefV1 candidate = localMetadata.lineageBase();
+        final RecoveryCandidateRef candidate = localMetadata.lineageBase();
         final CheckpointManifest manifest = manifests.get(key(candidate.checkpointId()));
         if (manifest == null
                 || !manifest.shardId().equals(shardId)
@@ -387,11 +386,11 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
     /**
      * Proves that an exact published candidate is a descendant of the current
      * Recovery Floor and that the Floor covers the supplied source/mutation
-     * boundary.  This is deliberately a read-only local proof: it does not
+     * boundary. This is deliberately a read-only local proof: it does not
      * perform an Oxia CAS, publish an object, or authorize an external delete.
      *
      * <p>The candidate is part of the proof even though the sequence/source
-     * checks are made against the Floor.  A scalar position or mutation
+     * checks are made against the Floor. A scalar position or mutation
      * sequence from an unrelated checkpoint branch must never be accepted as
      * a substitute for the parent-hash ancestry.</p>
      */
@@ -493,10 +492,10 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
         for (CheckpointManifest manifest : manifests.values()) {
             validateParent(manifest);
         }
-        for (Map.Entry<String, CheckpointResourceV1> entry :
+        for (Map.Entry<String, CheckpointResource> entry :
                 snapshot.manifestResources().entrySet()) {
             final CheckpointManifest manifest = manifests.get(entry.getKey());
-            final CheckpointResourceV1 resource = Objects.requireNonNull(entry.getValue(), "snapshot resource");
+            final CheckpointResource resource = Objects.requireNonNull(entry.getValue(), "snapshot resource");
             if (manifest == null
                     || !Bytes.constantTimeEquals(resource.checkpointId(), manifest.checkpointId())
                     || !Bytes.constantTimeEquals(resource.recoveryLineageId(), manifest.recoveryLineageId())
@@ -539,7 +538,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
         }
     }
 
-    private void validateTypedFloorProjection(final RecoveryFloorRefV1 value) {
+    private void validateTypedFloorProjection(final RecoveryFloorRef value) {
         final CheckpointManifest manifest = manifests.get(key(value.checkpointId()));
         if (manifest == null
                 || !Bytes.constantTimeEquals(value.recoveryLineageId(), manifest.recoveryLineageId())
@@ -552,9 +551,9 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
         }
     }
 
-    private void validatePinProjection(final RecoveryPinV1 pin) {
+    private void validatePinProjection(final RecoveryPin pin) {
         if (catalogShard == null
-                || !new ShardSubjectV1(catalogShard).equals(pin.shard())
+                || !new ShardSubject(catalogShard).equals(pin.shard())
                 || Long.compareUnsigned(pin.observedCatalogGeneration(), catalogGeneration) > 0
                 || pin.observedCatalogGeneration() != pin.observedFloor().catalogGeneration()) {
             throw new IllegalArgumentException("snapshot RecoveryPin shard/generation mismatch");
@@ -562,7 +561,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
         if (floor == null) {
             throw new IllegalArgumentException("snapshot RecoveryPin has no current Recovery Floor");
         }
-        final RecoveryFloorRefV1 observedFloor = pin.observedFloor();
+        final RecoveryFloorRef observedFloor = pin.observedFloor();
         final CheckpointManifest observedFloorManifest = manifests.get(key(observedFloor.checkpointId()));
         if (observedFloorManifest == null
                 || !Bytes.constantTimeEquals(
@@ -603,7 +602,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
         if (!currentFloorOnCandidateBranch) {
             throw new IllegalArgumentException("snapshot RecoveryPin current Floor is on another branch");
         }
-        if (pin.candidate().kind() == RecoveryCandidateKindV1.CATALOG_CHECKPOINT
+        if (pin.candidate().kind() == RecoveryCandidateKind.CATALOG_CHECKPOINT
                 && pin.candidate().storeIncarnation() != null) {
             throw new IllegalArgumentException("snapshot catalog RecoveryPin carries a Store Incarnation");
         }
@@ -616,9 +615,9 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
      * exact Owner Lease/session in one transaction.
      */
     @Override
-    public synchronized RecoveryPinV1 createRecoveryPin(final RecoveryPinV1 pin) {
+    public synchronized RecoveryPin createRecoveryPin(final RecoveryPin pin) {
         Objects.requireNonNull(pin, "pin");
-        if (catalogShard == null || !new ShardSubjectV1(catalogShard).equals(pin.shard())) {
+        if (catalogShard == null || !new ShardSubject(catalogShard).equals(pin.shard())) {
             throw new IllegalArgumentException("RecoveryPin shard is not the catalog shard");
         }
         if (pin.observedCatalogGeneration() != catalogGeneration) {
@@ -636,7 +635,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
             throw new IllegalArgumentException("RecoveryPin candidate is not the published manifest");
         }
         recoverySet(candidate.checkpointId());
-        if (pin.candidate().kind() == RecoveryCandidateKindV1.CATALOG_CHECKPOINT
+        if (pin.candidate().kind() == RecoveryCandidateKind.CATALOG_CHECKPOINT
                 && pin.candidate().storeIncarnation() != null) {
             throw new IllegalArgumentException("catalog RecoveryPin candidate carries a Store Incarnation");
         }
@@ -652,7 +651,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
 
     /** Releases the exact session-bound pin value; a different value fails closed. */
     @Override
-    public synchronized void releaseRecoveryPin(final RecoveryPinV1 pin) {
+    public synchronized void releaseRecoveryPin(final RecoveryPin pin) {
         Objects.requireNonNull(pin, "pin");
         if (activeRecoveryPin == null) {
             throw new IllegalStateException("no RecoveryPin is active");
@@ -664,12 +663,12 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
     }
 
     @Override
-    public synchronized Optional<RecoveryPinV1> activeRecoveryPin() {
+    public synchronized Optional<RecoveryPin> activeRecoveryPin() {
         return Optional.ofNullable(activeRecoveryPin);
     }
 
-    private boolean matchesFloor(final RecoveryPinV1 pin) {
-        final com.nereusstream.delay.protocol.RecoveryFloorRefV1 observed = pin.observedFloor();
+    private boolean matchesFloor(final RecoveryPin pin) {
+        final com.nereusstream.delay.protocol.RecoveryFloorRef observed = pin.observedFloor();
         if (typedFloorRef != null) {
             return typedFloorRef.equals(observed);
         }
@@ -697,8 +696,8 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
                 || manifest.lineageGeneration() != nextLineageGeneration(parent.lineageGeneration())) {
             throw new IllegalArgumentException("checkpoint lineage does not extend parent");
         }
-        for (EvidenceCursorV1 parentCursor : parent.evidenceCursors()) {
-            final EvidenceCursorV1 childCursor = manifest.evidenceCursors().stream()
+        for (EvidenceCursor parentCursor : parent.evidenceCursors()) {
+            final EvidenceCursor childCursor = manifest.evidenceCursors().stream()
                     .filter(cursor -> cursor.sameIdentity(parentCursor))
                     .findFirst()
                     .orElse(null);
@@ -723,7 +722,7 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
     }
 
     /**
-     * A Floor strictly after a required position covers it.  If the order
+     * A Floor strictly after a required position covers it. If the order
      * token is equal, the canonical position bytes must also be equal; Kafka
      * offset or Pulsar ledger/entry/batch equality alone is not an integrity
      * proof for a retained source position.
@@ -762,10 +761,10 @@ public final class RecoveryCatalog implements RecoveryCatalogAuthority {
             long catalogGeneration,
             ShardId catalogShard,
             List<CheckpointManifest> manifests,
-            Map<String, CheckpointResourceV1> manifestResources,
+            Map<String, CheckpointResource> manifestResources,
             RecoveryFloor floor,
-            RecoveryFloorRefV1 typedFloorRef,
-            RecoveryPinV1 activeRecoveryPin) {
+            RecoveryFloorRef typedFloorRef,
+            RecoveryPin activeRecoveryPin) {
         Snapshot {
             manifests = List.copyOf(Objects.requireNonNull(manifests, "manifests"));
             manifestResources = Map.copyOf(Objects.requireNonNull(manifestResources, "manifestResources"));

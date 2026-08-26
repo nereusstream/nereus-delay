@@ -2,7 +2,7 @@ package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
 import com.nereusstream.delay.scheduler.WorkClass;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.scheduler.WorkClassTask;
@@ -12,24 +12,24 @@ import java.util.Optional;
 import java.util.function.LongSupplier;
 
 /**
- * Routes an exact scheduled checkpoint attempt through the bounded V1
+ * Routes an exact scheduled checkpoint attempt through the bounded
  * {@link WorkClass#CHECKPOINT} execution class.
  *
  * <p>Submission validates the exact scheduler claim and immutable
  * Store/intent identity before queue admission, but performs no filesystem or
- * provider I/O.  Queue rejection therefore leaves the claim current and the
- * caller can submit the same request again.  The action repeats those checks
+ * provider I/O. Queue rejection therefore leaves the claim current and the
+ * caller can submit the same request again. The action repeats those checks
  * in {@link CheckpointExecutionCoordinator} after the queue wait.</p>
  *
  * <p>An ordinary checkpoint attempt failure is captured in the returned
  * {@link Submission}: the checkpoint coordinator has already either
  * rescheduled the exact claim or retained it because completion could not be
  * proved, so the generic work registry must not independently retry that
- * action.  A fatal {@link Error} is recorded and rethrown so the work-class
+ * action. A fatal {@link Error} is recorded and rethrown so the work-class
  * fatal-stop and process fencing rules still apply.</p>
  */
 public final class CheckpointWorkClassExecutor {
-    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-checkpoint-handoff-v1\0");
+    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-checkpoint-handoff\0");
 
     private final WorkClassExecutionRegistry workClasses;
     private final CheckpointExecutionCoordinator checkpointExecutor;
@@ -59,8 +59,8 @@ public final class CheckpointWorkClassExecutor {
             checkpointExecutor.requireCurrentExecution(submitted.claim(), submitted.pending());
         } catch (RuntimeException failure) {
             // claimDue has already removed this exact handle from the due
-            // set.  If preflight rejects before a work-class action exists,
-            // release that handle so the schedule remains retryable.  Queue
+            // set. If preflight rejects before a work-class action exists,
+            // release that handle so the schedule remains retryable. Queue
             // rejection is intentionally outside this block: it has no
             // physical side effect and must leave the claim current for an
             // exact resubmission.
@@ -103,7 +103,7 @@ public final class CheckpointWorkClassExecutor {
                     request.completionClock(),
                     request.adapter())));
         } catch (RuntimeException failure) {
-            // The checkpoint coordinator owns exact-claim rescheduling.  A
+            // The checkpoint coordinator owns exact-claim rescheduling. A
             // completed failure outcome is the handler result, not a second
             // generic retry authority.
             if (!executionStarted) {
@@ -152,7 +152,7 @@ public final class CheckpointWorkClassExecutor {
     public record ExecutionRequest(
             CheckpointScheduler.ScheduledCheckpoint claim,
             Path checkpointDirectory,
-            CheckpointUploadIntentV1 pending,
+            CheckpointUploadIntent pending,
             CheckpointExecutionCoordinator.CheckpointManifestFactory manifestFactory,
             long uploadNowEpochMs,
             LongSupplier completionClock,

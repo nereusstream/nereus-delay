@@ -12,7 +12,7 @@ import java.util.HexFormat;
 import java.util.Objects;
 import java.util.zip.CRC32C;
 
-/** Fixed-width, checked byte operations used by the V1 codecs. */
+/** Fixed-width, checked byte operations used by the codecs. */
 public final class Bytes {
     private static final HexFormat HEX = HexFormat.of();
 

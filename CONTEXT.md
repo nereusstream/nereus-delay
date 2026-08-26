@@ -13,7 +13,7 @@ The earliest instant at which Nereus Delay may start the destination action need
 _Avoid_: Delivery time, visibility time
 
 **Trusted UTC Interval**:
-The scheduler's bounded estimate `[earliestUtcNow, latestUtcNow]` of current UTC, derived from monitored clock synchronization and monotonic elapsed time. V1 admits not-before actions only from the lower bound and expiration decisions from both bounds.
+The scheduler's bounded estimate `[earliestUtcNow, latestUtcNow]` of current UTC, derived from monitored clock synchronization and monotonic elapsed time. Nereus Delay admits not-before actions only from the lower bound and expiration decisions from both bounds.
 _Avoid_: Raw `currentTimeMillis`, client timestamp
 
 **Target Early-Delivery Bound**:
@@ -88,7 +88,7 @@ _Avoid_: Payload hash, checksum of an enqueue attempt
 The version-specific, byte-for-byte canonical encoding of a Command's semantics that is fixed by preparation, carried unchanged by every enqueue attempt, and covered by Command Hash.
 _Avoid_: Arbitrary valid Protobuf encoding, Broker record envelope
 
-**V1 Protocol Registry**:
+**Current Protocol Registry**:
 The normative numeric and byte-level registry for the frozen spec revision: Shard Log and public receipt frames, enum/body/receipt fields, version-bound hash/signature preimages, stable result codes, RocksDB key tags/widths, cursor ordering, checkpoint JSON, and conformance vectors. Prose does not authorize unregistered extensions.
 _Avoid_: Implementation-local enum, an informal field list, generic Protobuf deterministic mode
 
@@ -117,7 +117,7 @@ The canonical, tenant-scoped and signed local input to preparation. It binds one
 _Avoid_: Mutable topic-name lookup, unsigned configuration map, credential secret, live network lookup during preparation
 
 **Security Domain**:
-The set of callers intentionally sharing one Broker ACL and one derived tenant authority on an Ingress Route. V1 does not recover an individual producer principal from consumed Command records.
+The set of callers intentionally sharing one Broker ACL and one derived tenant authority on an Ingress Route. Nereus Delay does not recover an individual producer principal from consumed Command records.
 _Avoid_: Self-declared tenant field, destination credential
 
 **Authenticated Tenant Context**:
@@ -177,7 +177,7 @@ The requirement that replaying a source record from any permitted checkpoint pro
 _Avoid_: Best-effort replay, current-environment validation
 
 **Shard Control Marker**:
-A service-signed `APPLY_SHARD_CONTROL_V1` System Mutation in one shard's Shard Log partition that activates a quota, profile-acceptance, admission, or Lane-control version at an exact Source Position. Its durable RocksDB application, not Oxia request acceptance or watch delivery, is the control boundary.
+A service-signed `APPLY_SHARD_CONTROL` System Mutation in one shard's Shard Log partition that activates a quota, profile-acceptance, admission, or Lane-control version at an exact Source Position. Its durable RocksDB application, not Oxia request acceptance or watch delivery, is the control boundary.
 _Avoid_: Tenant Client Command, watch event, mutable flag, unsigned marker
 
 **System Mutation**:
@@ -195,7 +195,7 @@ _Avoid_: Schedule command, queued request
 ## Payloads
 
 **Opaque Payload**:
-The exact application-serialized bytes scheduled by V1. Nereus Delay does not deserialize a domain object or consult a schema registry at delivery time.
+The exact application-serialized bytes scheduled by the current design. Nereus Delay does not deserialize a domain object or consult a schema registry at delivery time.
 _Avoid_: Java object, Broker wire batch
 
 **Payload Reservation**:
@@ -267,14 +267,14 @@ The immutable semantic destination, Broker Resource Incarnation, and physical pa
 _Avoid_: Live mutable profile, credential material
 
 **Broker Resource Incarnation**:
-The verifiable lifetime identity of one Broker cluster/topic resource, distinct from its reusable name. Kafka uses cluster ID plus native topic UUID; Pulsar uses an administrator-protected Nereus token plus physical-topic creation identity. V1 binds it at the actual Broker request boundary, not only during activation.
+The verifiable lifetime identity of one Broker cluster/topic resource, distinct from its reusable name. Kafka uses cluster ID plus native topic UUID; Pulsar uses an administrator-protected Nereus token plus physical-topic creation identity. Nereus Delay binds it at the actual Broker request boundary, not only during activation.
 _Avoid_: Topic name, Profile display name
 
-**Pinned Kafka Topic-ID Channel (`PINNED_TOPIC_ID_V1`)**:
+**Pinned Kafka Topic-ID Channel (`PINNED_TOPIC_ID`)**:
 A Kafka Fetch/Produce channel that puts the immutable Route/Profile native topic UUID into every v13-or-newer wire request, allows metadata to update only the pinned UUID's leader, and forbids name-based protocol fallback or substitution of a same-name replacement UUID.
 _Avoid_: Stock name-routed Producer, activation-only topic ID check
 
-**Pulsar Resource Guard (`PULSAR_RESOURCE_GUARD_V1`)**:
+**Pulsar Resource Guard (`PULSAR_RESOURCE_GUARD`)**:
 A cluster-certified first-class Pulsar protocol path. A typed Producer guard binds the expected token and creation identity to the actual persistent physical Topic; Broker core validates it at Producer creation and at the start of every SEND before persistence, then returns typed attestation/receipt or `ResourceIncarnationMismatch`. A rejection is definitive only without an earlier ambiguous attempt.
 _Avoid_: BrokerInterceptor string error, `producerCreated` callback, pre-send admin HEAD, client-only topic-name check
 
@@ -287,7 +287,7 @@ A stable `(tenant, Destination Profile version, orderingKey)` group of destinati
 _Avoid_: Delay Shard, global order
 
 **Delivery-Time FIFO**:
-The V1 ordered-delivery rule that compares Message Generations by `(deliverAt, effective Schedule Source Position, delayMessageId)` and proves destination-Broker durable append or handoff order inside one Ordering Domain. Extending it to consumer receive requires an explicit downstream ordering certificate; processing-completion order is excluded. Reschedule gives a generation a new effective Schedule position.
+The ordered-delivery rule that compares Message Generations by `(deliverAt, effective Schedule Source Position, delayMessageId)` and proves destination-Broker durable append or handoff order inside one Ordering Domain. Extending it to consumer receive requires an explicit downstream ordering certificate; processing-completion order is excluded. Reschedule gives a generation a new effective Schedule position.
 _Avoid_: Original client call order, global FIFO, consumer processing order
 
 **Physical Destination Partition**:
@@ -327,11 +327,11 @@ The authoritative capacity decision that applies persistent Lane, tenant, and sh
 _Avoid_: Source pause, publish backpressure
 
 **Shard Quota Grant**:
-A versioned slice of a tenant's hard capacity statically assigned to one Delay Shard and consumed atomically with message state. The sum of grants, not independent local guesses, defines a V1 tenant-wide hard limit.
+A versioned slice of a tenant's hard capacity statically assigned to one Delay Shard and consumed atomically with message state. The sum of grants, not independent local guesses, defines a currenttenant-wide hard limit.
 _Avoid_: Runtime metric, dynamically borrowed capacity
 
 **Logical Resource Charge**:
-The checked, persisted `QUOTA_ACCOUNTING_V1` resource vector derived from exact payload length and canonical record/Adapter metadata encodings. It controls deterministic quota and fairness decisions; physical RocksDB or filesystem size is a separate safety signal.
+The checked, persisted `QUOTA_ACCOUNTING` resource vector derived from exact payload length and canonical record/Adapter metadata encodings. It controls deterministic quota and fairness decisions; physical RocksDB or filesystem size is a separate safety signal.
 _Avoid_: SST compressed size, current disk usage, recomputed charge under a new version
 
 **Control Capacity Reserve**:
@@ -363,13 +363,13 @@ An optional, independently tracked outbox publication of a Dead Letter Record to
 _Avoid_: Dead Letter Record, business delivery
 
 **Dead Letter Replay**:
-An explicit authenticated Control Operation whose exact target is emitted as signed `REPLAY_DEAD_LETTER_V1` System Mutation and uses retained payload/binding to create a new Message Generation under fresh timing and retry bounds.
+An explicit authenticated Control Operation whose exact target is emitted as signed `REPLAY_DEAD_LETTER` System Mutation and uses retained payload/binding to create a new Message Generation under fresh timing and retry bounds.
 _Avoid_: Tenant Client Command, retrying the old generation, deleting the audit record
 
 ## Ownership and Publication
 
 **Delay Shard**:
-The smallest unit of command ordering, ownership, durable recovery, and scheduling. In V1, one Delay Shard corresponds to exactly one partition of an Ingress Route.
+The smallest unit of command ordering, ownership, durable recovery, and scheduling. In the current design, one Delay Shard corresponds to exactly one partition of an Ingress Route.
 _Avoid_: Worker, Worker database, arbitrary key range
 
 **Store Incarnation**:
@@ -449,7 +449,7 @@ A durable, bounded, and still-reversible reservation of a scheduled record and p
 _Avoid_: Publish, delivery, point of no return
 
 **Publish Admission**:
-The durable authorization for one exact Publish Attempt after which Nereus Delay may invoke the destination Producer. It is the V1 cancellation and rescheduling point of no return.
+The durable authorization for one exact Publish Attempt after which Nereus Delay may invoke the destination Producer. It is the cancellation and rescheduling point of no return.
 _Avoid_: Claim, Producer callback
 
 **Message Control Version (`stateVersion`)**:

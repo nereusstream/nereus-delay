@@ -1,6 +1,6 @@
 # Use ancestry-bound Recovery Lineages and recovery pins
 
-Nereus Delay V1 does not use a free scalar mutation sequence as proof that one checkpoint contains another checkpoint's state. Every checkpoint and local Store Incarnation belongs to an explicit Recovery Lineage, and every recovery candidate must prove ancestry from the exact current Recovery Floor. A candidate is protected by an Oxia recovery pin while it is inspected, downloaded, installed, and activated.
+Nereus Delay does not use a free scalar mutation sequence as proof that one checkpoint contains another checkpoint's state. Every checkpoint and local Store Incarnation belongs to an explicit Recovery Lineage, and every recovery candidate must prove ancestry from the exact current Recovery Floor. A candidate is protected by an Oxia recovery pin while it is inspected, downloaded, installed, and activated.
 
 ## Lineage
 
@@ -12,7 +12,7 @@ Each checkpoint manifest and catalog entry contains:
 - canonical `appliedShardLogPosition`, `shardMutationSequence`, and typed evidence cursors;
 - the exact Store/DB/Route/shard identities and manifest hash.
 
-`shardMutationSequence` is compared only inside a proven ancestry chain. The Recovery Floor names an exact `(lineageId, checkpointId, manifestHash, catalogGeneration, appliedShardLogPosition, includedMutationSequence, evidenceCursors)`. `EvidenceCursorV1` is the canonical tagged Kafka-receipt/Pulsar-journal union defined by the main spec and Protocol Registry; arrays sort strictly by kind/Lane/Lane-Incarnation/resource/partition/**evidence-generation**, and cursor dominance is legal only for that identical full key and its type-specific contiguous boundary. Protected old/new generations may coexist. “At or above the floor” means the candidate's parent-hash chain reaches that exact checkpoint and every required typed source/evidence cursor dominates it; a numerically larger sequence on another branch or incomparable resource identity proves nothing.
+`shardMutationSequence` is compared only inside a proven ancestry chain. The Recovery Floor names an exact `(lineageId, checkpointId, manifestHash, catalogGeneration, appliedShardLogPosition, includedMutationSequence, evidenceCursors)`. `EvidenceCursor` is the canonical tagged Kafka-receipt/Pulsar-journal union defined by the main spec and Protocol Registry; arrays sort strictly by kind/Lane/Lane-Incarnation/resource/partition/**evidence-generation**, and cursor dominance is legal only for that identical full key and its type-specific contiguous boundary. Protected old/new generations may coexist. “At or above the floor” means the candidate's parent-hash chain reaches that exact checkpoint and every required typed source/evidence cursor dominates it; a numerically larger sequence on another branch or incomparable resource identity proves nothing.
 
 ## Fallback
 
@@ -24,10 +24,10 @@ A checksummed local `ACTIVE` pointer is only a hint. The DB must contain its lin
 
 ## Recovery pin and final revalidation
 
-Before reading a local candidate or downloading a checkpoint, the lease holder uses a transaction comparing the exact Owner Lease/session and catalog generation to create a `RecoveryPinV1` under that same Oxia session. It binds a random Pin ID, Owner, candidate, exact Floor, catalog generation and session digest. It has no client-clock expiry: while the record exists, checkpoint removal, supersession cleanup, and orphan reaping protect candidate and Floor objects. Create-response loss rereads the exact path/value; a different pin is not success.
+Before reading a local candidate or downloading a checkpoint, the lease holder uses a transaction comparing the exact Owner Lease/session and catalog generation to create a `RecoveryPin` under that same Oxia session. It binds a random Pin ID, Owner, candidate, exact Floor, catalog generation and session digest. It has no client-clock expiry: while the record exists, checkpoint removal, supersession cleanup, and orphan reaping protect candidate and Floor objects. Create-response loss rereads the exact path/value; a different pin is not success.
 
 Immediately before replacing the local `ACTIVE` pointer and again before `ACTIVE_FOR_COMMANDS`, the Owner rereads the exact pin, Floor, catalog generation, lineage head, source retention, and evidence retention. If the Floor advanced beyond the candidate, the session-bound pin disappeared, or any identity/cursor changed incompatibly, it closes/discards the installation and restarts selection. The final transaction both marks the exact Owner Lease `ACTIVE_FOR_COMMANDS` and deletes that pin; response loss rereads both. Pins improve mutual exclusion but never make an invalid candidate valid, and session loss removes them automatically.
 
 ## GC barrier
 
-A resource mutation is deletable only when an exact Floor checkpoint is proven by ancestry to contain its `RESOURCE_RETIRE_INTENT_V1` and reconstructible GC tombstone. Delete confirmation remains in the Shard Log and is retained until a later descendant Floor contains it. GC comparisons therefore use `(lineage, checkpoint ancestry, mutation sequence)`, never a free sequence from a different restored branch.
+A resource mutation is deletable only when an exact Floor checkpoint is proven by ancestry to contain its `RESOURCE_RETIRE_INTENT` and reconstructible GC tombstone. Delete confirmation remains in the Shard Log and is retained until a later descendant Floor contains it. GC comparisons therefore use `(lineage, checkpoint ancestry, mutation sequence)`, never a free sequence from a different restored branch.

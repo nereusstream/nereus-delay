@@ -1,8 +1,8 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
 import java.util.Objects;
 
 /** Pure fail-closed identity and deadline gate for a checkpoint Owner proof. */
@@ -22,10 +22,10 @@ public final class CheckpointReapingOwnerProofGuard {
         OWNER_PROOF_ACCEPTED
     }
 
-    public static Decision evaluate(final CheckpointUploadIntentV1 pending, final CheckpointReapingOwnerProof proof) {
+    public static Decision evaluate(final CheckpointUploadIntent pending, final CheckpointReapingOwnerProof proof) {
         Objects.requireNonNull(pending, "pending");
         Objects.requireNonNull(proof, "proof");
-        if (pending.state() != CheckpointUploadStateV1.PENDING_UPLOAD) {
+        if (pending.state() != CheckpointUploadState.PENDING_UPLOAD) {
             return Decision.PENDING_INTENT_NOT_PENDING;
         }
         if (!Bytes.constantTimeEquals(pending.intentDigest(), proof.pendingIntentDigest())) {
@@ -61,7 +61,7 @@ public final class CheckpointReapingOwnerProofGuard {
         return Decision.OWNER_PROOF_ACCEPTED;
     }
 
-    public static void require(final CheckpointUploadIntentV1 pending, final CheckpointReapingOwnerProof proof) {
+    public static void require(final CheckpointUploadIntent pending, final CheckpointReapingOwnerProof proof) {
         final Decision decision = evaluate(pending, proof);
         if (decision != Decision.OWNER_PROOF_ACCEPTED) {
             throw new IllegalStateException("checkpoint reaping Owner proof rejected: " + decision);

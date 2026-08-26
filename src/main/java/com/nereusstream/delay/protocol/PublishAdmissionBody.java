@@ -9,7 +9,7 @@ import java.util.Objects;
  * Semantic parser for the source-replayable Publish Admission body.
  *
  * <p>The generic System Mutation codec checks the outer field shape. This
- * parser checks the V1 admission equalities that must hold before an attempt
+ * parser checks the admission equalities that must hold before an attempt
  * can become durable: descriptor/certificate/claim identity projections,
  * canonical descriptor and certificate digests, channel credential binding,
  * and the trusted decision interval.</p>
@@ -32,7 +32,7 @@ public final class PublishAdmissionBody {
     private final byte[] readyCertificateDigest;
     private final Channel channel;
     private final Descriptor descriptor;
-    private final ReadyCertificate readyCertificate;
+    private final DecodedReadyCertificate readyCertificate;
     private final TrustedUtcIntervalEvidence decisionTime;
     private final ClaimPrecondition claimPrecondition;
 
@@ -50,7 +50,7 @@ public final class PublishAdmissionBody {
             final byte[] readyCertificateDigest,
             final Channel channel,
             final Descriptor descriptor,
-            final ReadyCertificate readyCertificate,
+            final DecodedReadyCertificate readyCertificate,
             final TrustedUtcIntervalEvidence decisionTime,
             final ClaimPrecondition claimPrecondition) {
         this.ownerIdentity = copy(ownerIdentity);
@@ -77,13 +77,13 @@ public final class PublishAdmissionBody {
         final List<CanonicalProtobuf.Reader.Field> fields =
                 SystemMutationBodyCodec.fields(SystemMutationType.PUBLISH_ADMISSION, canonicalBody);
         final byte[] owner = nested(field(fields, 10), 10);
-        OwnerIdentityV1.decode(owner);
+        OwnerIdentity.decode(owner);
         final int generation = QueryCodecSupport.uint32Bits(field(fields, 16), 16);
         final byte[] reserveCharge = nested(field(fields, 19), 19);
         validateChargeVector(reserveCharge);
         final Channel channel = decodeChannel(nested(field(fields, 21), 21));
         final Descriptor descriptor = decodeDescriptor(nested(field(fields, 22), 22));
-        final ReadyCertificate certificate = decodeReadyCertificate(nested(field(fields, 23), 23));
+        final DecodedReadyCertificate certificate = decodeReadyCertificate(nested(field(fields, 23), 23));
         final TrustedUtcIntervalEvidence decision = TrustedUtcIntervalEvidence.decode(nested(field(fields, 24), 24));
         final ClaimPrecondition claim = decodeClaimPrecondition(nested(field(fields, 25), 25));
         final byte[] messageId = bytes(field(fields, 15), 15);
@@ -110,14 +110,14 @@ public final class PublishAdmissionBody {
     /**
      * Builds the one canonical PUBLISH_ADMISSION body from typed projections.
      *
-     * <p>The result is decoded again before it is returned.  This keeps the
+     * <p>The result is decoded again before it is returned. This keeps the
      * producer-side construction path behind the same cross-object equality
      * and canonical-byte checks used by source-ordered replay.</p>
      */
     public static byte[] canonicalBytes(
             final ShardId shardId,
             final long retryUntilEpochMs,
-            final OwnerIdentityV1 owner,
+            final OwnerIdentity owner,
             final byte[] storeIncarnation,
             final byte[] claimId,
             final DestinationLaneId laneId,
@@ -125,21 +125,21 @@ public final class PublishAdmissionBody {
             final DelayMessageId messageId,
             final long generation,
             final byte[] publishAttemptId,
-            final PreparedPublishDescriptorV1 descriptor,
+            final PreparedPublishDescriptor descriptor,
             final ChargeVector reserveCharge,
-            final ReadyCertificateV1 readyCertificate,
+            final ReadyCertificate readyCertificate,
             final TrustedUtcIntervalEvidence decisionTime,
             final byte[] claimPrecondition) {
         final ShardId subject = Objects.requireNonNull(shardId, "shardId");
-        final OwnerIdentityV1 typedOwner = Objects.requireNonNull(owner, "owner");
-        final PreparedPublishDescriptorV1 typedDescriptor = Objects.requireNonNull(descriptor, "descriptor");
-        final ReadyCertificateV1 typedCertificate = Objects.requireNonNull(readyCertificate, "readyCertificate");
+        final OwnerIdentity typedOwner = Objects.requireNonNull(owner, "owner");
+        final PreparedPublishDescriptor typedDescriptor = Objects.requireNonNull(descriptor, "descriptor");
+        final ReadyCertificate typedCertificate = Objects.requireNonNull(readyCertificate, "readyCertificate");
         final TrustedUtcIntervalEvidence typedDecision = Objects.requireNonNull(decisionTime, "decisionTime");
         if (retryUntilEpochMs < 0) {
             throw new IllegalArgumentException("retryUntil must be non-negative");
         }
         final byte[] encoded = CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.bytes(output, 1, new ShardSubjectV1(subject).canonicalBytes());
+            CanonicalProtobuf.bytes(output, 1, new ShardSubject(subject).canonicalBytes());
             CanonicalProtobuf.uint32(output, 2, SystemMutationType.PUBLISH_ADMISSION.wireValue());
             CanonicalProtobuf.int64(output, 3, retryUntilEpochMs);
             CanonicalProtobuf.bytes(output, 10, typedOwner.canonicalBytes());
@@ -248,7 +248,7 @@ public final class PublishAdmissionBody {
         return descriptor;
     }
 
-    public ReadyCertificate readyCertificate() {
+    public DecodedReadyCertificate readyCertificate() {
         return readyCertificate;
     }
 
@@ -330,19 +330,18 @@ public final class PublishAdmissionBody {
      * Profile and the guarded-handoff capability bit.
      */
     public void requireTimingPolicy(
-            final DestinationProfileSemanticV1 destinationProfile,
-            final DeliveryCapabilitySemanticV1 capabilityProfile) {
+            final DestinationProfileSemantic destinationProfile, final DeliveryCapabilitySemantic capabilityProfile) {
         Objects.requireNonNull(destinationProfile, "destinationProfile");
         Objects.requireNonNull(capabilityProfile, "capabilityProfile");
-        final ProfileRefV1 destinationRef = ProfileRefV1.decode(descriptor.destinationProfile());
-        final ProfileRefV1 capabilityRef = ProfileRefV1.decode(descriptor.capabilityProfile());
+        final ProfileRef destinationRef = ProfileRef.decode(descriptor.destinationProfile());
+        final ProfileRef capabilityRef = ProfileRef.decode(descriptor.capabilityProfile());
         if (!destinationProfile.deliveryCapability().equals(capabilityRef)
                 || destinationProfile.adapterKind() != capabilityProfile.adapterKind()
                 || destinationProfile.adapterEncodingVersion() != 1
                 || !Arrays.equals(destinationProfile.targetResource().canonicalBytes(), descriptor.targetResource())) {
             throw new IllegalArgumentException("Publish Admission Profile identity mismatch");
         }
-        final ChannelResourceIdentityV1 channelIdentity = ChannelResourceIdentityV1.decode(channel.canonicalBytes());
+        final ChannelResourceIdentity channelIdentity = ChannelResourceIdentity.decode(channel.canonicalBytes());
         if (destinationProfile.adapterKind() != channelIdentity.adapterKind()
                 || !Arrays.equals(
                         destinationProfile.targetResource().canonicalBytes(),
@@ -356,27 +355,27 @@ public final class PublishAdmissionBody {
         }
         final boolean explicitPartition =
                 destinationProfile.allowedExplicitPartitions().contains((int) physicalPartition);
-        if (destinationProfile.targetPartitionPolicy() == TargetPartitionPolicyV1.EXPLICIT_ONLY && !explicitPartition) {
+        if (destinationProfile.targetPartitionPolicy() == TargetPartitionPolicy.EXPLICIT_ONLY && !explicitPartition) {
             throw new IllegalArgumentException("Publish Admission physical partition is not explicitly allowed");
         }
-        if (destinationProfile.targetPartitionPolicy() == TargetPartitionPolicyV1.HASH_ONLY
-                || (destinationProfile.targetPartitionPolicy() == TargetPartitionPolicyV1.EXPLICIT_OR_HASH
+        if (destinationProfile.targetPartitionPolicy() == TargetPartitionPolicy.HASH_ONLY
+                || (destinationProfile.targetPartitionPolicy() == TargetPartitionPolicy.EXPLICIT_OR_HASH
                         && !explicitPartition)) {
             requireHashedPartition(destinationProfile, destinationRef, physicalPartition);
         }
         final long deliverAt = descriptor.deliverAtEpochMs();
         final long actionAt = descriptor.actionAtEpochMs();
         if (actionAt == deliverAt) {
-            if (!TimingCapabilityV1.includes(
-                    capabilityProfile.timingCapabilityBits(), TimingCapabilityV1.ORDINARY_MANAGED)) {
+            if (!TimingCapability.includes(
+                    capabilityProfile.timingCapabilityBits(), TimingCapability.ORDINARY_MANAGED)) {
                 throw new IllegalArgumentException("ordinary managed timing is not capability-authorized");
             }
             return;
         }
-        if (destinationProfile.adapterKind() != AdapterKindV1.PULSAR
+        if (destinationProfile.adapterKind() != AdapterKind.PULSAR
                 || destinationProfile.handoffLeadMs() <= 0
-                || !TimingCapabilityV1.includes(
-                        capabilityProfile.timingCapabilityBits(), TimingCapabilityV1.PULSAR_GUARDED_HANDOFF)) {
+                || !TimingCapability.includes(
+                        capabilityProfile.timingCapabilityBits(), TimingCapability.PULSAR_GUARDED_HANDOFF)) {
             throw new IllegalArgumentException("certified Pulsar handoff is not capability-authorized");
         }
         final long expectedActionAt;
@@ -391,21 +390,21 @@ public final class PublishAdmissionBody {
     }
 
     private void requireHashedPartition(
-            final DestinationProfileSemanticV1 destinationProfile,
-            final ProfileRefV1 destinationRef,
+            final DestinationProfileSemantic destinationProfile,
+            final ProfileRef destinationRef,
             final long physicalPartition) {
-        final AdapterMetadataV1 metadata = AdapterMetadataV1.decode(descriptor.metadata());
+        final AdapterMetadata metadata = AdapterMetadata.decode(descriptor.metadata());
         final byte[] routingBytes =
                 switch (destinationProfile.targetPartitionHashInput()) {
                     case ORDERING_KEY -> orderingKeyBytes(metadata);
                     case ADAPTER_MESSAGE_KEY ->
-                        metadata.kind() == AdapterMetadataV1.Kind.KAFKA
+                        metadata.kind() == AdapterMetadata.Kind.KAFKA
                                 ? nullableBytes(metadata.kafka().key())
                                 : nullableBytes(metadata.pulsar().partitionKey());
                     case DELAY_MESSAGE_ID -> descriptor.messageId();
                 };
-        final long expectedPartition = TargetPartitionHashV1.partition(
-                destinationRef, destinationProfile.targetPartitionCount(), routingBytes);
+        final long expectedPartition =
+                TargetPartitionHash.partition(destinationRef, destinationProfile.targetPartitionCount(), routingBytes);
         if (physicalPartition != expectedPartition) {
             throw new IllegalArgumentException("Publish Admission physical partition hash mismatch");
         }
@@ -415,15 +414,15 @@ public final class PublishAdmissionBody {
         return value == null ? new byte[0] : value;
     }
 
-    private static byte[] orderingKeyBytes(final AdapterMetadataV1 metadata) {
-        if (metadata.kind() != AdapterMetadataV1.Kind.PULSAR) {
+    private static byte[] orderingKeyBytes(final AdapterMetadata metadata) {
+        if (metadata.kind() != AdapterMetadata.Kind.PULSAR) {
             throw new IllegalArgumentException("Kafka descriptor cannot prove an ordering-key hash");
         }
         return nullableBytes(metadata.pulsar().orderingKey());
     }
 
     private void validateCrossObjectEqualities() {
-        final ChannelResourceIdentityV1 channelIdentity = ChannelResourceIdentityV1.decode(channel.canonicalBytes());
+        final ChannelResourceIdentity channelIdentity = ChannelResourceIdentity.decode(channel.canonicalBytes());
         if (!Arrays.equals(descriptor.destinationLaneId(), laneId)
                 || !Arrays.equals(descriptor.laneIncarnation(), laneIncarnation)
                 || !Arrays.equals(descriptor.channel(), channel.canonicalBytes())
@@ -480,7 +479,7 @@ public final class PublishAdmissionBody {
     }
 
     private static Channel decodeChannel(final byte[] encoded) {
-        final ChannelResourceIdentityV1 identity = ChannelResourceIdentityV1.decode(encoded);
+        final ChannelResourceIdentity identity = ChannelResourceIdentity.decode(encoded);
         return new Channel(
                 encoded,
                 identity.destinationLaneId(),
@@ -493,7 +492,7 @@ public final class PublishAdmissionBody {
     }
 
     private static Descriptor decodeDescriptor(final byte[] encoded) {
-        final PreparedPublishDescriptorV1 typed = PreparedPublishDescriptorV1.decode(encoded);
+        final PreparedPublishDescriptor typed = PreparedPublishDescriptor.decode(encoded);
         return new Descriptor(
                 encoded,
                 typed.preparedPublishHash(),
@@ -514,8 +513,8 @@ public final class PublishAdmissionBody {
                 typed.actionAtEpochMs());
     }
 
-    /** Validates and decodes a Registry ReadyCertificateV1 outside an Admission body. */
-    public static ReadyCertificate decodeReadyCertificate(final byte[] encoded) {
+    /** Validates and decodes a Registry ReadyCertificate outside an Admission body. */
+    public static DecodedReadyCertificate decodeReadyCertificate(final byte[] encoded) {
         final List<CanonicalProtobuf.Reader.Field> fields = readRepeated(encoded, "ReadyCertificate");
         if (fields.size() < 16) {
             throw new IllegalArgumentException("ReadyCertificate fields are incomplete");
@@ -543,13 +542,13 @@ public final class PublishAdmissionBody {
             throw new IllegalArgumentException("unsupported ReadyCertificate version");
         }
         final byte[] owner = nested(field(fields, 2), 2);
-        OwnerIdentityV1.decode(owner);
+        OwnerIdentity.decode(owner);
         final byte[] channel = nested(field(fields, 6), 6);
         decodeChannel(channel);
-        ActivationBarrierV1.decode(nested(field(fields, 7), 7));
-        final List<EvidenceCursorV1> evidenceCursors = new ArrayList<>(evidenceCount);
+        ActivationBarrier.decode(nested(field(fields, 7), 7));
+        final List<EvidenceCursor> evidenceCursors = new ArrayList<>(evidenceCount);
         for (int cursorIndex = 0; cursorIndex < evidenceCount; cursorIndex++) {
-            evidenceCursors.add(EvidenceCursorV1.decode(nested(fields.get(7 + cursorIndex), 8)));
+            evidenceCursors.add(EvidenceCursor.decode(nested(fields.get(7 + cursorIndex), 8)));
         }
         for (int cursorIndex = 1; cursorIndex < evidenceCursors.size(); cursorIndex++) {
             if (evidenceCursors.get(cursorIndex - 1).compareTo(evidenceCursors.get(cursorIndex)) >= 0) {
@@ -561,11 +560,11 @@ public final class PublishAdmissionBody {
         final TrustedUtcIntervalEvidence issuedAt = TrustedUtcIntervalEvidence.decode(nested(field(fields, 12), 12));
         final byte[] digest = bytes(field(fields, 16), 16);
         final byte[] expectedDigest =
-                Bytes.sha256(Bytes.utf8("nereus-delay-ready-certificate-v1\0"), canonicalFields(fields, 15));
+                Bytes.sha256(Bytes.utf8("nereus-delay-ready-certificate\0"), canonicalFields(fields, 15));
         if (!Arrays.equals(digest, expectedDigest)) {
             throw new IllegalArgumentException("ReadyCertificate digest mismatch");
         }
-        return new ReadyCertificate(
+        return new DecodedReadyCertificate(
                 encoded,
                 owner,
                 bytes(field(fields, 3), 3),
@@ -599,14 +598,14 @@ public final class PublishAdmissionBody {
             throw new IllegalArgumentException("Publish Admission requires Claim materialization");
         }
         final byte[] materialization = nested(field(fields, 10), 10);
-        final ClaimMaterializationV1 materializationValue = ClaimMaterializationV1.decode(materialization);
+        final ClaimMaterialization materializationValue = ClaimMaterialization.decode(materialization);
         final byte[] materializationDigest = bytes(field(fields, 11), 11);
         final byte[] expectedDigest = materializationValue.materializationDigest();
         if (!Arrays.equals(materializationDigest, expectedDigest)) {
             throw new IllegalArgumentException("Claim materialization digest mismatch");
         }
         final byte[] owner = nested(field(fields, 14), 14);
-        OwnerIdentityV1.decode(owner);
+        OwnerIdentity.decode(owner);
         validateChargeVector(nested(field(fields, 12), 12));
         return new ClaimPrecondition(
                 encoded,
@@ -621,7 +620,7 @@ public final class PublishAdmissionBody {
     }
 
     private static void validateBrokerResource(final byte[] encoded) {
-        BrokerResourceIdentityV1.decode(encoded);
+        BrokerResourceIdentity.decode(encoded);
     }
 
     private static void validateChargeVector(final byte[] encoded) {
@@ -632,7 +631,7 @@ public final class PublishAdmissionBody {
         }
     }
 
-    /** Exact fields 1-17 of Registry ChargeVectorV1. */
+    /** Exact fields 1-17 of Registry ChargeVector. */
     public record ChargeVector(
             long activeMessages,
             long pendingPayloadBytes,
@@ -652,7 +651,7 @@ public final class PublishAdmissionBody {
             long laneCount,
             long strongLaneCount) {
         public ChargeVector {
-            // Registry ChargeVectorV1 fields are complete uint64 bit patterns.
+            // Registry ChargeVector fields are complete uint64 bit patterns.
             // The embedded runtime applies a separate signed-capacity guard
             // before it performs local arithmetic (see
             // requireLocalCapacityRange()).
@@ -692,7 +691,7 @@ public final class PublishAdmissionBody {
             }
         }
 
-        /** Canonical fields 1-17 projection used by QuotaGrantRefV1. */
+        /** Canonical fields 1-17 projection used by QuotaGrantRef. */
         public byte[] canonicalBytes() {
             return CanonicalProtobuf.message(output -> {
                 CanonicalProtobuf.uint64Bits(output, 1, activeMessages);
@@ -715,7 +714,7 @@ public final class PublishAdmissionBody {
             });
         }
 
-        /** Strictly decodes canonical fields 1-17 of a ChargeVectorV1. */
+        /** Strictly decodes canonical fields 1-17 of a ChargeVector. */
         public static ChargeVector decodeCanonical(final byte[] encoded) {
             final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "ChargeVector");
             requireExactFields(fields, 17, "ChargeVector");
@@ -748,9 +747,9 @@ public final class PublishAdmissionBody {
         }
 
         /** Projects the 17 logical charge dimensions into the closed 66-dimensional vector. */
-        public CapacityVectorV1 toCapacityVector() {
+        public CapacityVector toCapacityVector() {
             requireLocalCapacityRange();
-            final long[] amounts = new long[CapacityDimensionV1.COUNT];
+            final long[] amounts = new long[CapacityDimension.COUNT];
             final long[] charge = {
                 activeMessages,
                 pendingPayloadBytes,
@@ -771,7 +770,7 @@ public final class PublishAdmissionBody {
                 strongLaneCount
             };
             System.arraycopy(charge, 0, amounts, 0, charge.length);
-            return new CapacityVectorV1(amounts);
+            return new CapacityVector(amounts);
         }
     }
 
@@ -1001,12 +1000,12 @@ public final class PublishAdmissionBody {
         }
     }
 
-    /** Validates and decodes a registry ChannelResourceIdentityV1 outside an Admission body. */
+    /** Validates and decodes a registry ChannelResourceIdentity outside an Admission body. */
     public static Channel decodeChannelIdentity(final byte[] encoded) {
         return decodeChannel(Objects.requireNonNull(encoded, "encoded"));
     }
 
-    /** Validates a registry BrokerResourceIdentityV1 outside an Admission body. */
+    /** Validates a registry BrokerResourceIdentity outside an Admission body. */
     public static void validateBrokerResourceIdentity(final byte[] encoded) {
         validateBrokerResource(Objects.requireNonNull(encoded, "encoded"));
     }
@@ -1153,17 +1152,17 @@ public final class PublishAdmissionBody {
         }
 
         /** Returns the typed replay-stable Claim materialization projection. */
-        public ClaimMaterializationV1 materialization() {
-            return ClaimMaterializationV1.decode(materializationBytes());
+        public ClaimMaterialization materialization() {
+            return ClaimMaterialization.decode(materializationBytes());
         }
 
         /** Returns the exact typed Prepared Publish descriptor projection. */
-        public PreparedPublishDescriptorV1 value() {
-            return PreparedPublishDescriptorV1.decode(canonicalBytes);
+        public PreparedPublishDescriptor value() {
+            return PreparedPublishDescriptor.decode(canonicalBytes);
         }
     }
 
-    public static final class ReadyCertificate {
+    public static final class DecodedReadyCertificate {
         private final byte[] canonicalBytes;
         private final byte[] ownerIdentity;
         private final byte[] storeIncarnation;
@@ -1179,7 +1178,7 @@ public final class PublishAdmissionBody {
         private final byte[] credentialFingerprint;
         private final byte[] certificateDigest;
 
-        private ReadyCertificate(
+        private DecodedReadyCertificate(
                 final byte[] canonicalBytes,
                 final byte[] ownerIdentity,
                 final byte[] storeIncarnation,
@@ -1341,8 +1340,8 @@ public final class PublishAdmissionBody {
         }
 
         /** Returns the validated typed Claim materialization projection. */
-        public ClaimMaterializationV1 materializationValue() {
-            return ClaimMaterializationV1.decode(materialization);
+        public ClaimMaterialization materializationValue() {
+            return ClaimMaterialization.decode(materialization);
         }
     }
 

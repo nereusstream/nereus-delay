@@ -5,20 +5,20 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.RecoveryCandidateKindV1;
-import com.nereusstream.delay.protocol.RecoveryCandidateRefV1;
-import com.nereusstream.delay.protocol.RecoveryFloorRefV1;
-import com.nereusstream.delay.protocol.RecoveryPinV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.RecoveryCandidateKind;
+import com.nereusstream.delay.protocol.RecoveryCandidateRef;
+import com.nereusstream.delay.protocol.RecoveryFloorRef;
+import com.nereusstream.delay.protocol.RecoveryPin;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
@@ -46,18 +46,18 @@ class OxiaSyncCheckpointPublicationBackendTest {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncCheckpointPublicationBackend backend =
                 new OxiaSyncCheckpointPublicationBackend(records, "delay/publication", LIMITS);
-        final CheckpointUploadIntentV1 seedPending = pending(1, null);
+        final CheckpointUploadIntent seedPending = pending(1, null);
         final CheckpointManifest parent = parentManifest(seedPending);
         backend.publish(parent, 0);
-        final CheckpointUploadIntentV1 pending = pending(1, parent);
+        final CheckpointUploadIntent pending = pending(1, parent);
         final CheckpointManifest manifest = manifest(pending, parent);
-        final CheckpointResourceV1 resource = resource(pending, manifest);
+        final CheckpointResource resource = resource(pending, manifest);
 
         assertEquals(pending, backend.create(pending));
-        final CheckpointUploadIntentV1 published =
+        final CheckpointUploadIntent published =
                 backend.publishUploadedCheckpointAtomically(pending, resource, manifest, 1);
 
-        assertEquals(CheckpointUploadStateV1.PUBLISHED, published.state());
+        assertEquals(CheckpointUploadState.PUBLISHED, published.state());
         assertEquals(published, backend.currentPublishedFor(pending).orElseThrow());
         assertArrayEquals(
                 manifest.canonicalJsonBytes(),
@@ -72,18 +72,18 @@ class OxiaSyncCheckpointPublicationBackendTest {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncCheckpointPublicationBackend backend =
                 new OxiaSyncCheckpointPublicationBackend(records, "delay/publication-loss", LIMITS);
-        final CheckpointUploadIntentV1 seedPending = pending(2, null);
+        final CheckpointUploadIntent seedPending = pending(2, null);
         final CheckpointManifest parent = parentManifest(seedPending);
         backend.publish(parent, 0);
-        final CheckpointUploadIntentV1 pending = pending(2, parent);
+        final CheckpointUploadIntent pending = pending(2, parent);
         final CheckpointManifest manifest = manifest(pending, parent);
-        final CheckpointResourceV1 resource = resource(pending, manifest);
+        final CheckpointResource resource = resource(pending, manifest);
         backend.create(pending);
 
         records.failNextPutAfterCommit = true;
-        final CheckpointUploadIntentV1 published =
+        final CheckpointUploadIntent published =
                 backend.publishUploadedCheckpointAtomically(pending, resource, manifest, 1);
-        assertEquals(CheckpointUploadStateV1.PUBLISHED, published.state());
+        assertEquals(CheckpointUploadState.PUBLISHED, published.state());
         assertEquals(published, backend.current(pending).orElseThrow());
         assertEquals(3, records.putCount);
     }
@@ -98,7 +98,7 @@ class OxiaSyncCheckpointPublicationBackendTest {
                         throw new IllegalStateException("simulated Oxia session fence");
                     }
                 });
-        final CheckpointUploadIntentV1 pending = pending(5, null);
+        final CheckpointUploadIntent pending = pending(5, null);
         final CheckpointManifest manifest = parentManifest(pending);
         records.afterPut = () -> sessionAlive.set(false);
 
@@ -116,13 +116,13 @@ class OxiaSyncCheckpointPublicationBackendTest {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncCheckpointPublicationBackend backend =
                 new OxiaSyncCheckpointPublicationBackend(records, "delay/publication-conflict", LIMITS);
-        final CheckpointUploadIntentV1 seedPending = pending(3, null);
+        final CheckpointUploadIntent seedPending = pending(3, null);
         final CheckpointManifest parent = parentManifest(seedPending);
         backend.publish(parent, 0);
-        final CheckpointUploadIntentV1 pending = pending(3, parent);
+        final CheckpointUploadIntent pending = pending(3, parent);
         backend.create(pending);
 
-        final CheckpointUploadIntentV1 conflicting = new CheckpointUploadIntentV1(
+        final CheckpointUploadIntent conflicting = new CheckpointUploadIntent(
                 pending.shard(),
                 pending.recoveryLineageId(),
                 pending.checkpointId(),
@@ -135,7 +135,7 @@ class OxiaSyncCheckpointPublicationBackendTest {
                 pending.objectStoreProfile(),
                 pending.checkpointCreatedAt(),
                 pending.uploadDeadlineEpochMs(),
-                CheckpointUploadStateV1.PENDING_UPLOAD,
+                CheckpointUploadState.PENDING_UPLOAD,
                 pending.stateRevision(),
                 null,
                 null);
@@ -147,12 +147,12 @@ class OxiaSyncCheckpointPublicationBackendTest {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncCheckpointPublicationBackend backend =
                 new OxiaSyncCheckpointPublicationBackend(records, "delay/publication-pin", LIMITS);
-        final CheckpointUploadIntentV1 seedPending = pending(4, null);
+        final CheckpointUploadIntent seedPending = pending(4, null);
         final CheckpointManifest parent = parentManifest(seedPending);
         assertEquals(1, backend.publish(parent, 0).catalogGeneration());
-        final RecoveryFloorRefV1 floor = backend.advanceFloor(
-                parent.checkpointId(), 1, java.util.List.<com.nereusstream.delay.protocol.EvidenceCursorV1>of());
-        final RecoveryPinV1 pin = pin(parent, floor, 81, 82);
+        final RecoveryFloorRef floor = backend.advanceFloor(
+                parent.checkpointId(), 1, java.util.List.<com.nereusstream.delay.protocol.EvidenceCursor>of());
+        final RecoveryPin pin = pin(parent, floor, 81, 82);
 
         records.failNextPutAfterCommit = true;
         assertEquals(pin, backend.createRecoveryPin(pin));
@@ -170,12 +170,12 @@ class OxiaSyncCheckpointPublicationBackendTest {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncCheckpointPublicationBackend unbound =
                 new OxiaSyncCheckpointPublicationBackend(records, "delay/fenced-publication-pin-create", LIMITS);
-        final CheckpointUploadIntentV1 pending = pending(6, null);
+        final CheckpointUploadIntent pending = pending(6, null);
         final CheckpointManifest manifest = parentManifest(pending);
         unbound.publish(manifest, 0);
-        final RecoveryFloorRefV1 floor = unbound.advanceFloor(
-                manifest.checkpointId(), 1, java.util.List.<com.nereusstream.delay.protocol.EvidenceCursorV1>of());
-        final RecoveryPinV1 pin = pin(manifest, floor, 83, 84);
+        final RecoveryFloorRef floor = unbound.advanceFloor(
+                manifest.checkpointId(), 1, java.util.List.<com.nereusstream.delay.protocol.EvidenceCursor>of());
+        final RecoveryPin pin = pin(manifest, floor, 83, 84);
 
         final AtomicBoolean sessionAlive = new AtomicBoolean(true);
         final OxiaSyncCheckpointPublicationBackend fenced =
@@ -199,12 +199,12 @@ class OxiaSyncCheckpointPublicationBackendTest {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncCheckpointPublicationBackend unbound =
                 new OxiaSyncCheckpointPublicationBackend(records, "delay/fenced-publication-pin-release", LIMITS);
-        final CheckpointUploadIntentV1 pending = pending(7, null);
+        final CheckpointUploadIntent pending = pending(7, null);
         final CheckpointManifest manifest = parentManifest(pending);
         unbound.publish(manifest, 0);
-        final RecoveryFloorRefV1 floor = unbound.advanceFloor(
-                manifest.checkpointId(), 1, java.util.List.<com.nereusstream.delay.protocol.EvidenceCursorV1>of());
-        final RecoveryPinV1 pin = pin(manifest, floor, 85, 86);
+        final RecoveryFloorRef floor = unbound.advanceFloor(
+                manifest.checkpointId(), 1, java.util.List.<com.nereusstream.delay.protocol.EvidenceCursor>of());
+        final RecoveryPin pin = pin(manifest, floor, 85, 86);
         unbound.createRecoveryPin(pin);
 
         final AtomicBoolean sessionAlive = new AtomicBoolean(true);
@@ -223,28 +223,28 @@ class OxiaSyncCheckpointPublicationBackendTest {
         assertTrue(reopened.activeRecoveryPin().isEmpty());
     }
 
-    private static CheckpointUploadIntentV1 pending(final int seed, final CheckpointManifest parent) {
+    private static CheckpointUploadIntent pending(final int seed, final CheckpointManifest parent) {
         final ShardId shard = new ShardId(new RouteIncarnation(id16(seed + 1)), seed);
-        return new CheckpointUploadIntentV1(
-                new ShardSubjectV1(shard),
+        return new CheckpointUploadIntent(
+                new ShardSubject(shard),
                 id16(seed + 2),
                 id16(seed + 3),
-                new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(seed + 4)),
+                new OwnerIdentity(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(seed + 4)),
                 id16(seed + 5),
                 id32(seed + 6),
                 1,
                 parent == null ? null : parent.checkpointId(),
                 parent == null ? null : parent.manifestSha256(),
-                new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, id32(seed + 7), ProfileKindV1.OBJECT_STORE),
+                new ProfileRef(Bytes.utf8("checkpoint-store"), 1, id32(seed + 7), ProfileKind.OBJECT_STORE),
                 evidence(1_000),
                 4_000,
-                CheckpointUploadStateV1.PENDING_UPLOAD,
+                CheckpointUploadState.PENDING_UPLOAD,
                 1,
                 null,
                 null);
     }
 
-    private static CheckpointManifest parentManifest(final CheckpointUploadIntentV1 pending) {
+    private static CheckpointManifest parentManifest(final CheckpointUploadIntent pending) {
         final ShardId shard = pending.shard().shardId();
         final KafkaSourcePosition position =
                 new KafkaSourcePosition(shard, "cluster", uuid(pending.recoveryLineageId()), 0, null, 1_000);
@@ -274,8 +274,7 @@ class OxiaSyncCheckpointPublicationBackendTest {
                 java.util.List.of(file));
     }
 
-    private static CheckpointManifest manifest(
-            final CheckpointUploadIntentV1 pending, final CheckpointManifest parent) {
+    private static CheckpointManifest manifest(final CheckpointUploadIntent pending, final CheckpointManifest parent) {
         final ShardId shard = pending.shard().shardId();
         final KafkaSourcePosition position =
                 new KafkaSourcePosition(shard, "cluster", uuid(pending.recoveryLineageId()), 1, null, 1_001);
@@ -305,9 +304,9 @@ class OxiaSyncCheckpointPublicationBackendTest {
                 java.util.List.of(file));
     }
 
-    private static CheckpointResourceV1 resource(
-            final CheckpointUploadIntentV1 pending, final CheckpointManifest manifest) {
-        return new CheckpointResourceV1(
+    private static CheckpointResource resource(
+            final CheckpointUploadIntent pending, final CheckpointManifest manifest) {
+        return new CheckpointResource(
                 pending.recoveryLineageId(),
                 pending.checkpointId(),
                 pending.objectStoreProfile(),
@@ -332,18 +331,18 @@ class OxiaSyncCheckpointPublicationBackendTest {
                 null);
     }
 
-    private static RecoveryPinV1 pin(
-            final CheckpointManifest manifest, final RecoveryFloorRefV1 floor, final int pinId, final int ownerId) {
-        final RecoveryCandidateRefV1 candidate = new RecoveryCandidateRefV1(
-                RecoveryCandidateKindV1.CATALOG_CHECKPOINT,
+    private static RecoveryPin pin(
+            final CheckpointManifest manifest, final RecoveryFloorRef floor, final int pinId, final int ownerId) {
+        final RecoveryCandidateRef candidate = new RecoveryCandidateRef(
+                RecoveryCandidateKind.CATALOG_CHECKPOINT,
                 manifest.recoveryLineageId(),
                 manifest.checkpointId(),
                 manifest.manifestSha256(),
                 null);
-        return new RecoveryPinV1(
+        return new RecoveryPin(
                 id16(pinId),
-                new ShardSubjectV1(manifest.shardId()),
-                new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(ownerId)),
+                new ShardSubject(manifest.shardId()),
+                new OwnerIdentity(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(ownerId)),
                 candidate,
                 floor,
                 floor.catalogGeneration(),
@@ -369,7 +368,7 @@ class OxiaSyncCheckpointPublicationBackendTest {
 
     private static byte[] fakeSessionIdentity() {
         return Bytes.sha256(
-                Bytes.utf8("nereus-delay-oxia-session-identity-v1\0"),
+                Bytes.utf8("nereus-delay-oxia-session-identity\0"),
                 Bytes.u64be(101),
                 Bytes.lp32(Bytes.utf8("fake-publication-session")));
     }

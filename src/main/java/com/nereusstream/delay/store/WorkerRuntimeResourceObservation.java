@@ -3,7 +3,7 @@ package com.nereusstream.delay.store;
 /**
  * Runtime limits and observations used to validate a Worker resource envelope.
  *
- * <p>All values are finite positive byte/count measurements.  A missing,
+ * <p>All values are finite positive byte/count measurements. A missing,
  * unlimited, or malformed platform value must be rejected by the probe before
  * an observation is constructed; zero is never treated as unlimited.</p>
  */
@@ -18,7 +18,7 @@ public record WorkerRuntimeResourceObservation(
         long usableFilesystemBytes) {
     /**
      * Compatibility constructor for embedded callers that predate the
-     * process-FD observation.  Embedded callers use a minimal positive value;
+     * process-FD observation. Embedded callers use a minimal positive value;
      * production probes must use the full constructor so the live
      * {@code /proc/self/fd} count is carried explicitly.
      */

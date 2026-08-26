@@ -7,7 +7,7 @@ import java.util.Objects;
 /**
  * Explicit process/container capacity proof for a multi-DB Worker.
  *
- * <p>This is the configuration-level core of the V1 envelope.  Runtime
+ * <p>This is the configuration-level core of the envelope. Runtime
  * adapters must populate the values from the actual JVM and cgroup/rlimit
  * observations before opening DBs; zero is deliberately treated as unknown,
  * not as unlimited.</p>
@@ -160,7 +160,7 @@ public record WorkerResourceEnvelope(
 
     /** Stable digest for placement/configuration identity and audit evidence. */
     public byte[] digest() {
-        return Bytes.sha256(Bytes.utf8("nereus-delay-worker-resource-envelope-v1\0"), canonicalBytes());
+        return Bytes.sha256(Bytes.utf8("nereus-delay-worker-resource-envelope\0"), canonicalBytes());
     }
 
     public byte[] canonicalBytes() {

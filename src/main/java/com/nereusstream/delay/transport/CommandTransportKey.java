@@ -1,10 +1,10 @@
 package com.nereusstream.delay.transport;
 
-import com.nereusstream.delay.protocol.AdapterKindV1;
+import com.nereusstream.delay.protocol.AdapterKind;
 
 /** Closed key union for exact physical guarded transports. */
 public sealed interface CommandTransportKey permits KafkaCommandTransportKey, PulsarCommandTransportKey {
-    AdapterKindV1 kind();
+    AdapterKind kind();
 
     CredentialBindingKey credentialBinding();
 }

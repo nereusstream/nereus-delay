@@ -18,7 +18,7 @@ import java.util.UUID;
 
 /**
  * Local projection of a source assignment accepted by the external broker
- * adapter.  The assignment identity is deliberately separate from the
+ * adapter. The assignment identity is deliberately separate from the
  * activation barrier; both are required before a shard can become active.
  */
 public record SourceAssignment(

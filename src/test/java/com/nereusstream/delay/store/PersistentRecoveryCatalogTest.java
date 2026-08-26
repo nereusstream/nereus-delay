@@ -6,20 +6,20 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.RecoveryCandidateKindV1;
-import com.nereusstream.delay.protocol.RecoveryCandidateRefV1;
-import com.nereusstream.delay.protocol.RecoveryFloorRefV1;
-import com.nereusstream.delay.protocol.RecoveryPinV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.RecoveryCandidateKind;
+import com.nereusstream.delay.protocol.RecoveryCandidateRef;
+import com.nereusstream.delay.protocol.RecoveryFloorRef;
+import com.nereusstream.delay.protocol.RecoveryPin;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -52,17 +52,13 @@ class PersistentRecoveryCatalogTest {
         final PersistentRecoveryCatalog catalog = new PersistentRecoveryCatalog(stateFile);
         catalog.publish(genesis, 0);
         catalog.publish(child, 1);
-        final RecoveryFloorRefV1 floor = catalog.advanceFloor(child.checkpointId(), 2, List.of());
-        final RecoveryCandidateRefV1 candidate = new RecoveryCandidateRefV1(
-                RecoveryCandidateKindV1.CATALOG_CHECKPOINT,
-                lineage,
-                child.checkpointId(),
-                child.manifestSha256(),
-                null);
-        final RecoveryPinV1 pin = new RecoveryPinV1(
+        final RecoveryFloorRef floor = catalog.advanceFloor(child.checkpointId(), 2, List.of());
+        final RecoveryCandidateRef candidate = new RecoveryCandidateRef(
+                RecoveryCandidateKind.CATALOG_CHECKPOINT, lineage, child.checkpointId(), child.manifestSha256(), null);
+        final RecoveryPin pin = new RecoveryPin(
                 id16(4),
-                new ShardSubjectV1(shard),
-                new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(5)),
+                new ShardSubject(shard),
+                new OwnerIdentity(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(5)),
                 candidate,
                 floor,
                 floor.catalogGeneration(),
@@ -112,17 +108,13 @@ class PersistentRecoveryCatalogTest {
         final PersistentRecoveryCatalog catalog = new PersistentRecoveryCatalog(stateFile);
         catalog.publish(genesis, 0);
         catalog.publish(child, 1);
-        final RecoveryFloorRefV1 childFloor = catalog.advanceFloor(child.checkpointId(), 2, List.of());
-        final RecoveryCandidateRefV1 candidate = new RecoveryCandidateRefV1(
-                RecoveryCandidateKindV1.CATALOG_CHECKPOINT,
-                lineage,
-                child.checkpointId(),
-                child.manifestSha256(),
-                null);
-        final RecoveryPinV1 pin = new RecoveryPinV1(
+        final RecoveryFloorRef childFloor = catalog.advanceFloor(child.checkpointId(), 2, List.of());
+        final RecoveryCandidateRef candidate = new RecoveryCandidateRef(
+                RecoveryCandidateKind.CATALOG_CHECKPOINT, lineage, child.checkpointId(), child.manifestSha256(), null);
+        final RecoveryPin pin = new RecoveryPin(
                 id16(175),
-                new ShardSubjectV1(shard),
-                new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(176)),
+                new ShardSubject(shard),
+                new OwnerIdentity(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(176)),
                 candidate,
                 childFloor,
                 childFloor.catalogGeneration(),
@@ -183,9 +175,9 @@ class PersistentRecoveryCatalogTest {
     void snapshotEncoderRejectsResourceMapAliasBeforeEmittingBytes() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 90);
         final CheckpointManifest checkpoint = manifest(shard, UUID.randomUUID(), id16(91), id16(92), 0, 1, 1, null);
-        final ProfileRefV1 profile =
-                new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, id32(93), ProfileKindV1.OBJECT_STORE);
-        final CheckpointResourceV1 resource = new CheckpointResourceV1(
+        final ProfileRef profile =
+                new ProfileRef(Bytes.utf8("checkpoint-store"), 1, id32(93), ProfileKind.OBJECT_STORE);
+        final CheckpointResource resource = new CheckpointResource(
                 checkpoint.recoveryLineageId(),
                 checkpoint.checkpointId(),
                 profile,
@@ -232,14 +224,14 @@ class PersistentRecoveryCatalogTest {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 12);
         final byte[] lineage = id16(51);
         final CheckpointManifest manifest = manifest(shard, UUID.randomUUID(), lineage, id16(52), 0, 1, 1, null);
-        final ProfileRefV1 profile =
-                new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, id32(53), ProfileKindV1.OBJECT_STORE);
-        final OwnerIdentityV1 owner = new OwnerIdentityV1(
+        final ProfileRef profile =
+                new ProfileRef(Bytes.utf8("checkpoint-store"), 1, id32(53), ProfileKind.OBJECT_STORE);
+        final OwnerIdentity owner = new OwnerIdentity(
                 manifest.createdBy().deploymentId(),
                 manifest.createdBy().workerRunId(),
                 manifest.createdBy().ownerEpoch(),
                 id32(54));
-        final CheckpointResourceV1 resource = new CheckpointResourceV1(
+        final CheckpointResource resource = new CheckpointResource(
                 lineage,
                 manifest.checkpointId(),
                 profile,
@@ -248,8 +240,8 @@ class PersistentRecoveryCatalogTest {
                 Bytes.utf8("version-1"),
                 manifest.canonicalJsonBytes().length,
                 manifest.manifestSha256());
-        final CheckpointUploadIntentV1 published = new CheckpointUploadIntentV1(
-                new ShardSubjectV1(shard),
+        final CheckpointUploadIntent published = new CheckpointUploadIntent(
+                new ShardSubject(shard),
                 lineage,
                 manifest.checkpointId(),
                 owner,
@@ -261,7 +253,7 @@ class PersistentRecoveryCatalogTest {
                 profile,
                 evidence(5_000),
                 6_000,
-                CheckpointUploadStateV1.PUBLISHED,
+                CheckpointUploadState.PUBLISHED,
                 2,
                 resource,
                 null);
@@ -274,8 +266,8 @@ class PersistentRecoveryCatalogTest {
         assertEquals(
                 1, reopened.publishUploadedCheckpoint(published, manifest, 1).catalogGeneration());
 
-        final CheckpointUploadIntentV1 conflicting = new CheckpointUploadIntentV1(
-                new ShardSubjectV1(shard),
+        final CheckpointUploadIntent conflicting = new CheckpointUploadIntent(
+                new ShardSubject(shard),
                 lineage,
                 manifest.checkpointId(),
                 owner,
@@ -287,9 +279,9 @@ class PersistentRecoveryCatalogTest {
                 profile,
                 evidence(5_000),
                 6_000,
-                CheckpointUploadStateV1.PUBLISHED,
+                CheckpointUploadState.PUBLISHED,
                 2,
-                new CheckpointResourceV1(
+                new CheckpointResource(
                         lineage,
                         manifest.checkpointId(),
                         profile,

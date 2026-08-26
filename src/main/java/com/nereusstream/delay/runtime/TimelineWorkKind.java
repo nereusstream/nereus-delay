@@ -1,6 +1,6 @@
 package com.nereusstream.delay.runtime;
 
-/** Registry {@code TimelineWorkKindV1} values. */
+/** Registry {@code TimelineWorkKind} values. */
 public enum TimelineWorkKind {
     INITIAL_SCHEDULE(1),
     DEFINITIVE_RETRY(2),

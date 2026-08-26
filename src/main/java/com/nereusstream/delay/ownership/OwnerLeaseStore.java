@@ -15,7 +15,7 @@ public interface OwnerLeaseStore {
             final long nowEpochMs,
             final long leaseDurationMs) {
         // Never fall back to shard-only acquisition: doing so would create a
-        // lease without the assignment/session fence that V1 requires. An
+        // lease without the assignment/session fence that requires. An
         // implementation must override this method when it can CAS the full
         // context atomically.
         return Optional.empty();

@@ -34,7 +34,7 @@ import org.apache.kafka.common.serialization.ByteArraySerializer;
  *
  * <p>This class is deliberately separate from the functional Gateway smokes.
  * It measures the guarded K1 append path against a real broker and writes a
- * self-contained observation.  The enclosing shell campaign is responsible
+ * self-contained observation. The enclosing shell campaign is responsible
  * for Worker/Object Store observations and for assembling the full matrix.</p>
  */
 public final class KafkaClientArtifactCapacityProducer {
@@ -570,7 +570,7 @@ public final class KafkaClientArtifactCapacityProducer {
             final long bytesPerSecond = Math.round(inputBytes / elapsedSeconds);
             final StringBuilder json = new StringBuilder(4_096);
             json.append("{\n");
-            field(json, "schema", "nereus-delay-v1-physical-kafka-capacity-observation-v1", true);
+            field(json, "schema", "nereus-delay-physical-kafka-capacity-observation", true);
             field(json, "status", pass ? "PASS" : "FAIL", true);
             field(json, "broker", "kafka-k1", true);
             field(json, "cluster_id", clusterId, true);
@@ -597,7 +597,7 @@ public final class KafkaClientArtifactCapacityProducer {
             numberField(json, "bytes_per_second", bytesPerSecond, true);
             numberField(json, "min_offset", minOffset == Long.MAX_VALUE ? -1 : minOffset, true);
             numberField(json, "max_offset", maxOffset, true);
-            json.append("  \"partition_counts\": [");
+            json.append(" \"partition_counts\": [");
             for (int index = 0; index < partitions.length(); index++) {
                 if (index > 0) {
                     json.append(",");
@@ -605,7 +605,7 @@ public final class KafkaClientArtifactCapacityProducer {
                 json.append(partitions.get(index));
             }
             json.append("],\n");
-            json.append("  \"configuration\": {");
+            json.append(" \"configuration\": {");
             field(json, "batch_bytes", configuration.batchBytes(), true, false);
             field(json, "linger_ms", configuration.lingerMs(), true, false);
             field(json, "fsync_authority", "broker-log-append-ack", true);
@@ -613,8 +613,8 @@ public final class KafkaClientArtifactCapacityProducer {
             field(json, "source_lock_kafka", sourceLock("NEREUS_DELAY_CAPACITY_SOURCE_LOCK_KAFKA"), true, true);
             field(json, "source_lock_pulsar", sourceLock("NEREUS_DELAY_CAPACITY_SOURCE_LOCK_PULSAR"), true, true);
             field(json, "source_lock_oxia", sourceLock("NEREUS_DELAY_CAPACITY_SOURCE_LOCK_OXIA"), false, true);
-            json.append("  },\n");
-            json.append("  \"invariants\": [\"topic ID and partition were pinned before send\","
+            json.append(" },\n");
+            json.append(" \"invariants\": [\"topic ID and partition were pinned before send\","
                     + "\"every accepted record has K1 guarded response evidence\","
                     + "\"bad target never produced an accepted record\"],\n");
             field(json, "failure", failure == null ? "" : failure, false);
@@ -637,7 +637,7 @@ public final class KafkaClientArtifactCapacityProducer {
             final Object value,
             final boolean comma,
             final boolean quoted) {
-        json.append("  \"").append(name).append("\": ");
+        json.append(" \"").append(name).append("\": ");
         if (quoted) {
             json.append('"').append(escape(String.valueOf(value))).append('"');
         } else {

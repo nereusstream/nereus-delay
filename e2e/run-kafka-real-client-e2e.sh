@@ -1381,7 +1381,7 @@ if [[ "${half_open_only}" == "1" ]]; then
   half_open_worker_after="${half_open_worker_state_dir}/after-fresh-process.json"
   [[ -s "${half_open_worker_after}" ]] \
     && jq -e \
-       '.schema == "nereus-delay-chaos-durable-state-dump-v1"
+       '.schema == "nereus-delay-chaos-durable-state-dump"
        and .cell == "kafka-worker-process-crash"
        and .phase == "RECOVERED_AFTER_FRESH_PROCESS"
        and (.process_pid | type == "number")
@@ -1397,7 +1397,7 @@ if [[ "${half_open_only}" == "1" ]]; then
       --argjson duration_ms "${hold_duration_ms}" \
       --arg worker_log "${half_open_state_dump_dir}/worker.log" \
       --arg worker_after "${half_open_state_dump_dir}/worker-state/after-fresh-process.json" \
-      '{schema:"nereus-delay-half-open-transport-e2e-v1",status:"PASS",cell:"kafka-half-open",
+      '{schema:"nereus-delay-half-open-transport-e2e",status:"PASS",cell:"kafka-half-open",
         channel_deadline_ms:$deadline_ms,hold_duration_ms:$duration_ms,
         hold_crossed_channel_deadline:($duration_ms >= $deadline_ms),
         worker_log:$worker_log,worker_after_dump:$worker_after,

@@ -2,9 +2,9 @@ package com.nereusstream.delay.ownership;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.ProtocolCapabilityDeclarationV1;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
-import com.nereusstream.delay.protocol.ProtocolVersionActivatePayloadV1;
+import com.nereusstream.delay.protocol.ProtocolCapabilityDeclaration;
+import com.nereusstream.delay.protocol.ProtocolTuple;
+import com.nereusstream.delay.protocol.ProtocolVersionActivatePayload;
 import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.util.ArrayList;
@@ -15,14 +15,14 @@ import java.util.Objects;
 /**
  * Verifies the external Worker capability authority at the activation edge.
  *
- * <p>This coordinator does not write the source log marker.  It produces the
+ * <p>This coordinator does not write the source log marker. It produces the
  * exact reader-set evidence that the marker must carry and fails closed when
  * any eligible Worker is absent, session-stale or missing the requested tuple.
  * The caller must persist the returned evidence in the source-ordered control
  * record before allowing a new writer version.</p>
  */
 public final class ProtocolActivationAuthorityCoordinator {
-    private static final byte[] EVIDENCE_DOMAIN = Bytes.utf8("nereus-delay-protocol-eligible-reader-set-v1\0");
+    private static final byte[] EVIDENCE_DOMAIN = Bytes.utf8("nereus-delay-protocol-eligible-reader-set\0");
 
     private final ProtocolCapabilityAuthority authority;
 
@@ -30,7 +30,7 @@ public final class ProtocolActivationAuthorityCoordinator {
         this.authority = Objects.requireNonNull(authority, "authority");
     }
 
-    public EligibleReaderSet requireEligibleReaders(final ProtocolTupleV1 tuple, final List<String> eligibleWorkerIds) {
+    public EligibleReaderSet requireEligibleReaders(final ProtocolTuple tuple, final List<String> eligibleWorkerIds) {
         Objects.requireNonNull(tuple, "tuple");
         final List<String> workerIds = sortedWorkerIds(eligibleWorkerIds);
         final List<ProtocolCapabilityAuthority.Publication> publications = new ArrayList<>();
@@ -39,7 +39,7 @@ public final class ProtocolActivationAuthorityCoordinator {
                     .current(workerId)
                     .orElseThrow(() -> new IllegalStateException(
                             "eligible Worker has no current protocol capability: " + workerId));
-            final ProtocolCapabilityDeclarationV1 declaration = publication.declaration();
+            final ProtocolCapabilityDeclaration declaration = publication.declaration();
             if (!workerId.equals(declaration.workerId())) {
                 throw new IllegalStateException("protocol capability authority returned another Worker");
             }
@@ -55,7 +55,7 @@ public final class ProtocolActivationAuthorityCoordinator {
 
     /** Verifies a control-plane activation payload against current readers. */
     public EligibleReaderSet authorize(
-            final ProtocolVersionActivatePayloadV1 payload, final List<String> eligibleWorkerIds) {
+            final ProtocolVersionActivatePayload payload, final List<String> eligibleWorkerIds) {
         Objects.requireNonNull(payload, "payload");
         final EligibleReaderSet result = requireEligibleReaders(payload.tuple(), eligibleWorkerIds);
         if (!Bytes.constantTimeEquals(payload.compatibleReaderSetEvidenceHash(), result.evidenceHash())) {
@@ -65,11 +65,11 @@ public final class ProtocolActivationAuthorityCoordinator {
     }
 
     private static byte[] evidenceHash(
-            final ProtocolTupleV1 tuple, final List<ProtocolCapabilityAuthority.Publication> publications) {
+            final ProtocolTuple tuple, final List<ProtocolCapabilityAuthority.Publication> publications) {
         final byte[] canonical = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, tuple.canonicalBytes());
             for (ProtocolCapabilityAuthority.Publication publication : publications) {
-                final ProtocolCapabilityDeclarationV1 declaration = publication.declaration();
+                final ProtocolCapabilityDeclaration declaration = publication.declaration();
                 final byte[] worker = CanonicalProtobuf.message(workerOutput -> {
                     CanonicalProtobuf.bytes(
                             workerOutput, 1, declaration.workerId().getBytes(StandardCharsets.UTF_8));
@@ -112,7 +112,7 @@ public final class ProtocolActivationAuthorityCoordinator {
     }
 
     public record EligibleReaderSet(
-            ProtocolTupleV1 tuple,
+            ProtocolTuple tuple,
             List<String> workerIds,
             List<ProtocolCapabilityAuthority.Publication> publications,
             byte[] evidenceHash) {

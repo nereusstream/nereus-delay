@@ -4,15 +4,15 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CredentialBindingProtectionV1;
-import com.nereusstream.delay.protocol.CredentialBindingV1;
-import com.nereusstream.delay.protocol.CredentialEquivalenceAttestationV1;
-import com.nereusstream.delay.protocol.CredentialUseKindV1;
-import com.nereusstream.delay.protocol.CredentialUseLeaseV1;
-import com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
-import com.nereusstream.delay.protocol.ObjectStoreProviderKindV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
+import com.nereusstream.delay.protocol.CredentialBinding;
+import com.nereusstream.delay.protocol.CredentialBindingProtection;
+import com.nereusstream.delay.protocol.CredentialEquivalenceAttestation;
+import com.nereusstream.delay.protocol.CredentialUseKind;
+import com.nereusstream.delay.protocol.CredentialUseLease;
+import com.nereusstream.delay.protocol.ObjectStoreProfileSemantic;
+import com.nereusstream.delay.protocol.ObjectStoreProviderKind;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.security.KeyPairGenerator;
 import java.time.Clock;
@@ -49,8 +49,8 @@ class ObjectStoreCredentialUseLeaseGateTest {
     @Test
     void rejectsProtectionThatDoesNotCoverTheLease() throws Exception {
         final Fixture fixture = fixture(3_000);
-        final CredentialBindingProtectionV1 shortProtection =
-                CredentialBindingProtectionV1.forBinding(fixture.binding(), 0, 7_000, 0, 0, 2);
+        final CredentialBindingProtection shortProtection =
+                CredentialBindingProtection.forBinding(fixture.binding(), 0, 7_000, 0, 0, 2);
 
         assertThrows(
                 IllegalArgumentException.class,
@@ -66,8 +66,8 @@ class ObjectStoreCredentialUseLeaseGateTest {
     }
 
     private static Fixture fixture(final long now) throws Exception {
-        final ObjectStoreProfileSemanticV1 semantic = new ObjectStoreProfileSemanticV1(
-                ObjectStoreProviderKindV1.S3_COMPATIBLE,
+        final ObjectStoreProfileSemantic semantic = new ObjectStoreProfileSemantic(
+                ObjectStoreProviderKind.S3_COMPATIBLE,
                 bytes(32, 1),
                 bytes(32, 2),
                 1,
@@ -77,14 +77,14 @@ class ObjectStoreCredentialUseLeaseGateTest {
                 true,
                 bytes(32, 3),
                 1 << 20,
-                ObjectStoreProfileSemanticV1.SINGLE_PUT,
+                ObjectStoreProfileSemantic.SINGLE_PUT,
                 1,
                 bytes(32, 4));
-        final ProfileSemanticEnvelopeV1 profile =
-                new ProfileSemanticEnvelopeV1(ProfileKindV1.OBJECT_STORE, Bytes.utf8("object-store"), 1, semantic);
-        final byte[] secretReference = Bytes.utf8("secret-reference-v1");
+        final ProfileSemanticEnvelope profile =
+                new ProfileSemanticEnvelope(ProfileKind.OBJECT_STORE, Bytes.utf8("object-store"), 1, semantic);
+        final byte[] secretReference = Bytes.utf8("secret-reference");
         final byte[] fingerprint = bytes(32, 5);
-        final CredentialEquivalenceAttestationV1 attestation = CredentialEquivalenceAttestationV1.signed(
+        final CredentialEquivalenceAttestation attestation = CredentialEquivalenceAttestation.signed(
                 profile.ref(),
                 1,
                 Bytes.sha256(secretReference),
@@ -97,12 +97,12 @@ class ObjectStoreCredentialUseLeaseGateTest {
                 bytes(32, 6),
                 1,
                 KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPrivate());
-        final CredentialBindingV1 binding = CredentialBindingV1.create(profile.ref(), 1, secretReference, attestation);
-        final CredentialBindingProtectionV1 protection =
-                CredentialBindingProtectionV1.forBinding(binding, 0, 9_000, 0, 0, 2);
-        final CredentialUseLeaseV1 lease = new CredentialUseLeaseV1(
+        final CredentialBinding binding = CredentialBinding.create(profile.ref(), 1, secretReference, attestation);
+        final CredentialBindingProtection protection =
+                CredentialBindingProtection.forBinding(binding, 0, 9_000, 0, 0, 2);
+        final CredentialUseLease lease = new CredentialUseLease(
                 profile.ref(),
-                CredentialUseKindV1.OBJECT_STORE_ADAPTER,
+                CredentialUseKind.OBJECT_STORE_ADAPTER,
                 bytes(32, 7),
                 1,
                 binding.bindingDigest(),
@@ -140,10 +140,10 @@ class ObjectStoreCredentialUseLeaseGateTest {
     }
 
     private record Fixture(
-            ProfileSemanticEnvelopeV1 profile,
-            CredentialBindingV1 binding,
-            CredentialBindingProtectionV1 protection,
-            CredentialUseLeaseV1 lease,
+            ProfileSemanticEnvelope profile,
+            CredentialBinding binding,
+            CredentialBindingProtection protection,
+            CredentialUseLease lease,
             byte[] fingerprint) {
         private ObjectStoreCredentialUseLeaseGate gate(final long currentTime, final byte[] loadedFingerprint) {
             return new ObjectStoreCredentialUseLeaseGate(

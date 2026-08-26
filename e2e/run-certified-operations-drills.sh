@@ -12,8 +12,8 @@ oxia_dir="${NEREUS_DELAY_OXIA_CHECKOUT:-${delay_dir}/../../oxia}"
 artifact_dir="${NEREUS_DELAY_CERTIFIED_OPERATIONS_ARTIFACT_DIR:-$(mktemp -d -t nereus-delay-certified-operations.XXXXXX)}"
 gradle_home="${NEREUS_DELAY_CERTIFIED_OPERATIONS_GRADLE_USER_HOME:-${artifact_dir}/gradle-user-home}"
 soak_artifact="${NEREUS_DELAY_CERTIFIED_OPERATIONS_SOAK_ARTIFACT:-}"
-profile_id="${NEREUS_DELAY_CERTIFIED_OPERATIONS_PROFILE_ID:-nereus-delay-v1-rc1-operations-r1}"
-expected_branch="nereus/delay-full-implementation-v1"
+profile_id="${NEREUS_DELAY_CERTIFIED_OPERATIONS_PROFILE_ID:-nereus-delay-rc1-operations-r1}"
+expected_branch="nereus/delay-full-implementation"
 bounded_dir="${artifact_dir}/bounded-operations"
 started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
@@ -52,8 +52,8 @@ kafka_source="unknown"
 pulsar_source="unknown"
 oxia_source="unknown"
 if ! delay_source="$(require_checkout Delay "${delay_dir}" "${expected_branch}")"; then source_status="BLOCKED"; fi
-if ! kafka_source="$(require_checkout Kafka "${kafka_dir}" "nereus/delay-guarded-producer-v1")"; then source_status="BLOCKED"; fi
-if ! pulsar_source="$(require_checkout Pulsar "${pulsar_dir}" "nereus/delay-resource-guard-v1")"; then source_status="BLOCKED"; fi
+if ! kafka_source="$(require_checkout Kafka "${kafka_dir}" "nereus/delay-guarded-producer")"; then source_status="BLOCKED"; fi
+if ! pulsar_source="$(require_checkout Pulsar "${pulsar_dir}" "nereus/delay-resource-guard")"; then source_status="BLOCKED"; fi
 if ! oxia_source="$(require_checkout Oxia "${oxia_dir}" main)"; then source_status="BLOCKED"; fi
 
 bounded_status="BLOCKED"
@@ -100,7 +100,7 @@ soak_status="MISSING"
 if [[ -n "${soak_artifact}" && -s "${soak_artifact}" ]] \
     && jq -e --arg delay "${delay_source}" --arg kafka "${kafka_source}" \
       --arg pulsar "${pulsar_source}" --arg oxia "${oxia_source}" \
-      '.schema == "nereus-delay-certified-production-chain-soak-v1"
+      '.schema == "nereus-delay-certified-production-chain-soak"
        and .status == "PASS_CERTIFIED"
        and .execution == "strict-sequential"
        and (.source_locks.delay == $delay)
@@ -120,7 +120,7 @@ if [[ "${source_status}" == "PASS" && "${bounded_status}" == "PASS" \
 fi
 
 jq -n \
-  --arg schema "nereus-delay-certified-operations-drills-v1" \
+  --arg schema "nereus-delay-certified-operations-drills" \
   --arg status "${operations_status}" \
   --arg profile_id "${profile_id}" \
   --arg execution "strict-sequential" \

@@ -1,6 +1,6 @@
 package com.nereusstream.delay.adapter;
 
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.SourcePosition;
@@ -167,9 +167,9 @@ public final class KafkaTransactionalDestinationAdapter implements DestinationPu
         if (result.disposition() != DestinationPublishResult.Disposition.PUBLISHED) {
             return result;
         }
-        final BrokerResourceIdentityV1 identity = result.brokerResource();
+        final BrokerResourceIdentity identity = result.brokerResource();
         if (identity == null
-                || identity.kind() != BrokerResourceIdentityV1.Kind.KAFKA
+                || identity.kind() != BrokerResourceIdentity.Kind.KAFKA
                 || !targetResource
                         .authenticatedClusterId()
                         .equals(identity.kafka().authenticatedClusterId())

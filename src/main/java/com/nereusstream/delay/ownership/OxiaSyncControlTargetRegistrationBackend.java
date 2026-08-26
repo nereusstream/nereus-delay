@@ -2,9 +2,9 @@ package com.nereusstream.delay.ownership;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.ControlTargetMutationBindingV1;
-import com.nereusstream.delay.protocol.ControlTargetRefV1;
-import com.nereusstream.delay.protocol.PreparedControlOperationV1;
+import com.nereusstream.delay.protocol.ControlTargetMutationBinding;
+import com.nereusstream.delay.protocol.ControlTargetRef;
+import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.SystemMutation;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
@@ -36,7 +36,7 @@ public final class OxiaSyncControlTargetRegistrationBackend
         implements OxiaControlTargetRegistrationAuthority.CasBackend {
     private static final int RECORD_VERSION = 1;
     private static final int MAX_PREPARED_BYTES = 8 * 1024 * 1024;
-    private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-oxia-control-target-v1\0");
+    private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-oxia-control-target\0");
 
     private final RecordClient client;
     private final String keyPrefix;
@@ -69,7 +69,7 @@ public final class OxiaSyncControlTargetRegistrationBackend
     }
 
     @Override
-    public ControlTargetRegistrationAuthority.RegistrationResult register(final PreparedControlOperationV1 prepared) {
+    public ControlTargetRegistrationAuthority.RegistrationResult register(final PreparedControlOperation prepared) {
         Objects.requireNonNull(prepared, "prepared");
         final String key = operationKey(prepared.operationId());
         final Entry existing = read(key, prepared.operationId());
@@ -96,23 +96,23 @@ public final class OxiaSyncControlTargetRegistrationBackend
     }
 
     @Override
-    public Optional<PreparedControlOperationV1> find(final byte[] operationId) {
+    public Optional<PreparedControlOperation> find(final byte[] operationId) {
         return Optional.ofNullable(read(operationKey(operationId), operationId)).map(Entry::prepared);
     }
 
     @Override
     public void validateMutation(
-            final PreparedControlOperationV1 prepared, final ControlTargetRefV1 target, final SystemMutation mutation) {
+            final PreparedControlOperation prepared, final ControlTargetRef target, final SystemMutation mutation) {
         Objects.requireNonNull(prepared, "prepared");
         final Entry registered = read(operationKey(prepared.operationId()), prepared.operationId());
         if (registered == null || !exact(registered.prepared(), prepared)) {
             throw new IllegalArgumentException("Control operation has not been registered exactly");
         }
-        ControlTargetMutationBindingV1.validate(registered.prepared(), target, mutation);
+        ControlTargetMutationBinding.validate(registered.prepared(), target, mutation);
     }
 
     private static ControlTargetRegistrationAuthority.RegistrationResult classify(
-            final Entry existing, final PreparedControlOperationV1 requested) {
+            final Entry existing, final PreparedControlOperation requested) {
         if (!exact(existing.prepared(), requested)) {
             throw new IllegalArgumentException("Control operation ID is already registered with different bytes");
         }
@@ -150,11 +150,11 @@ public final class OxiaSyncControlTargetRegistrationBackend
         return keyPrefix + "/operation/" + Bytes.hex(operationId);
     }
 
-    private static boolean exact(final PreparedControlOperationV1 left, final PreparedControlOperationV1 right) {
+    private static boolean exact(final PreparedControlOperation left, final PreparedControlOperation right) {
         return Bytes.constantTimeEquals(left.canonicalBytes(), right.canonicalBytes());
     }
 
-    private static byte[] encode(final PreparedControlOperationV1 prepared) {
+    private static byte[] encode(final PreparedControlOperation prepared) {
         final byte[] preparedBytes = prepared.canonicalBytes();
         if (preparedBytes.length == 0 || preparedBytes.length > MAX_PREPARED_BYTES) {
             throw new IllegalArgumentException("Prepared Control bytes exceed Oxia target limit");
@@ -182,7 +182,7 @@ public final class OxiaSyncControlTargetRegistrationBackend
             throw new IllegalStateException("Oxia target registration record is non-canonical or corrupt");
         }
         try {
-            final PreparedControlOperationV1 prepared = PreparedControlOperationV1.decode(preparedBytes);
+            final PreparedControlOperation prepared = PreparedControlOperation.decode(preparedBytes);
             if (!Bytes.constantTimeEquals(operationId, prepared.operationId())
                     || !Arrays.equals(encoded, encode(prepared))) {
                 throw new IllegalStateException("Oxia target registration record identity mismatch");
@@ -242,7 +242,7 @@ public final class OxiaSyncControlTargetRegistrationBackend
                 throws UnexpectedVersionIdException, KeyAlreadyExistsException;
     }
 
-    private record Entry(PreparedControlOperationV1 prepared, long versionId) {
+    private record Entry(PreparedControlOperation prepared, long versionId) {
         private Entry {
             Objects.requireNonNull(prepared, "prepared");
         }

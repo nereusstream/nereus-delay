@@ -8,7 +8,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 delay_dir="$(cd "${script_dir}/.." && pwd)"
 artifact_dir="${NEREUS_DELAY_PROTOCOL_ACTIVATION_ARTIFACT_DIR:-$(mktemp -d -t nereus-delay-protocol-activation.XXXXXX)}"
 gradle_home="${NEREUS_DELAY_PROTOCOL_ACTIVATION_GRADLE_USER_HOME:-${artifact_dir}/gradle-user-home}"
-expected_branch="nereus/delay-full-implementation-v1"
+expected_branch="nereus/delay-full-implementation"
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "protocol activation smoke requires jq" >&2
@@ -39,7 +39,7 @@ log_file="${artifact_dir}/protocol-activation-cutover-gradle.log"
 artifact="${artifact_dir}/protocol-activation-cutover.json"
 
 test_names=(
-  "com.nereusstream.delay.protocol.ProtocolActivationStateV1Test"
+  "com.nereusstream.delay.protocol.ProtocolActivationStateTest"
   "com.nereusstream.delay.protocol.ProtocolActivationCutoverContractTest"
   "com.nereusstream.delay.runtime.InitialRouteControlApplyTest"
   "com.nereusstream.delay.runtime.ProtocolVersionActivationApplyTest"
@@ -74,7 +74,7 @@ else
 fi
 
 jq -n \
-  --arg schema "nereus-delay-protocol-activation-cutover-v1" \
+  --arg schema "nereus-delay-protocol-activation-cutover" \
   --arg status "${status}" \
   --arg source "${source_lock}" \
   --arg branch "${branch}" \

@@ -1,6 +1,6 @@
 package com.nereusstream.delay.protocol;
 
-/** Closed V1 result codes used by the command state machine. */
+/** Closed result codes used by the command state machine. */
 public enum StableCode {
     OK(0x0000),
     INVALID_COMMAND(0x0101),

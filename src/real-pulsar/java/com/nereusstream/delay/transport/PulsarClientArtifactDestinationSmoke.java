@@ -10,9 +10,9 @@ import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.EvidenceVerificationStatusV1;
-import com.nereusstream.delay.protocol.PublishEvidenceKindV1;
-import com.nereusstream.delay.protocol.PublishEvidenceV1;
+import com.nereusstream.delay.protocol.EvidenceVerificationStatus;
+import com.nereusstream.delay.protocol.PublishEvidence;
+import com.nereusstream.delay.protocol.PublishEvidenceKind;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
@@ -136,7 +136,7 @@ public final class PulsarClientArtifactDestinationSmoke {
                                     + "evidence resolved PUBLISHED");
                             return;
                         }
-                        final PublishEvidenceV1 evidence = PublishEvidenceV1.decode(result.evidence());
+                        final PublishEvidence evidence = PublishEvidence.decode(result.evidence());
                         System.out.println("Pulsar destination typed-evidence smoke passed: topic=" + physicalTopic
                                 + ", ledger=" + branchNumber(evidence, 3) + ", entry=" + branchNumber(evidence, 4)
                                 + ", batchIndex=" + branchNumber(evidence, 5) + ", sequence="
@@ -209,7 +209,7 @@ public final class PulsarClientArtifactDestinationSmoke {
                 writeForcedJson(
                         Path.of(statePath),
                         json(
-                                "schema", "nereus-delay-chaos-durable-state-dump-v1",
+                                "schema", "nereus-delay-chaos-durable-state-dump",
                                 "cell", "pulsar-destination-response-loss",
                                 "phase", "DESTINATION_RESPONSE_LOSS_READY",
                                 "process_pid",
@@ -268,7 +268,7 @@ public final class PulsarClientArtifactDestinationSmoke {
             final String serviceUrl, final String topic, final String physicalTopic) throws Exception {
         final String state = Files.readString(Path.of(
                 required("NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_STATE_DUMP_DIR"), "before-process-crash.json"));
-        if (!"nereus-delay-chaos-durable-state-dump-v1".equals(field(state, "schema"))
+        if (!"nereus-delay-chaos-durable-state-dump".equals(field(state, "schema"))
                 || !"pulsar-destination-response-loss".equals(field(state, "cell"))
                 || !"DESTINATION_RESPONSE_LOSS_READY".equals(field(state, "phase"))) {
             throw new IllegalStateException("invalid Pulsar destination response-loss pre-process dump");
@@ -309,7 +309,7 @@ public final class PulsarClientArtifactDestinationSmoke {
                 Long.parseLong(field(state, "broker_entry_timestamp")),
                 decode(field(state, "send_command_sha256_base64")),
                 decode(field(state, "authenticated_response_sha256_base64")));
-        final PublishEvidenceV1 typed = PulsarSendAckEvidence.published(
+        final PublishEvidence typed = PulsarSendAckEvidence.published(
                 request,
                 decode(field(state, "prepared_hash_base64")),
                 decode(field(state, "producer_name_hash_base64")),
@@ -325,8 +325,8 @@ public final class PulsarClientArtifactDestinationSmoke {
                 decode(field(state, "prepared_hash_base64")),
                 decode(field(state, "producer_name_hash_base64")),
                 responseEvidence.brokerEntryTimestamp());
-        if (typed.evidenceKind() != PublishEvidenceKindV1.PULSAR_SEND_ACK
-                || typed.verificationStatus() != EvidenceVerificationStatusV1.VERIFIED_PUBLISHED) {
+        if (typed.evidenceKind() != PublishEvidenceKind.PULSAR_SEND_ACK
+                || typed.verificationStatus() != EvidenceVerificationStatus.VERIFIED_PUBLISHED) {
             throw new IllegalStateException("fresh-process Pulsar SEND evidence did not verify as PUBLISHED");
         }
 
@@ -341,7 +341,7 @@ public final class PulsarClientArtifactDestinationSmoke {
                             required("NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_STATE_DUMP_DIR"),
                             "after-fresh-process.json"),
                     json(
-                            "schema", "nereus-delay-chaos-durable-state-dump-v1",
+                            "schema", "nereus-delay-chaos-durable-state-dump",
                             "cell", "pulsar-destination-response-loss",
                             "phase", "RECOVERED_AFTER_FRESH_PROCESS",
                             "process_pid", Long.toString(ProcessHandle.current().pid()),
@@ -521,7 +521,7 @@ public final class PulsarClientArtifactDestinationSmoke {
         if (rawBatchIndex >= 0 && (rawBatchSize <= 0 || Integer.compareUnsigned(rawBatchIndex, rawBatchSize) >= 0)) {
             return Optional.empty();
         }
-        final PublishEvidenceV1 typed = PulsarSendAckEvidence.published(
+        final PublishEvidence typed = PulsarSendAckEvidence.published(
                 request,
                 preparedPublishHash,
                 producerNameHash,
@@ -612,15 +612,15 @@ public final class PulsarClientArtifactDestinationSmoke {
             throw new IllegalStateException(
                     label + " did not return PUBLISHED: " + result.disposition() + "/" + result.stableCode());
         }
-        final PublishEvidenceV1 evidence = PublishEvidenceV1.decode(result.evidence());
-        if (evidence.evidenceKind() != PublishEvidenceKindV1.PULSAR_SEND_ACK
-                || evidence.verificationStatus() != EvidenceVerificationStatusV1.VERIFIED_PUBLISHED) {
+        final PublishEvidence evidence = PublishEvidence.decode(result.evidence());
+        if (evidence.evidenceKind() != PublishEvidenceKind.PULSAR_SEND_ACK
+                || evidence.verificationStatus() != EvidenceVerificationStatus.VERIFIED_PUBLISHED) {
             throw new IllegalStateException(label + " returned the wrong evidence branch");
         }
         evidence.requireBusinessMutation(request.publishAttemptId(), true);
     }
 
-    private static long branchNumber(final PublishEvidenceV1 evidence, final int number) {
+    private static long branchNumber(final PublishEvidence evidence, final int number) {
         final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(evidence.branch());
         while (reader.hasRemaining()) {
             final CanonicalProtobuf.Reader.Field field = reader.next();

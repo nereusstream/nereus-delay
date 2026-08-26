@@ -10,7 +10,7 @@ import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ScheduleIntent;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
@@ -67,7 +67,7 @@ class SourceReplayEntryTest {
                 null);
         final byte[] proofId = Bytes.sha256(Bytes.utf8("replay-entry-proof-id"));
         final byte[] body = CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.bytes(output, 1, new ShardSubjectV1(shard).canonicalBytes());
+            CanonicalProtobuf.bytes(output, 1, new ShardSubject(shard).canonicalBytes());
             CanonicalProtobuf.uint32(output, 2, SystemMutationType.TIME_FENCE.wireValue());
             CanonicalProtobuf.int64(output, 3, 9_000);
             CanonicalProtobuf.int64(output, 10, 2_000);

@@ -1,8 +1,8 @@
 package com.nereusstream.delay.adapter;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.NativePreparedDeliveryV1;
-import com.nereusstream.delay.protocol.NativePreparedRefV1;
+import com.nereusstream.delay.protocol.NativePreparedDelivery;
+import com.nereusstream.delay.protocol.NativePreparedRef;
 import com.nereusstream.delay.transport.TransportRequest;
 import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
@@ -24,8 +24,8 @@ public record PulsarNativeSendRequest(
         Objects.requireNonNull(resourceIncarnation, "resourceIncarnation");
         physicalTopic = canonicalText(physicalTopic, "physicalTopic");
         Bytes.requireLength(resourceIncarnation, 32, "resourceIncarnation");
-        Bytes.requireLength(nativeDeliveryId, NativePreparedRefV1.NATIVE_DELIVERY_ID_LENGTH, "nativeDeliveryId");
-        Bytes.requireLength(submissionHash, NativePreparedDeliveryV1.HASH_LENGTH, "submissionHash");
+        Bytes.requireLength(nativeDeliveryId, NativePreparedRef.NATIVE_DELIVERY_ID_LENGTH, "nativeDeliveryId");
+        Bytes.requireLength(submissionHash, NativePreparedDelivery.HASH_LENGTH, "submissionHash");
         Objects.requireNonNull(preparedBytes, "preparedBytes");
         if (preparedBytes.length == 0) {
             throw new IllegalArgumentException("invalid Pulsar native send request");
@@ -38,7 +38,7 @@ public record PulsarNativeSendRequest(
     }
 
     public static PulsarNativeSendRequest from(
-            final PulsarTargetResource resource, final NativePreparedDeliveryV1 prepared) {
+            final PulsarTargetResource resource, final NativePreparedDelivery prepared) {
         Objects.requireNonNull(prepared, "prepared");
         return new PulsarNativeSendRequest(
                 resource.authenticatedClusterId(),

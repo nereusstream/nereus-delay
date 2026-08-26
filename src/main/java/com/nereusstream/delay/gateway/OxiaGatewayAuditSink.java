@@ -16,15 +16,15 @@ import java.util.Set;
 /**
  * Oxia-backed append-only Gateway audit sink.
  *
- * <p>Each digest-only event has its own immutable record key.  Recording the
+ * <p>Each digest-only event has its own immutable record key. Recording the
  * same event again is therefore idempotent, while a response lost after the
- * write is accepted only after an exact value reread.  The sink deliberately
+ * write is accepted only after an exact value reread. The sink deliberately
  * does not expose request or prepared-submission bytes.</p>
  */
 public final class OxiaGatewayAuditSink implements GatewayAuditSink, AutoCloseable {
     private static final int MAX_EVENT_BYTES = 64 * 1024;
     private static final String AUDIT_SUFFIX = "/audit/";
-    private static final byte[] KEY_DOMAIN = Bytes.utf8("nereus-delay-gateway-audit-record-v1\0");
+    private static final byte[] KEY_DOMAIN = Bytes.utf8("nereus-delay-gateway-audit-record\0");
 
     private final OxiaGatewayRecordClient client;
     private final String recordPrefix;
@@ -50,8 +50,8 @@ public final class OxiaGatewayAuditSink implements GatewayAuditSink, AutoCloseab
     }
 
     @Override
-    public synchronized void record(final GatewayAuditEventV1 event) {
-        final GatewayAuditEventV1 requested = Objects.requireNonNull(event, "event");
+    public synchronized void record(final GatewayAuditEvent event) {
+        final GatewayAuditEvent requested = Objects.requireNonNull(event, "event");
         final byte[] value = requested.canonicalBytes();
         if (value.length > MAX_EVENT_BYTES) {
             throw new IllegalArgumentException("Gateway audit event exceeds the size bound");

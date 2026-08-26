@@ -5,18 +5,18 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
+import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
 import com.nereusstream.delay.protocol.ControlRef;
-import com.nereusstream.delay.protocol.InitialRouteControlActivatePayloadV1;
+import com.nereusstream.delay.protocol.InitialRouteControlActivatePayload;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
-import com.nereusstream.delay.protocol.QuotaGrantRefV1;
+import com.nereusstream.delay.protocol.QuotaGrantRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
@@ -34,8 +34,8 @@ class InitialRouteControlApplyTest {
     @Test
     void appliesInitialSnapshotAtomicallyAndRetainsItAcrossRestart() throws Exception {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 7);
-        final CompatibleControlSnapshotV1 snapshot = snapshot(shardId);
-        final InitialRouteControlActivatePayloadV1 payload = new InitialRouteControlActivatePayloadV1(
+        final CompatibleControlSnapshot snapshot = snapshot(shardId);
+        final InitialRouteControlActivatePayload payload = new InitialRouteControlActivatePayload(
                 snapshot.protocolTuples(),
                 snapshot.profiles(),
                 snapshot.initialQuotaGrant(),
@@ -69,8 +69,8 @@ class InitialRouteControlApplyTest {
     @Test
     void rejectsConflictingOrTamperedInitialActivationWithoutOverwritingSnapshot() throws Exception {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 8);
-        final CompatibleControlSnapshotV1 snapshot = snapshot(shardId);
-        final InitialRouteControlActivatePayloadV1 payload = new InitialRouteControlActivatePayloadV1(
+        final CompatibleControlSnapshot snapshot = snapshot(shardId);
+        final InitialRouteControlActivatePayload payload = new InitialRouteControlActivatePayload(
                 snapshot.protocolTuples(),
                 snapshot.profiles(),
                 snapshot.initialQuotaGrant(),
@@ -94,16 +94,16 @@ class InitialRouteControlApplyTest {
             assertEquals(ApplyStatus.APPLIED, stale.applyStatus());
             assertEquals(StableCode.STALE_SYSTEM_MUTATION, stale.stableCode());
 
-            final CompatibleControlSnapshotV1 different = new CompatibleControlSnapshotV1(
-                    new ShardSubjectV1(shardId),
+            final CompatibleControlSnapshot different = new CompatibleControlSnapshot(
+                    new ShardSubject(shardId),
                     snapshot.protocolTuples(),
-                    List.of(new ProfileRefV1(
+                    List.of(new ProfileRef(
                             Bytes.utf8("different-profile"),
                             1,
                             Bytes.sha256(Bytes.utf8("different-profile")),
-                            ProfileKindV1.DESTINATION)),
+                            ProfileKind.DESTINATION)),
                     snapshot.initialQuotaGrant());
-            final InitialRouteControlActivatePayloadV1 differentPayload = new InitialRouteControlActivatePayloadV1(
+            final InitialRouteControlActivatePayload differentPayload = new InitialRouteControlActivatePayload(
                     different.protocolTuples(),
                     different.profiles(),
                     different.initialQuotaGrant(),
@@ -116,7 +116,7 @@ class InitialRouteControlApplyTest {
             assertEquals(StableCode.UNAUTHORIZED_SYSTEM_MUTATION, conflict.stableCode());
             assertEquals(snapshot, shard.controlSnapshot());
 
-            final InitialRouteControlActivatePayloadV1 tamperedPayload = new InitialRouteControlActivatePayloadV1(
+            final InitialRouteControlActivatePayload tamperedPayload = new InitialRouteControlActivatePayload(
                     snapshot.protocolTuples(),
                     snapshot.profiles(),
                     snapshot.initialQuotaGrant(),
@@ -134,10 +134,10 @@ class InitialRouteControlApplyTest {
     private static SystemMutation mutation(
             final ShardId shardId,
             final ControlRef ref,
-            final InitialRouteControlActivatePayloadV1 payload,
+            final InitialRouteControlActivatePayload payload,
             final KeyPair keyPair) {
         final byte[] body = CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.bytes(output, 1, new ShardSubjectV1(shardId).canonicalBytes());
+            CanonicalProtobuf.bytes(output, 1, new ShardSubject(shardId).canonicalBytes());
             CanonicalProtobuf.uint32(output, 2, SystemMutationType.APPLY_SHARD_CONTROL.wireValue());
             CanonicalProtobuf.int64(output, 3, 9_000);
             CanonicalProtobuf.bytes(output, 10, ref.canonicalBytes());
@@ -174,17 +174,17 @@ class InitialRouteControlApplyTest {
         return new KafkaSourcePosition(shardId, "initial-route-cluster", sourceTopic, offset, null, 1_000 + offset);
     }
 
-    private static CompatibleControlSnapshotV1 snapshot(final ShardId shardId) {
-        final ProfileRefV1 profile = new ProfileRefV1(
+    private static CompatibleControlSnapshot snapshot(final ShardId shardId) {
+        final ProfileRef profile = new ProfileRef(
                 Bytes.utf8("initial-profile"),
                 1,
                 Bytes.sha256(Bytes.utf8("initial-profile-semantic")),
-                ProfileKindV1.DESTINATION);
-        return new CompatibleControlSnapshotV1(
-                new ShardSubjectV1(shardId),
-                List.of(ProtocolTupleV1.managedCommandV1()),
+                ProfileKind.DESTINATION);
+        return new CompatibleControlSnapshot(
+                new ShardSubject(shardId),
+                List.of(ProtocolTuple.managedCommand()),
                 List.of(profile),
-                new QuotaGrantRefV1(
+                new QuotaGrantRef(
                         Bytes.sha256(Bytes.utf8("initial-grant")),
                         1,
                         new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));

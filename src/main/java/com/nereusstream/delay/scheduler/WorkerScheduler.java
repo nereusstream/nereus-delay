@@ -275,11 +275,11 @@ public final class WorkerScheduler {
      * been fenced and its local scheduler queue has drained.
      *
      * <p>The outer ring is process state rather than a cross-DB durable
-     * projection.  Keeping an old shard registered after ownership loss would
+     * projection. Keeping an old shard registered after ownership loss would
      * nevertheless retain its scheduler and fairness state for the lifetime
      * of the Worker, so removal is deliberately guarded by the same two local
      * facts that make the registry safe to discard: the shard is blocked and
-     * every registered Lane queue is empty.  Source-ordered terminal guards,
+     * every registered Lane queue is empty. Source-ordered terminal guards,
      * Oxia ownership and Store close remain outside this process-local method.
      */
     synchronized void unregisterShard(final ShardId shardId) {

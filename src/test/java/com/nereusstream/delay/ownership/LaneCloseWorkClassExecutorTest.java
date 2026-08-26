@@ -141,7 +141,7 @@ class LaneCloseWorkClassExecutorTest {
 
             assertTrue(submission.discovered().isEmpty());
             assertEquals(0, ownerClockReads.get());
-            final int domainBytes = Bytes.utf8("nereus-delay-lane-close-discovery-task-v1\0").length;
+            final int domainBytes = Bytes.utf8("nereus-delay-lane-close-discovery-task\0").length;
             assertEquals(
                     scanBudget.maxBytes() + domainBytes + 16 + 4 + 4 + 8 + 8,
                     submission.task().bytes());

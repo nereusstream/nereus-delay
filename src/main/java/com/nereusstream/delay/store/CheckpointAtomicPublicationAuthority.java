@@ -1,7 +1,7 @@
 package com.nereusstream.delay.store;
 
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
 
 /**
  * Optional upload-intent authority that atomically binds the uploaded object
@@ -21,15 +21,15 @@ public interface CheckpointAtomicPublicationAuthority
      * operation.
      *
      * @param expectedPending exact PENDING_UPLOAD value created before the
-     *                        checkpoint attempt
+     * checkpoint attempt
      * @param resource immutable provider object identity returned by upload
      * @param manifest exact local checkpoint manifest bound to that object
      * @param expectedCatalogGeneration catalog generation carried by the intent
      * @return the exact PUBLISHED successor
      */
-    CheckpointUploadIntentV1 publishUploadedCheckpointAtomically(
-            CheckpointUploadIntentV1 expectedPending,
-            CheckpointResourceV1 resource,
+    CheckpointUploadIntent publishUploadedCheckpointAtomically(
+            CheckpointUploadIntent expectedPending,
+            CheckpointResource resource,
             CheckpointManifest manifest,
             long expectedCatalogGeneration);
 }

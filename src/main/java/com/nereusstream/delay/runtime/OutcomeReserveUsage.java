@@ -7,8 +7,8 @@ import java.nio.ByteBuffer;
 /**
  * Durable shard-local usage of the non-borrowable outcome/control reserve.
  *
- * <p>This is deliberately only the outcome projection of a full V1 capacity
- * grant.  Placement, Oxia grant identity and the other control classes remain
+ * <p>This is deliberately only the outcome projection of a full capacity
+ * grant. Placement, Oxia grant identity and the other control classes remain
  * outside this embedded state machine.</p>
  */
 public record OutcomeReserveUsage(long records, long bytes) {

@@ -66,9 +66,9 @@ public final class LaneScheduler {
             }
         } else {
             existing.update(lane);
-            // A Lane control update can lower its scheduler weight.  Rebuild
+            // A Lane control update can lower its scheduler weight. Rebuild
             // the process-wide cap so historical credit cannot remain above
-            // the largest currently configured Lane increment.  This mirrors
+            // the largest currently configured Lane increment. This mirrors
             // the outer Worker scheduler and publishes the bounded projection
             // before the next poll, even when the Lane is idle.
             recomputeDeficitCap();
@@ -88,14 +88,14 @@ public final class LaneScheduler {
     synchronized List<ScheduleWorkItem> poll(final SchedulerBudget budget) {
         Objects.requireNonNull(budget, "budget");
         // The legacy overload intentionally keeps its historical unbounded
-        // eligibility behavior.  Production callers must use the overload
+        // eligibility behavior. Production callers must use the overload
         // carrying the trusted due-through timestamp below.
         return poll(Long.MAX_VALUE, budget);
     }
 
     /**
      * Polls only work whose scheduler eligibility is no later than the
-     * supplied trusted time.  The boundary is inclusive: a work item becomes
+     * supplied trusted time. The boundary is inclusive: a work item becomes
      * claimable exactly when {@code eligibleAtEpochMs == dueThroughEpochMs}.
      */
     public synchronized List<ScheduleWorkItem> poll(final long dueThroughEpochMs, final SchedulerBudget budget) {
@@ -260,7 +260,7 @@ public final class LaneScheduler {
 
     /**
      * Removes work items that were appended by a discovery turn whose durable
-     * projection write failed.  Discovery appends at the tail, so reversing
+     * projection write failed. Discovery appends at the tail, so reversing
      * the successful append order restores each Lane's prior queue exactly.
      */
     synchronized void rollbackOffers(final List<ScheduleWorkItem> offered) {
@@ -487,7 +487,7 @@ public final class LaneScheduler {
      * Removes a terminal Lane from the local scheduler registry.
      *
      * <p>The source-ordered terminal guard and any Adapter teardown authority
-     * remain outside this in-memory scheduler.  This method only accepts a
+     * remain outside this in-memory scheduler. This method only accepts a
      * Lane whose exact incarnation is fenced, whose gate is terminal, and
      * whose queue is empty; an old callback cannot remove a replacement
      * registration.</p>
@@ -513,7 +513,7 @@ public final class LaneScheduler {
         Objects.requireNonNull(items, "items");
         final Map<LaneQueue, List<ScheduleWorkItem>> replacement = new HashMap<>();
         // Validate and assemble the complete replacement before touching any
-        // existing queue.  A malformed later READY item must not clear valid
+        // existing queue. A malformed later READY item must not clear valid
         // heads and leave a partially rebuilt scheduler behind.
         for (ScheduleWorkItem item : items) {
             Objects.requireNonNull(item, "pending item");
@@ -559,7 +559,7 @@ public final class LaneScheduler {
             }
             // Keep the in-memory projection bounded even when a restored
             // snapshot contains a stale value from a larger historical
-            // quantum/weight configuration.  Polling also saturates before
+            // quantum/weight configuration. Polling also saturates before
             // serving, but leaving the oversized value visible while the
             // Lane is idle would violate the scheduler's cap invariant.
             lane.deficit = Math.min(saved.deficit(), maxDeficitBytes);

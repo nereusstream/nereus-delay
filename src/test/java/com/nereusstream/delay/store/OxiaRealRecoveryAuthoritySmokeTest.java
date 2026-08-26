@@ -5,23 +5,23 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
+import com.nereusstream.delay.protocol.EvidenceCursor;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.RecoveryCandidateKindV1;
-import com.nereusstream.delay.protocol.RecoveryCandidateRefV1;
-import com.nereusstream.delay.protocol.RecoveryFloorRefV1;
-import com.nereusstream.delay.protocol.RecoveryInstallPhaseV1;
-import com.nereusstream.delay.protocol.RecoveryInstallStateV1;
-import com.nereusstream.delay.protocol.RecoveryPinV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.RecoveryCandidateKind;
+import com.nereusstream.delay.protocol.RecoveryCandidateRef;
+import com.nereusstream.delay.protocol.RecoveryFloorRef;
+import com.nereusstream.delay.protocol.RecoveryInstallPhase;
+import com.nereusstream.delay.protocol.RecoveryInstallState;
+import com.nereusstream.delay.protocol.RecoveryPin;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.time.Duration;
 import java.util.List;
@@ -49,7 +49,7 @@ class OxiaRealRecoveryAuthoritySmokeTest {
             final OxiaSyncRecoveryCatalogBackend backend =
                     new OxiaSyncRecoveryCatalogBackend(client, prefix + "/catalog", LIMITS);
             assertEquals(1, backend.publish(manifest, 0).catalogGeneration());
-            final var floor = backend.advanceFloor(manifest.checkpointId(), 1, List.<EvidenceCursorV1>of());
+            final var floor = backend.advanceFloor(manifest.checkpointId(), 1, List.<EvidenceCursor>of());
             assertEquals(2, floor.catalogGeneration());
             final var reopened = new OxiaSyncRecoveryCatalogBackend(client, prefix + "/catalog", LIMITS);
             assertArrayEquals(
@@ -58,15 +58,15 @@ class OxiaRealRecoveryAuthoritySmokeTest {
 
             final byte[] storeIncarnation = id16(3);
             final StoreRecoveryMetadata local = new StoreRecoveryMetadata(
-                    new RecoveryCandidateRefV1(
-                            RecoveryCandidateKindV1.LOCAL_STORE,
+                    new RecoveryCandidateRef(
+                            RecoveryCandidateKind.LOCAL_STORE,
                             lineage,
                             manifest.checkpointId(),
                             manifest.manifestSha256(),
                             storeIncarnation),
                     floor,
                     floor.catalogGeneration(),
-                    new RecoveryInstallStateV1(RecoveryInstallPhaseV1.OPEN, storeIncarnation, manifest.checkpointId()));
+                    new RecoveryInstallState(RecoveryInstallPhase.OPEN, storeIncarnation, manifest.checkpointId()));
             new OxiaRecoveryCatalog(reopened).validateLocalStoreRecovery(shard, local);
         }
     }
@@ -84,8 +84,8 @@ class OxiaRealRecoveryAuthoritySmokeTest {
             final OxiaSyncRecoveryCatalogBackend backend =
                     new OxiaSyncRecoveryCatalogBackend(owner, prefix + "/catalog", LIMITS);
             backend.publish(manifest, 0);
-            final RecoveryFloorRefV1 floor = backend.advanceFloor(manifest.checkpointId(), 1, List.of());
-            final RecoveryPinV1 pin = recoveryPin(shard, manifest, floor, owner.sessionIdentity());
+            final RecoveryFloorRef floor = backend.advanceFloor(manifest.checkpointId(), 1, List.of());
+            final RecoveryPin pin = recoveryPin(shard, manifest, floor, owner.sessionIdentity());
 
             assertEquals(pin, backend.createRecoveryPin(pin));
             assertEquals(pin, backend.activeRecoveryPin().orElseThrow());
@@ -102,17 +102,17 @@ class OxiaRealRecoveryAuthoritySmokeTest {
     void checkpointUploadIntentCasAndReopenWorkAgainstRealService() throws Exception {
         final String endpoint = endpoint();
         final String prefix = "nereus-delay-real-upload/" + UUID.randomUUID();
-        final CheckpointUploadIntentV1 pending = pendingIntent(20);
+        final CheckpointUploadIntent pending = pendingIntent(20);
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle client = client(endpoint, prefix + "/client")) {
             final OxiaSyncCheckpointUploadIntentBackend backend =
                     new OxiaSyncCheckpointUploadIntentBackend(client, prefix + "/intent");
             assertEquals(pending, backend.create(pending));
-            final CheckpointResourceV1 resource = resource(pending);
-            final CheckpointUploadIntentV1 published = backend.publish(pending, resource);
-            assertEquals(CheckpointUploadStateV1.PUBLISHED, published.state());
+            final CheckpointResource resource = resource(pending);
+            final CheckpointUploadIntent published = backend.publish(pending, resource);
+            assertEquals(CheckpointUploadState.PUBLISHED, published.state());
             assertEquals(published, backend.currentPublishedFor(pending).orElseThrow());
-            final CheckpointUploadIntentV1 reopened = backend.current(pending).orElseThrow();
+            final CheckpointUploadIntent reopened = backend.current(pending).orElseThrow();
             assertEquals(published, reopened);
         }
     }
@@ -129,7 +129,7 @@ class OxiaRealRecoveryAuthoritySmokeTest {
         final ShardId shard = new ShardId(new RouteIncarnation(id16(121)), 120);
         final CheckpointManifest manifest = manifest(
                 shard, UUID.fromString("12345678-1234-4abc-8def-1234567890ab"), id16(122), id16(123), 0, 10, 10, null);
-        final CheckpointUploadIntentV1 pending = pendingIntent(120);
+        final CheckpointUploadIntent pending = pendingIntent(120);
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle client = client(endpoint, prefix + "/recovery-client")) {
             final OxiaSyncRecoveryCatalogBackend catalog =
@@ -141,7 +141,7 @@ class OxiaRealRecoveryAuthoritySmokeTest {
                 catalog.advanceFloor(manifest.checkpointId(), published.catalogGeneration(), List.of());
                 assertEquals(pending, intents.create(pending));
                 assertEquals(
-                        CheckpointUploadStateV1.PUBLISHED,
+                        CheckpointUploadState.PUBLISHED,
                         intents.publish(pending, resource(pending)).state());
                 System.out.println("fresh-process recovery authority write phase passed");
             } else {
@@ -149,7 +149,7 @@ class OxiaRealRecoveryAuthoritySmokeTest {
                         manifest.checkpointId(),
                         catalog.currentFloorRef().orElseThrow().checkpointId());
                 assertEquals(
-                        CheckpointUploadStateV1.PUBLISHED,
+                        CheckpointUploadState.PUBLISHED,
                         intents.current(pending).orElseThrow().state());
                 System.out.println("fresh-process recovery authority read phase passed");
             }
@@ -201,29 +201,29 @@ class OxiaRealRecoveryAuthoritySmokeTest {
                 List.of(file));
     }
 
-    private static CheckpointUploadIntentV1 pendingIntent(final int seed) {
+    private static CheckpointUploadIntent pendingIntent(final int seed) {
         final ShardId shard = new ShardId(new RouteIncarnation(id16(seed + 1)), seed);
-        return new CheckpointUploadIntentV1(
-                new ShardSubjectV1(shard),
+        return new CheckpointUploadIntent(
+                new ShardSubject(shard),
                 id16(seed + 2),
                 id16(seed + 3),
-                new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(seed + 4)),
+                new OwnerIdentity(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(seed + 4)),
                 id16(seed + 5),
                 id32(seed + 6),
                 1,
                 null,
                 null,
-                new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, id32(seed + 7), ProfileKindV1.OBJECT_STORE),
+                new ProfileRef(Bytes.utf8("checkpoint-store"), 1, id32(seed + 7), ProfileKind.OBJECT_STORE),
                 evidence(1_000),
                 4_000,
-                CheckpointUploadStateV1.PENDING_UPLOAD,
+                CheckpointUploadState.PENDING_UPLOAD,
                 1,
                 null,
                 null);
     }
 
-    private static CheckpointResourceV1 resource(final CheckpointUploadIntentV1 pending) {
-        return new CheckpointResourceV1(
+    private static CheckpointResource resource(final CheckpointUploadIntent pending) {
+        return new CheckpointResource(
                 pending.recoveryLineageId(),
                 pending.checkpointId(),
                 pending.objectStoreProfile(),
@@ -248,21 +248,21 @@ class OxiaRealRecoveryAuthoritySmokeTest {
                 null);
     }
 
-    private static RecoveryPinV1 recoveryPin(
+    private static RecoveryPin recoveryPin(
             final ShardId shard,
             final CheckpointManifest manifest,
-            final RecoveryFloorRefV1 floor,
+            final RecoveryFloorRef floor,
             final byte[] sessionIdentity) {
-        final RecoveryCandidateRefV1 candidate = new RecoveryCandidateRefV1(
-                RecoveryCandidateKindV1.CATALOG_CHECKPOINT,
+        final RecoveryCandidateRef candidate = new RecoveryCandidateRef(
+                RecoveryCandidateKind.CATALOG_CHECKPOINT,
                 manifest.recoveryLineageId(),
                 manifest.checkpointId(),
                 manifest.manifestSha256(),
                 null);
-        return new RecoveryPinV1(
+        return new RecoveryPin(
                 id16(12),
-                new ShardSubjectV1(shard),
-                new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(13)),
+                new ShardSubject(shard),
+                new OwnerIdentity(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(13)),
                 candidate,
                 floor,
                 floor.catalogGeneration(),

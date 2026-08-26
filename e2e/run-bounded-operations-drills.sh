@@ -69,9 +69,9 @@ require_checkout() {
   git -C "${path}" rev-parse HEAD
 }
 
-delay_source="$(require_checkout Delay "${delay_dir}" nereus/delay-full-implementation-v1)"
-kafka_source="$(require_checkout Kafka "${kafka_dir}" nereus/delay-guarded-producer-v1)"
-pulsar_source="$(require_checkout Pulsar "${pulsar_dir}" nereus/delay-resource-guard-v1)"
+delay_source="$(require_checkout Delay "${delay_dir}" nereus/delay-full-implementation)"
+kafka_source="$(require_checkout Kafka "${kafka_dir}" nereus/delay-guarded-producer)"
+pulsar_source="$(require_checkout Pulsar "${pulsar_dir}" nereus/delay-resource-guard)"
 oxia_source="$(require_checkout Oxia "${oxia_dir}" main)"
 
 if command -v lsof >/dev/null 2>&1; then
@@ -136,7 +136,7 @@ run_local_operations() {
     --tests 'com.nereusstream.delay.ownership.OwnerLeaseTest.catchupReplayAppliesCommandsBeforeActivationAndAdvancesOnlyAfterCommit' \
     --tests 'com.nereusstream.delay.ownership.OwnerLeaseTest.boundedCatchupTurnRetainsTheCursorForTheNextTurn' \
     --tests 'com.nereusstream.delay.ownership.OwnerLeaseTest.sourceCursorFailureFencesEveryReplayPathBeforeApplyingOrAdvancing' \
-    --tests 'com.nereusstream.delay.ownership.OwnerLeaseTest.v1CatchupPinsTheAdapterSuccessorAndRejectsAKafkaGapBeforeApplyingIt' \
+    --tests 'com.nereusstream.delay.ownership.OwnerLeaseTest.catchupPinsTheAdapterSuccessorAndRejectsAKafkaGapBeforeApplyingIt' \
     --tests 'com.nereusstream.delay.ownership.OwnerLeaseTest.authorityGatedActivationKeepsLocalGateClosedDuringLeaseCas' \
     --tests 'com.nereusstream.delay.ownership.OwnerLeaseTest.authorityGatedDrainRequiresTheExactLeaseSuccessor' \
     --tests 'com.nereusstream.delay.ownership.OwnerLeaseTest.authorityGatedDrainFailsClosedWhenLeaseIsExpired' \
@@ -256,7 +256,7 @@ if jq -e 'any(.[]; .status != "PASS")' "${probes_artifact}" >/dev/null 2>&1 || [
 fi
 
 jq -n \
-  --arg schema "nereus-delay-bounded-operations-drills-v1" \
+  --arg schema "nereus-delay-bounded-operations-drills" \
   --arg status "${operations_status}" \
   --arg artifact "${artifact_dir}" \
   --arg started_at "${started_at}" \
@@ -290,7 +290,7 @@ jq -n \
       policy: "Only resources from this checkpoint run and its generated Oxia image are eligible for removal; no global Docker prune is performed."
     },
     boundaries: [
-      "PASS_BOUNDED is an operations/state-machine receipt, not V1 release certification.",
+      "PASS_BOUNDED is an operations/state-machine receipt, not  release certification.",
       "The local probes cover restore fencing, catalog ancestry/floor validation, Owner recovery/drain gates, DLQ replay and source-ordered UNCERTAIN resolution.",
       "The real service probe covers Oxia control-operation registration, Worker protocol capability eligibility, signed Route/assignment CAS, recovery authority, checkpoint publication and exact REAPING; its fresh-process subprobe uses separate WRITE/READ Gradle JVMs.",
       "This bounded operations receipt still does not prove an independently authorized operator procedure or a multi-Worker production soak.",

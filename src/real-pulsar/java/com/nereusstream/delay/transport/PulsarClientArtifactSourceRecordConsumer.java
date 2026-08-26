@@ -19,10 +19,10 @@ import org.apache.pulsar.client.api.TopicResourceGuard;
 import org.apache.pulsar.client.api.TopicResourceGuardAttestation;
 
 /**
- * Source-set Pulsar binding for one physical V1 Shard Log topic.
+ * Source-set Pulsar binding for one physical Shard Log topic.
  *
  * <p>The native cursor is advanced only by a synchronous acknowledgement with
- * broker acknowledgement receipts enabled on the consumer.  The adapter
+ * broker acknowledgement receipts enabled on the consumer. The adapter
  * carries the exact guarded SUBSCRIBE proof into every source replay entry;
  * a changed connection generation is therefore an activation-boundary change,
  * not a transparent client-side detail.</p>
@@ -74,7 +74,7 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
         if (buffered != null) {
             if (!beforeReceive.equals(bufferedProof)) {
                 // The old connection was closed before this unacknowledged message
-                // could be committed.  Drop the local handle and let the broker
+                // could be committed. Drop the local handle and let the broker
                 // redeliver it on the new guarded SUBSCRIBE connection.
                 buffered = null;
                 bufferedProof = null;
@@ -97,7 +97,7 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
         try {
             final SourceConnectionProof afterReceive = currentProofOrEmpty().orElse(null);
             if (afterReceive == null || !beforeReceive.equals(afterReceive)) {
-                // A connection switch may race with receive().  The message has
+                // A connection switch may race with receive(). The message has
                 // not been ACKed, so its replay on the new guarded connection is
                 // the only safe authority; do not carry an old proof across it.
                 buffered = null;
@@ -118,7 +118,7 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
                     entry, (candidate, ignoredOutcome) -> acknowledge(message, entry, candidate)));
         } catch (RuntimeException | Error failure) {
             // The record was removed from the client receive path but has not
-            // been ACKed.  Keep it as the only retry authority in this adapter.
+            // been ACKed. Keep it as the only retry authority in this adapter.
             buffered = message;
             bufferedProof = beforeReceive;
             throw failure;
@@ -140,7 +140,7 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
         }
     }
 
-    /** Canonical V1 digest carried by Pulsar source connection proofs. */
+    /** Canonical digest carried by Pulsar source connection proofs. */
     public static byte[] attestationDigest(final TopicResourceGuardAttestation attestation) {
         Objects.requireNonNull(attestation, "attestation");
         return Bytes.sha256(
@@ -201,7 +201,7 @@ public final class PulsarClientArtifactSourceRecordConsumer implements SourceRec
             throw new IllegalArgumentException("Pulsar source message lacks an advanced message id");
         }
         if (messageId.getFirstChunkMessageId() != null) {
-            throw new IllegalArgumentException("chunked Pulsar source messages are not V1 positions");
+            throw new IllegalArgumentException("chunked Pulsar source messages are not positions");
         }
         final long ledgerId = messageId.getLedgerId();
         final long entryId = messageId.getEntryId();

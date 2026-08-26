@@ -202,7 +202,7 @@ public final class OxiaOwnerLeaseStore implements OwnerLeaseStore {
                 final long leaseDurationMs) {
             // A shard-only fallback would allocate an unbound lease before
             // the adapter can detect that assignment/session identity was
-            // lost. Context-bound V1 acquisition must be explicitly supplied
+            // lost. Context-bound acquisition must be explicitly supplied
             // by the backend and otherwise fails closed without side effects.
             return Optional.empty();
         }

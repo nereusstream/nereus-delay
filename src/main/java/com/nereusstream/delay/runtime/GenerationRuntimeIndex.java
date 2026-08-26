@@ -11,7 +11,7 @@ import java.util.Objects;
  * Exact registry-shaped current-generation runtime projection.
  *
  * <p>This object is deliberately independent from the public aggregate status kept by
- * older embedded records.  The projection separates one current send work item from
+ * older embedded records. The projection separates one current send work item from
  * the bounded set of admitted attempt obligations and gives every persisted form a
  * canonical digest.</p>
  */
@@ -121,7 +121,7 @@ public final class GenerationRuntimeIndex {
 
     /**
      * Compatibility-only scalar MessageRecord placeholder. It is never a
-     * valid typed V1 runtime value and is replaced before a new MessageRecord
+     * valid typed runtime value and is replaced before a new MessageRecord
      * is persisted; canonical decode intentionally does not enable this flag.
      */
     static GenerationRuntimeIndex legacyNone(
@@ -147,7 +147,7 @@ public final class GenerationRuntimeIndex {
 
     /**
      * Creates a timeline projection while retaining already admitted attempt
-     * history.  A definitive retry closes its prior ledger, but it does not
+     * history. A definitive retry closes its prior ledger, but it does not
      * reset the generation's admission counters; those counters are part of
      * the replay precondition for the next admission.
      */
@@ -348,7 +348,7 @@ public final class GenerationRuntimeIndex {
                 output.writeBytes(obligation.canonicalBytes());
             }
         });
-        return Bytes.sha256(Bytes.utf8("nereus-delay-attempt-obligation-set-v1\0"), concatenated);
+        return Bytes.sha256(Bytes.utf8("nereus-delay-attempt-obligation-set\0"), concatenated);
     }
 
     private void validateCurrentWork() {
@@ -460,7 +460,7 @@ public final class GenerationRuntimeIndex {
 
     private byte[] computeRuntimeDigest() {
         final byte[] fields = CanonicalProtobuf.message(this::writeFieldsOneToSeventeen);
-        return Bytes.sha256(Bytes.utf8("nereus-delay-generation-runtime-index-v1\0"), fields);
+        return Bytes.sha256(Bytes.utf8("nereus-delay-generation-runtime-index\0"), fields);
     }
 
     private static List<AttemptObligationRef> copyAndValidateObligations(final List<AttemptObligationRef> obligations) {

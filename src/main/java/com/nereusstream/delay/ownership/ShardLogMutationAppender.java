@@ -7,7 +7,7 @@ import java.util.Objects;
 
 /**
  * The only authority allowed to assign a Source Position to a prepared
- * System Mutation.  A production implementation is backed by the assigned
+ * System Mutation. A production implementation is backed by the assigned
  * Kafka/Pulsar Command Topic partition; this interface deliberately does not
  * expose a local position allocator or a RocksDB apply shortcut.
  */

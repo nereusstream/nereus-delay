@@ -4,12 +4,12 @@ import com.nereusstream.delay.adapter.DestinationPublishResult;
 import com.nereusstream.delay.adapter.PinnedPulsarDestinationAdapter;
 import com.nereusstream.delay.adapter.PulsarDestinationRequest;
 import com.nereusstream.delay.adapter.PulsarSendAckEvidence;
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.EvidenceVerificationStatusV1;
-import com.nereusstream.delay.protocol.PublishEvidenceKindV1;
-import com.nereusstream.delay.protocol.PublishEvidenceV1;
-import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.EvidenceVerificationStatus;
+import com.nereusstream.delay.protocol.PublishEvidence;
+import com.nereusstream.delay.protocol.PublishEvidenceKind;
+import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
 import java.util.Arrays;
@@ -171,7 +171,7 @@ public final class PulsarClientArtifactDestinationTransport
             return DestinationPublishResult.unknown(StableCode.INTEGRITY_ERROR, null);
         }
         try {
-            final PublishEvidenceV1 typed = PulsarSendAckEvidence.published(
+            final PublishEvidence typed = PulsarSendAckEvidence.published(
                     request,
                     preparedPublishHash,
                     producerNameHash,
@@ -181,13 +181,13 @@ public final class PulsarClientArtifactDestinationTransport
                     evidence.brokerEntryTimestamp(),
                     evidence.sequenceId(),
                     evidence.authenticatedResponseCommandSha256());
-            if (typed.evidenceKind() != PublishEvidenceKindV1.PULSAR_SEND_ACK
-                    || typed.verificationStatus() != EvidenceVerificationStatusV1.VERIFIED_PUBLISHED) {
+            if (typed.evidenceKind() != PublishEvidenceKind.PULSAR_SEND_ACK
+                    || typed.verificationStatus() != EvidenceVerificationStatus.VERIFIED_PUBLISHED) {
                 throw new IllegalArgumentException("Pulsar destination evidence branch mismatch");
             }
             typed.requireBusinessMutation(request.publishAttemptId(), true);
             return DestinationPublishResult.published(
-                    BrokerResourceIdentityV1.pulsar(new PulsarBrokerResourceIdentityV1(
+                    BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
                             authenticatedClusterId,
                             resourceIncarnation,
                             physicalTopic,
@@ -213,9 +213,9 @@ public final class PulsarClientArtifactDestinationTransport
                         publishEvidenceProvider.resolve(request, preparedPublishHash, failure);
                 if (resolved != null && resolved.isPresent()) {
                     final ResolvedPublish candidate = resolved.get();
-                    final PublishEvidenceV1 evidence = candidate.evidence();
-                    if (evidence.evidenceKind() != PublishEvidenceKindV1.PULSAR_SEND_ACK
-                            || evidence.verificationStatus() != EvidenceVerificationStatusV1.VERIFIED_PUBLISHED) {
+                    final PublishEvidence evidence = candidate.evidence();
+                    if (evidence.evidenceKind() != PublishEvidenceKind.PULSAR_SEND_ACK
+                            || evidence.verificationStatus() != EvidenceVerificationStatus.VERIFIED_PUBLISHED) {
                         throw new IllegalArgumentException("Pulsar recovery provider returned the wrong evidence");
                     }
                     com.nereusstream.delay.adapter.PulsarSendAckEvidence.requireExactBinding(
@@ -225,7 +225,7 @@ public final class PulsarClientArtifactDestinationTransport
                             producerNameHash,
                             candidate.brokerPersistenceTimeEpochMs());
                     return DestinationPublishResult.published(
-                            BrokerResourceIdentityV1.pulsar(new PulsarBrokerResourceIdentityV1(
+                            BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
                                     authenticatedClusterId,
                                     resourceIncarnation,
                                     physicalTopic,
@@ -262,7 +262,7 @@ public final class PulsarClientArtifactDestinationTransport
     }
 
     /** Source-bound proof returned by a recovery provider after SEND uncertainty. */
-    public record ResolvedPublish(PublishEvidenceV1 evidence, long brokerPersistenceTimeEpochMs) {
+    public record ResolvedPublish(PublishEvidence evidence, long brokerPersistenceTimeEpochMs) {
         public ResolvedPublish {
             Objects.requireNonNull(evidence, "evidence");
             if (brokerPersistenceTimeEpochMs < 0) {

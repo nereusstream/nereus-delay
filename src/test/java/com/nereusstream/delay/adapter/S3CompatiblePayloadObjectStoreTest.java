@@ -9,17 +9,17 @@ import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.LargeScheduleIntent;
-import com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
-import com.nereusstream.delay.protocol.ObjectStoreProviderKindV1;
+import com.nereusstream.delay.protocol.ObjectStoreProfileSemantic;
+import com.nereusstream.delay.protocol.ObjectStoreProviderKind;
 import com.nereusstream.delay.protocol.OrderingMode;
-import com.nereusstream.delay.protocol.PayloadAttestationOutcomeV1;
-import com.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
-import com.nereusstream.delay.protocol.PayloadProofVerifierKeyV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
+import com.nereusstream.delay.protocol.PayloadAttestationOutcome;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetSemantic;
+import com.nereusstream.delay.protocol.PayloadProofVerifierKey;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.UploadHandleKindV1;
+import com.nereusstream.delay.protocol.UploadHandleKind;
 import com.nereusstream.delay.runtime.PayloadReservation;
 import com.nereusstream.delay.runtime.PayloadReservationStatus;
 import com.sun.net.httpserver.HttpExchange;
@@ -61,7 +61,7 @@ class S3CompatiblePayloadObjectStoreTest {
                     fixture.trustSet().ref(),
                     fixture.profile().ref());
             final var handle = adapter.issueUploadHandle(
-                            fixture.reservation().reservationId(), UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_001)
+                            fixture.reservation().reservationId(), UploadHandleKind.OPAQUE_SINGLE_PUT, 1_001)
                     .issued();
 
             adapter.upload(handle, PAYLOAD, 1_002);
@@ -70,7 +70,7 @@ class S3CompatiblePayloadObjectStoreTest {
             assertTrue(server.requestPaths.stream().anyMatch(path -> path.contains(".payload")));
 
             assertEquals(
-                    PayloadAttestationOutcomeV1.ATTESTED,
+                    PayloadAttestationOutcome.ATTESTED,
                     adapter.attest(handle, 1_003).outcome());
         }
     }
@@ -86,7 +86,7 @@ class S3CompatiblePayloadObjectStoreTest {
                     fixture.trustSet().ref(),
                     fixture.profile().ref());
             final var handle = adapter.issueUploadHandle(
-                            fixture.reservation().reservationId(), UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_001)
+                            fixture.reservation().reservationId(), UploadHandleKind.OPAQUE_SINGLE_PUT, 1_001)
                     .issued();
 
             final IllegalStateException failure =
@@ -120,10 +120,10 @@ class S3CompatiblePayloadObjectStoreTest {
 
     private static Fixture fixture(final URI endpoint) throws Exception {
         final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-        final PayloadProofTrustSetSemanticV1 trustSet = new PayloadProofTrustSetSemanticV1(
-                9, List.of(PayloadProofVerifierKeyV1.fromPublicKey(7, keyPair.getPublic(), 0, 10_000)));
-        final ObjectStoreProfileSemanticV1 objectStore = new ObjectStoreProfileSemanticV1(
-                ObjectStoreProviderKindV1.S3_COMPATIBLE,
+        final PayloadProofTrustSetSemantic trustSet = new PayloadProofTrustSetSemantic(
+                9, List.of(PayloadProofVerifierKey.fromPublicKey(7, keyPair.getPublic(), 0, 10_000)));
+        final ObjectStoreProfileSemantic objectStore = new ObjectStoreProfileSemantic(
+                ObjectStoreProviderKind.S3_COMPATIBLE,
                 S3CompatiblePayloadObjectStore.endpointConfigDigest(endpoint, REGION, BUCKET),
                 S3CompatiblePayloadObjectStore.credentialAuthorizationScopeDigest(ACCESS_KEY, REGION, BUCKET),
                 1,
@@ -133,11 +133,11 @@ class S3CompatiblePayloadObjectStoreTest {
                 true,
                 Bytes.sha256(Bytes.utf8("encryption")),
                 1 << 20,
-                ObjectStoreProfileSemanticV1.SINGLE_PUT,
+                ObjectStoreProfileSemantic.SINGLE_PUT,
                 1,
                 Bytes.sha256(Bytes.utf8("lifecycle")));
-        final ProfileSemanticEnvelopeV1 profile =
-                new ProfileSemanticEnvelopeV1(ProfileKindV1.OBJECT_STORE, Bytes.utf8("payload-store"), 1, objectStore);
+        final ProfileSemanticEnvelope profile =
+                new ProfileSemanticEnvelope(ProfileKind.OBJECT_STORE, Bytes.utf8("payload-store"), 1, objectStore);
         final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
         final CommandId commandId = CommandId.random(shard);
         final DelayMessageId messageId = DelayMessageId.random(shard);
@@ -170,8 +170,8 @@ class S3CompatiblePayloadObjectStoreTest {
 
     private record Fixture(
             KeyPair keyPair,
-            PayloadProofTrustSetSemanticV1 trustSet,
-            ProfileSemanticEnvelopeV1 profile,
+            PayloadProofTrustSetSemantic trustSet,
+            ProfileSemanticEnvelope profile,
             PayloadReservation reservation) {}
 
     private static final class FakeS3Server implements AutoCloseable {

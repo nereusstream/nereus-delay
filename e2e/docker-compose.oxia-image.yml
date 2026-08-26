@@ -1,4 +1,4 @@
 services:
   oxia:
-    image: ${NEREUS_DELAY_V1_CAPACITY_OXIA_IMAGE}
+    image: ${NEREUS_DELAY__CAPACITY_OXIA_IMAGE}
     build: !reset null

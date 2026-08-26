@@ -169,16 +169,16 @@ final class QueryCodecSupport {
     }
 
     static SourcePosition decodeSourcePosition(final byte[] encoded) {
-        final List<CanonicalProtobuf.Reader.Field> outer = read(encoded, "SourcePositionV1");
+        final List<CanonicalProtobuf.Reader.Field> outer = read(encoded, "SourcePosition");
         if (outer.size() != 1) {
-            throw new IllegalArgumentException("SourcePositionV1 must select one branch");
+            throw new IllegalArgumentException("SourcePosition must select one branch");
         }
         final CanonicalProtobuf.Reader.Field branch = outer.get(0);
         final List<CanonicalProtobuf.Reader.Field> fields =
                 read(nested(branch, branch.number()), "SourcePosition branch");
         if (branch.number() == KAFKA_SOURCE_BRANCH) {
             if (fields.size() != 6 && fields.size() != 7) {
-                throw new IllegalArgumentException("invalid Kafka SourcePositionV1 fields");
+                throw new IllegalArgumentException("invalid Kafka SourcePosition fields");
             }
             final byte[] route = fixed(fields.get(0), 1, RouteIncarnation.LENGTH);
             final String cluster = utf8(bytes(fields.get(1), 2), "authenticatedClusterId");
@@ -189,12 +189,12 @@ final class QueryCodecSupport {
             if (fields.size() == 7) {
                 leaderEpoch = uint32Bits(fields.get(5), 6);
                 if (fields.get(6).number() != 7) {
-                    throw new IllegalArgumentException("invalid Kafka SourcePositionV1 leader epoch order");
+                    throw new IllegalArgumentException("invalid Kafka SourcePosition leader epoch order");
                 }
             } else {
                 leaderEpoch = null;
                 if (fields.get(5).number() != 7) {
-                    throw new IllegalArgumentException("invalid Kafka SourcePositionV1 append time");
+                    throw new IllegalArgumentException("invalid Kafka SourcePosition append time");
                 }
             }
             final long appendTime = uint(fields.get(fields.size() - 1), 7);
@@ -207,7 +207,7 @@ final class QueryCodecSupport {
                     appendTime);
         }
         if (branch.number() == PULSAR_SOURCE_BRANCH) {
-            requireNumbers(fields, new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, "Pulsar SourcePositionV1");
+            requireNumbers(fields, new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, "Pulsar SourcePosition");
             final byte[] route = fixed(fields.get(0), 1, RouteIncarnation.LENGTH);
             final byte[] resource = fixed(fields.get(1), 2, 32);
             final String topic = utf8(bytes(fields.get(2), 3), "physicalTopic");
@@ -234,7 +234,7 @@ final class QueryCodecSupport {
                     entryKind,
                     timestamp);
         }
-        throw new IllegalArgumentException("unknown SourcePositionV1 branch: " + branch.number());
+        throw new IllegalArgumentException("unknown SourcePosition branch: " + branch.number());
     }
 
     private static String utf8(final byte[] value, final String name) {

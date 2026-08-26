@@ -5,20 +5,20 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
-import com.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
+import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
-import com.nereusstream.delay.protocol.QuotaGrantRefV1;
+import com.nereusstream.delay.protocol.QuotaGrantRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClass;
@@ -48,7 +48,7 @@ class CheckpointRestoreCoordinatorTest {
         final byte[] payload = Bytes.utf8("restore-coordinator-payload");
         final byte[] checkpointId = bytes(16, 1);
         final byte[] lineage = bytes(16, 2);
-        final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshotFor(shardId);
+        final CompatibleControlSnapshot controlSnapshot = controlSnapshotFor(shardId);
         final byte[] dbIdentity;
         final UUID sourceStoreIncarnation;
         final KafkaSourcePosition appliedPosition =
@@ -75,7 +75,7 @@ class CheckpointRestoreCoordinatorTest {
                         Bytes.utf8("version-1"),
                         null))
                 .toList();
-        final OwnerIdentityV1 owner = new OwnerIdentityV1(bytes(8, 3), bytes(8, 4), 9, bytes(32, 5));
+        final OwnerIdentity owner = new OwnerIdentity(bytes(8, 3), bytes(8, 4), 9, bytes(32, 5));
         final CheckpointManifest manifest = new CheckpointManifest(
                 checkpointId,
                 lineage,
@@ -95,10 +95,10 @@ class CheckpointRestoreCoordinatorTest {
                 bytes(32, 8),
                 List.of(),
                 files);
-        final ProfileRefV1 profile =
-                new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, bytes(32, 9), ProfileKindV1.OBJECT_STORE);
-        final CheckpointUploadIntentV1 pending = new CheckpointUploadIntentV1(
-                new ShardSubjectV1(shardId),
+        final ProfileRef profile =
+                new ProfileRef(Bytes.utf8("checkpoint-store"), 1, bytes(32, 9), ProfileKind.OBJECT_STORE);
+        final CheckpointUploadIntent pending = new CheckpointUploadIntent(
+                new ShardSubject(shardId),
                 lineage,
                 checkpointId,
                 owner,
@@ -110,14 +110,14 @@ class CheckpointRestoreCoordinatorTest {
                 profile,
                 evidence(1_000),
                 5_000,
-                CheckpointUploadStateV1.PENDING_UPLOAD,
+                CheckpointUploadState.PENDING_UPLOAD,
                 1,
                 null,
                 null);
         final CheckpointManifestLimits limits = new CheckpointManifestLimits(
                 128, 64L * 1024 * 1024, 64L * 1024 * 1024, 4096, 4 * 1024 * 1024, 128, 4096);
         final Path objectRoot = tempDir.resolve("object-store");
-        final CheckpointResourceV1 resource = new FilesystemCheckpointUploadAdapter(objectRoot, "container", limits)
+        final CheckpointResource resource = new FilesystemCheckpointUploadAdapter(objectRoot, "container", limits)
                 .upload(new CheckpointUploadRequest(
                         pending, manifest, sourceCheckpoint, manifest.canonicalJsonBytes()));
         final CheckpointDownloadRequest request = new CheckpointDownloadRequest(manifest, resource);
@@ -167,11 +167,11 @@ class CheckpointRestoreCoordinatorTest {
     void rejectsAProviderPathOutsideTheCoordinatorStagingBoundary() throws Exception {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 12);
         final CheckpointManifest manifest = minimalManifest(shardId);
-        final ProfileRefV1 profile =
-                new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, bytes(32, 30), ProfileKindV1.OBJECT_STORE);
-        final OwnerIdentityV1 owner = new OwnerIdentityV1(bytes(8, 31), bytes(8, 32), 1, bytes(32, 33));
-        final CheckpointUploadIntentV1 pending = new CheckpointUploadIntentV1(
-                new ShardSubjectV1(shardId),
+        final ProfileRef profile =
+                new ProfileRef(Bytes.utf8("checkpoint-store"), 1, bytes(32, 30), ProfileKind.OBJECT_STORE);
+        final OwnerIdentity owner = new OwnerIdentity(bytes(8, 31), bytes(8, 32), 1, bytes(32, 33));
+        final CheckpointUploadIntent pending = new CheckpointUploadIntent(
+                new ShardSubject(shardId),
                 manifest.recoveryLineageId(),
                 manifest.checkpointId(),
                 owner,
@@ -183,11 +183,11 @@ class CheckpointRestoreCoordinatorTest {
                 profile,
                 evidence(1),
                 100,
-                CheckpointUploadStateV1.PENDING_UPLOAD,
+                CheckpointUploadState.PENDING_UPLOAD,
                 1,
                 null,
                 null);
-        final CheckpointResourceV1 resource = new CheckpointResourceV1(
+        final CheckpointResource resource = new CheckpointResource(
                 manifest.recoveryLineageId(),
                 manifest.checkpointId(),
                 profile,
@@ -239,9 +239,9 @@ class CheckpointRestoreCoordinatorTest {
     void restoreQueueRejectionDoesNotCallProviderOrCreateStaging() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 13);
         final CheckpointManifest manifest = minimalManifest(shardId);
-        final ProfileRefV1 profile =
-                new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, bytes(32, 70), ProfileKindV1.OBJECT_STORE);
-        final CheckpointResourceV1 resource = new CheckpointResourceV1(
+        final ProfileRef profile =
+                new ProfileRef(Bytes.utf8("checkpoint-store"), 1, bytes(32, 70), ProfileKind.OBJECT_STORE);
+        final CheckpointResource resource = new CheckpointResource(
                 manifest.recoveryLineageId(),
                 manifest.checkpointId(),
                 profile,
@@ -279,7 +279,7 @@ class CheckpointRestoreCoordinatorTest {
 
     private static CheckpointManifest minimalManifest(final ShardId shardId) {
         final UUID sourceStore = UUID.randomUUID();
-        final OwnerIdentityV1 owner = new OwnerIdentityV1(bytes(8, 40), bytes(8, 41), 1, bytes(32, 42));
+        final OwnerIdentity owner = new OwnerIdentity(bytes(8, 40), bytes(8, 41), 1, bytes(32, 42));
         final KafkaSourcePosition position =
                 new KafkaSourcePosition(shardId, "cluster", UUID.randomUUID(), 0, null, 1_000);
         final CheckpointManifest.FileEntry file = new CheckpointManifest.FileEntry(
@@ -305,12 +305,12 @@ class CheckpointRestoreCoordinatorTest {
                 List.of(file));
     }
 
-    private static CompatibleControlSnapshotV1 controlSnapshotFor(final ShardId shardId) {
-        return new CompatibleControlSnapshotV1(
-                new ShardSubjectV1(shardId),
-                List.of(new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1)),
-                List.of(new ProfileRefV1(bytes(32, 50), 1, bytes(32, 51), ProfileKindV1.DESTINATION)),
-                new QuotaGrantRefV1(
+    private static CompatibleControlSnapshot controlSnapshotFor(final ShardId shardId) {
+        return new CompatibleControlSnapshot(
+                new ShardSubject(shardId),
+                List.of(new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1)),
+                List.of(new ProfileRef(bytes(32, 50), 1, bytes(32, 51), ProfileKind.DESTINATION)),
+                new QuotaGrantRef(
                         bytes(32, 52),
                         1,
                         new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));

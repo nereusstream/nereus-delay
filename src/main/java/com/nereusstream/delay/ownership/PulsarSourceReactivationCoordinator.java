@@ -1,8 +1,8 @@
 package com.nereusstream.delay.ownership;
 
-import com.nereusstream.delay.protocol.ActivationBarrierV1;
+import com.nereusstream.delay.protocol.ActivationBarrier;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.RouteSnapshotV1;
+import com.nereusstream.delay.protocol.RouteSnapshot;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.route.RouteSnapshotProvider;
 import com.nereusstream.delay.semantic.AuthenticatedTenantContext;
@@ -13,9 +13,9 @@ import java.util.Optional;
 /**
  * Oxia authority sequence for reactivating a Pulsar source after reconnect.
  *
- * <p>The old Owner is fenced before the old source is closed.  A caller must
+ * <p>The old Owner is fenced before the old source is closed. A caller must
  * then prove that the old runtime is quiescent, after which the old lease is
- * released and the successor assignment is published by revision CAS.  Only
+ * released and the successor assignment is published by revision CAS. Only
  * that published successor can acquire the next context-bound Owner Lease.</p>
  */
 public final class PulsarSourceReactivationCoordinator {
@@ -37,7 +37,7 @@ public final class PulsarSourceReactivationCoordinator {
             final AuthenticatedTenantContext context,
             final WorkerAssignmentAuthority.Publication expectedPublication,
             final OwnerLease expectedLease,
-            final PulsarSourceReactivationV1 reactivation,
+            final PulsarSourceReactivation reactivation,
             final long nowEpochMs) {
         Objects.requireNonNull(context, "context");
         Objects.requireNonNull(expectedPublication, "expectedPublication");
@@ -51,7 +51,7 @@ public final class PulsarSourceReactivationCoordinator {
         if (!previous.workerId().equals(expectedLease.ownerId())) {
             throw new IllegalArgumentException("Owner Lease is held by a different Worker");
         }
-        final RouteSnapshotV1 route =
+        final RouteSnapshot route =
                 routeProvider.exact(reactivation.previousAssignment().shardId().routeIncarnation(), context);
         requireRoute(route, context, reactivation);
         final WorkerAssignmentAuthority.Publication observedPublication = assignmentAuthority
@@ -199,7 +199,7 @@ public final class PulsarSourceReactivationCoordinator {
     }
 
     private static void requirePreviousAssignment(
-            final WorkerAssignment previous, final PulsarSourceReactivationV1 reactivation) {
+            final WorkerAssignment previous, final PulsarSourceReactivation reactivation) {
         if (!previous.routeBound()
                 || !Bytes.constantTimeEquals(previous.routeSnapshotDigest(), reactivation.routeSnapshotDigest())
                 || !previous.sourceAssignment().sameIdentity(reactivation.previousAssignment())) {
@@ -208,9 +208,9 @@ public final class PulsarSourceReactivationCoordinator {
     }
 
     private static void requireRoute(
-            final RouteSnapshotV1 route,
+            final RouteSnapshot route,
             final AuthenticatedTenantContext context,
-            final PulsarSourceReactivationV1 reactivation) {
+            final PulsarSourceReactivation reactivation) {
         if (route == null) {
             throw new IllegalArgumentException("Pulsar reactivation Route snapshot is unavailable");
         }
@@ -219,7 +219,7 @@ public final class PulsarSourceReactivationCoordinator {
             throw new IllegalArgumentException("Pulsar reactivation Route snapshot digest changed");
         }
         final int partition = reactivation.previousAssignment().shardId().partition();
-        final ActivationBarrierV1 routeBarrier;
+        final ActivationBarrier routeBarrier;
         try {
             routeBarrier = route.partitionPolicy(partition).activationBarrier();
         } catch (RuntimeException failure) {
@@ -284,7 +284,7 @@ public final class PulsarSourceReactivationCoordinator {
             WorkerAssignmentAuthority.Publication expectedPublication,
             OwnerLease expectedLease,
             OwnerLease fencedLease,
-            PulsarSourceReactivationV1 reactivation) {
+            PulsarSourceReactivation reactivation) {
         public FencedPlan {
             Objects.requireNonNull(expectedPublication, "expectedPublication");
             Objects.requireNonNull(expectedLease, "expectedLease");

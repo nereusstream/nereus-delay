@@ -1,6 +1,6 @@
 package com.nereusstream.delay.ownership;
 
-import com.nereusstream.delay.protocol.ActiveLaneStateV1;
+import com.nereusstream.delay.protocol.ActiveLaneState;
 import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.AdmissionGate;
@@ -23,15 +23,15 @@ import java.util.function.LongSupplier;
  * Production composition for the active-owner scheduling boundary of one
  * Delay Shard.
  *
- * <p>Activation supplies the exact active Lane projection.  This class
+ * <p>Activation supplies the exact active Lane projection. This class
  * restores the persisted Lane fairness state, rebuilds the READY ring from
  * the authoritative Store, and routes due discovery through the bounded
- * {@code DUE_SCHEDULER} work class.  READY polling is a separate strict
+ * {@code DUE_SCHEDULER} work class. READY polling is a separate strict
  * Owner/Store action; it deliberately does not manufacture a Claim,
  * materialization, publish descriptor or external-time proof.</p>
  *
  * <p>Claim handoff, Publish Admission and checkpoint publication remain
- * explicit injected work-class boundaries.  Keeping those inputs explicit
+ * explicit injected work-class boundaries. Keeping those inputs explicit
  * prevents a local scheduler from becoming an authority for Profile,
  * Object Store, Broker or Oxia state.</p>
  */
@@ -73,7 +73,7 @@ public final class WorkerSchedulingRuntime {
             final OwnedDelayShard ownedShard,
             final OxiaOwnerLeaseStore authority,
             final ShardStore store,
-            final com.nereusstream.delay.protocol.OwnerIdentityV1 owner,
+            final com.nereusstream.delay.protocol.OwnerIdentity owner,
             final List<LaneRecord> activeLanes,
             final int maxReadyEntries) {
         final PersistentLaneScheduler scheduler = PersistentLaneScheduler.forActiveOwner(
@@ -96,7 +96,7 @@ public final class WorkerSchedulingRuntime {
             final OwnedDelayShard ownedShard,
             final OxiaOwnerLeaseStore authority,
             final ShardStore store,
-            final com.nereusstream.delay.protocol.OwnerIdentityV1 owner,
+            final com.nereusstream.delay.protocol.OwnerIdentity owner,
             final List<DestinationLaneId> laneIds,
             final int maxReadyEntries) {
         final OwnedDelayShard exactOwned = Objects.requireNonNull(ownedShard, "ownedShard");
@@ -108,9 +108,9 @@ public final class WorkerSchedulingRuntime {
             if (!seen.add(exactLaneId)) {
                 throw new IllegalArgumentException("typed Lane bootstrap contains a duplicate Lane");
             }
-            final ActiveLaneStateV1 typed = exactOwned.shard().getActiveLaneStateV1(exactLaneId);
+            final ActiveLaneState typed = exactOwned.shard().getActiveLaneState(exactLaneId);
             if (typed == null) {
-                throw new IllegalStateException("typed Lane bootstrap requires an ActiveLaneStateV1");
+                throw new IllegalStateException("typed Lane bootstrap requires an ActiveLaneState");
             }
             if (typed.admissionGate() != AdmissionGate.OPEN
                     || typed.runtimeReadiness() != RuntimeReadiness.READY
@@ -142,7 +142,7 @@ public final class WorkerSchedulingRuntime {
     }
 
     /**
-     * Submits and executes one exact bounded due-discovery action.  The
+     * Submits and executes one exact bounded due-discovery action. The
      * action is absent from the result until the shared work-class turn has
      * actually selected it.
      */
@@ -161,7 +161,7 @@ public final class WorkerSchedulingRuntime {
 
     /**
      * Polls one due READY slice only after rereading the strict active Owner
-     * boundary.  The returned item remains a scheduler Claim candidate; the
+     * boundary. The returned item remains a scheduler Claim candidate; the
      * caller must pass it to {@code ClaimHandoffWorkClassExecutor} with its
      * exact materialization, charge and prerequisite gate.
      */

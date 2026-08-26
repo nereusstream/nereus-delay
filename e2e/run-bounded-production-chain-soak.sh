@@ -74,9 +74,9 @@ require_checkout() {
   git -C "${path}" rev-parse HEAD
 }
 
-delay_source="$(require_checkout Delay "${delay_dir}" nereus/delay-full-implementation-v1 "${delay_base}")"
-kafka_source="$(require_checkout Kafka "${kafka_dir}" nereus/delay-guarded-producer-v1 "${kafka_base}")"
-pulsar_source="$(require_checkout Pulsar "${pulsar_dir}" nereus/delay-resource-guard-v1 "${pulsar_base}")"
+delay_source="$(require_checkout Delay "${delay_dir}" nereus/delay-full-implementation "${delay_base}")"
+kafka_source="$(require_checkout Kafka "${kafka_dir}" nereus/delay-guarded-producer "${kafka_base}")"
+pulsar_source="$(require_checkout Pulsar "${pulsar_dir}" nereus/delay-resource-guard "${pulsar_base}")"
 oxia_source="$(require_checkout Oxia "${oxia_dir}" main "")"
 
 test -x "${delay_dir}/gradlew"
@@ -420,7 +420,7 @@ fi
 
 soak_artifact="${artifact_dir}/production-chain-soak.json"
 jq -n \
-  --arg schema "nereus-delay-bounded-production-chain-soak-v1" \
+  --arg schema "nereus-delay-bounded-production-chain-soak" \
   --arg status "${soak_status}" \
   --arg artifact "${artifact_dir}" \
   --arg started_at "${started_at}" \
@@ -445,7 +445,7 @@ jq -n \
     cases: $cases[0],
     docker_policy: "Only the exact Compose projects and generated provider image tags emitted by these cases are eligible for removal; the locked MinIO base and unrelated images are retained; no global Docker prune is performed.",
     boundaries: [
-      "PASS_BOUNDED is repeated current-source production-chain evidence, not V1 release certification.",
+      "PASS_BOUNDED is repeated current-source production-chain evidence, not  release certification.",
       "The cases cover Kafka and Pulsar two-shard Large Payload destination egress plus one Kafka MinIO timeout-after-commit and one Pulsar MinIO 503-after-commit uncertainty path per cycle.",
       "This bounded harness does not prove the full section 23.3 fresh-process chaos matrix, the complete 23.4 capacity envelope, certified memory/FD/disk/aged-uncertainty soak, upgrade or disaster continuity gates.",
       "The release gate must continue to require independently source-locked PASS_CERTIFIED capacity, soak, activation/cutover, operations and chaos evidence."

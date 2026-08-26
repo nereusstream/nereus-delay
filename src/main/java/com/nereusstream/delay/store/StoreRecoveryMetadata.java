@@ -1,22 +1,22 @@
 package com.nereusstream.delay.store;
 
-import com.nereusstream.delay.protocol.RecoveryCandidateRefV1;
-import com.nereusstream.delay.protocol.RecoveryFloorRefV1;
-import com.nereusstream.delay.protocol.RecoveryInstallStateV1;
+import com.nereusstream.delay.protocol.RecoveryCandidateRef;
+import com.nereusstream.delay.protocol.RecoveryFloorRef;
+import com.nereusstream.delay.protocol.RecoveryInstallState;
 import java.util.Arrays;
 
 /**
  * Local meta/RECOVERY projections for one physical shard DB.
  *
- * <p>Missing projections are intentional for a fresh store.  They mean that
+ * <p>Missing projections are intentional for a fresh store. They mean that
  * the local DB has no recovery-reuse proof; callers must not synthesize a
  * candidate from a directory name or an ACTIVE pointer.</p>
  */
 public record StoreRecoveryMetadata(
-        RecoveryCandidateRefV1 lineageBase,
-        RecoveryFloorRefV1 lastObservedFloor,
+        RecoveryCandidateRef lineageBase,
+        RecoveryFloorRef lastObservedFloor,
         long catalogGeneration,
-        RecoveryInstallStateV1 installState) {
+        RecoveryInstallState installState) {
     public StoreRecoveryMetadata {
         if (lastObservedFloor == null && catalogGeneration != 0) {
             throw new IllegalArgumentException("catalog generation requires an observed Recovery Floor");
@@ -35,7 +35,7 @@ public record StoreRecoveryMetadata(
         return new StoreRecoveryMetadata(null, null, 0, null);
     }
 
-    public StoreRecoveryMetadata withInstallState(final RecoveryInstallStateV1 next) {
+    public StoreRecoveryMetadata withInstallState(final RecoveryInstallState next) {
         return new StoreRecoveryMetadata(lineageBase, lastObservedFloor, catalogGeneration, next);
     }
 
@@ -43,12 +43,12 @@ public record StoreRecoveryMetadata(
         return lineageBase != null
                 && lastObservedFloor != null
                 && installState != null
-                && installState.phase() != com.nereusstream.delay.protocol.RecoveryInstallPhaseV1.STAGED
-                && installState.phase() != com.nereusstream.delay.protocol.RecoveryInstallPhaseV1.INSTALLED
+                && installState.phase() != com.nereusstream.delay.protocol.RecoveryInstallPhase.STAGED
+                && installState.phase() != com.nereusstream.delay.protocol.RecoveryInstallPhase.INSTALLED
                 && Arrays.equals(lineageBase.recoveryLineageId(), lastObservedFloor.recoveryLineageId());
     }
 
-    public boolean observesFloor(final RecoveryFloorRefV1 floor) {
+    public boolean observesFloor(final RecoveryFloorRef floor) {
         if (floor == null || lastObservedFloor == null) {
             return false;
         }
@@ -89,14 +89,13 @@ public record StoreRecoveryMetadata(
         if (left == null || right == null) {
             return false;
         }
-        if (left instanceof RecoveryCandidateRefV1 candidate
-                && right instanceof RecoveryCandidateRefV1 otherCandidate) {
+        if (left instanceof RecoveryCandidateRef candidate && right instanceof RecoveryCandidateRef otherCandidate) {
             return Arrays.equals(candidate.canonicalBytes(), otherCandidate.canonicalBytes());
         }
-        if (left instanceof RecoveryFloorRefV1 floor && right instanceof RecoveryFloorRefV1 otherFloor) {
+        if (left instanceof RecoveryFloorRef floor && right instanceof RecoveryFloorRef otherFloor) {
             return Arrays.equals(floor.canonicalBytes(), otherFloor.canonicalBytes());
         }
-        if (left instanceof RecoveryInstallStateV1 state && right instanceof RecoveryInstallStateV1 otherState) {
+        if (left instanceof RecoveryInstallState state && right instanceof RecoveryInstallState otherState) {
             return Arrays.equals(state.canonicalBytes(), otherState.canonicalBytes());
         }
         return left.equals(right);
@@ -106,13 +105,13 @@ public record StoreRecoveryMetadata(
         if (value == null) {
             return 0;
         }
-        if (value instanceof RecoveryCandidateRefV1 candidate) {
+        if (value instanceof RecoveryCandidateRef candidate) {
             return Arrays.hashCode(candidate.canonicalBytes());
         }
-        if (value instanceof RecoveryFloorRefV1 floor) {
+        if (value instanceof RecoveryFloorRef floor) {
             return Arrays.hashCode(floor.canonicalBytes());
         }
-        if (value instanceof RecoveryInstallStateV1 state) {
+        if (value instanceof RecoveryInstallState state) {
             return Arrays.hashCode(state.canonicalBytes());
         }
         return value.hashCode();

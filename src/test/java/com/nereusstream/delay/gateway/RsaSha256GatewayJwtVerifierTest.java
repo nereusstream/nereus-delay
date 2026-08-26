@@ -20,7 +20,7 @@ import org.junit.jupiter.api.Test;
 
 class RsaSha256GatewayJwtVerifierTest {
     private static final long NOW = 1_700_000_000L;
-    private static final byte[] CERTIFICATE_BYTES = Bytes.utf8("gateway-client-certificate-v1");
+    private static final byte[] CERTIFICATE_BYTES = Bytes.utf8("gateway-client-certificate");
 
     @Test
     void verifiesSignatureClaimsAudienceArrayAndMtlsConfirmation() throws Exception {
@@ -68,7 +68,7 @@ class RsaSha256GatewayJwtVerifierTest {
         final RsaSha256GatewayJwtVerifier verifier = verifier(keyPair);
         final String wrongIssuer = claims(
                         digest(31), digest(32), certificateFingerprint(), NOW - 10, NOW - 5, NOW + 300)
-                .replace("issuer-v1", "other-issuer");
+                .replace("issuer", "other-issuer");
         assertThrows(
                 IllegalArgumentException.class,
                 () -> verifier.verify(token(keyPair, header(), wrongIssuer), session(CERTIFICATE_BYTES)));
@@ -91,8 +91,8 @@ class RsaSha256GatewayJwtVerifierTest {
     private static RsaSha256GatewayJwtVerifier verifier(final KeyPair keyPair) {
         return new RsaSha256GatewayJwtVerifier(
                 keyPair.getPublic(),
-                "issuer-v1",
-                "delay-gateway-v1",
+                "issuer",
+                "delay-gateway",
                 "gateway-key-1",
                 Clock.fixed(Instant.ofEpochSecond(NOW), ZoneOffset.UTC),
                 30,
@@ -112,8 +112,8 @@ class RsaSha256GatewayJwtVerifierTest {
             final long expiresAt) {
         final String encodedFingerprint = encode(fingerprint);
         return "{"
-                + "\"iss\":\"issuer-v1\","
-                + "\"aud\":[\"other-audience\",\"delay-gateway-v1\"],"
+                + "\"iss\":\"issuer\","
+                + "\"aud\":[\"other-audience\",\"delay-gateway\"],"
                 + "\"sub\":\"client-operator\","
                 + "\"tenant\":\"tenant-a\","
                 + "\"tenant_scope_hash\":\"" + encode(tenantScope) + "\","

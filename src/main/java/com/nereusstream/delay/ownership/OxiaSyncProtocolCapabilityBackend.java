@@ -2,7 +2,7 @@ package com.nereusstream.delay.ownership;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.ProtocolCapabilityDeclarationV1;
+import com.nereusstream.delay.protocol.ProtocolCapabilityDeclaration;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.SyncOxiaClient;
@@ -23,14 +23,14 @@ import java.util.Set;
  * Revision-CAS Oxia authority for session-bound Worker protocol capabilities.
  *
  * <p>A handle-backed instance writes each declaration as an ephemeral record
- * and checks the exact Oxia session around every request.  The un-sessioned
+ * and checks the exact Oxia session around every request. The un-sessioned
  * constructor is retained for deterministic authority tests and controllers
  * that provide their own liveness fence.</p>
  */
 public final class OxiaSyncProtocolCapabilityBackend implements ProtocolCapabilityAuthority {
     private static final int RECORD_VERSION = 1;
     private static final int MAX_RECORD_BYTES = 256 * 1024;
-    private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-oxia-protocol-capability-record-v1\0");
+    private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-oxia-protocol-capability-record\0");
 
     private final RecordClient client;
     private final String keyPrefix;
@@ -73,7 +73,7 @@ public final class OxiaSyncProtocolCapabilityBackend implements ProtocolCapabili
     }
 
     @Override
-    public Publication publish(final ProtocolCapabilityDeclarationV1 declaration, final long expectedRevision) {
+    public Publication publish(final ProtocolCapabilityDeclaration declaration, final long expectedRevision) {
         Objects.requireNonNull(declaration, "declaration");
         if (expectedRevision < 0) {
             throw new IllegalArgumentException("expected capability revision must be non-negative");
@@ -189,7 +189,7 @@ public final class OxiaSyncProtocolCapabilityBackend implements ProtocolCapabili
         }
     }
 
-    private void requireDeclarationSession(final ProtocolCapabilityDeclarationV1 declaration) {
+    private void requireDeclarationSession(final ProtocolCapabilityDeclaration declaration) {
         if (!ephemeral) {
             return;
         }
@@ -210,14 +210,14 @@ public final class OxiaSyncProtocolCapabilityBackend implements ProtocolCapabili
     private static boolean exact(
             final Stored observed,
             final long revision,
-            final ProtocolCapabilityDeclarationV1 declaration,
+            final ProtocolCapabilityDeclaration declaration,
             final byte[] value) {
         return observed.publication().revision() == revision
                 && Arrays.equals(observed.publication().declaration().canonicalBytes(), declaration.canonicalBytes())
                 && Arrays.equals(observed.value(), value);
     }
 
-    private static byte[] encode(final long revision, final ProtocolCapabilityDeclarationV1 declaration) {
+    private static byte[] encode(final long revision, final ProtocolCapabilityDeclaration declaration) {
         final byte[] body = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, RECORD_VERSION);
             CanonicalProtobuf.uint64Bits(output, 2, revision);
@@ -251,7 +251,7 @@ public final class OxiaSyncProtocolCapabilityBackend implements ProtocolCapabili
         if (!Bytes.constantTimeEquals(fixed(fields.get(3), 4, 32), Bytes.sha256(DIGEST_DOMAIN, body))) {
             throw new IllegalStateException("Oxia protocol capability record digest mismatch");
         }
-        final ProtocolCapabilityDeclarationV1 declaration = ProtocolCapabilityDeclarationV1.decode(declarationBytes);
+        final ProtocolCapabilityDeclaration declaration = ProtocolCapabilityDeclaration.decode(declarationBytes);
         if (!Arrays.equals(encoded, encode(revision, declaration))) {
             throw new IllegalStateException("Oxia protocol capability record is not canonical");
         }

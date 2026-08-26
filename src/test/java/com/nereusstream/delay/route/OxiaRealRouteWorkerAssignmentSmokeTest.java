@@ -11,8 +11,8 @@ import com.nereusstream.delay.ownership.WorkerAssignment;
 import com.nereusstream.delay.ownership.WorkerAssignmentAuthority;
 import com.nereusstream.delay.ownership.WorkerAssignmentCoordinator;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CapacityDimensionV1;
-import com.nereusstream.delay.protocol.CapacityVectorV1;
+import com.nereusstream.delay.protocol.CapacityDimension;
+import com.nereusstream.delay.protocol.CapacityVector;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.semantic.AuthenticatedTenantContext;
 import com.nereusstream.delay.semantic.RouteSelectionHint;
@@ -64,7 +64,7 @@ class OxiaRealRouteWorkerAssignmentSmokeTest {
             final OxiaSignedRouteSnapshotProvider provider =
                     new OxiaSignedRouteSnapshotProvider(providerSession, routePrefix, keys.getPublic(), () -> 200);
             final var snapshot = OxiaSignedRouteSnapshotProviderTest.snapshot(
-                    keys, incarnation, com.nereusstream.delay.protocol.RouteLifecycleV1.ACTIVE_FOR_NEW, 1);
+                    keys, incarnation, com.nereusstream.delay.protocol.RouteLifecycle.ACTIVE_FOR_NEW, 1);
             assertEquals(1, publisher.publish(hint, snapshot, 0).revision());
             provider.refresh().toCompletableFuture().join();
 
@@ -125,7 +125,7 @@ class OxiaRealRouteWorkerAssignmentSmokeTest {
             final OxiaSignedRouteSnapshotProvider provider =
                     new OxiaSignedRouteSnapshotProvider(providerSession, routePrefix, keys.getPublic(), () -> 200);
             final var snapshot = OxiaSignedRouteSnapshotProviderTest.snapshot(
-                    keys, incarnation, com.nereusstream.delay.protocol.RouteLifecycleV1.ACTIVE_FOR_NEW, 1);
+                    keys, incarnation, com.nereusstream.delay.protocol.RouteLifecycle.ACTIVE_FOR_NEW, 1);
             assertEquals(1, publisher.publish(hint, snapshot, 0).revision());
             provider.refresh().toCompletableFuture().join();
 
@@ -196,8 +196,8 @@ class OxiaRealRouteWorkerAssignmentSmokeTest {
                 1,
                 candidates,
                 capacity(1),
-                CapacityVectorV1.empty(),
-                CapacityVectorV1.empty(),
+                CapacityVector.empty(),
+                CapacityVector.empty(),
                 null,
                 200,
                 0,
@@ -225,10 +225,10 @@ class OxiaRealRouteWorkerAssignmentSmokeTest {
                 0);
     }
 
-    private static CapacityVectorV1 capacity(final long dbInstances) {
-        final long[] values = new long[CapacityDimensionV1.COUNT];
-        values[CapacityDimensionV1.DB_INSTANCES.wireValue() - 1] = dbInstances;
-        return new CapacityVectorV1(values);
+    private static CapacityVector capacity(final long dbInstances) {
+        final long[] values = new long[CapacityDimension.COUNT];
+        values[CapacityDimension.DB_INSTANCES.wireValue() - 1] = dbInstances;
+        return new CapacityVector(values);
     }
 
     private static AuthenticatedTenantContext tenant() {

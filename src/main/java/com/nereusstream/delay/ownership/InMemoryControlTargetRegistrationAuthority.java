@@ -1,9 +1,9 @@
 package com.nereusstream.delay.ownership;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.ControlTargetMutationBindingV1;
-import com.nereusstream.delay.protocol.ControlTargetRefV1;
-import com.nereusstream.delay.protocol.PreparedControlOperationV1;
+import com.nereusstream.delay.protocol.ControlTargetMutationBinding;
+import com.nereusstream.delay.protocol.ControlTargetRef;
+import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.SystemMutation;
 import java.util.HashMap;
 import java.util.Map;
@@ -12,13 +12,13 @@ import java.util.Optional;
 
 /** Deterministic local model for immutable Control target registration. */
 public final class InMemoryControlTargetRegistrationAuthority implements ControlTargetRegistrationAuthority {
-    private final Map<String, PreparedControlOperationV1> operations = new HashMap<>();
+    private final Map<String, PreparedControlOperation> operations = new HashMap<>();
 
     @Override
-    public synchronized RegistrationResult register(final PreparedControlOperationV1 prepared) {
+    public synchronized RegistrationResult register(final PreparedControlOperation prepared) {
         Objects.requireNonNull(prepared, "prepared");
         final String key = key(prepared.operationId());
-        final PreparedControlOperationV1 existing = operations.get(key);
+        final PreparedControlOperation existing = operations.get(key);
         if (existing == null) {
             operations.put(key, prepared);
             return RegistrationResult.RECORDED;
@@ -30,20 +30,20 @@ public final class InMemoryControlTargetRegistrationAuthority implements Control
     }
 
     @Override
-    public synchronized Optional<PreparedControlOperationV1> find(final byte[] operationId) {
+    public synchronized Optional<PreparedControlOperation> find(final byte[] operationId) {
         Objects.requireNonNull(operationId, "operationId");
         return Optional.ofNullable(operations.get(key(operationId)));
     }
 
     @Override
     public synchronized void validateMutation(
-            final PreparedControlOperationV1 prepared, final ControlTargetRefV1 target, final SystemMutation mutation) {
+            final PreparedControlOperation prepared, final ControlTargetRef target, final SystemMutation mutation) {
         Objects.requireNonNull(prepared, "prepared");
-        final PreparedControlOperationV1 registered = operations.get(key(prepared.operationId()));
+        final PreparedControlOperation registered = operations.get(key(prepared.operationId()));
         if (registered == null || !Bytes.constantTimeEquals(registered.canonicalBytes(), prepared.canonicalBytes())) {
             throw new IllegalArgumentException("Control operation has not been registered exactly");
         }
-        ControlTargetMutationBindingV1.validate(registered, target, mutation);
+        ControlTargetMutationBinding.validate(registered, target, mutation);
     }
 
     private static String key(final byte[] operationId) {

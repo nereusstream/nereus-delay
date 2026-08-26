@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.runtime.DelayShard;
@@ -166,7 +166,7 @@ class WorkerShardFleetRuntimeTest {
                             100)
                     .orElseThrow();
             store = ShardStore.open(config, shard, resources);
-            final OwnerIdentityV1 owner = new OwnerIdentityV1(
+            final OwnerIdentity owner = new OwnerIdentity(
                     Bytes.utf8("fleet-deployment"),
                     Bytes.utf8("fleet-worker-" + identity),
                     lease.ownerEpoch(),

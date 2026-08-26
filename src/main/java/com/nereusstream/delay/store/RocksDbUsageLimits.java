@@ -13,7 +13,7 @@ import java.util.Set;
  * Per-DB and Worker hard limits for a physical RocksDB usage observation.
  *
  * <p>This guard is intentionally explicit and checked: it never treats a
- * missing or overflowing counter as unlimited.  Dynamic admission, cgroup
+ * missing or overflowing counter as unlimited. Dynamic admission, cgroup
  * probes and placement authority still belong to the Worker/runtime layer.</p>
  */
 public record RocksDbUsageLimits(

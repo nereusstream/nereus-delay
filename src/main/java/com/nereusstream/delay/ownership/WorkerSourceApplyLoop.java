@@ -11,10 +11,10 @@ import java.util.function.LongSupplier;
  * Worker-facing source vertical for one owned shard.
  *
  * <p>The loop adapts a native source consumer to the bounded source apply
- * coordinator.  There is exactly one native look-ahead record.  A record is
+ * coordinator. There is exactly one native look-ahead record. A record is
  * polled once, retained across queue rejection, Store failure and ACK
  * uncertainty, and is eligible for the next native poll only after a
- * successful ACK and cursor advance.  The class intentionally does not
+ * successful ACK and cursor advance. The class intentionally does not
  * create a Kafka/Pulsar client; those adapters supply {@link
  * SourceRecordConsumer} and therefore remain independently testable.</p>
  */
@@ -50,7 +50,7 @@ public final class WorkerSourceApplyLoop implements AutoCloseable {
 
     /**
      * Closes the native source only after the coordinator has no pending
-     * record.  Closing with an unproven ACK would discard the broker retry
+     * record. Closing with an unproven ACK would discard the broker retry
      * authority and is therefore rejected. A native close failure leaves the
      * loop retryable instead of masquerading as completed source teardown.
      */

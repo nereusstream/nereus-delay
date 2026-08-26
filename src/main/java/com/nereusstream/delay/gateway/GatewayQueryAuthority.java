@@ -1,7 +1,7 @@
 package com.nereusstream.delay.gateway;
 
-import com.nereusstream.delay.protocol.CommandQueryResponseV1;
-import com.nereusstream.delay.protocol.MessageQueryResponseV1;
+import com.nereusstream.delay.protocol.CommandQueryResponse;
+import com.nereusstream.delay.protocol.MessageQueryResponse;
 import com.nereusstream.delay.semantic.AuthenticatedTenantContext;
 import java.util.List;
 import java.util.concurrent.CompletionStage;
@@ -13,12 +13,12 @@ import java.util.concurrent.CompletionStage;
  * locators and responses.
  */
 public interface GatewayQueryAuthority {
-    CompletionStage<CommandQueryResponseV1> getCommandResult(
-            AuthenticatedTenantContext tenant, GatewayGetCommandResultRequestV1 request);
+    CompletionStage<CommandQueryResponse> getCommandResult(
+            AuthenticatedTenantContext tenant, GatewayGetCommandResultRequest request);
 
-    CompletionStage<List<CommandQueryResponseV1>> awaitApplied(
-            AuthenticatedTenantContext tenant, GatewayAwaitAppliedRequestV1 request);
+    CompletionStage<List<CommandQueryResponse>> awaitApplied(
+            AuthenticatedTenantContext tenant, GatewayAwaitAppliedRequest request);
 
-    CompletionStage<MessageQueryResponseV1> getMessage(
-            AuthenticatedTenantContext tenant, GatewayGetMessageRequestV1 request);
+    CompletionStage<MessageQueryResponse> getMessage(
+            AuthenticatedTenantContext tenant, GatewayGetMessageRequest request);
 }

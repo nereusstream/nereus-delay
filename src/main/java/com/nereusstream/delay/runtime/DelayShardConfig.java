@@ -24,7 +24,7 @@ public record DelayShardConfig(
     /**
      * Compatibility constructor for the pre-retry-policy embedded config.
      * The safety cap follows the shard's pending-message bound until a pinned
-     * RetryPolicySemanticV1 supplies a smaller per-generation value.
+     * RetryPolicySemantic supplies a smaller per-generation value.
      */
     public DelayShardConfig(
             final long maxDelayHorizonMs,

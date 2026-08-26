@@ -1,6 +1,6 @@
 package com.nereusstream.delay.adapter;
 
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
@@ -21,7 +21,7 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
     }
 
     /**
-     * Creates an adapter with an explicit managed timing policy.  The policy
+     * Creates an adapter with an explicit managed timing policy. The policy
      * is a local pre-transport guard; Profile/capability authority remains
      * responsible for deciding whether the certified handoff is permitted.
      */
@@ -63,7 +63,7 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
             final DestinationPublishRequest request,
             final SourcePosition sourcePosition,
             final byte[] preparedPublishHash) {
-        // The source and target adapters may differ.  The source position is
+        // The source and target adapters may differ. The source position is
         // still bound to the exact Delay Shard, while the target transport
         // proves the independent Pulsar resource identity and SEND outcome.
         if (sourcePosition != null
@@ -115,7 +115,7 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
                 return handled == null ? UnobservedDestinationPublishStage.unknown() : handled;
             } catch (RuntimeException fallbackFailure) {
                 // Callback registration itself is not evidence that the
-                // Broker did not publish after Producer ownership.  Return a
+                // Broker did not publish after Producer ownership. Return a
                 // marked logical UNKNOWN so a physical-admission wrapper can
                 // retain the charge for certified teardown/release.
                 return UnobservedDestinationPublishStage.unknown();
@@ -136,9 +136,9 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
         if (result.disposition() != DestinationPublishResult.Disposition.PUBLISHED) {
             return result;
         }
-        final BrokerResourceIdentityV1 identity = result.brokerResource();
+        final BrokerResourceIdentity identity = result.brokerResource();
         if (identity == null
-                || identity.kind() != BrokerResourceIdentityV1.Kind.PULSAR
+                || identity.kind() != BrokerResourceIdentity.Kind.PULSAR
                 || !resource.authenticatedClusterId().equals(identity.pulsar().authenticatedClusterId())
                 || !java.util.Arrays.equals(
                         resource.resourceIncarnation(), identity.pulsar().resourceIncarnation())

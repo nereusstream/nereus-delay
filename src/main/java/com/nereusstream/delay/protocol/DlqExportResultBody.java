@@ -5,10 +5,10 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Semantic parser for the closed {@code DLQ_EXPORT_RESULT_V1} body.
+ * Semantic parser for the closed {@code DLQ_EXPORT_RESULT} body.
  *
  * <p>This class validates the identity, event, result-state and retry-domain
- * subset that can be checked without a live DLQ adapter.  Evidence branch
+ * subset that can be checked without a live DLQ adapter. Evidence branch
  * ownership and provider-specific proof remain adapter/service concerns.</p>
  */
 public final class DlqExportResultBody {
@@ -28,7 +28,7 @@ public final class DlqExportResultBody {
     private final TrustedUtcIntervalEvidence observedAt;
     private final byte[] retryDecision;
     private final RetryDecision parsedRetryDecision;
-    private final DlqExportStateV1 resultingState;
+    private final DlqExportState resultingState;
     private final int physicalAttemptNo;
 
     private DlqExportResultBody(
@@ -46,7 +46,7 @@ public final class DlqExportResultBody {
             final TrustedUtcIntervalEvidence observedAt,
             final byte[] retryDecision,
             final RetryDecision parsedRetryDecision,
-            final DlqExportStateV1 resultingState,
+            final DlqExportState resultingState,
             final int physicalAttemptNo) {
         this.dlqExportId = fixed(dlqExportId, "dlqExportId");
         this.messageId = fixed(messageId, DelayMessageId.LENGTH, "messageId");
@@ -72,7 +72,7 @@ public final class DlqExportResultBody {
         this.retryDecision = copy(retryDecision);
         this.parsedRetryDecision = Objects.requireNonNull(parsedRetryDecision, "parsedRetryDecision");
         this.resultingState = Objects.requireNonNull(resultingState, "resultingState");
-        if (resultingState == DlqExportStateV1.NOT_CONFIGURED || physicalAttemptNo == 0) {
+        if (resultingState == DlqExportState.NOT_CONFIGURED || physicalAttemptNo == 0) {
             throw new IllegalArgumentException("DLQ export result cannot target NOT_CONFIGURED or attempt zero");
         }
         this.physicalAttemptNo = physicalAttemptNo;
@@ -94,13 +94,13 @@ public final class DlqExportResultBody {
         final int disposition = boundedInt(unsigned(field(fields, 17), 17), "disposition");
         final StableCode stableCode = StableCode.fromWire(boundedInt(unsigned(field(fields, 18), 18), "stableCode"));
         final byte[] evidence = optionalNested(fields, 19);
-        final PublishEvidenceV1 evidenceValue = evidence.length == 0 ? null : PublishEvidenceV1.decode(evidence);
+        final PublishEvidence evidenceValue = evidence.length == 0 ? null : PublishEvidence.decode(evidence);
         final byte[] transfer = nested(field(fields, 20), 20);
         validateChargeVector(transfer);
         final TrustedUtcIntervalEvidence observedAt = TrustedUtcIntervalEvidence.decode(nested(field(fields, 21), 21));
         final byte[] retryDecision = nested(field(fields, 22), 22);
         final RetryDecision retry = decodeRetryDecision(retryDecision);
-        final DlqExportStateV1 resultingState = DlqExportStateV1.fromWire(unsigned(field(fields, 23), 23));
+        final DlqExportState resultingState = DlqExportState.fromWire(unsigned(field(fields, 23), 23));
         final int physicalAttemptNo = QueryCodecSupport.uint32Bits(field(fields, 24), 24);
         validateCombination(eventKind, sideEffect, disposition, stableCode, evidence, resultingState, retry);
         SystemMutationBodyCodec.requireMessageShard(fields, new DelayMessageId(messageId), "DLQ export result");
@@ -179,12 +179,12 @@ public final class DlqExportResultBody {
         return copy(retryDecision);
     }
 
-    /** Returns the strictly decoded RetryDecisionV1 for local policy validation. */
+    /** Returns the strictly decoded RetryDecision for local policy validation. */
     public RetryDecision parsedRetryDecision() {
         return parsedRetryDecision;
     }
 
-    public DlqExportStateV1 resultingState() {
+    public DlqExportState resultingState() {
         return resultingState;
     }
 
@@ -210,7 +210,7 @@ public final class DlqExportResultBody {
             final int disposition,
             final StableCode stableCode,
             final byte[] evidence,
-            final DlqExportStateV1 resultingState,
+            final DlqExportState resultingState,
             final RetryDecision retry) {
         if (eventKind == 2 && sideEffect == 3) {
             throw new IllegalArgumentException("evidence resolution cannot remain UNKNOWN");
@@ -219,7 +219,7 @@ public final class DlqExportResultBody {
             if (disposition != 0
                     || stableCode != StableCode.OK
                     || evidence.length == 0
-                    || resultingState != DlqExportStateV1.PUBLISHED
+                    || resultingState != DlqExportState.PUBLISHED
                     || retry.kind() != 1) {
                 throw new IllegalArgumentException("invalid PUBLISHED DLQ export combination");
             }
@@ -228,14 +228,14 @@ public final class DlqExportResultBody {
         if (sideEffect == 2) {
             if (disposition == 0
                     || evidence.length == 0
-                    || (resultingState != DlqExportStateV1.PENDING
-                            && resultingState != DlqExportStateV1.FAILED_PERMANENT)) {
+                    || (resultingState != DlqExportState.PENDING
+                            && resultingState != DlqExportState.FAILED_PERMANENT)) {
                 throw new IllegalArgumentException("invalid NOT_PUBLISHED DLQ export combination");
             }
-            if (resultingState == DlqExportStateV1.PENDING && retry.kind() != 2 && retry.kind() != 4) {
+            if (resultingState == DlqExportState.PENDING && retry.kind() != 2 && retry.kind() != 4) {
                 throw new IllegalArgumentException("pending DLQ export requires a scheduled retry decision");
             }
-            if (resultingState == DlqExportStateV1.FAILED_PERMANENT && retry.kind() != 1 && retry.kind() != 3) {
+            if (resultingState == DlqExportState.FAILED_PERMANENT && retry.kind() != 1 && retry.kind() != 3) {
                 throw new IllegalArgumentException("permanent DLQ export requires NONE or EXHAUSTED retry");
             }
             return;
@@ -243,13 +243,13 @@ public final class DlqExportResultBody {
         if (disposition == 0
                 || stableCode != StableCode.DLQ_EXPORT_OUTCOME_UNKNOWN
                 || evidence.length != 0
-                || (resultingState != DlqExportStateV1.PENDING && resultingState != DlqExportStateV1.UNCERTAIN)) {
+                || (resultingState != DlqExportState.PENDING && resultingState != DlqExportState.UNCERTAIN)) {
             throw new IllegalArgumentException("invalid UNKNOWN DLQ export combination");
         }
-        if (resultingState == DlqExportStateV1.PENDING && retry.kind() != 2) {
+        if (resultingState == DlqExportState.PENDING && retry.kind() != 2) {
             throw new IllegalArgumentException("unknown DLQ export retry must be scheduled");
         }
-        if (resultingState == DlqExportStateV1.UNCERTAIN && retry.kind() != 5) {
+        if (resultingState == DlqExportState.UNCERTAIN && retry.kind() != 5) {
             throw new IllegalArgumentException("unknown DLQ export hold must use UNCERTAIN_HOLD");
         }
     }
@@ -268,7 +268,7 @@ public final class DlqExportResultBody {
         if (kind < 1 || kind > 5) {
             throw new IllegalArgumentException("invalid retry decision kind");
         }
-        final RetryPolicyRefV1 policy = RetryPolicyRefV1.decode(nested(field(fields, 2), 2));
+        final RetryPolicyRef policy = RetryPolicyRef.decode(nested(field(fields, 2), 2));
         final long completedAttemptNo = uint32(field(fields, 3), 3);
         final long firstAttemptAt = unsigned(field(fields, 4), 4);
         final long retryDeadline = unsigned(field(fields, 5), 5);
@@ -309,7 +309,7 @@ public final class DlqExportResultBody {
     }
 
     private static byte[] evidenceId(final byte[] encoded) {
-        return PublishEvidenceV1.decode(encoded).evidenceId();
+        return PublishEvidence.decode(encoded).evidenceId();
     }
 
     private static byte[] optionalNested(final List<CanonicalProtobuf.Reader.Field> fields, final int number) {
@@ -411,7 +411,7 @@ public final class DlqExportResultBody {
         return fields;
     }
 
-    /** Strictly decoded DLQ RetryDecisionV1 fields retained beside the raw bytes. */
+    /** Strictly decoded DLQ RetryDecision fields retained beside the raw bytes. */
     public static final class RetryDecision {
         private final byte[] canonicalBytes;
         private final int kind;
@@ -419,7 +419,7 @@ public final class DlqExportResultBody {
         private final long firstAttemptAt;
         private final long retryDeadline;
         private final Long nextRetryAt;
-        private final RetryPolicyRefV1 policy;
+        private final RetryPolicyRef policy;
         private final StableCode cause;
         private final int retryDomain;
 
@@ -430,7 +430,7 @@ public final class DlqExportResultBody {
                 final long firstAttemptAt,
                 final long retryDeadline,
                 final Long nextRetryAt,
-                final RetryPolicyRefV1 policy,
+                final RetryPolicyRef policy,
                 final StableCode cause,
                 final int retryDomain) {
             this.canonicalBytes = copy(canonicalBytes);
@@ -475,7 +475,7 @@ public final class DlqExportResultBody {
             return nextRetryAt;
         }
 
-        public RetryPolicyRefV1 policy() {
+        public RetryPolicyRef policy() {
             return policy;
         }
 

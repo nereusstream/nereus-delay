@@ -1,7 +1,7 @@
 package com.nereusstream.delay.runtime;
 
-import com.nereusstream.delay.protocol.RetryPolicyRefV1;
-import com.nereusstream.delay.protocol.RetryPolicySemanticV1;
+import com.nereusstream.delay.protocol.RetryPolicyRef;
+import com.nereusstream.delay.protocol.RetryPolicySemantic;
 import com.nereusstream.delay.protocol.SourcePosition;
 
 /**
@@ -14,5 +14,5 @@ import com.nereusstream.delay.protocol.SourcePosition;
  */
 @FunctionalInterface
 public interface RetryPolicyCatalog {
-    RetryPolicySemanticV1 resolve(RetryPolicyRefV1 reference, SourcePosition sourcePosition);
+    RetryPolicySemantic resolve(RetryPolicyRef reference, SourcePosition sourcePosition);
 }

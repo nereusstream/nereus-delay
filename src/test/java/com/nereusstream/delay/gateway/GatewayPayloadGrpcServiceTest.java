@@ -4,33 +4,33 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.google.protobuf.ByteString;
-import com.nereusstream.delay.gateway.v1.GatewayAttestPayloadUploadRequestV1;
-import com.nereusstream.delay.gateway.v1.GatewayIssuePayloadUploadHandleRequestV1;
+import com.nereusstream.delay.gateway.wire.GatewayAttestPayloadUploadRequest;
+import com.nereusstream.delay.gateway.wire.GatewayIssuePayloadUploadHandleRequest;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CanonicalPayloadCommitProof;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.DelayMessageId;
-import com.nereusstream.delay.protocol.FailureStageV1;
+import com.nereusstream.delay.protocol.FailureStage;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.MessagePreconditionV1;
-import com.nereusstream.delay.protocol.OpaquePayloadUploadHandleV1;
-import com.nereusstream.delay.protocol.PayloadAttestationOutcomeV1;
-import com.nereusstream.delay.protocol.PayloadAttestationResponseV1;
-import com.nereusstream.delay.protocol.PayloadCommitProofV1;
-import com.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
-import com.nereusstream.delay.protocol.PayloadReservationReceiptV1;
-import com.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
+import com.nereusstream.delay.protocol.MessagePrecondition;
+import com.nereusstream.delay.protocol.OpaquePayloadUploadHandle;
+import com.nereusstream.delay.protocol.PayloadAttestationOutcome;
+import com.nereusstream.delay.protocol.PayloadAttestationResponse;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetRef;
+import com.nereusstream.delay.protocol.PayloadReservationReceipt;
+import com.nereusstream.delay.protocol.PayloadUploadHandleResponse;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.StableCode;
-import com.nereusstream.delay.protocol.StableErrorV1;
-import com.nereusstream.delay.protocol.SubmissionModeV1;
-import com.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
-import com.nereusstream.delay.protocol.UploadHandleKindV1;
+import com.nereusstream.delay.protocol.StableError;
+import com.nereusstream.delay.protocol.SubmissionMode;
+import com.nereusstream.delay.protocol.SubmissionOutcomeMessage;
+import com.nereusstream.delay.protocol.UploadHandleKind;
 import com.nereusstream.delay.semantic.AuthenticatedTenantContext;
 import com.nereusstream.delay.semantic.DelaySemanticCore;
-import com.nereusstream.delay.semantic.LargeSchedulePreparationV1;
+import com.nereusstream.delay.semantic.LargeSchedulePreparation;
 import com.nereusstream.delay.semantic.RouteSelectionHint;
 import com.nereusstream.delay.semantic.TrustedClock;
 import com.nereusstream.delay.submission.SubmissionCoordinator;
@@ -51,31 +51,31 @@ class GatewayPayloadGrpcServiceTest {
         final PayloadFixture fixture = fixture();
         final GatewayPayloadAuthority authority = new GatewayPayloadAuthority() {
             @Override
-            public CompletionStage<PayloadUploadHandleResponseV1> issueUploadHandle(
+            public CompletionStage<PayloadUploadHandleResponse> issueUploadHandle(
                     final AuthenticatedTenantContext context,
-                    final PayloadReservationReceiptV1 receipt,
-                    final UploadHandleKindV1 kind,
+                    final PayloadReservationReceipt receipt,
+                    final UploadHandleKind kind,
                     final long nowEpochMs) {
                 assertEquals(tenant, context);
                 assertEquals(fixture.receipt, receipt);
-                assertEquals(UploadHandleKindV1.OPAQUE_SINGLE_PUT, kind);
+                assertEquals(UploadHandleKind.OPAQUE_SINGLE_PUT, kind);
                 assertEquals(100, nowEpochMs);
-                return CompletableFuture.completedFuture(PayloadUploadHandleResponseV1.issued(fixture.handle));
+                return CompletableFuture.completedFuture(PayloadUploadHandleResponse.issued(fixture.handle));
             }
 
             @Override
-            public CompletionStage<PayloadAttestationResponseV1> attestUpload(
+            public CompletionStage<PayloadAttestationResponse> attestUpload(
                     final AuthenticatedTenantContext context,
-                    final PayloadReservationReceiptV1 receipt,
-                    final OpaquePayloadUploadHandleV1 handle,
+                    final PayloadReservationReceipt receipt,
+                    final OpaquePayloadUploadHandle handle,
                     final long nowEpochMs) {
                 assertEquals(tenant, context);
                 assertEquals(fixture.receipt, receipt);
                 assertEquals(fixture.handle, handle);
-                return CompletableFuture.completedFuture(PayloadAttestationResponseV1.error(
-                        PayloadAttestationOutcomeV1.OBJECT_NOT_READY_RETRYABLE,
-                        StableErrorV1.of(
-                                FailureStageV1.PAYLOAD,
+                return CompletableFuture.completedFuture(PayloadAttestationResponse.error(
+                        PayloadAttestationOutcome.OBJECT_NOT_READY_RETRYABLE,
+                        StableError.of(
+                                FailureStage.PAYLOAD,
                                 StableCode.OBJECT_NOT_READY_RETRYABLE,
                                 1_100L,
                                 null,
@@ -93,34 +93,33 @@ class GatewayPayloadGrpcServiceTest {
 
         final UploadObserver upload = new UploadObserver();
         service.issuePayloadUploadHandle(
-                GatewayIssuePayloadUploadHandleRequestV1.newBuilder()
-                        .setPayloadReservationReceiptV1(ByteString.copyFrom(fixture.receipt.payload()))
-                        .setUploadHandleKind(UploadHandleKindV1.OPAQUE_SINGLE_PUT.wireValue())
+                GatewayIssuePayloadUploadHandleRequest.newBuilder()
+                        .setPayloadReservationReceipt(ByteString.copyFrom(fixture.receipt.payload()))
+                        .setUploadHandleKind(UploadHandleKind.OPAQUE_SINGLE_PUT.wireValue())
                         .build(),
                 upload);
         assertNull(upload.failure);
         assertTrue(upload.completed);
         assertEquals(
                 fixture.handle,
-                PayloadUploadHandleResponseV1.decode(upload.response
-                                .getPayloadUploadHandleResponseV1()
-                                .toByteArray())
+                PayloadUploadHandleResponse.decode(
+                                upload.response.getPayloadUploadHandleResponse().toByteArray())
                         .issued());
 
         final AttestationObserver attestation = new AttestationObserver();
         service.attestPayloadUpload(
-                GatewayAttestPayloadUploadRequestV1.newBuilder()
-                        .setPayloadReservationReceiptV1(ByteString.copyFrom(fixture.receipt.payload()))
-                        .setOpaquePayloadUploadHandleV1(ByteString.copyFrom(fixture.handle.canonicalBytes()))
+                GatewayAttestPayloadUploadRequest.newBuilder()
+                        .setPayloadReservationReceipt(ByteString.copyFrom(fixture.receipt.payload()))
+                        .setOpaquePayloadUploadHandle(ByteString.copyFrom(fixture.handle.canonicalBytes()))
                         .build(),
                 attestation);
         assertNull(attestation.failure);
         assertTrue(attestation.completed);
         assertEquals(
-                PayloadAttestationOutcomeV1.OBJECT_NOT_READY_RETRYABLE,
-                PayloadAttestationResponseV1.decode(attestation
+                PayloadAttestationOutcome.OBJECT_NOT_READY_RETRYABLE,
+                PayloadAttestationResponse.decode(attestation
                                 .response
-                                .getPayloadAttestationResponseV1()
+                                .getPayloadAttestationResponse()
                                 .toByteArray())
                         .outcome());
     }
@@ -141,11 +140,11 @@ class GatewayPayloadGrpcServiceTest {
     private static PayloadFixture fixture() {
         final ShardId shard = new ShardId(com.nereusstream.delay.protocol.RouteIncarnation.random(), 0);
         final DelayMessageId messageId = DelayMessageId.random(shard);
-        final ProfileRefV1 profile =
-                new ProfileRefV1(Bytes.utf8("object-store"), 1, bytes(32, 30), ProfileKindV1.OBJECT_STORE);
-        final PayloadProofTrustSetRefV1 trustSet = new PayloadProofTrustSetRefV1(1, bytes(32, 31));
+        final ProfileRef profile =
+                new ProfileRef(Bytes.utf8("object-store"), 1, bytes(32, 30), ProfileKind.OBJECT_STORE);
+        final PayloadProofTrustSetRef trustSet = new PayloadProofTrustSetRef(1, bytes(32, 31));
         final KafkaSourcePosition source = new KafkaSourcePosition(shard, "gateway", UUID.randomUUID(), 3, null, 100);
-        final PayloadReservationReceiptV1 receipt = PayloadReservationReceiptV1.create(
+        final PayloadReservationReceipt receipt = PayloadReservationReceipt.create(
                 bytes(32, 32),
                 messageId,
                 shard,
@@ -158,12 +157,8 @@ class GatewayPayloadGrpcServiceTest {
                 bytes(32, 33),
                 5_000,
                 trustSet);
-        final OpaquePayloadUploadHandleV1 handle = OpaquePayloadUploadHandleV1.create(
-                receipt.reservationId(),
-                profile,
-                UploadHandleKindV1.OPAQUE_SINGLE_PUT,
-                4_000,
-                Bytes.utf8("capability"));
+        final OpaquePayloadUploadHandle handle = OpaquePayloadUploadHandle.create(
+                receipt.reservationId(), profile, UploadHandleKind.OPAQUE_SINGLE_PUT, 4_000, Bytes.utf8("capability"));
         return new PayloadFixture(receipt, handle);
     }
 
@@ -179,16 +174,16 @@ class GatewayPayloadGrpcServiceTest {
         return value;
     }
 
-    private record PayloadFixture(PayloadReservationReceiptV1 receipt, OpaquePayloadUploadHandleV1 handle) {}
+    private record PayloadFixture(PayloadReservationReceipt receipt, OpaquePayloadUploadHandle handle) {}
 
     private static final class UploadObserver
-            implements StreamObserver<com.nereusstream.delay.gateway.v1.GatewayPayloadUploadHandleResponseV1> {
-        private com.nereusstream.delay.gateway.v1.GatewayPayloadUploadHandleResponseV1 response;
+            implements StreamObserver<com.nereusstream.delay.gateway.wire.GatewayPayloadUploadHandleResponse> {
+        private com.nereusstream.delay.gateway.wire.GatewayPayloadUploadHandleResponse response;
         private Throwable failure;
         private boolean completed;
 
         @Override
-        public void onNext(final com.nereusstream.delay.gateway.v1.GatewayPayloadUploadHandleResponseV1 value) {
+        public void onNext(final com.nereusstream.delay.gateway.wire.GatewayPayloadUploadHandleResponse value) {
             response = value;
         }
 
@@ -204,13 +199,13 @@ class GatewayPayloadGrpcServiceTest {
     }
 
     private static final class AttestationObserver
-            implements StreamObserver<com.nereusstream.delay.gateway.v1.GatewayPayloadAttestationResponseV1> {
-        private com.nereusstream.delay.gateway.v1.GatewayPayloadAttestationResponseV1 response;
+            implements StreamObserver<com.nereusstream.delay.gateway.wire.GatewayPayloadAttestationResponse> {
+        private com.nereusstream.delay.gateway.wire.GatewayPayloadAttestationResponse response;
         private Throwable failure;
         private boolean completed;
 
         @Override
-        public void onNext(final com.nereusstream.delay.gateway.v1.GatewayPayloadAttestationResponseV1 value) {
+        public void onNext(final com.nereusstream.delay.gateway.wire.GatewayPayloadAttestationResponse value) {
             response = value;
         }
 
@@ -227,12 +222,12 @@ class GatewayPayloadGrpcServiceTest {
 
     private static final class NoopCore implements DelaySemanticCore {
         @Override
-        public com.nereusstream.delay.protocol.PreparedSubmissionV1 prepareSchedule(
+        public com.nereusstream.delay.protocol.PreparedSubmission prepareSchedule(
                 final AuthenticatedTenantContext tenant,
                 final RouteSelectionHint route,
-                final ScheduleIntentV1 intent,
+                final CanonicalScheduleIntent intent,
                 final long retryUntilEpochMs,
-                final SubmissionModeV1 submissionMode) {
+                final SubmissionMode submissionMode) {
             throw new UnsupportedOperationException();
         }
 
@@ -240,7 +235,7 @@ class GatewayPayloadGrpcServiceTest {
         public PreparedCommand prepareLargeSchedule(
                 final AuthenticatedTenantContext tenant,
                 final RouteSelectionHint route,
-                final LargeSchedulePreparationV1 request,
+                final LargeSchedulePreparation request,
                 final long retryUntilEpochMs) {
             throw new UnsupportedOperationException();
         }
@@ -248,8 +243,8 @@ class GatewayPayloadGrpcServiceTest {
         @Override
         public PreparedCommand preparePayloadCommit(
                 final AuthenticatedTenantContext tenant,
-                final PayloadReservationReceiptV1 reservation,
-                final PayloadCommitProofV1 proof,
+                final PayloadReservationReceipt reservation,
+                final CanonicalPayloadCommitProof proof,
                 final long retryUntilEpochMs) {
             throw new UnsupportedOperationException();
         }
@@ -258,7 +253,7 @@ class GatewayPayloadGrpcServiceTest {
         public PreparedCommand prepareCancel(
                 final AuthenticatedTenantContext tenant,
                 final DelayMessageId messageId,
-                final MessagePreconditionV1 precondition,
+                final MessagePrecondition precondition,
                 final long retryUntilEpochMs) {
             throw new UnsupportedOperationException();
         }
@@ -267,7 +262,7 @@ class GatewayPayloadGrpcServiceTest {
         public PreparedCommand prepareReschedule(
                 final AuthenticatedTenantContext tenant,
                 final DelayMessageId messageId,
-                final MessagePreconditionV1 precondition,
+                final MessagePrecondition precondition,
                 final long deliverAtEpochMs,
                 final long expireAtEpochMs,
                 final long retryUntilEpochMs) {
@@ -275,7 +270,7 @@ class GatewayPayloadGrpcServiceTest {
         }
 
         @Override
-        public com.nereusstream.delay.protocol.PreparedSubmissionV1 prepareManaged(
+        public com.nereusstream.delay.protocol.PreparedSubmission prepareManaged(
                 final AuthenticatedTenantContext tenant, final PreparedCommand command) {
             throw new UnsupportedOperationException();
         }
@@ -283,9 +278,9 @@ class GatewayPayloadGrpcServiceTest {
 
     private static final class NoopCoordinator implements SubmissionCoordinator {
         @Override
-        public CompletionStage<SubmissionOutcomeMessageV1> submit(
+        public CompletionStage<SubmissionOutcomeMessage> submit(
                 final AuthenticatedTenantContext tenant,
-                final com.nereusstream.delay.protocol.PreparedSubmissionV1 submission,
+                final com.nereusstream.delay.protocol.PreparedSubmission submission,
                 final TransportOwnershipPermit permit) {
             return CompletableFuture.failedFuture(new UnsupportedOperationException());
         }

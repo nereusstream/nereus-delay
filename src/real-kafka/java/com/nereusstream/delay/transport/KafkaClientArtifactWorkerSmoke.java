@@ -40,46 +40,46 @@ import com.nereusstream.delay.ownership.WorkerPublishOutcomeMutationFactory;
 import com.nereusstream.delay.ownership.WorkerPublishPreparationCoordinator;
 import com.nereusstream.delay.ownership.WorkerSchedulingRuntime;
 import com.nereusstream.delay.ownership.WorkerShardRuntime;
-import com.nereusstream.delay.protocol.ActivationBarrierV1;
-import com.nereusstream.delay.protocol.AdapterKindV1;
-import com.nereusstream.delay.protocol.AdapterMetadataV1;
+import com.nereusstream.delay.protocol.ActivationBarrier;
+import com.nereusstream.delay.protocol.AdapterKind;
+import com.nereusstream.delay.protocol.AdapterMetadata;
 import com.nereusstream.delay.protocol.AuthorIdentity;
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.CapacityDimensionV1;
-import com.nereusstream.delay.protocol.CapacityVectorV1;
-import com.nereusstream.delay.protocol.ChannelKindV1;
-import com.nereusstream.delay.protocol.ChannelResourceIdentityV1;
-import com.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
-import com.nereusstream.delay.protocol.CredentialUseKindV1;
-import com.nereusstream.delay.protocol.CredentialUseLeaseV1;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
+import com.nereusstream.delay.protocol.CapacityDimension;
+import com.nereusstream.delay.protocol.CapacityVector;
+import com.nereusstream.delay.protocol.ChannelKind;
+import com.nereusstream.delay.protocol.ChannelResourceIdentity;
+import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
+import com.nereusstream.delay.protocol.CredentialUseKind;
+import com.nereusstream.delay.protocol.CredentialUseLease;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DeliveryMode;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
-import com.nereusstream.delay.protocol.EvidenceVerificationStatusV1;
+import com.nereusstream.delay.protocol.EvidenceCursor;
+import com.nereusstream.delay.protocol.EvidenceVerificationStatus;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
-import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.KafkaMetadataV1;
+import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.KafkaMetadata;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.OrderingMode;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
-import com.nereusstream.delay.protocol.PublishEvidenceKindV1;
-import com.nereusstream.delay.protocol.PublishEvidenceV1;
+import com.nereusstream.delay.protocol.PublishEvidence;
+import com.nereusstream.delay.protocol.PublishEvidenceKind;
 import com.nereusstream.delay.protocol.PublishOutcomeBody;
-import com.nereusstream.delay.protocol.QuotaGrantRefV1;
-import com.nereusstream.delay.protocol.ReadyCertificateV1;
-import com.nereusstream.delay.protocol.RetryPolicyRefV1;
+import com.nereusstream.delay.protocol.QuotaGrantRef;
+import com.nereusstream.delay.protocol.ReadyCertificate;
+import com.nereusstream.delay.protocol.RetryPolicyRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
@@ -87,7 +87,7 @@ import com.nereusstream.delay.runtime.DelayShard;
 import com.nereusstream.delay.runtime.DelayShardConfig;
 import com.nereusstream.delay.runtime.LaneRecord;
 import com.nereusstream.delay.runtime.MessageStatus;
-import com.nereusstream.delay.runtime.V1ScheduleResolver;
+import com.nereusstream.delay.runtime.ScheduleResolver;
 import com.nereusstream.delay.scheduler.ClaimExecutionAdmission;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClass;
@@ -245,7 +245,7 @@ public final class KafkaClientArtifactWorkerSmoke {
                         .orElseThrow();
                 final KeyPair verificationKey =
                         KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-                final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshot(shard);
+                final CompatibleControlSnapshot controlSnapshot = controlSnapshot(shard);
                 final boolean explicitWorkerRoot = hasConfiguredWorkerRoot();
                 final Path root = configuredWorkerRoot();
                 try {
@@ -267,7 +267,7 @@ public final class KafkaClientArtifactWorkerSmoke {
                                 null,
                                 null,
                                 scheduleResolver(clusterId, destinationTopicId, destinationPhysicalTopic));
-                        final OwnerIdentityV1 ownerIdentity = new OwnerIdentityV1(
+                        final OwnerIdentity ownerIdentity = new OwnerIdentity(
                                 bytes(16, 70),
                                 bytes(16, 71),
                                 lease.ownerEpoch(),
@@ -535,7 +535,7 @@ public final class KafkaClientArtifactWorkerSmoke {
 
     /**
      * Local crash-cut seam used only to prove ACTIVE DB reuse in this focused
-     * harness.  Production recovery must replace this with the Oxia-backed
+     * harness. Production recovery must replace this with the Oxia-backed
      * catalog/Floor transaction; it deliberately does not claim that
      * authority here.
      */
@@ -590,7 +590,7 @@ public final class KafkaClientArtifactWorkerSmoke {
 
     /**
      * Holds a real Worker JVM after it has opened the source and local Store but
-     * before it can ACK the next source record.  The E2E harness kills the PID
+     * before it can ACK the next source record. The E2E harness kills the PID
      * written here, then starts a fresh JVM against the same exact root.
      */
     private static void awaitWorkerProcessCrashCutIfRequested(
@@ -687,7 +687,7 @@ public final class KafkaClientArtifactWorkerSmoke {
 
     /**
      * Captures the actual RocksDB identity and source-position projection at a
-     * Kafka Worker crash boundary.  The file is written and fsync-forced while
+     * Kafka Worker crash boundary. The file is written and fsync-forced while
      * the Store is open; it is therefore evidence about the durable local
      * authority, not a shell-side copy of the log marker.
      */
@@ -720,28 +720,28 @@ public final class KafkaClientArtifactWorkerSmoke {
         final var metadata = store.metadata();
         final String fileName = phase.endsWith("READY") ? "before-process-crash.json" : "after-fresh-process.json";
         final String json = "{\n"
-                + "  \"schema\": \"nereus-delay-chaos-durable-state-dump-v1\",\n"
-                + "  \"cell\": " + jsonString(ackMode ? "kafka-worker-ack-process-crash" : "kafka-worker-process-crash")
+                + " \"schema\": \"nereus-delay-chaos-durable-state-dump\",\n"
+                + " \"cell\": " + jsonString(ackMode ? "kafka-worker-ack-process-crash" : "kafka-worker-process-crash")
                 + ",\n"
-                + "  \"phase\": " + jsonString(phase) + ",\n"
-                + "  \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
-                + "  \"store_root\": " + jsonString(store.dbPath().toString()) + ",\n"
-                + "  \"topic\": " + jsonString(topic) + ",\n"
-                + "  \"cluster_id\": " + jsonString(clusterId) + ",\n"
-                + "  \"topic_id\": " + jsonString(topicId.toString()) + ",\n"
-                + "  \"route_uuid\": "
+                + " \"phase\": " + jsonString(phase) + ",\n"
+                + " \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
+                + " \"store_root\": " + jsonString(store.dbPath().toString()) + ",\n"
+                + " \"topic\": " + jsonString(topic) + ",\n"
+                + " \"cluster_id\": " + jsonString(clusterId) + ",\n"
+                + " \"topic_id\": " + jsonString(topicId.toString()) + ",\n"
+                + " \"route_uuid\": "
                 + jsonString(shard.routeIncarnation().uuid().toString()) + ",\n"
-                + "  \"partition\": " + shard.partition() + ",\n"
-                + "  \"store_incarnation\": " + jsonString(Bytes.hex(metadata.storeIncarnation())) + ",\n"
-                + "  \"db_identity\": " + jsonString(Bytes.hex(metadata.dbIdentity())) + ",\n"
-                + "  \"applied_source_position\": "
+                + " \"partition\": " + shard.partition() + ",\n"
+                + " \"store_incarnation\": " + jsonString(Bytes.hex(metadata.storeIncarnation())) + ",\n"
+                + " \"db_identity\": " + jsonString(Bytes.hex(metadata.dbIdentity())) + ",\n"
+                + " \"applied_source_position\": "
                 + jsonNullable(applied == null ? null : Bytes.hex(applied.canonicalBytes())) + ",\n"
-                + "  \"applied_offset\": " + jsonNullable(appliedOffset) + ",\n"
-                + "  \"shard_mutation_sequence\": " + store.shardMutationSequence() + ",\n"
-                + "  \"store_write_batch_durable\": true,\n"
-                + "  \"source_ack_committed\": " + sourceAckCommitted + ",\n"
-                + "  \"durable_store_read\": true,\n"
-                + "  \"dump_forced\": true\n"
+                + " \"applied_offset\": " + jsonNullable(appliedOffset) + ",\n"
+                + " \"shard_mutation_sequence\": " + store.shardMutationSequence() + ",\n"
+                + " \"store_write_batch_durable\": true,\n"
+                + " \"source_ack_committed\": " + sourceAckCommitted + ",\n"
+                + " \"durable_store_read\": true,\n"
+                + " \"dump_forced\": true\n"
                 + "}\n";
         final Path target = directory.resolve(fileName);
         try (var channel = java.nio.channels.FileChannel.open(
@@ -773,7 +773,7 @@ public final class KafkaClientArtifactWorkerSmoke {
         final WorkerPlacementPolicy.WorkerCandidate candidate = new WorkerPlacementPolicy.WorkerCandidate(
                 "kafka-worker",
                 capacity(1),
-                CapacityVectorV1.empty(),
+                CapacityVector.empty(),
                 0,
                 16,
                 0,
@@ -789,8 +789,8 @@ public final class KafkaClientArtifactWorkerSmoke {
                 1,
                 List.of(candidate),
                 capacity(1),
-                CapacityVectorV1.empty(),
-                CapacityVectorV1.empty(),
+                CapacityVector.empty(),
+                CapacityVector.empty(),
                 null,
                 now,
                 0,
@@ -805,10 +805,10 @@ public final class KafkaClientArtifactWorkerSmoke {
         return accepted;
     }
 
-    private static CapacityVectorV1 capacity(final long dbInstances) {
-        final long[] values = new long[CapacityDimensionV1.COUNT];
-        values[CapacityDimensionV1.DB_INSTANCES.wireValue() - 1] = dbInstances;
-        return new CapacityVectorV1(values);
+    private static CapacityVector capacity(final long dbInstances) {
+        final long[] values = new long[CapacityDimension.COUNT];
+        values[CapacityDimension.DB_INSTANCES.wireValue() - 1] = dbInstances;
+        return new CapacityVector(values);
     }
 
     private static OxiaSyncOwnerLeaseBackend.ClientHandle connectOxiaIfConfigured() throws Exception {
@@ -840,7 +840,7 @@ public final class KafkaClientArtifactWorkerSmoke {
             final OxiaOwnerLeaseStore authority,
             final com.nereusstream.delay.ownership.OwnedDelayShard ownedShard,
             final KeyPair verificationKey,
-            final CompatibleControlSnapshotV1 controlSnapshot,
+            final CompatibleControlSnapshot controlSnapshot,
             final WorkClassExecutionRegistry workClasses,
             final com.nereusstream.delay.protocol.SourcePosition persistedPosition) {
         final String groupId = "nereus-delay-worker-recovery-" + UUID.randomUUID();
@@ -1087,7 +1087,7 @@ public final class KafkaClientArtifactWorkerSmoke {
                             toUuid(topicId),
                             0,
                             command.commandId(),
-                            com.nereusstream.delay.protocol.CommandCodec.encodeFrameV1(command)))
+                            com.nereusstream.delay.protocol.CommandCodec.encodeManagedFrame(command)))
                     .toCompletableFuture()
                     .get(15, TimeUnit.SECONDS);
             if (result.disposition() != KafkaProduceResult.Disposition.PERSISTED
@@ -1126,7 +1126,7 @@ public final class KafkaClientArtifactWorkerSmoke {
                 toUuid(topicId),
                 0);
         final TopicPartition partition = new TopicPartition(topic, 0);
-        final byte[] expectedValue = com.nereusstream.delay.protocol.CommandCodec.encodeFrameV1(command);
+        final byte[] expectedValue = com.nereusstream.delay.protocol.CommandCodec.encodeManagedFrame(command);
         try {
             consumer.assign(List.of(partition));
             consumer.seek(partition, producedPosition.offset());
@@ -1181,19 +1181,19 @@ public final class KafkaClientArtifactWorkerSmoke {
 
     private static PreparedCommand command(
             final ShardId shard, final String identity, final byte[] payload, final long delayMs) {
-        final ProfileRefV1 destination = new ProfileRefV1(
+        final ProfileRef destination = new ProfileRef(
                 Bytes.utf8("destination-" + identity),
                 1,
                 Bytes.sha256(Bytes.utf8("destination-semantic-" + identity)),
-                ProfileKindV1.DESTINATION);
-        final RetryPolicyRefV1 retryPolicy = new RetryPolicyRefV1(
+                ProfileKind.DESTINATION);
+        final RetryPolicyRef retryPolicy = new RetryPolicyRef(
                 Bytes.utf8("retry-" + identity), 1, Bytes.sha256(Bytes.utf8("retry-semantic-" + identity)));
         final long deliverAt = System.currentTimeMillis() + delayMs;
         // Broker failover and a real Worker replay can consume several seconds
         // before the due/Claim/physical-publish turn starts. Keep the smoke's
         // materialization window bounded but large enough that the fault
         // injection tests the recovery path instead of expiring the fixture.
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
                 destination,
                 retryPolicy,
                 deliverAt,
@@ -1203,21 +1203,21 @@ public final class KafkaClientArtifactWorkerSmoke {
                 payload,
                 Bytes.utf8("source-" + identity),
                 null,
-                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())),
+                AdapterMetadata.kafka(new KafkaMetadata(null, List.of())),
                 null,
                 null);
-        return PreparedCommand.scheduleV1(shard, intent, deliverAt + 90_000);
+        return PreparedCommand.schedule(shard, intent, deliverAt + 90_000);
     }
 
-    private static V1ScheduleResolver scheduleResolver(
+    private static ScheduleResolver scheduleResolver(
             final String clusterId, final UUID destinationTopicId, final String destinationPhysicalTopic) {
         if (destinationPhysicalTopic != null) {
-            return new V1ScheduleResolver() {
+            return new ScheduleResolver() {
                 @Override
                 public ResolvedSchedule resolveSchedule(
                         final ShardId shard,
                         final DelayMessageId message,
-                        final ScheduleIntentV1 intent,
+                        final CanonicalScheduleIntent intent,
                         final com.nereusstream.delay.protocol.SourcePosition source) {
                     final byte[] tuple = canonicalLaneTuple(
                             clusterId,
@@ -1232,7 +1232,7 @@ public final class KafkaClientArtifactWorkerSmoke {
                 public ResolvedPrepare resolvePrepare(
                         final ShardId shard,
                         final DelayMessageId message,
-                        final com.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1 body,
+                        final com.nereusstream.delay.protocol.PrepareLargeScheduleBody body,
                         final com.nereusstream.delay.protocol.SourcePosition source) {
                     final byte[] tuple = canonicalLaneTuple(
                             clusterId,
@@ -1244,14 +1244,14 @@ public final class KafkaClientArtifactWorkerSmoke {
                 }
             };
         }
-        final byte[] tuple = Bytes.utf8("kafka-worker-canonical-lane-tuple-v1");
+        final byte[] tuple = Bytes.utf8("kafka-worker-canonical-lane-tuple");
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
-        return new V1ScheduleResolver() {
+        return new ScheduleResolver() {
             @Override
             public ResolvedSchedule resolveSchedule(
                     final ShardId shard,
                     final com.nereusstream.delay.protocol.DelayMessageId message,
-                    final ScheduleIntentV1 intent,
+                    final CanonicalScheduleIntent intent,
                     final com.nereusstream.delay.protocol.SourcePosition source) {
                 return new ResolvedSchedule(lane, tuple, intent.inlinePayload(), null);
             }
@@ -1260,7 +1260,7 @@ public final class KafkaClientArtifactWorkerSmoke {
             public ResolvedPrepare resolvePrepare(
                     final ShardId shard,
                     final com.nereusstream.delay.protocol.DelayMessageId message,
-                    final com.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1 body,
+                    final com.nereusstream.delay.protocol.PrepareLargeScheduleBody body,
                     final com.nereusstream.delay.protocol.SourcePosition source) {
                 return new ResolvedPrepare(lane, tuple);
             }
@@ -1272,7 +1272,7 @@ public final class KafkaClientArtifactWorkerSmoke {
             final WorkerShardRuntime runtime,
             final DelayShard delayShard,
             final OwnedDelayShard ownedShard,
-            final OwnerIdentityV1 ownerIdentity,
+            final OwnerIdentity ownerIdentity,
             final OxiaOwnerLeaseStore authority,
             final ShardStore store,
             final WorkClassExecutionRegistry workClasses,
@@ -1308,7 +1308,7 @@ public final class KafkaClientArtifactWorkerSmoke {
             final WorkerShardRuntime runtime,
             final DelayShard delayShard,
             final OwnedDelayShard ownedShard,
-            final OwnerIdentityV1 ownerIdentity,
+            final OwnerIdentity ownerIdentity,
             final OxiaOwnerLeaseStore authority,
             final ShardStore store,
             final WorkClassExecutionRegistry workClasses,
@@ -1342,7 +1342,7 @@ public final class KafkaClientArtifactWorkerSmoke {
             final WorkerShardRuntime runtime,
             final DelayShard delayShard,
             final OwnedDelayShard ownedShard,
-            final OwnerIdentityV1 ownerIdentity,
+            final OwnerIdentity ownerIdentity,
             final OxiaOwnerLeaseStore authority,
             final ShardStore store,
             final WorkClassExecutionRegistry workClasses,
@@ -1378,7 +1378,7 @@ public final class KafkaClientArtifactWorkerSmoke {
             final WorkerShardRuntime runtime,
             final DelayShard delayShard,
             final OwnedDelayShard ownedShard,
-            final OwnerIdentityV1 ownerIdentity,
+            final OwnerIdentity ownerIdentity,
             final OxiaOwnerLeaseStore authority,
             final ShardStore store,
             final WorkClassExecutionRegistry workClasses,
@@ -1525,9 +1525,9 @@ public final class KafkaClientArtifactWorkerSmoke {
                 || !Arrays.equals(outcome.publishAttemptId(), publishAttemptId)) {
             throw new IllegalStateException("Kafka Worker Publish Outcome was not a definitive PUBLISHED result");
         }
-        final PublishEvidenceV1 publishEvidence = PublishEvidenceV1.decode(outcome.evidence());
-        if (publishEvidence.evidenceKind() != PublishEvidenceKindV1.KAFKA_TRANSACTIONAL_RECEIPT
-                || publishEvidence.verificationStatus() != EvidenceVerificationStatusV1.VERIFIED_PUBLISHED) {
+        final PublishEvidence publishEvidence = PublishEvidence.decode(outcome.evidence());
+        if (publishEvidence.evidenceKind() != PublishEvidenceKind.KAFKA_TRANSACTIONAL_RECEIPT
+                || publishEvidence.verificationStatus() != EvidenceVerificationStatus.VERIFIED_PUBLISHED) {
             throw new IllegalStateException("Kafka Worker Publish Outcome carried the wrong evidence branch");
         }
         publishEvidence.requireBusinessMutation(publishAttemptId, true);
@@ -1562,7 +1562,7 @@ public final class KafkaClientArtifactWorkerSmoke {
     static void bindActiveOwnerPublishGraph(
             final WorkerShardRuntime runtime,
             final OwnedDelayShard ownedShard,
-            final OwnerIdentityV1 ownerIdentity,
+            final OwnerIdentity ownerIdentity,
             final OxiaOwnerLeaseStore authority,
             final ShardStore store,
             final WorkClassExecutionRegistry workClasses,
@@ -1584,7 +1584,7 @@ public final class KafkaClientArtifactWorkerSmoke {
     static void bindActiveOwnerPublishGraph(
             final WorkerShardRuntime runtime,
             final OwnedDelayShard ownedShard,
-            final OwnerIdentityV1 ownerIdentity,
+            final OwnerIdentity ownerIdentity,
             final OxiaOwnerLeaseStore authority,
             final ShardStore store,
             final WorkClassExecutionRegistry workClasses,
@@ -1607,7 +1607,7 @@ public final class KafkaClientArtifactWorkerSmoke {
     static void bindActiveOwnerPublishGraph(
             final WorkerShardRuntime runtime,
             final OwnedDelayShard ownedShard,
-            final OwnerIdentityV1 ownerIdentity,
+            final OwnerIdentity ownerIdentity,
             final OxiaOwnerLeaseStore authority,
             final ShardStore store,
             final WorkClassExecutionRegistry workClasses,
@@ -1700,7 +1700,7 @@ public final class KafkaClientArtifactWorkerSmoke {
             final UUID receiptTopicId,
             final ShardStore store,
             final OwnedDelayShard ownedShard,
-            final OwnerIdentityV1 ownerIdentity,
+            final OwnerIdentity ownerIdentity,
             final OxiaOwnerLeaseStore authority,
             final WorkClassExecutionRegistry workClasses,
             final KeyPair verificationKey)
@@ -1742,12 +1742,12 @@ public final class KafkaClientArtifactWorkerSmoke {
             final UUID receiptTopicId,
             final ShardStore store,
             final OwnedDelayShard ownedShard,
-            final OwnerIdentityV1 ownerIdentity,
+            final OwnerIdentity ownerIdentity,
             final OxiaOwnerLeaseStore authority,
             final WorkClassExecutionRegistry workClasses,
             final KeyPair verificationKey,
-            final ProfileRefV1 destinationProfile,
-            final ProfileRefV1 capabilityProfile,
+            final ProfileRef destinationProfile,
+            final ProfileRef capabilityProfile,
             final DestinationLaneId requestedLaneId,
             final byte[] requestedLaneIncarnation,
             final long maxPhysicalBytes)
@@ -1791,12 +1791,12 @@ public final class KafkaClientArtifactWorkerSmoke {
             final UUID receiptTopicId,
             final ShardStore store,
             final OwnedDelayShard ownedShard,
-            final OwnerIdentityV1 ownerIdentity,
+            final OwnerIdentity ownerIdentity,
             final OxiaOwnerLeaseStore authority,
             final WorkClassExecutionRegistry workClasses,
             final KeyPair verificationKey,
-            final ProfileRefV1 destinationProfile,
-            final ProfileRefV1 capabilityProfile,
+            final ProfileRef destinationProfile,
+            final ProfileRef capabilityProfile,
             final DestinationLaneId requestedLaneId,
             final byte[] requestedLaneIncarnation,
             final long maxPhysicalBytes,
@@ -1849,12 +1849,12 @@ public final class KafkaClientArtifactWorkerSmoke {
             final UUID receiptTopicId,
             final ShardStore store,
             final OwnedDelayShard ownedShard,
-            final OwnerIdentityV1 ownerIdentity,
+            final OwnerIdentity ownerIdentity,
             final OxiaOwnerLeaseStore authority,
             final WorkClassExecutionRegistry workClasses,
             final KeyPair verificationKey,
-            final ProfileRefV1 destinationProfile,
-            final ProfileRefV1 capabilityProfile,
+            final ProfileRef destinationProfile,
+            final ProfileRef capabilityProfile,
             final DestinationLaneId requestedLaneId,
             final byte[] requestedLaneIncarnation,
             final long maxPhysicalBytes,
@@ -1862,8 +1862,8 @@ public final class KafkaClientArtifactWorkerSmoke {
             final int destinationPartition,
             final ShardLogMutationAppender suppliedAppender)
             throws Exception {
-        final ProfileRefV1 exactDestinationProfile = Objects.requireNonNull(destinationProfile, "destinationProfile");
-        final ProfileRefV1 exactCapabilityProfile = Objects.requireNonNull(capabilityProfile, "capabilityProfile");
+        final ProfileRef exactDestinationProfile = Objects.requireNonNull(destinationProfile, "destinationProfile");
+        final ProfileRef exactCapabilityProfile = Objects.requireNonNull(capabilityProfile, "capabilityProfile");
         if (maxPhysicalBytes <= 0) {
             throw new IllegalArgumentException("maxPhysicalBytes must be positive");
         }
@@ -1887,10 +1887,10 @@ public final class KafkaClientArtifactWorkerSmoke {
                 ? LaneRecord.initial(laneId, physicalSchedulePosition).laneIncarnation()
                 : Bytes.copy(requestedLaneIncarnation);
         Bytes.requireLength(laneIncarnation, 16, "laneIncarnation");
-        final BrokerResourceIdentityV1 target =
-                BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(clusterId, destinationTopicId));
-        final BrokerResourceIdentityV1 evidenceResource =
-                BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(clusterId, receiptTopicId));
+        final BrokerResourceIdentity target =
+                BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(clusterId, destinationTopicId));
+        final BrokerResourceIdentity evidenceResource =
+                BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(clusterId, receiptTopicId));
         final KafkaTargetResource targetResource =
                 new KafkaTargetResource(clusterId, destinationTopicId, destinationPartition);
         final KafkaReceiptResource receiptResource = new KafkaReceiptResource(
@@ -1991,7 +1991,7 @@ public final class KafkaClientArtifactWorkerSmoke {
                 evidenceResource.canonicalBytes());
         final long now = Math.max(1, System.currentTimeMillis());
         final TrustedUtcIntervalEvidence issuedAt = evidence(Math.max(0, now - 1), now, "kafka-worker-channel-issued");
-        final ChannelResourceIdentityV1 channel = channel(
+        final ChannelResourceIdentity channel = channel(
                 laneId,
                 laneIncarnation,
                 target,
@@ -2002,7 +2002,7 @@ public final class KafkaClientArtifactWorkerSmoke {
                 issuedAt,
                 exactDestinationProfile);
         final long validUntil = Math.addExact(now, 60_000);
-        final EvidenceCursorV1 cursor = EvidenceCursorV1.kafka(
+        final EvidenceCursor cursor = EvidenceCursor.kafka(
                 laneId.bytes(),
                 laneIncarnation,
                 uuidBytes(receiptTopicId),
@@ -2011,7 +2011,7 @@ public final class KafkaClientArtifactWorkerSmoke {
                 0,
                 1,
                 1);
-        final ReadyCertificateV1 readyCertificate = readyCertificate(
+        final ReadyCertificate readyCertificate = readyCertificate(
                 ownerIdentity,
                 store.metadata().storeIncarnation(),
                 laneId,
@@ -2064,16 +2064,16 @@ public final class KafkaClientArtifactWorkerSmoke {
                 });
     }
 
-    private static ChannelResourceIdentityV1 channel(
+    private static ChannelResourceIdentity channel(
             final DestinationLaneId laneId,
             final byte[] laneIncarnation,
-            final BrokerResourceIdentityV1 target,
-            final BrokerResourceIdentityV1 evidenceResource,
+            final BrokerResourceIdentity target,
+            final BrokerResourceIdentity evidenceResource,
             final long physicalPartition,
             final String transactionalIdentity,
             final byte[] attestationDigest,
             final TrustedUtcIntervalEvidence issuedAt,
-            final ProfileRefV1 destinationProfile) {
+            final ProfileRef destinationProfile) {
         final byte[] producer = Bytes.utf8(transactionalIdentity);
         final byte[] binding = Bytes.sha256(
                 Bytes.utf8("kafka-worker-channel-binding"),
@@ -2087,8 +2087,8 @@ public final class KafkaClientArtifactWorkerSmoke {
                 target.canonicalBytes(),
                 evidenceResource.canonicalBytes());
         final byte[] prefix = CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.uint32(output, 1, AdapterKindV1.KAFKA.wireValue());
-            CanonicalProtobuf.uint32(output, 2, ChannelKindV1.KAFKA_TRANSACTIONAL_RECEIPT.wireValue());
+            CanonicalProtobuf.uint32(output, 1, AdapterKind.KAFKA.wireValue());
+            CanonicalProtobuf.uint32(output, 2, ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT.wireValue());
             CanonicalProtobuf.bytes(output, 3, laneId.bytes());
             CanonicalProtobuf.bytes(output, 4, laneIncarnation);
             CanonicalProtobuf.bytes(output, 5, target.canonicalBytes());
@@ -2101,19 +2101,19 @@ public final class KafkaClientArtifactWorkerSmoke {
             CanonicalProtobuf.uint64(output, 12, 1);
             CanonicalProtobuf.bytes(output, 13, attestationDigest);
         });
-        final CredentialUseLeaseV1 lease = new CredentialUseLeaseV1(
+        final CredentialUseLease lease = new CredentialUseLease(
                 Objects.requireNonNull(destinationProfile, "destinationProfile"),
-                CredentialUseKindV1.DESTINATION_CHANNEL,
-                CredentialUseLeaseV1.destinationChannelHolderScope(prefix),
+                CredentialUseKind.DESTINATION_CHANNEL,
+                CredentialUseLease.destinationChannelHolderScope(prefix),
                 1,
                 binding,
                 fingerprint,
                 issuedAt,
                 Math.addExact(issuedAt.latestEpochMs(), 60_000),
                 1);
-        return new ChannelResourceIdentityV1(
-                AdapterKindV1.KAFKA,
-                ChannelKindV1.KAFKA_TRANSACTIONAL_RECEIPT,
+        return new ChannelResourceIdentity(
+                AdapterKind.KAFKA,
+                ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT,
                 laneId.bytes(),
                 laneIncarnation,
                 target,
@@ -2131,17 +2131,17 @@ public final class KafkaClientArtifactWorkerSmoke {
                 lease);
     }
 
-    private static ReadyCertificateV1 readyCertificate(
-            final OwnerIdentityV1 owner,
+    private static ReadyCertificate readyCertificate(
+            final OwnerIdentity owner,
             final byte[] storeIncarnation,
             final DestinationLaneId laneId,
             final byte[] laneIncarnation,
-            final ChannelResourceIdentityV1 channel,
-            final BrokerResourceIdentityV1 target,
-            final EvidenceCursorV1 cursor,
+            final ChannelResourceIdentity channel,
+            final BrokerResourceIdentity target,
+            final EvidenceCursor cursor,
             final TrustedUtcIntervalEvidence issuedAt,
             final long validUntil) {
-        final byte[] barrier = ActivationBarrierV1.kafka(target, (int) channel.physicalPartition(), 0, 0)
+        final byte[] barrier = ActivationBarrier.kafka(target, (int) channel.physicalPartition(), 0, 0)
                 .canonicalBytes();
         final byte[] prefix = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, 1);
@@ -2165,18 +2165,17 @@ public final class KafkaClientArtifactWorkerSmoke {
             while (reader.hasRemaining()) {
                 writeField(output, reader.next());
             }
-            CanonicalProtobuf.bytes(
-                    output, 16, Bytes.sha256(Bytes.utf8("nereus-delay-ready-certificate-v1\0"), prefix));
+            CanonicalProtobuf.bytes(output, 16, Bytes.sha256(Bytes.utf8("nereus-delay-ready-certificate\0"), prefix));
         });
-        return ReadyCertificateV1.decode(encoded);
+        return ReadyCertificate.decode(encoded);
     }
 
     private static byte[] canonicalLaneTuple(
             final String clusterId,
             final UUID topicId,
             final String physicalTopic,
-            final ProfileRefV1 destination,
-            final ProfileRefV1 capability) {
+            final ProfileRef destination,
+            final ProfileRef capability) {
         return canonicalLaneTuple(clusterId, topicId, physicalTopic, destination, capability, 0);
     }
 
@@ -2184,8 +2183,8 @@ public final class KafkaClientArtifactWorkerSmoke {
             final String clusterId,
             final UUID topicId,
             final String physicalTopic,
-            final ProfileRefV1 destination,
-            final ProfileRefV1 capability,
+            final ProfileRef destination,
+            final ProfileRef capability,
             final int physicalPartition) {
         if (physicalTopic == null || physicalTopic.isBlank()) {
             throw new IllegalArgumentException("Kafka physical topic must be nonblank");
@@ -2196,7 +2195,7 @@ public final class KafkaClientArtifactWorkerSmoke {
         final byte[] topicUuid = uuidBytes(topicId);
         return Bytes.concat(
                 Bytes.sha256(Bytes.utf8("kafka-worker-tenant-routing-scope")),
-                Bytes.u8(AdapterKindV1.KAFKA.wireValue()),
+                Bytes.u8(AdapterKind.KAFKA.wireValue()),
                 Bytes.lp32(Bytes.utf8(clusterId)),
                 Bytes.u8(1),
                 topicUuid,
@@ -2212,20 +2211,20 @@ public final class KafkaClientArtifactWorkerSmoke {
                 Bytes.sha256(Bytes.utf8("kafka-worker-ordering-domain")));
     }
 
-    private static ProfileRefV1 destinationProfile(final String identity) {
-        return new ProfileRefV1(
+    private static ProfileRef destinationProfile(final String identity) {
+        return new ProfileRef(
                 Bytes.utf8("destination-" + identity),
                 1,
                 Bytes.sha256(Bytes.utf8("destination-semantic-" + identity)),
-                ProfileKindV1.DESTINATION);
+                ProfileKind.DESTINATION);
     }
 
-    static ProfileRefV1 capabilityProfile() {
-        return new ProfileRefV1(
+    static ProfileRef capabilityProfile() {
+        return new ProfileRef(
                 Bytes.utf8("kafka-worker-capability"),
                 1,
                 Bytes.sha256(Bytes.utf8("kafka-worker-capability-semantic")),
-                ProfileKindV1.DELIVERY_CAPABILITY);
+                ProfileKind.DELIVERY_CAPABILITY);
     }
 
     private static byte[] zeroCharge() {
@@ -2243,7 +2242,7 @@ public final class KafkaClientArtifactWorkerSmoke {
 
     private static byte[] retryDecision(
             final long firstAttemptAt, final long retryDeadline, final int completedAttemptNo) {
-        final RetryPolicyRefV1 policy = new RetryPolicyRefV1(
+        final RetryPolicyRef policy = new RetryPolicyRef(
                 Bytes.utf8("kafka-worker-retry"), 1, Bytes.sha256(Bytes.utf8("kafka-worker-retry-semantic")));
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, 1);
@@ -2281,7 +2280,7 @@ public final class KafkaClientArtifactWorkerSmoke {
         return command.delayMessageId();
     }
 
-    private static long branchNumber(final PublishEvidenceV1 publishEvidence, final int number) {
+    private static long branchNumber(final PublishEvidence publishEvidence, final int number) {
         final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(publishEvidence.branch());
         while (reader.hasRemaining()) {
             final CanonicalProtobuf.Reader.Field field = reader.next();
@@ -2401,12 +2400,12 @@ public final class KafkaClientArtifactWorkerSmoke {
         private final ShardLogMutationAppender appender;
         private final DestinationLaneId laneId;
         private final byte[] laneIncarnation;
-        private final ProfileRefV1 destinationProfile;
-        private final ProfileRefV1 capabilityProfile;
-        private final BrokerResourceIdentityV1 targetResource;
-        private final ChannelResourceIdentityV1 channel;
-        private final ReadyCertificateV1 readyCertificate;
-        private final List<EvidenceCursorV1> evidenceCursors;
+        private final ProfileRef destinationProfile;
+        private final ProfileRef capabilityProfile;
+        private final BrokerResourceIdentity targetResource;
+        private final ChannelResourceIdentity channel;
+        private final ReadyCertificate readyCertificate;
+        private final List<EvidenceCursor> evidenceCursors;
         private final String destinationPhysicalTopic;
         private final UUID destinationTopicId;
         private final boolean destinationResponseLossExpected;
@@ -2417,12 +2416,12 @@ public final class KafkaClientArtifactWorkerSmoke {
                 final ShardLogMutationAppender appender,
                 final DestinationLaneId laneId,
                 final byte[] laneIncarnation,
-                final ProfileRefV1 destinationProfile,
-                final ProfileRefV1 capabilityProfile,
-                final BrokerResourceIdentityV1 targetResource,
-                final ChannelResourceIdentityV1 channel,
-                final ReadyCertificateV1 readyCertificate,
-                final List<EvidenceCursorV1> evidenceCursors,
+                final ProfileRef destinationProfile,
+                final ProfileRef capabilityProfile,
+                final BrokerResourceIdentity targetResource,
+                final ChannelResourceIdentity channel,
+                final ReadyCertificate readyCertificate,
+                final List<EvidenceCursor> evidenceCursors,
                 final String destinationPhysicalTopic,
                 final UUID destinationTopicId,
                 final boolean destinationResponseLossExpected,
@@ -2459,27 +2458,27 @@ public final class KafkaClientArtifactWorkerSmoke {
             return Bytes.copy(laneIncarnation);
         }
 
-        private ProfileRefV1 destinationProfile() {
+        private ProfileRef destinationProfile() {
             return destinationProfile;
         }
 
-        private ProfileRefV1 capabilityProfile() {
+        private ProfileRef capabilityProfile() {
             return capabilityProfile;
         }
 
-        private BrokerResourceIdentityV1 targetResource() {
+        private BrokerResourceIdentity targetResource() {
             return targetResource;
         }
 
-        ChannelResourceIdentityV1 channel() {
+        ChannelResourceIdentity channel() {
             return channel;
         }
 
-        ReadyCertificateV1 readyCertificate() {
+        ReadyCertificate readyCertificate() {
             return readyCertificate;
         }
 
-        List<EvidenceCursorV1> evidenceCursors() {
+        List<EvidenceCursor> evidenceCursors() {
             return evidenceCursors;
         }
 
@@ -2503,9 +2502,9 @@ public final class KafkaClientArtifactWorkerSmoke {
                 throw new IllegalStateException(
                         "Kafka Worker destination response-loss proxy did not discard a committed EndTxn response");
             }
-            final PublishEvidenceV1 evidence = PublishEvidenceV1.decode(result.evidence());
-            if (evidence.evidenceKind() != PublishEvidenceKindV1.KAFKA_TRANSACTIONAL_RECEIPT
-                    || evidence.verificationStatus() != EvidenceVerificationStatusV1.VERIFIED_PUBLISHED) {
+            final PublishEvidence evidence = PublishEvidence.decode(result.evidence());
+            if (evidence.evidenceKind() != PublishEvidenceKind.KAFKA_TRANSACTIONAL_RECEIPT
+                    || evidence.verificationStatus() != EvidenceVerificationStatus.VERIFIED_PUBLISHED) {
                 throw new IllegalStateException(
                         "Kafka Worker destination response-loss did not resolve typed published evidence");
             }
@@ -2543,12 +2542,12 @@ public final class KafkaClientArtifactWorkerSmoke {
         }
     }
 
-    private static CompatibleControlSnapshotV1 controlSnapshot(final ShardId shard) {
-        return new CompatibleControlSnapshotV1(
-                new ShardSubjectV1(shard),
-                List.of(new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1)),
-                List.of(new ProfileRefV1(bytes(32, 50), 1, bytes(32, 51), ProfileKindV1.DESTINATION)),
-                new QuotaGrantRefV1(
+    private static CompatibleControlSnapshot controlSnapshot(final ShardId shard) {
+        return new CompatibleControlSnapshot(
+                new ShardSubject(shard),
+                List.of(new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1)),
+                List.of(new ProfileRef(bytes(32, 50), 1, bytes(32, 51), ProfileKind.DESTINATION)),
+                new QuotaGrantRef(
                         bytes(32, 52),
                         1,
                         new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));

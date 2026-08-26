@@ -4,7 +4,7 @@ import java.util.Objects;
 
 /**
  * Bounded, low-cardinality load observation used only for local placement
- * scoring.  It is not a capacity grant and it never authorizes ownership.
+ * scoring. It is not a capacity grant and it never authorizes ownership.
  */
 public record WorkerLoadVector(
         long activeMessages,
@@ -48,7 +48,7 @@ public record WorkerLoadVector(
     }
 
     /**
-     * Returns the largest observed-to-ceiling ratio.  A zero ceiling with a
+     * Returns the largest observed-to-ceiling ratio. A zero ceiling with a
      * non-zero observation is infinite, so a caller cannot silently treat an
      * unmeasured resource as free capacity.
      */

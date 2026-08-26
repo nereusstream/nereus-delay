@@ -4,10 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.ControlOperationQueryResultV1;
-import com.nereusstream.delay.protocol.ControlOperationReceiptV1;
-import com.nereusstream.delay.protocol.ControlOperationStateV1;
-import com.nereusstream.delay.protocol.CurrentControlOperationV1;
+import com.nereusstream.delay.protocol.ControlOperationQueryResult;
+import com.nereusstream.delay.protocol.ControlOperationReceipt;
+import com.nereusstream.delay.protocol.ControlOperationState;
+import com.nereusstream.delay.protocol.CurrentControlOperation;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,14 +21,14 @@ class PersistentControlOperationAuthorityTest {
 
     @Test
     void stateSurvivesReopenAndExactAdvanceRetryIsIdempotent() {
-        final ControlOperationReceiptV1 receipt = receipt(1, 4_000);
-        final CurrentControlOperationV1 initial = current(receipt, 1, ControlOperationStateV1.PENDING);
-        final CurrentControlOperationV1 next = current(receipt, 2, ControlOperationStateV1.DISPATCHING);
+        final ControlOperationReceipt receipt = receipt(1, 4_000);
+        final CurrentControlOperation initial = current(receipt, 1, ControlOperationState.PENDING);
+        final CurrentControlOperation next = current(receipt, 2, ControlOperationState.DISPATCHING);
 
         try (AuthorityHolder ignored = new AuthorityHolder(tempDir)) {
             final PersistentControlOperationAuthority authority = ignored.authority();
             assertEquals(
-                    ControlOperationQueryResultV1.CURRENT,
+                    ControlOperationQueryResult.CURRENT,
                     authority.register(receipt, initial).resultKind());
             assertEquals(next, authority.advance(receipt, 1, next).current());
             // This is the response-loss retry of the same expected revision
@@ -39,20 +39,20 @@ class PersistentControlOperationAuthorityTest {
         final PersistentControlOperationAuthority reopened = new PersistentControlOperationAuthority(tempDir);
         assertEquals(next, reopened.query(receipt, 2_000).current());
         assertEquals(
-                ControlOperationQueryResultV1.NOT_FOUND_OR_NOT_AUTHORIZED,
+                ControlOperationQueryResult.NOT_FOUND_OR_NOT_AUTHORIZED,
                 reopened.query(receipt, 4_001).resultKind());
     }
 
     @Test
     void separateAuthorityInstancesShareTheOnDiskCasBoundary() {
-        final ControlOperationReceiptV1 receipt = receipt(2, 4_000);
-        final CurrentControlOperationV1 initial = current(receipt, 1, ControlOperationStateV1.PENDING);
-        final CurrentControlOperationV1 next = current(receipt, 2, ControlOperationStateV1.DISPATCHING);
+        final ControlOperationReceipt receipt = receipt(2, 4_000);
+        final CurrentControlOperation initial = current(receipt, 1, ControlOperationState.PENDING);
+        final CurrentControlOperation next = current(receipt, 2, ControlOperationState.DISPATCHING);
         final PersistentControlOperationAuthority first = new PersistentControlOperationAuthority(tempDir);
         final PersistentControlOperationAuthority second = new PersistentControlOperationAuthority(tempDir);
 
         assertEquals(
-                ControlOperationQueryResultV1.CURRENT,
+                ControlOperationQueryResult.CURRENT,
                 first.register(receipt, initial).resultKind());
         assertEquals(next, second.advance(receipt, 1, next).current());
         assertEquals(next, first.query(receipt, 2_000).current());
@@ -60,8 +60,8 @@ class PersistentControlOperationAuthorityTest {
 
     @Test
     void malformedStateFailsClosedBeforeReturningAQueryResult() throws Exception {
-        final ControlOperationReceiptV1 receipt = receipt(3, 4_000);
-        final CurrentControlOperationV1 initial = current(receipt, 1, ControlOperationStateV1.PENDING);
+        final ControlOperationReceipt receipt = receipt(3, 4_000);
+        final CurrentControlOperation initial = current(receipt, 1, ControlOperationState.PENDING);
         final PersistentControlOperationAuthority authority = new PersistentControlOperationAuthority(tempDir);
         authority.register(receipt, initial);
         final Path state = tempDir.resolve(Bytes.hex(receipt.operationId()) + ".state");
@@ -88,22 +88,22 @@ class PersistentControlOperationAuthorityTest {
 
     @Test
     void identityAndRevisionFencesMatchTheInMemoryAuthority() {
-        final ControlOperationReceiptV1 receipt = receipt(4, 4_000);
+        final ControlOperationReceipt receipt = receipt(4, 4_000);
         final PersistentControlOperationAuthority authority = new PersistentControlOperationAuthority(tempDir);
-        authority.register(receipt, current(receipt, 1, ControlOperationStateV1.PENDING));
+        authority.register(receipt, current(receipt, 1, ControlOperationState.PENDING));
         assertEquals(
-                ControlOperationQueryResultV1.INTEGRITY_ERROR,
+                ControlOperationQueryResult.INTEGRITY_ERROR,
                 authority
-                        .advance(receipt, 1, current(receipt, 3, ControlOperationStateV1.IN_PROGRESS))
+                        .advance(receipt, 1, current(receipt, 3, ControlOperationState.IN_PROGRESS))
                         .resultKind());
         assertEquals(
-                ControlOperationQueryResultV1.INTEGRITY_ERROR,
+                ControlOperationQueryResult.INTEGRITY_ERROR,
                 authority
-                        .advance(receipt, Long.MAX_VALUE, current(receipt, 1, ControlOperationStateV1.IN_PROGRESS))
+                        .advance(receipt, Long.MAX_VALUE, current(receipt, 1, ControlOperationState.IN_PROGRESS))
                         .resultKind());
         final byte[] alteredScope = receipt.authenticatedScopeHash();
         alteredScope[0]++;
-        final ControlOperationReceiptV1 wrong = ControlOperationReceiptV1.create(
+        final ControlOperationReceipt wrong = ControlOperationReceipt.create(
                 receipt.operationId(),
                 receipt.requestHash(),
                 alteredScope,
@@ -112,17 +112,17 @@ class PersistentControlOperationAuthorityTest {
                 receipt.registeredAt(),
                 receipt.queryUntilEpochMs());
         assertEquals(
-                ControlOperationQueryResultV1.NOT_FOUND_OR_NOT_AUTHORIZED,
+                ControlOperationQueryResult.NOT_FOUND_OR_NOT_AUTHORIZED,
                 authority.query(wrong, 2_000).resultKind());
         assertEquals(
-                ControlOperationQueryResultV1.INVALID_RECEIPT,
+                ControlOperationQueryResult.INVALID_RECEIPT,
                 authority.query(null, 2_000).resultKind());
         assertEquals(
-                ControlOperationQueryResultV1.INVALID_RECEIPT,
+                ControlOperationQueryResult.INVALID_RECEIPT,
                 authority.query(receipt, -1).resultKind());
     }
 
-    private static ControlOperationReceiptV1 receipt(final int seed, final long queryUntil) {
+    private static ControlOperationReceipt receipt(final int seed, final long queryUntil) {
         final TrustedUtcIntervalEvidence registered = new TrustedUtcIntervalEvidence(
                 1_000,
                 1_100,
@@ -134,7 +134,7 @@ class PersistentControlOperationAuthorityTest {
                 bytes(32, seed + 10),
                 0,
                 null);
-        return ControlOperationReceiptV1.create(
+        return ControlOperationReceipt.create(
                 bytes(32, seed),
                 bytes(32, seed + 1),
                 bytes(32, seed + 2),
@@ -144,9 +144,9 @@ class PersistentControlOperationAuthorityTest {
                 queryUntil);
     }
 
-    private static CurrentControlOperationV1 current(
-            final ControlOperationReceiptV1 receipt, final long revision, final ControlOperationStateV1 state) {
-        return new CurrentControlOperationV1(
+    private static CurrentControlOperation current(
+            final ControlOperationReceipt receipt, final long revision, final ControlOperationState state) {
+        return new CurrentControlOperation(
                 receipt.operationId(),
                 receipt.requestHash(),
                 receipt.authenticatedScopeHash(),

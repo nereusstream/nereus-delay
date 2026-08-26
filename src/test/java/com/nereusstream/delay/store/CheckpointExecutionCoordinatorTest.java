@@ -6,20 +6,20 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
-import com.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
+import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
-import com.nereusstream.delay.protocol.QuotaGrantRefV1;
+import com.nereusstream.delay.protocol.QuotaGrantRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
@@ -86,12 +86,12 @@ class CheckpointExecutionCoordinatorTest {
         final Path checkpointDirectory = tempDir.resolve("checkpoint");
         final byte[] lineage = bytes(16, 1);
         final byte[] checkpointId = bytes(16, 2);
-        final OwnerIdentityV1 owner = new OwnerIdentityV1(bytes(8, 3), bytes(8, 4), 42, bytes(32, 5));
-        final ProfileRefV1 objectStore = new ProfileRefV1(bytes(32, 6), 1, bytes(32, 7), ProfileKindV1.OBJECT_STORE);
+        final OwnerIdentity owner = new OwnerIdentity(bytes(8, 3), bytes(8, 4), 42, bytes(32, 5));
+        final ProfileRef objectStore = new ProfileRef(bytes(32, 6), 1, bytes(32, 7), ProfileKind.OBJECT_STORE);
         final UUID topicUuid = UUID.randomUUID();
         final KafkaSourcePosition parentPosition = new KafkaSourcePosition(shard, "cluster", topicUuid, 0, null, 900);
         final KafkaSourcePosition childPosition = new KafkaSourcePosition(shard, "cluster", topicUuid, 1, null, 901);
-        final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshot(shard);
+        final CompatibleControlSnapshot controlSnapshot = controlSnapshot(shard);
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shard, resources)) {
@@ -107,8 +107,8 @@ class CheckpointExecutionCoordinatorTest {
                     parentManifest(store, shard, lineage, parentPosition, owner, controlSnapshot);
             final ResponseLossCatalog catalog = new ResponseLossCatalog(new RecoveryCatalog());
             catalog.delegate.publish(parent, 0);
-            final CheckpointUploadIntentV1 pending = new CheckpointUploadIntentV1(
-                    new ShardSubjectV1(shard.routeIncarnation(), shard.partition()),
+            final CheckpointUploadIntent pending = new CheckpointUploadIntent(
+                    new ShardSubject(shard.routeIncarnation(), shard.partition()),
                     lineage,
                     checkpointId,
                     owner,
@@ -120,7 +120,7 @@ class CheckpointExecutionCoordinatorTest {
                     objectStore,
                     evidence(900),
                     5_000,
-                    CheckpointUploadStateV1.PENDING_UPLOAD,
+                    CheckpointUploadState.PENDING_UPLOAD,
                     1,
                     null,
                     null);
@@ -162,7 +162,7 @@ class CheckpointExecutionCoordinatorTest {
                     });
             assertTrue(result.reusedExistingDirectory());
             assertEquals(
-                    CheckpointUploadStateV1.PUBLISHED,
+                    CheckpointUploadState.PUBLISHED,
                     result.publication().uploadIntent().state());
             assertEquals(300, result.nextDueEpochMs());
             assertFalse(retryAdapterCalled.get());
@@ -181,11 +181,10 @@ class CheckpointExecutionCoordinatorTest {
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shard, resources)) {
-            final OwnerIdentityV1 owner = new OwnerIdentityV1(bytes(8, 30), bytes(8, 31), 42, bytes(32, 32));
-            final ProfileRefV1 objectStore =
-                    new ProfileRefV1(bytes(32, 33), 1, bytes(32, 34), ProfileKindV1.OBJECT_STORE);
-            final CheckpointUploadIntentV1 pending = new CheckpointUploadIntentV1(
-                    new ShardSubjectV1(shard),
+            final OwnerIdentity owner = new OwnerIdentity(bytes(8, 30), bytes(8, 31), 42, bytes(32, 32));
+            final ProfileRef objectStore = new ProfileRef(bytes(32, 33), 1, bytes(32, 34), ProfileKind.OBJECT_STORE);
+            final CheckpointUploadIntent pending = new CheckpointUploadIntent(
+                    new ShardSubject(shard),
                     bytes(16, 35),
                     bytes(16, 36),
                     owner,
@@ -197,7 +196,7 @@ class CheckpointExecutionCoordinatorTest {
                     objectStore,
                     evidence(100),
                     5_000,
-                    CheckpointUploadStateV1.PENDING_UPLOAD,
+                    CheckpointUploadState.PENDING_UPLOAD,
                     1,
                     null,
                     null);
@@ -241,9 +240,9 @@ class CheckpointExecutionCoordinatorTest {
         final Path checkpointDirectory = tempDir.resolve("work-class-checkpoint");
         final byte[] lineage = bytes(16, 40);
         final byte[] checkpointId = bytes(16, 41);
-        final OwnerIdentityV1 owner = new OwnerIdentityV1(bytes(8, 42), bytes(8, 43), 44, bytes(32, 44));
-        final ProfileRefV1 objectStore = new ProfileRefV1(bytes(32, 45), 1, bytes(32, 46), ProfileKindV1.OBJECT_STORE);
-        final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshot(shard);
+        final OwnerIdentity owner = new OwnerIdentity(bytes(8, 42), bytes(8, 43), 44, bytes(32, 44));
+        final ProfileRef objectStore = new ProfileRef(bytes(32, 45), 1, bytes(32, 46), ProfileKind.OBJECT_STORE);
+        final CompatibleControlSnapshot controlSnapshot = controlSnapshot(shard);
         final UUID topicUuid = UUID.randomUUID();
         final KafkaSourcePosition parentPosition = new KafkaSourcePosition(shard, "cluster", topicUuid, 0, null, 901);
         final KafkaSourcePosition applied = new KafkaSourcePosition(shard, "cluster", topicUuid, 1, null, 902);
@@ -259,8 +258,8 @@ class CheckpointExecutionCoordinatorTest {
                     parentManifest(store, shard, lineage, parentPosition, owner, controlSnapshot);
             final RecoveryCatalog catalog = new RecoveryCatalog();
             catalog.publish(parent, 0);
-            final CheckpointUploadIntentV1 pending = new CheckpointUploadIntentV1(
-                    new ShardSubjectV1(shard),
+            final CheckpointUploadIntent pending = new CheckpointUploadIntent(
+                    new ShardSubject(shard),
                     lineage,
                     checkpointId,
                     owner,
@@ -272,7 +271,7 @@ class CheckpointExecutionCoordinatorTest {
                     objectStore,
                     evidence(1_000),
                     5_000,
-                    CheckpointUploadStateV1.PENDING_UPLOAD,
+                    CheckpointUploadState.PENDING_UPLOAD,
                     1,
                     null,
                     null);
@@ -381,13 +380,13 @@ class CheckpointExecutionCoordinatorTest {
         final Path checkpointDirectory = tempDir.resolve("runtime-checkpoint");
         final byte[] lineage = bytes(16, 50);
         final byte[] checkpointId = bytes(16, 51);
-        final OwnerIdentityV1 owner = new OwnerIdentityV1(bytes(8, 52), bytes(8, 53), 54, bytes(32, 55));
-        final ProfileRefV1 objectStore = new ProfileRefV1(bytes(32, 56), 1, bytes(32, 57), ProfileKindV1.OBJECT_STORE);
+        final OwnerIdentity owner = new OwnerIdentity(bytes(8, 52), bytes(8, 53), 54, bytes(32, 55));
+        final ProfileRef objectStore = new ProfileRef(bytes(32, 56), 1, bytes(32, 57), ProfileKind.OBJECT_STORE);
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shard, resources)) {
-            final CheckpointUploadIntentV1 pending = new CheckpointUploadIntentV1(
-                    new ShardSubjectV1(shard),
+            final CheckpointUploadIntent pending = new CheckpointUploadIntent(
+                    new ShardSubject(shard),
                     lineage,
                     checkpointId,
                     owner,
@@ -399,7 +398,7 @@ class CheckpointExecutionCoordinatorTest {
                     objectStore,
                     evidence(100),
                     5_000,
-                    CheckpointUploadStateV1.PENDING_UPLOAD,
+                    CheckpointUploadState.PENDING_UPLOAD,
                     1,
                     null,
                     null);
@@ -459,13 +458,13 @@ class CheckpointExecutionCoordinatorTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("preflight-release-resources"));
         final CheckpointScheduler scheduler = new CheckpointScheduler(100, 0, 1);
         final Path checkpointDirectory = tempDir.resolve("preflight-release-checkpoint");
-        final OwnerIdentityV1 owner = new OwnerIdentityV1(bytes(8, 60), bytes(8, 61), 62, bytes(32, 63));
-        final ProfileRefV1 objectStore = new ProfileRefV1(bytes(32, 64), 1, bytes(32, 65), ProfileKindV1.OBJECT_STORE);
+        final OwnerIdentity owner = new OwnerIdentity(bytes(8, 60), bytes(8, 61), 62, bytes(32, 63));
+        final ProfileRef objectStore = new ProfileRef(bytes(32, 64), 1, bytes(32, 65), ProfileKind.OBJECT_STORE);
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shard, resources)) {
-            final CheckpointUploadIntentV1 pending = new CheckpointUploadIntentV1(
-                    new ShardSubjectV1(shard),
+            final CheckpointUploadIntent pending = new CheckpointUploadIntent(
+                    new ShardSubject(shard),
                     bytes(16, 66),
                     bytes(16, 67),
                     owner,
@@ -477,7 +476,7 @@ class CheckpointExecutionCoordinatorTest {
                     objectStore,
                     evidence(100),
                     5_000,
-                    CheckpointUploadStateV1.PENDING_UPLOAD,
+                    CheckpointUploadState.PENDING_UPLOAD,
                     1,
                     null,
                     null);
@@ -558,8 +557,8 @@ class CheckpointExecutionCoordinatorTest {
             final ShardId shard,
             final byte[] lineage,
             final SourcePosition position,
-            final OwnerIdentityV1 owner,
-            final CompatibleControlSnapshotV1 controlSnapshot) {
+            final OwnerIdentity owner,
+            final CompatibleControlSnapshot controlSnapshot) {
         return new CheckpointManifest(
                 bytes(16, 9),
                 lineage,
@@ -588,10 +587,10 @@ class CheckpointExecutionCoordinatorTest {
     private static CheckpointManifest childManifest(
             final Path directory,
             final ShardStore store,
-            final CheckpointUploadIntentV1 pending,
+            final CheckpointUploadIntent pending,
             final CheckpointManifest parent,
-            final OwnerIdentityV1 owner,
-            final CompatibleControlSnapshotV1 controlSnapshot) {
+            final OwnerIdentity owner,
+            final CompatibleControlSnapshot controlSnapshot) {
         final List<CheckpointManifest.FileEntry> files = CheckpointFileInventory.collect(directory).stream()
                 .map(file -> new CheckpointManifest.FileEntry(
                         file.name(),
@@ -646,11 +645,9 @@ class CheckpointExecutionCoordinatorTest {
                 new WorkClassRuntimeConfig(policies, 100, 100, 16, 8_000_000), new AtomicLong()::get);
     }
 
-    private static CheckpointResourceV1 resource(
-            final CheckpointUploadRequest request,
-            final CheckpointUploadIntentV1 pending,
-            final ProfileRefV1 objectStore) {
-        return new CheckpointResourceV1(
+    private static CheckpointResource resource(
+            final CheckpointUploadRequest request, final CheckpointUploadIntent pending, final ProfileRef objectStore) {
+        return new CheckpointResource(
                 pending.recoveryLineageId(),
                 pending.checkpointId(),
                 objectStore,
@@ -661,12 +658,12 @@ class CheckpointExecutionCoordinatorTest {
                 request.manifest().manifestSha256());
     }
 
-    private static CompatibleControlSnapshotV1 controlSnapshot(final ShardId shard) {
-        return new CompatibleControlSnapshotV1(
-                new ShardSubjectV1(shard),
-                List.of(new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1)),
-                List.of(new ProfileRefV1(bytes(32, 16), 1, bytes(32, 17), ProfileKindV1.DESTINATION)),
-                new QuotaGrantRefV1(
+    private static CompatibleControlSnapshot controlSnapshot(final ShardId shard) {
+        return new CompatibleControlSnapshot(
+                new ShardSubject(shard),
+                List.of(new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1)),
+                List.of(new ProfileRef(bytes(32, 16), 1, bytes(32, 17), ProfileKind.DESTINATION)),
+                new QuotaGrantRef(
                         bytes(32, 18),
                         1,
                         new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));
@@ -762,7 +759,7 @@ class CheckpointExecutionCoordinatorTest {
 
         @Override
         public RecoveryCatalog.Publication publishUploadedCheckpoint(
-                final CheckpointUploadIntentV1 publishedIntent,
+                final CheckpointUploadIntent publishedIntent,
                 final CheckpointManifest manifest,
                 final long expectedCatalogGeneration) {
             final RecoveryCatalog.Publication result =

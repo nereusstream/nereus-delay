@@ -56,7 +56,7 @@ class ExpiryDiscoveryWorkClassExecutorTest {
 
             assertTrue(submission.discovered().isEmpty());
             assertEquals(0, ownerClockReads.get());
-            final int domainBytes = Bytes.utf8("nereus-delay-expiry-discovery-task-v1\0").length;
+            final int domainBytes = Bytes.utf8("nereus-delay-expiry-discovery-task\0").length;
             final int shardBytes = 16 + 4;
             final int evidenceBytes = 4 + evidence().canonicalBytes().length;
             final int budgetBytes = 4 + 8 + 8;

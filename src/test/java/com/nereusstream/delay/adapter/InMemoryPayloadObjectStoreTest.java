@@ -7,31 +7,31 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CanonicalPayloadCommitProof;
 import com.nereusstream.delay.protocol.CommandId;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.LargeScheduleIntent;
-import com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
-import com.nereusstream.delay.protocol.ObjectStoreProviderKindV1;
-import com.nereusstream.delay.protocol.OpaquePayloadUploadHandleV1;
+import com.nereusstream.delay.protocol.ObjectStoreProfileSemantic;
+import com.nereusstream.delay.protocol.ObjectStoreProviderKind;
+import com.nereusstream.delay.protocol.OpaquePayloadUploadHandle;
 import com.nereusstream.delay.protocol.OrderingMode;
-import com.nereusstream.delay.protocol.PayloadAttestationOutcomeV1;
-import com.nereusstream.delay.protocol.PayloadAttestationResponseV1;
-import com.nereusstream.delay.protocol.PayloadCommitProofV1;
+import com.nereusstream.delay.protocol.PayloadAttestationOutcome;
+import com.nereusstream.delay.protocol.PayloadAttestationResponse;
 import com.nereusstream.delay.protocol.PayloadProofTrustSet;
-import com.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
-import com.nereusstream.delay.protocol.PayloadProofVerifierKeyV1;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetSemantic;
+import com.nereusstream.delay.protocol.PayloadProofVerifierKey;
 import com.nereusstream.delay.protocol.PayloadReference;
-import com.nereusstream.delay.protocol.PayloadReservationReceiptV1;
-import com.nereusstream.delay.protocol.PayloadUploadHandleOutcomeV1;
-import com.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
+import com.nereusstream.delay.protocol.PayloadReservationReceipt;
+import com.nereusstream.delay.protocol.PayloadUploadHandleOutcome;
+import com.nereusstream.delay.protocol.PayloadUploadHandleResponse;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.UploadHandleKindV1;
+import com.nereusstream.delay.protocol.UploadHandleKind;
 import com.nereusstream.delay.runtime.PayloadReservation;
 import com.nereusstream.delay.runtime.PayloadReservationStatus;
 import java.security.KeyPair;
@@ -44,34 +44,34 @@ class InMemoryPayloadObjectStoreTest {
     @Test
     void issuesIdempotentHandleAndAttestsImmutablePayload() throws Exception {
         final KeyPair keyPair = keyPair();
-        final PayloadProofTrustSetSemanticV1 trust = trustSet(keyPair, 9_000);
-        final ProfileSemanticEnvelopeV1 profile = profile();
+        final PayloadProofTrustSetSemantic trust = trustSet(keyPair, 9_000);
+        final ProfileSemanticEnvelope profile = profile();
         final PayloadReservation reservation = reservation(5_000, Bytes.utf8("large"));
         final InMemoryPayloadObjectStore store = new InMemoryPayloadObjectStore(
                 profile, Bytes.sha256(Bytes.utf8("tenant")), trust, 7, keyPair.getPrivate());
         store.register(reservation);
 
         final var first =
-                store.issueUploadHandle(reservation.reservationId(), UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_000);
-        assertEquals(PayloadUploadHandleOutcomeV1.ISSUED, first.outcome());
+                store.issueUploadHandle(reservation.reservationId(), UploadHandleKind.OPAQUE_SINGLE_PUT, 1_000);
+        assertEquals(PayloadUploadHandleOutcome.ISSUED, first.outcome());
         final var second =
-                store.issueUploadHandle(reservation.reservationId(), UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_001);
+                store.issueUploadHandle(reservation.reservationId(), UploadHandleKind.OPAQUE_SINGLE_PUT, 1_001);
         assertEquals(first, second);
-        assertEquals(first, PayloadUploadHandleResponseV1.decode(first.canonicalBytes()));
+        assertEquals(first, PayloadUploadHandleResponse.decode(first.canonicalBytes()));
 
         final var handle = first.issued();
         final var notReady = store.attest(handle, 1_002);
-        assertEquals(PayloadAttestationOutcomeV1.OBJECT_NOT_READY_RETRYABLE, notReady.outcome());
+        assertEquals(PayloadAttestationOutcome.OBJECT_NOT_READY_RETRYABLE, notReady.outcome());
         assertEquals(2_002L, notReady.error().retryAtEpochMs());
 
         store.upload(handle, Bytes.utf8("large"), 1_004);
         store.upload(handle, Bytes.utf8("large"), 1_005);
         final var attested = store.attest(handle, 1_006);
-        assertEquals(PayloadAttestationOutcomeV1.ATTESTED, attested.outcome());
-        final PayloadCommitProofV1 proof = attested.proof();
+        assertEquals(PayloadAttestationOutcome.ATTESTED, attested.outcome());
+        final CanonicalPayloadCommitProof proof = attested.proof();
         assertTrue(PayloadProofTrustSet.fromSemantic(trust).verifies(proof, 1_006));
         assertEquals(attested, store.attest(handle, 1_007));
-        assertEquals(attested, PayloadAttestationResponseV1.decode(attested.canonicalBytes()));
+        assertEquals(attested, PayloadAttestationResponse.decode(attested.canonicalBytes()));
         assertArrayEquals(
                 proof.canonicalBytes(), store.attest(handle, 1_008).proof().canonicalBytes());
     }
@@ -84,15 +84,15 @@ class InMemoryPayloadObjectStoreTest {
         final PayloadReservation reservation = reservation(5_000, Bytes.utf8("large"));
         store.register(reservation);
         final var handle = store.issueUploadHandle(
-                        reservation.reservationId(), UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_000)
+                        reservation.reservationId(), UploadHandleKind.OPAQUE_SINGLE_PUT, 1_000)
                 .issued();
 
         assertEquals(
-                PayloadUploadHandleOutcomeV1.INTEGRITY_ERROR,
-                store.issueUploadHandle(reservation.reservationId(), UploadHandleKindV1.OPAQUE_SINGLE_PUT, -1)
+                PayloadUploadHandleOutcome.INTEGRITY_ERROR,
+                store.issueUploadHandle(reservation.reservationId(), UploadHandleKind.OPAQUE_SINGLE_PUT, -1)
                         .outcome());
         assertEquals(
-                PayloadAttestationOutcomeV1.INTEGRITY_ERROR,
+                PayloadAttestationOutcome.INTEGRITY_ERROR,
                 store.attest(handle, -1).outcome());
     }
 
@@ -105,43 +105,42 @@ class InMemoryPayloadObjectStoreTest {
         store.register(reservation);
 
         assertEquals(
-                PayloadUploadHandleOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED,
-                store.issueUploadHandle(
-                                Bytes.sha256(Bytes.utf8("missing")), UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_000)
+                PayloadUploadHandleOutcome.NOT_FOUND_OR_NOT_AUTHORIZED,
+                store.issueUploadHandle(Bytes.sha256(Bytes.utf8("missing")), UploadHandleKind.OPAQUE_SINGLE_PUT, 1_000)
                         .outcome());
         assertEquals(
-                PayloadUploadHandleOutcomeV1.INTEGRITY_ERROR,
-                store.issueUploadHandle(reservation.reservationId(), UploadHandleKindV1.OPAQUE_MULTIPART, 1_000)
+                PayloadUploadHandleOutcome.INTEGRITY_ERROR,
+                store.issueUploadHandle(reservation.reservationId(), UploadHandleKind.OPAQUE_MULTIPART, 1_000)
                         .outcome());
 
         final var handle = store.issueUploadHandle(
-                        reservation.reservationId(), UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_000)
+                        reservation.reservationId(), UploadHandleKind.OPAQUE_SINGLE_PUT, 1_000)
                 .issued();
         assertThrows(IllegalArgumentException.class, () -> store.upload(handle, Bytes.utf8("wrong"), 1_001));
         store.upload(handle, Bytes.utf8("large"), 1_001);
         assertThrows(IllegalStateException.class, () -> store.upload(handle, Bytes.utf8("other"), 1_002));
 
         final var expired =
-                store.issueUploadHandle(reservation.reservationId(), UploadHandleKindV1.OPAQUE_SINGLE_PUT, 2_001);
-        assertEquals(PayloadUploadHandleOutcomeV1.RESERVATION_EXPIRED, expired.outcome());
+                store.issueUploadHandle(reservation.reservationId(), UploadHandleKind.OPAQUE_SINGLE_PUT, 2_001);
+        assertEquals(PayloadUploadHandleOutcome.RESERVATION_EXPIRED, expired.outcome());
         assertEquals(
-                PayloadAttestationOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED,
+                PayloadAttestationOutcome.NOT_FOUND_OR_NOT_AUTHORIZED,
                 store.attest(
-                                OpaquePayloadUploadHandleV1.create(
+                                OpaquePayloadUploadHandle.create(
                                         Bytes.sha256(Bytes.utf8("other-reservation")),
                                         profile().ref(),
-                                        UploadHandleKindV1.OPAQUE_SINGLE_PUT,
+                                        UploadHandleKind.OPAQUE_SINGLE_PUT,
                                         2_000,
                                         Bytes.utf8("foreign")),
                                 1_000)
                         .outcome());
-        assertFalse(store.attest(handle, 2_001).outcome() == PayloadAttestationOutcomeV1.ATTESTED);
+        assertFalse(store.attest(handle, 2_001).outcome() == PayloadAttestationOutcome.ATTESTED);
     }
 
     @Test
     void registrationIsExactAndDoesNotAcceptTrustSetDrift() throws Exception {
         final KeyPair keyPair = keyPair();
-        final PayloadProofTrustSetSemanticV1 trust = trustSet(keyPair, 9_000);
+        final PayloadProofTrustSetSemantic trust = trustSet(keyPair, 9_000);
         final InMemoryPayloadObjectStore store = new InMemoryPayloadObjectStore(
                 profile(), Bytes.sha256(Bytes.utf8("tenant")), trust, 7, keyPair.getPrivate());
         final PayloadReservation reservation = reservation(5_000, Bytes.utf8("large"));
@@ -167,8 +166,8 @@ class InMemoryPayloadObjectStoreTest {
     void registryRegistrationRequiresTheExactPinnedTrustSetSemantic() throws Exception {
         final KeyPair adapterKey = keyPair();
         final KeyPair foreignKey = keyPair();
-        final PayloadProofTrustSetSemanticV1 adapterTrust = trustSet(adapterKey, 9_000);
-        final PayloadProofTrustSetSemanticV1 foreignTrust = trustSet(foreignKey, 9_000);
+        final PayloadProofTrustSetSemantic adapterTrust = trustSet(adapterKey, 9_000);
+        final PayloadProofTrustSetSemantic foreignTrust = trustSet(foreignKey, 9_000);
         final InMemoryPayloadObjectStore store = new InMemoryPayloadObjectStore(
                 profile(), Bytes.sha256(Bytes.utf8("tenant")), adapterTrust, 7, adapterKey.getPrivate());
         final PayloadReservation reservation = reservation(5_000, Bytes.utf8("large"));
@@ -178,13 +177,13 @@ class InMemoryPayloadObjectStoreTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> store.register(reservation, foreignTrust.ref(), profile().ref()));
-        final ProfileRefV1 foreignProfile = new ProfileRefV1(
-                Bytes.utf8("foreign-object-store"), 1, digest("foreign-object-store"), ProfileKindV1.OBJECT_STORE);
+        final ProfileRef foreignProfile = new ProfileRef(
+                Bytes.utf8("foreign-object-store"), 1, digest("foreign-object-store"), ProfileKind.OBJECT_STORE);
         assertThrows(
                 IllegalArgumentException.class, () -> store.register(reservation, adapterTrust.ref(), foreignProfile));
         assertEquals(
-                PayloadUploadHandleOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED,
-                store.issueUploadHandle(reservation.reservationId(), UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_000)
+                PayloadUploadHandleOutcome.NOT_FOUND_OR_NOT_AUTHORIZED,
+                store.issueUploadHandle(reservation.reservationId(), UploadHandleKind.OPAQUE_SINGLE_PUT, 1_000)
                         .outcome());
 
         store.register(reservation, adapterTrust.ref(), profile().ref());
@@ -194,12 +193,12 @@ class InMemoryPayloadObjectStoreTest {
     @Test
     void receiptAnchorSurvivesSourceOrderedReservationLifecycleTransitions() throws Exception {
         final KeyPair keyPair = keyPair();
-        final PayloadProofTrustSetSemanticV1 trust = trustSet(keyPair, 9_000);
+        final PayloadProofTrustSetSemantic trust = trustSet(keyPair, 9_000);
         final InMemoryPayloadObjectStore store = new InMemoryPayloadObjectStore(
                 profile(), Bytes.sha256(Bytes.utf8("tenant")), trust, 7, keyPair.getPrivate());
         final PayloadReservation reservation = reservation(5_000, Bytes.utf8("large"));
         store.register(reservation);
-        final PayloadReservationReceiptV1 receipt = store.reservationReceipt(reservation);
+        final PayloadReservationReceipt receipt = store.reservationReceipt(reservation);
 
         final PayloadReservation logicallyExpired = new PayloadReservation(
                 reservation.shardId(),
@@ -215,15 +214,15 @@ class InMemoryPayloadObjectStoreTest {
                 null);
         store.register(logicallyExpired);
         assertEquals(
-                PayloadUploadHandleOutcomeV1.RESERVATION_EXPIRED,
-                store.issueUploadHandle(receipt, UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_000)
+                PayloadUploadHandleOutcome.RESERVATION_EXPIRED,
+                store.issueUploadHandle(receipt, UploadHandleKind.OPAQUE_SINGLE_PUT, 1_000)
                         .outcome());
 
         final PayloadReservation cancellationReservation = reservation(5_000, Bytes.utf8("large"));
         final InMemoryPayloadObjectStore cancellationStore = new InMemoryPayloadObjectStore(
                 profile(), Bytes.sha256(Bytes.utf8("tenant")), trust, 7, keyPair.getPrivate());
         cancellationStore.register(cancellationReservation);
-        final PayloadReservationReceiptV1 cancellationReceipt =
+        final PayloadReservationReceipt cancellationReceipt =
                 cancellationStore.reservationReceipt(cancellationReservation);
         final byte[] cancellationPosition = new KafkaSourcePosition(
                         cancellationReservation.shardId(),
@@ -247,23 +246,23 @@ class InMemoryPayloadObjectStoreTest {
                 null);
         cancellationStore.register(abandoned);
         assertEquals(
-                PayloadUploadHandleOutcomeV1.RESERVATION_ABANDONED,
+                PayloadUploadHandleOutcome.RESERVATION_ABANDONED,
                 cancellationStore
-                        .issueUploadHandle(cancellationReceipt, UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_100)
+                        .issueUploadHandle(cancellationReceipt, UploadHandleKind.OPAQUE_SINGLE_PUT, 1_100)
                         .outcome());
     }
 
     @Test
     void committedTransitionClosesReceiptAndFencesForeignObjectIdentity() throws Exception {
         final KeyPair keyPair = keyPair();
-        final PayloadProofTrustSetSemanticV1 trust = trustSet(keyPair, 9_000);
-        final ProfileSemanticEnvelopeV1 profile = profile();
+        final PayloadProofTrustSetSemantic trust = trustSet(keyPair, 9_000);
+        final ProfileSemanticEnvelope profile = profile();
         final InMemoryPayloadObjectStore store = new InMemoryPayloadObjectStore(
                 profile, Bytes.sha256(Bytes.utf8("tenant")), trust, 7, keyPair.getPrivate());
         final byte[] payload = Bytes.utf8("large");
         final PayloadReservation reservation = reservation(5_000, payload);
         store.register(reservation);
-        final PayloadReservationReceiptV1 receipt = store.reservationReceipt(reservation);
+        final PayloadReservationReceipt receipt = store.reservationReceipt(reservation);
         final byte[] container =
                 Bytes.concat(Bytes.utf8("nereus-delay-local/"), Bytes.utf8(Bytes.hex(profile.profileId())));
         final byte[] objectKey =
@@ -288,8 +287,8 @@ class InMemoryPayloadObjectStoreTest {
                 PayloadReservationStatus.COMMITTED, reservation.stateVersion() + 1, commitPosition, committedPayload);
         store.register(committed);
         assertEquals(
-                PayloadUploadHandleOutcomeV1.RESERVATION_CLOSED,
-                store.issueUploadHandle(receipt, UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_100)
+                PayloadUploadHandleOutcome.RESERVATION_CLOSED,
+                store.issueUploadHandle(receipt, UploadHandleKind.OPAQUE_SINGLE_PUT, 1_100)
                         .outcome());
 
         final InMemoryPayloadObjectStore reopened = new InMemoryPayloadObjectStore(
@@ -298,8 +297,8 @@ class InMemoryPayloadObjectStoreTest {
         reopened.register(reopenedReservation);
         assertEquals(receipt, reopened.reservationReceipt(reopenedReservation));
         assertEquals(
-                PayloadUploadHandleOutcomeV1.RESERVATION_CLOSED,
-                reopened.issueUploadHandle(receipt, UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_100)
+                PayloadUploadHandleOutcome.RESERVATION_CLOSED,
+                reopened.issueUploadHandle(receipt, UploadHandleKind.OPAQUE_SINGLE_PUT, 1_100)
                         .outcome());
 
         final PayloadReference foreignPayload = new PayloadReference(
@@ -331,55 +330,54 @@ class InMemoryPayloadObjectStoreTest {
     @Test
     void boundsHandleLifetimeAndResignsAfterCapabilityExpiry() throws Exception {
         final KeyPair keyPair = keyPair();
-        final PayloadProofTrustSetSemanticV1 trust = trustSet(keyPair, 9_000);
+        final PayloadProofTrustSetSemantic trust = trustSet(keyPair, 9_000);
         final InMemoryPayloadObjectStore store = new InMemoryPayloadObjectStore(
                 profile(), Bytes.sha256(Bytes.utf8("tenant")), trust, 7, 500, keyPair.getPrivate());
         final PayloadReservation reservation = reservation(5_000, Bytes.utf8("large"));
         store.register(reservation);
 
         final var first = store.issueUploadHandle(
-                        reservation.reservationId(), UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_000)
+                        reservation.reservationId(), UploadHandleKind.OPAQUE_SINGLE_PUT, 1_000)
                 .issued();
         assertEquals(1_500L, first.expiresAtEpochMs());
         assertEquals(
                 first,
-                store.issueUploadHandle(reservation.reservationId(), UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_200)
+                store.issueUploadHandle(reservation.reservationId(), UploadHandleKind.OPAQUE_SINGLE_PUT, 1_200)
                         .issued());
         assertEquals(
-                PayloadAttestationOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED,
+                PayloadAttestationOutcome.NOT_FOUND_OR_NOT_AUTHORIZED,
                 store.attest(first, 1_501).outcome());
 
         final var second = store.issueUploadHandle(
-                        reservation.reservationId(), UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_501)
+                        reservation.reservationId(), UploadHandleKind.OPAQUE_SINGLE_PUT, 1_501)
                 .issued();
         assertEquals(2_001L, second.expiresAtEpochMs());
         assertNotEquals(first, second);
         assertThrows(IllegalArgumentException.class, () -> store.upload(first, Bytes.utf8("large"), 1_501));
         store.upload(second, Bytes.utf8("large"), 1_502);
         assertEquals(
-                PayloadAttestationOutcomeV1.ATTESTED,
-                store.attest(second, 1_503).outcome());
+                PayloadAttestationOutcome.ATTESTED, store.attest(second, 1_503).outcome());
     }
 
     @Test
     void receiptBindsObjectIdentityAndSourceReservationState() throws Exception {
         final KeyPair keyPair = keyPair();
-        final PayloadProofTrustSetSemanticV1 trust = trustSet(keyPair, 9_000);
+        final PayloadProofTrustSetSemantic trust = trustSet(keyPair, 9_000);
         final InMemoryPayloadObjectStore store = new InMemoryPayloadObjectStore(
                 profile(), Bytes.sha256(Bytes.utf8("tenant")), trust, 7, 500, keyPair.getPrivate());
         final PayloadReservation reservation = reservation(5_000, Bytes.utf8("large"));
         store.register(reservation);
 
         final var receipt = store.reservationReceipt(reservation);
-        assertEquals(receipt, PayloadReservationReceiptV1.decodeFrame(receipt.frame()));
-        final var handle = store.issueUploadHandle(receipt, UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_000)
+        assertEquals(receipt, PayloadReservationReceipt.decodeFrame(receipt.frame()));
+        final var handle = store.issueUploadHandle(receipt, UploadHandleKind.OPAQUE_SINGLE_PUT, 1_000)
                 .issued();
         store.upload(receipt, handle, Bytes.utf8("large"), 1_001);
         assertEquals(
-                PayloadAttestationOutcomeV1.ATTESTED,
+                PayloadAttestationOutcome.ATTESTED,
                 store.attest(receipt, handle, 1_002).outcome());
 
-        final var drifted = PayloadReservationReceiptV1.create(
+        final var drifted = PayloadReservationReceipt.create(
                 receipt.reservationId(),
                 receipt.delayMessageId(),
                 receipt.shardId(),
@@ -393,18 +391,18 @@ class InMemoryPayloadObjectStoreTest {
                 receipt.reservationExpiryEpochMs(),
                 receipt.trustSet());
         assertEquals(
-                PayloadUploadHandleOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED,
-                store.issueUploadHandle(drifted, UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_003)
+                PayloadUploadHandleOutcome.NOT_FOUND_OR_NOT_AUTHORIZED,
+                store.issueUploadHandle(drifted, UploadHandleKind.OPAQUE_SINGLE_PUT, 1_003)
                         .outcome());
         assertThrows(IllegalArgumentException.class, () -> store.upload(drifted, handle, Bytes.utf8("large"), 1_003));
         assertEquals(
-                PayloadAttestationOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED,
+                PayloadAttestationOutcome.NOT_FOUND_OR_NOT_AUTHORIZED,
                 store.attest(drifted, handle, 1_003).outcome());
     }
 
-    private static ProfileSemanticEnvelopeV1 profile() {
-        final ObjectStoreProfileSemanticV1 body = new ObjectStoreProfileSemanticV1(
-                ObjectStoreProviderKindV1.S3,
+    private static ProfileSemanticEnvelope profile() {
+        final ObjectStoreProfileSemantic body = new ObjectStoreProfileSemantic(
+                ObjectStoreProviderKind.S3,
                 digest("endpoint"),
                 digest("credential-scope"),
                 1,
@@ -414,15 +412,15 @@ class InMemoryPayloadObjectStoreTest {
                 true,
                 digest("encryption"),
                 1_024,
-                ObjectStoreProfileSemanticV1.SINGLE_PUT,
+                ObjectStoreProfileSemantic.SINGLE_PUT,
                 1,
                 digest("lifecycle"));
-        return new ProfileSemanticEnvelopeV1(ProfileKindV1.OBJECT_STORE, Bytes.utf8("object-store"), 1, body);
+        return new ProfileSemanticEnvelope(ProfileKind.OBJECT_STORE, Bytes.utf8("object-store"), 1, body);
     }
 
-    private static PayloadProofTrustSetSemanticV1 trustSet(final KeyPair keyPair, final long notAfter) {
-        return new PayloadProofTrustSetSemanticV1(
-                9, List.of(PayloadProofVerifierKeyV1.fromPublicKey(7, keyPair.getPublic(), 0, notAfter)));
+    private static PayloadProofTrustSetSemantic trustSet(final KeyPair keyPair, final long notAfter) {
+        return new PayloadProofTrustSetSemantic(
+                9, List.of(PayloadProofVerifierKey.fromPublicKey(7, keyPair.getPublic(), 0, notAfter)));
     }
 
     private static PayloadReservation reservation(final long expiry, final byte[] payload) {

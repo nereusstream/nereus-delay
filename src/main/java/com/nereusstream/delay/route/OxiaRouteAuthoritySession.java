@@ -32,7 +32,7 @@ import java.util.function.Supplier;
  * before it can publish a head or refresh a cache.</p>
  */
 public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
-    private static final byte[] SESSION_DOMAIN = Bytes.utf8("nereus-delay-route-session-v1\0");
+    private static final byte[] SESSION_DOMAIN = Bytes.utf8("nereus-delay-route-session\0");
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final OxiaRouteRecordClient delegate;
@@ -299,7 +299,7 @@ public final class OxiaRouteAuthoritySession implements OxiaRouteRecordClient {
         try {
             delegate.close();
         } catch (RuntimeException | Error failure) {
-            // The watch client is an independent Oxia session.  Its close
+            // The watch client is an independent Oxia session. Its close
             // must still be attempted when the authority client reports a
             // teardown failure, otherwise the watch session can be stranded.
             closeFailure = appendCloseFailure(closeFailure, failure);

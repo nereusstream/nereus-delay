@@ -17,9 +17,9 @@ import java.util.function.BiConsumer;
  * Adds the local physical request/byte gate to a target adapter.
  *
  * <p>The wrapper never turns a transport result into authoritative shard
- * state.  A rejected admission is a local pre-send result; a completed
+ * state. A rejected admission is a local pre-send result; a completed
  * delegate stage releases the physical charge even when its side-effect
- * result is {@code UNKNOWN}.  A caller that times out its logical callback,
+ * result is {@code UNKNOWN}. A caller that times out its logical callback,
  * or a wrapper that cannot register a completion callback, must retain the
  * returned {@link PublishCall}'s reservation as a zombie until the delegate
  * stage completes or a separately certified teardown releases it.</p>
@@ -37,7 +37,7 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
     }
 
     /**
-     * Creates a wrapper with a caller-owned executor.  The executor must be a
+     * Creates a wrapper with a caller-owned executor. The executor must be a
      * bounded Lane/Adapter executor in production; this overload lets tests
      * use a deterministic direct executor without changing the admission
      * semantics.
@@ -139,14 +139,14 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
         final AtomicBoolean completionObserved = new AtomicBoolean();
         final AtomicBoolean taskStarted = new AtomicBoolean();
         // Install the release observer before handing the task to the
-        // executor.  A custom/inline executor may run the task and then
+        // executor. A custom/inline executor may run the task and then
         // throw while returning from execute(); if the observer were added
         // afterwards, a later delegate completion could never release the
         // already accepted physical reservation.
         final PublishCall call = withRelease(reservation, outcome, retainPhysicalCharge);
         try {
             executor.execute(() -> {
-                // An Executor is allowed to run the task inline.  Record the
+                // An Executor is allowed to run the task inline. Record the
                 // hand-off before invoking the delegate so an Error escaping
                 // from that accepted task cannot be mistaken for executor
                 // rejection and release an operation whose ownership is
@@ -170,7 +170,7 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                 return PublishCall.completed(completedUnknownValue());
             } else {
                 // An inline/custom executor may throw after it has already
-                // accepted the task.  Preserve the same conservative fence
+                // accepted the task. Preserve the same conservative fence
                 // as an unobserved delegate operation instead of leaking an
                 // active charge behind a completed logical UNKNOWN.
                 retainPhysicalCharge.set(true);
@@ -182,7 +182,7 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
             // If the executor rejected the task before delegate invocation,
             // no Producer ownership can have been acquired through that path,
             // so release the pre-ownership reservation before allowing the
-            // fatal failure to reach the caller/supervisor.  If the executor
+            // fatal failure to reach the caller/supervisor. If the executor
             // ran the task, retain the charge only when no delegate
             // completion has been observed; a successful completion may
             // already have released it through the observer installed above.
@@ -190,7 +190,7 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                 reservation.release();
             } else if (!completionObserved.get()) {
                 // The executor accepted and ran the task but failed after
-                // the delegate hand-off.  Treat that boundary as an
+                // the delegate hand-off. Treat that boundary as an
                 // unobserved physical operation; invokeDelegate has already
                 // registered the delegate completion callback when a stage
                 // exists, so that callback can release the retained charge.
@@ -299,7 +299,7 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                     () -> new DelegateInvocation(null, true));
         } catch (Error fatalFailure) {
             // An asynchronous JVM/native failure must not strand the logical
-            // caller behind an incomplete PublishCall.  It is still not a
+            // caller behind an incomplete PublishCall. It is still not a
             // proof of non-persistence, so retain the physical charge and
             // expose UNKNOWN before rethrowing the fatal failure to the
             // executor/process supervisor.
@@ -349,7 +349,7 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
         } catch (RuntimeException registrationFailure) {
             // A custom CompletionStage may reject both callback-registration
             // paths after the delegate has already acquired Producer
-            // ownership.  UNKNOWN is useful for the logical caller, but it
+            // ownership. UNKNOWN is useful for the logical caller, but it
             // is not physical completion. Keep the reservation as a zombie
             // (or in-flight if the zombie cap is already exhausted) until a
             // caller proves completion or a fenced teardown releases it.

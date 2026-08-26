@@ -1,20 +1,20 @@
 package com.nereusstream.delay.adapter;
 
-import com.nereusstream.delay.protocol.AdapterKindV1;
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.AdapterKind;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.ChannelKindV1;
-import com.nereusstream.delay.protocol.ChannelResourceIdentityV1;
+import com.nereusstream.delay.protocol.ChannelKind;
+import com.nereusstream.delay.protocol.ChannelResourceIdentity;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
-import com.nereusstream.delay.protocol.EvidenceKindV1;
-import com.nereusstream.delay.protocol.EvidenceVerificationStatusV1;
-import com.nereusstream.delay.protocol.ExternalDeliveryIdentityV1;
-import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.PublishEvidenceKindV1;
-import com.nereusstream.delay.protocol.PublishEvidenceV1;
+import com.nereusstream.delay.protocol.EvidenceCursor;
+import com.nereusstream.delay.protocol.EvidenceKind;
+import com.nereusstream.delay.protocol.EvidenceVerificationStatus;
+import com.nereusstream.delay.protocol.ExternalDeliveryIdentity;
+import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.PublishEvidence;
+import com.nereusstream.delay.protocol.PublishEvidenceKind;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
 import com.nereusstream.delay.protocol.StableCode;
@@ -30,7 +30,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 
 /**
- * Local protocol seam for a V1 Kafka transactional receipt partition.
+ * Local protocol seam for a Kafka transactional receipt partition.
  *
  * <p>The production implementation must use one Kafka transaction containing
  * the target record and the keyed receipt record, plus a pinned
@@ -42,8 +42,8 @@ import java.util.concurrent.CompletionStage;
 public final class KafkaReceiptJournal {
     private static final int HASH_LENGTH = 32;
     private static final int LANE_INCARNATION_LENGTH = 16;
-    private static final byte[] MAPPING_ID_DOMAIN = Bytes.utf8("nereus-delay-kafka-receipt-mapping-id-v1\0");
-    private static final byte[] RECORD_DOMAIN = Bytes.utf8("nereus-delay-kafka-receipt-record-v1\0");
+    private static final byte[] MAPPING_ID_DOMAIN = Bytes.utf8("nereus-delay-kafka-receipt-mapping-id\0");
+    private static final byte[] RECORD_DOMAIN = Bytes.utf8("nereus-delay-kafka-receipt-record\0");
 
     private final ShardId shard;
     private final DurableAppender appender;
@@ -227,7 +227,7 @@ public final class KafkaReceiptJournal {
      * A production reader must still prove UUID/partition, contiguous
      * read_committed replay, LSO and retention before publishing this value.
      */
-    public synchronized Optional<EvidenceCursorV1> evidenceCursor(
+    public synchronized Optional<EvidenceCursor> evidenceCursor(
             final ProducerKey producer, final long evidenceGeneration) {
         Objects.requireNonNull(producer, "producer");
         requireReceiptCluster(producer);
@@ -248,7 +248,7 @@ public final class KafkaReceiptJournal {
             return Optional.empty();
         }
         final ReceiptPosition position = latest.position();
-        return Optional.of(EvidenceCursorV1.kafka(
+        return Optional.of(EvidenceCursor.kafka(
                 producer.laneId().bytes(),
                 producer.laneIncarnation(),
                 uuidBytes(receiptResource.nativeTopicUuid()),
@@ -260,7 +260,7 @@ public final class KafkaReceiptJournal {
     }
 
     /** Builds the local PUBLISHED Kafka transactional-receipt branch. */
-    public synchronized PublishEvidenceV1 publishedEvidence(final Mapping mapping, final long evidenceGeneration) {
+    public synchronized PublishEvidence publishedEvidence(final Mapping mapping, final long evidenceGeneration) {
         Objects.requireNonNull(mapping, "mapping");
         requireShard(mapping);
         final MappingState state = mappings.get(Bytes.hex(mapping.mappingId()));
@@ -270,10 +270,10 @@ public final class KafkaReceiptJournal {
         if (state.retired) {
             throw conflict("retired receipt mapping cannot produce PUBLISHED evidence");
         }
-        final EvidenceCursorV1 cursor = evidenceCursor(mapping.producer(), evidenceGeneration)
+        final EvidenceCursor cursor = evidenceCursor(mapping.producer(), evidenceGeneration)
                 .orElseThrow(() -> conflict("published evidence has no receipt cursor"));
         final ReceiptPosition position = state.mappedRecord.position();
-        final BrokerResourceIdentityV1 target = BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+        final BrokerResourceIdentity target = BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(
                 mapping.producer().target().authenticatedClusterId(),
                 mapping.producer().target().nativeTopicUuid()));
         final byte[] branch = CanonicalProtobuf.message(output -> {
@@ -282,7 +282,7 @@ public final class KafkaReceiptJournal {
             CanonicalProtobuf.bytes(
                     output,
                     3,
-                    ExternalDeliveryIdentityV1.publishAttempt(mapping.publishAttemptId())
+                    ExternalDeliveryIdentity.publishAttempt(mapping.publishAttemptId())
                             .canonicalBytes());
             CanonicalProtobuf.bytes(output, 4, mapping.preparedPublishHash());
             CanonicalProtobuf.bytes(output, 5, target.canonicalBytes());
@@ -290,10 +290,8 @@ public final class KafkaReceiptJournal {
             CanonicalProtobuf.bytes(output, 7, mapping.producer().transactionalIdentitySha256());
             CanonicalProtobuf.bytes(output, 8, position.receiptRecordHash());
         });
-        return PublishEvidenceV1.create(
-                PublishEvidenceKindV1.KAFKA_TRANSACTIONAL_RECEIPT,
-                EvidenceVerificationStatusV1.VERIFIED_PUBLISHED,
-                branch);
+        return PublishEvidence.create(
+                PublishEvidenceKind.KAFKA_TRANSACTIONAL_RECEIPT, EvidenceVerificationStatus.VERIFIED_PUBLISHED, branch);
     }
 
     /**
@@ -301,10 +299,10 @@ public final class KafkaReceiptJournal {
      * The fenced channel and barrier digest are caller-supplied identity
      * inputs; this method cannot authenticate fencing, Fetch/LSO or retention.
      */
-    public synchronized PublishEvidenceV1 notPublishedEvidence(
+    public synchronized PublishEvidence notPublishedEvidence(
             final Mapping mapping,
             final long evidenceGeneration,
-            final ChannelResourceIdentityV1 fencedChannel,
+            final ChannelResourceIdentity fencedChannel,
             final byte[] fenceAndLsoBarrierEvidence) {
         Objects.requireNonNull(mapping, "mapping");
         requireShard(mapping);
@@ -320,7 +318,7 @@ public final class KafkaReceiptJournal {
         if (!state.retired || state.retirementRecord == null) {
             throw conflict("receipt absence requires a durable retirement");
         }
-        final EvidenceCursorV1 cursor = evidenceCursor(mapping.producer(), evidenceGeneration)
+        final EvidenceCursor cursor = evidenceCursor(mapping.producer(), evidenceGeneration)
                 .orElseThrow(() -> conflict("receipt absence has no receipt cursor"));
         validateFencedReceiptChannel(mapping.producer(), fencedChannel, cursor, evidenceGeneration);
         final byte[] branch = CanonicalProtobuf.message(output -> {
@@ -329,15 +327,13 @@ public final class KafkaReceiptJournal {
             CanonicalProtobuf.bytes(
                     output,
                     3,
-                    ExternalDeliveryIdentityV1.publishAttempt(mapping.publishAttemptId())
+                    ExternalDeliveryIdentity.publishAttempt(mapping.publishAttemptId())
                             .canonicalBytes());
             CanonicalProtobuf.bytes(output, 4, mapping.preparedPublishHash());
             CanonicalProtobuf.bytes(output, 5, fenceAndLsoBarrierEvidence);
         });
-        return PublishEvidenceV1.create(
-                PublishEvidenceKindV1.KAFKA_RECEIPT_ABSENCE,
-                EvidenceVerificationStatusV1.VERIFIED_NOT_PUBLISHED,
-                branch);
+        return PublishEvidence.create(
+                PublishEvidenceKind.KAFKA_RECEIPT_ABSENCE, EvidenceVerificationStatus.VERIFIED_NOT_PUBLISHED, branch);
     }
 
     /**
@@ -390,11 +386,11 @@ public final class KafkaReceiptJournal {
 
     private void validateFencedReceiptChannel(
             final ProducerKey producer,
-            final ChannelResourceIdentityV1 channel,
-            final EvidenceCursorV1 cursor,
+            final ChannelResourceIdentity channel,
+            final EvidenceCursor cursor,
             final long evidenceGeneration) {
-        if (channel.adapterKind() != AdapterKindV1.KAFKA
-                || channel.channelKind() != ChannelKindV1.KAFKA_TRANSACTIONAL_RECEIPT) {
+        if (channel.adapterKind() != AdapterKind.KAFKA
+                || channel.channelKind() != ChannelKind.KAFKA_TRANSACTIONAL_RECEIPT) {
             throw conflict("receipt absence requires a fenced Kafka transactional channel");
         }
         if (!Arrays.equals(channel.destinationLaneId(), producer.laneId().bytes())
@@ -408,33 +404,31 @@ public final class KafkaReceiptJournal {
                 || channel.evidenceGeneration() != evidenceGeneration) {
             throw conflict("fenced receipt channel partition/generation does not match cursor");
         }
-        final BrokerResourceIdentityV1 expectedTarget =
-                BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
-                        producer.target().authenticatedClusterId(),
-                        producer.target().nativeTopicUuid()));
+        final BrokerResourceIdentity expectedTarget = BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(
+                producer.target().authenticatedClusterId(), producer.target().nativeTopicUuid()));
         if (!expectedTarget.equals(channel.targetResource())) {
             throw conflict("fenced receipt channel target identity differs from Producer target");
         }
-        if (cursor.evidenceKind() != EvidenceKindV1.KAFKA_RECEIPT_CONTIGUOUS
+        if (cursor.evidenceKind() != EvidenceKind.KAFKA_RECEIPT_CONTIGUOUS
                 || cursor.evidenceGeneration() != evidenceGeneration
                 || cursor.physicalPartition() != receiptResource.receiptPartition()
                 || !Arrays.equals(cursor.topicUuid(), uuidBytes(receiptResource.nativeTopicUuid()))) {
             throw conflict("receipt cursor identity does not match the fenced channel");
         }
-        final BrokerResourceIdentityV1 evidenceResource = channel.evidenceResource();
-        if (evidenceResource == null || evidenceResource.kind() != BrokerResourceIdentityV1.Kind.KAFKA) {
+        final BrokerResourceIdentity evidenceResource = channel.evidenceResource();
+        if (evidenceResource == null || evidenceResource.kind() != BrokerResourceIdentity.Kind.KAFKA) {
             throw conflict("fenced receipt channel has no Kafka evidence resource");
         }
-        final KafkaBrokerResourceIdentityV1 evidence = evidenceResource.kafka();
+        final KafkaBrokerResourceIdentity evidence = evidenceResource.kafka();
         if (!receiptResource.authenticatedClusterId().equals(evidence.authenticatedClusterId())
                 || !receiptResource.nativeTopicUuid().equals(evidence.nativeTopicUuid())) {
             throw conflict("receipt cursor identity differs from the fenced evidence resource");
         }
     }
 
-    private boolean cursorMatches(final ProducerKey producer, final EvidenceCursorV1 cursor) {
+    private boolean cursorMatches(final ProducerKey producer, final EvidenceCursor cursor) {
         return cursor != null
-                && cursor.evidenceKind() == EvidenceKindV1.KAFKA_RECEIPT_CONTIGUOUS
+                && cursor.evidenceKind() == EvidenceKind.KAFKA_RECEIPT_CONTIGUOUS
                 && Arrays.equals(cursor.destinationLaneId(), producer.laneId().bytes())
                 && Arrays.equals(cursor.laneIncarnation(), producer.laneIncarnation())
                 && Arrays.equals(cursor.topicUuid(), uuidBytes(receiptResource.nativeTopicUuid()))
@@ -442,11 +436,11 @@ public final class KafkaReceiptJournal {
                 && cursor.evidenceGeneration() != 0;
     }
 
-    private static boolean cursorIncludesOffset(final EvidenceCursorV1 cursor, final long offset) {
+    private static boolean cursorIncludesOffset(final EvidenceCursor cursor, final long offset) {
         return Long.compareUnsigned(cursor.nextOffsetExclusive(), successor(offset)) >= 0;
     }
 
-    private static boolean cursorLsoIncludesOffset(final EvidenceCursorV1 cursor, final long offset) {
+    private static boolean cursorLsoIncludesOffset(final EvidenceCursor cursor, final long offset) {
         return Long.compareUnsigned(cursor.lastObservedLsoExclusive(), successor(offset)) >= 0;
     }
 
@@ -565,7 +559,7 @@ public final class KafkaReceiptJournal {
         if (offset == -1L) {
             throw conflict("Kafka receipt offset domain exhausted");
         }
-        // Kafka offsets are a raw uint64 domain.  Crossing the sign bit is a
+        // Kafka offsets are a raw uint64 domain. Crossing the sign bit is a
         // valid unsigned successor; only all-ones has no next value.
         return offset + 1;
     }
@@ -702,7 +696,7 @@ public final class KafkaReceiptJournal {
      * range; the two boolean predicates must still be independently proven.
      */
     public record ReceiptObservation(
-            EvidenceCursorV1 cursor,
+            EvidenceCursor cursor,
             ReceiptMatch receipt,
             boolean fenceAndLsoBarrierValid,
             boolean receiptRangeRetained) {
@@ -710,12 +704,12 @@ public final class KafkaReceiptJournal {
             Objects.requireNonNull(cursor, "cursor");
         }
 
-        public static ReceiptObservation published(final EvidenceCursorV1 cursor, final ReceiptMatch receipt) {
+        public static ReceiptObservation published(final EvidenceCursor cursor, final ReceiptMatch receipt) {
             return new ReceiptObservation(cursor, Objects.requireNonNull(receipt, "receipt"), false, false);
         }
 
         public static ReceiptObservation absent(
-                final EvidenceCursorV1 cursor,
+                final EvidenceCursor cursor,
                 final boolean fenceAndLsoBarrierValid,
                 final boolean receiptRangeRetained) {
             return new ReceiptObservation(cursor, null, fenceAndLsoBarrierValid, receiptRangeRetained);

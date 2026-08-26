@@ -72,9 +72,9 @@ delay_source="unknown"
 kafka_source="unknown"
 pulsar_source="unknown"
 oxia_source="unknown"
-if ! delay_source="$(require_checkout Delay "${delay_dir}" nereus/delay-full-implementation-v1)"; then source_status="BLOCKED"; fi
-if ! kafka_source="$(require_checkout Kafka "${kafka_dir}" nereus/delay-guarded-producer-v1)"; then source_status="BLOCKED"; fi
-if ! pulsar_source="$(require_checkout Pulsar "${pulsar_dir}" nereus/delay-resource-guard-v1)"; then source_status="BLOCKED"; fi
+if ! delay_source="$(require_checkout Delay "${delay_dir}" nereus/delay-full-implementation)"; then source_status="BLOCKED"; fi
+if ! kafka_source="$(require_checkout Kafka "${kafka_dir}" nereus/delay-guarded-producer)"; then source_status="BLOCKED"; fi
+if ! pulsar_source="$(require_checkout Pulsar "${pulsar_dir}" nereus/delay-resource-guard)"; then source_status="BLOCKED"; fi
 if ! oxia_source="$(require_checkout Oxia "${oxia_dir}" main)"; then source_status="BLOCKED"; fi
 
 bounded_artifact="${bounded_dir}/bounded-chaos-matrix.json"
@@ -176,7 +176,7 @@ fi
 
 required_cells_json="$(printf '%s\n' "${required_cells[@]}" | jq -Rsc 'split("\n") | map(select(length > 0))')"
 jq -n \
-  --arg schema "nereus-delay-certified-chaos-matrix-v1" \
+  --arg schema "nereus-delay-certified-chaos-matrix" \
   --arg status "${certified_status}" \
   --arg profile_id "${profile_id}" \
   --arg artifact "${artifact_dir}" \
@@ -241,7 +241,7 @@ jq -n \
   }' >"${artifact_dir}/certified-chaos-matrix.json"
 
 jq -e --arg status "${certified_status}" \
-  '.status == $status and .schema == "nereus-delay-certified-chaos-matrix-v1"' \
+  '.status == $status and .schema == "nereus-delay-certified-chaos-matrix"' \
   "${artifact_dir}/certified-chaos-matrix.json" >/dev/null
 echo "Certified chaos matrix artifact: ${artifact_dir}/certified-chaos-matrix.json"
 echo "status=${certified_status} bounded_status=${bounded_status} durable=${durable_status} fresh_process=${fresh_process_status} invariant=${invariant_status} docker_cleanup=${docker_cleanup_status}"

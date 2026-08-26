@@ -5,7 +5,7 @@ import java.util.Arrays;
 import java.util.Objects;
 
 /**
- * Trusted tenant authority supplied by an entry composition.  It contains
+ * Trusted tenant authority supplied by an entry composition. It contains
  * only digests used for authorization and routing; no caller tenant string is
  * copied into NDL1 command bytes.
  */

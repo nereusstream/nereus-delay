@@ -1,6 +1,6 @@
 package com.nereusstream.delay.transport;
 
-import com.nereusstream.delay.protocol.AdapterKindV1;
+import com.nereusstream.delay.protocol.AdapterKind;
 import java.text.Normalizer;
 import java.util.Objects;
 
@@ -24,8 +24,8 @@ public record PulsarCommandTransportKey(
     }
 
     @Override
-    public AdapterKindV1 kind() {
-        return AdapterKindV1.PULSAR;
+    public AdapterKind kind() {
+        return AdapterKind.PULSAR;
     }
 
     private static String canonicalText(final String value, final String name) {

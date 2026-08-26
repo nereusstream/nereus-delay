@@ -6,7 +6,7 @@ import com.nereusstream.delay.adapter.DestinationPublishResult;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SourcePosition;
@@ -51,7 +51,7 @@ class WorkerShardRuntimePhysicalLookupTest {
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shard, resources)) {
-            final OwnerIdentityV1 owner = new OwnerIdentityV1(
+            final OwnerIdentity owner = new OwnerIdentity(
                     Bytes.utf8("lookup-deployment"),
                     Bytes.utf8("lookup-worker"),
                     lease.ownerEpoch(),
@@ -120,7 +120,7 @@ class WorkerShardRuntimePhysicalLookupTest {
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shard, resources)) {
-            final OwnerIdentityV1 owner = new OwnerIdentityV1(
+            final OwnerIdentity owner = new OwnerIdentity(
                     Bytes.utf8("source-bound-deployment"),
                     Bytes.utf8("source-bound-worker"),
                     lease.ownerEpoch(),

@@ -3,17 +3,17 @@ package com.nereusstream.delay.ownership;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.ControlAuthorV1;
-import com.nereusstream.delay.protocol.ControlOperationRequestV1;
-import com.nereusstream.delay.protocol.ControlReasonKindV1;
-import com.nereusstream.delay.protocol.ControlReasonV1;
-import com.nereusstream.delay.protocol.ControlTargetKindV1;
-import com.nereusstream.delay.protocol.ControlTargetRefV1;
-import com.nereusstream.delay.protocol.ForceCheckpointRequestV1;
-import com.nereusstream.delay.protocol.PreparedControlOperationV1;
+import com.nereusstream.delay.protocol.ControlAuthor;
+import com.nereusstream.delay.protocol.ControlOperationRequest;
+import com.nereusstream.delay.protocol.ControlReason;
+import com.nereusstream.delay.protocol.ControlReasonKind;
+import com.nereusstream.delay.protocol.ControlTargetKind;
+import com.nereusstream.delay.protocol.ControlTargetRef;
+import com.nereusstream.delay.protocol.ForceCheckpointRequest;
+import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.Version;
@@ -37,12 +37,12 @@ class OxiaSyncControlTargetRegistrationBackendTest {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncControlTargetRegistrationBackend backend =
                 new OxiaSyncControlTargetRegistrationBackend(records, "delay/targets");
-        final PreparedControlOperationV1 prepared = prepared(1);
+        final PreparedControlOperation prepared = prepared(1);
 
         assertEquals(ControlTargetRegistrationAuthority.RegistrationResult.RECORDED, backend.register(prepared));
         assertEquals(
                 ControlTargetRegistrationAuthority.RegistrationResult.ALREADY_RECORDED,
-                backend.register(PreparedControlOperationV1.decode(prepared.canonicalBytes())));
+                backend.register(PreparedControlOperation.decode(prepared.canonicalBytes())));
         assertEquals(prepared, backend.find(prepared.operationId()).orElseThrow());
         final OxiaSyncControlTargetRegistrationBackend reopened =
                 new OxiaSyncControlTargetRegistrationBackend(records, "delay/targets");
@@ -54,13 +54,13 @@ class OxiaSyncControlTargetRegistrationBackendTest {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncControlTargetRegistrationBackend backend =
                 new OxiaSyncControlTargetRegistrationBackend(records, "delay/lost-target");
-        final PreparedControlOperationV1 prepared = prepared(2);
+        final PreparedControlOperation prepared = prepared(2);
         records.failNextPutAfterCommit = true;
         assertEquals(
                 ControlTargetRegistrationAuthority.RegistrationResult.ALREADY_RECORDED, backend.register(prepared));
 
-        final PreparedControlOperationV1 conflict = prepared(3);
-        final PreparedControlOperationV1 sameIdConflict = PreparedControlOperationV1.prepare(
+        final PreparedControlOperation conflict = prepared(3);
+        final PreparedControlOperation sameIdConflict = PreparedControlOperation.prepare(
                 prepared.operationId(),
                 conflict.kind(),
                 conflict.author(),
@@ -83,7 +83,7 @@ class OxiaSyncControlTargetRegistrationBackendTest {
                         throw new IllegalStateException("simulated Oxia session fence");
                     }
                 });
-        final PreparedControlOperationV1 prepared = prepared(5);
+        final PreparedControlOperation prepared = prepared(5);
         records.afterPut = () -> sessionAlive.set(false);
 
         assertThrows(IllegalStateException.class, () -> backend.register(prepared));
@@ -98,22 +98,22 @@ class OxiaSyncControlTargetRegistrationBackendTest {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncControlTargetRegistrationBackend backend =
                 new OxiaSyncControlTargetRegistrationBackend(records, "delay/bad-target");
-        final PreparedControlOperationV1 prepared = prepared(4);
+        final PreparedControlOperation prepared = prepared(4);
         records.putRaw("delay/bad-target/operation/" + Bytes.hex(prepared.operationId()), new byte[] {0x08, 0x02});
         assertThrows(IllegalStateException.class, () -> backend.find(prepared.operationId()));
     }
 
-    private static PreparedControlOperationV1 prepared(final int seed) throws Exception {
+    private static PreparedControlOperation prepared(final int seed) throws Exception {
         final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-        final ControlOperationRequestV1 request = ControlOperationRequestV1.forceCheckpoint(
-                new ForceCheckpointRequestV1(new ControlReasonV1(ControlReasonKindV1.MAINTENANCE, null, null)));
+        final ControlOperationRequest request = ControlOperationRequest.forceCheckpoint(
+                new ForceCheckpointRequest(new ControlReason(ControlReasonKind.MAINTENANCE, null, null)));
         final ShardId shardId = new ShardId(new RouteIncarnation(bytes(16, seed + 1)), seed);
-        final ControlTargetRefV1 target =
-                new ControlTargetRefV1(0, ControlTargetKindV1.SHARD, new ShardSubjectV1(shardId), null, null);
-        return PreparedControlOperationV1.prepare(
+        final ControlTargetRef target =
+                new ControlTargetRef(0, ControlTargetKind.SHARD, new ShardSubject(shardId), null, null);
+        return PreparedControlOperation.prepare(
                 bytes(32, seed),
                 request.kind(),
-                new ControlAuthorV1(bytes(32, seed + 2), bytes(32, seed + 3), bytes(32, seed + 4)),
+                new ControlAuthor(bytes(32, seed + 2), bytes(32, seed + 3), bytes(32, seed + 4)),
                 request,
                 List.of(target),
                 1,

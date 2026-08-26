@@ -288,7 +288,7 @@ class GcWorkClassExecutorTest {
             CanonicalProtobuf.uint32(output, 3, 1);
         });
         final byte[] repeated = CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1, reference));
-        final byte[] digest = Bytes.sha256(Bytes.utf8("nereus-delay-protection-set-v1\0"), repeated);
+        final byte[] digest = Bytes.sha256(Bytes.utf8("nereus-delay-protection-set\0"), repeated);
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, reference);
             CanonicalProtobuf.bytes(output, 2, digest);

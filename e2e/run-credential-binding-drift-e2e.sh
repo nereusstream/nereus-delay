@@ -7,7 +7,7 @@ oxia_checkout=${NEREUS_DELAY_OXIA_CHECKOUT:-"$delay_root/../../oxia"}
 oxia_port=${NEREUS_DELAY_CREDENTIAL_CHAOS_OXIA_PORT:-$((16660 + ($$ % 100)))}
 artifact_dir=${NEREUS_DELAY_CREDENTIAL_CHAOS_ARTIFACT_DIR:-$(mktemp -d -t nereus-delay-credential-binding-chaos.XXXXXX)}
 gradle_user_home=${NEREUS_DELAY_CREDENTIAL_CHAOS_GRADLE_USER_HOME:-$artifact_dir/gradle-user-home}
-prefix=${NEREUS_DELAY_CREDENTIAL_CHAOS_PREFIX:-nereus-delay-v1-credential-drift/$(date +%s)-$$}
+prefix=${NEREUS_DELAY_CREDENTIAL_CHAOS_PREFIX:-nereus-delay-credential-drift/$(date +%s)-$$}
 compose_file=$e2e_root/docker-compose.oxia.yml
 compose_project="nereus-delay-credential-binding-e2e-$(date +%s)-$$"
 compose=(docker compose --project-name "$compose_project" --file "$compose_file")
@@ -79,8 +79,8 @@ after_dump=$artifact_dir/after.json
 jq -e --slurpfile before "$before_dump" --slurpfile after "$after_dump" \
     --arg prefix "$prefix" '
     ($before | length) == 1 and ($after | length) == 1 and
-    $before[0].schema == "nereus-delay-chaos-durable-state-dump-v1" and
-    $after[0].schema == "nereus-delay-chaos-durable-state-dump-v1" and
+    $before[0].schema == "nereus-delay-chaos-durable-state-dump" and
+    $after[0].schema == "nereus-delay-chaos-durable-state-dump" and
     $before[0].cell == "credential-binding-drift" and $after[0].cell == "credential-binding-drift" and
     $before[0].phase == "BEFORE_FRESH_PROCESS_RECOVERY" and
     $after[0].phase == "RECOVERED_AFTER_FRESH_PROCESS" and
@@ -111,7 +111,7 @@ jq -n \
     --arg after "$after_dump" \
     --arg before_log "$before_log" \
     --arg after_log "$after_log" \
-    '{schema:"nereus-delay-v1-credential-binding-drift-e2e-v1",status:"PASS",cell:"credential-binding-drift",
+    '{schema:"nereus-delay-credential-binding-drift-e2e",status:"PASS",cell:"credential-binding-drift",
       artifact_dir:$artifact,started_at:$started,finished_at:$finished,key_prefix:$prefix,
       source_locks:{delay:$delay,oxia:$oxia},fresh_process_recovery:true,
       before_dump:$before,after_dump:$after,before_log:$before_log,after_log:$after_log}' \

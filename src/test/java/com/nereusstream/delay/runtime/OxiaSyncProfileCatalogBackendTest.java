@@ -3,15 +3,15 @@ package com.nereusstream.delay.runtime;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CredentialBindingV1;
-import com.nereusstream.delay.protocol.CredentialEquivalenceAttestationV1;
-import com.nereusstream.delay.protocol.CredentialUseKindV1;
-import com.nereusstream.delay.protocol.CredentialUseLeaseV1;
-import com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
-import com.nereusstream.delay.protocol.ObjectStoreProviderKindV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
-import com.nereusstream.delay.protocol.RotateEquivalentSecretRequestV1;
+import com.nereusstream.delay.protocol.CredentialBinding;
+import com.nereusstream.delay.protocol.CredentialEquivalenceAttestation;
+import com.nereusstream.delay.protocol.CredentialUseKind;
+import com.nereusstream.delay.protocol.CredentialUseLease;
+import com.nereusstream.delay.protocol.ObjectStoreProfileSemantic;
+import com.nereusstream.delay.protocol.ObjectStoreProviderKind;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
+import com.nereusstream.delay.protocol.RotateEquivalentSecretRequest;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
@@ -40,9 +40,9 @@ class OxiaSyncProfileCatalogBackendTest {
         final OxiaSyncProfileCatalogBackend backend = backend(records, "delay/profile", fixture.keyPair());
 
         assertEquals(1, backend.publish(fixture.profile(), fixture.binding()).headRevision());
-        final CredentialUseLeaseV1 lease = backend.issueCredentialUseLease(
+        final CredentialUseLease lease = backend.issueCredentialUseLease(
                 fixture.profile().ref(),
-                CredentialUseKindV1.OBJECT_STORE_ADAPTER,
+                CredentialUseKind.OBJECT_STORE_ADAPTER,
                 bytes(32, 30),
                 1,
                 fixture.binding().bindingDigest(),
@@ -56,9 +56,9 @@ class OxiaSyncProfileCatalogBackendTest {
 
         final OxiaSyncProfileCatalogBackend reopened = backend(records, "delay/profile", fixture.keyPair());
         assertEquals(fixture.profile(), reopened.resolve(fixture.profile().ref()));
-        final CredentialUseLeaseV1 shorterLease = reopened.issueCredentialUseLease(
+        final CredentialUseLease shorterLease = reopened.issueCredentialUseLease(
                 fixture.profile().ref(),
-                CredentialUseKindV1.OBJECT_STORE_ADAPTER,
+                CredentialUseKind.OBJECT_STORE_ADAPTER,
                 bytes(32, 30),
                 1,
                 fixture.binding().bindingDigest(),
@@ -69,14 +69,14 @@ class OxiaSyncProfileCatalogBackendTest {
         assertEquals(5_000, shorterLease.validUntilEpochMs());
         assertEquals(2, shorterLease.protectionRevision());
 
-        final CredentialBindingV1 nextBinding =
-                binding(fixture.profile(), 2, Bytes.utf8("secret://object/v2"), fixture.keyPair());
-        final RotateEquivalentSecretRequestV1 rotation = new RotateEquivalentSecretRequestV1(
+        final CredentialBinding nextBinding =
+                binding(fixture.profile(), 2, Bytes.utf8("secret://object/current"), fixture.keyPair());
+        final RotateEquivalentSecretRequest rotation = new RotateEquivalentSecretRequest(
                 fixture.profile().ref(),
                 1,
                 2,
-                Bytes.utf8("secret://object/v2"),
-                Bytes.sha256(Bytes.utf8("secret://object/v2")),
+                Bytes.utf8("secret://object/current"),
+                Bytes.sha256(Bytes.utf8("secret://object/current")),
                 nextBinding.equivalenceAttestation(),
                 fixture.binding().bindingDigest(),
                 1);
@@ -133,26 +133,26 @@ class OxiaSyncProfileCatalogBackendTest {
         final OxiaSyncProfileCatalogBackend backend = backend(records, "delay/profile-fence", fixture.keyPair());
         backend.publish(fixture.profile(), fixture.binding());
 
-        final CredentialBindingV1 nextBinding =
-                binding(fixture.profile(), 2, Bytes.utf8("secret://object/v2"), fixture.keyPair());
-        final RotateEquivalentSecretRequestV1 wrongHead = new RotateEquivalentSecretRequestV1(
+        final CredentialBinding nextBinding =
+                binding(fixture.profile(), 2, Bytes.utf8("secret://object/current"), fixture.keyPair());
+        final RotateEquivalentSecretRequest wrongHead = new RotateEquivalentSecretRequest(
                 fixture.profile().ref(),
                 1,
                 2,
-                Bytes.utf8("secret://object/v2"),
-                Bytes.sha256(Bytes.utf8("secret://object/v2")),
+                Bytes.utf8("secret://object/current"),
+                Bytes.sha256(Bytes.utf8("secret://object/current")),
                 nextBinding.equivalenceAttestation(),
                 bytes(32, 99),
                 1);
         assertThrows(IllegalStateException.class, () -> backend.rotate(wrongHead));
         assertEquals(1, backend.resolveHead(fixture.profile().ref()).secretGeneration());
 
-        final ProfileSemanticEnvelopeV1 conflicting = new ProfileSemanticEnvelopeV1(
-                ProfileKindV1.OBJECT_STORE,
+        final ProfileSemanticEnvelope conflicting = new ProfileSemanticEnvelope(
+                ProfileKind.OBJECT_STORE,
                 Bytes.utf8("object-store"),
                 1,
-                new ObjectStoreProfileSemanticV1(
-                        ObjectStoreProviderKindV1.S3_COMPATIBLE,
+                new ObjectStoreProfileSemantic(
+                        ObjectStoreProviderKind.S3_COMPATIBLE,
                         bytes(32, 1),
                         bytes(32, 2),
                         1,
@@ -162,7 +162,7 @@ class OxiaSyncProfileCatalogBackendTest {
                         true,
                         bytes(32, 44),
                         1 << 20,
-                        ObjectStoreProfileSemanticV1.SINGLE_PUT,
+                        ObjectStoreProfileSemantic.SINGLE_PUT,
                         1,
                         bytes(32, 4)));
         assertThrows(IllegalStateException.class, () -> backend.resolve(conflicting.ref()));
@@ -179,8 +179,8 @@ class OxiaSyncProfileCatalogBackendTest {
     }
 
     private static Fixture fixture() throws Exception {
-        final ObjectStoreProfileSemanticV1 semantic = new ObjectStoreProfileSemanticV1(
-                ObjectStoreProviderKindV1.S3_COMPATIBLE,
+        final ObjectStoreProfileSemantic semantic = new ObjectStoreProfileSemantic(
+                ObjectStoreProviderKind.S3_COMPATIBLE,
                 bytes(32, 1),
                 bytes(32, 2),
                 1,
@@ -190,15 +190,15 @@ class OxiaSyncProfileCatalogBackendTest {
                 true,
                 bytes(32, 3),
                 1 << 20,
-                ObjectStoreProfileSemanticV1.SINGLE_PUT,
+                ObjectStoreProfileSemantic.SINGLE_PUT,
                 1,
                 bytes(32, 4));
-        final ProfileSemanticEnvelopeV1 profile =
-                new ProfileSemanticEnvelopeV1(ProfileKindV1.OBJECT_STORE, Bytes.utf8("object-store"), 1, semantic);
+        final ProfileSemanticEnvelope profile =
+                new ProfileSemanticEnvelope(ProfileKind.OBJECT_STORE, Bytes.utf8("object-store"), 1, semantic);
         final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-        final byte[] reference = Bytes.utf8("secret://object/v1");
+        final byte[] reference = Bytes.utf8("secret://object/initial");
         final byte[] fingerprint = bytes(32, 5);
-        final CredentialEquivalenceAttestationV1 attestation = CredentialEquivalenceAttestationV1.signed(
+        final CredentialEquivalenceAttestation attestation = CredentialEquivalenceAttestation.signed(
                 profile.ref(),
                 1,
                 Bytes.sha256(reference),
@@ -212,16 +212,16 @@ class OxiaSyncProfileCatalogBackendTest {
                 1,
                 keyPair.getPrivate());
         return new Fixture(
-                profile, CredentialBindingV1.create(profile.ref(), 1, reference, attestation), fingerprint, keyPair);
+                profile, CredentialBinding.create(profile.ref(), 1, reference, attestation), fingerprint, keyPair);
     }
 
-    private static CredentialBindingV1 binding(
-            final ProfileSemanticEnvelopeV1 profile,
+    private static CredentialBinding binding(
+            final ProfileSemanticEnvelope profile,
             final long generation,
             final byte[] reference,
             final KeyPair keyPair) {
-        final ObjectStoreProfileSemanticV1 semantic = (ObjectStoreProfileSemanticV1) profile.body();
-        final CredentialEquivalenceAttestationV1 attestation = CredentialEquivalenceAttestationV1.signed(
+        final ObjectStoreProfileSemantic semantic = (ObjectStoreProfileSemantic) profile.body();
+        final CredentialEquivalenceAttestation attestation = CredentialEquivalenceAttestation.signed(
                 profile.ref(),
                 generation,
                 Bytes.sha256(reference),
@@ -234,10 +234,10 @@ class OxiaSyncProfileCatalogBackendTest {
                 bytes(32, 7 + (int) generation),
                 1,
                 keyPair.getPrivate());
-        return CredentialBindingV1.create(profile.ref(), generation, reference, attestation);
+        return CredentialBinding.create(profile.ref(), generation, reference, attestation);
     }
 
-    private static String profileKey(final String prefix, final ProfileSemanticEnvelopeV1 profile) {
+    private static String profileKey(final String prefix, final ProfileSemanticEnvelope profile) {
         return prefix + "/profile/" + profile.profileKind().wireValue() + "/"
                 + Bytes.hex(profile.ref().profileId()) + "/"
                 + Long.toUnsignedString(profile.ref().version())
@@ -267,7 +267,7 @@ class OxiaSyncProfileCatalogBackendTest {
     }
 
     private record Fixture(
-            ProfileSemanticEnvelopeV1 profile, CredentialBindingV1 binding, byte[] fingerprint, KeyPair keyPair) {
+            ProfileSemanticEnvelope profile, CredentialBinding binding, byte[] fingerprint, KeyPair keyPair) {
         @Override
         public byte[] fingerprint() {
             return Bytes.copy(fingerprint);

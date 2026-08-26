@@ -7,7 +7,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * V1 self-routing ID: format byte, route UUID, partition, UUID-like logical
+ *Current self-routing ID: format byte, route UUID, partition, UUID-like logical
  * identity and CRC32C over the first 37 bytes.
  */
 public final class SelfRoutingId extends FixedBytes {
@@ -85,7 +85,7 @@ public final class SelfRoutingId extends FixedBytes {
         return new UUID(most, least);
     }
 
-    /** Validates the UUID version and RFC 4122 variant required by V1. */
+    /** Validates the UUID version and RFC 4122 variant required by the current design. */
     public static void requireLogicalUuidV7(final UUID logicalUuidV7) {
         Objects.requireNonNull(logicalUuidV7, "logicalUuidV7");
         final int version = logicalUuidV7.version();
@@ -115,8 +115,8 @@ public final class SelfRoutingId extends FixedBytes {
     }
 
     /**
-     * V1 uses UUIDv7 for the logical locator so its timestamp can participate
-     * in first-seen age validation.  The timestamp itself is interpreted by
+     *Nereus Delay uses UUIDv7 for the logical locator so its timestamp can participate
+     * in first-seen age validation. The timestamp itself is interpreted by
      * the route policy; this decoder only enforces the UUID version and RFC
      * variant bits that make the locator a UUIDv7 rather than arbitrary bytes.
      */

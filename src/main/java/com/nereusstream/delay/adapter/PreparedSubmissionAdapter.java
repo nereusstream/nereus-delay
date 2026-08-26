@@ -1,11 +1,11 @@
 package com.nereusstream.delay.adapter;
 
 import com.nereusstream.delay.protocol.CommandCodec;
-import com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1;
+import com.nereusstream.delay.protocol.EnqueueOutcomeMessage;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.PreparedSubmissionV1;
+import com.nereusstream.delay.protocol.PreparedSubmission;
 import com.nereusstream.delay.protocol.StableCode;
-import com.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import com.nereusstream.delay.protocol.SubmissionOutcomeMessage;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -27,20 +27,20 @@ public final class PreparedSubmissionAdapter implements AutoCloseable {
     }
 
     /**
-     * Submits the exact prepared branch.  The managed receipt query boundary
+     * Submits the exact prepared branch. The managed receipt query boundary
      * is supplied by the route policy; native outcomes ignore it because a
      * native receipt has no managed query authority.
      */
-    public CompletionStage<SubmissionOutcomeMessageV1> submit(
-            final PreparedSubmissionV1 submission,
+    public CompletionStage<SubmissionOutcomeMessage> submit(
+            final PreparedSubmission submission,
             final long receiptQueryUntilEpochMs,
             final byte[] physicalEnqueueAttemptId) {
         Objects.requireNonNull(submission, "submission");
         if (submission.isManaged()) {
-            final PreparedCommand command = CommandCodec.decodeFrameV1(submission.managedFrame());
+            final PreparedCommand command = CommandCodec.decodeManagedFrame(submission.managedFrame());
             return closeGuard.invokeIfOpen(
                     () -> submitManaged(command, receiptQueryUntilEpochMs, physicalEnqueueAttemptId),
-                    () -> CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
+                    () -> CompletableFuture.completedFuture(SubmissionOutcomeMessage.managed(
                             WireIngressOutcomeSupport.localDefinite(command, StableCode.CLIENT_CLOSED))));
         }
         // The native adapter has its own pinned close gate and therefore
@@ -54,17 +54,17 @@ public final class PreparedSubmissionAdapter implements AutoCloseable {
      * adapter and checked again here so a caller cannot replace it with an
      * absolute SDK timestamp or a different Route snapshot.
      */
-    public CompletionStage<SubmissionOutcomeMessageV1> submit(
-            final PreparedSubmissionV1 submission,
+    public CompletionStage<SubmissionOutcomeMessage> submit(
+            final PreparedSubmission submission,
             final QueuedReceiptQueryPolicy routePolicy,
             final byte[] physicalEnqueueAttemptId) {
         Objects.requireNonNull(submission, "submission");
         Objects.requireNonNull(routePolicy, "routePolicy");
         if (submission.isManaged()) {
-            final PreparedCommand command = CommandCodec.decodeFrameV1(submission.managedFrame());
+            final PreparedCommand command = CommandCodec.decodeManagedFrame(submission.managedFrame());
             return closeGuard.invokeIfOpen(
                     () -> submitManaged(command, routePolicy, physicalEnqueueAttemptId),
-                    () -> CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
+                    () -> CompletableFuture.completedFuture(SubmissionOutcomeMessage.managed(
                             WireIngressOutcomeSupport.localDefinite(command, StableCode.CLIENT_CLOSED))));
         }
         // Native receipts do not carry managed query authority; retain the
@@ -72,16 +72,16 @@ public final class PreparedSubmissionAdapter implements AutoCloseable {
         return nativeSubmission.submit(submission.nativePrepared(), physicalEnqueueAttemptId);
     }
 
-    private CompletionStage<SubmissionOutcomeMessageV1> submitManaged(
+    private CompletionStage<SubmissionOutcomeMessage> submitManaged(
             final PreparedCommand command, final long receiptQueryUntilEpochMs, final byte[] physicalEnqueueAttemptId) {
         try {
-            final CompletionStage<EnqueueOutcomeMessageV1> managedOutcome =
-                    managedIngress.enqueueOutcomeV1(command, receiptQueryUntilEpochMs, physicalEnqueueAttemptId);
+            final CompletionStage<EnqueueOutcomeMessage> managedOutcome =
+                    managedIngress.enqueueOutcome(command, receiptQueryUntilEpochMs, physicalEnqueueAttemptId);
             if (managedOutcome == null) {
                 return managedFailure(command, physicalEnqueueAttemptId);
             }
             try {
-                final CompletionStage<SubmissionOutcomeMessageV1> handled = managedOutcome.handle(
+                final CompletionStage<SubmissionOutcomeMessage> handled = managedOutcome.handle(
                         (outcome, error) -> managedOutcome(command, physicalEnqueueAttemptId, outcome, error));
                 return handled == null ? managedFailure(command, physicalEnqueueAttemptId) : handled;
             } catch (RuntimeException registrationFailure) {
@@ -97,22 +97,22 @@ public final class PreparedSubmissionAdapter implements AutoCloseable {
         }
     }
 
-    private CompletionStage<SubmissionOutcomeMessageV1> submitManaged(
+    private CompletionStage<SubmissionOutcomeMessage> submitManaged(
             final PreparedCommand command,
             final QueuedReceiptQueryPolicy routePolicy,
             final byte[] physicalEnqueueAttemptId) {
         if (!(managedIngress instanceof PolicyBoundWireCommandIngressAdapter policyBoundIngress)) {
-            return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
+            return CompletableFuture.completedFuture(SubmissionOutcomeMessage.managed(
                     WireIngressOutcomeSupport.localDefinite(command, StableCode.ROUTE_SNAPSHOT_UNAVAILABLE)));
         }
         try {
-            final CompletionStage<EnqueueOutcomeMessageV1> managedOutcome =
-                    policyBoundIngress.enqueueOutcomeV1(command, routePolicy, physicalEnqueueAttemptId);
+            final CompletionStage<EnqueueOutcomeMessage> managedOutcome =
+                    policyBoundIngress.enqueueOutcome(command, routePolicy, physicalEnqueueAttemptId);
             if (managedOutcome == null) {
                 return managedFailure(command, physicalEnqueueAttemptId);
             }
             try {
-                final CompletionStage<SubmissionOutcomeMessageV1> handled = managedOutcome.handle(
+                final CompletionStage<SubmissionOutcomeMessage> handled = managedOutcome.handle(
                         (outcome, error) -> managedOutcome(command, physicalEnqueueAttemptId, outcome, error));
                 return handled == null ? managedFailure(command, physicalEnqueueAttemptId) : handled;
             } catch (RuntimeException registrationFailure) {
@@ -123,33 +123,33 @@ public final class PreparedSubmissionAdapter implements AutoCloseable {
         }
     }
 
-    private static CompletionStage<SubmissionOutcomeMessageV1> managedFailure(
+    private static CompletionStage<SubmissionOutcomeMessage> managedFailure(
             final PreparedCommand command, final byte[] physicalAttemptId) {
         try {
             return CompletableFuture.completedFuture(managedFailureOutcome(command, physicalAttemptId));
         } catch (RuntimeException invalidAttempt) {
             // An invalid physical attempt cannot identify a Producer call;
             // keep the local rejection definitive even on a broken wrapper.
-            return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
+            return CompletableFuture.completedFuture(SubmissionOutcomeMessage.managed(
                     WireIngressOutcomeSupport.localDefinite(command, StableCode.INVALID_PREPARED_COMMAND)));
         }
     }
 
     /**
-     * Projects both synchronous and asynchronous managed-stage failures.  A
+     * Projects both synchronous and asynchronous managed-stage failures. A
      * failed CompletionStage is not proof that the Broker rejected a request:
      * the managed transport may already have transferred Producer ownership.
      */
-    private static SubmissionOutcomeMessageV1 managedOutcome(
+    private static SubmissionOutcomeMessage managedOutcome(
             final PreparedCommand command,
             final byte[] physicalAttemptId,
-            final EnqueueOutcomeMessageV1 outcome,
+            final EnqueueOutcomeMessage outcome,
             final Throwable error) {
         if (error != null || outcome == null) {
             return managedFailureOutcome(command, physicalAttemptId);
         }
         try {
-            return SubmissionOutcomeMessageV1.managed(outcome);
+            return SubmissionOutcomeMessage.managed(outcome);
         } catch (RuntimeException malformedOutcome) {
             // A malformed stage value is no more evidence of non-persistence
             // than an exceptional completion.
@@ -157,15 +157,15 @@ public final class PreparedSubmissionAdapter implements AutoCloseable {
         }
     }
 
-    private static SubmissionOutcomeMessageV1 managedFailureOutcome(
+    private static SubmissionOutcomeMessage managedFailureOutcome(
             final PreparedCommand command, final byte[] physicalAttemptId) {
         try {
-            return SubmissionOutcomeMessageV1.managed(WireIngressOutcomeSupport.uncertain(
+            return SubmissionOutcomeMessage.managed(WireIngressOutcomeSupport.uncertain(
                     command, physicalAttemptId, StableCode.ENQUEUE_RESULT_UNCERTAIN, null));
         } catch (RuntimeException invalidAttempt) {
             // An invalid physical attempt cannot identify a Producer call;
             // keep the local rejection definitive even on a broken wrapper.
-            return SubmissionOutcomeMessageV1.managed(
+            return SubmissionOutcomeMessage.managed(
                     WireIngressOutcomeSupport.localDefinite(command, StableCode.INVALID_PREPARED_COMMAND));
         }
     }

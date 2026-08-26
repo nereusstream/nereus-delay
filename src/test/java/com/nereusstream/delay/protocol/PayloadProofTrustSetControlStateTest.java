@@ -11,14 +11,13 @@ class PayloadProofTrustSetControlStateTest {
     @Test
     void markersRoundTripAndCloseKeepsHistoricalVerification() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
-        final PayloadProofTrustSetRefV1 first = ref(1, 1);
-        final PayloadProofTrustSetRefV1 second = ref(2, 2);
+        final PayloadProofTrustSetRef first = ref(1, 1);
+        final PayloadProofTrustSetRef second = ref(2, 2);
         final KafkaSourcePosition activation = position(shard, 10, 100);
         final KafkaSourcePosition close = position(shard, 20, 200);
-        final ControlReasonV1 reason =
-                new ControlReasonV1(ControlReasonKindV1.POLICY_CHANGE, Bytes.sha256(Bytes.utf8("ticket")), null);
-        final PayloadProofIssuanceClosePayloadV1 closePayload =
-                new PayloadProofIssuanceClosePayloadV1(first, 7, reason);
+        final ControlReason reason =
+                new ControlReason(ControlReasonKind.POLICY_CHANGE, Bytes.sha256(Bytes.utf8("ticket")), null);
+        final PayloadProofIssuanceClosePayload closePayload = new PayloadProofIssuanceClosePayload(first, 7, reason);
 
         PayloadProofTrustSetControlState state =
                 PayloadProofTrustSetControlState.empty().activate(first, activation);
@@ -36,7 +35,7 @@ class PayloadProofTrustSetControlStateTest {
     @Test
     void exactMarkerReplayIsIdempotentButRegressionIsRejected() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 4);
-        final PayloadProofTrustSetRefV1 first = ref(4, 4);
+        final PayloadProofTrustSetRef first = ref(4, 4);
         final KafkaSourcePosition activation = position(shard, 10, 100);
         final PayloadProofTrustSetControlState state =
                 PayloadProofTrustSetControlState.empty().activate(first, activation);
@@ -57,8 +56,8 @@ class PayloadProofTrustSetControlStateTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> state.close(
-                        new PayloadProofIssuanceClosePayloadV1(
-                                ref(99, 9), 1, new ControlReasonV1(ControlReasonKindV1.INCIDENT, null, null)),
+                        new PayloadProofIssuanceClosePayload(
+                                ref(99, 9), 1, new ControlReason(ControlReasonKind.INCIDENT, null, null)),
                         position(shard, 20, 200)));
     }
 
@@ -78,8 +77,8 @@ class PayloadProofTrustSetControlStateTest {
     @Test
     void canonicalOrderAndSourceIdentityAreFenced() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
-        final PayloadProofTrustSetRefV1 first = ref(1, 5);
-        final PayloadProofTrustSetRefV1 second = ref(2, 6);
+        final PayloadProofTrustSetRef first = ref(1, 5);
+        final PayloadProofTrustSetRef second = ref(2, 6);
         final PayloadProofTrustSetControlState state = PayloadProofTrustSetControlState.empty()
                 .activate(first, position(shard, 10, 100))
                 .activate(second, position(shard, 20, 200));
@@ -93,13 +92,13 @@ class PayloadProofTrustSetControlStateTest {
         final ShardId otherShard = new ShardId(RouteIncarnation.random(), 5);
         assertThrows(IllegalArgumentException.class, () -> state.activate(ref(3, 7), position(otherShard, 30, 300)));
 
-        final ControlReasonV1 reason = new ControlReasonV1(ControlReasonKindV1.INCIDENT, null, null);
-        final PayloadProofIssuanceClosePayloadV1 close = new PayloadProofIssuanceClosePayloadV1(first, 1, reason);
+        final ControlReason reason = new ControlReason(ControlReasonKind.INCIDENT, null, null);
+        final PayloadProofIssuanceClosePayload close = new PayloadProofIssuanceClosePayload(first, 1, reason);
         assertThrows(IllegalArgumentException.class, () -> state.close(close, position(shard, 5, 50)));
     }
 
-    private static PayloadProofTrustSetRefV1 ref(final long version, final int seed) {
-        return new PayloadProofTrustSetRefV1(version, bytes(32, seed));
+    private static PayloadProofTrustSetRef ref(final long version, final int seed) {
+        return new PayloadProofTrustSetRef(version, bytes(32, seed));
     }
 
     private static KafkaSourcePosition position(final ShardId shard, final long offset, final long time) {

@@ -1,6 +1,6 @@
 package com.nereusstream.delay.runtime;
 
-/** Exact registry {@code MessageGenerationStateV1} values used by the runtime index. */
+/** Exact registry {@code MessageGenerationState} values used by the runtime index. */
 public enum GenerationAggregateState {
     SCHEDULED(1),
     CLAIMED(2),

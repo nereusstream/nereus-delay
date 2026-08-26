@@ -7,16 +7,16 @@ import java.util.Optional;
  * Broker-neutral source poll and acknowledgement boundary for one Worker.
  *
  * <p>The implementation owns the native cursor, but it must not advance that
- * cursor from {@link #poll()} or from a local Store callback.  The
+ * cursor from {@link #poll()} or from a local Store callback. The
  * acknowledgement callback is the only operation that may make a source
  * record eligible for cursor advancement, and it must report {@link
  * SourceAcknowledgement.Disposition#ACKED} only after the broker has durably
- * accepted the acknowledgement.  Kafka and Pulsar adapters can implement
+ * accepted the acknowledgement. Kafka and Pulsar adapters can implement
  * this SPI without leaking their client types into the semantic core.</p>
  */
 public interface SourceRecordConsumer extends AutoCloseable {
     /**
-     * Polls at most one record.  An empty result means that this turn has no
+     * Polls at most one record. An empty result means that this turn has no
      * record available; it is not permission to release an unacknowledged
      * record retained by the Worker loop.
      */
@@ -35,7 +35,7 @@ public interface SourceRecordConsumer extends AutoCloseable {
         }
 
         /**
-         * Rejects an entry substitution before invoking the native ACK.  The
+         * Rejects an entry substitution before invoking the native ACK. The
          * Worker retains object identity for the polled record; a different
          * object is never allowed to reuse this ACK authority.
          */

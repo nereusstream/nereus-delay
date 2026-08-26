@@ -75,7 +75,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
 
     /**
      * Creates shared resources after validating an explicit process/container
-     * capacity proof.  The legacy constructor remains for embedded tests that
+     * capacity proof. The legacy constructor remains for embedded tests that
      * do not claim a production resource envelope.
      */
     public SharedRocksDbResources(final ShardStoreConfig config, final WorkerResourceEnvelope envelope) {
@@ -84,7 +84,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
 
     /**
      * Creates shared resources after validating an envelope against a
-     * previously captured runtime observation.  The observation must come
+     * previously captured runtime observation. The observation must come
      * from the same process/container and root filesystem as the config.
      */
     public SharedRocksDbResources(
@@ -110,7 +110,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
             sharedWriteBufferReservation = null;
         } else {
             // Reserve the configured shared native budgets before creating
-            // JNI objects.  The buckets are disjoint by construction: cache
+            // JNI objects. The buckets are disjoint by construction: cache
             // and mutable/immutable memtables cannot silently consume the
             // other-native envelope.
             sharedBlockCacheReservation = nativeResourceLedger.reserve(
@@ -123,7 +123,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
         blockCache = new LRUCache(this.config.sharedBlockCacheBytes());
         writeBufferManager = new WriteBufferManager(this.config.sharedWriteBufferBudgetBytes(), blockCache);
         // Use the worker-wide checkpoint/compaction I/O budget for every DB
-        // opened by this process.  A zero-byte limiter would silently disable
+        // opened by this process. A zero-byte limiter would silently disable
         // the global bound even though the config declares one.
         rateLimiter = new RateLimiter(this.config.checkpointIoBytesPerSecond());
         shardAcquireSlots = new Semaphore(this.config.maxConcurrentAcquiresPerWorker(), true);
@@ -372,7 +372,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
 
     /**
      * Reserves one logical shard ownership slot for the lifetime of an open
-     * active shard DB.  This is separate from the physical DB slot because
+     * active shard DB. This is separate from the physical DB slot because
      * restore validation may briefly open a DB without owning the shard.
      */
     public synchronized void acquireOwnedShardSlot() {
@@ -589,7 +589,7 @@ public final class SharedRocksDbResources implements AutoCloseable {
             }
         }
         // Every process-level native resource must be attempted even if an
-        // earlier close reports a JNI/runtime failure.  Otherwise a failed
+        // earlier close reports a JNI/runtime failure. Otherwise a failed
         // rate-limiter shutdown can strand the shared write-buffer manager or
         // block cache for the lifetime of the Worker.
         if (!rateLimiterClosed) {

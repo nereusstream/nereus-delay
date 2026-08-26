@@ -1,6 +1,6 @@
 # Derive tenant authority from isolated Ingress Routes
 
-Nereus Delay V1 assigns each Ingress Route to exactly one tenant Security Domain and derives Command authority from that registered route plus Broker ACL, never from a `tenantId`, destination URI, or credential in message payload. A Security Domain may represent several callers that deliberately share authority, but V1 does not claim per-producer identity after Broker consumption. Shared multi-tenant Command Topics would require a signed-command protocol and are out of scope.
+Nereus Delay assigns each Ingress Route to exactly one tenant Security Domain and derives Command authority from that registered route plus Broker ACL, never from a `tenantId`, destination URI, or credential in message payload. A Security Domain may represent several callers that deliberately share authority, but Nereus Delay does not claim per-producer identity after Broker consumption. Shared multi-tenant Command Topics would require a signed-command protocol and are out of scope.
 
 ## Data-plane authorization
 

@@ -1,11 +1,11 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CredentialBindingV1;
-import com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
+import com.nereusstream.delay.protocol.CredentialBinding;
+import com.nereusstream.delay.protocol.ObjectStoreProfileSemantic;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import com.nereusstream.delay.runtime.CredentialAttestationTrustSet;
 import java.util.Collection;
 import java.util.HashMap;
@@ -33,8 +33,8 @@ public final class VerifiedCredentialMaterialCache
 
     /** Installs one exact, already resolved material value. */
     public synchronized void install(
-            final ProfileSemanticEnvelopeV1 profile,
-            final CredentialBindingV1 binding,
+            final ProfileSemanticEnvelope profile,
+            final CredentialBinding binding,
             final OxiaObjectStoreCredentialLeaseActivator.ObjectStoreCredentialMaterial material) {
         final Entry validated = validate(profile, binding, material);
         final CacheKey key = CacheKey.from(validated.profile(), validated.binding());
@@ -72,7 +72,7 @@ public final class VerifiedCredentialMaterialCache
     }
 
     /** Removes one exact generation without affecting another binding. */
-    public synchronized void remove(final ProfileSemanticEnvelopeV1 profile, final CredentialBindingV1 binding) {
+    public synchronized void remove(final ProfileSemanticEnvelope profile, final CredentialBinding binding) {
         final CacheKey key =
                 CacheKey.from(Objects.requireNonNull(profile, "profile"), Objects.requireNonNull(binding, "binding"));
         final Map<CacheKey, OxiaObjectStoreCredentialLeaseActivator.ObjectStoreCredentialMaterial> next =
@@ -91,21 +91,21 @@ public final class VerifiedCredentialMaterialCache
 
     @Override
     public OxiaObjectStoreCredentialLeaseActivator.ObjectStoreCredentialMaterial resolve(
-            final ProfileSemanticEnvelopeV1 profile, final CredentialBindingV1 binding) {
+            final ProfileSemanticEnvelope profile, final CredentialBinding binding) {
         Objects.requireNonNull(profile, "profile");
         Objects.requireNonNull(binding, "binding");
         return entries.get(CacheKey.from(profile, binding));
     }
 
     private Entry validate(
-            final ProfileSemanticEnvelopeV1 profile,
-            final CredentialBindingV1 binding,
+            final ProfileSemanticEnvelope profile,
+            final CredentialBinding binding,
             final OxiaObjectStoreCredentialLeaseActivator.ObjectStoreCredentialMaterial material) {
         Objects.requireNonNull(profile, "profile");
         Objects.requireNonNull(binding, "binding");
         Objects.requireNonNull(material, "material");
-        if (profile.profileKind() != ProfileKindV1.OBJECT_STORE
-                || !(profile.body() instanceof ObjectStoreProfileSemanticV1 semantic)) {
+        if (profile.profileKind() != ProfileKind.OBJECT_STORE
+                || !(profile.body() instanceof ObjectStoreProfileSemantic semantic)) {
             throw new IllegalArgumentException("verified credential cache requires an OBJECT_STORE Profile");
         }
         if (!profile.ref().equals(binding.profile())) {
@@ -125,8 +125,8 @@ public final class VerifiedCredentialMaterialCache
 
     /** Exact private cache input; it is never a public command or receipt value. */
     public record Entry(
-            ProfileSemanticEnvelopeV1 profile,
-            CredentialBindingV1 binding,
+            ProfileSemanticEnvelope profile,
+            CredentialBinding binding,
             OxiaObjectStoreCredentialLeaseActivator.ObjectStoreCredentialMaterial material) {
         public Entry {
             Objects.requireNonNull(profile, "profile");
@@ -136,13 +136,13 @@ public final class VerifiedCredentialMaterialCache
     }
 
     private static final class CacheKey {
-        private final ProfileRefV1 profile;
+        private final ProfileRef profile;
         private final long generation;
         private final byte[] bindingDigest;
         private final byte[] referenceSha256;
 
         private CacheKey(
-                final ProfileRefV1 profile,
+                final ProfileRef profile,
                 final long generation,
                 final byte[] bindingDigest,
                 final byte[] referenceSha256) {
@@ -152,7 +152,7 @@ public final class VerifiedCredentialMaterialCache
             this.referenceSha256 = Bytes.copy(referenceSha256);
         }
 
-        private static CacheKey from(final ProfileSemanticEnvelopeV1 profile, final CredentialBindingV1 binding) {
+        private static CacheKey from(final ProfileSemanticEnvelope profile, final CredentialBinding binding) {
             return new CacheKey(
                     profile.ref(),
                     binding.secretGeneration(),

@@ -12,7 +12,7 @@ public record QueuedReceiptQueryPolicy(long policyVersion, long queuedReceiptQue
     }
 
     /**
-     * Computes the only V1 receipt boundary permitted for this policy. The
+     * Computes the only receipt boundary permitted for this policy. The
      * addition is checked because overflow makes the Route configuration
      * uncertifiable rather than producing a wrapped retention deadline.
      */

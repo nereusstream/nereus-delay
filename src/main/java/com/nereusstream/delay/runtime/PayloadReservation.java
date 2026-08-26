@@ -201,7 +201,7 @@ public record PayloadReservation(
     }
 
     /**
-     * Reservation lifecycle values are source-ordered durable state.  A
+     * Reservation lifecycle values are source-ordered durable state. A
      * non-empty byte string is not sufficient evidence of a Source Position:
      * accepting one would let a malformed or foreign-shard reservation carry
      * an untrusted receipt/GC anchor until a later path happened to decode it.

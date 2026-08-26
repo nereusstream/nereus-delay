@@ -2,21 +2,21 @@ package com.nereusstream.delay.ownership;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.ControlAuthorV1;
-import com.nereusstream.delay.protocol.ControlOperationQueryResultV1;
-import com.nereusstream.delay.protocol.ControlOperationReceiptV1;
-import com.nereusstream.delay.protocol.ControlOperationRequestV1;
-import com.nereusstream.delay.protocol.ControlOperationStateV1;
-import com.nereusstream.delay.protocol.ControlReasonKindV1;
-import com.nereusstream.delay.protocol.ControlReasonV1;
-import com.nereusstream.delay.protocol.ControlTargetKindV1;
-import com.nereusstream.delay.protocol.ControlTargetRefV1;
-import com.nereusstream.delay.protocol.CurrentControlOperationV1;
-import com.nereusstream.delay.protocol.ForceCheckpointRequestV1;
-import com.nereusstream.delay.protocol.PreparedControlOperationV1;
+import com.nereusstream.delay.protocol.ControlAuthor;
+import com.nereusstream.delay.protocol.ControlOperationQueryResult;
+import com.nereusstream.delay.protocol.ControlOperationReceipt;
+import com.nereusstream.delay.protocol.ControlOperationRequest;
+import com.nereusstream.delay.protocol.ControlOperationState;
+import com.nereusstream.delay.protocol.ControlReason;
+import com.nereusstream.delay.protocol.ControlReasonKind;
+import com.nereusstream.delay.protocol.ControlTargetKind;
+import com.nereusstream.delay.protocol.ControlTargetRef;
+import com.nereusstream.delay.protocol.CurrentControlOperation;
+import com.nereusstream.delay.protocol.ForceCheckpointRequest;
+import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import io.oxia.client.api.exceptions.OxiaException;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -34,18 +34,18 @@ class OxiaRealControlAuthoritySmokeTest {
     void controlOperationCasAndReopenWorkAgainstRealService() throws Exception {
         final String endpoint = endpoint();
         final String prefix = "nereus-delay-real-control/" + UUID.randomUUID();
-        final ControlOperationReceiptV1 receipt = receipt(1, 4_000);
-        final CurrentControlOperationV1 initial = current(receipt, 1, ControlOperationStateV1.PENDING);
-        final CurrentControlOperationV1 next = current(receipt, 2, ControlOperationStateV1.DISPATCHING);
+        final ControlOperationReceipt receipt = receipt(1, 4_000);
+        final CurrentControlOperation initial = current(receipt, 1, ControlOperationState.PENDING);
+        final CurrentControlOperation next = current(receipt, 2, ControlOperationState.DISPATCHING);
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle client = connect(endpoint, prefix + "/client")) {
             final OxiaSyncControlOperationBackend backend =
                     new OxiaSyncControlOperationBackend(client, prefix + "/operation");
             assertEquals(
-                    ControlOperationQueryResultV1.CURRENT,
+                    ControlOperationQueryResult.CURRENT,
                     backend.register(receipt, initial).resultKind());
             assertEquals(
-                    ControlOperationQueryResultV1.CURRENT,
+                    ControlOperationQueryResult.CURRENT,
                     backend.advance(receipt, 1, next).resultKind());
             final OxiaSyncControlOperationBackend reopened =
                     new OxiaSyncControlOperationBackend(client, prefix + "/operation");
@@ -57,7 +57,7 @@ class OxiaRealControlAuthoritySmokeTest {
     void controlTargetRegistrationCasAndReopenWorkAgainstRealService() throws Exception {
         final String endpoint = endpoint();
         final String prefix = "nereus-delay-real-control-target/" + UUID.randomUUID();
-        final PreparedControlOperationV1 prepared = prepared(7);
+        final PreparedControlOperation prepared = prepared(7);
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle client = connect(endpoint, prefix + "/client")) {
             final OxiaSyncControlTargetRegistrationBackend backend =
@@ -78,19 +78,19 @@ class OxiaRealControlAuthoritySmokeTest {
                 "fresh-process authority phase is not configured");
         Assumptions.assumeTrue(prefix != null && !prefix.isBlank(), "fresh-process authority prefix is not configured");
         final String endpoint = endpoint();
-        final ControlOperationReceiptV1 receipt = receipt(77, 4_000);
-        final CurrentControlOperationV1 initial = current(receipt, 1, ControlOperationStateV1.PENDING);
-        final CurrentControlOperationV1 next = current(receipt, 2, ControlOperationStateV1.DISPATCHING);
+        final ControlOperationReceipt receipt = receipt(77, 4_000);
+        final CurrentControlOperation initial = current(receipt, 1, ControlOperationState.PENDING);
+        final CurrentControlOperation next = current(receipt, 2, ControlOperationState.DISPATCHING);
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle client = connect(endpoint, prefix + "/control-client")) {
             final OxiaSyncControlOperationBackend backend =
                     new OxiaSyncControlOperationBackend(client, prefix + "/control");
             if (phase.equals("WRITE")) {
                 assertEquals(
-                        ControlOperationQueryResultV1.CURRENT,
+                        ControlOperationQueryResult.CURRENT,
                         backend.register(receipt, initial).resultKind());
                 assertEquals(
-                        ControlOperationQueryResultV1.CURRENT,
+                        ControlOperationQueryResult.CURRENT,
                         backend.advance(receipt, 1, next).resultKind());
                 System.out.println("fresh-process control authority write phase passed");
             } else {
@@ -111,7 +111,7 @@ class OxiaRealControlAuthoritySmokeTest {
         return OxiaSyncOwnerLeaseBackend.connect(endpoint, "default", identifier, Duration.ofSeconds(15), "real-smoke");
     }
 
-    private static ControlOperationReceiptV1 receipt(final int seed, final long queryUntil) {
+    private static ControlOperationReceipt receipt(final int seed, final long queryUntil) {
         final var registered = new com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence(
                 1_000,
                 1_100,
@@ -123,7 +123,7 @@ class OxiaRealControlAuthoritySmokeTest {
                 bytes(32, seed + 10),
                 0,
                 null);
-        return ControlOperationReceiptV1.create(
+        return ControlOperationReceipt.create(
                 bytes(32, seed),
                 bytes(32, seed + 1),
                 bytes(32, seed + 2),
@@ -133,9 +133,9 @@ class OxiaRealControlAuthoritySmokeTest {
                 queryUntil);
     }
 
-    private static CurrentControlOperationV1 current(
-            final ControlOperationReceiptV1 receipt, final long revision, final ControlOperationStateV1 state) {
-        return new CurrentControlOperationV1(
+    private static CurrentControlOperation current(
+            final ControlOperationReceipt receipt, final long revision, final ControlOperationState state) {
+        return new CurrentControlOperation(
                 receipt.operationId(),
                 receipt.requestHash(),
                 receipt.authenticatedScopeHash(),
@@ -145,17 +145,17 @@ class OxiaRealControlAuthoritySmokeTest {
                 null);
     }
 
-    private static PreparedControlOperationV1 prepared(final int seed) throws Exception {
+    private static PreparedControlOperation prepared(final int seed) throws Exception {
         final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-        final ControlOperationRequestV1 request = ControlOperationRequestV1.forceCheckpoint(
-                new ForceCheckpointRequestV1(new ControlReasonV1(ControlReasonKindV1.MAINTENANCE, null, null)));
+        final ControlOperationRequest request = ControlOperationRequest.forceCheckpoint(
+                new ForceCheckpointRequest(new ControlReason(ControlReasonKind.MAINTENANCE, null, null)));
         final ShardId shardId = new ShardId(new RouteIncarnation(bytes(16, seed + 1)), seed);
-        final ControlTargetRefV1 target =
-                new ControlTargetRefV1(0, ControlTargetKindV1.SHARD, new ShardSubjectV1(shardId), null, null);
-        return PreparedControlOperationV1.prepare(
+        final ControlTargetRef target =
+                new ControlTargetRef(0, ControlTargetKind.SHARD, new ShardSubject(shardId), null, null);
+        return PreparedControlOperation.prepare(
                 bytes(32, seed),
                 request.kind(),
-                new ControlAuthorV1(bytes(32, seed + 2), bytes(32, seed + 3), bytes(32, seed + 4)),
+                new ControlAuthor(bytes(32, seed + 2), bytes(32, seed + 3), bytes(32, seed + 4)),
                 request,
                 List.of(target),
                 1,

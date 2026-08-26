@@ -5,7 +5,7 @@ export LC_ALL=C
 export LANG=C
 
 # This wrapper certifies only an explicitly named, bounded capacity profile.
-# It does not turn the local Store/SLO probe into the §23.4 V1 capacity
+# It does not turn the local Store/SLO probe into the §23.4  capacity
 # envelope.  In particular, Broker throughput, Lane fairness, placement,
 # adapter/zombie reservations, restore throughput and long-cycle soak remain
 # independent release evidence.
@@ -101,9 +101,9 @@ require_checkout() {
   git -C "${path}" rev-parse HEAD
 }
 
-delay_source="$(require_checkout Delay "${delay_dir}" nereus/delay-full-implementation-v1)"
-kafka_source="$(require_checkout Kafka "${kafka_dir}" nereus/delay-guarded-producer-v1)"
-pulsar_source="$(require_checkout Pulsar "${pulsar_dir}" nereus/delay-resource-guard-v1)"
+delay_source="$(require_checkout Delay "${delay_dir}" nereus/delay-full-implementation)"
+kafka_source="$(require_checkout Kafka "${kafka_dir}" nereus/delay-guarded-producer)"
+pulsar_source="$(require_checkout Pulsar "${pulsar_dir}" nereus/delay-resource-guard)"
 oxia_source="$(require_checkout Oxia "${oxia_dir}" main)"
 
 case_policy='[
@@ -205,7 +205,7 @@ if [[ "${child_status}" == "0" && -s "${matrix_artifact}" ]] \
       --argjson max_collector "${max_case_slo_collector_bytes}" \
       --argjson case_policy "${case_policy}" \
       '
-        .schema == "nereus-delay-bounded-capacity-benchmark-matrix-v1"
+        .schema == "nereus-delay-bounded-capacity-benchmark-matrix"
         and .status == "PARTIAL"
         and .matrix_status == "PASS_BOUNDED"
         and .source_lock == $delay
@@ -216,7 +216,7 @@ if [[ "${child_status}" == "0" && -s "${matrix_artifact}" ]] \
         and ([.cases[].artifact.configuration.payload_records_per_size] | add) * 3 == $expected_payload_total
         and ([.cases[].artifact.configuration.slo_samples] | add) == $expected_slo_total
         and all(.cases[];
-          .artifact.schema == "nereus-delay-bounded-capacity-slo-probe-v1"
+          .artifact.schema == "nereus-delay-bounded-capacity-slo-probe"
           and .artifact.status == "PARTIAL"
           and .artifact.source_lock == $delay
           and (.artifact.configuration.payload_sizes_bytes == [256, 4096, 65536])
@@ -264,7 +264,7 @@ if [[ "${child_status}" != "0" || "${matrix_status}" != "PASS_BOUNDED" \
 fi
 
 jq -n \
-  --arg schema "nereus-delay-certified-capacity-benchmark-v1" \
+  --arg schema "nereus-delay-certified-capacity-benchmark" \
   --arg status "${capacity_status}" \
   --arg profile_id "${profile_id}" \
   --arg artifact_dir "${artifact_dir}" \
@@ -358,7 +358,7 @@ jq -n \
       boundaries: [
         "PASS_CERTIFIED applies only to this explicitly named bounded Store/SLO profile and exact four-repository source lock.",
         "The child cases are source-locked Linux local RocksDB payload writes, readback, durable SLO outbox merge and persistent reopen.",
-        "This is not the §23.4 V1 capacity envelope: it does not certify Broker throughput, Lane distributions or fairness, multi-Worker placement, Control Reserve, Adapter physical/zombie bounds, checkpoint restore throughput, inline/object flow, upgrade/downgrade or long-cycle soak.",
+        "This is not the §23.4  capacity envelope: it does not certify Broker throughput, Lane distributions or fairness, multi-Worker placement, Control Reserve, Adapter physical/zombie bounds, checkpoint restore throughput, inline/object flow, upgrade/downgrade or long-cycle soak.",
         "A missing policy field, failed case/resource invariant, artifact limit, image cleanup or exact Docker postcheck produces FAIL and never PASS_CERTIFIED.",
         "The pinned JDK image is removed only when this run pulled it; pre-existing base images are retained. No global Docker prune is permitted."
       ]
@@ -366,7 +366,7 @@ jq -n \
   ' >"${artifact_dir}/certified-capacity-benchmark.json"
 
 jq -e --arg status "${capacity_status}" \
-  '.schema == "nereus-delay-certified-capacity-benchmark-v1" and .status == $status and (.source_locks.delay | length == 40)' \
+  '.schema == "nereus-delay-certified-capacity-benchmark" and .status == $status and (.source_locks.delay | length == 40)' \
   "${artifact_dir}/certified-capacity-benchmark.json" >/dev/null
 
 echo "certified capacity benchmark artifact=${artifact_dir}/certified-capacity-benchmark.json"

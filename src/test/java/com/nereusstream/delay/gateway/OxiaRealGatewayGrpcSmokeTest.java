@@ -7,33 +7,33 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.google.protobuf.ByteString;
 import com.nereusstream.delay.adapter.WireIngressOutcomeSupport;
-import com.nereusstream.delay.gateway.v1.DelayGatewayV1Grpc;
-import com.nereusstream.delay.gateway.v1.GatewayRouteSelectorV1;
+import com.nereusstream.delay.gateway.wire.DelayGatewayGrpc;
+import com.nereusstream.delay.gateway.wire.GatewayRouteSelector;
 import com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
-import com.nereusstream.delay.protocol.AdapterKindV1;
-import com.nereusstream.delay.protocol.AdapterMetadataV1;
+import com.nereusstream.delay.protocol.AdapterKind;
+import com.nereusstream.delay.protocol.AdapterMetadata;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DeliveryMode;
-import com.nereusstream.delay.protocol.KafkaMetadataV1;
-import com.nereusstream.delay.protocol.MessagePreconditionV1;
+import com.nereusstream.delay.protocol.KafkaMetadata;
+import com.nereusstream.delay.protocol.MessagePrecondition;
 import com.nereusstream.delay.protocol.OrderingMode;
-import com.nereusstream.delay.protocol.PayloadReservationReceiptV1;
+import com.nereusstream.delay.protocol.PayloadReservationReceipt;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.PreparedSubmissionV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.RetryPolicyRefV1;
+import com.nereusstream.delay.protocol.PreparedSubmission;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.RetryPolicyRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.StableCode;
-import com.nereusstream.delay.protocol.SubmissionModeV1;
-import com.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import com.nereusstream.delay.protocol.SubmissionMode;
+import com.nereusstream.delay.protocol.SubmissionOutcomeMessage;
 import com.nereusstream.delay.semantic.AuthenticatedTenantContext;
 import com.nereusstream.delay.semantic.DelaySemanticCore;
-import com.nereusstream.delay.semantic.LargeSchedulePreparationV1;
+import com.nereusstream.delay.semantic.LargeSchedulePreparation;
 import com.nereusstream.delay.semantic.RouteSelectionHint;
 import com.nereusstream.delay.semantic.TrustedClock;
 import com.nereusstream.delay.submission.SubmissionCoordinator;
@@ -118,14 +118,14 @@ class OxiaRealGatewayGrpcSmokeTest {
                 600);
         final MutualTlsJwtGatewayTenantAuthority authority = new MutualTlsJwtGatewayTenantAuthority(verifier);
 
-        final ScheduleIntentV1 intent = scheduleIntent();
+        final CanonicalScheduleIntent intent = scheduleIntent();
         final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
-        final PreparedCommand command = PreparedCommand.scheduleV1(shard, intent, 2_000_000);
-        final PreparedSubmissionV1 prepared = PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(command));
+        final PreparedCommand command = PreparedCommand.schedule(shard, intent, 2_000_000);
+        final PreparedSubmission prepared = PreparedSubmission.managed(CommandCodec.encodeManagedFrame(command));
         final FixedCore core = new FixedCore(prepared);
         final CountingCoordinator coordinator = new CountingCoordinator(command);
         final String token = token(jwtKeyPair, tenant, certificateFingerprint);
-        final com.nereusstream.delay.gateway.v1.GatewayScheduleRequestV1 request = request(intent);
+        final com.nereusstream.delay.gateway.wire.GatewayScheduleRequest request = request(intent);
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle admissionClient = OxiaSyncOwnerLeaseBackend.connect(
                         endpoint,
@@ -157,7 +157,7 @@ class OxiaRealGatewayGrpcSmokeTest {
             final GatewayIngressService ingress =
                     new GatewayIngressService(schedule, authority, admission, audit, clock);
             final GatewayGrpcService grpc = new GatewayGrpcService(ingress, GatewayGrpcContext.provider());
-            com.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 firstResponse;
+            com.nereusstream.delay.gateway.wire.GatewaySubmissionOutcome firstResponse;
 
             try (GatewayGrpcServer server = GatewayGrpcServer.mutualTls(
                     port, serverCertificate, serverPrivateKey, trustedClientCertificates, grpc)) {
@@ -165,16 +165,16 @@ class OxiaRealGatewayGrpcSmokeTest {
                 final ManagedChannel channel =
                         channel(port, trustedClientCertificates, clientCertificate, clientPrivateKey);
                 try {
-                    final DelayGatewayV1Grpc.DelayGatewayV1BlockingStub authenticated = stub(channel, token);
+                    final DelayGatewayGrpc.DelayGatewayBlockingStub authenticated = stub(channel, token);
                     firstResponse = authenticated.schedule(request);
-                    final com.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 second =
+                    final com.nereusstream.delay.gateway.wire.GatewaySubmissionOutcome second =
                             authenticated.schedule(request);
 
                     assertEquals(firstResponse, second);
                     assertTrue(firstResponse.hasSubmissionOutcomeNdr1());
                     assertEquals(
                             StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED.wireValue(),
-                            SubmissionOutcomeMessageV1.decode(firstResponse
+                            SubmissionOutcomeMessage.decode(firstResponse
                                             .getSubmissionOutcomeNdr1()
                                             .toByteArray())
                                     .managed()
@@ -185,7 +185,7 @@ class OxiaRealGatewayGrpcSmokeTest {
                     assertEquals(1, core.prepareCalls);
                     assertEquals(1, coordinator.submitCalls);
 
-                    final DelayGatewayV1Grpc.DelayGatewayV1BlockingStub invalid = stub(channel, mutateSignature(token));
+                    final DelayGatewayGrpc.DelayGatewayBlockingStub invalid = stub(channel, mutateSignature(token));
                     final StatusRuntimeException authenticationFailure =
                             assertThrows(StatusRuntimeException.class, () -> invalid.schedule(request));
                     assertEquals(
@@ -204,7 +204,7 @@ class OxiaRealGatewayGrpcSmokeTest {
                 final ManagedChannel channel =
                         channel(port, trustedClientCertificates, clientCertificate, clientPrivateKey);
                 try {
-                    final com.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 afterRestart =
+                    final com.nereusstream.delay.gateway.wire.GatewaySubmissionOutcome afterRestart =
                             stub(channel, token).schedule(request);
                     assertArrayEquals(firstResponse.toByteArray(), afterRestart.toByteArray());
                     assertEquals(1, core.prepareCalls);
@@ -236,13 +236,13 @@ class OxiaRealGatewayGrpcSmokeTest {
                 assertEquals(1, admissionRecords.size());
                 assertEquals(
                         0,
-                        GatewayAdmissionRecordV1.decode(admissionRecords.get(0).value())
+                        GatewayAdmissionRecord.decode(admissionRecords.get(0).value())
                                 .leases()
                                 .size());
                 assertEquals(1, idempotencyRecords.size());
-                final GatewayIdempotencyRecordV1 idempotencyRecord = GatewayIdempotencyRecordV1.decode(
+                final GatewayIdempotencyRecord idempotencyRecord = GatewayIdempotencyRecord.decode(
                         idempotencyRecords.get(0).value());
-                assertEquals(GatewayIdempotencyPhaseV1.QUIESCENT, idempotencyRecord.phase());
+                assertEquals(GatewayIdempotencyPhase.QUIESCENT, idempotencyRecord.phase());
                 assertEquals(1, idempotencyRecord.attempts().size());
                 assertNotNull(idempotencyRecord.aggregateOutcomeBytes());
                 assertEquals(2, auditRecords.size());
@@ -279,14 +279,14 @@ class OxiaRealGatewayGrpcSmokeTest {
                 30,
                 600);
         final MutualTlsJwtGatewayTenantAuthority authority = new MutualTlsJwtGatewayTenantAuthority(verifier);
-        final ScheduleIntentV1 intent = scheduleIntent();
+        final CanonicalScheduleIntent intent = scheduleIntent();
         final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
-        final PreparedCommand command = PreparedCommand.scheduleV1(shard, intent, 2_000_000);
-        final PreparedSubmissionV1 prepared = PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(command));
+        final PreparedCommand command = PreparedCommand.schedule(shard, intent, 2_000_000);
+        final PreparedSubmission prepared = PreparedSubmission.managed(CommandCodec.encodeManagedFrame(command));
         final FixedCore core = new FixedCore(prepared);
         final CountingCoordinator coordinator = new CountingCoordinator(command);
         final String token = token(jwtKeyPair, tenant, certificateFingerprint);
-        final com.nereusstream.delay.gateway.v1.GatewayScheduleRequestV1 request = request(intent);
+        final com.nereusstream.delay.gateway.wire.GatewayScheduleRequest request = request(intent);
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle admissionClient = OxiaSyncOwnerLeaseBackend.connect(
                         endpoint,
@@ -323,12 +323,12 @@ class OxiaRealGatewayGrpcSmokeTest {
                 final ManagedChannel channel =
                         channel(port, trustedClientCertificates, clientCertificate, clientPrivateKey);
                 try {
-                    final com.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 firstResponse =
+                    final com.nereusstream.delay.gateway.wire.GatewaySubmissionOutcome firstResponse =
                             stub(channel, token).schedule(request);
                     assertTrue(firstResponse.hasSubmissionOutcomeNdr1());
                     assertEquals(
-                            com.nereusstream.delay.protocol.EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN,
-                            SubmissionOutcomeMessageV1.decode(firstResponse
+                            com.nereusstream.delay.protocol.EnqueueOutcomeKind.ENQUEUE_UNCERTAIN,
+                            SubmissionOutcomeMessage.decode(firstResponse
                                             .getSubmissionOutcomeNdr1()
                                             .toByteArray())
                                     .managed()
@@ -337,7 +337,7 @@ class OxiaRealGatewayGrpcSmokeTest {
                     assertEquals(0, coordinator.submitCalls);
 
                     clock.set(NOW_EPOCH_MS + 10_000);
-                    final com.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 recoveredResponse =
+                    final com.nereusstream.delay.gateway.wire.GatewaySubmissionOutcome recoveredResponse =
                             stub(channel, token).schedule(request);
                     assertArrayEquals(firstResponse.toByteArray(), recoveredResponse.toByteArray());
                     assertEquals(1, core.prepareCalls);
@@ -371,16 +371,16 @@ class OxiaRealGatewayGrpcSmokeTest {
                 assertEquals(1, admissionRecords.size());
                 assertEquals(
                         0,
-                        GatewayAdmissionRecordV1.decode(admissionRecords.get(0).value())
+                        GatewayAdmissionRecord.decode(admissionRecords.get(0).value())
                                 .leases()
                                 .size());
                 assertEquals(1, idempotencyRecords.size());
-                final GatewayIdempotencyRecordV1 idempotencyRecord = GatewayIdempotencyRecordV1.decode(
+                final GatewayIdempotencyRecord idempotencyRecord = GatewayIdempotencyRecord.decode(
                         idempotencyRecords.get(0).value());
-                assertEquals(GatewayIdempotencyPhaseV1.QUIESCENT, idempotencyRecord.phase());
+                assertEquals(GatewayIdempotencyPhase.QUIESCENT, idempotencyRecord.phase());
                 assertEquals(1, idempotencyRecord.attempts().size());
                 assertEquals(
-                        GatewayPhysicalAttemptStateV1.UNCERTAIN,
+                        GatewayPhysicalAttemptState.UNCERTAIN,
                         idempotencyRecord.attempts().get(0).state());
                 assertNotNull(idempotencyRecord.aggregateOutcomeBytes());
                 assertEquals(4, auditRecords.size());
@@ -417,14 +417,14 @@ class OxiaRealGatewayGrpcSmokeTest {
                 30,
                 600);
         final MutualTlsJwtGatewayTenantAuthority authority = new MutualTlsJwtGatewayTenantAuthority(verifier);
-        final ScheduleIntentV1 intent = scheduleIntent();
+        final CanonicalScheduleIntent intent = scheduleIntent();
         final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
-        final PreparedCommand command = PreparedCommand.scheduleV1(shard, intent, 2_000_000);
-        final PreparedSubmissionV1 prepared = PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(command));
+        final PreparedCommand command = PreparedCommand.schedule(shard, intent, 2_000_000);
+        final PreparedSubmission prepared = PreparedSubmission.managed(CommandCodec.encodeManagedFrame(command));
         final FixedCore core = new FixedCore(prepared);
         final CountingCoordinator coordinator = new CountingCoordinator(command);
         final String token = token(jwtKeyPair, tenant, certificateFingerprint);
-        final com.nereusstream.delay.gateway.v1.GatewayScheduleRequestV1 request = request(intent);
+        final com.nereusstream.delay.gateway.wire.GatewayScheduleRequest request = request(intent);
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle admissionClient = OxiaSyncOwnerLeaseBackend.connect(
                         endpoint,
@@ -461,11 +461,11 @@ class OxiaRealGatewayGrpcSmokeTest {
                 final ManagedChannel channel =
                         channel(port, trustedClientCertificates, clientCertificate, clientPrivateKey);
                 try {
-                    final com.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 firstResponse =
+                    final com.nereusstream.delay.gateway.wire.GatewaySubmissionOutcome firstResponse =
                             stub(channel, token).schedule(request);
                     assertEquals(
-                            com.nereusstream.delay.protocol.EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN,
-                            SubmissionOutcomeMessageV1.decode(firstResponse
+                            com.nereusstream.delay.protocol.EnqueueOutcomeKind.ENQUEUE_UNCERTAIN,
+                            SubmissionOutcomeMessage.decode(firstResponse
                                             .getSubmissionOutcomeNdr1()
                                             .toByteArray())
                                     .managed()
@@ -474,11 +474,11 @@ class OxiaRealGatewayGrpcSmokeTest {
                     assertEquals(0, coordinator.submitCalls);
 
                     clock.set(NOW_EPOCH_MS + 10_000);
-                    final com.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 recoveredResponse =
+                    final com.nereusstream.delay.gateway.wire.GatewaySubmissionOutcome recoveredResponse =
                             stub(channel, token).schedule(request);
                     assertArrayEquals(firstResponse.toByteArray(), recoveredResponse.toByteArray());
 
-                    final GatewayIdempotencyRecordV1 recoveredRecord;
+                    final GatewayIdempotencyRecord recoveredRecord;
                     try (var idempotencyScan = idempotencyClient
                             .client()
                             .rangeScan(
@@ -488,26 +488,26 @@ class OxiaRealGatewayGrpcSmokeTest {
                                 .toList();
                         assertEquals(1, records.size());
                         recoveredRecord =
-                                GatewayIdempotencyRecordV1.decode(records.get(0).value());
+                                GatewayIdempotencyRecord.decode(records.get(0).value());
                     }
                     assertEquals(
-                            GatewayPhysicalAttemptStateV1.UNCERTAIN,
+                            GatewayPhysicalAttemptState.UNCERTAIN,
                             recoveredRecord.attempts().get(0).state());
                     final PhysicalEnqueueAttemptId priorAttemptId =
                             recoveredRecord.attempts().get(0).physicalAttemptId();
                     final PhysicalEnqueueAttemptId retryRequestId = PhysicalEnqueueAttemptId.require(bytes(16, 151));
-                    final com.nereusstream.delay.gateway.v1.GatewayRetryUncertainRequestV1 retryRequest =
-                            com.nereusstream.delay.gateway.v1.GatewayRetryUncertainRequestV1.newBuilder()
+                    final com.nereusstream.delay.gateway.wire.GatewayRetryUncertainRequest retryRequest =
+                            com.nereusstream.delay.gateway.wire.GatewayRetryUncertainRequest.newBuilder()
                                     .setOriginalIdempotencyKey(request.getIdempotencyKey())
                                     .setExpectedPriorPhysicalAttemptId(ByteString.copyFrom(priorAttemptId.bytes()))
                                     .setRetryRequestId(ByteString.copyFrom(retryRequestId.bytes()))
                                     .build();
 
-                    final com.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 retryResponse =
+                    final com.nereusstream.delay.gateway.wire.GatewaySubmissionOutcome retryResponse =
                             stub(channel, token).retryUncertain(retryRequest);
                     assertEquals(
-                            com.nereusstream.delay.protocol.EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN,
-                            SubmissionOutcomeMessageV1.decode(retryResponse
+                            com.nereusstream.delay.protocol.EnqueueOutcomeKind.ENQUEUE_UNCERTAIN,
+                            SubmissionOutcomeMessage.decode(retryResponse
                                             .getSubmissionOutcomeNdr1()
                                             .toByteArray())
                                     .managed()
@@ -516,7 +516,7 @@ class OxiaRealGatewayGrpcSmokeTest {
                     assertEquals(0, coordinator.submitCalls);
 
                     clock.set(NOW_EPOCH_MS + 20_000);
-                    final com.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 recoveredRetryResponse =
+                    final com.nereusstream.delay.gateway.wire.GatewaySubmissionOutcome recoveredRetryResponse =
                             stub(channel, token).retryUncertain(retryRequest);
                     assertArrayEquals(retryResponse.toByteArray(), recoveredRetryResponse.toByteArray());
                     assertEquals(1, core.prepareCalls);
@@ -551,19 +551,19 @@ class OxiaRealGatewayGrpcSmokeTest {
                 assertEquals(1, admissionRecords.size());
                 assertEquals(
                         0,
-                        GatewayAdmissionRecordV1.decode(admissionRecords.get(0).value())
+                        GatewayAdmissionRecord.decode(admissionRecords.get(0).value())
                                 .leases()
                                 .size());
                 assertEquals(1, idempotencyRecords.size());
-                final GatewayIdempotencyRecordV1 idempotencyRecord = GatewayIdempotencyRecordV1.decode(
+                final GatewayIdempotencyRecord idempotencyRecord = GatewayIdempotencyRecord.decode(
                         idempotencyRecords.get(0).value());
-                assertEquals(GatewayIdempotencyPhaseV1.QUIESCENT, idempotencyRecord.phase());
+                assertEquals(GatewayIdempotencyPhase.QUIESCENT, idempotencyRecord.phase());
                 assertEquals(2, idempotencyRecord.attempts().size());
                 assertEquals(
-                        GatewayPhysicalAttemptStateV1.UNCERTAIN,
+                        GatewayPhysicalAttemptState.UNCERTAIN,
                         idempotencyRecord.attempts().get(0).state());
                 assertEquals(
-                        GatewayPhysicalAttemptStateV1.UNCERTAIN,
+                        GatewayPhysicalAttemptState.UNCERTAIN,
                         idempotencyRecord.attempts().get(1).state());
                 assertNotNull(idempotencyRecord.aggregateOutcomeBytes());
                 assertEquals(8, auditRecords.size());
@@ -606,15 +606,15 @@ class OxiaRealGatewayGrpcSmokeTest {
                 30,
                 600);
         final MutualTlsJwtGatewayTenantAuthority authority = new MutualTlsJwtGatewayTenantAuthority(verifier);
-        final ScheduleIntentV1 intent = scheduleIntent();
+        final CanonicalScheduleIntent intent = scheduleIntent();
         final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
-        final PreparedCommand command = PreparedCommand.scheduleV1(shard, intent, 2_000_000);
-        final PreparedSubmissionV1 prepared = PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(command));
+        final PreparedCommand command = PreparedCommand.schedule(shard, intent, 2_000_000);
+        final PreparedSubmission prepared = PreparedSubmission.managed(CommandCodec.encodeManagedFrame(command));
         final FixedCore core = new FixedCore(prepared);
         final CountingCoordinator coordinator = new CountingCoordinator(command);
         final String token = token(jwtKeyPair, tenant, certificateFingerprint);
         final String rotatedToken = token(jwtKeyPair, tenant, rotatedCertificateFingerprint);
-        final com.nereusstream.delay.gateway.v1.GatewayScheduleRequestV1 request = request(intent);
+        final com.nereusstream.delay.gateway.wire.GatewayScheduleRequest request = request(intent);
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle admissionClient = OxiaSyncOwnerLeaseBackend.connect(
                         endpoint,
@@ -636,7 +636,7 @@ class OxiaRealGatewayGrpcSmokeTest {
                         prefix + "/audit-client")) {
             final GatewayGrpcService grpc = grpcService(
                     admissionClient, idempotencyClient, auditClient, prefix, clock, core, coordinator, authority);
-            final com.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 firstResponse;
+            final com.nereusstream.delay.gateway.wire.GatewaySubmissionOutcome firstResponse;
             try (GatewayGrpcServer server = GatewayGrpcServer.mutualTls(
                     port, serverCertificate, serverPrivateKey, trustedClientCertificates, grpc)) {
                 server.start();
@@ -669,7 +669,7 @@ class OxiaRealGatewayGrpcSmokeTest {
                 final ManagedChannel rotatedChannel = channel(
                         port, rotatedTrustedClientCertificates, rotatedClientCertificate, rotatedClientPrivateKey);
                 try {
-                    final com.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 rotatedResponse =
+                    final com.nereusstream.delay.gateway.wire.GatewaySubmissionOutcome rotatedResponse =
                             stub(rotatedChannel, rotatedToken).schedule(request);
                     assertArrayEquals(firstResponse.toByteArray(), rotatedResponse.toByteArray());
                     assertEquals(1, core.prepareCalls);
@@ -703,13 +703,13 @@ class OxiaRealGatewayGrpcSmokeTest {
                 assertEquals(1, admissionRecords.size());
                 assertEquals(
                         0,
-                        GatewayAdmissionRecordV1.decode(admissionRecords.get(0).value())
+                        GatewayAdmissionRecord.decode(admissionRecords.get(0).value())
                                 .leases()
                                 .size());
                 assertEquals(1, idempotencyRecords.size());
-                final GatewayIdempotencyRecordV1 idempotencyRecord = GatewayIdempotencyRecordV1.decode(
+                final GatewayIdempotencyRecord idempotencyRecord = GatewayIdempotencyRecord.decode(
                         idempotencyRecords.get(0).value());
-                assertEquals(GatewayIdempotencyPhaseV1.QUIESCENT, idempotencyRecord.phase());
+                assertEquals(GatewayIdempotencyPhase.QUIESCENT, idempotencyRecord.phase());
                 assertEquals(1, idempotencyRecord.attempts().size());
                 assertNotNull(idempotencyRecord.aggregateOutcomeBytes());
                 assertEquals(2, auditRecords.size());
@@ -760,14 +760,14 @@ class OxiaRealGatewayGrpcSmokeTest {
                 30,
                 600);
         final MutualTlsJwtGatewayTenantAuthority authority = new MutualTlsJwtGatewayTenantAuthority(verifier);
-        final ScheduleIntentV1 intent = scheduleIntent();
+        final CanonicalScheduleIntent intent = scheduleIntent();
         final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
-        final PreparedCommand command = PreparedCommand.scheduleV1(shard, intent, 2_000_000);
-        final PreparedSubmissionV1 prepared = PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(command));
+        final PreparedCommand command = PreparedCommand.schedule(shard, intent, 2_000_000);
+        final PreparedSubmission prepared = PreparedSubmission.managed(CommandCodec.encodeManagedFrame(command));
         final FixedCore core = new FixedCore(prepared);
         final CountingCoordinator coordinator = new CountingCoordinator(command);
         final String token = token(jwtKeyPair, tenant, certificateFingerprint);
-        final com.nereusstream.delay.gateway.v1.GatewayScheduleRequestV1 request = request(intent);
+        final com.nereusstream.delay.gateway.wire.GatewayScheduleRequest request = request(intent);
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle admissionClient = OxiaSyncOwnerLeaseBackend.connect(
                         endpoint,
@@ -792,7 +792,7 @@ class OxiaRealGatewayGrpcSmokeTest {
                         prefix + "/audit-client")) {
             final GatewayGrpcService oldGrpc = grpcService(
                     admissionClient, idempotencyClient, auditClient, prefix, clock, core, coordinator, authority);
-            final com.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 firstResponse;
+            final com.nereusstream.delay.gateway.wire.GatewaySubmissionOutcome firstResponse;
             try (GatewayGrpcServer oldServer = GatewayGrpcServer.mutualTls(
                     port, serverCertificate, serverPrivateKey, trustedClientCertificates, oldGrpc)) {
                 oldServer.start();
@@ -832,12 +832,12 @@ class OxiaRealGatewayGrpcSmokeTest {
                 assertThrows(
                         OxiaGatewaySessionUnavailableException.class,
                         () -> staleAdmission.reserve(
-                                new GatewayAdmissionRequestV1(tenant, GatewayIngressOperationV1.SCHEDULE, 1)));
+                                new GatewayAdmissionRequest(tenant, GatewayIngressOperation.SCHEDULE, 1)));
                 final OxiaGatewayIdempotencyStore staleIdempotency = new OxiaGatewayIdempotencyStore(
                         idempotencyClient, prefix + "/idempotency", clock, 10_000, 10_000);
                 assertThrows(
                         OxiaGatewaySessionUnavailableException.class,
-                        () -> staleIdempotency.exact(GatewayIdempotencyHashV1.keyHash(
+                        () -> staleIdempotency.exact(GatewayIdempotencyHash.keyHash(
                                 tenant.authenticatedTenantScopeHash(),
                                 request.getIdempotencyKey().toByteArray())));
 
@@ -886,7 +886,7 @@ class OxiaRealGatewayGrpcSmokeTest {
                         core,
                         coordinator,
                         authority);
-                final com.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 recoveredResponse;
+                final com.nereusstream.delay.gateway.wire.GatewaySubmissionOutcome recoveredResponse;
                 try (GatewayGrpcServer recoveredServer = GatewayGrpcServer.mutualTls(
                         port, serverCertificate, serverPrivateKey, trustedClientCertificates, recoveredGrpc)) {
                     recoveredServer.start();
@@ -926,14 +926,14 @@ class OxiaRealGatewayGrpcSmokeTest {
                     assertEquals(1, admissionRecords.size());
                     assertEquals(
                             0,
-                            GatewayAdmissionRecordV1.decode(
+                            GatewayAdmissionRecord.decode(
                                             admissionRecords.get(0).value())
                                     .leases()
                                     .size());
                     assertEquals(1, idempotencyRecords.size());
-                    final GatewayIdempotencyRecordV1 idempotencyRecord = GatewayIdempotencyRecordV1.decode(
+                    final GatewayIdempotencyRecord idempotencyRecord = GatewayIdempotencyRecord.decode(
                             idempotencyRecords.get(0).value());
-                    assertEquals(GatewayIdempotencyPhaseV1.QUIESCENT, idempotencyRecord.phase());
+                    assertEquals(GatewayIdempotencyPhase.QUIESCENT, idempotencyRecord.phase());
                     assertEquals(1, idempotencyRecord.attempts().size());
                     assertNotNull(idempotencyRecord.aggregateOutcomeBytes());
                     assertEquals(2, auditRecords.size());
@@ -992,14 +992,14 @@ class OxiaRealGatewayGrpcSmokeTest {
                 30,
                 600);
         final MutualTlsJwtGatewayTenantAuthority authority = new MutualTlsJwtGatewayTenantAuthority(verifier);
-        final ScheduleIntentV1 intent = scheduleIntent();
+        final CanonicalScheduleIntent intent = scheduleIntent();
         final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
-        final PreparedCommand command = PreparedCommand.scheduleV1(shard, intent, 2_000_000);
-        final PreparedSubmissionV1 prepared = PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(command));
+        final PreparedCommand command = PreparedCommand.schedule(shard, intent, 2_000_000);
+        final PreparedSubmission prepared = PreparedSubmission.managed(CommandCodec.encodeManagedFrame(command));
         final FixedCore core = new FixedCore(prepared);
         final CountingCoordinator coordinator = new CountingCoordinator(command);
         final String token = token(jwtKeyPair, tenant, certificateFingerprint);
-        final com.nereusstream.delay.gateway.v1.GatewayScheduleRequestV1 request = request(intent);
+        final com.nereusstream.delay.gateway.wire.GatewayScheduleRequest request = request(intent);
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle admissionClient = OxiaSyncOwnerLeaseBackend.connect(
                         endpoint,
@@ -1021,7 +1021,7 @@ class OxiaRealGatewayGrpcSmokeTest {
                         prefix + "/audit-client")) {
             final GatewayGrpcService grpc = grpcService(
                     admissionClient, idempotencyClient, auditClient, prefix, clock, core, coordinator, authority);
-            final com.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 firstResponse;
+            final com.nereusstream.delay.gateway.wire.GatewaySubmissionOutcome firstResponse;
             try (GatewayGrpcServer server = GatewayGrpcServer.mutualTls(
                     port, serverCertificate, serverPrivateKey, trustedClientCertificates, grpc)) {
                 server.start();
@@ -1044,7 +1044,7 @@ class OxiaRealGatewayGrpcSmokeTest {
                 final ManagedChannel recoveredChannel =
                         channel(port, trustedClientCertificates, clientCertificate, clientPrivateKey);
                 try {
-                    final com.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 recoveredResponse = stub(
+                    final com.nereusstream.delay.gateway.wire.GatewaySubmissionOutcome recoveredResponse = stub(
                                     recoveredChannel, token)
                             .withDeadlineAfter(45, TimeUnit.SECONDS)
                             .schedule(request);
@@ -1078,13 +1078,13 @@ class OxiaRealGatewayGrpcSmokeTest {
                 assertEquals(1, admissionRecords.size());
                 assertEquals(
                         0,
-                        GatewayAdmissionRecordV1.decode(admissionRecords.get(0).value())
+                        GatewayAdmissionRecord.decode(admissionRecords.get(0).value())
                                 .leases()
                                 .size());
                 assertEquals(1, idempotencyRecords.size());
-                final GatewayIdempotencyRecordV1 idempotencyRecord = GatewayIdempotencyRecordV1.decode(
+                final GatewayIdempotencyRecord idempotencyRecord = GatewayIdempotencyRecord.decode(
                         idempotencyRecords.get(0).value());
-                assertEquals(GatewayIdempotencyPhaseV1.QUIESCENT, idempotencyRecord.phase());
+                assertEquals(GatewayIdempotencyPhase.QUIESCENT, idempotencyRecord.phase());
                 assertEquals(1, idempotencyRecord.attempts().size());
                 assertNotNull(idempotencyRecord.aggregateOutcomeBytes());
                 assertEquals(2, auditRecords.size());
@@ -1123,16 +1123,16 @@ class OxiaRealGatewayGrpcSmokeTest {
                 30,
                 600);
         final MutualTlsJwtGatewayTenantAuthority authority = new MutualTlsJwtGatewayTenantAuthority(verifier);
-        final ScheduleIntentV1 intent = scheduleIntent();
+        final CanonicalScheduleIntent intent = scheduleIntent();
         final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
-        final PreparedCommand command = PreparedCommand.scheduleV1(shard, intent, 2_000_000);
-        final PreparedSubmissionV1 prepared = PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(command));
+        final PreparedCommand command = PreparedCommand.schedule(shard, intent, 2_000_000);
+        final PreparedSubmission prepared = PreparedSubmission.managed(CommandCodec.encodeManagedFrame(command));
         final FixedCore firstCore = new FixedCore(prepared);
         final FixedCore secondCore = new FixedCore(prepared);
         final CountingCoordinator firstCoordinator = new CountingCoordinator(command);
         final CountingCoordinator secondCoordinator = new CountingCoordinator(command);
         final String token = token(jwtKeyPair, tenant, certificateFingerprint);
-        final com.nereusstream.delay.gateway.v1.GatewayScheduleRequestV1 request = request(intent);
+        final com.nereusstream.delay.gateway.wire.GatewayScheduleRequest request = request(intent);
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle firstAdmissionClient = OxiaSyncOwnerLeaseBackend.connect(
                         endpoint,
@@ -1200,20 +1200,20 @@ class OxiaRealGatewayGrpcSmokeTest {
                         channel(port + 1, trustedClientCertificates, clientCertificate, clientPrivateKey);
                 final ExecutorService executor = Executors.newFixedThreadPool(2);
                 try {
-                    final CompletableFuture<com.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1> firstCall =
+                    final CompletableFuture<com.nereusstream.delay.gateway.wire.GatewaySubmissionOutcome> firstCall =
                             CompletableFuture.supplyAsync(
                                     () -> stub(firstChannel, token).schedule(request), executor);
-                    final CompletableFuture<com.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1> secondCall =
+                    final CompletableFuture<com.nereusstream.delay.gateway.wire.GatewaySubmissionOutcome> secondCall =
                             CompletableFuture.supplyAsync(
                                     () -> stub(secondChannel, token).schedule(request), executor);
-                    final com.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 firstOutcome = firstCall.join();
-                    final com.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 secondOutcome =
+                    final com.nereusstream.delay.gateway.wire.GatewaySubmissionOutcome firstOutcome = firstCall.join();
+                    final com.nereusstream.delay.gateway.wire.GatewaySubmissionOutcome secondOutcome =
                             secondCall.join();
                     assertTrue(firstOutcome.hasSubmissionOutcomeNdr1());
                     assertTrue(secondOutcome.hasSubmissionOutcomeNdr1());
                     assertEquals(1, firstCoordinator.submitCalls + secondCoordinator.submitCalls);
 
-                    final com.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1 settled =
+                    final com.nereusstream.delay.gateway.wire.GatewaySubmissionOutcome settled =
                             stub(firstChannel, token).schedule(request);
                     assertTrue(settled.hasSubmissionOutcomeNdr1());
                     assertEquals(1, firstCoordinator.submitCalls + secondCoordinator.submitCalls);
@@ -1249,11 +1249,11 @@ class OxiaRealGatewayGrpcSmokeTest {
                 assertEquals(1, admissionRecords.size());
                 assertEquals(
                         0,
-                        GatewayAdmissionRecordV1.decode(admissionRecords.get(0).value())
+                        GatewayAdmissionRecord.decode(admissionRecords.get(0).value())
                                 .leases()
                                 .size());
                 assertEquals(1, idempotencyRecords.size());
-                final GatewayIdempotencyRecordV1 idempotencyRecord = GatewayIdempotencyRecordV1.decode(
+                final GatewayIdempotencyRecord idempotencyRecord = GatewayIdempotencyRecord.decode(
                         idempotencyRecords.get(0).value());
                 assertEquals(1, idempotencyRecord.attempts().size());
                 assertNotNull(idempotencyRecord.aggregateOutcomeBytes());
@@ -1304,11 +1304,10 @@ class OxiaRealGatewayGrpcSmokeTest {
         return new GatewayGrpcService(ingress, GatewayGrpcContext.provider());
     }
 
-    private static DelayGatewayV1Grpc.DelayGatewayV1BlockingStub stub(
-            final ManagedChannel channel, final String token) {
+    private static DelayGatewayGrpc.DelayGatewayBlockingStub stub(final ManagedChannel channel, final String token) {
         final Metadata headers = new Metadata();
         headers.put(Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER), "Bearer " + token);
-        return DelayGatewayV1Grpc.newBlockingStub(
+        return DelayGatewayGrpc.newBlockingStub(
                 ClientInterceptors.intercept(channel, MetadataUtils.newAttachHeadersInterceptor(headers)));
     }
 
@@ -1324,22 +1323,23 @@ class OxiaRealGatewayGrpcSmokeTest {
                 .build();
     }
 
-    private static com.nereusstream.delay.gateway.v1.GatewayScheduleRequestV1 request(final ScheduleIntentV1 intent) {
-        return com.nereusstream.delay.gateway.v1.GatewayScheduleRequestV1.newBuilder()
+    private static com.nereusstream.delay.gateway.wire.GatewayScheduleRequest request(
+            final CanonicalScheduleIntent intent) {
+        return com.nereusstream.delay.gateway.wire.GatewayScheduleRequest.newBuilder()
                 .setIdempotencyKey(ByteString.copyFrom(bytes(16, 40)))
-                .setRoute(GatewayRouteSelectorV1.newBuilder()
-                        .setIngressAdapterKind(AdapterKindV1.KAFKA.wireValue())
+                .setRoute(GatewayRouteSelector.newBuilder()
+                        .setIngressAdapterKind(AdapterKind.KAFKA.wireValue())
                         .setRouteAliasUtf8Nfc(ByteString.copyFromUtf8("primary")))
-                .setScheduleIntentV1(ByteString.copyFrom(intent.canonicalBytes()))
+                .setCanonicalScheduleIntent(ByteString.copyFrom(intent.canonicalBytes()))
                 .setRetryUntilEpochMs(2_000_000)
-                .setSubmissionModeV1(SubmissionModeV1.MANAGED.wireValue())
+                .setSubmissionMode(SubmissionMode.MANAGED.wireValue())
                 .build();
     }
 
-    private static ScheduleIntentV1 scheduleIntent() {
-        return ScheduleIntentV1.create(
-                new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 60), ProfileKindV1.DESTINATION),
-                new RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 61)),
+    private static CanonicalScheduleIntent scheduleIntent() {
+        return CanonicalScheduleIntent.create(
+                new ProfileRef(Bytes.utf8("destination"), 1, bytes(32, 60), ProfileKind.DESTINATION),
+                new RetryPolicyRef(Bytes.utf8("retry"), 1, bytes(32, 61)),
                 1_300,
                 1_800,
                 DeliveryMode.MANAGED,
@@ -1347,7 +1347,7 @@ class OxiaRealGatewayGrpcSmokeTest {
                 Bytes.utf8("key"),
                 Bytes.utf8("payload"),
                 null,
-                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())),
+                AdapterMetadata.kafka(new KafkaMetadata(null, List.of())),
                 null,
                 null);
     }
@@ -1438,7 +1438,7 @@ class OxiaRealGatewayGrpcSmokeTest {
                     .toList();
             int activeLeases = 0;
             if (admissionRecords.size() == 1) {
-                activeLeases = GatewayAdmissionRecordV1.decode(
+                activeLeases = GatewayAdmissionRecord.decode(
                                 admissionRecords.get(0).value())
                         .leases()
                         .size();
@@ -1447,7 +1447,7 @@ class OxiaRealGatewayGrpcSmokeTest {
             int idempotencyAttempts = 0;
             boolean aggregateOutcomePresent = false;
             if (idempotencyRecords.size() == 1) {
-                final GatewayIdempotencyRecordV1 idempotencyRecord = GatewayIdempotencyRecordV1.decode(
+                final GatewayIdempotencyRecord idempotencyRecord = GatewayIdempotencyRecord.decode(
                         idempotencyRecords.get(0).value());
                 idempotencyPhase = idempotencyRecord.phase().name();
                 idempotencyAttempts = idempotencyRecord.attempts().size();
@@ -1481,29 +1481,29 @@ class OxiaRealGatewayGrpcSmokeTest {
         final Path target = directory.resolve(
                 "BEFORE_OXIA_RESTART".equals(phase) ? "before-oxia-restart.json" : "after-oxia-restart.json");
         final String json = "{\n"
-                + "  \"schema\": \"nereus-delay-chaos-durable-state-dump-v1\",\n"
-                + "  \"cell\": \"gateway-oxia-session-churn\",\n"
-                + "  \"phase\": " + jsonString(phase) + ",\n"
-                + "  \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
-                + "  \"oxia_endpoint\": " + jsonString(endpoint) + ",\n"
-                + "  \"oxia_namespace\": " + jsonString(namespace) + ",\n"
-                + "  \"prefix\": " + jsonString(prefix) + ",\n"
-                + "  \"response_sha256\": " + jsonString(Bytes.hex(Bytes.sha256(response))) + ",\n"
-                + "  \"response_bytes\": " + response.length + ",\n"
-                + "  \"prepare_calls\": " + prepareCalls + ",\n"
-                + "  \"submit_calls\": " + submitCalls + ",\n"
-                + "  \"admission_records\": " + snapshot.admissionRecords() + ",\n"
-                + "  \"admission_active_leases\": " + snapshot.activeLeases() + ",\n"
-                + "  \"idempotency_records\": " + snapshot.idempotencyRecords() + ",\n"
-                + "  \"idempotency_phase\": " + jsonNullable(snapshot.idempotencyPhase()) + ",\n"
-                + "  \"idempotency_attempts\": " + snapshot.idempotencyAttempts() + ",\n"
-                + "  \"aggregate_outcome_present\": " + snapshot.aggregateOutcomePresent() + ",\n"
-                + "  \"audit_records\": " + snapshot.auditRecords() + ",\n"
-                + "  \"stale_session_failed_closed\": " + staleSessionFailedClosed + ",\n"
-                + "  \"exact_outcome_recovered\": " + exactOutcomeRecovered + ",\n"
-                + "  \"oxia_process_restarted\": " + !"BEFORE_OXIA_RESTART".equals(phase) + ",\n"
-                + "  \"durable_store_read\": true,\n"
-                + "  \"dump_forced\": true\n"
+                + " \"schema\": \"nereus-delay-chaos-durable-state-dump\",\n"
+                + " \"cell\": \"gateway-oxia-session-churn\",\n"
+                + " \"phase\": " + jsonString(phase) + ",\n"
+                + " \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
+                + " \"oxia_endpoint\": " + jsonString(endpoint) + ",\n"
+                + " \"oxia_namespace\": " + jsonString(namespace) + ",\n"
+                + " \"prefix\": " + jsonString(prefix) + ",\n"
+                + " \"response_sha256\": " + jsonString(Bytes.hex(Bytes.sha256(response))) + ",\n"
+                + " \"response_bytes\": " + response.length + ",\n"
+                + " \"prepare_calls\": " + prepareCalls + ",\n"
+                + " \"submit_calls\": " + submitCalls + ",\n"
+                + " \"admission_records\": " + snapshot.admissionRecords() + ",\n"
+                + " \"admission_active_leases\": " + snapshot.activeLeases() + ",\n"
+                + " \"idempotency_records\": " + snapshot.idempotencyRecords() + ",\n"
+                + " \"idempotency_phase\": " + jsonNullable(snapshot.idempotencyPhase()) + ",\n"
+                + " \"idempotency_attempts\": " + snapshot.idempotencyAttempts() + ",\n"
+                + " \"aggregate_outcome_present\": " + snapshot.aggregateOutcomePresent() + ",\n"
+                + " \"audit_records\": " + snapshot.auditRecords() + ",\n"
+                + " \"stale_session_failed_closed\": " + staleSessionFailedClosed + ",\n"
+                + " \"exact_outcome_recovered\": " + exactOutcomeRecovered + ",\n"
+                + " \"oxia_process_restarted\": " + !"BEFORE_OXIA_RESTART".equals(phase) + ",\n"
+                + " \"durable_store_read\": true,\n"
+                + " \"dump_forced\": true\n"
                 + "}\n";
         final ByteBuffer bytes = StandardCharsets.UTF_8.encode(json);
         try (FileChannel channel = FileChannel.open(
@@ -1625,20 +1625,20 @@ class OxiaRealGatewayGrpcSmokeTest {
     }
 
     private static final class FixedCore implements DelaySemanticCore {
-        private final PreparedSubmissionV1 prepared;
+        private final PreparedSubmission prepared;
         private int prepareCalls;
 
-        private FixedCore(final PreparedSubmissionV1 prepared) {
+        private FixedCore(final PreparedSubmission prepared) {
             this.prepared = prepared;
         }
 
         @Override
-        public PreparedSubmissionV1 prepareSchedule(
+        public PreparedSubmission prepareSchedule(
                 final AuthenticatedTenantContext tenant,
                 final RouteSelectionHint route,
-                final ScheduleIntentV1 intent,
+                final CanonicalScheduleIntent intent,
                 final long retryUntilEpochMs,
-                final SubmissionModeV1 submissionMode) {
+                final SubmissionMode submissionMode) {
             prepareCalls++;
             return prepared;
         }
@@ -1647,7 +1647,7 @@ class OxiaRealGatewayGrpcSmokeTest {
         public PreparedCommand prepareLargeSchedule(
                 final AuthenticatedTenantContext tenant,
                 final RouteSelectionHint route,
-                final LargeSchedulePreparationV1 request,
+                final LargeSchedulePreparation request,
                 final long retryUntilEpochMs) {
             throw new UnsupportedOperationException();
         }
@@ -1655,8 +1655,8 @@ class OxiaRealGatewayGrpcSmokeTest {
         @Override
         public PreparedCommand preparePayloadCommit(
                 final AuthenticatedTenantContext tenant,
-                final PayloadReservationReceiptV1 reservation,
-                final com.nereusstream.delay.protocol.PayloadCommitProofV1 proof,
+                final PayloadReservationReceipt reservation,
+                final com.nereusstream.delay.protocol.CanonicalPayloadCommitProof proof,
                 final long retryUntilEpochMs) {
             throw new UnsupportedOperationException();
         }
@@ -1665,7 +1665,7 @@ class OxiaRealGatewayGrpcSmokeTest {
         public PreparedCommand prepareCancel(
                 final AuthenticatedTenantContext tenant,
                 final DelayMessageId messageId,
-                final MessagePreconditionV1 precondition,
+                final MessagePrecondition precondition,
                 final long retryUntilEpochMs) {
             throw new UnsupportedOperationException();
         }
@@ -1674,7 +1674,7 @@ class OxiaRealGatewayGrpcSmokeTest {
         public PreparedCommand prepareReschedule(
                 final AuthenticatedTenantContext tenant,
                 final DelayMessageId messageId,
-                final MessagePreconditionV1 precondition,
+                final MessagePrecondition precondition,
                 final long deliverAtEpochMs,
                 final long expireAtEpochMs,
                 final long retryUntilEpochMs) {
@@ -1682,7 +1682,7 @@ class OxiaRealGatewayGrpcSmokeTest {
         }
 
         @Override
-        public PreparedSubmissionV1 prepareManaged(
+        public PreparedSubmission prepareManaged(
                 final AuthenticatedTenantContext tenant, final PreparedCommand command) {
             return prepared;
         }
@@ -1697,12 +1697,12 @@ class OxiaRealGatewayGrpcSmokeTest {
         }
 
         @Override
-        public CompletionStage<SubmissionOutcomeMessageV1> submit(
+        public CompletionStage<SubmissionOutcomeMessage> submit(
                 final AuthenticatedTenantContext tenant,
-                final PreparedSubmissionV1 submission,
+                final PreparedSubmission submission,
                 final TransportOwnershipPermit permit) {
             submitCalls++;
-            return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
+            return CompletableFuture.completedFuture(SubmissionOutcomeMessage.managed(
                     WireIngressOutcomeSupport.localDefinite(command, StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED)));
         }
     }

@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
+import com.nereusstream.delay.protocol.EvidenceCursor;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
@@ -40,9 +40,9 @@ class CheckpointManifestTest {
         final KafkaSourcePosition position =
                 new KafkaSourcePosition(shardId, "cluster-a", UUID.randomUUID(), 9, 3, 1000);
         final UUID evidenceTopicUuid = UUID.randomUUID();
-        final EvidenceCursorV1 kafkaCursor =
-                EvidenceCursorV1.kafka(filled(32, 1), filled(16, 2), uuidBytes(evidenceTopicUuid), 1, 4, 100, 11, 10);
-        final EvidenceCursorV1 pulsarCursor = EvidenceCursorV1.pulsar(
+        final EvidenceCursor kafkaCursor =
+                EvidenceCursor.kafka(filled(32, 1), filled(16, 2), uuidBytes(evidenceTopicUuid), 1, 4, 100, 11, 10);
+        final EvidenceCursor pulsarCursor = EvidenceCursor.pulsar(
                 filled(32, 4), filled(16, 5), filled(32, 6), 2, 7, 200, "persistent://tenant/ns/topic", 8, 9, 10, 1, 2);
         final CheckpointManifest manifest = new CheckpointManifest(
                 bytes(1),
@@ -102,9 +102,9 @@ class CheckpointManifestTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), -1);
         final KafkaSourcePosition position =
                 new KafkaSourcePosition(shardId, "cluster-a", UUID.randomUUID(), Long.MIN_VALUE, 3, 1000);
-        final EvidenceCursorV1 kafkaCursor = EvidenceCursorV1.kafka(
+        final EvidenceCursor kafkaCursor = EvidenceCursor.kafka(
                 filled(32, 1), filled(16, 2), filled(16, 3), 1, Long.MIN_VALUE, 100, Long.MIN_VALUE, -1L);
-        final EvidenceCursorV1 pulsarCursor = EvidenceCursorV1.pulsar(
+        final EvidenceCursor pulsarCursor = EvidenceCursor.pulsar(
                 filled(32, 4),
                 filled(16, 5),
                 filled(32, 6),

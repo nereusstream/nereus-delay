@@ -1,9 +1,9 @@
 package com.nereusstream.delay.adapter;
 
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.PulsarJournalGenerationResourceV1;
+import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.PulsarJournalGenerationResource;
 import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.util.Objects;
@@ -22,7 +22,7 @@ public record PulsarJournalResource(
         // The Registry encodes physical partitions as uint32. Keep the
         // complete raw bit pattern here; a Java signed high bit is not an
         // invalid partition and must round-trip through the typed Journal
-        // resource projection just like other V1 uint32 fields.
+        // resource projection just like other uint32 fields.
         resourceIncarnation = Bytes.copy(resourceIncarnation);
     }
 
@@ -32,9 +32,9 @@ public record PulsarJournalResource(
     }
 
     /** Returns this Journal identity in the Registry's typed resource value. */
-    public PulsarJournalGenerationResourceV1 protocolResource(final long evidenceGeneration) {
-        return new PulsarJournalGenerationResourceV1(
-                BrokerResourceIdentityV1.pulsar(new PulsarBrokerResourceIdentityV1(
+    public PulsarJournalGenerationResource protocolResource(final long evidenceGeneration) {
+        return new PulsarJournalGenerationResource(
+                BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
                         authenticatedClusterId, resourceIncarnation, physicalTopic, physicalTopicCreationTimestamp)),
                 partition,
                 evidenceGeneration);

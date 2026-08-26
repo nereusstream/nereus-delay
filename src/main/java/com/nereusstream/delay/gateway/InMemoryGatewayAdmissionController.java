@@ -34,7 +34,7 @@ public final class InMemoryGatewayAdmissionController implements GatewayAdmissio
     }
 
     @Override
-    public synchronized Decision reserve(final GatewayAdmissionRequestV1 request) {
+    public synchronized Decision reserve(final GatewayAdmissionRequest request) {
         Objects.requireNonNull(request, "request");
         final Digest32 tenant = new Digest32(request.tenant().authenticatedTenantScopeHash());
         final Usage current = usage.computeIfAbsent(tenant, ignored -> new Usage());
@@ -48,7 +48,7 @@ public final class InMemoryGatewayAdmissionController implements GatewayAdmissio
                 };
         if (!accepted) {
             if (current.scheduleBytes > maxScheduleBytes - request.estimatedRequestBytes()
-                    && request.operation() == GatewayIngressOperationV1.SCHEDULE) {
+                    && request.operation() == GatewayIngressOperation.SCHEDULE) {
                 return Decision.rejected(StableCode.HARD_QUOTA_EXCEEDED);
             }
             return Decision.rejected(StableCode.ADMISSION_CAPACITY_GATED);
@@ -65,7 +65,7 @@ public final class InMemoryGatewayAdmissionController implements GatewayAdmissio
     }
 
     private synchronized void release(
-            final Digest32 tenant, final GatewayIngressOperationV1 operation, final long bytes) {
+            final Digest32 tenant, final GatewayIngressOperation operation, final long bytes) {
         final Usage current = usage.get(tenant);
         if (current == null) {
             throw new IllegalStateException("Gateway admission tenant usage is missing");
@@ -106,14 +106,14 @@ public final class InMemoryGatewayAdmissionController implements GatewayAdmissio
     private static final class Lease implements GatewayAdmissionLease {
         private final InMemoryGatewayAdmissionController owner;
         private final Digest32 tenant;
-        private final GatewayIngressOperationV1 operation;
+        private final GatewayIngressOperation operation;
         private final long estimatedRequestBytes;
         private final AtomicBoolean closed = new AtomicBoolean();
 
         private Lease(
                 final InMemoryGatewayAdmissionController owner,
                 final Digest32 tenant,
-                final GatewayIngressOperationV1 operation,
+                final GatewayIngressOperation operation,
                 final long estimatedRequestBytes) {
             this.owner = owner;
             this.tenant = tenant;
@@ -122,7 +122,7 @@ public final class InMemoryGatewayAdmissionController implements GatewayAdmissio
         }
 
         @Override
-        public GatewayIngressOperationV1 operation() {
+        public GatewayIngressOperation operation() {
             return operation;
         }
 

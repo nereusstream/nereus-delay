@@ -77,9 +77,9 @@ require_source() {
     fi
 }
 
-require_source Delay "$delay_root" nereus/delay-full-implementation-v1
-require_source Kafka "$kafka_checkout" nereus/delay-guarded-producer-v1
-require_source Pulsar "$pulsar_checkout" nereus/delay-resource-guard-v1
+require_source Delay "$delay_root" nereus/delay-full-implementation
+require_source Kafka "$kafka_checkout" nereus/delay-guarded-producer
+require_source Pulsar "$pulsar_checkout" nereus/delay-resource-guard
 require_source Oxia "$oxia_checkout" main
 delay_sha=$(git -C "$delay_root" rev-parse HEAD)
 kafka_sha=$(git -C "$kafka_checkout" rev-parse HEAD)
@@ -123,13 +123,13 @@ write_artifact() {
         status=PASS
     fi
     jq -n \
-        --arg schema "nereus-delay-oxia-multi-node-gateway-e2e-v1" \
+        --arg schema "nereus-delay-oxia-multi-node-gateway-e2e" \
         --arg status "$status" \
         --arg artifact_dir "$artifact_dir" \
         --arg started_at "$started_at" \
         --arg finished_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        --arg delay_branch "$delay_branch" --arg kafka_branch "nereus/delay-guarded-producer-v1" \
-        --arg pulsar_branch "nereus/delay-resource-guard-v1" --arg oxia_branch "main" \
+        --arg delay_branch "$delay_branch" --arg kafka_branch "nereus/delay-guarded-producer" \
+        --arg pulsar_branch "nereus/delay-resource-guard" --arg oxia_branch "main" \
         --arg delay "$delay_sha" --arg kafka "$kafka_sha" --arg pulsar "$pulsar_sha" --arg oxia "$oxia_sha" \
         --arg compose_project "$compose_project" --arg compose_file "$compose_file" \
         --argjson coordinator_ports "[$coordinator_1_port, $coordinator_2_port, $coordinator_3_port]" \
@@ -180,7 +180,7 @@ write_artifact() {
           boundaries: [
             "PASS is a real three-DataServer Oxia shard-leader-stop plus Gateway durable-outcome reread receipt.",
             "The test uses one Oxia namespace shard and one Gateway process; it does not certify Gateway HA, coordinator failover, storage-service failover, placement churn or disaster continuity.",
-            "This artifact is source-locked runtime evidence and is not a PASS_CERTIFIED V1 release artifact by itself."
+            "This artifact is source-locked runtime evidence and is not a PASS_CERTIFIED  release artifact by itself."
           ]
         }' >"$artifact"
 }

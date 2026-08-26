@@ -14,13 +14,13 @@ import java.util.function.LongSupplier;
  * Bounded external handoff for an already prepared result System Mutation.
  *
  * <p>The producer of the callback/evidence result owns the operation-specific
- * body and signature.  This executor owns only the process-local queue,
+ * body and signature. This executor owns only the process-local queue,
  * strict Owner/Shard fencing and the call to the external Shard Log writer.
  * It never applies the mutation to RocksDB and never allocates a local Source
  * Position; only source-ordered replay may advance the local projection.</p>
  */
 public final class OutcomeWorkClassExecutor {
-    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-outcome-mutation-handoff-task-v1\0");
+    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-outcome-mutation-handoff-task\0");
 
     private final WorkClassExecutionRegistry workClasses;
     private final OwnedDelayShard ownedShard;

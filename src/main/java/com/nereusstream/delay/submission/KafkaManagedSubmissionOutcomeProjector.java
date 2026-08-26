@@ -3,15 +3,15 @@ package com.nereusstream.delay.submission;
 import com.nereusstream.delay.adapter.KafkaProduceRequest;
 import com.nereusstream.delay.adapter.KafkaProduceResult;
 import com.nereusstream.delay.adapter.WireIngressOutcomeSupport;
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CommandQueuedReceiptV1;
-import com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1;
-import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.CanonicalCommandQueuedReceipt;
+import com.nereusstream.delay.protocol.EnqueueOutcomeMessage;
+import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentity;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.NonPersistenceProofKindV1;
+import com.nereusstream.delay.protocol.NonPersistenceProofKind;
 import com.nereusstream.delay.protocol.StableCode;
-import com.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import com.nereusstream.delay.protocol.SubmissionOutcomeMessage;
 import com.nereusstream.delay.transport.KafkaCommandTransportKey;
 import com.nereusstream.delay.transport.PhysicalEnqueueAttemptId;
 import com.nereusstream.delay.transport.TransportResult;
@@ -26,7 +26,7 @@ public final class KafkaManagedSubmissionOutcomeProjector implements SubmissionO
 
     /**
      * Creates a Route-bound projector that validates the exact request
-     * resource carried by each prepared submission.  A single Gateway
+     * resource carried by each prepared submission. A single Gateway
      * coordinator may then serve several Kafka partitions without weakening
      * the resource/partition checks to a topic name alone.
      */
@@ -37,11 +37,11 @@ public final class KafkaManagedSubmissionOutcomeProjector implements SubmissionO
     @Override
     public SubmissionProjectionKey key() {
         return new SubmissionProjectionKey(
-                PreparedSubmissionBranch.MANAGED, com.nereusstream.delay.protocol.AdapterKindV1.KAFKA);
+                PreparedSubmissionBranch.MANAGED, com.nereusstream.delay.protocol.AdapterKind.KAFKA);
     }
 
     @Override
-    public SubmissionOutcomeMessageV1 project(
+    public SubmissionOutcomeMessage project(
             final SubmissionTransportPlan plan,
             final PhysicalEnqueueAttemptId physicalAttemptId,
             final TransportResult result) {
@@ -61,24 +61,24 @@ public final class KafkaManagedSubmissionOutcomeProjector implements SubmissionO
     }
 
     @Override
-    public SubmissionOutcomeMessageV1 localFailure(
+    public SubmissionOutcomeMessage localFailure(
             final SubmissionTransportPlan plan,
             final PhysicalEnqueueAttemptId physicalAttemptId,
             final StableCode code) {
-        return SubmissionOutcomeMessageV1.managed(
+        return SubmissionOutcomeMessage.managed(
                 WireIngressOutcomeSupport.localDefinite(SubmissionProjectorSupport.managedCommand(plan), code));
     }
 
     @Override
-    public SubmissionOutcomeMessageV1 uncertain(
+    public SubmissionOutcomeMessage uncertain(
             final SubmissionTransportPlan plan,
             final PhysicalEnqueueAttemptId physicalAttemptId,
             final StableCode code) {
-        return SubmissionOutcomeMessageV1.managed(WireIngressOutcomeSupport.uncertain(
+        return SubmissionOutcomeMessage.managed(WireIngressOutcomeSupport.uncertain(
                 SubmissionProjectorSupport.managedCommand(plan), physicalAttemptId.bytes(), code, null));
     }
 
-    private SubmissionOutcomeMessageV1 persisted(
+    private SubmissionOutcomeMessage persisted(
             final SubmissionTransportPlan plan,
             final KafkaProduceRequest request,
             final com.nereusstream.delay.protocol.PreparedCommand command,
@@ -94,7 +94,7 @@ public final class KafkaManagedSubmissionOutcomeProjector implements SubmissionO
                 result.offset(),
                 result.leaderEpoch(),
                 result.brokerLogAppendTimeEpochMs());
-        final CommandQueuedReceiptV1.KafkaQueuedAck ack = new CommandQueuedReceiptV1.KafkaQueuedAck(
+        final CanonicalCommandQueuedReceipt.KafkaQueuedAck ack = new CanonicalCommandQueuedReceipt.KafkaQueuedAck(
                 result.authenticatedClusterId(),
                 result.nativeTopicUuid(),
                 result.partition(),
@@ -104,12 +104,12 @@ public final class KafkaManagedSubmissionOutcomeProjector implements SubmissionO
                 Bytes.sha256(result.responseEvidenceBytes()));
         final long queryUntil = SubmissionProjectorSupport.queryPolicy((ManagedRouteAuthority) plan.routeAuthority())
                 .queryUntil(source);
-        final CommandQueuedReceiptV1 receipt =
-                CommandQueuedReceiptV1.create(command, source, ack, queryUntil, attempt.bytes());
-        return SubmissionOutcomeMessageV1.managed(EnqueueOutcomeMessageV1.queued(receipt));
+        final CanonicalCommandQueuedReceipt receipt =
+                CanonicalCommandQueuedReceipt.create(command, source, ack, queryUntil, attempt.bytes());
+        return SubmissionOutcomeMessage.managed(EnqueueOutcomeMessage.queued(receipt));
     }
 
-    private SubmissionOutcomeMessageV1 definite(
+    private SubmissionOutcomeMessage definite(
             final SubmissionTransportPlan plan,
             final KafkaProduceRequest request,
             final com.nereusstream.delay.protocol.PreparedCommand command,
@@ -119,13 +119,13 @@ public final class KafkaManagedSubmissionOutcomeProjector implements SubmissionO
         if (code == null || result.requestEvidenceBytes() == null || result.responseEvidenceBytes() == null) {
             return uncertain(plan, attempt, StableCode.INTEGRITY_ERROR);
         }
-        final BrokerResourceIdentityV1 resource = BrokerResourceIdentityV1.kafka(
-                new KafkaBrokerResourceIdentityV1(key.authenticatedClusterId(), key.nativeTopicUuid()));
-        return SubmissionOutcomeMessageV1.managed(WireIngressOutcomeSupport.brokerDefinite(
+        final BrokerResourceIdentity resource = BrokerResourceIdentity.kafka(
+                new KafkaBrokerResourceIdentity(key.authenticatedClusterId(), key.nativeTopicUuid()));
+        return SubmissionOutcomeMessage.managed(WireIngressOutcomeSupport.brokerDefinite(
                 command,
                 attempt.bytes(),
                 code,
-                NonPersistenceProofKindV1.KAFKA_DEFINITIVE_REJECTION,
+                NonPersistenceProofKind.KAFKA_DEFINITIVE_REJECTION,
                 resource,
                 result.requestEvidenceBytes(),
                 result.responseEvidenceBytes()));

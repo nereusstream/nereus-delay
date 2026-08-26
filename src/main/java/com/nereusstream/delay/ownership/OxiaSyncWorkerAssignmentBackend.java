@@ -24,13 +24,13 @@ import java.util.Set;
  *
  * <p>The assignment record is durable, while the optional session gate makes
  * a placement controller stop publishing as soon as its Oxia session is
- * fenced.  Owner Lease acquisition remains a separate ephemeral CAS.</p>
+ * fenced. Owner Lease acquisition remains a separate ephemeral CAS.</p>
  */
 public final class OxiaSyncWorkerAssignmentBackend implements WorkerAssignmentAuthority {
     private static final int RECORD_VERSION = 1;
     private static final int MAX_CAS_ATTEMPTS = 32;
     private static final int MAX_RECORD_BYTES = 256 * 1024;
-    private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-oxia-worker-assignment-record-v1\0");
+    private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-oxia-worker-assignment-record\0");
 
     private final RecordClient client;
     private final String keyPrefix;

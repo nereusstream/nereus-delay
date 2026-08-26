@@ -1,6 +1,6 @@
 # Use bounded time and certify Pulsar delayed delivery
 
-Nereus Delay V1 treats `deliverAt` as a UTC not-before boundary and never compares it directly with an unqualified Worker wall clock. Every Worker maintains a Trusted UTC Interval from an approved time-synchronization source, measured uncertainty, configured drift bound, and monotonic elapsed time. A new Publish Admission is eligible only when `earliestUtcNow >= actionAt`; it is permitted before expiration only while `latestUtcNow < expireAt`.
+Nereus Delay treats `deliverAt` as a UTC not-before boundary and never compares it directly with an unqualified Worker wall clock. Every Worker maintains a Trusted UTC Interval from an approved time-synchronization source, measured uncertainty, configured drift bound, and monotonic elapsed time. A new Publish Admission is eligible only when `earliestUtcNow >= actionAt`; it is permitted before expiration only while `latestUtcNow < expireAt`.
 
 ## Worker clock guard
 
@@ -23,7 +23,7 @@ Ordinary managed Pulsar delivery also uses `actionAt = deliverAt` and sends with
 
 - Broker delayed delivery is enabled. Protected physical-topic policies permit only `Shared` or `Key_Shared`, the Broker rejects Exclusive/Failover at subscribe, and activation proves no incompatible Consumer is already connected; Pulsar may deliver delayed messages immediately for the excluded types.
 - `isDelayedDeliveryDeliverAtTimeStrict=true`; the default non-strict tracker can release up to one tick early.
-- Every eligible Broker runs source-locked `PULSAR_DELAY_VISIBILITY_GUARD_V1`. A Nereus delayed record carries business `deliverAt` and guard version; the delayed tracker/dispatcher releases it only when the Broker's Trusted UTC lower bound reaches that business instant. Forward steps, lost synchronization, or excess uncertainty hold delivery. A signed all-Broker attestation fixes the binary, config generation, time policy, and protected subscription policy.
+- Every eligible Broker runs source-locked `PULSAR_DELAY_VISIBILITY_GUARD`. A Nereus delayed record carries business `deliverAt` and guard version; the delayed tracker/dispatcher releases it only when the Broker's Trusted UTC lower bound reaches that business instant. Forward steps, lost synchronization, or excess uncertainty hold delivery. A signed all-Broker attestation fixes the binary, config generation, time policy, and protected subscription policy.
 - Target Broker clock-ahead error is bounded and continuously monitored, and topic retention/TTL cannot remove the message before its delayed visibility.
 - The fixed Profile-version handoff lead and Target Early-Delivery Bound are known.
 

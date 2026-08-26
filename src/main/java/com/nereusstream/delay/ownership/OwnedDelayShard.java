@@ -1,13 +1,13 @@
 package com.nereusstream.delay.ownership;
 
-import com.nereusstream.delay.protocol.ActiveLaneStateV1;
+import com.nereusstream.delay.protocol.ActiveLaneState;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.ClaimMaterializationV1;
+import com.nereusstream.delay.protocol.ClaimMaterialization;
 import com.nereusstream.delay.protocol.CommandCodec;
-import com.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
+import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.PulsarActivationBarrier;
 import com.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
@@ -39,13 +39,13 @@ import java.util.function.LongSupplier;
 /** Fenced owner view; lease loss closes all new local authority gates. */
 public final class OwnedDelayShard {
     private final DelayShard delegate;
-    private final OwnerIdentityV1 ownerIdentity;
+    private final OwnerIdentity ownerIdentity;
     private OwnerLease lease;
     private ShardLifecycleState state;
     private SourceActivationBarrier activationBarrier;
     private SourceAssignment sourceAssignment;
     /**
-     * Authority bound by the strict catch-up entrypoint.  Compatibility
+     * Authority bound by the strict catch-up entrypoint. Compatibility
      * assignment-only paths intentionally leave this unset; production
      * replay must reread the same Oxia lease before each bounded turn and
      * record so a local clock cannot outlive an ownership change.
@@ -56,7 +56,7 @@ public final class OwnedDelayShard {
     private SourcePosition lastCatchupPosition;
     private ShardFailureReason failureReason = ShardFailureReason.NONE;
     /**
-     * Guards the complete local owner-drain attempt for this shard.  The
+     * Guards the complete local owner-drain attempt for this shard. The
      * Worker-level drain semaphore limits aggregate concurrency, but it cannot
      * distinguish two coordinators accidentally targeting the same shard.
      */
@@ -71,7 +71,7 @@ public final class OwnedDelayShard {
     }
 
     /** Binds the complete protocol Owner identity used by new live Owner-authored actions. */
-    public OwnedDelayShard(final DelayShard delegate, final OwnerLease lease, final OwnerIdentityV1 ownerIdentity) {
+    public OwnedDelayShard(final DelayShard delegate, final OwnerLease lease, final OwnerIdentity ownerIdentity) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         this.lease = Objects.requireNonNull(lease, "lease");
         this.ownerIdentity = Objects.requireNonNull(ownerIdentity, "ownerIdentity");
@@ -94,7 +94,7 @@ public final class OwnedDelayShard {
     }
 
     /**
-     * Applies a record from a guarded Pulsar source connection.  The
+     * Applies a record from a guarded Pulsar source connection. The
      * connection proof is required for Pulsar because a replacement consumer
      * can otherwise emit a position with the same physical topic identity.
      * Kafka has no connection-generation field and passes {@code null} proof.
@@ -113,7 +113,7 @@ public final class OwnedDelayShard {
         try {
             return delegate.apply(command, position);
         } catch (ShardStore.RocksDbWriteFailure failure) {
-            // A native batch failure can leave commit status unknown.  Close
+            // A native batch failure can leave commit status unknown. Close
             // the owner gate immediately; source replay must retain the
             // physical record until a fresh Store incarnation is opened.
             state = ShardLifecycleState.FENCED;
@@ -144,7 +144,7 @@ public final class OwnedDelayShard {
     }
 
     /**
-     * Strict V1 command mutation entrypoint.  The ordinary authoritative
+     * Strict command mutation entrypoint. The ordinary authoritative
      * overload remains an embedded compatibility seam; production source
      * writers must prove that the active lease was established by the
      * context-bound catch-up path before applying a command.
@@ -184,7 +184,7 @@ public final class OwnedDelayShard {
 
     /**
      * Pure local preflight used before a source record enters the bounded
-     * {@code SOURCE_APPLY} queue.  It validates the strict lifecycle and
+     * {@code SOURCE_APPLY} queue. It validates the strict lifecycle and
      * record/assignment identity without reading Oxia or mutating the Store;
      * execution repeats every check after the queue wait.
      */
@@ -249,7 +249,7 @@ public final class OwnedDelayShard {
     }
 
     /**
-     * Pure local preflight for one recovery replay action.  Recovery uses the
+     * Pure local preflight for one recovery replay action. Recovery uses the
      * same {@link WorkClass#SOURCE_APPLY} queue as the active source reader,
      * but its lifecycle is still {@code CATCHING_UP}; accepting that state in
      * the active method would accidentally open command-time apply semantics
@@ -266,7 +266,7 @@ public final class OwnedDelayShard {
 
     /**
      * Revalidates the strict catch-up lease and applies exactly one replay
-     * entry behind the bounded SOURCE_APPLY action.  The caller-owned cursor
+     * entry behind the bounded SOURCE_APPLY action. The caller-owned cursor
      * is deliberately not advanced here; the coordinator advances it only
      * after this method returns a valid physical-position outcome.
      */
@@ -280,7 +280,7 @@ public final class OwnedDelayShard {
         ensureReplayWindow(nowEpochMs);
         ensureAuthoritativeCatchup(authority, nowEpochMs);
         // Queue wait may have changed the assignment, lease expiry or source
-        // connection proof.  Repeat the exact entry fence immediately before
+        // connection proof. Repeat the exact entry fence immediately before
         // the recovery WriteBatch.
         validateActiveSourceEntry(entry, verificationKey);
         final SourcePosition position = entry.position();
@@ -300,7 +300,7 @@ public final class OwnedDelayShard {
             state = ShardLifecycleState.FENCED;
             throw failure;
         } catch (RuntimeException | Error failure) {
-            // A durable write or its result projection is not proven.  Keep
+            // A durable write or its result projection is not proven. Keep
             // the source cursor at the exact entry and close local authority.
             state = ShardLifecycleState.FENCED;
             throw failure;
@@ -317,7 +317,7 @@ public final class OwnedDelayShard {
 
     /**
      * Publishes the in-memory catch-up position only after the caller-owned
-     * source cursor has advanced.  If cursor advancement fails, the durable
+     * source cursor has advanced. If cursor advancement fails, the durable
      * WriteBatch remains retryable from the previous position in a fresh
      * Store incarnation rather than creating a position-ahead-of-cursor
      * continuity claim.
@@ -331,7 +331,7 @@ public final class OwnedDelayShard {
     }
 
     /**
-     * Pure local preflight for one bounded READY-discovery action.  It reads
+     * Pure local preflight for one bounded READY-discovery action. It reads
      * neither Oxia nor RocksDB, so a rejected {@code DUE_SCHEDULER} queue
      * admission cannot advance the durable discovery cursor or the Lane ring.
      */
@@ -355,7 +355,7 @@ public final class OwnedDelayShard {
 
     /**
      * Runs one bounded persistent READY discovery after an execution-time
-     * Owner Lease/session reread.  Any malformed READY projection, scheduler
+     * Owner Lease/session reread. Any malformed READY projection, scheduler
      * persistence failure or authority failure stops this owner so recovery
      * can rebuild the index while fenced.
      */
@@ -380,7 +380,7 @@ public final class OwnedDelayShard {
 
     /**
      * Polls the exact READY projection only after the execution-time Owner
-     * Lease/session reread.  The scheduler result is still a local Claim
+     * Lease/session reread. The scheduler result is still a local Claim
      * candidate and must cross the Claim work-class boundary before any
      * Claim WriteBatch is allowed.
      */
@@ -420,12 +420,12 @@ public final class OwnedDelayShard {
     }
 
     /**
-     * Derives the local durable V1 Claim projection behind the same strict
-     * Owner/READY fence used by Claim submission.  External Profile,
+     * Derives the local durable Claim projection behind the same strict
+     * Owner/READY fence used by Claim submission. External Profile,
      * serialization, credential/channel, and charge prerequisites remain
      * outside this read-only materialization boundary.
      */
-    synchronized ClaimMaterializationV1 resolveClaimMaterializationAuthoritativelyStrict(
+    synchronized ClaimMaterialization resolveClaimMaterializationAuthoritativelyStrict(
             final OxiaOwnerLeaseStore authority,
             final PersistentLaneScheduler scheduler,
             final ScheduleWorkItem item,
@@ -435,7 +435,7 @@ public final class OwnedDelayShard {
         final long nowEpochMs = readActiveWorkClock(
                 Objects.requireNonNull(clock, "Claim materialization clock"), "Claim materialization");
         ensureAuthoritativeActive(authority, nowEpochMs, "Claim materialization");
-        final ClaimMaterializationV1 materialization = delegate.resolveClaimMaterializationV1(item.messageId());
+        final ClaimMaterialization materialization = delegate.resolveClaimMaterialization(item.messageId());
         if (!materialization.messageId().equals(item.messageId())
                 || materialization.generation() != Integer.toUnsignedLong(item.generation())) {
             throw new IllegalStateException("derived Claim materialization differs from READY work identity");
@@ -444,7 +444,7 @@ public final class OwnedDelayShard {
     }
 
     /**
-     * Side-effect-free preflight for a prepared Publish Admission.  The
+     * Side-effect-free preflight for a prepared Publish Admission. The
      * Claim must still be the exact local durable Claim; this method does not
      * append a mutation or synthesize a Source Position.
      */
@@ -462,7 +462,7 @@ public final class OwnedDelayShard {
     }
 
     /**
-     * Side-effect-free preflight for one exact expiry candidate.  The
+     * Side-effect-free preflight for one exact expiry candidate. The
      * candidate was discovered from the durable EXPIRY index by the caller;
      * this boundary validates only the shard, trusted-time and owner identity
      * before the bounded EXPIRY queue accepts the action.
@@ -471,7 +471,7 @@ public final class OwnedDelayShard {
             final OxiaOwnerLeaseStore authority,
             final com.nereusstream.delay.runtime.DelayShard.ExpiryWork candidate,
             final TrustedUtcIntervalEvidence evidence,
-            final OwnerIdentityV1 owner) {
+            final OwnerIdentity owner) {
         requireStrictActiveAuthority(authority);
         validateExpirySubmission(candidate, evidence, owner);
     }
@@ -510,7 +510,7 @@ public final class OwnedDelayShard {
             final OxiaOwnerLeaseStore authority,
             final com.nereusstream.delay.runtime.DelayShard.ExpiryWork candidate,
             final TrustedUtcIntervalEvidence evidence,
-            final OwnerIdentityV1 owner,
+            final OwnerIdentity owner,
             final LongSupplier clock) {
         requireExpirySubmission(authority, candidate, evidence, owner);
         final long nowEpochMs = readActiveWorkClock(clock, "expiry handoff");
@@ -521,11 +521,11 @@ public final class OwnedDelayShard {
     private void validateExpirySubmission(
             final com.nereusstream.delay.runtime.DelayShard.ExpiryWork candidate,
             final TrustedUtcIntervalEvidence evidence,
-            final OwnerIdentityV1 owner) {
+            final OwnerIdentity owner) {
         final com.nereusstream.delay.runtime.DelayShard.ExpiryWork work =
                 Objects.requireNonNull(candidate, "expiry candidate");
         final TrustedUtcIntervalEvidence trusted = Objects.requireNonNull(evidence, "expiry evidence");
-        final OwnerIdentityV1 author = Objects.requireNonNull(owner, "expiry owner");
+        final OwnerIdentity author = Objects.requireNonNull(owner, "expiry owner");
         if (!delegate.shardId().equals(work.messageId().routingId().shardId())
                 || !delegate.shardId().equals(lease.shardId())) {
             throw new IllegalArgumentException("expiry candidate does not belong to this shard");
@@ -689,7 +689,7 @@ public final class OwnedDelayShard {
     }
 
     /**
-     * Side-effect-free preflight for a prepared result/control mutation.  The
+     * Side-effect-free preflight for a prepared result/control mutation. The
      * mutation is already signed and semantically encoded by its producer;
      * this owner boundary only admits the four result types whose physical
      * append must be bounded by {@link WorkClass#OUTCOME_AND_CONTROL}.
@@ -706,7 +706,7 @@ public final class OwnedDelayShard {
         requireOutcomeMutationSubmission(authority, mutation);
         final long nowEpochMs = readActiveWorkClock(clock, "outcome mutation handoff");
         ensureAuthoritativeActive(authority, nowEpochMs, "outcome mutation handoff");
-        // Queue wait and lease renewal may have changed the local epoch.  The
+        // Queue wait and lease renewal may have changed the local epoch. The
         // exact signed bytes are rechecked immediately before append.
         validateOutcomeMutation(mutation);
     }
@@ -808,7 +808,7 @@ public final class OwnedDelayShard {
                 final TrustedUtcIntervalEvidence proof =
                         TrustedUtcIntervalEvidence.decode(fields.get(6).rawValue());
                 final byte[] expectedProofId = Bytes.sha256(
-                        Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                        Bytes.utf8("nereus-delay-time-fence-proof\0"),
                         delegate.shardId().routeIncarnation().bytes(),
                         Bytes.u32beBits(delegate.shardId().partition()),
                         Bytes.i64be(closeThrough),
@@ -858,7 +858,7 @@ public final class OwnedDelayShard {
                 || !java.util.Arrays.equals(expected.storeIncarnation(), delegate.storeIncarnation())) {
             throw new IllegalArgumentException("Publish Admission Claim identity does not belong to this owner/store");
         }
-        final OwnerIdentityV1 owner = OwnerIdentityV1.decode(expected.ownerIdentity());
+        final OwnerIdentity owner = OwnerIdentity.decode(expected.ownerIdentity());
         if (owner.ownerEpoch() != expected.ownerEpoch() || !owner.equals(requireBoundOwnerIdentity())) {
             throw new IllegalArgumentException("Publish Admission Claim Owner identity mismatch");
         }
@@ -884,7 +884,7 @@ public final class OwnedDelayShard {
             final ScheduleWorkItem item,
             final TrustedUtcIntervalEvidence evidence,
             final long claimDeadlineEpochMs,
-            final ClaimMaterializationV1 materialization,
+            final ClaimMaterialization materialization,
             final byte[] claimedCharge,
             final LongSupplier clock) {
         requireClaimSubmission(authority, scheduler, item, evidence);
@@ -893,11 +893,11 @@ public final class OwnedDelayShard {
         }
         final long nowEpochMs = readActiveWorkClock(clock, "Claim handoff");
         ensureAuthoritativeActive(authority, nowEpochMs, "Claim handoff");
-        final OwnerIdentityV1 owner = requireBoundOwnerIdentity();
+        final OwnerIdentity owner = requireBoundOwnerIdentity();
         final AuthorIdentity author = AuthorIdentity.owner(
                 owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch(), owner.leaseFencingDigest());
         try {
-            final ClaimRecord claim = delegate.claimForPublishV1(
+            final ClaimRecord claim = delegate.claimForPublish(
                     item.messageId(),
                     author,
                     claimDeadlineEpochMs,
@@ -921,9 +921,9 @@ public final class OwnedDelayShard {
         lease = renewed;
     }
 
-    private OwnerIdentityV1 requireBoundOwnerIdentity() {
+    private OwnerIdentity requireBoundOwnerIdentity() {
         if (ownerIdentity == null) {
-            throw new IllegalStateException("strict live Owner action requires an explicit OwnerIdentityV1");
+            throw new IllegalStateException("strict live Owner action requires an explicit OwnerIdentity");
         }
         return ownerIdentity;
     }
@@ -935,7 +935,7 @@ public final class OwnedDelayShard {
 
     /**
      * Fences this local owner only when the queued fence still names the
-     * current local fencing identity.  A delayed {@code LEASE_FENCE} action
+     * current local fencing identity. A delayed {@code LEASE_FENCE} action
      * must not fence a replacement Owner that has already been installed in
      * the same process.
      */
@@ -975,7 +975,7 @@ public final class OwnedDelayShard {
 
     /**
      * Captures the exact typed Lane identity that an external activator must
-     * resolve.  This preflight does not read Oxia or mutate the Store.
+     * resolve. This preflight does not read Oxia or mutate the Store.
      */
     synchronized LaneActivationCoordinator.ActivationRequest requireLaneActivationRequest(
             final DestinationLaneId laneId, final long nowEpochMs) {
@@ -988,7 +988,7 @@ public final class OwnedDelayShard {
         if (nowEpochMs < 0) {
             throw new IllegalArgumentException("owner clock returned a negative time");
         }
-        final ActiveLaneStateV1 lane = delegate.getActiveLaneStateV1(Objects.requireNonNull(laneId, "laneId"));
+        final ActiveLaneState lane = delegate.getActiveLaneState(Objects.requireNonNull(laneId, "laneId"));
         if (lane == null) {
             throw new IllegalStateException("Lane activation requires a typed active Lane");
         }
@@ -998,7 +998,7 @@ public final class OwnedDelayShard {
 
     /**
      * Commits a certificate-backed READY projection after rereading the same
-     * context-bound Owner Lease in CATCHING_UP.  A response-loss retry is
+     * context-bound Owner Lease in CATCHING_UP. A response-loss retry is
      * idempotent only for the exact certificate already stored on the Lane.
      */
     synchronized LaneRecord activateLaneAuthoritatively(
@@ -1015,7 +1015,7 @@ public final class OwnedDelayShard {
         }
         final LaneActivationPrerequisites proof = Objects.requireNonNull(prerequisites, "prerequisites");
         proof.requireCurrentAt(nowEpochMs);
-        final ActiveLaneStateV1 lane = delegate.getActiveLaneStateV1(Objects.requireNonNull(laneId, "laneId"));
+        final ActiveLaneState lane = delegate.getActiveLaneState(Objects.requireNonNull(laneId, "laneId"));
         if (lane == null
                 || !lane.laneId().equals(laneId)
                 || !Bytes.constantTimeEquals(
@@ -1024,8 +1024,8 @@ public final class OwnedDelayShard {
                         delegate.storeIncarnation(), proof.readyCertificate().storeIncarnation())) {
             throw new IllegalArgumentException("Lane activation proof does not match the current Store Lane");
         }
-        final OwnerIdentityV1 proofOwner =
-                OwnerIdentityV1.decode(proof.readyCertificate().ownerIdentity());
+        final OwnerIdentity proofOwner =
+                OwnerIdentity.decode(proof.readyCertificate().ownerIdentity());
         if (!ownerIdentity.equals(proofOwner)) {
             throw new IllegalArgumentException("Lane activation certificate belongs to another Owner");
         }
@@ -1036,7 +1036,7 @@ public final class OwnedDelayShard {
 
     /**
      * Rereads the authoritative Owner Lease immediately around one local
-     * read.  The returned timestamp is the execution-time owner clock passed
+     * read. The returned timestamp is the execution-time owner clock passed
      * to the caller's read-only projection; no Store mutation is performed.
      */
     synchronized long requireQueryAuthoritativelyStrict(
@@ -1050,7 +1050,7 @@ public final class OwnedDelayShard {
     }
 
     /**
-     * @deprecated V1 requires an explicit source assignment; use
+     * @deprecated requires an explicit source assignment; use
      * {@link #markCatchingUp(SourceAssignment)}.
      */
     @Deprecated
@@ -1080,7 +1080,7 @@ public final class OwnedDelayShard {
      * Accepts the exact assignment/barrier pair supplied by the source
      * adapter, using the legacy monotonic-only compatibility seam.
      *
-     * <p>V1 source adapters must use
+     * <p> source adapters must use
      * {@link #markCatchingUp(SourceAssignment, SourceReplaySuccessor)} so a
      * source gap cannot be mistaken for a caught-up shard.</p>
      */
@@ -1090,7 +1090,7 @@ public final class OwnedDelayShard {
 
     /**
      * Accepts an assignment and pins its adapter-defined replay successor for
-     * the complete catch-up window.  The successor cannot be changed halfway
+     * the complete catch-up window. The successor cannot be changed halfway
      * through replay, which prevents a caller from weakening a gap proof after
      * the first record has been applied.
      */
@@ -1123,10 +1123,10 @@ public final class OwnedDelayShard {
     }
 
     /**
-     * Strict V1 catch-up admission.  The local replay gate is not opened until
+     * Strict catch-up admission. The local replay gate is not opened until
      * the same owner lease is CASed to {@code CATCHING_UP}; a response-loss
      * reread is accepted only for that exact lease identity and lifecycle
-     * successor.  The context-bound overload is the production boundary;
+     * successor. The context-bound overload is the production boundary;
      * assignment-only overloads remain embedded compatibility seams.
      */
     synchronized void markCatchingUp(
@@ -1322,7 +1322,7 @@ public final class OwnedDelayShard {
                 throw failure;
             }
             // Advance the caller-owned cursor only after the shard WriteBatch
-            // has returned successfully.  A validation or storage failure
+            // has returned successfully. A validation or storage failure
             // must leave the exact source record available for retry.
             sourceNext(records);
             lastCatchupPosition = position;
@@ -1513,7 +1513,7 @@ public final class OwnedDelayShard {
                     outcome = SourceReplayOutcome.command(position, replayCommandResultAt(position, result));
                 } catch (RuntimeException | Error failure) {
                     // The WriteBatch may already be durable, but a malformed
-                    // result projection is not a continuity proof.  Do not
+                    // result projection is not a continuity proof. Do not
                     // advance the in-memory source position before the
                     // outcome has passed its exact canonical-position fence.
                     state = ShardLifecycleState.FENCED;
@@ -1542,7 +1542,7 @@ public final class OwnedDelayShard {
             } else {
                 throw new IllegalArgumentException("unsupported source replay entry: " + record.getClass());
             }
-            // The cursor is part of the continuity proof.  Only after the
+            // The cursor is part of the continuity proof. Only after the
             // exact outcome projection is valid and the caller-owned cursor
             // advances may the in-memory last position move forward.
             sourceNext(records);
@@ -1563,7 +1563,7 @@ public final class OwnedDelayShard {
     }
 
     /**
-     * A source cursor is part of the replay continuity proof.  If its backing
+     * A source cursor is part of the replay continuity proof. If its backing
      * iterator fails while loading, the Owner cannot prove which physical
      * record is next; keep the cursor untouched and close the local authority
      * gate before allowing the failure to escape.
@@ -1623,7 +1623,7 @@ public final class OwnedDelayShard {
 
     /**
      * A logical duplicate keeps its durable result anchored at the first
-     * Source Position.  Mixed replay outcomes describe the current physical
+     * Source Position. Mixed replay outcomes describe the current physical
      * record, so project that result's anchor only in the returned value.
      */
     private static CommandResult replayCommandResultAt(final SourcePosition position, final CommandResult result) {
@@ -1695,7 +1695,7 @@ public final class OwnedDelayShard {
             }
             return nowEpochMs;
         } catch (RuntimeException | Error failure) {
-            // A replay clock is part of the lease-validity proof.  If it is
+            // A replay clock is part of the lease-validity proof. If it is
             // unavailable or malformed, the Owner cannot establish that the
             // lease is still valid; keep the source cursor untouched and close
             // the local mutation gate before the failure escapes.
@@ -1803,7 +1803,7 @@ public final class OwnedDelayShard {
     synchronized void activateForCommands(final long nowEpochMs) {
         ensureActivationPreconditions(nowEpochMs);
         // A restored CLAIMED record is only a reversible pre-Producer
-        // reservation.  Requeue it before opening the command gate so a new
+        // reservation. Requeue it before opening the command gate so a new
         // Owner cannot inherit an old Owner Epoch's local send authority.
         try {
             // Persist the owner-open marker before exposing ACTIVE_FOR_COMMANDS.
@@ -1829,13 +1829,13 @@ public final class OwnedDelayShard {
     }
 
     /**
-     * Strict V1 activation that proves the complete shard-bound control
+     * Strict activation that proves the complete shard-bound control
      * snapshot before opening the local command gate. The legacy overload
      * remains an embedded compatibility seam; production activation should
      * pass the exact snapshot obtained from the authoritative control path.
      */
     synchronized void activateForCommandsWithControlSnapshot(
-            final CompatibleControlSnapshotV1 expected, final long nowEpochMs) {
+            final CompatibleControlSnapshot expected, final long nowEpochMs) {
         requireControlSnapshot(expected);
         activateForCommands(nowEpochMs);
     }
@@ -1853,7 +1853,7 @@ public final class OwnedDelayShard {
             ensureAuthoritativeCatchup(authority, nowEpochMs);
         }
         // Keep the local recovery boundary identical for the authoritative
-        // and embedded activation paths.  A failed lease CAS leaves the
+        // and embedded activation paths. A failed lease CAS leaves the
         // requeue durable and harmless; it never grants publish authority.
         try {
             // Write the marker while the local gate is still CATCHING_UP. If
@@ -1866,7 +1866,7 @@ public final class OwnedDelayShard {
             throw failure;
         } catch (RuntimeException | Error failure) {
             // Metadata/recovery projection failures are not activation
-            // rejections.  Keep the local command gate closed and fence the
+            // rejections. Keep the local command gate closed and fence the
             // Owner before the failure escapes, regardless of whether the
             // failure was typed by RocksDB or surfaced during validation.
             state = ShardLifecycleState.FENCED;
@@ -1889,9 +1889,9 @@ public final class OwnedDelayShard {
         state = ShardLifecycleState.ACTIVE_FOR_COMMANDS;
     }
 
-    /** Strict V1 activation with both control-snapshot and Owner Lease CAS fences. */
+    /** Strict activation with both control-snapshot and Owner Lease CAS fences. */
     synchronized void activateForCommandsWithControlSnapshot(
-            final OxiaOwnerLeaseStore authority, final CompatibleControlSnapshotV1 expected, final long nowEpochMs) {
+            final OxiaOwnerLeaseStore authority, final CompatibleControlSnapshot expected, final long nowEpochMs) {
         requireStrictActivationAuthority(authority);
         requireControlSnapshot(expected);
         activateForCommands(authority, nowEpochMs, true);
@@ -1899,7 +1899,7 @@ public final class OwnedDelayShard {
 
     /** Public strict activation boundary for an externally coordinated source successor. */
     public synchronized void activateForReactivation(
-            final OxiaOwnerLeaseStore authority, final CompatibleControlSnapshotV1 expected, final long nowEpochMs) {
+            final OxiaOwnerLeaseStore authority, final CompatibleControlSnapshot expected, final long nowEpochMs) {
         activateForCommandsWithControlSnapshot(authority, expected, nowEpochMs);
     }
 
@@ -1931,12 +1931,12 @@ public final class OwnedDelayShard {
         }
     }
 
-    private void requireControlSnapshot(final CompatibleControlSnapshotV1 expected) {
+    private void requireControlSnapshot(final CompatibleControlSnapshot expected) {
         Objects.requireNonNull(expected, "expected control snapshot");
         if (!delegate.shardId().equals(expected.shard().shardId())) {
             throw new IllegalArgumentException("control snapshot belongs to another shard");
         }
-        final CompatibleControlSnapshotV1 persisted = delegate.controlSnapshot();
+        final CompatibleControlSnapshot persisted = delegate.controlSnapshot();
         if (persisted == null || !persisted.equals(expected)) {
             throw new IllegalStateException("shard control snapshot is missing or does not match activation input");
         }
@@ -1979,12 +1979,12 @@ public final class OwnedDelayShard {
     }
 
     /**
-     * Strict V1 planned-drain entrypoint.  A production owner that opened its
+     * Strict planned-drain entrypoint. A production owner that opened its
      * replay window through the context-bound catch-up path must retain that
-     * assignment/session fence through the ACTIVE -> DRAINING CAS.  The
+     * assignment/session fence through the ACTIVE -> DRAINING CAS. The
      * authority object may be a separate validating wrapper, but the local
      * lease must still carry the exact context and the shard must have an
-     * accepted assignment.  The authority-less/assignment-only lifecycle
+     * accepted assignment. The authority-less/assignment-only lifecycle
      * methods remain embedded compatibility seams.
      */
     synchronized void beginDrainStrict(final OxiaOwnerLeaseStore authority, final long nowEpochMs) {
@@ -2046,7 +2046,7 @@ public final class OwnedDelayShard {
 
     /**
      * Acquires the shard-local drain-attempt gate without changing lifecycle
-     * state.  A failed attempt releases the gate so a caller can retry while
+     * state. A failed attempt releases the gate so a caller can retry while
      * the authoritative lease remains in {@code DRAINING}.
      */
     synchronized boolean tryAcquireDrainAttempt() {
@@ -2088,8 +2088,8 @@ public final class OwnedDelayShard {
     }
 
     /** Returns the exact durable typed Lane projection for restart-time proof reuse. */
-    public synchronized ActiveLaneStateV1 getActiveLaneStateV1(final DestinationLaneId laneId) {
-        return delegate.getActiveLaneStateV1(Objects.requireNonNull(laneId, "laneId"));
+    public synchronized ActiveLaneState getActiveLaneState(final DestinationLaneId laneId) {
+        return delegate.getActiveLaneState(Objects.requireNonNull(laneId, "laneId"));
     }
 
     public synchronized ShardLifecycleState state() {

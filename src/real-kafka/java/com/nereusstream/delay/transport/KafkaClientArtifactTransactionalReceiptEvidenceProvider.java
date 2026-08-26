@@ -2,7 +2,7 @@ package com.nereusstream.delay.transport;
 
 import com.nereusstream.delay.adapter.KafkaTransactionalDestinationRequest;
 import com.nereusstream.delay.adapter.KafkaTransactionalPublishEvidence;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
+import com.nereusstream.delay.protocol.EvidenceCursor;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -131,7 +131,7 @@ public final class KafkaClientArtifactTransactionalReceiptEvidenceProvider
                     if (Long.compareUnsigned(fetchEvidence.lastStableOffset(), receiptOffset) <= 0) {
                         throw new IllegalStateException("Kafka read_committed Fetch LSO does not cover the receipt");
                     }
-                    final EvidenceCursorV1 cursor = EvidenceCursorV1.kafka(
+                    final EvidenceCursor cursor = EvidenceCursor.kafka(
                             request.mapping().producer().laneId().bytes(),
                             request.mapping().producer().laneIncarnation(),
                             uuidBytes(request.receiptResource().nativeTopicUuid()),

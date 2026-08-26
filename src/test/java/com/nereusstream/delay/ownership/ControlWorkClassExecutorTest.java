@@ -130,7 +130,7 @@ class ControlWorkClassExecutorTest {
                 0,
                 null);
         final byte[] proofId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                Bytes.utf8("nereus-delay-time-fence-proof\0"),
                 fixture.shard.routeIncarnation().bytes(),
                 Bytes.u32beBits(fixture.shard.partition()),
                 Bytes.i64be(closeThrough),

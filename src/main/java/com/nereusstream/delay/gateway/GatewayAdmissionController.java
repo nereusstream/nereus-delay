@@ -5,7 +5,7 @@ import java.util.Objects;
 
 /** Admission boundary used before Semantic Core preparation or a retry attempt. */
 public interface GatewayAdmissionController {
-    Decision reserve(GatewayAdmissionRequestV1 request);
+    Decision reserve(GatewayAdmissionRequest request);
 
     enum State {
         ACCEPTED,

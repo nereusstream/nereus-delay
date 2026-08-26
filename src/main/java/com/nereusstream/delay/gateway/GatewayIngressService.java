@@ -1,8 +1,8 @@
 package com.nereusstream.delay.gateway;
 
-import com.nereusstream.delay.protocol.FailureStageV1;
+import com.nereusstream.delay.protocol.FailureStage;
 import com.nereusstream.delay.protocol.StableCode;
-import com.nereusstream.delay.protocol.StableErrorV1;
+import com.nereusstream.delay.protocol.StableError;
 import com.nereusstream.delay.semantic.AuthenticatedTenantContext;
 import com.nereusstream.delay.semantic.TrustedClock;
 import com.nereusstream.delay.transport.Digest32;
@@ -35,116 +35,116 @@ public final class GatewayIngressService {
         this.trustedClock = Objects.requireNonNull(trustedClock, "trustedClock");
     }
 
-    public CompletionStage<GatewaySubmissionOutcomeV1> schedule(
-            final GatewayPeerContext peerContext, final GatewayScheduleRequestV1 request) {
+    public CompletionStage<GatewaySubmissionOutcome> schedule(
+            final GatewayPeerContext peerContext, final GatewayScheduleRequest request) {
         Objects.requireNonNull(peerContext, "peerContext");
         Objects.requireNonNull(request, "request");
         final AuthenticatedTenantContext tenant = authenticate(peerContext);
         final Digest32 keyHash = keyHash(tenant, request.idempotencyKey());
-        final Digest32 bodyHash = bodyHash(GatewayOperationKindV1.SCHEDULE, request.canonicalBodyBytes());
+        final Digest32 bodyHash = bodyHash(GatewayOperationKind.SCHEDULE, request.canonicalBodyBytes());
         final GatewayAdmissionLease lease;
         try {
-            lease = admit(tenant, GatewayIngressOperationV1.SCHEDULE, request.canonicalBodyBytes().length);
+            lease = admit(tenant, GatewayIngressOperation.SCHEDULE, request.canonicalBodyBytes().length);
         } catch (GatewayAdmissionRejectedException denied) {
-            recordFailure(GatewayIngressOperationV1.SCHEDULE, keyHash, bodyHash);
+            recordFailure(GatewayIngressOperation.SCHEDULE, keyHash, bodyHash);
             return completed(preparationError(denied.code()));
         }
         try {
-            recordReceived(GatewayIngressOperationV1.SCHEDULE, keyHash, bodyHash);
+            recordReceived(GatewayIngressOperation.SCHEDULE, keyHash, bodyHash);
         } catch (RuntimeException failure) {
             lease.close();
             throw failure;
         }
         return submitAndAudit(
                 lease,
-                GatewayIngressOperationV1.SCHEDULE,
+                GatewayIngressOperation.SCHEDULE,
                 keyHash,
                 bodyHash,
                 () -> scheduleService.schedule(tenant, request));
     }
 
-    public CompletionStage<GatewaySubmissionOutcomeV1> retryUncertain(
-            final GatewayPeerContext peerContext, final GatewayRetryUncertainRequestV1 request) {
+    public CompletionStage<GatewaySubmissionOutcome> retryUncertain(
+            final GatewayPeerContext peerContext, final GatewayRetryUncertainRequest request) {
         Objects.requireNonNull(peerContext, "peerContext");
         Objects.requireNonNull(request, "request");
         final AuthenticatedTenantContext tenant = authenticate(peerContext);
         final Digest32 keyHash = keyHash(tenant, request.originalIdempotencyKey());
-        final Digest32 requestHash = GatewayIdempotencyHashV1.retryRequestHash(
+        final Digest32 requestHash = GatewayIdempotencyHash.retryRequestHash(
                 keyHash, request.expectedPriorPhysicalAttemptId(), request.retryRequestId());
         final GatewayAdmissionLease lease;
         try {
             lease = admit(
-                    tenant, GatewayIngressOperationV1.RETRY_UNCERTAIN, request.originalIdempotencyKey().length + 32L);
+                    tenant, GatewayIngressOperation.RETRY_UNCERTAIN, request.originalIdempotencyKey().length + 32L);
         } catch (GatewayAdmissionRejectedException denied) {
-            recordFailure(GatewayIngressOperationV1.RETRY_UNCERTAIN, keyHash, requestHash);
+            recordFailure(GatewayIngressOperation.RETRY_UNCERTAIN, keyHash, requestHash);
             return completed(preparationError(denied.code()));
         }
         try {
-            recordReceived(GatewayIngressOperationV1.RETRY_UNCERTAIN, keyHash, requestHash);
+            recordReceived(GatewayIngressOperation.RETRY_UNCERTAIN, keyHash, requestHash);
         } catch (RuntimeException failure) {
             lease.close();
             throw failure;
         }
         return submitAndAudit(
                 lease,
-                GatewayIngressOperationV1.RETRY_UNCERTAIN,
+                GatewayIngressOperation.RETRY_UNCERTAIN,
                 keyHash,
                 requestHash,
                 () -> scheduleService.retryUncertain(tenant, request));
     }
 
-    public CompletionStage<GatewaySubmissionOutcomeV1> cancel(
-            final GatewayPeerContext peerContext, final GatewayCancelRequestV1 request) {
+    public CompletionStage<GatewaySubmissionOutcome> cancel(
+            final GatewayPeerContext peerContext, final GatewayCancelRequest request) {
         Objects.requireNonNull(peerContext, "peerContext");
         Objects.requireNonNull(request, "request");
         return control(
                 peerContext,
                 request.idempotencyKey(),
-                GatewayOperationKindV1.CANCEL,
+                GatewayOperationKind.CANCEL,
                 request.canonicalBodyBytes(),
                 tenant -> scheduleService.cancel(tenant, request));
     }
 
-    public CompletionStage<GatewaySubmissionOutcomeV1> reschedule(
-            final GatewayPeerContext peerContext, final GatewayRescheduleRequestV1 request) {
+    public CompletionStage<GatewaySubmissionOutcome> reschedule(
+            final GatewayPeerContext peerContext, final GatewayRescheduleRequest request) {
         Objects.requireNonNull(peerContext, "peerContext");
         Objects.requireNonNull(request, "request");
         return control(
                 peerContext,
                 request.idempotencyKey(),
-                GatewayOperationKindV1.RESCHEDULE,
+                GatewayOperationKind.RESCHEDULE,
                 request.canonicalBodyBytes(),
                 tenant -> scheduleService.reschedule(tenant, request));
     }
 
-    public CompletionStage<GatewaySubmissionOutcomeV1> prepareLargeSchedule(
-            final GatewayPeerContext peerContext, final GatewayPrepareLargeScheduleRequestV1 request) {
+    public CompletionStage<GatewaySubmissionOutcome> prepareLargeSchedule(
+            final GatewayPeerContext peerContext, final GatewayPrepareLargeScheduleRequest request) {
         Objects.requireNonNull(peerContext, "peerContext");
         Objects.requireNonNull(request, "request");
         return control(
                 peerContext,
                 request.idempotencyKey(),
-                GatewayOperationKindV1.PREPARE_LARGE_SCHEDULE,
+                GatewayOperationKind.PREPARE_LARGE_SCHEDULE,
                 request.canonicalBodyBytes(),
                 tenant -> scheduleService.prepareLargeSchedule(tenant, request));
     }
 
-    public CompletionStage<GatewaySubmissionOutcomeV1> commitLargeSchedule(
-            final GatewayPeerContext peerContext, final GatewayCommitLargeScheduleRequestV1 request) {
+    public CompletionStage<GatewaySubmissionOutcome> commitLargeSchedule(
+            final GatewayPeerContext peerContext, final GatewayCommitLargeScheduleRequest request) {
         Objects.requireNonNull(peerContext, "peerContext");
         Objects.requireNonNull(request, "request");
         return control(
                 peerContext,
                 request.idempotencyKey(),
-                GatewayOperationKindV1.COMMIT_LARGE_SCHEDULE,
+                GatewayOperationKind.COMMIT_LARGE_SCHEDULE,
                 request.canonicalBodyBytes(),
                 tenant -> scheduleService.commitLargeSchedule(tenant, request));
     }
 
-    private CompletionStage<GatewaySubmissionOutcomeV1> control(
+    private CompletionStage<GatewaySubmissionOutcome> control(
             final GatewayPeerContext peerContext,
             final byte[] idempotencyKey,
-            final GatewayOperationKindV1 operation,
+            final GatewayOperationKind operation,
             final byte[] canonicalBody,
             final ControlCall call) {
         final AuthenticatedTenantContext tenant = authenticate(peerContext);
@@ -152,18 +152,18 @@ public final class GatewayIngressService {
         final Digest32 bodyHash = bodyHash(operation, canonicalBody);
         final GatewayAdmissionLease lease;
         try {
-            lease = admit(tenant, GatewayIngressOperationV1.CONTROL, canonicalBody.length);
+            lease = admit(tenant, GatewayIngressOperation.CONTROL, canonicalBody.length);
         } catch (GatewayAdmissionRejectedException denied) {
-            recordFailure(GatewayIngressOperationV1.CONTROL, keyHash, bodyHash);
+            recordFailure(GatewayIngressOperation.CONTROL, keyHash, bodyHash);
             return completed(preparationError(denied.code()));
         }
         try {
-            recordReceived(GatewayIngressOperationV1.CONTROL, keyHash, bodyHash);
+            recordReceived(GatewayIngressOperation.CONTROL, keyHash, bodyHash);
         } catch (RuntimeException failure) {
             lease.close();
             throw failure;
         }
-        return submitAndAudit(lease, GatewayIngressOperationV1.CONTROL, keyHash, bodyHash, () -> call.invoke(tenant));
+        return submitAndAudit(lease, GatewayIngressOperation.CONTROL, keyHash, bodyHash, () -> call.invoke(tenant));
     }
 
     private AuthenticatedTenantContext authenticate(final GatewayPeerContext peerContext) {
@@ -180,11 +180,11 @@ public final class GatewayIngressService {
 
     private GatewayAdmissionLease admit(
             final AuthenticatedTenantContext tenant,
-            final GatewayIngressOperationV1 operation,
+            final GatewayIngressOperation operation,
             final long estimatedBytes) {
         final GatewayAdmissionController.Decision decision;
         try {
-            decision = admission.reserve(new GatewayAdmissionRequestV1(tenant, operation, estimatedBytes));
+            decision = admission.reserve(new GatewayAdmissionRequest(tenant, operation, estimatedBytes));
         } catch (OxiaGatewaySessionUnavailableException failure) {
             throw new GatewayIngressException(GatewayIngressException.Kind.UNAVAILABLE, failure);
         } catch (RuntimeException failure) {
@@ -197,22 +197,21 @@ public final class GatewayIngressService {
     }
 
     private void recordReceived(
-            final GatewayIngressOperationV1 operation, final Digest32 keyHash, final Digest32 bodyHash) {
+            final GatewayIngressOperation operation, final Digest32 keyHash, final Digest32 bodyHash) {
         try {
-            audit.record(
-                    new GatewayAuditEventV1(operation, keyHash, bodyHash, GatewayAuditPhaseV1.RECEIVED, null, now()));
+            audit.record(new GatewayAuditEvent(operation, keyHash, bodyHash, GatewayAuditPhase.RECEIVED, null, now()));
         } catch (RuntimeException failure) {
             throw new GatewayIngressException(GatewayIngressException.Kind.UNAVAILABLE, failure);
         }
     }
 
-    private CompletionStage<GatewaySubmissionOutcomeV1> submitAndAudit(
+    private CompletionStage<GatewaySubmissionOutcome> submitAndAudit(
             final GatewayAdmissionLease lease,
-            final GatewayIngressOperationV1 operation,
+            final GatewayIngressOperation operation,
             final Digest32 keyHash,
             final Digest32 bodyHash,
             final SubmissionCall call) {
-        final CompletionStage<GatewaySubmissionOutcomeV1> stage;
+        final CompletionStage<GatewaySubmissionOutcome> stage;
         try {
             stage = Objects.requireNonNull(call.invoke(), "Gateway domain stage");
         } catch (RuntimeException failure) {
@@ -230,7 +229,7 @@ public final class GatewayIngressService {
                                     : failure);
                 }
                 try {
-                    audit.record(GatewayAuditEventV1.completed(
+                    audit.record(GatewayAuditEvent.completed(
                             operation,
                             keyHash,
                             bodyHash,
@@ -250,10 +249,9 @@ public final class GatewayIngressService {
     }
 
     private void recordFailure(
-            final GatewayIngressOperationV1 operation, final Digest32 keyHash, final Digest32 bodyHash) {
+            final GatewayIngressOperation operation, final Digest32 keyHash, final Digest32 bodyHash) {
         try {
-            audit.record(
-                    new GatewayAuditEventV1(operation, keyHash, bodyHash, GatewayAuditPhaseV1.FAILED, null, now()));
+            audit.record(new GatewayAuditEvent(operation, keyHash, bodyHash, GatewayAuditPhase.FAILED, null, now()));
         } catch (RuntimeException ignored) {
             // The original failure remains the safe caller-visible boundary.
         }
@@ -275,16 +273,16 @@ public final class GatewayIngressService {
     }
 
     private static Digest32 keyHash(final AuthenticatedTenantContext tenant, final byte[] idempotencyKey) {
-        return GatewayIdempotencyHashV1.keyHash(tenant.authenticatedTenantScopeHash(), idempotencyKey);
+        return GatewayIdempotencyHash.keyHash(tenant.authenticatedTenantScopeHash(), idempotencyKey);
     }
 
-    private static Digest32 bodyHash(final GatewayOperationKindV1 operation, final byte[] body) {
-        return GatewayIdempotencyHashV1.bodyHash(operation, body);
+    private static Digest32 bodyHash(final GatewayOperationKind operation, final byte[] body) {
+        return GatewayIdempotencyHash.bodyHash(operation, body);
     }
 
-    private static GatewaySubmissionOutcomeV1 preparationError(final StableCode code) {
-        return GatewaySubmissionOutcomeV1.preparationError(
-                StableErrorV1.of(FailureStageV1.PREPARATION, code, null, null, null, null));
+    private static GatewaySubmissionOutcome preparationError(final StableCode code) {
+        return GatewaySubmissionOutcome.preparationError(
+                StableError.of(FailureStage.PREPARATION, code, null, null, null, null));
     }
 
     private static <T> CompletionStage<T> completed(final T value) {
@@ -308,11 +306,11 @@ public final class GatewayIngressService {
 
     @FunctionalInterface
     private interface SubmissionCall {
-        CompletionStage<GatewaySubmissionOutcomeV1> invoke();
+        CompletionStage<GatewaySubmissionOutcome> invoke();
     }
 
     @FunctionalInterface
     private interface ControlCall {
-        CompletionStage<GatewaySubmissionOutcomeV1> invoke(AuthenticatedTenantContext tenant);
+        CompletionStage<GatewaySubmissionOutcome> invoke(AuthenticatedTenantContext tenant);
     }
 }

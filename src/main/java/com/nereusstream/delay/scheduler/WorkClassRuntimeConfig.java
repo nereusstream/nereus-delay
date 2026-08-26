@@ -8,7 +8,7 @@ import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
 /**
- * Complete required configuration for the V1 Worker work-class runtime.
+ * Complete required configuration for the Worker work-class runtime.
  *
  * <p>No benchmark-derived default is provided. A release configuration must
  * explicitly cover all eight frozen classes, protect the correctness classes'
@@ -32,7 +32,7 @@ public record WorkClassRuntimeConfig(
     public WorkClassRuntimeConfig {
         Objects.requireNonNull(policies, "policies");
         if (!EnumSet.allOf(WorkClass.class).equals(policies.keySet())) {
-            throw new IllegalArgumentException("work-class runtime policies must cover every V1 class exactly");
+            throw new IllegalArgumentException("work-class runtime policies must cover every class exactly");
         }
         if (maxEventLoopClassDelayNanos <= 0
                 || maxBorrowedResourceHoldNanos <= 0
@@ -49,7 +49,7 @@ public record WorkClassRuntimeConfig(
                 final WorkClassPolicy policy =
                         Objects.requireNonNull(policies.get(workClass), "policy for " + workClass);
                 if (policy.preemptive() != (workClass == WorkClass.LEASE_FENCE)) {
-                    throw new IllegalArgumentException("only LEASE_FENCE is preemptive in V1");
+                    throw new IllegalArgumentException("only LEASE_FENCE is preemptive in the current design");
                 }
                 if (CORRECTNESS_MINIMUM_CLASSES.contains(workClass)
                         && (policy.nonBorrowableMinimumRecords() == 0 || policy.nonBorrowableMinimumBytes() == 0)) {

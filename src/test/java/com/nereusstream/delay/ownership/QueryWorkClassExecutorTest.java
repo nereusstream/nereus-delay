@@ -115,7 +115,7 @@ class QueryWorkClassExecutorTest {
     }
 
     private static QueryWorkClassExecutor.QueryRequest request(final ShardId shard, final String name) {
-        return new QueryWorkClassExecutor.QueryRequest(shard, Bytes.utf8("query-v1/" + name));
+        return new QueryWorkClassExecutor.QueryRequest(shard, Bytes.utf8("query/" + name));
     }
 
     private Fixture fixture(final String name) {

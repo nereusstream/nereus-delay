@@ -10,55 +10,55 @@ import org.junit.jupiter.api.Test;
 class ControlRequestSupportCodecTest {
     @Test
     void acknowledgementSetRoundTripsEmptyAndSortedEntries() {
-        final AcknowledgementSetV1 empty = AcknowledgementSetV1.empty();
-        assertEquals(empty, AcknowledgementSetV1.decode(empty.canonicalBytes()));
-        final AcknowledgementSetV1 set = new AcknowledgementSetV1(List.of(
-                new AcknowledgementV1(AcknowledgementKindV1.POSSIBLE_DUPLICATE, bytes(32, 1), bytes(32, 2)),
-                new AcknowledgementV1(AcknowledgementKindV1.ORDER_LOSS, bytes(32, 3), bytes(32, 4))));
-        assertEquals(set, AcknowledgementSetV1.decode(set.canonicalBytes()));
-        assertTrue(set.has(AcknowledgementKindV1.POSSIBLE_DUPLICATE));
-        assertFalse(set.has(AcknowledgementKindV1.POSSIBLE_DELIVERY));
+        final AcknowledgementSet empty = AcknowledgementSet.empty();
+        assertEquals(empty, AcknowledgementSet.decode(empty.canonicalBytes()));
+        final AcknowledgementSet set = new AcknowledgementSet(List.of(
+                new Acknowledgement(AcknowledgementKind.POSSIBLE_DUPLICATE, bytes(32, 1), bytes(32, 2)),
+                new Acknowledgement(AcknowledgementKind.ORDER_LOSS, bytes(32, 3), bytes(32, 4))));
+        assertEquals(set, AcknowledgementSet.decode(set.canonicalBytes()));
+        assertTrue(set.has(AcknowledgementKind.POSSIBLE_DUPLICATE));
+        assertFalse(set.has(AcknowledgementKind.POSSIBLE_DELIVERY));
     }
 
     @Test
     void acknowledgementSetRejectsDuplicateOrOutOfOrderKindsAndMalformedFields() {
-        final AcknowledgementV1 first =
-                new AcknowledgementV1(AcknowledgementKindV1.POSSIBLE_DUPLICATE, bytes(32, 1), bytes(32, 2));
-        assertThrows(IllegalArgumentException.class, () -> new AcknowledgementSetV1(List.of(first, first)));
+        final Acknowledgement first =
+                new Acknowledgement(AcknowledgementKind.POSSIBLE_DUPLICATE, bytes(32, 1), bytes(32, 2));
+        assertThrows(IllegalArgumentException.class, () -> new AcknowledgementSet(List.of(first, first)));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new AcknowledgementSetV1(List.of(
-                        new AcknowledgementV1(AcknowledgementKindV1.ORDER_LOSS, bytes(32, 1), bytes(32, 2)), first)));
+                () -> new AcknowledgementSet(List.of(
+                        new Acknowledgement(AcknowledgementKind.ORDER_LOSS, bytes(32, 1), bytes(32, 2)), first)));
         final byte[] malformed = CanonicalProtobuf.message(output -> CanonicalProtobuf.uint32(output, 2, 1));
-        assertThrows(IllegalArgumentException.class, () -> AcknowledgementSetV1.decode(malformed));
+        assertThrows(IllegalArgumentException.class, () -> AcknowledgementSet.decode(malformed));
     }
 
     @Test
     void quotaTransferPlanAndControlEnumsRoundTrip() {
-        final QuotaTransferPlanRefV1 plan = new QuotaTransferPlanRefV1(bytes(32, 5), bytes(32, 6), 7, bytes(32, 8));
-        assertEquals(plan, QuotaTransferPlanRefV1.decode(plan.canonicalBytes()));
-        assertEquals(ControlOperationKindV1.ROTATE_EQUIVALENT_SECRET_REFERENCE, ControlOperationKindV1.fromWire(15));
-        assertEquals(ClosePolicyV1.V1_FREEZE_UNADMITTED_AND_PRESERVE_ADMITTED, ClosePolicyV1.fromWire(1));
-        assertEquals(UncertainResolutionKindV1.TERMINALIZE_POSSIBLE_DELIVERY, UncertainResolutionKindV1.fromWire(4));
+        final QuotaTransferPlanRef plan = new QuotaTransferPlanRef(bytes(32, 5), bytes(32, 6), 7, bytes(32, 8));
+        assertEquals(plan, QuotaTransferPlanRef.decode(plan.canonicalBytes()));
+        assertEquals(ControlOperationKind.ROTATE_EQUIVALENT_SECRET_REFERENCE, ControlOperationKind.fromWire(15));
+        assertEquals(ClosePolicy._FREEZE_UNADMITTED_AND_PRESERVE_ADMITTED, ClosePolicy.fromWire(1));
+        assertEquals(UncertainResolutionKind.TERMINALIZE_POSSIBLE_DELIVERY, UncertainResolutionKind.fromWire(4));
     }
 
     @Test
     void quotaTransferPlanPreservesCompleteUnsigned64BitPolicyVersion() {
-        final QuotaTransferPlanRefV1 plan =
-                new QuotaTransferPlanRefV1(bytes(32, 31), bytes(32, 32), Long.MIN_VALUE, bytes(32, 33));
+        final QuotaTransferPlanRef plan =
+                new QuotaTransferPlanRef(bytes(32, 31), bytes(32, 32), Long.MIN_VALUE, bytes(32, 33));
 
-        final QuotaTransferPlanRefV1 decoded = QuotaTransferPlanRefV1.decode(plan.canonicalBytes());
+        final QuotaTransferPlanRef decoded = QuotaTransferPlanRef.decode(plan.canonicalBytes());
         assertEquals(Long.MIN_VALUE, decoded.tenantPolicyVersion());
         assertEquals(plan, decoded);
     }
 
     @Test
     void supportValuesRejectInvalidWireNumbersAndNonZeroIds() {
-        assertThrows(IllegalArgumentException.class, () -> AcknowledgementKindV1.fromWire(4));
-        assertThrows(IllegalArgumentException.class, () -> ControlOperationKindV1.fromWire(16));
+        assertThrows(IllegalArgumentException.class, () -> AcknowledgementKind.fromWire(4));
+        assertThrows(IllegalArgumentException.class, () -> ControlOperationKind.fromWire(16));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new QuotaTransferPlanRefV1(new byte[32], bytes(32, 1), 1, bytes(32, 2)));
+                () -> new QuotaTransferPlanRef(new byte[32], bytes(32, 1), 1, bytes(32, 2)));
     }
 
     private static byte[] bytes(final int length, final int seed) {

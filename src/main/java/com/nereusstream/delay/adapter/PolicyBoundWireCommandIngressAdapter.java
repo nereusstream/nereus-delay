@@ -1,6 +1,6 @@
 package com.nereusstream.delay.adapter;
 
-import com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1;
+import com.nereusstream.delay.protocol.EnqueueOutcomeMessage;
 import com.nereusstream.delay.protocol.PreparedCommand;
 import java.util.concurrent.CompletionStage;
 
@@ -13,6 +13,6 @@ public interface PolicyBoundWireCommandIngressAdapter extends WireCommandIngress
      * Enqueues using the policy bound when the adapter was constructed. The
      * supplied policy is a binding assertion and must equal that snapshot.
      */
-    CompletionStage<EnqueueOutcomeMessageV1> enqueueOutcomeV1(
+    CompletionStage<EnqueueOutcomeMessage> enqueueOutcome(
             PreparedCommand command, QueuedReceiptQueryPolicy routePolicy, byte[] physicalEnqueueAttemptId);
 }

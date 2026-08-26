@@ -3,12 +3,12 @@ package com.nereusstream.delay.store;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.SloAuthoritativeStartFactory;
-import com.nereusstream.delay.protocol.SloObjectiveV1;
-import com.nereusstream.delay.protocol.SloObservationOutboxV1;
-import com.nereusstream.delay.protocol.SloPathV1;
-import com.nereusstream.delay.protocol.SloSampleFinalV1;
-import com.nereusstream.delay.protocol.SloSampleStartV1;
-import com.nereusstream.delay.protocol.SloThresholdDirectionV1;
+import com.nereusstream.delay.protocol.SloObjective;
+import com.nereusstream.delay.protocol.SloObservationOutbox;
+import com.nereusstream.delay.protocol.SloPath;
+import com.nereusstream.delay.protocol.SloSampleFinal;
+import com.nereusstream.delay.protocol.SloSampleStart;
+import com.nereusstream.delay.protocol.SloThresholdDirection;
 import com.nereusstream.delay.protocol.SourcePosition;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -53,13 +53,13 @@ public final class SloObservationOutboxStore {
     }
 
     /** Returns the exact local projection, or {@code null} when no Start exists. */
-    public synchronized SloObservationOutboxV1 get(final byte[] sampleId) {
+    public synchronized SloObservationOutbox get(final byte[] sampleId) {
         final ValueEnvelope.Decoded value =
                 store.getValue(ColumnFamily.META, KeyCodec.metaSloOutbox(sampleId), VALUE_TYPE);
         if (value == null) {
             return null;
         }
-        final SloObservationOutboxV1 outbox = SloObservationOutboxV1.decode(value.payload());
+        final SloObservationOutbox outbox = SloObservationOutbox.decode(value.payload());
         if (!Bytes.constantTimeEquals(sampleId, outbox.sampleId())) {
             throw new IllegalStateException("SLO_OUTBOX key/value sample identity mismatch");
         }
@@ -72,11 +72,11 @@ public final class SloObservationOutboxStore {
      * exact retry is idempotent; a different Start for one sample identity is
      * an integrity failure.
      */
-    public synchronized SloObservationOutboxV1 ensureStart(final SloSampleStartV1 start) {
+    public synchronized SloObservationOutbox ensureStart(final SloSampleStart start) {
         Objects.requireNonNull(start, "start");
         validateShardBoundStart(start);
         final byte[] key = KeyCodec.metaSloOutbox(start.sampleId());
-        final SloObservationOutboxV1 existing = get(start.sampleId());
+        final SloObservationOutbox existing = get(start.sampleId());
         if (existing != null) {
             if (!existing.start().equals(start)) {
                 throw new IllegalStateException("SLO sample identity has different Start bytes");
@@ -86,7 +86,7 @@ public final class SloObservationOutboxStore {
             }
             return existing;
         }
-        final SloObservationOutboxV1 created = SloObservationOutboxV1.open(start);
+        final SloObservationOutbox created = SloObservationOutbox.open(start);
         requireCapacity(ValueEnvelope.encode(VALUE_TYPE, created.canonicalBytes()).length, 1);
         persist(key, created);
         return created;
@@ -96,12 +96,12 @@ public final class SloObservationOutboxStore {
      * Materializes a command-applied Start from the exact typed Source
      * Position authority projection.
      *
-     * <p>This is a convenience around {@link #ensureStart(SloSampleStartV1)};
+     * <p>This is a convenience around {@link #ensureStart(SloSampleStart)};
      * it does not discover a Source Position or infer a Broker timestamp from
      * an arbitrary command payload.</p>
      */
-    public synchronized SloObservationOutboxV1 ensureCommandAppliedStart(
-            final SloObjectiveV1 objective, final SourcePosition sourcePosition) {
+    public synchronized SloObservationOutbox ensureCommandAppliedStart(
+            final SloObjective objective, final SourcePosition sourcePosition) {
         Objects.requireNonNull(sourcePosition, "sourcePosition");
         if (!store.shardId().equals(sourcePosition.shardId())) {
             throw new IllegalArgumentException("command-applied Source Position belongs to another shard");
@@ -118,11 +118,11 @@ public final class SloObservationOutboxStore {
      * {@code deliverAt} for a managed handoff {@code actionAt}, and it cannot
      * create a native-path due-admission sample.</p>
      */
-    public synchronized SloObservationOutboxV1 ensureDueAdmissionStart(
-            final SloObjectiveV1 objective,
+    public synchronized SloObservationOutbox ensureDueAdmissionStart(
+            final SloObjective objective,
             final DelayMessageId delayMessageId,
             final long generation,
-            final SloPathV1 path,
+            final SloPath path,
             final long pathStartEpochMs,
             final byte[] semanticEvidenceSha256) {
         Objects.requireNonNull(delayMessageId, "delayMessageId");
@@ -138,18 +138,18 @@ public final class SloObservationOutboxStore {
      * authoritative Message/Admission/Lane/Recovery projection.
      *
      * <p>The store never derives a Start from an arbitrary message and never
-     * removes an existing Final.  Inputs are sorted by the canonical sample
+     * removes an existing Final. Inputs are sorted by the canonical sample
      * identity, exact duplicate inputs collapse to one entry, and a different
-     * Start for one sample identity fails before any write.  All newly missing
+     * Start for one sample identity fails before any write. All newly missing
      * Starts are then written in one synchronous RocksDB batch so a recovery
      * turn cannot leave a partially materialized denominator.</p>
      *
      * @return the resulting key-ordered projections, including preserved
-     *         existing Finals
+     * existing Finals
      */
-    public synchronized List<SloObservationOutboxV1> reconcileDurableStarts(
-            final Iterable<SloSampleStartV1> authoritativeStarts) {
-        final List<SloObservationOutboxV1> result = new ArrayList<>();
+    public synchronized List<SloObservationOutbox> reconcileDurableStarts(
+            final Iterable<SloSampleStart> authoritativeStarts) {
+        final List<SloObservationOutbox> result = new ArrayList<>();
         store.write(batch -> result.addAll(reconcileDurableStartsInBatch(batch, authoritativeStarts)));
         return List.copyOf(result);
     }
@@ -168,33 +168,33 @@ public final class SloObservationOutboxStore {
      * uncommitted batch reads to this store.</p>
      *
      * @return the resulting key-ordered projections, including preserved
-     *         existing Finals
+     * existing Finals
      * @throws org.rocksdb.RocksDBException when the native batch rejects an
-     *         appended value
+     * appended value
      */
-    public synchronized List<SloObservationOutboxV1> reconcileDurableStartsInBatch(
-            final ShardStore.Batch batch, final Iterable<SloSampleStartV1> authoritativeStarts)
+    public synchronized List<SloObservationOutbox> reconcileDurableStartsInBatch(
+            final ShardStore.Batch batch, final Iterable<SloSampleStart> authoritativeStarts)
             throws org.rocksdb.RocksDBException {
         Objects.requireNonNull(batch, "batch");
         if (!batch.belongsTo(store)) {
             throw new IllegalArgumentException("SLO outbox batch belongs to another ShardStore");
         }
         Objects.requireNonNull(authoritativeStarts, "authoritativeStarts");
-        final List<SloSampleStartV1> sorted = new ArrayList<>();
-        for (SloSampleStartV1 start : authoritativeStarts) {
-            final SloSampleStartV1 checked = Objects.requireNonNull(start, "authoritativeStarts contains null");
+        final List<SloSampleStart> sorted = new ArrayList<>();
+        for (SloSampleStart start : authoritativeStarts) {
+            final SloSampleStart checked = Objects.requireNonNull(start, "authoritativeStarts contains null");
             validateShardBoundStart(checked);
             sorted.add(checked);
         }
         sorted.sort((left, right) -> Arrays.compareUnsigned(left.sampleId(), right.sampleId()));
 
-        final List<SloSampleStartV1> unique = new ArrayList<>(sorted.size());
-        for (SloSampleStartV1 start : sorted) {
+        final List<SloSampleStart> unique = new ArrayList<>(sorted.size());
+        for (SloSampleStart start : sorted) {
             if (unique.isEmpty()) {
                 unique.add(start);
                 continue;
             }
-            final SloSampleStartV1 previous = unique.get(unique.size() - 1);
+            final SloSampleStart previous = unique.get(unique.size() - 1);
             if (!Arrays.equals(previous.sampleId(), start.sampleId())) {
                 unique.add(start);
             } else if (!previous.equals(start)) {
@@ -203,11 +203,11 @@ public final class SloObservationOutboxStore {
         }
 
         final Usage currentUsage = limits == null ? null : usage();
-        final List<SloObservationOutboxV1> result = new ArrayList<>(unique.size());
-        final List<SloObservationOutboxV1> missing = new ArrayList<>();
+        final List<SloObservationOutbox> result = new ArrayList<>(unique.size());
+        final List<SloObservationOutbox> missing = new ArrayList<>();
         long missingBytes = 0;
-        for (SloSampleStartV1 start : unique) {
-            final SloObservationOutboxV1 existing = get(start.sampleId());
+        for (SloSampleStart start : unique) {
+            final SloObservationOutbox existing = get(start.sampleId());
             if (existing != null) {
                 if (!existing.start().equals(start)) {
                     throw new IllegalStateException("SLO sample identity has different durable Start bytes");
@@ -215,7 +215,7 @@ public final class SloObservationOutboxStore {
                 result.add(existing);
                 continue;
             }
-            final SloObservationOutboxV1 created = SloObservationOutboxV1.open(start);
+            final SloObservationOutbox created = SloObservationOutbox.open(start);
             missing.add(created);
             result.add(created);
             try {
@@ -229,7 +229,7 @@ public final class SloObservationOutboxStore {
             requireCapacity(missingBytes, missing.size(), currentUsage.recordCount(), currentUsage.encodedBytes());
         }
         if (!missing.isEmpty()) {
-            for (SloObservationOutboxV1 created : missing) {
+            for (SloObservationOutbox created : missing) {
                 batch.putValue(
                         ColumnFamily.META,
                         VALUE_TYPE,
@@ -245,34 +245,34 @@ public final class SloObservationOutboxStore {
      * batch. A missing Start is rejected so callers cannot create a Final-only
      * denominator.
      */
-    public synchronized SloObservationOutboxV1 mergeFinal(
-            final SloSampleFinalV1 finalObservation, final SloThresholdDirectionV1 direction) {
+    public synchronized SloObservationOutbox mergeFinal(
+            final SloSampleFinal finalObservation, final SloThresholdDirection direction) {
         Objects.requireNonNull(finalObservation, "finalObservation");
         Objects.requireNonNull(direction, "direction");
-        final SloObservationOutboxV1 existing = get(finalObservation.sampleId());
+        final SloObservationOutbox existing = get(finalObservation.sampleId());
         if (existing == null) {
             throw new IllegalStateException("cannot persist SLO Final without a durable Start");
         }
         requireNoDueExclusion(finalObservation, existing);
-        final SloObservationOutboxV1 merged = existing.mergeFinal(finalObservation, direction);
+        final SloObservationOutbox merged = existing.mergeFinal(finalObservation, direction);
         requireReplacementCapacity(existing, merged);
         persist(KeyCodec.metaSloOutbox(merged.sampleId()), merged);
         return merged;
     }
 
     /**
-     * Compatibility merge for non-excluded projections.  An excluded due
+     * Compatibility merge for non-excluded projections. An excluded due
      * projection is rejected because this overload lacks the exact
      * ALL_ACCEPTED companion objective required by the durable boundary.
      */
-    public synchronized SloObservationOutboxV1 mergeFinal(
-            final SloSampleFinalV1 finalObservation,
-            final SloThresholdDirectionV1 direction,
-            final SloObjectiveV1 healthyObjective) {
+    public synchronized SloObservationOutbox mergeFinal(
+            final SloSampleFinal finalObservation,
+            final SloThresholdDirection direction,
+            final SloObjective healthyObjective) {
         Objects.requireNonNull(finalObservation, "finalObservation");
         Objects.requireNonNull(direction, "direction");
         Objects.requireNonNull(healthyObjective, "healthyObjective");
-        final SloObservationOutboxV1 existing = get(finalObservation.sampleId());
+        final SloObservationOutbox existing = get(finalObservation.sampleId());
         if (existing == null) {
             throw new IllegalStateException("cannot persist SLO Final without a durable Start");
         }
@@ -282,7 +282,7 @@ public final class SloObservationOutboxStore {
             throw new IllegalArgumentException(
                     "SLO due exclusions require the exact ALL_ACCEPTED companion at the durable merge boundary");
         }
-        final SloObservationOutboxV1 merged = existing.mergeFinal(finalObservation, direction, healthyObjective);
+        final SloObservationOutbox merged = existing.mergeFinal(finalObservation, direction, healthyObjective);
         requireReplacementCapacity(existing, merged);
         persist(KeyCodec.metaSloOutbox(merged.sampleId()), merged);
         return merged;
@@ -290,23 +290,23 @@ public final class SloObservationOutboxStore {
 
     /**
      * Merges a Final whose due exclusion is authorized by the exact immutable
-     * HEALTHY/ALL_ACCEPTED objective pair.  Both objective digests and all
+     * HEALTHY/ALL_ACCEPTED objective pair. Both objective digests and all
      * companion policy fields are checked before the replacement WriteBatch.
      */
-    public synchronized SloObservationOutboxV1 mergeFinal(
-            final SloSampleFinalV1 finalObservation,
-            final SloThresholdDirectionV1 direction,
-            final SloObjectiveV1 healthyObjective,
-            final SloObjectiveV1 allAcceptedObjective) {
+    public synchronized SloObservationOutbox mergeFinal(
+            final SloSampleFinal finalObservation,
+            final SloThresholdDirection direction,
+            final SloObjective healthyObjective,
+            final SloObjective allAcceptedObjective) {
         Objects.requireNonNull(finalObservation, "finalObservation");
         Objects.requireNonNull(direction, "direction");
         Objects.requireNonNull(healthyObjective, "healthyObjective");
         Objects.requireNonNull(allAcceptedObjective, "allAcceptedObjective");
-        final SloObservationOutboxV1 existing = get(finalObservation.sampleId());
+        final SloObservationOutbox existing = get(finalObservation.sampleId());
         if (existing == null) {
             throw new IllegalStateException("cannot persist SLO Final without a durable Start");
         }
-        final SloObservationOutboxV1 merged =
+        final SloObservationOutbox merged =
                 existing.mergeFinal(finalObservation, direction, healthyObjective, allAcceptedObjective);
         requireReplacementCapacity(existing, merged);
         persist(KeyCodec.metaSloOutbox(merged.sampleId()), merged);
@@ -314,7 +314,7 @@ public final class SloObservationOutboxStore {
     }
 
     /** Returns a bounded key-order snapshot for at-least-once export retry. */
-    public synchronized List<SloObservationOutboxV1> scan(final int limit) {
+    public synchronized List<SloObservationOutbox> scan(final int limit) {
         return scan(limit, limits == null ? Long.MAX_VALUE : limits.maxBytes());
     }
 
@@ -323,7 +323,7 @@ public final class SloObservationOutboxStore {
      * ValueEnvelope bytes. A first record that cannot fit fails closed; later
      * records are left for the next export turn after earlier acknowledgements.
      */
-    public synchronized List<SloObservationOutboxV1> scan(final int limit, final long maxBytes) {
+    public synchronized List<SloObservationOutbox> scan(final int limit, final long maxBytes) {
         if (limit <= 0) {
             throw new IllegalArgumentException("SLO outbox scan limit must be positive");
         }
@@ -338,7 +338,7 @@ public final class SloObservationOutboxStore {
         }
         final List<ShardStore.KeyValue> entries =
                 store.scan(ColumnFamily.META, new byte[] {8, 1}, new byte[] {8, 2}, limit);
-        final List<SloObservationOutboxV1> result = new ArrayList<>(entries.size());
+        final List<SloObservationOutbox> result = new ArrayList<>(entries.size());
         long totalBytes = 0;
         for (ShardStore.KeyValue entry : entries) {
             final long encodedBytes = entry.value().length;
@@ -396,7 +396,7 @@ public final class SloObservationOutboxStore {
      * to delete a newer observation.
      */
     public synchronized boolean deleteAfterCollectorAck(final byte[] sampleId, final byte[] recordDigest) {
-        final SloObservationOutboxV1 existing = get(sampleId);
+        final SloObservationOutbox existing = get(sampleId);
         if (existing == null) {
             return false;
         }
@@ -407,12 +407,12 @@ public final class SloObservationOutboxStore {
         return true;
     }
 
-    private void persist(final byte[] key, final SloObservationOutboxV1 outbox) {
+    private void persist(final byte[] key, final SloObservationOutbox outbox) {
         store.write(batch -> batch.putValue(ColumnFamily.META, VALUE_TYPE, key, outbox.canonicalBytes()));
     }
 
     private void requireReplacementCapacity(
-            final SloObservationOutboxV1 existing, final SloObservationOutboxV1 replacement) {
+            final SloObservationOutbox existing, final SloObservationOutbox replacement) {
         if (limits == null) {
             return;
         }
@@ -459,12 +459,12 @@ public final class SloObservationOutboxStore {
         }
     }
 
-    private SloObservationOutboxV1 decodeEntry(final ShardStore.KeyValue entry) {
+    private SloObservationOutbox decodeEntry(final ShardStore.KeyValue entry) {
         final byte[] key = entry.key();
         if (key.length != 34 || key[0] != 8 || key[1] != 1) {
             throw new IllegalStateException("invalid SLO_OUTBOX key shape");
         }
-        final SloObservationOutboxV1 outbox = SloObservationOutboxV1.decode(
+        final SloObservationOutbox outbox = SloObservationOutbox.decode(
                 ValueEnvelope.decode(entry.value(), VALUE_TYPE).payload());
         if (!Bytes.constantTimeEquals(Arrays.copyOfRange(key, 2, key.length), outbox.sampleId())) {
             throw new IllegalStateException("SLO_OUTBOX key/value sample identity mismatch");
@@ -480,7 +480,7 @@ public final class SloObservationOutboxStore {
      * carry a decodable self-routing ID; typed authority factory Starts are
      * always decoded and checked here.
      */
-    private void validateShardBoundStart(final SloSampleStartV1 start) {
+    private void validateShardBoundStart(final SloSampleStart start) {
         switch (start.objective()) {
             case COMMAND_APPLIED_LATENCY -> {
                 final SourcePosition position = start.eventIdentity().commandAppliedSourcePosition();
@@ -513,7 +513,7 @@ public final class SloObservationOutboxStore {
         }
     }
 
-    private static void requireNoDueExclusion(final SloSampleFinalV1 incoming, final SloObservationOutboxV1 existing) {
+    private static void requireNoDueExclusion(final SloSampleFinal incoming, final SloObservationOutbox existing) {
         if (incoming.exclusionReason() != null
                 || existing.finalObservation() != null
                         && existing.finalObservation().exclusionReason() != null) {

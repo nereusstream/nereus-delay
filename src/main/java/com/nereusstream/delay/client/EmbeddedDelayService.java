@@ -9,68 +9,68 @@ import com.nereusstream.delay.ownership.ControlOperationAuthority;
 import com.nereusstream.delay.ownership.ControlTargetRegistrationAuthority;
 import com.nereusstream.delay.ownership.InMemoryControlOperationAuthority;
 import com.nereusstream.delay.ownership.InMemoryControlTargetRegistrationAuthority;
-import com.nereusstream.delay.protocol.AdapterKindV1;
+import com.nereusstream.delay.protocol.AdapterKind;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CommandAppliedReceiptV1;
-import com.nereusstream.delay.protocol.CommandApplyStatusV1;
+import com.nereusstream.delay.protocol.CanonicalCommandQueuedReceipt;
+import com.nereusstream.delay.protocol.CanonicalCommandQueuedReceipt.KafkaQueuedAck;
+import com.nereusstream.delay.protocol.CanonicalPayloadCommitProof;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
+import com.nereusstream.delay.protocol.CommandAppliedReceipt;
+import com.nereusstream.delay.protocol.CommandApplyStatus;
 import com.nereusstream.delay.protocol.CommandBodies;
 import com.nereusstream.delay.protocol.CommandCodec;
-import com.nereusstream.delay.protocol.CommandQueryResponseV1;
+import com.nereusstream.delay.protocol.CommandQueryResponse;
 import com.nereusstream.delay.protocol.CommandQueryResult;
-import com.nereusstream.delay.protocol.CommandQueuedReceiptV1;
-import com.nereusstream.delay.protocol.CommandQueuedReceiptV1.KafkaQueuedAck;
-import com.nereusstream.delay.protocol.ControlOperationQueryResponseV1;
-import com.nereusstream.delay.protocol.ControlOperationReceiptV1;
-import com.nereusstream.delay.protocol.ControlRegistrationBindingV1;
-import com.nereusstream.delay.protocol.ControlRegistrationOutcomeMessageV1;
-import com.nereusstream.delay.protocol.ControlRegistrationProjectionV1;
-import com.nereusstream.delay.protocol.CurrentControlOperationV1;
-import com.nereusstream.delay.protocol.DefinitelyNotQueuedV1;
+import com.nereusstream.delay.protocol.ControlOperationQueryResponse;
+import com.nereusstream.delay.protocol.ControlOperationReceipt;
+import com.nereusstream.delay.protocol.ControlRegistrationBinding;
+import com.nereusstream.delay.protocol.ControlRegistrationOutcomeMessage;
+import com.nereusstream.delay.protocol.ControlRegistrationProjection;
+import com.nereusstream.delay.protocol.CurrentControlOperation;
+import com.nereusstream.delay.protocol.DefinitelyNotQueued;
 import com.nereusstream.delay.protocol.DelayMessageId;
-import com.nereusstream.delay.protocol.DeliveryCapabilitySemanticV1;
-import com.nereusstream.delay.protocol.DestinationProfileSemanticV1;
-import com.nereusstream.delay.protocol.DlqExportStateV1;
-import com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1;
-import com.nereusstream.delay.protocol.EnqueueUncertainV1;
-import com.nereusstream.delay.protocol.FailureStageV1;
-import com.nereusstream.delay.protocol.FirstScheduleEligibilityV1;
+import com.nereusstream.delay.protocol.DeliveryCapabilitySemantic;
+import com.nereusstream.delay.protocol.DestinationProfileSemantic;
+import com.nereusstream.delay.protocol.DlqExportState;
+import com.nereusstream.delay.protocol.EnqueueOutcomeMessage;
+import com.nereusstream.delay.protocol.EnqueueUncertain;
+import com.nereusstream.delay.protocol.FailureStage;
+import com.nereusstream.delay.protocol.FirstScheduleEligibility;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.LargeScheduleIntent;
-import com.nereusstream.delay.protocol.MessagePreconditionV1;
-import com.nereusstream.delay.protocol.MessageQueryResponseV1;
-import com.nereusstream.delay.protocol.NativeDefinitelyNotQueuedV1;
-import com.nereusstream.delay.protocol.NativePreparedDeliveryV1;
-import com.nereusstream.delay.protocol.NativePreparedRefV1;
-import com.nereusstream.delay.protocol.NonPersistenceProofKindV1;
-import com.nereusstream.delay.protocol.NonPersistenceProofV1;
-import com.nereusstream.delay.protocol.OpaquePayloadUploadHandleV1;
-import com.nereusstream.delay.protocol.PayloadAttestationOutcomeV1;
-import com.nereusstream.delay.protocol.PayloadAttestationResponseV1;
-import com.nereusstream.delay.protocol.PayloadCommitProofV1;
-import com.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
-import com.nereusstream.delay.protocol.PayloadReservationReceiptV1;
-import com.nereusstream.delay.protocol.PayloadUploadHandleOutcomeV1;
-import com.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
+import com.nereusstream.delay.protocol.MessagePrecondition;
+import com.nereusstream.delay.protocol.MessageQueryResponse;
+import com.nereusstream.delay.protocol.NativeDefinitelyNotQueued;
+import com.nereusstream.delay.protocol.NativePreparedDelivery;
+import com.nereusstream.delay.protocol.NativePreparedRef;
+import com.nereusstream.delay.protocol.NonPersistenceProof;
+import com.nereusstream.delay.protocol.NonPersistenceProofKind;
+import com.nereusstream.delay.protocol.OpaquePayloadUploadHandle;
+import com.nereusstream.delay.protocol.PayloadAttestationOutcome;
+import com.nereusstream.delay.protocol.PayloadAttestationResponse;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetRef;
+import com.nereusstream.delay.protocol.PayloadReservationReceipt;
+import com.nereusstream.delay.protocol.PayloadUploadHandleOutcome;
+import com.nereusstream.delay.protocol.PayloadUploadHandleResponse;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.PreparedControlOperationV1;
-import com.nereusstream.delay.protocol.PreparedSubmissionV1;
-import com.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
-import com.nereusstream.delay.protocol.PublicEvidenceRefV1;
+import com.nereusstream.delay.protocol.PreparedControlOperation;
+import com.nereusstream.delay.protocol.PreparedSubmission;
+import com.nereusstream.delay.protocol.PublicDestinationBindingView;
+import com.nereusstream.delay.protocol.PublicEvidenceRef;
+import com.nereusstream.delay.protocol.ScheduleBinding;
 import com.nereusstream.delay.protocol.ScheduleIntent;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
 import com.nereusstream.delay.protocol.StableCode;
-import com.nereusstream.delay.protocol.StableErrorV1;
-import com.nereusstream.delay.protocol.SubmissionModeV1;
-import com.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
-import com.nereusstream.delay.protocol.TargetPartitionHashInputV1;
-import com.nereusstream.delay.protocol.TargetPartitionHashV1;
-import com.nereusstream.delay.protocol.TimingCapabilityV1;
+import com.nereusstream.delay.protocol.StableError;
+import com.nereusstream.delay.protocol.SubmissionMode;
+import com.nereusstream.delay.protocol.SubmissionOutcomeMessage;
+import com.nereusstream.delay.protocol.TargetPartitionHash;
+import com.nereusstream.delay.protocol.TargetPartitionHashInput;
+import com.nereusstream.delay.protocol.TimingCapability;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
-import com.nereusstream.delay.protocol.UploadHandleKindV1;
-import com.nereusstream.delay.protocol.V1ScheduleBinding;
+import com.nereusstream.delay.protocol.UploadHandleKind;
 import com.nereusstream.delay.runtime.ApplyStatus;
 import com.nereusstream.delay.runtime.CommandResult;
 import com.nereusstream.delay.runtime.DelayShard;
@@ -122,7 +122,7 @@ public final class EmbeddedDelayService implements DelayClient {
 
     private long nextOffset;
     /**
-     * Kafka offsets are an unsigned 64-bit sequence.  Do not use {@code -1}
+     * Kafka offsets are an unsigned 64-bit sequence. Do not use {@code -1}
      * as an exhaustion sentinel: the all-ones offset is a valid final offset.
      */
     private boolean offsetExhausted;
@@ -255,10 +255,35 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     @Override
-    public PreparedCommand prepareScheduleV1(final ScheduleIntentV1 intent, final long retryUntilEpochMs) {
+    public PreparedCommand prepareSchedule(final CanonicalScheduleIntent intent, final long retryUntilEpochMs) {
         ensureOpen();
         try {
-            return PreparedCommand.scheduleV1(shardId, intent, retryUntilEpochMs);
+            return PreparedCommand.schedule(shardId, intent, retryUntilEpochMs);
+        } catch (RuntimeException invalidCommand) {
+            throw PreparationFailure.of(StableCode.INVALID_COMMAND, invalidCommand);
+        }
+    }
+
+    @Override
+    public PreparedCommand prepareLargeSchedule(
+            final CanonicalScheduleIntent intentWithoutPayload,
+            final long expectedPayloadLength,
+            final byte[] payloadSha256,
+            final long reservationTtlMs,
+            final PayloadProofTrustSetRef trustSet,
+            final com.nereusstream.delay.protocol.ProfileRef objectStoreProfile,
+            final long retryUntilEpochMs) {
+        ensureOpen();
+        try {
+            return PreparedCommand.prepareLarge(
+                    shardId,
+                    intentWithoutPayload,
+                    expectedPayloadLength,
+                    payloadSha256,
+                    reservationTtlMs,
+                    trustSet,
+                    objectStoreProfile,
+                    retryUntilEpochMs);
         } catch (RuntimeException invalidCommand) {
             throw PreparationFailure.of(StableCode.INVALID_COMMAND, invalidCommand);
         }
@@ -275,42 +300,28 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     @Override
-    public PreparedCommand prepareLargeScheduleV1(
-            final ScheduleIntentV1 intentWithoutPayload,
-            final long expectedPayloadLength,
-            final byte[] payloadSha256,
-            final long reservationTtlMs,
-            final PayloadProofTrustSetRefV1 trustSet,
-            final com.nereusstream.delay.protocol.ProfileRefV1 objectStoreProfile,
-            final long retryUntilEpochMs) {
-        ensureOpen();
-        try {
-            return PreparedCommand.prepareLargeV1(
-                    shardId,
-                    intentWithoutPayload,
-                    expectedPayloadLength,
-                    payloadSha256,
-                    reservationTtlMs,
-                    trustSet,
-                    objectStoreProfile,
-                    retryUntilEpochMs);
-        } catch (RuntimeException invalidCommand) {
-            throw PreparationFailure.of(StableCode.INVALID_COMMAND, invalidCommand);
-        }
-    }
-
-    @Override
     public PreparedCommand prepareLargePayloadCommit(
-            final PayloadReservationReceiptV1 reservation,
-            final PayloadCommitProofV1 proof,
+            final PayloadReservationReceipt reservation,
+            final CanonicalPayloadCommitProof proof,
             final long retryUntilEpochMs) {
         ensureOpen();
         try {
             requireLargePayloadCommitBinding(reservation, proof);
-            return PreparedCommand.commitLargeV1(
+            return PreparedCommand.commitLarge(
                     shardId, reservation.delayMessageId(), reservation.reservationId(), proof, retryUntilEpochMs);
         } catch (RuntimeException invalidProof) {
             throw PreparationFailure.of(StableCode.PAYLOAD_PROOF_INVALID, invalidProof);
+        }
+    }
+
+    @Override
+    public PreparedCommand prepareCancel(
+            final DelayMessageId messageId, final MessagePrecondition precondition, final long retryUntilEpochMs) {
+        ensureOpen();
+        try {
+            return PreparedCommand.cancel(shardId, messageId, precondition, retryUntilEpochMs);
+        } catch (RuntimeException invalidCommand) {
+            throw PreparationFailure.of(StableCode.INVALID_COMMAND, invalidCommand);
         }
     }
 
@@ -326,13 +337,18 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     @Override
-    public PreparedCommand prepareCancelV1(
-            final DelayMessageId messageId, final MessagePreconditionV1 precondition, final long retryUntilEpochMs) {
+    public PreparedCommand prepareReschedule(
+            final DelayMessageId messageId,
+            final MessagePrecondition precondition,
+            final long deliverAtEpochMs,
+            final long expireAtEpochMs,
+            final long retryUntilEpochMs) {
         ensureOpen();
         try {
-            return PreparedCommand.cancelV1(shardId, messageId, precondition, retryUntilEpochMs);
+            return PreparedCommand.reschedule(
+                    shardId, messageId, precondition, deliverAtEpochMs, expireAtEpochMs, retryUntilEpochMs);
         } catch (RuntimeException invalidCommand) {
-            throw PreparationFailure.of(StableCode.INVALID_COMMAND, invalidCommand);
+            throw PreparationFailure.of(StableCode.INVALID_DELIVERY_WINDOW, invalidCommand);
         }
     }
 
@@ -353,51 +369,36 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     @Override
-    public PreparedCommand prepareRescheduleV1(
-            final DelayMessageId messageId,
-            final MessagePreconditionV1 precondition,
-            final long deliverAtEpochMs,
-            final long expireAtEpochMs,
-            final long retryUntilEpochMs) {
+    public PreparedSubmission prepareManagedSubmission(final PreparedCommand command) {
         ensureOpen();
         try {
-            return PreparedCommand.rescheduleV1(
-                    shardId, messageId, precondition, deliverAtEpochMs, expireAtEpochMs, retryUntilEpochMs);
-        } catch (RuntimeException invalidCommand) {
-            throw PreparationFailure.of(StableCode.INVALID_DELIVERY_WINDOW, invalidCommand);
-        }
-    }
-
-    @Override
-    public PreparedSubmissionV1 prepareManagedSubmissionV1(final PreparedCommand command) {
-        ensureOpen();
-        try {
-            return PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(Objects.requireNonNull(command, "command")));
+            return PreparedSubmission.managed(
+                    CommandCodec.encodeManagedFrame(Objects.requireNonNull(command, "command")));
         } catch (RuntimeException invalidCommand) {
             throw PreparationFailure.of(StableCode.INVALID_PREPARED_COMMAND, invalidCommand);
         }
     }
 
     @Override
-    public PreparedSubmissionV1 prepareScheduleSubmissionV1(
-            final ScheduleIntentV1 intent, final long retryUntilEpochMs, final SubmissionModeV1 submissionMode) {
+    public PreparedSubmission prepareScheduleSubmission(
+            final CanonicalScheduleIntent intent, final long retryUntilEpochMs, final SubmissionMode submissionMode) {
         ensureOpen();
-        if (submissionMode != SubmissionModeV1.MANAGED) {
+        if (submissionMode != SubmissionMode.MANAGED) {
             throw PreparationFailure.of(StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE);
         }
-        return prepareManagedSubmissionV1(prepareScheduleV1(intent, retryUntilEpochMs));
+        return prepareManagedSubmission(prepareSchedule(intent, retryUntilEpochMs));
     }
 
     @Override
-    public PreparedSubmissionV1 prepareAutoFast(final AutoFastSchedule request) {
+    public PreparedSubmission prepareAutoFast(final AutoFastSchedule request) {
         ensureOpen();
         try {
             Objects.requireNonNull(request, "request");
-            final byte[] managedFrame = CommandCodec.encodeFrameV1(request.managedCommand());
-            final NativePreparedDeliveryV1 nativePrepared = prepareNative(request);
+            final byte[] managedFrame = CommandCodec.encodeManagedFrame(request.managedCommand());
+            final NativePreparedDelivery nativePrepared = prepareNative(request);
             return nativePrepared == null
-                    ? PreparedSubmissionV1.managed(managedFrame)
-                    : PreparedSubmissionV1.nativePrepared(nativePrepared);
+                    ? PreparedSubmission.managed(managedFrame)
+                    : PreparedSubmission.nativePrepared(nativePrepared);
         } catch (PreparationFailure failure) {
             throw failure;
         } catch (RuntimeException invalidRequest) {
@@ -406,11 +407,11 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     @Override
-    public List<PreparedSubmissionV1> prepareAutoFastBatch(final List<AutoFastSchedule> requests) {
+    public List<PreparedSubmission> prepareAutoFastBatch(final List<AutoFastSchedule> requests) {
         ensureOpen();
         try {
             Objects.requireNonNull(requests, "requests");
-            final List<PreparedSubmissionV1> prepared = new ArrayList<>(requests.size());
+            final List<PreparedSubmission> prepared = new ArrayList<>(requests.size());
             for (AutoFastSchedule request : requests) {
                 prepared.add(prepareAutoFast(request));
             }
@@ -427,13 +428,13 @@ public final class EmbeddedDelayService implements DelayClient {
      * the already-validated managed frame; it never performs I/O or changes
      * the branch after this method returns.
      */
-    private NativePreparedDeliveryV1 prepareNative(final AutoFastSchedule request) {
+    private NativePreparedDelivery prepareNative(final AutoFastSchedule request) {
         final AutoFastSchedule.NativeCandidate candidate = request.nativeCandidate();
         if (candidate == null) {
             return null;
         }
         try {
-            final var managedBody = com.nereusstream.delay.protocol.CommandBodies.decodeScheduleV1(
+            final var managedBody = com.nereusstream.delay.protocol.CommandBodies.decodeSchedule(
                     request.managedCommand().canonicalBody());
             final var intent = managedBody.intent();
             if (!intent.hasInlinePayload()
@@ -441,7 +442,7 @@ public final class EmbeddedDelayService implements DelayClient {
                     || !Arrays.equals(intent.inlinePayload(), candidate.inlinePayload())
                     || intent.deliverAtEpochMs() != candidate.deliverAtEpochMs()
                     || !Objects.equals(intent.eventTimeEpochMs(), candidate.eventTimeEpochMs())
-                    || intent.adapterMetadata().kind() != com.nereusstream.delay.protocol.AdapterMetadataV1.Kind.PULSAR
+                    || intent.adapterMetadata().kind() != com.nereusstream.delay.protocol.AdapterMetadata.Kind.PULSAR
                     || !intent.adapterMetadata().pulsar().equals(candidate.metadata())) {
                 return null;
             }
@@ -450,22 +451,21 @@ public final class EmbeddedDelayService implements DelayClient {
             }
             final var destinationEnvelope = candidate.destinationProfile();
             final var capabilityEnvelope = candidate.capabilityProfile();
-            if (destinationEnvelope.profileKind() != com.nereusstream.delay.protocol.ProfileKindV1.DESTINATION
+            if (destinationEnvelope.profileKind() != com.nereusstream.delay.protocol.ProfileKind.DESTINATION
                     || capabilityEnvelope.profileKind()
-                            != com.nereusstream.delay.protocol.ProfileKindV1.DELIVERY_CAPABILITY) {
+                            != com.nereusstream.delay.protocol.ProfileKind.DELIVERY_CAPABILITY) {
                 return null;
             }
-            if (!(destinationEnvelope.body() instanceof DestinationProfileSemanticV1 destination)
-                    || !(capabilityEnvelope.body() instanceof DeliveryCapabilitySemanticV1 capability)) {
+            if (!(destinationEnvelope.body() instanceof DestinationProfileSemantic destination)
+                    || !(capabilityEnvelope.body() instanceof DeliveryCapabilitySemantic capability)) {
                 return null;
             }
-            if (destination.adapterKind() != AdapterKindV1.PULSAR
-                    || capability.adapterKind() != AdapterKindV1.PULSAR
-                    || !TimingCapabilityV1.includes(
-                            capability.timingCapabilityBits(), TimingCapabilityV1.PULSAR_AUTO_FAST)
+            if (destination.adapterKind() != AdapterKind.PULSAR
+                    || capability.adapterKind() != AdapterKind.PULSAR
+                    || !TimingCapability.includes(capability.timingCapabilityBits(), TimingCapability.PULSAR_AUTO_FAST)
                     || !destination.deliveryCapability().equals(capabilityEnvelope.ref())
                     || destination.targetResource().kind()
-                            != com.nereusstream.delay.protocol.BrokerResourceIdentityV1.Kind.PULSAR
+                            != com.nereusstream.delay.protocol.BrokerResourceIdentity.Kind.PULSAR
                     || !destination.targetResource().pulsar().equals(candidate.target())) {
                 return null;
             }
@@ -479,7 +479,7 @@ public final class EmbeddedDelayService implements DelayClient {
                         case EXPLICIT_ONLY -> explicitPartition;
                         case HASH_ONLY, EXPLICIT_OR_HASH ->
                             explicitPartition
-                                    || TargetPartitionHashV1.partition(
+                                    || TargetPartitionHash.partition(
                                                     destinationEnvelope.ref(),
                                                     destination.targetPartitionCount(),
                                                     nativeRoutingBytes(
@@ -513,7 +513,7 @@ public final class EmbeddedDelayService implements DelayClient {
             final long brokerDeliverAt =
                     Math.addExact(candidate.deliverAtEpochMs(), destination.targetClockAheadBoundMs());
             final byte[] nativeDeliveryId = nextNativeDeliveryId();
-            return NativePreparedDeliveryV1.create(
+            return NativePreparedDelivery.create(
                     nativeDeliveryId,
                     destinationEnvelope.ref(),
                     capabilityEnvelope.ref(),
@@ -535,7 +535,7 @@ public final class EmbeddedDelayService implements DelayClient {
     private static byte[] nativeRoutingBytes(
             final AutoFastSchedule request,
             final AutoFastSchedule.NativeCandidate candidate,
-            final TargetPartitionHashInputV1 hashInput) {
+            final TargetPartitionHashInput hashInput) {
         return switch (hashInput) {
             case ORDERING_KEY -> nullableBytes(candidate.metadata().orderingKey());
             case ADAPTER_MESSAGE_KEY -> nullableBytes(candidate.metadata().partitionKey());
@@ -565,8 +565,8 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     @Override
-    public CompletionStage<SubmissionOutcomeMessageV1> submit(
-            final PreparedSubmissionV1 submission,
+    public CompletionStage<SubmissionOutcomeMessage> submit(
+            final PreparedSubmission submission,
             final long receiptQueryUntilEpochMs,
             final byte[] physicalEnqueueAttemptId) {
         ensureOpen();
@@ -579,20 +579,20 @@ public final class EmbeddedDelayService implements DelayClient {
             if (!submission.isManaged()) {
                 return CompletableFuture.completedFuture(nativeSubmissionUnavailable(submission.nativePrepared()));
             }
-            final PreparedCommand command = CommandCodec.decodeFrameV1(submission.managedFrame());
+            final PreparedCommand command = CommandCodec.decodeManagedFrame(submission.managedFrame());
             if (!validPhysicalAttempt(physicalEnqueueAttemptId)) {
-                return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
+                return CompletableFuture.completedFuture(SubmissionOutcomeMessage.managed(
                         localDefiniteOutcome(command, StableCode.INVALID_PREPARED_COMMAND)));
             }
             final EnqueueOutcome outcome = enqueueInternal(command, true);
-            return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
-                    enqueueOutcomeV1(outcome, receiptQueryUntilEpochMs, physicalEnqueueAttemptId)));
+            return CompletableFuture.completedFuture(SubmissionOutcomeMessage.managed(
+                    enqueueOutcome(outcome, receiptQueryUntilEpochMs, physicalEnqueueAttemptId)));
         }
     }
 
     /** Strict managed submission path bound to an immutable Route query policy. */
-    public CompletionStage<SubmissionOutcomeMessageV1> submit(
-            final PreparedSubmissionV1 submission,
+    public CompletionStage<SubmissionOutcomeMessage> submit(
+            final PreparedSubmission submission,
             final QueuedReceiptQueryPolicy routePolicy,
             final byte[] physicalEnqueueAttemptId) {
         ensureOpen();
@@ -606,14 +606,14 @@ public final class EmbeddedDelayService implements DelayClient {
             if (!submission.isManaged()) {
                 return CompletableFuture.completedFuture(nativeSubmissionUnavailable(submission.nativePrepared()));
             }
-            final PreparedCommand command = CommandCodec.decodeFrameV1(submission.managedFrame());
+            final PreparedCommand command = CommandCodec.decodeManagedFrame(submission.managedFrame());
             if (!validPhysicalAttempt(physicalEnqueueAttemptId)) {
-                return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
+                return CompletableFuture.completedFuture(SubmissionOutcomeMessage.managed(
                         localDefiniteOutcome(command, StableCode.INVALID_PREPARED_COMMAND)));
             }
             final EnqueueOutcome outcome = enqueueInternal(command, true);
-            return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
-                    enqueueOutcomeV1(outcome, routePolicy, physicalEnqueueAttemptId)));
+            return CompletableFuture.completedFuture(
+                    SubmissionOutcomeMessage.managed(enqueueOutcome(outcome, routePolicy, physicalEnqueueAttemptId)));
         }
     }
 
@@ -621,12 +621,6 @@ public final class EmbeddedDelayService implements DelayClient {
     public synchronized CompletionStage<EnqueueOutcome> enqueue(final PreparedCommand command) {
         ensureOpen();
         return CompletableFuture.completedFuture(enqueueInternal(command, false));
-    }
-
-    @Override
-    public synchronized CompletionStage<EnqueueOutcome> enqueueV1(final PreparedCommand command) {
-        ensureOpen();
-        return CompletableFuture.completedFuture(enqueueInternal(command, true));
     }
 
     @Override
@@ -641,46 +635,35 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     @Override
-    public synchronized CompletionStage<List<EnqueueOutcome>> enqueueBatchV1(final List<PreparedCommand> commands) {
-        ensureOpen();
-        Objects.requireNonNull(commands, "commands");
-        final List<EnqueueOutcome> outcomes = new ArrayList<>(commands.size());
-        for (PreparedCommand command : commands) {
-            outcomes.add(enqueueInternal(command, true));
-        }
-        return CompletableFuture.completedFuture(List.copyOf(outcomes));
-    }
-
-    @Override
-    public synchronized CompletionStage<CommandQueryResponseV1> getCommandResult(
-            final CommandQueuedReceiptV1 receipt,
+    public synchronized CompletionStage<CommandQueryResponse> getCommandResult(
+            final CanonicalCommandQueuedReceipt receipt,
             final long nowEpochMs,
             final long fullResultRetainUntilEpochMs,
-            final PublicDestinationBindingViewV1 binding) {
+            final PublicDestinationBindingView binding) {
         return CompletableFuture.completedFuture(
                 queryCommand(receipt, nowEpochMs, fullResultRetainUntilEpochMs, binding));
     }
 
     @Override
-    public synchronized CompletionStage<CommandQueryResponseV1> getCommandResult(
-            final CommandQueuedReceiptV1 receipt,
+    public synchronized CompletionStage<CommandQueryResponse> getCommandResult(
+            final CanonicalCommandQueuedReceipt receipt,
             final long nowEpochMs,
             final CommandResultRetentionPolicy retentionPolicy,
-            final PublicDestinationBindingViewV1 binding) {
+            final PublicDestinationBindingView binding) {
         return CompletableFuture.completedFuture(queryCommand(receipt, nowEpochMs, retentionPolicy, binding));
     }
 
     @Override
-    public synchronized CompletionStage<CommandQueryResponseV1> awaitAppliedV1(
-            final CommandQueuedReceiptV1 receipt,
+    public synchronized CompletionStage<CommandQueryResponse> awaitApplied(
+            final CanonicalCommandQueuedReceipt receipt,
             final long nowEpochMs,
             final long fullResultRetainUntilEpochMs,
-            final PublicDestinationBindingViewV1 binding) {
+            final PublicDestinationBindingView binding) {
         ensureOpen();
         if (receipt == null || !isEmbeddedReceipt(receipt)) {
-            return CompletableFuture.completedFuture(CommandQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null));
+            return CompletableFuture.completedFuture(CommandQueryResponse.error(StableCode.RECEIPT_MISMATCH, null));
         }
-        CommandQueryResponseV1 result = queryCommand(receipt, nowEpochMs, fullResultRetainUntilEpochMs, binding);
+        CommandQueryResponse result = queryCommand(receipt, nowEpochMs, fullResultRetainUntilEpochMs, binding);
         if (result.resultKind() == CommandQueryResult.PENDING) {
             drain();
             result = queryCommand(receipt, nowEpochMs, fullResultRetainUntilEpochMs, binding);
@@ -689,17 +672,17 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     @Override
-    public synchronized CompletionStage<CommandQueryResponseV1> awaitAppliedV1(
-            final CommandQueuedReceiptV1 receipt,
+    public synchronized CompletionStage<CommandQueryResponse> awaitApplied(
+            final CanonicalCommandQueuedReceipt receipt,
             final long nowEpochMs,
             final CommandResultRetentionPolicy retentionPolicy,
-            final PublicDestinationBindingViewV1 binding) {
+            final PublicDestinationBindingView binding) {
         ensureOpen();
         Objects.requireNonNull(retentionPolicy, "retentionPolicy");
         if (receipt == null || !isEmbeddedReceipt(receipt)) {
-            return CompletableFuture.completedFuture(CommandQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null));
+            return CompletableFuture.completedFuture(CommandQueryResponse.error(StableCode.RECEIPT_MISMATCH, null));
         }
-        CommandQueryResponseV1 result = queryCommand(receipt, nowEpochMs, retentionPolicy, binding);
+        CommandQueryResponse result = queryCommand(receipt, nowEpochMs, retentionPolicy, binding);
         if (result.resultKind() == CommandQueryResult.PENDING) {
             drain();
             result = queryCommand(receipt, nowEpochMs, retentionPolicy, binding);
@@ -708,29 +691,29 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     @Override
-    public synchronized CompletionStage<MessageQueryResponseV1> getMessage(
+    public synchronized CompletionStage<MessageQueryResponse> getMessage(
             final DelayMessageId messageId,
-            final PublicDestinationBindingViewV1 binding,
-            final DlqExportStateV1 dlqExportState,
-            final PublicEvidenceRefV1 evidence,
-            final FirstScheduleEligibilityV1 unknownEligibility) {
+            final PublicDestinationBindingView binding,
+            final DlqExportState dlqExportState,
+            final PublicEvidenceRef evidence,
+            final FirstScheduleEligibility unknownEligibility) {
         return CompletableFuture.completedFuture(
                 queryMessage(messageId, binding, dlqExportState, evidence, unknownEligibility));
     }
 
     @Override
-    public synchronized CompletionStage<PayloadUploadHandleResponseV1> issuePayloadUploadHandle(
-            final PayloadReservationReceiptV1 receipt, final UploadHandleKindV1 kind, final long nowEpochMs) {
+    public synchronized CompletionStage<PayloadUploadHandleResponse> issuePayloadUploadHandle(
+            final PayloadReservationReceipt receipt, final UploadHandleKind kind, final long nowEpochMs) {
         ensureOpen();
         if (nowEpochMs < 0) {
-            return CompletableFuture.completedFuture(payloadUploadError(PayloadUploadHandleOutcomeV1.INTEGRITY_ERROR));
+            return CompletableFuture.completedFuture(payloadUploadError(PayloadUploadHandleOutcome.INTEGRITY_ERROR));
         }
         if (payloadObjectStore == null) {
             return CompletableFuture.completedFuture(payloadStoreUnavailableForUpload(nowEpochMs));
         }
         if (kind == null || receipt == null) {
             return CompletableFuture.completedFuture(
-                    payloadUploadError(PayloadUploadHandleOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED));
+                    payloadUploadError(PayloadUploadHandleOutcome.NOT_FOUND_OR_NOT_AUTHORIZED));
         }
         final PayloadReceiptBinding binding = bindPayloadReceipt(receipt);
         if (binding.status() != PayloadReceiptBindingStatus.BOUND) {
@@ -740,21 +723,19 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     @Override
-    public synchronized CompletionStage<PayloadAttestationResponseV1> attestPayloadUpload(
-            final PayloadReservationReceiptV1 receipt,
-            final OpaquePayloadUploadHandleV1 handle,
-            final long nowEpochMs) {
+    public synchronized CompletionStage<PayloadAttestationResponse> attestPayloadUpload(
+            final PayloadReservationReceipt receipt, final OpaquePayloadUploadHandle handle, final long nowEpochMs) {
         ensureOpen();
         if (nowEpochMs < 0) {
             return CompletableFuture.completedFuture(
-                    payloadAttestationError(PayloadAttestationOutcomeV1.INTEGRITY_ERROR));
+                    payloadAttestationError(PayloadAttestationOutcome.INTEGRITY_ERROR));
         }
         if (payloadObjectStore == null) {
             return CompletableFuture.completedFuture(payloadStoreUnavailableForAttestation(nowEpochMs));
         }
         if (receipt == null || handle == null) {
             return CompletableFuture.completedFuture(
-                    payloadAttestationError(PayloadAttestationOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED));
+                    payloadAttestationError(PayloadAttestationOutcome.NOT_FOUND_OR_NOT_AUTHORIZED));
         }
         final PayloadReceiptBinding binding = bindPayloadReceipt(receipt);
         if (binding.status() != PayloadReceiptBindingStatus.BOUND) {
@@ -764,13 +745,13 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     /** Enqueues one command without reacquiring the service monitor. */
-    private EnqueueOutcome enqueueInternal(final PreparedCommand command, final boolean strictV1) {
+    private EnqueueOutcome enqueueInternal(final PreparedCommand command, final boolean strict) {
         if (!shardId.equals(command.shardId())) {
             return EnqueueOutcome.definitelyNotQueued(command, 0x110a);
         }
         final int frameBytes;
         try {
-            frameBytes = (strictV1 ? CommandCodec.encodeFrameV1(command) : CommandCodec.encodeFrame(command)).length;
+            frameBytes = (strict ? CommandCodec.encodeManagedFrame(command) : CommandCodec.encodeFrame(command)).length;
         } catch (IllegalArgumentException invalidPreparedCommand) {
             return EnqueueOutcome.definitelyNotQueued(command, StableCode.INVALID_PREPARED_COMMAND.wireValue());
         }
@@ -786,8 +767,8 @@ public final class EmbeddedDelayService implements DelayClient {
         final long offset = nextOffset;
         final SourcePosition position =
                 new KafkaSourcePosition(shardId, EMBEDDED_CLUSTER_ID, EMBEDDED_TOPIC_UUID, offset, null, now);
-        // Advance only after the position has been validated.  A failed
-        // position construction must not poison the next enqueue.  The
+        // Advance only after the position has been validated. A failed
+        // position construction must not poison the next enqueue. The
         // all-ones offset is valid, but there is no representable successor.
         if (offset == -1L) {
             offsetExhausted = true;
@@ -802,7 +783,7 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     private void requireLargePayloadCommitBinding(
-            final PayloadReservationReceiptV1 reservation, final PayloadCommitProofV1 proof) {
+            final PayloadReservationReceipt reservation, final CanonicalPayloadCommitProof proof) {
         Objects.requireNonNull(reservation, "reservation");
         Objects.requireNonNull(proof, "proof");
         if (!shardId.equals(reservation.shardId())
@@ -823,7 +804,7 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     /** Registers and validates the exact durable reservation before Object Store authority is used. */
-    private PayloadReceiptBinding bindPayloadReceipt(final PayloadReservationReceiptV1 receipt) {
+    private PayloadReceiptBinding bindPayloadReceipt(final PayloadReservationReceipt receipt) {
         if (!shardId.equals(receipt.shardId())) {
             return PayloadReceiptBinding.notFound();
         }
@@ -832,14 +813,14 @@ public final class EmbeddedDelayService implements DelayClient {
             if (reservation == null) {
                 return PayloadReceiptBinding.notFound();
             }
-            final V1ScheduleBinding binding = shard.getV1ScheduleBinding(reservation.delayMessageId());
+            final ScheduleBinding binding = shard.getScheduleBinding(reservation.delayMessageId());
             if (binding == null) {
                 payloadObjectStore.register(reservation);
             } else {
                 if (binding.commandType() != com.nereusstream.delay.protocol.CommandType.PREPARE_LARGE_SCHEDULE) {
-                    throw new IllegalStateException("payload reservation has a non-Prepare V1 binding");
+                    throw new IllegalStateException("payload reservation has a non-Prepare binding");
                 }
-                final var prepare = CommandBodies.decodePrepareLargeV1(binding.canonicalBody());
+                final var prepare = CommandBodies.decodePrepareLarge(binding.canonicalBody());
                 payloadObjectStore.register(reservation, prepare.trustSet(), prepare.objectStoreProfile());
             }
             return payloadObjectStore.reservationReceipt(reservation).equals(receipt)
@@ -874,52 +855,50 @@ public final class EmbeddedDelayService implements DelayClient {
             return new PayloadReceiptBinding(PayloadReceiptBindingStatus.INTEGRITY_ERROR);
         }
 
-        private PayloadUploadHandleOutcomeV1 uploadOutcome() {
+        private PayloadUploadHandleOutcome uploadOutcome() {
             return status == PayloadReceiptBindingStatus.INTEGRITY_ERROR
-                    ? PayloadUploadHandleOutcomeV1.INTEGRITY_ERROR
-                    : PayloadUploadHandleOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED;
+                    ? PayloadUploadHandleOutcome.INTEGRITY_ERROR
+                    : PayloadUploadHandleOutcome.NOT_FOUND_OR_NOT_AUTHORIZED;
         }
 
-        private PayloadAttestationOutcomeV1 attestationOutcome() {
+        private PayloadAttestationOutcome attestationOutcome() {
             return status == PayloadReceiptBindingStatus.INTEGRITY_ERROR
-                    ? PayloadAttestationOutcomeV1.INTEGRITY_ERROR
-                    : PayloadAttestationOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED;
+                    ? PayloadAttestationOutcome.INTEGRITY_ERROR
+                    : PayloadAttestationOutcome.NOT_FOUND_OR_NOT_AUTHORIZED;
         }
     }
 
-    private static PayloadUploadHandleResponseV1 payloadStoreUnavailableForUpload(final long nowEpochMs) {
+    private static PayloadUploadHandleResponse payloadStoreUnavailableForUpload(final long nowEpochMs) {
         return payloadUploadError(
-                PayloadUploadHandleOutcomeV1.OBJECT_STORE_UNAVAILABLE_RETRYABLE, safeRetryAt(Math.max(0, nowEpochMs)));
+                PayloadUploadHandleOutcome.OBJECT_STORE_UNAVAILABLE_RETRYABLE, safeRetryAt(Math.max(0, nowEpochMs)));
     }
 
-    private static PayloadUploadHandleResponseV1 payloadUploadError(final PayloadUploadHandleOutcomeV1 outcome) {
+    private static PayloadUploadHandleResponse payloadUploadError(final PayloadUploadHandleOutcome outcome) {
         return payloadUploadError(outcome, null);
     }
 
-    private static PayloadUploadHandleResponseV1 payloadUploadError(
-            final PayloadUploadHandleOutcomeV1 outcome, final Long retryAtEpochMs) {
-        return PayloadUploadHandleResponseV1.error(
-                outcome,
-                StableErrorV1.of(FailureStageV1.PAYLOAD, stableCode(outcome), retryAtEpochMs, null, null, null));
+    private static PayloadUploadHandleResponse payloadUploadError(
+            final PayloadUploadHandleOutcome outcome, final Long retryAtEpochMs) {
+        return PayloadUploadHandleResponse.error(
+                outcome, StableError.of(FailureStage.PAYLOAD, stableCode(outcome), retryAtEpochMs, null, null, null));
     }
 
-    private static PayloadAttestationResponseV1 payloadStoreUnavailableForAttestation(final long nowEpochMs) {
+    private static PayloadAttestationResponse payloadStoreUnavailableForAttestation(final long nowEpochMs) {
         return payloadAttestationError(
-                PayloadAttestationOutcomeV1.OBJECT_STORE_UNAVAILABLE_RETRYABLE, safeRetryAt(Math.max(0, nowEpochMs)));
+                PayloadAttestationOutcome.OBJECT_STORE_UNAVAILABLE_RETRYABLE, safeRetryAt(Math.max(0, nowEpochMs)));
     }
 
-    private static PayloadAttestationResponseV1 payloadAttestationError(final PayloadAttestationOutcomeV1 outcome) {
+    private static PayloadAttestationResponse payloadAttestationError(final PayloadAttestationOutcome outcome) {
         return payloadAttestationError(outcome, null);
     }
 
-    private static PayloadAttestationResponseV1 payloadAttestationError(
-            final PayloadAttestationOutcomeV1 outcome, final Long retryAtEpochMs) {
-        return PayloadAttestationResponseV1.error(
-                outcome,
-                StableErrorV1.of(FailureStageV1.PAYLOAD, stableCode(outcome), retryAtEpochMs, null, null, null));
+    private static PayloadAttestationResponse payloadAttestationError(
+            final PayloadAttestationOutcome outcome, final Long retryAtEpochMs) {
+        return PayloadAttestationResponse.error(
+                outcome, StableError.of(FailureStage.PAYLOAD, stableCode(outcome), retryAtEpochMs, null, null, null));
     }
 
-    private static StableCode stableCode(final PayloadUploadHandleOutcomeV1 outcome) {
+    private static StableCode stableCode(final PayloadUploadHandleOutcome outcome) {
         return switch (outcome) {
             case RESERVATION_EXPIRED -> StableCode.RESERVATION_EXPIRED;
             case RESERVATION_ABANDONED -> StableCode.RESERVATION_ABANDONED;
@@ -933,7 +912,7 @@ public final class EmbeddedDelayService implements DelayClient {
         };
     }
 
-    private static StableCode stableCode(final PayloadAttestationOutcomeV1 outcome) {
+    private static StableCode stableCode(final PayloadAttestationOutcome outcome) {
         return switch (outcome) {
             case OBJECT_NOT_READY_RETRYABLE -> StableCode.OBJECT_NOT_READY_RETRYABLE;
             case OBJECT_STORE_UNAVAILABLE_RETRYABLE -> StableCode.OBJECT_STORE_UNAVAILABLE_RETRYABLE;
@@ -953,7 +932,7 @@ public final class EmbeddedDelayService implements DelayClient {
     public synchronized void drain() {
         ensureOpen();
         while (!pending.isEmpty()) {
-            // Keep the head charged until apply returns.  A malformed or
+            // Keep the head charged until apply returns. A malformed or
             // otherwise fatal local apply must not make close/drain silently
             // forget the command that was already reported as QUEUED.
             final QueuedRecord record = pending.peekFirst();
@@ -1080,7 +1059,7 @@ public final class EmbeddedDelayService implements DelayClient {
      * broker acknowledgement and physical attempt id from the real ingress
      * adapter.
      */
-    public synchronized CommandQueuedReceiptV1 queuedReceiptV1(
+    public synchronized CanonicalCommandQueuedReceipt queuedReceipt(
             final EnqueueOutcome outcome, final long receiptQueryUntilEpochMs, final byte[] physicalAttemptId) {
         ensureOpen();
         Objects.requireNonNull(outcome, "outcome");
@@ -1102,11 +1081,11 @@ public final class EmbeddedDelayService implements DelayClient {
                 kafka.leaderEpoch(),
                 kafka.brokerLogAppendTimeEpochMs(),
                 responseHash);
-        return outcome.receipt().toV1(outcome.preparedCommand(), ack, receiptQueryUntilEpochMs, physicalAttemptId);
+        return outcome.receipt().to(outcome.preparedCommand(), ack, receiptQueryUntilEpochMs, physicalAttemptId);
     }
 
     /** Converts an embedded queued outcome using the immutable Route policy. */
-    public synchronized CommandQueuedReceiptV1 queuedReceiptV1(
+    public synchronized CanonicalCommandQueuedReceipt queuedReceipt(
             final EnqueueOutcome outcome, final QueuedReceiptQueryPolicy routePolicy, final byte[] physicalAttemptId) {
         Objects.requireNonNull(routePolicy, "routePolicy");
         ensureOpen();
@@ -1114,7 +1093,7 @@ public final class EmbeddedDelayService implements DelayClient {
         if (outcome.status() != EnqueueStatus.QUEUED || outcome.receipt() == null) {
             throw new IllegalArgumentException("only QUEUED outcomes have a queued receipt");
         }
-        return queuedReceiptV1(outcome, routePolicy.queryUntil(outcome.receipt().sourcePosition()), physicalAttemptId);
+        return queuedReceipt(outcome, routePolicy.queryUntil(outcome.receipt().sourcePosition()), physicalAttemptId);
     }
 
     /**
@@ -1122,7 +1101,7 @@ public final class EmbeddedDelayService implements DelayClient {
      * This bridge only emits a local pre-ownership proof for deterministic
      * embedded rejection; real adapters must supply authenticated Broker proof.
      */
-    public synchronized EnqueueOutcomeMessageV1 enqueueOutcomeV1(
+    public synchronized EnqueueOutcomeMessage enqueueOutcome(
             final EnqueueOutcome outcome, final long receiptQueryUntilEpochMs, final byte[] physicalAttemptId) {
         ensureOpen();
         Objects.requireNonNull(outcome, "outcome");
@@ -1132,8 +1111,8 @@ public final class EmbeddedDelayService implements DelayClient {
                     yield localDefiniteOutcome(outcome.preparedCommand(), StableCode.INVALID_PREPARED_COMMAND);
                 }
                 try {
-                    yield EnqueueOutcomeMessageV1.queued(
-                            queuedReceiptV1(outcome, receiptQueryUntilEpochMs, physicalAttemptId));
+                    yield EnqueueOutcomeMessage.queued(
+                            queuedReceipt(outcome, receiptQueryUntilEpochMs, physicalAttemptId));
                 } catch (RuntimeException malformedReceipt) {
                     // A queued command may already be durable; a malformed
                     // receipt projection is therefore not proof of rejection.
@@ -1147,12 +1126,12 @@ public final class EmbeddedDelayService implements DelayClient {
                     yield localDefiniteOutcome(outcome.preparedCommand(), StableCode.INVALID_PREPARED_COMMAND);
                 }
                 final StableCode code = stableErrorCode(outcome);
-                final CommandQueuedReceiptV1.PreparedCommandRef command =
-                        CommandQueuedReceiptV1.PreparedCommandRef.from(outcome.preparedCommand());
-                yield EnqueueOutcomeMessageV1.uncertain(new EnqueueUncertainV1(
+                final CanonicalCommandQueuedReceipt.PreparedCommandRef command =
+                        CanonicalCommandQueuedReceipt.PreparedCommandRef.from(outcome.preparedCommand());
+                yield EnqueueOutcomeMessage.uncertain(new EnqueueUncertain(
                         command,
                         physicalAttemptId,
-                        StableErrorV1.of(FailureStageV1.ENQUEUE, code, null, command, null, null)));
+                        StableError.of(FailureStage.ENQUEUE, code, null, command, null, null)));
             }
         };
     }
@@ -1162,7 +1141,7 @@ public final class EmbeddedDelayService implements DelayClient {
      * the immutable Route policy. A policy overflow is not proof of Broker
      * rejection, so a queued result becomes an integrity-class uncertainty.
      */
-    public synchronized EnqueueOutcomeMessageV1 enqueueOutcomeV1(
+    public synchronized EnqueueOutcomeMessage enqueueOutcome(
             final EnqueueOutcome outcome, final QueuedReceiptQueryPolicy routePolicy, final byte[] physicalAttemptId) {
         ensureOpen();
         Objects.requireNonNull(outcome, "outcome");
@@ -1178,25 +1157,27 @@ public final class EmbeddedDelayService implements DelayClient {
                         : localDefiniteOutcome(outcome.preparedCommand(), StableCode.INVALID_PREPARED_COMMAND);
             }
         }
-        return enqueueOutcomeV1(outcome, derivedBoundary, physicalAttemptId);
+        return enqueueOutcome(outcome, derivedBoundary, physicalAttemptId);
     }
 
-    private static EnqueueOutcomeMessageV1 localDefiniteOutcome(final PreparedCommand command, final StableCode code) {
-        final CommandQueuedReceiptV1.PreparedCommandRef ref = CommandQueuedReceiptV1.PreparedCommandRef.from(command);
-        final NonPersistenceProofV1 proof = NonPersistenceProofV1.create(
-                NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP, null, ref.frameSha256(), null, null, null);
-        return EnqueueOutcomeMessageV1.definitelyNotQueued(new DefinitelyNotQueuedV1(
-                ref, proof, StableErrorV1.of(FailureStageV1.ENQUEUE, code, null, ref, null, null)));
+    private static EnqueueOutcomeMessage localDefiniteOutcome(final PreparedCommand command, final StableCode code) {
+        final CanonicalCommandQueuedReceipt.PreparedCommandRef ref =
+                CanonicalCommandQueuedReceipt.PreparedCommandRef.from(command);
+        final NonPersistenceProof proof = NonPersistenceProof.create(
+                NonPersistenceProofKind.LOCAL_BEFORE_PRODUCER_OWNERSHIP, null, ref.frameSha256(), null, null, null);
+        return EnqueueOutcomeMessage.definitelyNotQueued(
+                new DefinitelyNotQueued(ref, proof, StableError.of(FailureStage.ENQUEUE, code, null, ref, null, null)));
     }
 
-    private static EnqueueOutcomeMessageV1 uncertainOutcome(
+    private static EnqueueOutcomeMessage uncertainOutcome(
             final PreparedCommand command, final byte[] physicalAttemptId, final Integer diagnosticCode) {
-        final CommandQueuedReceiptV1.PreparedCommandRef ref = CommandQueuedReceiptV1.PreparedCommandRef.from(command);
-        return EnqueueOutcomeMessageV1.uncertain(new EnqueueUncertainV1(
+        final CanonicalCommandQueuedReceipt.PreparedCommandRef ref =
+                CanonicalCommandQueuedReceipt.PreparedCommandRef.from(command);
+        return EnqueueOutcomeMessage.uncertain(new EnqueueUncertain(
                 ref,
                 physicalAttemptId,
-                StableErrorV1.of(
-                        FailureStageV1.ENQUEUE, StableCode.ENQUEUE_RESULT_UNCERTAIN, null, ref, null, diagnosticCode)));
+                StableError.of(
+                        FailureStage.ENQUEUE, StableCode.ENQUEUE_RESULT_UNCERTAIN, null, ref, null, diagnosticCode)));
     }
 
     /**
@@ -1204,22 +1185,17 @@ public final class EmbeddedDelayService implements DelayClient {
      * pinned Pulsar adapter. Keep the branch typed and definitive before any
      * Producer ownership rather than silently converting it to managed.
      */
-    private static SubmissionOutcomeMessageV1 nativeSubmissionUnavailable(final NativePreparedDeliveryV1 prepared) {
-        final NativePreparedRefV1 ref = prepared.preparedRef();
-        final NonPersistenceProofV1 proof = NonPersistenceProofV1.create(
-                NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP,
-                null,
-                ref.submissionHash(),
-                null,
-                null,
-                null);
-        final StableErrorV1 error = StableErrorV1.of(
-                FailureStageV1.ENQUEUE, StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE, null, null, ref, null);
-        return SubmissionOutcomeMessageV1.nativeDefinitelyNotQueued(new NativeDefinitelyNotQueuedV1(ref, proof, error));
+    private static SubmissionOutcomeMessage nativeSubmissionUnavailable(final NativePreparedDelivery prepared) {
+        final NativePreparedRef ref = prepared.preparedRef();
+        final NonPersistenceProof proof = NonPersistenceProof.create(
+                NonPersistenceProofKind.LOCAL_BEFORE_PRODUCER_OWNERSHIP, null, ref.submissionHash(), null, null, null);
+        final StableError error = StableError.of(
+                FailureStage.ENQUEUE, StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE, null, null, ref, null);
+        return SubmissionOutcomeMessage.nativeDefinitelyNotQueued(new NativeDefinitelyNotQueued(ref, proof, error));
     }
 
     private static boolean validPhysicalAttempt(final byte[] physicalAttemptId) {
-        if (physicalAttemptId == null || physicalAttemptId.length != NonPersistenceProofV1.ATTEMPT_ID_LENGTH) {
+        if (physicalAttemptId == null || physicalAttemptId.length != NonPersistenceProof.ATTEMPT_ID_LENGTH) {
             return false;
         }
         for (byte value : physicalAttemptId) {
@@ -1235,96 +1211,96 @@ public final class EmbeddedDelayService implements DelayClient {
      * source barrier, durable result lookup and retention projection. It does
      * not route across workers, authorize a tenant, or wait for a broker.
      */
-    public synchronized CommandQueryResponseV1 queryCommand(
-            final CommandQueuedReceiptV1 receipt,
+    public synchronized CommandQueryResponse queryCommand(
+            final CanonicalCommandQueuedReceipt receipt,
             final long nowEpochMs,
             final long fullResultRetainUntilEpochMs,
-            final PublicDestinationBindingViewV1 binding) {
+            final PublicDestinationBindingView binding) {
         return queryCommandInternal(receipt, nowEpochMs, fullResultRetainUntilEpochMs, null, binding);
     }
 
     /** Queries a command with retention derived from its applied Source Position. */
-    public synchronized CommandQueryResponseV1 queryCommand(
-            final CommandQueuedReceiptV1 receipt,
+    public synchronized CommandQueryResponse queryCommand(
+            final CanonicalCommandQueuedReceipt receipt,
             final long nowEpochMs,
             final CommandResultRetentionPolicy retentionPolicy,
-            final PublicDestinationBindingViewV1 binding) {
+            final PublicDestinationBindingView binding) {
         Objects.requireNonNull(retentionPolicy, "retentionPolicy");
         return queryCommandInternal(receipt, nowEpochMs, null, retentionPolicy, binding);
     }
 
-    private CommandQueryResponseV1 queryCommandInternal(
-            final CommandQueuedReceiptV1 receipt,
+    private CommandQueryResponse queryCommandInternal(
+            final CanonicalCommandQueuedReceipt receipt,
             final long nowEpochMs,
             final Long fullResultRetainUntilEpochMs,
             final CommandResultRetentionPolicy retentionPolicy,
-            final PublicDestinationBindingViewV1 binding) {
+            final PublicDestinationBindingView binding) {
         ensureOpen();
         if (receipt == null) {
-            return CommandQueryResponseV1.error(StableCode.INVALID_RECEIPT, null);
+            return CommandQueryResponse.error(StableCode.INVALID_RECEIPT, null);
         }
         if (!isEmbeddedReceipt(receipt)) {
-            return CommandQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
+            return CommandQueryResponse.error(StableCode.RECEIPT_MISMATCH, null);
         }
         if (nowEpochMs < 0 || (fullResultRetainUntilEpochMs != null && fullResultRetainUntilEpochMs < 0)) {
-            return CommandQueryResponseV1.error(StableCode.INVALID_RECEIPT, null);
+            return CommandQueryResponse.error(StableCode.INVALID_RECEIPT, null);
         }
         if (nowEpochMs > receipt.receiptQueryUntilEpochMs()) {
-            return CommandQueryResponseV1.resultEvidenceExpired();
+            return CommandQueryResponse.resultEvidenceExpired();
         }
         final SourcePosition awaited = receipt.sourcePosition();
         final SourcePosition current;
         try {
             current = shard.lastAppliedSourcePosition();
         } catch (RuntimeException invalidDurableRead) {
-            return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+            return CommandQueryResponse.error(StableCode.INTEGRITY_ERROR, null);
         }
         if (current == null) {
-            return CommandQueryResponseV1.pending(
-                    new com.nereusstream.delay.protocol.PendingCommandViewV1(awaited, null, safeRetryAt(nowEpochMs)));
+            return CommandQueryResponse.pending(
+                    new com.nereusstream.delay.protocol.PendingCommandView(awaited, null, safeRetryAt(nowEpochMs)));
         }
         try {
             if (!current.sameSourceIdentity(awaited)) {
-                return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+                return CommandQueryResponse.error(StableCode.INTEGRITY_ERROR, null);
             }
             final int order = current.compareTo(awaited);
             if (order < 0) {
-                return CommandQueryResponseV1.pending(new com.nereusstream.delay.protocol.PendingCommandViewV1(
+                return CommandQueryResponse.pending(new com.nereusstream.delay.protocol.PendingCommandView(
                         awaited, current, safeRetryAt(nowEpochMs)));
             }
             if (order == 0 && !Bytes.constantTimeEquals(current.canonicalBytes(), awaited.canonicalBytes())) {
-                return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+                return CommandQueryResponse.error(StableCode.INTEGRITY_ERROR, null);
             }
         } catch (IllegalArgumentException mismatch) {
-            return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+            return CommandQueryResponse.error(StableCode.INTEGRITY_ERROR, null);
         }
         try {
             if (!shard.matchesCommandPosition(receipt.command().commandId(), awaited)) {
-                return CommandQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
+                return CommandQueryResponse.error(StableCode.RECEIPT_MISMATCH, null);
             }
             final CommandResult result =
                     shard.getCommandResult(receipt.command().commandId());
             if (result == null) {
-                return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+                return CommandQueryResponse.error(StableCode.INTEGRITY_ERROR, null);
             }
             if (!shard.matchesCommandHash(
                     receipt.command().commandId(), receipt.command().commandHash())) {
-                return CommandQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
+                return CommandQueryResponse.error(StableCode.RECEIPT_MISMATCH, null);
             }
             return projectCommandResult(result, nowEpochMs, fullResultRetainUntilEpochMs, retentionPolicy, binding);
         } catch (RuntimeException invalidDurableRead) {
             // A local POSITION/result read failure is not evidence of a
-            // receipt mismatch.  Keep the closed query union fail-closed.
-            return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+            // receipt mismatch. Keep the closed query union fail-closed.
+            return CommandQueryResponse.error(StableCode.INTEGRITY_ERROR, null);
         }
     }
 
-    private CommandQueryResponseV1 projectCommandResult(
+    private CommandQueryResponse projectCommandResult(
             final CommandResult result,
             final long nowEpochMs,
             final Long fullResultRetainUntilEpochMs,
             final CommandResultRetentionPolicy retentionPolicy,
-            final PublicDestinationBindingViewV1 binding) {
+            final PublicDestinationBindingView binding) {
         final SourcePosition appliedPosition;
         final long retentionBoundary;
         try {
@@ -1333,10 +1309,10 @@ public final class EmbeddedDelayService implements DelayClient {
                     ? Objects.requireNonNull(fullResultRetainUntilEpochMs, "fullResultRetainUntilEpochMs")
                     : retentionPolicy.retainUntil(appliedPosition);
             if (retentionBoundary < appliedPosition.brokerPersistenceTimeEpochMs()) {
-                return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+                return CommandQueryResponse.error(StableCode.INTEGRITY_ERROR, null);
             }
         } catch (RuntimeException invalidPolicy) {
-            return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+            return CommandQueryResponse.error(StableCode.INTEGRITY_ERROR, null);
         }
         try {
             if (nowEpochMs > retentionBoundary) {
@@ -1348,7 +1324,7 @@ public final class EmbeddedDelayService implements DelayClient {
                     ? BoundedLocalQueryProjector.command(result, retentionBoundary, binding)
                     : BoundedLocalQueryProjector.command(result, retentionPolicy, binding);
         } catch (RuntimeException invalidProjection) {
-            return CommandQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+            return CommandQueryResponse.error(StableCode.INTEGRITY_ERROR, null);
         }
     }
 
@@ -1357,27 +1333,27 @@ public final class EmbeddedDelayService implements DelayClient {
      * queued receipt's source barrier. A queued receipt is never upgraded in
      * place; the applied frame retains its queued-payload digest.
      */
-    public synchronized CommandAppliedReceiptV1 appliedReceiptV1(
-            final CommandQueuedReceiptV1 queuedReceipt,
+    public synchronized CommandAppliedReceipt appliedReceipt(
+            final CanonicalCommandQueuedReceipt queuedReceipt,
             final long fullResultRetainUntilEpochMs,
-            final PublicDestinationBindingViewV1 binding) {
-        return appliedReceiptV1Internal(queuedReceipt, fullResultRetainUntilEpochMs, null, binding);
+            final PublicDestinationBindingView binding) {
+        return appliedReceiptInternal(queuedReceipt, fullResultRetainUntilEpochMs, null, binding);
     }
 
     /** Emits an applied receipt with a policy-derived full-result boundary. */
-    public synchronized CommandAppliedReceiptV1 appliedReceiptV1(
-            final CommandQueuedReceiptV1 queuedReceipt,
+    public synchronized CommandAppliedReceipt appliedReceipt(
+            final CanonicalCommandQueuedReceipt queuedReceipt,
             final CommandResultRetentionPolicy retentionPolicy,
-            final PublicDestinationBindingViewV1 binding) {
+            final PublicDestinationBindingView binding) {
         Objects.requireNonNull(retentionPolicy, "retentionPolicy");
-        return appliedReceiptV1Internal(queuedReceipt, null, retentionPolicy, binding);
+        return appliedReceiptInternal(queuedReceipt, null, retentionPolicy, binding);
     }
 
-    private CommandAppliedReceiptV1 appliedReceiptV1Internal(
-            final CommandQueuedReceiptV1 queuedReceipt,
+    private CommandAppliedReceipt appliedReceiptInternal(
+            final CanonicalCommandQueuedReceipt queuedReceipt,
             final Long fullResultRetainUntilEpochMs,
             final CommandResultRetentionPolicy retentionPolicy,
-            final PublicDestinationBindingViewV1 binding) {
+            final PublicDestinationBindingView binding) {
         ensureOpen();
         Objects.requireNonNull(queuedReceipt, "queuedReceipt");
         if (!isEmbeddedReceipt(queuedReceipt)) {
@@ -1410,19 +1386,18 @@ public final class EmbeddedDelayService implements DelayClient {
                 queuedReceipt.command().commandId(), queuedReceipt.command().commandHash())) {
             throw new IllegalArgumentException("queued receipt command hash does not match durable command identity");
         }
-        final CommandApplyStatusV1 status = result.applyStatus() == ApplyStatus.APPLIED
-                ? CommandApplyStatusV1.APPLIED
-                : CommandApplyStatusV1.REJECTED;
+        final CommandApplyStatus status =
+                result.applyStatus() == ApplyStatus.APPLIED ? CommandApplyStatus.APPLIED : CommandApplyStatus.REJECTED;
         final SourcePosition appliedPosition = SourcePositionCodec.decode(result.appliedSourcePosition());
         final Integer generation =
-                status == CommandApplyStatusV1.APPLIED && result.hasGeneration() ? result.generation() : null;
+                status == CommandApplyStatus.APPLIED && result.hasGeneration() ? result.generation() : null;
         final Long stateVersion =
-                status == CommandApplyStatusV1.APPLIED && result.stateVersion() > 0 ? result.stateVersion() : null;
-        final PublicDestinationBindingViewV1 appliedBinding = status == CommandApplyStatusV1.APPLIED ? binding : null;
+                status == CommandApplyStatus.APPLIED && result.stateVersion() > 0 ? result.stateVersion() : null;
+        final PublicDestinationBindingView appliedBinding = status == CommandApplyStatus.APPLIED ? binding : null;
         final long retentionBoundary = retentionPolicy == null
                 ? Objects.requireNonNull(fullResultRetainUntilEpochMs, "fullResultRetainUntilEpochMs")
                 : retentionPolicy.retainUntil(appliedPosition);
-        return CommandAppliedReceiptV1.create(
+        return CommandAppliedReceipt.create(
                 queuedReceipt,
                 status,
                 result.stableCode(),
@@ -1434,64 +1409,64 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     /** Projects a local message snapshot after the caller supplies policy inputs. */
-    public synchronized MessageQueryResponseV1 queryMessage(
+    public synchronized MessageQueryResponse queryMessage(
             final DelayMessageId messageId,
-            final PublicDestinationBindingViewV1 binding,
-            final com.nereusstream.delay.protocol.PublicEvidenceRefV1 evidence,
-            final FirstScheduleEligibilityV1 unknownEligibility) {
+            final PublicDestinationBindingView binding,
+            final com.nereusstream.delay.protocol.PublicEvidenceRef evidence,
+            final FirstScheduleEligibility unknownEligibility) {
         ensureOpen();
         if (messageId == null) {
-            return MessageQueryResponseV1.error(StableCode.INVALID_RECEIPT, null);
+            return MessageQueryResponse.error(StableCode.INVALID_RECEIPT, null);
         }
         if (!shardId.equals(messageId.routingId().shardId())) {
-            return MessageQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
+            return MessageQueryResponse.error(StableCode.RECEIPT_MISMATCH, null);
         }
         try {
             if (shard.getRetiredMessageIdentity(messageId) != null) {
-                return MessageQueryResponseV1.identityRetired();
+                return MessageQueryResponse.identityRetired();
             }
             final MessageQuerySnapshot snapshot = shard.queryMessageSnapshot(messageId);
             if (snapshot == null) {
-                return MessageQueryResponseV1.unknown(Objects.requireNonNull(unknownEligibility, "unknownEligibility"));
+                return MessageQueryResponse.unknown(Objects.requireNonNull(unknownEligibility, "unknownEligibility"));
             }
             return BoundedLocalQueryProjector.message(snapshot, binding, evidence);
         } catch (RuntimeException invalidProjection) {
             // A durable snapshot/read or caller-supplied public projection
-            // mismatch is not a reason to leak an exceptional Future.  The
+            // mismatch is not a reason to leak an exceptional Future. The
             // closed query union must preserve the shard's fail-closed
             // integrity boundary; cross-shard identity was handled above as
             // RECEIPT_MISMATCH.
-            return MessageQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+            return MessageQueryResponse.error(StableCode.INTEGRITY_ERROR, null);
         }
     }
 
     /** Projects a local message snapshot after the caller supplies policy inputs. */
-    public synchronized MessageQueryResponseV1 queryMessage(
+    public synchronized MessageQueryResponse queryMessage(
             final DelayMessageId messageId,
-            final PublicDestinationBindingViewV1 binding,
-            final DlqExportStateV1 dlqExportState,
-            final com.nereusstream.delay.protocol.PublicEvidenceRefV1 evidence,
-            final FirstScheduleEligibilityV1 unknownEligibility) {
+            final PublicDestinationBindingView binding,
+            final DlqExportState dlqExportState,
+            final com.nereusstream.delay.protocol.PublicEvidenceRef evidence,
+            final FirstScheduleEligibility unknownEligibility) {
         ensureOpen();
         if (messageId == null) {
-            return MessageQueryResponseV1.error(StableCode.INVALID_RECEIPT, null);
+            return MessageQueryResponse.error(StableCode.INVALID_RECEIPT, null);
         }
         if (!shardId.equals(messageId.routingId().shardId())) {
-            return MessageQueryResponseV1.error(StableCode.RECEIPT_MISMATCH, null);
+            return MessageQueryResponse.error(StableCode.RECEIPT_MISMATCH, null);
         }
         try {
             if (shard.getRetiredMessageIdentity(messageId) != null) {
-                return MessageQueryResponseV1.identityRetired();
+                return MessageQueryResponse.identityRetired();
             }
             final MessageQuerySnapshot snapshot = shard.queryMessageSnapshot(messageId);
             if (snapshot == null) {
-                return MessageQueryResponseV1.unknown(Objects.requireNonNull(unknownEligibility, "unknownEligibility"));
+                return MessageQueryResponse.unknown(Objects.requireNonNull(unknownEligibility, "unknownEligibility"));
             }
             return BoundedLocalQueryProjector.message(snapshot, binding, dlqExportState, evidence);
         } catch (RuntimeException invalidProjection) {
             // Keep the message response closed when a local read or the
             // supplied public DLQ/binding projection cannot be proven.
-            return MessageQueryResponseV1.error(StableCode.INTEGRITY_ERROR, null);
+            return MessageQueryResponse.error(StableCode.INTEGRITY_ERROR, null);
         }
     }
 
@@ -1500,8 +1475,8 @@ public final class EmbeddedDelayService implements DelayClient {
      * local entry point preserves the complete receipt and is not a substitute
      * for production Oxia routing or authorization.
      */
-    public synchronized ControlOperationQueryResponseV1 registerControlOperation(
-            final ControlOperationReceiptV1 receipt, final CurrentControlOperationV1 initial) {
+    public synchronized ControlOperationQueryResponse registerControlOperation(
+            final ControlOperationReceipt receipt, final CurrentControlOperation initial) {
         ensureOpen();
         return controlOperationAuthority.register(receipt, initial);
     }
@@ -1512,8 +1487,8 @@ public final class EmbeddedDelayService implements DelayClient {
      * This is an embedded conformance path; production uses one Oxia
      * transaction plus authenticated actor/resource checks.
      */
-    public synchronized ControlRegistrationProjectionV1 registerPreparedControlOperation(
-            final PreparedControlOperationV1 prepared,
+    public synchronized ControlRegistrationProjection registerPreparedControlOperation(
+            final PreparedControlOperation prepared,
             final TrustedUtcIntervalEvidence registeredAt,
             final long controlOperationQueryWindowMs) {
         ensureOpen();
@@ -1526,8 +1501,8 @@ public final class EmbeddedDelayService implements DelayClient {
      * into its pre-I/O envelope. Callers cannot replace the policy window or
      * version after preparation.
      */
-    public synchronized ControlRegistrationProjectionV1 registerPreparedControlOperation(
-            final PreparedControlOperationV1 prepared,
+    public synchronized ControlRegistrationProjection registerPreparedControlOperation(
+            final PreparedControlOperation prepared,
             final TrustedUtcIntervalEvidence registeredAt,
             final ControlOperationQueryPolicy policy) {
         ensureOpen();
@@ -1542,23 +1517,22 @@ public final class EmbeddedDelayService implements DelayClient {
         return registerPreparedControlOperationInternal(prepared, registeredAt, policy.queryWindowMs());
     }
 
-    private ControlRegistrationProjectionV1 registerPreparedControlOperationInternal(
-            final PreparedControlOperationV1 prepared,
+    private ControlRegistrationProjection registerPreparedControlOperationInternal(
+            final PreparedControlOperation prepared,
             final TrustedUtcIntervalEvidence registeredAt,
             final long controlOperationQueryWindowMs) {
         // Build and validate every local projection before publishing the
-        // target registration.  The raw-window overload is retained as an
+        // target registration. The raw-window overload is retained as an
         // embedded compatibility seam, so invalid timestamps/windows must not
         // leave a target-only registration behind for a control operation that
         // never obtained a receipt/current projection.
-        final ControlRegistrationProjectionV1 projection = ControlRegistrationProjectionV1.initialWithQueryWindow(
+        final ControlRegistrationProjection projection = ControlRegistrationProjection.initialWithQueryWindow(
                 prepared, registeredAt, controlOperationQueryWindowMs);
-        ControlRegistrationBindingV1.validate(
-                prepared, ControlRegistrationOutcomeMessageV1.recorded(projection.receipt()));
+        ControlRegistrationBinding.validate(prepared, ControlRegistrationOutcomeMessage.recorded(projection.receipt()));
         controlTargetRegistrationAuthority.register(prepared);
-        final ControlOperationQueryResponseV1 response =
+        final ControlOperationQueryResponse response =
                 controlOperationAuthority.register(projection.receipt(), projection.current());
-        if (response.resultKind() != com.nereusstream.delay.protocol.ControlOperationQueryResultV1.CURRENT
+        if (response.resultKind() != com.nereusstream.delay.protocol.ControlOperationQueryResult.CURRENT
                 || !projection.current().equals(response.current())) {
             throw new IllegalStateException("embedded Control registration did not return its exact projection");
         }
@@ -1566,20 +1540,18 @@ public final class EmbeddedDelayService implements DelayClient {
     }
 
     /** Advances one embedded control operation through its exact revision CAS. */
-    public synchronized ControlOperationQueryResponseV1 advanceControlOperation(
-            final ControlOperationReceiptV1 receipt,
-            final long expectedRevision,
-            final CurrentControlOperationV1 next) {
+    public synchronized ControlOperationQueryResponse advanceControlOperation(
+            final ControlOperationReceipt receipt, final long expectedRevision, final CurrentControlOperation next) {
         ensureOpen();
         return controlOperationAuthority.advance(receipt, expectedRevision, next);
     }
 
     /** Queries one embedded control operation before its fixed receipt boundary. */
-    public synchronized ControlOperationQueryResponseV1 queryControlOperation(
-            final ControlOperationReceiptV1 receipt, final long nowEpochMs) {
+    public synchronized ControlOperationQueryResponse queryControlOperation(
+            final ControlOperationReceipt receipt, final long nowEpochMs) {
         ensureOpen();
         if (receipt == null || nowEpochMs < 0) {
-            return ControlOperationQueryResponseV1.invalidReceipt();
+            return ControlOperationQueryResponse.invalidReceipt();
         }
         try {
             return Objects.requireNonNull(
@@ -1587,7 +1559,7 @@ public final class EmbeddedDelayService implements DelayClient {
         } catch (RuntimeException invalidProjection) {
             // Keep the public control-query union closed when a local authority
             // read or response binding cannot be proven.
-            return ControlOperationQueryResponseV1.integrityError();
+            return ControlOperationQueryResponse.integrityError();
         }
     }
 
@@ -1604,7 +1576,7 @@ public final class EmbeddedDelayService implements DelayClient {
         if (!closeStarted) {
             // The embedded service has no asynchronous Broker producer to
             // await, so its close-drain deadline is represented by a
-            // synchronous drain before the local DB is closed.  A failed
+            // synchronous drain before the local DB is closed. A failed
             // apply leaves the service open and the head record charged for
             // an explicit retry instead of acknowledging data loss.
             drain();
@@ -1669,7 +1641,7 @@ public final class EmbeddedDelayService implements DelayClient {
         return StableCode.fromWire(outcome.stableCode());
     }
 
-    private boolean isEmbeddedReceipt(final CommandQueuedReceiptV1 receipt) {
+    private boolean isEmbeddedReceipt(final CanonicalCommandQueuedReceipt receipt) {
         if (!shardId.equals(receipt.command().shardId())
                 || !shardId.equals(receipt.sourcePosition().shardId())
                 || !(receipt.sourcePosition() instanceof KafkaSourcePosition kafka)

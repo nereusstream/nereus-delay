@@ -4,8 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CapacityDimensionV1;
-import com.nereusstream.delay.protocol.CapacityVectorV1;
+import com.nereusstream.delay.protocol.CapacityDimension;
+import com.nereusstream.delay.protocol.CapacityVector;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
@@ -27,9 +27,9 @@ class WorkerAssignmentCoordinatorTest {
                 Bytes.sha256(Bytes.utf8("capacity-envelope")),
                 1,
                 List.of(candidate("worker-a", 2)),
-                capacity(CapacityDimensionV1.DB_INSTANCES, 1),
-                CapacityVectorV1.empty(),
-                CapacityVectorV1.empty(),
+                capacity(CapacityDimension.DB_INSTANCES, 1),
+                CapacityVector.empty(),
+                CapacityVector.empty(),
                 null,
                 100,
                 0,
@@ -56,9 +56,9 @@ class WorkerAssignmentCoordinatorTest {
                 Bytes.sha256(Bytes.utf8("capacity-envelope")),
                 1,
                 List.of(candidate("worker-a", 0)),
-                capacity(CapacityDimensionV1.DB_INSTANCES, 1),
-                CapacityVectorV1.empty(),
-                CapacityVectorV1.empty(),
+                capacity(CapacityDimension.DB_INSTANCES, 1),
+                CapacityVector.empty(),
+                CapacityVector.empty(),
                 null,
                 100,
                 0,
@@ -82,9 +82,9 @@ class WorkerAssignmentCoordinatorTest {
                 Bytes.sha256(Bytes.utf8("capacity-envelope")),
                 1,
                 List.of(candidate("worker-a", 2)),
-                capacity(CapacityDimensionV1.DB_INSTANCES, 1),
-                CapacityVectorV1.empty(),
-                CapacityVectorV1.empty(),
+                capacity(CapacityDimension.DB_INSTANCES, 1),
+                CapacityVector.empty(),
+                CapacityVector.empty(),
                 null,
                 100,
                 0,
@@ -94,9 +94,9 @@ class WorkerAssignmentCoordinatorTest {
                 Bytes.sha256(Bytes.utf8("capacity-envelope-2")),
                 2,
                 List.of(candidate("worker-b", 2)),
-                capacity(CapacityDimensionV1.DB_INSTANCES, 1),
-                CapacityVectorV1.empty(),
-                CapacityVectorV1.empty(),
+                capacity(CapacityDimension.DB_INSTANCES, 1),
+                CapacityVector.empty(),
+                CapacityVector.empty(),
                 null,
                 100,
                 0,
@@ -114,8 +114,8 @@ class WorkerAssignmentCoordinatorTest {
     private static WorkerPlacementPolicy.WorkerCandidate candidate(final String workerId, final long dbCapacity) {
         return new WorkerPlacementPolicy.WorkerCandidate(
                 workerId,
-                capacity(CapacityDimensionV1.DB_INSTANCES, dbCapacity),
-                CapacityVectorV1.empty(),
+                capacity(CapacityDimension.DB_INSTANCES, dbCapacity),
+                CapacityVector.empty(),
                 0,
                 10,
                 0,
@@ -127,10 +127,10 @@ class WorkerAssignmentCoordinatorTest {
                 0);
     }
 
-    private static CapacityVectorV1 capacity(final CapacityDimensionV1 dimension, final long amount) {
-        final long[] values = new long[CapacityDimensionV1.COUNT];
+    private static CapacityVector capacity(final CapacityDimension dimension, final long amount) {
+        final long[] values = new long[CapacityDimension.COUNT];
         values[dimension.wireValue() - 1] = amount;
-        return new CapacityVectorV1(values);
+        return new CapacityVector(values);
     }
 
     private static SourceAssignment sourceAssignment() {

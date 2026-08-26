@@ -3,7 +3,7 @@ package com.nereusstream.delay.protocol;
 import java.io.ByteArrayOutputStream;
 import java.util.Arrays;
 
-/** Small canonical-protobuf writer for the closed V1 envelope subset. */
+/** Small canonical-protobuf writer for the closed envelope subset. */
 public final class CanonicalProtobuf {
     private CanonicalProtobuf() {}
 
@@ -58,7 +58,7 @@ public final class CanonicalProtobuf {
 
     private static void varint(final ByteArrayOutputStream output, final long value) {
         if (value < 0) {
-            throw new IllegalArgumentException("canonical V1 varints require non-negative values");
+            throw new IllegalArgumentException("canonical varints require non-negative values");
         }
         varintBits(output, value);
     }
@@ -92,7 +92,7 @@ public final class CanonicalProtobuf {
         /**
          * Creates a reader for a canonical message that may contain repeated fields.
          *
-         * <p>Repeated fields must still be contiguous and strictly non-decreasing.  The
+         * <p>Repeated fields must still be contiguous and strictly non-decreasing. The
          * default constructor remains strict so the existing closed messages continue to
          * reject duplicate singular fields.</p>
          */
@@ -132,7 +132,7 @@ public final class CanonicalProtobuf {
             if (wireType == 2) {
                 final long length = readVarint();
                 // Length prefixes are bounded local sizes, not arbitrary raw
-                // uint64 fields.  A high-bit varint is negative in Java's
+                // uint64 fields. A high-bit varint is negative in Java's
                 // signed view; rejecting it before the int cast prevents a
                 // malicious 2^63+ length from being narrowed to zero (or a
                 // small positive value) and accepted as an empty payload.

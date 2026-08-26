@@ -10,7 +10,7 @@ import java.util.Optional;
 /**
  * Replay-stable local projection of the source-ordered payload-proof controls.
  *
- * <p>The trust-set bytes themselves are resolved by an external catalog.  This
+ * <p>The trust-set bytes themselves are resolved by an external catalog. This
  * value deliberately stores only the activation and issuance-close markers,
  * because a marker must never make a historical verifier set disappear from
  * the replay/Recovery-Floor path.</p>
@@ -39,7 +39,7 @@ public final class PayloadProofTrustSetControlState {
         return closures;
     }
 
-    public Optional<PayloadProofTrustSetRefV1> activeTrustSet() {
+    public Optional<PayloadProofTrustSetRef> activeTrustSet() {
         return activations.isEmpty()
                 ? Optional.empty()
                 : Optional.of(activations.get(activations.size() - 1).trustSet());
@@ -52,12 +52,12 @@ public final class PayloadProofTrustSetControlState {
     }
 
     /**
-     * Applies an activation marker.  Replaying the exact marker is an
+     * Applies an activation marker. Replaying the exact marker is an
      * idempotent no-op; a version can never be activated again at a later
      * source position.
      */
     public PayloadProofTrustSetControlState activate(
-            final PayloadProofTrustSetRefV1 trustSet, final SourcePosition sourcePosition) {
+            final PayloadProofTrustSetRef trustSet, final SourcePosition sourcePosition) {
         Objects.requireNonNull(trustSet, "trustSet");
         Objects.requireNonNull(sourcePosition, "sourcePosition");
         if (!activations.isEmpty()) {
@@ -80,7 +80,7 @@ public final class PayloadProofTrustSetControlState {
 
     /** Applies the first-seen issuance close marker for one trust-set key. */
     public PayloadProofTrustSetControlState close(
-            final PayloadProofIssuanceClosePayloadV1 close, final SourcePosition sourcePosition) {
+            final PayloadProofIssuanceClosePayload close, final SourcePosition sourcePosition) {
         Objects.requireNonNull(close, "close");
         Objects.requireNonNull(sourcePosition, "sourcePosition");
         final ActivationMarker activation = activationFor(close.trustSet());
@@ -106,7 +106,7 @@ public final class PayloadProofTrustSetControlState {
     }
 
     /** Returns true when a trust-set ref had been activated by the supplied position. */
-    public boolean activatedAt(final PayloadProofTrustSetRefV1 trustSet, final SourcePosition sourcePosition) {
+    public boolean activatedAt(final PayloadProofTrustSetRef trustSet, final SourcePosition sourcePosition) {
         Objects.requireNonNull(trustSet, "trustSet");
         Objects.requireNonNull(sourcePosition, "sourcePosition");
         final ActivationMarker activation = activationFor(trustSet);
@@ -114,12 +114,12 @@ public final class PayloadProofTrustSetControlState {
     }
 
     /**
-     * Checks source-ordered authorization for a first-seen Commit.  Key
+     * Checks source-ordered authorization for a first-seen Commit. Key
      * existence and signature verification are intentionally delegated to the
      * resolved immutable trust-set value.
      */
     public boolean firstSeenIssuanceOpen(
-            final PayloadProofTrustSetRefV1 trustSet, final int proofKeyVersion, final SourcePosition sourcePosition) {
+            final PayloadProofTrustSetRef trustSet, final int proofKeyVersion, final SourcePosition sourcePosition) {
         if (proofKeyVersion == 0 || !activatedAt(trustSet, sourcePosition)) {
             return false;
         }
@@ -129,11 +129,11 @@ public final class PayloadProofTrustSetControlState {
 
     /** Historical verification remains possible after issuance is closed. */
     public boolean historicalVerificationAllowed(
-            final PayloadProofTrustSetRefV1 trustSet, final int proofKeyVersion, final SourcePosition sourcePosition) {
+            final PayloadProofTrustSetRef trustSet, final int proofKeyVersion, final SourcePosition sourcePosition) {
         return proofKeyVersion != 0 && activatedAt(trustSet, sourcePosition);
     }
 
-    public Optional<IssuanceClosure> closure(final PayloadProofTrustSetRefV1 trustSet, final int proofKeyVersion) {
+    public Optional<IssuanceClosure> closure(final PayloadProofTrustSetRef trustSet, final int proofKeyVersion) {
         return Optional.ofNullable(closureFor(trustSet, proofKeyVersion));
     }
 
@@ -188,7 +188,7 @@ public final class PayloadProofTrustSetControlState {
         return Objects.hash(activations, closures);
     }
 
-    private ActivationMarker activationFor(final PayloadProofTrustSetRefV1 trustSet) {
+    private ActivationMarker activationFor(final PayloadProofTrustSetRef trustSet) {
         for (ActivationMarker activation : activations) {
             if (activation.trustSet().equals(trustSet)) {
                 return activation;
@@ -197,7 +197,7 @@ public final class PayloadProofTrustSetControlState {
         return null;
     }
 
-    private IssuanceClosure closureFor(final PayloadProofTrustSetRefV1 trustSet, final int proofKeyVersion) {
+    private IssuanceClosure closureFor(final PayloadProofTrustSetRef trustSet, final int proofKeyVersion) {
         for (IssuanceClosure closure : closures) {
             if (closure.trustSet().equals(trustSet) && closure.proofKeyVersion() == proofKeyVersion) {
                 return closure;
@@ -209,7 +209,7 @@ public final class PayloadProofTrustSetControlState {
     private static List<ActivationMarker> validateActivations(final List<ActivationMarker> values) {
         Objects.requireNonNull(values, "activations");
         final List<ActivationMarker> result = new ArrayList<>(values.size());
-        PayloadProofTrustSetRefV1 previousRef = null;
+        PayloadProofTrustSetRef previousRef = null;
         SourcePosition previousPosition = null;
         for (ActivationMarker value : values) {
             Objects.requireNonNull(value, "activation marker");
@@ -275,7 +275,7 @@ public final class PayloadProofTrustSetControlState {
         return Integer.compare(left.length, right.length);
     }
 
-    public record ActivationMarker(PayloadProofTrustSetRefV1 trustSet, SourcePosition sourcePosition) {
+    public record ActivationMarker(PayloadProofTrustSetRef trustSet, SourcePosition sourcePosition) {
         public ActivationMarker {
             Objects.requireNonNull(trustSet, "trustSet");
             Objects.requireNonNull(sourcePosition, "sourcePosition");
@@ -293,7 +293,7 @@ public final class PayloadProofTrustSetControlState {
                     QueryCodecSupport.read(encoded, "PayloadProofTrustSetActivationMarker");
             QueryCodecSupport.requireNumbers(fields, new int[] {1, 2}, "PayloadProofTrustSetActivationMarker");
             final ActivationMarker result = new ActivationMarker(
-                    PayloadProofTrustSetRefV1.decode(QueryCodecSupport.nested(fields.get(0), 1)),
+                    PayloadProofTrustSetRef.decode(QueryCodecSupport.nested(fields.get(0), 1)),
                     decodePosition(fields.get(1)));
             QueryCodecSupport.requireCanonical(
                     encoded, result.canonicalBytes(), "PayloadProofTrustSetActivationMarker");
@@ -302,10 +302,10 @@ public final class PayloadProofTrustSetControlState {
     }
 
     public record IssuanceClosure(
-            PayloadProofTrustSetRefV1 trustSet,
+            PayloadProofTrustSetRef trustSet,
             int proofKeyVersion,
             SourcePosition sourcePosition,
-            ControlReasonV1 reason) {
+            ControlReason reason) {
         public IssuanceClosure {
             Objects.requireNonNull(trustSet, "trustSet");
             if (proofKeyVersion == 0) {
@@ -329,10 +329,10 @@ public final class PayloadProofTrustSetControlState {
                     QueryCodecSupport.read(encoded, "PayloadProofTrustSetIssuanceClosure");
             QueryCodecSupport.requireNumbers(fields, new int[] {1, 2, 3, 4}, "PayloadProofTrustSetIssuanceClosure");
             final IssuanceClosure result = new IssuanceClosure(
-                    PayloadProofTrustSetRefV1.decode(QueryCodecSupport.nested(fields.get(0), 1)),
+                    PayloadProofTrustSetRef.decode(QueryCodecSupport.nested(fields.get(0), 1)),
                     QueryCodecSupport.uint32Bits(fields.get(1), 2),
                     decodePosition(fields.get(2)),
-                    ControlReasonV1.decode(QueryCodecSupport.nested(fields.get(3), 4)));
+                    ControlReason.decode(QueryCodecSupport.nested(fields.get(3), 4)));
             QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "PayloadProofTrustSetIssuanceClosure");
             return result;
         }

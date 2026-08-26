@@ -1,9 +1,9 @@
 package com.nereusstream.delay.ownership;
 
-import com.nereusstream.delay.protocol.ActivationBarrierV1;
-import com.nereusstream.delay.protocol.ChannelResourceIdentityV1;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
-import com.nereusstream.delay.protocol.ReadyCertificateV1;
+import com.nereusstream.delay.protocol.ActivationBarrier;
+import com.nereusstream.delay.protocol.ChannelResourceIdentity;
+import com.nereusstream.delay.protocol.EvidenceCursor;
+import com.nereusstream.delay.protocol.ReadyCertificate;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.util.List;
 import java.util.Objects;
@@ -11,17 +11,17 @@ import java.util.Objects;
 /**
  * Immutable result returned by the external Lane prerequisite authority.
  *
- * <p>This is deliberately not a readiness boolean.  The result carries the
+ * <p>This is deliberately not a readiness boolean. The result carries the
  * exact channel identity, its certificate, the evidence cursors that the
  * authority caught up, and the trusted interval used for the activation
- * decision.  The shard persists only the certificate as part of its typed
+ * decision. The shard persists only the certificate as part of its typed
  * READY projection; the authority remains responsible for producing these
  * inputs from live Profile, credential, Broker and evidence state.</p>
  */
 public record LaneActivationPrerequisites(
-        ChannelResourceIdentityV1 channel,
-        ReadyCertificateV1 readyCertificate,
-        List<EvidenceCursorV1> evidenceCursors,
+        ChannelResourceIdentity channel,
+        ReadyCertificate readyCertificate,
+        List<EvidenceCursor> evidenceCursors,
         TrustedUtcIntervalEvidence verifiedAt) {
     public LaneActivationPrerequisites {
         channel = Objects.requireNonNull(channel, "channel");
@@ -29,15 +29,14 @@ public record LaneActivationPrerequisites(
         evidenceCursors = List.copyOf(Objects.requireNonNull(evidenceCursors, "evidenceCursors"));
         verifiedAt = Objects.requireNonNull(verifiedAt, "verifiedAt");
 
-        final ChannelResourceIdentityV1 certificateChannel =
-                ChannelResourceIdentityV1.decode(readyCertificate.channel());
+        final ChannelResourceIdentity certificateChannel = ChannelResourceIdentity.decode(readyCertificate.channel());
         if (!channel.equals(certificateChannel)) {
             throw new IllegalArgumentException("Lane activation channel differs from Ready Certificate");
         }
         if (!evidenceCursors.equals(readyCertificate.evidenceCursors())) {
             throw new IllegalArgumentException("Lane activation evidence differs from Ready Certificate");
         }
-        final ActivationBarrierV1 barrier = readyCertificate.activationBarrier();
+        final ActivationBarrier barrier = readyCertificate.activationBarrier();
         if (!channel.targetResource().equals(barrier.resource())
                 || channel.physicalPartition() != barrier.partition()) {
             throw new IllegalArgumentException("Lane activation barrier differs from channel resource");
@@ -45,7 +44,7 @@ public record LaneActivationPrerequisites(
         if (evidenceCursors.isEmpty()) {
             throw new IllegalArgumentException("Lane activation requires evidence cursors");
         }
-        for (EvidenceCursorV1 cursor : evidenceCursors) {
+        for (EvidenceCursor cursor : evidenceCursors) {
             if (!java.util.Arrays.equals(cursor.destinationLaneId(), readyCertificate.destinationLaneId())
                     || !java.util.Arrays.equals(cursor.laneIncarnation(), readyCertificate.laneIncarnation())) {
                 throw new IllegalArgumentException("Lane activation evidence is bound to another Lane");

@@ -1,9 +1,9 @@
 package com.nereusstream.delay.route;
 
-import com.nereusstream.delay.protocol.AdapterKindV1;
+import com.nereusstream.delay.protocol.AdapterKind;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.RouteSnapshotV1;
+import com.nereusstream.delay.protocol.RouteSnapshot;
 import com.nereusstream.delay.semantic.AuthenticatedTenantContext;
 import com.nereusstream.delay.semantic.RouteSelectionHint;
 import com.nereusstream.delay.semantic.TrustedClock;
@@ -47,8 +47,8 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
     private final String eventScanEnd;
     private final Executor notificationExecutor;
     private final ExecutorService ownedNotificationExecutor;
-    private final Map<RouteKey, RouteSnapshotV1> active = new HashMap<>();
-    private final Map<RouteIncarnation, RouteSnapshotV1> history = new HashMap<>();
+    private final Map<RouteKey, RouteSnapshot> active = new HashMap<>();
+    private final Map<RouteIncarnation, RouteSnapshot> history = new HashMap<>();
     private final Map<RouteIncarnation, RouteKey> activeKeyByIncarnation = new HashMap<>();
     private long publishedRevision;
     private RouteCacheHealth health = RouteCacheHealth.UNAVAILABLE;
@@ -153,10 +153,10 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
     }
 
     @Override
-    public synchronized RouteSnapshotV1 activeForNewSchedule(
+    public synchronized RouteSnapshot activeForNewSchedule(
             final AuthenticatedTenantContext context, final RouteSelectionHint hint) {
         requireHealthy();
-        final RouteSnapshotV1 snapshot = active.get(new RouteKey(hint.adapterKind(), hint.routeAliasUtf8Nfc()));
+        final RouteSnapshot snapshot = active.get(new RouteKey(hint.adapterKind(), hint.routeAliasUtf8Nfc()));
         if (snapshot == null) {
             throw new IllegalArgumentException("Route alias is unavailable");
         }
@@ -166,10 +166,10 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
     }
 
     @Override
-    public synchronized RouteSnapshotV1 exact(
+    public synchronized RouteSnapshot exact(
             final RouteIncarnation incarnation, final AuthenticatedTenantContext context) {
         requireHealthy();
-        final RouteSnapshotV1 snapshot = history.get(Objects.requireNonNull(incarnation, "incarnation"));
+        final RouteSnapshot snapshot = history.get(Objects.requireNonNull(incarnation, "incarnation"));
         if (snapshot == null) {
             return null;
         }
@@ -241,7 +241,7 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
 
     private void refreshFromAuthority() {
         final HeadEntry head = readHead();
-        final Map<Long, OxiaRouteSnapshotRecordV1> events = new TreeMap<>();
+        final Map<Long, OxiaRouteSnapshotRecord> events = new TreeMap<>();
         if (head != null) {
             final CloseableIterable<GetResult> scan = client.rangeScan(eventPrefix, eventScanEnd);
             try {
@@ -253,13 +253,13 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
                             || !result.key().startsWith(eventPrefix)) {
                         throw new IllegalStateException("Oxia Route scan returned an invalid record");
                     }
-                    final OxiaRouteSnapshotRecordV1 event =
-                            OxiaRouteSnapshotRecordV1.decode(result.value(), verificationKey);
+                    final OxiaRouteSnapshotRecord event =
+                            OxiaRouteSnapshotRecord.decode(result.value(), verificationKey);
                     if (!eventKey(event.revision()).equals(result.key())) {
                         throw new IllegalStateException("Oxia Route event key is not bound to its revision");
                     }
                     if (event.revision() <= head.head().publishedRevision()) {
-                        final OxiaRouteSnapshotRecordV1 previous = events.put(event.revision(), event);
+                        final OxiaRouteSnapshotRecord previous = events.put(event.revision(), event);
                         if (previous != null
                                 && !Bytes.constantTimeEquals(previous.canonicalBytes(), event.canonicalBytes())) {
                             throw new IllegalStateException("Oxia Route stream has conflicting revisions");
@@ -271,15 +271,15 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
             }
         }
 
-        final Map<RouteKey, RouteSnapshotV1> nextActive = new HashMap<>();
-        final Map<RouteIncarnation, RouteSnapshotV1> nextHistory = new HashMap<>();
+        final Map<RouteKey, RouteSnapshot> nextActive = new HashMap<>();
+        final Map<RouteIncarnation, RouteSnapshot> nextHistory = new HashMap<>();
         final Map<RouteIncarnation, RouteKey> nextActiveKeys = new HashMap<>();
         if (head == null) {
             replaceCache(nextActive, nextHistory, nextActiveKeys, 0, RouteCacheHealth.UNAVAILABLE);
             return;
         }
         for (long revision = 1; revision <= head.head().publishedRevision(); revision++) {
-            final OxiaRouteSnapshotRecordV1 event = events.get(revision);
+            final OxiaRouteSnapshotRecord event = events.get(revision);
             if (event == null || event.previousRevision() != revision - 1) {
                 throw new RouteGapException("Oxia Route stream has a missing or non-contiguous event");
             }
@@ -294,14 +294,14 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
     }
 
     private void apply(
-            final Map<RouteKey, RouteSnapshotV1> nextActive,
-            final Map<RouteIncarnation, RouteSnapshotV1> nextHistory,
+            final Map<RouteKey, RouteSnapshot> nextActive,
+            final Map<RouteIncarnation, RouteSnapshot> nextHistory,
             final Map<RouteIncarnation, RouteKey> nextActiveKeys,
-            final OxiaRouteSnapshotRecordV1 event) {
-        final RouteSnapshotV1 previous = nextHistory.get(event.snapshot().routeIncarnation());
+            final OxiaRouteSnapshotRecord event) {
+        final RouteSnapshot previous = nextHistory.get(event.snapshot().routeIncarnation());
         if (previous != null) {
             try {
-                RouteSnapshotCompatibilityV1.requireCompatibleSuccessor(previous, event.snapshot());
+                RouteSnapshotCompatibility.requireCompatibleSuccessor(previous, event.snapshot());
             } catch (IllegalArgumentException incompatible) {
                 throw new RouteQuarantineException(incompatible.getMessage(), incompatible);
             }
@@ -320,8 +320,8 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
     }
 
     private void replaceCache(
-            final Map<RouteKey, RouteSnapshotV1> nextActive,
-            final Map<RouteIncarnation, RouteSnapshotV1> nextHistory,
+            final Map<RouteKey, RouteSnapshot> nextActive,
+            final Map<RouteIncarnation, RouteSnapshot> nextHistory,
             final Map<RouteIncarnation, RouteKey> nextActiveKeys,
             final long revision,
             final RouteCacheHealth nextHealth) {
@@ -370,7 +370,7 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
             throw new IllegalStateException("Oxia Route head response is not exact");
         }
         return new HeadEntry(
-                OxiaRouteSnapshotHeadV1.decode(result.value()), result.version().versionId());
+                OxiaRouteSnapshotHead.decode(result.value()), result.version().versionId());
     }
 
     private void requireHealthy() {
@@ -419,13 +419,13 @@ public final class OxiaSignedRouteSnapshotProvider implements RouteSnapshotProvi
         return CompletableFuture.failedFuture(failure);
     }
 
-    private record RouteKey(AdapterKindV1 adapterKind, String routeAlias) {
-        private RouteKey(final AdapterKindV1 adapterKind, final byte[] routeAlias) {
+    private record RouteKey(AdapterKind adapterKind, String routeAlias) {
+        private RouteKey(final AdapterKind adapterKind, final byte[] routeAlias) {
             this(adapterKind, Base64.getUrlEncoder().withoutPadding().encodeToString(Bytes.copy(routeAlias)));
         }
     }
 
-    private record HeadEntry(OxiaRouteSnapshotHeadV1 head, long versionId) {}
+    private record HeadEntry(OxiaRouteSnapshotHead head, long versionId) {}
 
     private static final class RouteGapException extends IllegalStateException {
         private static final long serialVersionUID = 1L;

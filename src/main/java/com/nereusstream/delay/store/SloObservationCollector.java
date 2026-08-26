@@ -1,8 +1,8 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.SloObservationOutboxV1;
-import com.nereusstream.delay.protocol.SloThresholdDirectionV1;
+import com.nereusstream.delay.protocol.SloObservationOutbox;
+import com.nereusstream.delay.protocol.SloThresholdDirection;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -22,7 +22,7 @@ import java.util.TreeMap;
  */
 public final class SloObservationCollector {
     private final SloObservationCollectorLimits limits;
-    private final TreeMap<String, SloObservationOutboxV1> samples = new TreeMap<>();
+    private final TreeMap<String, SloObservationOutbox> samples = new TreeMap<>();
     private long canonicalBytes;
 
     /** Compatibility constructor for embedded callers without a capacity envelope. */
@@ -36,12 +36,12 @@ public final class SloObservationCollector {
     }
 
     /** Merges one exported outbox record and returns the current projection. */
-    public synchronized SloObservationOutboxV1 merge(
-            final SloObservationOutboxV1 incoming, final SloThresholdDirectionV1 direction) {
+    public synchronized SloObservationOutbox merge(
+            final SloObservationOutbox incoming, final SloThresholdDirection direction) {
         Objects.requireNonNull(incoming, "incoming");
         Objects.requireNonNull(direction, "direction");
         final String key = Bytes.hex(incoming.sampleId());
-        final SloObservationOutboxV1 current = samples.get(key);
+        final SloObservationOutbox current = samples.get(key);
         if (current == null) {
             final long incomingBytes = canonicalBytes(incoming);
             requireCapacity(1, incomingBytes, "new sample");
@@ -53,7 +53,7 @@ public final class SloObservationCollector {
                 current.start().canonicalBytes(), incoming.start().canonicalBytes())) {
             throw new IllegalStateException("SLO collector received a different Start for one sample ID");
         }
-        final SloObservationOutboxV1 merged;
+        final SloObservationOutbox merged;
         if (incoming.finalObservation() == null) {
             merged = current;
         } else {
@@ -76,11 +76,11 @@ public final class SloObservationCollector {
     }
 
     /** Returns a deterministic sample projection, sorted by sample ID bytes. */
-    public synchronized List<SloObservationOutboxV1> snapshot() {
+    public synchronized List<SloObservationOutbox> snapshot() {
         return List.copyOf(new ArrayList<>(samples.values()));
     }
 
-    public synchronized SloObservationOutboxV1 get(final byte[] sampleId) {
+    public synchronized SloObservationOutbox get(final byte[] sampleId) {
         Objects.requireNonNull(sampleId, "sampleId");
         return samples.get(Bytes.hex(sampleId));
     }
@@ -106,7 +106,7 @@ public final class SloObservationCollector {
         }
     }
 
-    private static long canonicalBytes(final SloObservationOutboxV1 value) {
+    private static long canonicalBytes(final SloObservationOutbox value) {
         return value.canonicalBytes().length;
     }
 

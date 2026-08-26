@@ -10,103 +10,103 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.ownership.ControlTargetRegistrationAuthority;
 import com.nereusstream.delay.ownership.InMemoryControlTargetRegistrationAuthority;
-import com.nereusstream.delay.protocol.ActiveLaneStateV1;
-import com.nereusstream.delay.protocol.AdapterKindV1;
+import com.nereusstream.delay.protocol.ActiveLaneState;
+import com.nereusstream.delay.protocol.AdapterKind;
 import com.nereusstream.delay.protocol.AuthorIdentity;
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CanonicalPayloadCommitProof;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.CapacityDimensionV1;
-import com.nereusstream.delay.protocol.CapacityGrantKindV1;
-import com.nereusstream.delay.protocol.CapacityGrantV1;
-import com.nereusstream.delay.protocol.CapacityVectorV1;
-import com.nereusstream.delay.protocol.ClaimMaterializationV1;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
+import com.nereusstream.delay.protocol.CapacityDimension;
+import com.nereusstream.delay.protocol.CapacityGrant;
+import com.nereusstream.delay.protocol.CapacityGrantKind;
+import com.nereusstream.delay.protocol.CapacityVector;
+import com.nereusstream.delay.protocol.ClaimMaterialization;
 import com.nereusstream.delay.protocol.ClaimResultBody;
 import com.nereusstream.delay.protocol.CommandBodies;
 import com.nereusstream.delay.protocol.CommandId;
-import com.nereusstream.delay.protocol.CommittedPayloadDescriptorV1;
-import com.nereusstream.delay.protocol.ControlAuthorV1;
-import com.nereusstream.delay.protocol.ControlOperationRequestV1;
-import com.nereusstream.delay.protocol.ControlReasonKindV1;
-import com.nereusstream.delay.protocol.ControlReasonV1;
+import com.nereusstream.delay.protocol.CommittedPayloadDescriptor;
+import com.nereusstream.delay.protocol.ControlAuthor;
+import com.nereusstream.delay.protocol.ControlOperationRequest;
+import com.nereusstream.delay.protocol.ControlReason;
+import com.nereusstream.delay.protocol.ControlReasonKind;
 import com.nereusstream.delay.protocol.ControlRef;
-import com.nereusstream.delay.protocol.ControlTargetKindV1;
-import com.nereusstream.delay.protocol.ControlTargetRefV1;
+import com.nereusstream.delay.protocol.ControlTargetKind;
+import com.nereusstream.delay.protocol.ControlTargetRef;
 import com.nereusstream.delay.protocol.DelayMessageId;
-import com.nereusstream.delay.protocol.DeliveryCapabilitySemanticV1;
+import com.nereusstream.delay.protocol.DeliveryCapabilitySemantic;
 import com.nereusstream.delay.protocol.DeliveryMode;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.DestinationProfileSemanticV1;
-import com.nereusstream.delay.protocol.DlqExportModeV1;
-import com.nereusstream.delay.protocol.DlqExportStateV1;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
+import com.nereusstream.delay.protocol.DestinationProfileSemantic;
+import com.nereusstream.delay.protocol.DlqExportMode;
+import com.nereusstream.delay.protocol.DlqExportState;
+import com.nereusstream.delay.protocol.EvidenceCursor;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.LaneCircuitStateV1;
-import com.nereusstream.delay.protocol.LaneControlTargetV1;
-import com.nereusstream.delay.protocol.LaneRecordEnvelopeV1;
-import com.nereusstream.delay.protocol.LaneRetirementProgressV1;
-import com.nereusstream.delay.protocol.LaneRuntimeBlockReasonV1;
-import com.nereusstream.delay.protocol.LaneTerminalGuardV1;
+import com.nereusstream.delay.protocol.LaneCircuitState;
+import com.nereusstream.delay.protocol.LaneControlTarget;
+import com.nereusstream.delay.protocol.LaneRecordEnvelope;
+import com.nereusstream.delay.protocol.LaneRetirementProgress;
+import com.nereusstream.delay.protocol.LaneRuntimeBlockReason;
+import com.nereusstream.delay.protocol.LaneTerminalGuard;
 import com.nereusstream.delay.protocol.LargeScheduleIntent;
-import com.nereusstream.delay.protocol.MessagePreconditionV1;
-import com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
-import com.nereusstream.delay.protocol.ObjectStoreProviderKindV1;
+import com.nereusstream.delay.protocol.MessagePrecondition;
+import com.nereusstream.delay.protocol.ObjectStoreProfileSemantic;
+import com.nereusstream.delay.protocol.ObjectStoreProviderKind;
 import com.nereusstream.delay.protocol.OrderingMode;
-import com.nereusstream.delay.protocol.OutcomeCapabilityV1;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
+import com.nereusstream.delay.protocol.OutcomeCapability;
+import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PayloadCommitProof;
-import com.nereusstream.delay.protocol.PayloadCommitProofV1;
-import com.nereusstream.delay.protocol.PayloadForPublishV1;
-import com.nereusstream.delay.protocol.PayloadProofIssuanceClosePayloadV1;
+import com.nereusstream.delay.protocol.PayloadForPublish;
+import com.nereusstream.delay.protocol.PayloadProofIssuanceClosePayload;
 import com.nereusstream.delay.protocol.PayloadProofTrustSet;
-import com.nereusstream.delay.protocol.PayloadProofTrustSetActivatePayloadV1;
-import com.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
-import com.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
-import com.nereusstream.delay.protocol.PayloadProofVerifierKeyV1;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetActivatePayload;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetRef;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetSemantic;
+import com.nereusstream.delay.protocol.PayloadProofVerifierKey;
 import com.nereusstream.delay.protocol.PayloadReference;
-import com.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1;
+import com.nereusstream.delay.protocol.PrepareLargeScheduleBody;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.PreparedControlOperationV1;
-import com.nereusstream.delay.protocol.ProfileAcceptanceV1;
-import com.nereusstream.delay.protocol.ProfileBindingActivatePayloadV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileNewBindingClosePayloadV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
+import com.nereusstream.delay.protocol.PreparedControlOperation;
+import com.nereusstream.delay.protocol.ProfileAcceptance;
+import com.nereusstream.delay.protocol.ProfileBindingActivatePayload;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileNewBindingClosePayload;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import com.nereusstream.delay.protocol.ProtocolTestFixtures;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
 import com.nereusstream.delay.protocol.PublishAdmissionBodyTest.Fixture;
 import com.nereusstream.delay.protocol.PublishOutcomeBody;
-import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.PulsarMetadataV1;
-import com.nereusstream.delay.protocol.QuotaGrantRefV1;
+import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.PulsarMetadata;
+import com.nereusstream.delay.protocol.QuotaGrantRef;
 import com.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
 import com.nereusstream.delay.protocol.ResourceKind;
 import com.nereusstream.delay.protocol.ResourceRetireIntentBody;
-import com.nereusstream.delay.protocol.RetryJitterV1;
-import com.nereusstream.delay.protocol.RetryPolicyRefV1;
-import com.nereusstream.delay.protocol.RetryPolicySemanticV1;
+import com.nereusstream.delay.protocol.RetryJitter;
+import com.nereusstream.delay.protocol.RetryPolicyRef;
+import com.nereusstream.delay.protocol.RetryPolicySemantic;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
-import com.nereusstream.delay.protocol.ShardCapacityEnvelopeV1;
+import com.nereusstream.delay.protocol.ShardCapacityEnvelope;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SloAuthoritativeStartFactory;
-import com.nereusstream.delay.protocol.SloObjectiveNameV1;
-import com.nereusstream.delay.protocol.SloObjectiveV1;
-import com.nereusstream.delay.protocol.SloPathV1;
-import com.nereusstream.delay.protocol.SloPopulationV1;
-import com.nereusstream.delay.protocol.SloSampleStartV1;
-import com.nereusstream.delay.protocol.SloThresholdDirectionV1;
-import com.nereusstream.delay.protocol.SloThresholdUnitV1;
+import com.nereusstream.delay.protocol.SloObjective;
+import com.nereusstream.delay.protocol.SloObjectiveName;
+import com.nereusstream.delay.protocol.SloPath;
+import com.nereusstream.delay.protocol.SloPopulation;
+import com.nereusstream.delay.protocol.SloSampleStart;
+import com.nereusstream.delay.protocol.SloThresholdDirection;
+import com.nereusstream.delay.protocol.SloThresholdUnit;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
-import com.nereusstream.delay.protocol.TargetPartitionHashInputV1;
-import com.nereusstream.delay.protocol.TargetPartitionPolicyV1;
-import com.nereusstream.delay.protocol.TimingCapabilityV1;
+import com.nereusstream.delay.protocol.TargetPartitionHashInput;
+import com.nereusstream.delay.protocol.TargetPartitionPolicy;
+import com.nereusstream.delay.protocol.TimingCapability;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
-import com.nereusstream.delay.protocol.UncertainPolicyV1;
+import com.nereusstream.delay.protocol.UncertainPolicy;
 import com.nereusstream.delay.store.CheckpointManifest;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.KeyCodec;
@@ -138,12 +138,12 @@ class DelayShardTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 58);
         final ProfileCatalog expected = unavailableProfileCatalog();
         final ProfileCatalog foreign = unavailableProfileCatalog();
-        final V1ScheduleResolver raw = new V1ScheduleResolver() {
+        final ScheduleResolver raw = new ScheduleResolver() {
             @Override
             public ResolvedSchedule resolveSchedule(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final com.nereusstream.delay.protocol.ScheduleIntentV1 intent,
+                    final com.nereusstream.delay.protocol.CanonicalScheduleIntent intent,
                     final SourcePosition sourcePosition) {
                 throw new AssertionError("construction must not invoke the resolver");
             }
@@ -152,12 +152,12 @@ class DelayShardTest {
             public ResolvedPrepare resolvePrepare(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final com.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1 body,
+                    final com.nereusstream.delay.protocol.PrepareLargeScheduleBody body,
                     final SourcePosition sourcePosition) {
                 throw new AssertionError("construction must not invoke the resolver");
             }
         };
-        final ProfileCatalogV1ScheduleResolver decorated = new ProfileCatalogV1ScheduleResolver(raw, expected);
+        final ProfileCatalogScheduleResolver decorated = new ProfileCatalogScheduleResolver(raw, expected);
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final long sequence = store.shardMutationSequence();
@@ -197,10 +197,10 @@ class DelayShardTest {
         assertMethodIsNotPublic("materializeClosedLane", DestinationLaneId.class, int.class);
         assertMethodIsNotPublic("updateLaneGate", DestinationLaneId.class, long.class, AdmissionGate.class);
         assertMethodIsNotPublic("updateLaneReadiness", DestinationLaneId.class, RuntimeReadiness.class);
-        assertMethodIsNotPublic("reserveControlCapacity", int.class, CapacityVectorV1.class);
-        assertMethodIsNotPublic("reserveSystemWriterCapacity", CapacityVectorV1.class);
-        assertMethodIsNotPublic("releaseControlCapacity", int.class, CapacityVectorV1.class);
-        assertMethodIsNotPublic("releaseSystemWriterCapacity", CapacityVectorV1.class);
+        assertMethodIsNotPublic("reserveControlCapacity", int.class, CapacityVector.class);
+        assertMethodIsNotPublic("reserveSystemWriterCapacity", CapacityVector.class);
+        assertMethodIsNotPublic("releaseControlCapacity", int.class, CapacityVector.class);
+        assertMethodIsNotPublic("releaseSystemWriterCapacity", CapacityVector.class);
         assertMethodIsNotPublic("recordAttemptJournalMapping", byte[].class, long.class, long.class, byte[].class);
         assertMethodIsNotPublic("markAttemptJournalRetirementPending", byte[].class, long.class);
         assertMethodIsNotPublic("recordAttemptJournalRetirement", byte[].class, long.class, byte[].class);
@@ -351,7 +351,7 @@ class DelayShardTest {
     void commandAppliedStartsShareClientCommandBatchesAndReplayIsIdempotent() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("command-applied-slo-batch"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 46);
-        final SloObjectiveV1 objective = commandAppliedObjective();
+        final SloObjective objective = commandAppliedObjective();
         final SloObservationOutboxLimits limits = new SloObservationOutboxLimits(8, 1L << 20);
         final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("command-applied-slo-lane"));
         final PreparedCommand first = PreparedCommand.schedule(
@@ -400,7 +400,7 @@ class DelayShardTest {
     void commandReplayWithOnlyDueAdmissionObjectiveDoesNotMaterializeCommandAppliedStart() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("due-admission-only-command-replay"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 47);
-        final SloObjectiveV1 dueObjective = dueAdmissionObjective();
+        final SloObjective dueObjective = dueAdmissionObjective();
         final SloObservationOutboxLimits limits = new SloObservationOutboxLimits(8, 1L << 20);
         final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("due-admission-only-replay-lane"));
         final PreparedCommand command = PreparedCommand.schedule(
@@ -435,7 +435,7 @@ class DelayShardTest {
     void commandAppliedOutboxCapacityAbortsTheBusinessBatch() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("command-applied-slo-capacity"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 47);
-        final SloObjectiveV1 objective = commandAppliedObjective();
+        final SloObjective objective = commandAppliedObjective();
         final SloObservationOutboxLimits limits = new SloObservationOutboxLimits(2, 1L << 20);
         final PreparedCommand first = PreparedCommand.schedule(
                 shardId,
@@ -574,10 +574,10 @@ class DelayShardTest {
             assertEquals(
                     StableCode.SCHEDULED,
                     shard.apply(command, position(shardId, 0, 1_000)).stableCode());
-            final long[] corrupt = new long[CapacityDimensionV1.COUNT];
-            corrupt[CapacityDimensionV1.ACTIVE_MESSAGES.wireValue() - 1] = 0;
+            final long[] corrupt = new long[CapacityDimension.COUNT];
+            corrupt[CapacityDimension.ACTIVE_MESSAGES.wireValue() - 1] = 0;
             store.write(batch -> batch.putValue(
-                    ColumnFamily.META, 7, KeyCodec.metaQuota(2), new CapacityVectorV1(corrupt).canonicalBytes()));
+                    ColumnFamily.META, 7, KeyCodec.metaQuota(2), new CapacityVector(corrupt).canonicalBytes()));
 
             final IllegalStateException exception =
                     assertThrows(IllegalStateException.class, () -> new DelayShard(store, DelayShardConfig.defaults()));
@@ -619,7 +619,7 @@ class DelayShardTest {
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults());
             assertEquals(2, reopened.quota().usageRevision());
-            assertEquals(2, reopened.quotaAggregateUsage().amount(CapacityDimensionV1.ACTIVE_MESSAGES));
+            assertEquals(2, reopened.quotaAggregateUsage().amount(CapacityDimension.ACTIVE_MESSAGES));
         }
     }
 
@@ -921,7 +921,7 @@ class DelayShardTest {
                 ShardStoreConfig.defaults(tempDir.resolve("profile-control-source-shard-mismatch"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 70);
         final ShardId otherShardId = new ShardId(RouteIncarnation.random(), 71);
-        final ProfileRefV1 profile = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2), ProfileKindV1.DESTINATION);
+        final ProfileRef profile = new ProfileRef(bytes(4, 1), 1, bytes(32, 2), ProfileKind.DESTINATION);
         final com.nereusstream.delay.protocol.ProfileBindingControlState state =
                 com.nereusstream.delay.protocol.ProfileBindingControlState.empty()
                         .activate(profile, position(otherShardId, 0, 1_000));
@@ -938,12 +938,11 @@ class DelayShardTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("lane-guard-source-shard-mismatch"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 72);
         final ShardId otherShardId = new ShardId(RouteIncarnation.random(), 73);
-        final ProfileRefV1 destination = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2), ProfileKindV1.DESTINATION);
-        final ProfileRefV1 capability =
-                new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4), ProfileKindV1.DELIVERY_CAPABILITY);
+        final ProfileRef destination = new ProfileRef(bytes(4, 1), 1, bytes(32, 2), ProfileKind.DESTINATION);
+        final ProfileRef capability = new ProfileRef(bytes(4, 3), 1, bytes(32, 4), ProfileKind.DELIVERY_CAPABILITY);
         final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
-        final LaneTerminalGuardV1 misplaced = new LaneTerminalGuardV1(
+        final LaneTerminalGuard misplaced = new LaneTerminalGuard(
                 bytes(16, 5), 1, position(otherShardId, 0, 1_000), destination, capability, tuple, bytes(32, 6), 1);
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
@@ -952,7 +951,7 @@ class DelayShardTest {
                     ColumnFamily.META,
                     2,
                     KeyCodec.metaLane(lane),
-                    LaneRecordEnvelopeV1.terminal(misplaced).canonicalBytes()));
+                    LaneRecordEnvelope.terminal(misplaced).canonicalBytes()));
 
             assertThrows(IllegalStateException.class, () -> shard.getLaneTerminalGuard(lane));
         }
@@ -962,17 +961,16 @@ class DelayShardTest {
     void typedActiveLaneStateIsReadAndUpdatedWithoutLegacyDowngrade() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("typed-lane-state-runtime"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 81);
-        final ProfileRefV1 destination = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2), ProfileKindV1.DESTINATION);
-        final ProfileRefV1 capability =
-                new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4), ProfileKindV1.DELIVERY_CAPABILITY);
+        final ProfileRef destination = new ProfileRef(bytes(4, 1), 1, bytes(32, 2), ProfileKind.DESTINATION);
+        final ProfileRef capability = new ProfileRef(bytes(4, 3), 1, bytes(32, 4), ProfileKind.DELIVERY_CAPABILITY);
         final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
-        final ActiveLaneStateV1 state = new ActiveLaneStateV1(
+        final ActiveLaneState state = new ActiveLaneState(
                 lane,
                 bytes(16, 5),
                 AdmissionGate.OPEN,
                 RuntimeReadiness.BLOCKED,
-                LaneRuntimeBlockReasonV1.CAPABILITY,
+                LaneRuntimeBlockReason.CAPABILITY,
                 1,
                 1,
                 destination,
@@ -982,7 +980,7 @@ class DelayShardTest {
                 zeroChargeVector(),
                 null,
                 null,
-                LaneCircuitStateV1.CLOSED,
+                LaneCircuitState.CLOSED,
                 0,
                 0,
                 0,
@@ -1000,7 +998,7 @@ class DelayShardTest {
                         ColumnFamily.META,
                         2,
                         KeyCodec.metaLane(lane),
-                        LaneRecordEnvelopeV1.active(state).canonicalBytes());
+                        LaneRecordEnvelope.active(state).canonicalBytes());
                 batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(3), laneQuota);
             });
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
@@ -1008,11 +1006,11 @@ class DelayShardTest {
             assertEquals(lane, shard.getLane(lane).laneId());
             shard.updateLaneGate(lane, 1, AdmissionGate.CLOSED);
 
-            final LaneRecordEnvelopeV1 persisted =
-                    LaneRecordEnvelopeV1.decode(store.getValue(ColumnFamily.META, KeyCodec.metaLane(lane), 2)
+            final LaneRecordEnvelope persisted =
+                    LaneRecordEnvelope.decode(store.getValue(ColumnFamily.META, KeyCodec.metaLane(lane), 2)
                             .payload());
             assertTrue(persisted.typedActiveState().isPresent());
-            final ActiveLaneStateV1 next = persisted.activeState();
+            final ActiveLaneState next = persisted.activeState();
             assertEquals(AdmissionGate.CLOSED, next.admissionGate());
             assertEquals(RuntimeReadiness.BLOCKED, next.runtimeReadiness());
             assertEquals(state.destinationProfile(), next.destinationProfile());
@@ -1027,7 +1025,7 @@ class DelayShardTest {
     void typedActiveLaneStateRequiresPersistedPerLaneQuotaProjection() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("typed-lane-state-missing-quota"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 82);
-        final ActiveLaneStateV1 state = typedActiveLaneState(zeroChargeVector());
+        final ActiveLaneState state = typedActiveLaneState(zeroChargeVector());
         final DestinationLaneId lane = state.laneId();
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
@@ -1035,7 +1033,7 @@ class DelayShardTest {
                     ColumnFamily.META,
                     2,
                     KeyCodec.metaLane(lane),
-                    LaneRecordEnvelopeV1.active(state).canonicalBytes()));
+                    LaneRecordEnvelope.active(state).canonicalBytes()));
 
             assertThrows(IllegalStateException.class, () -> new DelayShard(store, DelayShardConfig.defaults()));
         }
@@ -1047,7 +1045,7 @@ class DelayShardTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 83);
         final PublishAdmissionBody.ChargeVector driftedUsage =
                 new PublishAdmissionBody.ChargeVector(1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0);
-        final ActiveLaneStateV1 state = typedActiveLaneState(driftedUsage);
+        final ActiveLaneState state = typedActiveLaneState(driftedUsage);
         final DestinationLaneId lane = state.laneId();
         final byte[] laneQuota = LaneQuotaUsageProjection.empty()
                 .ensureLane(lane, state.laneIncarnation(), 1)
@@ -1059,7 +1057,7 @@ class DelayShardTest {
                         ColumnFamily.META,
                         2,
                         KeyCodec.metaLane(lane),
-                        LaneRecordEnvelopeV1.active(state).canonicalBytes());
+                        LaneRecordEnvelope.active(state).canonicalBytes());
                 batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(3), laneQuota);
             });
 
@@ -1083,7 +1081,7 @@ class DelayShardTest {
     void typedReadyProjectionRefreshesEarliestActionBoundaryFromCurrentHead() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("typed-lane-state-action-boundary"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 85);
-        final ActiveLaneStateV1 template = typedActiveLaneState(zeroChargeVector());
+        final ActiveLaneState template = typedActiveLaneState(zeroChargeVector());
         final DestinationLaneId lane = template.laneId();
         final PreparedCommand schedule = PreparedCommand.schedule(
                 shardId,
@@ -1115,7 +1113,7 @@ class DelayShardTest {
                             .body())
                     .readyCertificate()
                     .canonicalBytes();
-            final ActiveLaneStateV1 stale = new ActiveLaneStateV1(
+            final ActiveLaneState stale = new ActiveLaneState(
                     lane,
                     readyLane.laneIncarnation(),
                     readyLane.admissionGate(),
@@ -1130,7 +1128,7 @@ class DelayShardTest {
                     usage,
                     1L,
                     readyLane.nextEligibleAtEpochMs(),
-                    LaneCircuitStateV1.CLOSED,
+                    LaneCircuitState.CLOSED,
                     0,
                     0,
                     0,
@@ -1142,7 +1140,7 @@ class DelayShardTest {
                     ColumnFamily.META,
                     2,
                     KeyCodec.metaLane(lane),
-                    LaneRecordEnvelopeV1.active(stale).canonicalBytes()));
+                    LaneRecordEnvelope.active(stale).canonicalBytes()));
             assertThrows(IllegalStateException.class, () -> shard.discoverReady(10_000, 1));
             final com.nereusstream.delay.scheduler.PersistentLaneScheduler scheduler =
                     com.nereusstream.delay.scheduler.PersistentLaneSchedulerTestSupport.defaults(store);
@@ -1155,7 +1153,7 @@ class DelayShardTest {
                                     .rebuildFromAuthoritativeReady(scheduler, 1));
             shard.rebuildReadyIndexes();
 
-            final ActiveLaneStateV1 persisted = LaneRecordEnvelopeV1.decode(
+            final ActiveLaneState persisted = LaneRecordEnvelope.decode(
                             store.getValue(ColumnFamily.META, KeyCodec.metaLane(lane), 2)
                                     .payload())
                     .activeState();
@@ -1183,7 +1181,7 @@ class DelayShardTest {
                     ColumnFamily.META,
                     2,
                     KeyCodec.metaLane(keyLane),
-                    LaneRecordEnvelopeV1.active(misplaced.encode()).canonicalBytes()));
+                    LaneRecordEnvelope.active(misplaced.encode()).canonicalBytes()));
 
             assertThrows(IllegalStateException.class, () -> shard.getLane(keyLane));
         }
@@ -1217,7 +1215,7 @@ class DelayShardTest {
                         ColumnFamily.META,
                         2,
                         KeyCodec.metaLane(keyLane),
-                        LaneRecordEnvelopeV1.active(lane.encode()).canonicalBytes());
+                        LaneRecordEnvelope.active(lane.encode()).canonicalBytes());
                 batch.putValue(
                         ColumnFamily.TIMELINE,
                         LaneCloseMaterializationCursor.VALUE_TYPE,
@@ -1257,7 +1255,7 @@ class DelayShardTest {
                         ColumnFamily.META,
                         2,
                         KeyCodec.metaLane(lane),
-                        LaneRecordEnvelopeV1.active(closed.encode()).canonicalBytes());
+                        LaneRecordEnvelope.active(closed.encode()).canonicalBytes());
                 batch.putValue(
                         ColumnFamily.TIMELINE,
                         LaneCloseMaterializationCursor.VALUE_TYPE,
@@ -1746,15 +1744,15 @@ class DelayShardTest {
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
             assertEquals(StableCode.SCHEDULED, shard.apply(schedule, position0).stableCode());
 
-            final PreparedCommand reschedule = PreparedCommand.rescheduleV1(
-                    shardId, schedule.delayMessageId(), new MessagePreconditionV1(0L, 1L), 3_000, 6_000, 9_000);
+            final PreparedCommand reschedule = PreparedCommand.reschedule(
+                    shardId, schedule.delayMessageId(), new MessagePrecondition(0L, 1L), 3_000, 6_000, 9_000);
             assertEquals(
                     StableCode.SUPERSEDED, shard.apply(reschedule, position1).stableCode());
             assertEquals(1, shard.getMessage(schedule.delayMessageId()).generation());
             assertEquals(2, shard.getMessage(schedule.delayMessageId()).stateVersion());
 
-            final PreparedCommand staleCancel = PreparedCommand.cancelV1(
-                    shardId, schedule.delayMessageId(), new MessagePreconditionV1(0L, 1L), 9_000);
+            final PreparedCommand staleCancel =
+                    PreparedCommand.cancel(shardId, schedule.delayMessageId(), new MessagePrecondition(0L, 1L), 9_000);
             assertEquals(
                     StableCode.VERSION_CONFLICT,
                     shard.apply(staleCancel, position2).stableCode());
@@ -1762,8 +1760,8 @@ class DelayShardTest {
                     MessageStatus.SCHEDULED,
                     shard.getMessage(schedule.delayMessageId()).status());
 
-            final PreparedCommand cancel = PreparedCommand.cancelV1(
-                    shardId, schedule.delayMessageId(), new MessagePreconditionV1(1L, 2L), 9_000);
+            final PreparedCommand cancel =
+                    PreparedCommand.cancel(shardId, schedule.delayMessageId(), new MessagePrecondition(1L, 2L), 9_000);
             assertEquals(
                     StableCode.CANCELED,
                     shard.apply(cancel, position(shardId, 3, 1_003)).stableCode());
@@ -1777,27 +1775,27 @@ class DelayShardTest {
     void registryScheduleAndPrepareRequireAndUseExplicitLaneResolver() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("registry-schedule-resolver"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 32);
-        final ProfileRefV1 destination =
-                new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 1), ProfileKindV1.DESTINATION);
-        final ProfileRefV1 capability =
-                new ProfileRefV1(Bytes.utf8("capability"), 1, bytes(32, 3), ProfileKindV1.DELIVERY_CAPABILITY);
+        final ProfileRef destination =
+                new ProfileRef(Bytes.utf8("destination"), 1, bytes(32, 1), ProfileKind.DESTINATION);
+        final ProfileRef capability =
+                new ProfileRef(Bytes.utf8("capability"), 1, bytes(32, 3), ProfileKind.DELIVERY_CAPABILITY);
         final byte[] canonicalTuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
         final DestinationLaneId canonicalLane = DestinationLaneId.derive(canonicalTuple);
-        final ScheduleIntentV1 scheduleIntent = ScheduleIntentV1.create(
+        final CanonicalScheduleIntent scheduleIntent = CanonicalScheduleIntent.create(
                 destination,
-                new com.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 2)),
+                new com.nereusstream.delay.protocol.RetryPolicyRef(Bytes.utf8("retry"), 1, bytes(32, 2)),
                 2_000,
                 5_000,
                 com.nereusstream.delay.protocol.DeliveryMode.MANAGED,
                 OrderingMode.BEST_EFFORT,
                 Bytes.utf8("ordering"),
-                Bytes.utf8("v1-payload"),
+                Bytes.utf8("payload"),
                 null,
-                com.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
-                        new com.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())),
+                com.nereusstream.delay.protocol.AdapterMetadata.kafka(
+                        new com.nereusstream.delay.protocol.KafkaMetadata(null, List.of())),
                 null,
                 null);
-        final PreparedCommand schedule = PreparedCommand.scheduleV1(shardId, scheduleIntent, 9_000);
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId, scheduleIntent, 9_000);
         final KafkaSourcePosition position0 = position(shardId, 0, 1_000);
         final KafkaSourcePosition position1 = position(shardId, 1, 1_001);
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
@@ -1809,12 +1807,12 @@ class DelayShardTest {
             assertNull(withoutResolver.getMessage(schedule.delayMessageId()));
         }
 
-        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+        final ScheduleResolver resolver = new ScheduleResolver() {
             @Override
             public ResolvedSchedule resolveSchedule(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final ScheduleIntentV1 intent,
+                    final CanonicalScheduleIntent intent,
                     final com.nereusstream.delay.protocol.SourcePosition source) {
                 return new ResolvedSchedule(canonicalLane, canonicalTuple, intent.inlinePayload(), null);
             }
@@ -1823,12 +1821,12 @@ class DelayShardTest {
             public ResolvedPrepare resolvePrepare(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final com.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1 body,
+                    final com.nereusstream.delay.protocol.PrepareLargeScheduleBody body,
                     final com.nereusstream.delay.protocol.SourcePosition source) {
                 return new ResolvedPrepare(canonicalLane, canonicalTuple);
             }
         };
-        final ScheduleIntentV1 prepareIntent = ScheduleIntentV1.forPrepare(
+        final CanonicalScheduleIntent prepareIntent = CanonicalScheduleIntent.forPrepare(
                 scheduleIntent.profile(),
                 scheduleIntent.retryPolicy(),
                 3_000,
@@ -1839,14 +1837,14 @@ class DelayShardTest {
                 scheduleIntent.adapterMetadata(),
                 null,
                 null);
-        final PreparedCommand prepare = PreparedCommand.prepareLargeV1(
+        final PreparedCommand prepare = PreparedCommand.prepareLarge(
                 shardId,
                 prepareIntent,
                 2_000_000,
-                Bytes.sha256(Bytes.utf8("large-v1")),
+                Bytes.sha256(Bytes.utf8("large")),
                 1_000,
-                new PayloadProofTrustSetRefV1(1, bytes(32, 7)),
-                new ProfileRefV1(Bytes.utf8("object-store"), 1, bytes(32, 8), ProfileKindV1.OBJECT_STORE),
+                new PayloadProofTrustSetRef(1, bytes(32, 7)),
+                new ProfileRef(Bytes.utf8("object-store"), 1, bytes(32, 8), ProfileKind.OBJECT_STORE),
                 9_000);
         final ShardStoreConfig resolverConfig =
                 ShardStoreConfig.defaults(tempDir.resolve("registry-schedule-resolver-enabled"));
@@ -1856,16 +1854,16 @@ class DelayShardTest {
             assertEquals(StableCode.SCHEDULED, shard.apply(schedule, position0).stableCode());
             final MessageRecord message = shard.getMessage(schedule.delayMessageId());
             assertEquals(canonicalLane, message.laneId());
-            final ActiveLaneStateV1 activeLane = shard.getActiveLaneStateV1(canonicalLane);
+            final ActiveLaneState activeLane = shard.getActiveLaneState(canonicalLane);
             assertNotNull(activeLane);
             assertEquals(RuntimeReadiness.RECOVERING_EVIDENCE, activeLane.runtimeReadiness());
             assertEquals(destination, activeLane.destinationProfile());
             assertEquals(capability, activeLane.capabilityProfile());
             assertArrayEquals(canonicalTuple, activeLane.canonicalLaneTuple());
-            assertArrayEquals(Bytes.utf8("v1-payload"), message.payload());
+            assertArrayEquals(Bytes.utf8("payload"), message.payload());
             assertEquals(StableCode.OK, shard.apply(prepare, position1).stableCode());
             final byte[] reservationId = Bytes.sha256(
-                    Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                    Bytes.utf8("nereus-delay-reservation-id\0"),
                     prepare.commandId().bytes(),
                     prepare.delayMessageId().bytes(),
                     prepare.commandHash());
@@ -1877,19 +1875,19 @@ class DelayShardTest {
                     shard.getReservation(reservationId).delayMessageId());
             assertEquals(
                     com.nereusstream.delay.protocol.CommandType.SCHEDULE,
-                    shard.getV1ScheduleBinding(schedule.delayMessageId()).commandType());
+                    shard.getScheduleBinding(schedule.delayMessageId()).commandType());
             assertArrayEquals(
                     schedule.canonicalBody(),
-                    shard.getV1ScheduleBinding(schedule.delayMessageId()).canonicalBody());
+                    shard.getScheduleBinding(schedule.delayMessageId()).canonicalBody());
             assertEquals(
                     com.nereusstream.delay.protocol.CommandType.PREPARE_LARGE_SCHEDULE,
-                    shard.getV1ScheduleBinding(prepare.delayMessageId()).commandType());
+                    shard.getScheduleBinding(prepare.delayMessageId()).commandType());
         }
         try (SharedRocksDbResources resources = new SharedRocksDbResources(resolverConfig);
                 ShardStore store = ShardStore.open(resolverConfig, shardId, resources)) {
             final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver);
-            assertNotNull(reopened.getV1ScheduleBinding(schedule.delayMessageId()));
-            assertNotNull(reopened.getV1ScheduleBinding(prepare.delayMessageId()));
+            assertNotNull(reopened.getScheduleBinding(schedule.delayMessageId()));
+            assertNotNull(reopened.getScheduleBinding(prepare.delayMessageId()));
         }
     }
 
@@ -1898,12 +1896,12 @@ class DelayShardTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("large-commit-reopen-action-at"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 60);
         final byte[] resourceIncarnation = Bytes.sha256(Bytes.utf8("large-reopen-pulsar-resource"));
-        final BrokerResourceIdentityV1 target = BrokerResourceIdentityV1.pulsar(new PulsarBrokerResourceIdentityV1(
+        final BrokerResourceIdentity target = BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
                 "pulsar-cluster", resourceIncarnation, "persistent://tenant/ns/large-topic-partition-0", 17));
-        final DeliveryCapabilitySemanticV1 capabilityBody = new DeliveryCapabilitySemanticV1(
-                AdapterKindV1.PULSAR,
-                OutcomeCapabilityV1.AT_LEAST_ONCE,
-                TimingCapabilityV1.ORDINARY_MANAGED | TimingCapabilityV1.PULSAR_GUARDED_HANDOFF,
+        final DeliveryCapabilitySemantic capabilityBody = new DeliveryCapabilitySemantic(
+                AdapterKind.PULSAR,
+                OutcomeCapability.AT_LEAST_ONCE,
+                TimingCapability.ORDINARY_MANAGED | TimingCapability.PULSAR_GUARDED_HANDOFF,
                 null,
                 0,
                 0,
@@ -1913,14 +1911,14 @@ class DelayShardTest {
                 bytes(32, 62),
                 0,
                 0);
-        final ProfileSemanticEnvelopeV1 capability = new ProfileSemanticEnvelopeV1(
-                ProfileKindV1.DELIVERY_CAPABILITY, Bytes.utf8("large-reopen-capability"), 1, capabilityBody);
-        final DestinationProfileSemanticV1 destinationBody = new DestinationProfileSemanticV1(
-                AdapterKindV1.PULSAR,
+        final ProfileSemanticEnvelope capability = new ProfileSemanticEnvelope(
+                ProfileKind.DELIVERY_CAPABILITY, Bytes.utf8("large-reopen-capability"), 1, capabilityBody);
+        final DestinationProfileSemantic destinationBody = new DestinationProfileSemantic(
+                AdapterKind.PULSAR,
                 target,
                 1,
-                TargetPartitionPolicyV1.HASH_ONLY,
-                TargetPartitionHashInputV1.ORDERING_KEY,
+                TargetPartitionPolicy.HASH_ONLY,
+                TargetPartitionHashInput.ORDERING_KEY,
                 List.of(),
                 capability.ref(),
                 1,
@@ -1936,10 +1934,10 @@ class DelayShardTest {
                 0,
                 1,
                 bytes(32, 64));
-        final ProfileSemanticEnvelopeV1 destination = new ProfileSemanticEnvelopeV1(
-                ProfileKindV1.DESTINATION, Bytes.utf8("large-reopen-destination"), 1, destinationBody);
-        final ObjectStoreProfileSemanticV1 objectStoreBody = new ObjectStoreProfileSemanticV1(
-                ObjectStoreProviderKindV1.S3,
+        final ProfileSemanticEnvelope destination = new ProfileSemanticEnvelope(
+                ProfileKind.DESTINATION, Bytes.utf8("large-reopen-destination"), 1, destinationBody);
+        final ObjectStoreProfileSemantic objectStoreBody = new ObjectStoreProfileSemantic(
+                ObjectStoreProviderKind.S3,
                 bytes(32, 65),
                 bytes(32, 66),
                 1,
@@ -1949,13 +1947,13 @@ class DelayShardTest {
                 true,
                 bytes(32, 67),
                 4_000_000,
-                ObjectStoreProfileSemanticV1.SINGLE_PUT,
+                ObjectStoreProfileSemantic.SINGLE_PUT,
                 1,
                 bytes(32, 68));
-        final ProfileSemanticEnvelopeV1 objectStore = new ProfileSemanticEnvelopeV1(
-                ProfileKindV1.OBJECT_STORE, Bytes.utf8("large-reopen-object-store"), 1, objectStoreBody);
-        final ObjectStoreProfileSemanticV1 limitedObjectStoreBody = new ObjectStoreProfileSemanticV1(
-                ObjectStoreProviderKindV1.S3,
+        final ProfileSemanticEnvelope objectStore = new ProfileSemanticEnvelope(
+                ProfileKind.OBJECT_STORE, Bytes.utf8("large-reopen-object-store"), 1, objectStoreBody);
+        final ObjectStoreProfileSemantic limitedObjectStoreBody = new ObjectStoreProfileSemantic(
+                ObjectStoreProviderKind.S3,
                 bytes(32, 72),
                 bytes(32, 73),
                 1,
@@ -1965,14 +1963,14 @@ class DelayShardTest {
                 true,
                 bytes(32, 74),
                 1_000_000,
-                ObjectStoreProfileSemanticV1.SINGLE_PUT,
+                ObjectStoreProfileSemantic.SINGLE_PUT,
                 1,
                 bytes(32, 75));
-        final ProfileSemanticEnvelopeV1 limitedObjectStore = new ProfileSemanticEnvelopeV1(
-                ProfileKindV1.OBJECT_STORE, Bytes.utf8("large-reopen-limited-object-store"), 1, limitedObjectStoreBody);
+        final ProfileSemanticEnvelope limitedObjectStore = new ProfileSemanticEnvelope(
+                ProfileKind.OBJECT_STORE, Bytes.utf8("large-reopen-limited-object-store"), 1, limitedObjectStoreBody);
         final ProfileCatalog profileCatalog = new ProfileCatalog() {
             @Override
-            public ProfileSemanticEnvelopeV1 resolve(final ProfileRefV1 reference) {
+            public ProfileSemanticEnvelope resolve(final ProfileRef reference) {
                 if (destination.ref().equals(reference)) {
                     return destination;
                 }
@@ -1986,37 +1984,34 @@ class DelayShardTest {
             }
 
             @Override
-            public com.nereusstream.delay.protocol.CredentialBindingV1 resolveBinding(
-                    final ProfileRefV1 reference, final long generation) {
+            public com.nereusstream.delay.protocol.CredentialBinding resolveBinding(
+                    final ProfileRef reference, final long generation) {
                 return null;
             }
 
             @Override
-            public com.nereusstream.delay.protocol.CredentialBindingHeadV1 resolveHead(final ProfileRefV1 reference) {
+            public com.nereusstream.delay.protocol.CredentialBindingHead resolveHead(final ProfileRef reference) {
                 if (destination.ref().equals(reference)) {
-                    return com.nereusstream.delay.protocol.CredentialBindingHeadV1.create(
-                            reference, 1, bytes(32, 69), 1);
+                    return com.nereusstream.delay.protocol.CredentialBindingHead.create(reference, 1, bytes(32, 69), 1);
                 }
                 if (objectStore.ref().equals(reference)) {
-                    return com.nereusstream.delay.protocol.CredentialBindingHeadV1.create(
-                            reference, 1, bytes(32, 70), 1);
+                    return com.nereusstream.delay.protocol.CredentialBindingHead.create(reference, 1, bytes(32, 70), 1);
                 }
                 if (limitedObjectStore.ref().equals(reference)) {
-                    return com.nereusstream.delay.protocol.CredentialBindingHeadV1.create(
-                            reference, 1, bytes(32, 76), 1);
+                    return com.nereusstream.delay.protocol.CredentialBindingHead.create(reference, 1, bytes(32, 76), 1);
                 }
                 return null;
             }
 
             @Override
-            public com.nereusstream.delay.protocol.CredentialBindingProtectionV1 resolveProtection(
-                    final ProfileRefV1 reference, final long generation) {
+            public com.nereusstream.delay.protocol.CredentialBindingProtection resolveProtection(
+                    final ProfileRef reference, final long generation) {
                 return null;
             }
         };
         final byte[] tuple = Bytes.concat(
                 Bytes.sha256(Bytes.utf8("large-reopen-tenant-scope")),
-                Bytes.u8(AdapterKindV1.PULSAR.wireValue()),
+                Bytes.u8(AdapterKind.PULSAR.wireValue()),
                 Bytes.lp32(Bytes.utf8("pulsar-cluster")),
                 Bytes.u8(2),
                 resourceIncarnation,
@@ -2033,12 +2028,12 @@ class DelayShardTest {
                 Bytes.u32be(0));
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
         final int[] prepareResolutions = {0};
-        final V1ScheduleResolver rawResolver = new V1ScheduleResolver() {
+        final ScheduleResolver rawResolver = new ScheduleResolver() {
             @Override
             public ResolvedSchedule resolveSchedule(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final ScheduleIntentV1 intent,
+                    final CanonicalScheduleIntent intent,
                     final SourcePosition sourcePosition) {
                 throw new AssertionError("large-payload recovery test must not resolve Schedule");
             }
@@ -2047,7 +2042,7 @@ class DelayShardTest {
             public ResolvedPrepare resolvePrepare(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final PrepareLargeScheduleBodyV1 body,
+                    final PrepareLargeScheduleBody body,
                     final SourcePosition sourcePosition) {
                 prepareResolutions[0]++;
                 return new ResolvedPrepare(lane, tuple);
@@ -2056,28 +2051,27 @@ class DelayShardTest {
         final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
         final KeyPair proofKey = generator.generateKeyPair();
         final KeyPair controlKey = generator.generateKeyPair();
-        final PayloadProofTrustSetSemanticV1 trustSet = new PayloadProofTrustSetSemanticV1(
-                4, List.of(PayloadProofVerifierKeyV1.fromPublicKey(7, proofKey.getPublic(), 0, 10_000)));
+        final PayloadProofTrustSetSemantic trustSet = new PayloadProofTrustSetSemantic(
+                4, List.of(PayloadProofVerifierKey.fromPublicKey(7, proofKey.getPublic(), 0, 10_000)));
         final PayloadProofTrustSetControlCatalog trustCatalog =
                 reference -> reference.equals(trustSet.ref()) ? trustSet : null;
         final AuthorIdentity control = AuthorIdentity.control(
                 Bytes.sha256(Bytes.utf8("large-reopen-control-actor")),
                 Bytes.sha256(Bytes.utf8("large-reopen-control-roles")),
                 Bytes.sha256(Bytes.utf8("large-reopen-control-scope")));
-        final ScheduleIntentV1 intent = ScheduleIntentV1.forPrepare(
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.forPrepare(
                 destination.ref(),
-                new RetryPolicyRefV1(Bytes.utf8("large-reopen-retry"), 1, bytes(32, 71)),
+                new RetryPolicyRef(Bytes.utf8("large-reopen-retry"), 1, bytes(32, 71)),
                 3_000,
                 6_000,
                 DeliveryMode.MANAGED,
                 OrderingMode.BEST_EFFORT,
                 new byte[0],
-                com.nereusstream.delay.protocol.AdapterMetadataV1.pulsar(
-                        new PulsarMetadataV1(null, null, null, List.of())),
+                com.nereusstream.delay.protocol.AdapterMetadata.pulsar(new PulsarMetadata(null, null, null, List.of())),
                 null,
                 null);
         final byte[] payloadSha = Bytes.sha256(Bytes.utf8("large-reopen-payload"));
-        final ScheduleIntentV1 underflowIntent = ScheduleIntentV1.forPrepare(
+        final CanonicalScheduleIntent underflowIntent = CanonicalScheduleIntent.forPrepare(
                 destination.ref(),
                 intent.retryPolicy(),
                 400,
@@ -2088,30 +2082,30 @@ class DelayShardTest {
                 intent.adapterMetadata(),
                 null,
                 null);
-        final PreparedCommand underflowPrepare = PreparedCommand.prepareLargeV1(
+        final PreparedCommand underflowPrepare = PreparedCommand.prepareLarge(
                 shardId, underflowIntent, 2_000_000, payloadSha, 1_000, trustSet.ref(), objectStore.ref(), 9_000);
         final byte[] underflowReservationId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                Bytes.utf8("nereus-delay-reservation-id\0"),
                 underflowPrepare.commandId().bytes(),
                 underflowPrepare.delayMessageId().bytes(),
                 underflowPrepare.commandHash());
-        final PreparedCommand objectOversizedPrepare = PreparedCommand.prepareLargeV1(
+        final PreparedCommand objectOversizedPrepare = PreparedCommand.prepareLarge(
                 shardId, intent, 2_000_000, payloadSha, 1_000, trustSet.ref(), limitedObjectStore.ref(), 9_000);
         final byte[] objectOversizedReservationId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                Bytes.utf8("nereus-delay-reservation-id\0"),
                         objectOversizedPrepare.commandId().bytes(),
                 objectOversizedPrepare.delayMessageId().bytes(), objectOversizedPrepare.commandHash());
-        final CommittedPayloadDescriptorV1 objectOversizedDescriptor = new CommittedPayloadDescriptorV1(
+        final CommittedPayloadDescriptor objectOversizedDescriptor = new CommittedPayloadDescriptor(
                 limitedObjectStore.ref(),
                 Bytes.utf8("bucket"),
                 Bytes.utf8("oversized-key"),
-                Bytes.utf8("v1"),
+                Bytes.utf8("initial"),
                 null,
                 2_000_000,
                 payloadSha,
                 bytes(32, 77),
                 bytes(32, 78));
-        final ScheduleIntentV1 objectOversizedScheduleIntent = ScheduleIntentV1.create(
+        final CanonicalScheduleIntent objectOversizedScheduleIntent = CanonicalScheduleIntent.create(
                 destination.ref(),
                 intent.retryPolicy(),
                 3_000,
@@ -2125,11 +2119,11 @@ class DelayShardTest {
                 null,
                 null);
         final PreparedCommand objectOversizedSchedule =
-                PreparedCommand.scheduleV1(shardId, objectOversizedScheduleIntent, 9_000);
-        final PreparedCommand prepare = PreparedCommand.prepareLargeV1(
+                PreparedCommand.schedule(shardId, objectOversizedScheduleIntent, 9_000);
+        final PreparedCommand prepare = PreparedCommand.prepareLarge(
                 shardId, intent, 2_000_000, payloadSha, 1_000, trustSet.ref(), objectStore.ref(), 9_000);
         final byte[] reservationId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                Bytes.utf8("nereus-delay-reservation-id\0"),
                 prepare.commandId().bytes(),
                 prepare.delayMessageId().bytes(),
                 prepare.commandHash());
@@ -2147,13 +2141,13 @@ class DelayShardTest {
                     null,
                     profileCatalog);
             int offset = 0;
-            for (ProfileRefV1 profile : List.of(destination.ref(), objectStore.ref(), limitedObjectStore.ref())) {
+            for (ProfileRef profile : List.of(destination.ref(), objectStore.ref(), limitedObjectStore.ref())) {
                 final ControlRef ref = new ControlRef(
                         Bytes.sha256(Bytes.utf8("large-reopen-profile-op-" + offset)),
                         Bytes.sha256(Bytes.utf8("large-reopen-profile-request-" + offset)),
                         offset + 1L);
                 final byte[] body = profileControlBody(
-                        shardId, ref, 2, profile, new ProfileBindingActivatePayloadV1(profile).canonicalBytes());
+                        shardId, ref, 2, profile, new ProfileBindingActivatePayload(profile).canonicalBytes());
                 final SystemMutation mutation = SystemMutation.signed(
                         shardId,
                         SystemMutationType.APPLY_SHARD_CONTROL,
@@ -2179,7 +2173,7 @@ class DelayShardTest {
                     trustRef,
                     12,
                     trustSet.ref(),
-                    new PayloadProofTrustSetActivatePayloadV1(trustSet.ref()).canonicalBytes());
+                    new PayloadProofTrustSetActivatePayload(trustSet.ref()).canonicalBytes());
             final SystemMutation trustMutation = SystemMutation.signed(
                     shardId,
                     SystemMutationType.APPLY_SHARD_CONTROL,
@@ -2198,7 +2192,7 @@ class DelayShardTest {
                     shard.apply(underflowPrepare, position(shardId, 4, 1_004)).stableCode());
             assertEquals(0, prepareResolutions[0]);
             assertNull(shard.getReservation(underflowReservationId));
-            assertNull(shard.getV1ScheduleBinding(underflowPrepare.delayMessageId()));
+            assertNull(shard.getScheduleBinding(underflowPrepare.delayMessageId()));
             assertNull(shard.getLane(lane));
             assertEquals(0, shard.quota().reservationMessages());
             assertEquals(
@@ -2207,24 +2201,24 @@ class DelayShardTest {
                             .stableCode());
             assertEquals(0, prepareResolutions[0]);
             assertNull(shard.getReservation(objectOversizedReservationId));
-            assertNull(shard.getV1ScheduleBinding(objectOversizedPrepare.delayMessageId()));
+            assertNull(shard.getScheduleBinding(objectOversizedPrepare.delayMessageId()));
             assertEquals(
                     StableCode.PAYLOAD_TOO_LARGE,
                     shard.apply(objectOversizedSchedule, position(shardId, 6, 1_006))
                             .stableCode());
             assertNull(shard.getMessage(objectOversizedSchedule.delayMessageId()));
-            assertNull(shard.getV1ScheduleBinding(objectOversizedSchedule.delayMessageId()));
+            assertNull(shard.getScheduleBinding(objectOversizedSchedule.delayMessageId()));
             assertNull(shard.getLane(lane));
             assertEquals(0, shard.quota().reservationMessages());
             assertEquals(
                     StableCode.OK,
                     shard.apply(prepare, position(shardId, 7, 1_007)).stableCode());
             assertEquals(1, prepareResolutions[0]);
-            assertNotNull(shard.getV1ScheduleBinding(prepare.delayMessageId()));
+            assertNotNull(shard.getScheduleBinding(prepare.delayMessageId()));
             assertNull(shard.getMessage(prepare.delayMessageId()));
         }
 
-        final PayloadCommitProofV1 proof = PayloadCommitProofV1.signed(
+        final CanonicalPayloadCommitProof proof = CanonicalPayloadCommitProof.signed(
                 reservationId,
                 Bytes.sha256(Bytes.utf8("large-reopen-tenant-scope")),
                 shardId.routeIncarnation().bytes(),
@@ -2235,14 +2229,14 @@ class DelayShardTest {
                 7,
                 Bytes.utf8("bucket"),
                 Bytes.utf8("key"),
-                Bytes.utf8("v1"),
+                Bytes.utf8("initial"),
                 new byte[0],
                 2_000_000,
                 payloadSha,
                 1_900,
                 proofKey.getPrivate());
         final PreparedCommand commit =
-                PreparedCommand.commitLargeV1(shardId, prepare.delayMessageId(), reservationId, proof, 9_000);
+                PreparedCommand.commitLarge(shardId, prepare.delayMessageId(), reservationId, proof, 9_000);
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard reopened = new DelayShard(
@@ -2267,7 +2261,7 @@ class DelayShardTest {
                     IllegalArgumentException.class, () -> reopened.updateLaneReadiness(lane, RuntimeReadiness.READY));
             assertEquals(
                     RuntimeReadiness.RECOVERING_EVIDENCE,
-                    reopened.getActiveLaneStateV1(lane).runtimeReadiness());
+                    reopened.getActiveLaneState(lane).runtimeReadiness());
             assertEquals(0, reopened.discoverReady(2_500, 10).size());
         }
     }
@@ -2280,23 +2274,23 @@ class DelayShardTest {
         final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
         final KeyPair semanticKey = generator.generateKeyPair();
         final KeyPair fallbackKey = generator.generateKeyPair();
-        final PayloadProofTrustSetSemanticV1 semantic = new PayloadProofTrustSetSemanticV1(
-                4, List.of(PayloadProofVerifierKeyV1.fromPublicKey(7, semanticKey.getPublic(), 0, 10_000)));
+        final PayloadProofTrustSetSemantic semantic = new PayloadProofTrustSetSemantic(
+                4, List.of(PayloadProofVerifierKey.fromPublicKey(7, semanticKey.getPublic(), 0, 10_000)));
         final PayloadProofTrustSetControlCatalog catalog =
                 reference -> reference.equals(semantic.ref()) ? semantic : null;
         final PayloadProofTrustSet fallback = new PayloadProofTrustSet(4, Map.of(7, fallbackKey.getPublic()));
-        final ProfileRefV1 capability = new ProfileRefV1(
-                Bytes.utf8("capability"), 1, Bytes.sha256(Bytes.utf8("capability")), ProfileKindV1.DELIVERY_CAPABILITY);
-        final ProfileRefV1 destination =
-                new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 59), ProfileKindV1.DESTINATION);
+        final ProfileRef capability = new ProfileRef(
+                Bytes.utf8("capability"), 1, Bytes.sha256(Bytes.utf8("capability")), ProfileKind.DELIVERY_CAPABILITY);
+        final ProfileRef destination =
+                new ProfileRef(Bytes.utf8("destination"), 1, bytes(32, 59), ProfileKind.DESTINATION);
         final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
-        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+        final ScheduleResolver resolver = new ScheduleResolver() {
             @Override
             public ResolvedSchedule resolveSchedule(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final ScheduleIntentV1 intent,
+                    final CanonicalScheduleIntent intent,
                     final SourcePosition sourcePosition) {
                 throw new AssertionError("Prepare test must not resolve Schedule");
             }
@@ -2305,33 +2299,33 @@ class DelayShardTest {
             public ResolvedPrepare resolvePrepare(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final PrepareLargeScheduleBodyV1 body,
+                    final PrepareLargeScheduleBody body,
                     final SourcePosition sourcePosition) {
                 return new ResolvedPrepare(lane, tuple);
             }
         };
-        final ScheduleIntentV1 intent = ScheduleIntentV1.forPrepare(
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.forPrepare(
                 destination,
-                new com.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 60)),
+                new com.nereusstream.delay.protocol.RetryPolicyRef(Bytes.utf8("retry"), 1, bytes(32, 60)),
                 3_000,
                 6_000,
                 com.nereusstream.delay.protocol.DeliveryMode.MANAGED,
                 OrderingMode.BEST_EFFORT,
                 Bytes.utf8("ordering"),
-                com.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
-                        new com.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())),
+                com.nereusstream.delay.protocol.AdapterMetadata.kafka(
+                        new com.nereusstream.delay.protocol.KafkaMetadata(null, List.of())),
                 null,
                 null);
         final byte[] payloadSha = Bytes.sha256(Bytes.utf8("registry-prepare-large-payload"));
-        final ProfileRefV1 objectStoreProfile = new ProfileRefV1(
+        final ProfileRef objectStoreProfile = new ProfileRef(
                 Bytes.utf8("object-store"),
                 1,
                 Bytes.sha256(Bytes.utf8("object-store-profile")),
-                ProfileKindV1.OBJECT_STORE);
-        final PreparedCommand prepare = PreparedCommand.prepareLargeV1(
+                ProfileKind.OBJECT_STORE);
+        final PreparedCommand prepare = PreparedCommand.prepareLarge(
                 shardId, intent, 2_000_000, payloadSha, 1_000, semantic.ref(), objectStoreProfile, 9_000);
         final byte[] reservationId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                Bytes.utf8("nereus-delay-reservation-id\0"),
                 prepare.commandId().bytes(),
                 prepare.delayMessageId().bytes(),
                 prepare.commandHash());
@@ -2353,7 +2347,7 @@ class DelayShardTest {
                     activateRef,
                     12,
                     semantic.ref(),
-                    new PayloadProofTrustSetActivatePayloadV1(semantic.ref()).canonicalBytes());
+                    new PayloadProofTrustSetActivatePayload(semantic.ref()).canonicalBytes());
             final SystemMutation activate = SystemMutation.signed(
                     shardId,
                     SystemMutationType.APPLY_SHARD_CONTROL,
@@ -2370,14 +2364,11 @@ class DelayShardTest {
             assertEquals(
                     StableCode.OK,
                     shard.apply(prepare, position(shardId, 1, 1_001)).stableCode());
-            assertNotNull(shard.getV1ScheduleBinding(prepare.delayMessageId()));
+            assertNotNull(shard.getScheduleBinding(prepare.delayMessageId()));
 
-            final ProfileRefV1 sameHashForeignProfile = new ProfileRefV1(
-                    Bytes.utf8("foreign-object-store"),
-                    1,
-                    objectStoreProfile.semanticHash(),
-                    ProfileKindV1.OBJECT_STORE);
-            final PayloadCommitProofV1 typedProfileDowngrade = PayloadCommitProofV1.signed(
+            final ProfileRef sameHashForeignProfile = new ProfileRef(
+                    Bytes.utf8("foreign-object-store"), 1, objectStoreProfile.semanticHash(), ProfileKind.OBJECT_STORE);
+            final CanonicalPayloadCommitProof typedProfileDowngrade = CanonicalPayloadCommitProof.signed(
                     reservationId,
                     Bytes.sha256(Bytes.utf8("tenant-scope")),
                     shardId.routeIncarnation().bytes(),
@@ -2388,13 +2379,13 @@ class DelayShardTest {
                     7,
                     Bytes.utf8("bucket"),
                     Bytes.utf8("key"),
-                    Bytes.utf8("v1"),
+                    Bytes.utf8("initial"),
                     new byte[0],
                     2_000_000,
                     payloadSha,
                     1_900,
                     semanticKey.getPrivate());
-            final PreparedCommand typedProfileCommit = PreparedCommand.commitLargeV1(
+            final PreparedCommand typedProfileCommit = PreparedCommand.commitLarge(
                     shardId, prepare.delayMessageId(), reservationId, typedProfileDowngrade, 9_000);
             assertEquals(
                     StableCode.PAYLOAD_PROOF_INVALID,
@@ -2410,7 +2401,7 @@ class DelayShardTest {
                     Bytes.sha256(Bytes.utf8("foreign-object-store-profile")),
                     Bytes.utf8("bucket"),
                     Bytes.utf8("key"),
-                    Bytes.utf8("v1"),
+                    Bytes.utf8("initial"),
                     new byte[0],
                     2_000_000,
                     payloadSha,
@@ -2433,7 +2424,7 @@ class DelayShardTest {
                     objectStoreProfile.semanticHash(),
                     Bytes.utf8("bucket"),
                     Bytes.utf8("key"),
-                    Bytes.utf8("v1"),
+                    Bytes.utf8("initial"),
                     new byte[0],
                     2_000_000,
                     payloadSha,
@@ -2451,7 +2442,7 @@ class DelayShardTest {
             assertEquals(1, shard.quota().reservationMessages());
             assertNull(shard.getMessage(prepare.delayMessageId()));
 
-            final PayloadCommitProofV1 acceptedProof = PayloadCommitProofV1.signed(
+            final CanonicalPayloadCommitProof acceptedProof = CanonicalPayloadCommitProof.signed(
                     reservationId,
                     Bytes.sha256(Bytes.utf8("tenant-scope")),
                     shardId.routeIncarnation().bytes(),
@@ -2462,14 +2453,14 @@ class DelayShardTest {
                     7,
                     Bytes.utf8("bucket"),
                     Bytes.utf8("key"),
-                    Bytes.utf8("v1"),
+                    Bytes.utf8("initial"),
                     new byte[0],
                     2_000_000,
                     payloadSha,
                     1_900,
                     semanticKey.getPrivate());
-            final PreparedCommand acceptedCommit = PreparedCommand.commitLargeV1(
-                    shardId, prepare.delayMessageId(), reservationId, acceptedProof, 9_000);
+            final PreparedCommand acceptedCommit =
+                    PreparedCommand.commitLarge(shardId, prepare.delayMessageId(), reservationId, acceptedProof, 9_000);
             assertEquals(
                     StableCode.SCHEDULED,
                     shard.apply(acceptedCommit, position(shardId, 5, 1_600)).stableCode());
@@ -2480,7 +2471,7 @@ class DelayShardTest {
             assertArrayEquals(reservationId, committedReference.reservationId());
             assertArrayEquals(acceptedProof.proofId(), committedReference.proofId());
             final MessageRecord committedMessage = shard.getMessage(prepare.delayMessageId());
-            final CommittedPayloadDescriptorV1 committedDescriptor = new CommittedPayloadDescriptorV1(
+            final CommittedPayloadDescriptor committedDescriptor = new CommittedPayloadDescriptor(
                     objectStoreProfile,
                     acceptedProof.container(),
                     acceptedProof.objectKey(),
@@ -2490,12 +2481,12 @@ class DelayShardTest {
                     acceptedProof.payloadSha256(),
                     acceptedProof.reservationId(),
                     acceptedProof.proofId());
-            final ProfileRefV1 claimForeignProfile = new ProfileRefV1(
+            final ProfileRef claimForeignProfile = new ProfileRef(
                     Bytes.utf8("claim-foreign-object-store"),
                     8,
                     objectStoreProfile.semanticHash(),
-                    ProfileKindV1.OBJECT_STORE);
-            final CommittedPayloadDescriptorV1 claimForeignDescriptor = new CommittedPayloadDescriptorV1(
+                    ProfileKind.OBJECT_STORE);
+            final CommittedPayloadDescriptor claimForeignDescriptor = new CommittedPayloadDescriptor(
                     claimForeignProfile,
                     committedDescriptor.container(),
                     committedDescriptor.objectKey(),
@@ -2505,24 +2496,24 @@ class DelayShardTest {
                     committedDescriptor.payloadSha256(),
                     committedDescriptor.reservationId(),
                     committedDescriptor.proofId());
-            final ClaimMaterializationV1 wrongClaimMaterialization = new ClaimMaterializationV1(
+            final ClaimMaterialization wrongClaimMaterialization = new ClaimMaterialization(
                     intent.profile(),
                     capability,
-                    com.nereusstream.delay.protocol.BrokerResourceIdentityV1.kafka(
-                            new com.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1(
+                    com.nereusstream.delay.protocol.BrokerResourceIdentity.kafka(
+                            new com.nereusstream.delay.protocol.KafkaBrokerResourceIdentity(
                                     "fixture-target-cluster",
                                     java.util.UUID.nameUUIDFromBytes(Bytes.utf8("fixture-lane-topic")))),
                     3,
                     prepare.delayMessageId(),
                     Integer.toUnsignedLong(committedMessage.generation()),
-                    PayloadForPublishV1.object(claimForeignDescriptor),
+                    PayloadForPublish.object(claimForeignDescriptor),
                     intent.adapterMetadata(),
                     committedMessage.deliverAtEpochMs(),
                     committedMessage.expireAtEpochMs(),
                     committedMessage.runtimeIndex().timeline().actionAtEpochMs());
             final IllegalArgumentException claimFailure = assertThrows(
                     IllegalArgumentException.class,
-                    () -> shard.claimForPublishV1(
+                    () -> shard.claimForPublish(
                             prepare.delayMessageId(),
                             AuthorIdentity.owner(
                                     Bytes.utf8("claim-deployment"),
@@ -2541,11 +2532,11 @@ class DelayShardTest {
                     Bytes.sha256(Bytes.utf8("trust-downgrade-close-op")),
                     Bytes.sha256(Bytes.utf8("trust-downgrade-close-request")),
                     2);
-            final PayloadProofIssuanceClosePayloadV1 closePayload = new PayloadProofIssuanceClosePayloadV1(
+            final PayloadProofIssuanceClosePayload closePayload = new PayloadProofIssuanceClosePayload(
                     semantic.ref(),
                     7,
-                    new ControlReasonV1(
-                            ControlReasonKindV1.INCIDENT,
+                    new ControlReason(
+                            ControlReasonKind.INCIDENT,
                             Bytes.sha256(Bytes.utf8("trust-downgrade-close-incident")),
                             null));
             final byte[] closeBody =
@@ -2566,15 +2557,15 @@ class DelayShardTest {
             assertFalse(shard.payloadProofTrustSetControlState()
                     .firstSeenIssuanceOpen(semantic.ref(), 7, position(shardId, 7, 1_650)));
 
-            final PreparedCommand exactRetry = PreparedCommand.commitLargeV1(
-                    shardId, prepare.delayMessageId(), reservationId, acceptedProof, 9_000);
+            final PreparedCommand exactRetry =
+                    PreparedCommand.commitLarge(shardId, prepare.delayMessageId(), reservationId, acceptedProof, 9_000);
             assertEquals(
                     StableCode.ALREADY_COMMITTED,
                     shard.apply(exactRetry, position(shardId, 7, 1_650)).stableCode());
 
             final byte[] forgedSignature = acceptedProof.signature();
             forgedSignature[0] ^= 1;
-            final PayloadCommitProofV1 forgedHistoricalProof = new PayloadCommitProofV1(
+            final CanonicalPayloadCommitProof forgedHistoricalProof = new CanonicalPayloadCommitProof(
                     acceptedProof.reservationId(),
                     acceptedProof.tenantRoutingScope(),
                     acceptedProof.routeIncarnationUuid(),
@@ -2592,18 +2583,18 @@ class DelayShardTest {
                     acceptedProof.notAfterEpochMs(),
                     acceptedProof.proofId(),
                     forgedSignature);
-            final PreparedCommand forgedRetry = PreparedCommand.commitLargeV1(
+            final PreparedCommand forgedRetry = PreparedCommand.commitLarge(
                     shardId, prepare.delayMessageId(), reservationId, forgedHistoricalProof, 9_000);
             assertEquals(
                     StableCode.PAYLOAD_PROOF_KEY_NOT_AUTHORIZED_AT_SOURCE_POSITION,
                     shard.apply(forgedRetry, position(shardId, 8, 1_700)).stableCode());
 
-            final ProfileRefV1 committedRetryForeignProfile = new ProfileRefV1(
+            final ProfileRef committedRetryForeignProfile = new ProfileRef(
                     Bytes.utf8("committed-retry-foreign-object-store"),
                     1,
                     objectStoreProfile.semanticHash(),
-                    ProfileKindV1.OBJECT_STORE);
-            final PayloadCommitProofV1 committedRetryDowngrade = PayloadCommitProofV1.signed(
+                    ProfileKind.OBJECT_STORE);
+            final CanonicalPayloadCommitProof committedRetryDowngrade = CanonicalPayloadCommitProof.signed(
                     reservationId,
                     Bytes.sha256(Bytes.utf8("tenant-scope")),
                     shardId.routeIncarnation().bytes(),
@@ -2614,13 +2605,13 @@ class DelayShardTest {
                     7,
                     Bytes.utf8("bucket"),
                     Bytes.utf8("key"),
-                    Bytes.utf8("v1"),
+                    Bytes.utf8("initial"),
                     new byte[0],
                     2_000_000,
                     payloadSha,
                     1_900,
                     semanticKey.getPrivate());
-            final PreparedCommand committedRetry = PreparedCommand.commitLargeV1(
+            final PreparedCommand committedRetry = PreparedCommand.commitLarge(
                     shardId, prepare.delayMessageId(), reservationId, committedRetryDowngrade, 9_000);
             assertEquals(
                     StableCode.PAYLOAD_PROOF_INVALID,
@@ -2637,11 +2628,10 @@ class DelayShardTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 86);
         final byte[] tuple = Bytes.utf8("resolved-action-at-lane");
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
-        final ProfileRefV1 profile =
-                new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 86), ProfileKindV1.DESTINATION);
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
+        final ProfileRef profile = new ProfileRef(Bytes.utf8("destination"), 1, bytes(32, 86), ProfileKind.DESTINATION);
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
                 profile,
-                new com.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 87)),
+                new com.nereusstream.delay.protocol.RetryPolicyRef(Bytes.utf8("retry"), 1, bytes(32, 87)),
                 2_000,
                 5_000,
                 com.nereusstream.delay.protocol.DeliveryMode.MANAGED,
@@ -2649,17 +2639,17 @@ class DelayShardTest {
                 Bytes.utf8("order"),
                 Bytes.utf8("payload"),
                 null,
-                com.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
-                        new com.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())),
+                com.nereusstream.delay.protocol.AdapterMetadata.kafka(
+                        new com.nereusstream.delay.protocol.KafkaMetadata(null, List.of())),
                 null,
                 null);
-        final PreparedCommand command = PreparedCommand.scheduleV1(shardId, intent, 9_000);
-        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+        final PreparedCommand command = PreparedCommand.schedule(shardId, intent, 9_000);
+        final ScheduleResolver resolver = new ScheduleResolver() {
             @Override
             public ResolvedSchedule resolveSchedule(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final ScheduleIntentV1 scheduleIntent,
+                    final CanonicalScheduleIntent scheduleIntent,
                     final SourcePosition source) {
                 return new ResolvedSchedule(lane, tuple, scheduleIntent.inlinePayload(), null, 1_500L);
             }
@@ -2668,7 +2658,7 @@ class DelayShardTest {
             public ResolvedPrepare resolvePrepare(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final PrepareLargeScheduleBodyV1 body,
+                    final PrepareLargeScheduleBody body,
                     final SourcePosition source) {
                 return new ResolvedPrepare(lane, tuple);
             }
@@ -2709,14 +2699,13 @@ class DelayShardTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 87);
         final byte[] tuple = Bytes.utf8("resolved-action-at-scratch-lane");
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
-        final ProfileRefV1 profile =
-                new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 88), ProfileKindV1.DESTINATION);
-        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+        final ProfileRef profile = new ProfileRef(Bytes.utf8("destination"), 1, bytes(32, 88), ProfileKind.DESTINATION);
+        final ScheduleResolver resolver = new ScheduleResolver() {
             @Override
             public ResolvedSchedule resolveSchedule(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final ScheduleIntentV1 scheduleIntent,
+                    final CanonicalScheduleIntent scheduleIntent,
                     final SourcePosition source) {
                 final long actionAt = scheduleIntent.deliverAtEpochMs() == 2_000 ? 1_500 : 900;
                 return new ResolvedSchedule(lane, tuple, scheduleIntent.inlinePayload(), null, actionAt);
@@ -2726,14 +2715,14 @@ class DelayShardTest {
             public ResolvedPrepare resolvePrepare(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final PrepareLargeScheduleBodyV1 body,
+                    final PrepareLargeScheduleBody body,
                     final SourcePosition source) {
                 return new ResolvedPrepare(lane, tuple);
             }
         };
-        final ScheduleIntentV1 firstIntent = ScheduleIntentV1.create(
+        final CanonicalScheduleIntent firstIntent = CanonicalScheduleIntent.create(
                 profile,
-                new com.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 89)),
+                new com.nereusstream.delay.protocol.RetryPolicyRef(Bytes.utf8("retry"), 1, bytes(32, 89)),
                 1_000,
                 5_000,
                 com.nereusstream.delay.protocol.DeliveryMode.MANAGED,
@@ -2741,13 +2730,13 @@ class DelayShardTest {
                 Bytes.utf8("first"),
                 Bytes.utf8("payload-1"),
                 null,
-                com.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
-                        new com.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())),
+                com.nereusstream.delay.protocol.AdapterMetadata.kafka(
+                        new com.nereusstream.delay.protocol.KafkaMetadata(null, List.of())),
                 null,
                 null);
-        final ScheduleIntentV1 secondIntent = ScheduleIntentV1.create(
+        final CanonicalScheduleIntent secondIntent = CanonicalScheduleIntent.create(
                 profile,
-                new com.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 89)),
+                new com.nereusstream.delay.protocol.RetryPolicyRef(Bytes.utf8("retry"), 1, bytes(32, 89)),
                 2_000,
                 5_000,
                 com.nereusstream.delay.protocol.DeliveryMode.MANAGED,
@@ -2755,12 +2744,12 @@ class DelayShardTest {
                 Bytes.utf8("second"),
                 Bytes.utf8("payload-2"),
                 null,
-                com.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
-                        new com.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())),
+                com.nereusstream.delay.protocol.AdapterMetadata.kafka(
+                        new com.nereusstream.delay.protocol.KafkaMetadata(null, List.of())),
                 null,
                 null);
-        final PreparedCommand first = PreparedCommand.scheduleV1(shardId, firstIntent, 9_000);
-        final PreparedCommand second = PreparedCommand.scheduleV1(shardId, secondIntent, 9_000);
+        final PreparedCommand first = PreparedCommand.schedule(shardId, firstIntent, 9_000);
+        final PreparedCommand second = PreparedCommand.schedule(shardId, secondIntent, 9_000);
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver);
@@ -2786,11 +2775,10 @@ class DelayShardTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 88);
         final byte[] tuple = Bytes.utf8("reschedule-action-at-lane");
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
-        final ProfileRefV1 profile =
-                new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 90), ProfileKindV1.DESTINATION);
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
+        final ProfileRef profile = new ProfileRef(Bytes.utf8("destination"), 1, bytes(32, 90), ProfileKind.DESTINATION);
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
                 profile,
-                new com.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 91)),
+                new com.nereusstream.delay.protocol.RetryPolicyRef(Bytes.utf8("retry"), 1, bytes(32, 91)),
                 2_000,
                 5_000,
                 com.nereusstream.delay.protocol.DeliveryMode.MANAGED,
@@ -2798,19 +2786,19 @@ class DelayShardTest {
                 Bytes.utf8("ordering"),
                 Bytes.utf8("payload"),
                 null,
-                com.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
-                        new com.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())),
+                com.nereusstream.delay.protocol.AdapterMetadata.kafka(
+                        new com.nereusstream.delay.protocol.KafkaMetadata(null, List.of())),
                 null,
                 null);
-        final PreparedCommand schedule = PreparedCommand.scheduleV1(shardId, intent, 9_000);
-        final PreparedCommand reschedule = PreparedCommand.rescheduleV1(
-                shardId, schedule.delayMessageId(), new MessagePreconditionV1(0L, 1L), 2_000, 6_000, 9_000);
-        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId, intent, 9_000);
+        final PreparedCommand reschedule = PreparedCommand.reschedule(
+                shardId, schedule.delayMessageId(), new MessagePrecondition(0L, 1L), 2_000, 6_000, 9_000);
+        final ScheduleResolver resolver = new ScheduleResolver() {
             @Override
             public ResolvedSchedule resolveSchedule(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final ScheduleIntentV1 scheduleIntent,
+                    final CanonicalScheduleIntent scheduleIntent,
                     final SourcePosition source) {
                 return new ResolvedSchedule(lane, tuple, scheduleIntent.inlinePayload(), null, 1_500L);
             }
@@ -2819,7 +2807,7 @@ class DelayShardTest {
             public ResolvedPrepare resolvePrepare(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final PrepareLargeScheduleBodyV1 body,
+                    final PrepareLargeScheduleBody body,
                     final SourcePosition source) {
                 return new ResolvedPrepare(lane, tuple);
             }
@@ -2855,11 +2843,10 @@ class DelayShardTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 89);
         final byte[] tuple = Bytes.utf8("lane");
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
-        final ProfileRefV1 profile =
-                new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 92), ProfileKindV1.DESTINATION);
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
+        final ProfileRef profile = new ProfileRef(Bytes.utf8("destination"), 1, bytes(32, 92), ProfileKind.DESTINATION);
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
                 profile,
-                new com.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 93)),
+                new com.nereusstream.delay.protocol.RetryPolicyRef(Bytes.utf8("retry"), 1, bytes(32, 93)),
                 2_000,
                 5_000,
                 com.nereusstream.delay.protocol.DeliveryMode.MANAGED,
@@ -2867,11 +2854,11 @@ class DelayShardTest {
                 Bytes.utf8("ordering"),
                 Bytes.utf8("uncertain-retry-action-at"),
                 null,
-                com.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
-                        new com.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())),
+                com.nereusstream.delay.protocol.AdapterMetadata.kafka(
+                        new com.nereusstream.delay.protocol.KafkaMetadata(null, List.of())),
                 null,
                 null);
-        final PreparedCommand schedule = PreparedCommand.scheduleV1(shardId, intent, 9_000);
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId, intent, 9_000);
         final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
         final KafkaSourcePosition admissionPosition = position(shardId, 1, 1_001);
         final KafkaSourcePosition outcomePosition = position(shardId, 2, 1_002);
@@ -2888,12 +2875,12 @@ class DelayShardTest {
                 Bytes.sha256(Bytes.utf8("uncertain-retry-action-at-proof")),
                 0,
                 null);
-        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+        final ScheduleResolver resolver = new ScheduleResolver() {
             @Override
             public ResolvedSchedule resolveSchedule(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final ScheduleIntentV1 scheduleIntent,
+                    final CanonicalScheduleIntent scheduleIntent,
                     final SourcePosition source) {
                 return new ResolvedSchedule(lane, tuple, scheduleIntent.inlinePayload(), null, 1_500L);
             }
@@ -2902,7 +2889,7 @@ class DelayShardTest {
             public ResolvedPrepare resolvePrepare(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final PrepareLargeScheduleBodyV1 body,
+                    final PrepareLargeScheduleBody body,
                     final SourcePosition source) {
                 return new ResolvedPrepare(lane, tuple);
             }
@@ -2960,7 +2947,7 @@ class DelayShardTest {
                     0,
                     attemptId,
                     admissionBody.claimId(),
-                    OwnerIdentityV1.decode(admissionBody.ownerIdentity()).ownerEpoch(),
+                    OwnerIdentity.decode(admissionBody.ownerIdentity()).ownerEpoch(),
                     admissionBody.descriptor().attemptNo(),
                     lane,
                     admissionBody.laneIncarnation(),
@@ -3001,8 +2988,7 @@ class DelayShardTest {
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
             assertThrows(
-                    IllegalStateException.class,
-                    () -> shard.getV1ScheduleBinding(DelayMessageId.random(foreignShardId)));
+                    IllegalStateException.class, () -> shard.getScheduleBinding(DelayMessageId.random(foreignShardId)));
         }
     }
 
@@ -3010,25 +2996,25 @@ class DelayShardTest {
     void registryScheduleRequiresSourceVisibleRetryPolicySemantic() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("retry-policy-catalog"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 35);
-        final ProfileRefV1 profile = new ProfileRefV1(
-                Bytes.utf8("destination"), 1, bytes(32, 31), com.nereusstream.delay.protocol.ProfileKindV1.DESTINATION);
-        final RetryPolicySemanticV1 policy = new RetryPolicySemanticV1(
+        final ProfileRef profile = new ProfileRef(
+                Bytes.utf8("destination"), 1, bytes(32, 31), com.nereusstream.delay.protocol.ProfileKind.DESTINATION);
+        final RetryPolicySemantic policy = new RetryPolicySemantic(
                 Bytes.utf8("retry"),
                 1,
                 100,
                 10_000,
                 5,
                 60_000,
-                UncertainPolicyV1.HOLD_FOR_EVIDENCE,
+                UncertainPolicy.HOLD_FOR_EVIDENCE,
                 0,
-                DlqExportModeV1.NOT_CONFIGURED,
+                DlqExportMode.NOT_CONFIGURED,
                 0,
                 0,
                 0,
                 0,
                 false,
                 bytes(32, 32));
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
                 profile,
                 policy.ref(),
                 2_000,
@@ -3038,19 +3024,19 @@ class DelayShardTest {
                 Bytes.utf8("ordering"),
                 Bytes.utf8("retry-policy"),
                 null,
-                com.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
-                        new com.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())),
+                com.nereusstream.delay.protocol.AdapterMetadata.kafka(
+                        new com.nereusstream.delay.protocol.KafkaMetadata(null, List.of())),
                 null,
                 null);
-        final PreparedCommand schedule = PreparedCommand.scheduleV1(shardId, intent, 9_000);
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId, intent, 9_000);
         final byte[] tuple = Bytes.utf8("retry-policy-lane");
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
-        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+        final ScheduleResolver resolver = new ScheduleResolver() {
             @Override
             public ResolvedSchedule resolveSchedule(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final ScheduleIntentV1 scheduleIntent,
+                    final CanonicalScheduleIntent scheduleIntent,
                     final SourcePosition source) {
                 return new ResolvedSchedule(lane, tuple, scheduleIntent.inlinePayload(), null);
             }
@@ -3059,7 +3045,7 @@ class DelayShardTest {
             public ResolvedPrepare resolvePrepare(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final PrepareLargeScheduleBodyV1 body,
+                    final PrepareLargeScheduleBody body,
                     final SourcePosition source) {
                 return new ResolvedPrepare(lane, tuple);
             }
@@ -3087,7 +3073,7 @@ class DelayShardTest {
                     (reference, sourcePosition) -> null);
             assertEquals(
                     StableCode.RETRY_POLICY_NOT_ACTIVE_AT_SOURCE_POSITION,
-                    shard.apply(PreparedCommand.scheduleV1(shardId, intent, 9_000), source)
+                    shard.apply(PreparedCommand.schedule(shardId, intent, 9_000), source)
                             .stableCode());
             assertNull(shard.getMessage(schedule.delayMessageId()));
         }
@@ -3097,25 +3083,24 @@ class DelayShardTest {
     void sourceOrderedOutcomeRejectsRetryDecisionThatDoesNotMatchPinnedJitter() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("retry-decision-binding"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 36);
-        final ProfileRefV1 profile =
-                new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 41), ProfileKindV1.DESTINATION);
-        final RetryPolicySemanticV1 policy = new RetryPolicySemanticV1(
+        final ProfileRef profile = new ProfileRef(Bytes.utf8("destination"), 1, bytes(32, 41), ProfileKind.DESTINATION);
+        final RetryPolicySemantic policy = new RetryPolicySemantic(
                 Bytes.utf8("retry-decision"),
                 1,
                 100,
                 1_000,
                 5,
                 4_000,
-                UncertainPolicyV1.HOLD_FOR_EVIDENCE,
+                UncertainPolicy.HOLD_FOR_EVIDENCE,
                 0,
-                DlqExportModeV1.NOT_CONFIGURED,
+                DlqExportMode.NOT_CONFIGURED,
                 0,
                 0,
                 0,
                 0,
                 false,
                 bytes(32, 42));
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
                 profile,
                 policy.ref(),
                 2_000,
@@ -3125,11 +3110,11 @@ class DelayShardTest {
                 Bytes.utf8("retry-decision-ordering"),
                 Bytes.utf8("retry-decision-payload"),
                 null,
-                com.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
-                        new com.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())),
+                com.nereusstream.delay.protocol.AdapterMetadata.kafka(
+                        new com.nereusstream.delay.protocol.KafkaMetadata(null, List.of())),
                 null,
                 null);
-        final PreparedCommand schedule = PreparedCommand.scheduleV1(shardId, intent, 9_000);
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId, intent, 9_000);
         final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
         final KafkaSourcePosition admissionPosition = position(shardId, 1, 2_001);
         final KafkaSourcePosition rejectedOutcomePosition = position(shardId, 2, 2_002);
@@ -3137,12 +3122,12 @@ class DelayShardTest {
         final KafkaSourcePosition acceptedOutcomePosition = position(shardId, 4, 2_004);
         final byte[] tuple = Bytes.utf8("retry-decision-lane-tuple");
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
-        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+        final ScheduleResolver resolver = new ScheduleResolver() {
             @Override
             public ResolvedSchedule resolveSchedule(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final ScheduleIntentV1 scheduleIntent,
+                    final CanonicalScheduleIntent scheduleIntent,
                     final SourcePosition source) {
                 return new ResolvedSchedule(lane, tuple, scheduleIntent.inlinePayload(), null);
             }
@@ -3151,7 +3136,7 @@ class DelayShardTest {
             public ResolvedPrepare resolvePrepare(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final PrepareLargeScheduleBodyV1 body,
+                    final PrepareLargeScheduleBody body,
                     final SourcePosition source) {
                 return new ResolvedPrepare(lane, tuple);
             }
@@ -3170,8 +3155,8 @@ class DelayShardTest {
                 .canonicalBytes();
         final long expectedNext = Math.addExact(
                 2_002,
-                RetryJitterV1.delayMs(
-                        RetryJitterV1.MESSAGE_PUBLISH, schedule.delayMessageId(), 0, 1, policy.retryBackoffCap(1)));
+                RetryJitter.delayMs(
+                        RetryJitter.MESSAGE_PUBLISH, schedule.delayMessageId(), 0, 1, policy.retryBackoffCap(1)));
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
@@ -3389,11 +3374,10 @@ class DelayShardTest {
     void profileBindingControlsGateNewRegistryBindingsBySourcePosition() throws Exception {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("profile-binding-controls"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 34);
-        final ProfileRefV1 profile =
-                new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 21), ProfileKindV1.DESTINATION);
-        final com.nereusstream.delay.protocol.RetryPolicyRefV1 retryPolicy =
-                new com.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 22));
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
+        final ProfileRef profile = new ProfileRef(Bytes.utf8("destination"), 1, bytes(32, 21), ProfileKind.DESTINATION);
+        final com.nereusstream.delay.protocol.RetryPolicyRef retryPolicy =
+                new com.nereusstream.delay.protocol.RetryPolicyRef(Bytes.utf8("retry"), 1, bytes(32, 22));
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
                 profile,
                 retryPolicy,
                 2_000,
@@ -3403,18 +3387,18 @@ class DelayShardTest {
                 Bytes.utf8("ordering"),
                 Bytes.utf8("profile-gated"),
                 null,
-                com.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
-                        new com.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())),
+                com.nereusstream.delay.protocol.AdapterMetadata.kafka(
+                        new com.nereusstream.delay.protocol.KafkaMetadata(null, List.of())),
                 null,
                 null);
         final byte[] tuple = Bytes.utf8("profile-gated-lane");
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
-        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+        final ScheduleResolver resolver = new ScheduleResolver() {
             @Override
             public ResolvedSchedule resolveSchedule(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final ScheduleIntentV1 schedule,
+                    final CanonicalScheduleIntent schedule,
                     final com.nereusstream.delay.protocol.SourcePosition source) {
                 return new ResolvedSchedule(lane, tuple, schedule.inlinePayload(), null);
             }
@@ -3423,7 +3407,7 @@ class DelayShardTest {
             public ResolvedPrepare resolvePrepare(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final com.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1 body,
+                    final com.nereusstream.delay.protocol.PrepareLargeScheduleBody body,
                     final com.nereusstream.delay.protocol.SourcePosition source) {
                 return new ResolvedPrepare(lane, tuple);
             }
@@ -3442,7 +3426,7 @@ class DelayShardTest {
                     Bytes.sha256(Bytes.utf8("profile-activate-request")),
                     1);
             final byte[] activateBody = profileControlBody(
-                    shardId, activateRef, 2, profile, new ProfileBindingActivatePayloadV1(profile).canonicalBytes());
+                    shardId, activateRef, 2, profile, new ProfileBindingActivatePayload(profile).canonicalBytes());
             final SystemMutation activate = SystemMutation.signed(
                     shardId,
                     SystemMutationType.APPLY_SHARD_CONTROL,
@@ -3458,15 +3442,15 @@ class DelayShardTest {
                             .stableCode());
             assertEquals(
                     StableCode.SCHEDULED,
-                    shard.apply(PreparedCommand.scheduleV1(shardId, intent, 9_000), position(shardId, 1, 1_001))
+                    shard.apply(PreparedCommand.schedule(shardId, intent, 9_000), position(shardId, 1, 1_001))
                             .stableCode());
 
             final ControlRef closeRef = new ControlRef(
                     Bytes.sha256(Bytes.utf8("profile-close-op")), Bytes.sha256(Bytes.utf8("profile-close-request")), 2);
-            final ProfileNewBindingClosePayloadV1 closePayload = new ProfileNewBindingClosePayloadV1(
+            final ProfileNewBindingClosePayload closePayload = new ProfileNewBindingClosePayload(
                     profile,
-                    new ControlReasonV1(
-                            ControlReasonKindV1.POLICY_CHANGE, Bytes.sha256(Bytes.utf8("profile-close-ticket")), null));
+                    new ControlReason(
+                            ControlReasonKind.POLICY_CHANGE, Bytes.sha256(Bytes.utf8("profile-close-ticket")), null));
             final byte[] closeBody = profileControlBody(shardId, closeRef, 3, profile, closePayload.canonicalBytes());
             final SystemMutation close = SystemMutation.signed(
                     shardId,
@@ -3481,12 +3465,12 @@ class DelayShardTest {
                     StableCode.OK,
                     shard.applySystemMutation(close, position(shardId, 2, 1_002), keyPair.getPublic())
                             .stableCode());
-            final PreparedCommand later = PreparedCommand.scheduleV1(shardId, intent, 9_000);
+            final PreparedCommand later = PreparedCommand.schedule(shardId, intent, 9_000);
             assertEquals(
                     StableCode.PROFILE_DEPRECATED_FOR_NEW_USE,
                     shard.apply(later, position(shardId, 3, 1_003)).stableCode());
             assertEquals(
-                    ProfileAcceptanceV1.CLOSED_FOR_FIRST_BINDING,
+                    ProfileAcceptance.CLOSED_FOR_FIRST_BINDING,
                     shard.profileBindingControlState().firstBindingAcceptance(profile, position(shardId, 3, 1_003)));
         }
     }
@@ -3496,11 +3480,10 @@ class DelayShardTest {
         final ShardStoreConfig config =
                 ShardStoreConfig.defaults(tempDir.resolve("profile-binding-requires-initial-marker"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 38);
-        final ProfileRefV1 profile =
-                new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 38), ProfileKindV1.DESTINATION);
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
+        final ProfileRef profile = new ProfileRef(Bytes.utf8("destination"), 1, bytes(32, 38), ProfileKind.DESTINATION);
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
                 profile,
-                new com.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 39)),
+                new com.nereusstream.delay.protocol.RetryPolicyRef(Bytes.utf8("retry"), 1, bytes(32, 39)),
                 2_000,
                 5_000,
                 com.nereusstream.delay.protocol.DeliveryMode.MANAGED,
@@ -3508,17 +3491,17 @@ class DelayShardTest {
                 Bytes.utf8("ordering"),
                 Bytes.utf8("pre-marker"),
                 null,
-                com.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
-                        new com.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())),
+                com.nereusstream.delay.protocol.AdapterMetadata.kafka(
+                        new com.nereusstream.delay.protocol.KafkaMetadata(null, List.of())),
                 null,
                 null);
-        final PreparedCommand command = PreparedCommand.scheduleV1(shardId, intent, 9_000);
-        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+        final PreparedCommand command = PreparedCommand.schedule(shardId, intent, 9_000);
+        final ScheduleResolver resolver = new ScheduleResolver() {
             @Override
             public ResolvedSchedule resolveSchedule(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final ScheduleIntentV1 schedule,
+                    final CanonicalScheduleIntent schedule,
                     final SourcePosition sourcePosition) {
                 throw new AssertionError("resolver must not run before Profile activation");
             }
@@ -3527,31 +3510,31 @@ class DelayShardTest {
             public ResolvedPrepare resolvePrepare(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final PrepareLargeScheduleBodyV1 body,
+                    final PrepareLargeScheduleBody body,
                     final SourcePosition sourcePosition) {
                 throw new AssertionError("resolver must not run before Profile activation");
             }
         };
         final ProfileCatalog catalog = new ProfileCatalog() {
             @Override
-            public com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1 resolve(final ProfileRefV1 reference) {
+            public com.nereusstream.delay.protocol.ProfileSemanticEnvelope resolve(final ProfileRef reference) {
                 return null;
             }
 
             @Override
-            public com.nereusstream.delay.protocol.CredentialBindingV1 resolveBinding(
-                    final ProfileRefV1 reference, final long generation) {
+            public com.nereusstream.delay.protocol.CredentialBinding resolveBinding(
+                    final ProfileRef reference, final long generation) {
                 return null;
             }
 
             @Override
-            public com.nereusstream.delay.protocol.CredentialBindingHeadV1 resolveHead(final ProfileRefV1 reference) {
+            public com.nereusstream.delay.protocol.CredentialBindingHead resolveHead(final ProfileRef reference) {
                 return null;
             }
 
             @Override
-            public com.nereusstream.delay.protocol.CredentialBindingProtectionV1 resolveProtection(
-                    final ProfileRefV1 reference, final long generation) {
+            public com.nereusstream.delay.protocol.CredentialBindingProtection resolveProtection(
+                    final ProfileRef reference, final long generation) {
                 return null;
             }
         };
@@ -3572,11 +3555,10 @@ class DelayShardTest {
         final ShardStoreConfig config =
                 ShardStoreConfig.defaults(tempDir.resolve("profile-binding-action-at-missing-catalog"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 39);
-        final ProfileRefV1 profile =
-                new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 40), ProfileKindV1.DESTINATION);
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
+        final ProfileRef profile = new ProfileRef(Bytes.utf8("destination"), 1, bytes(32, 40), ProfileKind.DESTINATION);
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
                 profile,
-                new com.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 41)),
+                new com.nereusstream.delay.protocol.RetryPolicyRef(Bytes.utf8("retry"), 1, bytes(32, 41)),
                 2_000,
                 5_000,
                 com.nereusstream.delay.protocol.DeliveryMode.MANAGED,
@@ -3584,18 +3566,18 @@ class DelayShardTest {
                 Bytes.utf8("ordering"),
                 Bytes.utf8("missing-catalog"),
                 null,
-                com.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
-                        new com.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())),
+                com.nereusstream.delay.protocol.AdapterMetadata.kafka(
+                        new com.nereusstream.delay.protocol.KafkaMetadata(null, List.of())),
                 null,
                 null);
         final byte[] tuple = Bytes.utf8("missing-catalog-lane");
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
-        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+        final ScheduleResolver resolver = new ScheduleResolver() {
             @Override
             public ResolvedSchedule resolveSchedule(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final ScheduleIntentV1 schedule,
+                    final CanonicalScheduleIntent schedule,
                     final SourcePosition sourcePosition) {
                 return new ResolvedSchedule(lane, tuple, schedule.inlinePayload(), null);
             }
@@ -3604,12 +3586,12 @@ class DelayShardTest {
             public ResolvedPrepare resolvePrepare(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final PrepareLargeScheduleBodyV1 body,
+                    final PrepareLargeScheduleBody body,
                     final SourcePosition sourcePosition) {
                 return new ResolvedPrepare(lane, tuple);
             }
         };
-        final PreparedCommand schedule = PreparedCommand.scheduleV1(shardId, intent, 9_000);
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId, intent, 9_000);
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver);
@@ -3630,10 +3612,10 @@ class DelayShardTest {
                     null,
                     null,
                     unavailableProfileCatalog());
-            final PreparedCommand reschedule = PreparedCommand.rescheduleV1(
+            final PreparedCommand reschedule = PreparedCommand.reschedule(
                     shardId,
                     schedule.delayMessageId(),
-                    new com.nereusstream.delay.protocol.MessagePreconditionV1(0L, 1L),
+                    new com.nereusstream.delay.protocol.MessagePrecondition(0L, 1L),
                     2_500,
                     6_000,
                     9_000);
@@ -3648,24 +3630,24 @@ class DelayShardTest {
     private static ProfileCatalog unavailableProfileCatalog() {
         return new ProfileCatalog() {
             @Override
-            public com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1 resolve(final ProfileRefV1 reference) {
+            public com.nereusstream.delay.protocol.ProfileSemanticEnvelope resolve(final ProfileRef reference) {
                 return null;
             }
 
             @Override
-            public com.nereusstream.delay.protocol.CredentialBindingV1 resolveBinding(
-                    final ProfileRefV1 reference, final long generation) {
+            public com.nereusstream.delay.protocol.CredentialBinding resolveBinding(
+                    final ProfileRef reference, final long generation) {
                 return null;
             }
 
             @Override
-            public com.nereusstream.delay.protocol.CredentialBindingHeadV1 resolveHead(final ProfileRefV1 reference) {
+            public com.nereusstream.delay.protocol.CredentialBindingHead resolveHead(final ProfileRef reference) {
                 return null;
             }
 
             @Override
-            public com.nereusstream.delay.protocol.CredentialBindingProtectionV1 resolveProtection(
-                    final ProfileRefV1 reference, final long generation) {
+            public com.nereusstream.delay.protocol.CredentialBindingProtection resolveProtection(
+                    final ProfileRef reference, final long generation) {
                 return null;
             }
         };
@@ -3675,9 +3657,9 @@ class DelayShardTest {
     void registryCommittedScheduleResolverPreservesOptionalEtag() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("registry-committed-schedule"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 33);
-        final ProfileRefV1 objectStore =
-                new ProfileRefV1(Bytes.utf8("object-store"), 1, bytes(32, 4), ProfileKindV1.OBJECT_STORE);
-        final CommittedPayloadDescriptorV1 descriptor = new CommittedPayloadDescriptorV1(
+        final ProfileRef objectStore =
+                new ProfileRef(Bytes.utf8("object-store"), 1, bytes(32, 4), ProfileKind.OBJECT_STORE);
+        final CommittedPayloadDescriptor descriptor = new CommittedPayloadDescriptor(
                 objectStore,
                 Bytes.utf8("bucket"),
                 Bytes.utf8("object"),
@@ -3687,9 +3669,9 @@ class DelayShardTest {
                 Bytes.sha256(Bytes.utf8("committed")),
                 bytes(32, 5),
                 bytes(32, 6));
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
-                new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 7), ProfileKindV1.DESTINATION),
-                new com.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 8)),
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
+                new ProfileRef(Bytes.utf8("destination"), 1, bytes(32, 7), ProfileKind.DESTINATION),
+                new com.nereusstream.delay.protocol.RetryPolicyRef(Bytes.utf8("retry"), 1, bytes(32, 8)),
                 2_000,
                 5_000,
                 com.nereusstream.delay.protocol.DeliveryMode.MANAGED,
@@ -3697,19 +3679,19 @@ class DelayShardTest {
                 new byte[0],
                 null,
                 descriptor,
-                com.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
-                        new com.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())),
+                com.nereusstream.delay.protocol.AdapterMetadata.kafka(
+                        new com.nereusstream.delay.protocol.KafkaMetadata(null, List.of())),
                 null,
                 null);
-        final PreparedCommand command = PreparedCommand.scheduleV1(shardId, intent, 9_000);
+        final PreparedCommand command = PreparedCommand.schedule(shardId, intent, 9_000);
         final byte[] tuple = Bytes.utf8("committed-lane-tuple");
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
-        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+        final ScheduleResolver resolver = new ScheduleResolver() {
             @Override
             public ResolvedSchedule resolveSchedule(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final ScheduleIntentV1 resolvedIntent,
+                    final CanonicalScheduleIntent resolvedIntent,
                     final com.nereusstream.delay.protocol.SourcePosition source) {
                 return new ResolvedSchedule(
                         lane,
@@ -3723,7 +3705,7 @@ class DelayShardTest {
             public ResolvedPrepare resolvePrepare(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final com.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1 body,
+                    final com.nereusstream.delay.protocol.PrepareLargeScheduleBody body,
                     final com.nereusstream.delay.protocol.SourcePosition source) {
                 throw new UnsupportedOperationException("not used by this test");
             }
@@ -3936,7 +3918,7 @@ class DelayShardTest {
                 null);
         final int keyVersion = 7;
         final byte[] fenceId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                Bytes.utf8("nereus-delay-time-fence-proof\0"),
                 shardId.routeIncarnation().bytes(),
                 Bytes.u32be(shardId.partition()),
                 Bytes.i64be(reuseUntil),
@@ -4333,11 +4315,10 @@ class DelayShardTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 90);
         final byte[] tuple = Bytes.utf8("source-ordered-lane-control-action-at");
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
-        final ProfileRefV1 profile =
-                new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 94), ProfileKindV1.DESTINATION);
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
+        final ProfileRef profile = new ProfileRef(Bytes.utf8("destination"), 1, bytes(32, 94), ProfileKind.DESTINATION);
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
                 profile,
-                new com.nereusstream.delay.protocol.RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 95)),
+                new com.nereusstream.delay.protocol.RetryPolicyRef(Bytes.utf8("retry"), 1, bytes(32, 95)),
                 2_000,
                 5_000,
                 com.nereusstream.delay.protocol.DeliveryMode.MANAGED,
@@ -4345,18 +4326,18 @@ class DelayShardTest {
                 Bytes.utf8("ordering"),
                 Bytes.utf8("lane-control-action-at"),
                 null,
-                com.nereusstream.delay.protocol.AdapterMetadataV1.kafka(
-                        new com.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())),
+                com.nereusstream.delay.protocol.AdapterMetadata.kafka(
+                        new com.nereusstream.delay.protocol.KafkaMetadata(null, List.of())),
                 null,
                 null);
-        final PreparedCommand schedule = PreparedCommand.scheduleV1(shardId, intent, 9_000);
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId, intent, 9_000);
         final KafkaSourcePosition schedulePosition = position(shardId, 0, 1_000);
-        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+        final ScheduleResolver resolver = new ScheduleResolver() {
             @Override
             public ResolvedSchedule resolveSchedule(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final ScheduleIntentV1 scheduleIntent,
+                    final CanonicalScheduleIntent scheduleIntent,
                     final SourcePosition source) {
                 return new ResolvedSchedule(lane, tuple, scheduleIntent.inlinePayload(), null, 1_500L);
             }
@@ -4365,7 +4346,7 @@ class DelayShardTest {
             public ResolvedPrepare resolvePrepare(
                     final ShardId shard,
                     final DelayMessageId messageId,
-                    final PrepareLargeScheduleBodyV1 body,
+                    final PrepareLargeScheduleBody body,
                     final SourcePosition source) {
                 return new ResolvedPrepare(lane, tuple);
             }
@@ -4499,19 +4480,19 @@ class DelayShardTest {
                 keyPair.getPrivate());
         final ControlTargetRegistrationAuthority unavailable = new ControlTargetRegistrationAuthority() {
             @Override
-            public RegistrationResult register(final PreparedControlOperationV1 prepared) {
+            public RegistrationResult register(final PreparedControlOperation prepared) {
                 throw new IllegalStateException("control registry unavailable");
             }
 
             @Override
-            public java.util.Optional<PreparedControlOperationV1> find(final byte[] operationId) {
+            public java.util.Optional<PreparedControlOperation> find(final byte[] operationId) {
                 throw new IllegalStateException("control registry lookup unavailable");
             }
 
             @Override
             public void validateMutation(
-                    final PreparedControlOperationV1 prepared,
-                    final ControlTargetRefV1 target,
+                    final PreparedControlOperation prepared,
+                    final ControlTargetRef target,
                     final SystemMutation value) {
                 throw new IllegalStateException("control registry validation unavailable");
             }
@@ -4553,11 +4534,11 @@ class DelayShardTest {
                     StableCode.SCHEDULED,
                     shard.apply(schedule, position(shardId, 0, 1_000)).stableCode());
             final LaneRecord laneRecord = shard.getLane(lane);
-            final ControlReasonV1 reason = new ControlReasonV1(ControlReasonKindV1.OPERATOR_REQUEST, null, null);
-            final ControlOperationRequestV1 request = ControlOperationRequestV1.pauseDestinationLane(reason);
+            final ControlReason reason = new ControlReason(ControlReasonKind.OPERATOR_REQUEST, null, null);
+            final ControlOperationRequest request = ControlOperationRequest.pauseDestinationLane(reason);
             final byte[] operationId = Bytes.sha256(Bytes.utf8("registered-control-operation"));
             final ControlRef controlRef =
-                    new ControlRef(operationId, PreparedControlOperationV1.requestHash(request.kind(), request), 0);
+                    new ControlRef(operationId, PreparedControlOperation.requestHash(request.kind(), request), 0);
             final byte[] body = applyShardControlBody(
                     shardId, controlRef, 8, lane, laneRecord.laneIncarnation(), laneRecord.laneControlVersion());
             final SystemMutation mutation = SystemMutation.signed(
@@ -4569,17 +4550,16 @@ class DelayShardTest {
                     control.canonicalBytes(),
                     1,
                     keyPair.getPrivate());
-            final ControlTargetRefV1 target = new ControlTargetRefV1(
+            final ControlTargetRef target = new ControlTargetRef(
                     0,
-                    ControlTargetKindV1.LANE,
-                    new LaneControlTargetV1(
-                            lane.bytes(), laneRecord.laneIncarnation(), laneRecord.laneControlVersion()),
+                    ControlTargetKind.LANE,
+                    new LaneControlTarget(lane.bytes(), laneRecord.laneIncarnation(), laneRecord.laneControlVersion()),
                     mutation.systemMutationId(),
                     mutation.mutationHash());
-            final PreparedControlOperationV1 prepared = PreparedControlOperationV1.prepare(
+            final PreparedControlOperation prepared = PreparedControlOperation.prepare(
                     operationId,
                     request.kind(),
-                    new ControlAuthorV1(
+                    new ControlAuthor(
                             Bytes.sha256(Bytes.utf8("registered-control-author")),
                             Bytes.sha256(Bytes.utf8("registered-control-author-roles")),
                             Bytes.sha256(Bytes.utf8("registered-control-author-scope"))),
@@ -4775,7 +4755,7 @@ class DelayShardTest {
         final KeyPair keyPair = generator.generateKeyPair();
         final PayloadProofTrustSet trustSet = new PayloadProofTrustSet(9, Map.of(2, keyPair.getPublic()));
         final byte[] reservationId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                Bytes.utf8("nereus-delay-reservation-id\0"),
                 prepare.commandId().bytes(),
                 prepare.delayMessageId().bytes(),
                 prepare.commandHash());
@@ -4827,7 +4807,7 @@ class DelayShardTest {
                                                     Bytes.sha256(Bytes.utf8("close-reservation-profile")),
                                                     Bytes.utf8("bucket"),
                                                     Bytes.utf8("key"),
-                                                    Bytes.utf8("v1"),
+                                                    Bytes.utf8("initial"),
                                                     new byte[0],
                                                     intent.expectedPayloadLength(),
                                                     intent.payloadSha256(),
@@ -4869,9 +4849,9 @@ class DelayShardTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 18);
         final KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
         final KeyPair keyPair = generator.generateKeyPair();
-        final PayloadProofVerifierKeyV1 verifier =
-                PayloadProofVerifierKeyV1.fromPublicKey(7, keyPair.getPublic(), 0, 10_000);
-        final PayloadProofTrustSetSemanticV1 semantic = new PayloadProofTrustSetSemanticV1(4, List.of(verifier));
+        final PayloadProofVerifierKey verifier =
+                PayloadProofVerifierKey.fromPublicKey(7, keyPair.getPublic(), 0, 10_000);
+        final PayloadProofTrustSetSemantic semantic = new PayloadProofTrustSetSemantic(4, List.of(verifier));
         final PayloadProofTrustSetControlCatalog catalog =
                 reference -> reference.equals(semantic.ref()) ? semantic : null;
         final AuthorIdentity control = AuthorIdentity.control(
@@ -4890,7 +4870,7 @@ class DelayShardTest {
                     activateRef,
                     12,
                     semantic.ref(),
-                    new PayloadProofTrustSetActivatePayloadV1(semantic.ref()).canonicalBytes());
+                    new PayloadProofTrustSetActivatePayload(semantic.ref()).canonicalBytes());
             final SystemMutation activate = SystemMutation.signed(
                     shardId,
                     SystemMutationType.APPLY_SHARD_CONTROL,
@@ -4911,10 +4891,10 @@ class DelayShardTest {
 
             final ControlRef closeRef = new ControlRef(
                     Bytes.sha256(Bytes.utf8("trust-close-op")), Bytes.sha256(Bytes.utf8("trust-close-request")), 2);
-            final PayloadProofIssuanceClosePayloadV1 closePayload = new PayloadProofIssuanceClosePayloadV1(
+            final PayloadProofIssuanceClosePayload closePayload = new PayloadProofIssuanceClosePayload(
                     semantic.ref(),
                     7,
-                    new ControlReasonV1(ControlReasonKindV1.INCIDENT, Bytes.sha256(Bytes.utf8("incident")), null));
+                    new ControlReason(ControlReasonKind.INCIDENT, Bytes.sha256(Bytes.utf8("incident")), null));
             final byte[] closeBody =
                     trustSetControlBody(shardId, closeRef, 13, semantic.ref(), closePayload.canonicalBytes());
             final SystemMutation close = SystemMutation.signed(
@@ -4952,9 +4932,8 @@ class DelayShardTest {
         final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 1, 1, 1_000, 10_000);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 8);
         final KafkaSourcePosition source = position(shardId, 0, 1_000);
-        final ProfileRefV1 destination = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2), ProfileKindV1.DESTINATION);
-        final ProfileRefV1 capability =
-                new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4), ProfileKindV1.DELIVERY_CAPABILITY);
+        final ProfileRef destination = new ProfileRef(bytes(4, 1), 1, bytes(32, 2), ProfileKind.DESTINATION);
+        final ProfileRef capability = new ProfileRef(bytes(4, 3), 1, bytes(32, 4), ProfileKind.DELIVERY_CAPABILITY);
         final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
         final PreparedCommand schedule = PreparedCommand.schedule(
@@ -4969,7 +4948,7 @@ class DelayShardTest {
             assertEquals(StableCode.SCHEDULED, shard.apply(schedule, source).stableCode());
             assertEquals(1, shard.quota().laneCount());
             // Complete the local cancellation accounting before simulating the
-            // floor-protected GC phase.  The lane slot remains charged until
+            // floor-protected GC phase. The lane slot remains charged until
             // the terminal guard replaces the active Lane value.
             final PreparedCommand cancel = PreparedCommand.cancel(shardId, schedule.delayMessageId(), 0, 9_000);
             assertEquals(
@@ -4985,7 +4964,7 @@ class DelayShardTest {
                 batch.delete(ColumnFamily.TIMELINE, KeyCodec.timelineExpiry(5_000, lane, schedule.delayMessageId(), 0));
             });
             final LaneRecord closed = shard.updateLaneGate(lane, 1, AdmissionGate.CLOSED);
-            final LaneTerminalGuardV1 guard = new LaneTerminalGuardV1(
+            final LaneTerminalGuard guard = new LaneTerminalGuard(
                     closed.laneIncarnation(),
                     closed.laneControlVersion(),
                     source,
@@ -4994,7 +4973,7 @@ class DelayShardTest {
                     tuple,
                     retirementId,
                     1);
-            final LaneRetirementProgressV1 progress = new LaneRetirementProgressV1(retirementId, 1, source);
+            final LaneRetirementProgress progress = new LaneRetirementProgress(retirementId, 1, source);
             final KafkaSourcePosition conflictingSource = new KafkaSourcePosition(
                     shardId,
                     "cluster-a",
@@ -5002,7 +4981,7 @@ class DelayShardTest {
                     source.offset() + 2,
                     7,
                     source.brokerLogAppendTimeEpochMs() + 1);
-            final LaneTerminalGuardV1 conflictingGuard = new LaneTerminalGuardV1(
+            final LaneTerminalGuard conflictingGuard = new LaneTerminalGuard(
                     closed.laneIncarnation(),
                     closed.laneControlVersion(),
                     conflictingSource,
@@ -5011,8 +4990,8 @@ class DelayShardTest {
                     tuple,
                     retirementId,
                     1);
-            final LaneRetirementProgressV1 conflictingProgress =
-                    new LaneRetirementProgressV1(retirementId, 1, conflictingSource);
+            final LaneRetirementProgress conflictingProgress =
+                    new LaneRetirementProgress(retirementId, 1, conflictingSource);
             assertThrows(
                     IllegalStateException.class,
                     () -> shard.retireLaneWithTerminalGuard(
@@ -5085,9 +5064,8 @@ class DelayShardTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("lane-retirement-inflight-mismatch"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 74);
         final KafkaSourcePosition source = position(shardId, 0, 1_000);
-        final ProfileRefV1 destination = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2), ProfileKindV1.DESTINATION);
-        final ProfileRefV1 capability =
-                new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4), ProfileKindV1.DELIVERY_CAPABILITY);
+        final ProfileRef destination = new ProfileRef(bytes(4, 1), 1, bytes(32, 2), ProfileKind.DESTINATION);
+        final ProfileRef capability = new ProfileRef(bytes(4, 3), 1, bytes(32, 4), ProfileKind.DELIVERY_CAPABILITY);
         final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
         final PreparedCommand schedule = PreparedCommand.schedule(
@@ -5129,7 +5107,7 @@ class DelayShardTest {
                         misplaced.encode());
             });
             final LaneRecord closed = shard.updateLaneGate(lane, 1, AdmissionGate.CLOSED);
-            final LaneTerminalGuardV1 guard = new LaneTerminalGuardV1(
+            final LaneTerminalGuard guard = new LaneTerminalGuard(
                     closed.laneIncarnation(),
                     closed.laneControlVersion(),
                     source,
@@ -5138,7 +5116,7 @@ class DelayShardTest {
                     tuple,
                     retirementId,
                     1);
-            final LaneRetirementProgressV1 progress = new LaneRetirementProgressV1(retirementId, 1, source);
+            final LaneRetirementProgress progress = new LaneRetirementProgress(retirementId, 1, source);
 
             final IllegalStateException exception = assertThrows(
                     IllegalStateException.class,
@@ -5153,9 +5131,8 @@ class DelayShardTest {
         final DelayShardConfig shardConfig = new DelayShardConfig(10_000, 1, 20_000, 10, 100, 4, 3, 100, 10_000);
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 75);
         final KafkaSourcePosition source = position(shardId, 0, 1_000);
-        final ProfileRefV1 destination = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2), ProfileKindV1.DESTINATION);
-        final ProfileRefV1 capability =
-                new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4), ProfileKindV1.DELIVERY_CAPABILITY);
+        final ProfileRef destination = new ProfileRef(bytes(4, 1), 1, bytes(32, 2), ProfileKind.DESTINATION);
+        final ProfileRef capability = new ProfileRef(bytes(4, 3), 1, bytes(32, 4), ProfileKind.DELIVERY_CAPABILITY);
         final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
         final LargeScheduleIntent intent = new LargeScheduleIntent(
@@ -5169,7 +5146,7 @@ class DelayShardTest {
                 9);
         final PreparedCommand prepare = PreparedCommand.prepareLarge(shardId, intent, 9_000);
         final byte[] reservationId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                Bytes.utf8("nereus-delay-reservation-id\0"),
                 prepare.commandId().bytes(),
                 prepare.delayMessageId().bytes(),
                 prepare.commandHash());
@@ -5181,7 +5158,7 @@ class DelayShardTest {
             final DelayShard shard = new DelayShard(store, shardConfig, trustSet);
             assertEquals(StableCode.OK, shard.apply(prepare, source).stableCode());
             final LaneRecord closed = shard.updateLaneGate(lane, 1, AdmissionGate.CLOSED);
-            final LaneTerminalGuardV1 guard = new LaneTerminalGuardV1(
+            final LaneTerminalGuard guard = new LaneTerminalGuard(
                     closed.laneIncarnation(),
                     closed.laneControlVersion(),
                     source,
@@ -5190,7 +5167,7 @@ class DelayShardTest {
                     tuple,
                     bytes(32, 6),
                     1);
-            final LaneRetirementProgressV1 progress = new LaneRetirementProgressV1(bytes(32, 6), 1, source);
+            final LaneRetirementProgress progress = new LaneRetirementProgress(bytes(32, 6), 1, source);
             assertThrows(
                     IllegalStateException.class,
                     () -> shard.retireLaneWithTerminalGuard(lane, closed.laneControlVersion(), progress, guard));
@@ -5201,7 +5178,7 @@ class DelayShardTest {
                     ColumnFamily.META,
                     2,
                     KeyCodec.metaLane(lane),
-                    LaneRecordEnvelopeV1.terminal(guard).canonicalBytes()));
+                    LaneRecordEnvelope.terminal(guard).canonicalBytes()));
             final PayloadCommitProof proof = PayloadCommitProof.signed(
                     9,
                     2,
@@ -5212,7 +5189,7 @@ class DelayShardTest {
                     Bytes.sha256(Bytes.utf8("terminal-commit-profile")),
                     Bytes.utf8("bucket"),
                     Bytes.utf8("terminal-commit-key"),
-                    Bytes.utf8("v1"),
+                    Bytes.utf8("initial"),
                     new byte[0],
                     intent.expectedPayloadLength(),
                     intent.payloadSha256(),
@@ -5292,7 +5269,7 @@ class DelayShardTest {
         final PayloadProofTrustSet trustSet = new PayloadProofTrustSet(9, Map.of(2, keyPair.getPublic()));
         final KafkaSourcePosition preparePosition = position(shardId, 0, 1_000);
         final byte[] reservationId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                Bytes.utf8("nereus-delay-reservation-id\0"),
                 prepare.commandId().bytes(),
                 prepare.delayMessageId().bytes(),
                 prepare.commandHash());
@@ -5317,9 +5294,9 @@ class DelayShardTest {
                     shard.apply(abandon, position(shardId, 2, 1_002)).stableCode());
             assertEquals(1, shard.quota().reservationMessages());
 
-            final ProfileRefV1 profile = new ProfileRefV1(
-                    Bytes.utf8("object-store"), 1, Bytes.sha256(Bytes.utf8("profile")), ProfileKindV1.OBJECT_STORE);
-            final PayloadCommitProofV1 proof = PayloadCommitProofV1.signed(
+            final ProfileRef profile = new ProfileRef(
+                    Bytes.utf8("object-store"), 1, Bytes.sha256(Bytes.utf8("profile")), ProfileKind.OBJECT_STORE);
+            final CanonicalPayloadCommitProof proof = CanonicalPayloadCommitProof.signed(
                     reservationId,
                     Bytes.sha256(Bytes.utf8("tenant-scope")),
                     shardId.routeIncarnation().bytes(),
@@ -5330,14 +5307,14 @@ class DelayShardTest {
                     2,
                     Bytes.utf8("bucket"),
                     Bytes.utf8("key"),
-                    Bytes.utf8("v1"),
+                    Bytes.utf8("initial"),
                     new byte[0],
                     intent.expectedPayloadLength(),
                     intent.payloadSha256(),
                     5_000,
                     keyPair.getPrivate());
             final PreparedCommand commit =
-                    PreparedCommand.commitLargeV1(shardId, prepare.delayMessageId(), reservationId, proof, 9_000);
+                    PreparedCommand.commitLarge(shardId, prepare.delayMessageId(), reservationId, proof, 9_000);
             final KafkaSourcePosition commitPosition = position(shardId, 3, 1_003);
             assertEquals(
                     StableCode.SCHEDULED, shard.apply(commit, commitPosition).stableCode());
@@ -5375,7 +5352,7 @@ class DelayShardTest {
                 9);
         final PreparedCommand prepare = PreparedCommand.prepareLarge(shardId, intent, 9_000);
         final byte[] reservationId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                Bytes.utf8("nereus-delay-reservation-id\0"),
                 prepare.commandId().bytes(),
                 prepare.delayMessageId().bytes(),
                 prepare.commandHash());
@@ -5415,7 +5392,7 @@ class DelayShardTest {
                 9);
         final PreparedCommand prepare = PreparedCommand.prepareLarge(shardId, intent, 9_000);
         final byte[] reservationId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                Bytes.utf8("nereus-delay-reservation-id\0"),
                 prepare.commandId().bytes(),
                 prepare.delayMessageId().bytes(),
                 prepare.commandHash());
@@ -5464,7 +5441,7 @@ class DelayShardTest {
                 9);
         final PreparedCommand prepare = PreparedCommand.prepareLarge(shardId, intent, 9_000);
         final byte[] reservationId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                Bytes.utf8("nereus-delay-reservation-id\0"),
                 prepare.commandId().bytes(),
                 prepare.delayMessageId().bytes(),
                 prepare.commandHash());
@@ -5514,7 +5491,7 @@ class DelayShardTest {
         final KeyPair keyPair = generator.generateKeyPair();
         final PayloadProofTrustSet trustSet = new PayloadProofTrustSet(9, Map.of(2, keyPair.getPublic()));
         final byte[] reservationId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                Bytes.utf8("nereus-delay-reservation-id\0"),
                 prepare.commandId().bytes(),
                 prepare.delayMessageId().bytes(),
                 prepare.commandHash());
@@ -5543,7 +5520,7 @@ class DelayShardTest {
                     0,
                     null);
             final byte[] proofId = Bytes.sha256(
-                    Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                    Bytes.utf8("nereus-delay-time-fence-proof\0"),
                     shardId.routeIncarnation().bytes(),
                     Bytes.u32be(shardId.partition()),
                     Bytes.i64be(5_000),
@@ -5585,7 +5562,7 @@ class DelayShardTest {
                     Bytes.sha256(Bytes.utf8("reservation-fence-profile")),
                     Bytes.utf8("bucket"),
                     Bytes.utf8("reservation-fence-key"),
-                    Bytes.utf8("v1"),
+                    Bytes.utf8("initial"),
                     new byte[0],
                     intent.expectedPayloadLength(),
                     intent.payloadSha256(),
@@ -5821,7 +5798,7 @@ class DelayShardTest {
         final PreparedCommand prepare = PreparedCommand.prepareLarge(shardId, intent, 9_000);
         final KafkaSourcePosition preparePosition = position(shardId, 0, 1_000);
         final byte[] reservationId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                Bytes.utf8("nereus-delay-reservation-id\0"),
                 prepare.commandId().bytes(),
                 prepare.delayMessageId().bytes(),
                 prepare.commandHash());
@@ -5862,7 +5839,7 @@ class DelayShardTest {
         final KafkaSourcePosition preparePosition = position(shardId, 0, 1_000);
         final KafkaSourcePosition commitPosition = position(shardId, 1, 1_001);
         final byte[] reservationId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                Bytes.utf8("nereus-delay-reservation-id\0"),
                 prepare.commandId().bytes(),
                 prepare.delayMessageId().bytes(),
                 prepare.commandHash());
@@ -5884,7 +5861,7 @@ class DelayShardTest {
                     Bytes.sha256(Bytes.utf8("missing-lane-profile")),
                     Bytes.utf8("bucket"),
                     Bytes.utf8("key"),
-                    Bytes.utf8("v1"),
+                    Bytes.utf8("initial"),
                     new byte[0],
                     intent.expectedPayloadLength(),
                     intent.payloadSha256(),
@@ -6264,7 +6241,7 @@ class DelayShardTest {
                 null);
         final long firstCloseThrough = 3_000;
         final byte[] firstProofId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                Bytes.utf8("nereus-delay-time-fence-proof\0"),
                 shardId.routeIncarnation().bytes(),
                 Bytes.u32be(shardId.partition()),
                 Bytes.i64be(firstCloseThrough),
@@ -6295,7 +6272,7 @@ class DelayShardTest {
                 null);
         final long secondCloseThrough = 4_000;
         final byte[] secondProofId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                Bytes.utf8("nereus-delay-time-fence-proof\0"),
                 shardId.routeIncarnation().bytes(),
                 Bytes.u32be(shardId.partition()),
                 Bytes.i64be(secondCloseThrough),
@@ -8854,7 +8831,7 @@ class DelayShardTest {
                 1,
                 keyPair.getPrivate());
         final PublishAdmissionBody parsed = PublishAdmissionBody.decode(fixture.body());
-        final SloObjectiveV1 dueObjective = dueAdmissionObjective();
+        final SloObjective dueObjective = dueAdmissionObjective();
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
@@ -8896,11 +8873,11 @@ class DelayShardTest {
             assertArrayEquals(fixture.body(), ledger.admissionBytes());
             assertEquals(result, shard.getSystemMutationResult(mutation.systemMutationId()));
             final SloObservationOutboxStore outbox = new SloObservationOutboxStore(store);
-            final SloSampleStartV1 expectedStart = SloAuthoritativeStartFactory.dueAdmission(
+            final SloSampleStart expectedStart = SloAuthoritativeStartFactory.dueAdmission(
                     dueObjective,
                     messageId,
                     parsed.generation(),
-                    SloPathV1.ORDINARY_MANAGED,
+                    SloPath.ORDINARY_MANAGED,
                     parsed.descriptor().actionAtEpochMs(),
                     Bytes.sha256(parsed.descriptor().canonicalBytes()));
             assertNotNull(outbox.get(expectedStart.sampleId()));
@@ -9363,11 +9340,11 @@ class DelayShardTest {
                     shard.applySystemMutation(admission, admissionPosition, keyPair.getPublic())
                             .stableCode());
             assertEquals(new OutcomeReserveUsage(2, 2), shard.outcomeReserve());
-            assertEquals(2, shard.quotaAggregateUsage().amount(CapacityDimensionV1.RESULT_RECORDS));
-            assertEquals(2, shard.quotaAggregateUsage().amount(CapacityDimensionV1.RESULT_BYTES));
+            assertEquals(2, shard.quotaAggregateUsage().amount(CapacityDimension.RESULT_RECORDS));
+            assertEquals(2, shard.quotaAggregateUsage().amount(CapacityDimension.RESULT_BYTES));
             assertEquals(
                     shard.quotaAggregateUsage(),
-                    CapacityVectorV1.decode(store.getValue(ColumnFamily.META, KeyCodec.metaQuota(2), 7)
+                    CapacityVector.decode(store.getValue(ColumnFamily.META, KeyCodec.metaQuota(2), 7)
                             .payload()));
             assertEquals(MessageStatus.PUBLISHING, shard.getMessage(messageId).status());
             assertNotNull(shard.findOpenPublishAttempt(parsed.publishAttemptId()));
@@ -9376,8 +9353,8 @@ class DelayShardTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard shard = new DelayShard(store, shardConfig);
-            assertEquals(2, shard.outcomeReserveVector().amount(CapacityDimensionV1.RESULT_RECORDS));
-            assertEquals(2, shard.outcomeReserveVector().amount(CapacityDimensionV1.RESULT_BYTES));
+            assertEquals(2, shard.outcomeReserveVector().amount(CapacityDimension.RESULT_RECORDS));
+            assertEquals(2, shard.outcomeReserveVector().amount(CapacityDimension.RESULT_BYTES));
             final SystemMutationResult mismatched =
                     shard.applySystemMutation(mismatchedOutcome, mismatchedOutcomePosition, keyPair.getPublic());
             assertEquals(ApplyStatus.REJECTED, mismatched.applyStatus());
@@ -9454,7 +9431,7 @@ class DelayShardTest {
                 1,
                 keyPair.getPrivate());
         final KafkaSourcePosition admissionPosition = position(shardId, 1, 2_001);
-        final ShardCapacityEnvelopeV1 envelope = capacityEnvelope(1);
+        final ShardCapacityEnvelope envelope = capacityEnvelope(1);
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
@@ -9467,12 +9444,12 @@ class DelayShardTest {
                     StableCode.OK,
                     shard.applySystemMutation(admission, admissionPosition, keyPair.getPublic())
                             .stableCode());
-            assertEquals(1, shard.outcomeReserveVector().amount(CapacityDimensionV1.RESULT_RECORDS));
-            assertEquals(1, shard.outcomeReserveVector().amount(CapacityDimensionV1.RESULT_BYTES));
+            assertEquals(1, shard.outcomeReserveVector().amount(CapacityDimension.RESULT_RECORDS));
+            assertEquals(1, shard.outcomeReserveVector().amount(CapacityDimension.RESULT_BYTES));
             assertEquals(envelope, shard.capacityEnvelope());
             assertEquals(
                     shard.outcomeReserveVector(),
-                    CapacityVectorV1.decode(store.getValue(
+                    CapacityVector.decode(store.getValue(
                                     ColumnFamily.META,
                                     KeyCodec.metaControlReserve(
                                             2, envelope.outcomeReserve().grantId()),
@@ -9483,32 +9460,32 @@ class DelayShardTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard reopened = new DelayShard(store, shardConfig, null, envelope);
-            assertEquals(1, reopened.outcomeReserveVector().amount(CapacityDimensionV1.RESULT_RECORDS));
-            assertEquals(1, reopened.outcomeReserveVector().amount(CapacityDimensionV1.RESULT_BYTES));
+            assertEquals(1, reopened.outcomeReserveVector().amount(CapacityDimension.RESULT_RECORDS));
+            assertEquals(1, reopened.outcomeReserveVector().amount(CapacityDimension.RESULT_BYTES));
             assertThrows(
                     IllegalStateException.class, () -> new DelayShard(store, shardConfig, null, capacityEnvelope(2)));
-            final long[] staleOutcome = new long[CapacityDimensionV1.COUNT];
-            staleOutcome[CapacityDimensionV1.RESULT_RECORDS.wireValue() - 1] = 2;
+            final long[] staleOutcome = new long[CapacityDimension.COUNT];
+            staleOutcome[CapacityDimension.RESULT_RECORDS.wireValue() - 1] = 2;
             store.write(batch -> batch.putValue(
                     ColumnFamily.META,
                     8,
                     KeyCodec.metaControlReserve(2, envelope.outcomeReserve().grantId()),
-                    new CapacityVectorV1(staleOutcome).canonicalBytes()));
+                    new CapacityVector(staleOutcome).canonicalBytes()));
             assertThrows(IllegalStateException.class, () -> new DelayShard(store, shardConfig, null, envelope));
-            final long[] repairedOutcome = new long[CapacityDimensionV1.COUNT];
-            repairedOutcome[CapacityDimensionV1.RESULT_RECORDS.wireValue() - 1] = 1;
+            final long[] repairedOutcome = new long[CapacityDimension.COUNT];
+            repairedOutcome[CapacityDimension.RESULT_RECORDS.wireValue() - 1] = 1;
             store.write(batch -> batch.putValue(
                     ColumnFamily.META,
                     8,
                     KeyCodec.metaControlReserve(2, envelope.outcomeReserve().grantId()),
-                    new CapacityVectorV1(repairedOutcome).canonicalBytes()));
-            final long[] staleReserve = new long[CapacityDimensionV1.COUNT];
-            staleReserve[CapacityDimensionV1.CONTROL_RESERVE_BYTES.wireValue() - 1] = 1;
+                    new CapacityVector(repairedOutcome).canonicalBytes()));
+            final long[] staleReserve = new long[CapacityDimension.COUNT];
+            staleReserve[CapacityDimension.CONTROL_RESERVE_BYTES.wireValue() - 1] = 1;
             store.write(batch -> batch.putValue(
                     ColumnFamily.META,
                     8,
                     KeyCodec.metaControlReserve(3, envelope.nonOutcomeControl().grantId()),
-                    new CapacityVectorV1(staleReserve).canonicalBytes()));
+                    new CapacityVector(staleReserve).canonicalBytes()));
             assertThrows(IllegalStateException.class, () -> new DelayShard(store, shardConfig, null, envelope));
         }
     }
@@ -9517,24 +9494,24 @@ class DelayShardTest {
     void mutableControlReserveProjectionUsesGrantBoundedCheckedArithmetic() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("control-reserve-accounting"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 20);
-        final ShardCapacityEnvelopeV1 envelope = capacityEnvelopeWithNonOutcomeReserve();
-        final CapacityVectorV1 oneReserveByte = capacityVector(CapacityDimensionV1.CONTROL_RESERVE_BYTES, 1);
+        final ShardCapacityEnvelope envelope = capacityEnvelopeWithNonOutcomeReserve();
+        final CapacityVector oneReserveByte = capacityVector(CapacityDimension.CONTROL_RESERVE_BYTES, 1);
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, envelope);
-            assertEquals(CapacityVectorV1.empty(), shard.controlReserveUsage(3));
+            assertEquals(CapacityVector.empty(), shard.controlReserveUsage(3));
             assertEquals(oneReserveByte, shard.reserveControlCapacity(3, oneReserveByte));
             assertEquals(oneReserveByte, shard.controlReserveUsage(3));
             assertThrows(
                     IllegalStateException.class,
                     () -> shard.reserveControlCapacity(
-                            3, new CapacityVectorV1(capacityAmounts(CapacityDimensionV1.CONTROL_RESERVE_BYTES, 4))));
-            assertEquals(CapacityVectorV1.empty(), shard.releaseControlCapacity(3, oneReserveByte));
+                            3, new CapacityVector(capacityAmounts(CapacityDimension.CONTROL_RESERVE_BYTES, 4))));
+            assertEquals(CapacityVector.empty(), shard.releaseControlCapacity(3, oneReserveByte));
             assertNull(store.getValue(
                     ColumnFamily.META,
                     KeyCodec.metaControlReserve(3, envelope.nonOutcomeControl().grantId()),
                     8));
-            assertEquals(CapacityVectorV1.empty(), shard.controlReserveUsage(6));
+            assertEquals(CapacityVector.empty(), shard.controlReserveUsage(6));
         }
     }
 
@@ -9542,23 +9519,22 @@ class DelayShardTest {
     void systemWriterReserveProjectionIsPartitionedAndPersistsAcrossReopen() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-writer-reserve-accounting"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 21);
-        final ShardCapacityEnvelopeV1 envelope = capacityEnvelopeWithSystemWriterReserve();
-        final CapacityVectorV1 oneWriterRecord = capacityVector(CapacityDimensionV1.SYSTEM_WRITER_RESERVED_RECORDS, 1);
-        final CapacityVectorV1 oneWriterByte = capacityVector(CapacityDimensionV1.SYSTEM_WRITER_RESERVED_BYTES, 1);
+        final ShardCapacityEnvelope envelope = capacityEnvelopeWithSystemWriterReserve();
+        final CapacityVector oneWriterRecord = capacityVector(CapacityDimension.SYSTEM_WRITER_RESERVED_RECORDS, 1);
+        final CapacityVector oneWriterByte = capacityVector(CapacityDimension.SYSTEM_WRITER_RESERVED_BYTES, 1);
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults(), null, envelope);
-            assertEquals(CapacityVectorV1.empty(), shard.controlReserveUsage(6));
+            assertEquals(CapacityVector.empty(), shard.controlReserveUsage(6));
             assertEquals(oneWriterRecord, shard.reserveControlCapacity(6, oneWriterRecord));
             assertEquals(oneWriterRecord, shard.controlReserveUsage(6));
             assertThrows(
                     IllegalArgumentException.class,
-                    () -> shard.reserveControlCapacity(
-                            6, capacityVector(CapacityDimensionV1.CONTROL_RESERVE_BYTES, 1)));
+                    () -> shard.reserveControlCapacity(6, capacityVector(CapacityDimension.CONTROL_RESERVE_BYTES, 1)));
             assertThrows(IllegalArgumentException.class, () -> shard.reserveControlCapacity(3, oneWriterByte));
             assertEquals(
                     oneWriterRecord,
-                    CapacityVectorV1.decode(store.getValue(
+                    CapacityVector.decode(store.getValue(
                                     ColumnFamily.META,
                                     KeyCodec.metaControlReserve(
                                             6, envelope.nonOutcomeControl().grantId()),
@@ -9569,10 +9545,10 @@ class DelayShardTest {
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard reopened = new DelayShard(store, DelayShardConfig.defaults(), null, envelope);
             assertEquals(oneWriterRecord, reopened.systemWriterReserveUsage());
-            final CapacityVectorV1 recordAndByte = oneWriterRecord.add(oneWriterByte);
+            final CapacityVector recordAndByte = oneWriterRecord.add(oneWriterByte);
             assertEquals(recordAndByte, reopened.reserveSystemWriterCapacity(oneWriterByte));
             assertEquals(oneWriterByte, reopened.releaseSystemWriterCapacity(oneWriterRecord));
-            assertEquals(CapacityVectorV1.empty(), reopened.releaseSystemWriterCapacity(oneWriterByte));
+            assertEquals(CapacityVector.empty(), reopened.releaseSystemWriterCapacity(oneWriterByte));
             assertNull(store.getValue(
                     ColumnFamily.META,
                     KeyCodec.metaControlReserve(6, envelope.nonOutcomeControl().grantId()),
@@ -9584,14 +9560,14 @@ class DelayShardTest {
     void systemWriterReserveProjectionRejectsWrongPersistedDimensions() {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("system-writer-reserve-fence"));
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 22);
-        final ShardCapacityEnvelopeV1 envelope = capacityEnvelopeWithSystemWriterReserve();
+        final ShardCapacityEnvelope envelope = capacityEnvelopeWithSystemWriterReserve();
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             store.write(batch -> batch.putValue(
                     ColumnFamily.META,
                     8,
                     KeyCodec.metaControlReserve(6, envelope.nonOutcomeControl().grantId()),
-                    capacityVector(CapacityDimensionV1.CONTROL_RESERVE_BYTES, 1).canonicalBytes()));
+                    capacityVector(CapacityDimension.CONTROL_RESERVE_BYTES, 1).canonicalBytes()));
             assertThrows(
                     IllegalArgumentException.class,
                     () -> new DelayShard(store, DelayShardConfig.defaults(), null, envelope));
@@ -10847,9 +10823,9 @@ class DelayShardTest {
                     shard.getTerminalGeneration(schedule.delayMessageId(), 0).terminalCode());
             final DlqExportRecord dlqExport = shard.getDlqExportRecord(schedule.delayMessageId(), 0);
             assertNotNull(dlqExport);
-            assertEquals(DlqExportStateV1.NOT_CONFIGURED, dlqExport.state());
+            assertEquals(DlqExportState.NOT_CONFIGURED, dlqExport.state());
             assertEquals(
-                    DlqExportStateV1.NOT_CONFIGURED,
+                    DlqExportState.NOT_CONFIGURED,
                     shard.queryMessageSnapshot(schedule.delayMessageId()).dlqExportState());
         }
     }
@@ -10990,7 +10966,7 @@ class DelayShardTest {
         final int keyVersion = 7;
         final long closeThrough = 3_000;
         final byte[] proofId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                Bytes.utf8("nereus-delay-time-fence-proof\0"),
                 shardId.routeIncarnation().bytes(),
                 Bytes.u32be(shardId.partition()),
                 Bytes.i64be(closeThrough),
@@ -11088,7 +11064,7 @@ class DelayShardTest {
                 0,
                 null);
         final byte[] belowMarginId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                Bytes.utf8("nereus-delay-time-fence-proof\0"),
                 shardId.routeIncarnation().bytes(),
                 Bytes.u32be(shardId.partition()),
                 Bytes.i64be(closeThrough),
@@ -11116,7 +11092,7 @@ class DelayShardTest {
                 0,
                 null);
         final byte[] atMarginId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                Bytes.utf8("nereus-delay-time-fence-proof\0"),
                 shardId.routeIncarnation().bytes(),
                 Bytes.u32be(shardId.partition()),
                 Bytes.i64be(closeThrough),
@@ -11156,7 +11132,7 @@ class DelayShardTest {
                     0,
                     null);
             final byte[] overflowingProofId = Bytes.sha256(
-                    Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                    Bytes.utf8("nereus-delay-time-fence-proof\0"),
                     shardId.routeIncarnation().bytes(),
                     Bytes.u32be(shardId.partition()),
                     Bytes.i64be(Long.MAX_VALUE),
@@ -11582,7 +11558,7 @@ class DelayShardTest {
             final ShardId shard,
             final ControlRef controlRef,
             final int controlKind,
-            final PayloadProofTrustSetRefV1 trustSet,
+            final PayloadProofTrustSetRef trustSet,
             final byte[] branch) {
         final byte[] subject = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
@@ -11606,7 +11582,7 @@ class DelayShardTest {
             final ShardId shard,
             final ControlRef controlRef,
             final int controlKind,
-            final ProfileRefV1 profile,
+            final ProfileRef profile,
             final byte[] branch) {
         final byte[] subject = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
@@ -11746,7 +11722,7 @@ class DelayShardTest {
     }
 
     private static byte[] retryDecisionForPolicy(
-            final RetryPolicySemanticV1 policy,
+            final RetryPolicySemantic policy,
             final int kind,
             final StableCode cause,
             final long completedAttemptNo,
@@ -11762,9 +11738,9 @@ class DelayShardTest {
             if (nextRetryAt != null) {
                 CanonicalProtobuf.int64(output, 6, nextRetryAt);
             }
-            CanonicalProtobuf.uint32(output, 7, RetryPolicySemanticV1.JITTER_ALGORITHM_VERSION);
+            CanonicalProtobuf.uint32(output, 7, RetryPolicySemantic.JITTER_ALGORITHM_VERSION);
             CanonicalProtobuf.uint32(output, 8, cause.wireValue());
-            CanonicalProtobuf.uint32(output, 9, RetryJitterV1.MESSAGE_PUBLISH);
+            CanonicalProtobuf.uint32(output, 9, RetryJitter.MESSAGE_PUBLISH);
         });
     }
 
@@ -12058,7 +12034,7 @@ class DelayShardTest {
             CanonicalProtobuf.bytes(
                     output,
                     16,
-                    new com.nereusstream.delay.protocol.RetryPolicyRefV1(
+                    new com.nereusstream.delay.protocol.RetryPolicyRef(
                                     Bytes.utf8("replay-policy"), 1, Bytes.sha256(Bytes.utf8("replay-policy-semantic")))
                             .canonicalBytes());
             CanonicalProtobuf.uint32(output, 17, 0);
@@ -12139,7 +12115,7 @@ class DelayShardTest {
             CanonicalProtobuf.uint32(output, 16, sourceWorkKind);
             CanonicalProtobuf.uint32(output, 17, 0);
             CanonicalProtobuf.uint32(output, 18, 0);
-            CanonicalProtobuf.bytes(output, 19, Bytes.sha256(Bytes.utf8("nereus-delay-attempt-obligation-set-v1\0")));
+            CanonicalProtobuf.bytes(output, 19, Bytes.sha256(Bytes.utf8("nereus-delay-attempt-obligation-set\0")));
             CanonicalProtobuf.bytes(
                     output, 20, claimTimelineSemanticDigest(messageId, lane, timelineKey, sourceWorkKind));
         });
@@ -12187,7 +12163,7 @@ class DelayShardTest {
             CanonicalProtobuf.uint32(output, 8, 0);
             CanonicalProtobuf.uint32(output, 9, 1);
         });
-        return Bytes.sha256(Bytes.utf8("nereus-delay-timeline-work-semantic-v1\0"), semanticFields);
+        return Bytes.sha256(Bytes.utf8("nereus-delay-timeline-work-semantic\0"), semanticFields);
     }
 
     private static byte[] chargeVector() {
@@ -12207,43 +12183,43 @@ class DelayShardTest {
         });
     }
 
-    private static CapacityVectorV1 capacityVector(final CapacityDimensionV1 dimension, final long amount) {
-        return new CapacityVectorV1(capacityAmounts(dimension, amount));
+    private static CapacityVector capacityVector(final CapacityDimension dimension, final long amount) {
+        return new CapacityVector(capacityAmounts(dimension, amount));
     }
 
-    private static long[] capacityAmounts(final CapacityDimensionV1 dimension, final long amount) {
-        final long[] result = new long[CapacityDimensionV1.COUNT];
+    private static long[] capacityAmounts(final CapacityDimension dimension, final long amount) {
+        final long[] result = new long[CapacityDimension.COUNT];
         result[dimension.wireValue() - 1] = amount;
         return result;
     }
 
-    private static ShardCapacityEnvelopeV1 capacityEnvelopeWithNonOutcomeReserve() {
+    private static ShardCapacityEnvelope capacityEnvelopeWithNonOutcomeReserve() {
         final PublishAdmissionBody.ChargeVector logicalLimit =
                 new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-        final QuotaGrantRefV1 logicalGrant =
-                new QuotaGrantRefV1(Bytes.sha256(Bytes.utf8("control-reserve-logical-grant")), 1, logicalLimit);
-        final CapacityVectorV1 nonOutcomeVector = capacityVector(CapacityDimensionV1.CONTROL_RESERVE_BYTES, 3);
-        final CapacityGrantV1 outcome = new CapacityGrantV1(
-                CapacityGrantKindV1.OUTCOME_RESERVE,
+        final QuotaGrantRef logicalGrant =
+                new QuotaGrantRef(Bytes.sha256(Bytes.utf8("control-reserve-logical-grant")), 1, logicalLimit);
+        final CapacityVector nonOutcomeVector = capacityVector(CapacityDimension.CONTROL_RESERVE_BYTES, 3);
+        final CapacityGrant outcome = new CapacityGrant(
+                CapacityGrantKind.OUTCOME_RESERVE,
                 Bytes.sha256(Bytes.utf8("control-reserve-outcome-grant")),
                 1,
-                CapacityVectorV1.empty());
-        final CapacityGrantV1 nonOutcome = new CapacityGrantV1(
-                CapacityGrantKindV1.NON_OUTCOME_CONTROL,
+                CapacityVector.empty());
+        final CapacityGrant nonOutcome = new CapacityGrant(
+                CapacityGrantKind.NON_OUTCOME_CONTROL,
                 Bytes.sha256(Bytes.utf8("control-reserve-non-outcome-grant")),
                 1,
                 nonOutcomeVector);
-        final CapacityGrantV1 recovery = new CapacityGrantV1(
-                CapacityGrantKindV1.RECOVERY_WORKING,
+        final CapacityGrant recovery = new CapacityGrant(
+                CapacityGrantKind.RECOVERY_WORKING,
                 Bytes.sha256(Bytes.utf8("control-reserve-recovery-grant")),
                 1,
-                CapacityVectorV1.empty());
-        final CapacityGrantV1 emergency = new CapacityGrantV1(
-                CapacityGrantKindV1.EMERGENCY_HEADROOM,
+                CapacityVector.empty());
+        final CapacityGrant emergency = new CapacityGrant(
+                CapacityGrantKind.EMERGENCY_HEADROOM,
                 Bytes.sha256(Bytes.utf8("control-reserve-emergency-grant")),
                 1,
-                CapacityVectorV1.empty());
-        return new ShardCapacityEnvelopeV1(
+                CapacityVector.empty());
+        return new ShardCapacityEnvelope(
                 Bytes.sha256(Bytes.utf8("control-reserve-envelope")),
                 1,
                 logicalGrant,
@@ -12255,38 +12231,38 @@ class DelayShardTest {
                 Bytes.sha256(Bytes.utf8("control-reserve-artifact")));
     }
 
-    private static ShardCapacityEnvelopeV1 capacityEnvelopeWithSystemWriterReserve() {
+    private static ShardCapacityEnvelope capacityEnvelopeWithSystemWriterReserve() {
         final PublishAdmissionBody.ChargeVector logicalLimit =
                 new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-        final QuotaGrantRefV1 logicalGrant =
-                new QuotaGrantRefV1(Bytes.sha256(Bytes.utf8("system-writer-logical-grant")), 1, logicalLimit);
-        final long[] writerAmounts = new long[CapacityDimensionV1.COUNT];
-        writerAmounts[CapacityDimensionV1.SYSTEM_WRITER_RESERVED_RECORDS.wireValue() - 1] = 2;
-        writerAmounts[CapacityDimensionV1.SYSTEM_WRITER_RESERVED_BYTES.wireValue() - 1] = 4;
-        writerAmounts[CapacityDimensionV1.SYSTEM_WRITER_RESERVED_BYTES_PER_SECOND.wireValue() - 1] = 8;
-        writerAmounts[CapacityDimensionV1.CONTROL_RESERVE_BYTES.wireValue() - 1] = 3;
-        final CapacityVectorV1 writerVector = new CapacityVectorV1(writerAmounts);
-        final CapacityGrantV1 outcome = new CapacityGrantV1(
-                CapacityGrantKindV1.OUTCOME_RESERVE,
+        final QuotaGrantRef logicalGrant =
+                new QuotaGrantRef(Bytes.sha256(Bytes.utf8("system-writer-logical-grant")), 1, logicalLimit);
+        final long[] writerAmounts = new long[CapacityDimension.COUNT];
+        writerAmounts[CapacityDimension.SYSTEM_WRITER_RESERVED_RECORDS.wireValue() - 1] = 2;
+        writerAmounts[CapacityDimension.SYSTEM_WRITER_RESERVED_BYTES.wireValue() - 1] = 4;
+        writerAmounts[CapacityDimension.SYSTEM_WRITER_RESERVED_BYTES_PER_SECOND.wireValue() - 1] = 8;
+        writerAmounts[CapacityDimension.CONTROL_RESERVE_BYTES.wireValue() - 1] = 3;
+        final CapacityVector writerVector = new CapacityVector(writerAmounts);
+        final CapacityGrant outcome = new CapacityGrant(
+                CapacityGrantKind.OUTCOME_RESERVE,
                 Bytes.sha256(Bytes.utf8("system-writer-outcome-grant")),
                 1,
-                CapacityVectorV1.empty());
-        final CapacityGrantV1 nonOutcome = new CapacityGrantV1(
-                CapacityGrantKindV1.NON_OUTCOME_CONTROL,
+                CapacityVector.empty());
+        final CapacityGrant nonOutcome = new CapacityGrant(
+                CapacityGrantKind.NON_OUTCOME_CONTROL,
                 Bytes.sha256(Bytes.utf8("system-writer-non-outcome-grant")),
                 1,
                 writerVector);
-        final CapacityGrantV1 recovery = new CapacityGrantV1(
-                CapacityGrantKindV1.RECOVERY_WORKING,
+        final CapacityGrant recovery = new CapacityGrant(
+                CapacityGrantKind.RECOVERY_WORKING,
                 Bytes.sha256(Bytes.utf8("system-writer-recovery-grant")),
                 1,
-                CapacityVectorV1.empty());
-        final CapacityGrantV1 emergency = new CapacityGrantV1(
-                CapacityGrantKindV1.EMERGENCY_HEADROOM,
+                CapacityVector.empty());
+        final CapacityGrant emergency = new CapacityGrant(
+                CapacityGrantKind.EMERGENCY_HEADROOM,
                 Bytes.sha256(Bytes.utf8("system-writer-emergency-grant")),
                 1,
-                CapacityVectorV1.empty());
-        return new ShardCapacityEnvelopeV1(
+                CapacityVector.empty());
+        return new ShardCapacityEnvelope(
                 Bytes.sha256(Bytes.utf8("system-writer-envelope")),
                 1,
                 logicalGrant,
@@ -12298,37 +12274,37 @@ class DelayShardTest {
                 Bytes.sha256(Bytes.utf8("system-writer-artifact")));
     }
 
-    private static ShardCapacityEnvelopeV1 capacityEnvelope(final long envelopeVersion) {
+    private static ShardCapacityEnvelope capacityEnvelope(final long envelopeVersion) {
         final PublishAdmissionBody.ChargeVector logicalLimit =
                 new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0);
-        final QuotaGrantRefV1 logicalGrant =
-                new QuotaGrantRefV1(Bytes.sha256(Bytes.utf8("bound-capacity-logical-grant")), 1, logicalLimit);
-        final long[] outcomeAmounts = new long[CapacityDimensionV1.COUNT];
-        outcomeAmounts[CapacityDimensionV1.RESULT_RECORDS.wireValue() - 1] = 1;
-        outcomeAmounts[CapacityDimensionV1.RESULT_BYTES.wireValue() - 1] = 1;
-        final CapacityVectorV1 outcomeVector = new CapacityVectorV1(outcomeAmounts);
-        final CapacityGrantV1 outcomeGrant = new CapacityGrantV1(
-                CapacityGrantKindV1.OUTCOME_RESERVE,
+        final QuotaGrantRef logicalGrant =
+                new QuotaGrantRef(Bytes.sha256(Bytes.utf8("bound-capacity-logical-grant")), 1, logicalLimit);
+        final long[] outcomeAmounts = new long[CapacityDimension.COUNT];
+        outcomeAmounts[CapacityDimension.RESULT_RECORDS.wireValue() - 1] = 1;
+        outcomeAmounts[CapacityDimension.RESULT_BYTES.wireValue() - 1] = 1;
+        final CapacityVector outcomeVector = new CapacityVector(outcomeAmounts);
+        final CapacityGrant outcomeGrant = new CapacityGrant(
+                CapacityGrantKind.OUTCOME_RESERVE,
                 Bytes.sha256(Bytes.utf8("bound-capacity-outcome-grant")),
                 1,
                 outcomeVector);
-        final CapacityVectorV1 empty = CapacityVectorV1.empty();
-        final CapacityGrantV1 nonOutcome = new CapacityGrantV1(
-                CapacityGrantKindV1.NON_OUTCOME_CONTROL,
+        final CapacityVector empty = CapacityVector.empty();
+        final CapacityGrant nonOutcome = new CapacityGrant(
+                CapacityGrantKind.NON_OUTCOME_CONTROL,
                 Bytes.sha256(Bytes.utf8("bound-capacity-non-outcome-grant")),
                 1,
                 empty);
-        final CapacityGrantV1 recovery = new CapacityGrantV1(
-                CapacityGrantKindV1.RECOVERY_WORKING,
+        final CapacityGrant recovery = new CapacityGrant(
+                CapacityGrantKind.RECOVERY_WORKING,
                 Bytes.sha256(Bytes.utf8("bound-capacity-recovery-grant")),
                 1,
                 empty);
-        final CapacityGrantV1 emergency = new CapacityGrantV1(
-                CapacityGrantKindV1.EMERGENCY_HEADROOM,
+        final CapacityGrant emergency = new CapacityGrant(
+                CapacityGrantKind.EMERGENCY_HEADROOM,
                 Bytes.sha256(Bytes.utf8("bound-capacity-emergency-grant")),
                 1,
                 empty);
-        return new ShardCapacityEnvelopeV1(
+        return new ShardCapacityEnvelope(
                 Bytes.sha256(Bytes.utf8("bound-capacity-envelope-" + envelopeVersion)),
                 envelopeVersion,
                 logicalGrant,
@@ -12422,8 +12398,7 @@ class DelayShardTest {
                     CanonicalProtobuf.bytes(output, field.number(), field.rawValue());
                 }
             }
-            CanonicalProtobuf.bytes(
-                    output, 16, Bytes.sha256(Bytes.utf8("nereus-delay-ready-certificate-v1\0"), prefix));
+            CanonicalProtobuf.bytes(output, 16, Bytes.sha256(Bytes.utf8("nereus-delay-ready-certificate\0"), prefix));
         });
     }
 
@@ -12442,7 +12417,7 @@ class DelayShardTest {
                 }
             }
         });
-        return Bytes.sha256(Bytes.utf8("nereus-delay-ready-certificate-v1\0"), prefix);
+        return Bytes.sha256(Bytes.utf8("nereus-delay-ready-certificate\0"), prefix);
     }
 
     private static byte[] nestedPlaceholder() {
@@ -12458,7 +12433,7 @@ class DelayShardTest {
     }
 
     private static byte[] evidenceCursor() {
-        return EvidenceCursorV1.kafka(
+        return EvidenceCursor.kafka(
                         Bytes.sha256(Bytes.utf8("evidence-resolution-lane")),
                         new byte[16],
                         java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("evidence-resolution-topic")), 16),
@@ -12472,15 +12447,15 @@ class DelayShardTest {
 
     private static byte[] publishEvidence(
             final byte[] attemptId, final boolean published, final StableCode stableCode) {
-        final byte[] owner = com.nereusstream.delay.protocol.ExternalDeliveryIdentityV1.publishAttempt(attemptId)
+        final byte[] owner = com.nereusstream.delay.protocol.ExternalDeliveryIdentity.publishAttempt(attemptId)
                 .canonicalBytes();
         final byte[] branch = published
                 ? CanonicalProtobuf.message(output -> {
                     CanonicalProtobuf.bytes(
                             output,
                             1,
-                            com.nereusstream.delay.protocol.BrokerResourceIdentityV1.kafka(
-                                            new com.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1(
+                            com.nereusstream.delay.protocol.BrokerResourceIdentity.kafka(
+                                            new com.nereusstream.delay.protocol.KafkaBrokerResourceIdentity(
                                                     "cluster-a",
                                                     java.util.UUID.nameUUIDFromBytes(
                                                             Bytes.utf8("publish-evidence-topic"))))
@@ -12502,13 +12477,13 @@ class DelayShardTest {
                     CanonicalProtobuf.uint32(output, 6, 1);
                     CanonicalProtobuf.uint32(output, 7, stableCode.wireValue());
                 });
-        return com.nereusstream.delay.protocol.PublishEvidenceV1.create(
+        return com.nereusstream.delay.protocol.PublishEvidence.create(
                         published
-                                ? com.nereusstream.delay.protocol.PublishEvidenceKindV1.KAFKA_PRODUCE_ACK
-                                : com.nereusstream.delay.protocol.PublishEvidenceKindV1.ADAPTER_NON_SUBMISSION,
+                                ? com.nereusstream.delay.protocol.PublishEvidenceKind.KAFKA_PRODUCE_ACK
+                                : com.nereusstream.delay.protocol.PublishEvidenceKind.ADAPTER_NON_SUBMISSION,
                         published
-                                ? com.nereusstream.delay.protocol.EvidenceVerificationStatusV1.VERIFIED_PUBLISHED
-                                : com.nereusstream.delay.protocol.EvidenceVerificationStatusV1.VERIFIED_NOT_PUBLISHED,
+                                ? com.nereusstream.delay.protocol.EvidenceVerificationStatus.VERIFIED_PUBLISHED
+                                : com.nereusstream.delay.protocol.EvidenceVerificationStatus.VERIFIED_NOT_PUBLISHED,
                         branch)
                 .canonicalBytes();
     }
@@ -12566,7 +12541,7 @@ class DelayShardTest {
             CanonicalProtobuf.uint32(output, 3, 1);
         });
         final byte[] repeated = CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1, reference));
-        final byte[] digest = Bytes.sha256(Bytes.utf8("nereus-delay-protection-set-v1\0"), repeated);
+        final byte[] digest = Bytes.sha256(Bytes.utf8("nereus-delay-protection-set\0"), repeated);
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, reference);
             CanonicalProtobuf.bytes(output, 2, digest);
@@ -12581,7 +12556,7 @@ class DelayShardTest {
             CanonicalProtobuf.bytes(output, 4, sourcePosition);
         });
         final byte[] repeated = CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1, reference));
-        final byte[] digest = Bytes.sha256(Bytes.utf8("nereus-delay-protection-set-v1\0"), repeated);
+        final byte[] digest = Bytes.sha256(Bytes.utf8("nereus-delay-protection-set\0"), repeated);
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, reference);
             CanonicalProtobuf.bytes(output, 2, digest);
@@ -12643,12 +12618,12 @@ class DelayShardTest {
         });
     }
 
-    private static SloObjectiveV1 commandAppliedObjective() {
-        return new SloObjectiveV1(
-                SloObjectiveNameV1.COMMAND_APPLIED_LATENCY,
-                SloPopulationV1.ALL_ACCEPTED,
-                SloThresholdDirectionV1.AT_MOST,
-                SloThresholdUnitV1.MILLISECONDS,
+    private static SloObjective commandAppliedObjective() {
+        return new SloObjective(
+                SloObjectiveName.COMMAND_APPLIED_LATENCY,
+                SloPopulation.ALL_ACCEPTED,
+                SloThresholdDirection.AT_MOST,
+                SloThresholdUnit.MILLISECONDS,
                 1_000,
                 99,
                 100,
@@ -12659,12 +12634,12 @@ class DelayShardTest {
                 Bytes.sha256(Bytes.utf8("command-applied-slo-envelope")));
     }
 
-    private static SloObjectiveV1 dueAdmissionObjective() {
-        return new SloObjectiveV1(
-                SloObjectiveNameV1.DUE_ADMISSION_LAG,
-                SloPopulationV1.ALL_ACCEPTED,
-                SloThresholdDirectionV1.AT_MOST,
-                SloThresholdUnitV1.MILLISECONDS,
+    private static SloObjective dueAdmissionObjective() {
+        return new SloObjective(
+                SloObjectiveName.DUE_ADMISSION_LAG,
+                SloPopulation.ALL_ACCEPTED,
+                SloThresholdDirection.AT_MOST,
+                SloThresholdUnit.MILLISECONDS,
                 1_000,
                 99,
                 100,
@@ -12737,17 +12712,16 @@ class DelayShardTest {
         return Bytes.concat(prefix, Bytes.crc32cbe(prefix));
     }
 
-    private static ActiveLaneStateV1 typedActiveLaneState(final PublishAdmissionBody.ChargeVector usage) {
-        final ProfileRefV1 destination = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2), ProfileKindV1.DESTINATION);
-        final ProfileRefV1 capability =
-                new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4), ProfileKindV1.DELIVERY_CAPABILITY);
+    private static ActiveLaneState typedActiveLaneState(final PublishAdmissionBody.ChargeVector usage) {
+        final ProfileRef destination = new ProfileRef(bytes(4, 1), 1, bytes(32, 2), ProfileKind.DESTINATION);
+        final ProfileRef capability = new ProfileRef(bytes(4, 3), 1, bytes(32, 4), ProfileKind.DELIVERY_CAPABILITY);
         final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
-        return new ActiveLaneStateV1(
+        return new ActiveLaneState(
                 DestinationLaneId.derive(tuple),
                 bytes(16, 5),
                 AdmissionGate.OPEN,
                 RuntimeReadiness.BLOCKED,
-                LaneRuntimeBlockReasonV1.CAPABILITY,
+                LaneRuntimeBlockReason.CAPABILITY,
                 1,
                 1,
                 destination,
@@ -12757,7 +12731,7 @@ class DelayShardTest {
                 usage,
                 null,
                 null,
-                LaneCircuitStateV1.CLOSED,
+                LaneCircuitState.CLOSED,
                 0,
                 0,
                 0,
@@ -12767,10 +12741,9 @@ class DelayShardTest {
                 null);
     }
 
-    private static ActiveLaneStateV1 typedReadyLaneState(final ShardId shardId, final byte[] encodedReadyKey) {
-        final ProfileRefV1 destination = new ProfileRefV1(bytes(4, 1), 1, bytes(32, 2), ProfileKindV1.DESTINATION);
-        final ProfileRefV1 capability =
-                new ProfileRefV1(bytes(4, 3), 1, bytes(32, 4), ProfileKindV1.DELIVERY_CAPABILITY);
+    private static ActiveLaneState typedReadyLaneState(final ShardId shardId, final byte[] encodedReadyKey) {
+        final ProfileRef destination = new ProfileRef(bytes(4, 1), 1, bytes(32, 2), ProfileKind.DESTINATION);
+        final ProfileRef capability = new ProfileRef(bytes(4, 3), 1, bytes(32, 4), ProfileKind.DELIVERY_CAPABILITY);
         final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
         final byte[] certificate = PublishAdmissionBody.decode(Fixture.createForSourceWithLane(
                                 shardId,
@@ -12786,7 +12759,7 @@ class DelayShardTest {
                         .body())
                 .readyCertificate()
                 .canonicalBytes();
-        return new ActiveLaneStateV1(
+        return new ActiveLaneState(
                 DestinationLaneId.derive(tuple),
                 bytes(16, 5),
                 AdmissionGate.OPEN,
@@ -12801,7 +12774,7 @@ class DelayShardTest {
                 zeroChargeVector(),
                 100L,
                 200L,
-                LaneCircuitStateV1.CLOSED,
+                LaneCircuitState.CLOSED,
                 0,
                 0,
                 0,

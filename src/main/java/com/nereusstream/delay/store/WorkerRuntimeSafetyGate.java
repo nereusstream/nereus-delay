@@ -5,14 +5,14 @@ import java.util.Objects;
 /**
  * Explicit runtime safety state for a Worker shared-resource failure domain.
  *
- * <p>The gate is intentionally driven by an authoritative runtime probe.  A
+ * <p>The gate is intentionally driven by an authoritative runtime probe. A
  * failed observation is sticky: once the certified envelope no longer fits,
  * the Worker must drain or migrate instead of automatically reopening work
- * when one later observation happens to look healthy.  This keeps a hot
+ * when one later observation happens to look healthy. This keeps a hot
  * cgroup/FD/disk shrink from becoming a replay-dependent business result.</p>
  *
  * <p>This class does not perform the probe, drain shards, or acquire Oxia
- * placement authority.  It is the local state/fencing seam shared resources
+ * placement authority. It is the local state/fencing seam shared resources
  * and admission callers can use after those external layers publish an
  * observation.</p>
  */
@@ -70,7 +70,7 @@ public final class WorkerRuntimeSafetyGate {
     }
 
     /**
-     * Records a probe failure as a shared safety breach.  A missing,
+     * Records a probe failure as a shared safety breach. A missing,
      * malformed, or temporarily unreadable platform limit is not treated as
      * an unlimited resource and cannot leave the Worker accepting work.
      */
@@ -83,7 +83,7 @@ public final class WorkerRuntimeSafetyGate {
     }
 
     /**
-     * Stages a new certified envelope.  New ownership is fenced immediately;
+     * Stages a new certified envelope. New ownership is fenced immediately;
      * the staged envelope becomes active only after all old DB/ownership and
      * transition resources have drained.
      */
@@ -110,7 +110,7 @@ public final class WorkerRuntimeSafetyGate {
 
     /**
      * Activates the staged envelope only after the old physical boundary is
-     * empty.  A runtime observation is required again at the activation edge.
+     * empty. A runtime observation is required again at the activation edge.
      */
     public synchronized void activateAfterDrain(
             final long ownedShardDbs,

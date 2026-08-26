@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 
 class CommandProtocolTupleTest {
     @Test
-    void commandHashBindsTheProtocolTupleWithoutChangingTheManagedV1Vector() {
+    void commandHashBindsTheProtocolTupleWithoutChangingTheManagedVector() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
         final CommandId commandId = CommandId.random(shard);
         final DelayMessageId messageId = DelayMessageId.random(shard);
@@ -21,18 +21,12 @@ class CommandProtocolTupleTest {
                 OrderingMode.BEST_EFFORT,
                 Bytes.utf8("payload")));
         final PreparedCommand managed = PreparedCommand.create(
-                shard,
-                commandId,
-                messageId,
-                CommandType.SCHEDULE,
-                ProtocolTupleV1.managedCommandV1(),
-                retryUntil,
-                body);
-        final ProtocolTupleV1 nextTuple = new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 2);
+                shard, commandId, messageId, CommandType.SCHEDULE, ProtocolTuple.managedCommand(), retryUntil, body);
+        final ProtocolTuple nextTuple = new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 2);
         final PreparedCommand next =
                 PreparedCommand.create(shard, commandId, messageId, CommandType.SCHEDULE, nextTuple, retryUntil, body);
 
-        assertEquals(ProtocolTupleV1.managedCommandV1(), managed.protocolTuple());
+        assertEquals(ProtocolTuple.managedCommand(), managed.protocolTuple());
         assertArrayEquals(
                 managed.commandHash(),
                 CommandHash.compute(
@@ -52,7 +46,7 @@ class CommandProtocolTupleTest {
                         managed.canonicalBody()));
         assertFalse(Arrays.equals(managed.commandHash(), next.commandHash()));
         assertThrows(IllegalArgumentException.class, () -> CommandCodec.encodeFrame(next));
-        assertThrows(IllegalArgumentException.class, () -> CommandQueuedReceiptV1.PreparedCommandRef.from(next));
+        assertThrows(IllegalArgumentException.class, () -> CanonicalCommandQueuedReceipt.PreparedCommandRef.from(next));
     }
 
     @Test
@@ -68,7 +62,7 @@ class CommandProtocolTupleTest {
                         commandId,
                         messageId,
                         CommandType.SCHEDULE,
-                        new ProtocolTupleV1(1, 1, ProtocolTupleV1.SYSTEM_MUTATION, 1, 1),
+                        new ProtocolTuple(1, 1, ProtocolTuple.SYSTEM_MUTATION, 1, 1),
                         retryUntil,
                         new byte[0]));
     }

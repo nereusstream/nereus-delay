@@ -1,7 +1,7 @@
 package com.nereusstream.delay.ownership;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CapacityVectorV1;
+import com.nereusstream.delay.protocol.CapacityVector;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.route.RouteSnapshotProvider;
 import com.nereusstream.delay.semantic.AuthenticatedTenantContext;
@@ -126,9 +126,9 @@ public final class RouteWorkerAssignmentCoordinator {
             byte[] capacityEnvelopeDigest,
             long placementEpoch,
             List<WorkerPlacementPolicy.WorkerCandidate> candidates,
-            CapacityVectorV1 incomingShardCapacity,
-            CapacityVectorV1 workerFixedCost,
-            CapacityVectorV1 transitionDemand,
+            CapacityVector incomingShardCapacity,
+            CapacityVector workerFixedCost,
+            CapacityVector transitionDemand,
             String currentWorkerId,
             long nowEpochMs,
             long movementBytes,
@@ -166,7 +166,7 @@ public final class RouteWorkerAssignmentCoordinator {
 
     public record RoutePlacementResult(
             long routeRevision,
-            com.nereusstream.delay.protocol.RouteSnapshotV1 routeSnapshot,
+            com.nereusstream.delay.protocol.RouteSnapshot routeSnapshot,
             SourceAssignment sourceAssignment,
             WorkerAssignmentCoordinator.PlacementResult placement) {
         public RoutePlacementResult {

@@ -2,11 +2,11 @@ package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
-import com.nereusstream.delay.protocol.RecoveryFloorRefV1;
-import com.nereusstream.delay.protocol.RecoveryPinV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.EvidenceCursor;
+import com.nereusstream.delay.protocol.RecoveryFloorRef;
+import com.nereusstream.delay.protocol.RecoveryPin;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SourcePosition;
 import java.io.IOException;
@@ -31,10 +31,10 @@ import java.util.Optional;
  * Crash-durable local projection of one shard's Recovery Catalog.
  *
  * <p>The canonical snapshot contains every published manifest, immutable
- * manifest-object identity, scalar/typed Floor and active RecoveryPin.  A
+ * manifest-object identity, scalar/typed Floor and active RecoveryPin. A
  * JVM lock plus an on-disk lock serializes multiple local authority instances;
  * every successful mutation is published with a checksummed temporary file,
- * atomic rename and directory fsync.  This is an embedded/conformance seam,
+ * atomic rename and directory fsync. This is an embedded/conformance seam,
  * not the production Oxia Owner Lease/session or catalog authority.</p>
  */
 public final class PersistentRecoveryCatalog implements RecoveryCatalogAuthority {
@@ -45,7 +45,7 @@ public final class PersistentRecoveryCatalog implements RecoveryCatalogAuthority
     private static final int MAX_STATE_BYTES = 64 * 1024 * 1024;
     private static final int MAX_MANIFEST_BYTES = 16 * 1024 * 1024;
     private static final int MAX_MANIFESTS = 4096;
-    private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-recovery-catalog-state-v1\0");
+    private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-recovery-catalog-state\0");
     private static final Object JVM_LOCK = new Object();
 
     private final Path stateFile;
@@ -76,16 +76,16 @@ public final class PersistentRecoveryCatalog implements RecoveryCatalogAuthority
     }
 
     @Override
-    public RecoveryFloorRefV1 advanceFloor(
+    public RecoveryFloorRef advanceFloor(
             final byte[] checkpointId,
             final long expectedCatalogGeneration,
-            final List<EvidenceCursorV1> evidenceCursors) {
+            final List<EvidenceCursor> evidenceCursors) {
         return mutate(() -> delegate.advanceFloor(checkpointId, expectedCatalogGeneration, evidenceCursors));
     }
 
     @Override
     public RecoveryCatalog.Publication publishUploadedCheckpoint(
-            final CheckpointUploadIntentV1 publishedIntent,
+            final CheckpointUploadIntent publishedIntent,
             final CheckpointManifest manifest,
             final long expectedCatalogGeneration) {
         return mutate(() -> delegate.publishUploadedCheckpoint(publishedIntent, manifest, expectedCatalogGeneration));
@@ -102,7 +102,7 @@ public final class PersistentRecoveryCatalog implements RecoveryCatalogAuthority
     }
 
     @Override
-    public Optional<RecoveryFloorRefV1> currentFloorRef() {
+    public Optional<RecoveryFloorRef> currentFloorRef() {
         return read(delegate::currentFloorRef);
     }
 
@@ -147,12 +147,12 @@ public final class PersistentRecoveryCatalog implements RecoveryCatalogAuthority
     }
 
     @Override
-    public RecoveryPinV1 createRecoveryPin(final RecoveryPinV1 pin) {
+    public RecoveryPin createRecoveryPin(final RecoveryPin pin) {
         return mutate(() -> delegate.createRecoveryPin(pin));
     }
 
     @Override
-    public void releaseRecoveryPin(final RecoveryPinV1 pin) {
+    public void releaseRecoveryPin(final RecoveryPin pin) {
         mutate(() -> {
             delegate.releaseRecoveryPin(pin);
             return null;
@@ -160,7 +160,7 @@ public final class PersistentRecoveryCatalog implements RecoveryCatalogAuthority
     }
 
     @Override
-    public Optional<RecoveryPinV1> activeRecoveryPin() {
+    public Optional<RecoveryPin> activeRecoveryPin() {
         return read(delegate::activeRecoveryPin);
     }
 
@@ -291,14 +291,14 @@ public final class PersistentRecoveryCatalog implements RecoveryCatalogAuthority
 
     static byte[] encodeSnapshot(final RecoveryCatalog.Snapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot");
-        // Validate the complete projection before encoding.  The normal
+        // Validate the complete projection before encoding. The normal
         // delegate path already produces a validated Snapshot, but this
         // boundary is also used while decoding/rechecking state and must not
         // silently normalize an alias resource key, foreign shard or broken
         // Floor/ancestry projection into a different durable value.
-        for (Map.Entry<String, CheckpointResourceV1> entry :
+        for (Map.Entry<String, CheckpointResource> entry :
                 snapshot.manifestResources().entrySet()) {
-            final CheckpointResourceV1 resource = Objects.requireNonNull(entry.getValue(), "snapshot resource");
+            final CheckpointResource resource = Objects.requireNonNull(entry.getValue(), "snapshot resource");
             if (!Bytes.hex(resource.checkpointId()).equals(entry.getKey())) {
                 throw new IllegalStateException("Recovery Catalog resource map key does not match checkpoint identity");
             }
@@ -313,7 +313,7 @@ public final class PersistentRecoveryCatalog implements RecoveryCatalogAuthority
             CanonicalProtobuf.uint32(output, 1, FORMAT_VERSION);
             CanonicalProtobuf.uint64Bits(output, 2, snapshot.catalogGeneration());
             for (CheckpointManifest manifest : manifests) {
-                final CheckpointResourceV1 resource =
+                final CheckpointResource resource =
                         snapshot.manifestResources().get(Bytes.hex(manifest.checkpointId()));
                 CanonicalProtobuf.bytes(output, 3, encodeManifestEntry(manifest, resource));
             }
@@ -330,7 +330,7 @@ public final class PersistentRecoveryCatalog implements RecoveryCatalogAuthority
         return payload;
     }
 
-    private static byte[] encodeManifestEntry(final CheckpointManifest manifest, final CheckpointResourceV1 resource) {
+    private static byte[] encodeManifestEntry(final CheckpointManifest manifest, final CheckpointResource resource) {
         final byte[] manifestBytes = manifest.canonicalJsonBytes();
         if (manifestBytes.length > MAX_MANIFEST_BYTES) {
             throw new IllegalStateException("Recovery Catalog manifest exceeds bound");
@@ -390,7 +390,7 @@ public final class PersistentRecoveryCatalog implements RecoveryCatalogAuthority
         }
         final long generation = uint64Bits(fields.get(1), 2);
         final List<CheckpointManifest> manifests = new ArrayList<>();
-        final Map<String, CheckpointResourceV1> resources = new java.util.HashMap<>();
+        final Map<String, CheckpointResource> resources = new java.util.HashMap<>();
         int index = 2;
         while (index < fields.size() && fields.get(index).number() == 3) {
             if (manifests.size() >= MAX_MANIFESTS) {
@@ -404,16 +404,16 @@ public final class PersistentRecoveryCatalog implements RecoveryCatalogAuthority
             index++;
         }
         RecoveryFloor floor = null;
-        RecoveryFloorRefV1 typedFloor = null;
-        RecoveryPinV1 pin = null;
+        RecoveryFloorRef typedFloor = null;
+        RecoveryPin pin = null;
         if (index < fields.size() && fields.get(index).number() == 4) {
             floor = RecoveryFloor.decode(bytes(fields.get(index++), 4));
         }
         if (index < fields.size() && fields.get(index).number() == 5) {
-            typedFloor = RecoveryFloorRefV1.decode(bytes(fields.get(index++), 5));
+            typedFloor = RecoveryFloorRef.decode(bytes(fields.get(index++), 5));
         }
         if (index < fields.size() && fields.get(index).number() == 6) {
-            pin = RecoveryPinV1.decode(bytes(fields.get(index++), 6));
+            pin = RecoveryPin.decode(bytes(fields.get(index++), 6));
         }
         if (index != fields.size()) {
             throw new IllegalArgumentException("Recovery Catalog snapshot has unexpected fields");
@@ -438,8 +438,8 @@ public final class PersistentRecoveryCatalog implements RecoveryCatalogAuthority
             throw new IllegalArgumentException("Recovery Catalog manifest exceeds bound");
         }
         final CheckpointManifest manifest = CheckpointManifest.decodeCanonicalJson(manifestBytes);
-        final CheckpointResourceV1 resource =
-                fields.size() == 2 ? CheckpointResourceV1.decode(bytes(fields.get(1), 2)) : null;
+        final CheckpointResource resource =
+                fields.size() == 2 ? CheckpointResource.decode(bytes(fields.get(1), 2)) : null;
         return new Entry(manifest, resource);
     }
 
@@ -489,7 +489,7 @@ public final class PersistentRecoveryCatalog implements RecoveryCatalogAuthority
         T run() throws IOException;
     }
 
-    private record Entry(CheckpointManifest manifest, CheckpointResourceV1 resource) {
+    private record Entry(CheckpointManifest manifest, CheckpointResource resource) {
         private Entry {
             Objects.requireNonNull(manifest, "manifest");
         }

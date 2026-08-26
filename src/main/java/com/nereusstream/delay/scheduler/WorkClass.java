@@ -1,6 +1,6 @@
 package com.nereusstream.delay.scheduler;
 
-/** Frozen V1 Worker event-loop work classes. */
+/** Frozen Worker event-loop work classes. */
 public enum WorkClass {
     LEASE_FENCE,
     SOURCE_APPLY,

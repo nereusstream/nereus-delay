@@ -3,16 +3,16 @@ package com.nereusstream.delay.store;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
+import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
-import com.nereusstream.delay.protocol.QuotaGrantRefV1;
+import com.nereusstream.delay.protocol.QuotaGrantRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -27,7 +27,7 @@ class CheckpointControlSnapshotVerifierTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 7);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("source"));
         final Path checkpoint = tempDir.resolve("checkpoint");
-        final CompatibleControlSnapshotV1 snapshot = controlSnapshot(shardId);
+        final CompatibleControlSnapshot snapshot = controlSnapshot(shardId);
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             store.recordControlSnapshot(snapshot);
@@ -62,7 +62,7 @@ class CheckpointControlSnapshotVerifierTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 9);
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve("identity-source"));
         final Path checkpoint = tempDir.resolve("identity-checkpoint");
-        final CompatibleControlSnapshotV1 snapshot = controlSnapshot(shardId);
+        final CompatibleControlSnapshot snapshot = controlSnapshot(shardId);
         final KafkaSourcePosition appliedPosition =
                 new KafkaSourcePosition(shardId, "cluster", java.util.UUID.randomUUID(), 0, null, 1_000);
         final CheckpointManifest manifest;
@@ -102,12 +102,12 @@ class CheckpointControlSnapshotVerifierTest {
         org.junit.jupiter.api.Assertions.assertTrue(failure.getMessage().contains("DB identity"));
     }
 
-    private static CompatibleControlSnapshotV1 controlSnapshot(final ShardId shardId) {
-        return new CompatibleControlSnapshotV1(
-                new ShardSubjectV1(shardId),
-                List.of(new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1)),
-                List.of(new ProfileRefV1(bytes(32, 2), 1, bytes(32, 3), ProfileKindV1.DESTINATION)),
-                new QuotaGrantRefV1(
+    private static CompatibleControlSnapshot controlSnapshot(final ShardId shardId) {
+        return new CompatibleControlSnapshot(
+                new ShardSubject(shardId),
+                List.of(new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1)),
+                List.of(new ProfileRef(bytes(32, 2), 1, bytes(32, 3), ProfileKind.DESTINATION)),
+                new QuotaGrantRef(
                         bytes(32, 4),
                         1,
                         new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));

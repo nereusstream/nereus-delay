@@ -4,16 +4,16 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.nio.file.Files;
@@ -37,14 +37,14 @@ class CheckpointUploadCoordinatorTest {
         final AtomicBoolean called = new AtomicBoolean();
         try (SharedRocksDbResources resources =
                 new SharedRocksDbResources(ShardStoreConfig.defaults(tempDir.resolve("resources")))) {
-            final CheckpointUploadIntentV1 published = new CheckpointUploadCoordinator(resources, intentStore)
+            final CheckpointUploadIntent published = new CheckpointUploadCoordinator(resources, intentStore)
                     .upload(fixture.directory(), fixture.pending(), fixture.manifest(), 1_000, request -> {
                         called.set(true);
                         assertArrayEquals(fixture.manifest().canonicalJsonBytes(), request.manifestBytes());
                         assertEquals(fixture.directory(), request.checkpointDirectory());
                         return fixture.resource();
                     });
-            assertEquals(CheckpointUploadStateV1.PUBLISHED, published.state());
+            assertEquals(CheckpointUploadState.PUBLISHED, published.state());
             assertEquals(fixture.resource(), published.publishedManifest());
             assertEquals(published, intentStore.current().orElseThrow());
             assertEquals(true, called.get());
@@ -67,7 +67,7 @@ class CheckpointUploadCoordinatorTest {
                             }));
             assertEquals(fixture.pending(), intentStore.current().orElseThrow());
 
-            final CheckpointResourceV1 wrong = new CheckpointResourceV1(
+            final CheckpointResource wrong = new CheckpointResource(
                     fixture.pending().recoveryLineageId(),
                     bytes(16, 90),
                     fixture.profile(),
@@ -82,9 +82,9 @@ class CheckpointUploadCoordinatorTest {
                             fixture.directory(), fixture.pending(), fixture.manifest(), 1_000, request -> wrong));
             assertEquals(fixture.pending(), intentStore.current().orElseThrow());
 
-            final CheckpointUploadIntentV1 published = coordinator.upload(
+            final CheckpointUploadIntent published = coordinator.upload(
                     fixture.directory(), fixture.pending(), fixture.manifest(), 1_000, request -> fixture.resource());
-            assertEquals(CheckpointUploadStateV1.PUBLISHED, published.state());
+            assertEquals(CheckpointUploadState.PUBLISHED, published.state());
         }
     }
 
@@ -146,9 +146,9 @@ class CheckpointUploadCoordinatorTest {
         try (SharedRocksDbResources resources =
                 new SharedRocksDbResources(ShardStoreConfig.defaults(tempDir.resolve("response-loss")))) {
             final CheckpointUploadCoordinator coordinator = new CheckpointUploadCoordinator(resources, intentStore);
-            final CheckpointUploadIntentV1 first = coordinator.upload(
+            final CheckpointUploadIntent first = coordinator.upload(
                     fixture.directory(), fixture.pending(), fixture.manifest(), 1_000, request -> fixture.resource());
-            final CheckpointUploadIntentV1 reread = coordinator.upload(
+            final CheckpointUploadIntent reread = coordinator.upload(
                     fixture.directory(),
                     fixture.pending(),
                     fixture.manifest(),
@@ -158,7 +158,7 @@ class CheckpointUploadCoordinatorTest {
                         throw new AssertionError("published response loss must reread before provider I/O");
                     });
             assertEquals(first, reread);
-            assertEquals(CheckpointUploadStateV1.PUBLISHED, reread.state());
+            assertEquals(CheckpointUploadState.PUBLISHED, reread.state());
             assertEquals(false, retryCalled.get());
         }
     }
@@ -173,12 +173,12 @@ class CheckpointUploadCoordinatorTest {
         final AtomicBoolean adapterCalled = new AtomicBoolean();
         try (SharedRocksDbResources resources =
                 new SharedRocksDbResources(ShardStoreConfig.defaults(tempDir.resolve("slot-race")))) {
-            final CheckpointUploadIntentV1 result = new CheckpointUploadCoordinator(resources, authority)
+            final CheckpointUploadIntent result = new CheckpointUploadCoordinator(resources, authority)
                     .upload(fixture.directory(), fixture.pending(), fixture.manifest(), 1_000, request -> {
                         adapterCalled.set(true);
                         throw new AssertionError("stale intent must not reach provider I/O");
                     });
-            assertEquals(CheckpointUploadStateV1.PUBLISHED, result.state());
+            assertEquals(CheckpointUploadState.PUBLISHED, result.state());
             assertEquals(fixture.resource(), result.publishedManifest());
             assertEquals(false, adapterCalled.get());
         }
@@ -189,7 +189,7 @@ class CheckpointUploadCoordinatorTest {
         final Fixture fixture = fixture();
         final CheckpointUploadIntentStore backing = new CheckpointUploadIntentStore();
         backing.create(fixture.pending());
-        final CheckpointResourceV1 wrongManifestBinding = new CheckpointResourceV1(
+        final CheckpointResource wrongManifestBinding = new CheckpointResource(
                 fixture.pending().recoveryLineageId(),
                 fixture.pending().checkpointId(),
                 fixture.profile(),
@@ -215,8 +215,7 @@ class CheckpointUploadCoordinatorTest {
         }
         assertEquals(false, adapterCalled.get());
         assertEquals(
-                CheckpointUploadStateV1.PUBLISHED,
-                backing.current().orElseThrow().state());
+                CheckpointUploadState.PUBLISHED, backing.current().orElseThrow().state());
     }
 
     @Test
@@ -242,7 +241,7 @@ class CheckpointUploadCoordinatorTest {
                     1,
                     1_000,
                     request -> fixture.resource());
-            assertEquals(CheckpointUploadStateV1.PUBLISHED, first.uploadIntent().state());
+            assertEquals(CheckpointUploadState.PUBLISHED, first.uploadIntent().state());
             assertArrayEquals(
                     fixture.manifest().checkpointId(),
                     first.catalogPublication().manifest().checkpointId());
@@ -318,7 +317,7 @@ class CheckpointUploadCoordinatorTest {
         final AtomicBoolean called = new AtomicBoolean();
         final CheckpointManifestLimits limits =
                 new CheckpointManifestLimits(10, 1L << 20, 1L << 20, 1024, 1 << 20, 10, 64);
-        final CheckpointResourceV1 oversized = new CheckpointResourceV1(
+        final CheckpointResource oversized = new CheckpointResource(
                 fixture.pending().recoveryLineageId(),
                 fixture.pending().checkpointId(),
                 fixture.profile(),
@@ -352,9 +351,9 @@ class CheckpointUploadCoordinatorTest {
         final byte[] lineage = bytes(16, 2);
         final byte[] checkpoint = bytes(16, 3);
         final UUID storeIncarnation = UUID.randomUUID();
-        final ProfileRefV1 profile =
-                new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, bytes(32, 4), ProfileKindV1.OBJECT_STORE);
-        final OwnerIdentityV1 owner = new OwnerIdentityV1(bytes(8, 5), bytes(8, 6), 42, bytes(32, 7));
+        final ProfileRef profile =
+                new ProfileRef(Bytes.utf8("checkpoint-store"), 1, bytes(32, 4), ProfileKind.OBJECT_STORE);
+        final OwnerIdentity owner = new OwnerIdentity(bytes(8, 5), bytes(8, 6), 42, bytes(32, 7));
         final List<CheckpointFileInventory> inventory = CheckpointFileInventory.collect(directory);
         final List<CheckpointManifest.FileEntry> files = inventory.stream()
                 .map(file -> new CheckpointManifest.FileEntry(
@@ -385,8 +384,8 @@ class CheckpointUploadCoordinatorTest {
                 bytes(32, 12),
                 List.of(),
                 files);
-        final CheckpointUploadIntentV1 pending = new CheckpointUploadIntentV1(
-                new ShardSubjectV1(shard.routeIncarnation(), shard.partition()),
+        final CheckpointUploadIntent pending = new CheckpointUploadIntent(
+                new ShardSubject(shard.routeIncarnation(), shard.partition()),
                 lineage,
                 checkpoint,
                 owner,
@@ -398,11 +397,11 @@ class CheckpointUploadCoordinatorTest {
                 profile,
                 evidence(900),
                 5_000,
-                CheckpointUploadStateV1.PENDING_UPLOAD,
+                CheckpointUploadState.PENDING_UPLOAD,
                 1,
                 null,
                 null);
-        final CheckpointResourceV1 resource = new CheckpointResourceV1(
+        final CheckpointResource resource = new CheckpointResource(
                 lineage,
                 checkpoint,
                 profile,
@@ -416,60 +415,59 @@ class CheckpointUploadCoordinatorTest {
 
     private record Fixture(
             Path directory,
-            ProfileRefV1 profile,
+            ProfileRef profile,
             CheckpointManifest manifest,
-            CheckpointUploadIntentV1 pending,
-            CheckpointResourceV1 resource) {}
+            CheckpointUploadIntent pending,
+            CheckpointResource resource) {}
 
     /** Changes the intent immediately after the coordinator's first exact read. */
     private static final class PublishAfterFirstPendingRead implements CheckpointUploadIntentAuthority {
         private final CheckpointUploadIntentStore delegate;
-        private final CheckpointUploadIntentV1 pending;
-        private final CheckpointResourceV1 resource;
+        private final CheckpointUploadIntent pending;
+        private final CheckpointResource resource;
         private boolean published;
 
         private PublishAfterFirstPendingRead(
                 final CheckpointUploadIntentStore delegate,
-                final CheckpointUploadIntentV1 pending,
-                final CheckpointResourceV1 resource) {
+                final CheckpointUploadIntent pending,
+                final CheckpointResource resource) {
             this.delegate = delegate;
             this.pending = pending;
             this.resource = resource;
         }
 
         @Override
-        public CheckpointUploadIntentV1 create(final CheckpointUploadIntentV1 value) {
+        public CheckpointUploadIntent create(final CheckpointUploadIntent value) {
             return delegate.create(value);
         }
 
         @Override
-        public CheckpointUploadIntentV1 publish(
-                final CheckpointUploadIntentV1 expected, final CheckpointResourceV1 value) {
+        public CheckpointUploadIntent publish(final CheckpointUploadIntent expected, final CheckpointResource value) {
             return delegate.publish(expected, value);
         }
 
         @Override
-        public Optional<CheckpointUploadIntentV1> currentPublishedFor(final CheckpointUploadIntentV1 expected) {
+        public Optional<CheckpointUploadIntent> currentPublishedFor(final CheckpointUploadIntent expected) {
             return delegate.currentPublishedFor(expected);
         }
 
         @Override
-        public CheckpointUploadIntentV1 beginReaping(
-                final CheckpointUploadIntentV1 expected, final TrustedUtcIntervalEvidence evidence) {
+        public CheckpointUploadIntent beginReaping(
+                final CheckpointUploadIntent expected, final TrustedUtcIntervalEvidence evidence) {
             return delegate.beginReaping(expected, evidence);
         }
 
         @Override
-        public CheckpointUploadIntentV1 beginReaping(
-                final CheckpointUploadIntentV1 expected,
+        public CheckpointUploadIntent beginReaping(
+                final CheckpointUploadIntent expected,
                 final TrustedUtcIntervalEvidence evidence,
                 final RecoveryCatalogAuthority catalog) {
             return delegate.beginReaping(expected, evidence, catalog);
         }
 
         @Override
-        public Optional<CheckpointUploadIntentV1> current(final CheckpointUploadIntentV1 identity) {
-            final Optional<CheckpointUploadIntentV1> result = delegate.current(identity);
+        public Optional<CheckpointUploadIntent> current(final CheckpointUploadIntent identity) {
+            final Optional<CheckpointUploadIntent> result = delegate.current(identity);
             if (!published && identity.equals(pending) && result.isPresent()) {
                 delegate.publish(pending, resource);
                 published = true;
@@ -481,44 +479,44 @@ class CheckpointUploadCoordinatorTest {
     /** Marker-only atomic authority used to exercise constructor pairing. */
     private static final class AtomicPublicationAuthorityStub implements CheckpointAtomicPublicationAuthority {
         @Override
-        public CheckpointUploadIntentV1 create(final CheckpointUploadIntentV1 pending) {
+        public CheckpointUploadIntent create(final CheckpointUploadIntent pending) {
             throw new AssertionError("not invoked");
         }
 
         @Override
-        public CheckpointUploadIntentV1 publish(
-                final CheckpointUploadIntentV1 expectedPending, final CheckpointResourceV1 resource) {
+        public CheckpointUploadIntent publish(
+                final CheckpointUploadIntent expectedPending, final CheckpointResource resource) {
             throw new AssertionError("not invoked");
         }
 
         @Override
-        public Optional<CheckpointUploadIntentV1> currentPublishedFor(final CheckpointUploadIntentV1 expectedPending) {
+        public Optional<CheckpointUploadIntent> currentPublishedFor(final CheckpointUploadIntent expectedPending) {
             throw new AssertionError("not invoked");
         }
 
         @Override
-        public CheckpointUploadIntentV1 beginReaping(
-                final CheckpointUploadIntentV1 expectedPending, final TrustedUtcIntervalEvidence evidence) {
+        public CheckpointUploadIntent beginReaping(
+                final CheckpointUploadIntent expectedPending, final TrustedUtcIntervalEvidence evidence) {
             throw new AssertionError("not invoked");
         }
 
         @Override
-        public CheckpointUploadIntentV1 beginReaping(
-                final CheckpointUploadIntentV1 expectedPending,
+        public CheckpointUploadIntent beginReaping(
+                final CheckpointUploadIntent expectedPending,
                 final TrustedUtcIntervalEvidence evidence,
                 final RecoveryCatalogAuthority catalog) {
             throw new AssertionError("not invoked");
         }
 
         @Override
-        public Optional<CheckpointUploadIntentV1> current(final CheckpointUploadIntentV1 identity) {
+        public Optional<CheckpointUploadIntent> current(final CheckpointUploadIntent identity) {
             throw new AssertionError("not invoked");
         }
 
         @Override
-        public CheckpointUploadIntentV1 publishUploadedCheckpointAtomically(
-                final CheckpointUploadIntentV1 expectedPending,
-                final CheckpointResourceV1 resource,
+        public CheckpointUploadIntent publishUploadedCheckpointAtomically(
+                final CheckpointUploadIntent expectedPending,
+                final CheckpointResource resource,
                 final CheckpointManifest manifest,
                 final long expectedCatalogGeneration) {
             throw new AssertionError("not invoked");

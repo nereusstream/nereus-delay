@@ -14,7 +14,7 @@ import java.util.Objects;
  * Bounded local admission for physical target requests.
  *
  * <p>This is deliberately a resource gate, not a publish outcome authority.
- * A granted reservation only permits an adapter call to start.  The caller
+ * A granted reservation only permits an adapter call to start. The caller
  * must keep the reservation until the physical operation completes; a
  * callback timeout may mark it {@link ReservationState#ZOMBIE}, but may not
  * release its request/byte charge early.</p>
@@ -90,9 +90,9 @@ public final class DestinationPhysicalAdmission {
      * Unregisters a Lane after its exact physical channel generation has been
      * fenced and all physical reservations have quiesced.
      *
-     * <p>This is only an in-process resource-registry operation.  It does not
+     * <p>This is only an in-process resource-registry operation. It does not
      * authorize a logical Lane retirement, release an Oxia grant, or replace
-     * the source-ordered terminal guard.  The incarnation check prevents a
+     * the source-ordered terminal guard. The incarnation check prevents a
      * stale teardown callback from removing a newer registration.</p>
      */
     public synchronized void unregisterLane(final DestinationLaneId laneId, final byte[] laneIncarnation) {
@@ -112,7 +112,7 @@ public final class DestinationPhysicalAdmission {
 
     /**
      * Attempts to reserve one physical request and its exact adapter byte
-     * charge.  Rejection is explicit so the caller can turn it into a Lane
+     * charge. Rejection is explicit so the caller can turn it into a Lane
      * runtime block rather than a business-level message failure.
      */
     public synchronized AdmissionDecision tryAcquire(
@@ -134,11 +134,11 @@ public final class DestinationPhysicalAdmission {
             lane.blocked = true;
             return AdmissionDecision.rejected(Rejection.ZOMBIE_CAPACITY);
         }
-        // V1 reserves the vector in which every currently outstanding
-        // request becomes a zombie.  Checking only the already-marked zombie
+        // reserves the vector in which every currently outstanding
+        // request becomes a zombie. Checking only the already-marked zombie
         // bucket would admit a request that can never fit that worst-case
         // vector; a later callback timeout would then strand it as an
-        // in-flight charge that cannot be marked zombie.  Active charges are
+        // in-flight charge that cannot be marked zombie. Active charges are
         // retained until completion, so they are part of the potential
         // zombie envelope even before a timeout is observed.
         if (lane.activeRequests >= lane.maxZombieRequests || physicalBytes > lane.maxZombieBytes - lane.activeBytes) {

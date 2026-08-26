@@ -3,10 +3,10 @@ package com.nereusstream.delay.ownership;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.ControlOperationQueryResultV1;
-import com.nereusstream.delay.protocol.ControlOperationReceiptV1;
-import com.nereusstream.delay.protocol.ControlOperationStateV1;
-import com.nereusstream.delay.protocol.CurrentControlOperationV1;
+import com.nereusstream.delay.protocol.ControlOperationQueryResult;
+import com.nereusstream.delay.protocol.ControlOperationReceipt;
+import com.nereusstream.delay.protocol.ControlOperationState;
+import com.nereusstream.delay.protocol.CurrentControlOperation;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
@@ -28,26 +28,26 @@ class OxiaSyncControlOperationBackendTest {
     void registerAdvanceQueryAndReopenUseOneVersionCasRecord() {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncControlOperationBackend backend = new OxiaSyncControlOperationBackend(records, "delay/control");
-        final ControlOperationReceiptV1 receipt = receipt(1, 4_000);
-        final CurrentControlOperationV1 initial = current(receipt, 1, ControlOperationStateV1.PENDING);
+        final ControlOperationReceipt receipt = receipt(1, 4_000);
+        final CurrentControlOperation initial = current(receipt, 1, ControlOperationState.PENDING);
 
         assertEquals(
-                ControlOperationQueryResultV1.CURRENT,
+                ControlOperationQueryResult.CURRENT,
                 backend.register(receipt, initial).resultKind());
         assertEquals(1, records.putCount);
         assertEquals(
-                ControlOperationQueryResultV1.CURRENT,
+                ControlOperationQueryResult.CURRENT,
                 backend.register(receipt, initial).resultKind());
 
-        final CurrentControlOperationV1 next = current(receipt, 2, ControlOperationStateV1.DISPATCHING);
+        final CurrentControlOperation next = current(receipt, 2, ControlOperationState.DISPATCHING);
         assertEquals(
-                ControlOperationQueryResultV1.CURRENT,
+                ControlOperationQueryResult.CURRENT,
                 backend.advance(receipt, 1, next).resultKind());
         assertEquals(
-                ControlOperationQueryResultV1.CURRENT,
+                ControlOperationQueryResult.CURRENT,
                 backend.advance(receipt, 1, next).resultKind());
         assertEquals(
-                ControlOperationQueryResultV1.CURRENT,
+                ControlOperationQueryResult.CURRENT,
                 backend.query(receipt, 2_000).resultKind());
 
         final OxiaSyncControlOperationBackend reopened = new OxiaSyncControlOperationBackend(records, "delay/control");
@@ -58,14 +58,14 @@ class OxiaSyncControlOperationBackendTest {
     void responseLossAcceptsOnlyExactSuccessorReread() {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncControlOperationBackend backend = new OxiaSyncControlOperationBackend(records, "delay/lost");
-        final ControlOperationReceiptV1 receipt = receipt(2, 4_000);
-        final CurrentControlOperationV1 initial = current(receipt, 1, ControlOperationStateV1.PENDING);
-        final CurrentControlOperationV1 next = current(receipt, 2, ControlOperationStateV1.DISPATCHING);
+        final ControlOperationReceipt receipt = receipt(2, 4_000);
+        final CurrentControlOperation initial = current(receipt, 1, ControlOperationState.PENDING);
+        final CurrentControlOperation next = current(receipt, 2, ControlOperationState.DISPATCHING);
         backend.register(receipt, initial);
 
         records.failNextPutAfterCommit = true;
         assertEquals(
-                ControlOperationQueryResultV1.CURRENT,
+                ControlOperationQueryResult.CURRENT,
                 backend.advance(receipt, 1, next).resultKind());
         assertEquals(next, backend.query(receipt, 2_000).current());
     }
@@ -80,8 +80,8 @@ class OxiaSyncControlOperationBackendTest {
                         throw new IllegalStateException("simulated Oxia session fence");
                     }
                 });
-        final ControlOperationReceiptV1 receipt = receipt(6, 4_000);
-        final CurrentControlOperationV1 initial = current(receipt, 1, ControlOperationStateV1.PENDING);
+        final ControlOperationReceipt receipt = receipt(6, 4_000);
+        final CurrentControlOperation initial = current(receipt, 1, ControlOperationState.PENDING);
         records.afterPut = () -> sessionAlive.set(false);
 
         assertThrows(IllegalStateException.class, () -> backend.register(receipt, initial));
@@ -95,20 +95,20 @@ class OxiaSyncControlOperationBackendTest {
     void invalidTransitionAndReceiptIdentityFailClosed() {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaSyncControlOperationBackend backend = new OxiaSyncControlOperationBackend(records, "delay/strict");
-        final ControlOperationReceiptV1 receipt = receipt(3, 4_000);
-        final CurrentControlOperationV1 initial = current(receipt, 1, ControlOperationStateV1.PENDING);
+        final ControlOperationReceipt receipt = receipt(3, 4_000);
+        final CurrentControlOperation initial = current(receipt, 1, ControlOperationState.PENDING);
         backend.register(receipt, initial);
 
         assertEquals(
-                ControlOperationQueryResultV1.INTEGRITY_ERROR,
-                backend.advance(receipt, 1, current(receipt, 2, ControlOperationStateV1.IN_PROGRESS))
+                ControlOperationQueryResult.INTEGRITY_ERROR,
+                backend.advance(receipt, 1, current(receipt, 2, ControlOperationState.IN_PROGRESS))
                         .resultKind());
-        final ControlOperationReceiptV1 wrong = receipt(4, 4_000);
+        final ControlOperationReceipt wrong = receipt(4, 4_000);
         assertEquals(
-                ControlOperationQueryResultV1.NOT_FOUND_OR_NOT_AUTHORIZED,
+                ControlOperationQueryResult.NOT_FOUND_OR_NOT_AUTHORIZED,
                 backend.query(wrong, 2_000).resultKind());
         assertEquals(
-                ControlOperationQueryResultV1.NOT_FOUND_OR_NOT_AUTHORIZED,
+                ControlOperationQueryResult.NOT_FOUND_OR_NOT_AUTHORIZED,
                 backend.query(receipt, 4_001).resultKind());
     }
 
@@ -120,7 +120,7 @@ class OxiaSyncControlOperationBackendTest {
         assertThrows(IllegalStateException.class, () -> backend.query(receipt(5, 4_000), 2_000));
     }
 
-    private static ControlOperationReceiptV1 receipt(final int seed, final long queryUntil) {
+    private static ControlOperationReceipt receipt(final int seed, final long queryUntil) {
         final TrustedUtcIntervalEvidence registered = new TrustedUtcIntervalEvidence(
                 1_000,
                 1_100,
@@ -132,7 +132,7 @@ class OxiaSyncControlOperationBackendTest {
                 bytes(32, seed + 10),
                 0,
                 null);
-        return ControlOperationReceiptV1.create(
+        return ControlOperationReceipt.create(
                 bytes(32, seed),
                 bytes(32, seed + 1),
                 bytes(32, seed + 2),
@@ -142,9 +142,9 @@ class OxiaSyncControlOperationBackendTest {
                 queryUntil);
     }
 
-    private static CurrentControlOperationV1 current(
-            final ControlOperationReceiptV1 receipt, final long revision, final ControlOperationStateV1 state) {
-        return new CurrentControlOperationV1(
+    private static CurrentControlOperation current(
+            final ControlOperationReceipt receipt, final long revision, final ControlOperationState state) {
+        return new CurrentControlOperation(
                 receipt.operationId(),
                 receipt.requestHash(),
                 receipt.authenticatedScopeHash(),

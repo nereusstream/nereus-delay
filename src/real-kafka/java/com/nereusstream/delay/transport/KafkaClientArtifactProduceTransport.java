@@ -89,8 +89,8 @@ public final class KafkaClientArtifactProduceTransport implements PinnedKafkaCom
                     com.nereusstream.delay.protocol.StableCode.INTEGRITY_ERROR.wireValue(),
                     encodeResponseEvidence(evidence));
         }
-        // Kafka CreateTime topics legally return -1.  That response is not a
-        // V1 queued-receipt authority because the Worker needs broker time.
+        // Kafka CreateTime topics legally return -1. That response is not a
+        // queued-receipt authority because the Worker needs broker time.
         if (evidence.logAppendTimeMs() < 0) {
             return KafkaProduceResult.unknown(
                     com.nereusstream.delay.protocol.StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue(),

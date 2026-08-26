@@ -1,7 +1,7 @@
 package com.nereusstream.delay.submission;
 
 import com.nereusstream.delay.protocol.StableCode;
-import com.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import com.nereusstream.delay.protocol.SubmissionOutcomeMessage;
 import com.nereusstream.delay.transport.PhysicalEnqueueAttemptId;
 import com.nereusstream.delay.transport.TransportResult;
 
@@ -9,12 +9,12 @@ import com.nereusstream.delay.transport.TransportResult;
 public interface SubmissionOutcomeProjector {
     SubmissionProjectionKey key();
 
-    SubmissionOutcomeMessageV1 project(
+    SubmissionOutcomeMessage project(
             SubmissionTransportPlan plan, PhysicalEnqueueAttemptId physicalAttemptId, TransportResult result);
 
-    SubmissionOutcomeMessageV1 localFailure(
+    SubmissionOutcomeMessage localFailure(
             SubmissionTransportPlan plan, PhysicalEnqueueAttemptId physicalAttemptId, StableCode code);
 
-    SubmissionOutcomeMessageV1 uncertain(
+    SubmissionOutcomeMessage uncertain(
             SubmissionTransportPlan plan, PhysicalEnqueueAttemptId physicalAttemptId, StableCode code);
 }

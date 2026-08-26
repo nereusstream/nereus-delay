@@ -7,7 +7,7 @@ import java.util.Objects;
  * record.
  *
  * <p>An implementation must not report {@link Disposition#ACKED} until the
- * broker cursor/ack operation is durably accepted.  A thrown exception or a
+ * broker cursor/ack operation is durably accepted. A thrown exception or a
  * response whose outcome cannot be proved is represented as
  * {@link Disposition#UNKNOWN}; the source record remains the retry authority
  * in either non-ACKED branch.</p>

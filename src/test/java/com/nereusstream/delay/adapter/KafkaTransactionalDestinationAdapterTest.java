@@ -3,11 +3,11 @@ package com.nereusstream.delay.adapter;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentity;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
 import com.nereusstream.delay.protocol.RouteIncarnation;
@@ -28,7 +28,7 @@ class KafkaTransactionalDestinationAdapterTest {
         final KafkaTransactionalDestinationAdapter adapter = fixture.adapter(request -> {
             sent.set(request);
             return CompletableFuture.completedFuture(DestinationPublishResult.published(
-                    BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+                    BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(
                             fixture.target.authenticatedClusterId(), fixture.target.nativeTopicUuid())),
                     fixture.target.partition(),
                     request.mapping().publishAttemptId(),
@@ -82,7 +82,7 @@ class KafkaTransactionalDestinationAdapterTest {
         final KafkaTransactionalDestinationAdapter adapter = fixture.adapter(request -> {
             sent.set(request);
             return CompletableFuture.completedFuture(DestinationPublishResult.published(
-                    BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+                    BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(
                             fixture.target.authenticatedClusterId(), fixture.target.nativeTopicUuid())),
                     fixture.target.partition(),
                     request.mapping().publishAttemptId(),

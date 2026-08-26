@@ -1,4 +1,4 @@
-# Delay V1 isolated Oxia E2E
+# Delay isolated Oxia E2E
 
 `run-oxia-real-service.sh` builds the locked Oxia checkout in a unique Docker
 Compose project, starts one standalone Oxia shard on a temporary host port,
@@ -27,7 +27,7 @@ and separate lifecycle gates.
 The latest admission/checkpoint-inclusive run used Delay
 `ac72e43803806b9c309b62150c0aa54b43f8a3ea`, Oxia
 `37a17bef17202d5fd6e232da5fd26d94865484`, Compose project
-`nereus-delay-v1-oxia-e2e-1786787138-90186` and host port `16675`; the selected
+`nereus-delay-oxia-e2e-1786787138-90186` and host port `16675`; the selected
 real-service tests passed with `BUILD SUCCESSFUL in 11s` and the matching
 Compose container/network were cleaned up. The filesystem checkpoint adapter
 is a provider-side crash-durable seam; remote Object Store credentials and
@@ -74,7 +74,7 @@ or temporary Oxia image. The locked MinIO base image is retained for other
 real-service runs. This receipt does not prove real-Oxia REAPING/RecoveryPin
 competition, provider quiescence/consistency attestation, late-PUT or delete
 response-loss handling, restore activation, multi-shard placement, raw chaos
-or V1 release readiness.
+or release readiness.
 
 ## Kafka K1/K2 real-client E2E
 
@@ -82,7 +82,7 @@ or V1 release readiness.
 K1/K2 Kafka worktree, starts a unique three-broker KRaft Compose project, and
 uses the matching client jar from that same worktree. The K1 smoke checks the
 canonical topic UUID fence across delete/recreate. The source handoff smoke
-then writes two NDL1/V1 records through the guarded K1 producer, reads them
+then writes two NDL1/ records through the guarded K1 producer, reads them
 through an explicitly source-locked Kafka binding, and verifies exact
 Topic-UUID/offset/leader-epoch/LogAppendTime positions, same-group replay
 before ACK, `commitSync`-after-ACK and an empty replay after both ACKs. The
@@ -170,7 +170,7 @@ ends after that proof; normal K2 mode continues to cover abort and
 same-name delete/recreate fencing.
 
 The source-locked receipt used Delay `6912b940`, Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
@@ -197,7 +197,7 @@ The client trace showed coordinator `19795/id=1` before the stop and
 rediscovery at `19797/id=3` after broker-1 failed over. This run observed
 `PUBLISHED`, so it does not close a lost `EndTxn` response; generic
 response-loss resolution, Fetch/LSO/retention-floor ambiguity and crash gates
-remain open. The receipt is source-bound integration evidence, not a V1 release
+remain open. The receipt is source-bound integration evidence, not a current release
 PASS.
 
 ### Kafka K2 committed response-loss-only cut
@@ -213,7 +213,7 @@ pair and typed `KAFKA_TRANSACTIONAL_RECEIPT` evidence before returning
 socket packet-loss or Broker failover injection.
 
 The source-locked receipt used Delay `376252bae0faf6f2d5120e223886b3af8a54e636`,
-Kafka `nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+Kafka `nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
@@ -236,7 +236,7 @@ Kafka K2 committed response-loss E2E passed: real EndTxn commit was followed by 
 ```
 
 The receipt does not promote generic Kafka crash/response-loss, Fetch
-response-loss, LSO/retention-floor recovery, or V1 release readiness.
+response-loss, LSO/retention-floor recovery, or release readiness.
 
 ### Kafka Shard Log signed mutation append/replay/ACK
 
@@ -266,7 +266,7 @@ This closes one source-locked Kafka partition's append → recovery replay →
 active-source ACK path. It does not claim mutation apply, signature trust
 authorization, automatic Publish or external Claim prerequisites, Pulsar
 mutation support, response-loss/crash coverage, multi-shard production wiring
-or release PASS. Local durable V1 Claim materialization is covered by the
+or release PASS. Local durable Claim materialization is covered by the
 focused Gradle tests, not by this Kafka transport smoke.
 
 ### Kafka mutation-to-Store Worker vertical
@@ -510,7 +510,7 @@ and drains the exact owner lease.
 ```
 
 The harness requires a clean
-`nereus/delay-resource-guard-v1` checkout descended from
+`nereus/delay-resource-guard` checkout descended from
 `8dae0236c0a0d405ed7f8303081080520fe91551`. It records the P1 source SHA,
 distribution and client-jar SHA-256 values, image ID and allocated ports, and
 cleans only its own Compose project, volumes, temporary image and staging
@@ -680,7 +680,7 @@ due/Lane/publish/checkpoint production wiring, failover or crash gates.
 ## Signed Route publication to Worker assignment authority
 
 `RouteWorkerAssignmentCoordinator` binds Worker assignment identity to the
-signed `RouteSnapshotV1.snapshotDigest`. It reads the active or exact
+signed `RouteSnapshot.snapshotDigest`. It reads the active or exact
 historical Route through the tenant-authorized provider, publishes the
 route-bound canonical assignment through revision-CAS authority, and rereads
 the same Route incarnation, partition barrier and digest before acceptance.
@@ -690,7 +690,7 @@ Route publisher/provider and Worker assignment-authority clients.
 
 The verified run used Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
-`nereus-delay-v1-oxia-e2e-1786765353-47776`, host port `16660`, and image
+`nereus-delay-oxia-e2e-1786765353-47776`, host port `16660`, and image
 `sha256:7001f39d94a8d21d74928aad06e7666fcf4bcf3879ef6d27940c9a7ef8db702f`.
 The selected real-service Gradle suite passed and the matching container and
 network were removed; the local image remains. This closes the signed Route
@@ -719,7 +719,7 @@ NEREUS_DELAY_OXIA_E2E_PORT=16684 \
 
 The source-locked run used Oxia
 `37a17bef17202d5fd6e232da5fd26d94865484`, Compose project
-`nereus-delay-v1-oxia-e2e-1786789198-22565`, host port `16684`, and image
+`nereus-delay-oxia-e2e-1786789198-22565`, host port `16684`, and image
 `sha256:1ea8324636e65d92bf6f0767062e58078fd617767c9c74540443c5b6a2c1293d`.
 It passed with:
 
@@ -759,7 +759,7 @@ NEREUS_DELAY_OXIA_E2E_PORT=16675 \
 The source-locked run used Delay commit `6a64ca894928a9a6f210129e2567b02f7df1329f`,
 Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, image
 `sha256:05d66cf3117d24b358baee21fb87caa001c99bec2f734ea9ce2549f7675d085a`,
-Compose project `nereus-delay-v1-oxia-e2e-1786822655-96457`, and port `16675`.
+Compose project `nereus-delay-oxia-e2e-1786822655-96457`, and port `16675`.
 It printed:
 
 ```text
@@ -1146,7 +1146,7 @@ PULSAR_BROKER_PORT=21885 PULSAR_WEB_PORT=21886 \
 ```
 
 The run is locked to Pulsar
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 distribution SHA-256
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
 SHA-256 values
@@ -1172,7 +1172,7 @@ persisted the message, and the smoke confirms exact guarded payload readback.
 The run is controlled client-side response loss, not raw socket fault
 injection. It does not cover `PulsarAttemptJournal` durability, in-flight
 process/Broker crash, multi-Broker failover, generic transport response-loss
-or V1 release PASS.
+or release PASS.
 
 ## Pulsar Worker source ACK response-loss receipt
 
@@ -1188,7 +1188,7 @@ PULSAR_BROKER_PORT=21887 PULSAR_WEB_PORT=21888 \
 ```
 
 The source-locked run used Pulsar
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 distribution SHA-256
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
 SHA-256 values
@@ -1211,7 +1211,7 @@ Pulsar Worker source ACK response-loss E2E passed: real ACK response loss was re
 The wrapper loses only the local response after the Broker receipt; the
 pending source record remains the retry authority and the already applied
 outcome is reused. This is not raw network loss, process/consumer/Broker crash
-recovery, multi-Broker failover or a complete D6/V1 release receipt.
+recovery, multi-Broker failover or a complete D6/ release receipt.
 
 ## Pulsar Worker source-applied destination response-loss receipt
 
@@ -1227,7 +1227,7 @@ PULSAR_BROKER_PORT=21889 PULSAR_WEB_PORT=21890 \
 ```
 
 The source-locked run used Pulsar
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 distribution SHA-256
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
 SHA-256 values
@@ -1252,7 +1252,7 @@ The test-only wrapper loses the local completion after the real destination
 SEND, while the Worker bridge validates exact typed evidence before appending
 the source-applied Outcome. This is not raw network loss, process/Broker crash
 between physical persistence and Outcome, multi-Broker failover or a complete
-D6/V1 release receipt.
+D6/ release receipt.
 
 ## 2026-08-21 Pulsar multi-Broker failover and Worker admission response-loss receipts
 
@@ -1298,7 +1298,7 @@ completed. An independent field comparison returned
 These receipts close the two focused durable/fresh-process cuts at the stated
 boundary. They do not by themselves promote the bounded matrix to certified
 release evidence, and they do not close multi-shard placement, full broker
-response-loss/retention recovery or the V1 release gate.
+response-loss/retention recovery or the release gate.
 
 ## Kafka Worker destination response-loss receipt
 
@@ -1314,7 +1314,7 @@ KAFKA_BROKER_1_PORT=19669 KAFKA_BROKER_2_PORT=19670 KAFKA_BROKER_3_PORT=19671 \
 ```
 
 The source-locked run used Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
@@ -1333,7 +1333,7 @@ Kafka Worker destination response-loss E2E passed: real EndTxn response loss res
 The test-only proxy loses the local response after real transaction commit;
 the typed receipt provider and source-applied Outcome validate the exact
 publication. This is controlled client-side response loss, not raw network
-loss, process/Broker crash recovery, multi-Broker failover or a V1 release
+loss, process/Broker crash recovery, multi-Broker failover or a current release
 receipt.
 
 ## Kafka Worker source ACK response-loss receipt
@@ -1350,7 +1350,7 @@ KAFKA_BROKER_1_PORT=19679 KAFKA_BROKER_2_PORT=19680 KAFKA_BROKER_3_PORT=19681 \
 ```
 
 The source-locked run used Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
@@ -1369,7 +1369,7 @@ The test-only proxy loses the local response after the real `commitSync`
 returns. The source adapter retains the same in-flight record and the Worker
 retries its pending ACK without reapplying the Store mutation. This is
 controlled client-side response loss, not raw network loss, process/consumer/
-Broker crash recovery, multi-Broker failover or a V1 release receipt.
+Broker crash recovery, multi-Broker failover or a current release receipt.
 
 ## S3-compatible checkpoint adapter focused receipt
 
@@ -1392,7 +1392,7 @@ bounded full restore and same-key immutable conflict rejection.
 The focused test passed with `BUILD SUCCESSFUL`. This is local adapter evidence,
 not real S3/MinIO conformance, credential-use lease or rotation evidence,
 provider quiescence/consistency attestation, version-aware deletion,
-multi-shard RecoveryPin/catalog authority, process/network chaos or V1 release
+multi-shard RecoveryPin/catalog authority, process/network chaos or release
 PASS.
 
 ## Object Store credential-use lease gate focused receipt
@@ -1449,7 +1449,7 @@ NEREUS_DELAY_OXIA_E2E_PORT=16693 \
 
 The source-locked run used Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
-`nereus-delay-v1-oxia-e2e-1786835835-39861`, and host port `16693`. The
+`nereus-delay-oxia-e2e-1786835835-39861`, and host port `16693`. The
 script includes
 `OxiaRealProfileCatalogSmokeTest.profileHeadProtectionLeaseAndRotationReopenAgainstRealService`;
 its report recorded one test, zero skips, zero failures and zero errors. The
@@ -1461,7 +1461,7 @@ Protection/lease issuance, reopen and checked generation rotation through
 single-record Oxia CAS. It is not secret-provider resolution, attestation
 trust-set or actor authorization, source ordering, retained-generation GC,
 cross-record Owner/Route/session transaction, multi-node failover for this
-authority, provider credential rotation/quiescence, real S3/MinIO or V1
+authority, provider credential rotation/quiescence, real S3/MinIO or
 release evidence.
 
 ## Credential attestation trust-set focused receipt
@@ -1483,7 +1483,7 @@ publication/rotation/reopen/lease integration. The full Gradle check passed.
 
 The real-service receipt used Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
-`nereus-delay-v1-oxia-e2e-1786837306-55484`, host port `16694`, and
+`nereus-delay-oxia-e2e-1786837306-55484`, host port `16694`, and
 `OxiaRealProfileCatalogSmokeTest.profileHeadProtectionLeaseAndRotationReopenAgainstRealService`.
 The report recorded one test, zero skips, zero failures and zero errors; the
 run ended with `BUILD SUCCESSFUL` and
@@ -1573,7 +1573,7 @@ The test proves real MinIO upload of immutable checkpoint objects and the
 manifest, same-key idempotent retry, and download restore of both files. It is
 one-provider bounded evidence, not generic S3 compatibility, credential
 authority/renewal/rotation, provider deletion/versioning, consistency
-attestation, network/process chaos, multi-node failover or V1 release
+attestation, network/process chaos, multi-node failover or release
 evidence.
 
 ## Exact provider-version MinIO receipt
@@ -1600,7 +1600,7 @@ the run ended with `BUILD SUCCESSFUL`.
 This receipt proves only exact provider-version response identity for the
 locked MinIO path. Full version-aware checkpoint deletion, source-ordered
 retire/delete authority, Recovery Floor/Pin release, provider consistency,
-credential rotation, chaos, failover and V1 release evidence remain open.
+credential rotation, chaos, failover and release evidence remain open.
 
 ## Catalog-bound manifest version readback receipt
 
@@ -1618,7 +1618,7 @@ the run ended with `BUILD SUCCESSFUL`.
 This is manifest readback evidence only. File-object version capture,
 complete version-aware checkpoint deletion, source-ordered retire/delete
 authority, Recovery Floor/Pin release, provider consistency, credential
-rotation, chaos, failover and V1 release evidence remain open.
+rotation, chaos, failover and release evidence remain open.
 
 ## Exact checkpoint object-set deletion receipt
 
@@ -1877,7 +1877,7 @@ This receipt closes local adapter operation accounting and admission fencing
 only. It does not attest remote provider request completion or provider
 quiescence and does not close certified REAPING provider evidence,
 source-ordered delete confirmation, Recovery Floor/Pin/Owner transactions,
-provider breadth, chaos, failover or V1 release gates.
+provider breadth, chaos, failover or release gates.
 
 ## Checkpoint delete-confirmation mutation composition receipt
 
@@ -1888,7 +1888,7 @@ an already-applied `ResourceRetireIntentRecord`, preserves the
 `DELETED`/`ALREADY_ABSENT` evidence rules, and requires the trusted
 confirmation interval to start at or after the observation interval's latest
 bound. It derives the mutation shard from the retire Source Position and
-signs the canonical `RESOURCE_DELETE_CONFIRMED_V1` body using the service
+signs the canonical `RESOURCE_DELETE_CONFIRMED` body using the service
 author and retire mutation ID.
 
 The focused regression was:
@@ -1902,14 +1902,14 @@ The focused regression was:
 JUnit recorded `tests=4 skipped=0 failures=0 errors=0`, and the full
 `./gradlew check --no-daemon --console=plain --quiet` returned 0. This is a
 local composition receipt only: it does not claim provider-side deletion,
-GC Owner/Floor/Pin authorization, Shard Log append, mutation apply, or V1
+GC Owner/Floor/Pin authorization, Shard Log append, mutation apply, or
 release readiness.
 
 ## Delete-confirmation temporal evidence fence receipt
 
 Delay commit `a26c6816` moves the confirmation-time causal fence into both
 the canonical `ResourceDeleteConfirmedBody` parser and the durable
-`ResourceDeleteConfirmedRecord`. Every `RESOURCE_DELETE_CONFIRMED_V1` path
+`ResourceDeleteConfirmedRecord`. Every `RESOURCE_DELETE_CONFIRMED` path
 now requires `confirmedAt.earliestEpochMs()` to be at least the complete
 provider-observation interval's `latestEpochMs()`, so a manually constructed
 or differently composed signed mutation cannot bypass the evidence ordering
@@ -1924,7 +1924,7 @@ transition, Shard Log append/apply, or release readiness.
 ## Source-ordered GC confirmation handoff receipt
 
 Delay commit `b225cef9` adds a typed `GcWorkClassExecutor` handoff for
-`RESOURCE_DELETE_CONFIRMED_V1`. The handoff binds the nested retire reference
+`RESOURCE_DELETE_CONFIRMED`. The handoff binds the nested retire reference
 to the exact `ResourceRetireIntentRecord` supplied by the caller and only
 returns `PERSISTED` when the external append result is strictly later than the
 retire Source Position on the same authenticated physical source. A regressed
@@ -1940,7 +1940,7 @@ authorization or release evidence.
 ## Oxia Recovery Pin session-bound CAS receipt
 
 Delay commit `dedd03a94fb2ab1e8d12f19ba993408646426578` adds a separate
-session-bound ephemeral Oxia record for the active `RecoveryPinV1`. The
+session-bound ephemeral Oxia record for the active `RecoveryPin`. The
 catalog record remains the single CAS authority for manifests/resources and
 scalar/typed Floor state. Pin create uses the exact canonical recovery-pin
 key with `IfRecordDoesNotExist` and `AsEphemeralRecord`, requires the caller's
@@ -1964,7 +1964,7 @@ The deterministic catalog suite passed 17 tests and the full check returned
 single-pin record/CAS boundary and its local response-loss tests; it does not
 prove an Oxia cross-record transaction, Owner/session-loss authority,
 multi-worker activation, provider deletion, GC authorization, chaos,
-failover or V1 release readiness.
+failover or release readiness.
 
 ## Atomic publication Recovery Pin CAS receipt
 
@@ -1995,7 +1995,7 @@ were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was not configured, and the
 full check returned 0. This receipt proves reusable single-pin record/CAS
 semantics only. It does not prove an atomic Intent/Catalog/Pin transaction,
 Owner/session-loss authority, provider completion, GC authorization, chaos,
-failover or V1 release readiness.
+failover or release readiness.
 
 ## Oxia Control Operation session-bound CAS receipt
 
@@ -2021,7 +2021,7 @@ were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was not configured, and the
 full `./gradlew check --no-daemon --console=plain --quiet` returned 0. This is
 single-record session-bound CAS evidence only; source-ordered control routing,
 actor/scope authorization, cross-record target/state transactionality,
-automatic session recovery, production query routing, chaos and V1 release
+automatic session recovery, production query routing, chaos and release
 gates remain open.
 
 ## Oxia Control Target Registration session-bound CAS receipt
@@ -2048,7 +2048,7 @@ real-service methods were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was not
 configured, and the full `./gradlew check --no-daemon --console=plain --quiet`
 returned 0. This receipt proves only per-record session-bound CAS; atomic
 Control Operation plus target registration, actor/source authority, automatic
-session recovery, production routing, chaos and V1 release gates remain open.
+session recovery, production routing, chaos and release gates remain open.
 
 ## Oxia credential Profile catalog session-bound CAS receipt
 
@@ -2075,7 +2075,7 @@ and the full `./gradlew check --no-daemon --console=plain --quiet` returned 0.
 This receipt proves only the single-record Profile session fence; secret
 resolution, source/actor authority, retained-generation GC, cross-record
 transactions, automatic reconnect, provider rotation/quiescence, chaos and
-V1 release gates remain open.
+Current release gates remain open.
 
 ## Oxia Recovery Catalog session-bound CAS receipt
 
@@ -2100,7 +2100,7 @@ real-service methods were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was not
 configured, and the full `./gradlew check --no-daemon --console=plain --quiet`
 returned 0. This receipt proves only catalog-record single-record session
 fencing; Catalog/Pin/Upload-Intent transactionality, source ordering,
-Owner/session recovery, provider publication/deletion, chaos and V1 release
+Owner/session recovery, provider publication/deletion, chaos and release
 gates remain open.
 
 ## Oxia Checkpoint Publication session-bound CAS receipt
@@ -2130,7 +2130,7 @@ and the full `./gradlew check --no-daemon --console=plain --quiet` returned 0.
 This receipt proves only the single canonical publication-record session
 fence; it does not prove an atomic Intent/Catalog/Pin transaction, provider
 completion, source/evidence replay, Owner/session recovery, chaos, failover or
-V1 release readiness.
+Current release readiness.
 
 ## Oxia Checkpoint Upload Intent session-bound CAS receipt
 
@@ -2158,7 +2158,7 @@ and the full `./gradlew check --no-daemon --console=plain --quiet` returned 0.
 This receipt proves only the independent upload-intent single-record session
 fence; it does not prove cross-record Intent/Catalog/Pin transactionality,
 Owner/session recovery, provider completion, source/evidence replay, chaos,
-failover or V1 release readiness.
+failover or release readiness.
 
 ## Oxia Worker assignment session-bound CAS receipt
 
@@ -2184,7 +2184,7 @@ worker smoke method was skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was not
 configured, and the full `./gradlew check --no-daemon --console=plain --quiet`
 returned 0. This receipt proves only desired-assignment single-record session
 fencing; it does not prove Assignment/Owner/Route transactionality, placement
-authority, session recovery, source/evidence replay, chaos, failover or V1
+authority, session recovery, source/evidence replay, chaos, failover or
 release readiness.
 
 ## Oxia Owner Lease session-bound CAS receipt
@@ -2211,7 +2211,7 @@ method was skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was not configured,
 and the full `./gradlew check --no-daemon --console=plain --quiet` returned 0.
 This receipt proves only the per-record owner epoch/lease session fence; it
 does not prove Assignment/Owner/Route transactionality, placement authority,
-automatic session recovery, source ordering, chaos, failover or V1 release
+automatic session recovery, source ordering, chaos, failover or release
 readiness.
 
 ## Oxia Route authority session-bound I/O fence receipt
@@ -2240,7 +2240,7 @@ authority methods and one real Route-worker method were skipped because
 `./gradlew check --no-daemon --console=plain --quiet` returned 0. This receipt
 proves only per-operation Route session fencing and lazy range protection; it
 does not prove event/head transactionality, automatic reconnect, multi-node
-failover, placement/source ownership, chaos or V1 release readiness.
+failover, placement/source ownership, chaos or release readiness.
 
 ## Atomic checkpoint publication authority pairing fence receipt
 
@@ -2258,7 +2258,7 @@ regardless of which supplied side implements
 The focused checkpoint coordinator suite passed. This receipt proves only
 constructor-time authority pairing; it does not prove an Intent/Catalog/Pin
 multi-record transaction, provider evidence, Owner/session recovery, source
-ordering, chaos or V1 release readiness.
+ordering, chaos or release readiness.
 
 ## Recovery Pin session-fenced client wiring correction receipt
 
@@ -2280,7 +2280,7 @@ The focused receipt command was:
 The deterministic Recovery Catalog and Publication suites passed. This
 correction proves only the per-record Recovery Pin session fence and does not
 prove Catalog/Pin/Upload-Intent transactionality, Owner/session recovery,
-provider evidence, source ordering, chaos or V1 release readiness.
+provider evidence, source ordering, chaos or release readiness.
 
 ## Oxia Route notification reconnect session fence receipt
 
@@ -2307,7 +2307,7 @@ authority methods and one real Route-worker method were skipped because
 `NEREUS_DELAY_OXIA_ENDPOINT` was not configured. This receipt proves only the
 replacement notification registration fence; it does not prove automatic
 reconnect, event/head transactionality, multi-node failover, placement/source
-ownership, raw chaos or V1 release readiness.
+ownership, raw chaos or release readiness.
 
 ## Oxia Route provider start retry after notification fence receipt
 
@@ -2323,7 +2323,7 @@ The deterministic regression
 passed as part of the 9-test Route provider/session suite. The receipt proves
 only this retry state transition after a fenced registration; it does not prove
 transparent automatic reconnect, event/head transactionality, multi-node
-failover, placement/source ownership, raw chaos or V1 release readiness.
+failover, placement/source ownership, raw chaos or release readiness.
 
 ## Oxia Route initial-refresh notification restoration receipt
 
@@ -2337,7 +2337,7 @@ fence uses the replacement path on the next explicit retry.
 passed as part of the 10-test Route provider/session suite. This receipt proves
 only initial-refresh notification restoration; it does not prove transparent
 automatic reconnect, event/head transactionality, multi-node failover,
-placement/source ownership, raw chaos or V1 release readiness.
+placement/source ownership, raw chaos or release readiness.
 
 ## Fleet and Route resource close aggregation receipt
 
@@ -2359,7 +2359,7 @@ The focused receipt command was:
 The fleet suite passed 2 tests and the Route provider/session suite passed 11
 tests, with zero failures/skips/errors. This is deterministic local teardown
 evidence only; it does not prove owner-drain bypass, automatic Oxia recovery,
-Route transactionality, placement/source ownership, chaos, failover or V1
+Route transactionality, placement/source ownership, chaos, failover or
 release readiness.
 
 ## Worker source close retry receipt
@@ -2380,7 +2380,7 @@ The focused receipt command was:
 The deterministic source/apply suite passed 8 tests, including the native
 close-failure retry regression. This is local lifecycle evidence only; it does
 not prove pending-ACK bypass, Broker reconnect/ACK durability, crash/chaos,
-failover or V1 release readiness.
+failover or release readiness.
 
 ## Route client teardown retry receipt
 
@@ -2392,7 +2392,7 @@ owned clients and marks completion only after success.
 The deterministic Route provider/session suite passed 12 tests, including
 session and provider client-close retry regressions. This receipt proves only
 local teardown retryability; it does not prove automatic Oxia recovery, Route
-transactionality, placement/source ownership, chaos, failover or V1 release
+transactionality, placement/source ownership, chaos, failover or release
 readiness.
 
 ## Direct SDK client teardown retry receipt
@@ -2414,7 +2414,7 @@ The focused receipt command was:
 The deterministic Direct SDK client suite passed 11 tests, including
 `closeRetriesEveryChildAfterTheFirstCloseFailure`. This receipt proves only
 local SDK teardown retryability; it does not prove provider/session recovery,
-transport delivery, durable outbox authority, crash/chaos, failover or V1
+transport delivery, durable outbox authority, crash/chaos, failover or
 release readiness.
 
 ## Route connect prefix validation receipt
@@ -2436,7 +2436,7 @@ The deterministic Route session construction suite passed 1 test, including
 `connectRejectsAnInvalidKeyPrefixBeforeCreatingOxiaClients`. This receipt
 proves only local connect-input/resource-ordering validation; it does not
 prove Oxia recovery, Route transactionality, placement/source ownership,
-chaos, failover or V1 release readiness.
+chaos, failover or release readiness.
 
 ## Worker monitor teardown retry receipt
 
@@ -2457,7 +2457,7 @@ The focused receipt command was:
 The deterministic monitor suites passed 12 tests, including the shutdown
 retry regression in both monitor classes. This receipt proves only local
 Worker monitor teardown retryability; it does not prove native process
-recovery, production resource authority, Owner/Oxia, chaos, failover or V1
+recovery, production resource authority, Owner/Oxia, chaos, failover or
 release readiness.
 
 ## In-memory command transport registry teardown retry receipt
@@ -2479,7 +2479,7 @@ The deterministic registry suite passed 1 test,
 `closeRetriesOnlyTheTransportThatFailedTheFirstTeardown`. This receipt proves
 only local registry teardown retryability; it does not prove production
 Kafka/Pulsar client lifecycle, transport delivery, Broker failover, chaos or
-V1 release readiness.
+Current release readiness.
 
 ## Guarded Pulsar transport teardown aggregation receipt
 
@@ -2499,7 +2499,7 @@ The focused receipt command was:
 The deterministic guarded transport suite passed 4 tests, including
 `pulsarCloseAttemptsNativeSenderAfterManagedSenderFailure`. This receipt proves
 only local Pulsar teardown aggregation; it does not prove native/managed
-Broker delivery, client authority, failover, chaos or V1 release readiness.
+Broker delivery, client authority, failover, chaos or release readiness.
 
 ## Owner connect prefix validation receipt
 
@@ -2520,7 +2520,7 @@ The deterministic Owner backend suite passed 15 tests, including
 `connectRejectsAnInvalidKeyPrefixBeforeCreatingAnOxiaClient`. This receipt
 proves only local Owner connect-input/resource-ordering validation; it does
 not prove Owner/Oxia recovery, lease authority, placement, chaos, failover or
-V1 release readiness.
+Current release readiness.
 
 ## Gateway admission lease release retry receipt
 
@@ -2541,7 +2541,7 @@ The deterministic Gateway admission suite passed 6 tests, including
 `leaseCloseRemainsRetryableAfterReleaseCasDoesNotConverge`. This receipt proves
 only local admission-lease release retryability; it does not prove
 distributed Gateway authority, session recovery, transport delivery,
-failover, chaos or V1 release readiness.
+failover, chaos or release readiness.
 
 ## Gateway idempotency evidence monotonicity receipt
 
@@ -2566,7 +2566,7 @@ The deterministic Gateway suites passed 13 tests with zero failures/skips/
 errors. The full `./gradlew check` passed 1532 tests with 24 skips and zero
 failures/errors. This receipt proves only local durable idempotency evidence
 ordering; it does not prove distributed Gateway authority, transport delivery,
-Broker failover, chaos or V1 release readiness.
+Broker failover, chaos or release readiness.
 
 ## Gateway prepared-expiry fence and aggregate replay receipt
 
@@ -2590,7 +2590,7 @@ The deterministic Gateway suites passed 16 tests with zero failures/skips/
 errors. The full `./gradlew check` passed 1535 tests with 24 skips and zero
 failures/errors. This receipt proves only local prepared-expiry fencing and
 durable aggregate replay; it does not prove distributed Gateway authority,
-transport delivery, Broker failover, chaos or V1 release readiness.
+transport delivery, Broker failover, chaos or release readiness.
 
 ## Gateway attempt projection integrity fence receipt
 
@@ -2612,7 +2612,7 @@ The deterministic idempotency suite passed 10 tests with zero
 failures/skips/errors. The full `./gradlew check` passed 1536 tests with 24
 skips and zero failures/errors. This receipt proves only local durable
 projection integrity; it does not prove distributed Gateway authority,
-transport delivery, Broker failover, chaos or V1 release readiness.
+transport delivery, Broker failover, chaos or release readiness.
 
 ## Gateway stored evidence binding receipt
 
@@ -2637,7 +2637,7 @@ failures/skips/errors, including
 `./gradlew check` passed 1537 tests with 24 skips and zero failures/errors.
 This receipt proves only local stored-evidence binding and aggregate
 recomputation; it does not prove distributed Gateway authority, transport
-delivery, Broker failover, chaos or V1 release readiness.
+delivery, Broker failover, chaos or release readiness.
 
 ## Gateway retry evidence hash binding receipt
 
@@ -2660,7 +2660,7 @@ The deterministic idempotency suite passed 11 tests with zero
 failures/skips/errors. The full `./gradlew check` passed 1537 tests with 24
 skips and zero failures/errors. This receipt proves only local retry-evidence
 hash binding; it does not prove distributed Gateway authority, transport
-delivery, Broker failover, chaos or V1 release readiness.
+delivery, Broker failover, chaos or release readiness.
 
 ## Gateway operation/prepared binding receipt
 
@@ -2684,7 +2684,7 @@ The focused Gateway suites passed 10 tests with zero failures/skips/errors.
 The full `./gradlew check` passed 1537 tests with 24 skips and zero
 failures/errors. This receipt proves only local operation/prepared binding;
 it does not prove distributed Gateway authority, transport delivery, Broker
-failover, chaos or V1 release readiness.
+failover, chaos or release readiness.
 
 ## Gateway audit phase evidence receipt
 
@@ -2705,7 +2705,7 @@ The focused audit suite passed 4 tests with zero failures/skips/errors. The
 full `./gradlew check` passed 1538 tests with 24 skips and zero
 failures/errors. This receipt proves only local audit phase/digest shape
 validation; it does not prove distributed Gateway authority, transport
-delivery, Broker failover, chaos or V1 release readiness.
+delivery, Broker failover, chaos or release readiness.
 
 ## Gateway active attempt tail fence receipt
 
@@ -2726,7 +2726,7 @@ The deterministic idempotency suite passed 11 tests with zero
 failures/skips/errors. The full `./gradlew check` passed 1538 tests with 24
 skips and zero failures/errors. This receipt proves only local active-attempt
 projection integrity; it does not prove distributed Gateway authority,
-transport delivery, Broker failover, chaos or V1 release readiness.
+transport delivery, Broker failover, chaos or release readiness.
 
 ## Gateway attempt timing/retry shape receipt
 
@@ -2747,7 +2747,7 @@ The deterministic idempotency suite passed 11 tests with zero
 failures/skips/errors. The full `./gradlew check` passed 1538 tests with 24
 skips and zero failures/errors. This receipt proves only local physical-
 attempt temporal/retry-shape validation; it does not prove distributed
-Gateway authority, transport delivery, Broker failover, chaos or V1 release
+Gateway authority, transport delivery, Broker failover, chaos or release
 readiness.
 
 ## Pulsar large-payload Gateway-to-destination authority E2E receipt
@@ -2787,7 +2787,7 @@ Prepare byte identity, typed Pulsar SEND evidence, source `PUBLISH_OUTCOME`,
 final local checkpoint and Oxia Owner release. It does not cover combined
 Gateway-plus-multi-Broker failover, multi-shard placement, raw
 crash/network/proxy/process chaos, Kafka LSO/retention recovery, Object Store
-checkpoint publication or V1 release readiness.
+checkpoint publication or release readiness.
 
 ### Clean revalidation at Delay `667458b9`
 
@@ -2821,7 +2821,7 @@ Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload authority E2E pa
 The post-run exact-name cleanup check found no containers for the project and
 no temporary P1/Oxia images. This is a normal-path revalidation only; it does
 not claim combined multi-Broker failover, the untriggered recovered `UNKNOWN`
-response-loss branch, multi-shard placement, chaos or V1 release readiness.
+response-loss branch, multi-shard placement, chaos or release readiness.
 
 ## Pulsar Worker destination response-loss with real Oxia
 
@@ -2866,7 +2866,7 @@ checkpoint. Exact cleanup checks found no containers, images, volumes or
 networks for either project. The run used normal `ENQUEUED` admission; it does
 not claim the recovered `UNKNOWN` Publish Admission branch, raw socket/process
 loss, combined Gateway multi-Broker failover, checkpoint publication,
-multi-shard placement or V1 release readiness.
+multi-shard placement or release readiness.
 
 ## Pulsar Worker UNKNOWN Publish Admission response-loss with real Oxia
 
@@ -2914,7 +2914,7 @@ This proves the bounded real-Broker/real-Oxia recovered `UNKNOWN` Publish
 Admission branch and source-applied physical publish. It is controlled
 client-side response loss after real Broker persistence, not raw socket,
 process/Broker crash, multi-Broker reactivation, combined Gateway failover,
-multi-shard, checkpoint REAPING, chaos or V1 release evidence. The runner's
+multi-shard, checkpoint REAPING, chaos or release evidence. The runner's
 exact cleanup checks found no containers, images, volumes or networks for the
 isolated projects.
 
@@ -2936,7 +2936,7 @@ NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-multishard-20260816 \
 
 The source-bound run was Delay `e629a404`, Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`, project
-`nereus-delay-v1-oxia-e2e-1786887413-34183`, endpoint `127.0.0.1:16659`, and
+`nereus-delay-oxia-e2e-1786887413-34183`, endpoint `127.0.0.1:16659`, and
 temporary image
 `sha256:e05630a933783a3925150ad1a1ca38869249d06a9983a6a7c4ed1e0bef98c460`.
 The test XML recorded two tests with zero skips/failures/errors:
@@ -2951,7 +2951,7 @@ Dockerized Oxia real-service smoke passed for 37a17bef17202d5fd6e23282da5fd26d94
 This is positive evidence for real Oxia Route-driven multi-shard placement and
 per-shard assignment CAS. It is not a full two-shard native Kafka/Pulsar
 Worker runtime receipt: per-shard source ownership, Owner Lease/catch-up/ACK,
-scheduler fairness, raw chaos and V1 release readiness remain open. The exact
+scheduler fairness, raw chaos and release readiness remain open. The exact
 temporary Oxia image was removed after the run; no project container/network
 remained.
 
@@ -2968,7 +2968,7 @@ NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-fetch-response-loss-
 
 The source-bound receipt passed at Delay
 `8f1116abad2bd77e2f384c04411dabaeb70b4f72`, Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:b0fcef7eb6f8350af6c22d333de889155acf4b1ec157887266568fc78beada0e`,
@@ -2987,7 +2987,7 @@ This closes only controlled client-side response loss after a real Fetch: the
 same group replayed exact offset 0, then ACKed offsets 0 and 1 through group
 offset 2 with LSO 2. It does not cover raw socket loss, retention-floor
 recovery, coordinator/process/Broker crash cuts, multi-shard placement,
-checkpoint publication, chaos or V1 release readiness.
+checkpoint publication, chaos or release readiness.
 
 ## Kafka source retention-floor receipt
 
@@ -3001,7 +3001,7 @@ NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-retention-floor-grad
 ```
 
 The post-commit receipt passed at Delay `d8dc5f45`, Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
@@ -3021,7 +3021,7 @@ guarded records were produced, Broker retention advanced the earliest offset
 to `20`, a stale offset `0` Fetch failed closed with typed
 `OFFSET_OUT_OF_RANGE`, and the fresh floor record remained readable with LSO
 `21`. Raw socket loss, coordinator/process/Broker crash cuts, multi-shard
-placement, checkpoint publication, chaos and V1 release readiness remain
+placement, checkpoint publication, chaos and release readiness remain
 outside this receipt.
 
 ## Kafka source process-crash recovery receipt
@@ -3037,7 +3037,7 @@ NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-process-crash-e2e-re
 
 The post-commit receipt passed at Delay
 `2bcaff5e0c0b15b819cbc614c166c47e19571be3`, Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
@@ -3058,7 +3058,7 @@ process fetched exact guarded records through real Fetch v13 and halted before
 ACK/close; the fresh same-group process replayed offsets `0` and `1`, then
 committed offset `2`. It does not cover raw network/proxy/socket loss,
 consumer-coordinator or Broker crash/leader-failover cuts, Worker crash during
-apply/publish, multi-shard placement, checkpoint publication, chaos or V1
+apply/publish, multi-shard placement, checkpoint publication, chaos or
 release readiness.
 
 ## Checkpoint REAPING with real Oxia and MinIO
@@ -3091,7 +3091,7 @@ file and manifest, and the adapter performs a final empty-prefix listing. The
 local provider-generation fence is evidence for the configured local horizon,
 not provider-side quiescence/consistency attestation. RecoveryPin competition,
 production cross-record transaction, source-ordered delete confirmation,
-response-loss retry, multi-shard runtime, raw chaos and V1 release gates remain
+response-loss retry, multi-shard runtime, raw chaos and release gates remain
 open. The runner removes its exact containers, network, volume and temporary
 Oxia image; the locked MinIO base image remains for reuse.
 
@@ -3110,7 +3110,7 @@ NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/Users/liusinan/.gradle \
 
 The source-bound run was Delay
 `2a560a9d3f288b08bd02e139c52f4cfe6fda8ff3`, Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
@@ -3130,7 +3130,7 @@ Kafka Broker process-crash recovery E2E passed: kafka-1 was SIGKILLed after guar
 
 This is a bounded Broker-process recovery receipt, not raw network/proxy/socket
 chaos, controller/coordinator leader-failover evidence, Worker crash recovery,
-production multi-shard runtime or V1 release readiness. Exact post-run checks
+production multi-shard runtime or release readiness. Exact post-run checks
 found no containers, networks, volumes or temporary Kafka/Oxia images for the
 two isolated projects.
 
@@ -3149,7 +3149,7 @@ NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/Users/liusinan/.gradle \
 
 The source-bound run was Delay
 `5460746c74b2a4cc05f9ecfb71c5d2a285828380`, Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
@@ -3170,7 +3170,7 @@ Kafka Broker network-partition recovery E2E passed: kafka-1 stayed alive but was
 This is a bounded real Docker-network partition receipt. The survivor run
 deliberately skips physical destination publish, so raw packet/proxy/socket
 chaos, destination egress under partition, controller/coordinator leader
-proof, production multi-shard runtime and V1 release readiness remain open.
+proof, production multi-shard runtime and release readiness remain open.
 Exact post-run checks found no containers, networks, volumes or temporary
 Kafka/Oxia images for the two isolated projects.
 
@@ -3191,7 +3191,7 @@ NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-worker-process-crash
 ```
 
 The source-bound Delay commit was `d35dce96`; Kafka is locked to
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 with client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3` and
 broker image
@@ -3213,7 +3213,7 @@ Kafka Worker process-crash recovery E2E passed: a real Worker JVM was SIGKILLed 
 This receipt is limited to OS-process Worker source replay/ACK/checkpoint
 recovery. It does not prove a crash during destination publish, raw
 packet/proxy/socket chaos, controller/coordinator leader failover,
-production multi-shard runtime or V1 release readiness. The named Compose
+production multi-shard runtime or release readiness. The named Compose
 containers, networks, volumes and temporary images were absent after cleanup;
 base images were retained and no global `docker prune` was run.
 
@@ -3239,7 +3239,7 @@ KAFKA_DELAY_WORKER_ACK_PROCESS_CRASH_TOPIC=nereus-delay-worker-ack-crash-live-20
 ```
 
 The live receipt used K1
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
@@ -3261,7 +3261,7 @@ Kafka Worker ACK process-crash recovery E2E passed: the Worker Store WriteBatch 
 This receipt is limited to the Store-durable-before-source-ACK Worker replay
 boundary. It does not prove a crash during destination publish, raw
 packet/proxy/socket chaos, controller/coordinator leader failover, production
-multi-shard runtime or V1 release readiness. The named Compose containers,
+multi-shard runtime or release readiness. The named Compose containers,
 networks, volumes and temporary images were absent after exact cleanup; base
 images were retained and no global `docker prune` was run.
 
@@ -3297,7 +3297,7 @@ post-cut handoff marker files all exist.
 This is an explicit endpoint fault/handoff harness. It does not prove automatic
 Kafka controller/coordinator failover, Broker crash recovery, Docker network
 partition recovery, production proxy behavior, multi-shard runtime, the full
-chaos matrix or V1 release readiness. Cleanup removes only the exact Compose
+chaos matrix or release readiness. Cleanup removes only the exact Compose
 projects, temporary networks/volumes and run-created Kafka/Oxia images; reusable
 base images are retained and no global `docker prune` is performed.
 
@@ -3332,7 +3332,7 @@ Pulsar + Oxia Route/Assignment/Owner + Gateway mTLS/JWT + Worker + MinIO large-p
 ```
 
 This is bounded reactivation evidence, not automatic Pulsar controller/
-coordinator failover, multi-shard evidence or V1 release approval. Cleanup is
+coordinator failover, multi-shard evidence or release approval. Cleanup is
 exactly scoped to the Compose project, its networks/volumes/orphans and
 run-created temporary images; reusable base images remain and no global Docker
 prune is run. The runner emitted a topic-delete cleanup warning, but post-run
@@ -3380,7 +3380,7 @@ The source lock is Delay `b059d99aef1793f56c4b33d4293ec141e20c4d96` and Oxia
 partitions placed across two workers with session-bound Assignment CAS and
 exact withdrawal. It is not yet a two-native-source Worker fleet proof;
 per-shard source ownership/catch-up/ACK, scheduler fairness, raw chaos and
-V1 release readiness remain open.
+Current release readiness remain open.
 
 The runner's project/container/network cleanup was exact. Its run-created
 Oxia image required one explicit `docker image rm` after the runner, and was
@@ -3400,7 +3400,7 @@ GRADLE_USER_HOME=/tmp/nereus-delay-kafka-multishard-20260816-c6b2d0ea \
 ```
 
 At Delay `c6b2d0ea`, Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`
 and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, the runner published one
 signed two-partition Route, crossed two guarded Fetch barriers, admitted two
 real Oxia Assignment/Owner paths and attached two native guarded source
@@ -3414,7 +3414,7 @@ Kafka native multi-shard Worker fleet E2E passed: one signed Route covered two g
 This is positive source-bound Kafka evidence for two native Worker shards,
 including per-shard recovery/apply/ACK/checkpoint and exact withdrawal. It does
 not claim native Pulsar multi-shard production, multiple Worker processes, raw
-chaos completeness or V1 release readiness. The run used isolated Kafka and
+chaos completeness or release readiness. The run used isolated Kafka and
 Oxia Compose projects; post-run checks found no containers, networks, volumes
 or matching temporary images. Reusable base images remain and no global Docker
 prune is used.
@@ -3433,7 +3433,7 @@ GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-multishard-20260817-r2 \
 ```
 
 At Delay `c2003627`, Pulsar
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`
 and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, the runner published one
 signed two-partition Route, crossed two guarded SUBSCRIBE barriers, admitted
 two real Oxia Assignment/Owner paths and attached two native guarded source
@@ -3447,7 +3447,7 @@ Pulsar native multi-shard Worker fleet E2E passed: one signed Route covered two 
 This is positive source-bound Pulsar evidence for two native Worker shards on
 one real P1 Broker, including per-shard recovery/apply/ACK/checkpoint and exact
 withdrawal. It does not claim Pulsar multi-Broker failover, multiple Worker
-processes, raw chaos completeness or V1 release readiness. The isolated
+processes, raw chaos completeness or release readiness. The isolated
 Pulsar/Oxia Compose projects left no containers, networks, volumes or matching
 temporary images; reusable base images remain and no global Docker prune is
 used.
@@ -3467,7 +3467,7 @@ GRADLE_USER_HOME=/tmp/nereus-delay-kafka-network-partition-20260817 \
 ```
 
 At Delay `35745db08672f1bf2e3178419422a46741da20d1`, Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`
 and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, the real three-Broker
 KRaft run disconnected live `kafka-1` from the Compose network, verified
 survivor topic leaders through the Admin API, resumed the same guarded Worker
@@ -3483,7 +3483,7 @@ Kafka Broker network-partition recovery E2E passed: kafka-1 stayed alive but was
 This is a bounded real Docker-network partition receipt for source Worker
 recovery. It does not claim destination egress during the survivor window, raw
 packet/proxy/socket chaos, controller/coordinator failover beyond the topic
-leader check, production multi-shard chaos or V1 release readiness. The exact
+leader check, production multi-shard chaos or release readiness. The exact
 Kafka project was `nereus-delay-kafka-e2e-1786896942-56285` and the exact Oxia
 project was `nereus-delay-kafka-oxia-e2e-1786896942-56285`; post-run checks
 found no containers, networks, volumes or matching temporary images, reusable
@@ -3502,7 +3502,7 @@ KAFKA_DELAY_E2E_SOURCE_TOPIC=nereus-delay-fetch-response-loss-live-20260817-r1 \
 
 The current-source run locks Delay to
 `a3bb8462edc3d4e32006f5d98af958d1c8d7ef18`, Kafka to
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 the K1 client SHA-256 to
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, and
 the broker image ID to
@@ -3522,7 +3522,7 @@ Kafka source Fetch response-loss E2E passed: real read_committed Fetch v13 respo
 This is a bounded controlled client-side response-loss receipt after a real
 Fetch. It does not cover raw socket loss, retention-floor recovery,
 coordinator/Broker crash, multi-shard placement, checkpoint publication,
-chaos or V1 release readiness. Exact post-run checks found no matching
+chaos or release readiness. Exact post-run checks found no matching
 containers, networks, volumes or temporary image tag/image ID; reusable base
 images were retained and no global Docker prune was run.
 
@@ -3541,7 +3541,7 @@ The first attempt stopped before Gradle because a new wrapper cache hit a
 transient TLS EOF; the exact runner cleanup still completed. The successful
 retry used the populated cache and locked Delay to
 `a3bb8462edc3d4e32006f5d98af958d1c8d7ef18`, Kafka to
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 the K1 client SHA-256 to
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, and
 the broker image ID to
@@ -3561,7 +3561,7 @@ Kafka source retention-floor E2E passed: real Broker retention advanced the earl
 This is bounded real-Broker retention-floor recovery with test-accelerated
 retention. It does not claim disk ENOSPC, raw socket/process chaos,
 controller/coordinator failover, multi-shard placement, checkpoint
-publication or V1 release readiness. Exact post-run checks found no matching
+publication or release readiness. Exact post-run checks found no matching
 containers, networks, volumes or temporary image tag/image ID; reusable base
 images were retained and no global Docker prune was run.
 
@@ -3583,7 +3583,7 @@ KAFKA_DELAY_WORKER_ACK_PROCESS_CRASH_TOPIC=nereus-delay-worker-ack-crash-live-20
 ```
 
 At Delay `ade0c813bb8919793eecdd2e07cf76073432237f`, Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`
 and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, the first Worker JVM
 reached a gate after the local WriteBatch was durable and before Kafka
 `commitSync`; the harness SIGKILLed it and a fresh JVM reopened the exact Store
@@ -3597,7 +3597,7 @@ Kafka Worker ACK process-crash recovery E2E passed: the Worker Store WriteBatch 
 
 This is a bounded Worker process-cut receipt for durable apply before source
 ACK. It does not claim destination-publish crash recovery, raw network chaos,
-controller/coordinator failover, production multi-shard fault coverage or V1
+controller/coordinator failover, production multi-shard fault coverage or
 release readiness. The exact Kafka project was
 `nereus-delay-kafka-e2e-1786897528-64796` and exact Oxia project was
 `nereus-delay-kafka-oxia-e2e-1786897528-64796`; post-run checks found no
@@ -3622,7 +3622,7 @@ KAFKA_DELAY_BROKER_PROCESS_CRASH_TOPIC=nereus-delay-worker-broker-crash-live-202
 ```
 
 At Delay `13857e57cee134c2bc0fcf20a4d8b988fbe0f02a`, Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`
 and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, the harness SIGKILLed
 `kafka-1` after guarded Worker preparation. The survivor run through
 `kafka-2,kafka-3` completed real Oxia authority, source apply/ACK, physical
@@ -3638,7 +3638,7 @@ Kafka Broker process-crash recovery E2E passed: kafka-1 was SIGKILLed after guar
 
 This is a bounded current-source Broker-process crash receipt covering the
 Worker source/destination path. It does not claim raw endpoint/network fault
-injection, controller/coordinator failover, production multi-shard chaos or V1
+injection, controller/coordinator failover, production multi-shard chaos or
 release readiness. The exact Kafka project was
 `nereus-delay-kafka-e2e-1786897707-67896` and exact Oxia project was
 `nereus-delay-kafka-oxia-e2e-1786897707-67896`; post-run checks found no
@@ -3664,7 +3664,7 @@ KAFKA_DELAY_BROKER_TCP_CUT_TOPIC=nereus-delay-worker-broker-tcp-cut-live-2026081
 ```
 
 At Delay `47fa6620e7816dbd13ea393b42891a53286009ec`, Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`
 and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, the placement smoke put
 the source leader and selected group coordinator partition on Broker-2 with
 replicas `[2,3,1]` while Broker-1 stayed alive. The raw proxy then rejected one
@@ -3682,7 +3682,7 @@ The runner also required pre-cut forwarding, cut acknowledgement, post-cut
 rejection and post-cut handoff marker files. This is a bounded raw endpoint
 fault/handoff receipt; it does not claim controller/coordinator automatic
 failover, Broker crash recovery, Docker network partition, destination egress
-under the cut, production multi-shard chaos or V1 release readiness. The exact
+under the cut, production multi-shard chaos or release readiness. The exact
 Kafka project was `nereus-delay-kafka-e2e-1786897339-61592` and exact Oxia
 project was `nereus-delay-kafka-oxia-e2e-1786897339-61592`; post-run checks
 found no containers, networks, volumes or matching temporary images, reusable
@@ -3707,7 +3707,7 @@ PULSAR_DELAY_MULTI_BROKER_DESTINATION_TOPIC=nereus-delay-pulsar-multi-destinatio
 
 The current-source run locks Delay to
 `19577006e4c104b2934617719b711aa5d549ed27`, P1 to
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 the P1 distribution SHA-256 to
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and
 the P1 image ID to
@@ -3732,7 +3732,7 @@ Pulsar multi-Broker failover E2E passed: same-topic guarded Worker resumed throu
 This is bounded two-Broker P1 failover evidence with real Oxia authority and
 physical destination readback. It does not claim automatic Pulsar
 controller/coordinator failover, raw socket/network chaos, Gateway ingress,
-multi-shard production placement, the full chaos matrix or V1 release
+multi-shard production placement, the full chaos matrix or release
 readiness. Exact post-run checks found no P1/Oxia project containers,
 networks or volumes and no matching P1 image; the run-created Oxia image tag
 and ID were explicitly removed, reusable base images were retained and no
@@ -3757,7 +3757,7 @@ NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_DESTINATION_TOPIC=nereus-delay-large-payload-de
 
 The current-source receipt locks Delay to
 `f3adc8cba4c78479f2daa883f0605136dc085f50`, K1 to
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 and the isolated project to
 `nereus-delay-large-payload-e2e-1786898894-84130`. The real Kafka/Oxia/Gateway/
 MinIO path passed:
@@ -3769,7 +3769,7 @@ Kafka + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload + Kafka destinati
 ```
 
 This is one physical source partition and bounded production-authority
-evidence, not the V1 release gate. Exact post-run checks found no project
+evidence, not the release gate. Exact post-run checks found no project
 containers, networks, volumes or temporary Kafka/Oxia images; the locked
 MinIO base image was retained and no global Docker prune was run.
 
@@ -3794,7 +3794,7 @@ NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_DESTINATION_TOPIC=nereus-delay-pulsar-large-de
 
 The current-source receipt locks Delay to
 `f3adc8cba4c78479f2daa883f0605136dc085f50`, P1 to
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 and the isolated project to
 `nereus-delay-pulsar-large-e2e-1786898952-84840`. The receipt was:
 
@@ -3808,7 +3808,7 @@ Pulsar + Oxia + Gateway mTLS/JWT + Worker + MinIO large-payload multi-Broker fai
 This is bounded two-Broker, one-physical-source-partition reactivation
 evidence. The stop is a harness action, not automatic controller/coordinator
 leader failover; Profile/Oxia credential authority, checkpoint REAPING/GC, the
-full chaos matrix and V1 release readiness remain open. Exact post-run checks
+full chaos matrix and release readiness remain open. Exact post-run checks
 found no P1/Oxia project containers, networks, volumes or temporary images;
 the locked MinIO base image was retained and no global Docker prune was run.
 
@@ -3841,7 +3841,7 @@ Oxia + MinIO Worker checkpoint publication and REAPING E2E passed: real Oxia Int
 The test proves real Owner abandonment, Intent `PENDING_UPLOAD -> REAPING`,
 provider quiescence, exact-version prefix deletion and empty-prefix reread.
 It is bounded real-service evidence, not multi-worker disaster takeover,
-external secret-manager rotation, full chaos or V1 release readiness. Exact
+external secret-manager rotation, full chaos or release readiness. Exact
 post-run checks found no project resources, temporary Oxia image or standalone
 MinIO container; the locked MinIO base was retained and no global Docker prune
 was run.
@@ -3859,7 +3859,7 @@ NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-real-20260817 \
 The run locks Delay to
 `d521aeb41c13d396716f8ac726a63bf4f96db4db`, Oxia to
 `37a17bef17202d5fd6e23282da5fd26d94865484`, and project
-`nereus-delay-v1-oxia-e2e-1786899760-96148`. It passed the real Profile,
+`nereus-delay-oxia-e2e-1786899760-96148`. It passed the real Profile,
 Owner/control/recovery, Route/Assignment and Gateway authority tests with
 zero failures/errors; three opt-in tests were explicitly skipped.
 
@@ -3876,7 +3876,7 @@ NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-real-20260817 \
 ```
 
 The exact restart project was
-`nereus-delay-v1-oxia-e2e-1786899721-95680`; the receipt was:
+`nereus-delay-oxia-e2e-1786899721-95680`; the receipt was:
 
 ```text
 Dockerized Oxia Route notification restart smoke passed: session rotation and notification stream recovery
@@ -3888,7 +3888,7 @@ deterministic coverage in `OxiaSignedRouteSnapshotProviderTest`. Exact
 post-run checks found no named containers/networks/volumes or temporary Oxia
 images; no global Docker prune was used.
 
-## V1 release-gate audit (2026-08-17)
+##Current release-gate audit (2026-08-17)
 
 Current source locks are Delay
 `9e29af8e70fa4d84725d624959f377c271d9f319` for the current-source Gateway /
@@ -3950,7 +3950,7 @@ used.
 This is bounded single-node session-churn/recomposition evidence. Transparent
 automatic reconnect, production multi-process Gateway HA, load, complete
 crash/response-loss resolution, external credential/provider authority and
-V1 release gates remain open.
+Current release gates remain open.
 
 ## Object Store credential renewal with real Oxia and MinIO (current source)
 
@@ -4006,7 +4006,7 @@ NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-worker-admission-r
 
 The current-source receipt locks Delay to
 `ef8ad3fcdb0765565b93036f901a45781f163bb0`, P1 to
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 the P1 distribution to
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and
 Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. The isolated projects
@@ -4025,7 +4025,7 @@ This is controlled client-side response loss after real Pulsar persistence.
 Exact source replay resolves the same admission identity and continues
 `PUBLISHING`; no retry mutation is appended. It is not raw socket loss or
 process/Broker crash evidence and does not close multi-Broker, multi-shard,
-REAPING, full chaos or V1 release gates. Exact postchecks found no project
+REAPING, full chaos or release gates. Exact postchecks found no project
 containers, networks, volumes or matching P1/Oxia images. The locked MinIO
 base remained and no global Docker prune was used.
 
@@ -4046,7 +4046,7 @@ NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-worker-source-ack-
 
 The current-source receipt locks Delay to
 `75f451758c30c6eafc50b252bffdcef22f0137b4`, P1 to
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 the P1 distribution to
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and
 Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. Projects were
@@ -4080,7 +4080,7 @@ NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-destination-respon
 
 The current-source receipt locks Delay to
 `75f451758c30c6eafc50b252bffdcef22f0137b4`, P1 to
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 the P1 distribution to
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and
 project `nereus-delay-pulsar-e2e-1786901571-24129` on `29440/29441`.
@@ -4094,7 +4094,7 @@ Pulsar destination committed response-loss E2E passed: real SEND response loss r
 This proves the exact guarded payload and typed destination evidence converge
 after local SEND response loss. It does not claim Worker/Oxia authority, raw
 socket or process/Broker crash recovery, multi-Broker, multi-shard, REAPING or
-V1 release coverage. Exact project/image cleanup was empty; no global Docker
+Current release coverage. Exact project/image cleanup was empty; no global Docker
 prune was used.
 
 ## Pulsar Worker JVM process-crash recovery (current source)
@@ -4114,7 +4114,7 @@ NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-full-check-20260817 \
 
 The receipt locks Delay to
 `fdee96ca5e402bd725ff1454c1086b249e0ce8da`, P1 to
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 the P1 distribution to
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and
 Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. Projects were
@@ -4132,7 +4132,7 @@ Pulsar Worker process-crash recovery E2E passed: a real Worker JVM was SIGKILLed
 
 This is bounded Worker JVM crash/reopen evidence. It does not cover a crash
 during physical destination publish, raw socket/network chaos,
-Broker/controller failover, multi-Worker placement, REAPING or V1 release
+Broker/controller failover, multi-Worker placement, REAPING or release
 gates. Exact postchecks found no project resources, temporary images or crash
 state; no global Docker prune was used.
 
@@ -4154,7 +4154,7 @@ NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-full-check-20260817 \
 
 The current-source receipt locks Delay to
 `123ffe6e6f70c7779a5712012f1836f8d792b43b`, P1 to
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 the P1 distribution to
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and
 Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. The exact projects were
@@ -4174,7 +4174,7 @@ Pulsar Broker process-crash failover E2E passed: broker-1 was SIGKILLed after gu
 This is bounded two-Broker process-crash evidence using one ZooKeeper and one
 BookKeeper. It does not close raw network/socket cuts, controller or storage
 failover, Gateway-plus-Broker failover, multi-shard placement, the full
-crash/chaos matrix or V1 release gates. Exact postchecks found no project
+crash/chaos matrix or release gates. Exact postchecks found no project
 containers, networks, volumes or matching P1/Oxia images; the locked Oxia
 base remained and no global Docker prune was used.
 
@@ -4200,7 +4200,7 @@ NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_DESTINATION_TOPIC=nereus-delay-pulsar-large-de
 
 The receipt locks Delay to
 `888c0513c433234282a12eff6e401aa4a8a40116`, P1 to
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 the P1 distribution to
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, and
 Oxia to `37a17bef17202d5fd6e23282da5fd26d94865484`. It uses the locked MinIO
@@ -4226,7 +4226,7 @@ cluster-global generation monotonicity is claimed. This is bounded
 two-Broker/one-physical-source-partition evidence, not automatic Pulsar
 controller/coordinator failover, raw socket/network chaos,
 ZooKeeper/BookKeeper/storage failover, multi-shard placement, full chaos or
-V1 release evidence. Exact postchecks found no project containers, networks,
+Current release evidence. Exact postchecks found no project containers, networks,
 volumes, P1 image or run-created Oxia image; the locked MinIO base remained
 and no global Docker prune was used.
 
@@ -4253,7 +4253,7 @@ NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_DESTINATION_TOPIC=nereus-delay-pulsar-large-de
 ```
 
 This current-source receipt locks Delay to `f95c8a5468d6a1ee6df0bc1bd99000dc769d8797`,
-P1 to `nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+P1 to `nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 the P1 distribution to
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1 image
 `sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`, Oxia
@@ -4288,7 +4288,7 @@ replacement cannot invalidate the Route barrier immediately after `seekAfter`.
 This is bounded two-Broker/one-physical-source-partition evidence, not all
 packet/proxy/socket failure shapes, automatic controller/coordinator or
 ZooKeeper/BookKeeper/storage failover, multi-shard production placement, the
-full crash/chaos matrix or V1 release readiness.
+full crash/chaos matrix or release readiness.
 
 Exact post-run checks found no containers, networks, volumes, P1 image or
 run-created Oxia image for the project. The locked MinIO base image was
@@ -4312,7 +4312,7 @@ KAFKA_DELAY_E2E_K2_RECEIPT_TOPIC=nereus-delay-k2-receipt-response-loss-20260817-
 
 The current-source receipt locks Delay to
 `9c6afd5e93621320da2b1c952553f6ffd28b364f`, K1 to
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 the client artifact to
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, the
 temporary broker image to
@@ -4350,7 +4350,7 @@ KAFKA_DELAY_E2E_ROUTE_WORKER_TOPIC=nereus-delay-kafka-route-multishard-20260817-
 
 The current-source receipt locks Delay to
 `cd0b90bd52d5db00cbccdf42be24bdcf41375dbc`, K1 to
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 the client artifact to
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, K1
 image to
@@ -4391,7 +4391,7 @@ KAFKA_DELAY_E2E_WORKER_TOPIC=nereus-delay-worker-network-partition-20260817-r1 \
 
 The receipt locks Delay to
 `499169a116fa401cb902a60bb805f9c72173ab69`, K1 to
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 the client artifact to
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, K1
 image to
@@ -4432,7 +4432,7 @@ KAFKA_DELAY_FETCH_RESPONSE_LOSS_TOPIC=nereus-delay-fetch-response-loss-20260817-
 
 The receipt locks Delay to
 `4800b3b269c623061149a398e9799adc8aa7c449`, K1 to
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 the client artifact to
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, K1
 image to
@@ -4500,7 +4500,7 @@ NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-multi-broker-20260
 
 The receipt locks Delay to
 `e690ee06951bfcf6a614fee82c9d772873bedf0b`, P1 to
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 the P1 distribution to
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, the
 three client artifacts to the SHA-256 values recorded in the status receipt,
@@ -4544,7 +4544,7 @@ NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-capacity-gradle \
 ```
 
 The current-source receipt used Delay
-`nereus/delay-full-implementation-v1@5248326726f89b761facbe7d872cf36abcc4a181`,
+`nereus/delay-full-implementation@5248326726f89b761facbe7d872cf36abcc4a181`,
 16 records per payload size and 24 SLO samples. It passed with `BUILD SUCCESSFUL`
 and produced
 `/var/folders/vk/l_r0z80j1dj93fsrjx3zqv4r0000gn/T//nereus-delay-capacity.p2hcUY/bounded-capacity-slo-probe.json`:
@@ -4637,7 +4637,7 @@ evidence, exact payload readback and real MinIO-backed checkpoint publication.
 They strengthen the bounded Gateway/Broker/Worker/Object Store authority chain
 and destination coverage, but do not close the full fault matrix, benchmark or
 soak gates, authenticated activation-state/cutover, multi-shard production
-placement, or V1 release readiness. The runners removed their exact project
+placement, or release readiness. The runners removed their exact project
 containers, networks, volumes and temporary images; no global Docker prune was
 used.
 
@@ -4662,7 +4662,7 @@ floor; and Pulsar destination SEND and source ACK response loss. It used K1
 artifact digests documented in `docs/IMPLEMENTATION-STATUS.md`, and a unique
 Compose project per cell.
 
-The run is bounded evidence, not full §23.3 or V1 release certification.
+The run is bounded evidence, not full §23.3 or release certification.
 After completion, exact-name checks found no matrix containers, networks or
 volumes and no temporary broker/Pulsar/Oxia images. The locked Oxia and MinIO
 base images were retained for later source-locked runs; no global Docker
@@ -4694,7 +4694,7 @@ The exact Compose project was
 project resources or temporary Oxia image. The locked Oxia and MinIO bases
 remain intentionally retained. This is bounded renewal/fencing evidence, not
 external secret-manager, provider-side quiescence/attestation, multi-node
-failover or V1 release certification.
+failover or release certification.
 
 ## Current-source large-payload Broker failover matrix
 
@@ -4782,7 +4782,7 @@ and the locked MinIO base (local ID
 `sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`).
 No global Docker prune or unrelated image deletion was performed. These are
 bounded one-physical-partition failover receipts, not controller/coordinator/
-BookKeeper storage failover, full §23.3 completion or V1 release approval.
+BookKeeper storage failover, full §23.3 completion or release approval.
 
 ## Current-source Object Store ambiguous PUT fault slice
 
@@ -4824,7 +4824,7 @@ unrelated image deletion was used.
 The local tests are not a real MinIO fault-injection receipt. A production
 Worker run with real MinIO 5xx/timeout or credential/config failure injection
 is still required before closing that §23.3/Object Store authority cell or
-the V1 release gate.
+the release gate.
 
 ## Current-source real MinIO provider-fault E2E
 
@@ -4864,7 +4864,7 @@ The previous fresh-Gradle-home attempt failed before test execution during an
 resources were cleaned. This E2E proves real MinIO provider behavior through
 the adapter boundary. It does not yet drive the fault proxy through the full
 Gateway/Oxia/Worker large-payload Checkpoint Intent/Catalog/REAPING production
-chain, so the production Object Store fault matrix and V1 release gate remain
+chain, so the production Object Store fault matrix and release gate remain
 open.
 
 ## Current-source full large-payload Gateway/Broker/Worker fault E2E
@@ -4927,7 +4927,7 @@ do not use a global Docker prune. This receipt closes only the real MinIO
 503-after-commit large-payload production path. Full-chain pre-commit and
 timeout faults, Checkpoint Intent/Catalog/REAPING fault injection, target
 isolation, the remaining §23.3 matrix, multi-shard placement, benchmark/soak
-and V1 release proof remain open.
+and release proof remain open.
 
 ## Current-source full large-payload timeout-after-commit E2E
 
@@ -4992,7 +4992,7 @@ retained; no global Docker prune or unrelated image deletion is appropriate.
 This receipt closes only the full real-MinIO timeout-after-commit payload path;
 Checkpoint Intent/Catalog/REAPING fault injection, pre-commit fail-closed
 evidence, target isolation, the remaining §23.3 matrix, multi-shard
-placement, benchmark/soak and V1 release proof remain open.
+placement, benchmark/soak and release proof remain open.
 
 ## Current-source real MinIO Checkpoint Intent/Catalog/REAPING fault E2E
 
@@ -5044,7 +5044,7 @@ global Docker prune or unrelated image deletion is appropriate. This receipt
 closes only post-commit ambiguity through Checkpoint Intent/Catalog/REAPING;
 pre-commit remains fail-closed, and provider-side quiescence/consistency,
 multi-worker takeover, target isolation, the remaining §23.3 matrix,
-multi-shard placement, benchmark/soak and V1 release proof remain open.
+multi-shard placement, benchmark/soak and release proof remain open.
 
 ### Checkpoint pre-commit fail-closed modes
 
@@ -5091,7 +5091,7 @@ The runner removes exact containers, networks, volumes, proxy processes and
 per-run Oxia images. Only the locked Oxia/MinIO bases remain; no global Docker
 prune or unrelated image deletion is appropriate. Full Gateway/large-payload
 pre-commit, provider-side quiescence/consistency, multi-shard placement, the
-remaining fault matrix and V1 release proof remain open.
+remaining fault matrix and release proof remain open.
 
 ### Full Gateway/large-payload pre-commit fail-closed modes
 
@@ -5167,7 +5167,7 @@ containers, networks, volumes, listeners, fault proxies or per-run images.
 Only the locked Oxia/MinIO bases remain. This closes the bounded full-chain
 pre-commit fault cells, not response-loss/LSO/retention recovery, Pulsar
 multi-Broker failover, multi-shard placement, the remaining chaos matrix or
-V1 release proof.
+Current release proof.
 
 ## Current-source Kafka Fetch/LSO/retention and Pulsar multi-Broker receipt refresh
 
@@ -5235,7 +5235,7 @@ The three runs left no matching containers, networks, volumes, listeners or
 per-run images. Only the locked Oxia/MinIO bases remain; do not use a global
 Docker prune for this cleanup. These are bounded current-source receipts and
 do not close coordinator/controller or storage failover, multi-shard
-placement, the remaining chaos matrix or V1 release proof.
+placement, the remaining chaos matrix or release proof.
 
 ## Current-source bounded capacity/SLO probe refresh
 
@@ -5257,7 +5257,7 @@ and the available SLO receipt exported and reopened 24 durable samples.
 
 This is bounded local evidence only. It does not close the required benchmark
 campaign, production resource authority, multi-Worker placement, restore
-throughput, fairness/SLO denominator, long-cycle soak or V1 release gate.
+throughput, fairness/SLO denominator, long-cycle soak or release gate.
 
 ## Current-source Initial Route control apply regression
 
@@ -5278,13 +5278,13 @@ same-snapshot stale handling, divergent/tampered rejection and restart
 readback. The first apply uses the existing `meta/FIXED` key 10 rather than a
 new metadata key and shares one Store WriteBatch with the mutation result and
 Source Position. This is not a real Broker/Oxia/Gateway E2E and does not close
-kind-1 protocol activation, eligible-reader cutover, downgrade or V1 release
+kind-1 protocol activation, eligible-reader cutover, downgrade or release
 gates. No Docker resources or images are created by this regression.
 
 ## Current-source bounded Linux platform capacity probe
 
 The bounded capacity/SLO probe can also run inside a pinned Linux container so
-the platform portion sees real cgroup v2, procfs, rlimit and filesystem
+the platform portion sees the host cgroup generation, procfs, rlimit and filesystem
 authority:
 
 ```bash
@@ -5344,7 +5344,7 @@ final checkpoints/assignments were released.
 This is a current-source bounded placement receipt, not catalog-driven
 production placement or release certification. Multi-shard large-payload
 egress, arbitrary placement churn, controller/coordinator/storage failover,
-target isolation, full chaos, benchmark/soak and V1 release gates remain open.
+target isolation, full chaos, benchmark/soak and release gates remain open.
 Exact postchecks found no project containers, networks, volumes, listeners or
 temporary images; locked Oxia/MinIO bases were retained and no global Docker
 prune was used.
@@ -5367,7 +5367,7 @@ Dockerized Gateway Oxia session churn smoke passed for Oxia 37a17bef17202d5fd6e2
 
 This closes the bounded single-node Oxia session-expiry/stale-session cell
 only. It does not certify transparent reconnect, Gateway HA, coordinator or
-provider failover, target isolation, full chaos, benchmark/soak or V1 release
+provider failover, target isolation, full chaos, benchmark/soak or release
 readiness. The runner cleanup now removes its exact generated Oxia image as
 well as the Compose project; postchecks found no project resource, listener or
 temporary image, and no global Docker prune was used.
@@ -5393,7 +5393,7 @@ gateway-oxia-session-churn=0
 matrix_status=0
 ```
 
-This is a bounded current-source chaos receipt, not release certification. It covers real Broker/Worker cuts, response-loss replay, Kafka LSO/retention, Pulsar multi-Broker failover, Checkpoint REAPING and Gateway/Oxia session expiry. Catalog placement, target isolation, controller/coordinator/storage/provider failover, full large-payload fault coverage, benchmark/soak, activation/cutover and V1 release gates remain open.
+This is a bounded current-source chaos receipt, not release certification. It covers real Broker/Worker cuts, response-loss replay, Kafka LSO/retention, Pulsar multi-Broker failover, Checkpoint REAPING and Gateway/Oxia session expiry. Catalog placement, target isolation, controller/coordinator/storage/provider failover, full large-payload fault coverage, benchmark/soak, activation/cutover and release gates remain open.
 
 Postchecks found no matrix containers, networks, project volumes, listeners or generated related images. Locked Oxia and MinIO images were retained as reusable bases; pre-existing unlabelled `pulsarconf`/`pulsardata` volumes were left untouched because they were outside this run's ownership. No global Docker prune was used.
 
@@ -5407,7 +5407,7 @@ burst: records/size=256, SLO samples=128, payload sizes=256/4096/65536, records/
 sustained: records/size=1024, SLO samples=512, payload sizes=256/4096/65536, records/s=70346/56423/7610
 ```
 
-All cases reported `store.reopen_verified=true` and `collector_reopen_verified=true`; the Linux platform authority was available under the bounded 2 GiB/256 MiB/65536-nofile/4 GiB-tmpfs container. This remains a bounded local capacity receipt, not the required Broker throughput, Lane/shard, compaction/restore, inline-object, soak or V1 release campaign. The exact generated JDK image was removed and no matrix resource remained.
+All cases reported `store.reopen_verified=true` and `collector_reopen_verified=true`; the Linux platform authority was available under the bounded 2 GiB/256 MiB/65536-nofile/4 GiB-tmpfs container. This remains a bounded local capacity receipt, not the required Broker throughput, Lane/shard, compaction/restore, inline-object, soak or release campaign. The exact generated JDK image was removed and no matrix resource remained.
 
 ## Current-source Kafka two-shard Large Payload Object Store authority
 
@@ -5443,13 +5443,13 @@ reported `fetchPartitions=2`, `routeRevision=1`,
 Prepare/Commit offsets `2/3`. Destination egress is intentionally disabled in
 this mode, and MinIO/Broker failover modes are rejected. Pulsar multi-shard
 Large Payload, multi-shard destination egress, placement churn/failover,
-benchmark/soak and V1 release certification remain open.
+benchmark/soak and release certification remain open.
 
 The runner removes its exact Compose containers, networks, volumes, listeners,
 temporary Kafka image and generated TLS/receipt files after the run. Locked
 Oxia/MinIO bases are retained; no global Docker prune is used.
 
-## Current-source canonical bounded chaos and V1 release-candidate gate
+## Current-source canonical bounded chaos and release-candidate gate
 
 Run the canonical 13-cell matrix from the clean Delay checkout:
 
@@ -5470,16 +5470,16 @@ evidence, not release certification.
 Run the fail-closed release-candidate audit with the bounded artifacts:
 
 ```bash
-NEREUS_DELAY_RELEASE_GATE_ARTIFACT_DIR=/tmp/nereus-delay-v1-release-gate-20260817-r1 \
-NEREUS_DELAY_RELEASE_GATE_GRADLE_USER_HOME=/tmp/nereus-delay-v1-release-gradle-20260817-r1 \
+NEREUS_DELAY_RELEASE_GATE_ARTIFACT_DIR=/tmp/nereus-delay-release-gate-20260817-r1 \
+NEREUS_DELAY_RELEASE_GATE_GRADLE_USER_HOME=/tmp/nereus-delay-release-gradle-20260817-r1 \
 NEREUS_DELAY_RELEASE_GATE_CHAOS_ARTIFACT=/tmp/nereus-delay-chaos-release-20260817-r1/bounded-chaos-matrix.json \
 NEREUS_DELAY_RELEASE_GATE_CAPACITY_ARTIFACT=/tmp/nereus-delay-capacity-matrix-current-20260817-r4/capacity-benchmark-matrix.json \
 NEREUS_DELAY_RELEASE_GATE_RUN_CHECK=1 \
 NEREUS_DELAY_RELEASE_GATE_ALLOW_NOT_READY=1 \
-bash e2e/run-v1-release-gate.sh
+bash e2e/run-release-gate.sh
 ```
 
-The resulting `/tmp/nereus-delay-v1-release-gate-20260817-r1/v1-release-candidate-gate.json`
+The resulting `/tmp/nereus-delay-release-gate-20260817-r1/release-candidate-gate.json`
 has `release_status=NOT_READY`: source checks, contract validation and full
 Gradle `check` pass, but `PARTIAL`/`PASS_BOUNDED` do not satisfy the required
 `PASS_CERTIFIED` status, and certified soak, activation/cutover and operations
@@ -5494,7 +5494,7 @@ Do not use a global Docker prune for this workflow.
 ## Source-ordered Protocol Version activation projection
 
 Delay commit `1c924f479c284161771c24b013622f645c4fab06` implements the local
-source-ordered kind-1 activation projection. `ProtocolActivationStateV1` is
+source-ordered kind-1 activation projection. `ProtocolActivationState` is
 stored at `meta/FIXED` key 14 with ValueEnvelope type 11 and retains the exact
 tuple, schema hash, compatible-reader-set evidence hash, marker source
 position and System Mutation ID. Kind-14 Initial Route control creates the
@@ -5506,7 +5506,7 @@ The focused test command is:
 ```bash
 GRADLE_USER_HOME=/tmp/nereus-delay-protocol-activation-gradle-20260817-r1 \
 ./gradlew test \
-  --tests com.nereusstream.delay.protocol.ProtocolActivationStateV1Test \
+  --tests com.nereusstream.delay.protocol.ProtocolActivationStateTest \
   --tests com.nereusstream.delay.runtime.InitialRouteControlApplyTest \
   --tests com.nereusstream.delay.runtime.ProtocolVersionActivationApplyTest \
   --no-daemon --console=plain
@@ -5515,12 +5515,12 @@ GRADLE_USER_HOME=/tmp/nereus-delay-protocol-activation-gradle-20260817-r1 \
 The current receipt passed state canonical round-trip, source-ordered marker
 apply, pre-marker `UNACTIVATED_PROTOCOL_VERSION`, post-marker command apply,
 and restart recovery. This is a local activation/cutover binding, not a
-certified external Worker rollout or downgrade/release artifact. The V1 gate
+certified external Worker rollout or downgrade/release artifact. The gate
 continues to require `PASS_CERTIFIED` activation, soak, benchmark and
 operations evidence.
 
 The latest source-locked gate receipt is
-`/tmp/nereus-delay-v1-release-gate-20260817-r3/v1-release-candidate-gate.json`
+`/tmp/nereus-delay-release-gate-20260817-r3/release-candidate-gate.json`
 at Delay `7835a4c4bb5ac8e083c73885047c4165918cbdab`, with K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
@@ -5532,7 +5532,7 @@ the known-good-cache rerun passed.
 
 ## Reproducible protocol activation/cutover smoke
 
-Run it from the clean Delay full-v1 checkout:
+Run it from the clean Delay full checkout:
 
 ```bash
 NEREUS_DELAY_PROTOCOL_ACTIVATION_ARTIFACT_DIR=/tmp/nereus-delay-protocol-activation-cutover-20260817-r1 \
@@ -5553,14 +5553,14 @@ so there are no related images to clean.
 The current-source release-gate rerun is:
 
 ```bash
-NEREUS_DELAY_RELEASE_GATE_ARTIFACT_DIR=/tmp/nereus-delay-v1-release-gate-20260817-r4 \
+NEREUS_DELAY_RELEASE_GATE_ARTIFACT_DIR=/tmp/nereus-delay-release-gate-20260817-r4 \
 NEREUS_DELAY_RELEASE_GATE_GRADLE_USER_HOME=/tmp/nereus-delay-protocol-activation-full-check-20260817-r1 \
 NEREUS_DELAY_RELEASE_GATE_CHAOS_ARTIFACT=/tmp/nereus-delay-chaos-release-20260817-r1/bounded-chaos-matrix.json \
 NEREUS_DELAY_RELEASE_GATE_CAPACITY_ARTIFACT=/tmp/nereus-delay-capacity-matrix-current-20260817-r4/capacity-benchmark-matrix.json \
 NEREUS_DELAY_RELEASE_GATE_ACTIVATION_ARTIFACT=/tmp/nereus-delay-protocol-activation-cutover-20260817-r1/protocol-activation-cutover.json \
 NEREUS_DELAY_RELEASE_GATE_RUN_CHECK=1 \
 NEREUS_DELAY_RELEASE_GATE_ALLOW_NOT_READY=1 \
-bash e2e/run-v1-release-gate.sh
+bash e2e/run-release-gate.sh
 ```
 
 It produced `release_status=NOT_READY` at Delay
@@ -5597,7 +5597,7 @@ readback, final checkpoint and Owner release. Prepare/Commit were `3/2` and
 at `6`.
 
 This is a current-source single-shard PASS; Pulsar multi-shard Large Payload,
-full infrastructure failover, benchmark/soak and V1 release certification
+full infrastructure failover, benchmark/soak and release certification
 remain open. The runner removed project
 `nereus-delay-pulsar-large-e2e-1786937594-84236`, all its volumes/networks,
 listeners and generated P1/Oxia images. The locked MinIO base was retained;
@@ -5611,14 +5611,14 @@ stale locks are blocked. Commit `41b66de37980ecca624c0f2d69cbd52307d8d452`
 was verified with:
 
 ```bash
-NEREUS_DELAY_RELEASE_GATE_ARTIFACT_DIR=/tmp/nereus-delay-v1-release-gate-20260817-r5 \
+NEREUS_DELAY_RELEASE_GATE_ARTIFACT_DIR=/tmp/nereus-delay-release-gate-20260817-r5 \
 NEREUS_DELAY_RELEASE_GATE_GRADLE_USER_HOME=/tmp/nereus-delay-protocol-activation-full-check-20260817-r1 \
 NEREUS_DELAY_RELEASE_GATE_CHAOS_ARTIFACT=/tmp/nereus-delay-chaos-release-20260817-r1/bounded-chaos-matrix.json \
 NEREUS_DELAY_RELEASE_GATE_CAPACITY_ARTIFACT=/tmp/nereus-delay-capacity-matrix-current-20260817-r4/capacity-benchmark-matrix.json \
 NEREUS_DELAY_RELEASE_GATE_ACTIVATION_ARTIFACT=/tmp/nereus-delay-protocol-activation-cutover-20260817-r1/protocol-activation-cutover.json \
 NEREUS_DELAY_RELEASE_GATE_RUN_CHECK=1 \
 NEREUS_DELAY_RELEASE_GATE_ALLOW_NOT_READY=1 \
-bash e2e/run-v1-release-gate.sh
+bash e2e/run-release-gate.sh
 ```
 
 The receipt is `release_status=NOT_READY`: source/contract/full-check PASS,
@@ -5627,7 +5627,7 @@ Docker.
 
 ## Current-source bounded operations drills
 
-Run the source-locked operations receipt from a clean full-v1 checkout:
+Run the source-locked operations receipt from a clean full checkout:
 
 ```bash
 NEREUS_DELAY_OPERATIONS_DRILLS_ARTIFACT_DIR=/tmp/nereus-delay-operations-20260817-r2 \
@@ -5660,7 +5660,7 @@ four-repository source locks and the required operations authority evidence.
 The current-source gate rerun with this bounded operations artifact is:
 
 ```bash
-NEREUS_DELAY_RELEASE_GATE_ARTIFACT_DIR=/tmp/nereus-delay-v1-release-gate-20260817-r6 \
+NEREUS_DELAY_RELEASE_GATE_ARTIFACT_DIR=/tmp/nereus-delay-release-gate-20260817-r6 \
 NEREUS_DELAY_RELEASE_GATE_GRADLE_USER_HOME=/tmp/nereus-delay-protocol-activation-full-check-20260817-r1 \
 NEREUS_DELAY_RELEASE_GATE_CHAOS_ARTIFACT=/tmp/nereus-delay-chaos-release-20260817-r1/bounded-chaos-matrix.json \
 NEREUS_DELAY_RELEASE_GATE_CAPACITY_ARTIFACT=/tmp/nereus-delay-capacity-matrix-current-20260817-r4/capacity-benchmark-matrix.json \
@@ -5668,7 +5668,7 @@ NEREUS_DELAY_RELEASE_GATE_ACTIVATION_ARTIFACT=/tmp/nereus-delay-protocol-activat
 NEREUS_DELAY_RELEASE_GATE_OPERATIONS_ARTIFACT=/tmp/nereus-delay-operations-20260817-r2/operations-drills.json \
 NEREUS_DELAY_RELEASE_GATE_RUN_CHECK=1 \
 NEREUS_DELAY_RELEASE_GATE_ALLOW_NOT_READY=1 \
-bash e2e/run-v1-release-gate.sh
+bash e2e/run-release-gate.sh
 ```
 
 It produced `release_status=NOT_READY` at Delay
@@ -5706,13 +5706,13 @@ payload readback passed. Admission was `2/4`, typed target `7/0`, Outcome
 source records.
 
 This is single-shard failover evidence, not Pulsar multi-shard production,
-controller/storage/provider failover, soak or V1 release certification. The
+controller/storage/provider failover, soak or release certification. The
 runner removed project `nereus-delay-pulsar-large-e2e-1786938863-99638`, its
 containers/networks/volumes/listeners and generated P1/Oxia images; locked
 MinIO/Oxia bases remain and no global Docker prune was used.
 
 The current-source release-gate rerun after this receipt is
-`/tmp/nereus-delay-v1-release-gate-20260817-r7/v1-release-candidate-gate.json`
+`/tmp/nereus-delay-release-gate-20260817-r7/release-candidate-gate.json`
 at Delay `9ec909d95b890dd227b572396091e500a9c72299`; source/contract/full-check
 PASS, capacity `PARTIAL`, activation/operations/chaos bounded, certified soak
 missing, and overall `release_status=NOT_READY`.
@@ -5751,7 +5751,7 @@ payload readback plus `exactGatewayIdempotency=true` passed.
 
 This closes only the bounded single-shard Pulsar Broker network-partition cell;
 multi-shard Large Payload, controller/storage/provider failover, certified soak
-and V1 release certification remain open. Exact postchecks found no matching
+and release certification remain open. Exact postchecks found no matching
 containers, networks, volumes, listeners or generated P1/Oxia images. Locked
 Oxia/MinIO bases were retained; no global Docker prune or unrelated image
 deletion was performed.
@@ -5759,7 +5759,7 @@ deletion was performed.
 ## Current-source release-gate rerun after network-partition receipt
 
 The current artifact is
-`/tmp/nereus-delay-v1-release-gate-20260817-r8/v1-release-candidate-gate.json`
+`/tmp/nereus-delay-release-gate-20260817-r8/release-candidate-gate.json`
 at Delay `54759958b0c7af41ffa2374d835831ec7df72d13`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
@@ -5826,7 +5826,7 @@ all 13 cells passing and `matrix_status=PASS_BOUNDED`, source-locked to Delay
 `37a17bef17202d5fd6e23282da5fd26d94865484`.
 
 The matching gate artifact is
-`/tmp/nereus-delay-v1-release-gate-20260817-r11/v1-release-candidate-gate.json`:
+`/tmp/nereus-delay-release-gate-20260817-r11/release-candidate-gate.json`:
 source, cross-repository and full Gradle checks pass, but
 `release_status=NOT_READY` because capacity is `PARTIAL`, certified soak is
 missing and bounded activation/operations/chaos evidence cannot satisfy
@@ -5872,7 +5872,7 @@ BUILD SUCCESSFUL in 1m 34s
 ```
 
 The matching release-gate artifact is
-`/tmp/nereus-delay-v1-release-gate-20260817-r13/v1-release-candidate-gate.json`.
+`/tmp/nereus-delay-release-gate-20260817-r13/release-candidate-gate.json`.
 Source, cross-repository and full Gradle checks pass, but the fail-closed
 result remains `release_status=NOT_READY`: capacity is `PARTIAL`, certified
 soak is absent and activation/cutover, operations and chaos are bounded rather
@@ -5917,7 +5917,7 @@ BUILD SUCCESSFUL in 44s
 ```
 
 The matching release gate is
-`/tmp/nereus-delay-v1-release-gate-20260817-r15/v1-release-candidate-gate.json`.
+`/tmp/nereus-delay-release-gate-20260817-r15/release-candidate-gate.json`.
 Source, cross-repository and full Gradle checks pass, but the fail-closed
 result remains `release_status=NOT_READY`: capacity is `PARTIAL`, certified
 soak is absent and activation/cutover, operations and chaos are bounded rather
@@ -5944,10 +5944,10 @@ The canonical artifact
 `PASS_BOUNDED` with all 13 cells passing. The Gateway cell holds Oxia down
 while old session-bound handles fail closed, then starts Oxia after the
 recovery-ready barrier so fresh sessions reread the exact durable outcome.
-This is bounded evidence, not V1 release certification.
+This is bounded evidence, not release certification.
 
 The matching gate is
-`/tmp/nereus-delay-v1-release-gate-20260817-r17/v1-release-candidate-gate.json`;
+`/tmp/nereus-delay-release-gate-20260817-r17/release-candidate-gate.json`;
 source, cross-repository and full Gradle checks pass, but the result remains
 `NOT_READY` because capacity is `PARTIAL`, certified soak is missing and
 activation/cutover, operations and chaos are `PASS_BOUNDED`.
@@ -5968,7 +5968,7 @@ collector. It does not cover real Broker throughput, placement, large-scale
 records, compaction/restore, inline/object flow or soak.
 
 The current-source gate
-`/tmp/nereus-delay-v1-release-gate-20260817-r20/v1-release-candidate-gate.json`
+`/tmp/nereus-delay-release-gate-20260817-r20/release-candidate-gate.json`
 passes source/contract/Gradle checks but remains `NOT_READY`: capacity is
 `PARTIAL`, certified soak is missing and activation/cutover, operations and
 chaos are still bounded rather than `PASS_CERTIFIED`.
@@ -5988,7 +5988,7 @@ Kafka/Pulsar/Oxia images. The locked MinIO base and unrelated images were
 retained; no global Docker prune was used.
 
 The subsequent current-source release artifact is
-`/tmp/nereus-delay-v1-release-gate-20260817-r19/v1-release-candidate-gate.json`.
+`/tmp/nereus-delay-release-gate-20260817-r19/release-candidate-gate.json`.
 Source, cross-repository and full Gradle checks pass, but the result remains
 `NOT_READY`: capacity is `PARTIAL`, certified soak is missing, and bounded
 activation, operations and chaos artifacts cannot satisfy `PASS_CERTIFIED`.
@@ -6025,7 +6025,7 @@ Oxia/MinIO checkpoint plus exact `REAPING` path. Neither is a certified
 operator, rollout or production-soak receipt.
 
 The matching release artifact is
-`/tmp/nereus-delay-v1-release-gate-20260817-r22/v1-release-candidate-gate.json`.
+`/tmp/nereus-delay-release-gate-20260817-r22/release-candidate-gate.json`.
 Source cleanliness, cross-repository validation and full Gradle `check` pass,
 but the explicit decision is `release_status=NOT_READY`: capacity is
 `PARTIAL`, certified soak is missing, and bounded activation, operations and
@@ -6107,13 +6107,13 @@ exact Compose container/network/volume/image postchecks.
 
 This is bounded real Oxia leader-stop/Gateway recovery evidence. It does not
 certify Gateway HA, coordinator/storage failover, placement churn, disaster
-continuity, certified soak or V1 `PASS_CERTIFIED` release readiness. Locked
+continuity, certified soak or `PASS_CERTIFIED` release readiness. Locked
 reusable bases remain; no global Docker prune is used.
 
 ## Current-source r25 release-gate refresh
 
 The source-locked gate after the real Oxia/Gateway receipt is
-`/tmp/nereus-delay-v1-release-gate-20260817-r25/v1-release-candidate-gate.json`.
+`/tmp/nereus-delay-release-gate-20260817-r25/release-candidate-gate.json`.
 Delay `6a5cd494d7122a01d666cd681a3dac7fe6e11769`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
@@ -6158,7 +6158,7 @@ disaster-continuity requirements remain outside this runner.
 ## Current-source r28 release-gate refresh
 
 The matching gate is
-`/tmp/nereus-delay-v1-release-gate-20260817-r28/v1-release-candidate-gate.json`.
+`/tmp/nereus-delay-release-gate-20260817-r28/release-candidate-gate.json`.
 Source locks, the cross-repository contract validator and full Gradle `check`
 passed; the gate remains `release_status=NOT_READY` because capacity,
 certified soak, activation, operations and chaos require separate
@@ -6168,7 +6168,7 @@ promotion input. This README append does not refresh the r28 source lock.
 ## Current-source r29 release-gate refresh
 
 The final gate artifact is
-`/tmp/nereus-delay-v1-release-gate-20260817-r29/v1-release-candidate-gate.json`.
+`/tmp/nereus-delay-release-gate-20260817-r29/release-candidate-gate.json`.
 Source locks, the cross-repository validator and full Gradle `check` pass for
 Delay `830fce40c77c52a3a8b25d657355db9abee851c4`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
@@ -6204,7 +6204,7 @@ Pulsar 503-after-Commit real MinIO cases. Child runtime was 269 seconds with
 36 samples and an 8-second maximum sample gap; process peak RSS was
 `1003392 KiB`, peak FD count `1151`, and all exact cleanup arrays were empty.
 
-This profile is explicitly harness integration evidence, not V1 release
+This profile is explicitly harness integration evidence, not release
 approval. The release gate requires the certified schema, policy/coverage
 observations and `NEREUS_DELAY_RELEASE_GATE_CERTIFIED_SOAK_PROFILE_ID` to
 match an approved release profile. The §23.5 longest checkpoint/floor/retry/
@@ -6216,7 +6216,7 @@ no global Docker prune is used.
 ## Current-source r30 release-gate refresh
 
 The final gate artifact for the documented source is
-`/tmp/nereus-delay-v1-release-gate-20260817-r30/v1-release-candidate-gate.json`.
+`/tmp/nereus-delay-release-gate-20260817-r30/release-candidate-gate.json`.
 Delay `b9a7fa9994542b9bc9630d7b12c63ade2fc1c57b`, Kafka K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
@@ -6227,17 +6227,17 @@ operations and chaos inputs are absent, and the bounded harness receipt is
 not a release substitute. This README append does not refresh the r30 source
 lock.
 
-## 2026-08-21 Evidence-manifest protocol for complete V1
+## 2026-08-21 Evidence-manifest protocol for complete
 
 The certified-chaos r19 receipt and release-gate r20 receipt are retained as
 historical artifacts at Delay cec7641b96a57d3108723c8cb27eb51594846543:
 
 ~~~text
-/private/tmp/nereus-delay-v1-certified-chaos-20260821-r19/certified-chaos-matrix.json
-/private/tmp/nereus-delay-v1-release-gate-20260821-r20/v1-release-candidate-gate.json
+/private/tmp/nereus-delay-certified-chaos-20260821-r19/certified-chaos-matrix.json
+/private/tmp/nereus-delay-release-gate-20260821-r20/release-candidate-gate.json
 ~~~
 
-They do not certify complete V1. The final process freezes a four-repository
+They do not certify complete current system. The final process freezes a four-repository
 candidate source lock first, runs ten independent exact-source certified gate
 inputs, then permits one documentation-only overlay across the six evidence
 ledgers. An external manifest records the candidate lock, overlay commit,
@@ -6245,8 +6245,8 @@ SHA-256 bytes for every ledger and artifact, all ten gate statuses, and the
 final release-gate status. Validate it with:
 
 ~~~bash
-NEREUS_DELAY_EVIDENCE_MANIFEST=/private/tmp/<final>/v1-evidence-manifest.json \
-  bash e2e/verify-v1-evidence-manifest.sh
+NEREUS_DELAY_EVIDENCE_MANIFEST=/private/tmp/<final>/evidence-manifest.json \
+  bash e2e/verify-evidence-manifest.sh
 ~~~
 
 The verifier fails closed for dirty worktrees, non-allowlisted source changes,
@@ -6270,11 +6270,11 @@ NEREUS_DELAY_RELEASE_GATE_SOAK_FULL_ARTIFACT=/private/tmp/<final>/soak.json \
 NEREUS_DELAY_RELEASE_GATE_UPGRADE_DOWNGRADE_ARTIFACT=/private/tmp/<final>/upgrade-downgrade.json \
 NEREUS_DELAY_RELEASE_GATE_OPERATIONS_FULL_ARTIFACT=/private/tmp/<final>/operations.json \
 NEREUS_DELAY_RELEASE_GATE_PATCH_DISTRIBUTION_ARTIFACT=/private/tmp/<final>/patch-distribution.json \
-  bash e2e/run-v1-release-gate.sh
+  bash e2e/run-release-gate.sh
 ~~~
 
-Every input must be `nereus-delay-v1-full-gate-input-v1` with
-`scope=full-v1`, `complete_v1=true`, `PASS_CERTIFIED`, exact candidate locks,
+Every input must be `nereus-delay-full-gate-input` with
+`scope=full`, `complete=true`, `PASS_CERTIFIED`, exact candidate locks,
 empty exclusions and empty boundaries. Existing bounded RC1 receipts are
 rejected by construction; until the full ten-gate set exists the result is
 expected to remain `NOT_READY`.
@@ -6282,7 +6282,7 @@ expected to remain `NOT_READY`.
 ## Current-source r32 release-gate refresh
 
 The current gate artifact is
-`/tmp/nereus-delay-v1-release-gate-20260817-r32/v1-release-candidate-gate.json`.
+`/tmp/nereus-delay-release-gate-20260817-r32/release-candidate-gate.json`.
 Delay `5d282244524de0d002cc7122ebf389150a4fd9f2`, Kafka K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
@@ -6305,7 +6305,7 @@ The matrix covers Broker/Worker crashes, TCP/network cuts, response loss,
 Kafka Fetch/retention, Pulsar failover and ACK paths, checkpoint REAPING and
 Gateway/Oxia session churn. Exact run-scoped Docker resources and generated
 images were removed; only locked Oxia/MinIO bases remain. This receipt is
-bounded evidence, not §23.3 completion or V1 release certification; long GC,
+bounded evidence, not §23.3 completion or release certification; long GC,
 half-open, ENOSPC, fsync/SST, target isolation and controller/storage/provider
 cuts remain outside the runner.
 
@@ -6345,7 +6345,7 @@ The recorded profile is
 payload runs of 16/256/1024 records per payload size and 24/128/512 durable SLO
 samples. The child matrix remains `PARTIAL`/`PASS_BOUNDED`; wrapper
 `PASS_CERTIFIED` is scoped to the named profile and exact four-repository
-source locks, not to V1 capacity approval.
+source locks, not to capacity approval.
 
 The release gate accepts the strict schema only when
 `NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CAPACITY_PROFILE_ID` is supplied and
@@ -6376,7 +6376,7 @@ identity.
 
 The other cells remain explicitly bounded marker evidence; durable dumps and
 independent invariant audits are not implied by a zero exit code. Matrix-level
-release certification is open and the V1 gate remains `NOT_READY`.
+release certification is open and the gate remains `NOT_READY`.
 
 The runner performs exact run-scoped cleanup. Verify that generated
 Delay/Kafka/Pulsar/Oxia/MinIO/Gateway containers, networks, volumes and images
@@ -6389,7 +6389,7 @@ untouched.
 The current-source fail-closed gate receipt is:
 
 ```text
-/tmp/nereus-delay-v1-release-gate-20260817-r37/v1-release-candidate-gate.json
+/tmp/nereus-delay-release-gate-20260817-r37/release-candidate-gate.json
 ```
 
 It records clean source checkouts, passing cross-repository validation and a
@@ -6440,7 +6440,7 @@ independent.
 ## Current HEAD gate r38
 
 The latest fail-closed receipt is
-`/tmp/nereus-delay-v1-release-gate-20260817-r38/v1-release-candidate-gate.json`.
+`/tmp/nereus-delay-release-gate-20260817-r38/release-candidate-gate.json`.
 Source, cross-repository and full Gradle checks pass at the current HEAD, but
 `release_status=NOT_READY` because approved capacity, soak,
 activation/cutover, operations and release-certified chaos artifacts were not
@@ -6474,7 +6474,7 @@ and no second SEND. Both report `CAPTURED_AND_VERIFIED` and
 marker-only/not-captured boundary.
 
 This is bounded fault evidence, not `PASS_CERTIFIED` release evidence. The
-matrix release slot is still open and the V1 gate remains `NOT_READY`. After
+matrix release slot is still open and the gate remains `NOT_READY`. After
 the run, generated run-scoped Docker resources must be empty; keep the r7
 receipt and two state-dump directories, remove only the disposable Gradle
 cache, and do not use global Docker prune.
@@ -6484,7 +6484,7 @@ cache, and do not use global Docker prune.
 The latest fail-closed receipt is:
 
 ```text
-/private/tmp/nereus-delay-v1-release-gate-20260817-r39/v1-release-candidate-gate.json
+/private/tmp/nereus-delay-release-gate-20260817-r39/release-candidate-gate.json
 ```
 
 It records clean source checkouts, passing cross-repository validation and a
@@ -6508,22 +6508,22 @@ The fresh bounded capacity and production-chain soak commands produce these
 canonical receipts:
 
 ```text
-/private/tmp/nereus-delay-v1-rc1-capacity-20260820-r2/certified-capacity-benchmark.json
-/private/tmp/nereus-delay-v1-rc1-soak-20260820-r1/certified-production-chain-soak.json
+/private/tmp/nereus-delay-rc1-capacity-20260820-r2/certified-capacity-benchmark.json
+/private/tmp/nereus-delay-rc1-soak-20260820-r1/certified-production-chain-soak.json
 ```
 
 Both report `PASS_CERTIFIED` only for their named profiles and exact locks.
 Capacity covers the fixed three-case Store/SLO policy (3,888 payload records
 and 664 SLO samples). Soak covers four serial real Kafka/Pulsar/Oxia/Worker/
 MinIO cases with passing invariants, duration and resource coverage. Neither
-receipt is the complete V1 capacity or release-soak certificate.
+receipt is the complete capacity or release-soak certificate.
 
 The current-source activation, operations and chaos receipts are:
 
 ```text
-/private/tmp/nereus-delay-v1-rc1-activation-20260820-r1/protocol-activation-cutover.json
-/private/tmp/nereus-delay-v1-rc1-operations-20260820-r1/operations-drills.json
-/private/tmp/nereus-delay-v1-rc1-chaos-20260820-r2/bounded-chaos-matrix.json
+/private/tmp/nereus-delay-rc1-activation-20260820-r1/protocol-activation-cutover.json
+/private/tmp/nereus-delay-rc1-operations-20260820-r1/operations-drills.json
+/private/tmp/nereus-delay-rc1-chaos-20260820-r2/bounded-chaos-matrix.json
 ```
 
 Activation and operations remain `PASS_BOUNDED`. Chaos is
@@ -6534,21 +6534,21 @@ state; the other 12 cells retain marker-only and/or not-captured boundaries.
 Run the fail-closed gate with the exact artifacts:
 
 ```bash
-NEREUS_DELAY_RELEASE_GATE_ARTIFACT_DIR=/private/tmp/nereus-delay-v1-rc1-gate-20260820-r2 \
-NEREUS_DELAY_RELEASE_GATE_GRADLE_USER_HOME=/private/tmp/nereus-delay-v1-rc1-chaos-gradle-20260820-r2 \
+NEREUS_DELAY_RELEASE_GATE_ARTIFACT_DIR=/private/tmp/nereus-delay-rc1-gate-20260820-r2 \
+NEREUS_DELAY_RELEASE_GATE_GRADLE_USER_HOME=/private/tmp/nereus-delay-rc1-chaos-gradle-20260820-r2 \
 NEREUS_DELAY_RELEASE_GATE_ALLOW_NOT_READY=1 \
-NEREUS_DELAY_RELEASE_GATE_CAPACITY_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-capacity-20260820-r2/certified-capacity-benchmark.json \
-NEREUS_DELAY_RELEASE_GATE_SOAK_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-soak-20260820-r1/certified-production-chain-soak.json \
-NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CAPACITY_PROFILE_ID=nereus-delay-v1-rc1-bounded-capacity-r1 \
-NEREUS_DELAY_RELEASE_GATE_CERTIFIED_SOAK_PROFILE_ID=nereus-delay-v1-rc1-production-chain-soak-r1 \
-NEREUS_DELAY_RELEASE_GATE_ACTIVATION_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-activation-20260820-r1/protocol-activation-cutover.json \
-NEREUS_DELAY_RELEASE_GATE_OPERATIONS_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-operations-20260820-r1/operations-drills.json \
-NEREUS_DELAY_RELEASE_GATE_CHAOS_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-chaos-20260820-r2/bounded-chaos-matrix.json \
-bash e2e/run-v1-release-gate.sh
+NEREUS_DELAY_RELEASE_GATE_CAPACITY_ARTIFACT=/private/tmp/nereus-delay-rc1-capacity-20260820-r2/certified-capacity-benchmark.json \
+NEREUS_DELAY_RELEASE_GATE_SOAK_ARTIFACT=/private/tmp/nereus-delay-rc1-soak-20260820-r1/certified-production-chain-soak.json \
+NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CAPACITY_PROFILE_ID=nereus-delay-rc1-bounded-capacity-r1 \
+NEREUS_DELAY_RELEASE_GATE_CERTIFIED_SOAK_PROFILE_ID=nereus-delay-rc1-production-chain-soak-r1 \
+NEREUS_DELAY_RELEASE_GATE_ACTIVATION_ARTIFACT=/private/tmp/nereus-delay-rc1-activation-20260820-r1/protocol-activation-cutover.json \
+NEREUS_DELAY_RELEASE_GATE_OPERATIONS_ARTIFACT=/private/tmp/nereus-delay-rc1-operations-20260820-r1/operations-drills.json \
+NEREUS_DELAY_RELEASE_GATE_CHAOS_ARTIFACT=/private/tmp/nereus-delay-rc1-chaos-20260820-r2/bounded-chaos-matrix.json \
+bash e2e/run-release-gate.sh
 ```
 
 The canonical gate is
-`/private/tmp/nereus-delay-v1-rc1-gate-20260820-r2/v1-release-candidate-gate.json`.
+`/private/tmp/nereus-delay-rc1-gate-20260820-r2/release-candidate-gate.json`.
 Source, cross-repository and full Gradle checks pass; activation, operations
 and certified chaos remain blocked by bounded status, so the result is
 `release_status=NOT_READY`. Exact Docker postchecks are empty; retain only
@@ -6561,13 +6561,13 @@ The focused Kafka Fetch response-loss and retention-floor runners now support
 an explicit prepare/resume split. The first JVM persists the real Broker
 response-loss or stale-offset-rejection observation, the second JVM reopens the
 same topic identity and Route/partition boundary, and both write a forced
-`nereus-delay-chaos-durable-state-dump-v1` JSON record. The bounded matrix
+`nereus-delay-chaos-durable-state-dump` JSON record. The bounded matrix
 compares the exact fields instead of accepting a log marker: source offsets and
 LSO/retention floor, topic identity, group/Route identity, commit/floor Fetch,
 `durable_broker_read`, `dump_forced` and distinct process PIDs.
 
 The diagnostic focused run was recorded under
-`/private/tmp/nereus-delay-v1-kafka-durable-20260820-r1/`; its Fetch and
+`/private/tmp/nereus-delay-kafka-durable-20260820-r1/`; its Fetch and
 retention directories are implementation evidence, not a release artifact,
 because the run preceded the final source-lock commit. The generated K1
 Compose projects and images were removed by each runner's exact trap, and the
@@ -6579,7 +6579,7 @@ then accepts `PASS_CERTIFIED` only when all fourteen declared cells have
 marker PASS, durable before/after dumps, fresh-process recovery,
 `INDEPENDENT_FIELDS_PASS`, and empty run-scoped Docker postchecks. The current
 matrix has only four cells at that evidence level, so the wrapper must remain
-`BLOCKED`; `e2e/run-v1-release-gate.sh` validates this schema and profile rather
+`BLOCKED`; `e2e/run-release-gate.sh` validates this schema and profile rather
 than promoting `PASS_BOUNDED` evidence.
 
 ## 2026-08-21 RC1 source-lock refresh and cleanup boundary
@@ -6595,12 +6595,12 @@ source locks are K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 Canonical receipts:
 
 ```text
-/private/tmp/nereus-delay-v1-rc1-capacity-20260821-r4/certified-capacity-benchmark.json
-/private/tmp/nereus-delay-v1-rc1-soak-20260821-r7/certified-production-chain-soak.json
-/private/tmp/nereus-delay-v1-rc1-activation-20260821-r5/protocol-activation-cutover.json
-/private/tmp/nereus-delay-v1-rc1-operations-20260821-r4/operations-drills.json
-/private/tmp/nereus-delay-v1-certified-chaos-20260821-r5/certified-chaos-matrix.json
-/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r4/v1-release-candidate-gate.json
+/private/tmp/nereus-delay-rc1-capacity-20260821-r4/certified-capacity-benchmark.json
+/private/tmp/nereus-delay-rc1-soak-20260821-r7/certified-production-chain-soak.json
+/private/tmp/nereus-delay-rc1-activation-20260821-r5/protocol-activation-cutover.json
+/private/tmp/nereus-delay-rc1-operations-20260821-r4/operations-drills.json
+/private/tmp/nereus-delay-certified-chaos-20260821-r5/certified-chaos-matrix.json
+/private/tmp/nereus-delay-rc1-release-gate-20260821-r4/release-candidate-gate.json
 ```
 
 Capacity, production-chain soak, activation/cutover and operations are
@@ -6608,26 +6608,26 @@ expected to report `PASS_CERTIFIED`. The certified chaos wrapper remains
 `BLOCKED` because only 4/14 cells currently have durable state dumps, fresh
 process recovery and independent-field invariants; its 14/14 bounded child
 cells may report `PASS_BOUNDED` without becoming release certification. The
-fail-closed V1 gate is consequently `release_status=NOT_READY`.
+fail-closed gate is consequently `release_status=NOT_READY`.
 
 Run the final gate with:
 
 ```bash
-NEREUS_DELAY_RELEASE_GATE_ARTIFACT_DIR=/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r4 \
-NEREUS_DELAY_RELEASE_GATE_GRADLE_USER_HOME=/private/tmp/nereus-delay-v1-rc1-soak-20260820-r3/gradle-user-home/kafka \
+NEREUS_DELAY_RELEASE_GATE_ARTIFACT_DIR=/private/tmp/nereus-delay-rc1-release-gate-20260821-r4 \
+NEREUS_DELAY_RELEASE_GATE_GRADLE_USER_HOME=/private/tmp/nereus-delay-rc1-soak-20260820-r3/gradle-user-home/kafka \
 NEREUS_DELAY_RELEASE_GATE_RUN_CHECK=1 \
 NEREUS_DELAY_RELEASE_GATE_ALLOW_NOT_READY=1 \
-NEREUS_DELAY_RELEASE_GATE_CAPACITY_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-capacity-20260821-r4/certified-capacity-benchmark.json \
-NEREUS_DELAY_RELEASE_GATE_SOAK_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-soak-20260821-r7/certified-production-chain-soak.json \
-NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CAPACITY_PROFILE_ID=nereus-delay-v1-rc1-bounded-capacity-r1 \
-NEREUS_DELAY_RELEASE_GATE_CERTIFIED_SOAK_PROFILE_ID=nereus-delay-v1-rc1-production-chain-soak-r1 \
-NEREUS_DELAY_RELEASE_GATE_ACTIVATION_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-activation-20260821-r5/protocol-activation-cutover.json \
-NEREUS_DELAY_RELEASE_GATE_CERTIFIED_ACTIVATION_PROFILE_ID=nereus-delay-v1-rc1-activation-r1 \
-NEREUS_DELAY_RELEASE_GATE_OPERATIONS_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-operations-20260821-r4/operations-drills.json \
-NEREUS_DELAY_RELEASE_GATE_CERTIFIED_OPERATIONS_PROFILE_ID=nereus-delay-v1-rc1-operations-r1 \
-NEREUS_DELAY_RELEASE_GATE_CHAOS_ARTIFACT=/private/tmp/nereus-delay-v1-certified-chaos-20260821-r5/certified-chaos-matrix.json \
-NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CHAOS_PROFILE_ID=nereus-delay-v1-rc1-chaos-r1 \
-bash e2e/run-v1-release-gate.sh
+NEREUS_DELAY_RELEASE_GATE_CAPACITY_ARTIFACT=/private/tmp/nereus-delay-rc1-capacity-20260821-r4/certified-capacity-benchmark.json \
+NEREUS_DELAY_RELEASE_GATE_SOAK_ARTIFACT=/private/tmp/nereus-delay-rc1-soak-20260821-r7/certified-production-chain-soak.json \
+NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CAPACITY_PROFILE_ID=nereus-delay-rc1-bounded-capacity-r1 \
+NEREUS_DELAY_RELEASE_GATE_CERTIFIED_SOAK_PROFILE_ID=nereus-delay-rc1-production-chain-soak-r1 \
+NEREUS_DELAY_RELEASE_GATE_ACTIVATION_ARTIFACT=/private/tmp/nereus-delay-rc1-activation-20260821-r5/protocol-activation-cutover.json \
+NEREUS_DELAY_RELEASE_GATE_CERTIFIED_ACTIVATION_PROFILE_ID=nereus-delay-rc1-activation-r1 \
+NEREUS_DELAY_RELEASE_GATE_OPERATIONS_ARTIFACT=/private/tmp/nereus-delay-rc1-operations-20260821-r4/operations-drills.json \
+NEREUS_DELAY_RELEASE_GATE_CERTIFIED_OPERATIONS_PROFILE_ID=nereus-delay-rc1-operations-r1 \
+NEREUS_DELAY_RELEASE_GATE_CHAOS_ARTIFACT=/private/tmp/nereus-delay-certified-chaos-20260821-r5/certified-chaos-matrix.json \
+NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CHAOS_PROFILE_ID=nereus-delay-rc1-chaos-r1 \
+bash e2e/run-release-gate.sh
 ```
 
 Before accepting the receipt, require full Gradle, all source-lock checks and
@@ -6652,7 +6652,7 @@ claim of full production Recovery Catalog authority.
 The pre-documentation current-source wrapper receipt is:
 
 ```text
-/private/tmp/nereus-delay-v1-certified-chaos-20260821-r9/certified-chaos-matrix.json
+/private/tmp/nereus-delay-certified-chaos-20260821-r9/certified-chaos-matrix.json
 ```
 
 Its exact source locks are Delay `71068209dff3915e17ac2d81324154d79074e6f5`,
@@ -6669,7 +6669,7 @@ must not be promoted to certified stability.
 The matching pre-documentation gate receipt is:
 
 ```text
-/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r5/v1-release-candidate-gate.json
+/private/tmp/nereus-delay-rc1-release-gate-20260821-r5/release-candidate-gate.json
 ```
 
 It records source, cross-repository and full Gradle checks as `PASS`, but
@@ -6681,31 +6681,31 @@ After this documentation commit, regenerate the source-locked follow-up
 receipts before using them as current gate inputs:
 
 ```bash
-NEREUS_DELAY_CERTIFIED_CHAOS_ARTIFACT_DIR=/private/tmp/nereus-delay-v1-certified-chaos-20260821-r10 \
+NEREUS_DELAY_CERTIFIED_CHAOS_ARTIFACT_DIR=/private/tmp/nereus-delay-certified-chaos-20260821-r10 \
 NEREUS_DELAY_CERTIFIED_CHAOS_GRADLE_USER_HOME=/private/tmp/nereus-delay-chaos-gradle-20260821 \
-NEREUS_DELAY_CERTIFIED_CHAOS_PROFILE_ID=nereus-delay-v1-rc1-chaos-r2 \
+NEREUS_DELAY_CERTIFIED_CHAOS_PROFILE_ID=nereus-delay-rc1-chaos-r2 \
 bash e2e/run-certified-chaos-matrix.sh
 
-NEREUS_DELAY_RELEASE_GATE_ARTIFACT_DIR=/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r6 \
+NEREUS_DELAY_RELEASE_GATE_ARTIFACT_DIR=/private/tmp/nereus-delay-rc1-release-gate-20260821-r6 \
 NEREUS_DELAY_RELEASE_GATE_GRADLE_USER_HOME=/private/tmp/nereus-delay-chaos-gradle-20260821 \
 NEREUS_DELAY_RELEASE_GATE_RUN_CHECK=1 \
 NEREUS_DELAY_RELEASE_GATE_ALLOW_NOT_READY=1 \
-NEREUS_DELAY_RELEASE_GATE_CAPACITY_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-capacity-20260821-r4/certified-capacity-benchmark.json \
-NEREUS_DELAY_RELEASE_GATE_SOAK_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-soak-20260821-r7/certified-production-chain-soak.json \
-NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CAPACITY_PROFILE_ID=nereus-delay-v1-rc1-bounded-capacity-r1 \
-NEREUS_DELAY_RELEASE_GATE_CERTIFIED_SOAK_PROFILE_ID=nereus-delay-v1-rc1-production-chain-soak-r1 \
-NEREUS_DELAY_RELEASE_GATE_ACTIVATION_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-activation-20260821-r5/protocol-activation-cutover.json \
-NEREUS_DELAY_RELEASE_GATE_CERTIFIED_ACTIVATION_PROFILE_ID=nereus-delay-v1-rc1-activation-r1 \
-NEREUS_DELAY_RELEASE_GATE_OPERATIONS_ARTIFACT=/private/tmp/nereus-delay-v1-rc1-operations-20260821-r4/operations-drills.json \
-NEREUS_DELAY_RELEASE_GATE_CERTIFIED_OPERATIONS_PROFILE_ID=nereus-delay-v1-rc1-operations-r1 \
-NEREUS_DELAY_RELEASE_GATE_CHAOS_ARTIFACT=/private/tmp/nereus-delay-v1-certified-chaos-20260821-r10/certified-chaos-matrix.json \
-NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CHAOS_PROFILE_ID=nereus-delay-v1-rc1-chaos-r2 \
-bash e2e/run-v1-release-gate.sh
+NEREUS_DELAY_RELEASE_GATE_CAPACITY_ARTIFACT=/private/tmp/nereus-delay-rc1-capacity-20260821-r4/certified-capacity-benchmark.json \
+NEREUS_DELAY_RELEASE_GATE_SOAK_ARTIFACT=/private/tmp/nereus-delay-rc1-soak-20260821-r7/certified-production-chain-soak.json \
+NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CAPACITY_PROFILE_ID=nereus-delay-rc1-bounded-capacity-r1 \
+NEREUS_DELAY_RELEASE_GATE_CERTIFIED_SOAK_PROFILE_ID=nereus-delay-rc1-production-chain-soak-r1 \
+NEREUS_DELAY_RELEASE_GATE_ACTIVATION_ARTIFACT=/private/tmp/nereus-delay-rc1-activation-20260821-r5/protocol-activation-cutover.json \
+NEREUS_DELAY_RELEASE_GATE_CERTIFIED_ACTIVATION_PROFILE_ID=nereus-delay-rc1-activation-r1 \
+NEREUS_DELAY_RELEASE_GATE_OPERATIONS_ARTIFACT=/private/tmp/nereus-delay-rc1-operations-20260821-r4/operations-drills.json \
+NEREUS_DELAY_RELEASE_GATE_CERTIFIED_OPERATIONS_PROFILE_ID=nereus-delay-rc1-operations-r1 \
+NEREUS_DELAY_RELEASE_GATE_CHAOS_ARTIFACT=/private/tmp/nereus-delay-certified-chaos-20260821-r10/certified-chaos-matrix.json \
+NEREUS_DELAY_RELEASE_GATE_CERTIFIED_CHAOS_PROFILE_ID=nereus-delay-rc1-chaos-r2 \
+bash e2e/run-release-gate.sh
 ```
 
 The post-documentation receipts are authoritative only through their own
 `source_locks`; the expected fail-closed result remains certified chaos
-`BLOCKED` and V1 `NOT_READY` until all fourteen cells independently provide
+`BLOCKED` and `NOT_READY` until all fourteen cells independently provide
 durable state, fresh-process recovery and invariant evidence. Keep only
 canonical receipts and locked base images; move superseded exact paths to
 Trash after checking that no process is using them. Source worktrees and Git
@@ -6721,8 +6721,8 @@ compares the physical topic, Route/shard identity, Store incarnation, DB
 identity, source apply/ACK boundary and fresh JVM PID. The focused receipt is:
 
 ```text
-/private/tmp/nereus-delay-v1-pulsar-worker-process-crash-20260821-r1/before-process-crash.json
-/private/tmp/nereus-delay-v1-pulsar-worker-process-crash-20260821-r1/after-fresh-process.json
+/private/tmp/nereus-delay-pulsar-worker-process-crash-20260821-r1/before-process-crash.json
+/private/tmp/nereus-delay-pulsar-worker-process-crash-20260821-r1/after-fresh-process.json
 ```
 
 The focused real-broker E2E passed with Store/DB identity unchanged, PID
@@ -6738,10 +6738,10 @@ Before this documentation change, the current implementation passed the
 strict-sequential bounded production-chain soak at:
 
 ```text
-/private/tmp/nereus-delay-v1-production-chain-soak-20260821-r1/production-chain-soak.json
+/private/tmp/nereus-delay-production-chain-soak-20260821-r1/production-chain-soak.json
 ```
 
-The receipt has schema `nereus-delay-bounded-production-chain-soak-v1`, status
+The receipt has schema `nereus-delay-bounded-production-chain-soak`, status
 `PASS_BOUNDED`, one cycle and four of four cases `PASS`. Its exact source locks
 are Delay `d5dfa990c22f7659ebdb68f84e800646f34e7d46`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
@@ -6776,7 +6776,7 @@ Because this documentation commit changes the Delay source lock, r1 is a
 pre-documentation receipt. Regenerate the current handoff after the commit:
 
 ```bash
-NEREUS_DELAY_PRODUCTION_SOAK_ARTIFACT_DIR=/private/tmp/nereus-delay-v1-production-chain-soak-20260821-r2 \
+NEREUS_DELAY_PRODUCTION_SOAK_ARTIFACT_DIR=/private/tmp/nereus-delay-production-chain-soak-20260821-r2 \
 NEREUS_DELAY_PRODUCTION_SOAK_GRADLE_USER_HOME=/private/tmp/nereus-delay-production-chain-gradle-20260821-r2 \
 NEREUS_DELAY_PRODUCTION_SOAK_CYCLES=1 \
 NEREUS_DELAY_PRODUCTION_SOAK_BASE_PORT=36100 \
@@ -6809,7 +6809,7 @@ were unchanged; the after dump recorded `REAPING`, `listed=2`, `deleted=2` and
 `prefix_empty=true`, with Owner absence and forced durable reads. The run-scoped
 Compose resources and generated Oxia image were cleaned; locked base images
 remain retained. This closes the `checkpoint-reaping` cell boundary only; the
-14-cell chaos union and V1 release gate remain fail-closed until a new
+14-cell chaos union and release gate remain fail-closed until a new
 source-locked matrix run.
 
 ## 2026-08-21 Pulsar destination response-loss fresh-process slice
@@ -6834,7 +6834,7 @@ and `physical_send_count=1`, `duplicate_payload_count=0`. The P1 and Oxia
 Compose resources and generated images were cleaned; locked base images remain.
 This closes the direct `pulsar-destination-response-loss` cell only. It does
 not replace the separate Worker destination-response-loss cell, the complete
-chaos union or the V1 release gate.
+chaos union or the release gate.
 
 ## 2026-08-21 Kafka Broker process-crash durable rejoin evidence
 
@@ -6884,7 +6884,7 @@ topic leader: the real assignment selected Broker-3, so the evidence records
 the actual leader rather than imposing an unobserved ownership claim.
 
 This closes the durable/fresh-process/invariant boundary for the
-`kafka-broker-process-crash` cell only. The current 14-cell wrapper and V1
+`kafka-broker-process-crash` cell only. The current 14-cell wrapper and
 release gate must be regenerated after this commit; historical receipts whose
 Delay source lock predates `75a008fc` remain historical. Keep only canonical
 dumps and locked Oxia/MinIO base images after the run; exact run-scoped
@@ -6918,7 +6918,7 @@ counts and empty prefix; the direct Pulsar audit verified typed
 `PULSAR_SEND_ACK`, exact payload readback, `physical_send_count=1` and zero
 duplicates. Focused cleanup left no scoped containers, networks or volumes.
 Rerun the complete current-source chaos wrapper after this documentation
-commit; neither focused receipt is a V1 release certificate.
+commit; neither focused receipt is a current release certificate.
 
 ## 2026-08-21 Current-source certified chaos r13 and release gate r10
 
@@ -6937,9 +6937,9 @@ churn.
 The canonical receipts are:
 
 ```text
-/private/tmp/nereus-delay-v1-certified-chaos-20260821-r13/bounded-chaos/bounded-chaos-matrix.json
-/private/tmp/nereus-delay-v1-certified-chaos-20260821-r13/certified-chaos-matrix.json
-/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r10/v1-release-candidate-gate.json
+/private/tmp/nereus-delay-certified-chaos-20260821-r13/bounded-chaos/bounded-chaos-matrix.json
+/private/tmp/nereus-delay-certified-chaos-20260821-r13/certified-chaos-matrix.json
+/private/tmp/nereus-delay-rc1-release-gate-20260821-r10/release-candidate-gate.json
 ```
 
 The r13 source locks are Delay `4be08ee917e045b1466046aa69318645ac689ea5`,
@@ -7021,7 +7021,7 @@ This receipt therefore proves the survivor Broker durable read and subsequent
 Worker recovery chain without claiming a post-Worker Admin query. The
 independently audited bounded union is now 12 of 14. Pulsar source-ACK
 response loss and Gateway/Oxia session churn remain open; the full wrapper and
-V1 release gate must be regenerated at the new source lock.
+Current release gate must be regenerated at the new source lock.
 
 ## 2026-08-21 Pulsar source-ACK response-loss and Gateway/Oxia churn evidence
 
@@ -7063,7 +7063,7 @@ full Gateway HA or provider failover.
 
 These two receipts bring the independently audited focused durable union to
 14/14. The complete current-source matrix and certified release gate still
-must be regenerated at this source lock; V1 remains fail-closed until the
+must be regenerated at this source lock; Release readinessremains fail-closed until the
 approved capacity, soak, activation/cutover, operations and chaos inputs pass.
 Focused cleanup moved the unused Pulsar r2 diagnostic directory to recoverable
 Trash, removed run-scoped Docker resources, retained only locked base images,
@@ -7089,7 +7089,7 @@ zero, and every cell has marker PASS,
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`.
 
-This is the canonical bounded current-source fault receipt, not V1 release
+This is the canonical bounded current-source fault receipt, not release
 certification. The certified chaos wrapper and release gate must be
 regenerated from the post-documentation source; capacity, soak,
 activation/cutover and operations remain separate release inputs.
@@ -7125,7 +7125,7 @@ dump. The same current source was independently rerun at:
 The focused r2 receipt passed fresh-process recovery, changed PID, same
 topic/cluster/topic ID, monotonic end offset, Broker-1 recovery and
 `INDEPENDENT_FIELDS_PASS`. r17 is the canonical bounded receipt, not a
-certified-chaos or V1 release PASS; run those gates against the final source
+certified-chaos or release PASS; run those gates against the final source
 lock.
 
 ## Current-source protocol-golden PASS_CERTIFIED
@@ -7133,7 +7133,7 @@ lock.
 The current exact-source protocol gate completed independently at:
 
 ```text
-/private/tmp/nereus-delay-v1-protocol-golden-run-20260821-f.1N9Xji/protocol-golden.json
+/private/tmp/nereus-delay-protocol-golden-run-20260821-f.1N9Xji/protocol-golden.json
 sha256=e144407304580231c879ff3ed9f4c84951f85f537bcda2f06a9f101b1f375365
 ```
 
@@ -7144,14 +7144,14 @@ Candidate locks were Delay `dc37d2c2093eb46d3bf85f2bd964d5055a086194`, Kafka
 tests, 17 Kafka guarded tests and 8 Pulsar guarded tests. All test exits were
 zero with zero failures, errors and skips, so the artifact is
 `PASS_CERTIFIED` for Gate 1 (`protocol-golden`). It does not satisfy the other
-nine full-V1 gates and does not change the historical status of r19/r20.
+nine full- gates and does not change the historical status of r19/r20.
 
 ## Current-source no-early PASS_CERTIFIED
 
 The no-early runner produced the exact-source receipt:
 
 ```text
-/private/tmp/nereus-delay-v1-no-early-20260821-a.bOg67w/no-early.json
+/private/tmp/nereus-delay-no-early-20260821-a.bOg67w/no-early.json
 sha256=91692a7301b5e4fc99605ef6698c0c9208a12ea1379f7123d9db928ae7138d37
 ```
 
@@ -7159,7 +7159,7 @@ Delay `f82e914d22c5b7d84f618e0ca31fa378a27bf3a2` plus the fixed Kafka/Pulsar/Oxi
 locks passed 34 focused tests with zero failures, errors or skips. The receipt
 is `PASS_CERTIFIED` for no-early, records `max_early_ms=0`, and exposes the
 20 ms worker and target clock bounds. It does not close the remaining eight
-full-V1 gate inputs or the final release gate.
+full- gate inputs or the final release gate.
 
 ## 2026-08-21 current-source Large Payload destination egress
 
@@ -7167,9 +7167,9 @@ The real two-shard Large Payload authority path now passes for both same-adapter
 families at Delay `2f38677f491bd0b9071269dc27937ec691827c49`:
 
 ```text
-Kafka:  /private/tmp/nereus-delay-v1-real-service-kafka-20260821-c.4owPvQ/run.log
+Kafka:  /private/tmp/nereus-delay-real-service-kafka-20260821-c.4owPvQ/run.log
         sha256=358271def7aeb50bc503c8a09f4eda430fbd7e4db8850f6775ba6d22de60f4d8
-Pulsar: /private/tmp/nereus-delay-v1-real-service-pulsar-20260821-a.WCUeKp/run.log
+Pulsar: /private/tmp/nereus-delay-real-service-pulsar-20260821-a.WCUeKp/run.log
         sha256=84bf7f5171c0124463dd5efe40ca061ef7cea7bbc240bce14a569d77877c8d11
 ```
 
@@ -7181,7 +7181,7 @@ Worker apply/ACK, two destination `PUBLISHED` outcomes, checkpoint and exact
 Gateway idempotency, with no scoped Docker resources left behind.
 
 This does not close the full real-service gate: `kafka-to-pulsar`,
-`pulsar-to-kafka`, activation cutover and the remaining full-V1 gates still
+`pulsar-to-kafka`, activation cutover and the remaining full- gates still
 require independent evidence. Same-adapter receipts remain bounded evidence.
 
 ## 2026-08-21 current-source cross-adapter Large Payload production authority
@@ -7193,7 +7193,7 @@ bash e2e/run-cross-adapter-large-payload-gateway-e2e.sh
 ```
 
 The canonical current-source receipt is
-`/private/tmp/nereus-delay-v1-cross-20260821-r29/`. It locks Delay
+`/private/tmp/nereus-delay-cross-20260821-r29/`. It locks Delay
 `6b5c357c207169f98ec78be7f7007e2ebf3c1209`, Kafka K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia
@@ -7218,33 +7218,33 @@ exact idempotency. The runner returns
 scoped Docker resources while retaining locked base images.
 
 This closes the two named cross-adapter Large Payload cells only. It does not
-make the full `real-service` or V1 release gate PASS; activation/cutover, full
+make the full `real-service` or release gate PASS; activation/cutover, full
 19-cell chaos, capacity, soak, upgrade/downgrade, operations/disaster-
 continuity and patch-distribution inputs remain required.
 
-## 2026-08-21 full-V1 real-service gate runner
+## 2026-08-21 full- real-service gate runner
 
-`run-v1-real-service-gate.sh` is the full-scope real-service input runner. It
+`run-real-service-gate.sh` is the full-scope real-service input runner. It
 requires an exact candidate source-lock JSON and executes, strictly serially,
 the two same-adapter Gateway/Worker/MinIO chains, both cross-adapter
 directions, the Kafka K1/K2 real-client path, the Pulsar P1 real-client path,
 and authenticated capability-before-marker activation/cutover. It writes a
-`nereus-delay-v1-full-gate-input-v1` artifact only from those current child
+`nereus-delay-full-gate-input` artifact only from those current child
 logs; a failed child or missing marker leaves the artifact `BLOCKED`.
 
 ```bash
-NEREUS_DELAY_V1_CANDIDATE_SOURCE_LOCK=/private/tmp/<candidate>/source-lock.json \
-NEREUS_DELAY_V1_REAL_SERVICE_ARTIFACT_DIR=/private/tmp/<candidate>/real-service \
-  bash e2e/run-v1-real-service-gate.sh
+NEREUS_DELAY__CANDIDATE_SOURCE_LOCK=/private/tmp/<candidate>/source-lock.json \
+NEREUS_DELAY__REAL_SERVICE_ARTIFACT_DIR=/private/tmp/<candidate>/real-service \
+  bash e2e/run-real-service-gate.sh
 ```
 
 The runner does not reinterpret the earlier same-adapter or bounded receipts,
 and each child retains its exact Docker cleanup boundary.
 
-## 2026-08-21 current-source V1 closure audit
+## 2026-08-21 current-source closure audit
 
 Use the frozen candidate lock
-`/private/tmp/nereus-delay-v1-real-service-candidate-20260821/source-lock.json`
+`/private/tmp/nereus-delay-real-service-candidate-20260821/source-lock.json`
 for the current source: Delay
 `e44a23ccd76e9976c49427ebf46240fda8410abd`, Kafka K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
@@ -7254,11 +7254,11 @@ for the current source: Delay
 The current complete full-gate inputs are:
 
 ```text
-protocol-golden: /private/tmp/nereus-delay-v1-protocol-golden-current-20260821-r2/protocol-golden.json
+protocol-golden: /private/tmp/nereus-delay-protocol-golden-current-20260821-r2/protocol-golden.json
   PASS_CERTIFIED sha256=362f54f6cec0d6041be3be07f1b8ba6188322980f00fa853a4eae2fb4791d90c
-no-early: /private/tmp/nereus-delay-v1-no-early-current-20260821-r2/no-early.json
+no-early: /private/tmp/nereus-delay-no-early-current-20260821-r2/no-early.json
   PASS_CERTIFIED sha256=d424f5017a110ff884355b4d7f28c5367a2855d2562eac97606efce6054d1a3a
-real-service: /private/tmp/nereus-delay-v1-real-service-candidate-20260821/real-service-r6/real-service.json
+real-service: /private/tmp/nereus-delay-real-service-candidate-20260821/real-service-r6/real-service.json
   PASS_CERTIFIED sha256=db0297371961dbc8d3791a80f24940eaa07ca27da5938e6aa4fb547097e779c0
 ```
 
@@ -7269,10 +7269,10 @@ source Outcome application and activation cutover. Worker egress is therefore
 implemented and certified in the current source path.
 
 Current bounded capacity, soak and operations profiles remain useful evidence
-but do not satisfy the complete full-V1 schemas. The current full-chaos matrix
+but do not satisfy the complete full- schemas. The current full-chaos matrix
 has 11/19 independently passing cells and 8 explicit blockers. The strict
 release artifact is
-`/private/tmp/nereus-delay-v1-release-gate-current-20260821-r6/v1-release-candidate-gate.json`
+`/private/tmp/nereus-delay-release-gate-current-20260821-r6/release-candidate-gate.json`
 with SHA-256
 `bd64e1897210f834b6160223221c3b65360b74c7861fa6b37c874b0f202fd597`; it is
 `NOT_READY` after source, contract, Gradle, protocol-golden, real-service and
@@ -7280,36 +7280,36 @@ no-early checks pass. Missing benchmark, complete chaos/capacity/soak,
 upgrade/downgrade, complete operations and patch-distribution inputs remain
 release blockers.
 
-## 2026-08-21 full-v1 contract input runner
+## 2026-08-21 full contract input runner
 
-\`run-v1-full-contract-gate.sh\` is the source-locked producer for the
+\`run-full-contract-gate.sh\` is the source-locked producer for the
 Delay-owned contract inputs. It accepts \`benchmark\`, \`capacity\`, \`soak\`,
 \`upgrade-downgrade\` or \`operations\`, requires an explicit candidate lock,
-and emits \`nereus-delay-v1-full-gate-input-v1\` only after a fresh Gradle test
+and emits \`nereus-delay-full-gate-input\` only after a fresh Gradle test
 set and exact coverage audit. Its output is suitable for
-\`run-v1-full-release-gate.sh\` only when the physical child requirements for
+\`run-full-release-gate.sh\` only when the physical child requirements for
 that gate have also passed; the script intentionally leaves Broker/Lane
 capacity, full soak and real operations authority fail-closed when those
 children are not present.
 
-\`run-v1-full-patch-distribution-gate.sh\` is the separate K1/P1 distribution
+\`run-full-patch-distribution-gate.sh\` is the separate K1/P1 distribution
 input runner. It executes guarded-client tests in their own Gradle homes,
 records built binary digests and rejects stock/name-fallback/old-protocol
-paths. \`NEREUS_DELAY_V1_PATCH_RUN_CLUSTER=1\` is mandatory for a PASS because
+paths. \`NEREUS_DELAY__PATCH_RUN_CLUSTER=1\` is mandatory for a PASS because
 full and partial Broker rollout are distinct release evidence.
 
-## 2026-08-21 full-v1 physical capacity-envelope probe
+## 2026-08-21 full physical capacity-envelope probe
 
-`run-v1-full-capacity-envelope-gate.sh` is the source-locked producer for the
+`run-full-capacity-envelope-gate.sh` is the source-locked producer for the
 benchmark/capacity inputs. It runs Delay capacity/resource contracts and,
-with `NEREUS_DELAY_V1_CAPACITY_RUN_REAL=1`, executes the Kafka and Pulsar
+with `NEREUS_DELAY__CAPACITY_RUN_REAL=1`, executes the Kafka and Pulsar
 multi-shard Large Payload Gateway/Oxia/Worker/MinIO chains. It requires an
-independent `nereus-delay-v1-capacity-observation-v1` artifact for PASS;
+independent `nereus-delay-capacity-observation` artifact for PASS;
 functional child success cannot stand in for physical throughput or resource
 observations.
 
 The current base-source probe is retained at
-`/private/tmp/nereus-delay-v1-full-capacity-real-current-20260821-r3/` with
+`/private/tmp/nereus-delay-full-capacity-real-current-20260821-r3/` with
 Delay `9ab82d11c0b1b8bd60547d94ea695403d2c73b1c`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
@@ -7317,14 +7317,14 @@ Delay `9ab82d11c0b1b8bd60547d94ea695403d2c73b1c`, K1
 real children passed with two destination `PUBLISHED` outcomes and checkpoint
 evidence, and related Docker resources were absent afterward. The full gate
 remains `FAIL` with `measurement_status=MISSING`, so this probe does not
-change the V1 release status.
+change the release status.
 
 ## 2026-08-22 current-source guarded patch-distribution certification
 
 The gate fix is Delay `1631f8c1821116e8c7b3ef3f7166bab06c4b8a76`: K1, P1 and
 Delay tests now use `--rerun-tasks`, so an up-to-date Gradle result cannot be
 mistaken for fresh execution. The canonical artifact is
-`/private/tmp/nereus-delay-v1-patch-distribution-current-20260822-r3/full-v1-gate-input.json`
+`/private/tmp/nereus-delay-patch-distribution-current-20260822-r3/full-gate-input.json`
 with SHA-256
 `c92104c707d208035aff782a3def37d84c409830bd2214bc543381e5eeab2ebb`.
 
@@ -7336,9 +7336,9 @@ cases passed, Pulsar guarded common/broker tests and Delay guarded transport
 tests were freshly executed, and the real two-Broker Pulsar partial-rollout
 child passed broker stop/recovery, physical publish, ACK and checkpoint
 release. Binary digests are in
-`/private/tmp/nereus-delay-v1-patch-distribution-current-20260822-r3/binary-digests.tsv`.
+`/private/tmp/nereus-delay-patch-distribution-current-20260822-r3/binary-digests.tsv`.
 
-This certifies only the patch-distribution input, not the V1 release. Capacity
+This certifies only the patch-distribution input, not the release. Capacity
 measurement, complete chaos, soak, upgrade/downgrade, operations/disaster and
 the remaining release inputs stay fail-closed. Exact scoped Docker postchecks
 were empty; base images were retained.
@@ -7350,14 +7350,14 @@ The final audit for candidate lock Delay
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484` is retained at
-`/private/tmp/nereus-delay-v1-release-gate-current-20260822-r1/v1-release-candidate-gate.json`
+`/private/tmp/nereus-delay-release-gate-current-20260822-r1/release-candidate-gate.json`
 with SHA-256
 `6436c4279cf3be7e579cbd0bae5c48fa6a1684e857bc711691dca015cba0b3d0`.
 The documentation-only overlay is Delay `03e285c7d2d99c1389cf6d8d73338a9e8f8205c0`.
 
 Source checks, cross-repository contracts and the full Gradle `check` passed;
 the patch-distribution input is also exact-source `PASS`. The nine other full
-V1 inputs were absent and therefore `BLOCKED` by the validator, leaving the
+Current inputs were absent and therefore `BLOCKED` by the validator, leaving the
 strict release result `NOT_READY`. The Gradle run still skips opt-in external
 Oxia/MinIO/chaos methods when their endpoints are unset; this audit does not
 promote those skips or any bounded receipt into release PASS.
@@ -7370,7 +7370,7 @@ The current documentation-overlay source is Delay `336f6586a7013938356eea6bd3093
 `37a17bef17202d5fd6e23282da5fd26d94865484`.
 
 The source-locked physical-capacity runner produced
-`/private/tmp/nereus-delay-v1-full-capacity-current-20260822-r1/full-v1-gate-input.json`
+`/private/tmp/nereus-delay-full-capacity-current-20260822-r1/full-gate-input.json`
 (SHA-256 `1e69acee2181ba87ec0d03bea9cc8689ed51eda1db1ff5bb8ddd4361cba0d`).
 Its Delay contract tests and both real children passed. Kafka's two-shard
 Gateway mTLS/JWT -> Oxia Assignment/Owner -> Worker -> real MinIO -> destination
@@ -7385,7 +7385,7 @@ functional Large Payload E2E is now current-source evidence, but it is not a
 Broker/Lane/resource capacity envelope.
 
 The current-source operations retry is retained at
-`/private/tmp/nereus-delay-v1-operations-current-20260822-r2/full-v1-gate-input.json`
+`/private/tmp/nereus-delay-operations-current-20260822-r2/full-gate-input.json`
 (SHA-256 `69cc717120703bba10fdf0650f2187298a68b87fb52d9e6c0e32d99d4247af2a`).
 Its bounded child is `PASS_BOUNDED` (SHA-256
 `bca3dcdfb55fcb871396ca0af484a30a32ca389795086027398ea277d0acac59`): local
@@ -7394,9 +7394,9 @@ recovery and exact Docker cleanup all passed. The certified operations wrapper
 remains `BLOCKED` only because the independent multi-Worker soak artifact is
 missing; no operations or disaster-continuity release PASS is claimed.
 
-For the candidate source lock itself, the upgrade/downgrade full-v1 artifact was
+For the candidate source lock itself, the upgrade/downgrade full artifact was
 rerun in an isolated candidate clone at
-`/private/tmp/nereus-delay-v1-upgrade-downgrade-candidate-20260822-r1/full-v1-gate-input.json`
+`/private/tmp/nereus-delay-upgrade-downgrade-candidate-20260822-r1/full-gate-input.json`
 (SHA-256 `023460f978fcc6a74c752419521e86e0869eb087fbb08aa4419e8af2547778a1`).
 It is `PASS_CERTIFIED`, exclusion-free and covers all six required cells. The
 capacity, soak, operations, chaos and remaining release obligations stay
@@ -7406,7 +7406,7 @@ were not globally pruned.
 ## 2026-08-22 release audit after candidate upgrade refresh
 
 The strict audit artifact is
-`/private/tmp/nereus-delay-v1-release-gate-current-20260822-r2/v1-release-candidate-gate.json`
+`/private/tmp/nereus-delay-release-gate-current-20260822-r2/release-candidate-gate.json`
 with SHA-256 `6a3f7ff024933555613fd93c682d41d9b56b00c711e8d531947e086aac13c375`.
 It used candidate Delay `1631f8c1821116e8c7b3ef3f7166bab06c4b8a76`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
@@ -7417,12 +7417,12 @@ overlay was Delay `ea3a76e24b7c7aa5e4bb20a3be50e0b101d13172`.
 Source checks, cross-repository contracts and full Gradle `check` passed. The
 candidate-source upgrade/downgrade and patch-distribution artifacts passed
 exactly. Capacity and operations were present but rejected because they were
-not complete `PASS_CERTIFIED` full-v1 inputs (`measurement_status=MISSING` and
+not complete `PASS_CERTIFIED` full inputs (`measurement_status=MISSING` and
 missing independent soak, respectively); protocol-golden, chaos, real-service,
-no-early, benchmark and soak had no complete full-v1 artifact. The resulting
+no-early, benchmark and soak had no complete full artifact. The resulting
 release status is therefore `NOT_READY`; no complete ten-gate manifest exists.
 
-## 2026-08-22 current full-v1 production-authority run
+## 2026-08-22 current full production-authority run
 
 Candidate locks: Delay `a40588bec6d363a4cfd2a4b7d3df5695649a0d79`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
@@ -7432,7 +7432,7 @@ passed. Large Payload Gateway production-authority E2E receipt r3 is
 `PASS_CERTIFIED` for Kafka-to-Pulsar and Pulsar-to-Kafka, with exact payload
 readback and idempotency through real Kafka, Pulsar, Oxia and MinIO.
 
-Full-v1 receipts pass for protocol-golden r3, no-early r4, real-service r2,
+Full receipts pass for protocol-golden r3, no-early r4, real-service r2,
 chaos r6 (19/19), upgrade-downgrade r4, operations r16 and patch-distribution
 r5. Soak r15 has a certified child receipt covering 3 cycles / 12 cases, 800
 seconds and exact cleanup; the release wrapper is an explicit blocker because
@@ -7441,7 +7441,7 @@ r11 remain blocked because no physical Broker/Lane measurement artifact was
 provided.
 
 Strict audit:
-`/private/tmp/nereus-delay-v1-full-gates-20260822-r20/release/v1-release-candidate-gate.json`,
+`/private/tmp/nereus-delay-full-gates-20260822-r20/release/release-candidate-gate.json`,
 `release_status=NOT_READY`; no certification manifest is claimed. Exact
 matching generated Docker resources were absent after the runs. The locked
 MinIO base and canonical Oxia image were kept; global Docker prune is forbidden.
@@ -7449,7 +7449,7 @@ Unused `/private/tmp/nereus-delay` evidence directories are moved recoverably
 to Trash only after reference and `.git` checks; source code/worktrees are
 never targeted.
 
-## 2026-08-22 current full-V1 certification
+## 2026-08-22 current full- certification
 
 Candidate source locks are Delay
 `c448e52607c8ff8bf3206c443fed35137a0c4cdc`, Kafka K1
@@ -7458,11 +7458,11 @@ Candidate source locks are Delay
 `37a17bef17202d5fd6e23282da5fd26d94865484`.
 
 The strict release receipt
-`/private/tmp/nereus-delay-v1-release-gate-20260822-r1/v1-release-candidate-gate.json`
+`/private/tmp/nereus-delay-release-gate-20260822-r1/release-candidate-gate.json`
 is `release_status=PASS` (SHA-256
 `e25fcec81e766afb6d9ba8c2e68149439bd25ced902ab3b260d346be11e563e9`). It
 validated source cleanliness, cross-repository contracts, full Gradle
-`check`, and all ten exclusion-free `PASS_CERTIFIED` full-V1 inputs. The
+`check`, and all ten exclusion-free `PASS_CERTIFIED` full- inputs. The
 physical benchmark/capacity observations are independent artifacts; the soak
 records 3 configured cycles / 12 cases and an explicit 600-second longest
 configured period; operations consumes that exact soak receipt through the
@@ -7474,7 +7474,7 @@ remains exact and recoverable: generated resources are removed by their child
 runners, locked MinIO/Oxia images remain, and unused temporary evidence is
 moved to Trash only after reference and `.git` checks.
 
-## 2026-08-22 latest full-V1 gate result — f4b7e005
+## 2026-08-22 latest full- gate result — f4b7e005
 
 The latest ten-gate run is source-locked to Delay
 `f4b7e005c217d938c26bdba1eaa107cadb355da`, Kafka K1
@@ -7482,7 +7482,7 @@ The latest ten-gate run is source-locked to Delay
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`:
 
-`/private/tmp/nereus-delay-v1-release-gate-20260822-f4b7e005-rerun/v1-release-candidate-gate.json`
+`/private/tmp/nereus-delay-release-gate-20260822-f4b7e005-rerun/release-candidate-gate.json`
 
 It reports `release_status=NOT_READY`. Protocol golden, full 19-cell chaos,
 real-service, no-early, soak, upgrade/downgrade, operations and
@@ -7501,7 +7501,7 @@ temporary entries were moved out of `/private/tmp` into
 ## 2026-08-22 physical capacity matrix runner — a11d281c
 
 Commit `a11d281cbc39416359c9a03085146c40d2142053` adds
-`run-v1-physical-capacity-matrix.sh` plus guarded K1/P1 producers for the
+`run-physical-capacity-matrix.sh` plus guarded K1/P1 producers for the
 independent §23.4 physical evidence. The default profile covers 1M, 10M and
 100M records with burst/uniform/Zipf arrivals, ordered/unordered delivery,
 baseline/strong consistency, healthy/bad target, single/multi-shard placement
@@ -7520,48 +7520,48 @@ and no global prune or source/worktree deletion is allowed.
 
 The current physical capacity source is Delay
 `6209d824d9df77478cc6a8d8ba6dfdf6ba8e5a05` (the canonical lock file is
-`/private/tmp/nereus-delay-v1-candidate-6209d824.json`), paired with the
+`/private/tmp/nereus-delay-candidate-6209d824.json`), paired with the
 locked K1/P1/Oxia revisions in that file. Both guarded physical producers
 reopen their producer lifecycle every 500,000 records and aggregate the full
 campaign on one topic. This bounds measurement-client retention and does not
 lower the required 1M/10M/100M cardinalities.
 
 The FAST smoke at
-`/private/tmp/nereus-delay-v1-capacity-smoke-6209d824/capacity-matrix.json`
+`/private/tmp/nereus-delay-capacity-smoke-6209d824/capacity-matrix.json`
 has 8/8 observation PASS and exact cleanup PASS, but its top-level status is
 intentionally FAIL because FAST is non-certifying. Use the default runner for
 the source-qualified physical matrix; do not promote FAST output to a release
 gate.
 
-## 2026-08-22 current-source full V1 certification — 6f9ab51c
+## 2026-08-22 current-source full certification — 6f9ab51c
 
 The frozen source lock is Delay
 `6f9ab51c392ea47dba46e0d6d67ff7f7d0aa0312`, Kafka
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`. The candidate receipt
-`/private/tmp/nereus-delay-v1-release-candidate-6f9ab51c/v1-release-candidate-gate.json`
+`/private/tmp/nereus-delay-release-candidate-6f9ab51c/release-candidate-gate.json`
 reports `release_status=PASS`, including Gradle `check` and all ten strict
-full-V1 gate inputs.
+full- gate inputs.
 
 | gate | exact artifact | SHA-256 |
 | --- | --- | --- |
-| protocol-golden | `/private/tmp/nereus-delay-v1-protocol-golden-6f9ab51c/protocol-golden.json` | `987f29b85496a296a7375d72eca5a3749335773a80f3d18e8b021e554e313253` |
-| chaos | `/private/tmp/nereus-delay-v1-full-chaos-6f9ab51c/full-chaos-matrix.json` | `49fb28741abafc12db03185b83a6d53b44c900d4ee4a16dca126b1876a91de80` |
-| real-service | `/private/tmp/nereus-delay-v1-real-service-6f9ab51c/real-service.json` | `2886a91d44f10900395c62fa821e435144c236c431295af74a6705b75a9cd43a` |
-| no-early | `/private/tmp/nereus-delay-v1-no-early-6f9ab51c/no-early.json` | `667de31953e8cdb665a2eb13b8e905c33dc3f10124c3767176e6f42e088e7c14` |
-| benchmark | `/private/tmp/nereus-delay-v1-benchmark-envelope-6f9ab51c/full-v1-gate-input.json` | `bcf78ac3cc4584502f311b9102af9b34a888ac6e192b97859a44618797ea0bed` |
-| capacity | `/private/tmp/nereus-delay-v1-capacity-envelope-6f9ab51c/full-v1-gate-input.json` | `cd9de96dc830a5d466c4a8679cf2b51ee5927545f75cc521c3ad66ba32139fb1` |
-| soak | `/private/tmp/nereus-delay-v1-soak-6f9ab51c/full-v1-gate-input.json` | `fdf3c369bf2b1ce2b649a858d0654de13864bb82c95407b1e9d0f4a2a606fe96` |
-| upgrade-downgrade | `/private/tmp/nereus-delay-v1-upgrade-downgrade-6f9ab51c/full-v1-gate-input.json` | `0f98682a7578fab55914f457cb33502bbb336cccddad2a8bd52196e1439c275f` |
-| operations | `/private/tmp/nereus-delay-v1-operations-6f9ab51c-r4/full-v1-gate-input.json` | `5bebe0adec9b0c6cf6742f6a530cf67d5151e7e9f5ff68e1e86a6c373aa5f04a` |
-| patch-distribution | `/private/tmp/nereus-delay-v1-patch-distribution-6f9ab51c/full-v1-gate-input.json` | `f763a9ea27e1bafc8009c91d895653e0d4a6002030e7ff392f83a3492b2672ab` |
+| protocol-golden | `/private/tmp/nereus-delay-protocol-golden-6f9ab51c/protocol-golden.json` | `987f29b85496a296a7375d72eca5a3749335773a80f3d18e8b021e554e313253` |
+| chaos | `/private/tmp/nereus-delay-full-chaos-6f9ab51c/full-chaos-matrix.json` | `49fb28741abafc12db03185b83a6d53b44c900d4ee4a16dca126b1876a91de80` |
+| real-service | `/private/tmp/nereus-delay-real-service-6f9ab51c/real-service.json` | `2886a91d44f10900395c62fa821e435144c236c431295af74a6705b75a9cd43a` |
+| no-early | `/private/tmp/nereus-delay-no-early-6f9ab51c/no-early.json` | `667de31953e8cdb665a2eb13b8e905c33dc3f10124c3767176e6f42e088e7c14` |
+| benchmark | `/private/tmp/nereus-delay-benchmark-envelope-6f9ab51c/full-gate-input.json` | `bcf78ac3cc4584502f311b9102af9b34a888ac6e192b97859a44618797ea0bed` |
+| capacity | `/private/tmp/nereus-delay-capacity-envelope-6f9ab51c/full-gate-input.json` | `cd9de96dc830a5d466c4a8679cf2b51ee5927545f75cc521c3ad66ba32139fb1` |
+| soak | `/private/tmp/nereus-delay-soak-6f9ab51c/full-gate-input.json` | `fdf3c369bf2b1ce2b649a858d0654de13864bb82c95407b1e9d0f4a2a606fe96` |
+| upgrade-downgrade | `/private/tmp/nereus-delay-upgrade-downgrade-6f9ab51c/full-gate-input.json` | `0f98682a7578fab55914f457cb33502bbb336cccddad2a8bd52196e1439c275f` |
+| operations | `/private/tmp/nereus-delay-operations-6f9ab51c-r4/full-gate-input.json` | `5bebe0adec9b0c6cf6742f6a530cf67d5151e7e9f5ff68e1e86a6c373aa5f04a` |
+| patch-distribution | `/private/tmp/nereus-delay-patch-distribution-6f9ab51c/full-gate-input.json` | `f763a9ea27e1bafc8009c91d895653e0d4a6002030e7ff392f83a3492b2672ab` |
 
 The source-qualified physical matrix is
-`/private/tmp/nereus-delay-v1-capacity-full-6f9ab51c-r3/capacity-matrix.json`
+`/private/tmp/nereus-delay-capacity-full-6f9ab51c-r3/capacity-matrix.json`
 with SHA-256 `dc79514ab74671c28a8e608803cb6c43d3c2f2408a0388a36e076a87fb2390c4`.
 The final post-overlay receipt is fixed at
-`/private/tmp/nereus-delay-v1-release-final-6f9ab51c/v1-release-candidate-gate.json`.
+`/private/tmp/nereus-delay-release-final-6f9ab51c/release-candidate-gate.json`.
 The receipt covers the locked feature branches only; it is not a merge,
 deployment or target-`main` promotion claim.
 
@@ -7569,5 +7569,5 @@ Exact generated Docker cleanup completed without a global prune. Pinned Oxia,
 MinIO and the benchmark `eclipse-temurin@sha256:57865c22b954cf920cb05a610af81d577e89783282514ba071e99c7357f6c769`
 image remain. Eighty-eight unreferenced `/private/tmp/nereus-delay*`
 directories were moved recoverably to
-`/Users/liusinan/.Trash/nereus-delay-cleanup-20260822-full-v1`; no `.git`, source
+`/Users/liusinan/.Trash/nereus-delay-cleanup-20260822-full`; no `.git`, source
 checkout or code directory was moved, and all current evidence trees remain.

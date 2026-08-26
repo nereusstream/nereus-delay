@@ -18,7 +18,7 @@ import java.util.function.LongSupplier;
  * Mutation or a Source Position.</p>
  */
 public final class ReservationExpiryWorkClassExecutor {
-    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-reservation-expiry-materialization-v1\0");
+    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-reservation-expiry-materialization\0");
 
     private final WorkClassExecutionRegistry workClasses;
     private final OwnedDelayShard ownedShard;

@@ -25,7 +25,7 @@ import java.util.function.LongSupplier;
  * CHECKPOINT fairness/resource boundary.</p>
  */
 public final class CheckpointDrainWorkClassExecutor {
-    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-checkpoint-drain-handoff-v1\0");
+    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-checkpoint-drain-handoff\0");
 
     private final WorkClassExecutionRegistry workClasses;
     private final ShardStore store;

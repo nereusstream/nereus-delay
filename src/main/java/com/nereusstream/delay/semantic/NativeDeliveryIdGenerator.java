@@ -1,13 +1,13 @@
 package com.nereusstream.delay.semantic;
 
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
 
 /** Generates the pre-I/O, nonzero Native Delivery ID required by Registry §6.3. */
 @FunctionalInterface
 public interface NativeDeliveryIdGenerator {
-    byte[] next(PreparedCommand managedCommand, ScheduleIntentV1 intent);
+    byte[] next(PreparedCommand managedCommand, CanonicalScheduleIntent intent);
 
     static NativeDeliveryIdGenerator random() {
         final java.security.SecureRandom random = new java.security.SecureRandom();

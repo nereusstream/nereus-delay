@@ -1,15 +1,15 @@
 package com.nereusstream.delay.gateway;
 
-import com.nereusstream.delay.protocol.FailureStageV1;
-import com.nereusstream.delay.protocol.OpaquePayloadUploadHandleV1;
-import com.nereusstream.delay.protocol.PayloadAttestationOutcomeV1;
-import com.nereusstream.delay.protocol.PayloadAttestationResponseV1;
-import com.nereusstream.delay.protocol.PayloadReservationReceiptV1;
-import com.nereusstream.delay.protocol.PayloadUploadHandleOutcomeV1;
-import com.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
+import com.nereusstream.delay.protocol.FailureStage;
+import com.nereusstream.delay.protocol.OpaquePayloadUploadHandle;
+import com.nereusstream.delay.protocol.PayloadAttestationOutcome;
+import com.nereusstream.delay.protocol.PayloadAttestationResponse;
+import com.nereusstream.delay.protocol.PayloadReservationReceipt;
+import com.nereusstream.delay.protocol.PayloadUploadHandleOutcome;
+import com.nereusstream.delay.protocol.PayloadUploadHandleResponse;
 import com.nereusstream.delay.protocol.StableCode;
-import com.nereusstream.delay.protocol.StableErrorV1;
-import com.nereusstream.delay.protocol.UploadHandleKindV1;
+import com.nereusstream.delay.protocol.StableError;
+import com.nereusstream.delay.protocol.UploadHandleKind;
 import com.nereusstream.delay.semantic.AuthenticatedTenantContext;
 import java.util.Arrays;
 import java.util.Objects;
@@ -39,50 +39,49 @@ public final class GatewayPayloadStoreAuthority implements GatewayPayloadAuthori
     }
 
     @Override
-    public CompletionStage<PayloadUploadHandleResponseV1> issueUploadHandle(
+    public CompletionStage<PayloadUploadHandleResponse> issueUploadHandle(
             final AuthenticatedTenantContext tenant,
-            final PayloadReservationReceiptV1 receipt,
-            final UploadHandleKindV1 kind,
+            final PayloadReservationReceipt receipt,
+            final UploadHandleKind kind,
             final long nowEpochMs) {
         Objects.requireNonNull(tenant, "tenant");
         Objects.requireNonNull(receipt, "receipt");
         Objects.requireNonNull(kind, "kind");
         if (!Arrays.equals(tenantRoutingScope, tenant.tenantRoutingScope())) {
-            return CompletableFuture.completedFuture(PayloadUploadHandleResponseV1.error(
-                    PayloadUploadHandleOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED, unauthorizedError()));
+            return CompletableFuture.completedFuture(PayloadUploadHandleResponse.error(
+                    PayloadUploadHandleOutcome.NOT_FOUND_OR_NOT_AUTHORIZED, unauthorizedError()));
         }
         return CompletableFuture.completedFuture(handleIssuer.issue(receipt, kind, nowEpochMs));
     }
 
     @Override
-    public CompletionStage<PayloadAttestationResponseV1> attestUpload(
+    public CompletionStage<PayloadAttestationResponse> attestUpload(
             final AuthenticatedTenantContext tenant,
-            final PayloadReservationReceiptV1 receipt,
-            final OpaquePayloadUploadHandleV1 handle,
+            final PayloadReservationReceipt receipt,
+            final OpaquePayloadUploadHandle handle,
             final long nowEpochMs) {
         Objects.requireNonNull(tenant, "tenant");
         Objects.requireNonNull(receipt, "receipt");
         Objects.requireNonNull(handle, "handle");
         if (!Arrays.equals(tenantRoutingScope, tenant.tenantRoutingScope())) {
-            return CompletableFuture.completedFuture(PayloadAttestationResponseV1.error(
-                    PayloadAttestationOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED, unauthorizedError()));
+            return CompletableFuture.completedFuture(PayloadAttestationResponse.error(
+                    PayloadAttestationOutcome.NOT_FOUND_OR_NOT_AUTHORIZED, unauthorizedError()));
         }
         return CompletableFuture.completedFuture(attestor.attest(receipt, handle, nowEpochMs));
     }
 
-    private static StableErrorV1 unauthorizedError() {
-        return StableErrorV1.of(FailureStageV1.PAYLOAD, StableCode.NOT_FOUND_OR_NOT_AUTHORIZED, null, null, null, null);
+    private static StableError unauthorizedError() {
+        return StableError.of(FailureStage.PAYLOAD, StableCode.NOT_FOUND_OR_NOT_AUTHORIZED, null, null, null, null);
     }
 
     @FunctionalInterface
     public interface UploadHandleIssuer {
-        PayloadUploadHandleResponseV1 issue(
-                PayloadReservationReceiptV1 receipt, UploadHandleKindV1 kind, long nowEpochMs);
+        PayloadUploadHandleResponse issue(PayloadReservationReceipt receipt, UploadHandleKind kind, long nowEpochMs);
     }
 
     @FunctionalInterface
     public interface PayloadAttestor {
-        PayloadAttestationResponseV1 attest(
-                PayloadReservationReceiptV1 receipt, OpaquePayloadUploadHandleV1 handle, long nowEpochMs);
+        PayloadAttestationResponse attest(
+                PayloadReservationReceipt receipt, OpaquePayloadUploadHandle handle, long nowEpochMs);
     }
 }

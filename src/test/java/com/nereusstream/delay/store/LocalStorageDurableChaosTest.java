@@ -45,7 +45,7 @@ class LocalStorageDurableChaosTest {
     private static final String HOLD_ENV = "NEREUS_DELAY_STORAGE_CHAOS_HOLD_FILE";
     private static final String ROOT_ENV = "NEREUS_DELAY_STORAGE_CHAOS_ROOT";
     private static final String HEADROOM_ENV = "NEREUS_DELAY_STORAGE_CHAOS_HEADROOM_FILE";
-    private static final String SCHEMA = "nereus-delay-storage-chaos-durable-state-dump-v1";
+    private static final String SCHEMA = "nereus-delay-storage-chaos-durable-state-dump";
     private static final String BEFORE_PHASE = "BEFORE_FRESH_PROCESS_RECOVERY";
     private static final String AFTER_PHASE = "RECOVERED_AFTER_FRESH_PROCESS";
     private static final String FSYNC_CELL = "fsync-error";
@@ -56,7 +56,7 @@ class LocalStorageDurableChaosTest {
     private static final String SST_FAULT = "SST_CORRUPTION";
     private static final String DISASTER_FAULT = "DISASTER_HOST_FAULT";
     private static final String ENOSPC_FAULT = "ENOSPC";
-    private static final String VALUE_TEXT = "durable-storage-chaos-value-v1";
+    private static final String VALUE_TEXT = "durable-storage-chaos-value";
     private static final RouteIncarnation ROUTE =
             RouteIncarnation.fromUuid(UUID.fromString("01234567-89ab-cdef-0123-456789abcdef"));
     private static final ShardId SHARD = new ShardId(ROUTE, 17);
@@ -541,7 +541,7 @@ class LocalStorageDurableChaosTest {
     }
 
     private static byte[] key() {
-        return Bytes.utf8("local-storage-chaos-key-v1");
+        return Bytes.utf8("local-storage-chaos-key");
     }
 
     private static byte[] value() {

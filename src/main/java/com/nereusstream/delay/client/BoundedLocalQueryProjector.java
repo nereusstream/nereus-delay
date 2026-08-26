@@ -1,48 +1,48 @@
 package com.nereusstream.delay.client;
 
 import com.nereusstream.delay.adapter.CommandResultRetentionPolicy;
-import com.nereusstream.delay.protocol.ActiveMessageViewV1;
-import com.nereusstream.delay.protocol.CommandApplyStatusV1;
-import com.nereusstream.delay.protocol.CommandQueryResponseV1;
-import com.nereusstream.delay.protocol.CompactCommandResultV1;
-import com.nereusstream.delay.protocol.DlqExportStateV1;
-import com.nereusstream.delay.protocol.MessageGenerationStateV1;
-import com.nereusstream.delay.protocol.MessageQueryResponseV1;
-import com.nereusstream.delay.protocol.PublicCommandResultV1;
-import com.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
-import com.nereusstream.delay.protocol.PublicEvidenceRefV1;
+import com.nereusstream.delay.protocol.ActiveMessageView;
+import com.nereusstream.delay.protocol.CommandApplyStatus;
+import com.nereusstream.delay.protocol.CommandQueryResponse;
+import com.nereusstream.delay.protocol.CompactCommandResult;
+import com.nereusstream.delay.protocol.DlqExportState;
+import com.nereusstream.delay.protocol.MessageGenerationState;
+import com.nereusstream.delay.protocol.MessageQueryResponse;
+import com.nereusstream.delay.protocol.PublicCommandResult;
+import com.nereusstream.delay.protocol.PublicDestinationBindingView;
+import com.nereusstream.delay.protocol.PublicEvidenceRef;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
-import com.nereusstream.delay.protocol.TerminalMessageViewV1;
+import com.nereusstream.delay.protocol.TerminalMessageView;
 import com.nereusstream.delay.runtime.CommandResult;
 import com.nereusstream.delay.runtime.MessageQuerySnapshot;
 import com.nereusstream.delay.runtime.PayloadAvailability;
 import java.util.Objects;
 
 /**
- * Converts already-authorized local runtime projections into the closed V1
- * wire unions.  It deliberately performs no receipt routing, barrier wait,
+ * Converts already-authorized local runtime projections into the closed
+ * wire unions. It deliberately performs no receipt routing, barrier wait,
  * authorization lookup or retention calculation.
  */
 public final class BoundedLocalQueryProjector {
     private BoundedLocalQueryProjector() {}
 
     /** Projects a durable local Command result after the caller supplied policy inputs. */
-    public static CommandQueryResponseV1 command(
+    public static CommandQueryResponse command(
             final CommandResult result,
             final long fullResultRetainUntilEpochMs,
-            final PublicDestinationBindingViewV1 binding) {
+            final PublicDestinationBindingView binding) {
         Objects.requireNonNull(result, "result");
-        final CommandApplyStatusV1 status =
+        final CommandApplyStatus status =
                 switch (result.applyStatus()) {
-                    case APPLIED -> CommandApplyStatusV1.APPLIED;
-                    case REJECTED -> CommandApplyStatusV1.REJECTED;
+                    case APPLIED -> CommandApplyStatus.APPLIED;
+                    case REJECTED -> CommandApplyStatus.REJECTED;
                 };
         final Integer generation = result.hasGeneration() ? result.generation() : null;
         final Long stateVersion = result.stateVersion() <= 0 ? null : result.stateVersion();
         if (generation == null && (stateVersion != null || binding != null)) {
             throw new IllegalArgumentException("Command result lacks a real Message generation");
         }
-        final PublicCommandResultV1 view = new PublicCommandResultV1(
+        final PublicCommandResult view = new PublicCommandResult(
                 status,
                 result.stableCode(),
                 SourcePositionCodec.decode(result.appliedSourcePosition()),
@@ -50,16 +50,16 @@ public final class BoundedLocalQueryProjector {
                 stateVersion,
                 binding,
                 fullResultRetainUntilEpochMs);
-        return status == CommandApplyStatusV1.APPLIED
-                ? CommandQueryResponseV1.applied(view)
-                : CommandQueryResponseV1.rejected(view);
+        return status == CommandApplyStatus.APPLIED
+                ? CommandQueryResponse.applied(view)
+                : CommandQueryResponse.rejected(view);
     }
 
     /** Projects a full result using the immutable retention policy. */
-    public static CommandQueryResponseV1 command(
+    public static CommandQueryResponse command(
             final CommandResult result,
             final CommandResultRetentionPolicy retentionPolicy,
-            final PublicDestinationBindingViewV1 binding) {
+            final PublicDestinationBindingView binding) {
         Objects.requireNonNull(retentionPolicy, "retentionPolicy");
         return command(
                 result,
@@ -68,24 +68,24 @@ public final class BoundedLocalQueryProjector {
     }
 
     /** Projects the compact historical branch after the full result retention boundary. */
-    public static CommandQueryResponseV1 compactCommand(
+    public static CommandQueryResponse compactCommand(
             final CommandResult result, final long fullResultRetainUntilEpochMs) {
         Objects.requireNonNull(result, "result");
-        final CommandApplyStatusV1 status =
+        final CommandApplyStatus status =
                 switch (result.applyStatus()) {
-                    case APPLIED -> CommandApplyStatusV1.APPLIED;
-                    case REJECTED -> CommandApplyStatusV1.REJECTED;
+                    case APPLIED -> CommandApplyStatus.APPLIED;
+                    case REJECTED -> CommandApplyStatus.REJECTED;
                 };
-        final CompactCommandResultV1 view = new CompactCommandResultV1(
+        final CompactCommandResult view = new CompactCommandResult(
                 status,
                 result.stableCode(),
                 SourcePositionCodec.decode(result.appliedSourcePosition()),
                 fullResultRetainUntilEpochMs);
-        return CommandQueryResponseV1.resultExpired(view);
+        return CommandQueryResponse.resultExpired(view);
     }
 
     /** Projects the compact result using the immutable retention policy. */
-    public static CommandQueryResponseV1 compactCommand(
+    public static CommandQueryResponse compactCommand(
             final CommandResult result, final CommandResultRetentionPolicy retentionPolicy) {
         Objects.requireNonNull(retentionPolicy, "retentionPolicy");
         return compactCommand(
@@ -93,30 +93,30 @@ public final class BoundedLocalQueryProjector {
     }
 
     /** Projects a local Message snapshot only when a safe binding has been authorized separately. */
-    public static MessageQueryResponseV1 message(
+    public static MessageQueryResponse message(
             final MessageQuerySnapshot snapshot,
-            final PublicDestinationBindingViewV1 binding,
-            final PublicEvidenceRefV1 evidence) {
+            final PublicDestinationBindingView binding,
+            final PublicEvidenceRef evidence) {
         Objects.requireNonNull(snapshot, "snapshot");
         return message(snapshot, binding, snapshot.dlqExportState(), evidence);
     }
 
     /** Projects a local Message snapshot only when a safe binding has been authorized separately. */
-    public static MessageQueryResponseV1 message(
+    public static MessageQueryResponse message(
             final MessageQuerySnapshot snapshot,
-            final PublicDestinationBindingViewV1 binding,
-            final DlqExportStateV1 dlqExportState,
-            final PublicEvidenceRefV1 evidence) {
+            final PublicDestinationBindingView binding,
+            final DlqExportState dlqExportState,
+            final PublicEvidenceRef evidence) {
         Objects.requireNonNull(snapshot, "snapshot");
         Objects.requireNonNull(binding, "binding");
         Objects.requireNonNull(dlqExportState, "dlqExportState");
         if (snapshot.dlqExportState() != dlqExportState) {
             throw new IllegalArgumentException("caller DLQ state disagrees with durable message snapshot");
         }
-        final MessageGenerationStateV1 state =
-                MessageGenerationStateV1.fromWire(snapshot.state().wireValue());
+        final MessageGenerationState state =
+                MessageGenerationState.fromWire(snapshot.state().wireValue());
         if (state.active()) {
-            final ActiveMessageViewV1 view = new ActiveMessageViewV1(
+            final ActiveMessageView view = new ActiveMessageView(
                     snapshot.generation(),
                     snapshot.stateVersion(),
                     state,
@@ -125,9 +125,9 @@ public final class BoundedLocalQueryProjector {
                     binding,
                     payload(snapshot.payloadAvailability()),
                     snapshot.possibleDestinationDuplicate());
-            return MessageQueryResponseV1.active(view);
+            return MessageQueryResponse.active(view);
         }
-        final TerminalMessageViewV1 view = new TerminalMessageViewV1(
+        final TerminalMessageView view = new TerminalMessageView(
                 snapshot.generation(),
                 snapshot.stateVersion(),
                 state,
@@ -137,11 +137,10 @@ public final class BoundedLocalQueryProjector {
                 dlqExportState,
                 snapshot.possibleDestinationDuplicate(),
                 evidence);
-        return MessageQueryResponseV1.terminal(view);
+        return MessageQueryResponse.terminal(view);
     }
 
-    private static com.nereusstream.delay.protocol.PayloadAvailabilityV1 payload(
-            final PayloadAvailability availability) {
-        return com.nereusstream.delay.protocol.PayloadAvailabilityV1.valueOf(availability.name());
+    private static com.nereusstream.delay.protocol.PayloadAvailability payload(final PayloadAvailability availability) {
+        return com.nereusstream.delay.protocol.PayloadAvailability.valueOf(availability.name());
     }
 }

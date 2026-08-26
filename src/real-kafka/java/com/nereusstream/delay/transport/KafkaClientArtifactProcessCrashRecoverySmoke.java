@@ -3,19 +3,19 @@ package com.nereusstream.delay.transport;
 import com.nereusstream.delay.ownership.SourceAcknowledgement;
 import com.nereusstream.delay.ownership.SourceRecordConsumer;
 import com.nereusstream.delay.ownership.SourceReplayRecord;
-import com.nereusstream.delay.protocol.AdapterMetadataV1;
+import com.nereusstream.delay.protocol.AdapterMetadata;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.DeliveryMode;
-import com.nereusstream.delay.protocol.KafkaMetadataV1;
+import com.nereusstream.delay.protocol.KafkaMetadata;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.RetryPolicyRefV1;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.RetryPolicyRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
 import com.nereusstream.delay.protocol.ShardId;
 import java.nio.ByteBuffer;
 import java.time.Duration;
@@ -133,8 +133,8 @@ public final class KafkaClientArtifactProcessCrashRecoverySmoke {
         if (fetched.size() < 2
                 || fetched.get(0).offset() != 0
                 || fetched.get(1).offset() != 1
-                || !Arrays.equals(fetched.get(0).value(), CommandCodec.encodeFrameV1(first))
-                || !Arrays.equals(fetched.get(1).value(), CommandCodec.encodeFrameV1(second))) {
+                || !Arrays.equals(fetched.get(0).value(), CommandCodec.encodeManagedFrame(first))
+                || !Arrays.equals(fetched.get(1).value(), CommandCodec.encodeManagedFrame(second))) {
             throw new IllegalStateException("Kafka process-crash Fetch did not receive the exact source records");
         }
         for (ConsumerRecord<byte[], byte[]> record : fetched) {
@@ -238,9 +238,9 @@ public final class KafkaClientArtifactProcessCrashRecoverySmoke {
                 new KafkaProducer<>(configuration, new ByteArraySerializer(), new ByteArraySerializer())) {
             final GuardedProducer<byte[], byte[]> guarded = (GuardedProducer<byte[], byte[]>) producer;
             final ProducerResourceGuard guard = new ProducerResourceGuard(clusterId, topic, topicId, 0);
-            guarded.sendGuarded(new ProducerRecord<>(topic, 0, null, CommandCodec.encodeFrameV1(first)), guard)
+            guarded.sendGuarded(new ProducerRecord<>(topic, 0, null, CommandCodec.encodeManagedFrame(first)), guard)
                     .get(10, TimeUnit.SECONDS);
-            guarded.sendGuarded(new ProducerRecord<>(topic, 0, null, CommandCodec.encodeFrameV1(second)), guard)
+            guarded.sendGuarded(new ProducerRecord<>(topic, 0, null, CommandCodec.encodeManagedFrame(second)), guard)
                     .get(10, TimeUnit.SECONDS);
         }
     }
@@ -259,14 +259,14 @@ public final class KafkaClientArtifactProcessCrashRecoverySmoke {
     }
 
     private static PreparedCommand command(final ShardId shard, final String identity) {
-        final ProfileRefV1 destination = new ProfileRefV1(
+        final ProfileRef destination = new ProfileRef(
                 Bytes.utf8("destination-" + identity),
                 1,
                 Bytes.sha256(Bytes.utf8("destination-semantic-" + identity)),
-                ProfileKindV1.DESTINATION);
-        final RetryPolicyRefV1 retryPolicy = new RetryPolicyRefV1(
+                ProfileKind.DESTINATION);
+        final RetryPolicyRef retryPolicy = new RetryPolicyRef(
                 Bytes.utf8("retry-" + identity), 1, Bytes.sha256(Bytes.utf8("retry-semantic-" + identity)));
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
                 destination,
                 retryPolicy,
                 FIXED_DELIVER_AT,
@@ -276,10 +276,10 @@ public final class KafkaClientArtifactProcessCrashRecoverySmoke {
                 new byte[0],
                 Bytes.utf8("source-" + identity),
                 null,
-                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())),
+                AdapterMetadata.kafka(new KafkaMetadata(null, List.of())),
                 null,
                 null);
-        return PreparedCommand.scheduleV1(
+        return PreparedCommand.schedule(
                 shard, uuidV7(identity + "-message"), uuidV7(identity + "-command"), intent, FIXED_DELIVER_AT + 20_000);
     }
 

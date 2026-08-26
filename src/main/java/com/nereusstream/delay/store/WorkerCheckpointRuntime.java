@@ -72,9 +72,9 @@ public final class WorkerCheckpointRuntime {
 
     /**
      * Claims at most one exact handle and builds its immutable execution
-     * request before queue admission.  A request-factory failure has not
+     * request before queue admission. A request-factory failure has not
      * started checkpoint I/O, so this method completes the same capability
-     * immediately and leaves the schedule retryable.  Once {@link #submit}
+     * immediately and leaves the schedule retryable. Once {@link #submit}
      * is entered, its existing preflight and queue-rejection ownership rules
      * remain authoritative.
      */

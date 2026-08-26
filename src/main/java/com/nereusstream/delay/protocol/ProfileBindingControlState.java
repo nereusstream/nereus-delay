@@ -34,20 +34,20 @@ public final class ProfileBindingControlState {
         return !activations.isEmpty();
     }
 
-    public ProfileAcceptanceV1 firstBindingAcceptance(final ProfileRefV1 profile, final SourcePosition sourcePosition) {
+    public ProfileAcceptance firstBindingAcceptance(final ProfileRef profile, final SourcePosition sourcePosition) {
         Objects.requireNonNull(profile, "profile");
         Objects.requireNonNull(sourcePosition, "sourcePosition");
         final ActivationMarker activation = activationFor(profile);
         if (activation == null || compare(activation.sourcePosition(), sourcePosition) > 0) {
-            return ProfileAcceptanceV1.ABSENT;
+            return ProfileAcceptance.ABSENT;
         }
         final BindingClosure closure = closureFor(profile);
         return closure != null && compare(closure.sourcePosition(), sourcePosition) <= 0
-                ? ProfileAcceptanceV1.CLOSED_FOR_FIRST_BINDING
-                : ProfileAcceptanceV1.ACTIVE_FOR_FIRST_BINDING;
+                ? ProfileAcceptance.CLOSED_FOR_FIRST_BINDING
+                : ProfileAcceptance.ACTIVE_FOR_FIRST_BINDING;
     }
 
-    public ProfileBindingControlState activate(final ProfileRefV1 profile, final SourcePosition sourcePosition) {
+    public ProfileBindingControlState activate(final ProfileRef profile, final SourcePosition sourcePosition) {
         Objects.requireNonNull(profile, "profile");
         Objects.requireNonNull(sourcePosition, "sourcePosition");
         final ActivationMarker existing = activationFor(profile);
@@ -70,7 +70,7 @@ public final class ProfileBindingControlState {
     }
 
     public ProfileBindingControlState close(
-            final ProfileNewBindingClosePayloadV1 payload, final SourcePosition sourcePosition) {
+            final ProfileNewBindingClosePayload payload, final SourcePosition sourcePosition) {
         Objects.requireNonNull(payload, "payload");
         Objects.requireNonNull(sourcePosition, "sourcePosition");
         final ActivationMarker activation = activationFor(payload.profile());
@@ -140,14 +140,14 @@ public final class ProfileBindingControlState {
         return Objects.hash(activations, closures);
     }
 
-    private ActivationMarker activationFor(final ProfileRefV1 profile) {
+    private ActivationMarker activationFor(final ProfileRef profile) {
         return activations.stream()
                 .filter(marker -> marker.profile().equals(profile))
                 .findFirst()
                 .orElse(null);
     }
 
-    private BindingClosure closureFor(final ProfileRefV1 profile) {
+    private BindingClosure closureFor(final ProfileRef profile) {
         return closures.stream()
                 .filter(marker -> marker.profile().equals(profile))
                 .findFirst()
@@ -232,7 +232,7 @@ public final class ProfileBindingControlState {
         return fields;
     }
 
-    public record ActivationMarker(ProfileRefV1 profile, SourcePosition sourcePosition) {
+    public record ActivationMarker(ProfileRef profile, SourcePosition sourcePosition) {
         public ActivationMarker {
             Objects.requireNonNull(profile, "profile");
             Objects.requireNonNull(sourcePosition, "sourcePosition");
@@ -250,13 +250,13 @@ public final class ProfileBindingControlState {
                     QueryCodecSupport.read(encoded, "ProfileBindingActivationMarker");
             QueryCodecSupport.requireNumbers(fields, new int[] {1, 2}, "ProfileBindingActivationMarker");
             final ActivationMarker result = new ActivationMarker(
-                    ProfileRefV1.decode(QueryCodecSupport.nested(fields.get(0), 1)), decodePosition(fields.get(1)));
+                    ProfileRef.decode(QueryCodecSupport.nested(fields.get(0), 1)), decodePosition(fields.get(1)));
             QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "ProfileBindingActivationMarker");
             return result;
         }
     }
 
-    public record BindingClosure(ProfileRefV1 profile, SourcePosition sourcePosition, ControlReasonV1 reason) {
+    public record BindingClosure(ProfileRef profile, SourcePosition sourcePosition, ControlReason reason) {
         public BindingClosure {
             Objects.requireNonNull(profile, "profile");
             Objects.requireNonNull(sourcePosition, "sourcePosition");
@@ -276,9 +276,9 @@ public final class ProfileBindingControlState {
                     QueryCodecSupport.read(encoded, "ProfileBindingClosure");
             QueryCodecSupport.requireNumbers(fields, new int[] {1, 2, 3}, "ProfileBindingClosure");
             final BindingClosure result = new BindingClosure(
-                    ProfileRefV1.decode(QueryCodecSupport.nested(fields.get(0), 1)),
+                    ProfileRef.decode(QueryCodecSupport.nested(fields.get(0), 1)),
                     decodePosition(fields.get(1)),
-                    ControlReasonV1.decode(QueryCodecSupport.nested(fields.get(2), 3)));
+                    ControlReason.decode(QueryCodecSupport.nested(fields.get(2), 3)));
             QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "ProfileBindingClosure");
             return result;
         }

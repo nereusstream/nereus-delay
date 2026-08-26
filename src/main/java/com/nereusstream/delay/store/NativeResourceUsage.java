@@ -6,7 +6,7 @@ import java.util.Objects;
  * Disjoint RocksDB-native memory buckets for one Worker reservation.
  *
  * <p>The values are reservations or attributed observations, not JVM heap
- * measurements.  Keeping the buckets explicit prevents pinned blocks,
+ * measurements. Keeping the buckets explicit prevents pinned blocks,
  * iterators and compaction scratch from being silently counted in a second
  * native category.</p>
  */

@@ -2,30 +2,30 @@ package com.nereusstream.delay.client;
 
 import com.nereusstream.delay.adapter.CommandResultRetentionPolicy;
 import com.nereusstream.delay.adapter.QueuedReceiptQueryPolicy;
-import com.nereusstream.delay.protocol.CommandQueryResponseV1;
-import com.nereusstream.delay.protocol.CommandQueuedReceiptV1;
+import com.nereusstream.delay.protocol.CanonicalCommandQueuedReceipt;
+import com.nereusstream.delay.protocol.CanonicalPayloadCommitProof;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
+import com.nereusstream.delay.protocol.CommandQueryResponse;
 import com.nereusstream.delay.protocol.DelayMessageId;
-import com.nereusstream.delay.protocol.DlqExportStateV1;
-import com.nereusstream.delay.protocol.FirstScheduleEligibilityV1;
+import com.nereusstream.delay.protocol.DlqExportState;
+import com.nereusstream.delay.protocol.FirstScheduleEligibility;
 import com.nereusstream.delay.protocol.LargeScheduleIntent;
-import com.nereusstream.delay.protocol.MessagePreconditionV1;
-import com.nereusstream.delay.protocol.MessageQueryResponseV1;
-import com.nereusstream.delay.protocol.OpaquePayloadUploadHandleV1;
-import com.nereusstream.delay.protocol.PayloadAttestationResponseV1;
-import com.nereusstream.delay.protocol.PayloadCommitProofV1;
-import com.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
-import com.nereusstream.delay.protocol.PayloadReservationReceiptV1;
-import com.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
+import com.nereusstream.delay.protocol.MessagePrecondition;
+import com.nereusstream.delay.protocol.MessageQueryResponse;
+import com.nereusstream.delay.protocol.OpaquePayloadUploadHandle;
+import com.nereusstream.delay.protocol.PayloadAttestationResponse;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetRef;
+import com.nereusstream.delay.protocol.PayloadReservationReceipt;
+import com.nereusstream.delay.protocol.PayloadUploadHandleResponse;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.PreparedSubmissionV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
-import com.nereusstream.delay.protocol.PublicEvidenceRefV1;
+import com.nereusstream.delay.protocol.PreparedSubmission;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.PublicDestinationBindingView;
+import com.nereusstream.delay.protocol.PublicEvidenceRef;
 import com.nereusstream.delay.protocol.ScheduleIntent;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
-import com.nereusstream.delay.protocol.SubmissionModeV1;
-import com.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
-import com.nereusstream.delay.protocol.UploadHandleKindV1;
+import com.nereusstream.delay.protocol.SubmissionMode;
+import com.nereusstream.delay.protocol.SubmissionOutcomeMessage;
+import com.nereusstream.delay.protocol.UploadHandleKind;
 import com.nereusstream.delay.runtime.CommandResult;
 import java.util.List;
 import java.util.concurrent.CompletionStage;
@@ -34,26 +34,32 @@ import java.util.concurrent.CompletionStage;
 public interface DelayClient extends AutoCloseable {
     PreparedCommand prepareSchedule(ScheduleIntent intent, long retryUntilEpochMs);
 
-    PreparedCommand prepareScheduleV1(ScheduleIntentV1 intent, long retryUntilEpochMs);
+    PreparedCommand prepareSchedule(CanonicalScheduleIntent intent, long retryUntilEpochMs);
 
     PreparedCommand prepareLargeSchedule(LargeScheduleIntent intent, long retryUntilEpochMs);
 
-    PreparedCommand prepareLargeScheduleV1(
-            ScheduleIntentV1 intentWithoutPayload,
+    PreparedCommand prepareLargeSchedule(
+            CanonicalScheduleIntent intentWithoutPayload,
             long expectedPayloadLength,
             byte[] payloadSha256,
             long reservationTtlMs,
-            PayloadProofTrustSetRefV1 trustSet,
-            ProfileRefV1 objectStoreProfile,
+            PayloadProofTrustSetRef trustSet,
+            ProfileRef objectStoreProfile,
             long retryUntilEpochMs);
 
     PreparedCommand prepareLargePayloadCommit(
-            PayloadReservationReceiptV1 reservation, PayloadCommitProofV1 proof, long retryUntilEpochMs);
+            PayloadReservationReceipt reservation, CanonicalPayloadCommitProof proof, long retryUntilEpochMs);
+
+    PreparedCommand prepareCancel(DelayMessageId messageId, MessagePrecondition precondition, long retryUntilEpochMs);
 
     PreparedCommand prepareCancel(DelayMessageId messageId, int expectedGeneration, long retryUntilEpochMs);
 
-    PreparedCommand prepareCancelV1(
-            DelayMessageId messageId, MessagePreconditionV1 precondition, long retryUntilEpochMs);
+    PreparedCommand prepareReschedule(
+            DelayMessageId messageId,
+            MessagePrecondition precondition,
+            long deliverAtEpochMs,
+            long expireAtEpochMs,
+            long retryUntilEpochMs);
 
     PreparedCommand prepareReschedule(
             DelayMessageId messageId,
@@ -62,18 +68,11 @@ public interface DelayClient extends AutoCloseable {
             long expireAtEpochMs,
             long retryUntilEpochMs);
 
-    PreparedCommand prepareRescheduleV1(
-            DelayMessageId messageId,
-            MessagePreconditionV1 precondition,
-            long deliverAtEpochMs,
-            long expireAtEpochMs,
-            long retryUntilEpochMs);
-
     /**
-     * Wraps one strict V1 managed command as an immutable prepared-submission
+     * Wraps one strict managed command as an immutable prepared-submission
      * branch. This performs no transport I/O and never selects a native path.
      */
-    PreparedSubmissionV1 prepareManagedSubmissionV1(PreparedCommand command);
+    PreparedSubmission prepareManagedSubmission(PreparedCommand command);
 
     /**
      * Prepares and freezes one Schedule branch through the shared zero-I/O
@@ -81,83 +80,78 @@ public interface DelayClient extends AutoCloseable {
      * local verified-snapshot provider; callers cannot supply a target or
      * credential candidate.
      */
-    PreparedSubmissionV1 prepareScheduleSubmissionV1(
-            ScheduleIntentV1 intent, long retryUntilEpochMs, SubmissionModeV1 submissionMode);
+    PreparedSubmission prepareScheduleSubmission(
+            CanonicalScheduleIntent intent, long retryUntilEpochMs, SubmissionMode submissionMode);
 
     /**
      * Selects and freezes the managed/native branch before any transport I/O.
      * An ineligible native candidate returns the exact managed prepared frame.
      */
-    PreparedSubmissionV1 prepareAutoFast(AutoFastSchedule request);
+    PreparedSubmission prepareAutoFast(AutoFastSchedule request);
 
     /** Selects each AUTO_FAST item independently and preserves input order. */
-    List<PreparedSubmissionV1> prepareAutoFastBatch(List<AutoFastSchedule> requests);
+    List<PreparedSubmission> prepareAutoFastBatch(List<AutoFastSchedule> requests);
 
     /**
      * Submits the exact prepared branch through the configured transport seam.
      * A retry must reuse the same submission and physical attempt identity.
      */
-    CompletionStage<SubmissionOutcomeMessageV1> submit(
-            PreparedSubmissionV1 submission, long receiptQueryUntilEpochMs, byte[] physicalEnqueueAttemptId);
+    CompletionStage<SubmissionOutcomeMessage> submit(
+            PreparedSubmission submission, long receiptQueryUntilEpochMs, byte[] physicalEnqueueAttemptId);
 
     /**
-     * Strict V1 managed submission using the immutable Route query-policy
+     * Strict managed submission using the immutable Route query-policy
      * snapshot; callers cannot supply an absolute receipt boundary.
      */
-    CompletionStage<SubmissionOutcomeMessageV1> submit(
-            PreparedSubmissionV1 submission, QueuedReceiptQueryPolicy routePolicy, byte[] physicalEnqueueAttemptId);
+    CompletionStage<SubmissionOutcomeMessage> submit(
+            PreparedSubmission submission, QueuedReceiptQueryPolicy routePolicy, byte[] physicalEnqueueAttemptId);
 
+    /** Direct embedded ingress for an already prepared command. */
     CompletionStage<EnqueueOutcome> enqueue(PreparedCommand command);
 
-    /** Strict V1 ingress; legacy command bodies are rejected before source admission. */
-    CompletionStage<EnqueueOutcome> enqueueV1(PreparedCommand command);
-
-    /** Enqueues each prepared command independently and returns outcomes in input order. */
+    /** Direct embedded batch ingress with independent ordered outcomes. */
     CompletionStage<List<EnqueueOutcome>> enqueueBatch(List<PreparedCommand> commands);
 
-    /** Strict V1 batch ingress with independent ordered outcomes. */
-    CompletionStage<List<EnqueueOutcome>> enqueueBatchV1(List<PreparedCommand> commands);
-
-    /** Queries the V1 command result using its queued receipt and source barrier. */
-    CompletionStage<CommandQueryResponseV1> getCommandResult(
-            CommandQueuedReceiptV1 receipt,
+    /** Queries the command result using its queued receipt and source barrier. */
+    CompletionStage<CommandQueryResponse> getCommandResult(
+            CanonicalCommandQueuedReceipt receipt,
             long nowEpochMs,
             long fullResultRetainUntilEpochMs,
-            PublicDestinationBindingViewV1 binding);
+            PublicDestinationBindingView binding);
 
     /** Queries with a retention boundary derived from the result Source Position. */
-    CompletionStage<CommandQueryResponseV1> getCommandResult(
-            CommandQueuedReceiptV1 receipt,
+    CompletionStage<CommandQueryResponse> getCommandResult(
+            CanonicalCommandQueuedReceipt receipt,
             long nowEpochMs,
             CommandResultRetentionPolicy retentionPolicy,
-            PublicDestinationBindingViewV1 binding);
+            PublicDestinationBindingView binding);
 
-    CompletionStage<CommandQueryResponseV1> awaitAppliedV1(
-            CommandQueuedReceiptV1 receipt,
+    CompletionStage<CommandQueryResponse> awaitApplied(
+            CanonicalCommandQueuedReceipt receipt,
             long nowEpochMs,
             long fullResultRetainUntilEpochMs,
-            PublicDestinationBindingViewV1 binding);
+            PublicDestinationBindingView binding);
 
     /** Awaits application using the immutable result-retention policy. */
-    CompletionStage<CommandQueryResponseV1> awaitAppliedV1(
-            CommandQueuedReceiptV1 receipt,
+    CompletionStage<CommandQueryResponse> awaitApplied(
+            CanonicalCommandQueuedReceipt receipt,
             long nowEpochMs,
             CommandResultRetentionPolicy retentionPolicy,
-            PublicDestinationBindingViewV1 binding);
+            PublicDestinationBindingView binding);
 
-    /** Queries the V1 message projection with caller-supplied bounded policy inputs. */
-    CompletionStage<MessageQueryResponseV1> getMessage(
+    /** Queries the message projection with caller-supplied bounded policy inputs. */
+    CompletionStage<MessageQueryResponse> getMessage(
             DelayMessageId messageId,
-            PublicDestinationBindingViewV1 binding,
-            DlqExportStateV1 dlqExportState,
-            PublicEvidenceRefV1 evidence,
-            FirstScheduleEligibilityV1 unknownEligibility);
+            PublicDestinationBindingView binding,
+            DlqExportState dlqExportState,
+            PublicEvidenceRef evidence,
+            FirstScheduleEligibility unknownEligibility);
 
-    CompletionStage<PayloadUploadHandleResponseV1> issuePayloadUploadHandle(
-            PayloadReservationReceiptV1 reservation, UploadHandleKindV1 kind, long nowEpochMs);
+    CompletionStage<PayloadUploadHandleResponse> issuePayloadUploadHandle(
+            PayloadReservationReceipt reservation, UploadHandleKind kind, long nowEpochMs);
 
-    CompletionStage<PayloadAttestationResponseV1> attestPayloadUpload(
-            PayloadReservationReceiptV1 reservation, OpaquePayloadUploadHandleV1 handle, long nowEpochMs);
+    CompletionStage<PayloadAttestationResponse> attestPayloadUpload(
+            PayloadReservationReceipt reservation, OpaquePayloadUploadHandle handle, long nowEpochMs);
 
     CompletionStage<CommandResult> awaitApplied(CommandQueuedReceipt receipt);
 

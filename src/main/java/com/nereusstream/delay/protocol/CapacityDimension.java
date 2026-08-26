@@ -1,0 +1,90 @@
+package com.nereusstream.delay.protocol;
+
+/** Closed capacity accounting dimension registry. */
+public enum CapacityDimension {
+    ACTIVE_MESSAGES(1),
+    PENDING_PAYLOAD_BYTES(2),
+    LOGICAL_STATE_BYTES(3),
+    RETAINED_BYTES(4),
+    RESERVATION_MESSAGES(5),
+    RESERVATION_PAYLOAD_BYTES(6),
+    INFLIGHT_MESSAGES(7),
+    INFLIGHT_BYTES(8),
+    RESULT_RECORDS(9),
+    RESULT_BYTES(10),
+    SYSTEM_MUTATION_RECORDS(11),
+    SYSTEM_MUTATION_BYTES(12),
+    OUTCOME_WAL_BYTES(13),
+    EVIDENCE_RECORDS(14),
+    EVIDENCE_BYTES(15),
+    LANE_COUNT(16),
+    STRONG_LANE_COUNT(17),
+    DB_INSTANCES(18),
+    OPEN_FILES(19),
+    WAL_BYTES(20),
+    WAL_FILES(21),
+    MANIFEST_BYTES(22),
+    MANIFEST_FILES(23),
+    LIVE_SST_BYTES(24),
+    SST_FILES(25),
+    MEMTABLE_BYTES(26),
+    RESERVED_BLOCK_CACHE_BYTES(27),
+    PINNED_CACHE_BYTES(28),
+    PINNED_ITERATOR_BYTES(29),
+    COMPACTION_PENDING_BYTES(30),
+    L0_FILES(31),
+    CHECKPOINT_CREATE_TEMP_BYTES(32),
+    RESTORE_TEMP_BYTES(33),
+    COMPACTION_TEMP_BYTES(34),
+    BACKGROUND_JOBS(35),
+    RESERVED_FLUSH_JOBS(36),
+    RESERVED_CORRECTNESS_IO_BYTES_PER_SECOND(37),
+    RESERVED_DUE_READ_OPS_PER_SECOND(38),
+    RESERVED_EXPIRY_READ_OPS_PER_SECOND(39),
+    ADAPTER_CONNECTIONS(40),
+    ADAPTER_PRODUCERS(41),
+    ADAPTER_THREADS(42),
+    PHYSICAL_REQUESTS(43),
+    PHYSICAL_BYTES(44),
+    ZOMBIE_REQUESTS(45),
+    ZOMBIE_BYTES(46),
+    BUFFERED_MESSAGES(47),
+    BUFFERED_BYTES(48),
+    PUBLISH_MESSAGES(49),
+    PUBLISH_BYTES(50),
+    SYSTEM_WRITER_RESERVED_RECORDS(51),
+    SYSTEM_WRITER_RESERVED_BYTES(52),
+    SYSTEM_WRITER_RESERVED_BYTES_PER_SECOND(53),
+    CONTROL_RESERVE_BYTES(54),
+    CONTROL_RESERVE_RECORDS(55),
+    ROCKSDB_NATIVE_BYTES(56),
+    DIRECT_BUFFER_BYTES(57),
+    OTHER_NATIVE_BYTES(58),
+    QUERY_WAITERS(59),
+    PAYLOAD_FETCHES(60),
+    CHECKPOINT_CREATES(61),
+    CHECKPOINT_UPLOADS(62),
+    CHECKPOINT_DOWNLOADS(63),
+    CHECKPOINT_IO_BYTES_PER_SECOND(64),
+    OBJECT_REQUESTS(65),
+    OBJECT_BYTES(66);
+
+    public static final int COUNT = 66;
+
+    private final int wireValue;
+
+    CapacityDimension(final int wireValue) {
+        this.wireValue = wireValue;
+    }
+
+    public int wireValue() {
+        return wireValue;
+    }
+
+    public static CapacityDimension fromWire(final long value) {
+        if (value < 1 || value > COUNT) {
+            throw new IllegalArgumentException("unknown CapacityDimension: " + value);
+        }
+        return values()[(int) value - 1];
+    }
+}

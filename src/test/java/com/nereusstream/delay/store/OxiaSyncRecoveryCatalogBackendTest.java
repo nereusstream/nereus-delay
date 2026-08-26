@@ -5,21 +5,21 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
+import com.nereusstream.delay.protocol.EvidenceCursor;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.RecoveryCandidateKindV1;
-import com.nereusstream.delay.protocol.RecoveryCandidateRefV1;
-import com.nereusstream.delay.protocol.RecoveryFloorRefV1;
-import com.nereusstream.delay.protocol.RecoveryInstallPhaseV1;
-import com.nereusstream.delay.protocol.RecoveryInstallStateV1;
-import com.nereusstream.delay.protocol.RecoveryPinV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.RecoveryCandidateKind;
+import com.nereusstream.delay.protocol.RecoveryCandidateRef;
+import com.nereusstream.delay.protocol.RecoveryFloorRef;
+import com.nereusstream.delay.protocol.RecoveryInstallPhase;
+import com.nereusstream.delay.protocol.RecoveryInstallState;
+import com.nereusstream.delay.protocol.RecoveryPin;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.Version;
@@ -56,7 +56,7 @@ class OxiaSyncRecoveryCatalogBackendTest {
 
         final RecoveryFloor floor = backend.advanceFloor(manifest.checkpointId(), 1, id32(3));
         assertEquals(2, floor.catalogGeneration());
-        final var typed = backend.advanceFloor(manifest.checkpointId(), 2, java.util.List.<EvidenceCursorV1>of());
+        final var typed = backend.advanceFloor(manifest.checkpointId(), 2, java.util.List.<EvidenceCursor>of());
         assertEquals(3, typed.catalogGeneration());
 
         final OxiaSyncRecoveryCatalogBackend reopened =
@@ -120,9 +120,9 @@ class OxiaSyncRecoveryCatalogBackendTest {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 15);
         final CheckpointManifest manifest = manifest(shard, id16(16), id16(17), 0, 1, 1, null);
         backend.publish(manifest, 0);
-        final RecoveryFloorRefV1 floor =
-                backend.advanceFloor(manifest.checkpointId(), 1, java.util.List.<EvidenceCursorV1>of());
-        final RecoveryPinV1 pin = pin(shard, manifest, floor, fakeSessionIdentity(), 18, 19);
+        final RecoveryFloorRef floor =
+                backend.advanceFloor(manifest.checkpointId(), 1, java.util.List.<EvidenceCursor>of());
+        final RecoveryPin pin = pin(shard, manifest, floor, fakeSessionIdentity(), 18, 19);
         records.afterPut = () -> sessionAlive.set(false);
 
         assertThrows(IllegalStateException.class, () -> backend.createRecoveryPin(pin));
@@ -141,9 +141,9 @@ class OxiaSyncRecoveryCatalogBackendTest {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 16);
         final CheckpointManifest manifest = manifest(shard, id16(20), id16(21), 0, 1, 1, null);
         unbound.publish(manifest, 0);
-        final RecoveryFloorRefV1 floor =
-                unbound.advanceFloor(manifest.checkpointId(), 1, java.util.List.<EvidenceCursorV1>of());
-        final RecoveryPinV1 pin = pin(shard, manifest, floor, fakeSessionIdentity(), 22, 23);
+        final RecoveryFloorRef floor =
+                unbound.advanceFloor(manifest.checkpointId(), 1, java.util.List.<EvidenceCursor>of());
+        final RecoveryPin pin = pin(shard, manifest, floor, fakeSessionIdentity(), 22, 23);
         unbound.createRecoveryPin(pin);
 
         final AtomicBoolean sessionAlive = new AtomicBoolean(true);
@@ -236,15 +236,15 @@ class OxiaSyncRecoveryCatalogBackendTest {
         final var floor = backend.advanceFloor(genesis.checkpointId(), 1, java.util.List.of());
         final byte[] storeIncarnation = id16(32);
         final StoreRecoveryMetadata local = new StoreRecoveryMetadata(
-                new RecoveryCandidateRefV1(
-                        RecoveryCandidateKindV1.LOCAL_STORE,
+                new RecoveryCandidateRef(
+                        RecoveryCandidateKind.LOCAL_STORE,
                         lineage,
                         genesis.checkpointId(),
                         genesis.manifestSha256(),
                         storeIncarnation),
                 floor,
                 floor.catalogGeneration(),
-                new RecoveryInstallStateV1(RecoveryInstallPhaseV1.OPEN, storeIncarnation, genesis.checkpointId()));
+                new RecoveryInstallState(RecoveryInstallPhase.OPEN, storeIncarnation, genesis.checkpointId()));
 
         new OxiaRecoveryCatalog(backend).validateLocalStoreRecovery(shard, local);
 
@@ -278,9 +278,9 @@ class OxiaSyncRecoveryCatalogBackendTest {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 11);
         final CheckpointManifest manifest = manifest(shard, id16(60), id16(61), 0, 1, 1, null);
         backend.publish(manifest, 0);
-        final RecoveryFloorRefV1 floor =
-                backend.advanceFloor(manifest.checkpointId(), 1, java.util.List.<EvidenceCursorV1>of());
-        final RecoveryPinV1 pin = pin(shard, manifest, floor, fakeSessionIdentity(), 62, 63);
+        final RecoveryFloorRef floor =
+                backend.advanceFloor(manifest.checkpointId(), 1, java.util.List.<EvidenceCursor>of());
+        final RecoveryPin pin = pin(shard, manifest, floor, fakeSessionIdentity(), 62, 63);
 
         records.failNextPutAfterCommit = true;
         assertEquals(pin, backend.createRecoveryPin(pin));
@@ -289,7 +289,7 @@ class OxiaSyncRecoveryCatalogBackendTest {
         final OxiaSyncRecoveryCatalogBackend reopened =
                 new OxiaSyncRecoveryCatalogBackend(records, "delay/pin", LIMITS);
         assertEquals(pin, reopened.activeRecoveryPin().orElseThrow());
-        final RecoveryPinV1 conflicting = pin(shard, manifest, floor, fakeSessionIdentity(), 64, 65);
+        final RecoveryPin conflicting = pin(shard, manifest, floor, fakeSessionIdentity(), 64, 65);
         assertThrows(IllegalStateException.class, () -> reopened.createRecoveryPin(conflicting));
 
         records.failNextDeleteAfterCommit = true;
@@ -306,9 +306,9 @@ class OxiaSyncRecoveryCatalogBackendTest {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 12);
         final CheckpointManifest manifest = manifest(shard, id16(66), id16(67), 0, 1, 1, null);
         catalogOnly.publish(manifest, 0);
-        final RecoveryFloorRefV1 floor =
-                catalogOnly.advanceFloor(manifest.checkpointId(), 1, java.util.List.<EvidenceCursorV1>of());
-        final RecoveryPinV1 pin = pin(shard, manifest, floor, fakeSessionIdentity(), 68, 69);
+        final RecoveryFloorRef floor =
+                catalogOnly.advanceFloor(manifest.checkpointId(), 1, java.util.List.<EvidenceCursor>of());
+        final RecoveryPin pin = pin(shard, manifest, floor, fakeSessionIdentity(), 68, 69);
 
         assertThrows(IllegalStateException.class, () -> catalogOnly.createRecoveryPin(pin));
         assertTrue(catalogOnly.activeRecoveryPin().isEmpty());
@@ -338,9 +338,9 @@ class OxiaSyncRecoveryCatalogBackendTest {
     void rejectsResourceCountAboveBoundBeforeEncodingSnapshot() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 17);
         final CheckpointManifest manifest = manifest(shard, id16(42), id16(43), 0, 1, 1, null);
-        final ProfileRefV1 profile =
-                new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, id32(44), ProfileKindV1.OBJECT_STORE);
-        final CheckpointResourceV1 resource = new CheckpointResourceV1(
+        final ProfileRef profile =
+                new ProfileRef(Bytes.utf8("checkpoint-store"), 1, id32(44), ProfileKind.OBJECT_STORE);
+        final CheckpointResource resource = new CheckpointResource(
                 manifest.recoveryLineageId(),
                 manifest.checkpointId(),
                 profile,
@@ -349,7 +349,7 @@ class OxiaSyncRecoveryCatalogBackendTest {
                 Bytes.utf8("version"),
                 manifest.canonicalJsonBytes().length,
                 manifest.manifestSha256());
-        final Map<String, CheckpointResourceV1> resources = new HashMap<>();
+        final Map<String, CheckpointResource> resources = new HashMap<>();
         for (int index = 0; index <= 100_000; index++) {
             resources.put("resource-" + index, resource);
         }
@@ -363,9 +363,9 @@ class OxiaSyncRecoveryCatalogBackendTest {
     void rejectsResourceMapKeyThatDoesNotMatchCheckpointIdentityBeforeEncodingSnapshot() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 20);
         final CheckpointManifest manifest = manifest(shard, id16(47), id16(48), 0, 1, 1, null);
-        final ProfileRefV1 profile =
-                new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, id32(49), ProfileKindV1.OBJECT_STORE);
-        final CheckpointResourceV1 resource = new CheckpointResourceV1(
+        final ProfileRef profile =
+                new ProfileRef(Bytes.utf8("checkpoint-store"), 1, id32(49), ProfileKind.OBJECT_STORE);
+        final CheckpointResource resource = new CheckpointResource(
                 manifest.recoveryLineageId(),
                 manifest.checkpointId(),
                 profile,
@@ -398,7 +398,7 @@ class OxiaSyncRecoveryCatalogBackendTest {
         final RecoveryCatalog catalog = new RecoveryCatalog();
         catalog.publish(manifest, 0);
         final RecoveryFloor floor = catalog.advanceFloor(manifest.checkpointId(), 1, id32(55));
-        final RecoveryFloorRefV1 floorRef = new RecoveryFloorRefV1(
+        final RecoveryFloorRef floorRef = new RecoveryFloorRef(
                 floor.recoveryLineageId(),
                 floor.checkpointId(),
                 floor.manifestSha256(),
@@ -406,16 +406,16 @@ class OxiaSyncRecoveryCatalogBackendTest {
                 floor.appliedSourcePosition(),
                 floor.includedMutationSequence(),
                 java.util.List.of());
-        final RecoveryCandidateRefV1 candidate = new RecoveryCandidateRefV1(
-                RecoveryCandidateKindV1.CATALOG_CHECKPOINT,
+        final RecoveryCandidateRef candidate = new RecoveryCandidateRef(
+                RecoveryCandidateKind.CATALOG_CHECKPOINT,
                 manifest.recoveryLineageId(),
                 manifest.checkpointId(),
                 manifest.manifestSha256(),
                 null);
-        final RecoveryPinV1 pin = new RecoveryPinV1(
+        final RecoveryPin pin = new RecoveryPin(
                 id16(52),
-                new ShardSubjectV1(shard),
-                new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(53)),
+                new ShardSubject(shard),
+                new OwnerIdentity(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(53)),
                 candidate,
                 floorRef,
                 floor.catalogGeneration(),
@@ -484,23 +484,23 @@ class OxiaSyncRecoveryCatalogBackendTest {
         return bytes;
     }
 
-    private static RecoveryPinV1 pin(
+    private static RecoveryPin pin(
             final ShardId shard,
             final CheckpointManifest manifest,
-            final RecoveryFloorRefV1 floor,
+            final RecoveryFloorRef floor,
             final byte[] sessionIdentity,
             final int pinId,
             final int ownerId) {
-        final RecoveryCandidateRefV1 candidate = new RecoveryCandidateRefV1(
-                RecoveryCandidateKindV1.CATALOG_CHECKPOINT,
+        final RecoveryCandidateRef candidate = new RecoveryCandidateRef(
+                RecoveryCandidateKind.CATALOG_CHECKPOINT,
                 manifest.recoveryLineageId(),
                 manifest.checkpointId(),
                 manifest.manifestSha256(),
                 null);
-        return new RecoveryPinV1(
+        return new RecoveryPin(
                 id16(pinId),
-                new ShardSubjectV1(shard),
-                new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(ownerId)),
+                new ShardSubject(shard),
+                new OwnerIdentity(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(ownerId)),
                 candidate,
                 floor,
                 floor.catalogGeneration(),
@@ -509,7 +509,7 @@ class OxiaSyncRecoveryCatalogBackendTest {
 
     private static byte[] fakeSessionIdentity() {
         return Bytes.sha256(
-                Bytes.utf8("nereus-delay-oxia-session-identity-v1\0"),
+                Bytes.utf8("nereus-delay-oxia-session-identity\0"),
                 Bytes.u64be(101),
                 Bytes.lp32(Bytes.utf8("fake-recovery-session")));
     }

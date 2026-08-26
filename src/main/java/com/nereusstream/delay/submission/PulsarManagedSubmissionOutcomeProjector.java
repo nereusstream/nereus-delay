@@ -3,15 +3,15 @@ package com.nereusstream.delay.submission;
 import com.nereusstream.delay.adapter.PulsarSendRequest;
 import com.nereusstream.delay.adapter.PulsarSendResult;
 import com.nereusstream.delay.adapter.WireIngressOutcomeSupport;
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CommandQueuedReceiptV1;
-import com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1;
-import com.nereusstream.delay.protocol.NonPersistenceProofKindV1;
-import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.CanonicalCommandQueuedReceipt;
+import com.nereusstream.delay.protocol.EnqueueOutcomeMessage;
+import com.nereusstream.delay.protocol.NonPersistenceProofKind;
+import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
-import com.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import com.nereusstream.delay.protocol.SubmissionOutcomeMessage;
 import com.nereusstream.delay.transport.PhysicalEnqueueAttemptId;
 import com.nereusstream.delay.transport.PulsarCommandTransportKey;
 import com.nereusstream.delay.transport.TransportResult;
@@ -27,7 +27,7 @@ public final class PulsarManagedSubmissionOutcomeProjector implements Submission
 
     /**
      * Creates a projector that fences the receipt against the exact request
-     * resource.  This is required when one managed submission coordinator owns
+     * resource. This is required when one managed submission coordinator owns
      * more than one Pulsar physical partition; a single fixed transport key
      * would incorrectly turn every non-zero partition receipt into
      * RESOURCE_INCARNATION_MISMATCH.
@@ -39,11 +39,11 @@ public final class PulsarManagedSubmissionOutcomeProjector implements Submission
     @Override
     public SubmissionProjectionKey key() {
         return new SubmissionProjectionKey(
-                PreparedSubmissionBranch.MANAGED, com.nereusstream.delay.protocol.AdapterKindV1.PULSAR);
+                PreparedSubmissionBranch.MANAGED, com.nereusstream.delay.protocol.AdapterKind.PULSAR);
     }
 
     @Override
-    public SubmissionOutcomeMessageV1 project(
+    public SubmissionOutcomeMessage project(
             final SubmissionTransportPlan plan,
             final PhysicalEnqueueAttemptId physicalAttemptId,
             final TransportResult result) {
@@ -63,24 +63,24 @@ public final class PulsarManagedSubmissionOutcomeProjector implements Submission
     }
 
     @Override
-    public SubmissionOutcomeMessageV1 localFailure(
+    public SubmissionOutcomeMessage localFailure(
             final SubmissionTransportPlan plan,
             final PhysicalEnqueueAttemptId physicalAttemptId,
             final StableCode code) {
-        return SubmissionOutcomeMessageV1.managed(
+        return SubmissionOutcomeMessage.managed(
                 WireIngressOutcomeSupport.localDefinite(SubmissionProjectorSupport.managedCommand(plan), code));
     }
 
     @Override
-    public SubmissionOutcomeMessageV1 uncertain(
+    public SubmissionOutcomeMessage uncertain(
             final SubmissionTransportPlan plan,
             final PhysicalEnqueueAttemptId physicalAttemptId,
             final StableCode code) {
-        return SubmissionOutcomeMessageV1.managed(WireIngressOutcomeSupport.uncertain(
+        return SubmissionOutcomeMessage.managed(WireIngressOutcomeSupport.uncertain(
                 SubmissionProjectorSupport.managedCommand(plan), physicalAttemptId.bytes(), code, null));
     }
 
-    private SubmissionOutcomeMessageV1 persisted(
+    private SubmissionOutcomeMessage persisted(
             final SubmissionTransportPlan plan,
             final com.nereusstream.delay.protocol.PreparedCommand command,
             final PhysicalEnqueueAttemptId attempt,
@@ -114,7 +114,7 @@ public final class PulsarManagedSubmissionOutcomeProjector implements Submission
                 result.batchSize(),
                 entryKind,
                 result.brokerEntryTimestampEpochMs());
-        final CommandQueuedReceiptV1.PulsarQueuedAck ack = new CommandQueuedReceiptV1.PulsarQueuedAck(
+        final CanonicalCommandQueuedReceipt.PulsarQueuedAck ack = new CanonicalCommandQueuedReceipt.PulsarQueuedAck(
                 result.authenticatedClusterId(),
                 result.resourceIncarnation(),
                 result.physicalTopic(),
@@ -128,12 +128,12 @@ public final class PulsarManagedSubmissionOutcomeProjector implements Submission
                 Bytes.sha256(result.responseEvidenceBytes()));
         final long queryUntil = SubmissionProjectorSupport.queryPolicy((ManagedRouteAuthority) plan.routeAuthority())
                 .queryUntil(source);
-        final CommandQueuedReceiptV1 receipt =
-                CommandQueuedReceiptV1.create(command, source, ack, queryUntil, attempt.bytes());
-        return SubmissionOutcomeMessageV1.managed(EnqueueOutcomeMessageV1.queued(receipt));
+        final CanonicalCommandQueuedReceipt receipt =
+                CanonicalCommandQueuedReceipt.create(command, source, ack, queryUntil, attempt.bytes());
+        return SubmissionOutcomeMessage.managed(EnqueueOutcomeMessage.queued(receipt));
     }
 
-    private SubmissionOutcomeMessageV1 definite(
+    private SubmissionOutcomeMessage definite(
             final SubmissionTransportPlan plan,
             final PulsarSendRequest request,
             final com.nereusstream.delay.protocol.PreparedCommand command,
@@ -143,16 +143,16 @@ public final class PulsarManagedSubmissionOutcomeProjector implements Submission
         if (code == null || result.requestEvidenceBytes() == null || result.responseEvidenceBytes() == null) {
             return uncertain(plan, attempt, StableCode.INTEGRITY_ERROR);
         }
-        final BrokerResourceIdentityV1 resource = BrokerResourceIdentityV1.pulsar(new PulsarBrokerResourceIdentityV1(
+        final BrokerResourceIdentity resource = BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
                 request.authenticatedClusterId(),
                 request.resourceIncarnation(),
                 request.physicalTopic(),
                 request.physicalTopicCreationTimestamp()));
-        return SubmissionOutcomeMessageV1.managed(WireIngressOutcomeSupport.brokerDefinite(
+        return SubmissionOutcomeMessage.managed(WireIngressOutcomeSupport.brokerDefinite(
                 command,
                 attempt.bytes(),
                 code,
-                NonPersistenceProofKindV1.PULSAR_GUARD_REJECTION,
+                NonPersistenceProofKind.PULSAR_GUARD_REJECTION,
                 resource,
                 result.requestEvidenceBytes(),
                 result.responseEvidenceBytes()));

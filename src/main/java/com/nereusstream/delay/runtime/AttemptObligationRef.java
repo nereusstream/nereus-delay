@@ -126,7 +126,7 @@ public final class AttemptObligationRef {
             CanonicalProtobuf.bytes(output, 4, key);
             CanonicalProtobuf.bytes(output, 5, keyHash);
         });
-        return Bytes.sha256(Bytes.utf8("nereus-delay-attempt-obligation-ref-v1\0"), fields);
+        return Bytes.sha256(Bytes.utf8("nereus-delay-attempt-obligation-ref\0"), fields);
     }
 
     private static List<CanonicalProtobuf.Reader.Field> readAll(final CanonicalProtobuf.Reader reader) {

@@ -29,7 +29,7 @@ public final class KeyCodec {
         if (canonicalSourcePosition.length == 0) {
             throw new IllegalArgumentException("canonicalSourcePosition must not be empty");
         }
-        // This key is the physical-position audit locator.  Do not allow a
+        // This key is the physical-position audit locator. Do not allow a
         // caller to manufacture a look-alike key with malformed or
         // non-canonical bytes; every durable POSITION lookup must use the
         // exact registered Source Position encoding.
@@ -149,7 +149,7 @@ public final class KeyCodec {
     }
 
     /** Stable id_cf locator for a durable Registry Schedule binding sidecar. */
-    public static byte[] idV1ScheduleBinding(final DelayMessageId messageId) {
+    public static byte[] idScheduleBinding(final DelayMessageId messageId) {
         Objects.requireNonNull(messageId, "messageId");
         return Bytes.concat(new byte[] {4, 1}, messageId.bytes());
     }

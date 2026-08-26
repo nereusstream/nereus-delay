@@ -4,31 +4,31 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.google.protobuf.ByteString;
-import com.nereusstream.delay.protocol.AdapterMetadataV1;
+import com.nereusstream.delay.protocol.AdapterMetadata;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CommandQueryResponseV1;
-import com.nereusstream.delay.protocol.CommandQueuedReceiptV1;
+import com.nereusstream.delay.protocol.CanonicalCommandQueuedReceipt;
+import com.nereusstream.delay.protocol.CanonicalPayloadCommitProof;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
+import com.nereusstream.delay.protocol.CommandQueryResponse;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DeliveryMode;
-import com.nereusstream.delay.protocol.KafkaMetadataV1;
+import com.nereusstream.delay.protocol.KafkaMetadata;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.MessagePreconditionV1;
-import com.nereusstream.delay.protocol.MessageQueryResponseV1;
+import com.nereusstream.delay.protocol.MessagePrecondition;
+import com.nereusstream.delay.protocol.MessageQueryResponse;
 import com.nereusstream.delay.protocol.OrderingMode;
-import com.nereusstream.delay.protocol.PayloadCommitProofV1;
-import com.nereusstream.delay.protocol.PayloadReservationReceiptV1;
+import com.nereusstream.delay.protocol.PayloadReservationReceipt;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.RetryPolicyRefV1;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.RetryPolicyRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.SubmissionModeV1;
-import com.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import com.nereusstream.delay.protocol.SubmissionMode;
+import com.nereusstream.delay.protocol.SubmissionOutcomeMessage;
 import com.nereusstream.delay.semantic.AuthenticatedTenantContext;
 import com.nereusstream.delay.semantic.DelaySemanticCore;
-import com.nereusstream.delay.semantic.LargeSchedulePreparationV1;
+import com.nereusstream.delay.semantic.LargeSchedulePreparation;
 import com.nereusstream.delay.semantic.RouteSelectionHint;
 import com.nereusstream.delay.semantic.TrustedClock;
 import com.nereusstream.delay.submission.SubmissionCoordinator;
@@ -50,28 +50,28 @@ class GatewayQueryGrpcServiceTest {
         final QueryFixture fixture = fixture();
         final GatewayQueryAuthority authority = new GatewayQueryAuthority() {
             @Override
-            public CompletionStage<CommandQueryResponseV1> getCommandResult(
-                    final AuthenticatedTenantContext context, final GatewayGetCommandResultRequestV1 request) {
+            public CompletionStage<CommandQueryResponse> getCommandResult(
+                    final AuthenticatedTenantContext context, final GatewayGetCommandResultRequest request) {
                 assertEquals(tenant, context);
                 assertEquals(fixture.receipt, request.receipt());
-                return CompletableFuture.completedFuture(CommandQueryResponseV1.unknown());
+                return CompletableFuture.completedFuture(CommandQueryResponse.unknown());
             }
 
             @Override
-            public CompletionStage<List<CommandQueryResponseV1>> awaitApplied(
-                    final AuthenticatedTenantContext context, final GatewayAwaitAppliedRequestV1 request) {
+            public CompletionStage<List<CommandQueryResponse>> awaitApplied(
+                    final AuthenticatedTenantContext context, final GatewayAwaitAppliedRequest request) {
                 assertEquals(tenant, context);
                 assertEquals(fixture.receipt, request.receipt());
                 return CompletableFuture.completedFuture(
-                        List.of(CommandQueryResponseV1.unknown(), CommandQueryResponseV1.unknown()));
+                        List.of(CommandQueryResponse.unknown(), CommandQueryResponse.unknown()));
             }
 
             @Override
-            public CompletionStage<MessageQueryResponseV1> getMessage(
-                    final AuthenticatedTenantContext context, final GatewayGetMessageRequestV1 request) {
+            public CompletionStage<MessageQueryResponse> getMessage(
+                    final AuthenticatedTenantContext context, final GatewayGetMessageRequest request) {
                 assertEquals(tenant, context);
                 assertEquals(fixture.messageId, request.delayMessageId());
-                return CompletableFuture.completedFuture(MessageQueryResponseV1.identityRetired());
+                return CompletableFuture.completedFuture(MessageQueryResponse.identityRetired());
             }
         };
         final InMemoryGatewayAuditSink audit = new InMemoryGatewayAuditSink(8);
@@ -85,21 +85,21 @@ class GatewayQueryGrpcServiceTest {
 
         final QueryObserver command = new QueryObserver();
         service.getCommandResult(
-                com.nereusstream.delay.gateway.v1.GatewayGetCommandResultRequestV1.newBuilder()
-                        .setCommandQueuedReceiptV1(ByteString.copyFrom(fixture.receipt.payload()))
+                com.nereusstream.delay.gateway.wire.GatewayGetCommandResultRequest.newBuilder()
+                        .setCanonicalCommandQueuedReceipt(ByteString.copyFrom(fixture.receipt.payload()))
                         .build(),
                 command);
         assertNull(command.failure);
         assertTrue(command.completed);
         assertEquals(
-                CommandQueryResponseV1.unknown(),
-                CommandQueryResponseV1.decode(
-                        command.responses.get(0).getCommandQueryResponseV1().toByteArray()));
+                CommandQueryResponse.unknown(),
+                CommandQueryResponse.decode(
+                        command.responses.get(0).getCommandQueryResponse().toByteArray()));
 
         final QueryObserver await = new QueryObserver();
         service.awaitApplied(
-                com.nereusstream.delay.gateway.v1.GatewayAwaitAppliedRequestV1.newBuilder()
-                        .setCommandQueuedReceiptV1(ByteString.copyFrom(fixture.receipt.payload()))
+                com.nereusstream.delay.gateway.wire.GatewayAwaitAppliedRequest.newBuilder()
+                        .setCanonicalCommandQueuedReceipt(ByteString.copyFrom(fixture.receipt.payload()))
                         .build(),
                 await);
         assertNull(await.failure);
@@ -108,16 +108,16 @@ class GatewayQueryGrpcServiceTest {
 
         final MessageObserver message = new MessageObserver();
         service.getMessage(
-                com.nereusstream.delay.gateway.v1.GatewayGetMessageRequestV1.newBuilder()
+                com.nereusstream.delay.gateway.wire.GatewayGetMessageRequest.newBuilder()
                         .setDelayMessageId(ByteString.copyFrom(fixture.messageId.bytes()))
                         .build(),
                 message);
         assertNull(message.failure);
         assertTrue(message.completed);
         assertEquals(
-                MessageQueryResponseV1.identityRetired(),
-                MessageQueryResponseV1.decode(
-                        message.response.getMessageQueryResponseV1().toByteArray()));
+                MessageQueryResponse.identityRetired(),
+                MessageQueryResponse.decode(
+                        message.response.getMessageQueryResponse().toByteArray()));
         assertEquals(6, audit.canonicalEvents().size());
     }
 
@@ -135,9 +135,9 @@ class GatewayQueryGrpcServiceTest {
 
     private static QueryFixture fixture() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
-                new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 30), ProfileKindV1.DESTINATION),
-                new RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 31)),
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
+                new ProfileRef(Bytes.utf8("destination"), 1, bytes(32, 30), ProfileKind.DESTINATION),
+                new RetryPolicyRef(Bytes.utf8("retry"), 1, bytes(32, 31)),
                 300,
                 800,
                 DeliveryMode.MANAGED,
@@ -145,15 +145,15 @@ class GatewayQueryGrpcServiceTest {
                 Bytes.utf8("key"),
                 Bytes.utf8("payload"),
                 null,
-                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())),
+                AdapterMetadata.kafka(new KafkaMetadata(null, List.of())),
                 null,
                 null);
-        final PreparedCommand command = PreparedCommand.scheduleV1(shard, intent, 600);
+        final PreparedCommand command = PreparedCommand.schedule(shard, intent, 600);
         final KafkaSourcePosition source = new KafkaSourcePosition(shard, "gateway", UUID.randomUUID(), 3, null, 100);
-        final CommandQueuedReceiptV1.KafkaQueuedAck ack = new CommandQueuedReceiptV1.KafkaQueuedAck(
+        final CanonicalCommandQueuedReceipt.KafkaQueuedAck ack = new CanonicalCommandQueuedReceipt.KafkaQueuedAck(
                 "gateway", source.nativeTopicUuid(), 0, 3, null, 100, Bytes.sha256(Bytes.utf8("response")));
-        final CommandQueuedReceiptV1 receipt =
-                CommandQueuedReceiptV1.create(command, source, ack, 5_000, bytes(16, 40));
+        final CanonicalCommandQueuedReceipt receipt =
+                CanonicalCommandQueuedReceipt.create(command, source, ack, 5_000, bytes(16, 40));
         return new QueryFixture(receipt, command.delayMessageId());
     }
 
@@ -169,17 +169,17 @@ class GatewayQueryGrpcServiceTest {
         return value;
     }
 
-    private record QueryFixture(CommandQueuedReceiptV1 receipt, DelayMessageId messageId) {}
+    private record QueryFixture(CanonicalCommandQueuedReceipt receipt, DelayMessageId messageId) {}
 
     private static final class QueryObserver
-            implements StreamObserver<com.nereusstream.delay.gateway.v1.GatewayCommandQueryResponseV1> {
-        private final java.util.ArrayList<com.nereusstream.delay.gateway.v1.GatewayCommandQueryResponseV1> responses =
+            implements StreamObserver<com.nereusstream.delay.gateway.wire.GatewayCommandQueryResponse> {
+        private final java.util.ArrayList<com.nereusstream.delay.gateway.wire.GatewayCommandQueryResponse> responses =
                 new java.util.ArrayList<>();
         private Throwable failure;
         private boolean completed;
 
         @Override
-        public void onNext(final com.nereusstream.delay.gateway.v1.GatewayCommandQueryResponseV1 value) {
+        public void onNext(final com.nereusstream.delay.gateway.wire.GatewayCommandQueryResponse value) {
             responses.add(value);
         }
 
@@ -195,13 +195,13 @@ class GatewayQueryGrpcServiceTest {
     }
 
     private static final class MessageObserver
-            implements StreamObserver<com.nereusstream.delay.gateway.v1.GatewayMessageQueryResponseV1> {
-        private com.nereusstream.delay.gateway.v1.GatewayMessageQueryResponseV1 response;
+            implements StreamObserver<com.nereusstream.delay.gateway.wire.GatewayMessageQueryResponse> {
+        private com.nereusstream.delay.gateway.wire.GatewayMessageQueryResponse response;
         private Throwable failure;
         private boolean completed;
 
         @Override
-        public void onNext(final com.nereusstream.delay.gateway.v1.GatewayMessageQueryResponseV1 value) {
+        public void onNext(final com.nereusstream.delay.gateway.wire.GatewayMessageQueryResponse value) {
             response = value;
         }
 
@@ -218,12 +218,12 @@ class GatewayQueryGrpcServiceTest {
 
     private static final class NoopCore implements DelaySemanticCore {
         @Override
-        public com.nereusstream.delay.protocol.PreparedSubmissionV1 prepareSchedule(
+        public com.nereusstream.delay.protocol.PreparedSubmission prepareSchedule(
                 final AuthenticatedTenantContext tenant,
                 final RouteSelectionHint route,
-                final ScheduleIntentV1 intent,
+                final CanonicalScheduleIntent intent,
                 final long retryUntilEpochMs,
-                final SubmissionModeV1 submissionMode) {
+                final SubmissionMode submissionMode) {
             throw new UnsupportedOperationException();
         }
 
@@ -231,7 +231,7 @@ class GatewayQueryGrpcServiceTest {
         public PreparedCommand prepareLargeSchedule(
                 final AuthenticatedTenantContext tenant,
                 final RouteSelectionHint route,
-                final LargeSchedulePreparationV1 request,
+                final LargeSchedulePreparation request,
                 final long retryUntilEpochMs) {
             throw new UnsupportedOperationException();
         }
@@ -239,8 +239,8 @@ class GatewayQueryGrpcServiceTest {
         @Override
         public PreparedCommand preparePayloadCommit(
                 final AuthenticatedTenantContext tenant,
-                final PayloadReservationReceiptV1 reservation,
-                final PayloadCommitProofV1 proof,
+                final PayloadReservationReceipt reservation,
+                final CanonicalPayloadCommitProof proof,
                 final long retryUntilEpochMs) {
             throw new UnsupportedOperationException();
         }
@@ -249,7 +249,7 @@ class GatewayQueryGrpcServiceTest {
         public PreparedCommand prepareCancel(
                 final AuthenticatedTenantContext tenant,
                 final DelayMessageId messageId,
-                final MessagePreconditionV1 precondition,
+                final MessagePrecondition precondition,
                 final long retryUntilEpochMs) {
             throw new UnsupportedOperationException();
         }
@@ -258,7 +258,7 @@ class GatewayQueryGrpcServiceTest {
         public PreparedCommand prepareReschedule(
                 final AuthenticatedTenantContext tenant,
                 final DelayMessageId messageId,
-                final MessagePreconditionV1 precondition,
+                final MessagePrecondition precondition,
                 final long deliverAtEpochMs,
                 final long expireAtEpochMs,
                 final long retryUntilEpochMs) {
@@ -266,7 +266,7 @@ class GatewayQueryGrpcServiceTest {
         }
 
         @Override
-        public com.nereusstream.delay.protocol.PreparedSubmissionV1 prepareManaged(
+        public com.nereusstream.delay.protocol.PreparedSubmission prepareManaged(
                 final AuthenticatedTenantContext tenant, final PreparedCommand command) {
             throw new UnsupportedOperationException();
         }
@@ -274,9 +274,9 @@ class GatewayQueryGrpcServiceTest {
 
     private static final class NoopCoordinator implements SubmissionCoordinator {
         @Override
-        public CompletionStage<SubmissionOutcomeMessageV1> submit(
+        public CompletionStage<SubmissionOutcomeMessage> submit(
                 final AuthenticatedTenantContext tenant,
-                final com.nereusstream.delay.protocol.PreparedSubmissionV1 submission,
+                final com.nereusstream.delay.protocol.PreparedSubmission submission,
                 final TransportOwnershipPermit permit) {
             return CompletableFuture.failedFuture(new UnsupportedOperationException());
         }

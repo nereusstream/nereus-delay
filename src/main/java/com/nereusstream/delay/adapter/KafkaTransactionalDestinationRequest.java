@@ -11,7 +11,7 @@ import java.util.Objects;
  *
  * <p>The transport receives both records as one closed request. It cannot
  * send the target through one producer and the receipt through another
- * producer without violating the V1 atomicity contract.</p>
+ * producer without violating the atomicity contract.</p>
  */
 public record KafkaTransactionalDestinationRequest(
         String targetPhysicalTopic,
@@ -21,9 +21,9 @@ public record KafkaTransactionalDestinationRequest(
         KafkaReceiptJournal.Mapping mapping,
         byte[] receiptKey,
         byte[] receiptValue) {
-    private static final byte[] KEY_DOMAIN = Bytes.utf8("nereus-delay-kafka-receipt-key-v1\0");
-    private static final byte[] VALUE_DOMAIN = Bytes.utf8("nereus-delay-kafka-receipt-value-v1\0");
-    private static final byte[] RECORD_HASH_DOMAIN = Bytes.utf8("nereus-delay-kafka-receipt-wire-record-v1\0");
+    private static final byte[] KEY_DOMAIN = Bytes.utf8("nereus-delay-kafka-receipt-key\0");
+    private static final byte[] VALUE_DOMAIN = Bytes.utf8("nereus-delay-kafka-receipt-value\0");
+    private static final byte[] RECORD_HASH_DOMAIN = Bytes.utf8("nereus-delay-kafka-receipt-wire-record\0");
 
     public KafkaTransactionalDestinationRequest {
         targetPhysicalTopic = canonicalText(targetPhysicalTopic, "targetPhysicalTopic");

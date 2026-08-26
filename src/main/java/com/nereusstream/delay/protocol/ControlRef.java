@@ -5,7 +5,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
-/** Canonical registry {@code ControlRefV1}. */
+/** Canonical registry {@code ControlRef}. */
 public final class ControlRef {
     public static final int HASH_LENGTH = 32;
 
@@ -53,13 +53,13 @@ public final class ControlRef {
         return logicalOperationIdentity(type.wireValue());
     }
 
-    /** Computes the identity when the applicable value is a ControlKindV1 number. */
+    /** Computes the identity when the applicable value is a ControlKind number. */
     public byte[] logicalOperationIdentity(final int applicableTypeOrControlKind) {
         if (applicableTypeOrControlKind <= 0 || applicableTypeOrControlKind > 0xffff) {
             throw new IllegalArgumentException("applicable control kind must fit uint16");
         }
         return Bytes.sha256(
-                Bytes.utf8("nereus-delay-control-target-logical-id-v1\0"),
+                Bytes.utf8("nereus-delay-control-target-logical-id\0"),
                 operationId,
                 Bytes.u32be(targetIndex),
                 Bytes.u16be(applicableTypeOrControlKind));

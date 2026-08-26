@@ -1,22 +1,22 @@
 package com.nereusstream.delay.adapter;
 
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CommandQueuedReceiptV1;
-import com.nereusstream.delay.protocol.FailureStageV1;
-import com.nereusstream.delay.protocol.NativeCapabilitySnapshotV1;
-import com.nereusstream.delay.protocol.NativeDefinitelyNotQueuedV1;
-import com.nereusstream.delay.protocol.NativeDeliveryReceiptV1;
-import com.nereusstream.delay.protocol.NativeEnqueueUncertainV1;
-import com.nereusstream.delay.protocol.NativePreparedDeliveryV1;
-import com.nereusstream.delay.protocol.NativePreparedRefV1;
-import com.nereusstream.delay.protocol.NonPersistenceProofKindV1;
-import com.nereusstream.delay.protocol.NonPersistenceProofV1;
-import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.RetryabilityV1;
+import com.nereusstream.delay.protocol.CanonicalCommandQueuedReceipt;
+import com.nereusstream.delay.protocol.FailureStage;
+import com.nereusstream.delay.protocol.NativeCapabilitySnapshot;
+import com.nereusstream.delay.protocol.NativeDefinitelyNotQueued;
+import com.nereusstream.delay.protocol.NativeDeliveryReceipt;
+import com.nereusstream.delay.protocol.NativeEnqueueUncertain;
+import com.nereusstream.delay.protocol.NativePreparedDelivery;
+import com.nereusstream.delay.protocol.NativePreparedRef;
+import com.nereusstream.delay.protocol.NonPersistenceProof;
+import com.nereusstream.delay.protocol.NonPersistenceProofKind;
+import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.Retryability;
 import com.nereusstream.delay.protocol.StableCode;
-import com.nereusstream.delay.protocol.StableErrorV1;
-import com.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import com.nereusstream.delay.protocol.StableError;
+import com.nereusstream.delay.protocol.SubmissionOutcomeMessage;
 import java.security.PublicKey;
 import java.time.Clock;
 import java.util.Arrays;
@@ -25,7 +25,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
 /**
- * Pulsar AUTO_FAST submission boundary.  All checks in this adapter happen
+ * Pulsar AUTO_FAST submission boundary. All checks in this adapter happen
  * before the transport is allowed to acquire Producer ownership.
  */
 public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable {
@@ -76,20 +76,20 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
     }
 
     /**
-     * Submits one exact prepared native delivery.  A transport exception or
+     * Submits one exact prepared native delivery. A transport exception or
      * an untrusted result is possible persistence and therefore never becomes
      * a definitive rejection.
      */
-    public CompletionStage<SubmissionOutcomeMessageV1> submit(
-            final NativePreparedDeliveryV1 prepared, final byte[] physicalEnqueueAttemptId) {
+    public CompletionStage<SubmissionOutcomeMessage> submit(
+            final NativePreparedDelivery prepared, final byte[] physicalEnqueueAttemptId) {
         Objects.requireNonNull(prepared, "prepared");
         return closeGuard.invokeIfOpen(
                 () -> submitOpen(prepared, physicalEnqueueAttemptId),
                 () -> completed(localDefinite(prepared, StableCode.CLIENT_CLOSED)));
     }
 
-    private CompletionStage<SubmissionOutcomeMessageV1> submitOpen(
-            final NativePreparedDeliveryV1 prepared, final byte[] physicalEnqueueAttemptId) {
+    private CompletionStage<SubmissionOutcomeMessage> submitOpen(
+            final NativePreparedDelivery prepared, final byte[] physicalEnqueueAttemptId) {
         if (!matchesPinnedResource(prepared)) {
             return completed(localDefinite(prepared, StableCode.PREPARED_SUBMISSION_MISMATCH));
         }
@@ -120,7 +120,7 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
                 resolvedFingerprint = credentialFingerprintProvider.resolve(prepared);
                 Bytes.requireLength(
                         resolvedFingerprint,
-                        NativeCapabilitySnapshotV1.HASH_LENGTH,
+                        NativeCapabilitySnapshot.HASH_LENGTH,
                         "resolvedCredentialFingerprintDigest");
             } catch (RuntimeException unavailable) {
                 return completed(localDefinite(prepared, StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE));
@@ -153,7 +153,7 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
             return completed(uncertain(prepared, attempt, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN, null));
         }
         try {
-            final CompletionStage<SubmissionOutcomeMessageV1> handled = result.handle((value, error) -> {
+            final CompletionStage<SubmissionOutcomeMessage> handled = result.handle((value, error) -> {
                 if (error != null) {
                     return uncertain(prepared, attempt, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN, null);
                 }
@@ -183,8 +183,8 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
         closeGuard.close(transport::close);
     }
 
-    private SubmissionOutcomeMessageV1 project(
-            final NativePreparedDeliveryV1 prepared,
+    private SubmissionOutcomeMessage project(
+            final NativePreparedDelivery prepared,
             final PulsarNativeSendRequest request,
             final byte[] attempt,
             final PulsarSendResult result) {
@@ -199,8 +199,8 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
         };
     }
 
-    private SubmissionOutcomeMessageV1 persisted(
-            final NativePreparedDeliveryV1 prepared, final byte[] attempt, final PulsarSendResult result) {
+    private SubmissionOutcomeMessage persisted(
+            final NativePreparedDelivery prepared, final byte[] attempt, final PulsarSendResult result) {
         if (!matchesPinnedResult(result)) {
             return uncertain(
                     prepared,
@@ -211,7 +211,7 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
         if (result.responseEvidenceBytes() == null) {
             return uncertain(prepared, attempt, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN, null);
         }
-        final CommandQueuedReceiptV1.PulsarQueuedAck ack = new CommandQueuedReceiptV1.PulsarQueuedAck(
+        final CanonicalCommandQueuedReceipt.PulsarQueuedAck ack = new CanonicalCommandQueuedReceipt.PulsarQueuedAck(
                 result.authenticatedClusterId(),
                 result.resourceIncarnation(),
                 result.physicalTopic(),
@@ -223,12 +223,12 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
                 result.batchSize(),
                 result.brokerEntryTimestampEpochMs(),
                 Bytes.sha256(result.responseEvidenceBytes()));
-        final NativeDeliveryReceiptV1 receipt = NativeDeliveryReceiptV1.create(prepared.preparedRef(), ack, attempt);
-        return SubmissionOutcomeMessageV1.nativeReceipt(receipt);
+        final NativeDeliveryReceipt receipt = NativeDeliveryReceipt.create(prepared.preparedRef(), ack, attempt);
+        return SubmissionOutcomeMessage.nativeReceipt(receipt);
     }
 
-    private SubmissionOutcomeMessageV1 definite(
-            final NativePreparedDeliveryV1 prepared,
+    private SubmissionOutcomeMessage definite(
+            final NativePreparedDelivery prepared,
             final PulsarNativeSendRequest request,
             final byte[] attempt,
             final PulsarSendResult result) {
@@ -238,17 +238,17 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
         if (result.requestEvidenceBytes() == null || result.responseEvidenceBytes() == null) {
             return uncertain(prepared, attempt, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN, null);
         }
-        final NonPersistenceProofV1 proof = NonPersistenceProofV1.create(
-                NonPersistenceProofKindV1.PULSAR_GUARD_REJECTION,
+        final NonPersistenceProof proof = NonPersistenceProof.create(
+                NonPersistenceProofKind.PULSAR_GUARD_REJECTION,
                 attempt,
                 prepared.submissionHash(),
-                BrokerResourceIdentityV1.pulsar(pulsarIdentity(prepared)),
+                BrokerResourceIdentity.pulsar(pulsarIdentity(prepared)),
                 Bytes.sha256(result.requestEvidenceBytes()),
                 Bytes.sha256(result.responseEvidenceBytes()));
-        final NativePreparedRefV1 ref = prepared.preparedRef();
-        final StableErrorV1 error = StableErrorV1.of(
-                FailureStageV1.ENQUEUE, StableCode.NATIVE_GUARD_DEFINITIVE_NOT_PERSISTED, null, null, ref, null);
-        return SubmissionOutcomeMessageV1.nativeDefinitelyNotQueued(new NativeDefinitelyNotQueuedV1(ref, proof, error));
+        final NativePreparedRef ref = prepared.preparedRef();
+        final StableError error = StableError.of(
+                FailureStage.ENQUEUE, StableCode.NATIVE_GUARD_DEFINITIVE_NOT_PERSISTED, null, null, ref, null);
+        return SubmissionOutcomeMessage.nativeDefinitelyNotQueued(new NativeDefinitelyNotQueued(ref, proof, error));
     }
 
     private static boolean isNativeDefinitiveCode(final int wireValue) {
@@ -262,33 +262,27 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
         }
     }
 
-    private SubmissionOutcomeMessageV1 localDefinite(final NativePreparedDeliveryV1 prepared, final StableCode code) {
-        final NativePreparedRefV1 ref = prepared.preparedRef();
-        final NonPersistenceProofV1 proof = NonPersistenceProofV1.create(
-                NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP,
-                null,
-                ref.submissionHash(),
-                null,
-                null,
-                null);
-        final StableErrorV1 error = StableErrorV1.of(FailureStageV1.ENQUEUE, code, null, null, ref, null);
-        return SubmissionOutcomeMessageV1.nativeDefinitelyNotQueued(new NativeDefinitelyNotQueuedV1(ref, proof, error));
+    private SubmissionOutcomeMessage localDefinite(final NativePreparedDelivery prepared, final StableCode code) {
+        final NativePreparedRef ref = prepared.preparedRef();
+        final NonPersistenceProof proof = NonPersistenceProof.create(
+                NonPersistenceProofKind.LOCAL_BEFORE_PRODUCER_OWNERSHIP, null, ref.submissionHash(), null, null, null);
+        final StableError error = StableError.of(FailureStage.ENQUEUE, code, null, null, ref, null);
+        return SubmissionOutcomeMessage.nativeDefinitelyNotQueued(new NativeDefinitelyNotQueued(ref, proof, error));
     }
 
-    private SubmissionOutcomeMessageV1 uncertain(
-            final NativePreparedDeliveryV1 prepared,
+    private SubmissionOutcomeMessage uncertain(
+            final NativePreparedDelivery prepared,
             final byte[] attempt,
             final StableCode code,
             final Integer diagnosticCode) {
-        final NativePreparedRefV1 ref = prepared.preparedRef();
+        final NativePreparedRef ref = prepared.preparedRef();
         final StableCode retryCode = exactRetryCode(code.wireValue());
-        final StableErrorV1 error =
-                StableErrorV1.of(FailureStageV1.ENQUEUE, retryCode, null, null, ref, diagnosticCode);
-        return SubmissionOutcomeMessageV1.nativeUncertain(new NativeEnqueueUncertainV1(ref, attempt, error));
+        final StableError error = StableError.of(FailureStage.ENQUEUE, retryCode, null, null, ref, diagnosticCode);
+        return SubmissionOutcomeMessage.nativeUncertain(new NativeEnqueueUncertain(ref, attempt, error));
     }
 
-    private boolean matchesPinnedResource(final NativePreparedDeliveryV1 prepared) {
-        final PulsarBrokerResourceIdentityV1 target = prepared.target();
+    private boolean matchesPinnedResource(final NativePreparedDelivery prepared) {
+        final PulsarBrokerResourceIdentity target = prepared.target();
         return resource.authenticatedClusterId().equals(target.authenticatedClusterId())
                 && Arrays.equals(resource.resourceIncarnation(), target.resourceIncarnation())
                 && resource.physicalTopic().equals(target.physicalTopic())
@@ -304,14 +298,14 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
                 && resource.partition() == result.partition();
     }
 
-    private static PulsarBrokerResourceIdentityV1 pulsarIdentity(final NativePreparedDeliveryV1 prepared) {
+    private static PulsarBrokerResourceIdentity pulsarIdentity(final NativePreparedDelivery prepared) {
         return prepared.target();
     }
 
     private static StableCode exactRetryCode(final int wireValue) {
         try {
             final StableCode candidate = StableCode.fromWire(wireValue);
-            return RetryabilityV1.forCode(candidate) == RetryabilityV1.RETRY_EXACT_BYTES
+            return Retryability.forCode(candidate) == Retryability.RETRY_EXACT_BYTES
                     ? candidate
                     : StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN;
         } catch (IllegalArgumentException exception) {
@@ -329,7 +323,7 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
     }
 
     private static byte[] requireAttempt(final byte[] value) {
-        Bytes.requireLength(value, NonPersistenceProofV1.ATTEMPT_ID_LENGTH, "physicalEnqueueAttemptId");
+        Bytes.requireLength(value, NonPersistenceProof.ATTEMPT_ID_LENGTH, "physicalEnqueueAttemptId");
         for (byte item : value) {
             if (item != 0) {
                 return Bytes.copy(value);
@@ -338,7 +332,7 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
         throw new IllegalArgumentException("physicalEnqueueAttemptId must be non-zero");
     }
 
-    private static CompletionStage<SubmissionOutcomeMessageV1> completed(final SubmissionOutcomeMessageV1 outcome) {
+    private static CompletionStage<SubmissionOutcomeMessage> completed(final SubmissionOutcomeMessage outcome) {
         return CompletableFuture.completedFuture(outcome);
     }
 
@@ -355,6 +349,6 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
     @FunctionalInterface
     public interface CredentialFingerprintProvider {
         /** Resolves the immutable credential fingerprint for this exact prepared request. */
-        byte[] resolve(NativePreparedDeliveryV1 prepared);
+        byte[] resolve(NativePreparedDelivery prepared);
     }
 }

@@ -5,21 +5,21 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import com.nereusstream.delay.protocol.ActivationBarrierV1;
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.IngressCredentialBindingRefV1;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
+import com.nereusstream.delay.protocol.ActivationBarrier;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
+import com.nereusstream.delay.protocol.IngressCredentialBindingRef;
+import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
 import com.nereusstream.delay.protocol.PulsarActivationBarrier;
-import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.PulsarIngressRouteResourceV1;
-import com.nereusstream.delay.protocol.PulsarPhysicalPartitionIdentityV1;
-import com.nereusstream.delay.protocol.QuotaGrantRefV1;
+import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.PulsarIngressRouteResource;
+import com.nereusstream.delay.protocol.PulsarPhysicalPartitionIdentity;
+import com.nereusstream.delay.protocol.QuotaGrantRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.RouteLifecycleV1;
-import com.nereusstream.delay.protocol.RoutePartitionPolicyV1;
-import com.nereusstream.delay.protocol.RouteSnapshotV1;
-import com.nereusstream.delay.protocol.RoutingHashVersionV1;
+import com.nereusstream.delay.protocol.RouteLifecycle;
+import com.nereusstream.delay.protocol.RoutePartitionPolicy;
+import com.nereusstream.delay.protocol.RouteSnapshot;
+import com.nereusstream.delay.protocol.RoutingHashVersion;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.route.RouteSnapshotProvider;
@@ -44,21 +44,21 @@ class PulsarSourceReactivationTest {
         final ShardId shard = new ShardId(incarnation, 0);
         final SourceAssignment previous = assignment(shard, bytes(32, 70), 1, 11);
         final SourceAssignment successor = assignment(shard, bytes(32, 71), 2, 12);
-        final PulsarSourceReactivationV1 transition =
-                new PulsarSourceReactivationV1(ROUTE_DIGEST_SEED, previous, successor);
+        final PulsarSourceReactivation transition =
+                new PulsarSourceReactivation(ROUTE_DIGEST_SEED, previous, successor);
 
-        assertEquals(transition, PulsarSourceReactivationV1.decode(transition.canonicalBytes()));
+        assertEquals(transition, PulsarSourceReactivation.decode(transition.canonicalBytes()));
         assertArrayEquals(ROUTE_DIGEST_SEED, transition.routeSnapshotDigest());
         assertEquals(11, transition.previousBarrier().guardedSourceConnectionGeneration());
         assertEquals(12, transition.successorBarrier().guardedSourceConnectionGeneration());
 
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new PulsarSourceReactivationV1(
+                () -> new PulsarSourceReactivation(
                         ROUTE_DIGEST_SEED, previous, assignment(shard, bytes(32, 72), 2, 11)));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new PulsarSourceReactivationV1(
+                () -> new PulsarSourceReactivation(
                         ROUTE_DIGEST_SEED,
                         previous,
                         assignment(
@@ -79,7 +79,7 @@ class PulsarSourceReactivationTest {
                                         false))));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new PulsarSourceReactivationV1(
+                () -> new PulsarSourceReactivation(
                         ROUTE_DIGEST_SEED, previous, assignment(shard, bytes(32, 74), 1, 12)));
     }
 
@@ -89,9 +89,9 @@ class PulsarSourceReactivationTest {
         final ShardId shard = new ShardId(incarnation, 0);
         final SourceAssignment previous = assignment(shard, bytes(32, 80), 1, 21);
         final SourceAssignment successor = assignment(shard, bytes(32, 81), 2, 22);
-        final RouteSnapshotV1 route = route(incarnation, previous, 1);
-        final PulsarSourceReactivationV1 transition =
-                new PulsarSourceReactivationV1(route.snapshotDigest(), previous, successor);
+        final RouteSnapshot route = route(incarnation, previous, 1);
+        final PulsarSourceReactivation transition =
+                new PulsarSourceReactivation(route.snapshotDigest(), previous, successor);
         final WorkerAssignment previousWorker =
                 new WorkerAssignment("worker-a", previous, 1, bytes(32, 90), route.snapshotDigest());
         final WorkerAssignment successorWorker =
@@ -143,9 +143,9 @@ class PulsarSourceReactivationTest {
         final ShardId shard = new ShardId(incarnation, 0);
         final SourceAssignment previous = assignment(shard, bytes(32, 110), 1, 31);
         final SourceAssignment successor = assignment(shard, bytes(32, 111), 2, 32);
-        final RouteSnapshotV1 route = route(incarnation, previous, 1);
-        final PulsarSourceReactivationV1 transition =
-                new PulsarSourceReactivationV1(route.snapshotDigest(), previous, successor);
+        final RouteSnapshot route = route(incarnation, previous, 1);
+        final PulsarSourceReactivation transition =
+                new PulsarSourceReactivation(route.snapshotDigest(), previous, successor);
         final WorkerAssignment oldWorker =
                 new WorkerAssignment("worker-b", previous, 1, bytes(32, 112), route.snapshotDigest());
         final WorkerAssignment newWorker =
@@ -203,17 +203,17 @@ class PulsarSourceReactivationTest {
         return new SourceAssignment(shard, assignmentId, epoch, barrier);
     }
 
-    private static RouteSnapshotProvider provider(final RouteSnapshotV1 route) {
+    private static RouteSnapshotProvider provider(final RouteSnapshot route) {
         return new RouteSnapshotProvider() {
             @Override
-            public RouteSnapshotV1 activeForNewSchedule(
+            public RouteSnapshot activeForNewSchedule(
                     final AuthenticatedTenantContext context,
                     final com.nereusstream.delay.semantic.RouteSelectionHint hint) {
                 return route;
             }
 
             @Override
-            public RouteSnapshotV1 exact(final RouteIncarnation incarnation, final AuthenticatedTenantContext context) {
+            public RouteSnapshot exact(final RouteIncarnation incarnation, final AuthenticatedTenantContext context) {
                 return route.routeIncarnation().equals(incarnation) ? route : null;
             }
 
@@ -224,19 +224,19 @@ class PulsarSourceReactivationTest {
         };
     }
 
-    private static RouteSnapshotV1 route(
+    private static RouteSnapshot route(
             final RouteIncarnation incarnation, final SourceAssignment previous, final long controlVersion) {
         try {
             final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
             final PulsarActivationBarrier barrier = (PulsarActivationBarrier) previous.activationBarrier();
-            final BrokerResourceIdentityV1 resource = BrokerResourceIdentityV1.pulsar(
-                    new PulsarBrokerResourceIdentityV1("standalone", RESOURCE, barrier.physicalTopic(), 7));
-            final PulsarIngressRouteResourceV1 ingress = new PulsarIngressRouteResourceV1(
+            final BrokerResourceIdentity resource = BrokerResourceIdentity.pulsar(
+                    new PulsarBrokerResourceIdentity("standalone", RESOURCE, barrier.physicalTopic(), 7));
+            final PulsarIngressRouteResource ingress = new PulsarIngressRouteResource(
                     "standalone",
                     "persistent://public/default/source",
-                    List.of(new PulsarPhysicalPartitionIdentityV1(0, barrier.physicalTopic(), RESOURCE, 7)));
+                    List.of(new PulsarPhysicalPartitionIdentity(0, barrier.physicalTopic(), RESOURCE, 7)));
             final long now = 1_000;
-            final ActivationBarrierV1 routeBarrier = ActivationBarrierV1.pulsar(
+            final ActivationBarrier routeBarrier = ActivationBarrier.pulsar(
                     resource,
                     0,
                     barrier.ledgerId(),
@@ -245,17 +245,17 @@ class PulsarSourceReactivationTest {
                     barrier.batchSize(),
                     barrier.guardedSourceConnectionGeneration(),
                     barrier.resourceGuardAttestationDigest());
-            return RouteSnapshotV1.create(
+            return RouteSnapshot.create(
                     incarnation,
                     TENANT.authenticatedTenantScopeHash(),
                     TENANT.tenantRoutingScope(),
-                    RouteLifecycleV1.ACTIVE_FOR_NEW,
+                    RouteLifecycle.ACTIVE_FOR_NEW,
                     now + 500,
                     ingress,
-                    RoutingHashVersionV1.ROUTING_HASH_V1,
-                    new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1),
+                    RoutingHashVersion.ROUTING_HASH,
+                    new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1),
                     controlVersion,
-                    List.of(new RoutePartitionPolicyV1(
+                    List.of(new RoutePartitionPolicy(
                             0,
                             routeBarrier,
                             zeroQuota(),
@@ -270,8 +270,7 @@ class PulsarSourceReactivationTest {
                     100,
                     900,
                     3_000,
-                    new IngressCredentialBindingRefV1(
-                            bytes(32, 120), 1, bytes(32, 121), bytes(32, 122), bytes(32, 123)),
+                    new IngressCredentialBindingRef(bytes(32, 120), 1, bytes(32, 121), bytes(32, 122), bytes(32, 123)),
                     bytes(32, 124),
                     new TrustedUtcIntervalEvidence(
                             900,
@@ -291,8 +290,8 @@ class PulsarSourceReactivationTest {
         }
     }
 
-    private static QuotaGrantRefV1 zeroQuota() {
-        return new QuotaGrantRefV1(
+    private static QuotaGrantRef zeroQuota() {
+        return new QuotaGrantRef(
                 bytes(32, 127),
                 1,
                 new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0));

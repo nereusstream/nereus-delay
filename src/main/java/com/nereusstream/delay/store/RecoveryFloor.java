@@ -183,7 +183,7 @@ public record RecoveryFloor(
             final long sequence,
             final byte[] evidence) {
         return Bytes.sha256(
-                Bytes.utf8("nereus-delay-recovery-floor-v1\0"),
+                Bytes.utf8("nereus-delay-recovery-floor\0"),
                 lineage,
                 checkpoint,
                 manifest,

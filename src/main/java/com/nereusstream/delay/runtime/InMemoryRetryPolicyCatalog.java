@@ -1,8 +1,8 @@
 package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.RetryPolicyRefV1;
-import com.nereusstream.delay.protocol.RetryPolicySemanticV1;
+import com.nereusstream.delay.protocol.RetryPolicyRef;
+import com.nereusstream.delay.protocol.RetryPolicySemantic;
 import com.nereusstream.delay.protocol.SourcePosition;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,7 +20,7 @@ public final class InMemoryRetryPolicyCatalog implements RetryPolicyCatalog {
     private SourcePosition sourceIdentity;
     private SourcePosition lastPublicationPosition;
 
-    public synchronized void publish(final RetryPolicySemanticV1 semantic, final SourcePosition visibleAt) {
+    public synchronized void publish(final RetryPolicySemantic semantic, final SourcePosition visibleAt) {
         Objects.requireNonNull(semantic, "semantic");
         Objects.requireNonNull(visibleAt, "visibleAt");
         bindSource(visibleAt);
@@ -49,8 +49,8 @@ public final class InMemoryRetryPolicyCatalog implements RetryPolicyCatalog {
     }
 
     @Override
-    public synchronized RetryPolicySemanticV1 resolve(
-            final RetryPolicyRefV1 reference, final SourcePosition sourcePosition) {
+    public synchronized RetryPolicySemantic resolve(
+            final RetryPolicyRef reference, final SourcePosition sourcePosition) {
         Objects.requireNonNull(reference, "reference");
         Objects.requireNonNull(sourcePosition, "sourcePosition");
         if (sourceIdentity == null
@@ -100,7 +100,7 @@ public final class InMemoryRetryPolicyCatalog implements RetryPolicyCatalog {
         return order;
     }
 
-    private record Publication(RetryPolicySemanticV1 semantic, SourcePosition visibleAt) {
+    private record Publication(RetryPolicySemantic semantic, SourcePosition visibleAt) {
         private Publication {
             Objects.requireNonNull(semantic, "semantic");
             Objects.requireNonNull(visibleAt, "visibleAt");

@@ -76,7 +76,7 @@ public record IngressFenceState(long closedThroughEpochMs, byte[] proofId) {
             }
             closedThrough = field.unsignedValue();
             if (closedThrough < 0) {
-                throw new IllegalArgumentException("IngressFenceState deadline is outside signed V1 range");
+                throw new IllegalArgumentException("IngressFenceState deadline is outside signed range");
             }
         }
         if (index < fields.size()) {

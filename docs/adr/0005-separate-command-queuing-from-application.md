@@ -1,6 +1,6 @@
 # Separate Command queuing from authoritative application
 
-Nereus Delay V1 uses a two-stage Command contract. The default high-throughput API returns `CommandQueuedReceipt` only after the ingress Broker durably stores a Schedule, Cancel, or Reschedule Command; this confirms queuing, not validation or operation success. A Delay Shard later performs authoritative validation and durably records either `APPLIED` with the command-specific outcome or `REJECTED` with a stable reason code. A Delayed Message begins its lifecycle only when its Schedule Command is successfully applied.
+Nereus Delay uses a two-stage Command contract. The default high-throughput API returns `CommandQueuedReceipt` only after the ingress Broker durably stores a Schedule, Cancel, or Reschedule Command; this confirms queuing, not validation or operation success. A Delay Shard later performs authoritative validation and durably records either `APPLIED` with the command-specific outcome or `REJECTED` with a stable reason code. A Delayed Message begins its lifecycle only when its Schedule Command is successfully applied.
 
 ## Consequences
 

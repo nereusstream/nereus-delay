@@ -1,11 +1,11 @@
 package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.ClaimMaterializationV1;
+import com.nereusstream.delay.protocol.ClaimMaterialization;
 import com.nereusstream.delay.protocol.ClaimResultBody;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.store.KeyCodec;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
@@ -17,7 +17,7 @@ import java.util.Objects;
  * <p>This is the embedded runtime subset of Registry {@code inflight_cf/CLAIMED}:
  * it retains the exact canonical ClaimPrecondition, the original timeline key,
  * and a local instance digest so a revoke or source-ordered mutation can never
- * guess which current work was claimed.  The full GenerationRuntimeIndex and
+ * guess which current work was claimed. The full GenerationRuntimeIndex and
  * adapter materialization ownership are intentionally still separate release
  * work.</p>
  */
@@ -149,7 +149,7 @@ public final class ClaimRecord {
                 throw new IllegalArgumentException("Claim source timeline does not match its precondition");
             }
         }
-        final OwnerIdentityV1 owner = OwnerIdentityV1.decode(this.ownerIdentity);
+        final OwnerIdentity owner = OwnerIdentity.decode(this.ownerIdentity);
         if (owner.ownerEpoch() != ownerEpoch) {
             throw new IllegalArgumentException("Claim owner epoch does not match OwnerIdentity");
         }
@@ -282,7 +282,7 @@ public final class ClaimRecord {
     }
 
     /** Returns the validated typed materialization retained by this Claim. */
-    public ClaimMaterializationV1 materialization() {
+    public ClaimMaterialization materialization() {
         return ClaimResultBody.decodePrecondition(preconditionBytes).materializationValue();
     }
 
@@ -370,7 +370,7 @@ public final class ClaimRecord {
         final byte[] instanceDigest = readFixed(input, HASH_LENGTH, "instanceDigest");
         final byte[] sourceTimelineWork = version == 2 ? readLp32(input, "sourceTimelineWork") : new byte[0];
         if (version == 2 && sourceTimelineWork.length == 0) {
-            throw new IllegalArgumentException("Claim v2 requires sourceTimelineWork");
+            throw new IllegalArgumentException("Claim current format requires sourceTimelineWork");
         }
         if (input.hasRemaining()) {
             throw new IllegalArgumentException("trailing Claim record bytes");
@@ -404,7 +404,7 @@ public final class ClaimRecord {
             throw new IllegalArgumentException("runtimeRevision must be positive");
         }
         return Bytes.sha256(
-                Bytes.utf8("nereus-delay-timeline-work-instance-v1\0"),
+                Bytes.utf8("nereus-delay-timeline-work-instance\0"),
                 preconditionBytes,
                 Bytes.lp32(timelineKey),
                 Bytes.u64be(runtimeRevision));

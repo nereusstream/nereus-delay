@@ -14,7 +14,7 @@ import java.util.Objects;
  *
  * <p>The key remains the normal MESSAGE locator and the CF-local value
  * envelope remains type {@code 1}; the payload version distinguishes this
- * branch from {@link MessageRecord} versions 1--4.  Keeping the branch on the
+ * branch from {@link MessageRecord} versions 1--4. Keeping the branch on the
  * same key makes the identity fence atomic with physical history cleanup and
  * lets query distinguish a retired identity from an unknown one.</p>
  */

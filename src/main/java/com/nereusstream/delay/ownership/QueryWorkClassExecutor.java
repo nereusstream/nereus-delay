@@ -14,13 +14,13 @@ import java.util.function.LongSupplier;
  * Bounded read-only handoff for an already routed and authorized Query.
  *
  * <p>The executor owns only the {@code QUERY} queue, the exact request-byte
- * identity and the local Owner Lease read fence.  The supplied operation must
+ * identity and the local Owner Lease read fence. The supplied operation must
  * read the shard-local projection and must not mutate RocksDB, allocate a
  * Source Position, perform external I/O or make an authorization/routing
- * decision.  Those authorities stay outside this local composition seam.</p>
+ * decision. Those authorities stay outside this local composition seam.</p>
  */
 public final class QueryWorkClassExecutor {
-    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-query-read-handoff-task-v1\0");
+    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-query-read-handoff-task\0");
 
     private final WorkClassExecutionRegistry workClasses;
     private final OwnedDelayShard ownedShard;
@@ -37,7 +37,7 @@ public final class QueryWorkClassExecutor {
     }
 
     /**
-     * Queues one exact canonical request.  Preflight is local and read-free;
+     * Queues one exact canonical request. Preflight is local and read-free;
      * queue rejection therefore cannot touch the Store or authority.
      */
     public <T> Submission<T> submit(
@@ -63,7 +63,7 @@ public final class QueryWorkClassExecutor {
             final long nowEpochMs = ownedShard.requireQueryAuthoritativelyStrict(authority, request.shardId(), clock);
             final T value = operation.read(nowEpochMs);
             // A query is linearized only when the same Owner is still
-            // authoritative after the local read.  If this check fences or
+            // authoritative after the local read. If this check fences or
             // fails, discard the value instead of returning a stale snapshot.
             ownedShard.requireQueryAuthoritativelyStrict(authority, request.shardId(), clock);
             submission.complete(QueryResult.completed(value));

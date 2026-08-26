@@ -6,9 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.EvidenceVerificationStatusV1;
-import com.nereusstream.delay.protocol.PublishEvidenceKindV1;
-import com.nereusstream.delay.protocol.PublishEvidenceV1;
+import com.nereusstream.delay.protocol.EvidenceVerificationStatus;
+import com.nereusstream.delay.protocol.PublishEvidence;
+import com.nereusstream.delay.protocol.PublishEvidenceKind;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import org.junit.jupiter.api.Test;
@@ -20,12 +20,12 @@ class PulsarSendAckEvidenceTest {
         final byte[] preparedHash = hash("prepared");
         final byte[] producerHash = hash("producer");
         final byte[] responseHash = hash("response");
-        final PublishEvidenceV1 evidence = PulsarSendAckEvidence.published(
+        final PublishEvidence evidence = PulsarSendAckEvidence.published(
                 request, preparedHash, producerHash, 17, 23, 0, 2_001, 42, responseHash);
-        final PublishEvidenceV1 decoded = PublishEvidenceV1.decode(evidence.canonicalBytes());
+        final PublishEvidence decoded = PublishEvidence.decode(evidence.canonicalBytes());
 
-        assertEquals(PublishEvidenceKindV1.PULSAR_SEND_ACK, decoded.evidenceKind());
-        assertEquals(EvidenceVerificationStatusV1.VERIFIED_PUBLISHED, decoded.verificationStatus());
+        assertEquals(PublishEvidenceKind.PULSAR_SEND_ACK, decoded.evidenceKind());
+        assertEquals(EvidenceVerificationStatus.VERIFIED_PUBLISHED, decoded.verificationStatus());
         assertArrayEquals(evidence.evidenceId(), decoded.evidenceId());
         decoded.requireBusinessMutation(request.publishAttemptId(), true);
         PulsarSendAckEvidence.requireExactBinding(decoded, request, preparedHash, producerHash, 2_001);
@@ -51,7 +51,7 @@ class PulsarSendAckEvidenceTest {
     @Test
     void evidenceOwnerRemainsBoundToTheExactPublishAttempt() {
         final PulsarDestinationRequest request = request();
-        final PublishEvidenceV1 evidence = PulsarSendAckEvidence.published(
+        final PublishEvidence evidence = PulsarSendAckEvidence.published(
                 request, hash("prepared"), hash("producer"), 17, 23, 0, 2_001, 42, hash("response"));
         assertThrows(
                 IllegalArgumentException.class, () -> evidence.requireBusinessMutation(hash("foreign-attempt"), true));
@@ -64,7 +64,7 @@ class PulsarSendAckEvidenceTest {
         final PulsarDestinationRequest request = request();
         final byte[] preparedHash = hash("prepared");
         final byte[] producerHash = hash("producer");
-        final PublishEvidenceV1 evidence = PulsarSendAckEvidence.published(
+        final PublishEvidence evidence = PulsarSendAckEvidence.published(
                 request, preparedHash, producerHash, 17, 23, 0, 2_001, 42, hash("response"));
 
         assertThrows(

@@ -38,10 +38,10 @@ public final class PublishOutcomeBody {
     }
 
     /**
-     * Encodes the canonical body of an initial {@code PUBLISH_OUTCOME_V1}.
+     * Encodes the canonical body of an initial {@code PUBLISH_OUTCOME}.
      * The body is decoded again before it is returned so callers cannot emit a
-     * field-shape or side-effect combination that this local V1 parser would
-     * reject.  Signing, Shard Log enqueue and source-ordered apply remain
+     * field-shape or side-effect combination that this local parser would
+     * reject. Signing, Shard Log enqueue and source-ordered apply remain
      * outside this codec.
      */
     public static byte[] encodeInitial(
@@ -73,12 +73,12 @@ public final class PublishOutcomeBody {
         return encoded;
     }
 
-    /** Encodes the canonical body of a verified {@code EVIDENCE_RESOLUTION_V1}. */
+    /** Encodes the canonical body of a verified {@code EVIDENCE_RESOLUTION}. */
     public static byte[] encodeEvidenceResolution(
             final ShardId shardId,
             final long retryUntilEpochMs,
             final byte[] publishAttemptId,
-            final EvidenceCursorV1 evidenceCursor,
+            final EvidenceCursor evidenceCursor,
             final byte[] evidence,
             final StableCode stableCode,
             final int sideEffect,
@@ -125,7 +125,7 @@ public final class PublishOutcomeBody {
         final byte[] attemptId = bytes(field(fields, 10), 10);
         final byte[] evidence = optionalNested(fields, 14);
         final byte[] transfer = nested(field(fields, 15), 15);
-        // UNKNOWN is intentionally an evidence-only branch.  Older producers
+        // UNKNOWN is intentionally an evidence-only branch. Older producers
         // persisted an opaque transfer placeholder here, so do not apply the
         // definitive ChargeVector schema to that branch.
         if (sideEffect != 3) {
@@ -136,7 +136,7 @@ public final class PublishOutcomeBody {
         final RetryDecision retryDecision =
                 sideEffect == 3 ? RetryDecision.decodeUnknown(retryBytes) : RetryDecision.decode(retryBytes);
         if (sideEffect == 1 || sideEffect == 2) {
-            PublishEvidenceV1.decode(evidence).requireBusinessMutation(attemptId, sideEffect == 1);
+            PublishEvidence.decode(evidence).requireBusinessMutation(attemptId, sideEffect == 1);
             validateDefinitiveCombination(sideEffect, disposition, stableCode, evidence, retryDecision);
         } else if (disposition == 0 || stableCode == StableCode.OK || evidence.length != 0) {
             throw new IllegalArgumentException("invalid UNKNOWN outcome combination");
@@ -152,7 +152,7 @@ public final class PublishOutcomeBody {
     public static PublishOutcomeBody decodeEvidenceResolution(final byte[] canonicalBody) {
         final List<CanonicalProtobuf.Reader.Field> fields =
                 SystemMutationBodyCodec.fields(SystemMutationType.EVIDENCE_RESOLUTION, canonicalBody);
-        EvidenceCursorV1.decode(nested(field(fields, 11), 11));
+        EvidenceCursor.decode(nested(field(fields, 11), 11));
         final byte[] attemptId = bytes(field(fields, 10), 10);
         final byte[] evidence = nested(field(fields, 12), 12);
         final StableCode stableCode = StableCode.fromWire(intValue(field(fields, 13), 13));
@@ -165,7 +165,7 @@ public final class PublishOutcomeBody {
         if (sideEffect != 1 && sideEffect != 2) {
             throw new IllegalArgumentException("only verified Evidence Resolution outcomes are implemented");
         }
-        PublishEvidenceV1.decode(evidence).requireBusinessMutation(attemptId, sideEffect == 1);
+        PublishEvidence.decode(evidence).requireBusinessMutation(attemptId, sideEffect == 1);
         validateDefinitiveCombination(sideEffect, disposition, stableCode, evidence, retryDecision);
         return new PublishOutcomeBody(
                 attemptId, sideEffect, disposition, stableCode, evidence, transfer, observedAt, retryDecision);
@@ -183,9 +183,9 @@ public final class PublishOutcomeBody {
     /** Returns the registered logical identity for an Evidence Resolution. */
     public byte[] evidenceResolutionLogicalOperationIdentity() {
         return Bytes.sha256(
-                Bytes.utf8("nereus-delay-evidence-resolution-logical-id-v1\0"),
+                Bytes.utf8("nereus-delay-evidence-resolution-logical-id\0"),
                 publishAttemptId,
-                PublishEvidenceV1.decode(evidence).evidenceId());
+                PublishEvidence.decode(evidence).evidenceId());
     }
 
     public int sideEffect() {
@@ -358,7 +358,7 @@ public final class PublishOutcomeBody {
         private final long firstAttemptAt;
         private final long retryDeadline;
         private final Long nextRetryAt;
-        private final RetryPolicyRefV1 policy;
+        private final RetryPolicyRef policy;
         private final StableCode cause;
         private final int retryDomain;
 
@@ -369,7 +369,7 @@ public final class PublishOutcomeBody {
                 final long firstAttemptAt,
                 final long retryDeadline,
                 final Long nextRetryAt,
-                final RetryPolicyRefV1 policy,
+                final RetryPolicyRef policy,
                 final StableCode cause,
                 final int retryDomain) {
             this.canonicalBytes = copy(canonicalBytes);
@@ -399,7 +399,7 @@ public final class PublishOutcomeBody {
             }
             final byte[] policyBytes = nested(field(fields, 2), 2);
             validateRetryPolicyRef(policyBytes);
-            final RetryPolicyRefV1 policy = RetryPolicyRefV1.decode(policyBytes);
+            final RetryPolicyRef policy = RetryPolicyRef.decode(policyBytes);
             final long completed = uint32(field(fields, 3), 3);
             final long first = unsigned(field(fields, 4), 4);
             final long deadline = unsigned(field(fields, 5), 5);
@@ -430,7 +430,7 @@ public final class PublishOutcomeBody {
 
         private static RetryDecision decodeUnknown(final byte[] encoded) {
             final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "RetryDecision");
-            // Older UNKNOWN producers used a bounded placeholder.  Preserve
+            // Older UNKNOWN producers used a bounded placeholder. Preserve
             // that opaque branch, but strictly parse a full RetryDecision when
             // it carries more than the placeholder's single field.
             if (fields.size() == 1
@@ -442,7 +442,7 @@ public final class PublishOutcomeBody {
         }
 
         private static void validateRetryPolicyRef(final byte[] encoded) {
-            RetryPolicyRefV1.decode(encoded);
+            RetryPolicyRef.decode(encoded);
         }
 
         private void requireFor(final int disposition) {
@@ -494,7 +494,7 @@ public final class PublishOutcomeBody {
             return policy != null;
         }
 
-        public RetryPolicyRefV1 policy() {
+        public RetryPolicyRef policy() {
             if (policy == null) {
                 throw new IllegalStateException("opaque UNKNOWN retry decision has no policy reference");
             }

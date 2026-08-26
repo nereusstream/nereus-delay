@@ -2,14 +2,14 @@ package com.nereusstream.delay.adapter;
 
 import com.nereusstream.delay.client.CommandQueuedReceipt;
 import com.nereusstream.delay.client.EnqueueOutcome;
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CanonicalCommandQueuedReceipt;
 import com.nereusstream.delay.protocol.CommandCodec;
-import com.nereusstream.delay.protocol.CommandQueuedReceiptV1;
-import com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1;
-import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.EnqueueOutcomeMessage;
+import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentity;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.NonPersistenceProofKindV1;
+import com.nereusstream.delay.protocol.NonPersistenceProofKind;
 import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
@@ -94,52 +94,52 @@ public final class PinnedKafkaCommandIngress implements PolicyBoundWireCommandIn
     }
 
     @Override
-    public CompletionStage<EnqueueOutcomeMessageV1> enqueueOutcomeV1(
+    public CompletionStage<EnqueueOutcomeMessage> enqueueOutcome(
             final PreparedCommand command, final long receiptQueryUntilEpochMs, final byte[] physicalAttemptId) {
         Objects.requireNonNull(command, "command");
-        final byte[] v1Frame;
+        final byte[] commandFrame;
         try {
-            v1Frame = CommandCodec.encodeFrameV1(command);
+            commandFrame = CommandCodec.encodeManagedFrame(command);
         } catch (RuntimeException exception) {
-            // A compatibility body cannot be represented by a V1 ref/union;
-            // fail before any local V1 outcome projection or transport call.
+            // A compatibility body cannot be represented by a currentref/union;
+            // fail before any local outcome projection or transport call.
             return CompletableFuture.failedFuture(exception);
         }
         return closeGuard.invokeIfOpen(
-                () -> enqueueOutcomeOpen(command, receiptQueryUntilEpochMs, physicalAttemptId, v1Frame),
+                () -> enqueueOutcomeOpen(command, receiptQueryUntilEpochMs, physicalAttemptId, commandFrame),
                 () -> completedWire(WireIngressOutcomeSupport.localDefinite(command, StableCode.CLIENT_CLOSED)));
     }
 
     @Override
-    public CompletionStage<EnqueueOutcomeMessageV1> enqueueOutcomeV1(
+    public CompletionStage<EnqueueOutcomeMessage> enqueueOutcome(
             final PreparedCommand command, final QueuedReceiptQueryPolicy routePolicy, final byte[] physicalAttemptId) {
         Objects.requireNonNull(command, "command");
         if (queuedReceiptQueryPolicy == null || !queuedReceiptQueryPolicy.equals(routePolicy)) {
             return completedWire(
                     WireIngressOutcomeSupport.localDefinite(command, StableCode.ROUTE_SNAPSHOT_UNAVAILABLE));
         }
-        final byte[] v1Frame;
+        final byte[] commandFrame;
         try {
-            v1Frame = CommandCodec.encodeFrameV1(command);
+            commandFrame = CommandCodec.encodeManagedFrame(command);
         } catch (RuntimeException exception) {
             return CompletableFuture.failedFuture(exception);
         }
         return closeGuard.invokeIfOpen(
-                () -> enqueueOutcomeOpen(command, null, physicalAttemptId, v1Frame),
+                () -> enqueueOutcomeOpen(command, null, physicalAttemptId, commandFrame),
                 () -> completedWire(WireIngressOutcomeSupport.localDefinite(command, StableCode.CLIENT_CLOSED)));
     }
 
-    private CompletionStage<EnqueueOutcomeMessageV1> enqueueOutcomeOpen(
+    private CompletionStage<EnqueueOutcomeMessage> enqueueOutcomeOpen(
             final PreparedCommand command,
             final Long receiptQueryUntilEpochMs,
             final byte[] physicalAttemptId,
-            final byte[] v1Frame) {
+            final byte[] commandFrame) {
         if (!resource.shardId().equals(command.shardId())) {
             return completedWire(WireIngressOutcomeSupport.localDefinite(command, StableCode.INGRESS_ROUTE_MISMATCH));
         }
         final KafkaProduceRequest request;
         try {
-            request = KafkaProduceRequest.from(resource, command, v1Frame);
+            request = KafkaProduceRequest.from(resource, command, commandFrame);
         } catch (RuntimeException exception) {
             return completedWire(WireIngressOutcomeSupport.localDefinite(command, StableCode.INVALID_PREPARED_COMMAND));
         }
@@ -161,7 +161,7 @@ public final class PinnedKafkaCommandIngress implements PolicyBoundWireCommandIn
                     WireIngressOutcomeSupport.uncertain(command, attempt, StableCode.ENQUEUE_RESULT_UNCERTAIN, null));
         }
         try {
-            final CompletionStage<EnqueueOutcomeMessageV1> handled = result.handle((produce, error) -> {
+            final CompletionStage<EnqueueOutcomeMessage> handled = result.handle((produce, error) -> {
                 if (error != null) {
                     return WireIngressOutcomeSupport.uncertain(
                             command, attempt, StableCode.ENQUEUE_RESULT_UNCERTAIN, null);
@@ -225,7 +225,7 @@ public final class PinnedKafkaCommandIngress implements PolicyBoundWireCommandIn
                 new CommandQueuedReceipt(command.commandId(), command.delayMessageId(), command.shardId(), position));
     }
 
-    private EnqueueOutcomeMessageV1 projectWire(
+    private EnqueueOutcomeMessage projectWire(
             final PreparedCommand command,
             final KafkaProduceRequest request,
             final KafkaProduceResult result,
@@ -247,8 +247,8 @@ public final class PinnedKafkaCommandIngress implements PolicyBoundWireCommandIn
                                 command,
                                 physicalAttemptId,
                                 definitive,
-                                NonPersistenceProofKindV1.KAFKA_DEFINITIVE_REJECTION,
-                                BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+                                NonPersistenceProofKind.KAFKA_DEFINITIVE_REJECTION,
+                                BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(
                                         resource.authenticatedClusterId(), resource.nativeTopicUuid())),
                                 result.requestEvidenceBytes(),
                                 result.responseEvidenceBytes());
@@ -263,7 +263,7 @@ public final class PinnedKafkaCommandIngress implements PolicyBoundWireCommandIn
         };
     }
 
-    private EnqueueOutcomeMessageV1 persistedWire(
+    private EnqueueOutcomeMessage persistedWire(
             final PreparedCommand command,
             final KafkaProduceResult result,
             final Long receiptQueryUntilEpochMs,
@@ -288,7 +288,7 @@ public final class PinnedKafkaCommandIngress implements PolicyBoundWireCommandIn
                 result.offset(),
                 result.leaderEpoch(),
                 result.brokerLogAppendTimeEpochMs());
-        final CommandQueuedReceiptV1.KafkaQueuedAck ack = new CommandQueuedReceiptV1.KafkaQueuedAck(
+        final CanonicalCommandQueuedReceipt.KafkaQueuedAck ack = new CanonicalCommandQueuedReceipt.KafkaQueuedAck(
                 result.authenticatedClusterId(),
                 result.nativeTopicUuid(),
                 result.partition(),
@@ -297,9 +297,9 @@ public final class PinnedKafkaCommandIngress implements PolicyBoundWireCommandIn
                 result.brokerLogAppendTimeEpochMs(),
                 Bytes.sha256(result.responseEvidenceBytes()));
         final long queryUntil = receiptQueryUntil(source, receiptQueryUntilEpochMs);
-        final CommandQueuedReceiptV1 receipt = CommandQueuedReceiptV1.create(
+        final CanonicalCommandQueuedReceipt receipt = CanonicalCommandQueuedReceipt.create(
                 command, source, ack, queryUntil, WireIngressOutcomeSupport.requireAttempt(physicalAttemptId));
-        return EnqueueOutcomeMessageV1.queued(receipt);
+        return EnqueueOutcomeMessage.queued(receipt);
     }
 
     private long receiptQueryUntil(final SourcePosition source, final Long suppliedBoundary) {
@@ -311,7 +311,7 @@ public final class PinnedKafkaCommandIngress implements PolicyBoundWireCommandIn
             return derivedBoundary;
         }
         if (suppliedBoundary == null) {
-            throw new IllegalStateException("strict V1 ingress requires a bound Route query policy");
+            throw new IllegalStateException("strict ingress requires a bound Route query policy");
         }
         return suppliedBoundary;
     }
@@ -320,7 +320,7 @@ public final class PinnedKafkaCommandIngress implements PolicyBoundWireCommandIn
         return CompletableFuture.completedFuture(outcome);
     }
 
-    private static CompletionStage<EnqueueOutcomeMessageV1> completedWire(final EnqueueOutcomeMessageV1 outcome) {
+    private static CompletionStage<EnqueueOutcomeMessage> completedWire(final EnqueueOutcomeMessage outcome) {
         return CompletableFuture.completedFuture(outcome);
     }
 

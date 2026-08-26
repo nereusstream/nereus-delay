@@ -6,12 +6,12 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Semantic parser for the replay-stable subset of a CLAIM_RESULT_V1 body.
+ * Semantic parser for the replay-stable subset of a CLAIM_RESULT body.
  *
  * <p>The generic system-body codec validates the operation field numbers and
- * wire types.  This parser validates the permanent-result contract: the
+ * wire types. This parser validates the permanent-result contract: the
  * result kind/code, the duplicated Claim identity, the complete
- * {@code ClaimPreconditionV1}, Trusted UTC evidence, and the charge transfer.
+ * {@code ClaimPrecondition}, Trusted UTC evidence, and the charge transfer.
  * A Claim Result is allowed to omit materialization only when the failure
  * happened before complete materialization, as specified by the registry.</p>
  */
@@ -62,7 +62,7 @@ public final class ClaimResultBody {
                 || !Arrays.equals(this.laneIncarnation, precondition.laneIncarnation())) {
             throw new IllegalArgumentException("Claim Result identity does not match Claim precondition");
         }
-        // A permanent pre-send result releases the reversible Claim reservation.  The
+        // A permanent pre-send result releases the reversible Claim reservation. The
         // transfer is therefore the same canonical ChargeVector that the Claim froze;
         // accepting a different projection would let a signed callback rewrite quota
         // accounting while the source-ordered apply path has no independent authority.
@@ -71,7 +71,7 @@ public final class ClaimResultBody {
         }
     }
 
-    /** Parses and validates a canonical CLAIM_RESULT_V1 body. */
+    /** Parses and validates a canonical CLAIM_RESULT body. */
     public static ClaimResultBody decode(final byte[] canonicalBody) {
         final List<CanonicalProtobuf.Reader.Field> fields =
                 SystemMutationBodyCodec.fields(SystemMutationType.CLAIM_RESULT, canonicalBody);
@@ -140,7 +140,7 @@ public final class ClaimResultBody {
         return copy(transfer);
     }
 
-    /** Decodes the canonical ClaimPreconditionV1 nested value for local Claim persistence. */
+    /** Decodes the canonical ClaimPrecondition nested value for local Claim persistence. */
     public static ClaimPrecondition decodePrecondition(final byte[] encoded) {
         final List<CanonicalProtobuf.Reader.Field> fields = read(encoded, "ClaimPrecondition");
         if (fields.size() < 18 || fields.size() > 20) {
@@ -158,7 +158,7 @@ public final class ClaimResultBody {
         }
         final byte[] materialization = hasMaterialization ? nested(field(fields, 10), 10) : new byte[0];
         if (hasMaterialization) {
-            final ClaimMaterializationV1 materializationValue = ClaimMaterializationV1.decode(materialization);
+            final ClaimMaterialization materializationValue = ClaimMaterialization.decode(materialization);
             final byte[] materializationDigest = fixed(field(fields, 11), 11, HASH_LENGTH);
             final byte[] expected = materializationValue.materializationDigest();
             if (!Arrays.equals(materializationDigest, expected)) {
@@ -166,7 +166,7 @@ public final class ClaimResultBody {
             }
         }
         final byte[] owner = nested(field(fields, 14), 14);
-        OwnerIdentityV1.decode(owner);
+        OwnerIdentity.decode(owner);
         final int sourceWorkKind = intValue(field(fields, 16), 16);
         if (sourceWorkKind < 1 || sourceWorkKind > 3) {
             throw new IllegalArgumentException("invalid Claim source work kind");
@@ -305,7 +305,7 @@ public final class ClaimResultBody {
         return Bytes.copy(Objects.requireNonNull(value, "value"));
     }
 
-    /** Closed semantic projection of ClaimPreconditionV1. */
+    /** Closed semantic projection of ClaimPrecondition. */
     public static final class ClaimPrecondition {
         private final byte[] canonicalBytes;
         private final byte[] claimId;
@@ -420,12 +420,12 @@ public final class ClaimResultBody {
         public byte[] materialization() {
             return copy(materialization);
         }
-        /** Returns the validated typed ClaimMaterializationV1 projection. */
-        public ClaimMaterializationV1 materializationValue() {
+        /** Returns the validated typed ClaimMaterialization projection. */
+        public ClaimMaterialization materializationValue() {
             if (!hasMaterialization()) {
                 throw new IllegalStateException("ClaimPrecondition has no materialization");
             }
-            return ClaimMaterializationV1.decode(materialization);
+            return ClaimMaterialization.decode(materialization);
         }
 
         public byte[] claimedCharge() {

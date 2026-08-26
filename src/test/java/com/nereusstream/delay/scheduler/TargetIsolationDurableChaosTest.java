@@ -42,7 +42,7 @@ class TargetIsolationDurableChaosTest {
     private static final String BEFORE_FILE = "before.json";
     private static final String AFTER_FILE = "after.json";
     private static final String MANIFEST_FILE = "manifest.json";
-    private static final String SCHEMA = "nereus-delay-target-isolation-durable-state-dump-v1";
+    private static final String SCHEMA = "nereus-delay-target-isolation-durable-state-dump";
     private static final String FAULT = "TARGET_ISOLATION";
     private static final String BEFORE_PHASE = "BEFORE_FRESH_PROCESS_RECOVERY";
     private static final String AFTER_PHASE = "RECOVERED_AFTER_FRESH_PROCESS";

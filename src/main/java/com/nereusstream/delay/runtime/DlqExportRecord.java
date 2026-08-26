@@ -2,7 +2,7 @@ package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.DelayMessageId;
-import com.nereusstream.delay.protocol.DlqExportStateV1;
+import com.nereusstream.delay.protocol.DlqExportState;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
@@ -14,10 +14,10 @@ import java.util.Objects;
  * Durable local DLQ-export outbox projection for one terminal generation.
  *
  * <p>Terminalization without an export policy creates the deterministic
- * {@link DlqExportStateV1#NOT_CONFIGURED} state. Configured outboxes retain the
+ * {@link DlqExportState#NOT_CONFIGURED} state. Configured outboxes retain the
  * exact canonical charge projection that their result callbacks must echo;
  * every export attempt advances this same record by the source-ordered
- * {@code DLQ_EXPORT_RESULT_V1} state machine and may not create a second export
+ * {@code DLQ_EXPORT_RESULT} state machine and may not create a second export
  * identity.</p>
  */
 public record DlqExportRecord(
@@ -27,15 +27,15 @@ public record DlqExportRecord(
         long terminalRevision,
         byte[] exportEnvelopeHash,
         byte[] retainedCharge,
-        DlqExportStateV1 state,
+        DlqExportState state,
         int physicalAttemptNo,
         byte[] appliedSourcePosition) {
     public static final int VALUE_TYPE = 8;
     private static final int HASH_LENGTH = 32;
     private static final int VERSION = 2;
     private static final int LEGACY_VERSION = 1;
-    private static final byte[] ID_DOMAIN = Bytes.utf8("nereus-delay-dlq-export-id-v1\0");
-    private static final byte[] ENVELOPE_DOMAIN = Bytes.utf8("nereus-delay-dlq-export-envelope-v1\0");
+    private static final byte[] ID_DOMAIN = Bytes.utf8("nereus-delay-dlq-export-id\0");
+    private static final byte[] ENVELOPE_DOMAIN = Bytes.utf8("nereus-delay-dlq-export-envelope\0");
 
     public DlqExportRecord {
         requireNonZero(dlqExportId, "dlqExportId");
@@ -47,11 +47,11 @@ public record DlqExportRecord(
         retainedCharge = PublishAdmissionBody.ChargeVector.decodeCanonical(retainedCharge)
                 .canonicalBytes();
         Objects.requireNonNull(state, "state");
-        if (state == DlqExportStateV1.NOT_CONFIGURED && !Arrays.equals(retainedCharge, emptyChargeCanonical())) {
+        if (state == DlqExportState.NOT_CONFIGURED && !Arrays.equals(retainedCharge, emptyChargeCanonical())) {
             throw new IllegalArgumentException("NOT_CONFIGURED DLQ export cannot retain a charge");
         }
-        if (state == DlqExportStateV1.NOT_CONFIGURED && physicalAttemptNo != 0
-                || state != DlqExportStateV1.NOT_CONFIGURED && physicalAttemptNo == 0) {
+        if (state == DlqExportState.NOT_CONFIGURED && physicalAttemptNo != 0
+                || state != DlqExportState.NOT_CONFIGURED && physicalAttemptNo == 0) {
             throw new IllegalArgumentException("DLQ export physical attempt does not match state");
         }
         Objects.requireNonNull(appliedSourcePosition, "appliedSourcePosition");
@@ -75,7 +75,7 @@ public record DlqExportRecord(
             final int generation,
             final long terminalRevision,
             final byte[] exportEnvelopeHash,
-            final DlqExportStateV1 state,
+            final DlqExportState state,
             final int physicalAttemptNo,
             final byte[] appliedSourcePosition) {
         this(
@@ -109,7 +109,7 @@ public record DlqExportRecord(
                         Bytes.u32beBits(generation),
                         Bytes.u64beBits(terminalRevision)),
                 emptyChargeCanonical(),
-                DlqExportStateV1.NOT_CONFIGURED,
+                DlqExportState.NOT_CONFIGURED,
                 0,
                 appliedSourcePosition);
     }
@@ -146,7 +146,7 @@ public record DlqExportRecord(
                 terminalRevision,
                 exportEnvelopeHash,
                 retainedCharge,
-                DlqExportStateV1.PENDING,
+                DlqExportState.PENDING,
                 1,
                 appliedSourcePosition);
     }
@@ -207,7 +207,7 @@ public record DlqExportRecord(
         final long terminalRevision = readU64(input, "terminalRevision");
         final byte[] envelope = readFixed(input, HASH_LENGTH, "exportEnvelopeHash");
         final byte[] retainedCharge = version == VERSION ? readLp32(input, "retainedCharge") : emptyChargeCanonical();
-        final DlqExportStateV1 state = DlqExportStateV1.fromWire(input.get() & 0xff);
+        final DlqExportState state = DlqExportState.fromWire(input.get() & 0xff);
         final int attempt = readU32(input, "physicalAttemptNo");
         final byte[] source = readLp32(input, "appliedSourcePosition");
         if (input.hasRemaining()) {

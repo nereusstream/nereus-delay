@@ -5,7 +5,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
-/** Canonical closed AuthorIdentityV1 oneof used by signed System Mutations. */
+/** Canonical closed AuthorIdentity oneof used by signed System Mutations. */
 public final class AuthorIdentity {
     private static final int HASH_LENGTH = 32;
 
@@ -87,12 +87,12 @@ public final class AuthorIdentity {
         return Bytes.copy(digest);
     }
 
-    /** Returns the Registry nested OwnerIdentityV1 value for the OWNER branch. */
-    public OwnerIdentityV1 asOwnerIdentity() {
+    /** Returns the Registry nested OwnerIdentity value for the OWNER branch. */
+    public OwnerIdentity asOwnerIdentity() {
         if (kind != Kind.OWNER) {
             throw new IllegalStateException("author identity is not an Owner");
         }
-        return new OwnerIdentityV1(first, second, generation, digest);
+        return new OwnerIdentity(first, second, generation, digest);
     }
 
     public byte[] canonicalBytes() {

@@ -1,11 +1,11 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
-import com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
-import com.nereusstream.delay.protocol.ObjectStoreProviderKindV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
+import com.nereusstream.delay.protocol.ObjectStoreProfileSemantic;
+import com.nereusstream.delay.protocol.ObjectStoreProviderKind;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import com.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -78,8 +78,8 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
                 CheckpointPrefixSweepAdapter {
     private static final String SERVICE = "s3";
     private static final String TERMINATOR = "aws4_request";
-    private static final String ENDPOINT_DOMAIN = "nereus-delay-s3-endpoint-v1\0";
-    private static final String CREDENTIAL_DOMAIN = "nereus-delay-s3-credential-scope-v1\0";
+    private static final String ENDPOINT_DOMAIN = "nereus-delay-s3-endpoint\0";
+    private static final String CREDENTIAL_DOMAIN = "nereus-delay-s3-credential-scope\0";
     private static final int BUFFER_BYTES = 64 * 1024;
     private static final String EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
     private static final DateTimeFormatter AMZ_DATE =
@@ -87,8 +87,8 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
     private static final DateTimeFormatter SHORT_DATE =
             DateTimeFormatter.ofPattern("yyyyMMdd").withZone(ZoneOffset.UTC);
 
-    private final ProfileSemanticEnvelopeV1 profile;
-    private final ObjectStoreProfileSemanticV1 objectStore;
+    private final ProfileSemanticEnvelope profile;
+    private final ObjectStoreProfileSemantic objectStore;
     private final URI endpoint;
     private final String region;
     private final String bucket;
@@ -108,7 +108,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
      * region, bucket and credential authorization scope.
      */
     public S3CompatibleCheckpointObjectStoreAdapter(
-            final ProfileSemanticEnvelopeV1 profile,
+            final ProfileSemanticEnvelope profile,
             final URI endpoint,
             final String region,
             final String bucket,
@@ -137,7 +137,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
 
     /** Constructor with injectable client/clock for deterministic provider tests. */
     public S3CompatibleCheckpointObjectStoreAdapter(
-            final ProfileSemanticEnvelopeV1 profile,
+            final ProfileSemanticEnvelope profile,
             final URI endpoint,
             final String region,
             final String bucket,
@@ -166,7 +166,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
 
     /** Creates a provider adapter whose every upload/download is lease-gated. */
     public S3CompatibleCheckpointObjectStoreAdapter(
-            final ProfileSemanticEnvelopeV1 profile,
+            final ProfileSemanticEnvelope profile,
             final URI endpoint,
             final String region,
             final String bucket,
@@ -196,7 +196,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
 
     /** Injectable constructor for the lease-gated provider path. */
     public S3CompatibleCheckpointObjectStoreAdapter(
-            final ProfileSemanticEnvelopeV1 profile,
+            final ProfileSemanticEnvelope profile,
             final URI endpoint,
             final String region,
             final String bucket,
@@ -226,7 +226,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
 
     /** Injectable constructor with an explicit local provider ownership horizon. */
     public S3CompatibleCheckpointObjectStoreAdapter(
-            final ProfileSemanticEnvelopeV1 profile,
+            final ProfileSemanticEnvelope profile,
             final URI endpoint,
             final String region,
             final String bucket,
@@ -240,12 +240,12 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
             final Duration requestTimeout,
             final long maximumProviderOwnershipLifetimeMs) {
         this.profile = Objects.requireNonNull(profile, "profile");
-        if (profile.profileKind() != ProfileKindV1.OBJECT_STORE
-                || !(profile.body() instanceof ObjectStoreProfileSemanticV1 semantic)) {
+        if (profile.profileKind() != ProfileKind.OBJECT_STORE
+                || !(profile.body() instanceof ObjectStoreProfileSemantic semantic)) {
             throw new IllegalArgumentException("S3 checkpoint adapter requires an OBJECT_STORE Profile");
         }
-        if (semantic.providerKind() != ObjectStoreProviderKindV1.S3
-                && semantic.providerKind() != ObjectStoreProviderKindV1.S3_COMPATIBLE) {
+        if (semantic.providerKind() != ObjectStoreProviderKind.S3
+                && semantic.providerKind() != ObjectStoreProviderKind.S3_COMPATIBLE) {
             throw new IllegalArgumentException("S3 checkpoint adapter does not support the selected provider");
         }
         this.objectStore = semantic;
@@ -315,7 +315,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
     }
 
     @Override
-    public synchronized CheckpointResourceV1 upload(final CheckpointUploadRequest request) {
+    public synchronized CheckpointResource upload(final CheckpointUploadRequest request) {
         Objects.requireNonNull(request, "request");
         requireCredentialGate();
         if (!profile.ref().equals(request.intent().objectStoreProfile())) {
@@ -347,7 +347,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
             final String manifestKey = prefix + "/manifest.json";
             final String immutableVersion =
                     putBytes(manifestKey, manifestBytes, manifest.manifestSha256(), limits.maxManifestBytes());
-            final CheckpointResourceV1 resource = new CheckpointResourceV1(
+            final CheckpointResource resource = new CheckpointResource(
                     manifest.recoveryLineageId(),
                     manifest.checkpointId(),
                     request.intent().objectStoreProfile(),
@@ -371,7 +371,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         requireCredentialGate();
         final CheckpointManifest manifest = request.manifest();
         manifest.validateLimits(limits);
-        final CheckpointResourceV1 resource = request.resource();
+        final CheckpointResource resource = request.resource();
         validateCheckpointResource(manifest, resource);
 
         final ObjectStoreProviderOwnershipTracker.Operation ownership = beginProviderOperation();
@@ -479,7 +479,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         requireCredentialGate();
         final CheckpointManifest manifest = request.manifest();
         manifest.validateLimits(limits);
-        final CheckpointResourceV1 resource = request.resource();
+        final CheckpointResource resource = request.resource();
         validateCheckpointResource(manifest, resource);
         final ObjectStoreProviderOwnershipTracker.Operation ownership = beginProviderOperation();
         try {
@@ -534,7 +534,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         }
     }
 
-    private void validateCheckpointResource(final CheckpointManifest manifest, final CheckpointResourceV1 resource) {
+    private void validateCheckpointResource(final CheckpointManifest manifest, final CheckpointResource resource) {
         limits.validateResource(resource);
         if (!resource.objectStoreProfile().equals(profile.ref())
                 || !Arrays.equals(resource.container(), Bytes.utf8(bucket))) {
@@ -915,12 +915,12 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
                 .filter(value -> !value.isBlank())
                 .orElse("");
         final byte[] requestIdHash = Bytes.sha256(
-                Bytes.utf8("nereus-delay-s3-delete-request-v1\0"),
+                Bytes.utf8("nereus-delay-s3-delete-request\0"),
                 Bytes.lp32(Bytes.utf8(key)),
                 Bytes.lp32(Bytes.utf8(exactVersion)),
                 Bytes.lp32(Bytes.utf8(requestId)));
         final byte[] responseHash = Bytes.sha256(
-                Bytes.utf8("nereus-delay-s3-delete-response-v1\0"),
+                Bytes.utf8("nereus-delay-s3-delete-response\0"),
                 Bytes.lp32(Bytes.utf8(key)),
                 Bytes.lp32(Bytes.utf8(exactVersion)),
                 Bytes.u32be(response.statusCode()),
@@ -935,7 +935,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
             final List<DeleteOperation> operations,
             final ProviderResponseEvidence finalListing) {
         final byte[][] fields = new byte[operations.size() + 3][];
-        fields[0] = Bytes.utf8("nereus-delay-s3-prefix-sweep-request-ids-v1\0");
+        fields[0] = Bytes.utf8("nereus-delay-s3-prefix-sweep-request-ids\0");
         fields[1] = requireRequestIdHash(initialListing, "initial version listing");
         for (int index = 0; index < operations.size(); index++) {
             fields[index + 2] = operations.get(index).requestIdHash();
@@ -949,7 +949,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
             final List<DeleteOperation> operations,
             final ProviderResponseEvidence finalListing) {
         final byte[][] fields = new byte[operations.size() + 3][];
-        fields[0] = Bytes.utf8("nereus-delay-s3-prefix-sweep-responses-v1\0");
+        fields[0] = Bytes.utf8("nereus-delay-s3-prefix-sweep-responses\0");
         fields[1] = Bytes.lp32(initialListing.responseHash());
         for (int index = 0; index < operations.size(); index++) {
             fields[index + 2] = Bytes.lp32(operations.get(index).responseHash());
@@ -968,7 +968,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
 
     private static byte[] aggregateDeleteRequestIds(final List<DeleteOperation> operations) {
         final byte[][] fields = new byte[operations.size() + 1][];
-        fields[0] = Bytes.utf8("nereus-delay-s3-delete-request-ids-v1\0");
+        fields[0] = Bytes.utf8("nereus-delay-s3-delete-request-ids\0");
         for (int index = 0; index < operations.size(); index++) {
             fields[index + 1] = Bytes.lp32(operations.get(index).requestIdHash());
         }
@@ -977,7 +977,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
 
     private static byte[] aggregateDeleteResponses(final List<DeleteOperation> operations) {
         final byte[][] fields = new byte[operations.size() + 1][];
-        fields[0] = Bytes.utf8("nereus-delay-s3-delete-responses-v1\0");
+        fields[0] = Bytes.utf8("nereus-delay-s3-delete-responses\0");
         for (int index = 0; index < operations.size(); index++) {
             fields[index + 1] = Bytes.lp32(operations.get(index).responseHash());
         }
@@ -986,7 +986,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
 
     private static byte[] aggregateProbeRequestIds(final List<ProviderResponseEvidence> evidence) {
         final byte[][] fields = new byte[evidence.size() + 1][];
-        fields[0] = Bytes.utf8("nereus-delay-s3-delete-probe-request-ids-v1\0");
+        fields[0] = Bytes.utf8("nereus-delay-s3-delete-probe-request-ids\0");
         for (int index = 0; index < evidence.size(); index++) {
             final byte[] requestIdHash = evidence.get(index).requestIdHash();
             if (requestIdHash == null) {
@@ -999,7 +999,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
 
     private static byte[] aggregateProbeResponses(final List<ProviderResponseEvidence> evidence) {
         final byte[][] fields = new byte[evidence.size() + 1][];
-        fields[0] = Bytes.utf8("nereus-delay-s3-delete-probe-responses-v1\0");
+        fields[0] = Bytes.utf8("nereus-delay-s3-delete-probe-responses\0");
         for (int index = 0; index < evidence.size(); index++) {
             fields[index + 1] = Bytes.lp32(evidence.get(index).responseHash());
         }
@@ -1024,12 +1024,12 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
         final byte[] requestIdHash = requestId == null
                 ? null
                 : Bytes.sha256(
-                        Bytes.utf8("nereus-delay-s3-probe-request-v1\0"),
+                        Bytes.utf8("nereus-delay-s3-probe-request\0"),
                         Bytes.lp32(Bytes.utf8(method)),
                         Bytes.lp32(Bytes.utf8(key)),
                         Bytes.lp32(Bytes.utf8(requestId)));
         final byte[] responseHash = Bytes.sha256(
-                Bytes.utf8("nereus-delay-s3-probe-response-v1\0"),
+                Bytes.utf8("nereus-delay-s3-probe-response\0"),
                 Bytes.lp32(Bytes.utf8(method)),
                 Bytes.lp32(Bytes.utf8(key)),
                 Bytes.u32be(status),
@@ -1283,7 +1283,7 @@ public final class S3CompatibleCheckpointObjectStoreAdapter
 
     /**
      * A provider 5xx after accepting a conditional PUT does not prove that the
-     * immutable object is absent.  The exact read-back below either resolves
+     * immutable object is absent. The exact read-back below either resolves
      * the operation to the committed version or preserves the failure for an
      * explicit retry/reaping decision.
      */

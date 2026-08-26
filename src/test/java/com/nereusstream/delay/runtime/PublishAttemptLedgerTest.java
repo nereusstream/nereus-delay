@@ -89,20 +89,20 @@ class PublishAttemptLedgerTest {
     }
 
     @Test
-    void v2LedgerRoundTripsAnIndependentRetryWindowAndKeepsV1Compatibility() {
+    void retryWindowLedgerRoundTripsIndependentlyFromBaselineFields() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 0);
         final PublishAttemptLedger ledger = PublishAttemptLedger.publishingWithRetryWindow(
                 DelayMessageId.random(shardId),
                 0,
-                Bytes.sha256(Bytes.utf8("publish-attempt-v2")),
-                Bytes.sha256(Bytes.utf8("claim-v2")),
+                Bytes.sha256(Bytes.utf8("publish-attempt")),
+                Bytes.sha256(Bytes.utf8("claim")),
                 1,
                 1,
-                DestinationLaneId.derive(Bytes.utf8("publish-attempt-lane-v2")),
+                DestinationLaneId.derive(Bytes.utf8("publish-attempt-lane")),
                 new byte[16],
                 new byte[] {1},
                 new byte[16],
-                Bytes.sha256(Bytes.utf8("prepared-v2")),
+                Bytes.sha256(Bytes.utf8("prepared")),
                 canonicalAdmissionBytes(),
                 2_001,
                 5_000,
@@ -114,28 +114,28 @@ class PublishAttemptLedgerTest {
         assertEquals(ledger, PublishAttemptLedger.decode(ledger.encode()));
         assertEquals(2, java.nio.ByteBuffer.wrap(ledger.encode()).getInt());
 
-        final PublishAttemptLedger legacy = PublishAttemptLedger.publishing(
+        final PublishAttemptLedger withoutRetryWindow = PublishAttemptLedger.publishing(
                 ledger.delayMessageId(),
                 0,
-                Bytes.sha256(Bytes.utf8("publish-attempt-v1")),
-                Bytes.sha256(Bytes.utf8("claim-v1")),
+                Bytes.sha256(Bytes.utf8("publish-attempt")),
+                Bytes.sha256(Bytes.utf8("claim")),
                 1,
                 1,
                 ledger.laneId(),
                 new byte[16],
                 new byte[] {1},
                 new byte[16],
-                Bytes.sha256(Bytes.utf8("prepared-v1")),
+                Bytes.sha256(Bytes.utf8("prepared")),
                 canonicalAdmissionBytes(),
                 sourcePosition(shardId));
-        assertFalse(legacy.hasRetryWindow());
-        assertEquals(legacy, PublishAttemptLedger.decode(legacy.encode()));
-        assertEquals(1, java.nio.ByteBuffer.wrap(legacy.encode()).getInt());
-        assertThrows(IllegalStateException.class, legacy::firstAttemptAtEpochMs);
+        assertFalse(withoutRetryWindow.hasRetryWindow());
+        assertEquals(withoutRetryWindow, PublishAttemptLedger.decode(withoutRetryWindow.encode()));
+        assertEquals(1, java.nio.ByteBuffer.wrap(withoutRetryWindow.encode()).getInt());
+        assertThrows(IllegalStateException.class, withoutRetryWindow::firstAttemptAtEpochMs);
     }
 
     @Test
-    void v1LedgerPreservesHighBitGenerationAndAttemptBits() {
+    void baselineLedgerPreservesHighBitGenerationAndAttemptBits() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 0);
         final int highBit = (int) 0x8000_0000L;
         final PublishAttemptLedger ledger = PublishAttemptLedger.publishing(
@@ -161,7 +161,7 @@ class PublishAttemptLedgerTest {
     }
 
     @Test
-    void v3LedgerPersistsJournalMappingAndRetirementLifecycle() {
+    void journalLedgerPersistsMappingAndRetirementLifecycle() {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 0);
         final PublishAttemptLedger base = PublishAttemptLedger.publishingWithRetryWindow(
                 DelayMessageId.random(shardId),

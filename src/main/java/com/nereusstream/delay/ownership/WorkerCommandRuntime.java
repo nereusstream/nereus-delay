@@ -1,10 +1,10 @@
 package com.nereusstream.delay.ownership;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.ChannelResourceIdentityV1;
-import com.nereusstream.delay.protocol.ClaimMaterializationV1;
-import com.nereusstream.delay.protocol.PreparedPublishDescriptorV1;
-import com.nereusstream.delay.protocol.ReadyCertificateV1;
+import com.nereusstream.delay.protocol.ChannelResourceIdentity;
+import com.nereusstream.delay.protocol.ClaimMaterialization;
+import com.nereusstream.delay.protocol.PreparedPublishDescriptor;
+import com.nereusstream.delay.protocol.ReadyCertificate;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.ClaimRecord;
 import com.nereusstream.delay.scheduler.ClaimExecutionAdmission;
@@ -21,7 +21,7 @@ import java.util.function.LongSupplier;
 /**
  * Worker composition for the exact Claim and Publish Admission handoffs.
  *
- * <p>The local V1 Claim projection can be derived from the durable accepted
+ * <p>The local Claim projection can be derived from the durable accepted
  * Schedule binding. The caller remains responsible for authorizing every
  * external input: Profile/Object Store readiness, payload serialization,
  * credential/channel leases, a Claim charge, a signed publish descriptor and
@@ -71,7 +71,7 @@ public final class WorkerCommandRuntime {
 
     /**
      * Queues a Claim handoff with materialization derived from the accepted
-     * durable V1 Schedule binding. External live prerequisites and the charge
+     * durable Schedule binding. External live prerequisites and the charge
      * remain explicit and are checked by the normal Claim gate.
      */
     public ClaimHandoffWorkClassExecutor.Submission submitClaim(
@@ -108,8 +108,8 @@ public final class WorkerCommandRuntime {
     public PublishAdmissionWorkClassExecutor.Submission submitPublish(
             final ClaimRecord claim,
             final ClaimExecutionAdmission.Reservation reservation,
-            final ChannelResourceIdentityV1 channel,
-            final ReadyCertificateV1 readyCertificate,
+            final ChannelResourceIdentity channel,
+            final ReadyCertificate readyCertificate,
             final TrustedUtcIntervalEvidence decisionTime,
             final long retryUntilEpochMs,
             final int signingKeyVersion,
@@ -165,7 +165,7 @@ public final class WorkerCommandRuntime {
             ScheduleWorkItem item,
             TrustedUtcIntervalEvidence evidence,
             long claimDeadlineEpochMs,
-            ClaimMaterializationV1 materialization,
+            ClaimMaterialization materialization,
             byte[] claimedCharge,
             LongSupplier ownerClock) {
         public ClaimRequest {
@@ -188,8 +188,8 @@ public final class WorkerCommandRuntime {
     public record PublishRequest(
             ClaimRecord claim,
             ClaimExecutionAdmission.Reservation reservation,
-            PreparedPublishDescriptorV1 descriptor,
-            ReadyCertificateV1 readyCertificate,
+            PreparedPublishDescriptor descriptor,
+            ReadyCertificate readyCertificate,
             TrustedUtcIntervalEvidence decisionTime,
             long retryUntilEpochMs,
             int signingKeyVersion,
@@ -211,8 +211,8 @@ public final class WorkerCommandRuntime {
 
     /** External, immutable Publish prerequisites carried after Claim success. */
     public record PublishPreparation(
-            ChannelResourceIdentityV1 channel,
-            ReadyCertificateV1 readyCertificate,
+            ChannelResourceIdentity channel,
+            ReadyCertificate readyCertificate,
             TrustedUtcIntervalEvidence decisionTime,
             long retryUntilEpochMs,
             int signingKeyVersion,

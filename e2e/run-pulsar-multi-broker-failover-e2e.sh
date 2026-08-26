@@ -69,7 +69,7 @@ trap cleanup EXIT INT TERM
 
 require_clean_pulsar_checkout() {
   test -z "$(git -C "${pulsar_dir}" status --porcelain)"
-  test "$(git -C "${pulsar_dir}" branch --show-current)" = "nereus/delay-resource-guard-v1"
+  test "$(git -C "${pulsar_dir}" branch --show-current)" = "nereus/delay-resource-guard"
   git -C "${pulsar_dir}" merge-base --is-ancestor \
     8dae0236c0a0d405ed7f8303081080520fe91551 HEAD
 }

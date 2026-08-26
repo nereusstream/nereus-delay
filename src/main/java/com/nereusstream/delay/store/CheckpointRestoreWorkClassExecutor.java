@@ -1,7 +1,7 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.RecoveryPinV1;
+import com.nereusstream.delay.protocol.RecoveryPin;
 import com.nereusstream.delay.scheduler.WorkClass;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.scheduler.WorkClassTask;
@@ -19,7 +19,7 @@ import java.util.Optional;
  * while a fatal {@link Error} remains visible to the event-loop stop path.</p>
  */
 public final class CheckpointRestoreWorkClassExecutor {
-    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-checkpoint-restore-handoff-v1\0");
+    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-checkpoint-restore-handoff\0");
 
     private final WorkClassExecutionRegistry workClasses;
     private final CheckpointRestoreCoordinator restoreCoordinator;
@@ -70,7 +70,7 @@ public final class CheckpointRestoreWorkClassExecutor {
         });
     }
 
-    public record RestoreRequest(CheckpointDownloadRequest request, RecoveryPinV1 pin) {
+    public record RestoreRequest(CheckpointDownloadRequest request, RecoveryPin pin) {
         public RestoreRequest {
             Objects.requireNonNull(request, "request");
         }

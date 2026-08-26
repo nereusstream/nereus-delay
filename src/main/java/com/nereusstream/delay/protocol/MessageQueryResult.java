@@ -1,6 +1,6 @@
 package com.nereusstream.delay.protocol;
 
-/** Closed V1 Message query result tags. */
+/** Closed Message query result tags. */
 public enum MessageQueryResult {
     RESERVED(1),
     ACTIVE(2),

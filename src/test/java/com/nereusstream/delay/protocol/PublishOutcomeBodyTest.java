@@ -84,7 +84,7 @@ class PublishOutcomeBodyTest {
     void evidenceResolutionValidatesTypedCursorAndRoundTrips() {
         final ShardId shard = shard();
         final byte[] attempt = Bytes.sha256(Bytes.utf8("resolution-attempt"));
-        final EvidenceCursorV1 cursor = EvidenceCursorV1.kafka(
+        final EvidenceCursor cursor = EvidenceCursor.kafka(
                 Bytes.sha256(Bytes.utf8("lane")),
                 new byte[16],
                 java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("topic")), 16),
@@ -109,9 +109,9 @@ class PublishOutcomeBodyTest {
         assertArrayEquals(attempt, parsed.publishAttemptId());
         assertArrayEquals(
                 Bytes.sha256(
-                        Bytes.utf8("nereus-delay-evidence-resolution-logical-id-v1\0"),
+                        Bytes.utf8("nereus-delay-evidence-resolution-logical-id\0"),
                         attempt,
-                        PublishEvidenceV1.decode(parsed.evidence()).evidenceId()),
+                        PublishEvidence.decode(parsed.evidence()).evidenceId()),
                 parsed.evidenceResolutionLogicalOperationIdentity());
         assertEquals(1, parsed.sideEffect());
         assertEquals(StableCode.OK, parsed.stableCode());
@@ -364,7 +364,7 @@ class PublishOutcomeBodyTest {
     }
 
     private static byte[] evidence(final byte[] attemptId, final boolean published) {
-        final ExternalDeliveryIdentityV1 owner = ExternalDeliveryIdentityV1.publishAttempt(attemptId);
+        final ExternalDeliveryIdentity owner = ExternalDeliveryIdentity.publishAttempt(attemptId);
         final byte[] branch = published
                 ? CanonicalProtobuf.message(output -> {
                     CanonicalProtobuf.bytes(output, 1, kafkaResource());
@@ -384,19 +384,17 @@ class PublishOutcomeBodyTest {
                     CanonicalProtobuf.uint32(output, 6, 1);
                     CanonicalProtobuf.uint32(output, 7, StableCode.CAPABILITY_UNAVAILABLE.wireValue());
                 });
-        return PublishEvidenceV1.create(
+        return PublishEvidence.create(
+                        published ? PublishEvidenceKind.KAFKA_PRODUCE_ACK : PublishEvidenceKind.ADAPTER_NON_SUBMISSION,
                         published
-                                ? PublishEvidenceKindV1.KAFKA_PRODUCE_ACK
-                                : PublishEvidenceKindV1.ADAPTER_NON_SUBMISSION,
-                        published
-                                ? EvidenceVerificationStatusV1.VERIFIED_PUBLISHED
-                                : EvidenceVerificationStatusV1.VERIFIED_NOT_PUBLISHED,
+                                ? EvidenceVerificationStatus.VERIFIED_PUBLISHED
+                                : EvidenceVerificationStatus.VERIFIED_NOT_PUBLISHED,
                         branch)
                 .canonicalBytes();
     }
 
     private static byte[] kafkaResource() {
-        return BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+        return BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(
                         "cluster-a", java.util.UUID.nameUUIDFromBytes(Bytes.utf8("topic"))))
                 .canonicalBytes();
     }

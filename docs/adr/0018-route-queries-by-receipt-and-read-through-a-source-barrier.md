@@ -1,6 +1,6 @@
 # Route queries by receipt and read through a Source barrier
 
-Nereus Delay V1 keeps authoritative Command and message results in the owning shard database and routes reads through the current Oxia Owner Lease. Public receipts carry Ingress Route, partition, identity, and—when Broker queuing was confirmed—Source Position. They may carry a tenant display hint, but authorization always comes from Authenticated Tenant Context and the Route Security Domain. A read-after-command request can use that position as a Query Barrier. V1 does not add a second global result log or eventually consistent search index to the correctness path.
+Nereus Delay keeps authoritative Command and message results in the owning shard database and routes reads through the current Oxia Owner Lease. Public receipts carry Ingress Route, partition, identity, and—when Broker queuing was confirmed—Source Position. They may carry a tenant display hint, but authorization always comes from Authenticated Tenant Context and the Route Security Domain. A read-after-command request can use that position as a Query Barrier. Nereus Delay does not add a second global result log or eventually consistent search index to the correctness path.
 
 ## API outcomes
 

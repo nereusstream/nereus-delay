@@ -3,9 +3,9 @@ package com.nereusstream.delay.store;
 import com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
@@ -26,12 +26,12 @@ import java.util.Set;
  * PENDING_UPLOAD to PUBLISHED/REAPING transitions use version CAS, and a
  * response-loss retry is accepted only after an exact successor reread. This
  * class does not claim the separate Owner Lease/session and catalog publication
- * transaction required by V1.</p>
+ * transaction required by the current design.</p>
  */
 public final class OxiaSyncCheckpointUploadIntentBackend implements CheckpointUploadIntentAuthority {
     private static final int RECORD_VERSION = 1;
     private static final int MAX_INTENT_BYTES = 8 * 1024 * 1024;
-    private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-oxia-checkpoint-intent-v1\0");
+    private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-oxia-checkpoint-intent\0");
 
     private final RecordClient client;
     private final String keyPrefix;
@@ -64,8 +64,8 @@ public final class OxiaSyncCheckpointUploadIntentBackend implements CheckpointUp
     }
 
     @Override
-    public CheckpointUploadIntentV1 create(final CheckpointUploadIntentV1 pending) {
-        requireState(pending, CheckpointUploadStateV1.PENDING_UPLOAD);
+    public CheckpointUploadIntent create(final CheckpointUploadIntent pending) {
+        requireState(pending, CheckpointUploadState.PENDING_UPLOAD);
         final String key = intentKey(pending);
         final Entry existing = read(key, pending);
         if (existing != null) {
@@ -93,39 +93,39 @@ public final class OxiaSyncCheckpointUploadIntentBackend implements CheckpointUp
     }
 
     @Override
-    public CheckpointUploadIntentV1 publish(
-            final CheckpointUploadIntentV1 expectedPending, final CheckpointResourceV1 resource) {
-        requireState(expectedPending, CheckpointUploadStateV1.PENDING_UPLOAD);
+    public CheckpointUploadIntent publish(
+            final CheckpointUploadIntent expectedPending, final CheckpointResource resource) {
+        requireState(expectedPending, CheckpointUploadState.PENDING_UPLOAD);
         Objects.requireNonNull(resource, "resource");
         final Entry existing = requireExpected(expectedPending);
-        final CheckpointUploadIntentV1 next = next(expectedPending, CheckpointUploadStateV1.PUBLISHED, resource, null);
+        final CheckpointUploadIntent next = next(expectedPending, CheckpointUploadState.PUBLISHED, resource, null);
         return casSuccessor(existing, next);
     }
 
     @Override
-    public Optional<CheckpointUploadIntentV1> currentPublishedFor(final CheckpointUploadIntentV1 expectedPending) {
-        requireState(expectedPending, CheckpointUploadStateV1.PENDING_UPLOAD);
+    public Optional<CheckpointUploadIntent> currentPublishedFor(final CheckpointUploadIntent expectedPending) {
+        requireState(expectedPending, CheckpointUploadState.PENDING_UPLOAD);
         final Entry existing = read(intentKey(expectedPending), expectedPending);
-        if (existing == null || existing.intent().state() != CheckpointUploadStateV1.PUBLISHED) {
+        if (existing == null || existing.intent().state() != CheckpointUploadState.PUBLISHED) {
             return Optional.empty();
         }
-        final CheckpointUploadIntentV1 expected = next(
+        final CheckpointUploadIntent expected = next(
                 expectedPending,
-                CheckpointUploadStateV1.PUBLISHED,
+                CheckpointUploadState.PUBLISHED,
                 existing.intent().publishedManifest(),
                 null);
         return existing.intent().equals(expected) ? Optional.of(existing.intent()) : Optional.empty();
     }
 
     @Override
-    public CheckpointUploadIntentV1 beginReaping(
-            final CheckpointUploadIntentV1 expectedPending, final TrustedUtcIntervalEvidence evidence) {
-        requireState(expectedPending, CheckpointUploadStateV1.PENDING_UPLOAD);
+    public CheckpointUploadIntent beginReaping(
+            final CheckpointUploadIntent expectedPending, final TrustedUtcIntervalEvidence evidence) {
+        requireState(expectedPending, CheckpointUploadState.PENDING_UPLOAD);
         Objects.requireNonNull(evidence, "evidence");
         evidence.requireEarliestAtLeast(expectedPending.uploadDeadlineEpochMs());
         final Entry existing = read(intentKey(expectedPending), expectedPending);
-        final CheckpointUploadIntentV1 next = next(expectedPending, CheckpointUploadStateV1.REAPING, null, evidence);
-        if (existing != null && existing.intent().state() == CheckpointUploadStateV1.REAPING) {
+        final CheckpointUploadIntent next = next(expectedPending, CheckpointUploadState.REAPING, null, evidence);
+        if (existing != null && existing.intent().state() == CheckpointUploadState.REAPING) {
             if (existing.intent().equals(next)) {
                 return existing.intent();
             }
@@ -138,8 +138,8 @@ public final class OxiaSyncCheckpointUploadIntentBackend implements CheckpointUp
     }
 
     @Override
-    public CheckpointUploadIntentV1 beginReaping(
-            final CheckpointUploadIntentV1 expectedPending,
+    public CheckpointUploadIntent beginReaping(
+            final CheckpointUploadIntent expectedPending,
             final TrustedUtcIntervalEvidence evidence,
             final RecoveryCatalogAuthority catalog) {
         final CheckpointReapingGuard.Decision decision =
@@ -152,13 +152,13 @@ public final class OxiaSyncCheckpointUploadIntentBackend implements CheckpointUp
 
     /** Reads the exact intent identified by its shard/checkpoint tuple. */
     @Override
-    public Optional<CheckpointUploadIntentV1> current(final CheckpointUploadIntentV1 identity) {
+    public Optional<CheckpointUploadIntent> current(final CheckpointUploadIntent identity) {
         Objects.requireNonNull(identity, "identity");
         final Entry existing = read(intentKey(identity), identity);
         return existing == null ? Optional.empty() : Optional.of(existing.intent());
     }
 
-    private CheckpointUploadIntentV1 casSuccessor(final Entry existing, final CheckpointUploadIntentV1 next) {
+    private CheckpointUploadIntent casSuccessor(final Entry existing, final CheckpointUploadIntent next) {
         final String key = intentKey(next);
         final byte[] value = encode(next);
         try {
@@ -179,7 +179,7 @@ public final class OxiaSyncCheckpointUploadIntentBackend implements CheckpointUp
         }
     }
 
-    private Entry requireExpected(final CheckpointUploadIntentV1 expected) {
+    private Entry requireExpected(final CheckpointUploadIntent expected) {
         final Entry existing = read(intentKey(expected), expected);
         if (existing == null || !existing.intent().equals(expected)) {
             throw new IllegalStateException("checkpoint upload intent expected value does not match current state");
@@ -187,7 +187,7 @@ public final class OxiaSyncCheckpointUploadIntentBackend implements CheckpointUp
         return existing;
     }
 
-    private Entry read(final String key, final CheckpointUploadIntentV1 identity) {
+    private Entry read(final String key, final CheckpointUploadIntent identity) {
         final GetResult result = client.get(key);
         if (result == null) {
             return null;
@@ -206,17 +206,17 @@ public final class OxiaSyncCheckpointUploadIntentBackend implements CheckpointUp
         }
     }
 
-    private String intentKey(final CheckpointUploadIntentV1 intent) {
+    private String intentKey(final CheckpointUploadIntent intent) {
         return keyPrefix + "/intent/"
                 + Bytes.hex(Bytes.concat(intent.shard().canonicalHashBytes(), intent.checkpointId()));
     }
 
-    private static CheckpointUploadIntentV1 next(
-            final CheckpointUploadIntentV1 expected,
-            final CheckpointUploadStateV1 state,
-            final CheckpointResourceV1 resource,
+    private static CheckpointUploadIntent next(
+            final CheckpointUploadIntent expected,
+            final CheckpointUploadState state,
+            final CheckpointResource resource,
             final TrustedUtcIntervalEvidence evidence) {
-        return new CheckpointUploadIntentV1(
+        return new CheckpointUploadIntent(
                 expected.shard(),
                 expected.recoveryLineageId(),
                 expected.checkpointId(),
@@ -242,14 +242,14 @@ public final class OxiaSyncCheckpointUploadIntentBackend implements CheckpointUp
         return revision + 1;
     }
 
-    private static void requireState(final CheckpointUploadIntentV1 intent, final CheckpointUploadStateV1 state) {
+    private static void requireState(final CheckpointUploadIntent intent, final CheckpointUploadState state) {
         Objects.requireNonNull(intent, "intent");
         if (intent.state() != state) {
             throw new IllegalArgumentException("checkpoint upload intent must be " + state);
         }
     }
 
-    private static byte[] encode(final CheckpointUploadIntentV1 intent) {
+    private static byte[] encode(final CheckpointUploadIntent intent) {
         final byte[] intentBytes = intent.canonicalBytes();
         if (intentBytes.length == 0 || intentBytes.length > MAX_INTENT_BYTES) {
             throw new IllegalArgumentException("checkpoint upload intent exceeds Oxia size bound");
@@ -262,7 +262,7 @@ public final class OxiaSyncCheckpointUploadIntentBackend implements CheckpointUp
         });
     }
 
-    private static Entry decode(final byte[] encoded, final CheckpointUploadIntentV1 identity, final long versionId) {
+    private static Entry decode(final byte[] encoded, final CheckpointUploadIntent identity, final long versionId) {
         if (encoded == null || encoded.length > MAX_INTENT_BYTES + 256) {
             throw new IllegalStateException("Oxia upload intent record exceeds bounded size");
         }
@@ -277,7 +277,7 @@ public final class OxiaSyncCheckpointUploadIntentBackend implements CheckpointUp
             throw new IllegalStateException("Oxia upload intent record is non-canonical or corrupt");
         }
         try {
-            final CheckpointUploadIntentV1 decoded = CheckpointUploadIntentV1.decode(intentBytes);
+            final CheckpointUploadIntent decoded = CheckpointUploadIntent.decode(intentBytes);
             if (!decoded.shard().equals(identity.shard())
                     || !Bytes.constantTimeEquals(decoded.checkpointId(), identity.checkpointId())
                     || !java.util.Arrays.equals(encoded, encode(decoded))) {
@@ -338,7 +338,7 @@ public final class OxiaSyncCheckpointUploadIntentBackend implements CheckpointUp
                 throws UnexpectedVersionIdException, KeyAlreadyExistsException;
     }
 
-    private record Entry(CheckpointUploadIntentV1 intent, long versionId) {
+    private record Entry(CheckpointUploadIntent intent, long versionId) {
         private Entry {
             Objects.requireNonNull(intent, "intent");
         }

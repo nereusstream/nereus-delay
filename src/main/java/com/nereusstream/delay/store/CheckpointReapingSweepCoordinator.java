@@ -1,7 +1,7 @@
 package com.nereusstream.delay.store;
 
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
 import java.util.Objects;
 
 /**
@@ -31,7 +31,7 @@ public final class CheckpointReapingSweepCoordinator {
      * sweeps only its derived checkpoint prefix.
      */
     public CheckpointReapingSweepResult reap(
-            final CheckpointUploadIntentV1 expectedPending,
+            final CheckpointUploadIntent expectedPending,
             final RecoveryCatalogAuthority catalog,
             final CheckpointReapingOwnerProof ownerProof,
             final CheckpointReapingQuiescenceProof quiescence,
@@ -40,17 +40,17 @@ public final class CheckpointReapingSweepCoordinator {
         Objects.requireNonNull(catalog, "catalog");
         Objects.requireNonNull(ownerProof, "ownerProof");
         Objects.requireNonNull(quiescence, "quiescence");
-        if (expectedPending.state() != CheckpointUploadStateV1.PENDING_UPLOAD) {
+        if (expectedPending.state() != CheckpointUploadState.PENDING_UPLOAD) {
             throw new IllegalArgumentException("checkpoint reaping requires a PENDING_UPLOAD intent");
         }
         CheckpointReapingOwnerProofGuard.require(expectedPending, ownerProof);
-        final CheckpointUploadIntentV1 reaping =
+        final CheckpointUploadIntent reaping =
                 intentAuthority.beginReaping(expectedPending, quiescence.reapingEvidence(), catalog);
-        if (reaping.state() != CheckpointUploadStateV1.REAPING) {
+        if (reaping.state() != CheckpointUploadState.REAPING) {
             throw new IllegalStateException("checkpoint reaping authority returned a non-REAPING state");
         }
         CheckpointReapingQuiescenceGuard.require(expectedPending, reaping, ownerProof, quiescence);
-        final CheckpointUploadIntentV1 current = intentAuthority
+        final CheckpointUploadIntent current = intentAuthority
                 .current(reaping)
                 .orElseThrow(
                         () -> new IllegalStateException("checkpoint REAPING intent disappeared before provider I/O"));

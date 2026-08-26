@@ -3,12 +3,12 @@ package com.nereusstream.delay.store;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
 import com.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
 import com.nereusstream.delay.protocol.ResourceKind;
 import com.nereusstream.delay.protocol.ResourceRetireIntentBody;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
@@ -27,7 +27,7 @@ import java.util.Objects;
  * owner, append to the Shard Log, or apply the resulting mutation.</p>
  */
 public final class CheckpointDeleteConfirmationComposer {
-    private static final byte[] RESOURCE_IDENTITY_DOMAIN = Bytes.utf8("nereus-delay-resource-identity-v1\0");
+    private static final byte[] RESOURCE_IDENTITY_DOMAIN = Bytes.utf8("nereus-delay-resource-identity\0");
 
     private CheckpointDeleteConfirmationComposer() {}
 
@@ -52,7 +52,7 @@ public final class CheckpointDeleteConfirmationComposer {
             throw new IllegalArgumentException("checkpoint confirmation requires a CHECKPOINT retire intent");
         }
 
-        final CheckpointResourceV1 resource = deleteResult.resource();
+        final CheckpointResource resource = deleteResult.resource();
         final byte[] providerIdentity = resource.exactResourceCanonicalBytes();
         if (!Arrays.equals(retireIntent.resourceIdentity(), providerIdentity)) {
             throw new IllegalArgumentException("provider checkpoint identity does not match retire intent");
@@ -83,7 +83,7 @@ public final class CheckpointDeleteConfirmationComposer {
                 retireIntent.resourceIdentityHash(),
                 retireIntent.expectedResourceStateVersion());
         final byte[] body = CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.bytes(output, 1, new ShardSubjectV1(shard).canonicalBytes());
+            CanonicalProtobuf.bytes(output, 1, new ShardSubject(shard).canonicalBytes());
             CanonicalProtobuf.uint32(output, 2, SystemMutationType.RESOURCE_DELETE_CONFIRMED.wireValue());
             CanonicalProtobuf.int64(output, 3, retryUntilEpochMs);
             CanonicalProtobuf.bytes(output, 10, intent.canonicalBytes());

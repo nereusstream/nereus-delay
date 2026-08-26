@@ -464,7 +464,7 @@ class OwnerDrainCoordinatorTest {
             final OwnerDrainCoordinator coordinator = new OwnerDrainCoordinator(owned, store, resources, authority);
 
             // Force the first close's DB-slot release to fail after native
-            // teardown.  This is a deterministic injection of the same
+            // teardown. This is a deterministic injection of the same
             // retryable slot-release failure that a worker can observe during
             // a real resource race.
             resources.releaseDbSlot();

@@ -103,9 +103,9 @@ require_checkout() {
   git -C "${path}" rev-parse HEAD
 }
 
-delay_source="$(require_checkout Delay "${delay_dir}" nereus/delay-full-implementation-v1 "${delay_base}")"
-kafka_source="$(require_checkout Kafka "${kafka_dir}" nereus/delay-guarded-producer-v1 "${kafka_base}")"
-pulsar_source="$(require_checkout Pulsar "${pulsar_dir}" nereus/delay-resource-guard-v1 "${pulsar_base}")"
+delay_source="$(require_checkout Delay "${delay_dir}" nereus/delay-full-implementation "${delay_base}")"
+kafka_source="$(require_checkout Kafka "${kafka_dir}" nereus/delay-guarded-producer "${kafka_base}")"
+pulsar_source="$(require_checkout Pulsar "${pulsar_dir}" nereus/delay-resource-guard "${pulsar_base}")"
 oxia_source="$(require_checkout Oxia "${oxia_dir}" main "$(git -C "${oxia_dir}" rev-parse HEAD)")"
 
 resource_samples="${artifact_dir}/resource-samples.tsv"
@@ -280,7 +280,7 @@ json_lines() {
 
 soak_artifact="${artifact_dir}/certified-production-chain-soak.json"
 jq -n \
-  --arg schema "nereus-delay-certified-production-chain-soak-v1" \
+  --arg schema "nereus-delay-certified-production-chain-soak" \
   --arg status "${soak_status}" \
   --arg profile_id "${profile_id}" \
   --arg artifact "${artifact_dir}" \

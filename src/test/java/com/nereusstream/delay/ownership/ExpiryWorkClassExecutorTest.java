@@ -8,7 +8,7 @@ import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.OrderingMode;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ScheduleIntent;
@@ -200,8 +200,8 @@ class ExpiryWorkClassExecutorTest {
                 null);
     }
 
-    private static OwnerIdentityV1 owner(final long epoch) {
-        return new OwnerIdentityV1(
+    private static OwnerIdentity owner(final long epoch) {
+        return new OwnerIdentity(
                 Bytes.utf8("expiry-deployment"),
                 Bytes.utf8("expiry-worker"),
                 epoch,
@@ -218,7 +218,7 @@ class ExpiryWorkClassExecutorTest {
         private final ShardStore store;
         private final DelayShard shard;
         private final OwnedDelayShard owned;
-        private final OwnerIdentityV1 owner;
+        private final OwnerIdentity owner;
         private final WorkClassExecutionRegistry workClasses;
         private final KeyPair keyPair;
         private final DelayShard.ExpiryWork candidate;

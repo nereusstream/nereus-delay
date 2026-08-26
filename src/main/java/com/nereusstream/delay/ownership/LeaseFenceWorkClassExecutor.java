@@ -12,14 +12,14 @@ import java.util.function.LongSupplier;
 /**
  * Bounded preemptive handoff for an Owner Lease loss or expiry event.
  *
- * <p>The task carries the complete lease identity that caused the event.  It
+ * <p>The task carries the complete lease identity that caused the event. It
  * never fences a replacement local Owner, and it never treats an uncertain
- * authority read as proof that the old Owner is safe to continue.  A
+ * authority read as proof that the old Owner is safe to continue. A
  * successful fence invokes the external stop callback exactly once for this
  * handoff; source/scheduler quiescence itself remains owned by that callback.
  */
 public final class LeaseFenceWorkClassExecutor {
-    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-lease-fence-handoff-task-v1\0");
+    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-lease-fence-handoff-task\0");
 
     private final WorkClassExecutionRegistry workClasses;
     private final OwnedDelayShard ownedShard;

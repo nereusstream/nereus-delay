@@ -5,11 +5,10 @@ import java.util.Arrays;
 import java.util.Objects;
 
 /**
- * Legacy embedded Schedule shape retained as a compatibility adapter.
+ * Compact Schedule intent for the embedded direct API.
  *
- * <p>The V1 wire contract is {@link ScheduleIntentV1}; this pre-Registry
- * record intentionally remains available until command-body ingress is
- * migrated to the closed V1 value.</p>
+ * <p>Managed transport uses {@link CanonicalScheduleIntent}. Callers choose the embedded or managed API explicitly;
+ * this type is not a fallback decoder or a numbered project revision.</p>
  */
 public record ScheduleIntent(
         DestinationLaneId laneId,

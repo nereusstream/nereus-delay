@@ -1,6 +1,6 @@
 package com.nereusstream.delay.protocol;
 
-/** Closed V1 receipt payload kinds carried by an {@link ReceiptFrame}. */
+/** Closed receipt payload kinds carried by an {@link ReceiptFrame}. */
 public enum ReceiptKind {
     COMMAND_QUEUED(1),
     COMMAND_APPLIED(2),

@@ -1,23 +1,23 @@
 package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
+import com.nereusstream.delay.protocol.ProtocolTuple;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Objects;
 
 /** Compact command identity evidence retained independently from full results. */
-record CommandDedupeRecord(ProtocolTupleV1 protocolTuple, byte[] commandHash, CommandResult result) {
+record CommandDedupeRecord(ProtocolTuple protocolTuple, byte[] commandHash, CommandResult result) {
     private static final int LEGACY_VERSION = 1;
     private static final int VERSION = 2;
 
     CommandDedupeRecord(final byte[] commandHash, final CommandResult result) {
-        this(ProtocolTupleV1.managedCommandV1(), commandHash, result);
+        this(ProtocolTuple.managedCommand(), commandHash, result);
     }
 
     CommandDedupeRecord {
         Objects.requireNonNull(protocolTuple, "protocolTuple");
-        if (protocolTuple.recordKind() != ProtocolTupleV1.CLIENT_COMMAND) {
+        if (protocolTuple.recordKind() != ProtocolTuple.CLIENT_COMMAND) {
             throw new IllegalArgumentException("command dedupe requires a Client Command protocol tuple");
         }
         Bytes.requireLength(commandHash, 32, "commandHash");
@@ -65,8 +65,8 @@ record CommandDedupeRecord(ProtocolTupleV1 protocolTuple, byte[] commandHash, Co
             throw new IllegalArgumentException("unsupported command dedupe version");
         }
         final byte[] tupleBytes = readBytes(input, "protocol tuple");
-        final ProtocolTupleV1 tuple = ProtocolTupleV1.decode(tupleBytes);
-        if (tuple.recordKind() != ProtocolTupleV1.CLIENT_COMMAND) {
+        final ProtocolTuple tuple = ProtocolTuple.decode(tupleBytes);
+        if (tuple.recordKind() != ProtocolTuple.CLIENT_COMMAND) {
             throw new IllegalArgumentException("command dedupe tuple is not a Client Command");
         }
         final byte[] hash = readFixed(input, 32, "command hash");
@@ -87,7 +87,7 @@ record CommandDedupeRecord(ProtocolTupleV1 protocolTuple, byte[] commandHash, Co
         if (input.hasRemaining()) {
             throw new IllegalArgumentException("legacy command dedupe record has trailing bytes");
         }
-        return new CommandDedupeRecord(ProtocolTupleV1.managedCommandV1(), hash, result);
+        return new CommandDedupeRecord(ProtocolTuple.managedCommand(), hash, result);
     }
 
     private static byte[] readBytes(final ByteBuffer input, final String name) {

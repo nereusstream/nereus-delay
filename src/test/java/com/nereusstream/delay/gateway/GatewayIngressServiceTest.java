@@ -4,31 +4,31 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.adapter.WireIngressOutcomeSupport;
-import com.nereusstream.delay.protocol.AdapterKindV1;
-import com.nereusstream.delay.protocol.AdapterMetadataV1;
+import com.nereusstream.delay.protocol.AdapterKind;
+import com.nereusstream.delay.protocol.AdapterMetadata;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CanonicalPayloadCommitProof;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DeliveryMode;
-import com.nereusstream.delay.protocol.KafkaMetadataV1;
-import com.nereusstream.delay.protocol.MessagePreconditionV1;
+import com.nereusstream.delay.protocol.KafkaMetadata;
+import com.nereusstream.delay.protocol.MessagePrecondition;
 import com.nereusstream.delay.protocol.OrderingMode;
-import com.nereusstream.delay.protocol.PayloadCommitProofV1;
-import com.nereusstream.delay.protocol.PayloadReservationReceiptV1;
+import com.nereusstream.delay.protocol.PayloadReservationReceipt;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.PreparedSubmissionV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.RetryPolicyRefV1;
+import com.nereusstream.delay.protocol.PreparedSubmission;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.RetryPolicyRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.StableCode;
-import com.nereusstream.delay.protocol.SubmissionModeV1;
-import com.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import com.nereusstream.delay.protocol.SubmissionMode;
+import com.nereusstream.delay.protocol.SubmissionOutcomeMessage;
 import com.nereusstream.delay.semantic.AuthenticatedTenantContext;
 import com.nereusstream.delay.semantic.DelaySemanticCore;
-import com.nereusstream.delay.semantic.LargeSchedulePreparationV1;
+import com.nereusstream.delay.semantic.LargeSchedulePreparation;
 import com.nereusstream.delay.semantic.RouteSelectionHint;
 import com.nereusstream.delay.semantic.TrustedClock;
 import com.nereusstream.delay.submission.SubmissionCoordinator;
@@ -44,16 +44,16 @@ class GatewayIngressServiceTest {
         final InMemoryGatewayAdmissionController admission = new InMemoryGatewayAdmissionController(1, 4096, 1, 1);
         final AuthenticatedTenantContext tenant = tenant(1);
         final GatewayAdmissionLease schedule = admission
-                .reserve(new GatewayAdmissionRequestV1(tenant, GatewayIngressOperationV1.SCHEDULE, 90))
+                .reserve(new GatewayAdmissionRequest(tenant, GatewayIngressOperation.SCHEDULE, 90))
                 .lease();
 
         assertEquals(
                 GatewayAdmissionController.State.REJECTED,
                 admission
-                        .reserve(new GatewayAdmissionRequestV1(tenant, GatewayIngressOperationV1.SCHEDULE, 1))
+                        .reserve(new GatewayAdmissionRequest(tenant, GatewayIngressOperation.SCHEDULE, 1))
                         .state());
         final GatewayAdmissionController.Decision control =
-                admission.reserve(new GatewayAdmissionRequestV1(tenant, GatewayIngressOperationV1.CONTROL, 1));
+                admission.reserve(new GatewayAdmissionRequest(tenant, GatewayIngressOperation.CONTROL, 1));
         assertEquals(GatewayAdmissionController.State.ACCEPTED, control.state());
 
         control.lease().close();
@@ -62,7 +62,7 @@ class GatewayIngressServiceTest {
         assertEquals(
                 GatewayAdmissionController.State.ACCEPTED,
                 admission
-                        .reserve(new GatewayAdmissionRequestV1(tenant, GatewayIngressOperationV1.SCHEDULE, 1))
+                        .reserve(new GatewayAdmissionRequest(tenant, GatewayIngressOperation.SCHEDULE, 1))
                         .state());
     }
 
@@ -88,7 +88,7 @@ class GatewayIngressServiceTest {
         final InMemoryGatewayAuditSink audit = new InMemoryGatewayAuditSink(4);
         final Fixture fixture = fixture((peer) -> tenant(1), audit);
 
-        final GatewaySubmissionOutcomeV1 outcome = fixture.ingress
+        final GatewaySubmissionOutcome outcome = fixture.ingress
                 .schedule(peer(), request())
                 .toCompletableFuture()
                 .join();
@@ -96,8 +96,8 @@ class GatewayIngressServiceTest {
         assertTrue(outcome.hasSubmissionOutcome());
         assertEquals(1, fixture.core.prepareCalls);
         assertEquals(2, audit.canonicalEvents().size());
-        final GatewayAdmissionController.Decision after = fixture.admission.reserve(
-                new GatewayAdmissionRequestV1(tenant(1), GatewayIngressOperationV1.SCHEDULE, 90));
+        final GatewayAdmissionController.Decision after =
+                fixture.admission.reserve(new GatewayAdmissionRequest(tenant(1), GatewayIngressOperation.SCHEDULE, 90));
         assertEquals(GatewayAdmissionController.State.ACCEPTED, after.state());
         after.lease().close();
     }
@@ -119,7 +119,7 @@ class GatewayIngressServiceTest {
 
         assertEquals(GatewayIngressException.Kind.UNAVAILABLE, failure.kind());
         final GatewayAdmissionController.Decision after =
-                admission.reserve(new GatewayAdmissionRequestV1(tenant(1), GatewayIngressOperationV1.SCHEDULE, 90));
+                admission.reserve(new GatewayAdmissionRequest(tenant(1), GatewayIngressOperation.SCHEDULE, 90));
         assertEquals(GatewayAdmissionController.State.ACCEPTED, after.state());
         after.lease().close();
         assertEquals(0, fixture.core.prepareCalls);
@@ -134,9 +134,9 @@ class GatewayIngressServiceTest {
             final GatewayAuditSink audit,
             final InMemoryGatewayAdmissionController admission) {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
-        final PreparedCommand command = PreparedCommand.scheduleV1(shard, scheduleIntent(), 600);
+        final PreparedCommand command = PreparedCommand.schedule(shard, scheduleIntent(), 600);
         final Fixture fixture = new Fixture();
-        fixture.core = new FakeCore(PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(command)));
+        fixture.core = new FakeCore(PreparedSubmission.managed(CommandCodec.encodeManagedFrame(command)));
         final TrustedClock clock = () -> 100;
         final GatewayScheduleService service = new GatewayScheduleService(
                 fixture.core,
@@ -152,19 +152,19 @@ class GatewayIngressServiceTest {
         return new GatewayPeerContext(new io.grpc.Metadata(), io.grpc.Attributes.EMPTY);
     }
 
-    private static GatewayScheduleRequestV1 request() {
-        return new GatewayScheduleRequestV1(
+    private static GatewayScheduleRequest request() {
+        return new GatewayScheduleRequest(
                 bytes(16, 40),
-                new RouteSelectionHint(AdapterKindV1.KAFKA, Bytes.utf8("primary")),
+                new RouteSelectionHint(AdapterKind.KAFKA, Bytes.utf8("primary")),
                 scheduleIntent(),
                 600,
-                SubmissionModeV1.MANAGED);
+                SubmissionMode.MANAGED);
     }
 
-    private static ScheduleIntentV1 scheduleIntent() {
-        return ScheduleIntentV1.create(
-                new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 60), ProfileKindV1.DESTINATION),
-                new RetryPolicyRefV1(Bytes.utf8("retry"), 1, bytes(32, 61)),
+    private static CanonicalScheduleIntent scheduleIntent() {
+        return CanonicalScheduleIntent.create(
+                new ProfileRef(Bytes.utf8("destination"), 1, bytes(32, 60), ProfileKind.DESTINATION),
+                new RetryPolicyRef(Bytes.utf8("retry"), 1, bytes(32, 61)),
                 300,
                 800,
                 DeliveryMode.MANAGED,
@@ -172,7 +172,7 @@ class GatewayIngressServiceTest {
                 Bytes.utf8("key"),
                 Bytes.utf8("payload"),
                 null,
-                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())),
+                AdapterMetadata.kafka(new KafkaMetadata(null, List.of())),
                 null,
                 null);
     }
@@ -196,20 +196,20 @@ class GatewayIngressServiceTest {
     }
 
     private static final class FakeCore implements DelaySemanticCore {
-        private final PreparedSubmissionV1 prepared;
+        private final PreparedSubmission prepared;
         private int prepareCalls;
 
-        private FakeCore(final PreparedSubmissionV1 prepared) {
+        private FakeCore(final PreparedSubmission prepared) {
             this.prepared = prepared;
         }
 
         @Override
-        public PreparedSubmissionV1 prepareSchedule(
+        public PreparedSubmission prepareSchedule(
                 final AuthenticatedTenantContext tenant,
                 final RouteSelectionHint route,
-                final ScheduleIntentV1 intent,
+                final CanonicalScheduleIntent intent,
                 final long retryUntilEpochMs,
-                final SubmissionModeV1 submissionMode) {
+                final SubmissionMode submissionMode) {
             prepareCalls++;
             return prepared;
         }
@@ -218,7 +218,7 @@ class GatewayIngressServiceTest {
         public PreparedCommand prepareLargeSchedule(
                 final AuthenticatedTenantContext tenant,
                 final RouteSelectionHint route,
-                final LargeSchedulePreparationV1 request,
+                final LargeSchedulePreparation request,
                 final long retryUntilEpochMs) {
             throw new UnsupportedOperationException();
         }
@@ -226,8 +226,8 @@ class GatewayIngressServiceTest {
         @Override
         public PreparedCommand preparePayloadCommit(
                 final AuthenticatedTenantContext tenant,
-                final PayloadReservationReceiptV1 reservation,
-                final PayloadCommitProofV1 proof,
+                final PayloadReservationReceipt reservation,
+                final CanonicalPayloadCommitProof proof,
                 final long retryUntilEpochMs) {
             throw new UnsupportedOperationException();
         }
@@ -236,7 +236,7 @@ class GatewayIngressServiceTest {
         public PreparedCommand prepareCancel(
                 final AuthenticatedTenantContext tenant,
                 final DelayMessageId messageId,
-                final MessagePreconditionV1 precondition,
+                final MessagePrecondition precondition,
                 final long retryUntilEpochMs) {
             throw new UnsupportedOperationException();
         }
@@ -245,7 +245,7 @@ class GatewayIngressServiceTest {
         public PreparedCommand prepareReschedule(
                 final AuthenticatedTenantContext tenant,
                 final DelayMessageId messageId,
-                final MessagePreconditionV1 precondition,
+                final MessagePrecondition precondition,
                 final long deliverAtEpochMs,
                 final long expireAtEpochMs,
                 final long retryUntilEpochMs) {
@@ -253,7 +253,7 @@ class GatewayIngressServiceTest {
         }
 
         @Override
-        public PreparedSubmissionV1 prepareManaged(
+        public PreparedSubmission prepareManaged(
                 final AuthenticatedTenantContext tenant, final PreparedCommand command) {
             throw new UnsupportedOperationException();
         }
@@ -267,11 +267,11 @@ class GatewayIngressServiceTest {
         }
 
         @Override
-        public CompletionStage<SubmissionOutcomeMessageV1> submit(
+        public CompletionStage<SubmissionOutcomeMessage> submit(
                 final AuthenticatedTenantContext tenant,
-                final PreparedSubmissionV1 submission,
+                final PreparedSubmission submission,
                 final TransportOwnershipPermit permit) {
-            return CompletableFuture.completedFuture(SubmissionOutcomeMessageV1.managed(
+            return CompletableFuture.completedFuture(SubmissionOutcomeMessage.managed(
                     WireIngressOutcomeSupport.localDefinite(command, StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED)));
         }
     }

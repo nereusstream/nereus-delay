@@ -3,11 +3,11 @@ package com.nereusstream.delay.client;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.CommandType;
-import com.nereusstream.delay.protocol.NativeCapabilitySnapshotV1;
+import com.nereusstream.delay.protocol.NativeCapabilitySnapshot;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
-import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.PulsarMetadataV1;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
+import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.PulsarMetadata;
 import com.nereusstream.delay.protocol.StableCode;
 import java.security.PublicKey;
 import java.util.Objects;
@@ -29,7 +29,7 @@ public final class AutoFastSchedule {
             }
             // This is the local zero-I/O strictness fence. It also validates
             // that a legacy body cannot be smuggled into the fallback branch.
-            CommandCodec.encodeFrameV1(managedCommand);
+            CommandCodec.encodeManagedFrame(managedCommand);
         } catch (PreparationFailure failure) {
             throw failure;
         } catch (RuntimeException invalidCommand) {
@@ -63,30 +63,30 @@ public final class AutoFastSchedule {
      * profile catalog, Oxia, Broker guard, and credential issuer.
      */
     public static final class NativeCandidate {
-        private final ProfileSemanticEnvelopeV1 destinationProfile;
-        private final ProfileSemanticEnvelopeV1 capabilityProfile;
-        private final PulsarBrokerResourceIdentityV1 target;
+        private final ProfileSemanticEnvelope destinationProfile;
+        private final ProfileSemanticEnvelope capabilityProfile;
+        private final PulsarBrokerResourceIdentity target;
         private final int physicalPartition;
         private final byte[] inlinePayload;
-        private final PulsarMetadataV1 metadata;
+        private final PulsarMetadata metadata;
         private final Long eventTimeEpochMs;
         private final long deliverAtEpochMs;
         private final long nativeDelayBudgetMs;
-        private final NativeCapabilitySnapshotV1 capabilitySnapshot;
+        private final NativeCapabilitySnapshot capabilitySnapshot;
         private final PublicKey issuerKey;
         private final boolean directTargetAuthority;
 
         public NativeCandidate(
-                final ProfileSemanticEnvelopeV1 destinationProfile,
-                final ProfileSemanticEnvelopeV1 capabilityProfile,
-                final PulsarBrokerResourceIdentityV1 target,
+                final ProfileSemanticEnvelope destinationProfile,
+                final ProfileSemanticEnvelope capabilityProfile,
+                final PulsarBrokerResourceIdentity target,
                 final int physicalPartition,
                 final byte[] inlinePayload,
-                final PulsarMetadataV1 metadata,
+                final PulsarMetadata metadata,
                 final Long eventTimeEpochMs,
                 final long deliverAtEpochMs,
                 final long nativeDelayBudgetMs,
-                final NativeCapabilitySnapshotV1 capabilitySnapshot,
+                final NativeCapabilitySnapshot capabilitySnapshot,
                 final PublicKey issuerKey,
                 final boolean directTargetAuthority) {
             this.destinationProfile = require(destinationProfile, "destinationProfile");
@@ -119,15 +119,15 @@ public final class AutoFastSchedule {
             return value;
         }
 
-        public ProfileSemanticEnvelopeV1 destinationProfile() {
+        public ProfileSemanticEnvelope destinationProfile() {
             return destinationProfile;
         }
 
-        public ProfileSemanticEnvelopeV1 capabilityProfile() {
+        public ProfileSemanticEnvelope capabilityProfile() {
             return capabilityProfile;
         }
 
-        public PulsarBrokerResourceIdentityV1 target() {
+        public PulsarBrokerResourceIdentity target() {
             return target;
         }
 
@@ -139,7 +139,7 @@ public final class AutoFastSchedule {
             return Bytes.copy(inlinePayload);
         }
 
-        public PulsarMetadataV1 metadata() {
+        public PulsarMetadata metadata() {
             return metadata;
         }
 
@@ -155,7 +155,7 @@ public final class AutoFastSchedule {
             return nativeDelayBudgetMs;
         }
 
-        public NativeCapabilitySnapshotV1 capabilitySnapshot() {
+        public NativeCapabilitySnapshot capabilitySnapshot() {
             return capabilitySnapshot;
         }
 

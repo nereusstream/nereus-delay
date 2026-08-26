@@ -13,9 +13,9 @@ import java.util.Objects;
  * Process-local logical message/byte permits retained by reversible Claims.
  *
  * <p>The pool enforces Lane, Shard and Worker ceilings together and protects
- * the configured minimum of every other READY Lane.  It is not durable quota
+ * the configured minimum of every other READY Lane. It is not durable quota
  * authority: an Owner recovery revokes/requeues old Claims before opening the
- * new Claim gate, then rebuilds this pool from zero.  A granted reservation is
+ * new Claim gate, then rebuilds this pool from zero. A granted reservation is
  * retained from the Claim WriteBatch until Admission consumes the Claim or an
  * exact Claim revoke releases it.</p>
  */

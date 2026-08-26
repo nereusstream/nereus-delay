@@ -4,8 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.LaneQuotaUsageEntryV1;
-import com.nereusstream.delay.protocol.LaneQuotaUsageMapV1;
+import com.nereusstream.delay.protocol.LaneQuotaUsageEntry;
+import com.nereusstream.delay.protocol.LaneQuotaUsageMap;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -25,7 +25,7 @@ class LaneQuotaUsageProjectionTest {
         assertEquals(1, entry.usage().reservationMessages());
         assertEquals(7, entry.usage().reservationPayloadBytes());
         assertEquals(1, entry.usage().laneCount());
-        assertEquals(projection.map(), LaneQuotaUsageMapV1.decode(projection.canonicalBytes()));
+        assertEquals(projection.map(), LaneQuotaUsageMap.decode(projection.canonicalBytes()));
 
         projection = projection.commitReservation(lane, incarnation, 7, 3).removeSchedule(lane, incarnation, 5, 4);
         entry = projection.map().entries().get(0);
@@ -79,15 +79,14 @@ class LaneQuotaUsageProjectionTest {
         final PublishAdmissionBody.ChargeVector usage =
                 new PublishAdmissionBody.ChargeVector(0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0);
         final LaneQuotaUsageProjection projection = LaneQuotaUsageProjection.decode(
-                new LaneQuotaUsageMapV1(List.of(new LaneQuotaUsageEntryV1(lane, incarnation, usage, 1)))
-                        .canonicalBytes());
+                new LaneQuotaUsageMap(List.of(new LaneQuotaUsageEntry(lane, incarnation, usage, 1))).canonicalBytes());
 
         assertThrows(IllegalStateException.class, () -> projection.removeLane(lane, incarnation, 2));
 
         final PublishAdmissionBody.ChargeVector strongUsage =
                 new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1);
         final LaneQuotaUsageProjection strongProjection = LaneQuotaUsageProjection.decode(
-                new LaneQuotaUsageMapV1(List.of(new LaneQuotaUsageEntryV1(lane, incarnation, strongUsage, 1)))
+                new LaneQuotaUsageMap(List.of(new LaneQuotaUsageEntry(lane, incarnation, strongUsage, 1)))
                         .canonicalBytes());
         assertEquals(
                 0,
@@ -107,9 +106,9 @@ class LaneQuotaUsageProjectionTest {
                 new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0);
         final PublishAdmissionBody.ChargeVector newUsage =
                 new PublishAdmissionBody.ChargeVector(1, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0);
-        LaneQuotaUsageProjection projection = LaneQuotaUsageProjection.decode(new LaneQuotaUsageMapV1(List.of(
-                        new LaneQuotaUsageEntryV1(lane, oldIncarnation, oldUsage, 7),
-                        new LaneQuotaUsageEntryV1(lane, newIncarnation, newUsage, 7)))
+        LaneQuotaUsageProjection projection = LaneQuotaUsageProjection.decode(new LaneQuotaUsageMap(List.of(
+                        new LaneQuotaUsageEntry(lane, oldIncarnation, oldUsage, 7),
+                        new LaneQuotaUsageEntry(lane, newIncarnation, newUsage, 7)))
                 .canonicalBytes());
 
         assertEquals(newUsage, projection.usageFor(lane, newIncarnation));

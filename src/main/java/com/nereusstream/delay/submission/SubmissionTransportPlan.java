@@ -1,13 +1,13 @@
 package com.nereusstream.delay.submission;
 
-import com.nereusstream.delay.protocol.PreparedSubmissionV1;
+import com.nereusstream.delay.protocol.PreparedSubmission;
 import com.nereusstream.delay.transport.CommandTransportKey;
 import com.nereusstream.delay.transport.TransportRequest;
 import java.util.Objects;
 
 /** Immutable exact Route/transport plan derived from prepared bytes. */
 public record SubmissionTransportPlan(
-        PreparedSubmissionV1 submission,
+        PreparedSubmission submission,
         SubmissionRouteAuthority routeAuthority,
         CommandTransportKey transportKey,
         TransportRequest request,

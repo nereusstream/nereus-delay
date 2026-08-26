@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Canonical semantic parser for {@code RESOURCE_RETIRE_INTENT_V1}.
+ * Canonical semantic parser for {@code RESOURCE_RETIRE_INTENT}.
  *
  * <p>The parser validates the closed resource identity and protection-set
  * shapes before a shard is allowed to persist a retire intent. It does not
@@ -104,7 +104,7 @@ public final class ResourceRetireIntentBody {
      * Checks provider-returned identity fields for a specific delete outcome.
      * A {@code DELETED} payload/checkpoint must carry the immutable version
      * that was actually deleted; an empty response cannot prove that the
-     * exact pinned object was removed.  The legacy overload above remains a
+     * exact pinned object was removed. The legacy overload above remains a
      * shape-only compatibility seam for callers that do not yet carry the
      * outcome tag.
      */
@@ -152,7 +152,7 @@ public final class ResourceRetireIntentBody {
         }
     }
 
-    /** Closed ExactResourceIdentityV1 projection. */
+    /** Closed ExactResourceIdentity projection. */
     public record ExactResourceIdentity(ResourceKind kind, byte[] canonicalBytes, byte[] identityHash) {
         public ExactResourceIdentity {
             Objects.requireNonNull(kind, "kind");
@@ -172,8 +172,7 @@ public final class ResourceRetireIntentBody {
             if (!Arrays.equals(canonicalBytes, expectedCanonical)) {
                 throw new IllegalArgumentException("non-canonical ExactResourceIdentity");
             }
-            final byte[] expectedHash =
-                    Bytes.sha256(Bytes.utf8("nereus-delay-resource-identity-v1\0"), expectedCanonical);
+            final byte[] expectedHash = Bytes.sha256(Bytes.utf8("nereus-delay-resource-identity\0"), expectedCanonical);
             if (!Bytes.constantTimeEquals(identityHash, expectedHash)) {
                 throw new IllegalArgumentException("resource identity hash does not match canonical identity");
             }
@@ -205,7 +204,7 @@ public final class ResourceRetireIntentBody {
                 throw new IllegalArgumentException("non-canonical ExactResourceIdentity");
             }
             return new ExactResourceIdentity(
-                    kind, canonical, Bytes.sha256(Bytes.utf8("nereus-delay-resource-identity-v1\0"), canonical));
+                    kind, canonical, Bytes.sha256(Bytes.utf8("nereus-delay-resource-identity\0"), canonical));
         }
 
         private static byte[] canonicalBytes(final ResourceKind kind, final byte[] branch) {
@@ -222,7 +221,7 @@ public final class ResourceRetireIntentBody {
                     } else {
                         requireExact(fields, 7, kind);
                     }
-                    profileRef(nested(field(fields, 1), 1), ProfileKindV1.OBJECT_STORE);
+                    profileRef(nested(field(fields, 1), 1), ProfileKind.OBJECT_STORE);
                     nonEmpty(bytes(field(fields, 2), 2), 2);
                     nonEmpty(bytes(field(fields, 3), 3), 3);
                     nonEmpty(bytes(field(fields, 4), 4), 4);
@@ -237,7 +236,7 @@ public final class ResourceRetireIntentBody {
                     // resource codec. Reuse it so the retirement identity
                     // cannot weaken its non-zero IDs or Object Store Profile
                     // fence while adding GC-specific meaning around it.
-                    CheckpointResourceV1.decode(branch);
+                    CheckpointResource.decode(branch);
                 }
                 case DLQ_EXPORT_OBJECT -> {
                     requireExact(fields, 4, kind);
@@ -276,7 +275,7 @@ public final class ResourceRetireIntentBody {
         }
     }
 
-    /** Canonical ProtectionSetV1 projection. */
+    /** Canonical ProtectionSet projection. */
     public record ProtectionSet(List<ProtectionRef> references, byte[] canonicalBytes, byte[] digest) {
         public ProtectionSet {
             Objects.requireNonNull(references, "references");
@@ -294,7 +293,7 @@ public final class ResourceRetireIntentBody {
                 }
             }
             final byte[] canonicalRefs = canonicalReferences(references);
-            final byte[] expectedDigest = Bytes.sha256(Bytes.utf8("nereus-delay-protection-set-v1\0"), canonicalRefs);
+            final byte[] expectedDigest = Bytes.sha256(Bytes.utf8("nereus-delay-protection-set\0"), canonicalRefs);
             if (!Bytes.constantTimeEquals(digest, expectedDigest)) {
                 throw new IllegalArgumentException("ProtectionSet digest mismatch");
             }
@@ -335,7 +334,7 @@ public final class ResourceRetireIntentBody {
             }
             final byte[] canonicalRefs = canonicalReferences(refs);
             final byte[] digest = fixed(bytes(field(fields, 2), 2), HASH_LENGTH, 2);
-            final byte[] expected = Bytes.sha256(Bytes.utf8("nereus-delay-protection-set-v1\0"), canonicalRefs);
+            final byte[] expected = Bytes.sha256(Bytes.utf8("nereus-delay-protection-set\0"), canonicalRefs);
             if (!Bytes.constantTimeEquals(digest, expected)) {
                 throw new IllegalArgumentException("ProtectionSet digest mismatch");
             }
@@ -375,7 +374,7 @@ public final class ResourceRetireIntentBody {
         }
     }
 
-    /** Canonical ProtectionRefV1 projection. */
+    /** Canonical ProtectionRef projection. */
     public record ProtectionRef(
             int protectionKind,
             byte[] protectedResourceId,
@@ -536,8 +535,8 @@ public final class ResourceRetireIntentBody {
         }
     }
 
-    private static void profileRef(final byte[] encoded, final ProfileKindV1 expectedKind) {
-        final ProfileRefV1 profile = ProfileRefV1.decode(encoded);
+    private static void profileRef(final byte[] encoded, final ProfileKind expectedKind) {
+        final ProfileRef profile = ProfileRef.decode(encoded);
         if (profile.profileKind() != expectedKind) {
             throw new IllegalArgumentException("resource identity ProfileRef kind does not match resource branch");
         }

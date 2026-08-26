@@ -1,6 +1,6 @@
 # Use two-level bounded deficit round robin
 
-Nereus Delay V1 uses one exact fairness family: weighted deficit round robin (DRR) first across `ACTIVE_FOR_COMMANDS` shards that have at least one Lane with `admissionGate=OPEN && runtimeReadiness=READY` and then across only those Lanes inside the selected shard. Priority queues are used only to discover eligibility time; they do not repeatedly choose the lowest timestamp and starve other tenants or targets.
+Nereus Delay uses one exact fairness family: weighted deficit round robin (DRR) first across `ACTIVE_FOR_COMMANDS` shards that have at least one Lane with `admissionGate=OPEN && runtimeReadiness=READY` and then across only those Lanes inside the selected shard. Priority queues are used only to discover eligibility time; they do not repeatedly choose the lowest timestamp and starve other tenants or targets.
 
 ## Ready index
 

@@ -5,19 +5,19 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
-import com.nereusstream.delay.protocol.ObjectStoreProviderKindV1;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
+import com.nereusstream.delay.protocol.ObjectStoreProfileSemantic;
+import com.nereusstream.delay.protocol.ObjectStoreProviderKind;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import com.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -68,7 +68,7 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
                     fixture.checkpointDirectory(),
                     fixture.manifest().canonicalJsonBytes());
 
-            final CheckpointResourceV1 resource = adapter.upload(request);
+            final CheckpointResource resource = adapter.upload(request);
 
             assertTrue(server.manifestPutResponseDropped);
             assertFalse(resource.immutableVersion().length == 0);
@@ -122,7 +122,7 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
                     fixture.manifest(),
                     fixture.checkpointDirectory(),
                     fixture.manifest().canonicalJsonBytes());
-            final CheckpointResourceV1 resource = adapter.upload(request);
+            final CheckpointResource resource = adapter.upload(request);
 
             final CheckpointDeleteResult result =
                     adapter.delete(new CheckpointDeleteRequest(fixture.manifest(), resource));
@@ -158,7 +158,7 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
                     fixture.manifest(),
                     fixture.checkpointDirectory(),
                     fixture.manifest().canonicalJsonBytes());
-            final CheckpointResourceV1 resource = adapter.upload(request);
+            final CheckpointResource resource = adapter.upload(request);
             server.omitDeleteVersionHeaders = true;
 
             final IllegalStateException failure = assertThrows(
@@ -178,7 +178,7 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
                     fixture.manifest(),
                     fixture.checkpointDirectory(),
                     fixture.manifest().canonicalJsonBytes());
-            final CheckpointResourceV1 resource = adapter.upload(request);
+            final CheckpointResource resource = adapter.upload(request);
             server.omitDeleteVersionHeaders = true;
 
             assertThrows(
@@ -255,14 +255,14 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
             final URI otherEndpoint = URI.create("http://127.0.0.1:" + server.port() + "/other");
             assertThrows(IllegalArgumentException.class, () -> adapter(fixture.profile(), otherEndpoint));
 
-            final ObjectStoreProfileSemanticV1 semantic =
-                    (ObjectStoreProfileSemanticV1) fixture.profile().body();
-            final ProfileSemanticEnvelopeV1 wrongCredentialProfile = new ProfileSemanticEnvelopeV1(
-                    ProfileKindV1.OBJECT_STORE,
+            final ObjectStoreProfileSemantic semantic =
+                    (ObjectStoreProfileSemantic) fixture.profile().body();
+            final ProfileSemanticEnvelope wrongCredentialProfile = new ProfileSemanticEnvelope(
+                    ProfileKind.OBJECT_STORE,
                     Bytes.utf8("checkpoint-store"),
                     1,
-                    new ObjectStoreProfileSemanticV1(
-                            ObjectStoreProviderKindV1.S3_COMPATIBLE,
+                    new ObjectStoreProfileSemantic(
+                            ObjectStoreProviderKind.S3_COMPATIBLE,
                             semantic.endpointConfigDigest(),
                             S3CompatibleCheckpointObjectStoreAdapter.credentialAuthorizationScopeDigest(
                                     "other-access", REGION, BUCKET),
@@ -312,7 +312,7 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
                     fixture.checkpointDirectory(),
                     fixture.manifest().canonicalJsonBytes());
 
-            final CheckpointResourceV1 resource = adapter.upload(request);
+            final CheckpointResource resource = adapter.upload(request);
 
             assertTrue(server.manifestPutFailureInjected);
             assertEquals(
@@ -367,7 +367,7 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
                     fixture.checkpointDirectory(),
                     fixture.manifest().canonicalJsonBytes());
 
-            final CheckpointResourceV1 resource = adapter.upload(request);
+            final CheckpointResource resource = adapter.upload(request);
 
             assertTrue(server.manifestPutResponseTimedOut);
             assertTrue(server.requests.stream()
@@ -378,12 +378,12 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
     }
 
     private S3CompatibleCheckpointObjectStoreAdapter adapter(
-            final ProfileSemanticEnvelopeV1 profile, final URI endpoint) {
+            final ProfileSemanticEnvelope profile, final URI endpoint) {
         return adapter(profile, endpoint, java.time.Duration.ofSeconds(10));
     }
 
     private S3CompatibleCheckpointObjectStoreAdapter adapter(
-            final ProfileSemanticEnvelopeV1 profile, final URI endpoint, final java.time.Duration requestTimeout) {
+            final ProfileSemanticEnvelope profile, final URI endpoint, final java.time.Duration requestTimeout) {
         return new S3CompatibleCheckpointObjectStoreAdapter(
                 profile,
                 endpoint,
@@ -403,12 +403,12 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
         Files.createDirectories(directory);
         Files.writeString(directory.resolve("CURRENT"), "MANIFEST-1\n");
         Files.writeString(directory.resolve("000001.sst"), "sst-bytes");
-        final ProfileSemanticEnvelopeV1 profile = profile(endpoint);
+        final ProfileSemanticEnvelope profile = profile(endpoint);
         final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
         final byte[] lineage = bytes(16, 2);
         final byte[] checkpoint = bytes(16, 3);
         final UUID storeIncarnation = UUID.randomUUID();
-        final OwnerIdentityV1 owner = new OwnerIdentityV1(bytes(8, 5), bytes(8, 6), 42, bytes(32, 7));
+        final OwnerIdentity owner = new OwnerIdentity(bytes(8, 5), bytes(8, 6), 42, bytes(32, 7));
         final List<CheckpointFileInventory> inventory = CheckpointFileInventory.collect(directory, LIMITS);
         final List<CheckpointManifest.FileEntry> files = inventory.stream()
                 .map(file -> new CheckpointManifest.FileEntry(
@@ -439,8 +439,8 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
                 bytes(32, 12),
                 List.of(),
                 files);
-        final CheckpointUploadIntentV1 pending = new CheckpointUploadIntentV1(
-                new ShardSubjectV1(shard),
+        final CheckpointUploadIntent pending = new CheckpointUploadIntent(
+                new ShardSubject(shard),
                 lineage,
                 checkpoint,
                 owner,
@@ -452,16 +452,16 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
                 profile.ref(),
                 evidence(900),
                 5_000,
-                CheckpointUploadStateV1.PENDING_UPLOAD,
+                CheckpointUploadState.PENDING_UPLOAD,
                 1,
                 null,
                 null);
         return new Fixture(directory, profile, manifest, pending);
     }
 
-    private static ProfileSemanticEnvelopeV1 profile(final URI endpoint) {
-        final ObjectStoreProfileSemanticV1 semantic = new ObjectStoreProfileSemanticV1(
-                ObjectStoreProviderKindV1.S3_COMPATIBLE,
+    private static ProfileSemanticEnvelope profile(final URI endpoint) {
+        final ObjectStoreProfileSemantic semantic = new ObjectStoreProfileSemantic(
+                ObjectStoreProviderKind.S3_COMPATIBLE,
                 S3CompatibleCheckpointObjectStoreAdapter.endpointConfigDigest(endpoint, REGION, BUCKET),
                 S3CompatibleCheckpointObjectStoreAdapter.credentialAuthorizationScopeDigest(ACCESS_KEY, REGION, BUCKET),
                 1,
@@ -471,17 +471,17 @@ class S3CompatibleCheckpointObjectStoreAdapterTest {
                 true,
                 bytes(32, 20),
                 1 << 20,
-                ObjectStoreProfileSemanticV1.SINGLE_PUT,
+                ObjectStoreProfileSemantic.SINGLE_PUT,
                 1,
                 bytes(32, 21));
-        return new ProfileSemanticEnvelopeV1(ProfileKindV1.OBJECT_STORE, Bytes.utf8("checkpoint-store"), 1, semantic);
+        return new ProfileSemanticEnvelope(ProfileKind.OBJECT_STORE, Bytes.utf8("checkpoint-store"), 1, semantic);
     }
 
     private record Fixture(
             Path checkpointDirectory,
-            ProfileSemanticEnvelopeV1 profile,
+            ProfileSemanticEnvelope profile,
             CheckpointManifest manifest,
-            CheckpointUploadIntentV1 pending) {}
+            CheckpointUploadIntent pending) {}
 
     private record Request(String method, String path, Map<String, String> headers, byte[] body, int status) {}
 

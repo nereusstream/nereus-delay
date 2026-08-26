@@ -1,8 +1,8 @@
 package com.nereusstream.delay.ownership;
 
-import com.nereusstream.delay.protocol.ActiveLaneStateV1;
+import com.nereusstream.delay.protocol.ActiveLaneState;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.runtime.LaneRecord;
 import java.util.Objects;
 
@@ -10,9 +10,9 @@ import java.util.Objects;
  * Strict Lane-scoped activation boundary for an owned Shard.
  *
  * <p>The coordinator asks an injected authority for typed prerequisites only
- * after the owner has entered source catch-up.  It then rereads the exact
+ * after the owner has entered source catch-up. It then rereads the exact
  * Oxia lease and commits the certificate/channel-backed READY projection in
- * the shard Store.  No implementation of this class can turn a boolean into
+ * the shard Store. No implementation of this class can turn a boolean into
  * READY or infer live Broker/Profile/credential evidence locally.</p>
  */
 public final class LaneActivationCoordinator {
@@ -25,7 +25,7 @@ public final class LaneActivationCoordinator {
     }
 
     /**
-     * Resolves and commits one Lane activation.  The authority callback is the
+     * Resolves and commits one Lane activation. The authority callback is the
      * integration point for Profile/credential/channel fencing and evidence
      * catch-up; it must return the exact certificate-backed proof.
      */
@@ -49,9 +49,9 @@ public final class LaneActivationCoordinator {
     public record ActivationRequest(
             DestinationLaneId laneId,
             byte[] laneIncarnation,
-            OwnerIdentityV1 owner,
+            OwnerIdentity owner,
             byte[] storeIncarnation,
-            ActiveLaneStateV1 laneState,
+            ActiveLaneState laneState,
             long nowEpochMs) {
         public ActivationRequest {
             Objects.requireNonNull(laneId, "laneId");

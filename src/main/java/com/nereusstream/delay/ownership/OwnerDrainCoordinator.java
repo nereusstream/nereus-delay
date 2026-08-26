@@ -128,7 +128,7 @@ public final class OwnerDrainCoordinator {
                 // once-only stop callback when the shard was already draining.
                 ownedShard.fence();
                 // An external native close does not prove that the source and
-                // scheduler have stopped.  Keep the same once-only callback
+                // scheduler have stopped. Keep the same once-only callback
                 // fence for every uncertain-Store retry, regardless of which
                 // caller started Store teardown.
                 if (!externalCloseStopCompleted) {
@@ -185,7 +185,7 @@ public final class OwnerDrainCoordinator {
             if (store.isCloseStarted()) {
                 if (ownedShard.state() == ShardLifecycleState.ACTIVE_FOR_COMMANDS) {
                     // A caller may have started Store teardown outside this
-                    // coordinator.  Close the owner gate through the same
+                    // coordinator. Close the owner gate through the same
                     // authority CAS before treating the already-started
                     // Store as an emergency drain; otherwise the local Owner
                     // would remain ACTIVE while its DB is fenced.
@@ -200,7 +200,7 @@ public final class OwnerDrainCoordinator {
                     externalCloseStopCompleted = true;
                 }
                 // A previous attempt fenced Store operations but failed during
-                // retryable native/slot teardown.  Do not rerun Claim revoke,
+                // retryable native/slot teardown. Do not rerun Claim revoke,
                 // callback polling, flush or checkpoint logic: those paths
                 // are correctly fenced after closeStarted, and replaying them
                 // would turn a close retry into a new drain decision.
@@ -260,7 +260,7 @@ public final class OwnerDrainCoordinator {
                     return new DrainResult(revokedClaims, callbackPolls, null, pendingCheckpointSubmission.task());
                 }
                 // Checkpoint creation can include a long RocksDB file walk and
-                // hard-link phase.  Revalidate the lease after that boundary
+                // hard-link phase. Revalidate the lease after that boundary
                 // before closing the DB or attempting release; otherwise a
                 // lease loss during checkpointing could make this owner act
                 // on a newer owner’s state.
@@ -279,13 +279,13 @@ public final class OwnerDrainCoordinator {
             }
             if (closeFailure != null) {
                 // A failed close does not prove that the old DB stopped
-                // owning its files.  Keep the authoritative lease in
+                // owning its files. Keep the authoritative lease in
                 // DRAINING for a visible retry; releasing it here could let a
                 // new owner open the same shard while this DB is still live.
                 throwUnchecked(closeFailure);
             }
             // A drain callback may renew the same lease while it waits for
-            // an in-flight attempt.  Release the exact current lease
+            // an in-flight attempt. Release the exact current lease
             // value, not the acquisition-time snapshot, so a backend that
             // includes expiry in its CAS cannot reject a valid renewal.
             releaseExactLease(ownedShard.lease());
@@ -297,9 +297,9 @@ public final class OwnerDrainCoordinator {
         } finally {
             // A successfully closed Store is not enough to make the local
             // owner terminal: if lease release was not confirmed, the exact
-            // DRAINING state must remain retryable.  Fencing here would make
+            // DRAINING state must remain retryable. Fencing here would make
             // the retry branch reject the still-held lease and leak it in
-            // Oxia.  A confirmed release (or an earlier lease-loss check)
+            // Oxia. A confirmed release (or an earlier lease-loss check)
             // is what permits the terminal local fence.
             Throwable cleanupFailure = null;
             if (storeClosed && leaseReleased) {
@@ -463,7 +463,7 @@ public final class OwnerDrainCoordinator {
             ownedShard.beginDrainStrict(authority, nowEpochMs);
         } else {
             // Embedded compatibility owners may not carry an Oxia assignment
-            // and session context.  Keep that seam explicit; production
+            // and session context. Keep that seam explicit; production
             // context-bound owners always take the strict branch above.
             ownedShard.beginDrain(authority, nowEpochMs);
         }

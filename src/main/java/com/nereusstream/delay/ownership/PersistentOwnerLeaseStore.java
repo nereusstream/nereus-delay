@@ -29,10 +29,10 @@ import java.util.Optional;
  * Crash-durable local Owner Lease projection for embedded/conformance runs.
  *
  * <p>The state for each shard keeps the latest consumed owner epoch even when
- * no lease is currently present.  Every CAS is serialized by a JVM lock and a
+ * no lease is currently present. Every CAS is serialized by a JVM lock and a
  * process-shared file lock, then published with a checksummed temporary file,
- * atomic rename and directory fsync.  This gives local restart and response-
- * loss tests the same exact-identity behavior as the in-memory authority.  It
+ * atomic rename and directory fsync. This gives local restart and response-
+ * loss tests the same exact-identity behavior as the in-memory authority. It
  * is deliberately not a production lease authority: Oxia must own the
  * session-bound ephemeral record and cross-worker CAS.</p>
  */
@@ -45,7 +45,7 @@ public final class PersistentOwnerLeaseStore implements OwnerLeaseStore {
     private static final int TOKEN_LENGTH = 32;
     private static final int MAX_OWNER_ID_BYTES = 4096;
     private static final int MAX_STATE_BYTES = 128 * 1024;
-    private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-owner-lease-state-v1\\0");
+    private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-owner-lease-state\\0");
     private static final Object JVM_LOCK = new Object();
 
     private final Path root;

@@ -1,10 +1,10 @@
 package com.nereusstream.delay.submission;
 
-import com.nereusstream.delay.protocol.RouteSnapshotV1;
+import com.nereusstream.delay.protocol.RouteSnapshot;
 import java.util.Objects;
 
 /** Historical signed Route authority for a managed prepared command. */
-public record ManagedRouteAuthority(RouteSnapshotV1 historicalRoute) implements SubmissionRouteAuthority {
+public record ManagedRouteAuthority(RouteSnapshot historicalRoute) implements SubmissionRouteAuthority {
     public ManagedRouteAuthority {
         Objects.requireNonNull(historicalRoute, "historicalRoute");
     }

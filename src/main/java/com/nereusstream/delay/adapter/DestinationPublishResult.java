@@ -1,6 +1,6 @@
 package com.nereusstream.delay.adapter;
 
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.StableCode;
 import java.util.Objects;
@@ -12,7 +12,7 @@ public record DestinationPublishResult(
         byte[] externalDeliveryIdentity,
         long brokerPersistenceTimeEpochMs,
         byte[] evidence,
-        BrokerResourceIdentityV1 brokerResource,
+        BrokerResourceIdentity brokerResource,
         int brokerPartition) {
     public DestinationPublishResult {
         Objects.requireNonNull(disposition, "disposition");
@@ -64,7 +64,7 @@ public record DestinationPublishResult(
     }
 
     public static DestinationPublishResult published(
-            final BrokerResourceIdentityV1 brokerResource,
+            final BrokerResourceIdentity brokerResource,
             final int brokerPartition,
             final byte[] externalDeliveryIdentity,
             final long brokerPersistenceTimeEpochMs,
@@ -87,7 +87,7 @@ public record DestinationPublishResult(
         return new DestinationPublishResult(Disposition.UNKNOWN, code, null, -1, evidence, null, -1);
     }
 
-    public BrokerResourceIdentityV1 brokerResource() {
+    public BrokerResourceIdentity brokerResource() {
         return brokerResource;
     }
 

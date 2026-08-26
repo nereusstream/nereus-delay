@@ -1,19 +1,19 @@
 package com.nereusstream.delay.semantic;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CredentialBindingHeadV1;
-import com.nereusstream.delay.protocol.CredentialBindingProtectionV1;
-import com.nereusstream.delay.protocol.CredentialBindingV1;
-import com.nereusstream.delay.protocol.CredentialEquivalenceAttestationV1;
-import com.nereusstream.delay.protocol.DeliveryCapabilitySemanticV1;
-import com.nereusstream.delay.protocol.DestinationProfileSemanticV1;
-import com.nereusstream.delay.protocol.NativeCapabilitySnapshotV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
-import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.RouteSnapshotV1;
-import com.nereusstream.delay.protocol.TimingCapabilityV1;
+import com.nereusstream.delay.protocol.CredentialBinding;
+import com.nereusstream.delay.protocol.CredentialBindingHead;
+import com.nereusstream.delay.protocol.CredentialBindingProtection;
+import com.nereusstream.delay.protocol.CredentialEquivalenceAttestation;
+import com.nereusstream.delay.protocol.DeliveryCapabilitySemantic;
+import com.nereusstream.delay.protocol.DestinationProfileSemantic;
+import com.nereusstream.delay.protocol.NativeCapabilitySnapshot;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
+import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.RouteSnapshot;
+import com.nereusstream.delay.protocol.TimingCapability;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.ProfileCatalog;
 import java.security.PrivateKey;
@@ -62,60 +62,60 @@ public final class NativeCapabilitySnapshotIssuer {
      * Issues one target/partition-specific snapshot after all external
      * evidence and protection checks succeed.
      */
-    public NativePreparationSnapshotV1 issue(
+    public NativePreparationSnapshot issue(
             final AuthenticatedTenantContext context,
-            final RouteSnapshotV1 route,
-            final ProfileRefV1 destinationReference,
+            final RouteSnapshot route,
+            final ProfileRef destinationReference,
             final int physicalPartition,
             final long brokerDeliverAtEpochMs,
             final TrustedUtcIntervalEvidence issuedAt) {
         Objects.requireNonNull(context, "context");
         Objects.requireNonNull(route, "route");
-        final ProfileRefV1 destinationRef = Objects.requireNonNull(destinationReference, "destinationReference");
+        final ProfileRef destinationRef = Objects.requireNonNull(destinationReference, "destinationReference");
         Objects.requireNonNull(issuedAt, "issuedAt");
         if (physicalPartition < 0 || brokerDeliverAtEpochMs < 0) {
             throw new IllegalArgumentException("native issuance partition/time is invalid");
         }
-        final RouteSnapshotV1 verifiedRoute = RouteSnapshotV1.decode(route.canonicalBytes(), routeVerificationKey);
+        final RouteSnapshot verifiedRoute = RouteSnapshot.decode(route.canonicalBytes(), routeVerificationKey);
         if (brokerDeliverAtEpochMs > verifiedRoute.validUntilEpochMs()) {
             throw new IllegalArgumentException("native broker delivery time exceeds the Route validity");
         }
         verifiedRoute.requireUsableForNewSchedule(
                 context.authenticatedTenantScopeHash(), context.tenantRoutingScope(), issuedAt.latestEpochMs());
 
-        final ProfileSemanticEnvelopeV1 destination = exactProfile(destinationRef, ProfileKindV1.DESTINATION);
-        if (!(destination.body() instanceof DestinationProfileSemanticV1 destinationBody)
-                || destinationBody.adapterKind() != com.nereusstream.delay.protocol.AdapterKindV1.PULSAR) {
+        final ProfileSemanticEnvelope destination = exactProfile(destinationRef, ProfileKind.DESTINATION);
+        if (!(destination.body() instanceof DestinationProfileSemantic destinationBody)
+                || destinationBody.adapterKind() != com.nereusstream.delay.protocol.AdapterKind.PULSAR) {
             throw new IllegalArgumentException("native issuance requires a Pulsar Destination Profile");
         }
         if (Integer.toUnsignedLong(physicalPartition) >= Integer.toUnsignedLong(destinationBody.targetPartitionCount())
                 || destinationBody.targetPartitionPolicy()
-                                == com.nereusstream.delay.protocol.TargetPartitionPolicyV1.EXPLICIT_ONLY
+                                == com.nereusstream.delay.protocol.TargetPartitionPolicy.EXPLICIT_ONLY
                         && !destinationBody.allowedExplicitPartitions().contains(physicalPartition)) {
             throw new IllegalArgumentException("native issuance partition violates the Destination Profile");
         }
-        final ProfileRefV1 capabilityRef = destinationBody.deliveryCapability();
-        final ProfileSemanticEnvelopeV1 capability = exactProfile(capabilityRef, ProfileKindV1.DELIVERY_CAPABILITY);
-        if (!(capability.body() instanceof DeliveryCapabilitySemanticV1 capabilityBody)
-                || capabilityBody.adapterKind() != com.nereusstream.delay.protocol.AdapterKindV1.PULSAR
-                || !TimingCapabilityV1.includes(
-                        capabilityBody.timingCapabilityBits(), TimingCapabilityV1.PULSAR_AUTO_FAST)) {
+        final ProfileRef capabilityRef = destinationBody.deliveryCapability();
+        final ProfileSemanticEnvelope capability = exactProfile(capabilityRef, ProfileKind.DELIVERY_CAPABILITY);
+        if (!(capability.body() instanceof DeliveryCapabilitySemantic capabilityBody)
+                || capabilityBody.adapterKind() != com.nereusstream.delay.protocol.AdapterKind.PULSAR
+                || !TimingCapability.includes(
+                        capabilityBody.timingCapabilityBits(), TimingCapability.PULSAR_AUTO_FAST)) {
             throw new IllegalArgumentException("native issuance requires a Pulsar AUTO_FAST capability");
         }
 
-        final CredentialBindingHeadV1 head =
+        final CredentialBindingHead head =
                 Objects.requireNonNull(profileCatalog.resolveHead(destinationRef), "destination credential Head");
         if (!destinationRef.equals(head.profile())) {
             throw new IllegalArgumentException("credential Head does not belong to the Destination Profile");
         }
-        final CredentialBindingV1 binding = Objects.requireNonNull(
+        final CredentialBinding binding = Objects.requireNonNull(
                 profileCatalog.resolveBinding(destinationRef, head.secretGeneration()),
                 "current destination credential binding");
         if (!destinationRef.equals(binding.profile())
                 || !Bytes.constantTimeEquals(binding.bindingDigest(), head.bindingDigest())) {
             throw new IllegalArgumentException("credential binding Head does not identify exact immutable bytes");
         }
-        final CredentialEquivalenceAttestationV1 attestation = binding.equivalenceAttestation();
+        final CredentialEquivalenceAttestation attestation = binding.equivalenceAttestation();
         if (!attestation.verifySignature(credentialAttestationKey)) {
             throw new IllegalArgumentException("credential equivalence attestation signature is invalid");
         }
@@ -125,7 +125,7 @@ public final class NativeCapabilitySnapshotIssuer {
                 authority.resolveGuard(
                         destinationRef, capabilityRef, physicalPartition, context.principalScopeHash(), issuedAt),
                 "native guard evidence");
-        final PulsarBrokerResourceIdentityV1 expectedTarget =
+        final PulsarBrokerResourceIdentity expectedTarget =
                 destinationBody.targetResource().pulsar();
         if (!expectedTarget.equals(guard.target())
                 || guard.physicalPartition() != physicalPartition
@@ -135,11 +135,11 @@ public final class NativeCapabilitySnapshotIssuer {
         }
 
         final long notAfter = boundedNotAfter(issuedAt, verifiedRoute, attestation, guard);
-        final CredentialBindingProtectionV1 protectedBinding = Objects.requireNonNull(
+        final CredentialBindingProtection protectedBinding = Objects.requireNonNull(
                 authority.protectNativeCapability(binding, notAfter), "native credential protection");
         requireProtection(protectedBinding, binding, notAfter);
 
-        final NativeCapabilitySnapshotV1 snapshot = NativeCapabilitySnapshotV1.create(
+        final NativeCapabilitySnapshot snapshot = NativeCapabilitySnapshot.create(
                 destinationRef,
                 capabilityRef,
                 guard.target(),
@@ -154,14 +154,14 @@ public final class NativeCapabilitySnapshotIssuer {
                 notAfter,
                 issuerSigningKeyVersion,
                 issuerKey);
-        return new NativePreparationSnapshotV1(
+        return new NativePreparationSnapshot(
                 destination, capability, guard.target(), physicalPartition, snapshot, brokerDeliverAtEpochMs);
     }
 
-    private ProfileSemanticEnvelopeV1 exactProfile(final ProfileRefV1 reference, final ProfileKindV1 expectedKind) {
-        final ProfileSemanticEnvelopeV1 profile =
+    private ProfileSemanticEnvelope exactProfile(final ProfileRef reference, final ProfileKind expectedKind) {
+        final ProfileSemanticEnvelope profile =
                 Objects.requireNonNull(profileCatalog.resolve(reference), "Profile semantic");
-        final ProfileSemanticEnvelopeV1 canonical = ProfileSemanticEnvelopeV1.decode(profile.canonicalBytes());
+        final ProfileSemanticEnvelope canonical = ProfileSemanticEnvelope.decode(profile.canonicalBytes());
         if (!canonical.equals(profile)
                 || canonical.profileKind() != expectedKind
                 || !canonical.ref().equals(reference)) {
@@ -172,8 +172,8 @@ public final class NativeCapabilitySnapshotIssuer {
 
     private long boundedNotAfter(
             final TrustedUtcIntervalEvidence issuedAt,
-            final RouteSnapshotV1 route,
-            final CredentialEquivalenceAttestationV1 attestation,
+            final RouteSnapshot route,
+            final CredentialEquivalenceAttestation attestation,
             final NativeCapabilityIssuanceAuthority.GuardEvidence guard) {
         final long issuerBound;
         try {
@@ -191,7 +191,7 @@ public final class NativeCapabilitySnapshotIssuer {
     }
 
     private static void requireProtection(
-            final CredentialBindingProtectionV1 protection, final CredentialBindingV1 binding, final long notAfter) {
+            final CredentialBindingProtection protection, final CredentialBinding binding, final long notAfter) {
         if (!binding.profile().equals(protection.profile())
                 || binding.secretGeneration() != protection.secretGeneration()
                 || !Bytes.constantTimeEquals(binding.bindingDigest(), protection.bindingDigest())

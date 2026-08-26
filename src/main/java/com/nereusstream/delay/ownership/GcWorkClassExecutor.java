@@ -23,7 +23,7 @@ import java.util.function.LongSupplier;
  * local GC tombstone, applies the mutation or allocates a Source Position.</p>
  */
 public final class GcWorkClassExecutor {
-    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-gc-mutation-handoff-task-v1\0");
+    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-gc-mutation-handoff-task\0");
 
     private final WorkClassExecutionRegistry workClasses;
     private final OwnedDelayShard ownedShard;

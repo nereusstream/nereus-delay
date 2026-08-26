@@ -1,8 +1,8 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
-import com.nereusstream.delay.protocol.EvidenceKindV1;
+import com.nereusstream.delay.protocol.EvidenceCursor;
+import com.nereusstream.delay.protocol.EvidenceKind;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
 import com.nereusstream.delay.protocol.RouteIncarnation;
@@ -20,7 +20,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
-/** Strict decoder for the closed V1 checkpoint manifest JSON projection. */
+/** Strict decoder for the closed checkpoint manifest JSON projection. */
 final class CheckpointManifestJson {
     private static final String[] ROOT_KEYS = {
         "appliedShardLogPosition",
@@ -151,7 +151,7 @@ final class CheckpointManifestJson {
             throw new IllegalArgumentException("unsupported manifest version");
         }
         if (!java.util.Arrays.equals(encoded, manifest.canonicalJsonBytes())) {
-            throw new IllegalArgumentException("manifest JSON is not canonical V1 JSON");
+            throw new IllegalArgumentException("manifest JSON is not canonical JSON");
         }
         return manifest;
     }
@@ -201,22 +201,22 @@ final class CheckpointManifestJson {
                 uint32Number(fields.get("partition"), "shard partition"));
     }
 
-    private static List<EvidenceCursorV1> decodeEvidenceCursors(final Object value) {
+    private static List<EvidenceCursor> decodeEvidenceCursors(final Object value) {
         if (!(value instanceof List<?> values)) {
             throw new IllegalArgumentException("manifest evidenceCursors must be an array");
         }
-        final List<EvidenceCursorV1> result = new ArrayList<>(values.size());
+        final List<EvidenceCursor> result = new ArrayList<>(values.size());
         for (Object item : values) {
             final Map<String, Object> fields = object(item, "evidence cursor");
-            final EvidenceKindV1 kind;
+            final EvidenceKind kind;
             try {
-                kind = EvidenceKindV1.valueOf(string(fields.get("evidenceKind"), "evidenceKind"));
+                kind = EvidenceKind.valueOf(string(fields.get("evidenceKind"), "evidenceKind"));
             } catch (IllegalArgumentException exception) {
                 throw new IllegalArgumentException("unknown evidenceKind", exception);
             }
-            if (kind == EvidenceKindV1.KAFKA_RECEIPT_CONTIGUOUS) {
+            if (kind == EvidenceKind.KAFKA_RECEIPT_CONTIGUOUS) {
                 keys(fields, KAFKA_EVIDENCE_KEYS, "Kafka evidence cursor");
-                result.add(EvidenceCursorV1.kafka(
+                result.add(EvidenceCursor.kafka(
                         base64(fields.get("destinationLaneId"), "destinationLaneId"),
                         base64(fields.get("laneIncarnation"), "laneIncarnation"),
                         uuidBytes(uuid(string(fields.get("topicUuid"), "topicUuid"))),
@@ -227,7 +227,7 @@ final class CheckpointManifestJson {
                         unsignedDecimal(fields.get("lastObservedLsoExclusive"), "lastObservedLsoExclusive")));
             } else {
                 keys(fields, PULSAR_EVIDENCE_KEYS, "Pulsar evidence cursor");
-                result.add(EvidenceCursorV1.pulsar(
+                result.add(EvidenceCursor.pulsar(
                         base64(fields.get("destinationLaneId"), "destinationLaneId"),
                         base64(fields.get("laneIncarnation"), "laneIncarnation"),
                         base64(fields.get("resourceToken"), "resourceToken"),

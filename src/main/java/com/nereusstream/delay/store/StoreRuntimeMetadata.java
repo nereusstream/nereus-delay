@@ -2,14 +2,14 @@ package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
+import com.nereusstream.delay.protocol.EvidenceCursor;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
 /**
- * Canonical local projection of the mutable Store metadata required by V1.
+ * Canonical local projection of the mutable Store metadata required by the current design.
  *
  * <p>This value records facts that belong to the physical shard DB. It is not
  * an ownership or checkpoint authority: Owner Lease and published checkpoint
@@ -20,7 +20,7 @@ public record StoreRuntimeMetadata(
         byte[] lastCheckpointId,
         long lastOpenedOwnerEpoch,
         boolean cleanCloseMarker,
-        List<EvidenceCursorV1> evidenceCursors) {
+        List<EvidenceCursor> evidenceCursors) {
     public static final int FENCE_PROOF_ID_LENGTH = 32;
     public static final int CHECKPOINT_ID_LENGTH = 16;
     public static final int MAX_EVIDENCE_CURSORS = 1024;
@@ -34,9 +34,9 @@ public record StoreRuntimeMetadata(
         if (evidenceCursors.size() > MAX_EVIDENCE_CURSORS) {
             throw new IllegalArgumentException("too many evidence cursors");
         }
-        final List<EvidenceCursorV1> copied = new ArrayList<>(evidenceCursors.size());
-        EvidenceCursorV1 previous = null;
-        for (EvidenceCursorV1 cursor : evidenceCursors) {
+        final List<EvidenceCursor> copied = new ArrayList<>(evidenceCursors.size());
+        EvidenceCursor previous = null;
+        for (EvidenceCursor cursor : evidenceCursors) {
             Objects.requireNonNull(cursor, "evidence cursor");
             if (previous != null && previous.compareTo(cursor) >= 0) {
                 throw new IllegalArgumentException("evidence cursors must be strictly sorted");
@@ -62,7 +62,7 @@ public record StoreRuntimeMetadata(
     }
 
     @Override
-    public List<EvidenceCursorV1> evidenceCursors() {
+    public List<EvidenceCursor> evidenceCursors() {
         return evidenceCursors;
     }
 
@@ -72,29 +72,29 @@ public record StoreRuntimeMetadata(
     }
 
     /** Encodes the independently persisted evidence-cursor array. */
-    public static byte[] encodeEvidenceCursors(final List<EvidenceCursorV1> cursors) {
+    public static byte[] encodeEvidenceCursors(final List<EvidenceCursor> cursors) {
         final StoreRuntimeMetadata validated = new StoreRuntimeMetadata(null, null, 0, false, cursors);
         return CanonicalProtobuf.message(output -> {
-            for (EvidenceCursorV1 cursor : validated.evidenceCursors) {
+            for (EvidenceCursor cursor : validated.evidenceCursors) {
                 CanonicalProtobuf.bytes(output, 1, cursor.canonicalBytes());
             }
         });
     }
 
     /** Decodes and canonicality-checks the independently persisted evidence-cursor array. */
-    public static List<EvidenceCursorV1> decodeEvidenceCursors(final byte[] encoded) {
+    public static List<EvidenceCursor> decodeEvidenceCursors(final byte[] encoded) {
         Objects.requireNonNull(encoded, "encoded");
         if (encoded.length > MAX_CANONICAL_BYTES) {
             throw new IllegalArgumentException("evidence cursor array is too large");
         }
         final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(encoded, true);
-        final List<EvidenceCursorV1> cursors = new ArrayList<>();
+        final List<EvidenceCursor> cursors = new ArrayList<>();
         while (reader.hasRemaining()) {
             final CanonicalProtobuf.Reader.Field field = reader.next();
             if (field.number() != 1 || field.wireType() != 2) {
                 throw new IllegalArgumentException("invalid evidence cursor array field");
             }
-            cursors.add(EvidenceCursorV1.decode(field.rawValue()));
+            cursors.add(EvidenceCursor.decode(field.rawValue()));
         }
         final byte[] canonical = encodeEvidenceCursors(cursors);
         if (!Arrays.equals(encoded, canonical)) {
@@ -135,7 +135,7 @@ public record StoreRuntimeMetadata(
             }
             CanonicalProtobuf.uint64Bits(output, 3, lastOpenedOwnerEpoch);
             CanonicalProtobuf.uint32(output, 4, cleanCloseMarker ? 1 : 0);
-            for (EvidenceCursorV1 cursor : evidenceCursors) {
+            for (EvidenceCursor cursor : evidenceCursors) {
                 CanonicalProtobuf.bytes(output, 5, cursor.canonicalBytes());
             }
         });
@@ -175,7 +175,7 @@ public record StoreRuntimeMetadata(
         if (cleanValue > 1) {
             throw new IllegalArgumentException("invalid clean-close marker");
         }
-        final List<EvidenceCursorV1> cursors = new ArrayList<>();
+        final List<EvidenceCursor> cursors = new ArrayList<>();
         while (index < fields.size()) {
             final CanonicalProtobuf.Reader.Field field = fields.get(index++);
             if (field.number() != 5) {
@@ -184,7 +184,7 @@ public record StoreRuntimeMetadata(
             if (cursors.size() == MAX_EVIDENCE_CURSORS) {
                 throw new IllegalArgumentException("too many evidence cursors");
             }
-            cursors.add(EvidenceCursorV1.decode(bytes(field, 5)));
+            cursors.add(EvidenceCursor.decode(bytes(field, 5)));
         }
         final StoreRuntimeMetadata result =
                 new StoreRuntimeMetadata(fenceProof, checkpoint, ownerEpoch, cleanValue == 1, cursors);

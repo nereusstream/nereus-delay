@@ -1,15 +1,15 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
-import com.nereusstream.delay.protocol.RecoveryCandidateRefV1;
-import com.nereusstream.delay.protocol.RecoveryFloorRefV1;
-import com.nereusstream.delay.protocol.RecoveryInstallPhaseV1;
-import com.nereusstream.delay.protocol.RecoveryInstallStateV1;
-import com.nereusstream.delay.protocol.RecoveryPinV1;
+import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
+import com.nereusstream.delay.protocol.EvidenceCursor;
+import com.nereusstream.delay.protocol.RecoveryCandidateRef;
+import com.nereusstream.delay.protocol.RecoveryFloorRef;
+import com.nereusstream.delay.protocol.RecoveryInstallPhase;
+import com.nereusstream.delay.protocol.RecoveryInstallState;
+import com.nereusstream.delay.protocol.RecoveryPin;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
 import java.io.IOException;
@@ -107,7 +107,7 @@ public final class ShardStore implements AutoCloseable {
     private boolean cleanCloseAttempted;
     /**
      * Set after a native WriteBatch may have committed but its post-write
-     * verification did not complete.  The DB may contain the batch while the
+     * verification did not complete. The DB may contain the batch while the
      * in-memory projection cannot prove that fact, so the only safe next step
      * is to close and reopen the Store from its durable image.
      */
@@ -115,15 +115,15 @@ public final class ShardStore implements AutoCloseable {
 
     private StoreRuntimeMetadata runtimeMetadata;
     private StoreRecoveryMetadata recoveryMetadata;
-    private CompatibleControlSnapshotV1 controlSnapshot;
+    private CompatibleControlSnapshot controlSnapshot;
     private long closedIngressDeadlineThrough;
 
     /**
      * A synchronous RocksDB write failed after the batch operation reached the
-     * store boundary.  This remains an {@link IllegalStateException} for
+     * store boundary. This remains an {@link IllegalStateException} for
      * callers that already treat native-store failures as fatal, but its
      * concrete type lets replay handlers distinguish storage failure from a
-     * semantic stale-state rejection.  In particular, a failed WriteBatch must
+     * semantic stale-state rejection. In particular, a failed WriteBatch must
      * never be converted into a persisted logical result and source advance.
      */
     public static final class RocksDbWriteFailure extends IllegalStateException {
@@ -148,7 +148,7 @@ public final class ShardStore implements AutoCloseable {
             final boolean ownsShardSlot,
             final StoreRuntimeMetadata runtimeMetadata,
             final StoreRecoveryMetadata recoveryMetadata,
-            final CompatibleControlSnapshotV1 controlSnapshot,
+            final CompatibleControlSnapshot controlSnapshot,
             final long closedIngressDeadlineThrough) {
         this.config = config;
         this.shardId = shardId;
@@ -181,7 +181,7 @@ public final class ShardStore implements AutoCloseable {
             final ShardStore opened = openAtPath(config, shardId, dbPath, resources, null, true, true);
             try {
                 // A fresh/opened Store Incarnation must be durable before the
-                // checksummed ACTIVE pointer publishes it.  This also covers
+                // checksummed ACTIVE pointer publishes it. This also covers
                 // recovery of an orphan incarnation when ACTIVE was missing.
                 forceIncarnationBeforeActivePointer(dbPath);
                 writeActivePointer(shardRoot, storeUuidFromPath(dbPath));
@@ -199,7 +199,7 @@ public final class ShardStore implements AutoCloseable {
      * Opens an already ACTIVE Store Incarnation only after the supplied
      * catalog authority validates its persisted local recovery projection.
      *
-     * <p>This is the local half of the V1 recovery-reuse gate. It never
+     * <p>This is the local half of the recovery-reuse gate. It never
      * creates a fresh DB when no ACTIVE incarnation exists, and it closes the
      * native Store again when the catalog/Floor proof is rejected. Owner
      * Lease/session fencing and the final activation CAS remain outside this
@@ -230,7 +230,7 @@ public final class ShardStore implements AutoCloseable {
         try {
             // Do not publish a local OPEN/unclean projection until the
             // catalog/Floor authority has validated the persisted recovery
-            // projection.  The native DB is still opened for validation, but
+            // projection. The native DB is still opened for validation, but
             // proof failure must not first mutate the recovery evidence it is
             // supposed to validate.
             opened = openAtPath(config, shardId, activeDb, resources, null, true, false);
@@ -290,7 +290,7 @@ public final class ShardStore implements AutoCloseable {
 
     /**
      * Restores an exact published checkpoint only while the caller still owns
-     * the exact session-bound RecoveryPin.  The pin is reread before staging
+     * the exact session-bound RecoveryPin. The pin is reread before staging
      * and immediately before installing the new Store Incarnation; a missing
      * or changed pin fails closed and leaves only private restore-tmp state.
      */
@@ -301,7 +301,7 @@ public final class ShardStore implements AutoCloseable {
             final Path checkpointPath,
             final CheckpointManifest manifest,
             final RecoveryCatalogAuthority catalog,
-            final RecoveryPinV1 pin) {
+            final RecoveryPin pin) {
         Objects.requireNonNull(catalog, "catalog");
         Objects.requireNonNull(pin, "pin");
         Objects.requireNonNull(manifest, "manifest");
@@ -316,7 +316,7 @@ public final class ShardStore implements AutoCloseable {
             final Path checkpointPath,
             final CheckpointManifest manifest,
             final RecoveryCatalogAuthority catalog,
-            final RecoveryPinV1 pin,
+            final RecoveryPin pin,
             final CheckpointManifestLimits limits) {
         Objects.requireNonNull(catalog, "catalog");
         Objects.requireNonNull(pin, "pin");
@@ -344,7 +344,7 @@ public final class ShardStore implements AutoCloseable {
             final Path checkpointPath,
             final CheckpointManifest manifest,
             final RecoveryCatalogAuthority catalog,
-            final RecoveryPinV1 pin,
+            final RecoveryPin pin,
             final CheckpointManifestLimits limits,
             final SharedRocksDbResources.CheckpointDownloadPermit downloadPermit) {
         Objects.requireNonNull(downloadPermit, "downloadPermit");
@@ -367,7 +367,7 @@ public final class ShardStore implements AutoCloseable {
             final Path checkpointPath,
             final CheckpointManifest manifest,
             final RecoveryCatalogAuthority catalog,
-            final RecoveryPinV1 pin) {
+            final RecoveryPin pin) {
         return restoreWithRecoveryGuard(
                 config,
                 shardId,
@@ -386,7 +386,7 @@ public final class ShardStore implements AutoCloseable {
             final Path checkpointPath,
             final CheckpointManifest manifest,
             final RecoveryCatalogAuthority catalog,
-            final RecoveryPinV1 pin,
+            final RecoveryPin pin,
             final CheckpointManifestLimits limits) {
         return restoreWithRecoveryGuard(
                 config, shardId, resources, checkpointPath, manifest, catalog, pin, limits, null);
@@ -399,7 +399,7 @@ public final class ShardStore implements AutoCloseable {
             final Path checkpointPath,
             final CheckpointManifest manifest,
             final RecoveryCatalogAuthority catalog,
-            final RecoveryPinV1 pin,
+            final RecoveryPin pin,
             final CheckpointManifestLimits limits,
             final SharedRocksDbResources.CheckpointDownloadPermit downloadPermit) {
         Objects.requireNonNull(config, "config");
@@ -488,15 +488,15 @@ public final class ShardStore implements AutoCloseable {
             if (pin != null) {
                 validateRecoveryPin(shardId, manifest, catalog, pin);
             }
-            final RecoveryCandidateRefV1 installedCandidate = manifest == null
+            final RecoveryCandidateRef installedCandidate = manifest == null
                     ? null
-                    : new RecoveryCandidateRefV1(
-                            com.nereusstream.delay.protocol.RecoveryCandidateKindV1.LOCAL_STORE,
+                    : new RecoveryCandidateRef(
+                            com.nereusstream.delay.protocol.RecoveryCandidateKind.LOCAL_STORE,
                             manifest.recoveryLineageId(),
                             manifest.checkpointId(),
                             manifest.manifestSha256(),
                             uuidBytes(storeUuid));
-            final RecoveryFloorRefV1 observedFloor = pin == null ? null : pin.observedFloor();
+            final RecoveryFloorRef observedFloor = pin == null ? null : pin.observedFloor();
             prepared = openAtPath(config, shardId, stagedDb, resources, storeUuid, false, true);
             if (!prepared.shardId().equals(shardId)) {
                 throw new IOException("install-mode DB shard identity mismatch");
@@ -506,7 +506,7 @@ public final class ShardStore implements AutoCloseable {
             prepared = null;
             // The install-mode probe above performs a WAL-synchronised
             // metadata rewrite and may take long enough for the session-bound
-            // RecoveryPin or its Floor protection to change.  Re-read the
+            // RecoveryPin or its Floor protection to change. Re-read the
             // exact pin immediately before moving the staged DB into the
             // worker-owned incarnation namespace; a pin check from before the
             // probe is not an installation authority.
@@ -517,7 +517,7 @@ public final class ShardStore implements AutoCloseable {
             Files.move(stagedDb, activeDb, StandardCopyOption.ATOMIC_MOVE);
             activeDbMoved = true;
             // Persist the new Store Incarnation directory entry before the
-            // checksummed ACTIVE pointer can publish it.  Without this
+            // checksummed ACTIVE pointer can publish it. Without this
             // directory fsync, a crash after the rename could leave ACTIVE
             // pointing at an incarnation whose directory entry was not yet
             // durable, violating the restore install protocol.
@@ -528,7 +528,7 @@ public final class ShardStore implements AutoCloseable {
             }
             forceIncarnationBeforeActivePointer(activeDb);
             // Keep the candidate private until the checksummed ACTIVE pointer
-            // is about to publish it.  If the pin disappeared or changed
+            // is about to publish it. If the pin disappeared or changed
             // while the installed DB was being opened, fail closed and let
             // cleanup remove the unpublished incarnation.
             if (pin != null) {
@@ -576,7 +576,7 @@ public final class ShardStore implements AutoCloseable {
         } catch (Error exception) {
             // Native/JVM errors are still allowed to escape, but once the
             // download slot has been acquired they must pass through the same
-            // directory-safety cleanup.  Otherwise an unpublished incarnation
+            // directory-safety cleanup. Otherwise an unpublished incarnation
             // can retain an open handle while restore-tmp is removed by a
             // later repair attempt.
             primaryFailure = exception;
@@ -635,10 +635,10 @@ public final class ShardStore implements AutoCloseable {
             final ShardStore installed,
             final Throwable failure) {
         // A failed close fences the Store but may leave a native handle open
-        // for a later retry.  Never delete a directory while one of these
+        // for a later retry. Never delete a directory while one of these
         // restore probes still owns that directory; doing so would turn a
         // recoverable JNI close failure into a use-after-delete corruption
-        // window.  The second bounded attempt covers the normal retryable
+        // window. The second bounded attempt covers the normal retryable
         // close path (for example, a transient slot-release failure).
         final boolean stagedSafe = closeForRestoreCleanup(staged, failure);
         final boolean preparedSafe = closeForRestoreCleanup(prepared, failure);
@@ -702,7 +702,7 @@ public final class ShardStore implements AutoCloseable {
      *
      * <p>The catalog check is deliberately separate from file verification:
      * the former proves recovery authority, while the latter proves the local
-     * physical bytes.  Production wiring replaces the in-memory catalog with
+     * physical bytes. Production wiring replaces the in-memory catalog with
      * the Oxia CAS/catalog read without changing this boundary.</p>
      */
     static ShardStore restoreFromCheckpoint(
@@ -771,18 +771,18 @@ public final class ShardStore implements AutoCloseable {
             final ShardId shardId,
             final CheckpointManifest manifest,
             final RecoveryCatalogAuthority catalog,
-            final RecoveryPinV1 pin) {
-        // The pin can remain present while the catalog Floor advances.  A
+            final RecoveryPin pin) {
+        // The pin can remain present while the catalog Floor advances. A
         // candidate that is no longer in the current Floor-bounded ancestry
         // must be rejected even when the pin bytes themselves are unchanged.
         catalog.validatePublishedRestoreCandidate(manifest);
-        if (!new ShardSubjectV1(shardId).equals(pin.shard())
+        if (!new ShardSubject(shardId).equals(pin.shard())
                 || !java.util.Arrays.equals(pin.candidate().checkpointId(), manifest.checkpointId())
                 || !Bytes.constantTimeEquals(pin.candidate().recoveryLineageId(), manifest.recoveryLineageId())
                 || !Bytes.constantTimeEquals(pin.candidate().manifestSha256(), manifest.manifestSha256())) {
             throw new IllegalArgumentException("RecoveryPin does not match the restore candidate");
         }
-        final RecoveryPinV1 active = catalog.activeRecoveryPin()
+        final RecoveryPin active = catalog.activeRecoveryPin()
                 .orElseThrow(() -> new IllegalStateException("RecoveryPin is no longer active"));
         if (!active.equals(pin)) {
             throw new IllegalStateException("RecoveryPin identity/value changed during restore");
@@ -832,7 +832,7 @@ public final class ShardStore implements AutoCloseable {
         if (!staged.runtimeMetadata().evidenceCursors().equals(manifest.evidenceCursors())) {
             throw new IOException("restored evidence cursors do not match checkpoint manifest");
         }
-        final CompatibleControlSnapshotV1 controlSnapshot = staged.controlSnapshot();
+        final CompatibleControlSnapshot controlSnapshot = staged.controlSnapshot();
         if (controlSnapshot == null) {
             throw new IOException("restored control snapshot is missing");
         }
@@ -845,7 +845,7 @@ public final class ShardStore implements AutoCloseable {
             throws IOException {
         final StoreRecoveryMetadata recovery = staged.recoveryMetadata();
         if (recovery.lineageBase() != null) {
-            final RecoveryCandidateRefV1 lineageBase = recovery.lineageBase();
+            final RecoveryCandidateRef lineageBase = recovery.lineageBase();
             if (!Bytes.constantTimeEquals(lineageBase.recoveryLineageId(), manifest.recoveryLineageId())) {
                 throw new IOException("restored recovery candidate lineage does not match checkpoint manifest");
             }
@@ -855,7 +855,7 @@ public final class ShardStore implements AutoCloseable {
             if (!Bytes.constantTimeEquals(lineageBase.manifestSha256(), manifest.manifestSha256())) {
                 throw new IOException("restored recovery candidate manifest hash does not match checkpoint manifest");
             }
-            if (lineageBase.kind() == com.nereusstream.delay.protocol.RecoveryCandidateKindV1.LOCAL_STORE
+            if (lineageBase.kind() == com.nereusstream.delay.protocol.RecoveryCandidateKind.LOCAL_STORE
                     && !java.util.Arrays.equals(
                             lineageBase.storeIncarnation(), uuidBytes(manifest.sourceStoreIncarnation()))) {
                 throw new IOException("restored local recovery candidate Store Incarnation does not match checkpoint");
@@ -965,7 +965,7 @@ public final class ShardStore implements AutoCloseable {
 
     /**
      * Resolves the fixed local shard path without following a symbolic link in
-     * the worker-owned directory components.  The configured root itself may
+     * the worker-owned directory components. The configured root itself may
      * be a deployment symlink, but {@code shards/<route>/<partition>} is the
      * physical ownership boundary and must remain inside that root namespace.
      */
@@ -1118,7 +1118,7 @@ public final class ShardStore implements AutoCloseable {
             if (opened != null && !opened.isClosed()) {
                 // A failure after native open (most importantly, a failed
                 // short-lived acquire-slot release) must close the exact
-                // Store before the outer slot cleanup can run.  If close is
+                // Store before the outer slot cleanup can run. If close is
                 // still unconfirmed after the bounded retries, retain the
                 // DB/owned capacities instead of releasing them underneath a
                 // live native handle.
@@ -1130,13 +1130,13 @@ public final class ShardStore implements AutoCloseable {
                     }
                 }
                 // The DB/owned slots are released by ShardStore.close()
-                // itself when that close succeeds.  If it did not succeed,
+                // itself when that close succeeds. If it did not succeed,
                 // deliberately clear the outer cleanup flags so a live or
                 // uncertain native handle cannot be released underneath.
                 dbSlotAcquired = false;
                 ownedSlotAcquired = false;
             }
-            // The DB slot is acquired after the owned slot.  Release only the
+            // The DB slot is acquired after the owned slot. Release only the
             // slots that this invocation actually acquired, but keep trying
             // after a failed release so one broken semaphore transition does
             // not strand the other worker capacities.
@@ -1169,7 +1169,7 @@ public final class ShardStore implements AutoCloseable {
     }
 
     // RocksDB JNI deprecates the explicit split setters in favor of the single
-    // max-background-jobs knob, but V1 requires a nonzero flush reserve and a
+    // max-background-jobs knob, but requires a nonzero flush reserve and a
     // separate compaction ceiling, so keep the registered split at this boundary.
     @SuppressWarnings("deprecation")
     private static ShardStore openAtPathWithSlot(
@@ -1205,7 +1205,7 @@ public final class ShardStore implements AutoCloseable {
                 .setMaxBackgroundFlushes(config.reservedFlushJobs())
                 .setMaxBackgroundCompactions(config.maxCompactionJobs())
                 // ColumnFamilyOptions.setWriteBufferSize() is only a
-                // per-CF ceiling.  V1's maxWriteBufferBytesPerDb is an
+                // per-CF ceiling. 's maxWriteBufferBytesPerDb is an
                 // aggregate DB ceiling, so bind the DB-level option as well;
                 // otherwise the seven application CFs (plus RocksDB's
                 // mandatory default CF) could each consume the configured
@@ -1267,7 +1267,7 @@ public final class ShardStore implements AutoCloseable {
                         shardId,
                         storeIncarnation,
                         Bytes.sha256(Bytes.concat(
-                                Bytes.utf8("nereus-delay-db-identity-v1\0"),
+                                Bytes.utf8("nereus-delay-db-identity\0"),
                                 storeIncarnation,
                                 shardId.routeIncarnation().bytes(),
                                 Bytes.u32beBits(shardId.partition()))));
@@ -1316,8 +1316,8 @@ public final class ShardStore implements AutoCloseable {
             }
             final byte[] controlSnapshotBytes =
                     optionalFixedValue(db, handles.get(ColumnFamily.META), META_CONTROL_SNAPSHOT);
-            final CompatibleControlSnapshotV1 controlSnapshot =
-                    controlSnapshotBytes == null ? null : CompatibleControlSnapshotV1.decode(controlSnapshotBytes);
+            final CompatibleControlSnapshot controlSnapshot =
+                    controlSnapshotBytes == null ? null : CompatibleControlSnapshot.decode(controlSnapshotBytes);
             if (controlSnapshot != null
                     && !shardId.equals(controlSnapshot.shard().shardId())) {
                 throw new IllegalStateException("persisted control snapshot belongs to another shard");
@@ -1332,10 +1332,9 @@ public final class ShardStore implements AutoCloseable {
                 if (runtimeMetadata.cleanCloseMarker()) {
                     runtimeMetadata = runtimeMetadata.withCleanCloseMarker(false);
                 }
-                final RecoveryInstallPhaseV1 openPhase = restoreStoreIncarnation == null
-                        ? RecoveryInstallPhaseV1.OPEN
-                        : RecoveryInstallPhaseV1.INSTALLED;
-                recoveryMetadata = recoveryMetadata.withInstallState(new RecoveryInstallStateV1(
+                final RecoveryInstallPhase openPhase =
+                        restoreStoreIncarnation == null ? RecoveryInstallPhase.OPEN : RecoveryInstallPhase.INSTALLED;
+                recoveryMetadata = recoveryMetadata.withInstallState(new RecoveryInstallState(
                         openPhase, uuidBytes(metadata.storeIncarnationUuid()), recoveryMetadata.checkpointId()));
                 try (WriteBatch batch = new WriteBatch();
                         WriteOptions writeOptions = new WriteOptions().setSync(true)) {
@@ -1438,7 +1437,7 @@ public final class ShardStore implements AutoCloseable {
             }
             cleanClose = cleanBytes[0] == 1;
         }
-        final List<EvidenceCursorV1> evidenceCursors =
+        final List<EvidenceCursor> evidenceCursors =
                 evidenceBytes == null ? List.of() : StoreRuntimeMetadata.decodeEvidenceCursors(evidenceBytes);
         return new RuntimeMetadataRead(
                 new StoreRuntimeMetadata(ingressFence.proofId(), checkpointId, ownerEpoch, cleanClose, evidenceCursors),
@@ -1452,16 +1451,16 @@ public final class ShardStore implements AutoCloseable {
             final boolean installMode)
             throws RocksDBException {
         final byte[] lineageBytes = optionalRecoveryValue(db, metaHandle, META_RECOVERY_LINEAGE_BASE);
-        final RecoveryCandidateRefV1 lineageBase =
-                lineageBytes == null ? null : RecoveryCandidateRefV1.decode(lineageBytes);
+        final RecoveryCandidateRef lineageBase =
+                lineageBytes == null ? null : RecoveryCandidateRef.decode(lineageBytes);
         if (!installMode
                 && lineageBase != null
-                && lineageBase.kind() == com.nereusstream.delay.protocol.RecoveryCandidateKindV1.LOCAL_STORE
+                && lineageBase.kind() == com.nereusstream.delay.protocol.RecoveryCandidateKind.LOCAL_STORE
                 && !java.util.Arrays.equals(lineageBase.storeIncarnation(), metadata.storeIncarnation())) {
             throw new IllegalStateException("local recovery candidate store incarnation does not match DB identity");
         }
         final byte[] floorBytes = optionalRecoveryValue(db, metaHandle, META_RECOVERY_LAST_OBSERVED_FLOOR);
-        final RecoveryFloorRefV1 floor = floorBytes == null ? null : RecoveryFloorRefV1.decode(floorBytes);
+        final RecoveryFloorRef floor = floorBytes == null ? null : RecoveryFloorRef.decode(floorBytes);
         if (floor != null
                 && !metadata.shardId().equals(floor.appliedSourcePosition().shardId())) {
             throw new IllegalStateException("persisted Recovery Floor belongs to another shard");
@@ -1480,8 +1479,8 @@ public final class ShardStore implements AutoCloseable {
             }
         }
         final byte[] installBytes = optionalRecoveryValue(db, metaHandle, META_RECOVERY_INSTALL_STATE);
-        final RecoveryInstallStateV1 installState =
-                installBytes == null ? null : RecoveryInstallStateV1.decode(installBytes);
+        final RecoveryInstallState installState =
+                installBytes == null ? null : RecoveryInstallState.decode(installBytes);
         if (installState != null
                 && lineageBase != null
                 && !java.util.Arrays.equals(installState.checkpointId(), lineageBase.checkpointId())) {
@@ -1762,7 +1761,7 @@ public final class ShardStore implements AutoCloseable {
                 expected.add(family.rocksName());
             }
             if (!names.equals(expected)) {
-                throw new IOException("DB column families differ from V1 set: " + names);
+                throw new IOException("DB column families differ from set: " + names);
             }
         }
         final List<ColumnFamilyDescriptor> result = new ArrayList<>();
@@ -1891,7 +1890,7 @@ public final class ShardStore implements AutoCloseable {
 
     /**
      * Returns whether this Store must be closed and reopened before any more
-     * reads or writes are allowed.  This is a local storage-safety signal, not
+     * reads or writes are allowed. This is a local storage-safety signal, not
      * a source acknowledgement or remote ownership result.
      */
     public synchronized boolean isWriteOutcomeUncertain() {
@@ -1909,12 +1908,12 @@ public final class ShardStore implements AutoCloseable {
     }
 
     /** Returns the last complete compatible control snapshot persisted in this shard DB. */
-    public synchronized CompatibleControlSnapshotV1 controlSnapshot() {
+    public synchronized CompatibleControlSnapshot controlSnapshot() {
         return controlSnapshot;
     }
 
     /** Persists a shard-bound compatible control snapshot in a synchronous WriteBatch. */
-    public synchronized void recordControlSnapshot(final CompatibleControlSnapshotV1 next) {
+    public synchronized void recordControlSnapshot(final CompatibleControlSnapshot next) {
         ensureOpen();
         Objects.requireNonNull(next, "next");
         if (!shardId.equals(next.shard().shardId())) {
@@ -1925,7 +1924,7 @@ public final class ShardStore implements AutoCloseable {
 
     /**
      * Returns whether this DB contains the minimum local facts needed before
-     * an external catalog can consider local recovery reuse.  The catalog must
+     * an external catalog can consider local recovery reuse. The catalog must
      * still prove ancestry/Floor coverage; this method never does so itself.
      */
     public synchronized boolean hasReusableRecoveryProof() {
@@ -1934,15 +1933,15 @@ public final class ShardStore implements AutoCloseable {
 
     /**
      * Publishes the local OPEN projection after an external recovery
-     * authority has validated the persisted recovery evidence.  This is kept
+     * authority has validated the persisted recovery evidence. This is kept
      * separate from the native open path so a rejected catalog proof cannot
      * be preceded by a misleading OPEN marker.
      */
     private synchronized void publishOpenMarkersAfterRecoveryValidation() {
         ensureOpen();
         final StoreRuntimeMetadata nextRuntimeMetadata = runtimeMetadata.withCleanCloseMarker(false);
-        final StoreRecoveryMetadata nextRecoveryMetadata = recoveryMetadata.withInstallState(new RecoveryInstallStateV1(
-                RecoveryInstallPhaseV1.OPEN, metadata.storeIncarnation(), recoveryMetadata.checkpointId()));
+        final StoreRecoveryMetadata nextRecoveryMetadata = recoveryMetadata.withInstallState(new RecoveryInstallState(
+                RecoveryInstallPhase.OPEN, metadata.storeIncarnation(), recoveryMetadata.checkpointId()));
         write(batch -> {
             batch.putRuntimeMetadata(nextRuntimeMetadata);
             batch.putRecoveryMetadata(nextRecoveryMetadata);
@@ -1951,22 +1950,22 @@ public final class ShardStore implements AutoCloseable {
 
     /**
      * Atomically records the local lineage/base and observed Floor projection
-     * for this Store Incarnation.  A null Floor clears the local reuse proof.
+     * for this Store Incarnation. A null Floor clears the local reuse proof.
      */
     public synchronized void recordRecoveryMetadata(
-            final RecoveryCandidateRefV1 lineageBase, final RecoveryFloorRefV1 lastObservedFloor) {
+            final RecoveryCandidateRef lineageBase, final RecoveryFloorRef lastObservedFloor) {
         ensureOpen();
         if (lastObservedFloor != null
                 && !shardId.equals(lastObservedFloor.appliedSourcePosition().shardId())) {
             throw new IllegalArgumentException("Recovery Floor belongs to another shard");
         }
         if (lineageBase != null
-                && lineageBase.kind() == com.nereusstream.delay.protocol.RecoveryCandidateKindV1.LOCAL_STORE
+                && lineageBase.kind() == com.nereusstream.delay.protocol.RecoveryCandidateKind.LOCAL_STORE
                 && !java.util.Arrays.equals(lineageBase.storeIncarnation(), metadata.storeIncarnation())) {
             throw new IllegalArgumentException("local recovery candidate must identify this Store Incarnation");
         }
-        final RecoveryInstallStateV1 state = new RecoveryInstallStateV1(
-                RecoveryInstallPhaseV1.OPEN,
+        final RecoveryInstallState state = new RecoveryInstallState(
+                RecoveryInstallPhase.OPEN,
                 metadata.storeIncarnation(),
                 lineageBase == null ? null : lineageBase.checkpointId());
         final StoreRecoveryMetadata next = new StoreRecoveryMetadata(
@@ -2034,7 +2033,7 @@ public final class ShardStore implements AutoCloseable {
     }
 
     /** Persists the complete, canonically ordered evidence cursor projection. */
-    public synchronized void recordEvidenceCursors(final List<EvidenceCursorV1> cursors) {
+    public synchronized void recordEvidenceCursors(final List<EvidenceCursor> cursors) {
         ensureOpen();
         persistRuntimeMetadata(new StoreRuntimeMetadata(
                 runtimeMetadata.lastIngressFenceProofId(),
@@ -2166,12 +2165,12 @@ public final class ShardStore implements AutoCloseable {
             } catch (RocksDBException exception) {
                 // RocksDB reports a native failure after the call boundary;
                 // the caller cannot safely infer that no bytes reached the
-                // WAL.  Require a fresh reopen before another source record.
+                // WAL. Require a fresh reopen before another source record.
                 writeOutcomeUncertain = true;
                 throw new RocksDbWriteFailure("RocksDB write failed", exception);
             } catch (RuntimeException | Error exception) {
                 // A JNI/runtime/fatal failure from the native write has the
-                // same unknown commit boundary as RocksDBException.  Fence
+                // same unknown commit boundary as RocksDBException. Fence
                 // the Store before propagating the original unchecked
                 // failure; only a fresh incarnation may inspect the result.
                 writeOutcomeUncertain = true;
@@ -2190,7 +2189,7 @@ public final class ShardStore implements AutoCloseable {
                 closedIngressDeadlineThrough = readIngressFenceState(db, handles.get(ColumnFamily.META))
                         .closedThroughEpochMs();
             } catch (RocksDBException | RuntimeException | Error exception) {
-                // The WriteBatch has already returned successfully.  A
+                // The WriteBatch has already returned successfully. A
                 // native/read/decoding failure here leaves commit status and
                 // the in-memory fence projection unprovable, so continuing
                 // would allow a later source record to be applied against a
@@ -2200,7 +2199,7 @@ public final class ShardStore implements AutoCloseable {
             }
         } catch (RocksDBException exception) {
             // This branch is only reachable when the caller's BatchOperation
-            // failed before db.write was issued.  No native commit is
+            // failed before db.write was issued. No native commit is
             // possible in that case, so do not poison an otherwise usable
             // Store merely because validation code surfaced RocksDBException.
             if (nativeWriteAttempted) {
@@ -2209,7 +2208,7 @@ public final class ShardStore implements AutoCloseable {
             throw new RocksDbWriteFailure("RocksDB write failed", exception);
         } catch (RuntimeException | Error exception) {
             // A fatal/runtime failure while closing the native batch/options
-            // can occur after db.write returned.  Preserve the same unknown
+            // can occur after db.write returned. Preserve the same unknown
             // commit boundary instead of leaving a live Store usable.
             if (nativeWriteAttempted) {
                 writeOutcomeUncertain = true;
@@ -2230,7 +2229,7 @@ public final class ShardStore implements AutoCloseable {
         try {
             operation.run();
         } catch (RocksDBException exception) {
-            // Flush/sync is the drain durability boundary.  A native failure
+            // Flush/sync is the drain durability boundary. A native failure
             // does not prove whether the pending memtable/WAL bytes reached
             // durable storage, so the current Store incarnation must not be
             // reused for another source or ownership decision.
@@ -2258,8 +2257,8 @@ public final class ShardStore implements AutoCloseable {
     }
 
     synchronized Path createCheckpoint(final Path checkpointPath) {
-        // The V1 checkpoint identity is part of the physical image, not an
-        // optional label.  Keep this convenience overload useful for embedded
+        // The checkpoint identity is part of the physical image, not an
+        // optional label. Keep this convenience overload useful for embedded
         // callers, but still allocate the identity before any checkpoint I/O.
         return createCheckpoint(checkpointPath, randomCheckpointId());
     }
@@ -2274,7 +2273,7 @@ public final class ShardStore implements AutoCloseable {
      * must pass the same explicit identity to every retry.</p>
      *
      * <p>The identity is written before RocksDB snapshots the files, so a
-     * restored image can prove which checkpoint it represents.  If physical
+     * restored image can prove which checkpoint it represents. If physical
      * creation fails, the previous local projection is synchronously restored;
      * a failed attempt must not leave a live DB claiming a checkpoint that was
      * never produced.</p>
@@ -2301,7 +2300,7 @@ public final class ShardStore implements AutoCloseable {
             resources.acquireCheckpointCreateSlot();
             slotAcquired = true;
             // Capacity admission must be established before mutating the
-            // live Store projection.  If the worker create budget is already
+            // live Store projection. If the worker create budget is already
             // exhausted, the attempt must leave no checkpoint identity that
             // needs a compensating WriteBatch (and therefore no second
             // failure-prone write on the rejection path).
@@ -2347,7 +2346,7 @@ public final class ShardStore implements AutoCloseable {
                 } catch (RuntimeException | Error rollbackFailure) {
                     // The checkpoint image failed after its identity was
                     // written, and the compensating metadata batch is not
-                    // provable.  Continuing with this live Store could make
+                    // provable. Continuing with this live Store could make
                     // the in-memory checkpoint projection disagree with the
                     // durable image, so require a fresh incarnation just as
                     // for any other committed-but-unverifiable WriteBatch.
@@ -2385,7 +2384,7 @@ public final class ShardStore implements AutoCloseable {
         }
     }
 
-    /** Allocates the cryptographic-random 16-byte identity required by V1. */
+    /** Allocates the cryptographic-random 16-byte identity required by the current design. */
     private static byte[] randomCheckpointId() {
         final UUID uuid = UUID.randomUUID();
         final byte[] id = uuidBytes(uuid);
@@ -2430,8 +2429,8 @@ public final class ShardStore implements AutoCloseable {
                     // treat the store as unclean.
                     final StoreRuntimeMetadata cleanRuntime = runtimeMetadata.withCleanCloseMarker(true);
                     final StoreRecoveryMetadata cleanRecovery =
-                            recoveryMetadata.withInstallState(new RecoveryInstallStateV1(
-                                    RecoveryInstallPhaseV1.CLOSED_CLEAN,
+                            recoveryMetadata.withInstallState(new RecoveryInstallState(
+                                    RecoveryInstallPhase.CLOSED_CLEAN,
                                     metadata.storeIncarnation(),
                                     recoveryMetadata.checkpointId()));
                     write(batch -> {
@@ -2448,7 +2447,7 @@ public final class ShardStore implements AutoCloseable {
         // teardown below needs a later retry.
         closeStarted = true;
         // Every native close and every worker-slot release is attempted even
-        // when an earlier JNI close reports a runtime failure.  Losing the
+        // when an earlier JNI close reports a runtime failure. Losing the
         // release in that path would permanently consume maxOpenShardDbs or
         // maxOwnedShards and make a healthy worker reject future ownership.
         try {
@@ -2624,10 +2623,10 @@ public final class ShardStore implements AutoCloseable {
         private final WriteBatch batch;
         private final Map<ColumnFamily, ColumnFamilyHandle> handles;
         private final StoreRuntimeMetadata currentRuntimeMetadata;
-        private final CompatibleControlSnapshotV1 currentControlSnapshot;
+        private final CompatibleControlSnapshot currentControlSnapshot;
         private StoreRuntimeMetadata runtimeMetadata;
         private StoreRecoveryMetadata recoveryMetadata;
-        private CompatibleControlSnapshotV1 controlSnapshot;
+        private CompatibleControlSnapshot controlSnapshot;
         private long closedIngressDeadlineThrough;
 
         private Batch(
@@ -2636,7 +2635,7 @@ public final class ShardStore implements AutoCloseable {
                 final Map<ColumnFamily, ColumnFamilyHandle> handles,
                 final long closedIngressDeadlineThrough,
                 final StoreRuntimeMetadata currentRuntimeMetadata,
-                final CompatibleControlSnapshotV1 currentControlSnapshot) {
+                final CompatibleControlSnapshot currentControlSnapshot) {
             this.owner = Objects.requireNonNull(owner, "owner");
             this.batch = batch;
             this.handles = handles;
@@ -2680,7 +2679,7 @@ public final class ShardStore implements AutoCloseable {
         }
 
         /** Adds the complete compatible control snapshot to this atomic batch. */
-        public void putControlSnapshot(final CompatibleControlSnapshotV1 next) throws RocksDBException {
+        public void putControlSnapshot(final CompatibleControlSnapshot next) throws RocksDBException {
             Objects.requireNonNull(next, "next");
             if (!owner.shardId.equals(next.shard().shardId())) {
                 throw new IllegalArgumentException("control snapshot belongs to another shard");

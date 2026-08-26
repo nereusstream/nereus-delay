@@ -5,21 +5,21 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import com.nereusstream.delay.protocol.ActivationBarrierV1;
-import com.nereusstream.delay.protocol.AdapterKindV1;
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.ActivationBarrier;
+import com.nereusstream.delay.protocol.AdapterKind;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.IngressCredentialBindingRefV1;
-import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.KafkaIngressRouteResourceV1;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
+import com.nereusstream.delay.protocol.IngressCredentialBindingRef;
+import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.KafkaIngressRouteResource;
+import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
-import com.nereusstream.delay.protocol.QuotaGrantRefV1;
+import com.nereusstream.delay.protocol.QuotaGrantRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.RouteLifecycleV1;
-import com.nereusstream.delay.protocol.RoutePartitionPolicyV1;
-import com.nereusstream.delay.protocol.RouteSnapshotV1;
-import com.nereusstream.delay.protocol.RoutingHashVersionV1;
+import com.nereusstream.delay.protocol.RouteLifecycle;
+import com.nereusstream.delay.protocol.RoutePartitionPolicy;
+import com.nereusstream.delay.protocol.RouteSnapshot;
+import com.nereusstream.delay.protocol.RoutingHashVersion;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.semantic.RouteSelectionHint;
 import io.oxia.client.api.CloseableIterable;
@@ -56,8 +56,8 @@ class OxiaSignedRouteSnapshotProviderTest {
         final OxiaSignedRouteSnapshotProvider provider =
                 new OxiaSignedRouteSnapshotProvider(session, "/nereus/route", keys.getPublic(), () -> 200);
         try {
-            final RouteSnapshotV1 active =
-                    snapshot(keys, new RouteIncarnation(bytes(16, 30)), RouteLifecycleV1.ACTIVE_FOR_NEW, 1);
+            final RouteSnapshot active =
+                    snapshot(keys, new RouteIncarnation(bytes(16, 30)), RouteLifecycle.ACTIVE_FOR_NEW, 1);
             client.failNextEphemeralPutAfterCommit();
             publisher.publish(hint(), active, 0);
             provider.start().toCompletableFuture().join();
@@ -82,8 +82,8 @@ class OxiaSignedRouteSnapshotProviderTest {
         final FakeRouteClient replacementNotificationClient = new FakeRouteClient();
         final OxiaRouteAuthoritySession session = new OxiaRouteAuthoritySession(
                 authority, previousNotificationClient, () -> replacementNotificationClient, "/nereus/route");
-        final RouteSnapshotV1 active =
-                snapshot(keys, new RouteIncarnation(bytes(16, 30)), RouteLifecycleV1.ACTIVE_FOR_NEW, 1);
+        final RouteSnapshot active =
+                snapshot(keys, new RouteIncarnation(bytes(16, 30)), RouteLifecycle.ACTIVE_FOR_NEW, 1);
         final OxiaSignedRouteSnapshotPublisher publisher =
                 new OxiaSignedRouteSnapshotPublisher(authority, "/nereus/route", keys.getPublic());
         publisher.publish(hint(), active, 0);
@@ -112,12 +112,11 @@ class OxiaSignedRouteSnapshotProviderTest {
         final FakeRouteClient notificationClient = new FakeRouteClient();
         final OxiaRouteAuthoritySession session = new OxiaRouteAuthoritySession(
                 authority, notificationClient, () -> new FakeRouteClient(), "/nereus/route");
-        final RouteSnapshotV1 first =
-                snapshot(keys, new RouteIncarnation(bytes(16, 30)), RouteLifecycleV1.ACTIVE_FOR_NEW, 1);
-        final OxiaRouteSnapshotRecordV1 firstEvent = OxiaRouteSnapshotRecordV1.create(1, 0, hint(), first);
+        final RouteSnapshot first =
+                snapshot(keys, new RouteIncarnation(bytes(16, 30)), RouteLifecycle.ACTIVE_FOR_NEW, 1);
+        final OxiaRouteSnapshotRecord firstEvent = OxiaRouteSnapshotRecord.create(1, 0, hint(), first);
         authority.seed("/nereus/route/events/00000000000000000001", firstEvent.canonicalBytes());
-        authority.seed(
-                "/nereus/route/head", new OxiaRouteSnapshotHeadV1(2, firstEvent.recordDigest()).canonicalBytes());
+        authority.seed("/nereus/route/head", new OxiaRouteSnapshotHead(2, firstEvent.recordDigest()).canonicalBytes());
         final OxiaSignedRouteSnapshotProvider provider =
                 new OxiaSignedRouteSnapshotProvider(session, "/nereus/route", keys.getPublic(), () -> 200);
         try {
@@ -126,11 +125,11 @@ class OxiaSignedRouteSnapshotProviderTest {
                     () -> provider.start().toCompletableFuture().join());
             assertEquals(RouteCacheHealth.WATCH_GAP, provider.health());
 
-            final RouteSnapshotV1 second = snapshot(keys, first.routeIncarnation(), RouteLifecycleV1.CONTROL_ONLY, 2);
-            final OxiaRouteSnapshotRecordV1 secondEvent = OxiaRouteSnapshotRecordV1.create(2, 1, hint(), second);
+            final RouteSnapshot second = snapshot(keys, first.routeIncarnation(), RouteLifecycle.CONTROL_ONLY, 2);
+            final OxiaRouteSnapshotRecord secondEvent = OxiaRouteSnapshotRecord.create(2, 1, hint(), second);
             authority.seed("/nereus/route/events/00000000000000000002", secondEvent.canonicalBytes());
             authority.seed(
-                    "/nereus/route/head", new OxiaRouteSnapshotHeadV1(2, secondEvent.recordDigest()).canonicalBytes());
+                    "/nereus/route/head", new OxiaRouteSnapshotHead(2, secondEvent.recordDigest()).canonicalBytes());
 
             provider.refresh().toCompletableFuture().join();
             assertEquals(RouteCacheHealth.HEALTHY, provider.health());
@@ -265,11 +264,11 @@ class OxiaSignedRouteSnapshotProviderTest {
                     IllegalStateException.class,
                     () -> publisher.publish(
                             hint(),
-                            snapshot(keys, new RouteIncarnation(bytes(16, 31)), RouteLifecycleV1.ACTIVE_FOR_NEW, 1),
+                            snapshot(keys, new RouteIncarnation(bytes(16, 31)), RouteLifecycle.ACTIVE_FOR_NEW, 1),
                             0));
             assertEquals(
                     1,
-                    OxiaRouteSnapshotHeadV1.decode(
+                    OxiaRouteSnapshotHead.decode(
                                     client.get("/nereus/route/head").value())
                             .publishedRevision());
         } finally {
@@ -288,7 +287,7 @@ class OxiaSignedRouteSnapshotProviderTest {
         final OxiaSignedRouteSnapshotProvider provider =
                 new OxiaSignedRouteSnapshotProvider(client, "/nereus/route", keys.getPublic(), () -> 200);
 
-        final RouteSnapshotV1 active = snapshot(keys, incarnation, RouteLifecycleV1.ACTIVE_FOR_NEW, 1);
+        final RouteSnapshot active = snapshot(keys, incarnation, RouteLifecycle.ACTIVE_FOR_NEW, 1);
         publisher.publish(hint, active, 0);
         provider.start().toCompletableFuture().join();
 
@@ -298,12 +297,12 @@ class OxiaSignedRouteSnapshotProviderTest {
                 active.canonicalBytes(),
                 provider.activeForNewSchedule(tenant(), hint).canonicalBytes());
 
-        final RouteSnapshotV1 retired = snapshot(keys, incarnation, RouteLifecycleV1.RETIRED, 2);
+        final RouteSnapshot retired = snapshot(keys, incarnation, RouteLifecycle.RETIRED, 2);
         publisher.publish(hint, retired, 1);
 
         assertEquals(2, provider.publishedRevision());
         assertEquals(
-                RouteLifecycleV1.RETIRED, provider.exact(incarnation, tenant()).lifecycle());
+                RouteLifecycle.RETIRED, provider.exact(incarnation, tenant()).lifecycle());
         assertThrows(IllegalArgumentException.class, () -> provider.activeForNewSchedule(tenant(), hint));
     }
 
@@ -312,11 +311,11 @@ class OxiaSignedRouteSnapshotProviderTest {
         final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final FakeRouteClient client = new FakeRouteClient();
         final RouteSelectionHint hint = hint();
-        final RouteSnapshotV1 snapshot =
-                snapshot(keys, new RouteIncarnation(bytes(16, 30)), RouteLifecycleV1.ACTIVE_FOR_NEW, 1);
-        final OxiaRouteSnapshotRecordV1 event = OxiaRouteSnapshotRecordV1.create(1, 0, hint, snapshot);
+        final RouteSnapshot snapshot =
+                snapshot(keys, new RouteIncarnation(bytes(16, 30)), RouteLifecycle.ACTIVE_FOR_NEW, 1);
+        final OxiaRouteSnapshotRecord event = OxiaRouteSnapshotRecord.create(1, 0, hint, snapshot);
         client.seed("/nereus/route/events/00000000000000000001", event.canonicalBytes());
-        client.seed("/nereus/route/head", new OxiaRouteSnapshotHeadV1(2, event.recordDigest()).canonicalBytes());
+        client.seed("/nereus/route/head", new OxiaRouteSnapshotHead(2, event.recordDigest()).canonicalBytes());
         final OxiaSignedRouteSnapshotProvider provider =
                 new OxiaSignedRouteSnapshotProvider(client, "/nereus/route", keys.getPublic(), () -> 200);
 
@@ -327,24 +326,24 @@ class OxiaSignedRouteSnapshotProviderTest {
 
         client.seed(
                 "/nereus/route/events/00000000000000000002",
-                OxiaRouteSnapshotRecordV1.create(
+                OxiaRouteSnapshotRecord.create(
                                 2,
                                 1,
                                 hint(),
-                                snapshot(keys, snapshot.routeIncarnation(), RouteLifecycleV1.CONTROL_ONLY, 2))
+                                snapshot(keys, snapshot.routeIncarnation(), RouteLifecycle.CONTROL_ONLY, 2))
                         .canonicalBytes());
         client.seed(
                 "/nereus/route/head",
-                new OxiaRouteSnapshotHeadV1(
+                new OxiaRouteSnapshotHead(
                                 2,
-                                OxiaRouteSnapshotRecordV1.create(
+                                OxiaRouteSnapshotRecord.create(
                                                 2,
                                                 1,
                                                 hint(),
                                                 snapshot(
                                                         keys,
                                                         snapshot.routeIncarnation(),
-                                                        RouteLifecycleV1.CONTROL_ONLY,
+                                                        RouteLifecycle.CONTROL_ONLY,
                                                         2))
                                         .recordDigest())
                         .canonicalBytes());
@@ -362,62 +361,62 @@ class OxiaSignedRouteSnapshotProviderTest {
         final RouteIncarnation incarnation = new RouteIncarnation(bytes(16, 30));
         final OxiaSignedRouteSnapshotPublisher publisher =
                 new OxiaSignedRouteSnapshotPublisher(client, "/nereus/route", keys.getPublic());
-        final RouteSnapshotV1 first = snapshot(keys, incarnation, RouteLifecycleV1.ACTIVE_FOR_NEW, 1);
+        final RouteSnapshot first = snapshot(keys, incarnation, RouteLifecycle.ACTIVE_FOR_NEW, 1);
         publisher.publish(hint, first, 0);
-        final RouteSnapshotV1 changedResource = snapshotWithTopic(
+        final RouteSnapshot changedResource = snapshotWithTopic(
                 keys,
                 incarnation,
-                RouteLifecycleV1.CONTROL_ONLY,
+                RouteLifecycle.CONTROL_ONLY,
                 2,
                 UUID.fromString("12345678-1234-7abc-8def-1234567890ac"));
 
         assertThrows(IllegalArgumentException.class, () -> publisher.publish(hint, changedResource, 1));
         assertEquals(
                 1,
-                OxiaRouteSnapshotHeadV1.decode(client.get("/nereus/route/head").value())
+                OxiaRouteSnapshotHead.decode(client.get("/nereus/route/head").value())
                         .publishedRevision());
     }
 
     static RouteSelectionHint hint() {
-        return new RouteSelectionHint(AdapterKindV1.KAFKA, Bytes.utf8("primary"));
+        return new RouteSelectionHint(AdapterKind.KAFKA, Bytes.utf8("primary"));
     }
 
     private static com.nereusstream.delay.semantic.AuthenticatedTenantContext tenant() {
         return new com.nereusstream.delay.semantic.AuthenticatedTenantContext(bytes(32, 1), bytes(32, 2), bytes(32, 3));
     }
 
-    static RouteSnapshotV1 snapshot(
+    static RouteSnapshot snapshot(
             final KeyPair keys,
             final RouteIncarnation incarnation,
-            final RouteLifecycleV1 lifecycle,
+            final RouteLifecycle lifecycle,
             final long controlVersion) {
         return snapshotWithTopic(
                 keys, incarnation, lifecycle, controlVersion, UUID.fromString("12345678-1234-7abc-8def-1234567890ab"));
     }
 
-    private static RouteSnapshotV1 snapshotWithTopic(
+    private static RouteSnapshot snapshotWithTopic(
             final KeyPair keys,
             final RouteIncarnation incarnation,
-            final RouteLifecycleV1 lifecycle,
+            final RouteLifecycle lifecycle,
             final long controlVersion,
             final UUID topic) {
-        final KafkaIngressRouteResourceV1 ingress =
-                new KafkaIngressRouteResourceV1("cluster", "persistent://tenant/ns/delay", topic, 2);
-        final BrokerResourceIdentityV1 broker =
-                BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1("cluster", topic));
-        final QuotaGrantRefV1 quota = new QuotaGrantRefV1(
+        final KafkaIngressRouteResource ingress =
+                new KafkaIngressRouteResource("cluster", "persistent://tenant/ns/delay", topic, 2);
+        final BrokerResourceIdentity broker =
+                BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity("cluster", topic));
+        final QuotaGrantRef quota = new QuotaGrantRef(
                 bytes(32, 20),
                 1,
                 new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
-        return RouteSnapshotV1.create(
+        return RouteSnapshot.create(
                 incarnation,
                 bytes(32, 1),
                 bytes(32, 2),
                 lifecycle,
                 900,
                 ingress,
-                RoutingHashVersionV1.ROUTING_HASH_V1,
-                new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1),
+                RoutingHashVersion.ROUTING_HASH,
+                new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1),
                 controlVersion,
                 List.of(policy(0, broker, quota), policy(1, broker, quota)),
                 100,
@@ -429,7 +428,7 @@ class OxiaSignedRouteSnapshotProviderTest {
                 500,
                 100,
                 1000,
-                new IngressCredentialBindingRefV1(bytes(32, 40), 1, bytes(32, 41), bytes(32, 42), bytes(32, 43)),
+                new IngressCredentialBindingRef(bytes(32, 40), 1, bytes(32, 41), bytes(32, 42), bytes(32, 43)),
                 bytes(32, 44),
                 new TrustedUtcIntervalEvidence(
                         200,
@@ -446,10 +445,10 @@ class OxiaSignedRouteSnapshotProviderTest {
                 keys.getPrivate());
     }
 
-    private static RoutePartitionPolicyV1 policy(
-            final int partition, final BrokerResourceIdentityV1 broker, final QuotaGrantRefV1 quota) {
-        return new RoutePartitionPolicyV1(
-                partition, ActivationBarrierV1.kafka(broker, partition, 0, 0), quota, 1, bytes(32, 50 + partition));
+    private static RoutePartitionPolicy policy(
+            final int partition, final BrokerResourceIdentity broker, final QuotaGrantRef quota) {
+        return new RoutePartitionPolicy(
+                partition, ActivationBarrier.kafka(broker, partition, 0, 0), quota, 1, bytes(32, 50 + partition));
     }
 
     private static byte[] bytes(final int length, final int seed) {

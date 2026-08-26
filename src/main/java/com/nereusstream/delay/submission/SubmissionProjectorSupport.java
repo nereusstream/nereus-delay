@@ -4,7 +4,7 @@ import com.nereusstream.delay.adapter.QueuedReceiptQueryPolicy;
 import com.nereusstream.delay.adapter.WireIngressOutcomeSupport;
 import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.RetryabilityV1;
+import com.nereusstream.delay.protocol.Retryability;
 import com.nereusstream.delay.protocol.StableCode;
 
 final class SubmissionProjectorSupport {
@@ -16,8 +16,8 @@ final class SubmissionProjectorSupport {
             throw new IllegalArgumentException("managed plan has a non-managed request");
         }
         final byte[] frame = plan.submission().managedFrame();
-        final PreparedCommand command = CommandCodec.decodeFrameV1(frame);
-        if (!java.util.Arrays.equals(frame, CommandCodec.encodeFrameV1(command))) {
+        final PreparedCommand command = CommandCodec.decodeManagedFrame(frame);
+        if (!java.util.Arrays.equals(frame, CommandCodec.encodeManagedFrame(command))) {
             throw new IllegalArgumentException("managed frame is not canonical");
         }
         return command;
@@ -37,7 +37,7 @@ final class SubmissionProjectorSupport {
     static StableCode exactNativeRetryCode(final int wireValue) {
         try {
             final StableCode code = StableCode.fromWire(wireValue);
-            return RetryabilityV1.forCode(code) == RetryabilityV1.RETRY_EXACT_BYTES
+            return Retryability.forCode(code) == Retryability.RETRY_EXACT_BYTES
                     ? code
                     : StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN;
         } catch (IllegalArgumentException ignored) {

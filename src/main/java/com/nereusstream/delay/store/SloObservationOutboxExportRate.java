@@ -7,7 +7,7 @@ import java.util.function.LongSupplier;
  * Process-local fixed-window export budget for one SLO outbox.
  *
  * <p>The budget limits export attempts by both record count and encoded bytes
- * in each monotonic one-second window.  It is deliberately not durable: a
+ * in each monotonic one-second window. It is deliberately not durable: a
  * restart may start a fresh window, while the durable outbox and collector
  * digest acknowledgement remain the correctness boundary.</p>
  */

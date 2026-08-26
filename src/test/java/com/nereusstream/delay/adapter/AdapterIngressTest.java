@@ -6,22 +6,22 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.client.EnqueueStatus;
-import com.nereusstream.delay.protocol.AdapterMetadataV1;
+import com.nereusstream.delay.protocol.AdapterMetadata;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.DeliveryMode;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.EnqueueOutcomeKindV1;
-import com.nereusstream.delay.protocol.KafkaMetadataV1;
-import com.nereusstream.delay.protocol.NonPersistenceProofKindV1;
+import com.nereusstream.delay.protocol.EnqueueOutcomeKind;
+import com.nereusstream.delay.protocol.KafkaMetadata;
+import com.nereusstream.delay.protocol.NonPersistenceProofKind;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
-import com.nereusstream.delay.protocol.RetryPolicyRefV1;
+import com.nereusstream.delay.protocol.RetryPolicyRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.StableCode;
 import java.util.List;
@@ -85,11 +85,11 @@ class AdapterIngressTest {
             assertEquals(EnqueueStatus.ENQUEUE_UNCERTAIN, outcome.status());
             assertEquals(StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue(), outcome.stableCode());
 
-            final var wire = adapter.enqueueOutcomeV1(
+            final var wire = adapter.enqueueOutcome(
                             command, 5_000, java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("stage-attempt")), 16))
                     .toCompletableFuture()
                     .join();
-            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(EnqueueOutcomeKind.ENQUEUE_UNCERTAIN, wire.kind());
             assertEquals(
                     StableCode.ENQUEUE_RESULT_UNCERTAIN,
                     wire.uncertain().error().code());
@@ -108,13 +108,13 @@ class AdapterIngressTest {
             assertEquals(
                     EnqueueStatus.ENQUEUE_UNCERTAIN,
                     adapter.enqueue(command).toCompletableFuture().join().status());
-            final var wire = adapter.enqueueOutcomeV1(
+            final var wire = adapter.enqueueOutcome(
                             command,
                             5_000,
                             java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("null-handle-attempt")), 16))
                     .toCompletableFuture()
                     .join();
-            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(EnqueueOutcomeKind.ENQUEUE_UNCERTAIN, wire.kind());
             assertEquals(
                     StableCode.ENQUEUE_RESULT_UNCERTAIN,
                     wire.uncertain().error().code());
@@ -133,14 +133,14 @@ class AdapterIngressTest {
         final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request -> CompletableFuture.completedFuture(
                 KafkaProduceResult.persisted("cluster-wire", topic, 5, 12, 3, 2_000, evidence));
         try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
-            final var wire = adapter.enqueueOutcomeV1(command, 5_000, attempt)
+            final var wire = adapter.enqueueOutcome(command, 5_000, attempt)
                     .toCompletableFuture()
                     .join();
-            assertEquals(EnqueueOutcomeKindV1.QUEUED, wire.kind());
-            final var ack = (com.nereusstream.delay.protocol.CommandQueuedReceiptV1.KafkaQueuedAck)
+            assertEquals(EnqueueOutcomeKind.QUEUED, wire.kind());
+            final var ack = (com.nereusstream.delay.protocol.CanonicalCommandQueuedReceipt.KafkaQueuedAck)
                     wire.queued().brokerAck();
             assertArrayEquals(Bytes.sha256(evidence), ack.responseSha256());
-            assertEquals(wire, com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1.decode(wire.canonicalBytes()));
+            assertEquals(wire, com.nereusstream.delay.protocol.EnqueueOutcomeMessage.decode(wire.canonicalBytes()));
         }
     }
 
@@ -156,10 +156,10 @@ class AdapterIngressTest {
         final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request -> CompletableFuture.completedFuture(
                 KafkaProduceResult.persisted("cluster-policy", topic, 38, 12, 3, 2_000, Bytes.utf8("policy-response")));
         try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport, policy)) {
-            final var wire = adapter.enqueueOutcomeV1(command, policy, attempt)
+            final var wire = adapter.enqueueOutcome(command, policy, attempt)
                     .toCompletableFuture()
                     .join();
-            assertEquals(EnqueueOutcomeKindV1.QUEUED, wire.kind());
+            assertEquals(EnqueueOutcomeKind.QUEUED, wire.kind());
             assertEquals(6_000, wire.queued().receiptQueryUntilEpochMs());
         }
     }
@@ -177,10 +177,10 @@ class AdapterIngressTest {
                 request -> CompletableFuture.completedFuture(KafkaProduceResult.persisted(
                         "cluster-overflow", topic, 39, 12, 3, Long.MAX_VALUE, Bytes.utf8("overflow-response")));
         try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport, policy)) {
-            final var wire = adapter.enqueueOutcomeV1(command, policy, attempt)
+            final var wire = adapter.enqueueOutcome(command, policy, attempt)
                     .toCompletableFuture()
                     .join();
-            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(EnqueueOutcomeKind.ENQUEUE_UNCERTAIN, wire.kind());
             assertEquals(
                     StableCode.ENQUEUE_RESULT_UNCERTAIN,
                     wire.uncertain().error().code());
@@ -202,14 +202,14 @@ class AdapterIngressTest {
                 request -> CompletableFuture.completedFuture(KafkaProduceResult.definitelyNotPersisted(
                         StableCode.BROKER_DEFINITIVE_NOT_PERSISTED.wireValue(), Bytes.utf8("rejection")));
         try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
-            final var wire = adapter.enqueueOutcomeV1(command, 5_000, attempt)
+            final var wire = adapter.enqueueOutcome(command, 5_000, attempt)
                     .toCompletableFuture()
                     .join();
-            assertEquals(EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED, wire.kind());
+            assertEquals(EnqueueOutcomeKind.DEFINITELY_NOT_QUEUED, wire.kind());
             assertEquals(
-                    NonPersistenceProofKindV1.KAFKA_DEFINITIVE_REJECTION,
+                    NonPersistenceProofKind.KAFKA_DEFINITIVE_REJECTION,
                     wire.definitelyNotQueued().proof().kind());
-            assertEquals(wire, com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1.decode(wire.canonicalBytes()));
+            assertEquals(wire, com.nereusstream.delay.protocol.EnqueueOutcomeMessage.decode(wire.canonicalBytes()));
         }
     }
 
@@ -225,10 +225,10 @@ class AdapterIngressTest {
                 request -> CompletableFuture.completedFuture(KafkaProduceResult.definitelyNotPersisted(
                         StableCode.BROKER_RESOURCE_UNCERTIFIED.wireValue(), Bytes.utf8("not-a-rejection")));
         try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
-            final var wire = adapter.enqueueOutcomeV1(command, 5_000, attempt)
+            final var wire = adapter.enqueueOutcome(command, 5_000, attempt)
                     .toCompletableFuture()
                     .join();
-            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(EnqueueOutcomeKind.ENQUEUE_UNCERTAIN, wire.kind());
             assertEquals(
                     StableCode.ENQUEUE_RESULT_UNCERTAIN,
                     wire.uncertain().error().code());
@@ -249,10 +249,10 @@ class AdapterIngressTest {
             throw new IllegalStateException("lost after ownership");
         };
         try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
-            final var wire = adapter.enqueueOutcomeV1(command, 5_000, attempt)
+            final var wire = adapter.enqueueOutcome(command, 5_000, attempt)
                     .toCompletableFuture()
                     .join();
-            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(EnqueueOutcomeKind.ENQUEUE_UNCERTAIN, wire.kind());
             assertEquals(
                     StableCode.ENQUEUE_RESULT_UNCERTAIN,
                     wire.uncertain().error().code());
@@ -270,10 +270,10 @@ class AdapterIngressTest {
                 request -> CompletableFuture.completedFuture(KafkaProduceResult.definitelyNotPersisted(
                         StableCode.BROKER_DEFINITIVE_NOT_PERSISTED.wireValue(), null));
         try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
-            final var wire = adapter.enqueueOutcomeV1(command, 5_000, attempt)
+            final var wire = adapter.enqueueOutcome(command, 5_000, attempt)
                     .toCompletableFuture()
                     .join();
-            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(EnqueueOutcomeKind.ENQUEUE_UNCERTAIN, wire.kind());
             assertEquals(
                     StableCode.ENQUEUE_RESULT_UNCERTAIN,
                     wire.uncertain().error().code());
@@ -291,10 +291,10 @@ class AdapterIngressTest {
         final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request -> CompletableFuture.completedFuture(
                 KafkaProduceResult.persisted("cluster-projection", topic, 27, 12, 3, 2_000, Bytes.utf8("response")));
         try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
-            final var wire = adapter.enqueueOutcomeV1(command, 1_999, attempt)
+            final var wire = adapter.enqueueOutcome(command, 1_999, attempt)
                     .toCompletableFuture()
                     .join();
-            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(EnqueueOutcomeKind.ENQUEUE_UNCERTAIN, wire.kind());
             assertEquals(
                     StableCode.ENQUEUE_RESULT_UNCERTAIN,
                     wire.uncertain().error().code());
@@ -378,7 +378,7 @@ class AdapterIngressTest {
     }
 
     @Test
-    void kafkaV1RejectsInvalidPhysicalAttemptBeforeTransportOwnership() {
+    void kafkaRejectsInvalidPhysicalAttemptBeforeTransportOwnership() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 30);
         final KafkaIngressResource resource =
                 new KafkaIngressResource(shard, "cluster-attempt", "command-topic", UUID.randomUUID(), 30);
@@ -390,10 +390,10 @@ class AdapterIngressTest {
             return CompletableFuture.failedFuture(new AssertionError("invalid attempt reached transport"));
         };
         try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
-            final var wire = adapter.enqueueOutcomeV1(command, 5_000, new byte[16])
+            final var wire = adapter.enqueueOutcome(command, 5_000, new byte[16])
                     .toCompletableFuture()
                     .join();
-            assertEquals(EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED, wire.kind());
+            assertEquals(EnqueueOutcomeKind.DEFINITELY_NOT_QUEUED, wire.kind());
             assertEquals(
                     StableCode.INVALID_PREPARED_COMMAND,
                     wire.definitelyNotQueued().error().code());
@@ -402,7 +402,7 @@ class AdapterIngressTest {
     }
 
     @Test
-    void pulsarV1RejectsInvalidPhysicalAttemptBeforeTransportOwnership() {
+    void pulsarRejectsInvalidPhysicalAttemptBeforeTransportOwnership() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 31);
         final byte[] token = Bytes.sha256(Bytes.utf8("attempt-pulsar-token"));
         final PulsarIngressResource resource = new PulsarIngressResource(
@@ -415,10 +415,10 @@ class AdapterIngressTest {
             return CompletableFuture.failedFuture(new AssertionError("invalid attempt reached transport"));
         };
         try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
-            final var wire = adapter.enqueueOutcomeV1(command, 5_000, new byte[16])
+            final var wire = adapter.enqueueOutcome(command, 5_000, new byte[16])
                     .toCompletableFuture()
                     .join();
-            assertEquals(EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED, wire.kind());
+            assertEquals(EnqueueOutcomeKind.DEFINITELY_NOT_QUEUED, wire.kind());
             assertEquals(
                     StableCode.INVALID_PREPARED_COMMAND,
                     wire.definitelyNotQueued().error().code());
@@ -427,14 +427,14 @@ class AdapterIngressTest {
     }
 
     @Test
-    void kafkaV1WireRejectsLegacyBodyBeforeTransportOwnership() {
+    void kafkaWireRejectsLegacyBodyBeforeTransportOwnership() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 25);
         final KafkaIngressResource resource =
-                new KafkaIngressResource(shard, "cluster-v1", "command-topic", UUID.randomUUID(), 25);
+                new KafkaIngressResource(shard, "cluster", "command-topic", UUID.randomUUID(), 25);
         final PreparedCommand legacy = PreparedCommand.schedule(
                 shard,
                 new com.nereusstream.delay.protocol.ScheduleIntent(
-                        DestinationLaneId.derive(Bytes.utf8("legacy-v1-lane")),
+                        DestinationLaneId.derive(Bytes.utf8("legacy-lane")),
                         2_000,
                         5_000,
                         OrderingMode.BEST_EFFORT,
@@ -444,14 +444,14 @@ class AdapterIngressTest {
                 new java.util.concurrent.atomic.AtomicBoolean();
         final PinnedKafkaCommandIngress.KafkaProduceTransport transport = request -> {
             transportCalled.set(true);
-            return CompletableFuture.failedFuture(new AssertionError("legacy V1 body reached transport"));
+            return CompletableFuture.failedFuture(new AssertionError("legacy body reached transport"));
         };
         try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
             final var failure =
-                    assertThrows(java.util.concurrent.CompletionException.class, () -> adapter.enqueueOutcomeV1(
+                    assertThrows(java.util.concurrent.CompletionException.class, () -> adapter.enqueueOutcome(
                                     legacy,
                                     5_000,
-                                    java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("legacy-v1-attempt")), 16))
+                                    java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("legacy-attempt")), 16))
                             .toCompletableFuture()
                             .join());
             assertTrue(failure.getCause() instanceof IllegalArgumentException);
@@ -460,15 +460,15 @@ class AdapterIngressTest {
     }
 
     @Test
-    void pulsarV1WireRejectsLegacyBodyBeforeTransportOwnership() {
+    void pulsarWireRejectsLegacyBodyBeforeTransportOwnership() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 26);
-        final byte[] token = Bytes.sha256(Bytes.utf8("legacy-pulsar-v1-token"));
+        final byte[] token = Bytes.sha256(Bytes.utf8("legacy-pulsar-token"));
         final PulsarIngressResource resource = new PulsarIngressResource(
-                shard, "cluster-pulsar-v1", token, "persistent://tenant/ns/command-26", 7026, 26);
+                shard, "cluster-pulsar", token, "persistent://tenant/ns/command-26", 7026, 26);
         final PreparedCommand legacy = PreparedCommand.schedule(
                 shard,
                 new com.nereusstream.delay.protocol.ScheduleIntent(
-                        DestinationLaneId.derive(Bytes.utf8("legacy-pulsar-v1-lane")),
+                        DestinationLaneId.derive(Bytes.utf8("legacy-pulsar-lane")),
                         2_000,
                         5_000,
                         OrderingMode.BEST_EFFORT,
@@ -478,14 +478,14 @@ class AdapterIngressTest {
                 new java.util.concurrent.atomic.AtomicBoolean();
         final PinnedPulsarCommandIngress.PulsarSendTransport transport = request -> {
             transportCalled.set(true);
-            return CompletableFuture.failedFuture(new AssertionError("legacy V1 body reached transport"));
+            return CompletableFuture.failedFuture(new AssertionError("legacy body reached transport"));
         };
         try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
             final var failure =
-                    assertThrows(java.util.concurrent.CompletionException.class, () -> adapter.enqueueOutcomeV1(
+                    assertThrows(java.util.concurrent.CompletionException.class, () -> adapter.enqueueOutcome(
                                     legacy,
                                     5_000,
-                                    java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("legacy-pulsar-v1-attempt")), 16))
+                                    java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("legacy-pulsar-attempt")), 16))
                             .toCompletableFuture()
                             .join());
             assertTrue(failure.getCause() instanceof IllegalArgumentException);
@@ -561,13 +561,13 @@ class AdapterIngressTest {
             assertEquals(EnqueueStatus.ENQUEUE_UNCERTAIN, outcome.status());
             assertEquals(StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue(), outcome.stableCode());
 
-            final var wire = adapter.enqueueOutcomeV1(
+            final var wire = adapter.enqueueOutcome(
                             command,
                             5_000,
                             java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("stage-pulsar-attempt")), 16))
                     .toCompletableFuture()
                     .join();
-            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(EnqueueOutcomeKind.ENQUEUE_UNCERTAIN, wire.kind());
             assertEquals(
                     StableCode.ENQUEUE_RESULT_UNCERTAIN,
                     wire.uncertain().error().code());
@@ -586,13 +586,13 @@ class AdapterIngressTest {
             assertEquals(
                     EnqueueStatus.ENQUEUE_UNCERTAIN,
                     adapter.enqueue(command).toCompletableFuture().join().status());
-            final var wire = adapter.enqueueOutcomeV1(
+            final var wire = adapter.enqueueOutcome(
                             command,
                             5_000,
                             java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("null-handle-pulsar-attempt")), 16))
                     .toCompletableFuture()
                     .join();
-            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(EnqueueOutcomeKind.ENQUEUE_UNCERTAIN, wire.kind());
             assertEquals(
                     StableCode.ENQUEUE_RESULT_UNCERTAIN,
                     wire.uncertain().error().code());
@@ -613,13 +613,13 @@ class AdapterIngressTest {
             final var outcome = adapter.enqueue(command).toCompletableFuture().join();
             assertEquals(EnqueueStatus.ENQUEUE_UNCERTAIN, outcome.status());
             assertEquals(StableCode.ENQUEUE_RESULT_UNCERTAIN.wireValue(), outcome.stableCode());
-            final var wire = adapter.enqueueOutcomeV1(
+            final var wire = adapter.enqueueOutcome(
                             command,
                             5_000,
                             java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("managed-code-attempt")), 16))
                     .toCompletableFuture()
                     .join();
-            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(EnqueueOutcomeKind.ENQUEUE_UNCERTAIN, wire.kind());
             assertEquals(
                     StableCode.ENQUEUE_RESULT_UNCERTAIN,
                     wire.uncertain().error().code());
@@ -637,13 +637,13 @@ class AdapterIngressTest {
                 request -> CompletableFuture.completedFuture(KafkaProduceResult.definitelyNotPersisted(
                         StableCode.NATIVE_GUARD_DEFINITIVE_NOT_PERSISTED.wireValue(), Bytes.utf8("guard-code")));
         try (PinnedKafkaCommandIngress adapter = new PinnedKafkaCommandIngress(resource, transport)) {
-            final var wire = adapter.enqueueOutcomeV1(
+            final var wire = adapter.enqueueOutcome(
                             command,
                             5_000,
                             java.util.Arrays.copyOf(Bytes.sha256(Bytes.utf8("managed-guard-attempt")), 16))
                     .toCompletableFuture()
                     .join();
-            assertEquals(EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED, wire.kind());
+            assertEquals(EnqueueOutcomeKind.DEFINITELY_NOT_QUEUED, wire.kind());
             assertEquals(
                     StableCode.BROKER_DEFINITIVE_NOT_PERSISTED,
                     wire.definitelyNotQueued().error().code());
@@ -708,10 +708,10 @@ class AdapterIngressTest {
                         2_500,
                         Bytes.utf8("policy-pulsar-response")));
         try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport, policy)) {
-            final var wire = adapter.enqueueOutcomeV1(command, policy, attempt)
+            final var wire = adapter.enqueueOutcome(command, policy, attempt)
                     .toCompletableFuture()
                     .join();
-            assertEquals(EnqueueOutcomeKindV1.QUEUED, wire.kind());
+            assertEquals(EnqueueOutcomeKind.QUEUED, wire.kind());
             assertEquals(5_500, wire.queued().receiptQueryUntilEpochMs());
         }
     }
@@ -756,10 +756,10 @@ class AdapterIngressTest {
                         2_001,
                         Bytes.utf8("response")));
         try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
-            final var wire = adapter.enqueueOutcomeV1(command, 2_000, attempt)
+            final var wire = adapter.enqueueOutcome(command, 2_000, attempt)
                     .toCompletableFuture()
                     .join();
-            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(EnqueueOutcomeKind.ENQUEUE_UNCERTAIN, wire.kind());
             assertEquals(
                     StableCode.ENQUEUE_RESULT_UNCERTAIN,
                     wire.uncertain().error().code());
@@ -795,15 +795,15 @@ class AdapterIngressTest {
                     evidence));
         };
         try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
-            final var wire = adapter.enqueueOutcomeV1(command, 5_000, attempt)
+            final var wire = adapter.enqueueOutcome(command, 5_000, attempt)
                     .toCompletableFuture()
                     .join();
-            assertEquals(EnqueueOutcomeKindV1.QUEUED, wire.kind());
-            final var ack = (com.nereusstream.delay.protocol.CommandQueuedReceiptV1.PulsarQueuedAck)
+            assertEquals(EnqueueOutcomeKind.QUEUED, wire.kind());
+            final var ack = (com.nereusstream.delay.protocol.CanonicalCommandQueuedReceipt.PulsarQueuedAck)
                     wire.queued().brokerAck();
             assertArrayEquals(Bytes.sha256(evidence), ack.sendReceiptSha256());
             assertEquals(2, ack.normalizedBatchIndex());
-            assertEquals(wire, com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1.decode(wire.canonicalBytes()));
+            assertEquals(wire, com.nereusstream.delay.protocol.EnqueueOutcomeMessage.decode(wire.canonicalBytes()));
         }
     }
 
@@ -819,14 +819,14 @@ class AdapterIngressTest {
                 request -> CompletableFuture.completedFuture(PulsarSendResult.definitelyNotPersisted(
                         StableCode.BROKER_DEFINITIVE_NOT_PERSISTED.wireValue(), Bytes.utf8("guard-rejection")));
         try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
-            final var wire = adapter.enqueueOutcomeV1(command, 5_000, attempt)
+            final var wire = adapter.enqueueOutcome(command, 5_000, attempt)
                     .toCompletableFuture()
                     .join();
-            assertEquals(EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED, wire.kind());
+            assertEquals(EnqueueOutcomeKind.DEFINITELY_NOT_QUEUED, wire.kind());
             assertEquals(
-                    NonPersistenceProofKindV1.PULSAR_GUARD_REJECTION,
+                    NonPersistenceProofKind.PULSAR_GUARD_REJECTION,
                     wire.definitelyNotQueued().proof().kind());
-            assertEquals(wire, com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1.decode(wire.canonicalBytes()));
+            assertEquals(wire, com.nereusstream.delay.protocol.EnqueueOutcomeMessage.decode(wire.canonicalBytes()));
         }
     }
 
@@ -842,10 +842,10 @@ class AdapterIngressTest {
                 request -> CompletableFuture.completedFuture(PulsarSendResult.definitelyNotPersisted(
                         StableCode.BROKER_RESOURCE_UNCERTIFIED.wireValue(), Bytes.utf8("not-a-guard-rejection")));
         try (PinnedPulsarCommandIngress adapter = new PinnedPulsarCommandIngress(resource, transport)) {
-            final var wire = adapter.enqueueOutcomeV1(command, 5_000, attempt)
+            final var wire = adapter.enqueueOutcome(command, 5_000, attempt)
                     .toCompletableFuture()
                     .join();
-            assertEquals(EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN, wire.kind());
+            assertEquals(EnqueueOutcomeKind.ENQUEUE_UNCERTAIN, wire.kind());
             assertEquals(
                     StableCode.ENQUEUE_RESULT_UNCERTAIN,
                     wire.uncertain().error().code());
@@ -872,14 +872,14 @@ class AdapterIngressTest {
     }
 
     private static PreparedCommand command(final ShardId shard) {
-        final ProfileRefV1 destination = new ProfileRefV1(
+        final ProfileRef destination = new ProfileRef(
                 Bytes.utf8("adapter-destination"),
                 1,
                 Bytes.sha256(Bytes.utf8("adapter-destination-semantic")),
-                ProfileKindV1.DESTINATION);
-        final RetryPolicyRefV1 retryPolicy = new RetryPolicyRefV1(
-                Bytes.utf8("adapter-retry"), 1, Bytes.sha256(Bytes.utf8("adapter-retry-semantic")));
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
+                ProfileKind.DESTINATION);
+        final RetryPolicyRef retryPolicy =
+                new RetryPolicyRef(Bytes.utf8("adapter-retry"), 1, Bytes.sha256(Bytes.utf8("adapter-retry-semantic")));
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
                 destination,
                 retryPolicy,
                 2_000,
@@ -889,9 +889,9 @@ class AdapterIngressTest {
                 new byte[0],
                 Bytes.utf8("payload"),
                 null,
-                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())),
+                AdapterMetadata.kafka(new KafkaMetadata(null, List.of())),
                 null,
                 null);
-        return PreparedCommand.scheduleV1(shard, intent, 10_000);
+        return PreparedCommand.schedule(shard, intent, 10_000);
     }
 }

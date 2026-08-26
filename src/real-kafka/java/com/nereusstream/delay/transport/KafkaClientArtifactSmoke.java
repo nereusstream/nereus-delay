@@ -153,7 +153,7 @@ public final class KafkaClientArtifactSmoke {
                 return;
             }
         } catch (Exception missing) {
-            // The Admin API reports an unknown topic through the future.  Keep
+            // The Admin API reports an unknown topic through the future. Keep
             // creation in this small helper so the smoke remains idempotent.
         }
         final NewTopic newTopic = new NewTopic(topic, 1, (short) 3);

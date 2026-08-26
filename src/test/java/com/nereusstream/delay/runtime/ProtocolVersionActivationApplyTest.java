@@ -8,23 +8,23 @@ import com.nereusstream.delay.protocol.CanonicalProtobuf;
 import com.nereusstream.delay.protocol.CommandBodies;
 import com.nereusstream.delay.protocol.CommandId;
 import com.nereusstream.delay.protocol.CommandType;
-import com.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
+import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
 import com.nereusstream.delay.protocol.ControlRef;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.InitialRouteControlActivatePayloadV1;
+import com.nereusstream.delay.protocol.InitialRouteControlActivatePayload;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.ProtocolActivationStateV1;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
-import com.nereusstream.delay.protocol.ProtocolVersionActivatePayloadV1;
+import com.nereusstream.delay.protocol.ProtocolActivationState;
+import com.nereusstream.delay.protocol.ProtocolTuple;
+import com.nereusstream.delay.protocol.ProtocolVersionActivatePayload;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
-import com.nereusstream.delay.protocol.QuotaGrantRefV1;
+import com.nereusstream.delay.protocol.QuotaGrantRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ScheduleIntent;
 import com.nereusstream.delay.protocol.SelfRoutingId;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
@@ -42,13 +42,13 @@ class ProtocolVersionActivationApplyTest {
     @Test
     void markerIsSourceOrderedDurableAndGatesNewTupleUntilCutover() throws Exception {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 12);
-        final ProtocolTupleV1 managed = ProtocolTupleV1.managedCommandV1();
-        final ProtocolTupleV1 nextTuple = new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 2);
-        final CompatibleControlSnapshotV1 snapshot = new CompatibleControlSnapshotV1(
-                new ShardSubjectV1(shardId),
+        final ProtocolTuple managed = ProtocolTuple.managedCommand();
+        final ProtocolTuple nextTuple = new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 2);
+        final CompatibleControlSnapshot snapshot = new CompatibleControlSnapshot(
+                new ShardSubject(shardId),
                 List.of(managed, nextTuple),
                 List.of(),
-                new QuotaGrantRefV1(
+                new QuotaGrantRef(
                         Bytes.sha256(Bytes.utf8("grant")),
                         1,
                         new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));
@@ -61,7 +61,7 @@ class ProtocolVersionActivationApplyTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             final DelayShard shard = new DelayShard(store, DelayShardConfig.defaults());
-            final InitialRouteControlActivatePayloadV1 initial = new InitialRouteControlActivatePayloadV1(
+            final InitialRouteControlActivatePayload initial = new InitialRouteControlActivatePayload(
                     snapshot.protocolTuples(),
                     snapshot.profiles(),
                     snapshot.initialQuotaGrant(),
@@ -78,8 +78,8 @@ class ProtocolVersionActivationApplyTest {
                     shard.apply(before, position(shardId, sourceTopic, 1, now + 1))
                             .stableCode());
 
-            final ProtocolVersionActivatePayloadV1 payload = new ProtocolVersionActivatePayloadV1(
-                    nextTuple, Bytes.sha256(Bytes.utf8("schema-v2")), Bytes.sha256(Bytes.utf8("readers-v2")));
+            final ProtocolVersionActivatePayload payload = new ProtocolVersionActivatePayload(
+                    nextTuple, Bytes.sha256(Bytes.utf8("schema")), Bytes.sha256(Bytes.utf8("readers")));
             final SystemMutation marker = controlMutation(shardId, 1, payload.canonicalBytes(), "marker", now, keyPair);
             assertEquals(
                     StableCode.OK,
@@ -100,14 +100,14 @@ class ProtocolVersionActivationApplyTest {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore reopenedStore = ShardStore.open(config, shardId, resources)) {
             final DelayShard reopened = new DelayShard(reopenedStore, DelayShardConfig.defaults());
-            final ProtocolActivationStateV1 state = reopened.protocolActivationState();
+            final ProtocolActivationState state = reopened.protocolActivationState();
             assertNotNull(state);
             assertEquals(nextTuple, state.activation(nextTuple).tuple());
         }
     }
 
     private static PreparedCommand command(
-            final ShardId shardId, final ProtocolTupleV1 tuple, final String identity, final long now) {
+            final ShardId shardId, final ProtocolTuple tuple, final String identity, final long now) {
         final DestinationLaneId lane = DestinationLaneId.derive(Bytes.utf8("protocol-activation-lane"));
         final CommandId commandId = new CommandId(SelfRoutingId.random(shardId).bytes());
         final com.nereusstream.delay.protocol.DelayMessageId messageId =
@@ -134,7 +134,7 @@ class ProtocolVersionActivationApplyTest {
         final ControlRef ref = new ControlRef(
                 Bytes.sha256(Bytes.utf8(identity + "-operation")), Bytes.sha256(Bytes.utf8(identity + "-request")), 0);
         final byte[] body = CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.bytes(output, 1, new ShardSubjectV1(shardId).canonicalBytes());
+            CanonicalProtobuf.bytes(output, 1, new ShardSubject(shardId).canonicalBytes());
             CanonicalProtobuf.uint32(output, 2, SystemMutationType.APPLY_SHARD_CONTROL.wireValue());
             CanonicalProtobuf.int64(output, 3, now + 30_000);
             CanonicalProtobuf.bytes(output, 10, ref.canonicalBytes());

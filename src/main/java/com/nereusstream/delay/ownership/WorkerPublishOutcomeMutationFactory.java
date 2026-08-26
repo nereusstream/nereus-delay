@@ -3,7 +3,7 @@ package com.nereusstream.delay.ownership;
 import com.nereusstream.delay.adapter.DestinationPublishRequest;
 import com.nereusstream.delay.adapter.DestinationPublishResult;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.PublishEvidenceV1;
+import com.nereusstream.delay.protocol.PublishEvidence;
 import com.nereusstream.delay.protocol.PublishOutcomeBody;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
@@ -122,14 +122,14 @@ public final class WorkerPublishOutcomeMutationFactory
             return;
         }
         final byte[] evidence = result.evidence();
-        final PublishEvidenceV1 parsed = PublishEvidenceV1.decode(evidence);
+        final PublishEvidence parsed = PublishEvidence.decode(evidence);
         parsed.requireBusinessMutation(attempt.publishAttemptId(), sideEffect == 1);
     }
 
     private static void validateDisposition(
             final DestinationPublishResult result, final int disposition, final int sideEffect) {
         if (disposition < 0 || disposition > 4) {
-            throw new IllegalArgumentException("Publish Outcome disposition is outside the V1 range");
+            throw new IllegalArgumentException("Publish Outcome disposition is outside the range");
         }
         if ((sideEffect == 1 && disposition != 0)
                 || (sideEffect == 2 && (disposition < 1 || disposition > 3))
@@ -157,7 +157,7 @@ public final class WorkerPublishOutcomeMutationFactory
                 throw new IllegalArgumentException("retryUntilEpochMs must be non-negative");
             }
             if (disposition < 0 || disposition > 4) {
-                throw new IllegalArgumentException("disposition is outside the V1 range");
+                throw new IllegalArgumentException("disposition is outside the range");
             }
             transfer = Bytes.copy(Objects.requireNonNull(transfer, "transfer"));
             observedAt = Objects.requireNonNull(observedAt, "observedAt");

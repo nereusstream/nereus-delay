@@ -5,16 +5,16 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -41,8 +41,8 @@ class FilesystemCheckpointUploadAdapterTest {
                 fixture.checkpointDirectory(),
                 fixture.manifest().canonicalJsonBytes());
 
-        final CheckpointResourceV1 first = adapter.upload(request);
-        final CheckpointResourceV1 retry = adapter.upload(request);
+        final CheckpointResource first = adapter.upload(request);
+        final CheckpointResource retry = adapter.upload(request);
 
         assertEquals(first, retry);
         assertEquals("container", new String(first.container(), java.nio.charset.StandardCharsets.UTF_8));
@@ -101,9 +101,9 @@ class FilesystemCheckpointUploadAdapterTest {
         final byte[] lineage = bytes(16, 2);
         final byte[] checkpoint = bytes(16, 3);
         final UUID storeIncarnation = UUID.randomUUID();
-        final ProfileRefV1 profile =
-                new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, bytes(32, 4), ProfileKindV1.OBJECT_STORE);
-        final OwnerIdentityV1 owner = new OwnerIdentityV1(bytes(8, 5), bytes(8, 6), 42, bytes(32, 7));
+        final ProfileRef profile =
+                new ProfileRef(Bytes.utf8("checkpoint-store"), 1, bytes(32, 4), ProfileKind.OBJECT_STORE);
+        final OwnerIdentity owner = new OwnerIdentity(bytes(8, 5), bytes(8, 6), 42, bytes(32, 7));
         final List<CheckpointFileInventory> inventory = CheckpointFileInventory.collect(directory);
         final List<CheckpointManifest.FileEntry> files = inventory.stream()
                 .map(file -> new CheckpointManifest.FileEntry(
@@ -134,8 +134,8 @@ class FilesystemCheckpointUploadAdapterTest {
                 bytes(32, 12),
                 List.of(),
                 files);
-        final CheckpointUploadIntentV1 pending = new CheckpointUploadIntentV1(
-                new ShardSubjectV1(shard),
+        final CheckpointUploadIntent pending = new CheckpointUploadIntent(
+                new ShardSubject(shard),
                 lineage,
                 checkpoint,
                 owner,
@@ -147,7 +147,7 @@ class FilesystemCheckpointUploadAdapterTest {
                 profile,
                 evidence(900),
                 5_000,
-                CheckpointUploadStateV1.PENDING_UPLOAD,
+                CheckpointUploadState.PENDING_UPLOAD,
                 1,
                 null,
                 null);
@@ -156,9 +156,9 @@ class FilesystemCheckpointUploadAdapterTest {
 
     private record Fixture(
             Path checkpointDirectory,
-            ProfileRefV1 profile,
+            ProfileRef profile,
             CheckpointManifest manifest,
-            CheckpointUploadIntentV1 pending) {}
+            CheckpointUploadIntent pending) {}
 
     private static byte[] bytes(final int length, final int seed) {
         final byte[] value = new byte[length];

@@ -1,7 +1,7 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -24,12 +24,12 @@ import java.util.Objects;
  * when their complete bytes and checksum match; a different value is an
  * immutable-object conflict. The manifest object is written last through a
  * temporary file and an atomic create-new rename. This models the local
- * if-absent and response-loss behavior required by V1 without claiming remote
+ * if-absent and response-loss behavior required by the current designwithout claiming remote
  * credentials, provider quiescence, object-store consistency, or catalog
  * authority.</p>
  */
 public final class FilesystemCheckpointUploadAdapter implements CheckpointUploadAdapter {
-    private static final byte[] OBJECT_PATH_DOMAIN = Bytes.utf8("nereus-delay-filesystem-checkpoint-object-v1\0");
+    private static final byte[] OBJECT_PATH_DOMAIN = Bytes.utf8("nereus-delay-filesystem-checkpoint-object\0");
     private static final int BUFFER_BYTES = 64 * 1024;
 
     private final Path root;
@@ -58,7 +58,7 @@ public final class FilesystemCheckpointUploadAdapter implements CheckpointUpload
     }
 
     @Override
-    public synchronized CheckpointResourceV1 upload(final CheckpointUploadRequest request) {
+    public synchronized CheckpointResource upload(final CheckpointUploadRequest request) {
         Objects.requireNonNull(request, "request");
         final CheckpointManifest manifest = request.manifest();
         manifest.validateLimits(limits);
@@ -90,7 +90,7 @@ public final class FilesystemCheckpointUploadAdapter implements CheckpointUpload
         final String manifestKey = "checkpoints/" + Bytes.hex(manifest.recoveryLineageId()) + "/"
                 + Bytes.hex(manifest.checkpointId()) + "/manifest.json";
         putImmutableBytes(prefix.resolve("manifest.json"), manifestBytes, manifestHash);
-        return new CheckpointResourceV1(
+        return new CheckpointResource(
                 manifest.recoveryLineageId(),
                 manifest.checkpointId(),
                 request.intent().objectStoreProfile(),

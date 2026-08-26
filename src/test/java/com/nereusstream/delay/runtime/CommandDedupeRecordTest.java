@@ -6,7 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
+import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import java.util.Arrays;
@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test;
 
 class CommandDedupeRecordTest {
     @Test
-    void legacyDedupeValuesDecodeAsManagedV1AndNewWritesCarryTheTuple() {
+    void legacyDedupeValuesDecodeAsManagedAndNewWritesCarryTheTuple() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
         final CommandResult result = result(shard);
         final byte[] hash = Bytes.sha256(Bytes.utf8("legacy-command"));
@@ -23,12 +23,12 @@ class CommandDedupeRecordTest {
         final byte[] legacy = Bytes.concat(Bytes.u32be(1), hash, Bytes.u32be(resultBytes.length), resultBytes);
 
         final CommandDedupeRecord decodedLegacy = CommandDedupeRecord.decode(legacy);
-        assertEquals(ProtocolTupleV1.managedCommandV1(), decodedLegacy.protocolTuple());
+        assertEquals(ProtocolTuple.managedCommand(), decodedLegacy.protocolTuple());
         assertArrayEquals(hash, decodedLegacy.commandHash());
         assertEquals(result, decodedLegacy.result());
         assertFalse(Arrays.equals(legacy, decodedLegacy.encode()));
 
-        final ProtocolTupleV1 nextTuple = new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 2);
+        final ProtocolTuple nextTuple = new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 2);
         final CommandDedupeRecord next = new CommandDedupeRecord(nextTuple, hash, result);
         final CommandDedupeRecord decodedNext = CommandDedupeRecord.decode(next.encode());
         assertEquals(nextTuple, decodedNext.protocolTuple());
@@ -42,7 +42,7 @@ class CommandDedupeRecordTest {
         final CommandResult result = result(shard);
         final byte[] hash = Bytes.sha256(Bytes.utf8("invalid-command"));
         final byte[] resultBytes = result.encode();
-        final byte[] systemTuple = new ProtocolTupleV1(1, 1, ProtocolTupleV1.SYSTEM_MUTATION, 1, 1).canonicalBytes();
+        final byte[] systemTuple = new ProtocolTuple(1, 1, ProtocolTuple.SYSTEM_MUTATION, 1, 1).canonicalBytes();
         final byte[] systemRecord = Bytes.concat(
                 Bytes.u32be(2),
                 Bytes.u32be(systemTuple.length),

@@ -1,14 +1,14 @@
-# V1 Implementation Status
+# Nereus Delay Implementation Status
 
-Spec revision: `V1-FROZEN-2026-08-13`
+Spec revision: `DESIGN-BASELINE-2026-08-25`
 
 This file records implementation evidence. It does not relax or replace the
-normative requirements in [`Nereus Delay V1 设计.md`](Nereus%20Delay%20V1%20设计.md),
-the [`V1 Protocol Registry`](V1-PROTOCOL-REGISTRY.md), or the Accepted ADRs.
+normative requirements in [`Nereus Delay 设计.md`](Nereus%20Delay%20设计.md),
+the [`Current Protocol Registry`](PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
-The `V1-FROZEN-2026-08-13` revision accepts ADR 0043/0044 and the code-level
-[`Direct SDK / Delay Gateway / Guarded Transport design`](V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md).
+The `DESIGN-BASELINE-2026-08-25` revision accepts ADR 0043/0044 and the code-level
+[`Direct SDK / Delay Gateway / Guarded Transport design`](DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md).
 The repository is still a single Gradle module. It now contains a local
 `DelaySemanticCore`, signed Route value/verifier plus Oxia event/head-CAS
 composition, Direct SDK facade, transport ownership/coordinator seam, an
@@ -36,7 +36,7 @@ evidence; their patches are not copied into this repository.
 ## 2026-08-15 guarded Kafka Fetch/source handoff slice
 
 Kafka commit `05849884ca81fad767fda058444d1e17c7f9cbf9` extends the isolated
-`nereus/delay-guarded-producer-v1` client from guarded Produce to a public
+`nereus/delay-guarded-producer` client from guarded Produce to a public
 `GuardedConsumer` boundary. `ConsumerResourceGuard` binds the authenticated
 cluster, canonical topic, expected TopicId and one partition. The Kafka Fetch
 path now requires Fetch v13 or newer for a bound consumer, carries a typed
@@ -120,7 +120,7 @@ Kafka Worker vertical smoke passed: assignment recovery offset=0, active apply o
 K1 delete/recreate plus survivor-broker failover and K2 target/receipt
 commit/abort/replacement fencing passed in the same run, and the harness
 removed its matching Docker resources. This is an opt-in source-bound
-integration result, not a V1 production or release PASS.
+integration result, not a current production or release PASS.
 
 ## 2026-08-15 guarded Pulsar recovery positioning slice
 
@@ -136,7 +136,7 @@ or attestation mismatch fails closed. The recovery cursor remains no-ACK and
 retains one decoded entry until the caller advances it after Store apply.
 
 The locked P1 branch is now
-`nereus/delay-resource-guard-v1@358ce4a1033bd566faebcd3465c3ba4606f3c83f`,
+`nereus/delay-resource-guard@358ce4a1033bd566faebcd3465c3ba4606f3c83f`,
 based on `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`. Commit
 `358ce4a103` fixes the client-side seek boundary exposed by the real smoke:
 when a non-batch seek target is filtered before application, the client now
@@ -276,8 +276,8 @@ multi-broker/session gates remain open.
 
 Delay commit `8e404a30` adds the zero-I/O
 `VerifiedNativePreparationSnapshotCache` and shared
-`NativePreparationEligibilityV1`. Cache installation canonical-decodes the
-Destination/Capability envelopes and `NativeCapabilitySnapshotV1`, verifies
+`NativePreparationEligibility`. Cache installation canonical-decodes the
+Destination/Capability envelopes and `NativeCapabilitySnapshot`, verifies
 the issuer signature, and stores only immutable candidate views. Eligibility
 then checks the authenticated principal scope, active signed Route, exact
 Pulsar AUTO_FAST Profile relationship, target partition policy (including the
@@ -285,12 +285,12 @@ already-frozen Delay Message ID hash input), capability freshness, broker
 clock bound, delivery window and target record limits. The cache returns no
 native candidate when any predicate is absent, so the Semantic Core returns
 the exact managed frame it already prepared. A new Direct SDK
-`prepareScheduleSubmissionV1(..., SubmissionModeV1)` entry uses this same
+`prepareScheduleSubmission(..., SubmissionMode)` entry uses this same
 pipeline; callers cannot supply a target, credential, issuer key or native
 candidate. `NativePreparationSnapshotProvider` retains its functional seam
 and adds an identity-aware overload for `DELAY_MESSAGE_ID` target hashing.
 
-Commit `57d6dfd7` adds `ActivationBarrierV1.toSourceBarrier` and
+Commit `57d6dfd7` adds `ActivationBarrier.toSourceBarrier` and
 `RouteSourceAssignmentFactory`. A Worker assignment can now be constructed
 only from the exact signed Route partition policy, preserving Route
 incarnation, physical Broker identity, partition, Pulsar batch shape and
@@ -345,7 +345,7 @@ compiles plus their separate real checkstyle gates passed before the Docker
 runs.
 
 The fresh default Kafka run used source
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
@@ -359,7 +359,7 @@ Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, as
 ```
 
 The fresh default Pulsar run used P1 source
-`nereus/delay-resource-guard-v1@358ce4a1033bd566faebcd3465c3ba4606f3c83f`,
+`nereus/delay-resource-guard@358ce4a1033bd566faebcd3465c3ba4606f3c83f`,
 distribution SHA-256
 `7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5c5a1d137d`, P1 image
 `sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`,
@@ -436,7 +436,7 @@ enters the snapshot.
 Delay worktree commit `412441c47cce4e61d3cc015b95c7d3cffcab2f7f` adds the
 opt-in `KafkaClientArtifactSourceRecordConsumer` binding and
 `runRealKafkaSourceSmoke`. It assigns one exact Kafka partition, decodes the
-NDL1/V1 frame through `CommandCodec`, and constructs a `KafkaSourcePosition`
+NDL1 frame through `CommandCodec`, and constructs a `KafkaSourcePosition`
 from the authenticated cluster ID, native Topic UUID, broker offset, leader
 epoch and broker `LogAppendTime`. The source writer in the smoke uses the
 locked K1 `GuardedProducer`; the source reader is deliberately a stock Kafka
@@ -530,10 +530,10 @@ authority and release/chaos gates remain open.
 ## 2026-08-14 D1 local semantic-core slice
 
 Delay worktree commit `532f8ad5b0a087d272c3f93e37c0b28c81576f96` on
-`nereus/delay-full-implementation-v1` adds the first locally executable D1
-seam: canonical signed `RouteSnapshotV1` resources/policies, Ed25519
+`nereus/delay-full-implementation` adds the first locally executable D1
+seam: canonical signed `RouteSnapshot` resources/policies, Ed25519
 digest/signature verification, UUIDv7-backed independent Message/Command
-identities, exact `ROUTING_HASH_V1`, and a zero-I/O `DefaultDelaySemanticCore`
+identities, exact `ROUTING_HASH`, and a zero-I/O `DefaultDelaySemanticCore`
 for managed schedule, large-payload preparation, cancel, reschedule and
 historical-route preparation. The AUTO_FAST type seam is present, but it only
 accepts an already verified local native-preparation snapshot; it does not
@@ -549,7 +549,7 @@ GRADLE_USER_HOME=/tmp/nereus-delay-full-gradle \
 The gate passed, including `checkDocumentation`, `checkstyleMain`, the full
 local test task, and the five opt-in real-Oxia methods remained skipped because
 no endpoint was configured. Focused coverage is
-`RouteSnapshotV1Test` and `DefaultDelaySemanticCoreTest`; it proves canonical
+`RouteSnapshotTest` and `DefaultDelaySemanticCoreTest`; it proves canonical
 round trips, tamper rejection, tenant/lifecycle fencing, exact physical
 Pulsar partition identity, byte-equivalent managed preparation, deterministic
 routing and no transport call from preparation.
@@ -572,7 +572,7 @@ Delay worktree commits `402b27fa0dced95c2312bfedc0678af03463f2d5`,
 `a06ab232a5608ec0e7c9152ef80fc72c06966e66` and
 `1dc28eaf391429f2dc9221f416af968d36575dff` and
 `5cc955e1306e1f54db06a06a2bb2b84f232c2a7b` on
-`nereus/delay-full-implementation-v1` adds the first shared post-preparation
+`nereus/delay-full-implementation` adds the first shared post-preparation
 composition. `DefaultSubmissionCoordinator` resolves an exact historical
 Route-bound plan, performs one exact projector/transport lookup, transfers a
 non-serializable one-shot `TransportOwnershipPermit` immediately before the
@@ -614,7 +614,7 @@ permit. The coordinator rejects absent or mismatched result bindings as
 local evidence and cannot satisfy this CommandTransport gate.
 
 The Gateway follow-up adds the shared `GatewayIdempotencyStore`, strict
-`GatewayPhysicalAttemptV1`/`GatewayIdempotencyRecordV1` decoders and
+`GatewayPhysicalAttempt`/`GatewayIdempotencyRecord` decoders and
 `OxiaGatewayIdempotencyStore`. Each Oxia transition uses one version-CAS
 record; response-loss rereads may return the exact current aggregate but never
 recreate an ownership permit. `OxiaGatewayIdempotencyStoreTest` covers reopen,
@@ -659,7 +659,7 @@ production evidence, Docker lifecycle cuts or any real-Broker PASS.
 
 Delay worktree commit `39744ac70cae21a3ad4a5401da33805d9221dec7` adds
 `OxiaGatewayAuditSink`. Each
-canonical digest-only `GatewayAuditEventV1` is written under an
+canonical digest-only `GatewayAuditEvent` is written under an
 event-content-derived immutable key with `IfRecordDoesNotExist`; an exact
 duplicate is a no-op, a competing value at the same key is rejected, and a
 lost write response is accepted only after an exact key/version/value reread.
@@ -687,7 +687,7 @@ authentication, real Broker transports or production Worker wiring.
 ## 2026-08-14 Worker source-consumer composition slice
 
 Delay worktree commit `1bee5b45` on
-`nereus/delay-full-implementation-v1` adds the Worker-facing
+`nereus/delay-full-implementation` adds the Worker-facing
 `SourceRecordConsumer` SPI and `WorkerSourceApplyLoop` around the existing
 `SourceApplyCoordinator`. A native adapter supplies one exact
 `SourceReplayEntry` plus its broker-owned acknowledgement callback. The loop
@@ -749,7 +749,7 @@ The following command passed on 2026-08-15:
 ```
 
 The run built Oxia source `37a17bef17202d5fd6e23282da5fd26d94865484`, used
-Compose project `nereus-delay-v1-oxia-e2e-1786729940-65321` and host endpoint
+Compose project `nereus-delay-oxia-e2e-1786729940-65321` and host endpoint
 `127.0.0.1:16649`, then ran
 `OxiaRealServiceSmokeTest`, `OxiaRealControlAuthoritySmokeTest`,
 `OxiaRealRecoveryAuthoritySmokeTest` and
@@ -777,7 +777,7 @@ The updated Docker command passed on 2026-08-15:
 ```
 
 It built Oxia source `37a17bef17202d5fd6e23282da5fd26d94865484` in Compose
-project `nereus-delay-v1-oxia-e2e-1786732310-90387` on
+project `nereus-delay-oxia-e2e-1786732310-90387` on
 `127.0.0.1:16649`; all eight selected real-service test methods completed
 with `BUILD SUCCESSFUL`, including the notification-driven Route refresh, and
 the exit cleanup removed the matching container and network. This proves one
@@ -829,7 +829,7 @@ idempotency, late-evidence crash cuts or multi-language SDK evidence.
 ## 2026-08-15 Gateway Oxia admission CAS slice
 
 Commit `de1da743` adds `OxiaGatewayAdmissionController` and the strict
-canonical `GatewayAdmissionRecordV1`. One tenant-scoped Oxia record holds
+canonical `GatewayAdmissionRecord`. One tenant-scoped Oxia record holds
 expiring leases for separate schedule, retry-uncertain and control pools;
 schedule leases also account for estimated bytes. Reserve and release use
 bounded version CAS, reclaim leases at the trusted expiry fence, and treat a
@@ -851,7 +851,7 @@ wiring remained open.
 Commit `b6154072` adds `OxiaRealGatewayAdmissionSmokeTest` to the isolated
 Oxia Docker harness. The run on 2026-08-15 used Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
-`nereus-delay-v1-oxia-e2e-1786746636-41339` and host port `16651`; the full
+`nereus-delay-oxia-e2e-1786746636-41339` and host port `16651`; the full
 selected real-service test set reported `BUILD SUCCESSFUL`. The admission
 smoke reserved a schedule lease, confirmed the independent count gate,
 advanced the trusted clock through expiry, admitted the replacement, released
@@ -878,9 +878,9 @@ The audit passed with:
 ```
 
 It verified Kafka
-`nereus/delay-guarded-producer-v1@95d48e89e7e8a4e6d8718e44d424ffef8f17829f`
+`nereus/delay-guarded-producer@95d48e89e7e8a4e6d8718e44d424ffef8f17829f`
 from `trunk@c300006a7705c240642db6950b5a95fec982bfc5`, Pulsar
-`nereus/delay-resource-guard-v1@7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9`
+`nereus/delay-resource-guard@7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9`
 from `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`, and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`. This is a static source-lock and
 contract-consistency gate; it does not promote the still-open real Kafka/
@@ -924,7 +924,7 @@ for `pulsar-client-original`,
 
 The independent Docker command `./e2e/run-kafka-real-client-e2e.sh` passed on
 2026-08-15. It built the temporary broker image from Kafka
-`nereus/delay-guarded-producer-v1@95d48e89e7e8a4e6d8718e44d424ffef8f17829f`
+`nereus/delay-guarded-producer@95d48e89e7e8a4e6d8718e44d424ffef8f17829f`
 and base image `eclipse-temurin:21-jre@sha256:371da296b8cb74c7e53fbe7083d5374befc0011b493231d97d45fa789915e434`,
 then used Compose project `nereus-delay-kafka-e2e-1786735980-29312` on ports
 `19404,19405,19406`. The locally built broker image ID was
@@ -946,8 +946,8 @@ The final clean cross-repository audit at this evidence state also passed:
 ```text
 ./e2e/validate-cross-repo-contracts.sh
 Delay:  be3cd790d23879d3f2b94695435388e3ce0eec4c
-Kafka:  nereus/delay-guarded-producer-v1@95d48e89e7e8a4e6d8718e44d424ffef8f17829f from c300006a7705c240642db6950b5a95fec982bfc5
-Pulsar: nereus/delay-resource-guard-v1@7eebd41d5b0917a0dfe5ea26f3062a39f70a6d9 from 8dae0236c0a0d405ed7f8303081080520fe91551
+Kafka:  nereus/delay-guarded-producer@95d48e89e7e8a4e6d8718e44d424ffef8f17829f from c300006a7705c240642db6950b5a95fec982bfc5
+Pulsar: nereus/delay-resource-guard@7eebd41d5b0917a0dfe5ea26f3062a39f70a6d9 from 8dae0236c0a0d405ed7f8303081080520fe91551
 Oxia:   37a17bef17202d5fd6e23282da5fd26d94865484
 ```
 
@@ -972,7 +972,7 @@ The independent command passed:
 ```
 
 Evidence: P1
-`nereus/delay-resource-guard-v1@7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9`
+`nereus/delay-resource-guard@7eebd41d5b0917a0dfe5ea26ef3062a39f70a6d9`
 from `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`; distribution
 SHA-256 `d4b9e8aa6b44582c383262007217980793ec41bdf7fa3a1a4285e220407fef32`;
 client jar SHA-256 values
@@ -1000,7 +1000,7 @@ Kafka Source Position and exact prepared-publish hash, writes the
 `KafkaReceiptJournal` mapping before transport, and uses one guarded
 transaction for target and canonical receipt records. The generic Kafka
 transaction-v2 API comes from
-`nereus/delay-guarded-producer-v1@8bd66fbb26eae1b0e4c5867e61f41900c3f5e318`;
+`nereus/delay-guarded-producer@8bd66fbb26eae1b0e4c5867e61f41900c3f5e318`;
 the Delay smoke used client-jar SHA-256
 `4b6362d10146568c7ef78629ad678e50f164a750fdbb362ba0899dc49b815656`.
 
@@ -1036,7 +1036,7 @@ Broker outcome is known.
 ## 2026-08-14 Gateway Cancel/Reschedule control slice
 
 Delay worktree commit `9695eba7ca384d99cd28ece238f6cbfe1bcd08be` on
-`nereus/delay-full-implementation-v1` adds the local Gateway Cancel and
+`nereus/delay-full-implementation` adds the local Gateway Cancel and
 Reschedule paths. Their canonical request bodies are hashed with the operation
 kind, the Semantic Core prepares the exact control Command before ownership,
 and both operations reuse the existing idempotency-record CAS, one-shot
@@ -1044,7 +1044,7 @@ and both operations reuse the existing idempotency-record CAS, one-shot
 The shared ingress authenticates the tenant once, admits the control call,
 emits digest-only received/completed or failed audit events, and the generated
 gRPC service decodes the exact self-routing `DelayMessageId` and
-`MessagePreconditionV1` bytes before invoking it.
+`MessagePrecondition` bytes before invoking it.
 
 `GatewayScheduleServiceTest` covers repeated Cancel reuse and Reschedule
 preparation/attempt behavior; `GatewayGrpcServiceTest` covers precondition
@@ -1098,8 +1098,8 @@ custody remain open. Production Worker/transport integration also remains open.
 ## 2026-08-15 Gateway query authority/ingress slice
 
 Delay worktree commit `59d492041ac42b79a632ebddfb56a7608b2d7283` on
-`nereus/delay-full-implementation-v1` adds typed command/message query locator
-records, strict canonical decoding of `CommandQueuedReceiptV1`, `CommandId`
+`nereus/delay-full-implementation` adds typed command/message query locator
+records, strict canonical decoding of `CanonicalCommandQueuedReceipt`, `CommandId`
 and `DelayMessageId`, and `GatewayQueryIngressService`. Before the explicitly
 injected `GatewayQueryAuthority` is called, the composition authenticates the
 tenant, takes the bounded control admission lease, and emits digest-only
@@ -1152,7 +1152,7 @@ cut, activation barrier, native eligibility or production Route deployment.
 
 The isolated Kafka worktree now contains the first K1 client implementation at
 `95d48e89e7e8a4e6d8718e44d424ffef8f17829f` on
-`nereus/delay-guarded-producer-v1`, based directly on the locked Kafka
+`nereus/delay-guarded-producer`, based directly on the locked Kafka
 `trunk@c300006a7705c240642db6950b5a95fec982bfc5`. The implementation is
 generic Kafka client code and does not import Nereus types. It adds the
 `GuardedProducer`/`ProducerResourceGuard` API, non-transactional guarded
@@ -1188,8 +1188,8 @@ production promotion claim is made.
 The implementation blueprint was checked against Kafka
 `trunk@c300006a7705c240642db6950b5a95fec982bfc5` and Pulsar
 `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`. The independent branches
-are `nereus/delay-guarded-producer-v1` from Kafka `trunk` and
-`nereus/delay-resource-guard-v1` from Pulsar `5.0.0-M1`; neither patch is copied
+are `nereus/delay-guarded-producer` from Kafka `trunk` and
+`nereus/delay-resource-guard` from Pulsar `5.0.0-M1`; neither patch is copied
 into this Delay repository. Their source locks, binary digests, rollout and
 real-Broker cuts remain release blockers; a design ACCEPTED label is not
 implementation PASS.
@@ -1197,7 +1197,7 @@ implementation PASS.
 ## 2026-08-15 P1 isolated Pulsar guarded-client slice
 
 The isolated Pulsar worktree now contains three independently reviewable commits
-on `nereus/delay-resource-guard-v1`, based directly on the locked
+on `nereus/delay-resource-guard`, based directly on the locked
 `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`:
 
 ```text
@@ -1629,7 +1629,7 @@ and source replay remain release blockers.
 After `a49b19a`, the durable `timeline_cf/EXPIRY` candidate has a matching
 bounded local handoff in `ExpiryWorkClassExecutor`. The caller supplies one
 candidate from `DelayShard.discoverExpiry` plus the certified UTC interval;
-the executor prepares and signs the exact `EXPIRE_GENERATION_V1` mutation
+the executor prepares and signs the exact `EXPIRE_GENERATION` mutation
 before queue admission, charges the encoded mutation frame, and performs no
 local state transition or Source Position allocation. Execution rereads the
 strict Owner Lease/assignment fence and calls only the external
@@ -1720,9 +1720,9 @@ production READY scanning occurs in `PersistentLaneScheduler` under complete
 trusted evidence and `SchedulerBudget`, submitted only through the executor.
 
 After `120f462`, that production discovery path passes the complete
-`TrustedUtcIntervalEvidenceV1` into `PersistentLaneScheduler` instead of
+`TrustedUtcIntervalEvidence` into `PersistentLaneScheduler` instead of
 reducing it to one due-through scalar. Strict discovery now requires a typed
-`ActiveLaneStateV1`, byte-equal current scheduler Owner and Store Incarnation,
+`ActiveLaneState`, byte-equal current scheduler Owner and Store Incarnation,
 rejects evidence that predates certificate issuance, and requires
 `evidence.latest < certificate.validUntil` before a READY head can be promoted.
 Failure remains inside the scanner rollback and then fences the active
@@ -1733,10 +1733,10 @@ materialize, acquire a publish permit, validate every external certificate
 generation or prepare Publish Admission.
 
 After `666f56a`, the previously detected Owner encoding drift is closed across
-`PublishAdmissionV1`, `ClaimPreconditionV1`, `ReadyCertificateV1`, local
+`PublishAdmission`, `ClaimPrecondition`, `ReadyCertificate`, local
 `ClaimRecord` and canonical Publish Attempt ledgers. Nested Registry fields now
-store and parse bare `OwnerIdentityV1`; only the signed System Mutation envelope
-uses the tagged `AuthorIdentityV1.owner` branch. Apply/replay compares the outer
+store and parse bare `OwnerIdentity`; only the signed System Mutation envelope
+uses the tagged `AuthorIdentity.owner` branch. Apply/replay compares the outer
 Owner's typed nested value to the body bytes, while Claim/Outcome authorization
 and recovery-unknown fencing retain the full deployment/worker/epoch/lease
 tuple. The canonical projection regression rejects treating the bare nested
@@ -1748,7 +1748,7 @@ is recorded below after this documentation update.
 After `9240f60`, the READY-to-Claim handoff has a concrete bounded local seam.
 `ClaimHandoffWorkClassExecutor` accepts only an already-polled exact head, binds
 the shard/Lane/message generation, trusted-time evidence, deadline, typed
-`ClaimMaterializationV1` and canonical charge into a `DUE_SCHEDULER` task, then
+`ClaimMaterialization` and canonical charge into a `DUE_SCHEDULER` task, then
 rereads READY, Message, Timeline, typed Lane and Ready Certificate after queue
 wait. `ClaimExecutionAdmission` enforces process-local Worker/Shard/Lane
 message-and-byte caps, READY-lane minima and duplicate message-generation
@@ -1759,7 +1759,7 @@ another pool before action registration or append. Queue rejection, prerequisite
 restore the exact scheduler head; an unexpected exception fences the Owner and
 does not create a second local retry authority. A successful local Claim keeps
 the reservation active and only then releases the scheduler's retained head.
-`ActiveLaneStateV1` now permits a READY certificate to remain after the current
+`ActiveLaneState` now permits a READY certificate to remain after the current
 physical READY head is consumed while requiring the key/timing projection to be
 absent. Focused Claim, permit, scheduler and typed-Lane tests pass. This is
 local composition evidence only: Profile/catalog, Object Store, Adapter
@@ -1869,21 +1869,21 @@ evidence; the skipped real-service and other external release gates remain
 open.
 
 The Oxia transaction question was checked against the locked source and the
-Gradle-resolved `oxia-client:0.9.0` API.  Its public `SyncOxiaClient` and
-`AsyncOxiaClient` expose one-key `put`/CAS operations only.  The internal
+Gradle-resolved `oxia-client:0.9.0` API. Its public `SyncOxiaClient` and
+`AsyncOxiaClient` expose one-key `put`/CAS operations only. The internal
 client-side `WriteBatch` emits a `WriteRequest` containing multiple puts, but
 the factory/implementation is not a public application API and the request is
-only a per-Oxia-shard batch; it is not a cross-record transaction.  Oxia's
+only a per-Oxia-shard batch; it is not a cross-record transaction. Oxia's
 server `ProcessWrite` commits that request as one local database batch, which
 does not prove that independently keyed Owner Lease, Upload Intent, Catalog or
-Recovery Pin records share a shard or can be submitted atomically.  We keep
+Recovery Pin records share a shard or can be submitted atomically. We keep
 `OxiaSyncRecoveryCatalogBackend.publishUploadedCheckpoint` and the
 session-bound pin/activation paths fail-closed until a supported transaction
 or an equivalent single-record authority is available; no reflection or
-best-effort concurrent puts are used to manufacture V1 atomicity.
+best-effort concurrent puts are used to manufacture atomicity.
 
 The Gradle `checkDocumentation` task is now part of `check`. It verifies that
-the V1 authority documents exist, the document map still points at the main
+the authority documents exist, the document map still points at the main
 design, and the main design, Protocol Registry, ADR index, Status and Audit
 carry the same frozen spec revision. The task passed in the same gate; it is a
 document-governance check and does not relax any semantic or release gate.
@@ -1904,21 +1904,21 @@ still a local event-loop/resource seam; dynamic RocksDB WriteBatch admission,
 checkpoint/compaction I/O authority and production Worker wiring remain release
 gates.
 
-Commit `c4391ca` closes the local checkpoint-download admission gap.  The
+Commit `c4391ca` closes the local checkpoint-download admission gap. The
 `CheckpointRestoreCoordinator` now acquires one idempotent Worker-wide
 `CheckpointDownloadPermit` before invoking the provider and holds it through
 provider materialization, complete inventory validation and
-`ShardStore` Store-Incarnation installation.  The restore helper consumes the
+`ShardStore` Store-Incarnation installation. The restore helper consumes the
 same permit without double-acquiring it, and the coordinator regression proves
 that a provider callback cannot acquire a second download slot while the
-first operation is active.  This is process-local concurrency evidence; remote
+first operation is active. This is process-local concurrency evidence; remote
 Object Store authority, Owner Lease/session, Source Assignment and source
 replay remain release blockers.
 
 After `dc7a300`, `GRADLE_USER_HOME=/private/tmp/nereus-delay-gradle
 ./gradlew clean check --rerun-tasks --console=plain` completed successfully:
 1205 tests ran with zero failures/errors and 5 opt-in real-Oxia tests were
-skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset.  The gate verifies the
+skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset. The gate verifies the
 permit change against the complete local regression suite; the skipped external
 smoke tests remain release evidence gaps.
 
@@ -1992,19 +1992,19 @@ remain release blockers.
 
 The locally available broker source trees were inspected on 2026-08-12 as
 evidence for the remaining transport gate, not as a substitute for a Delay
-transport implementation.  The locked Kafka checkout
+transport implementation. The locked Kafka checkout
 `/Users/liusinan/apps/ideaproject/nereusstream/kafka` is at
 `76f62f3b83e882105219b6c7687dbde594a8b8a2`; its `ProduceRequest` schema
 supports topic-ID-only version 13, and its Nereus broker log requires an exact
-non-zero topic ID.  Its producer `Sender` still obtains IDs from ordinary
+non-zero topic ID. Its producer `Sender` still obtains IDs from ordinary
 name-keyed metadata and falls back to the zero UUID when metadata is absent;
 the Delay project therefore has no safe pinned request transport merely by
-using stock `KafkaProducer`.  The locked Pulsar checkout
+using stock `KafkaProducer`. The locked Pulsar checkout
 `/Users/liusinan/apps/ideaproject/nereusstream/pulsar` is at
 `11d7ab15291ca4bbc9cc29dedd7878c4e1311ec9`; it contains broker-side Nereus
 topic-open and write-fence integration, but no client-side Delay adapter that
 returns the authenticated physical topic incarnation/creation identity and
-guarded send evidence required by V1.  These source inspections keep the
+guarded send evidence required by the current design. These source inspections keep the
 Kafka/Pulsar rows below as release blockers until concrete pinned transports
 and real-broker evidence are added.
 
@@ -2148,7 +2148,7 @@ health only and does not close any external release gate.
 
 The typed READY recovery boundary now validates the complete projection at the
 physical scheduler index: a typed ACTIVE Lane must be READY/OPEN, carry both
-the exact encoded READY key and a decodable `ReadyCertificateV1`, and match the
+the exact encoded READY key and a decodable `ReadyCertificate`, and match the
 physical key's Lane/version/eligibility fields before recovery or discovery can
 rebuild a claimable head. Legacy adapter Lanes retain their explicit
 compatibility path. Focused coverage is
@@ -2256,7 +2256,7 @@ After `19dede3`, `./gradlew clean check --rerun-tasks --console=plain` passed
 again on 2026-08-12 (`BUILD SUCCESSFUL`, 5 tasks). The same five real-Oxia
 methods remained skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset.
 
-The local `TIME_FENCE_V1` apply path now carries an explicit
+The local `TIME_FENCE` apply path now carries an explicit
 `DelayShardConfig.timeFenceSafetyMarginMs` input and checks the Trusted-UTC
 proof with checked addition before advancing the ingress watermark. A proof one
 millisecond below the configured boundary is rejected as
@@ -2375,7 +2375,7 @@ contents through a symlink; the existing
 `ShardStoreTest.checkpointAndActivePointerTemporaryPathsRejectSymbolicLinks`
 regression covers the fail-closed temporary boundary.
 
-The source-ordered Lane control projection now preserves the V1 closed result
+The source-ordered Lane control projection now preserves the closed result
 union for Resume: an already `OPEN` Lane returns `ALREADY_OPEN`, an
 `ORDERING_BROKEN`/`CLOSED` Lane returns its corresponding stable code, and a
 terminal guard returns `LANE_TERMINALLY_CLOSED` instead of the previous generic
@@ -2386,7 +2386,7 @@ projection; authenticated control registration and production Oxia authority
 remain release gates.
 
 The scheduler unregister boundary now requires `AdmissionGate.RETIRED`, which
-is the local projection of an installed same-key `LaneTerminalGuardV1`; an
+is the local projection of an installed same-key `LaneTerminalGuard`; an
 ordinary source-ordered `CLOSED` Lane remains registered until the
 Recovery-Floor/adapter retirement protocol completes. `LaneSchedulerTest` now
 covers both the closed rejection and the exact-incarnation retired cleanup,
@@ -2457,26 +2457,26 @@ not actor authorization, target existence, source ordering or an Oxia
 transaction joining registration to mutation application.
 
 The configured Control target-registration gate now distinguishes an
-authoritative binding mismatch from an unavailable authority.  A missing
+authoritative binding mismatch from an unavailable authority. A missing
 registration still produces the bounded `UNAUTHORIZED_SYSTEM_MUTATION`
 position result, while a registry lookup/validation `RuntimeException` is no
 longer converted into that rejection: the Source Position remains pending for
-retry (and the Owner replay gate can fence the local Store).  This matches the
+retry (and the Owner replay gate can fence the local Store). This matches the
 main design's Oxia rule that transient or unproven target-registration absence
-must stop at the position.  `DelayShardTest.controlRegistrationAuthorityFailureRetainsSourcePositionForRetry`
+must stop at the position. `DelayShardTest.controlRegistrationAuthorityFailureRetainsSourcePositionForRetry`
 covers the local boundary; Oxia response classification and durable source
 replay remain external release gates.
 
 The receipt-bound payload facade now distinguishes a caller-visible missing or
-foreign reservation from a local shard/adapter binding failure.  A missing
+foreign reservation from a local shard/adapter binding failure. A missing
 reservation, shard mismatch or service-owned receipt mismatch remains the
 non-enumerating `NOT_FOUND_OR_NOT_AUTHORIZED` branch, while a RocksDB read,
 local Object Store registration or receipt-projection exception is projected as
 closed `INTEGRITY_ERROR` rather than being misreported as object absence.
 `EmbeddedDelayServiceTest.payloadFacadeMapsLocalReservationBindingFailureAsIntegrityError`
-covers a pinned trust-set mismatch in the deterministic adapter.  Real
+covers a pinned trust-set mismatch in the deterministic adapter. Real
 provider/credential unavailability still belongs to the external adapter's
-`OBJECT_STORE_UNAVAILABLE_RETRYABLE` branch.  The facade also rejects a
+`OBJECT_STORE_UNAVAILABLE_RETRYABLE` branch. The facade also rejects a
 negative observation time as `INTEGRITY_ERROR` before either local or external
 Object Store authority; the negative-time branches are covered by
 `EmbeddedDelayServiceTest.payloadClientWithoutLocalObjectStoreReturnsTypedRetryableOutcome`
@@ -2485,7 +2485,7 @@ and `InMemoryPayloadObjectStoreTest.negativeObservationTimeReturnsTypedIntegrity
 The embedded Message Query bridge now keeps the closed response union intact
 when a durable snapshot/read or caller-supplied binding/DLQ projection cannot
 be proven: those failures return `INTEGRITY_ERROR`, while a cross-shard
-message identity remains `RECEIPT_MISMATCH`.  The regression
+message identity remains `RECEIPT_MISMATCH`. The regression
 `EmbeddedDelayServiceTest.messageQueryMapsPublicProjectionDriftToClosedIntegrityError`
 covers both public query overloads; null Message IDs now return
 `INVALID_RECEIPT` through both the local and `CompletionStage` entrypoints; the
@@ -2494,22 +2494,22 @@ projector's direct throwing seam stays an internal validation boundary.
 The Command Query bridge now applies the same closed-union rule to its local
 POSITION/result reads: a null receipt returns `INVALID_RECEIPT`, while a
 RocksDB/read or projection exception returns `INTEGRITY_ERROR`; a proven
-command/position/hash mismatch remains `RECEIPT_MISMATCH`.  The null-receipt
+command/position/hash mismatch remains `RECEIPT_MISMATCH`. The null-receipt
 regression is included in `EmbeddedDelayServiceTest.embeddedQueryUsesQueuedReceiptAsSourceBarrier`.
 
 The Control Operation Query bridge now closes the same public boundary: a null
 receipt or negative observation time returns `INVALID_RECEIPT`, while an
 authority read or response-binding exception is projected as `INTEGRITY_ERROR`.
 Complete receipt identity, fixed retention expiry and CURRENT/error branches
-remain unchanged.  The local regressions are covered by
+remain unchanged. The local regressions are covered by
 `ControlOperationAuthorityTest` and the control-query assertions in
 `EmbeddedDelayServiceTest.embeddedControlOperationEntryPointsPreserveReceiptBoundCas`.
 
 The uncertain-Store drain path now applies the source/scheduler stop fence even
 when a caller started native Store close before the coordinator observed the
-unproven write boundary.  External close is not evidence of source quiescence:
+unproven write boundary. External close is not evidence of source quiescence:
 the coordinator fences the local Owner, invokes `stopSourceAndScheduling` once,
-and retains that completion across close/release retries.  The normal
+and retains that completion across close/release retries. The normal
 `ACTIVE_FOR_COMMANDS -> DRAINING` path records the same completion before its
 authority CAS, so a later close/release retry cannot invoke the callback again.
 The focused
@@ -2536,7 +2536,7 @@ conflicting or non-successor position; `OwnedDelayShard` projects that proof as
 `FAILED(SOURCE_GAP)` with the registered `ShardFailureReason`, retains the
 offending source record and refuses further catch-up. Other validation or
 canonical-bounding failures fence the local Owner instead of leaving it in
-`CATCHING_UP`. `OwnerLeaseTest.v1CatchupPinsTheAdapterSuccessorAndRejectsAKafkaGapBeforeApplyingIt`
+`CATCHING_UP`. `OwnerLeaseTest.catchupPinsTheAdapterSuccessorAndRejectsAKafkaGapBeforeApplyingIt`
 covers the command replay path; the mixed/type-specific paths use the same
 central validation helper. Durable Oxia shard-status/reason publication and
 production source continuity remain release gates.
@@ -2716,7 +2716,7 @@ rebuild scans the bounded open-attempt ledgers and decodes the canonical
 opaque ledgers remain on the ordinary compatibility path. Conflicting or
 mismatched canonical Admission timing fails closed. The regression
 `DelayShardTest.uncertainRetryPreservesPinnedActionAtWithoutProfileCatalog`
-covers a V1 early-action Schedule, canonical Admission projection, uncertain
+covers a current early-action Schedule, canonical Admission projection, uncertain
 retry, and fresh-process reopen. This is shard-local evidence; production
 Profile/Admission authority and Broker handoff certification remain release
 gates.
@@ -2742,7 +2742,7 @@ target resource, physical partition and prepared hash must match the retained
 `PublishAdmission` channel and prepared hash byte-for-byte. A mismatch remains
 `STALE_SYSTEM_MUTATION`; ordinary `PUBLISHED` and opaque legacy compatibility
 paths are unchanged. Local regression evidence is
-`PublishEvidenceV1Test.certifiedPulsarHandoffBindsTargetPartitionAndPreparedHashToAdmission`;
+`PublishEvidenceTest.certifiedPulsarHandoffBindsTargetPartitionAndPreparedHashToAdmission`;
 real Broker ACK authentication and visibility-guard responsibility remain
 release blockers.
 
@@ -2757,8 +2757,8 @@ Oxia lease/session CAS, recovery-pin transaction and source replay authority
 remain release blockers.
 
 `OwnedDelayShard.activateForCommandsWithControlSnapshot(...)` now provides the
-strict V1 activation entrypoint: it requires the exact shard-bound
-`CompatibleControlSnapshotV1` to already be persisted at `meta/FIXED` key 10
+strict activation entrypoint: it requires the exact shard-bound
+`CompatibleControlSnapshot` to already be persisted at `meta/FIXED` key 10
 before the local gate (and, in the authority overload, the same Owner Lease
 CAS) can expose `ACTIVE_FOR_COMMANDS`. The older activation overloads remain
 embedded compatibility seams and do not prove the control prerequisite;
@@ -2777,7 +2777,7 @@ Oxia upload-intent/catalog CAS or Object Store publication protocol.
 `LaneScheduler.register(existingLane)` now recomputes the process-local
 deficit cap after an existing Lane's scheduler weight changes and clamps any
 historical credit to the largest currently registered Lane increment. This
-keeps a weight downgrade from leaving an idle Lane above the V1 capped-DRR
+keeps a weight downgrade from leaving an idle Lane above the capped-DRR
 bound. `LaneSchedulerTest.weightDowngradeRecomputesDeficitCapAndClampsExistingCredit`
 covers the deterministic `weight=8 -> weight=1` transition; the outer Worker
 scheduler already applies the same recomputation rule. This remains local
@@ -2797,7 +2797,7 @@ The deprecated `PulsarActivationBarrier` compatibility constructor now actually
 supports its documented unknown-batch-shape form: a non-empty legacy barrier
 may carry `batchSize=0`, skips only the same-entry batch-shape check, and still
 fences the shard, physical resource, topic and inclusive batch-index boundary.
-V1 source adapters must continue to use the full constructor with a positive
+Current source adapters must continue to use the full constructor with a positive
 batch size. `SourceActivationBarrierTest`
 `legacyPulsarBarrierAllowsUnknownBatchShapeWithoutWeakeningIdentityFence`
 covers the compatibility path; this does not replace production Pulsar source
@@ -2850,7 +2850,7 @@ same state-preservation requirement.
 
 Open publish-attempt lookup and listing now bound Attempt-only scans by the
 maximum of `maxPendingMessages` and `maxOutcomeReserveRecords`. This preserves
-the V1 case where one Message owns multiple unresolved Attempt ledgers; using
+the case where one Message owns multiple unresolved Attempt ledgers; using
 only the message count could fence a valid shard during admission/outcome
 recovery. `DelayShardTest.openAttemptLookupUsesOutcomeReserveBoundInsteadOfMessageBound`
 covers three live ledgers with one pending Message slot. Mixed Claim+Attempt
@@ -2867,7 +2867,7 @@ policy before transport ownership; a post-persistence overflow or malformed
 projection remains `ENQUEUE_UNCERTAIN` with an integrity diagnostic. The older
 absolute-boundary overloads remain a compatibility seam for existing callers and
 are checked against a bound policy when one is present; they are not the strict
-V1 client contract. `AdapterIngressTest` and `NativeSubmissionAdapterTest`
+Current client contract. `AdapterIngressTest` and `NativeSubmissionAdapterTest`
 cover policy derivation, overflow and managed-branch binding. Route policy
 publication, source-time authority and production adapter wiring remain external
 release gates.
@@ -2885,7 +2885,7 @@ source-time authority and production query routing remain release gates.
 
 The embedded Control registration seam now has the corresponding strict policy
 entrypoint: `ControlOperationQueryPolicy` must match the nonzero
-`controlQueryPolicyVersion` frozen in `PreparedControlOperationV1`, derives
+`controlQueryPolicyVersion` frozen in `PreparedControlOperation`, derives
 `queryUntil` from `registeredAt.latest` with checked addition, and performs that
 derivation before target registration. Policy-version drift or overflow fails
 closed without a partial local registration. The existing absolute-window
@@ -2902,8 +2902,8 @@ and
 The command-result wire constructors now enforce the lower retention bound as
 well: `fullResultRetainUntilEpochMs` must not precede the result Source
 Position's Broker persistence time. This guard applies to
-`CommandAppliedReceiptV1`, `PublicCommandResultV1` and
-`CompactCommandResultV1`, so direct construction and decoded malformed values
+`CommandAppliedReceipt`, `PublicCommandResult` and
+`CompactCommandResult`, so direct construction and decoded malformed values
 fail closed instead of representing an impossible retained result. Focused
 coverage is in `ProtocolCodecTest`, alongside the existing policy-derived
 upper-bound checks; this is local wire-integrity evidence and does not replace
@@ -2992,7 +2992,7 @@ The same durable-Lane requirement now guards source-ordered existing-obligation
 transitions: definitive/retry `PUBLISH_OUTCOME`, `EVIDENCE_RESOLUTION`,
 `RESOLVE_UNCERTAIN`, `CLAIM_RESULT` and `EXPIRE_GENERATION` fail before a
 stale-result, quota/READY projection or source-position write can hide a missing
-Lane. Canonical V1 publish ledgers also require the exact Lane incarnation;
+Lane. Canonical publish ledgers also require the exact Lane incarnation;
 legacy opaque ledgers retain only the historical incarnation compatibility seam.
 The representative regression is
 `DelayShardTest.notPublishedOutcomeFailsClosedWithoutRecreatingAMissingLaneProjection`;
@@ -3000,13 +3000,13 @@ the existing UNKNOWN/Cancel/Reschedule/Commit regressions cover the adjacent
 branches. This remains local Store-integrity evidence, not external recovery or
 Broker authority evidence.
 
-The embedded Admission seam now validates every canonical V2 attempt ledger
+The embedded Admission seam now validates every canonical Current attempt ledger
 before its `PUBLISHING` WriteBatch: the retained body must match the ledger's
 attempt, generation, message, Claim, Lane/Lane incarnation, Owner/Store,
 prepared hash and attempt number; the owner generation and Message timing are
 checked too, and the body Lane incarnation must match the current durable
 Lane. `DelayShardTest.canonicalAttemptLedgerRejectsStaleLaneIncarnationBeforePersistence`
-covers the stale-Lane regression. Legacy opaque V1 ledgers remain a bounded
+covers the stale-Lane regression. Legacy opaque ledgers remain a bounded
 compatibility path and are intentionally not locally upgraded without an
 authoritative source-ordered Admission replay. This is local ledger-integrity
 evidence only; external source, Owner and catalog authority remain release
@@ -3097,19 +3097,19 @@ Long.MIN_VALUE` boundary; `KafkaReceiptJournalTest`
 regression. Mapping/producer sequence numbers remain separate bounded local
 counters, and this does not claim Kafka broker or transaction authority.
 
-The local `EvidenceCursorV1.sameIdentity` fence now includes the complete
+The local `EvidenceCursor.sameIdentity` fence now includes the complete
 Pulsar Attempt Journal physical identity, not only the resource token: a
 different `physicalTopic` or `physicalTopicCreationTimestamp` is an
 incomparable replacement stream even when the token, Lane, partition and
 generation match. `dominates`, typed Recovery Floor coverage and parent
 cursor checks therefore cannot promote a replacement Journal as a successor;
-`EvidenceCursorV1Test.pulsarCursorIdentityIncludesPhysicalTopicCreationIdentity`
+`EvidenceCursorTest.pulsarCursorIdentityIncludesPhysicalTopicCreationIdentity`
 covers both drift branches. This remains local cursor/restore evidence and
 does not claim Broker resource-token or retention authority.
 
 The replay-stable Claim materialization subset is now a shared typed protocol
-projection: `PayloadForPublishV1` validates the inline/object union and exact
-length/SHA-256, while `ClaimMaterializationV1` validates the two Profile slot
+projection: `PayloadForPublish` validates the inline/object union and exact
+length/SHA-256, while `ClaimMaterialization` validates the two Profile slot
 kinds, Broker resource/metadata branch, uint32 partition/generation and timing
 fields, and computes the Registry digest. `ClaimResultBody`, `PublishAdmissionBody`
 and `PublishAdmissionBody.Descriptor` all reuse these codecs; `ClaimRecord` exposes
@@ -3118,19 +3118,19 @@ This closes local canonical parsing only. Full materialization ownership,
 catalog/profile authority, adapter serialization/size limits and Producer
 recovery remain release blockers.
 
-The runtime now also exposes strict `DelayShard.claimForPublishV1`: before the
+The runtime now also exposes strict `DelayShard.claimForPublish`: before the
 Claim WriteBatch it binds message identity, generation, delivery window,
 timeline `actionAt` and inline/object payload identity to the current
 `MessageRecord`. The legacy byte-array Claim primitive is now package-local and
 cannot be called as a production API; a test-classpath-only bridge exists only
-to construct recovery fixtures. `claimForPublishV1` is therefore the sole
+to construct recovery fixtures. `claimForPublish` is therefore the sole
 public `DelayShard` Claim-creation entrypoint, while production still enters
 through `ClaimHandoffWorkClassExecutor` and `OwnedDelayShard`. Profile/catalog,
 adapter and Producer authority remain external gates.
 
-`PublishAdmissionBody` now uses `PreparedPublishDescriptorV1.decode` as its main
+`PublishAdmissionBody` now uses `PreparedPublishDescriptor.decode` as its main
 descriptor parser, while `Descriptor.value()` exposes the same exact typed
-projection including `ReservedPublishMetadataV1`; canonical round-trip,
+projection including `ReservedPublishMetadata`; canonical round-trip,
 prepared-hash derivation and reserved identity equality therefore cannot drift
 between the body parser and the accessor. This is local descriptor identity
 evidence only; channel, Profile/catalog, Adapter and Producer authority remain
@@ -3155,7 +3155,7 @@ checkpoint coherence before writing a new OPEN projection, with
 native-handle cleanup path. It remains local evidence, not production catalog,
 Owner Lease/session or source-replay activation evidence.
 
-The client contract now exposes the bounded V1 query bridge through
+The client contract now exposes the bounded query bridge through
 `DelayClient.getCommandResult` and `DelayClient.getMessage`. The embedded
 implementation delegates to the existing receipt/source-barrier and
 caller-supplied binding/evidence/retention projections; it does not claim
@@ -3164,7 +3164,7 @@ cross-Worker routing, tenant authorization, or production query authority.
 The same client contract now exposes `prepareLargePayloadCommit`. The embedded
 preparation path binds the reservation receipt to the typed proof's message,
 reservation, shard, service-owned object identity, payload digest/length,
-trust-set version and proof expiry before producing the canonical V1 command;
+trust-set version and proof expiry before producing the canonical command;
 proof signature verification and source-ordered reservation authority remain
 apply-time/production gates.
 
@@ -3178,41 +3178,41 @@ protection CAS and remote Object Store authority remain release blockers;
 `EmbeddedDelayServiceTest.receiptBoundPayloadFacadeRereadsTheShardReservation`
 covers the positive reserve-to-handle-to-attestation path.
 
-`DelayClient` also exposes the strict V1 Schedule/PrepareLarge/Cancel/Reschedule
+`DelayClient` also exposes the strict Schedule/PrepareLarge/Cancel/Reschedule
 preparation methods already backed by the Registry-shaped `PreparedCommand`
 constructors. They remain zero-I/O and are covered by
-`EmbeddedDelayServiceTest.delayClientPreparesStrictV1CommandsWithoutIo`; the
+`EmbeddedDelayServiceTest.delayClientPreparesStrictCommandsWithoutIo`; the
 legacy preparation methods remain compatibility bridges and cannot be labeled
-as V1 managed submission by themselves. Synchronous preparation validation now
+as managed submission by themselves. Synchronous preparation validation now
 uses `PreparationFailure`, an `IllegalArgumentException`-compatible exception
-that carries a canonical `StableErrorV1(stage=PREPARATION)`; malformed legacy
-frames cannot be wrapped as V1 managed submissions, and payload-proof/timing
+that carries a canonical `StableError(stage=PREPARATION)`; malformed legacy
+frames cannot be wrapped as managed submissions, and payload-proof/timing
 preparation failures retain their stable code. `AutoFastScheduleTest` covers
 the typed error and its canonical round trip.
 
-Strict `enqueueV1`/`enqueueBatchV1` now validate the V1 frame before charging
+Strict `enqueue`/`enqueueBatch` now validate the frame before charging
 pending bytes or allocating an embedded Source Position; legacy bodies return
 the closed `INVALID_PREPARED_COMMAND` definitive outcome. The batch form keeps
 the same independent input-order semantics as legacy batch enqueue, covered by
-`EmbeddedDelayServiceTest.strictV1IngressRejectsLegacyBodiesBeforeSourceAdmission`.
+`EmbeddedDelayServiceTest.strictIngressRejectsLegacyBodiesBeforeSourceAdmission`.
 
-`DelayClient.awaitAppliedV1` now performs a bounded local wait by validating the
-embedded V1 receipt first, draining only a valid pending source prefix, and
+`DelayClient.awaitApplied` now performs a bounded local wait by validating the
+embedded receipt first, draining only a valid pending source prefix, and
 re-querying the closed union. Invalid/forged receipts return
 `RECEIPT_MISMATCH` without a drain side effect; the evidence is
-`EmbeddedDelayServiceTest.awaitAppliedV1DrainsOnlyAfterReceiptValidation`.
+`EmbeddedDelayServiceTest.awaitAppliedDrainsOnlyAfterReceiptValidation`.
 
-The client seam now also exposes `prepareManagedSubmissionV1` and the exact
+The client seam now also exposes `prepareManagedSubmission` and the exact
 prepared-branch `submit` operation. Managed submissions are wrapped from the
-strict V1 frame before any transport I/O; the embedded fallback validates the
+strict frame before any transport I/O; the embedded fallback validates the
 nonzero physical attempt before source admission and returns the managed
-`SubmissionOutcomeMessageV1` projection. A caller-injected
+`SubmissionOutcomeMessage` projection. A caller-injected
 `PreparedSubmissionAdapter` owns managed/native transport dispatch when real
 adapters are available. Without that adapter, an embedded native branch stays
 typed as `AUTO_FAST_PREREQUISITE_UNAVAILABLE` rather than silently selecting
 managed; `DelayClient.prepareAutoFast` now supplies the zero-I/O selection
 seam: it consumes caller-supplied immutable Profile semantic envelopes, a
-signed `NativeCapabilitySnapshotV1`, and a pinned issuer key; only when the
+signed `NativeCapabilitySnapshot`, and a pinned issuer key; only when the
 signature, expiry, target/partition, payload/metadata, timing, and direct
 authority checks pass does it generate a nonzero native delivery identity and
 freeze the shifted Broker timestamp into native prepared bytes. Any native
@@ -3237,15 +3237,15 @@ cannot consume a fencing epoch (`OwnerLeaseTest.invalidAcquireValueDoesNotConsum
 Production Oxia sequence allocation remains an external authority gate.
 
 The latest protocol pass also preserves the complete raw `uint32` bit pattern
-for every currently implemented V1 signing/verifier/proof key version and
+for every currently implemented signing/verifier/proof key version and
 verifier version: System Mutation envelopes, Native Capability snapshots,
 credential-equivalence attestations, Evidence Verifier/Profile values,
 Payload Commit proofs and payload-proof trust-set controls. Java `int` accessors
 remain source-compatible, but zero is the only invalid value and canonical
 encoding/decoding uses unsigned-bit helpers; trust-set ordering compares these
 versions as unsigned values. TIME_FENCE apply uses the same full-range decode
-and proof-id preimage. `ProtocolCodecTest`, `CredentialBindingV1Test` and
-`PayloadProofTrustSetSemanticV1Test` cover high-bit round trips. This closes the
+and proof-id preimage. `ProtocolCodecTest`, `CredentialBindingTest` and
+`PayloadProofTrustSetSemanticTest` cover high-bit round trips. This closes the
 local codec boundary only; activated key-set membership, rotation and writer
 trust remain external release gates.
 
@@ -3255,28 +3255,28 @@ intervals/observation revisions preserve complete raw 64-bit values through
 canonical encode/decode, unsigned interval ordering and conservative merge.
 The due-admission identity's `uint32 generation` uses the same complete-bit
 validation.
-`SloObjectiveV1Test.objectiveRoundTripsCompleteUnsigned64BitFields` and
-`SloObservationOutboxV1Test.finalRoundTripsAndMergesCompleteUnsigned64BitFields`
+`SloObjectiveTest.objectiveRoundTripsCompleteUnsigned64BitFields` and
+`SloObservationOutboxTest.finalRoundTripsAndMergesCompleteUnsigned64BitFields`
 cover the high-bit vectors. This closes only the local SLO wire/merge boundary;
-`SloObjectiveV1.validateDueCompanion` and the paired Final validation now also
+`SloObjective.validateDueCompanion` and the paired Final validation now also
 fence a due ALL_ACCEPTED exclusion to the exact closed HEALTHY/ALL_ACCEPTED
 companion pair: the ALL_ACCEPTED objective must validate the durable Start
 digest, while the HEALTHY objective must match every companion policy field.
 The pair-mismatch and legacy-overload rejection vectors are covered by
-`SloObservationOutboxV1Test.excludedFinalRejectsAHealthyObjectiveFromAnotherCatalogPair`.
+`SloObservationOutboxTest.excludedFinalRejectsAHealthyObjectiveFromAnotherCatalogPair`.
 Final merge rejects a different payload that regresses observation revision;
 exact-byte replay remains idempotent.
-`SloDueAdmissionIdentityV1` now rejects a negative `path_start_epoch_ms`,
-exposes the typed path/start fields, and `SloSampleStartV1` requires exact
+`SloDueAdmissionIdentity` now rejects a negative `path_start_epoch_ms`,
+exposes the typed path/start fields, and `SloSampleStart` requires exact
 identity/path and semantic fixed-epoch agreement before it can be persisted;
-`SloObjectiveV1Test` covers path/time drift and negative-time vectors. Start
+`SloObjectiveTest` covers path/time drift and negative-time vectors. Start
 reconstruction, production collector merge/export and production evidence
 authority remain release blockers; the local collector now has an explicit
-projection capacity envelope. `SloSampleFinalV1.validateAgainst` also binds a
+projection capacity envelope. `SloSampleFinal.validateAgainst` also binds a
 `SUCCESS` Final to the endpoint kind of its closed objective success event:
 queued/native handoff require `BROKER_PERSISTENCE`, while internal/barrier/
 probe objectives require `TRUSTED_OBSERVATION`; a semantic fixed epoch cannot
-be reused as a completion observation. `SloObservationOutboxV1Test` covers the
+be reused as a completion observation. `SloObservationOutboxTest` covers the
 semantic-start-as-success rejection. This remains an endpoint-kind fence, not
 the production Broker/Admission/evidence authority.
 
@@ -3301,15 +3301,15 @@ length-field semantics or establish an external transport limit.
 The five persisted `meta/SCHEDULER` projection codecs now preserve the
 Registry's complete raw `uint64` generation/version/deficit bit patterns and
 use zero-only checks for nonzero fields; `next_index` remains a bounded local
-`uint32`. `SchedulerProjectionsV1Test.schedulerUint64FieldsPreserveCompleteRawBitPatterns`
+`uint32`. `SchedulerProjectionsTest.schedulerUint64FieldsPreserveCompleteRawBitPatterns`
 covers all five projection values. This is wire/reopen evidence only; the
 runtime scheduler still operates inside its certified signed Java capacity
 envelope.
 
-The Registry-shaped `ActiveLaneStateV1` codec now does the same for its raw
+The Registry-shaped `ActiveLaneState` codec now does the same for its raw
 `uint64` lane-control/lane-version/scheduler-weight/failure fields; only zero
 is invalid, while its epoch-time fields retain their nonnegative `int64`
-semantics. `ActiveLaneStateV1Test.preservesUnsignedLaneVersionWeightAndFailureBits`
+semantics. `ActiveLaneStateTest.preservesUnsignedLaneVersionWeightAndFailureBits`
 covers the high-bit projection. `DelayShard` now recognizes the direct typed
 ACTIVE branch on read, rebuild, scheduler projection and quota rebuild paths;
 the bounded local adapter is used only to expose fields that the existing
@@ -3342,17 +3342,17 @@ The same cross-check is enforced by `PersistentLaneScheduler` recovery, so a
 second scheduler path cannot bypass the typed Lane time projection.
 The typed constructor also requires the nested ReadyCertificate's Lane ID and
 incarnation to byte-match the active state, with the drift regression in
-`ActiveLaneStateV1Test.readyRequiresCertificateAndRejectsReadyKeyDigestTampering`.
+`ActiveLaneStateTest.readyRequiresCertificateAndRejectsReadyKeyDigestTampering`.
 Its typed `next_eligible_at` projection also cannot precede the retained
 action, open-circuit, Lane backoff or executor retry gate; an early value fails
-closed in `ActiveLaneStateV1Test.rejectsTupleIdentityAndCircuitInvariantViolations`.
+closed in `ActiveLaneStateTest.rejectsTupleIdentityAndCircuitInvariantViolations`.
 The typed constructor also rejects `READY` paired with any non-`OPEN` admission
 gate, before key/certificate projection can reach persistence.
 The typed state and terminal-guard constructors now also parse the
 Registry-shaped canonical Lane tuple and require exact byte projection of both
 immutable Profile slots; malformed tuple structure or Profile id/version/hash
-drift fails closed. `ActiveLaneStateV1Test.rejectsProfileProjectionDriftInTypedState`
-and `LaneTerminalGuardV1Test.guardRejectsProfileProjectionDrift` cover the two
+drift fails closed. `ActiveLaneStateTest.rejectsProfileProjectionDriftInTypedState`
+and `LaneTerminalGuardTest.guardRejectsProfileProjectionDrift` cover the two
 typed branches. This is local canonical-shape evidence only; resolver/catalog,
 Profile activation and Oxia ownership authority remain outside the codec.
 
@@ -3365,34 +3365,34 @@ covers the illegal `ORDERING_BROKEN -> ADMIN_PAUSED/OPEN` and
 `CLOSED -> OPEN` attempts. Source-ordered control authority and Oxia retirement
 remain external release gates.
 
-The nested Registry `ChargeVectorV1` codec now preserves all seventeen raw
+The nested Registry `ChargeVector` codec now preserves all seventeen raw
 `uint64` fields, including high-bit values, through canonical encode/decode.
 Before the embedded runtime performs signed capacity or Outcome Reserve
 arithmetic it calls the explicit local-range guard; an out-of-range charge is
 capacity-gated rather than narrowed or wrapped. `PublishAdmissionBodyTest`
 covers the wire round trip and local fail-closed projection. The separate
-`CapacityVectorV1` grant representation remains the certified signed local
+`CapacityVector` grant representation remains the certified signed local
 capacity envelope.
 
 Profile and Retry Policy semantic versions and their reference wrappers now
 also preserve the complete nonzero `uint64` bit pattern through semantic-hash
 preimages and canonical decode. Equality remains byte/version based; catalog
 publication and source-ordered activation authority are still external.
-`ProfileSemanticEnvelopeV1Test` and `RetryPolicySemanticV1Test` cover the
+`ProfileSemanticEnvelopeTest` and `RetryPolicySemanticTest` cover the
 high-bit references. `PublishOutcomeBody` and `DlqExportResultBody` reuse the
-same strict `RetryPolicyRefV1` decoder, so a high-bit policy reference cannot
+same strict `RetryPolicyRef` decoder, so a high-bit policy reference cannot
 be accepted by the catalog and rejected by an outcome parser; the regression
 is covered by `PublishOutcomeBodyTest`.
 Admission target-partition hashing now feeds the exact raw Destination Profile
 version bits into the Registry digest instead of the signed `u64` helper;
 `PublishAdmissionBodyTest.hashedPartitionValidationPreservesHighBitDestinationProfileVersion`
 covers the boundary, and the Admission projection now reuses the strict
-`ProfileRefV1` decoder, including its fixed 32-byte semantic-hash check. This
+`ProfileRef` decoder, including its fixed 32-byte semantic-hash check. This
 is local hash/codec evidence only; Profile catalog,
 partition assignment and external Broker authority remain release blockers.
 
 The Claim Result replay-stable `ClaimPrecondition` projection now reuses the
-same `ProfileRefV1` decoder, preserving complete raw Profile versions instead
+same `ProfileRef` decoder, preserving complete raw Profile versions instead
 of applying a signed nonnegative fence. `ClaimResultBodyTest` covers high-bit
 Destination and Delivery-Capability versions; Claim source authority and
 external placement remain release blockers.
@@ -3420,25 +3420,25 @@ cross-object and profile/timing tests remain green; authenticated catalog and
 Object Store authority are still external gates.
 
 The business `PublishOutcomeBody` retry decoder now shares the DLQ retry
-boundary: it requires the exact `RetryDecisionV1` field sequence and rejects a
+boundary: it requires the exact `RetryDecision` field sequence and rejects a
 deadline before first-attempt or an optional `next_retry_at` outside the
 first/deadline interval. Unknown nested fields can no longer be smuggled in by
 the fixed-count parser; `PublishOutcomeBodyTest` covers both rejection paths.
 
 Source-ordered business `PublishOutcomeBody` and evidence-resolution apply now
 retain the typed policy reference, cause and retry domain from a full
-`RetryDecisionV1`. When a source-pinned `RetryPolicyCatalog` is present,
+`RetryDecision`. When a source-pinned `RetryPolicyCatalog` is present,
 `DelayShard` revalidates the exact policy reference, attempt number, checked
-`retryDeadline` and Registry `RETRY_JITTER_V1` (`MESSAGE_PUBLISH`) against the
+`retryDeadline` and Registry `RETRY_JITTER` (`MESSAGE_PUBLISH`) against the
 trusted observed interval before changing durable state. A wrong-jitter
 outcome is rejected while the matching decision applies, and the legacy opaque
 `UNKNOWN` placeholder remains a compatibility seam. Newly source-applied
-canonical Admissions now write a V2 attempt ledger that independently persists
+canonical Admissions now write a Current attempt ledger that independently persists
 `firstAttemptAt` and `retryDeadline` in the same WriteBatch; the ledger checks
 those fields against the canonical Admission and, when available, the pinned
 Retry Policy. Catalog-less shards still use the message expiry as their only
 safe local deadline and validate the typed fields even without a catalog.
-Legacy V1 opaque ledgers remain structurally compatible but cannot be upgraded
+Legacy opaque ledgers remain structurally compatible but cannot be upgraded
 without an authoritative Admission replay. Catalog-backed DLQ-domain
 revalidation is now local; catalog-less/legacy DLQ handling remains structural,
 and external policy publication/authority remains a release blocker.
@@ -3449,8 +3449,8 @@ invalid. `DlqExportRecordTest` and `DlqExportResultBodyTest` cover the high-bit
 vectors. Local terminal-state arithmetic remains bounded separately, while
 external DLQ policy/provider authority remains a release blocker.
 
-`DLQ_EXPORT_RESULT_V1` now also validates the nested `RetryDecisionV1` field
-order/presence and decodes its exact `RetryPolicyRefV1` (including canonical
+`DLQ_EXPORT_RESULT` now also validates the nested `RetryDecision` field
+order/presence and decodes its exact `RetryPolicyRef` (including canonical
 bytes, nonzero raw version and semantic-hash length) before accepting the
 result. It also enforces the local first-attempt/deadline interval for an
 optional `next_retry_at`, so a structurally valid retry cannot schedule
@@ -3463,7 +3463,7 @@ Payload-proof trust-set semantic/ref versions now follow the same full-width
 rule, and source-ordered activation compares them with unsigned ordering;
 historical key-version ordering remains unsigned as well. The semantic and
 control-state tests cover high-bit round trips and version regression fencing.
-Both the legacy `PayloadCommitProof` adapter and typed `PayloadCommitProofV1`
+Both the legacy `PayloadCommitProof` adapter and typed `CanonicalPayloadCommitProof`
 now carry the same nonzero raw trust-set version bits through proof IDs,
 signatures and canonical decode, so a high-bit trust-set reference cannot be
 accepted by the catalog but rejected by payload attestation. The trust-set
@@ -3477,12 +3477,12 @@ through its fixed binary projection and reopen decode.
 version boundary as a raw nonzero `uint64` through the System Mutation body
 validator and typed control-body parser. Its `expected_prior_control_version`
 and Lane target control versions remain bounded local CAS values; high-bit
-semantic-version coverage is in `PayloadProofControlPayloadV1Test`.
+semantic-version coverage is in `PayloadProofControlPayloadTest`.
 
 CapacityGrant source versions, QuotaGrant reference versions and
 ShardCapacityEnvelope versions now preserve their complete nonzero `uint64`
 bit patterns in canonical bytes, nested decoding and quota semantic-hash
-preimages. The local `CapacityVectorV1` amount envelope remains intentionally
+preimages. The local `CapacityVector` amount envelope remains intentionally
 bounded to signed Java capacity arithmetic; only the independent version
 identity fields use the full wire domain. Focused capacity-vector and envelope
 tests cover high-bit round trips.
@@ -3491,7 +3491,7 @@ The Registry-shaped per-Lane quota usage entry now also preserves the complete
 nonzero `uint64` usage-revision bit pattern through its digest and canonical
 codec. This is the map-entry identity/version boundary; quota arithmetic and
 same-batch revision coupling remain local signed/runtime and external
-authority gates respectively. `LaneQuotaUsageMapV1Test` covers the high-bit
+authority gates respectively. `LaneQuotaUsageMapTest` covers the high-bit
 entry round trip.
 
 Checkpoint summary/catalog/control-result projections now preserve nonzero
@@ -3500,14 +3500,14 @@ summaries with unsigned generation ordering. This closes the public checkpoint
 projection codec boundary; Recovery Floor/upload authority and local
 generation increment arithmetic remain separate recovery gates.
 
-`CheckpointUploadIntentV1` now preserves the nonzero `base_catalog_generation`
+`CheckpointUploadIntent` now preserves the nonzero `base_catalog_generation`
 and checked `state_revision` raw `uint64` patterns through its canonical digest
 and state branches. The local intent CAS advances `state_revision` with an
 unsigned-bit successor and fails only at the all-ones pattern; Object Store and
 Oxia catalog authority remain external. Protocol and intent-store tests cover
 the high-bit boundary.
 
-Typed `RecoveryFloorRefV1` and session-bound `RecoveryPinV1` now preserve the
+Typed `RecoveryFloorRef` and session-bound `RecoveryPin` now preserve the
 nonzero `catalog_generation` raw `uint64` pattern through floor/pin digests and
 cross-object equality. The local catalog and Oxia CAS remain the authority for
 generation freshness, ancestry and session ownership; their local successor and
@@ -3516,7 +3516,7 @@ the all-ones pattern. These tests close the local arithmetic/response boundary
 as well as the canonical recovery-reference wire boundary; production Oxia
 transaction and session authority remain external.
 
-The quota-control `QuotaTransferPlanRefV1` now preserves its nonzero tenant
+The quota-control `QuotaTransferPlanRef` now preserves its nonzero tenant
 policy-version `uint64` as a raw bit pattern in the canonical control request
 value. Policy authorization and source-ordered transfer authority remain
 external; `ControlRequestSupportCodecTest` covers the high-bit round trip.
@@ -3525,14 +3525,14 @@ Lane retirement progress and terminal-guard projections now preserve the
 complete nonzero raw `uint64` mutation-sequence pattern through their digests
 and canonical codecs. The sequence is only an identity/fencing value here;
 the runtime's local source-mutation counter and lane-control successor remain
-bounded local counters. `LaneTerminalGuardV1Test` covers the high-bit progress
+bounded local counters. `LaneTerminalGuardTest` covers the high-bit progress
 and guard round trip.
 
 Registry class-3 `meta_cf/QUOTA` now has a local per-Lane compatibility projection.
 `LaneQuotaUsageProjection` fences the message, reservation, per-Lane slot and
 per-Claim/per-attempt `inflight_messages`/`inflight_bytes` dimensions with Lane
 incarnation and usage revision; command and source-ordered system-mutation paths
-persist it beside the Registry class-2 aggregate `CapacityVectorV1` in the same RocksDB WriteBatch. Open/recovery
+persist it beside the Registry class-2 aggregate `CapacityVector` in the same RocksDB WriteBatch. Open/recovery
 rebuilds the projection from `id_cf`/`meta_cf` and the durable `inflight_cf` Claim and
 attempt ledgers, then compares canonical bytes and recomputes the aggregate pending,
 reservation and Lane-cardinality counts. A present aggregate that disagrees with
@@ -3554,7 +3554,7 @@ future projection cannot silently retire a Lane with retained or control usage s
 attached.
 
 Attempt-ledger charge projection now distinguishes canonical-looking bytes from
-the pre-V1 synthetic adapter seam: if `admissionBytes` begins with the Registry
+the pre-registry synthetic adapter seam: if `admissionBytes` begins with the Registry
 common-body field-1 tag (`0x0a`) and `PublishAdmissionBody.decode` fails,
 `DelayShard` fails closed instead of treating the ledger as zero-charge; arbitrary
 legacy fixture bytes remain the explicitly bounded compatibility case.
@@ -3564,7 +3564,7 @@ integrity evidence only; it does not replace authenticated source-ordered Admiss
 authority or external charge/grant evidence.
 
 Registry class-2 `meta_cf/QUOTA` is now the canonical aggregate
-`CapacityVectorV1` for the dimensions this compatibility runtime can rebuild
+`CapacityVector` for the dimensions this compatibility runtime can rebuild
 exactly: the per-Lane map contributes dimensions 1--17 and open
 `PUBLISHING`/`UNCERTAIN` attempt ledgers contribute outcome dimensions 9--15.
 External and physical dimensions 18--66 remain explicit zero until their durable
@@ -3587,45 +3587,45 @@ covers the no-partial-binding boundary.
 
 The Registry's `meta/QUOTA` quotaClass=4 (retained/object usage) remains
 unimplemented: the current Registry defines its key subtype but does not yet
-define a V1 value payload/accounting ledger for that class. References below to
+define a current value payload/accounting ledger for that class. References below to
 checked reserve classes 3--6 mean the separate `meta/CONTROL_RESERVE` namespace;
 they must not be read as retained/object quotaClass=4 support. Adding that quota
 class requires a Registry revision before code can persist or restore it.
 
-The typed `ActivationBarrierV1` codec now enforces the Registry rule that an
+The typed `ActivationBarrier` codec now enforces the Registry rule that an
 empty Pulsar barrier must carry the guarded source-connection generation and
 resource-guard attestation digest together; an unguarded empty Pulsar barrier
 is rejected before it can enter a Ready Certificate.
 
-The Registry-shaped `OutcomeCapabilityV1`, `TimingCapabilityV1` and
-`DeliveryCapabilitySemanticV1` codecs now enforce baseline versus strong
+The Registry-shaped `OutcomeCapability`, `TimingCapability` and
+`DeliveryCapabilitySemantic` codecs now enforce baseline versus strong
 Kafka/Pulsar evidence-resource branches, timing-bit adapter compatibility,
 nonzero prerequisite digests and canonical field ordering. This closes the
 local semantic-value boundary only; Profile publication/catalog authority and
 authenticated Broker prerequisite attestations remain release blockers.
 
 The four Registry §5.1.1 Profile semantic bodies now have strict canonical
-codecs, and `ProfileSemanticEnvelopeV1` binds their closed branch, kind, ID,
+codecs, and `ProfileSemanticEnvelope` binds their closed branch, kind, ID,
 version and domain-separated semantic hash. Destination partition policy,
 Object Store safety booleans and Evidence Verifier validity bounds fail closed
 locally. `ProfileCatalog` and `InMemoryProfileCatalog` now provide an exact
 local lookup seam for immutable semantic bytes, generation-1 bindings, Head,
 protection and deprecation intent; authenticated publication, source-ordered
 activation, retained-generation policy and Oxia authority remain external.
-`ProfileCatalogV1ScheduleResolver` can decorate the existing V1 resolver to
+`ProfileCatalogScheduleResolver` can decorate the existing resolver to
 fail closed with `ROUTE_SNAPSHOT_UNAVAILABLE` until the exact Destination
 semantic reference, matching credential Head, and the referenced Delivery
 Capability semantic with the same Adapter are present. `DelayShard` applies
-this decorator automatically when both a raw V1 resolver and an exact Profile
+this decorator automatically when both a raw resolver and an exact Profile
 catalog are supplied. An already decorated resolver is reused only when it is
 paired with the byte-identical object authority of its exact same catalog;
 missing/foreign catalog injection and nested Profile decorators fail before
 Store projection reads (`DelayShardTest.decoratedScheduleResolverRequiresTheExactShardProfileCatalog`,
-`ProfileCatalogV1ScheduleResolverTest.decoratorCannotHideAnotherProfileCatalog`). Shard-local source
+`ProfileCatalogScheduleResolverTest.decoratorCannotHideAnotherProfileCatalog`). Shard-local source
 activation/deprecation markers still run before this resolver gate. A missing,
 wrong-kind or adapter-mismatched capability is rejected before the delegated
-Lane projection (`ProfileCatalogV1ScheduleResolverTest.failsClosedWhenReferencedDeliveryCapabilityIsMissing`).
-The same exact lookup fence is used when a persisted V1 binding later derives
+Lane projection (`ProfileCatalogScheduleResolverTest.failsClosedWhenReferencedDeliveryCapabilityIsMissing`).
+The same exact lookup fence is used when a persisted binding later derives
 `actionAt` for Commit/Reschedule/recovery; a missing or mismatched pinned
 Profile/Capability cannot silently fall back to `deliverAt`
 (`DelayShardTest.catalogBackedActionAtDerivationFailsClosedWhenPinnedProfileDisappears`).
@@ -3636,7 +3636,7 @@ including acknowledgement/evidence presence matrices and quota transfer-plan
 references. Prepared operations now also enforce the closed local
 operation-kind/target-kind/presence matrix; authenticated actor/resource
 authority, source-ordered System Mutation construction/registration and Oxia
-operation state are still pending. `ControlTargetMutationBindingV1` now closes
+operation state are still pending. `ControlTargetMutationBinding` now closes
 the local pre-registration binding check once a caller has constructed a
 mutation; it does not construct the body or authenticate the external writer.
 
@@ -3644,7 +3644,7 @@ The prepared Control Operation envelope now preserves the complete raw
 `uint64` `control_query_policy_version` through its prepared digest, canonical
 decode and signature preimage. This immutable policy reference is separate
 from the local bounded `operation_revision` CAS counter; catalog lookup and
-authenticated Oxia registration remain external. `PreparedControlOperationV1Test`
+authenticated Oxia registration remain external. `PreparedControlOperationTest`
 covers the high-bit round trip.
 
 Credential binding Head/protection revisions and the corresponding rotation
@@ -3654,8 +3654,8 @@ use zero-only validation; the in-memory catalog advances a revision with an
 unsigned checked successor and stops at the all-ones pattern. This keeps a
 high-bit CAS value from being rejected by one nested projection while accepted
 by another; Oxia Head/protection CAS and provider authority remain external.
-`CredentialBindingV1Test`, `ProfileControlRequestV1Test`,
-`ControlTargetRefV1Test` and `ControlResultCodecTest` cover the high-bit
+`CredentialBindingTest`, `ProfileControlRequestTest`,
+`ControlTargetRefTest` and `ControlResultCodecTest` cover the high-bit
 round trips.
 
 The closed Control target value layer now also has canonical codecs for Shard,
@@ -3666,7 +3666,7 @@ presence is enforced by the prepared-operation boundary, while source-mutation
 construction and authenticated target registration remain authority
 responsibilities.
 
-`PreparedControlOperationV1` now freezes the pre-I/O control envelope: it
+`PreparedControlOperation` now freezes the pre-I/O control envelope: it
 derives the Registry request hash and target-snapshot hash, enforces the
 operation-specific target count/kind and mutation-identity matrix, enforces a
 strictly-sorted target list, derives the prepared digest over fields 1--10,
@@ -3674,22 +3674,22 @@ and signs that digest with Ed25519. Decode verifies all local hash equalities
 and canonical bytes; it does not claim authenticated actor/resource
 authorization, Oxia registration, or external actor/role authentication.
 
-`ControlRoleSetV1`, `ControlAuthorizationContextV1` and
-`ControlOperationAuthorizationV1` now provide the local RBAC/scope gate for a
+`ControlRoleSet`, `ControlAuthorizationContext` and
+`ControlOperationAuthorization` now provide the local RBAC/scope gate for a
 prepared operation: the authenticated actor hash, canonical role-set digest
-and resource-scope hash must exactly match `ControlAuthorV1`, and the minimum
+and resource-scope hash must exactly match `ControlAuthor`, and the minimum
 role matrix is enforced before registration. The context and target-scope
 proof are authenticator inputs; this code does not authenticate mTLS/OAuth,
 resolve target existence or perform Oxia CAS.
 
 The registration outcome layer now closes the three public branches around
-`ControlOperationReceiptV1`: `ControlNonPersistenceProofV1` distinguishes
+`ControlOperationReceipt`: `ControlNonPersistenceProof` distinguishes
 pre-Oxia ownership from authenticated conditional rejection and forbids
 evidence on the local branch; the definitive/uncertain wrappers bind the
 prepared digest and CONTROL-stage error; and
-`ControlRegistrationOutcomeMessageV1` enforces outcome-to-branch tags. A
+`ControlRegistrationOutcomeMessage` enforces outcome-to-branch tags. A
 timeout or session ambiguity still cannot be projected as a definitive proof.
-`ControlRegistrationBindingV1` now validates that each recorded, definitive
+`ControlRegistrationBinding` now validates that each recorded, definitive
 rejection or uncertain outcome is bound to the exact Prepared operation,
 request hash, target snapshot, scope and initial revision before callers
 project it as a registration result. It does not classify transport failures
@@ -3708,25 +3708,25 @@ checks; lookup request and validation identity use independent byte snapshots.
 Its injected `CasBackend` remains the production Oxia transaction and transport
 boundary; the adapter does not claim to implement that client.
 
-`ControlSystemMutationFactoryV1` now derives the closed Control mutation type
+`ControlSystemMutationFactory` now derives the closed Control mutation type
 and logical identity from the Prepared target, signs the supplied canonical
 body, and reruns the full target binding check before the mutation can leave
 the process. It intentionally does not construct operation-specific body
 fields or authenticate the service signing-key trust set.
 
-`ControlTargetStateViewV1` now preserves the Registry's full unsigned uint32
+`ControlTargetStateView` now preserves the Registry's full unsigned uint32
 `target_index` instead of narrowing it to a signed Java int. The Prepared
 operation also exposes one canonical revision-1 `PENDING` projection covering
 every target, so registration callers do not hand-build an incomplete initial
 state.
 
-`ControlRegistrationProjectionV1` pairs that initial projection with the
+`ControlRegistrationProjection` pairs that initial projection with the
 receipt fields and rejects operation/request/scope/revision drift before a
 local operation authority is called. It is a deterministic value factory;
 the one-transaction Oxia registration and response classifier remain
 external.
 
-`ControlOperationReceiptV1.createWithQueryWindow` and the matching projection
+`ControlOperationReceipt.createWithQueryWindow` and the matching projection
 factory now compute `queryUntil` from the trusted registration upper bound via
 checked addition and reject negative windows/overflow. The existing explicit
 deadline constructor remains available only when an outer immutable policy
@@ -3744,7 +3744,7 @@ embedded/conformance guard, not a production Oxia transaction: authenticated
 gateway checks, target existence and the source-to-Oxia registration CAS still
 remain release blockers.
 
-`ControlOperationStateTransitionV1` now closes the local monotonic projection
+`ControlOperationStateTransition` now closes the local monotonic projection
 guard for the Registry's operation and target-marker state graphs. The
 in-memory operation authority rejects terminal rollback, failure after an
 effective/in-progress state, disappearing target indexes and marker revisions
@@ -3752,26 +3752,26 @@ that do not advance. This remains a local projection check; source-ordered
 mutation application and Oxia CAS are still the production authorities.
 
 The Registry credential-control-plane values now also have strict canonical
-codecs: `CredentialEquivalenceAttestationV1` binds the candidate generation,
+codecs: `CredentialEquivalenceAttestation` binds the candidate generation,
 secret-reference digest, immutable authorization scope, verifier evidence,
 Trusted-UTC acceptance interval, domain-separated attestation digest and
-Ed25519 signature; `CredentialBindingV1` binds the private reference to that
+Ed25519 signature; `CredentialBinding` binds the private reference to that
 attestation and derives the immutable generation digest; and
-`CredentialBindingHeadV1` / `CredentialBindingProtectionV1` close the current
+`CredentialBindingHead` / `CredentialBindingProtection` close the current
 pointer and monotonic protection projections. These codecs validate only local
 bytes, digest relationships, candidate agreement and signatures. Activated
 verifier trust, provider resolution, maximum proof age, Oxia Head/protection
 CAS and durable post-CAS observation remain external authority and release
-gates; `CredentialUseLeaseV1` now also checks its Profile-kind branch, exact
+gates; `CredentialUseLease` now also checks its Profile-kind branch, exact
 binding/fingerprint projection and kind-specific protection lifetime locally,
 without performing an Oxia read per call. No private reference or verifier
 evidence is projected to public data.
 
 Registry §6.3 Profile control request values now have strict canonical codecs:
-`PublishDestinationProfileRequestV1` requires a Destination envelope and its
-exact generation-1 `CredentialBindingV1`; `DeprecateDestinationProfileRequestV1`
-requires a Destination `ProfileRefV1` and typed `ControlReasonV1`; and
-`RotateEquivalentSecretRequestV1` checks the checked generation successor,
+`PublishDestinationProfileRequest` requires a Destination envelope and its
+exact generation-1 `CredentialBinding`; `DeprecateDestinationProfileRequest`
+requires a Destination `ProfileRef` and typed `ControlReason`; and
+`RotateEquivalentSecretRequest` checks the checked generation successor,
 private-reference hash, attestation candidate tuple, expected binding digest and
 Head revision, and can derive the exact new immutable binding. These are request
 value boundaries only; authenticated actor/target authorization, source-ordered
@@ -3780,24 +3780,24 @@ System Mutation routing and Oxia CAS remain external authority gates.
 The System Mutation outcome subset now also has explicit canonical body encoders:
 `PublishOutcomeBody.encodeInitial` closes the initial
 `PUBLISHED`/`NOT_PUBLISHED`/`UNKNOWN` combinations, while
-`encodeEvidenceResolution` requires a typed canonical `EvidenceCursorV1`.
-The shared `PublishEvidenceV1`/`ExternalDeliveryIdentityV1` codec now closes
+`encodeEvidenceResolution` requires a typed canonical `EvidenceCursor`.
+The shared `PublishEvidence`/`ExternalDeliveryIdentity` codec now closes
 the evidence kind/status/id/branch envelope and evidence digest, and is reused
 by Publish Outcome and DLQ Export Result. Definitive transfers are checked as
-canonical `ChargeVectorV1` values before the encoder's decode round-trip. The
+canonical `ChargeVector` values before the encoder's decode round-trip. The
 definitive Outcome/Resolution apply path now also requires transfer to be
 canonical byte-identical to the retained Admission charge; a mismatch persists
 `REJECTED(STALE_SYSTEM_MUTATION)` and advances source position without changing
 the attempt, message, timeline, or quota, while `UNKNOWN` transfer remains opaque.
 Initial Publish Outcome apply also requires the body-derived `PublishAttemptId` as
 the logical operation identity. Evidence Resolution apply requires the domain-separated
-identity `SHA-256("nereus-delay-evidence-resolution-logical-id-v1\0" ||
+identity `SHA-256("nereus-delay-evidence-resolution-logical-id\0" ||
 PublishAttemptId || evidenceId)`. A mismatch persists
 `REJECTED(UNAUTHORIZED_SYSTEM_MUTATION)` without changing the attempt, message,
 timeline or quota; source-ordered regressions cover both wrong-identity fences and
 subsequent valid application.
 Initial Publish Outcome apply now also compares the complete canonical admitted
-`OwnerIdentityV1`, not just its epoch; a different deployment/worker/lease digest at
+`OwnerIdentity`, not just its epoch; a different deployment/worker/lease digest at
 the same epoch is rejected before the attempt changes. When a recovery Owner has a
 new epoch, the bounded attempt lookup permits only the Registry's exact
 `UNKNOWN + OWNER_FENCED + RECOVERY_FIRST_SEND_UNCERTAIN + UNCERTAIN_HOLD` tuple and
@@ -3805,39 +3805,39 @@ applies it against the original admitted ledger key. The current guarded-recover
 Owner/Oxia proof remains an external authority gate; definitive or policy-retry
 cross-Owner Outcomes stay unauthorized.
 The same operation-identity check now covers the remaining message-bearing
-handlers: `PUBLISH_ADMISSION_V1` requires `PublishAttemptId`,
-`CLAIM_RESULT_V1` requires `ClaimId`, and `EXPIRE_GENERATION_V1` requires the
+handlers: `PUBLISH_ADMISSION` requires `PublishAttemptId`,
+`CLAIM_RESULT` requires `ClaimId`, and `EXPIRE_GENERATION` requires the
 Registry-derived expiry identity over `DelayMessageId`, generation and
 `expireAt`. Each mismatch persists `REJECTED(UNAUTHORIZED_SYSTEM_MUTATION)`
 before any handler state transition; `DelayShardTest` covers the three rejection
 paths and the later valid source-ordered mutation. This closes the local identity
 fence only; signed-writer trust, source routing and external authority remain
 release gates.
-`ChannelKindV1`, `CredentialUseKindV1`, `CredentialUseLeaseV1` and
-`ChannelResourceIdentityV1` now provide the shared canonical channel/lease
+`ChannelKind`, `CredentialUseKind`, `CredentialUseLease` and
+`ChannelResourceIdentity` now provide the shared canonical channel/lease
 identity checks: adapter/target branch, strong-capability evidence resource
 presence, producer digest, binding generation/digests and destination-channel
-holder scope. `PublishEvidenceV1` uses this codec for channel-bearing absence
-and non-submission branches. `ChannelResourceIdentityV1Test`,
-`PublishEvidenceV1Test`, `PublishOutcomeBodyTest`, `DlqExportResultBodyTest`,
+holder scope. `PublishEvidence` uses this codec for channel-bearing absence
+and non-submission branches. `ChannelResourceIdentityTest`,
+`PublishEvidenceTest`, `PublishOutcomeBodyTest`, `DlqExportResultBodyTest`,
 `DlqExportApplyTest` and the updated `DelayShardTest` provide local evidence;
 provider ownership, authenticated Broker proofs, signing, Shard Log routing,
 lease protection CAS/TTL configuration and evidence retention remain outside
 this codec boundary.
-The `OperatorAttestationEvidenceV1` branch now also requires its verifier slot
-to use `ProfileKindV1.EVIDENCE_VERIFIER`; `PublishEvidenceV1Test` covers the
+The `OperatorAttestationEvidence` branch now also requires its verifier slot
+to use `ProfileKind.EVIDENCE_VERIFIER`; `PublishEvidenceTest` covers the
 wrong-kind rejection. This closes the local Profile union only; verifier
 registration, key activation and signature authority remain external gates.
-`LaneTerminalGuardV1` now applies the Registry slot fence (`DESTINATION` then
-`DELIVERY_CAPABILITY`) in both construction and decode; `LaneTerminalGuardV1Test`
+`LaneTerminalGuard` now applies the Registry slot fence (`DESTINATION` then
+`DELIVERY_CAPABILITY`) in both construction and decode; `LaneTerminalGuardTest`
 covers both invalid slot directions and the typed constructor/decode paths now
 parse the canonical tuple enough to reject malformed structure and Profile
 id/version/hash projection drift. The compatibility adapter may still retain
 resolver-provided opaque bytes, while complete resolver/catalog/Oxia authority
 remains an external gate.
 Physical channel/evidence generations and the credential binding generation in
-`ChannelResourceIdentityV1` now preserve raw unsigned `uint64` bit patterns
-(zero is still rejected), matching the typed `EvidenceCursorV1` generation.
+`ChannelResourceIdentity` now preserve raw unsigned `uint64` bit patterns
+(zero is still rejected), matching the typed `EvidenceCursor` generation.
 The same full-width rule now covers credential attestation/binding,
 Head/protection, use lease, Ready Certificate, native capability snapshot,
 rotation request/result, and Profile control projections. Head/protection
@@ -3845,15 +3845,15 @@ revisions are nonzero complete raw `uint64` identity values; other local
 control versions remain bounded positive counters. The independent Broker
 resource-guard configuration generation also preserves raw nonzero `uint64`
 bits. High-bit coverage is provided by
-`CredentialBindingV1Test`, `ProfileControlRequestV1Test`,
-`ControlResultCodecTest`, `ChannelResourceIdentityV1Test`, `ProtocolCodecTest`,
+`CredentialBindingTest`, `ProfileControlRequestTest`,
+`ControlResultCodecTest`, `ChannelResourceIdentityTest`, `ProtocolCodecTest`,
 and the Publish Admission/Ready Certificate fixtures.
-`ReadyCertificateV1` and `PublishAdmissionBody` additionally reject a
+`ReadyCertificate` and `PublishAdmissionBody` additionally reject a
 certificate whose credential binding drifts from the Channel or whose expiry
 outlives the protected Channel lease.
 `ResolveUncertainBody` now has a canonical encoder for every closed resolution
 shape, round-trips its output through the strict decoder, validates the
-evidence-attachment owner/status through the typed `PublishEvidenceV1` codec,
+evidence-attachment owner/status through the typed `PublishEvidence` codec,
 and rejects a `messageId` whose self-routing Shard differs from the mutation
 subject. The shared System Mutation body helper now applies the same
 self-routing check to Publish Admission, Claim Result, DLQ Export Result and
@@ -3943,9 +3943,9 @@ high-bit and all-ones values. Their comparisons and Kafka successor use
 unsigned order,
 including the `0x7fff... -> 0x8000...` boundary; high-bit position,
 receipt/evidence/manifest round-trips are covered by `ProtocolCodecTest`,
-`ActivationBarrierV1Test`, `EvidenceCursorV1Test`, `SourceReplaySuccessorTest`
+`ActivationBarrierTest`, `EvidenceCursorTest`, `SourceReplaySuccessorTest`
 and `CheckpointManifestTest`. The three Registry
-`TrustedUtcIntervalEvidenceV1` uint64 counters and its `sourceKeyVersion:uint32`
+`TrustedUtcIntervalEvidence` uint64 counters and its `sourceKeyVersion:uint32`
 now also preserve raw bits through the canonical codec and checkpoint
 `createdAt` JSON; high-bit signed-time evidence is covered by
 `ProtocolCodecTest.trustedUtcEvidencePreservesUnsignedSourceKeyVersionBits` and
@@ -3953,22 +3953,22 @@ now also preserve raw bits through the canonical codec and checkpoint
 The Registry Pulsar `physicalTopicCreationTimestamp:u64be` identity likewise preserves its
 raw bits through broker identities, queued ACKs, evidence cursors, managed and
 native adapter request/result values, and checkpoint-manifest JSON; the high-bit
-boundary is covered by `ProtocolCodecTest`, `EvidenceCursorV1Test`,
+boundary is covered by `ProtocolCodecTest`, `EvidenceCursorTest`,
 `CheckpointManifestTest`, `AdapterIngressTest`, `DestinationAdapterTest` and
 `NativeSubmissionAdapterTest`. Other auxiliary uint64/time fields plus real
 Broker adapter proof remain release blockers. Ownership/fencing `ownerEpoch`
 and writer generations now preserve their raw uint64 bit patterns through
-`OwnerIdentityV1`, the OWNER/FENCE/SERVICE `AuthorIdentity` branches,
-`ShardControlResultV1`, StoreRuntimeMetadata/inflight keys, Claim and
+`OwnerIdentity`, the OWNER/FENCE/SERVICE `AuthorIdentity` branches,
+`ShardControlResult`, StoreRuntimeMetadata/inflight keys, Claim and
 PublishAttempt records, and checkpoint `createdBy` JSON. The high-bit boundary
 is covered by `ProtocolCodecTest`, `StoreRuntimeMetadataTest`, `KeyCodecTest`,
 `ClaimRecordTest`, `PublishAttemptLedgerTest` and `CheckpointManifestTest`.
 The guarded Pulsar source-connection generation is also preserved as a raw
-uint64 through `ActivationBarrierV1`, the runtime Pulsar barrier, replay-entry
-validation and `OwnedDelayShard`; `ActivationBarrierV1Test`,
+uint64 through `ActivationBarrier`, the runtime Pulsar barrier, replay-entry
+validation and `OwnedDelayShard`; `ActivationBarrierTest`,
 `SourceActivationBarrierTest` and `OwnerLeaseTest` cover its high-bit fence
 path.
-`NativeCapabilitySnapshotV1` now preserves the complete nonzero raw
+`NativeCapabilitySnapshot` now preserves the complete nonzero raw
 `resource_guard_config_generation` in its signed digest and canonical decode,
 matching the already raw credential-binding generation. The snapshot test
 covers both high-bit fields; guarded Broker rollout attestation remains an
@@ -3978,16 +3978,16 @@ the native physical partition as raw `uint32` bits: selection and range checks
 use unsigned comparisons, so a valid high-bit partition is not rejected or
 miscompared before Producer ownership. `AutoFastScheduleTest` covers this
 projection with `0x80000000`.
-The nested `ReadyCertificateV1` Broker attestation and config generations now
+The nested `ReadyCertificate` Broker attestation and config generations now
 also preserve their complete raw `uint64` patterns through the shared
-Admission/certificate decoder; `ReadyCertificateV1Test` covers both high-bit
+Admission/certificate decoder; `ReadyCertificateTest` covers both high-bit
 values.
-The same shared decoder now parses the nested `ActivationBarrierV1` and every
-repeated `EvidenceCursorV1` instead of accepting opaque non-empty bytes. It
+The same shared decoder now parses the nested `ActivationBarrier` and every
+repeated `EvidenceCursor` instead of accepting opaque non-empty bytes. It
 requires at least one cursor and rejects non-canonical nested branches or
 unsorted/duplicate cursor identities before either the Admission body or the
-public `ReadyCertificateV1` wrapper can expose the certificate;
-`ReadyCertificateV1Test` covers the direct Admission-parser rejection paths.
+public `ReadyCertificate` wrapper can expose the certificate;
+`ReadyCertificateTest` covers the direct Admission-parser rejection paths.
 
 `TrustedUtcClock` now provides the local Worker timing guard that was missing
 behind the evidence codec: it advances an approved interval from an injected
@@ -4003,7 +4003,7 @@ so an impossible timing budget is rejected before the guard can activate.
 Destination Profile target partition count/allow-list values and Native
 capability/prepared/public binding physical partitions now preserve complete
 unsigned-32 bit patterns through their canonical protobuf codecs and local
-publish-admission checks. `ProfileSemanticEnvelopeV1Test`, `ProtocolCodecTest`
+publish-admission checks. `ProfileSemanticEnvelopeTest`, `ProtocolCodecTest`
 and the existing Native/Publish Admission suites cover high-bit values; Profile
 publication, target existence and authenticated Broker authority remain
 external.
@@ -4023,7 +4023,7 @@ leaking a `BufferUnderflowException`; `MessageRecordTest` checks every strict
 prefix of a canonical v4 record.
 
 `ClaimRecord.decode` applies the same bound before every fixed-width and
-length-prefixed field. Claim record v1 remains readable, while v2 retains the
+length-prefixed field. Initial Claim records remain readable, while the current format retains the
 canonical source `TimelineWorkRef` needed to restore an exact retry authority
 on revoke. A truncated Claim value cannot consume a missing LP32 length or
 numeric suffix and leak a native buffer exception; `ClaimRecordTest` exercises
@@ -4062,8 +4062,8 @@ Prepare reservation as the receipt anchor and accepts only the same immutable
 reservation identity's legal source-ordered lifecycle transition. The
 shard-local `PayloadReservation` value persists that anchor's state version and
 Source Position, so a newly constructed adapter can reconstruct the original
-Prepare receipt after reopening a v2 `COMMITTED`, `ABANDONED` or materialized
-`EXPIRED` reservation. A strict v1 decode/upgrade path remains for older local
+Prepare receipt after reopening a current-format `COMMITTED`, `ABANDONED` or materialized
+`EXPIRED` reservation. A strict initial-format decode/upgrade path remains for older local
 values; because those values never carried an anchor, their fallback anchor is
 the value's current state and cannot invent missing historical Prepare data. A previously
 issued receipt consequently maps to `RESERVATION_EXPIRED`,
@@ -4078,8 +4078,8 @@ release blockers.
 
 `TerminalGenerationRecord.decode` now bounds the terminal source and
 obligation count/length fields through named fixed-width readers. Its legacy
-and v2 branches both reject strict-prefix truncation as codec validation;
-`TerminalGenerationRecordTest` covers the canonical v2 path.
+and current-format branches both reject strict-prefix truncation as codec validation;
+`TerminalGenerationRecordTest` covers the canonical current-format path.
 
 Direct terminal-history reads now also compare the requested
 `messageId/generation` with the embedded value before exposing the summary;
@@ -4185,7 +4185,7 @@ Direct `discoverReady` now makes the same final existence and key/value identity
 check before returning scheduler work; a READY projection cannot survive as a
 standalone pointer after its timeline entry is deleted. The missing-entry case
 is covered by `DelayShardTest.readyDiscoveryRejectsMissingTimelineEntry`.
-`id_cf/V1_SCHEDULE_BINDING` direct reads also reject a message ID routed to a
+`id_cf/_SCHEDULE_BINDING` direct reads also reject a message ID routed to a
 different Shard before looking up the sidecar; `DelayShardTest.scheduleBindingLookupRejectsForeignMessageShard`
 covers the sidecar-only case.
 READY rebuild candidate scans now read one entry past the configured pending
@@ -4257,7 +4257,7 @@ Checkpoint manifest `lineageGeneration`/`shardMutationSequence` and scalar/typed
 Recovery Floor projections now preserve full-width unsigned values in their
 canonical JSON, Protobuf and digest bytes. Local catalog ancestry uses checked
 unsigned lineage successors, and Floor coverage compares mutation sequences
-unsigned. `CheckpointManifestTest`, `RecoveryFloorRefV1Test` and
+unsigned. `CheckpointManifestTest`, `RecoveryFloorRefTest` and
 `RecoveryCatalogTest.catalogComparesManifestMutationSequenceAsUnsigned` cover
 the boundary; Oxia CAS, object-store publication and source replay remain
 release gates.
@@ -4299,16 +4299,16 @@ bound as the writer, so an out-of-registry tag cannot enter a closed union
 decoder. `CanonicalProtobufTest.readerRejectsFieldNumbersOutsideRegistryRange`
 covers the reader boundary.
 
-The Registry-shaped `ScheduleIntentV1` value is now implemented as a strict
-canonical codec: it binds the destination `ProfileRefV1`, `RetryPolicyRefV1`,
+The Registry-shaped `CanonicalScheduleIntent` value is now implemented as a strict
+canonical codec: it binds the destination `ProfileRef`, `RetryPolicyRef`,
 delivery/order fields, the closed inline-versus-committed payload union,
 Kafka/Pulsar adapter metadata, optional business/event fields and quota
-accounting version. `ScheduleIntentV1.forPrepare` is the explicit no-payload
-form for `PrepareLargeScheduleV1`; ordinary creation requires exactly one
+accounting version. `CanonicalScheduleIntent.forPrepare` is the explicit no-payload
+form for `PrepareLargeSchedule`; ordinary creation requires exactly one
 payload branch. Schedule/Prepare now have an explicit
-`V1ScheduleResolver` seam: `DelayShard` requires that resolver for Registry
+`ScheduleResolver` seam: `DelayShard` requires that resolver for Registry
 bodies, validates the tuple-derived Lane and payload projection, and persists a
-`V1ScheduleBinding` sidecar with the canonical body in the same WriteBatch.
+`ScheduleBinding` sidecar with the canonical body in the same WriteBatch.
 Without a resolver the source record is rejected with
 `ROUTE_SNAPSHOT_UNAVAILABLE`; it is never downgraded to the legacy adapter.
 The resolver is a local authority seam only. When a `RetryPolicyCatalog` is
@@ -4316,29 +4316,29 @@ supplied, Schedule/Prepare additionally require the exact policy semantic ref
 at the command Source Position and apply its ordering-mode guard; a missing or
 mismatched value returns a stable fail-closed code. Policy/Profile activation,
 production adapter validation and the object-payload optional-etag projection
-remain release blockers. The Cancel/Reschedule V1 bodies are applied by
+remain release blockers. The Cancel/Reschedule bodies are applied by
 `DelayShard` with their independently present generation/state-version
 preconditions.
 
-`PreparedCommand.scheduleV1`/`prepareLargeV1` and the matching
-`CommandCodec.encode/decode*V1` seam now bind body common fields back to the
+`PreparedCommand.schedule`/`prepareLarge` and the matching
+`CommandCodec.encode/decode*` seam now bind body common fields back to the
 outer command identity/type/retry deadline. The default no-suffix encode/decode
-path remains backward-compatible and does not claim V1 body validation.
+path remains backward-compatible and does not claim body validation.
 
-`PrepareLargeScheduleV1` now carries required field 15, an exact
-`OBJECT_STORE ProfileRefV1`, in addition to its pinned trust-set. The complete
-canonical Prepare remains in `V1ScheduleBinding`; `DelayShard` resolves the
+`PrepareLargeSchedule` now carries required field 15, an exact
+`OBJECT_STORE ProfileRef`, in addition to its pinned trust-set. The complete
+canonical Prepare remains in `ScheduleBinding`; `DelayShard` resolves the
 exact immutable Object Store semantic/current credential Head and applies the
 source-ordered first-binding gate before accepting a catalog-backed Prepare.
 The embedded receipt/handle/attestation facade reloads that durable binding and
 requires both the adapter Profile ref and trust-set ref to match before any
 adapter registration or object authority is created.
 
-`CommitLargeScheduleV1` has an explicit canonical body with the same common
-fields 1–3, reservation identity and nested typed `PayloadCommitProofV1`. The
+`CommitLargeSchedule` has an explicit canonical body with the same common
+fields 1–3, reservation identity and nested typed `CanonicalPayloadCommitProof`. The
 proof codec covers the Registry's typed Object Store Profile, tenant scope,
 optional etag presence, proof-id/signature digests and Ed25519 verification.
-`DelayShard` consumes both the typed V1 proof view and the legacy proof adapter
+`DelayShard` consumes both the typed proof view and the legacy proof adapter
 through the same trust-set/commit state machine. A typed proof must equal the
 full Profile ref pinned by Prepare; a legacy proof must equal its semantic
 hash, and both checks occur before the first transition and an already-committed
@@ -4357,16 +4357,16 @@ identity/source/state/trust-set contract, and issues response-loss-idempotent
 opaque handles,
 enforces the configured max-handle-lifetime/reservation-expiry minimum plus
 the profile's max-bytes/length/SHA-256 and immutable-if-absent rules,
-and returns a cached, trust-set-verifiable `PayloadCommitProofV1`; it keeps
+and returns a cached, trust-set-verifiable `CanonicalPayloadCommitProof`; it keeps
 capability/payload bytes in memory, re-signs a new handle only after the old
 capability expires, and does not claim provider credentials, remote
 immutability, Oxia authority or production availability evidence.
 
-`RetryPolicySemanticV1` now supplies the Registry semantic fields, the
-domain-separated semantic hash and a typed `RetryPolicyRefV1` projection. It
+`RetryPolicySemantic` now supplies the Registry semantic fields, the
+domain-separated semantic hash and a typed `RetryPolicyRef` projection. It
 rejects invalid uncertain/DLQ branch combinations and checked backoff-budget
 overflow, and rejects possible-duplicate retry for FIFO ordering. When a
-`RetryPolicyCatalog` is supplied, accepted V1 Schedule/Prepare bindings are
+`RetryPolicyCatalog` is supplied, accepted Schedule/Prepare bindings are
 revalidated at later source-ordered Admission/uncertain-retry and reopen turns;
 the immutable semantic budgets are used instead of silently widening or
 weakening them to local defaults. `InMemoryRetryPolicyCatalog` now provides a
@@ -4454,10 +4454,10 @@ generation, and ActiveRing/round generations must agree before any scheduler
 state is exposed. `LaneSchedulerTest.schedulerRestoreRejectsCrossProjectionGenerationDrift`
 covers a digest-valid but cross-projection-inconsistent value.
 
-`ProfileBindingActivatePayloadV1` and `ProfileNewBindingClosePayloadV1` now
+`ProfileBindingActivatePayload` and `ProfileNewBindingClosePayload` now
 close the Registry control branches for Profile first-binding lifecycle.
 `ProfileBindingControlState` persists strictly source-ordered activation and
-close markers. Catalog-backed V1 Schedule/Prepare paths fail closed until the
+close markers. Catalog-backed Schedule/Prepare paths fail closed until the
 first activation marker is durably applied, then return the distinct
 pre-activation or post-close stable code; legacy constructors without a
 Profile catalog remain an explicitly bounded compatibility seam. Exact
@@ -4468,7 +4468,7 @@ historical retention and provider verification remain external blockers.
 Profile marker comparisons also reject equal order tokens with conflicting
 canonical Source Position metadata.
 
-`PayloadProofTrustSetSemanticV1` and `PayloadProofVerifierKeyV1` now provide
+`PayloadProofTrustSetSemantic` and `PayloadProofVerifierKey` now provide
 the canonical sorted verifier-key list, semantic hash/ref and Ed25519 raw-key
 projection; `PayloadProofTrustSet.fromSemantic` is an explicit local adapter
 and applies each key's source-time validity window during proof verification.
@@ -4487,10 +4487,10 @@ state projection does not invent those authorities.
 
 Large-payload Commit verification now selects its authority from the durable
 Prepare binding rather than from the current Commit body's encoding. A
-Registry V1 Prepare therefore pins its exact trust-set version/semantic hash
+Registry Prepare therefore pins its exact trust-set version/semantic hash
 and source-ordered issuance state even when the later command uses the legacy
-Commit body; only a legacy Prepare without a `V1ScheduleBinding` may use the
-legacy version-only verifier. Missing or mismatched V1 semantic authority fails
+Commit body; only a legacy Prepare without a `ScheduleBinding` may use the
+legacy version-only verifier. Missing or mismatched semantic authority fails
 closed instead of falling back. The mixed-body regression
 `DelayShardTest.registryPrepareCannotDowngradeTrustSetAuthorityWithLegacyCommitBody`
 uses different keys under the same trust-set version and verifies that the
@@ -4500,18 +4500,18 @@ retention remain release blockers.
 
 The local handle/attestation facade now uses the same durable authority before
 Object Store registration. `EmbeddedDelayService` reloads the reservation's
-`V1ScheduleBinding`, decodes the exact Prepare trust-set ref and calls the
+`ScheduleBinding`, decodes the exact Prepare trust-set ref and calls the
 adapter's strict registration entry; `InMemoryPayloadObjectStore` rejects an
 adapter semantic that shares the version but not the semantic hash before it
 registers the reservation or issues a receipt/handle/proof. Legacy Prepare
-without a V1 binding retains the version-only compatibility entry. The direct
+without a current binding retains the version-only compatibility entry. The direct
 adapter regression and the close/reopen facade regression cover both the zero-
 registration side effect and the public `INTEGRITY_ERROR` projection. Real
 provider credentials, Oxia publication and service authentication remain
 external blockers.
 
 The closed control-payload branches for trust-set activation and issuance
-close now have typed `ControlReasonV1`/payload codecs with strict branch and
+close now have typed `ControlReason`/payload codecs with strict branch and
 optional-field ordering, and `ApplyShardControlBody` exposes their typed
 decoders. `DelayShard` now resolves the referenced semantic value through an
 explicit catalog seam and persists the marker state, mutation result and
@@ -4520,15 +4520,15 @@ issuance-close projection. The catalog itself, authenticated control
 authority, and Recovery-Floor historical verifier retention remain external
 blockers, so the local marker apply does not claim production trust authority.
 Lane PAUSE/RESUME/BREAK/CLOSE projection now also delegates its nested
-`ControlReasonV1` and `AcknowledgementSetV1` values to the canonical codecs;
+`ControlReason` and `AcknowledgementSet` values to the canonical codecs;
 unknown reason kinds, malformed optional hashes and non-canonical acknowledgement
 entries cannot pass the manual lane-target projection. The negative coverage is
-in `PayloadProofControlPayloadV1Test`.
+in `PayloadProofControlPayloadTest`.
 
 `ApplyShardControlBody.hasAcknowledgement` and `allowOrderBreak` now reuse the
 same typed/canonical ACK and varint decoders as `laneTarget`; callers cannot
 observe a malformed ACK wire type through a leaked `IllegalStateException` or
-an unchecked field read. `PayloadProofControlPayloadV1Test.laneAcknowledgementQueryRejectsMalformedAckWireType`
+an unchecked field read. `PayloadProofControlPayloadTest.laneAcknowledgementQueryRejectsMalformedAckWireType`
 covers the direct query boundary. This is still local marker projection
 evidence, not authenticated Oxia control authority.
 
@@ -4556,9 +4556,9 @@ The Oxia adapter also requires every successful acquire response to remain in
 `ACTIVE_FOR_COMMANDS` while the Worker has not yet established the next
 authority boundary. `OxiaOwnerLeaseStoreTest.rejectsBackendAcquireResultThatSkipsAcquiringState`
 covers this response fence.
-The V1 assignment gate also rejects a non-null legacy lease context whose
+The assignment gate also rejects a non-null legacy lease context whose
 assignment epoch is zero; it cannot silently authorize a positive-epoch
-assignment. `OwnerLeaseTest.legacyZeroEpochLeaseContextCannotAuthorizeV1Assignment`
+assignment. `OwnerLeaseTest.legacyZeroEpochLeaseContextCannotAuthorizeAssignment`
 covers this compatibility-boundary fence.
 Authority-gated activation now keeps the local shard in `CATCHING_UP` until
 the exact `ACTIVE_FOR_COMMANDS` lease CAS (or its validated response-loss
@@ -4590,15 +4590,15 @@ fail-closed cases are covered by `PersistentOwnerLeaseStoreTest`. This is only
 local restart/response-loss evidence; it does not implement the production
 Oxia session/ephemeral record or cross-worker CAS.
 
-The V1 catch-up overload now pins an adapter-owned `SourceReplaySuccessor` in
+The catch-up overload now pins an adapter-owned `SourceReplaySuccessor` in
 the accepted assignment window. Exact canonical redelivery remains
 idempotently admissible, while every later source position must be proven as
 the immediate physical successor; `SourceReplaySuccessor.strictKafka()` rejects
 an offset gap before the skipped record can reach `DelayShard.apply`, and the
 Pulsar batch-member helper intentionally leaves cross-entry succession to the
 broker adapter. The assignment-only compatibility overload remains
-monotonic-only and is not V1 source-gap evidence. `SourceReplaySuccessorTest`
-and `OwnerLeaseTest.v1CatchupPinsTheAdapterSuccessorAndRejectsAKafkaGapBeforeApplyingIt`
+monotonic-only and is not source-gap evidence. `SourceReplaySuccessorTest`
+and `OwnerLeaseTest.catchupPinsTheAdapterSuccessorAndRejectsAKafkaGapBeforeApplyingIt`
 cover the local fence; real broker fetch/assignment continuity evidence is
 still a release blocker.
 `OwnedDelayShard` also exposes live-clock overloads for catch-up and mixed
@@ -4784,8 +4784,8 @@ metadata. The package-local four-argument compatibility seam cannot create a
 final checkpoint without a shared registry.
 After `flushAndSync`, an optional `commitSourceHint` callback receives only the
 last persisted `SourcePosition`; the coordinator rereads the draining lease
-after that transport-owned callback before continuing.  The hint is never the
-recovery authority.  It also rereads the lease after the physical final
+after that transport-owned callback before continuing. The hint is never the
+recovery authority. It also rereads the lease after the physical final
 checkpoint has been installed, before Store close or exact release, so a lease
 loss during a long RocksDB checkpoint cannot make the old owner close or
 release a newer owner's state. `OwnerDrainCoordinatorTest` covers this
@@ -4818,7 +4818,7 @@ plus WriteBufferManager budgets to fit inside the certified
 `WorkerResourceEnvelopeTest.rejectsSharedRocksDbBudgetsOutsideTheCertifiedNativeBucket`
 covers the fail-closed boundary. `WorkerRuntimeResourceProbe` now reads the
 actual JVM heap limit, an explicitly bounded `MaxDirectMemorySize`, procfs
-RSS/RLIMIT values, the live `/proc/self/fd` descriptor count, cgroup v2/v1
+RSS/RLIMIT values, the live `/proc/self/fd` descriptor count, both cgroup generations
 memory limits and the exact root filesystem's total/usable bytes; missing,
 unlimited or malformed platform values fail closed. `WorkerResourceEnvelope.validate(config, observation)`
 also checks the current descriptor count plus configured FD headroom against
@@ -4926,7 +4926,7 @@ original bounded-resource error.
 After RocksDB itself has opened, the normal shard-open path has one failure
 cleanup boundary around metadata reads/decoding, format and identity checks,
 and install-mode writes: every DB/Column Family handle and options object is
-closed before Worker DB/owned-shard slots are released.  The malformed-metadata
+closed before Worker DB/owned-shard slots are released. The malformed-metadata
 reopen regression `ShardStoreTest.malformedExistingMetadataDoesNotLeaveRocksDbOpen`
 proves that the same physical DB can be opened again after this failure path,
 so a local validation error cannot leave a native RocksDB file lock behind.
@@ -4945,23 +4945,23 @@ still be using.
 `StoreRuntimeMetadata` now provides the remaining local `meta_cf` runtime
 projection required by the design: optional `lastIngressFenceProofId` and
 `lastCheckpointId`, a non-decreasing `lastOpenedOwnerEpoch`, canonically sorted
-typed `evidenceCursors`, and a `cleanCloseMarker`.  The physical projection is
+typed `evidenceCursors`, and a `cleanCloseMarker`. The physical projection is
 stored at the registered `meta/FIXED` keys 4, 6, 7, 8 and 9, each with the
 fixed-key ValueEnvelope type; key 4 uses one canonical `IngressFenceState`
 containing both the source-ordered close deadline and proof identity, so the
-DelayShard fence and Store projection cannot overwrite one another.  Key 10
-now stores a bounded canonical `CompatibleControlSnapshotV1` in the fixed-key
+DelayShard fence and Store projection cannot overwrite one another. Key 10
+now stores a bounded canonical `CompatibleControlSnapshot` in the fixed-key
 ValueEnvelope type: it binds the shard subject, non-empty ProtocolTuple set,
 sorted ProfileRef set and initial QuotaGrantRef to a domain-separated digest.
 Open/restore strictly decodes the value, verifies the digest and rejects a
 foreign shard identity; `ShardStoreTest.compatibleControlSnapshotIsPersistedAndRevalidatedForItsShard`
-and `CompatibleControlSnapshotV1Test` cover the projection and codec.  This is
+and `CompatibleControlSnapshotTest` cover the projection and codec. This is
 only the local copy of an already obtained control input; Oxia catalog/session
-and version-read authority remain external blockers.  The Java projection and
-evidence-cursor array have bounded canonical encoding and strict decode/round-trip checks.  Opening a DB validates every fixed-key value
+and version-read authority remain external blockers. The Java projection and
+evidence-cursor array have bounded canonical encoding and strict decode/round-trip checks. Opening a DB validates every fixed-key value
 and synchronously clears the clean-close marker; normal close persists it
 synchronously, while explicit owner/fence/checkpoint/evidence updates use the
-same WAL-synced WriteBatch boundary.  This is only local Store evidence: it
+same WAL-synced WriteBatch boundary. This is only local Store evidence: it
 does not create Oxia lease/catalog authority or certify a remote Broker fence.
 `StoreRuntimeMetadataTest` covers the registered physical keys and lifecycle
 behavior, and `ShardStoreTest.malformedRuntimeMetadataDoesNotLeaveRocksDbOpen`
@@ -4969,12 +4969,12 @@ covers the activation failure cleanup path.
 The immutable `meta/FIXED` format and shard-identity values at keys 1 and 2
 now use the same fixed-key ValueEnvelope as the mutable projection: the format
 payload is the canonical u32 value `1`, and the identity payload is the
-canonical `StoreMetadata` bytes.  Open and restore-install paths decode and
+canonical `StoreMetadata` bytes. Open and restore-install paths decode and
 CRC-check those envelopes before accepting a DB, and
 `ShardStoreTest.fixedFormatAndIdentityValuesUseRegisteredValueEnvelope`
-asserts the physical representation.  This closes the Registry requirement
+asserts the physical representation. This closes the Registry requirement
 that no `meta/FIXED` value is stored as an unframed raw byte sequence.
-`ValueEnvelope` now also rejects numeric payload types outside the closed V1
+`ValueEnvelope` now also rejects numeric payload types outside the closed
 range 1--11; the Registry records the context-specific mapping, including the
 two GC task union branches and fixed control states, so a payload discriminator
 cannot silently grow an unregistered schema.
@@ -5002,7 +5002,7 @@ failed activation.
 `ShardStore.createCheckpoint(path, checkpointId)` additionally writes the exact
 16-byte identity before taking the RocksDB image, so a restored checkpoint
 retains the identity it represents; a failed physical attempt restores the
-previous projection.  The legacy path without an identity remains a local
+previous projection. The legacy path without an identity remains a local
 physical primitive only and does not claim manifest/catalog publication.
 The source-ordered `TIME_FENCE` apply path now writes its verified
 `lastIngressFenceProofId` in that same batch as the mutation result and source
@@ -5030,7 +5030,7 @@ orphan incarnation.
 provider I/O, requires the RocksDB `CURRENT` marker, charges the Worker upload
 slot, validates returned manifest
 object identity and, for a recognized RocksDB image, verifies the physical
-key-10 `CompatibleControlSnapshotV1` shard/digest against the manifest before
+key-10 `CompatibleControlSnapshot` shard/digest against the manifest before
 provider I/O; only then does it advance the exact pending intent to PUBLISHED;
 provider failure or identity mismatch leaves the intent pending for retry. The
 manifest `createdAt` projection now accepts only the four Registry time-evidence
@@ -5038,7 +5038,7 @@ source symbols and applies the signed-source key/signature presence rule before
 canonical JSON is emitted. The
 local store uses an `ACTIVE` checksummed pointer and an
 `incarnations/<storeIncarnation>/db` directory. Typed
-`CheckpointResourceV1`/`CheckpointUploadIntentV1` codecs now close the
+`CheckpointResource`/`CheckpointUploadIntent` codecs now close the
 manifest-object identity and PENDING/PUBLISHED/REAPING branch rules. The
 local `CheckpointUploadIntentStore` also rereads an exact PENDING_UPLOAD ->
 REAPING successor after a lost transition response; a different reaping
@@ -5077,8 +5077,8 @@ canonical Source Position equality.
 `validatePublishedRestoreCandidate` also rereads the exact published manifest
 and rejects a same-ID canonical projection drift before invoking the backend's
 floor/recovery-set validation.
-Typed `RecoveryCandidateRefV1` and
-`RecoveryPinV1` codecs now close the candidate branch and session-bound pin
+Typed `RecoveryCandidateRef` and
+`RecoveryPin` codecs now close the candidate branch and session-bound pin
 projection, but they are still local value codecs: immutable object publication,
 durable Oxia catalog/session pin CAS, and Kafka/Pulsar source replay remain
 release blockers below.
@@ -5108,17 +5108,17 @@ image's persisted `lastCheckpointId`, `appliedShardLogPosition`,
 manifest values before install. A complete file inventory with a mismatched
 runtime state is therefore rejected rather than restored as if it represented
 that manifest. If the staged image contains the fixed-key
-`CompatibleControlSnapshotV1`, restore also compares its canonical digest with
+`CompatibleControlSnapshot`, restore also compares its canonical digest with
 `CheckpointManifest.controlStateDigest` and rejects a mismatch before install;
 an image without key 10 remains only a legacy local compatibility seam and
-cannot prove the V1 `ACTIVE_FOR_COMMANDS` control prerequisite. The focused
+cannot prove the `ACTIVE_FOR_COMMANDS` control prerequisite. The focused
 regression is `ShardStoreTest.restoreWithManifestRejectsControlStateDigestDrift`;
 `ShardStoreTest.restoreWithManifestRejectsRuntimeStateDrift` and
 `ShardStoreTest.catalogBoundRestoreRejectsPinDriftBeforeActivePublication`
 cover the other rejection and matching paths. Source replay after restore and
 the external catalog/object-store authority remain release blockers.
 
-`EvidenceCursorV1` now also exposes the Registry cursor identity and
+`EvidenceCursor` now also exposes the Registry cursor identity and
 same-generation dominance rules: Kafka requires non-regressing offset/LSO/time
 watermarks, while Pulsar compares the inclusive ledger/entry/batch member and
 the same Broker-time anchor. Cross-generation cursors remain incomparable.
@@ -5211,8 +5211,8 @@ receipt retention/Floor coverage and authenticated Broker tests remain release
 blockers.
 
 The current source-ordered control increment is deliberately bounded: the
-`RESOLVE_UNCERTAIN_V1(RETRY_ALLOW_POSSIBLE_DUPLICATE)` branch now validates a
-canonical `ControlRefV1`, its Resolve logical identity, lane incarnation,
+`RESOLVE_UNCERTAIN(RETRY_ALLOW_POSSIBLE_DUPLICATE)` branch now validates a
+canonical `ControlRef`, its Resolve logical identity, lane incarnation,
 acknowledgement hash, current-generation UNCERTAIN obligation and source
 position, then materializes one `UNCERTAIN_RETRY(CONTROL_OVERRIDE)` timeline
 work item without consuming the Admission counter. A Claim created from that
@@ -5241,20 +5241,20 @@ possible-delivery terminal branch is locally covered by retaining the exact
 UNCERTAIN obligation while terminalizing the generation and releasing its
 active pending quota.
 
-The bounded replay increment now covers `REPLAY_DEAD_LETTER_V1` after a
+The bounded replay increment now covers `REPLAY_DEAD_LETTER` after a
 `DEAD_LETTER` terminal decision: it checks the exact generation/state-version
 precondition, terminal summary and duplicate acknowledgement rule, lane gate,
 timing and shard quota, then atomically creates the next generation's
 `INITIAL_SCHEDULE` timeline while retaining the old summary and obligations.
 `ReplayDeadLetterBody.encode` now constructs the complete canonical mutation
 body (including the optional duplicate acknowledgement), round-trips it through
-the strict decoder, decodes field 16 as a typed canonical `RetryPolicyRefV1`,
+the strict decoder, decodes field 16 as a typed canonical `RetryPolicyRef`,
 and rejects a `messageId` whose self-routing Shard differs from the mutation
 subject before the body can be signed. Immutable
 RetryPolicy/Profile binding, replay-window/fence proofs, Oxia target
 registration and full DLQ/replay retention remain pending.
 
-The local `TIME_FENCE_V1` increment now validates the exact proof ID, fence key
+The local `TIME_FENCE` increment now validates the exact proof ID, fence key
 version and the configured `DelayShardConfig.timeFenceSafetyMarginMs` Trusted-UTC
 lower bound (`proof.earliestEpochMs >= checkedAdd(closeThrough, margin)`),
 monotonically persists
@@ -5277,7 +5277,7 @@ appear `EXPIRED` to Commit/Cancel/Query, while the bounded
 quota without making a new source-log decision. Source-protected fence-key
 history and full retention/GC proofs remain pending.
 
-The source-ordered `APPLY_SHARD_CONTROL_V1` increment now covers the bounded
+The source-ordered `APPLY_SHARD_CONTROL` increment now covers the bounded
 Lane `PAUSE_DESTINATION_LANE`/`RESUME_DESTINATION_LANE`,
 `BREAK_ORDERING_DOMAIN`, and `CLOSE_DESTINATION_LANE` gate subset. Apply
 verifies the ControlRef logical identity, Lane incarnation and control-version
@@ -5307,11 +5307,11 @@ The durable DLQ export state is part of the message snapshot and is the only
 accepted source for the public DLQ projection; non-dead-letter generations must
 remain `NOT_CONFIGURED`, and the compatibility projector overload rejects a
 caller-supplied state that disagrees with the snapshot. Configured DLQ outboxes
-persist a canonical policy-derived retained charge (with legacy v1 records
+persist a canonical policy-derived retained charge (with initial-format records
 decoded as zero), and source-ordered result apply requires transfer equality
 against that projection before advancing the outbox.
-The wire-level closed unions are now also encoded: `CommandQueryResponseV1`
-and `MessageQueryResponseV1` cover every Registry public view and error branch,
+The wire-level closed unions are now also encoded: `CommandQueryResponse`
+and `MessageQueryResponse` cover every Registry public view and error branch,
 including source-barrier pending views, safe destination binding, retired
 identity and evidence-reference projections. The codecs do not fabricate those
 views from the local snapshots: receipt/barrier routing, authorization policy,
@@ -5322,7 +5322,7 @@ The embedded conformance service now exposes the local Control Operation
 register/advance/query entry points over the receipt-bound authority. They
 preserve idempotent registration, revision CAS and the fixed query retention
 boundary for tests. The Oxia validation adapter now requires an exact
-`CurrentControlOperationV1` (identity, revision, state, targets and typed
+`CurrentControlOperation` (identity, revision, state, targets and typed
 result) for `advance` after response loss; a later or different CURRENT is not
 accepted as proof of that CAS. It also rejects receipt-identity drift and
 non-consecutive register/advance revisions before invoking the backend. The
@@ -5350,7 +5350,7 @@ the source barrier has advanced, and the applied-receipt path rejects it;
 covers both paths. This is the local physical-locator fence, not production
 gateway authorization, Oxia routing, or broker evidence.
 
-`CommandQueuedReceiptV1` now also binds the `PreparedCommandRef` shard to the
+`CanonicalCommandQueuedReceipt` now also binds the `PreparedCommandRef` shard to the
 receipt Source Position shard in its shared constructor, so both local creation
 and canonical decode reject a command-from-A/source-from-B receipt. The
 regression is covered by
@@ -5358,7 +5358,7 @@ regression is covered by
 this closes the receipt's self-routing identity before any barrier/query path.
 
 The local Admission increment now decodes the closed 17-dimensional
-`ChargeVectorV1` and persists the non-borrowable outcome reserve usage in the
+`ChargeVector` and persists the non-borrowable outcome reserve usage in the
 shard DB. Admission, its `PUBLISHING` ledger and the reserve projection share
 one WriteBatch; when the configured records/bytes cap cannot fit the charge,
 the source position advances with `ADMISSION_CAPACITY_GATED` and any
@@ -5370,8 +5370,8 @@ aggregate is backfilled in memory; the Registry class-2 aggregate vector and
 class-3 per-Lane map are written together on the next source-ordered mutation,
 while the old class-1/class-2 scalar projections are migration-only. The closed
 protocol codec for the 66-dimensional
-`CapacityVectorV1`, `CapacityGrantV1`, `QuotaGrantRefV1` and
-`ShardCapacityEnvelopeV1` is also covered by canonical round-trip and
+`CapacityVector`, `CapacityGrant`, `QuotaGrantRef` and
+`ShardCapacityEnvelope` is also covered by canonical round-trip and
 rejection tests, including component-grant projection and checked sums. This
 is still only the local envelope/projection boundary: when an immutable
 envelope is supplied at `DelayShard` activation, its outcome grant identity
@@ -5390,7 +5390,7 @@ record/ValueEnvelope byte budget, so an exporter can retry unchanged
 bytes without accepting a mis-keyed observation or deleting a newer one. The
 identity fence is covered by `SloObservationOutboxStoreTest`. Final merge now also
 revalidates the closed objective branch's required unit and direction before a
-durable replacement; `SloObservationOutboxV1Test.rejectsFinalUnitAndMergeDirectionThatDisagreeWithObjective`
+durable replacement; `SloObservationOutboxTest.rejectsFinalUnitAndMergeDirectionThatDisagreeWithObjective`
 covers the semantic fence.
 The durable store entry point now requires an explicit paired HEALTHY objective
 when an ALL_ACCEPTED due Final carries an exclusion; the direction-only entry
@@ -5417,11 +5417,11 @@ command/system or different-mutation collisions remain fail-closed.
 `DelayShardTest.timeFenceMonotonicallyClosesIngressWithoutOverwritingCommandIdentity`
 and the source-ordered System Mutation dedupe tests cover the boundary.
 Equal-severity Finals now select the newest observation revision's evidence as
-well as the conservative measurement; `SloObservationOutboxV1Test.mergeUsesNewestEvidenceWhenOutcomeSeverityIsEqual`
+well as the conservative measurement; `SloObservationOutboxTest.mergeUsesNewestEvidenceWhenOutcomeSeverityIsEqual`
 covers that replay boundary. This is
 still local evidence only. Repeated due Finals with two different non-null
 mutually-exclusive exclusion reasons now fail closed instead of silently keeping
-the older reason; `SloObservationOutboxV1Test.mergeRejectsConflictingDueExclusionReasons`
+the older reason; `SloObservationOutboxTest.mergeRejectsConflictingDueExclusionReasons`
 covers that integrity boundary. Multi-shard placement/Oxia authority,
 production non-outcome/recovery/emergency/source-writer reserve authority,
 transfer protocol, SLO
@@ -5429,7 +5429,7 @@ identity-specific reconstruction/collector export and full GC accounting
 remain release blockers. Activation now also scans reserve classes 3–6 and
 rejects stale, over-capacity or cross-dimension non-outcome/recovery/emergency
 projections instead of silently ignoring them. The local class-6 projection is
-now implemented as a canonical `CapacityVectorV1` keyed by the
+now implemented as a canonical `CapacityVector` keyed by the
 `NON_OUTCOME_CONTROL` grant ID: only dimensions 51–53 are accepted, class 3
 cannot consume those dimensions, and their combined usage is checked against
 the immutable grant. `DelayShard.systemWriterReserveUsage`,
@@ -5446,24 +5446,24 @@ frame. This is a local conformance
 bridge only: it is not production receipt routing, tenant authorization,
 Oxia ownership lookup, or a real Broker adapter.
 
-The bounded `RESOURCE_RETIRE_INTENT_V1` increment now validates the closed
-`ExactResourceIdentityV1` branches and canonical `ProtectionSetV1`, checks the
+The bounded `RESOURCE_RETIRE_INTENT` increment now validates the closed
+`ExactResourceIdentity` branches and canonical `ProtectionSet`, checks the
 registered retire logical identity, and atomically persists an immutable
 `gc_cf` intent with its applied shard mutation sequence and source position.
 The expected resource-state version now remains a raw unsigned `uint64` from
 canonical body decoding through logical identity, GC locator, durable record,
 lookup and local compaction APIs; this does not relax the separate bounded
 mutation-sequence counter. It deliberately does not perform an external
-delete, apply `RESOURCE_DELETE_CONFIRMED_V1`, or infer Recovery Floor release.
+delete, apply `RESOURCE_DELETE_CONFIRMED`, or infer Recovery Floor release.
 The local same-key Lane terminal-guard replacement is implemented as the package-local
 `DelayShard.retireLaneWithTerminalGuard` algorithm/test seam; external deletion/confirmation,
 Oxia grant release and Recovery-Floor authority remain release blockers.
-Protection-set `ProtectionRefV1.protection_generation` now follows the same
+Protection-set `ProtectionRef.protection_generation` now follows the same
 full-width rule through nested canonical bytes and the `gc_cf/PROTECTION` key;
 high-bit protection references are covered by `ResourceRetireIntentBodyTest`
 and `KeyCodecTest`. External protection authority and guarded GC release
 remain outside this local key/value boundary.
-The closed `ExactResourceIdentityV1` parser now keeps immutable `ProfileRefV1`
+The closed `ExactResourceIdentity` parser now keeps immutable `ProfileRef`
 versions and Kafka receipt-slot/Pulsar journal external generations as raw
 nonzero `uint64` values; its nested Pulsar Broker identity validator likewise
 does not reject a high-bit physical-topic creation timestamp. These values are
@@ -5472,9 +5472,9 @@ identity inputs, not local counters, and high-bit coverage is included in
 by the local object/manifest admission envelope.
 All seven Registry retirement branches now have typed protocol values with
 canonical construction, decode and ExactResourceIdentity wrappers:
-`PayloadObjectResourceV1`, `CheckpointResourceV1`, `DlqExportResourceV1`,
-`KafkaReceiptSlotResourceV1`, `PulsarJournalGenerationResourceV1`,
-`LaneChannelResourceV1` and `LocalStoreResourceV1`. `ExternalResourceBranchTest`
+`PayloadObjectResource`, `CheckpointResource`, `DlqExportResource`,
+`KafkaReceiptSlotResource`, `PulsarJournalGenerationResource`,
+`LaneChannelResource` and `LocalStoreResource`. `ExternalResourceBranchTest`
 covers payload optional-etag handling, typed Broker/channel/shard identities,
 raw unsigned Kafka/Pulsar fields and branch rejection, while
 `KafkaReceiptResource.protocolResource()` exposes the slot geometry through the
@@ -5491,7 +5491,7 @@ cannot reject a Profile version that the standalone Registry codec accepts.
 `PublishAdmissionBodyTest.preservesUnsignedProfileReferenceVersionsAcrossAdmissionMaterialization`
 covers both descriptor and ClaimMaterialization projections.
 
-The bounded `RESOURCE_DELETE_CONFIRMED_V1` increment now validates the exact
+The bounded `RESOURCE_DELETE_CONFIRMED` increment now validates the exact
 Retire Intent reference, delete outcome, provider evidence and Trusted-UTC
 interval, then source-orders a local `gc_cf/TASK` tombstone that retains the
 full intent and confirmation evidence. It does not claim that the provider
@@ -5513,7 +5513,7 @@ covers the forwarding and incomplete/wrong-shard fences.
 catalog-backed variant. The latter requires exact parent-hash ancestry from a
 published candidate through the current local Recovery Floor, in addition to
 the applied mutation sequence and Source Position checks. For `CHECKPOINT`
-resources it also rereads the active `RecoveryPinV1`: a pin protecting either
+resources it also rereads the active `RecoveryPin`: a pin protecting either
 the candidate checkpoint or the observed Floor returns
 `RECOVERY_PIN_PROTECTS_RESOURCE`, and an unavailable pin read returns
 `RECOVERY_PIN_STATE_UNAVAILABLE`. `DelayShard` can compact the local
@@ -5576,56 +5576,56 @@ checkpoint publication or release readiness.
 
 | Area | Status | Evidence |
 |---|---|---|
-| Shared Semantic Core and signed immutable RouteSnapshot | Partial (local deterministic core plus Oxia event/head-CAS authority composition; bounded Kafka and Pulsar activation/failover proofs added; production gates open) | `RouteSnapshotV1`, `DefaultDelaySemanticCore`, `InMemorySignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotPublisher`, `RouteSnapshotCompatibilityV1`, `DefaultDelayClient`, `RouteBoundSubmissionTransportPlanResolver`, `RouteSnapshotV1Test`, `DefaultDelaySemanticCoreTest`, `InMemorySignedRouteSnapshotProviderTest`, `OxiaSignedRouteSnapshotProviderTest`, `OxiaRealRouteAuthoritySmokeTest`, `KafkaClientArtifactRouteWorkerSmoke`, `PulsarClientArtifactRouteWorkerSmoke`; canonical signature/digest, contiguous replay, head CAS, notification refresh with an isolated watch client, same-incarnation immutable-drift quarantine, tenant-scoped historical resolution, explicit-refresh real Oxia publication and zero-I/O preparation are covered. Bounded real Kafka Fetch v13/LSO and Pulsar guarded SUBSCRIBE/position proofs now feed signed Route barriers, real Oxia Route publication and route-bound Worker assignment; Kafka and Pulsar now add bounded multi-Broker Worker failover, and Gateway adds a real multi-node Oxia DataServer leader-stop reread. Kafka additionally proves bounded Worker Store apply, source ACK, final local checkpoint and owner/assignment release. A bounded Oxia restart/session-rotation reset now reopens the provider notification client and resumes the next signed revision; native eligibility authority, catalog-driven multi-shard placement, package split and production cross-entry gate remain open |
-| Delay Gateway and Gateway idempotency | Partial (generated handlers, strict RS256+mTLS authority, durable Oxia admission/idempotency/audit compositions, real network plus server-restart revalidation, bounded certificate replacement, two-server CAS race, session-churn fail-closed/recomposition, multi-node Oxia DataServer failover and controlled response-loss rereads; live/HA authority still open) | `GatewayScheduleRequestV1`, `GatewayRetryUncertainRequestV1`, `GatewayAdmissionRecordV1`, `GatewayAdmissionController`, `OxiaGatewayAdmissionController`, `GatewayIdempotencyStore`, `GatewayIdempotencyHashV1`, `GatewayIdempotencyRecordV1`, `GatewayPhysicalAttemptV1`, `InMemoryGatewayAdmissionController`, `InMemoryGatewayIdempotencyStore`, `OxiaGatewayIdempotencyStore`, `OxiaGatewayAuditSink`, `SessionBoundOxiaGatewayRecordClient`, `OxiaGatewaySessionUnavailableException`, `GatewayScheduleService`, `GatewayGrpcService`, `GatewayGrpcContext`, `GatewayGrpcServer`, `MutualTlsJwtGatewayTenantAuthority`, `RsaSha256GatewayJwtVerifier`, source proto, `GatewayScheduleServiceTest`, `GatewaySecurityCompositionTest`, `RsaSha256GatewayJwtVerifierTest`, `OxiaGatewayAdmissionControllerTest`, `OxiaRealGatewayAdmissionSmokeTest`, `OxiaGatewayIdempotencyStoreTest`, `OxiaGatewayAuditSinkTest`, `OxiaRealGatewayAuditSinkSmokeTest` and `OxiaRealGatewayGrpcSmokeTest`; exact body conflict, prepared-before-ownership, one-shot attempt, strict record decoding, separate durable admission pools with expiring lease CAS, trusted expiry reclaim, uncertain expected-prior/retry-ID CAS, response-loss exact rereads, generated eleven-RPC surface, mandatory mTLS server composition, RS256 signature/issuer/audience/time policy, mTLS `cnf.x5t#S256` binding, immutable digest-only audit persistence, live Oxia admission/audit readback, server restart with exact outcome reread, independent-client two-server CAS convergence, changed server/client certificate deployment with old-client rejection and new JWT certificate confirmation, session-marker checks before/after Gateway durable I/O with fail-closed `UNAVAILABLE`, controlled new-session recomposition on the same durable prefix, multi-node Oxia DataServer leader-stop recovery, committed STARTED/RETRY_UNCERTAIN response-loss rereads, and the checked-in `e2e/run-gateway-real-e2e.sh` network path are covered. Hot certificate reload/rollback, transparent automatic session reconnect, admission HA, quota-rate/load proof, multi-process HA/transactional idempotency, late authenticated evidence promotion, crash cuts and multi-language vectors remain open |
-| Kafka generic guarded Producer patch | Implemented in isolated upstream worktree plus opt-in Delay K1/K2 binding (bounded K2 gate open) | Kafka branch `nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9` from locked `trunk@c300006a7705c240642db6950b5a95fec982bfc5`; focused K1/K2 client tests, guarded Fetch/source evidence, real KRaft delete/recreate/leader-failover, transaction-v2 guarded send, Delay source-set compile, three-broker K1/K2 Docker E2E and a real committed EndTxn response-loss receipt. Client SHA-256 and broker image ID are recorded above; raw network/process response-loss, LSO/retention, source assignment authority and release gates remain open |
+| Shared Semantic Core and signed immutable RouteSnapshot | Partial (local deterministic core plus Oxia event/head-CAS authority composition; bounded Kafka and Pulsar activation/failover proofs added; production gates open) | `RouteSnapshot`, `DefaultDelaySemanticCore`, `InMemorySignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotProvider`, `OxiaSignedRouteSnapshotPublisher`, `RouteSnapshotCompatibility`, `DefaultDelayClient`, `RouteBoundSubmissionTransportPlanResolver`, `RouteSnapshotTest`, `DefaultDelaySemanticCoreTest`, `InMemorySignedRouteSnapshotProviderTest`, `OxiaSignedRouteSnapshotProviderTest`, `OxiaRealRouteAuthoritySmokeTest`, `KafkaClientArtifactRouteWorkerSmoke`, `PulsarClientArtifactRouteWorkerSmoke`; canonical signature/digest, contiguous replay, head CAS, notification refresh with an isolated watch client, same-incarnation immutable-drift quarantine, tenant-scoped historical resolution, explicit-refresh real Oxia publication and zero-I/O preparation are covered. Bounded real Kafka Fetch v13/LSO and Pulsar guarded SUBSCRIBE/position proofs now feed signed Route barriers, real Oxia Route publication and route-bound Worker assignment; Kafka and Pulsar now add bounded multi-Broker Worker failover, and Gateway adds a real multi-node Oxia DataServer leader-stop reread. Kafka additionally proves bounded Worker Store apply, source ACK, final local checkpoint and owner/assignment release. A bounded Oxia restart/session-rotation reset now reopens the provider notification client and resumes the next signed revision; native eligibility authority, catalog-driven multi-shard placement, package split and production cross-entry gate remain open |
+| Delay Gateway and Gateway idempotency | Partial (generated handlers, strict RS256+mTLS authority, durable Oxia admission/idempotency/audit compositions, real network plus server-restart revalidation, bounded certificate replacement, two-server CAS race, session-churn fail-closed/recomposition, multi-node Oxia DataServer failover and controlled response-loss rereads; live/HA authority still open) | `GatewayScheduleRequest`, `GatewayRetryUncertainRequest`, `GatewayAdmissionRecord`, `GatewayAdmissionController`, `OxiaGatewayAdmissionController`, `GatewayIdempotencyStore`, `GatewayIdempotencyHash`, `GatewayIdempotencyRecord`, `GatewayPhysicalAttempt`, `InMemoryGatewayAdmissionController`, `InMemoryGatewayIdempotencyStore`, `OxiaGatewayIdempotencyStore`, `OxiaGatewayAuditSink`, `SessionBoundOxiaGatewayRecordClient`, `OxiaGatewaySessionUnavailableException`, `GatewayScheduleService`, `GatewayGrpcService`, `GatewayGrpcContext`, `GatewayGrpcServer`, `MutualTlsJwtGatewayTenantAuthority`, `RsaSha256GatewayJwtVerifier`, source proto, `GatewayScheduleServiceTest`, `GatewaySecurityCompositionTest`, `RsaSha256GatewayJwtVerifierTest`, `OxiaGatewayAdmissionControllerTest`, `OxiaRealGatewayAdmissionSmokeTest`, `OxiaGatewayIdempotencyStoreTest`, `OxiaGatewayAuditSinkTest`, `OxiaRealGatewayAuditSinkSmokeTest` and `OxiaRealGatewayGrpcSmokeTest`; exact body conflict, prepared-before-ownership, one-shot attempt, strict record decoding, separate durable admission pools with expiring lease CAS, trusted expiry reclaim, uncertain expected-prior/retry-ID CAS, response-loss exact rereads, generated eleven-RPC surface, mandatory mTLS server composition, RS256 signature/issuer/audience/time policy, mTLS `cnf.x5t#S256` binding, immutable digest-only audit persistence, live Oxia admission/audit readback, server restart with exact outcome reread, independent-client two-server CAS convergence, changed server/client certificate deployment with old-client rejection and new JWT certificate confirmation, session-marker checks before/after Gateway durable I/O with fail-closed `UNAVAILABLE`, controlled new-session recomposition on the same durable prefix, multi-node Oxia DataServer leader-stop recovery, committed STARTED/RETRY_UNCERTAIN response-loss rereads, and the checked-in `e2e/run-gateway-real-e2e.sh` network path are covered. Hot certificate reload/rollback, transparent automatic session reconnect, admission HA, quota-rate/load proof, multi-process HA/transactional idempotency, late authenticated evidence promotion, crash cuts and multi-language vectors remain open |
+| Kafka generic guarded Producer patch | Implemented in isolated upstream worktree plus opt-in Delay K1/K2 binding (bounded K2 gate open) | Kafka branch `nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9` from locked `trunk@c300006a7705c240642db6950b5a95fec982bfc5`; focused K1/K2 client tests, guarded Fetch/source evidence, real KRaft delete/recreate/leader-failover, transaction-v2 guarded send, Delay source-set compile, three-broker K1/K2 Docker E2E and a real committed EndTxn response-loss receipt. Client SHA-256 and broker image ID are recorded above; raw network/process response-loss, LSO/retention, source assignment authority and release gates remain open |
 | Kafka guarded Consumer/source/Worker vertical | Implemented (opt-in real Kafka plus route-bound Worker vertical; production authority pending) | `ConsumerResourceGuard`, `GuardedFetchEvidence`, `KafkaClientArtifactSourceConsumerFactory`, `KafkaClientArtifactRecoverySourceCursor`, `KafkaClientArtifactWorkerSourceFactory`, `KafkaClientArtifactWorkerSmoke`, `OwnerRecoveryCoordinator`, `WorkerShardRuntime`; guarded Fetch v13 evidence is validated before recovery or active source exposure, recovery applies offset 0 before activation, active offset 1 reaches RocksDB before `commitSync`, exact group offset is checked and drain releases the lease. The current locked Docker evidence additionally covers real Oxia session-bound assignment publication/acceptance, accepted-Route broker-survivor failover, source-applied physical Publish with typed KAFKA_TRANSACTIONAL_RECEIPT evidence, source ACK response-loss retry, destination response-loss resolution from read_committed evidence, controlled source Fetch response-loss replay with an LSO covering the fetched records, real retention-floor rejection/readability, and an isolated same-group JVM process-crash replay/commit cut. Production placement/eligibility authority, raw network/proxy/socket loss, consumer-coordinator/Broker crash cuts, multi-shard recovery, Object Store checkpoint publication and release gates remain open |
-| Pulsar v22 first-class resource guard | Implemented in isolated upstream worktree plus opt-in Delay P1 binding (bounded multi-Broker Worker failover; D3/open broker cuts) | Pulsar branch `nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7` from locked `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`; focused common/broker, real in-process guarded SEND plus delete/recreate, guarded SUBSCRIBE with attestation/connection generation, real P1 two-Broker Worker failover, source ACK response-loss retry, destination SEND response-loss typed evidence, affected-module checkstyle and Delay source-set compile. Artifact SHA-256 values are recorded above; raw network/proxy/session cuts, rewind, full D3 transport and production authority remain open |
+| Pulsar v22 first-class resource guard | Implemented in isolated upstream worktree plus opt-in Delay P1 binding (bounded multi-Broker Worker failover; D3/open broker cuts) | Pulsar branch `nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7` from locked `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`; focused common/broker, real in-process guarded SEND plus delete/recreate, guarded SUBSCRIBE with attestation/connection generation, real P1 two-Broker Worker failover, source ACK response-loss retry, destination SEND response-loss typed evidence, affected-module checkstyle and Delay source-set compile. Artifact SHA-256 values are recorded above; raw network/proxy/session cuts, rewind, full D3 transport and production authority remain open |
 | Queued receipt Route-policy boundary | Implemented (local strict adapter seam; Route authority pending) | `QueuedReceiptQueryPolicy`, `PolicyBoundWireCommandIngressAdapter`, `PinnedKafkaCommandIngress`, `PinnedPulsarCommandIngress`, `PreparedSubmissionAdapter`, `EmbeddedDelayService`, `AdapterIngressTest`, `NativeSubmissionAdapterTest`; strict paths derive `receipt_query_until` from authenticated Broker persistence time with checked addition, reject missing/drifting policy snapshots before transport ownership, and retain post-persistence overflow as `ENQUEUE_UNCERTAIN`/integrity evidence; absolute-boundary overloads are compatibility-only and checked against a bound policy; Route policy publication, source-time authority and concrete production transports remain release blockers |
 | Full command-result retention boundary | Implemented (local strict query seam; retention authority pending) | `CommandResultRetentionPolicy`, `DelayClient`, `EmbeddedDelayService`, `BoundedLocalQueryProjector`, `EmbeddedDelayServiceTest.embeddedQueryDerivesFullResultRetentionFromAppliedSourceTime`, `CommandResultRetentionPolicyTest`; strict query/await/applied-receipt projections derive `full_result_retain_until` from the applied Source Position Broker persistence time with checked addition, while absolute-boundary overloads remain compatibility-only; policy publication, source-time authority and production query routing remain release blockers |
-| Strict typed Claim runtime binding | Implemented (local Message plus durable V1 command/Lane-tuple binding and public-API fence; live authority pending) | `DelayShard.claimForPublishV1`, `DelayShard.resolveClaimMaterializationV1`, `V1ScheduleBinding.requireClaimLaneProjection`, `CanonicalLaneTupleV1`, `CanonicalLaneTupleV1Test`, `DelayShardTest.physicalGcMutationPrimitivesAreNotPublicProductionApis`, `DelayShardTest.registryPrepareCannotDowngradeTrustSetAuthorityWithLegacyCommitBody`, `ClaimMaterializationRuntimeTest`; strict Claim entrypoint binds message identity, generation, delivery window, timeline `actionAt` and inline/object payload reference before persistence, then, when a `V1ScheduleBinding` exists, exactly rebinds Destination Profile, business metadata, delivery window and the original Schedule payload branch or Prepare Object Store Profile/length/SHA-256. The public materializer derives that same projection from the accepted binding, current durable Message and canonical Lane tuple, including the committed Prepare proof identity, and the Claim executor/Worker command runtime expose a derived-materialization overload. It also parses the exact durable canonical Lane tuple and requires byte-identical Destination/Capability Profiles, Kafka/Pulsar Broker target resource and physical partition; same-hash foreign Profile identities, target or partition drift are rejected before Claim state changes. The legacy byte-array primitive is package-local and reachable across packages only from the test-classpath bridge. Live Profile/credential/resource authority, Object Store fetch, Adapter serialization/size certification, channel lease, Producer ownership, Publish materialization and crash recovery remain release blockers |
+| Strict typed Claim runtime binding | Implemented (local Message plus durable command/Lane-tuple binding and public-API fence; live authority pending) | `DelayShard.claimForPublish`, `DelayShard.resolveClaimMaterialization`, `ScheduleBinding.requireClaimLaneProjection`, `CanonicalLaneTuple`, `CanonicalLaneTupleTest`, `DelayShardTest.physicalGcMutationPrimitivesAreNotPublicProductionApis`, `DelayShardTest.registryPrepareCannotDowngradeTrustSetAuthorityWithLegacyCommitBody`, `ClaimMaterializationRuntimeTest`; strict Claim entrypoint binds message identity, generation, delivery window, timeline `actionAt` and inline/object payload reference before persistence, then, when a `ScheduleBinding` exists, exactly rebinds Destination Profile, business metadata, delivery window and the original Schedule payload branch or Prepare Object Store Profile/length/SHA-256. The public materializer derives that same projection from the accepted binding, current durable Message and canonical Lane tuple, including the committed Prepare proof identity, and the Claim executor/Worker command runtime expose a derived-materialization overload. It also parses the exact durable canonical Lane tuple and requires byte-identical Destination/Capability Profiles, Kafka/Pulsar Broker target resource and physical partition; same-hash foreign Profile identities, target or partition drift are rejected before Claim state changes. The legacy byte-array primitive is package-local and reachable across packages only from the test-classpath bridge. Live Profile/credential/resource authority, Object Store fetch, Adapter serialization/size certification, channel lease, Producer ownership, Publish materialization and crash recovery remain release blockers |
 | Large-payload production-authority vertical | Partial (two source-bound live Gateway/Oxia/Worker/MinIO destination-authority receipts for Kafka and Pulsar; bounded combined Pulsar graceful/process-crash/network-partition failover slices are covered; multi-shard, fault and release gates open) | Kafka `KafkaClientArtifactLargePayloadGatewaySmoke` plus Pulsar `PulsarClientArtifactLargePayloadGatewaySmoke`, their Gradle tasks and isolated E2E runners compose real Broker topologies, real Oxia Route/Assignment/Owner/Gateway records, mTLS/JWT Gateway RPCs, Worker Prepare/Commit apply, versioned MinIO payload upload/attestation/readback, exact Gateway idempotency and final Owner/Assignment release. The latest current-source Pulsar network-partition receipt is locked to Delay `f95c8a5468d6a1ee6df0bc1bd99000dc769d8797`, P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7`, Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, and MinIO `sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`; the source topics use one physical partition and each combined harness keeps a local final checkpoint. The source-ordered trust activation remains a real Broker record while the harness semantic trust resolver remains an exact in-memory test seam. Profile/Oxia credential-catalog authority, Kafka response-loss/LSO/retention recovery, Pulsar controller/storage failover beyond these bounded harnesses, multi-shard placement, raw crash/chaos and release gates remain open |
 | Gradle Java 21 build | Implemented | `gradle compileJava`, `gradle test` |
 | Self-routing IDs and CRC32C | Implemented | `ProtocolCodecTest` |
 | `commandId + commandHash` prepared before I/O | Implemented | `PreparedCommand`, `CommandHash`, `ProtocolCodecTest` |
 | NDL1 frame and canonical Client Command envelope | Implemented | `ShardLogFrame`, `CommandCodec`, registry frame vector test |
-| Registry-shaped `ScheduleIntentV1` | Implemented (canonical codec plus resolver/catalog-backed local apply; external authority pending) | `ScheduleIntentV1`, `ScheduleCommandBodyV1`, `CommandBodies.scheduleV1/decodeScheduleV1`, `PreparedCommand.scheduleV1`, `CommandCodec.encode/decode*V1`, `V1ScheduleResolver`, `RetryPolicyCatalog`, `V1CommandResolutionException`, `V1ScheduleBinding`, `KeyCodec.idV1ScheduleBinding`, `ProfileBindingActivatePayloadV1`, `ProfileNewBindingClosePayloadV1`, `ProfileBindingControlState`, `PayloadReference.fromDescriptor`, `DelayShard`, `ScheduleIntentV1Test`, `ClientCommandBodyV1Test`, `PreparedCommandV1Test`, `V1ScheduleBindingTest`, `ProfileBindingControlStateTest`, `PayloadReferenceTest`, `DelayShardTest`; exact field order/oneof/presence, common fields 1–3, outer/body message identity/type/retry binding, tuple-derived Lane, resolver-required fail-closed route snapshot, source-position Retry Policy semantic ref/hash lookup and ordering guard, inline/object payload projection including absent optional etag, source-ordered Profile first-binding activation/close gating, canonical body/tuple binding persistence and reopen checks are covered; immutable Profile/Retry publication/catalog authority, signed control target authority, full historical binding and production adapter authority remain pending |
-| Registry-shaped `PrepareLargeScheduleV1` | Implemented (canonical codec plus resolver/catalog-backed reservation apply; external authority pending) | `PrepareLargeScheduleBodyV1`, `CommandBodies.prepareLargeV1/decodePrepareLargeV1`, `V1ScheduleResolver`, `RetryPolicyCatalog`, `V1ScheduleBinding`, `ProfileBindingActivatePayloadV1`, `ProfileNewBindingClosePayloadV1`, `ProfileBindingControlState`, `DelayShard`, `InMemoryPayloadObjectStore`, `EmbeddedDelayService`, `ClientCommandBodyV1Test`, `V1ScheduleBindingTest`, `ProfileBindingControlStateTest`, `InMemoryPayloadObjectStoreTest.registryRegistrationRequiresTheExactPinnedTrustSetSemantic`, `EmbeddedDelayServiceTest.payloadFacadeRejectsAdapterSemanticDriftFromDurableV1PrepareBinding`, `DelayShardTest`; common fields 1–3, intent-without-payload, expected length/SHA-256, reservation TTL, exact trust-set ref and required field 15 exact `OBJECT_STORE ProfileRefV1`, resolver-derived Lane, exact Object Store semantic/current credential Head, source-position Retry Policy semantic lookup/ordering guard, source-ordered Profile first-binding gate and atomic binding sidecar persistence are covered; the durable binding selects both Commit verification and handle/attestation adapter Profile/trust semantics regardless of a later body or adapter configuration; immutable Profile/Retry/trust-set publication/catalog authority and production Object Store authority remain pending |
-| Registry-shaped `CommitLargeScheduleV1` | Implemented (canonical body plus typed proof/outer-identity apply; external authority pending) | `PayloadCommitProofView`, `PayloadCommitProofV1`, `CommitLargeScheduleBodyV1`, `CommandBodies.commitLargeV1/decodeCommitLargeV1`, `PreparedCommand.commitLargeV1`, `CommandCodec.encode/decode*V1`, `PayloadReference`, `PayloadProofTrustSet`, `DelayShard`, `InMemoryPayloadObjectStore`, `CommitLargeScheduleBodyV1Test`, `PayloadReferenceTest`, `PayloadProofTrustSetSemanticV1Test`, `InMemoryPayloadObjectStoreTest`, `DelayShardTest.registryPrepareCannotDowngradeTrustSetAuthorityWithLegacyCommitBody`; common fields 1–3, reservation identity, typed Object Store Profile/tenant scope, optional etag presence, proof-id/signature digests, strict canonical field order, outer/body identity fencing, local exact-reservation handle issuance/upload/attestation, bounded handle expiry/re-sign and trust-set verification, durable Prepare receipt-anchor reconstruction across reopen, V1-Prepare/legacy-Commit trust downgrade rejection, typed full-Profile/legacy semantic-hash matching, committed ReservationId/ProofId retention, pre-`ALREADY_COMMITTED` Profile fencing, exact historical-proof/signature verification after issuer close, and malformed-signature stable rejection are covered; source-position trust-set publication authority and real Object Store credential/provider ownership remain pending |
-| Registry-shaped `CancelV1` / `RescheduleV1` | Implemented (canonical body/outer identity plus local runtime application) | `MessagePreconditionV1`, `CancelCommandBodyV1`, `RescheduleCommandBodyV1`, `CommandBodies.cancelV1/decodeCancelV1`, `CommandBodies.rescheduleV1/decodeRescheduleV1`, `PreparedCommand.cancelV1/rescheduleV1`, `CommandCodec.encode/decode*V1`, `DelayShard`, `RemainingClientCommandBodyV1Test`, `RemainingPreparedCommandV1Test`, `DelayShardTest`; independently present generation/state-version preconditions are checked against current messages/reservations and persisted through the same atomic cancellation/reschedule transition, with common fields 1–3, outer/body identity/type/retry binding, canonical timing and strict field order covered |
-| Registry-shaped `RetryPolicySemanticV1` | Implemented (canonical value/hash codec, source-position catalog gate and catalog-backed business/DLQ retry revalidation) | `RetryPolicySemanticV1`, `RetryPolicyRefV1`, `RetryJitterV1`, `PublishOutcomeBody`, `DlqExportResultBody`, `PublishAttemptLedger`, `RetryPolicyCatalog`, `InMemoryRetryPolicyCatalog`, `UncertainPolicyV1`, `DlqExportModeV1`, `RetryPolicySemanticV1Test`, `PolicyCatalogTest`, `PublishOutcomeBodyTest`, `DlqExportResultBodyTest`, `PublishAttemptLedgerTest`, `DlqExportApplyTest.catalogBackedDlqOutcomeRecomputesPinnedPolicyBeforePersisting`, `DelayShardTest`; fields 1/4–18, domain-separated semantic hash, typed ref projection, checked exponential cap and Registry jitter scaling, uncertain/DLQ presence rules, FIFO possible-duplicate guard, exact catalog ref/hash matching, source publication visibility fences, V2 Admission-ledger retry-window persistence, canonical V2 ledger/body/Lane identity revalidation at the embedded admission boundary, catalog-less typed-window validation, canonical Admission first-attempt extraction, source-ordered business Outcome/Evidence retry ref/deadline/jitter revalidation, and catalog-backed DLQ policy ref/terminalization-time/deadline/attempt-budget/duplicate/jitter revalidation are covered; legacy opaque-ledger upgrade, authenticated activation authority and durable historical retention remain pending |
-| Registry §6.3 Profile control requests | Implemented (canonical request values; authority pending) | `PublishDestinationProfileRequestV1`, `DeprecateDestinationProfileRequestV1`, `RotateEquivalentSecretRequestV1`, `ProfileControlRequestV1Test`; exact Profile envelope/binding identity, generation-1 publication, typed deprecation reason, checked equivalent-generation successor, private-reference SHA-256, attestation candidate tuple, expected binding digest/head revision and derived new binding are covered; authenticated actor/target authorization, source-ordered mutation routing, immutable catalog publication and Oxia CAS remain release blockers |
-| Local immutable Profile/binding catalog seam | Implemented (exact local projection and resolver/catalog identity graph; authority pending) | `ProfileCatalog`, `InMemoryProfileCatalog`, `ProfileCatalogV1ScheduleResolver`, `ProfileCatalogTest`, `ProfileCatalogV1ScheduleResolverTest`, `DelayShardTest.catalogBackedRegistryScheduleRejectsBeforeFirstProfileActivationMarker`, `DelayShardTest.catalogBackedActionAtDerivationFailsClosedWhenPinnedProfileDisappears`, `DelayShardTest.decoratedScheduleResolverRequiresTheExactShardProfileCatalog`; exact Profile semantic reference lookup, generation-1 binding/head/protection creation, checked equivalent rotation with response-loss idempotency, immutable generation retention, deprecation intent, semantic-reference collision rejection, fail-closed Schedule/Prepare resolver gating, the initial-marker gate for catalog-backed V1 paths and the persisted-binding actionAt lookup fence are covered; a pre-decorated resolver must be paired with its exact same shard catalog and nested/foreign/missing catalog composition fails before Store reads, so Schedule timing and later Admission/recovery lookups cannot use two independently mutable semantic sources; authenticated Profile publication, source-ordered activation routing/target authority, retained-generation quota and Oxia CAS remain external |
-| Local Control Operation state projection guard | Implemented (crash-durable local authority; per-operation Oxia CAS backends with session-bound I/O constructors; source-ordered authority pending) | `ControlOperationStateTransitionV1`, `InMemoryControlOperationAuthority`, `PersistentControlOperationAuthority`, `OxiaSyncControlOperationBackend`, `OxiaSyncControlTargetRegistrationBackend`, `ControlOperationAuthorityTest`, `PersistentControlOperationAuthorityTest`, `OxiaSyncControlOperationBackendTest`, `OxiaSyncControlTargetRegistrationBackendTest`; closed operation and target-marker transition graph, immutable target-index set and target-revision monotonicity are enforced before local/CAS writes, the revision successor check rejects `Long.MAX_VALUE` before wraparound, the persistent authority stores the exact receipt/current pair with checksum, atomic replacement, directory fsync and cross-instance local locking, and the Oxia operation/target backends store canonical records with version CAS and exact response-loss rereads; their handle-bound constructors check the connected session marker before and after every record I/O and refuse to reinterpret a committed write after session loss; source-ordered mutation application, production routing/authorization, cross-record target/state transactionality, automatic session recovery and authenticated Oxia service evidence remain release blockers |
-| Control Operation initial projection and uint32 target index | Implemented (local protocol projection) | `PreparedControlOperationV1.initialCurrentOperation`, `ControlTargetStateViewV1`, `ControlOperationStateTransitionV1Test`; revision-one PENDING target states cover every Prepared target and preserve the full 0..0xffffffff target-index range in canonical bytes |
-| Control registration receipt/current projection | Implemented (local value pairing; Oxia CAS pending) | `ControlRegistrationProjectionV1`, `ControlRegistrationProjectionV1Test`; receipt identity/scope/request target snapshot, revision-one binding and all-target PENDING projection are constructed and checked together; production transaction/response classification remains external |
-| Control receipt retention boundary | Implemented (strict local policy binding; policy authority pending) | `ControlOperationQueryPolicy`, `EmbeddedDelayService.registerPreparedControlOperation`, `ControlOperationReceiptV1.createWithQueryWindow`, `ControlRegistrationProjectionV1.initialWithQueryWindow`, `ControlOperationQueryPolicyTest`, `EmbeddedDelayServiceTest.strictPreparedControlRegistrationRejectsPolicyDriftAndOverflowBeforeRegistration`, `ControlRegistrationProjectionV1Test`; strict registration binds the policy version from `PreparedControlOperationV1`, derives trusted `registered_at.latest + controlOperationQueryWindow` with checked arithmetic before target registration, and rejects drift/overflow; the explicit deadline/window constructors remain compatibility-only and immutable policy distribution remains external |
+| Registry-shaped `CanonicalScheduleIntent` | Implemented (canonical codec plus resolver/catalog-backed local apply; external authority pending) | `CanonicalScheduleIntent`, `ScheduleCommandBody`, `CommandBodies.schedule/decodeSchedule`, `PreparedCommand.schedule`, `CommandCodec.encode/decode*`, `ScheduleResolver`, `RetryPolicyCatalog`, `CommandResolutionException`, `ScheduleBinding`, `KeyCodec.idScheduleBinding`, `ProfileBindingActivatePayload`, `ProfileNewBindingClosePayload`, `ProfileBindingControlState`, `PayloadReference.fromDescriptor`, `DelayShard`, `CanonicalScheduleIntentTest`, `ClientCommandBodyTest`, `PreparedCommandTest`, `ScheduleBindingTest`, `ProfileBindingControlStateTest`, `PayloadReferenceTest`, `DelayShardTest`; exact field order/oneof/presence, common fields 1–3, outer/body message identity/type/retry binding, tuple-derived Lane, resolver-required fail-closed route snapshot, source-position Retry Policy semantic ref/hash lookup and ordering guard, inline/object payload projection including absent optional etag, source-ordered Profile first-binding activation/close gating, canonical body/tuple binding persistence and reopen checks are covered; immutable Profile/Retry publication/catalog authority, signed control target authority, full historical binding and production adapter authority remain pending |
+| Registry-shaped `PrepareLargeSchedule` | Implemented (canonical codec plus resolver/catalog-backed reservation apply; external authority pending) | `PrepareLargeScheduleBody`, `CommandBodies.prepareLarge/decodePrepareLarge`, `ScheduleResolver`, `RetryPolicyCatalog`, `ScheduleBinding`, `ProfileBindingActivatePayload`, `ProfileNewBindingClosePayload`, `ProfileBindingControlState`, `DelayShard`, `InMemoryPayloadObjectStore`, `EmbeddedDelayService`, `ClientCommandBodyTest`, `ScheduleBindingTest`, `ProfileBindingControlStateTest`, `InMemoryPayloadObjectStoreTest.registryRegistrationRequiresTheExactPinnedTrustSetSemantic`, `EmbeddedDelayServiceTest.payloadFacadeRejectsAdapterSemanticDriftFromDurablePrepareBinding`, `DelayShardTest`; common fields 1–3, intent-without-payload, expected length/SHA-256, reservation TTL, exact trust-set ref and required field 15 exact `OBJECT_STORE ProfileRef`, resolver-derived Lane, exact Object Store semantic/current credential Head, source-position Retry Policy semantic lookup/ordering guard, source-ordered Profile first-binding gate and atomic binding sidecar persistence are covered; the durable binding selects both Commit verification and handle/attestation adapter Profile/trust semantics regardless of a later body or adapter configuration; immutable Profile/Retry/trust-set publication/catalog authority and production Object Store authority remain pending |
+| Registry-shaped `CommitLargeSchedule` | Implemented (canonical body plus typed proof/outer-identity apply; external authority pending) | `PayloadCommitProofView`, `CanonicalPayloadCommitProof`, `CommitLargeScheduleBody`, `CommandBodies.commitLarge/decodeCommitLarge`, `PreparedCommand.commitLarge`, `CommandCodec.encode/decode*`, `PayloadReference`, `PayloadProofTrustSet`, `DelayShard`, `InMemoryPayloadObjectStore`, `CommitLargeScheduleBodyTest`, `PayloadReferenceTest`, `PayloadProofTrustSetSemanticTest`, `InMemoryPayloadObjectStoreTest`, `DelayShardTest.registryPrepareCannotDowngradeTrustSetAuthorityWithLegacyCommitBody`; common fields 1–3, reservation identity, typed Object Store Profile/tenant scope, optional etag presence, proof-id/signature digests, strict canonical field order, outer/body identity fencing, local exact-reservation handle issuance/upload/attestation, bounded handle expiry/re-sign and trust-set verification, durable Prepare receipt-anchor reconstruction across reopen, -Prepare/legacy-Commit trust downgrade rejection, typed full-Profile/legacy semantic-hash matching, committed ReservationId/ProofId retention, pre-`ALREADY_COMMITTED` Profile fencing, exact historical-proof/signature verification after issuer close, and malformed-signature stable rejection are covered; source-position trust-set publication authority and real Object Store credential/provider ownership remain pending |
+| Registry-shaped `Cancel` / `Reschedule` | Implemented (canonical body/outer identity plus local runtime application) | `MessagePrecondition`, `CancelCommandBody`, `RescheduleCommandBody`, `CommandBodies.cancel/decodeCancel`, `CommandBodies.reschedule/decodeReschedule`, `PreparedCommand.cancel/reschedule`, `CommandCodec.encode/decode*`, `DelayShard`, `RemainingClientCommandBodyTest`, `RemainingPreparedCommandTest`, `DelayShardTest`; independently present generation/state-version preconditions are checked against current messages/reservations and persisted through the same atomic cancellation/reschedule transition, with common fields 1–3, outer/body identity/type/retry binding, canonical timing and strict field order covered |
+| Registry-shaped `RetryPolicySemantic` | Implemented (canonical value/hash codec, source-position catalog gate and catalog-backed business/DLQ retry revalidation) | `RetryPolicySemantic`, `RetryPolicyRef`, `RetryJitter`, `PublishOutcomeBody`, `DlqExportResultBody`, `PublishAttemptLedger`, `RetryPolicyCatalog`, `InMemoryRetryPolicyCatalog`, `UncertainPolicy`, `DlqExportMode`, `RetryPolicySemanticTest`, `PolicyCatalogTest`, `PublishOutcomeBodyTest`, `DlqExportResultBodyTest`, `PublishAttemptLedgerTest`, `DlqExportApplyTest.catalogBackedDlqOutcomeRecomputesPinnedPolicyBeforePersisting`, `DelayShardTest`; fields 1/4–18, domain-separated semantic hash, typed ref projection, checked exponential cap and Registry jitter scaling, uncertain/DLQ presence rules, FIFO possible-duplicate guard, exact catalog ref/hash matching, source publication visibility fences, Current Admission-ledger retry-window persistence, canonical Current ledger/body/Lane identity revalidation at the embedded admission boundary, catalog-less typed-window validation, canonical Admission first-attempt extraction, source-ordered business Outcome/Evidence retry ref/deadline/jitter revalidation, and catalog-backed DLQ policy ref/terminalization-time/deadline/attempt-budget/duplicate/jitter revalidation are covered; legacy opaque-ledger upgrade, authenticated activation authority and durable historical retention remain pending |
+| Registry §6.3 Profile control requests | Implemented (canonical request values; authority pending) | `PublishDestinationProfileRequest`, `DeprecateDestinationProfileRequest`, `RotateEquivalentSecretRequest`, `ProfileControlRequestTest`; exact Profile envelope/binding identity, generation-1 publication, typed deprecation reason, checked equivalent-generation successor, private-reference SHA-256, attestation candidate tuple, expected binding digest/head revision and derived new binding are covered; authenticated actor/target authorization, source-ordered mutation routing, immutable catalog publication and Oxia CAS remain release blockers |
+| Local immutable Profile/binding catalog seam | Implemented (exact local projection and resolver/catalog identity graph; authority pending) | `ProfileCatalog`, `InMemoryProfileCatalog`, `ProfileCatalogScheduleResolver`, `ProfileCatalogTest`, `ProfileCatalogScheduleResolverTest`, `DelayShardTest.catalogBackedRegistryScheduleRejectsBeforeFirstProfileActivationMarker`, `DelayShardTest.catalogBackedActionAtDerivationFailsClosedWhenPinnedProfileDisappears`, `DelayShardTest.decoratedScheduleResolverRequiresTheExactShardProfileCatalog`; exact Profile semantic reference lookup, generation-1 binding/head/protection creation, checked equivalent rotation with response-loss idempotency, immutable generation retention, deprecation intent, semantic-reference collision rejection, fail-closed Schedule/Prepare resolver gating, the initial-marker gate for catalog-backed paths and the persisted-binding actionAt lookup fence are covered; a pre-decorated resolver must be paired with its exact same shard catalog and nested/foreign/missing catalog composition fails before Store reads, so Schedule timing and later Admission/recovery lookups cannot use two independently mutable semantic sources; authenticated Profile publication, source-ordered activation routing/target authority, retained-generation quota and Oxia CAS remain external |
+| Local Control Operation state projection guard | Implemented (crash-durable local authority; per-operation Oxia CAS backends with session-bound I/O constructors; source-ordered authority pending) | `ControlOperationStateTransition`, `InMemoryControlOperationAuthority`, `PersistentControlOperationAuthority`, `OxiaSyncControlOperationBackend`, `OxiaSyncControlTargetRegistrationBackend`, `ControlOperationAuthorityTest`, `PersistentControlOperationAuthorityTest`, `OxiaSyncControlOperationBackendTest`, `OxiaSyncControlTargetRegistrationBackendTest`; closed operation and target-marker transition graph, immutable target-index set and target-revision monotonicity are enforced before local/CAS writes, the revision successor check rejects `Long.MAX_VALUE` before wraparound, the persistent authority stores the exact receipt/current pair with checksum, atomic replacement, directory fsync and cross-instance local locking, and the Oxia operation/target backends store canonical records with version CAS and exact response-loss rereads; their handle-bound constructors check the connected session marker before and after every record I/O and refuse to reinterpret a committed write after session loss; source-ordered mutation application, production routing/authorization, cross-record target/state transactionality, automatic session recovery and authenticated Oxia service evidence remain release blockers |
+| Control Operation initial projection and uint32 target index | Implemented (local protocol projection) | `PreparedControlOperation.initialCurrentOperation`, `ControlTargetStateView`, `ControlOperationStateTransitionTest`; revision-one PENDING target states cover every Prepared target and preserve the full 0..0xffffffff target-index range in canonical bytes |
+| Control registration receipt/current projection | Implemented (local value pairing; Oxia CAS pending) | `ControlRegistrationProjection`, `ControlRegistrationProjectionTest`; receipt identity/scope/request target snapshot, revision-one binding and all-target PENDING projection are constructed and checked together; production transaction/response classification remains external |
+| Control receipt retention boundary | Implemented (strict local policy binding; policy authority pending) | `ControlOperationQueryPolicy`, `EmbeddedDelayService.registerPreparedControlOperation`, `ControlOperationReceipt.createWithQueryWindow`, `ControlRegistrationProjection.initialWithQueryWindow`, `ControlOperationQueryPolicyTest`, `EmbeddedDelayServiceTest.strictPreparedControlRegistrationRejectsPolicyDriftAndOverflowBeforeRegistration`, `ControlRegistrationProjectionTest`; strict registration binds the policy version from `PreparedControlOperation`, derives trusted `registered_at.latest + controlOperationQueryWindow` with checked arithmetic before target registration, and rejects drift/overflow; the explicit deadline/window constructors remain compatibility-only and immutable policy distribution remains external |
 | Embedded Prepared Control registration path | Implemented (local conformance only) | `EmbeddedDelayService.registerPreparedControlOperation`, `ControlOperationQueryPolicy`, `EmbeddedDelayServiceTest`; strict policy/version binding, target registration, receipt/current pairing, registration binding and operation-authority CAS are exercised together; production authenticated gateway/Oxia transaction remains a blocker |
-| Registry §6.3 Control Operation request union | Implemented (canonical request branches; authority pending) | `ControlOperationKindV1`, `ControlOperationRequestV1`, `ControlOperationRequestBranchV1`, `StopNewSchedulesRequestV1`, `LaneGateRequestV1`, `CloseLaneRequestV1`, `BreakOrderingRequestV1`, `DrainShardRequestV1`, `FenceShardRequestV1`, `ForceCheckpointRequestV1`, `GetCheckpointCatalogRequestV1`, `ReplayDeadLetterRequestV1`, `ResolveUncertainRequestV1`, `PublishQuotaGrantRequestV1`, existing Profile request branches, `ControlOperationRequestV1Test`, `ControlRequestSupportCodecTest`; all fifteen outer tags, exact branch field order, empty catalog branch, acknowledgement/evidence/boolean matrices, fixed hash/scope fields, retry timing and quota-plan identity/version/hash canonical round-trips/rejection vectors are covered; authenticated actor/resource authority, source-ordered registration, operation state and Oxia CAS remain release blockers |
-| Registry §6.3 Control target value layer | Implemented (canonical target branches; preparation matrix, local mutation binding and local immutable registration seam enforced) | `ControlTargetKindV1`, `ControlTargetRefV1`, `LaneControlTargetV1`, `ControlMessageTargetV1`, `ProfileControlTargetV1`, `ControlTargetRefV1Test`, `PreparedControlOperationV1`, `ControlTargetMutationBindingV1`, `ControlTargetRegistrationAuthority`, `InMemoryControlTargetRegistrationAuthority`; all six target branches, Profile rotation all-or-none precondition tuple, optional expected System Mutation ID/hash pair, branch-kind matching, target digest, operation-specific target counts/kinds, prepared-target membership, ControlRef/logical identity, mutation ID/hash, target Shard/Message, Replay/Resolve body and Lane marker matching, canonical tamper rejection, and exact-byte idempotent Prepared registration are covered; source-mutation construction, actor/resource authorization, authenticated target existence and Oxia CAS remain release blockers |
+| Registry §6.3 Control Operation request union | Implemented (canonical request branches; authority pending) | `ControlOperationKind`, `ControlOperationRequest`, `ControlOperationRequestBranch`, `StopNewSchedulesRequest`, `LaneGateRequest`, `CloseLaneRequest`, `BreakOrderingRequest`, `DrainShardRequest`, `FenceShardRequest`, `ForceCheckpointRequest`, `GetCheckpointCatalogRequest`, `ReplayDeadLetterRequest`, `ResolveUncertainRequest`, `PublishQuotaGrantRequest`, existing Profile request branches, `ControlOperationRequestTest`, `ControlRequestSupportCodecTest`; all fifteen outer tags, exact branch field order, empty catalog branch, acknowledgement/evidence/boolean matrices, fixed hash/scope fields, retry timing and quota-plan identity/version/hash canonical round-trips/rejection vectors are covered; authenticated actor/resource authority, source-ordered registration, operation state and Oxia CAS remain release blockers |
+| Registry §6.3 Control target value layer | Implemented (canonical target branches; preparation matrix, local mutation binding and local immutable registration seam enforced) | `ControlTargetKind`, `ControlTargetRef`, `LaneControlTarget`, `ControlMessageTarget`, `ProfileControlTarget`, `ControlTargetRefTest`, `PreparedControlOperation`, `ControlTargetMutationBinding`, `ControlTargetRegistrationAuthority`, `InMemoryControlTargetRegistrationAuthority`; all six target branches, Profile rotation all-or-none precondition tuple, optional expected System Mutation ID/hash pair, branch-kind matching, target digest, operation-specific target counts/kinds, prepared-target membership, ControlRef/logical identity, mutation ID/hash, target Shard/Message, Replay/Resolve body and Lane marker matching, canonical tamper rejection, and exact-byte idempotent Prepared registration are covered; source-mutation construction, actor/resource authorization, authenticated target existence and Oxia CAS remain release blockers |
 | Oxia Control target registration validation adapter | Implemented (per-operation canonical Oxia record plus exact reread validation; authorization/transport pending) | `OxiaControlTargetRegistrationAuthority`, `OxiaSyncControlTargetRegistrationBackend`, `OxiaControlTargetRegistrationAuthorityTest`, `OxiaSyncControlTargetRegistrationBackendTest`; backend registration outcome, exact Prepared reread, operation-ID lookup identity and mutation binding are checked, and the concrete backend uses one `IfRecordDoesNotExist` CAS record with corruption/response-loss fencing; authenticated actor/target authorization, source-ordered mutation transaction, target existence and real transport remain release blockers |
 | DelayShard Control marker registration gate | Implemented (configured local authority; Oxia transaction pending) | `DelayShard` eight-argument constructor, `ControlTargetRegistrationAuthority`, `DelayShardTest.configuredControlRegistrationRejectsUnregisteredMarkerBeforeHandler`, `DelayShardTest.configuredControlRegistrationAppliesExactRegisteredMarker`; configured shards extract the body `ControlRef`, require the exact registered Prepared target and validate mutation identity before applying the three source-ordered Control marker types; missing, malformed or drifting registration is persisted as `UNAUTHORIZED_SYSTEM_MUTATION` with no handler effect, while an exact registered target reaches the normal handler; production Oxia registration/lookup and authenticated writer authority remain release blockers |
-| Control System Mutation construction seam | Implemented (signed envelope and Prepared-target binding; body/authentication pending) | `ControlSystemMutationFactoryV1`, `ControlSystemMutationFactoryV1Test`; operation-specific mutation type, `ControlRef` logical identity, signed System Mutation envelope and expected ID/hash binding are checked before return; body encoders, signing-key trust/ACL and source Broker registration remain release blockers |
-| Registry §6.3 Prepared Control Operation envelope | Implemented (canonical pre-I/O envelope, target matrix, mutation binding and local RBAC gate; registration authority pending) | `ControlAuthorV1`, `ControlRoleV1`, `ControlRoleSetV1`, `ControlAuthorizationContextV1`, `ControlOperationAuthorizationV1`, `PreparedControlOperationV1`, `PreparedControlOperationV1Test`, `ControlOperationAuthorizationV1Test`, `ControlTargetMutationBindingV1`; fixed operation ID/version, request-kind binding, request hash, operation-specific target counts/kinds and request-to-target Profile/Quota identity, strictly sorted repeated targets, target-snapshot hash, query-policy/retry fields, prepared digest, Ed25519 signing/verification, completed source-mutation ControlRef/identity/body binding, actor/role/scope hash equality and minimum role matrix are covered; authenticator implementation, target existence/tenant authorization, source-mutation construction, Oxia registration outcome, non-persistence proof and durable control-operation state remain release blockers |
-| Registry §6.3 Control registration outcome union | Implemented (canonical outcome/proof values, prepared-operation binding and local exact-Prepared target registration; Oxia transport pending) | `ControlRegistrationOutcomeV1`, `ControlNonPersistenceProofKindV1`, `ControlNonPersistenceProofV1`, `ControlDefinitelyNotRecordedV1`, `ControlRecordUncertainV1`, `ControlRegistrationOutcomeMessageV1`, `ControlRegistrationBindingV1`, `ControlTargetRegistrationAuthority`, `InMemoryControlTargetRegistrationAuthority`, `ControlRegistrationOutcomeCodecTest`, `ControlRegistrationBindingV1Test`, `ControlTargetRegistrationAuthorityTest`; proof branch evidence matrix, operation/prepared digest binding, exact receipt request/scope/target identity and initial revision, CONTROL-stage error fencing, recorded/definitive/uncertain outer tags, canonical round-trip and timeout-proof rejection vectors, and idempotent byte-identical Prepared registration are covered; authenticated Oxia transaction/response classifier, real registration transport, retry/query state and durable operation authority remain release blockers |
-| Registry-shaped `PayloadProofTrustSetSemanticV1` | Implemented (canonical verifier-key/hash codec, exact local catalog and source-ordered marker projection; authority pending) | `PayloadProofVerifierKeyV1`, `PayloadProofTrustSetSemanticV1`, `PayloadProofTrustSetRefV1`, `PayloadProofTrustSet.fromSemantic`, `PayloadProofTrustSetControlState`, `InMemoryPayloadProofTrustSetCatalog`, `PayloadProofTrustSetSemanticV1Test`, `PayloadProofTrustSetControlStateTest`, `PolicyCatalogTest`; sorted/unique Ed25519 raw keys, validity bounds, semantic hash/ref, exact local reference resolution, canonical round-trip/tamper rejection, source-time verification windows, strictly ordered activation markers, idempotent marker replay, first-seen issuance close versus historical verification, canonical marker-state encoding, and `DelayShard` atomic marker/result/source-position persistence with reopen are covered; authenticated source-ordered control authority and Recovery-Floor historical retention remain pending |
-| NDR1 receipt frame | Implemented (queued/applied/reservation/control/native receipt/prepared payload subset) | `ReceiptFrame`, `ReceiptKind`, `CommandQueuedReceiptV1`, `CommandAppliedReceiptV1`, `PayloadReservationReceiptV1`, `PayloadProofTrustSetRefV1`, `ControlOperationReceiptV1`, `PulsarBrokerResourceIdentityV1`, `NativeCapabilitySnapshotV1`, `PulsarMetadataV1`, `NativePreparedDeliveryV1`, `NativePreparedRefV1`, `NativeDeliveryReceiptV1`, `EmbeddedDelayService.queuedReceiptV1/appliedReceiptV1`, `WireCommandIngressAdapter`, `PinnedKafkaCommandIngress.enqueueOutcomeV1`, `PinnedPulsarCommandIngress.enqueueOutcomeV1`, `PinnedPulsarNativeSubmissionAdapter`, `NativeSubmissionAdapterTest`; registry zero-payload vector, canonical PreparedCommandRef/ProtocolTuple, Kafka/Pulsar Source Position and SafeBrokerAck agreement, queued-to-applied digest/source fencing, barrier-gated applied-frame emission, apply-status/message-field consistency and generation/state-version/binding presence fencing, object-store profile/object identity/trust-set pinning, control operation/scope/target/evidence/query-boundary pinning, Pulsar-only native target/ACK identity matching, signed capability snapshot canonical digest/Trusted-UTC binding/Ed25519 verification, strict optional Pulsar metadata and key-sorted unique property encoding, native snapshot projection/expiry/attestation matching, unsigned high-bit native physical-partition and Pulsar physical-topic-creation-timestamp projection, submission-hash and prepared-ref byte projection, capability bits and physical-attempt/digest checks, query boundary/capability/physical-attempt/digest checks, Kafka queued ACK and definitive rejection proof projection, Pulsar batch-aware queued ACK and guard rejection proof projection, native persisted/guard-rejection/uncertain/local-fence projection, and flags/length/kind/CRC/Base64url rejection tests; durable guard/credential protection and real Broker response transports remain pending |
-| Query response closed unions | Implemented (wire codec plus bounded local bridge) | `ProfileRefV1`, `PublicDestinationBindingViewV1`, `PublicEvidenceRefV1`, `CheckpointSummaryV1`, `CheckpointCatalogResultV1`, `CheckpointControlResultV1`, `LaneControlResultV1`, `ShardControlResultV1`, `ProfileControlResultV1`, `QuotaControlResultV1`, `MessageControlResultV1`, `RouteControlResultV1`, `SecretRotationResultV1`, all Registry Message/Command view classes, `CommandQueryResponseV1`, `MessageQueryResponseV1`, `ControlOperationQueryResponseV1`, `CurrentControlOperationV1`, `ControlTypedResultV1`, `PublicQueryErrorV1`, `BoundedLocalQueryProjector`, `EmbeddedDelayService.queryCommand/queryMessage`, `DelayShard.matchesCommandHash`, `ProtocolCodecTest`, `CheckpointCatalogResultV1Test`, `CheckpointControlResultV1Test`, `ControlResultCodecTest`, `ControlOperationQueryResponseV1Test`, `EmbeddedDelayServiceTest`; exact branch tags/field order, Source Position barrier ordering, durable `dedupe_cf` command-hash binding (`RECEIPT_MISMATCH` on same-ID hash drift), state/status agreement, command-view optional presence fencing, safe NFC alias and payload/DLQ/evidence enum checks, canonical checkpoint-catalog shard/Floor/sorted-summary validation, checkpoint-control identity validation, all nine control-result branch field/presence/identity codecs with strict branch-to-payload dispatch and round-trip/rejection vectors, fixed-source queued-receipt barrier and retention projection, and canonical Control Operation CURRENT/error/target/revision/typed-result projection; production receipt routing, authorization-safe lookup, source-derived retention, Oxia ownership, durable control-operation query state and observability remain pending |
-| System Mutation envelope, type registry, canonical hash/ID and Ed25519 signature | Implemented (bounded control plus admission/expiry/outcome/evidence/claim-result/resource-retire/delete-confirmed subset) | `SystemMutationType`, `SystemMutation`, `ShardSubjectV1`, `SystemMutationBodyCodec`, `ApplyShardControlBody`, `ReplayDeadLetterBody`, `ResolveUncertainBody`, `ControlRef`, `ControlReasonKindV1`, `ControlReasonV1`, `ProfileBindingActivatePayloadV1`, `ProfileNewBindingClosePayloadV1`, `ProfileBindingControlState`, `PayloadProofTrustSetActivatePayloadV1`, `PayloadProofIssuanceClosePayloadV1`, `PayloadProofTrustSetControlState`, `PayloadProofTrustSetControlCatalog`, `PublishAdmissionBody`, `ReadyCertificateV1`, `ActivationBarrierV1`, `EvidenceCursorV1`, `PublishOutcomeBody`, `ClaimResultBody`, `ResourceRetireIntentBody`, `ResourceRetireIntentRecord`, `ResourceDeleteConfirmedBody`, `ResourceDeleteConfirmedRecord`, `TrustedUtcIntervalEvidence`, `SystemMutationResult`, `AuthorIdentity`, `ClaimRecord`, `GenerationRuntimeIndex`, `DelayShard`, `ProtocolCodecTest`, `ShardSubjectV1Test`, `ReplayDeadLetterBodyTest`, `ResolveUncertainBodyTest`, `PublishAdmissionBodyTest`, `ReadyCertificateV1Test`, `ActivationBarrierV1Test`, `EvidenceCursorV1Test`, `ResourceRetireIntentBodyTest`, `ResourceDeleteConfirmedBodyTest`, `GenerationRuntimeIndexTest`, `PayloadProofControlPayloadV1Test`, `ProfileBindingControlStateTest`, `PayloadProofTrustSetControlStateTest`, `DelayShardTest`; canonical owner/control/fence/service branches, strict canonical ShardSubject route/partition decoding shared by envelope and body checks, body fields 1–3, required/optional operation fields, wire widths, bool bounds, canonical nested bytes, canonical typed `RetryPolicyRefV1` Replay field, canonical Replay/Resolve encoding and shared message-bearing body self-routing checks for Admission/Claim/DLQ/Expire, durable `dedupe_cf/SYSTEM_MUTATION` with key/value mutation identity and Source Position shard fencing, explicit signature verification, source-ordered Profile activation/close and trust-set activation/issuance-close with semantic-reference checks and atomic marker-state persistence/reopen, source-ordered Lane PAUSE/RESUME/BREAK/CLOSE with ControlRef/identity/incarnation/CAS, close-policy/acknowledgement checks and atomic Claim/READY rollback, source-ordered TIME_FENCE watermark and reservation-expiry overlay/materialization, source-ordered `EXPIRE_GENERATION_V1`, `PUBLISH_ADMISSION_V1` descriptor/Ready Certificate/Claim identity projection plus adapter/encoding/target/partition/channel-Profile cross-object fences, replay-stable timeline-key/semantic-digest/counter/obligation-set preconditions, checked attempt-number and uncertain-retry counter projection, definitive `PUBLISH_OUTCOME_V1/NOT_PUBLISHED` disposition/retry-shape subset, verified-published `ATTACH_PUBLISHED_EVIDENCE`, `ATTACH_NOT_PUBLISHED_EVIDENCE` all-absent normalization, and verified `EVIDENCE_RESOLUTION_V1` transition subsets; successful canonical fixed-lead Pulsar handoff evidence now projects `HANDED_OFF` while ordinary/legacy outcomes remain `PUBLISHED` (`MessageStatus`, `GenerationAggregateState`, `MessageRecord`, `DelayShard`, `MessageRecordTest`, `DelayShardTest`), with malformed/unsupported early evidence rejected as stale; replay-stable permanent `CLAIM_RESULT_V1` ClaimPrecondition/timeline/claimed-charge terminalization subset with canonical transfer equality and source-apply rejection (`DelayShardTest.sourceOrderedClaimResultTerminalizesMatchingReplayStableTimeline`), uniform handler arithmetic-overflow fencing (`DelayShardTest.systemMutationStateVersionOverflowPersistsStaleResult`), closed ExactResourceIdentity/ProtectionSet parsing with branch-specific Object Store Profile kind and zero-length payload/manifest support, plus registered logical-identity verification and atomic `gc_cf/TASK` retire-intent persistence, exact RetireIntentRef/DeleteOutcome/ExternalDeleteEvidence matching and source-ordered local tombstone persistence, local durable `SCHEDULED -> CLAIMED -> revoke/Admission/ClaimResult/Cancel/Reschedule/expiry` transitions, and v4 `id_cf/MESSAGE` runtime-index writes are covered; immutable Profile/catalog and authenticated source control authority, source-protected signing-key trust/ACL, immutable Oxia target registration, Recovery Floor barriers, full ActiveLaneState persistence, obligation-set quota/recovery accounting and full Claim materialization/recovery model remain pending |
-| Kafka/Pulsar source order token and source identity fencing | Implemented (u64/u32 local protocol paths; external authority pending) | `SourcePosition.sourceOrderToken`, `SourcePositionCodec` byte-round-trip canonical decode with explicit truncated length/fixed-field rejection, Kafka offset/Pulsar ledger-entry-batch order, exact canonical-position fencing for same physical token, physical-resource comparison guard, unsigned high-bit comparison/successor, canonical protobuf receipt/evidence/barrier paths, queued-receipt PreparedCommandRef-to-Source-Position shard binding in the shared constructor/decode path (`ProtocolCodecTest.commandQueuedReceiptRejectsACommandAndSourceFromDifferentShards`), unsigned checkpoint-manifest source/evidence fields, direct Source Position construction rejects malformed/non-NFC text before identity bytes are produced (`ProtocolCodecTest.sourcePositionsRejectNonCanonicalTextAtConstruction`, `ProtocolCodecTest.sourcePositionDecoderRejectsTruncatedLengthAndFixedFields`, `ProtocolCodecTest.sourcePositionsRoundTripUnsignedHighBitOffsetsThroughReceiptAndEvidenceCodecs`, `ProtocolCodecTest.sourcePositionsPreserveUnsignedPartitionLeaderAndBatchFields`, `ProtocolCodecTest.trustedUtcEvidencePreservesUnsignedCounterBitPatterns`, `ActivationBarrierV1Test.preservesUnsignedPartitionAndBatchFields`, `EvidenceCursorV1Test.preservesUnsignedPartitionAndBatchFields`, `SourceReplaySuccessorTest.strictKafkaAcceptsTheUnsignedHighBitBoundarySuccessor`, `CheckpointManifestTest.manifestRoundTripsUnsignedSourceAndEvidencePositions`), including Registry Pulsar `physicalTopicCreationTimestamp:u64be` through broker identity/queued ACK, evidence, adapter and manifest projections; `KafkaReceiptJournal` receipt positions/matches and contiguous-cursor successor/order use the same unsigned offset domain, covered by `KafkaReceiptJournalTest.receiptJournalPreservesUnsignedHighBitOffsetsAndOrdering`; `DelayShardTest`; remaining auxiliary uint64/time fields, real Broker assignment/barrier adapters and production authority remain release blockers |
+| Control System Mutation construction seam | Implemented (signed envelope and Prepared-target binding; body/authentication pending) | `ControlSystemMutationFactory`, `ControlSystemMutationFactoryTest`; operation-specific mutation type, `ControlRef` logical identity, signed System Mutation envelope and expected ID/hash binding are checked before return; body encoders, signing-key trust/ACL and source Broker registration remain release blockers |
+| Registry §6.3 Prepared Control Operation envelope | Implemented (canonical pre-I/O envelope, target matrix, mutation binding and local RBAC gate; registration authority pending) | `ControlAuthor`, `ControlRole`, `ControlRoleSet`, `ControlAuthorizationContext`, `ControlOperationAuthorization`, `PreparedControlOperation`, `PreparedControlOperationTest`, `ControlOperationAuthorizationTest`, `ControlTargetMutationBinding`; fixed operation ID/version, request-kind binding, request hash, operation-specific target counts/kinds and request-to-target Profile/Quota identity, strictly sorted repeated targets, target-snapshot hash, query-policy/retry fields, prepared digest, Ed25519 signing/verification, completed source-mutation ControlRef/identity/body binding, actor/role/scope hash equality and minimum role matrix are covered; authenticator implementation, target existence/tenant authorization, source-mutation construction, Oxia registration outcome, non-persistence proof and durable control-operation state remain release blockers |
+| Registry §6.3 Control registration outcome union | Implemented (canonical outcome/proof values, prepared-operation binding and local exact-Prepared target registration; Oxia transport pending) | `ControlRegistrationOutcome`, `ControlNonPersistenceProofKind`, `ControlNonPersistenceProof`, `ControlDefinitelyNotRecorded`, `ControlRecordUncertain`, `ControlRegistrationOutcomeMessage`, `ControlRegistrationBinding`, `ControlTargetRegistrationAuthority`, `InMemoryControlTargetRegistrationAuthority`, `ControlRegistrationOutcomeCodecTest`, `ControlRegistrationBindingTest`, `ControlTargetRegistrationAuthorityTest`; proof branch evidence matrix, operation/prepared digest binding, exact receipt request/scope/target identity and initial revision, CONTROL-stage error fencing, recorded/definitive/uncertain outer tags, canonical round-trip and timeout-proof rejection vectors, and idempotent byte-identical Prepared registration are covered; authenticated Oxia transaction/response classifier, real registration transport, retry/query state and durable operation authority remain release blockers |
+| Registry-shaped `PayloadProofTrustSetSemantic` | Implemented (canonical verifier-key/hash codec, exact local catalog and source-ordered marker projection; authority pending) | `PayloadProofVerifierKey`, `PayloadProofTrustSetSemantic`, `PayloadProofTrustSetRef`, `PayloadProofTrustSet.fromSemantic`, `PayloadProofTrustSetControlState`, `InMemoryPayloadProofTrustSetCatalog`, `PayloadProofTrustSetSemanticTest`, `PayloadProofTrustSetControlStateTest`, `PolicyCatalogTest`; sorted/unique Ed25519 raw keys, validity bounds, semantic hash/ref, exact local reference resolution, canonical round-trip/tamper rejection, source-time verification windows, strictly ordered activation markers, idempotent marker replay, first-seen issuance close versus historical verification, canonical marker-state encoding, and `DelayShard` atomic marker/result/source-position persistence with reopen are covered; authenticated source-ordered control authority and Recovery-Floor historical retention remain pending |
+| NDR1 receipt frame | Implemented (queued/applied/reservation/control/native receipt/prepared payload subset) | `ReceiptFrame`, `ReceiptKind`, `CanonicalCommandQueuedReceipt`, `CommandAppliedReceipt`, `PayloadReservationReceipt`, `PayloadProofTrustSetRef`, `ControlOperationReceipt`, `PulsarBrokerResourceIdentity`, `NativeCapabilitySnapshot`, `PulsarMetadata`, `NativePreparedDelivery`, `NativePreparedRef`, `NativeDeliveryReceipt`, `EmbeddedDelayService.queuedReceipt/appliedReceipt`, `WireCommandIngressAdapter`, `PinnedKafkaCommandIngress.enqueueOutcome`, `PinnedPulsarCommandIngress.enqueueOutcome`, `PinnedPulsarNativeSubmissionAdapter`, `NativeSubmissionAdapterTest`; registry zero-payload vector, canonical PreparedCommandRef/ProtocolTuple, Kafka/Pulsar Source Position and SafeBrokerAck agreement, queued-to-applied digest/source fencing, barrier-gated applied-frame emission, apply-status/message-field consistency and generation/state-version/binding presence fencing, object-store profile/object identity/trust-set pinning, control operation/scope/target/evidence/query-boundary pinning, Pulsar-only native target/ACK identity matching, signed capability snapshot canonical digest/Trusted-UTC binding/Ed25519 verification, strict optional Pulsar metadata and key-sorted unique property encoding, native snapshot projection/expiry/attestation matching, unsigned high-bit native physical-partition and Pulsar physical-topic-creation-timestamp projection, submission-hash and prepared-ref byte projection, capability bits and physical-attempt/digest checks, query boundary/capability/physical-attempt/digest checks, Kafka queued ACK and definitive rejection proof projection, Pulsar batch-aware queued ACK and guard rejection proof projection, native persisted/guard-rejection/uncertain/local-fence projection, and flags/length/kind/CRC/Base64url rejection tests; durable guard/credential protection and real Broker response transports remain pending |
+| Query response closed unions | Implemented (wire codec plus bounded local bridge) | `ProfileRef`, `PublicDestinationBindingView`, `PublicEvidenceRef`, `CheckpointSummary`, `CheckpointCatalogResult`, `CheckpointControlResult`, `LaneControlResult`, `ShardControlResult`, `ProfileControlResult`, `QuotaControlResult`, `MessageControlResult`, `RouteControlResult`, `SecretRotationResult`, all Registry Message/Command view classes, `CommandQueryResponse`, `MessageQueryResponse`, `ControlOperationQueryResponse`, `CurrentControlOperation`, `ControlTypedResult`, `PublicQueryError`, `BoundedLocalQueryProjector`, `EmbeddedDelayService.queryCommand/queryMessage`, `DelayShard.matchesCommandHash`, `ProtocolCodecTest`, `CheckpointCatalogResultTest`, `CheckpointControlResultTest`, `ControlResultCodecTest`, `ControlOperationQueryResponseTest`, `EmbeddedDelayServiceTest`; exact branch tags/field order, Source Position barrier ordering, durable `dedupe_cf` command-hash binding (`RECEIPT_MISMATCH` on same-ID hash drift), state/status agreement, command-view optional presence fencing, safe NFC alias and payload/DLQ/evidence enum checks, canonical checkpoint-catalog shard/Floor/sorted-summary validation, checkpoint-control identity validation, all nine control-result branch field/presence/identity codecs with strict branch-to-payload dispatch and round-trip/rejection vectors, fixed-source queued-receipt barrier and retention projection, and canonical Control Operation CURRENT/error/target/revision/typed-result projection; production receipt routing, authorization-safe lookup, source-derived retention, Oxia ownership, durable control-operation query state and observability remain pending |
+| System Mutation envelope, type registry, canonical hash/ID and Ed25519 signature | Implemented (bounded control plus admission/expiry/outcome/evidence/claim-result/resource-retire/delete-confirmed subset) | `SystemMutationType`, `SystemMutation`, `ShardSubject`, `SystemMutationBodyCodec`, `ApplyShardControlBody`, `ReplayDeadLetterBody`, `ResolveUncertainBody`, `ControlRef`, `ControlReasonKind`, `ControlReason`, `ProfileBindingActivatePayload`, `ProfileNewBindingClosePayload`, `ProfileBindingControlState`, `PayloadProofTrustSetActivatePayload`, `PayloadProofIssuanceClosePayload`, `PayloadProofTrustSetControlState`, `PayloadProofTrustSetControlCatalog`, `PublishAdmissionBody`, `ReadyCertificate`, `ActivationBarrier`, `EvidenceCursor`, `PublishOutcomeBody`, `ClaimResultBody`, `ResourceRetireIntentBody`, `ResourceRetireIntentRecord`, `ResourceDeleteConfirmedBody`, `ResourceDeleteConfirmedRecord`, `TrustedUtcIntervalEvidence`, `SystemMutationResult`, `AuthorIdentity`, `ClaimRecord`, `GenerationRuntimeIndex`, `DelayShard`, `ProtocolCodecTest`, `ShardSubjectTest`, `ReplayDeadLetterBodyTest`, `ResolveUncertainBodyTest`, `PublishAdmissionBodyTest`, `ReadyCertificateTest`, `ActivationBarrierTest`, `EvidenceCursorTest`, `ResourceRetireIntentBodyTest`, `ResourceDeleteConfirmedBodyTest`, `GenerationRuntimeIndexTest`, `PayloadProofControlPayloadTest`, `ProfileBindingControlStateTest`, `PayloadProofTrustSetControlStateTest`, `DelayShardTest`; canonical owner/control/fence/service branches, strict canonical ShardSubject route/partition decoding shared by envelope and body checks, body fields 1–3, required/optional operation fields, wire widths, bool bounds, canonical nested bytes, canonical typed `RetryPolicyRef` Replay field, canonical Replay/Resolve encoding and shared message-bearing body self-routing checks for Admission/Claim/DLQ/Expire, durable `dedupe_cf/SYSTEM_MUTATION` with key/value mutation identity and Source Position shard fencing, explicit signature verification, source-ordered Profile activation/close and trust-set activation/issuance-close with semantic-reference checks and atomic marker-state persistence/reopen, source-ordered Lane PAUSE/RESUME/BREAK/CLOSE with ControlRef/identity/incarnation/CAS, close-policy/acknowledgement checks and atomic Claim/READY rollback, source-ordered TIME_FENCE watermark and reservation-expiry overlay/materialization, source-ordered `EXPIRE_GENERATION`, `PUBLISH_ADMISSION` descriptor/Ready Certificate/Claim identity projection plus adapter/encoding/target/partition/channel-Profile cross-object fences, replay-stable timeline-key/semantic-digest/counter/obligation-set preconditions, checked attempt-number and uncertain-retry counter projection, definitive `PUBLISH_OUTCOME/NOT_PUBLISHED` disposition/retry-shape subset, verified-published `ATTACH_PUBLISHED_EVIDENCE`, `ATTACH_NOT_PUBLISHED_EVIDENCE` all-absent normalization, and verified `EVIDENCE_RESOLUTION` transition subsets; successful canonical fixed-lead Pulsar handoff evidence now projects `HANDED_OFF` while ordinary/legacy outcomes remain `PUBLISHED` (`MessageStatus`, `GenerationAggregateState`, `MessageRecord`, `DelayShard`, `MessageRecordTest`, `DelayShardTest`), with malformed/unsupported early evidence rejected as stale; replay-stable permanent `CLAIM_RESULT` ClaimPrecondition/timeline/claimed-charge terminalization subset with canonical transfer equality and source-apply rejection (`DelayShardTest.sourceOrderedClaimResultTerminalizesMatchingReplayStableTimeline`), uniform handler arithmetic-overflow fencing (`DelayShardTest.systemMutationStateVersionOverflowPersistsStaleResult`), closed ExactResourceIdentity/ProtectionSet parsing with branch-specific Object Store Profile kind and zero-length payload/manifest support, plus registered logical-identity verification and atomic `gc_cf/TASK` retire-intent persistence, exact RetireIntentRef/DeleteOutcome/ExternalDeleteEvidence matching and source-ordered local tombstone persistence, local durable `SCHEDULED -> CLAIMED -> revoke/Admission/ClaimResult/Cancel/Reschedule/expiry` transitions, and v4 `id_cf/MESSAGE` runtime-index writes are covered; immutable Profile/catalog and authenticated source control authority, source-protected signing-key trust/ACL, immutable Oxia target registration, Recovery Floor barriers, full ActiveLaneState persistence, obligation-set quota/recovery accounting and full Claim materialization/recovery model remain pending |
+| Kafka/Pulsar source order token and source identity fencing | Implemented (u64/u32 local protocol paths; external authority pending) | `SourcePosition.sourceOrderToken`, `SourcePositionCodec` byte-round-trip canonical decode with explicit truncated length/fixed-field rejection, Kafka offset/Pulsar ledger-entry-batch order, exact canonical-position fencing for same physical token, physical-resource comparison guard, unsigned high-bit comparison/successor, canonical protobuf receipt/evidence/barrier paths, queued-receipt PreparedCommandRef-to-Source-Position shard binding in the shared constructor/decode path (`ProtocolCodecTest.commandQueuedReceiptRejectsACommandAndSourceFromDifferentShards`), unsigned checkpoint-manifest source/evidence fields, direct Source Position construction rejects malformed/non-NFC text before identity bytes are produced (`ProtocolCodecTest.sourcePositionsRejectNonCanonicalTextAtConstruction`, `ProtocolCodecTest.sourcePositionDecoderRejectsTruncatedLengthAndFixedFields`, `ProtocolCodecTest.sourcePositionsRoundTripUnsignedHighBitOffsetsThroughReceiptAndEvidenceCodecs`, `ProtocolCodecTest.sourcePositionsPreserveUnsignedPartitionLeaderAndBatchFields`, `ProtocolCodecTest.trustedUtcEvidencePreservesUnsignedCounterBitPatterns`, `ActivationBarrierTest.preservesUnsignedPartitionAndBatchFields`, `EvidenceCursorTest.preservesUnsignedPartitionAndBatchFields`, `SourceReplaySuccessorTest.strictKafkaAcceptsTheUnsignedHighBitBoundarySuccessor`, `CheckpointManifestTest.manifestRoundTripsUnsignedSourceAndEvidencePositions`), including Registry Pulsar `physicalTopicCreationTimestamp:u64be` through broker identity/queued ACK, evidence, adapter and manifest projections; `KafkaReceiptJournal` receipt positions/matches and contiguous-cursor successor/order use the same unsigned offset domain, covered by `KafkaReceiptJournalTest.receiptJournalPreservesUnsignedHighBitOffsetsAndOrdering`; `DelayShardTest`; remaining auxiliary uint64/time fields, real Broker assignment/barrier adapters and production authority remain release blockers |
 | Pinned Kafka/Pulsar command ingress outcome mapping | Implemented (transport SPI plus source-locked K1/K2/P1 bindings; full source assignment pending) | `PinnedKafkaCommandIngress`, `PinnedPulsarCommandIngress`, `KafkaClientArtifactProduceTransport`, `KafkaClientArtifactTransactionalDestinationTransport`, `PulsarClientArtifactSendTransport`, `PulsarClientArtifactProducerFactory`, `WireCommandIngressAdapter`, `WireIngressOutcomeSupport`, `KafkaIngressResource`, `PulsarIngressResource`, `KafkaProduceRequest`, `PulsarSendRequest`, `KafkaProduceResult`, `PulsarSendResult`, `KafkaTransactionalDestinationAdapter`, `KafkaTransactionalDestinationAdapterTest`; Kafka target/receipt transaction evidence now covers guarded commit, abort, exact target/receipt reads, same-name target fencing and a controlled committed-response-loss reread in the three-broker E2E, while exact Fetch/LSO/retention, raw transport/crash cuts, D3 transaction/source assignment and production Worker authority remain release blockers |
-| Pulsar Attempt Journal mapping-before-send seam | Implemented (local deterministic ordering/evidence seam plus optional durable ledger projection) | `PulsarAttemptJournal`, `PulsarAttemptJournalTest`, `PublishAttemptLedger`, `PublishAttemptLedgerTest`, `DelayShard`, `DelayShardTest.attemptJournalProjectionIsDurableWithoutAdvancingShardSourcePosition`; one-Shard Producer key, strictly increasing sequence allocation, durable-appender position gate before target sender invocation, `appendOrReuse`/identity-bound `sendAfterMapped` exact-attempt retransmission reuse, mapping identity-drift fencing, exact mapping idempotency, unresolved lower-sequence blocking, durable `RETIRED_NOT_PUBLISHED` retirement, null target `CompletionStage` fail-closed handling that retains the unresolved mapping fence, replay reconstruction with first/later Producer-sequence-gap rejection before state installation, a typed local `EvidenceCursorV1` projection for the latest Lane Producer Journal position, exact local `PULSAR_ATTEMPT_JOURNAL` PUBLISHED evidence-branch projection (including sequence and mapping-record hash), and Broker last-sequence/retention-proof divergence classification are covered. Publish Attempt ledgers remain V1/V2 compatible and now have an optional V3 local projection for allocated sequence, latest acknowledged Journal position and `retirementPending`; `DelayShard` persists those updates without changing the Shard source-position cursor and reloads them fail-closed through the same inflight key. The adapter must still supply the exact Producer/Attempt identity and invoke these updates only after the corresponding Journal append; the Journal cursor/evidence branch are local value projections and are not a new Registry Admission field, a contiguous Broker-reader proof, authenticated Broker ACK/guard evidence, or an atomic substitute for the source-ordered outcome mutation. Nereus-owned non-compacted Pulsar topic, ExclusiveWithFencing writer, guarded reader/reconnect, Recovery-Floor retention and production Broker evidence remain release blockers |
+| Pulsar Attempt Journal mapping-before-send seam | Implemented (local deterministic ordering/evidence seam plus optional durable ledger projection) | `PulsarAttemptJournal`, `PulsarAttemptJournalTest`, `PublishAttemptLedger`, `PublishAttemptLedgerTest`, `DelayShard`, `DelayShardTest.attemptJournalProjectionIsDurableWithoutAdvancingShardSourcePosition`; one-Shard Producer key, strictly increasing sequence allocation, durable-appender position gate before target sender invocation, `appendOrReuse`/identity-bound `sendAfterMapped` exact-attempt retransmission reuse, mapping identity-drift fencing, exact mapping idempotency, unresolved lower-sequence blocking, durable `RETIRED_NOT_PUBLISHED` retirement, null target `CompletionStage` fail-closed handling that retains the unresolved mapping fence, replay reconstruction with first/later Producer-sequence-gap rejection before state installation, a typed local `EvidenceCursor` projection for the latest Lane Producer Journal position, exact local `PULSAR_ATTEMPT_JOURNAL` PUBLISHED evidence-branch projection (including sequence and mapping-record hash), and Broker last-sequence/retention-proof divergence classification are covered. Publish Attempt ledgers remain legacy/current compatible and now have an optional V3 local projection for allocated sequence, latest acknowledged Journal position and `retirementPending`; `DelayShard` persists those updates without changing the Shard source-position cursor and reloads them fail-closed through the same inflight key. The adapter must still supply the exact Producer/Attempt identity and invoke these updates only after the corresponding Journal append; the Journal cursor/evidence branch are local value projections and are not a new Registry Admission field, a contiguous Broker-reader proof, authenticated Broker ACK/guard evidence, or an atomic substitute for the source-ordered outcome mutation. Nereus-owned non-compacted Pulsar topic, ExclusiveWithFencing writer, guarded reader/reconnect, Recovery-Floor retention and production Broker evidence remain release blockers |
 | Kafka transactional receipt mapping-before-send seam | Partial (local journal plus source-locked real target/receipt transaction; Fetch/LSO and failure evidence open) | `KafkaReceiptResource`, `KafkaReceiptJournal`, `KafkaReceiptJournalTest`, `KafkaTransactionalDestinationRequest`, `KafkaTransactionalDestinationAdapter`, `KafkaTransactionalDestinationAdapterTest`, `KafkaClientArtifactTransactionalDestinationTransport`, `KafkaClientArtifactTransactionalSmoke`; mapping-before-send and canonical receipt values are locally bound, and the real three-broker smoke proves `read_committed` atomic counts, exact target/receipt key/value reads, abort, same-name target TopicId fencing and a controlled post-EndTxn response-loss reread. Raw network/process failure, independent target/receipt failover, ExclusiveWithFencing, retention/Floor proof, slot authority and production Worker integration remain release blockers |
-| Target publish side-effect outcome boundary | Implemented (identity-fenced transport SPI, Worker-bound local physical admission seam and durable attempt/outcome subset) | `DestinationPublishAdapter`, `DestinationPublishResult`, `PinnedKafkaDestinationAdapter`, `PinnedPulsarDestinationAdapter`, `PulsarDestinationTimingPolicy`, `KafkaTargetResource`, `PulsarTargetResource`, `KafkaDestinationRequest`, `PulsarDestinationRequest`, `PulsarNativeSendRequest`, `DestinationPhysicalAdmission`, `BoundedDestinationPublishAdapter`, `WorkClassExecutionRegistry`, `PublishAttemptLedger`, `PublishOutcomeBody`, `DelayShard`, `DestinationAdapterTest`, `AdapterRequestIdentityTest`, `DestinationPhysicalAdmissionTest`, `BoundedDestinationPublishAdapterTest`, `WorkClassExecutionRegistryTest`, `DelayShardTest`; PUBLISHED results now require non-empty delivery identity/evidence, use stable code `OK`, and pair an optional pinned `BrokerResourceIdentityV1` with a uint32 physical partition; target resources, direct request values and the physical-admission target-cluster registry enforce canonical UTF-8/NFC cluster/topic identity before request construction or capacity accounting, and native request values reject a zero delivery identity; Kafka destination requests additionally require `actionAt=deliverAt`, so the early-action branch cannot reach transport; the Pulsar destination adapter defaults to the same ordinary timing relationship and accepts an early action only through an explicit fixed-lead `PulsarDestinationTimingPolicy`, which is a local pre-transport guard rather than Profile/Capability authority (`DestinationAdapterTest.pulsarDefaultTimingPolicyRejectsEarlyActionBeforeTransport`, `DestinationAdapterTest.pulsarCertifiedHandoffRequiresTheExactFixedLead`); local admission protects Worker and target-cluster request/byte caps, READY Lane minimums, Lane caps and zombie charges, counts a not-yet-ready candidate Lane's protected minimum exactly once when opening READY, and release validates every active/zombie bucket before decrementing so an accounting underflow cannot partially release a charge (`DestinationPhysicalAdmissionTest.zombieReleaseUnderflowDoesNotPartiallyDecrementActiveCharge`); one Worker work-class registry binds one exact physical pool, and that pool rejects a second registry before transport or charge, all cross-package bounded adapters must use the public registry-aware/caller-executor constructor, and no-registry constructors are package-local test seams (`BoundedDestinationPublishAdapterTest.productionCompositionBindsOneWorkerPhysicalAdmissionPool`, `BoundedDestinationPublishAdapterTest.onePhysicalAdmissionPoolCannotMultiplyCapacityAcrossWorkerRegistries`, `WorkClassExecutionRegistryTest.workerSingletonBindingUsesExactInstancePerResourceKind`); `BoundedDestinationPublishAdapter` dispatches delegate calls through an injected/default asynchronous Lane/Adapter executor instead of holding the adapter monitor across a synchronous transport call, and `blockingDelegateCallDoesNotBlockHealthyLane` covers same-adapter Lane isolation; executor rejection remains a pre-ownership release, while Pinned destination adapters mark synchronous transport exceptions, null stages, or unobservable callback registration as logical `UNKNOWN` without a physical-completion proof, and the wrapper retains those charges as `ZOMBIE`/in-flight until `PublishCall.releasePhysicalCharge()` follows certified completion or fenced teardown (`BoundedDestinationPublishAdapterTest.callbackRegistrationFailureRetainsPhysicalChargeUntilExplicitRelease`, `BoundedDestinationPublishAdapterTest.pinnedAdapterRegistrationFailureRetainsPhysicalCharge`, `BoundedDestinationPublishAdapterTest.pinnedAdapterTransportExceptionRetainsPhysicalCharge`, `DestinationAdapterTest.kafkaDestinationDoesNotInvokeTransportForEarlyActionAt`); the adapter-package default virtual-thread executor is only a local seam and production bounded executor, physical adapter evidence journal, durable ActiveLaneState/ReadyCertificate admission authority, authenticated non-persistence classifiers, and remaining outcome/evidence mutations remain pending; definitive `NOT_PUBLISHED` retriable/permanent/lane-unavailable state transitions, service-authored verified `EVIDENCE_RESOLUTION`, and Resolve `ATTACH_PUBLISHED_EVIDENCE`/`ATTACH_NOT_PUBLISHED_EVIDENCE` obligation settlement are covered locally |
+| Target publish side-effect outcome boundary | Implemented (identity-fenced transport SPI, Worker-bound local physical admission seam and durable attempt/outcome subset) | `DestinationPublishAdapter`, `DestinationPublishResult`, `PinnedKafkaDestinationAdapter`, `PinnedPulsarDestinationAdapter`, `PulsarDestinationTimingPolicy`, `KafkaTargetResource`, `PulsarTargetResource`, `KafkaDestinationRequest`, `PulsarDestinationRequest`, `PulsarNativeSendRequest`, `DestinationPhysicalAdmission`, `BoundedDestinationPublishAdapter`, `WorkClassExecutionRegistry`, `PublishAttemptLedger`, `PublishOutcomeBody`, `DelayShard`, `DestinationAdapterTest`, `AdapterRequestIdentityTest`, `DestinationPhysicalAdmissionTest`, `BoundedDestinationPublishAdapterTest`, `WorkClassExecutionRegistryTest`, `DelayShardTest`; PUBLISHED results now require non-empty delivery identity/evidence, use stable code `OK`, and pair an optional pinned `BrokerResourceIdentity` with a uint32 physical partition; target resources, direct request values and the physical-admission target-cluster registry enforce canonical UTF-8/NFC cluster/topic identity before request construction or capacity accounting, and native request values reject a zero delivery identity; Kafka destination requests additionally require `actionAt=deliverAt`, so the early-action branch cannot reach transport; the Pulsar destination adapter defaults to the same ordinary timing relationship and accepts an early action only through an explicit fixed-lead `PulsarDestinationTimingPolicy`, which is a local pre-transport guard rather than Profile/Capability authority (`DestinationAdapterTest.pulsarDefaultTimingPolicyRejectsEarlyActionBeforeTransport`, `DestinationAdapterTest.pulsarCertifiedHandoffRequiresTheExactFixedLead`); local admission protects Worker and target-cluster request/byte caps, READY Lane minimums, Lane caps and zombie charges, counts a not-yet-ready candidate Lane's protected minimum exactly once when opening READY, and release validates every active/zombie bucket before decrementing so an accounting underflow cannot partially release a charge (`DestinationPhysicalAdmissionTest.zombieReleaseUnderflowDoesNotPartiallyDecrementActiveCharge`); one Worker work-class registry binds one exact physical pool, and that pool rejects a second registry before transport or charge, all cross-package bounded adapters must use the public registry-aware/caller-executor constructor, and no-registry constructors are package-local test seams (`BoundedDestinationPublishAdapterTest.productionCompositionBindsOneWorkerPhysicalAdmissionPool`, `BoundedDestinationPublishAdapterTest.onePhysicalAdmissionPoolCannotMultiplyCapacityAcrossWorkerRegistries`, `WorkClassExecutionRegistryTest.workerSingletonBindingUsesExactInstancePerResourceKind`); `BoundedDestinationPublishAdapter` dispatches delegate calls through an injected/default asynchronous Lane/Adapter executor instead of holding the adapter monitor across a synchronous transport call, and `blockingDelegateCallDoesNotBlockHealthyLane` covers same-adapter Lane isolation; executor rejection remains a pre-ownership release, while Pinned destination adapters mark synchronous transport exceptions, null stages, or unobservable callback registration as logical `UNKNOWN` without a physical-completion proof, and the wrapper retains those charges as `ZOMBIE`/in-flight until `PublishCall.releasePhysicalCharge()` follows certified completion or fenced teardown (`BoundedDestinationPublishAdapterTest.callbackRegistrationFailureRetainsPhysicalChargeUntilExplicitRelease`, `BoundedDestinationPublishAdapterTest.pinnedAdapterRegistrationFailureRetainsPhysicalCharge`, `BoundedDestinationPublishAdapterTest.pinnedAdapterTransportExceptionRetainsPhysicalCharge`, `DestinationAdapterTest.kafkaDestinationDoesNotInvokeTransportForEarlyActionAt`); the adapter-package default virtual-thread executor is only a local seam and production bounded executor, physical adapter evidence journal, durable ActiveLaneState/ReadyCertificate admission authority, authenticated non-persistence classifiers, and remaining outcome/evidence mutations remain pending; definitive `NOT_PUBLISHED` retriable/permanent/lane-unavailable state transitions, service-authored verified `EVIDENCE_RESOLUTION`, and Resolve `ATTACH_PUBLISHED_EVIDENCE`/`ATTACH_NOT_PUBLISHED_EVIDENCE` obligation settlement are covered locally |
 | PUBLISHING ledger to physical adapter and Outcome handoff | Implemented (common Worker bridge; live authority and physical evidence pending) | `WorkerPhysicalPublishExecutor`, `WorkerPhysicalPublishExecutorTest`, `WorkerShardRuntime`, `BoundedDestinationPublishAdapter.PublishPreflight`; a retained `PUBLISHING` ledger and canonical `PUBLISH_ADMISSION` descriptor are identity-checked before exact request construction, the injected `PhysicalPublishGate` is checked before admission and again immediately before the destination delegate, deferred/definitive gate results avoid a target call, and observed adapter results including `UNKNOWN` are handed to the external `PublishOutcomeMutationFactory` through the bounded outcome work class; the bridge does not apply RocksDB state or create a Source Position, while live prerequisite/payload/Object Store authority, signed typed outcome/evidence/retry/charge construction, Broker append/ACK, adapter evidence journals/classifiers, crash/response-loss handling and source-factory production binding remain release blockers |
-| One Delay Shard = one RocksDB DB | Implemented | `ShardStore`, `StoreMetadata`, `StoreRuntimeMetadata`, `StoreRecoveryMetadata`, `RecoveryInstallStateV1`, `CompatibleControlSnapshotV1`, `SharedRocksDbResources`, `ShardStoreTest`, `StoreRuntimeMetadataTest`, `StoreRecoveryMetadataTest`, `RecoveryInstallStateV1Test`, `CompatibleControlSnapshotV1Test`; existing DBs missing the `meta_cf` shard-identity marker or carrying a store incarnation that disagrees with `incarnations/<storeIncarnation>/db` now fail closed instead of being initialized or opened as a different store; the local `meta/FIXED` projection persists ingress-fence/checkpoint identity at keys 4/7, owner-open epoch at key 8, typed evidence cursors at key 6, clean-close state at key 9 and the bounded shard-bound compatible control snapshot at key 10; the local `meta/RECOVERY` projection now persists typed lineage/base, last-observed Floor, catalog generation and install/open state at keys 1–4, updates them in the same WAL-synchronised batch as install/close boundaries, rejects foreign-shard Floor or mismatched Store Incarnation values, and records a new LOCAL_STORE candidate plus pinned Floor during restore; `hasReusableRecoveryProof()` remains only a local minimum-facts check and never proves current Floor ancestry or Oxia authority; owner-open epochs use raw uint64 encoding and unsigned monotonic comparison, including the high-bit boundary; the shared owned-shard semaphore is identity-bound to `ShardId`, so duplicate opens fail before a second DB incarnation can be created or installed and the exact identity is released only when its Store closes (`ShardStoreTest.duplicateOwnedShardOpenIsRejectedBeforeCreatingAnotherDb`); all values use bounded canonical validation and post-open metadata/format/install failures close every DB/Column Family handle and options object before slots release, covered by `ShardStoreTest.malformedExistingMetadataDoesNotLeaveRocksDbOpen` and `ShardStoreTest.malformedRuntimeMetadataDoesNotLeaveRocksDbOpen`; after the clean-close marker is durably written, all RocksDB read, scan, write, flush and sequence-number APIs fail closed instead of touching a closed native handle, covered by `ShardStoreTest.closedShardStoreFailsClosedForAllRocksDbOperations` |
-| Worker DB/checkpoint resource limits | Implemented (config-envelope plus runtime shard/DB/acquire/restore slots, startup and fixed-delay runtime probes, sticky runtime safety gate, local native bucket ledger, placement scorer and physical usage guard seam) | `ShardStoreConfig`, `SharedRocksDbResources`, `ShardStore`, `WorkerResourceEnvelope`, `WorkerRuntimeResourceObservation`, `WorkerRuntimeResourceProbe`, `WorkerRuntimeResourceMonitor`, `WorkerRuntimeSafetyGate`, `NativeResourceUsage`, `WorkerNativeResourceLedger`, `WorkerCapacityAdmission`, `WorkerLoadVector`, `WorkerPlacementPolicy`, `RocksDbUsageSnapshot`, `RocksDbUsageLimits`, `WorkerResourceEnvelopeTest`, `WorkerRuntimeResourceProbeTest`, `WorkerRuntimeResourceMonitorTest`, `WorkerRuntimeSafetyGateTest`, `WorkerNativeResourceLedgerTest`, `WorkerCapacityAdmissionTest`, `WorkerPlacementPolicyTest`, `RocksDbUsageLimitsTest`, `ShardStoreTest`; checked memory/FD/disk cross-bucket inequalities fail closed before resource creation, including the live process descriptor count plus configured FD headroom, the disjoint native ledger attributes shared block-cache/WBM reservations before JNI creation with exact allocation identity and checked release, and a release computes both successor buckets before removing the identity so an underflow remains retryable (`WorkerNativeResourceLedgerTest.underflowingReleaseLeavesReservationForRetry`); shared-resource teardown separately retries each native reservation after the corresponding cache/WBM close and does not mark the Worker closed until both reservations are released (`WorkerNativeResourceLedgerTest.sharedResourceCloseRetriesReservationsAfterReleaseFailure`); logical `maxOwnedShards` and physical `maxOpenShardDbs` slots are tracked independently, short-lived shard-open/restore acquisition has an independent `maxConcurrentAcquiresPerWorker` slot released after native open or cleanup, checkpoint restore/download staging has an independent bounded slot released after atomic installation, the process-shared RocksDB `Env` background pool is explicitly configured from `maxBackgroundJobs`, each DB binds `maxBackgroundJobsPerDb` plus nonzero `reservedFlushJobs`/`maxCompactionJobs` split, each CF keeps the explicit `maxWriteBufferBytesPerDb` per-CF ceiling and each DB now also binds the same value as the aggregate `db_write_buffer_size` (`ShardStoreTest.perDbWriteBufferCeilingIsBoundAtRocksDbDbLevel`), while the process-wide `WriteBufferManager` remains the shared memtable budget, shared RocksDB resources refuse premature close, local Worker admission sums distinct shard `committed` vectors plus fixed/transition demand once with checked per-dimension arithmetic, and the local placement seam rejects over-capacity candidates before applying dominant-resource/load scoring with stale-telemetry penalty, minimum residence, hysteresis and movement cost; `WorkerRuntimeResourceProbe` reads bounded JVM heap/direct-memory, procfs RSS/RLIMIT, live process FD count, cgroup v2/v1 and exact root filesystem total/usable limits, `WorkerResourceEnvelope.validate(config, observation)` rejects any certified envelope that exceeds them, and `WorkerRuntimeSafetyGate` fences new ownership/restore plus the embedded Claim path after a failed fresh observation until explicit empty-drain activation; `WorkerRuntimeResourceMonitor` runs a closeable fixed-delay probe and routes probe/validation failures into the same sticky drain state; `RocksDbUsageSnapshot` observes live SST/WAL/MANIFEST/L0/compaction-pending and exact DB file totals, while `RocksDbUsageLimits` checks duplicate shard identity, per-DB caps, checked Worker totals and the exact root filesystem free-space floor; `ShardStoreTest.physicalUsageProbeAndGuardObserveOneShardDb`, `ShardStoreTest.perDbWriteBufferCeilingIsBoundAtRocksDbDbLevel`, `WorkerRuntimeResourceProbeTest`, `WorkerRuntimeResourceMonitorTest`, `WorkerRuntimeSafetyGateTest`, `WorkerNativeResourceLedgerTest` and `RocksDbUsageLimitsTest` cover the local probe/ledger/guard; production per-work-class write-time reserve enforcement, cooperative assignment or Oxia placement capacity authority remain pending |
+| One Delay Shard = one RocksDB DB | Implemented | `ShardStore`, `StoreMetadata`, `StoreRuntimeMetadata`, `StoreRecoveryMetadata`, `RecoveryInstallState`, `CompatibleControlSnapshot`, `SharedRocksDbResources`, `ShardStoreTest`, `StoreRuntimeMetadataTest`, `StoreRecoveryMetadataTest`, `RecoveryInstallStateTest`, `CompatibleControlSnapshotTest`; existing DBs missing the `meta_cf` shard-identity marker or carrying a store incarnation that disagrees with `incarnations/<storeIncarnation>/db` now fail closed instead of being initialized or opened as a different store; the local `meta/FIXED` projection persists ingress-fence/checkpoint identity at keys 4/7, owner-open epoch at key 8, typed evidence cursors at key 6, clean-close state at key 9 and the bounded shard-bound compatible control snapshot at key 10; the local `meta/RECOVERY` projection now persists typed lineage/base, last-observed Floor, catalog generation and install/open state at keys 1–4, updates them in the same WAL-synchronised batch as install/close boundaries, rejects foreign-shard Floor or mismatched Store Incarnation values, and records a new LOCAL_STORE candidate plus pinned Floor during restore; `hasReusableRecoveryProof()` remains only a local minimum-facts check and never proves current Floor ancestry or Oxia authority; owner-open epochs use raw uint64 encoding and unsigned monotonic comparison, including the high-bit boundary; the shared owned-shard semaphore is identity-bound to `ShardId`, so duplicate opens fail before a second DB incarnation can be created or installed and the exact identity is released only when its Store closes (`ShardStoreTest.duplicateOwnedShardOpenIsRejectedBeforeCreatingAnotherDb`); all values use bounded canonical validation and post-open metadata/format/install failures close every DB/Column Family handle and options object before slots release, covered by `ShardStoreTest.malformedExistingMetadataDoesNotLeaveRocksDbOpen` and `ShardStoreTest.malformedRuntimeMetadataDoesNotLeaveRocksDbOpen`; after the clean-close marker is durably written, all RocksDB read, scan, write, flush and sequence-number APIs fail closed instead of touching a closed native handle, covered by `ShardStoreTest.closedShardStoreFailsClosedForAllRocksDbOperations` |
+| Worker DB/checkpoint resource limits | Implemented (config-envelope plus runtime shard/DB/acquire/restore slots, startup and fixed-delay runtime probes, sticky runtime safety gate, local native bucket ledger, placement scorer and physical usage guard seam) | `ShardStoreConfig`, `SharedRocksDbResources`, `ShardStore`, `WorkerResourceEnvelope`, `WorkerRuntimeResourceObservation`, `WorkerRuntimeResourceProbe`, `WorkerRuntimeResourceMonitor`, `WorkerRuntimeSafetyGate`, `NativeResourceUsage`, `WorkerNativeResourceLedger`, `WorkerCapacityAdmission`, `WorkerLoadVector`, `WorkerPlacementPolicy`, `RocksDbUsageSnapshot`, `RocksDbUsageLimits`, `WorkerResourceEnvelopeTest`, `WorkerRuntimeResourceProbeTest`, `WorkerRuntimeResourceMonitorTest`, `WorkerRuntimeSafetyGateTest`, `WorkerNativeResourceLedgerTest`, `WorkerCapacityAdmissionTest`, `WorkerPlacementPolicyTest`, `RocksDbUsageLimitsTest`, `ShardStoreTest`; checked memory/FD/disk cross-bucket inequalities fail closed before resource creation, including the live process descriptor count plus configured FD headroom, the disjoint native ledger attributes shared block-cache/WBM reservations before JNI creation with exact allocation identity and checked release, and a release computes both successor buckets before removing the identity so an underflow remains retryable (`WorkerNativeResourceLedgerTest.underflowingReleaseLeavesReservationForRetry`); shared-resource teardown separately retries each native reservation after the corresponding cache/WBM close and does not mark the Worker closed until both reservations are released (`WorkerNativeResourceLedgerTest.sharedResourceCloseRetriesReservationsAfterReleaseFailure`); logical `maxOwnedShards` and physical `maxOpenShardDbs` slots are tracked independently, short-lived shard-open/restore acquisition has an independent `maxConcurrentAcquiresPerWorker` slot released after native open or cleanup, checkpoint restore/download staging has an independent bounded slot released after atomic installation, the process-shared RocksDB `Env` background pool is explicitly configured from `maxBackgroundJobs`, each DB binds `maxBackgroundJobsPerDb` plus nonzero `reservedFlushJobs`/`maxCompactionJobs` split, each CF keeps the explicit `maxWriteBufferBytesPerDb` per-CF ceiling and each DB now also binds the same value as the aggregate `db_write_buffer_size` (`ShardStoreTest.perDbWriteBufferCeilingIsBoundAtRocksDbDbLevel`), while the process-wide `WriteBufferManager` remains the shared memtable budget, shared RocksDB resources refuse premature close, local Worker admission sums distinct shard `committed` vectors plus fixed/transition demand once with checked per-dimension arithmetic, and the local placement seam rejects over-capacity candidates before applying dominant-resource/load scoring with stale-telemetry penalty, minimum residence, hysteresis and movement cost; `WorkerRuntimeResourceProbe` reads bounded JVM heap/direct-memory, procfs RSS/RLIMIT, live process FD count, both cgroup generations and exact root filesystem total/usable limits, `WorkerResourceEnvelope.validate(config, observation)` rejects any certified envelope that exceeds them, and `WorkerRuntimeSafetyGate` fences new ownership/restore plus the embedded Claim path after a failed fresh observation until explicit empty-drain activation; `WorkerRuntimeResourceMonitor` runs a closeable fixed-delay probe and routes probe/validation failures into the same sticky drain state; `RocksDbUsageSnapshot` observes live SST/WAL/MANIFEST/L0/compaction-pending and exact DB file totals, while `RocksDbUsageLimits` checks duplicate shard identity, per-DB caps, checked Worker totals and the exact root filesystem free-space floor; `ShardStoreTest.physicalUsageProbeAndGuardObserveOneShardDb`, `ShardStoreTest.perDbWriteBufferCeilingIsBoundAtRocksDbDbLevel`, `WorkerRuntimeResourceProbeTest`, `WorkerRuntimeResourceMonitorTest`, `WorkerRuntimeSafetyGateTest`, `WorkerNativeResourceLedgerTest` and `RocksDbUsageLimitsTest` cover the local probe/ledger/guard; production per-work-class write-time reserve enforcement, cooperative assignment or Oxia placement capacity authority remain pending |
 | Seven application CFs plus empty `default` CF | Implemented | `ShardStore` descriptor validation |
 | Worker dynamic per-DB physical-usage observer | Implemented (local monitor lifecycle and aggregate guard; authority pending) | `WorkerRocksDbUsageMonitor`, `SharedRocksDbResources.startRocksDbUsageMonitor`, `ShardStore`, `WorkerRocksDbUsageMonitorTest`; every open shard Store registers one identity-bound physical source, the source is removed before native teardown, fixed-delay observations validate per-DB and Worker WAL/MANIFEST/SST/L0/compaction/file caps plus filesystem free-space floor, and missing/invalid/over-capacity evidence fences the shared sticky runtime gate; production write-time reserve attribution, checkpoint/compaction scheduling authority and Oxia placement capacity remain release gates |
-| Worker event-loop work-class queue/turn seam | Implemented (local scheduler/resource/config/action lifecycle and exact resource-graph binding; production authority pending) | `WorkClass`, `WorkClassPolicy`, `WorkClassRuntimeConfig`, `WorkClassTask`, `WorkClassScheduler`, `WorkClassEventLoop`, `WorkClassDispatcher`, `WorkClassExecutionRegistry`, `SharedRocksDbResources`, `WorkClassSchedulerTest`, `WorkClassRuntimeConfigTest`, `WorkClassEventLoopTest`, `WorkClassDispatcherTest`, `WorkClassExecutionRegistryTest`, `SharedRocksDbResourcesTest`; all eight V1 classes require positive weights and bounded queue/turn records, bytes and time, including the independent `CHECKPOINT` execution class; the runtime config has no fallback defaults, requires exact eight-class coverage, only permits `LEASE_FENCE` preemption, requires nonzero minima for the six correctness/progress classes, checks aggregate minima against the shared record/byte pool and constructs scheduler/resource pool from one monotonic clock; `LEASE_FENCE` gets the first bounded preemptive turn but carries a cross-poll preemption debt so a continuously queued fence class yields to a runnable ordinary class (`WorkClassSchedulerTest.continuousPreemptiveQueueYieldsAcrossSmallPolls`), and stale queued classes are selected after the configured maximum delay; `WorkClassEventLoop` acquires one exact resource lease per task immediately before queue removal, restores the scheduler snapshot and releases earlier leases on a later admission rejection, fences a second poll until the prior turn closes, reserves the selected queue capacity against concurrent offers, and `runTurn` executes the bounded callback sequence outside the monitor while closing all leases on success or failure; a fatal/hold stop requeues only the exact trailing tasks whose handlers were never invoked, while an invoked task is not requeued; `WorkClassDispatcher` rejects incomplete class coverage and routes selected tasks through those same boundaries; `WorkClassExecutionRegistry` binds the complete task identity and byte charge before queue admission, rolls registration back on rejection, removes successful actions, retains started failures for exact explicit retry and leaves unstarted fatal suffix actions queued; every owner-side executor and all three checkpoint-side production executors bind through their Store/coordinator to one exact `SharedRocksDbResources`, and the resources/registry exact-identity fence is bidirectional so neither one resources object graph can accept a second registry nor one registry span two Store resource envelopes (`SharedRocksDbResourcesTest`); this proves one object graph cannot fork, while production bootstrap uniqueness, dynamic RocksDB WriteBatch admission and WriteBatch/IO authority remain release gates |
+| Worker event-loop work-class queue/turn seam | Implemented (local scheduler/resource/config/action lifecycle and exact resource-graph binding; production authority pending) | `WorkClass`, `WorkClassPolicy`, `WorkClassRuntimeConfig`, `WorkClassTask`, `WorkClassScheduler`, `WorkClassEventLoop`, `WorkClassDispatcher`, `WorkClassExecutionRegistry`, `SharedRocksDbResources`, `WorkClassSchedulerTest`, `WorkClassRuntimeConfigTest`, `WorkClassEventLoopTest`, `WorkClassDispatcherTest`, `WorkClassExecutionRegistryTest`, `SharedRocksDbResourcesTest`; all eight classes require positive weights and bounded queue/turn records, bytes and time, including the independent `CHECKPOINT` execution class; the runtime config has no fallback defaults, requires exact eight-class coverage, only permits `LEASE_FENCE` preemption, requires nonzero minima for the six correctness/progress classes, checks aggregate minima against the shared record/byte pool and constructs scheduler/resource pool from one monotonic clock; `LEASE_FENCE` gets the first bounded preemptive turn but carries a cross-poll preemption debt so a continuously queued fence class yields to a runnable ordinary class (`WorkClassSchedulerTest.continuousPreemptiveQueueYieldsAcrossSmallPolls`), and stale queued classes are selected after the configured maximum delay; `WorkClassEventLoop` acquires one exact resource lease per task immediately before queue removal, restores the scheduler snapshot and releases earlier leases on a later admission rejection, fences a second poll until the prior turn closes, reserves the selected queue capacity against concurrent offers, and `runTurn` executes the bounded callback sequence outside the monitor while closing all leases on success or failure; a fatal/hold stop requeues only the exact trailing tasks whose handlers were never invoked, while an invoked task is not requeued; `WorkClassDispatcher` rejects incomplete class coverage and routes selected tasks through those same boundaries; `WorkClassExecutionRegistry` binds the complete task identity and byte charge before queue admission, rolls registration back on rejection, removes successful actions, retains started failures for exact explicit retry and leaves unstarted fatal suffix actions queued; every owner-side executor and all three checkpoint-side production executors bind through their Store/coordinator to one exact `SharedRocksDbResources`, and the resources/registry exact-identity fence is bidirectional so neither one resources object graph can accept a second registry nor one registry span two Store resource envelopes (`SharedRocksDbResourcesTest`); this proves one object graph cannot fork, while production bootstrap uniqueness, dynamic RocksDB WriteBatch admission and WriteBatch/IO authority remain release gates |
 | Worker work-class reserve token seam | Implemented (local checked pool plus bounded-turn binding; production wiring pending) | `WorkClassResourcePool`, `WorkClassEventLoop`, `WorkClassResourcePoolTest`, `WorkClassEventLoopTest`; exact record/byte leases protect every other class' configured non-borrowable minima, convert acquisition-sum overflow into a closed resource rejection, mark borrowed capacity, bound borrowed hold time, release idempotently and are reacquired per bounded turn rather than held while queueing; production dynamic RocksDB attribution and WriteBatch/IO admission authority remain release gates |
 | Active and recovery source-apply work-class admission | Implemented (local active/recovery handler wiring; production source authority pending) | `SourceApplyWorkClassExecutor`, `OwnerRecoveryCoordinator`, `OwnedDelayShard`, `SourceReplayEntry`, `OwnerRecoveryCoordinatorTest`, `SourceApplyWorkClassExecutorTest`; active Command and signed System Mutation tasks, plus strict `CATCHING_UP` replay actions, bind a domain-separated identity to exact canonical Source Position/NDL1 frame bytes and charge their checked exact length, perform a mutation-free assignment/barrier/guard preflight before `SOURCE_APPLY` admission, reread execution-time Owner Lease/session before the Shard WriteBatch, return results projected to the current physical position, and advance the recovery cursor only after the exact action outcome and look-ahead identity are proven; ordinary failure remains source-owned and does not create a competing generic retry authority; direct active/recovery apply methods are ownership-package-only, while real Broker consumer/ACK, production Oxia session and dynamic WriteBatch/IO reserve attribution remain release gates |
-| Active READY-discovery and Claim-handoff work-class admission | Implemented (local bounded discovery, exact Store/Owner/Worker-permit binding, live-certificate handler, exact Claim rollback and logical permit seam; external authority pending) | `DueSchedulerWorkClassExecutor`, `ClaimHandoffWorkClassExecutor`, `WorkerCommandRuntime`, `WorkerShardRuntime`, `ClaimExecutionAdmission`, `WorkClassExecutionRegistry`, `OwnedDelayShard`, `PersistentLaneScheduler`, `ActiveLaneStateV1`, `DueSchedulerWorkClassExecutorTest`, `ClaimHandoffWorkClassExecutorTest`, `PublishAdmissionWorkClassExecutorTest`, `ClaimExecutionAdmissionTest`, `WorkClassExecutionRegistryTest`; discovery retains its exact Shard/canonical trusted-time/scan-budget identity and full rollback. Shared due/Claim preflight requires the persistent scheduler and owned runtime to have the same ShardId, complete Owner identity and byte-equal Store Incarnation; a same-Shard/same-Owner scheduler over another DB is rejected before action registration or Store access. One Worker registry binds one exact Claim permit pool, all Claim/Publish Admission executors reuse it, the pool rejects a second registry, and foreign-pool Reservations fail before action registration/append (`WorkClassExecutionRegistryTest.oneClaimAdmissionPoolCannotMultiplyCapacityAcrossWorkerRegistries`). The Claim action accepts only a previously polled head, derives or binds typed materialization/deadline/charge, rereads READY/Message/Timeline/typed Lane/Ready Certificate after queue wait, enforces Worker/Shard/Lane message-and-byte caps plus READY minima, exact-requeues known deferrals, and fences unknown failures. A successful local Claim consumes READY before releasing the retained scheduler identity; a READY certificate may remain with no physical key/current timing projection after the head is consumed. Profile/catalog, Object Store, Adapter serialization/size, channel/credential live generations, Publish Admission/Producer, production trusted-time/Oxia capacity authority and dynamic IO attribution remain release blockers |
+| Active READY-discovery and Claim-handoff work-class admission | Implemented (local bounded discovery, exact Store/Owner/Worker-permit binding, live-certificate handler, exact Claim rollback and logical permit seam; external authority pending) | `DueSchedulerWorkClassExecutor`, `ClaimHandoffWorkClassExecutor`, `WorkerCommandRuntime`, `WorkerShardRuntime`, `ClaimExecutionAdmission`, `WorkClassExecutionRegistry`, `OwnedDelayShard`, `PersistentLaneScheduler`, `ActiveLaneState`, `DueSchedulerWorkClassExecutorTest`, `ClaimHandoffWorkClassExecutorTest`, `PublishAdmissionWorkClassExecutorTest`, `ClaimExecutionAdmissionTest`, `WorkClassExecutionRegistryTest`; discovery retains its exact Shard/canonical trusted-time/scan-budget identity and full rollback. Shared due/Claim preflight requires the persistent scheduler and owned runtime to have the same ShardId, complete Owner identity and byte-equal Store Incarnation; a same-Shard/same-Owner scheduler over another DB is rejected before action registration or Store access. One Worker registry binds one exact Claim permit pool, all Claim/Publish Admission executors reuse it, the pool rejects a second registry, and foreign-pool Reservations fail before action registration/append (`WorkClassExecutionRegistryTest.oneClaimAdmissionPoolCannotMultiplyCapacityAcrossWorkerRegistries`). The Claim action accepts only a previously polled head, derives or binds typed materialization/deadline/charge, rereads READY/Message/Timeline/typed Lane/Ready Certificate after queue wait, enforces Worker/Shard/Lane message-and-byte caps plus READY minima, exact-requeues known deferrals, and fences unknown failures. A successful local Claim consumes READY before releasing the retained scheduler identity; a READY certificate may remain with no physical key/current timing projection after the head is consumed. Profile/catalog, Object Store, Adapter serialization/size, channel/credential live generations, Publish Admission/Producer, production trusted-time/Oxia capacity authority and dynamic IO attribution remain release blockers |
 | Message expiry discovery and exact-mutation handoff | Implemented (local record/actual-byte/elapsed bounded discovery plus append handoff; external authority pending) | `ExpiryDiscoveryWorkClassExecutor`, `ExpiryWorkClassExecutor`, `BoundedReadBudget`, `OwnedDelayShard`, `DelayShard`, `ShardStore`, `ExpiryDiscoveryWorkClassExecutorTest`, `ExpiryWorkClassExecutorTest`, `ShardStoreTest`; discovery binds the exact Shard/canonical Trusted-UTC evidence/full scan envelope before `EXPIRY` admission, rejection reads no Oxia/clock/Store state, execution rereads strict Owner authority, and one shared budget charges actual `timeline_cf/EXPIRY` plus dependent `id_cf/MESSAGE` key/value bytes and elapsed time. An individually oversized candidate fails closed; a later candidate that does not fit remains durable for another turn. Discovery is state-neutral, while each exact candidate is independently signed and handed to the external Shard Log appender without local Source Position allocation; production scheduling, Trusted-Time/Oxia authority, Broker append/ACK and source replay remain release blockers |
 | Scheduled checkpoint work-class admission | Implemented (local concrete handler wiring and derived static request charge; production authority pending) | `CheckpointWorkClassExecutor`, `CheckpointExecutionCoordinator`, `WorkClassExecutionRegistry`, `CheckpointExecutionCoordinatorTest.checkpointWorkClassRejectsBeforeIoThenExecutesTheExactClaim`; exact scheduler claim and pending intent are fenced before `CHECKPOINT` queue admission and repeated before I/O, normalized path/claim/pending-intent/upload-time bytes form one canonical identity whose domain-separated hash is the task ID and whose exact length is the queue byte charge, caller-supplied `workClassBytes` is absent, negative upload time fails before admission, direct preflight/execution methods are package-private so cross-package composition must use the bounded entrypoint, queue rejection leaves the current claim and filesystem/provider state unchanged, ordinary attempt failure returns a checkpoint-owned outcome without a stale generic work action, and only the next exact scheduler claim can start the next physical attempt; Owner Lease/session, Source Assignment, external Object Store/Oxia authority, the other shard-specific handlers and dynamic checkpoint-file/upload/WriteBatch I/O attribution remain release gates |
 | Signed Worker PUBLISH_OUTCOME construction | Implemented (typed local factory; context and source authority pending) | `WorkerPublishOutcomeMutationFactory`, `WorkerPublishOutcomeMutationFactoryTest`; exact PUBLISHING ledger/request identity, physical-result side-effect/disposition compatibility, typed PublishEvidence ownership, canonical `PublishOutcomeBody` construction and Ed25519 `SystemMutation` signing are enforced; external retry-policy/charge/time context, live owner/signing-key authority, Broker evidence and source-log append/application remain release blockers |
@@ -5637,39 +5637,39 @@ checkpoint publication or release readiness.
 | Scheduled checkpoint execution | Implemented (local orchestration; production authority pending) | `CheckpointExecutionCoordinator`, `CheckpointExecutionCoordinatorTest`; exact scheduler claim is fenced before I/O and completed with the same handle after success/failure, fixed intent checkpoint identity is passed to `ShardStore.createCheckpoint`, an existing directory is reusable only with the matching persisted `lastCheckpointId`, and manifest identity/source/mutation/evidence/control projections are checked before upload/catalog publication; Owner Lease/session, Source Assignment, Object Store attestation/quiescence and cross-record Oxia transaction remain release blockers |
 | Crash-durable local checkpoint Upload Intent | Implemented (local projection plus per-intent Oxia CAS backend; cross-record authority pending) | `CheckpointUploadIntentAuthority`, `CheckpointUploadIntentStore(Path)`, `OxiaSyncCheckpointUploadIntentBackend`, `CheckpointUploadIntentStoreTest`, `OxiaSyncCheckpointUploadIntentBackendTest`; the local state file and concrete Oxia record both store the complete canonical intent, enforce exact PENDING_UPLOAD -> PUBLISHED/REAPING revision CAS, deadline evidence and exact response-loss reread; local reopen/checksum and Oxia corruption/reopen paths are covered. The coordinator accepts either authority, while Owner Lease/session + catalog publication transaction, Object Store attestation, owner-abandonment and reaping/quiescence remain external |
 | Checkpoint Upload Intent Oxia session fence | In progress (independent single-record CAS fence; combined publication authority separate) | `OxiaSyncCheckpointUploadIntentBackend` adds a `ClientHandle` constructor and checks the connected Oxia session marker before and after every independent `/intent` record read/write; `OxiaSyncCheckpointUploadIntentBackendTest.sessionFenceRejectsACommittedIntentAfterTheMarkerChanges` proves a durable fake CAS is not reported as success after marker loss. The separate intent/catalog/pin transaction, Owner/session recovery, provider evidence, source ordering, chaos and release gates remain open |
-| Checkpoint file inventory and canonical manifest projection | Implemented (local physical upload/download seams and CAS projection; external publication pending) | `CheckpointFileInventory`, `CheckpointManifestLimits`, `CheckpointManifest`, `CheckpointManifestJson`, `CheckpointResourceV1`, `CheckpointUploadStateV1`, `CheckpointUploadIntentV1`, `CheckpointDownloadRequest`, `CheckpointUploadIntentStore`, `CheckpointReapingGuard`, `CheckpointUploadAdapter`, `CheckpointUploadRequest`, `CheckpointUploadCoordinator`, `CheckpointExecutionCoordinator`, `FilesystemCheckpointUploadAdapter`, `FilesystemCheckpointDownloadAdapter`, `CheckpointControlSnapshotVerifier`, `CheckpointScheduler`, `CheckpointManifestTest`, `CheckpointResourceV1Test`, `CheckpointUploadIntentV1Test`, `CheckpointUploadIntentStoreTest`, `CheckpointReapingGuardTest`, `CheckpointUploadCoordinatorTest`, `CheckpointExecutionCoordinatorTest`, `FilesystemCheckpointUploadAdapterTest`, `FilesystemCheckpointDownloadAdapterTest`, `CheckpointControlSnapshotVerifierTest`, `CheckpointSchedulerTest`; inventory and the filesystem adapters stream SHA-256 over each file without loading an SST into heap, reject symbolic links or non-regular files before copy, enforce explicit manifest limits, derive deterministic immutable object paths from opaque object key/version, write the manifest last through temporary-file/atomic-rename, verify identical existing bytes on retry, validate catalog-bound manifest/resource identity before download, re-inventory the complete private restore tree and publish it only through an atomic rename; the manifest decoder enforces the closed field order/types, Kafka/Pulsar typed `EvidenceCursorV1` branches, strict cursor identity ordering and byte-identical canonical JSON round trip; the published-manifest Object Store identity and upload-intent state branches have closed canonical codecs, and the local coordinators verify exact pending intent, deadline, shard/lineage/owner/store/parent identity, complete local file inventory, recognized RocksDB format/store identity (`StoreMetadata` shard/`dbIdentity`/Store Incarnation) plus key-10 control snapshot, Worker upload/download slots, then reread the exact intent immediately before provider I/O, and validate returned manifest length/SHA-256 before PENDING_UPLOAD -> PUBLISHED revision CAS; the local scheduler validates interval/jitter, spreads owned shards deterministically, fences duplicate in-flight claims, and requires the exact returned claim handle for completion so stale callbacks cannot reset a newer attempt; an exact PUBLISHED successor is reread after response loss without another adapter call, and a concurrent post-slot publication/change is handled without invoking the adapter (`CheckpointUploadCoordinatorTest.rereadsIntentAfterUploadSlotBeforeProviderIo`); the guarded local PENDING_UPLOAD -> REAPING overload also rejects published catalog protection, same-checkpoint active RecoveryPin protection, unavailable catalog/pin reads, and Floor/coverage authority failures, while legacy no-limits overloads remain compatibility seams and real Oxia lease/session/catalog CAS, Object Store credentials/quiescence/attestation/publication/deletion, owner-abandonment proof and reaping/quiescence remain pending |
-| Checkpoint restore into a new Store Incarnation | Implemented (local download-to-restore orchestration and bounded `CHECKPOINT` admission; external authority pending) | `CheckpointDownloadRequest`, `CheckpointDownloadAdapter`, `FilesystemCheckpointDownloadAdapter`, `CheckpointRestoreCoordinator`, `CheckpointRestoreWorkClassExecutor`, `ShardStore.restoreFromCheckpoint`, `CheckpointManifest.decodeCanonicalJson`, `CheckpointManifestLimits`, `FilesystemCheckpointDownloadAdapterTest`, `CheckpointRestoreCoordinatorTest`, `ShardStoreTest`; the local downloader verifies the catalog-bound manifest object/resource identity, streams immutable file objects into a private temporary tree, re-inventories every file before atomic target publication and removes failed staging; `CheckpointRestoreWorkClassExecutor` binds the exact manifest/resource/optional-pin request identity and checked byte charge before `CHECKPOINT` admission, performs no catalog/provider/filesystem I/O on queue rejection, and runs the complete download → inventory validation → Store-Incarnation install action before returning a caller-owned open Store or restore failure evidence; `CheckpointRestoreCoordinator` constrains provider output to a per-attempt staging boundary, validates the complete downloaded inventory and only then invokes `ShardStore`'s finite-limit manifest/pin-aware restore, deleting the provider tree after Store Incarnation installation; `ShardStore` raw-decodes and catalog-validates canonical manifest bytes, enforces the raw manifest byte cap before JSON parsing and the finite limit set before complete source-file verification/copy, re-inventories the private restore-tmp copy against the same manifest before staged open/install, compares staged DB identity plus persisted `lastCheckpointId`, `appliedShardLogPosition`, `shardMutationSequence`, evidence cursors, required key-10 `CompatibleControlSnapshotV1.snapshotDigest` and `meta/RECOVERY` lineage/base/Floor/install projections to the exact manifest before install (including candidate checkpoint/hash and LOCAL_STORE source Store Incarnation), directory-fsyncs the newly renamed Store Incarnation parent before the checksummed `ACTIVE` pointer can publish it, and the pin-aware overload rereads the exact active RecoveryPin after staging, immediately before the atomic Store Incarnation move, and again immediately before ACTIVE publication; `FilesystemCheckpointDownloadAdapterTest`, `CheckpointRestoreCoordinatorTest.restoreQueueRejectionDoesNotCallProviderOrCreateStaging`, `ShardStoreTest.catalogBoundRestoreRejectsPinDriftBeforeActivePublication`, `ShardStoreTest.restoreWithManifestRejectsMissingControlSnapshot`, `ShardStoreTest.restoreWithManifestRejectsControlStateDigestDrift`, `ShardStoreTest.restoreWithManifestRejectsRecoveryProjectionLineageDrift`, `ShardStoreTest.restoreWithManifestRejectsRecoveryProjectionCheckpointDrift` and `ShardStoreTest.restoreWithManifestRejectsRecoveryProjectionManifestHashDrift` cover the projection-splice, object-integrity, staging-boundary and late-session fences; legacy no-limits restore overloads remain compatibility seams, while Oxia Recovery Pin/Floor CAS, Source Assignment and source replay remain pending |
-| Recovery catalog, lineage and Floor selection | Implemented (typed local codecs, crash-durable local projection, typed cursor-dominant Floor projection, manifest-bound evidence cursors, upload-intent-bound publication and bounded pin authority; single-record Oxia catalog CAS plus read-only local-reuse validation) | `RecoveryFloorRefV1`, `RecoveryCandidateRefV1`, `RecoveryPinV1`, `EvidenceCursorV1`, `RecoveryCatalog`, `PersistentRecoveryCatalog`, `RecoveryCatalogAuthority`, `OxiaRecoveryCatalog`, `OxiaSyncRecoveryCatalogBackend`, `RecoveryFloor`, `RecoveryFloorRefV1Test`, `RecoveryCandidateRefV1Test`, `RecoveryPinV1Test`, `EvidenceCursorV1Test`, `RecoveryCatalogTest`, `PersistentRecoveryCatalogTest`, `OxiaSyncRecoveryCatalogBackendTest`; the typed references canonically bind lineage/checkpoint/manifest, catalog generation, Source Position, mutation sequence, sorted evidence cursors, candidate branch and session identity digest; the local catalog still binds one shard, rejects non-zero genesis lineage, enforces floor ancestry, requires the Floor cursor set to byte-match the candidate manifest and then enforces same-generation cursor dominance, exposes candidate validation/selection and `proveFloorCoverage`, independently fences requested mutation/source boundary coverage with canonical Source Position equality on equal order tokens, requires a PUBLISHED `CheckpointUploadIntentV1` plus exact manifest/object/owner/store/parent identity for the local publication projection, validates the same request binding before an Oxia upload-intent CAS, copies mutable checkpoint/digest/cursor/coverage inputs before backend CAS, validates optional Oxia publication Floors and all candidate/ancestry manifests against their complete canonical JSON projection, shard and publication generation, and validates every Oxia coverage ancestry edge against published parent id/hash, lineage/source/mutation progression and evidence-cursor dominance; the single-record Oxia backend persists one bounded manifest/resource/scalar-Floor/typed-Floor snapshot with version CAS and validates reusable local Store lineage/Floor/install projections against it; `PersistentRecoveryCatalog(Path)` persists sorted canonical manifests, resource identities, scalar/typed Floors and one active pin with checksum, atomic replacement, directory fsync and cross-instance locking, and reloads the exact snapshot before each read/CAS; a session-bound pin is also reopen-safe after the current Floor advances because its historical observed Floor and full candidate ancestry are retained and revalidated (`PersistentRecoveryCatalogTest.historicalRecoveryPinSurvivesReopenAfterFloorAdvances`); durable Oxia Owner Lease/session and cross-record catalog/pin CAS, real Object Store publication/attestation, and evidence-cursor retention/dominance enforcement remain pending |
+| Checkpoint file inventory and canonical manifest projection | Implemented (local physical upload/download seams and CAS projection; external publication pending) | `CheckpointFileInventory`, `CheckpointManifestLimits`, `CheckpointManifest`, `CheckpointManifestJson`, `CheckpointResource`, `CheckpointUploadState`, `CheckpointUploadIntent`, `CheckpointDownloadRequest`, `CheckpointUploadIntentStore`, `CheckpointReapingGuard`, `CheckpointUploadAdapter`, `CheckpointUploadRequest`, `CheckpointUploadCoordinator`, `CheckpointExecutionCoordinator`, `FilesystemCheckpointUploadAdapter`, `FilesystemCheckpointDownloadAdapter`, `CheckpointControlSnapshotVerifier`, `CheckpointScheduler`, `CheckpointManifestTest`, `CheckpointResourceTest`, `CheckpointUploadIntentTest`, `CheckpointUploadIntentStoreTest`, `CheckpointReapingGuardTest`, `CheckpointUploadCoordinatorTest`, `CheckpointExecutionCoordinatorTest`, `FilesystemCheckpointUploadAdapterTest`, `FilesystemCheckpointDownloadAdapterTest`, `CheckpointControlSnapshotVerifierTest`, `CheckpointSchedulerTest`; inventory and the filesystem adapters stream SHA-256 over each file without loading an SST into heap, reject symbolic links or non-regular files before copy, enforce explicit manifest limits, derive deterministic immutable object paths from opaque object key/version, write the manifest last through temporary-file/atomic-rename, verify identical existing bytes on retry, validate catalog-bound manifest/resource identity before download, re-inventory the complete private restore tree and publish it only through an atomic rename; the manifest decoder enforces the closed field order/types, Kafka/Pulsar typed `EvidenceCursor` branches, strict cursor identity ordering and byte-identical canonical JSON round trip; the published-manifest Object Store identity and upload-intent state branches have closed canonical codecs, and the local coordinators verify exact pending intent, deadline, shard/lineage/owner/store/parent identity, complete local file inventory, recognized RocksDB format/store identity (`StoreMetadata` shard/`dbIdentity`/Store Incarnation) plus key-10 control snapshot, Worker upload/download slots, then reread the exact intent immediately before provider I/O, and validate returned manifest length/SHA-256 before PENDING_UPLOAD -> PUBLISHED revision CAS; the local scheduler validates interval/jitter, spreads owned shards deterministically, fences duplicate in-flight claims, and requires the exact returned claim handle for completion so stale callbacks cannot reset a newer attempt; an exact PUBLISHED successor is reread after response loss without another adapter call, and a concurrent post-slot publication/change is handled without invoking the adapter (`CheckpointUploadCoordinatorTest.rereadsIntentAfterUploadSlotBeforeProviderIo`); the guarded local PENDING_UPLOAD -> REAPING overload also rejects published catalog protection, same-checkpoint active RecoveryPin protection, unavailable catalog/pin reads, and Floor/coverage authority failures, while legacy no-limits overloads remain compatibility seams and real Oxia lease/session/catalog CAS, Object Store credentials/quiescence/attestation/publication/deletion, owner-abandonment proof and reaping/quiescence remain pending |
+| Checkpoint restore into a new Store Incarnation | Implemented (local download-to-restore orchestration and bounded `CHECKPOINT` admission; external authority pending) | `CheckpointDownloadRequest`, `CheckpointDownloadAdapter`, `FilesystemCheckpointDownloadAdapter`, `CheckpointRestoreCoordinator`, `CheckpointRestoreWorkClassExecutor`, `ShardStore.restoreFromCheckpoint`, `CheckpointManifest.decodeCanonicalJson`, `CheckpointManifestLimits`, `FilesystemCheckpointDownloadAdapterTest`, `CheckpointRestoreCoordinatorTest`, `ShardStoreTest`; the local downloader verifies the catalog-bound manifest object/resource identity, streams immutable file objects into a private temporary tree, re-inventories every file before atomic target publication and removes failed staging; `CheckpointRestoreWorkClassExecutor` binds the exact manifest/resource/optional-pin request identity and checked byte charge before `CHECKPOINT` admission, performs no catalog/provider/filesystem I/O on queue rejection, and runs the complete download → inventory validation → Store-Incarnation install action before returning a caller-owned open Store or restore failure evidence; `CheckpointRestoreCoordinator` constrains provider output to a per-attempt staging boundary, validates the complete downloaded inventory and only then invokes `ShardStore`'s finite-limit manifest/pin-aware restore, deleting the provider tree after Store Incarnation installation; `ShardStore` raw-decodes and catalog-validates canonical manifest bytes, enforces the raw manifest byte cap before JSON parsing and the finite limit set before complete source-file verification/copy, re-inventories the private restore-tmp copy against the same manifest before staged open/install, compares staged DB identity plus persisted `lastCheckpointId`, `appliedShardLogPosition`, `shardMutationSequence`, evidence cursors, required key-10 `CompatibleControlSnapshot.snapshotDigest` and `meta/RECOVERY` lineage/base/Floor/install projections to the exact manifest before install (including candidate checkpoint/hash and LOCAL_STORE source Store Incarnation), directory-fsyncs the newly renamed Store Incarnation parent before the checksummed `ACTIVE` pointer can publish it, and the pin-aware overload rereads the exact active RecoveryPin after staging, immediately before the atomic Store Incarnation move, and again immediately before ACTIVE publication; `FilesystemCheckpointDownloadAdapterTest`, `CheckpointRestoreCoordinatorTest.restoreQueueRejectionDoesNotCallProviderOrCreateStaging`, `ShardStoreTest.catalogBoundRestoreRejectsPinDriftBeforeActivePublication`, `ShardStoreTest.restoreWithManifestRejectsMissingControlSnapshot`, `ShardStoreTest.restoreWithManifestRejectsControlStateDigestDrift`, `ShardStoreTest.restoreWithManifestRejectsRecoveryProjectionLineageDrift`, `ShardStoreTest.restoreWithManifestRejectsRecoveryProjectionCheckpointDrift` and `ShardStoreTest.restoreWithManifestRejectsRecoveryProjectionManifestHashDrift` cover the projection-splice, object-integrity, staging-boundary and late-session fences; legacy no-limits restore overloads remain compatibility seams, while Oxia Recovery Pin/Floor CAS, Source Assignment and source replay remain pending |
+| Recovery catalog, lineage and Floor selection | Implemented (typed local codecs, crash-durable local projection, typed cursor-dominant Floor projection, manifest-bound evidence cursors, upload-intent-bound publication and bounded pin authority; single-record Oxia catalog CAS plus read-only local-reuse validation) | `RecoveryFloorRef`, `RecoveryCandidateRef`, `RecoveryPin`, `EvidenceCursor`, `RecoveryCatalog`, `PersistentRecoveryCatalog`, `RecoveryCatalogAuthority`, `OxiaRecoveryCatalog`, `OxiaSyncRecoveryCatalogBackend`, `RecoveryFloor`, `RecoveryFloorRefTest`, `RecoveryCandidateRefTest`, `RecoveryPinTest`, `EvidenceCursorTest`, `RecoveryCatalogTest`, `PersistentRecoveryCatalogTest`, `OxiaSyncRecoveryCatalogBackendTest`; the typed references canonically bind lineage/checkpoint/manifest, catalog generation, Source Position, mutation sequence, sorted evidence cursors, candidate branch and session identity digest; the local catalog still binds one shard, rejects non-zero genesis lineage, enforces floor ancestry, requires the Floor cursor set to byte-match the candidate manifest and then enforces same-generation cursor dominance, exposes candidate validation/selection and `proveFloorCoverage`, independently fences requested mutation/source boundary coverage with canonical Source Position equality on equal order tokens, requires a PUBLISHED `CheckpointUploadIntent` plus exact manifest/object/owner/store/parent identity for the local publication projection, validates the same request binding before an Oxia upload-intent CAS, copies mutable checkpoint/digest/cursor/coverage inputs before backend CAS, validates optional Oxia publication Floors and all candidate/ancestry manifests against their complete canonical JSON projection, shard and publication generation, and validates every Oxia coverage ancestry edge against published parent id/hash, lineage/source/mutation progression and evidence-cursor dominance; the single-record Oxia backend persists one bounded manifest/resource/scalar-Floor/typed-Floor snapshot with version CAS and validates reusable local Store lineage/Floor/install projections against it; `PersistentRecoveryCatalog(Path)` persists sorted canonical manifests, resource identities, scalar/typed Floors and one active pin with checksum, atomic replacement, directory fsync and cross-instance locking, and reloads the exact snapshot before each read/CAS; a session-bound pin is also reopen-safe after the current Floor advances because its historical observed Floor and full candidate ancestry are retained and revalidated (`PersistentRecoveryCatalogTest.historicalRecoveryPinSurvivesReopenAfterFloorAdvances`); durable Oxia Owner Lease/session and cross-record catalog/pin CAS, real Object Store publication/attestation, and evidence-cursor retention/dominance enforcement remain pending |
 | Command applied/rejected state machine | Implemented (embedded core) | `DelayShard`, `DelayShardTest`, `DurableResultTest` |
 | DUE/ORDERED/READY/EXPIRY timeline namespaces | Implemented (embedded core subset) | `DelayShard`, `MessageRecord`, `TimelineWorkRef`, `GenerationRuntimeIndex`, `ClaimRecord`, `ReadyIndexValue`, `KeyCodec`, `GenerationRuntimeIndexTest`, `KeyCodecTest`, `DelayShardTest`; READY key/value, laneVersion fencing, retry eligibility for unordered definitive retry, canonical timeline semantic/instance digests, v4 runtime-index persistence, atomic affected-lane updates, durable Claim removal/restoration including source-ordered Lane Pause rollback, fenced rebuild/discovery, replay-stable Claim Result timeline-key/semantic-digest checks, current `id_cf/MESSAGE` reads and activation/close/retirement scans fenced to the self-routing key shard and embedded schedule Source Position shard, Cancel/Reschedule fencing whenever an UNCERTAIN obligation survives a current-work projection, the pinned-policy `UNKNOWN` scheduling plus `UNCERTAIN_RETRY` Admission subset that materializes timeline work while retaining the old obligation, ProfileCatalog-backed `ResolvedSchedule.actionAtEpochMs` persistence and replay derivation, `headEligibilityAt=max(actionAt,retryEligibility)` READY projection while ORDERED keys remain deliverAt-based, and exact constructors for the registered FENCE, GC protection, Producer and Recovery key layouts are covered; new DUE/ORDERED and paired EXPIRY writes now store direct canonical `TimelineWorkRef` values, readers validate the embedded key, current runtime projection and rich READY eligibility, and legacy `TimelineEntry` values are accepted only as a read-only migration seam; DUE rich values now require the physical key timestamp to equal `max(actionAt,retryEligibilityAt)`, ORDERED values cannot precede that eligibility and `UNCERTAIN_RETRY` cannot use an ordered namespace; `CONTROL_OVERRIDE` nested ControlRef/Source Position values are canonical-decoded before becoming durable and must belong to the self-routing Shard encoded in the timeline key; canonical v4 `GenerationRuntimeIndex` now rejects aggregate/current-work drift, uncertain obligations attached to a non-`UNCERTAIN_RETRY` timeline and non-terminal `NONE` placeholders, while old scalar-only `MessageRecord` values round-trip only through an explicit legacy v3 compatibility seam and must be replaced before a new typed write; typed `MessageRecord` status/runtime drift is also rejected; `DelayShardTest.resolvedActionAtIsEarlierThanDeliverAtButOrderedKeyKeepsBusinessVisibilityOrder`, `GenerationRuntimeIndexTest.timelineWorkFencesPhysicalEligibilityAndOrderedUncertainRetry`, `GenerationRuntimeIndexTest.controlOverrideTimelineRequiresCanonicalTypedNestedValues`, `GenerationRuntimeIndexTest.controlOverrideTimelineRejectsSourcePositionFromAnotherShard`, `GenerationRuntimeIndexTest.runtimeIndexFencesAggregateAndCurrentWorkProjectionDrift`, `MessageRecordTest.typedRuntimeCannotDisagreeWithMessageStatus`, `MessageRecordTest.handedOffStatusUsesTheRegisteredTerminalAggregateProjection` and `LaneSchedulerTest.fencedRecoveryAcceptsCanonicalTimelineWorkRefValue` cover the local boundary; authenticated control authority and policy-bound timeline materialization beyond this local budget remain pending |
-| `CLAIMED`/`PUBLISHING`/`UNCERTAIN` attempt ledger and obligation locator | Implemented (durable local Claim plus source-ordered attempt subset) | `ClaimRecord`, `PublishAttemptLedger`, `AttemptObligationRef`, `GenerationRuntimeIndex`, `PublishAdmissionBody`, `PublishOutcomeBody`, `RetryPolicyCatalog`, `DelayShard`, `DelayShardTest`; local Claim sequence/key/value and exact precondition/instance digest are persisted atomically, registry-shaped runtime index and canonical obligation-set digest are persisted with v4 Message records, source-ordered `PUBLISH_ADMISSION_V1` checks replay-stable timeline key/semantic/counter/obligation projections and descriptor attempt number, including the `UNCERTAIN_RETRY` source-work branch, reconstructs the same PUBLISHING attempt when the reversible Claim is absent but source state matches, retains admission counters across definitive retry timelines, structurally bounds descriptor `actionAt <= deliverAt`, and when the exact Profile catalog is supplied validates ordinary timing or the pinned certified Pulsar handoff lead before admission; when the catalog is supplied it also revalidates the pinned immutable policy budgets at Admission, uncertain retry, and reopen; shard activation now performs bounded bidirectional reconciliation between every current/terminal runtime obligation ref and its exact PUBLISHING/UNCERTAIN ledger, and between every live ledger/Claim and the current Message branch, failing closed on an orphan, missing counterpart, persisted total-admission overflow, or terminal/runtime summary mismatch; source-ordered `PUBLISH_OUTCOME_V1` UNKNOWN atomically migrates to UNCERTAIN, can materialize the pinned-policy `UNCERTAIN_RETRY` timeline subset without consuming the retry counter, but a closed Lane keeps the generation in UNCERTAIN with no retry timeline, verified-success closes the ledger, definitive `NOT_PUBLISHED` retriable/permanent/lane-unavailable outcomes atomically requeue, terminalize, or block the lane, and a definitive not-published outcome on a closed Lane is terminalized as `LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED` without retry; definitive Outcome/Resolution transfer now must be canonical byte-identical to the retained Admission charge, with mismatch persisted as `REJECTED(STALE_SYSTEM_MUTATION)` without changing the attempt/message/timeline/quota, while UNKNOWN transfer remains opaque; late outcomes from either the current or an older generation settle only the exact ledger/terminal summary while preserving terminal decision state and monotonically raising duplicate risk for verified success; service-authored verified `EVIDENCE_RESOLUTION_V1` can close or requeue the exact UNCERTAIN ledger; `RetryDecisionV1.completed_attempt_no` and DLQ physical attempts are parsed as complete `uint32` values, with high-bit round-trip, upper-bound rejection, and unsigned checked DLQ successor/comparison coverage in `PublishOutcomeBodyTest`, `DlqExportResultBodyTest` and `DelayShardTest`; `meta_cf/QUOTA quotaClass=3` now also records each durable Claim and attempt obligation's `inflight_messages/inflight_bytes` by Lane, rebuilds from `inflight_cf` and repairs a missing legacy map on release; full Profile/Adapter/evidence/capacity validation, immutable RetryPolicy publication/authority, multi-obligation terminal-summary lifecycle beyond current-generation settlement, uncertain-retry ControlRef/policy enforcement beyond the local automatic budget, logical/retained/evidence quota dimensions, Recovery Floor/source replay and full Claim materialization/recovery semantics remain pending |
-| Claim/Prepared Publish materialization projection | Implemented (typed local canonical codec and raw-bit runtime projection; external authority pending) | `PayloadForPublishV1`, `ClaimMaterializationV1`, `ClaimResultBody`, `PublishAdmissionBody`, `PublishAdmissionBody.Descriptor`, `ClaimRecord`, `PublishAttemptLedger`, `MessageRecord`, `KeyCodec`, `UnsignedInt32`, `PayloadForPublishV1Test`, `ClaimMaterializationV1Test`, `ClaimResultBodyTest`, `PublishAdmissionBodyTest`, `PublishAttemptLedgerTest`, `MessageRecordTest`, `KeyCodecTest`, `UnsignedInt32Test`; inline/object payload union, exact length/SHA-256, Profile slot kinds, Broker resource and adapter-metadata branch agreement, complete uint32 partition/generation, nonnegative timing/order constraints, canonical bytes and `nereus-delay-claim-materialization-v1` digest are shared across Claim Result, Admission and Descriptor parsing; compatibility runtime fields preserve raw high-bit generation/attempt bits, key/value encoders use bit-preserving u32 writes, generation comparison and checked successor paths use unsigned order, and public Message/Command projections round-trip the complete domain; the legacy `CommandResult` rejected-result absence sentinel remains a separate compatibility boundary and is never interpreted as a valid generation; typed accessors do not perform live catalog/Object Store/Producer calls, so full materialization authority, adapter serialization/target-size certification and crash recovery remain blockers |
+| `CLAIMED`/`PUBLISHING`/`UNCERTAIN` attempt ledger and obligation locator | Implemented (durable local Claim plus source-ordered attempt subset) | `ClaimRecord`, `PublishAttemptLedger`, `AttemptObligationRef`, `GenerationRuntimeIndex`, `PublishAdmissionBody`, `PublishOutcomeBody`, `RetryPolicyCatalog`, `DelayShard`, `DelayShardTest`; local Claim sequence/key/value and exact precondition/instance digest are persisted atomically, registry-shaped runtime index and canonical obligation-set digest are persisted with v4 Message records, source-ordered `PUBLISH_ADMISSION` checks replay-stable timeline key/semantic/counter/obligation projections and descriptor attempt number, including the `UNCERTAIN_RETRY` source-work branch, reconstructs the same PUBLISHING attempt when the reversible Claim is absent but source state matches, retains admission counters across definitive retry timelines, structurally bounds descriptor `actionAt <= deliverAt`, and when the exact Profile catalog is supplied validates ordinary timing or the pinned certified Pulsar handoff lead before admission; when the catalog is supplied it also revalidates the pinned immutable policy budgets at Admission, uncertain retry, and reopen; shard activation now performs bounded bidirectional reconciliation between every current/terminal runtime obligation ref and its exact PUBLISHING/UNCERTAIN ledger, and between every live ledger/Claim and the current Message branch, failing closed on an orphan, missing counterpart, persisted total-admission overflow, or terminal/runtime summary mismatch; source-ordered `PUBLISH_OUTCOME` UNKNOWN atomically migrates to UNCERTAIN, can materialize the pinned-policy `UNCERTAIN_RETRY` timeline subset without consuming the retry counter, but a closed Lane keeps the generation in UNCERTAIN with no retry timeline, verified-success closes the ledger, definitive `NOT_PUBLISHED` retriable/permanent/lane-unavailable outcomes atomically requeue, terminalize, or block the lane, and a definitive not-published outcome on a closed Lane is terminalized as `LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED` without retry; definitive Outcome/Resolution transfer now must be canonical byte-identical to the retained Admission charge, with mismatch persisted as `REJECTED(STALE_SYSTEM_MUTATION)` without changing the attempt/message/timeline/quota, while UNKNOWN transfer remains opaque; late outcomes from either the current or an older generation settle only the exact ledger/terminal summary while preserving terminal decision state and monotonically raising duplicate risk for verified success; service-authored verified `EVIDENCE_RESOLUTION` can close or requeue the exact UNCERTAIN ledger; `RetryDecision.completed_attempt_no` and DLQ physical attempts are parsed as complete `uint32` values, with high-bit round-trip, upper-bound rejection, and unsigned checked DLQ successor/comparison coverage in `PublishOutcomeBodyTest`, `DlqExportResultBodyTest` and `DelayShardTest`; `meta_cf/QUOTA quotaClass=3` now also records each durable Claim and attempt obligation's `inflight_messages/inflight_bytes` by Lane, rebuilds from `inflight_cf` and repairs a missing legacy map on release; full Profile/Adapter/evidence/capacity validation, immutable RetryPolicy publication/authority, multi-obligation terminal-summary lifecycle beyond current-generation settlement, uncertain-retry ControlRef/policy enforcement beyond the local automatic budget, logical/retained/evidence quota dimensions, Recovery Floor/source replay and full Claim materialization/recovery semantics remain pending |
+| Claim/Prepared Publish materialization projection | Implemented (typed local canonical codec and raw-bit runtime projection; external authority pending) | `PayloadForPublish`, `ClaimMaterialization`, `ClaimResultBody`, `PublishAdmissionBody`, `PublishAdmissionBody.Descriptor`, `ClaimRecord`, `PublishAttemptLedger`, `MessageRecord`, `KeyCodec`, `UnsignedInt32`, `PayloadForPublishTest`, `ClaimMaterializationTest`, `ClaimResultBodyTest`, `PublishAdmissionBodyTest`, `PublishAttemptLedgerTest`, `MessageRecordTest`, `KeyCodecTest`, `UnsignedInt32Test`; inline/object payload union, exact length/SHA-256, Profile slot kinds, Broker resource and adapter-metadata branch agreement, complete uint32 partition/generation, nonnegative timing/order constraints, canonical bytes and `nereus-delay-claim-materialization` digest are shared across Claim Result, Admission and Descriptor parsing; compatibility runtime fields preserve raw high-bit generation/attempt bits, key/value encoders use bit-preserving u32 writes, generation comparison and checked successor paths use unsigned order, and public Message/Command projections round-trip the complete domain; the legacy `CommandResult` rejected-result absence sentinel remains a separate compatibility boundary and is never interpreted as a valid generation; typed accessors do not perform live catalog/Object Store/Producer calls, so full materialization authority, adapter serialization/target-size certification and crash recovery remain blockers |
 | Reversible Claim activation recovery | Implemented (bounded local seam; external authority pending) | `DelayShard.requeueClaimsForRecovery`, `OwnedDelayShard.activateForCommands`, `DelayShardTest.localClaimIsDurableAndRecoveryRequeueRestoresSemanticTimelineAtomically`, `OwnerLeaseTest.activationRequeuesRestoredClaimBeforeOpeningCommandGate`; before either activation path opens `ACTIVE_FOR_COMMANDS`, all bounded `inflight_cf/CLAIMED` records are scanned and restored through atomic timeline/Message/READY/quota batches with the same semantic work digest and a checked successor runtime instance; malformed/over-bound claims fail closed, while `PUBLISHING`/`UNCERTAIN` remain for source-ordered outcome/evidence recovery. Source successor, Oxia lease/session, adapter materialization, full obligation accounting and external Producer authority remain release blockers |
-| Publish Admission timing/profile gate | Implemented (local semantic gate and exact catalog composition; publication authority pending) | `PublishAdmissionBody.requireTimingPolicy`, `PublishAdmissionBody.requireBrokerTiming`, `DelayShardConfig`, `DelayShard` optional `ProfileCatalog`, `ProfileCatalogV1ScheduleResolver`, `ShardStore.RocksDbWriteFailure`, `PublishAdmissionBodyTest`, `DelayShardConfigTest`, `ShardStoreTest.nativeWriteFailureHasATypeDistinctFromSemanticStaleness`, `DelayShardTest.publishAdmissionTimingFailureRevokesMatchingClaimBeforePersistingStaleMutation`, `DelayShardTest.catalogBackedActionAtDerivationFailsClosedWhenPinnedProfileDisappears`, `DelayShardTest.decoratedScheduleResolverRequiresTheExactShardProfileCatalog`; descriptor structure permits only `actionAt <= deliverAt`, catalogued shards validate exact Destination/Delivery Capability refs, fixed V1 adapter encoding and metadata branch, ordinary managed timing, fixed certified Pulsar handoff lead/capability, target resource and explicit/hash partition policy, and every apply/replay checks source Broker persistence time against configured `maxIngressBrokerTimestampDivergenceMs`/`maximumAdmissionMutationEnqueueAgeMs` with checked expiry and decision-interval distance arithmetic; a pre-decorated Schedule resolver is accepted only with the exact same catalog instance used by later Publish Admission and actionAt-recovery lookups, while nested/foreign/missing catalog composition fails before Store reads; timing/profile failures revoke an exact matching live Claim before persisting `STALE_SYSTEM_MUTATION`, so no attempt or Producer state is created; persisted V1 binding actionAt derivation also fails closed on missing/mismatched Profile/Capability rather than falling back to `deliverAt`; a native RocksDB WriteBatch/sync reread failure is typed and propagated instead of being downgraded to stale or advancing the source position; catalog-less compatibility shards fail closed to `actionAt=deliverAt`; formal Broker-time certification, Profile publication, Broker guard attestation and production Producer authority remain release blockers |
-| Terminal generation history | Implemented (current/older-generation open-obligation summary and late-settlement subset) | `TerminalGenerationRecord`, `ClaimRecord`, `DelayShard`, `DelayShardTest`, `TerminalGenerationRecordTest`; Claim Result, publish outcome, expiry and command terminalization persist the exact terminal state version together with remaining obligation refs and duplicate-risk projection in a versioned terminal record, direct reads fence embedded `messageId/generation` against the `terminal_cf` key and require the applied Source Position to belong to the current Shard, activation reconciles both current and older-generation summaries against their exact inflight ledgers, and late verified or definitive not-published outcomes remove only their exact old ledger/ref without changing terminal status/code/time; legacy v1 terminal records decode as empty summaries; older-generation callbacks after full Dead Letter Replay, Replay retention and guarded GC remain pending |
-| Large-payload reservation/proof/commit | Implemented (embedded core plus typed wire proof/response and deterministic local Object Store seams) | `LargeScheduleIntent`, legacy `PayloadCommitProof`, `PayloadCommitProofView`, `PayloadCommitProofV1`, `PayloadProofTrustSet`, `PayloadReference`, `PayloadReservation`, `PayloadReservationReceiptV1`, `OpaquePayloadUploadHandleV1`, `PayloadUploadHandleResponseV1`, `PayloadAttestationResponseV1`, `InMemoryPayloadObjectStore`, `FilesystemPayloadObjectStore`, `PayloadReferenceTest`, `PayloadProofTrustSetSemanticV1Test`, `InMemoryPayloadObjectStoreTest`, `FilesystemPayloadObjectStoreTest`, object-backed `MessageRecord`, `DelayShardTest`, `ReservationExpiryDiscoveryWorkClassExecutor`, `ReservationExpiryWorkClassExecutor`, `ReservationExpiryDiscoveryWorkClassExecutorTest`, `ReservationExpiryWorkClassExecutorTest`, `CommitLargeScheduleBodyV1Test`, `ProtocolCodecTest`; Prepare/Commit reservation quota, durable immutable Prepare receipt-anchor state/source, strict v1-to-v2 reservation-value upgrade, source-ordered TIME_FENCE overlay, record/actual-byte/elapsed bounded `RESERVATION_EXPIRY` discovery that uses only persisted `closedIngressDeadlineThrough`, byte-identical `id_cf` projection fencing, separate bounded GC-class discovery/materialization handoffs with queue-rejection and execution-time Owner fencing, bounded and key/value-identity-checked reservation lookup with duplicate detection plus Source Position shard fencing, guarded local quota release, exact reservation-bound handle issuance, configured lifetime/reservation-expiry bound and post-expiry re-sign, receipt-derived service-owned container/key with exact source/state/trust-set/object-identity validation before handle/upload/attestation, immutable-if-absent upload, typed Object Store proof Profile/tenant-scope/optional-etag/proof-id/signature validation, committed ReservationId/accepted-ProofId local retention, exact historical-signature idempotency after issuer close, malformed-signature stable rejection, cached attestation, receipt-anchor preservation across legal local `ABANDONED`/`EXPIRED`/`CLOSED` lifecycle updates, fixed payload-scoped error branches and typed attestation/commit response round-trips, and crash-durable filesystem payload bytes with no-follow reads, fsync/atomic publication, immutable retry and corruption fencing are covered; source-position trust authority, real provider credentials/availability/immutability, external Object Store/Oxia binding, fence-key history and guarded GC remain pending |
-| Source assignment, typed Activation Barrier and Owner Lease | Implemented (local bounded mixed command/System Mutation replay seam; production authority pending) | `SourceAssignment`, `SourceReplayEntry`, `SourceReplayRecord`, `SourceReplayMutation`, `SourceReplayOutcome`, `SourceReplayCursor`, `SourceReplayTurn`, `ReplayTurnBudget`, `SourceReplaySuccessor`, `KafkaActivationBarrier`, `PulsarActivationBarrier`, barrier-gated `OwnedDelayShard`, `OwnerLease`, `OwnerLeaseContext`, `OwnerLeaseStore`, `InMemoryOwnerLeaseStore`, `PersistentOwnerLeaseStore`, `OxiaOwnerLeaseStore`, `OwnerDrainCoordinator`, `OwnerLeaseTest`, `PersistentOwnerLeaseStoreTest`, `OwnerDrainCoordinatorTest`, `SourceReplaySuccessorTest`, `OxiaOwnerLeaseStoreTest`, `SourceActivationBarrierTest`; catch-up now requires an explicit non-zero assignment identity/epoch bound to the typed barrier, assignment/barrier equality compares array-backed resource and guard identities by value, Kafka barrier cluster identity is canonical NFC/UTF-8 at construction, Pulsar barrier resource/guard identities reject all-zero placeholders, the runtime Pulsar barrier pins the inclusive entry `batchSize` and rejects same-entry batch-shape drift before apply, every catch-up cursor and post-activation apply record is checked against the typed physical source identity and rejects same offset/ledger-entry-batch tokens with conflicting canonical metadata before replay; the V1 overload pins an adapter-defined `SourceReplaySuccessor` for the entire catch-up window, accepts only exact canonical redelivery or the proven immediate successor, and the strict Kafka helper rejects offset gaps before applying the skipped record (Pulsar batch-member strictness is available while entry transitions remain adapter-defined); empty Kafka/Pulsar barriers are covered, and an empty Pulsar barrier validates any non-null persisted cursor before allowing activation; the unified bounded `replayTurn` seam and type-specific turn APIs cap record count, canonical frame/position bytes and elapsed monotonic time while preserving the caller cursor across turns, and apply mixed Command/System Mutation entries in one source order through the shard's atomic WriteBatch before advancing the cursor (the whole-`Iterable` methods and assignment-only overload remain explicitly compatibility conveniences); backing source iterator `RuntimeException`/`Error` during cursor look-ahead or advancement now fences the Owner before the failure escapes, retaining the source continuity proof for a fresh Store incarnation; Pulsar replay/catch-up/apply paths additionally require a positive guarded source-connection generation and exact resource-guard attestation digest; context-bound lease acquisition carries assignment identity plus assignment epoch and exact session identity, renewal preserves them and the lifecycle state, stale state transitions fail CAS, strict activation additionally requires the exact persisted `CompatibleControlSnapshotV1` before the authority CAS opens `ACTIVE_FOR_COMMANDS`, while legacy activation remains a compatibility seam; `PersistentOwnerLeaseStore` adds a checksummed, atomic, cross-restart local lease projection and retains consumed epoch history, but it is not a production owner authority; `OwnerDrainCoordinator` composes the locally provable drain order and leaves callback/source quiescence and production lease/session integration explicit; real Kafka/Pulsar consumer replay, Oxia session/ephemeral records, broker assignment/guard and production activation transaction remain pending |
-| Queued vs applied client outcomes | Implemented (embedded core) | `DelayClient.enqueueBatch`, `EmbeddedDelayService.enqueueBatch`, `EmbeddedDelayService.queuedReceiptV1`, `appliedReceiptV1`, `enqueueOutcomeV1`, `awaitApplied`, `queryCommand`, `queryMessage`, `CommandQueuedReceipt`, `DelayShard.matchesCommandHash`, `DelayShard.matchesCommandPosition`, `EmbeddedDelayServiceTest`, `ProtocolCodecTest`; queued receipt stays distinct from applied result, its Command/Message/source identities must name the same Shard in both legacy and V1 paths, the embedded `awaitApplied` gate validates an exact durable-or-pending physical locator before draining and rereads POSITION after drain, and a rejected/foreign/forged receipt has no apply side effect; `enqueueBatch` returns one independent outcome per input command in input order, with no cross-command atomicity, so mixed queued and definitive local rejection results remain individually actionable; the closed managed enqueue union preserves queued/definitely-not-queued/uncertain states, applied frame is emitted only after the source barrier and retains the queued digest, query and applied-receipt barrier checks reject same physical offset/ledger-entry-batch tokens with conflicting canonical source metadata, same-command-id command-hash drift, or a mismatched POSITION audit, pending is source-barrier based, full/compact/evidence-expired branches are bounded, and message projections require caller-supplied safe policy inputs; real Broker response adapters and production routing remain pending |
-| Destination Lane gate/readiness projection | Implemented (core plus closed same-key terminal branch and typed ActiveLaneStateV1/quota/certificate/barrier codecs) | `LaneRecord`, `LaneRecordEnvelopeV1`, `ActiveLaneStateV1`, `LaneCircuitStateV1`, `LaneRuntimeBlockReasonV1`, `LaneQuotaUsageEntryV1`, `LaneQuotaUsageMapV1`, `ReadyCertificateV1`, `ActivationBarrierV1`, `EvidenceCursorV1`, `LaneRetirementProgressV1`, `LaneTerminalGuardV1`, `LaneRecordTest`, `LaneRecordEnvelopeV1Test`, `ActiveLaneStateV1Test`, `LaneQuotaUsageMapV1Test`, `ReadyCertificateV1Test`, `ActivationBarrierV1Test`, `EvidenceCursorV1Test`, `LaneTerminalGuardV1Test`, `ApplyShardControlBody`, `ControlRef`, `DelayShard`, `DelayShardTest`; schedulable lanes maintain a versioned READY head and readiness/gate CAS transitions remove/recreate it atomically; source-ordered signed PAUSE/RESUME/BREAK/CLOSE applies exact Lane incarnation/control-version fencing, strict-lane acknowledgement checks and atomically revokes/restores reversible Claims; the same `meta_cf/LANE` key now persists a closed ACTIVE/TERMINAL branch, direct Lane reads fence the embedded Lane id, and close-cursor reads fence Lane id/incarnation/control version/source shard before exposing materialization work; the bounded local retirement path conservatively proves no current message/timeline/inflight work before atomically installing a tuple/profile/source/digest-checked terminal guard that survives reopen and rejects reuse; retirement progress and terminal-guard source checks reject equal order tokens with conflicting canonical metadata; runtime and control version increments fail closed at `Long.MAX_VALUE` (`LaneRecordTest.versionCountersFailClosedBeforeLongOverflow`), while the Registry-shaped ActiveLaneStateV1 codec now covers tuple identity/digest, gate/readiness block-reason rules, 17-dimensional lane charge, circuit/backoff counters, ready-key digest, canonical ReadyCertificateV1 wrapper and retirement progress, and the per-Lane quota entry/map codec enforces sorted identity keys and usage/map digests; `LaneRecordEnvelopeV1` now emits typed field-10 ACTIVE values as direct canonical `ActiveLaneStateV1`, rejects malformed typed values instead of downgrading them to legacy, and still reads the old adapter sub-message; `DelayShard` reads typed ACTIVE values during reopen/rebuild/scheduler projection, preserves immutable Profile/tuple/certificate/retirement fields and exact projected quota usage on same-key updates, and fails closed when the compatibility runtime cannot provide a required block reason, READY key/certificate or bounded numeric field (`DelayShardTest.typedActiveLaneStateIsReadAndUpdatedWithoutLegacyDowngrade`). Activation now also fences typed field-14 usage against the exact class-3 map entry and recomputes typed READY-key identity (`DelayShardTest.typedActiveLaneStateRequiresPersistedPerLaneQuotaProjection`, `DelayShardTest.typedActiveLaneStateRejectsUsageDriftFromPerLaneQuotaProjection`, `DelayShardTest.typedActiveLaneStateRejectsReadyKeyDriftBeforeActivation`). Legacy persistence remains on the compatibility adapter because current Schedule inputs do not carry the immutable Profile/tuple/certificate inputs required for a lossless cutover; external revision authority, Oxia target registration and Recovery-Floor/retention guard remain release blockers |
+| Publish Admission timing/profile gate | Implemented (local semantic gate and exact catalog composition; publication authority pending) | `PublishAdmissionBody.requireTimingPolicy`, `PublishAdmissionBody.requireBrokerTiming`, `DelayShardConfig`, `DelayShard` optional `ProfileCatalog`, `ProfileCatalogScheduleResolver`, `ShardStore.RocksDbWriteFailure`, `PublishAdmissionBodyTest`, `DelayShardConfigTest`, `ShardStoreTest.nativeWriteFailureHasATypeDistinctFromSemanticStaleness`, `DelayShardTest.publishAdmissionTimingFailureRevokesMatchingClaimBeforePersistingStaleMutation`, `DelayShardTest.catalogBackedActionAtDerivationFailsClosedWhenPinnedProfileDisappears`, `DelayShardTest.decoratedScheduleResolverRequiresTheExactShardProfileCatalog`; descriptor structure permits only `actionAt <= deliverAt`, catalogued shards validate exact Destination/Delivery Capability refs, fixed adapter encoding and metadata branch, ordinary managed timing, fixed certified Pulsar handoff lead/capability, target resource and explicit/hash partition policy, and every apply/replay checks source Broker persistence time against configured `maxIngressBrokerTimestampDivergenceMs`/`maximumAdmissionMutationEnqueueAgeMs` with checked expiry and decision-interval distance arithmetic; a pre-decorated Schedule resolver is accepted only with the exact same catalog instance used by later Publish Admission and actionAt-recovery lookups, while nested/foreign/missing catalog composition fails before Store reads; timing/profile failures revoke an exact matching live Claim before persisting `STALE_SYSTEM_MUTATION`, so no attempt or Producer state is created; persisted binding actionAt derivation also fails closed on missing/mismatched Profile/Capability rather than falling back to `deliverAt`; a native RocksDB WriteBatch/sync reread failure is typed and propagated instead of being downgraded to stale or advancing the source position; catalog-less compatibility shards fail closed to `actionAt=deliverAt`; formal Broker-time certification, Profile publication, Broker guard attestation and production Producer authority remain release blockers |
+| Terminal generation history | Implemented (current/older-generation open-obligation summary and late-settlement subset) | `TerminalGenerationRecord`, `ClaimRecord`, `DelayShard`, `DelayShardTest`, `TerminalGenerationRecordTest`; Claim Result, publish outcome, expiry and command terminalization persist the exact terminal state version together with remaining obligation refs and duplicate-risk projection in a versioned terminal record, direct reads fence embedded `messageId/generation` against the `terminal_cf` key and require the applied Source Position to belong to the current Shard, activation reconciles both current and older-generation summaries against their exact inflight ledgers, and late verified or definitive not-published outcomes remove only their exact old ledger/ref without changing terminal status/code/time; initial-format terminal records decode as empty summaries; older-generation callbacks after full Dead Letter Replay, Replay retention and guarded GC remain pending |
+| Large-payload reservation/proof/commit | Implemented (embedded core plus typed wire proof/response and deterministic local Object Store seams) | `LargeScheduleIntent`, legacy `PayloadCommitProof`, `PayloadCommitProofView`, `CanonicalPayloadCommitProof`, `PayloadProofTrustSet`, `PayloadReference`, `PayloadReservation`, `PayloadReservationReceipt`, `OpaquePayloadUploadHandle`, `PayloadUploadHandleResponse`, `PayloadAttestationResponse`, `InMemoryPayloadObjectStore`, `FilesystemPayloadObjectStore`, `PayloadReferenceTest`, `PayloadProofTrustSetSemanticTest`, `InMemoryPayloadObjectStoreTest`, `FilesystemPayloadObjectStoreTest`, object-backed `MessageRecord`, `DelayShardTest`, `ReservationExpiryDiscoveryWorkClassExecutor`, `ReservationExpiryWorkClassExecutor`, `ReservationExpiryDiscoveryWorkClassExecutorTest`, `ReservationExpiryWorkClassExecutorTest`, `CommitLargeScheduleBodyTest`, `ProtocolCodecTest`; Prepare/Commit reservation quota, durable immutable Prepare receipt-anchor state/source, strict current-format reservation-value upgrade, source-ordered TIME_FENCE overlay, record/actual-byte/elapsed bounded `RESERVATION_EXPIRY` discovery that uses only persisted `closedIngressDeadlineThrough`, byte-identical `id_cf` projection fencing, separate bounded GC-class discovery/materialization handoffs with queue-rejection and execution-time Owner fencing, bounded and key/value-identity-checked reservation lookup with duplicate detection plus Source Position shard fencing, guarded local quota release, exact reservation-bound handle issuance, configured lifetime/reservation-expiry bound and post-expiry re-sign, receipt-derived service-owned container/key with exact source/state/trust-set/object-identity validation before handle/upload/attestation, immutable-if-absent upload, typed Object Store proof Profile/tenant-scope/optional-etag/proof-id/signature validation, committed ReservationId/accepted-ProofId local retention, exact historical-signature idempotency after issuer close, malformed-signature stable rejection, cached attestation, receipt-anchor preservation across legal local `ABANDONED`/`EXPIRED`/`CLOSED` lifecycle updates, fixed payload-scoped error branches and typed attestation/commit response round-trips, and crash-durable filesystem payload bytes with no-follow reads, fsync/atomic publication, immutable retry and corruption fencing are covered; source-position trust authority, real provider credentials/availability/immutability, external Object Store/Oxia binding, fence-key history and guarded GC remain pending |
+| Source assignment, typed Activation Barrier and Owner Lease | Implemented (local bounded mixed command/System Mutation replay seam; production authority pending) | `SourceAssignment`, `SourceReplayEntry`, `SourceReplayRecord`, `SourceReplayMutation`, `SourceReplayOutcome`, `SourceReplayCursor`, `SourceReplayTurn`, `ReplayTurnBudget`, `SourceReplaySuccessor`, `KafkaActivationBarrier`, `PulsarActivationBarrier`, barrier-gated `OwnedDelayShard`, `OwnerLease`, `OwnerLeaseContext`, `OwnerLeaseStore`, `InMemoryOwnerLeaseStore`, `PersistentOwnerLeaseStore`, `OxiaOwnerLeaseStore`, `OwnerDrainCoordinator`, `OwnerLeaseTest`, `PersistentOwnerLeaseStoreTest`, `OwnerDrainCoordinatorTest`, `SourceReplaySuccessorTest`, `OxiaOwnerLeaseStoreTest`, `SourceActivationBarrierTest`; catch-up now requires an explicit non-zero assignment identity/epoch bound to the typed barrier, assignment/barrier equality compares array-backed resource and guard identities by value, Kafka barrier cluster identity is canonical NFC/UTF-8 at construction, Pulsar barrier resource/guard identities reject all-zero placeholders, the runtime Pulsar barrier pins the inclusive entry `batchSize` and rejects same-entry batch-shape drift before apply, every catch-up cursor and post-activation apply record is checked against the typed physical source identity and rejects same offset/ledger-entry-batch tokens with conflicting canonical metadata before replay; the overload pins an adapter-defined `SourceReplaySuccessor` for the entire catch-up window, accepts only exact canonical redelivery or the proven immediate successor, and the strict Kafka helper rejects offset gaps before applying the skipped record (Pulsar batch-member strictness is available while entry transitions remain adapter-defined); empty Kafka/Pulsar barriers are covered, and an empty Pulsar barrier validates any non-null persisted cursor before allowing activation; the unified bounded `replayTurn` seam and type-specific turn APIs cap record count, canonical frame/position bytes and elapsed monotonic time while preserving the caller cursor across turns, and apply mixed Command/System Mutation entries in one source order through the shard's atomic WriteBatch before advancing the cursor (the whole-`Iterable` methods and assignment-only overload remain explicitly compatibility conveniences); backing source iterator `RuntimeException`/`Error` during cursor look-ahead or advancement now fences the Owner before the failure escapes, retaining the source continuity proof for a fresh Store incarnation; Pulsar replay/catch-up/apply paths additionally require a positive guarded source-connection generation and exact resource-guard attestation digest; context-bound lease acquisition carries assignment identity plus assignment epoch and exact session identity, renewal preserves them and the lifecycle state, stale state transitions fail CAS, strict activation additionally requires the exact persisted `CompatibleControlSnapshot` before the authority CAS opens `ACTIVE_FOR_COMMANDS`, while legacy activation remains a compatibility seam; `PersistentOwnerLeaseStore` adds a checksummed, atomic, cross-restart local lease projection and retains consumed epoch history, but it is not a production owner authority; `OwnerDrainCoordinator` composes the locally provable drain order and leaves callback/source quiescence and production lease/session integration explicit; real Kafka/Pulsar consumer replay, Oxia session/ephemeral records, broker assignment/guard and production activation transaction remain pending |
+| Queued vs applied client outcomes | Implemented (embedded core) | `DelayClient.enqueueBatch`, `EmbeddedDelayService.enqueueBatch`, `EmbeddedDelayService.queuedReceipt`, `appliedReceipt`, `enqueueOutcome`, `awaitApplied`, `queryCommand`, `queryMessage`, `CommandQueuedReceipt`, `DelayShard.matchesCommandHash`, `DelayShard.matchesCommandPosition`, `EmbeddedDelayServiceTest`, `ProtocolCodecTest`; queued receipt stays distinct from applied result, its Command/Message/source identities must name the same Shard in both legacy and paths, the embedded `awaitApplied` gate validates an exact durable-or-pending physical locator before draining and rereads POSITION after drain, and a rejected/foreign/forged receipt has no apply side effect; `enqueueBatch` returns one independent outcome per input command in input order, with no cross-command atomicity, so mixed queued and definitive local rejection results remain individually actionable; the closed managed enqueue union preserves queued/definitely-not-queued/uncertain states, applied frame is emitted only after the source barrier and retains the queued digest, query and applied-receipt barrier checks reject same physical offset/ledger-entry-batch tokens with conflicting canonical source metadata, same-command-id command-hash drift, or a mismatched POSITION audit, pending is source-barrier based, full/compact/evidence-expired branches are bounded, and message projections require caller-supplied safe policy inputs; real Broker response adapters and production routing remain pending |
+| Destination Lane gate/readiness projection | Implemented (core plus closed same-key terminal branch and typed ActiveLaneState/quota/certificate/barrier codecs) | `LaneRecord`, `LaneRecordEnvelope`, `ActiveLaneState`, `LaneCircuitState`, `LaneRuntimeBlockReason`, `LaneQuotaUsageEntry`, `LaneQuotaUsageMap`, `ReadyCertificate`, `ActivationBarrier`, `EvidenceCursor`, `LaneRetirementProgress`, `LaneTerminalGuard`, `LaneRecordTest`, `LaneRecordEnvelopeTest`, `ActiveLaneStateTest`, `LaneQuotaUsageMapTest`, `ReadyCertificateTest`, `ActivationBarrierTest`, `EvidenceCursorTest`, `LaneTerminalGuardTest`, `ApplyShardControlBody`, `ControlRef`, `DelayShard`, `DelayShardTest`; schedulable lanes maintain a versioned READY head and readiness/gate CAS transitions remove/recreate it atomically; source-ordered signed PAUSE/RESUME/BREAK/CLOSE applies exact Lane incarnation/control-version fencing, strict-lane acknowledgement checks and atomically revokes/restores reversible Claims; the same `meta_cf/LANE` key now persists a closed ACTIVE/TERMINAL branch, direct Lane reads fence the embedded Lane id, and close-cursor reads fence Lane id/incarnation/control version/source shard before exposing materialization work; the bounded local retirement path conservatively proves no current message/timeline/inflight work before atomically installing a tuple/profile/source/digest-checked terminal guard that survives reopen and rejects reuse; retirement progress and terminal-guard source checks reject equal order tokens with conflicting canonical metadata; runtime and control version increments fail closed at `Long.MAX_VALUE` (`LaneRecordTest.versionCountersFailClosedBeforeLongOverflow`), while the Registry-shaped ActiveLaneState codec now covers tuple identity/digest, gate/readiness block-reason rules, 17-dimensional lane charge, circuit/backoff counters, ready-key digest, canonical ReadyCertificate wrapper and retirement progress, and the per-Lane quota entry/map codec enforces sorted identity keys and usage/map digests; `LaneRecordEnvelope` now emits typed field-10 ACTIVE values as direct canonical `ActiveLaneState`, rejects malformed typed values instead of downgrading them to legacy, and still reads the old adapter sub-message; `DelayShard` reads typed ACTIVE values during reopen/rebuild/scheduler projection, preserves immutable Profile/tuple/certificate/retirement fields and exact projected quota usage on same-key updates, and fails closed when the compatibility runtime cannot provide a required block reason, READY key/certificate or bounded numeric field (`DelayShardTest.typedActiveLaneStateIsReadAndUpdatedWithoutLegacyDowngrade`). Activation now also fences typed field-14 usage against the exact class-3 map entry and recomputes typed READY-key identity (`DelayShardTest.typedActiveLaneStateRequiresPersistedPerLaneQuotaProjection`, `DelayShardTest.typedActiveLaneStateRejectsUsageDriftFromPerLaneQuotaProjection`, `DelayShardTest.typedActiveLaneStateRejectsReadyKeyDriftBeforeActivation`). Legacy persistence remains on the compatibility adapter because current Schedule inputs do not carry the immutable Profile/tuple/certificate inputs required for a lossless cutover; external revision authority, Oxia target registration and Recovery-Floor/retention guard remain release blockers |
 | Lane Close materialization cursor | Implemented (local source-marker overlay, bounded cursor discovery and strict GC-class materialization) | `LaneCloseMaterializationCursor`, `LaneCloseMaterializer`, `LaneCloseDiscoveryWorkClassExecutor`, `LaneCloseWorkClassExecutor`, `LaneCloseWorkClassExecutorTest`, `DelayShard`, `ShardQuota`, `LaneCloseMaterializationCursorTest`, `LaneCloseMaterializerTest`, `DelayShardTest.closeTransfersUnadmittedQuotaAndResumesBoundedMaterializationCursor`; Close marker transfers unadmitted message/reservation quota once in the marker WriteBatch and persists canonical `timeline/SYSTEM` kind-2 cursor state. The strict discovery action binds full record/actual-byte/elapsed bounds, rereads Owner Lease, charges both cursor and Lane projections and returns identity-checked candidates without advancing state; the separate strict materialization handoff binds exact cursor bytes and batch bounds, rejects admission without Store I/O, rereads Owner Lease and returns stale/not-found rather than applying an old cursor to a newer close state. Materialization freezes only generations with an empty admitted-obligation set as `DEAD_LETTER(LANE_CLOSED_BEFORE_ADMISSION)`, closes uncommitted reservations as `ABANDONED`, and resumes message then reservation scans after restart; the package-local multi-Lane helper makes no new semantic decision and uses checked aggregate counts. Closed-lane Cancel/Reschedule/Commit paths return stable frozen outcomes before cursor completion; PUBLISHING/UNCERTAIN obligations are retained and full close-owned Claim tagging, admitted-outcome retirement, object-handle/quiescence GC, Recovery-Floor protection and owner/Oxia orchestration remain release blockers |
-| Destination Lane isolation and bounded weighted DRR | Implemented (scheduler core plus fenced READY recovery seam) | `LaneScheduler`, `PersistentLaneScheduler`, `ReadyIndexValue`, `TimelineEntry`, `LaneSchedulerTest`, `SchedulerProjectionsV1Test`; lane-local work is rebuilt from bounded `timeline_cf/READY` plus `meta_cf/LANE`/`id_cf/MESSAGE` identity checks, recomputes the exact timeline key and digest, verifies the timeline value, rejects a READY message whose self-routing key or embedded schedule Source Position belongs to another Shard, stale/orphan/multiple-head projections fail closed, and the recovered heads replace the active ring and queues before scheduling resumes; scheduler quantum/weight/cap multiplication is checked at configuration and lane registration, while runtime deficit accumulation saturates instead of wrapping; `LaneSchedulerTest.rejectsQuantumAndWeightArithmeticOverflow`, `LaneSchedulerTest.saturatesRestoredDeficitBeforeServing` and `LaneSchedulerTest.fencedRecoveryRejectsReadyMessageFromAnotherShard` cover the local fence; production Lane certificate/activation authority remains pending |
-| Persistent scheduler fairness counters | Implemented (local closed projection plus owner-bound recovery first pass and rotating READY cursor) | `PersistentLaneScheduler`, `LaneScheduler`, `WorkerScheduler`, `SchedulerProjectionsV1`, `OwnerIdentityV1`, `LaneSchedulerTest`, `WorkerSchedulerTest`, `SchedulerProjectionsV1Test`; all five `meta_cf/SCHEDULER` values are written in one batch, persisted successor order is restored without re-adding discarded lanes, the persisted `SchedulerRoundV1.owner` is compared with the current owner and an owner/store change restarts `recovery_first_pass`, and the first recovery rotation serves at most one item per eligible Lane until every currently discovered Lane has received an opportunity; the opportunity set is also bounded by the caller's global byte budget, so an oversized due head remains pending without blocking smaller healthy work (`LaneSchedulerTest.persistentRecoveryFirstPassDoesNotWaitForAnOversizedHead`, `WorkerSchedulerTest.oversizedHeadDoesNotHoldRecoveryFirstPassOpenForSmallerShard`); fenced READY rebuild performs a complete bounded scan from the READY namespace rather than consuming the rotating discovery cursor, while `discoverReady` promotes a bounded rotating slice into the active ring, validates exact Lane/Message/timeline identity, requires typed ACTIVE Lanes to be READY/OPEN with an exact encoded READY key and decodable `ReadyCertificateV1` matching the physical index, retains the physical lane-versioned READY key alongside each discovered work item, suppresses re-offering a polled head only while both work identity and READY key remain unchanged, rejects a projection that exceeds the visit byte cap without a first-entry exception, stops before decoding when the elapsed cap is already exhausted, and reads one extra inclusive cursor entry so a one-entry turn can wrap (`LaneSchedulerTest.fencedRecoveryUsesCompleteReadyPassDespitePersistedDiscoveryCursor`, `LaneSchedulerTest.rotatingReadyDiscoveryDoesNotReofferPolledHeadAndFindsSuccessorAfterWrap`, `LaneSchedulerTest.readyTransitionWithSameWorkUsesNewReadyKey`, `LaneSchedulerTest.readyDiscoveryRejectsFirstEntryThatExceedsByteBudget`, `LaneSchedulerTest.readyDiscoveryStopsBeforeFirstEntryWhenTimeBudgetIsElapsed`, `DelayShardTest.typedReadyProjectionRefreshesEarliestActionBoundaryFromCurrentHead`); failed scheduler projection writes now roll back polled/offered work, fenced-rebuild queue state, ring/cursor/fairness state, discovery heads and readiness before rethrowing (`LaneSchedulerTest.failedPollProjectionWriteRestoresThePolledHeadInMemory`, `LaneSchedulerTest.failedReadinessProjectionWriteRestoresThePreviousGateProjection`, `LaneSchedulerTest.queueSnapshotRestoresExactFifoProjection`); failed terminal unregister restores exact prior active-ring membership, including a Lane that was already outside the ring (`LaneSchedulerTest.failedPersistentUnregisterDoesNotReactivatePreviouslyInactiveLane`); Lane/Shard counter restore validates the complete registered subset and rejects duplicate identities before applying any entry (`LaneSchedulerTest.invalidLaterRestoreEntryDoesNotPartiallyApplyEarlierCounters`, `LaneSchedulerTest.duplicateLaneRestoreIdentityDoesNotPartiallyApplyEarlierCounters`, `WorkerSchedulerTest.duplicateWorkerRestoreIdentityDoesNotPartiallyApplyEarlierCounters`); persisted semantic generation validation also happens before active-ring replacement, and a malformed later projection restores the exact pre-restore ring/counters (`LaneSchedulerTest.malformedPersistedSchedulerGenerationDoesNotPartiallyApplyTheActiveRing`); deficit entries are additionally fenced by the current Lane incarnation and observed version, so a same-key Lane version change cannot inherit stale credits (`LaneSchedulerTest.stalePersistedDeficitVersionDoesNotRestoreCreditsToARevisedLane`); Lane incarnation/version and message-generation checks remain enforced; full Oxia-fenced activation and typed ActiveLaneState cutover remain release blockers |
+| Destination Lane isolation and bounded weighted DRR | Implemented (scheduler core plus fenced READY recovery seam) | `LaneScheduler`, `PersistentLaneScheduler`, `ReadyIndexValue`, `TimelineEntry`, `LaneSchedulerTest`, `SchedulerProjectionsTest`; lane-local work is rebuilt from bounded `timeline_cf/READY` plus `meta_cf/LANE`/`id_cf/MESSAGE` identity checks, recomputes the exact timeline key and digest, verifies the timeline value, rejects a READY message whose self-routing key or embedded schedule Source Position belongs to another Shard, stale/orphan/multiple-head projections fail closed, and the recovered heads replace the active ring and queues before scheduling resumes; scheduler quantum/weight/cap multiplication is checked at configuration and lane registration, while runtime deficit accumulation saturates instead of wrapping; `LaneSchedulerTest.rejectsQuantumAndWeightArithmeticOverflow`, `LaneSchedulerTest.saturatesRestoredDeficitBeforeServing` and `LaneSchedulerTest.fencedRecoveryRejectsReadyMessageFromAnotherShard` cover the local fence; production Lane certificate/activation authority remains pending |
+| Persistent scheduler fairness counters | Implemented (local closed projection plus owner-bound recovery first pass and rotating READY cursor) | `PersistentLaneScheduler`, `LaneScheduler`, `WorkerScheduler`, `SchedulerProjections`, `OwnerIdentity`, `LaneSchedulerTest`, `WorkerSchedulerTest`, `SchedulerProjectionsTest`; all five `meta_cf/SCHEDULER` values are written in one batch, persisted successor order is restored without re-adding discarded lanes, the persisted `SchedulerRound.owner` is compared with the current owner and an owner/store change restarts `recovery_first_pass`, and the first recovery rotation serves at most one item per eligible Lane until every currently discovered Lane has received an opportunity; the opportunity set is also bounded by the caller's global byte budget, so an oversized due head remains pending without blocking smaller healthy work (`LaneSchedulerTest.persistentRecoveryFirstPassDoesNotWaitForAnOversizedHead`, `WorkerSchedulerTest.oversizedHeadDoesNotHoldRecoveryFirstPassOpenForSmallerShard`); fenced READY rebuild performs a complete bounded scan from the READY namespace rather than consuming the rotating discovery cursor, while `discoverReady` promotes a bounded rotating slice into the active ring, validates exact Lane/Message/timeline identity, requires typed ACTIVE Lanes to be READY/OPEN with an exact encoded READY key and decodable `ReadyCertificate` matching the physical index, retains the physical lane-versioned READY key alongside each discovered work item, suppresses re-offering a polled head only while both work identity and READY key remain unchanged, rejects a projection that exceeds the visit byte cap without a first-entry exception, stops before decoding when the elapsed cap is already exhausted, and reads one extra inclusive cursor entry so a one-entry turn can wrap (`LaneSchedulerTest.fencedRecoveryUsesCompleteReadyPassDespitePersistedDiscoveryCursor`, `LaneSchedulerTest.rotatingReadyDiscoveryDoesNotReofferPolledHeadAndFindsSuccessorAfterWrap`, `LaneSchedulerTest.readyTransitionWithSameWorkUsesNewReadyKey`, `LaneSchedulerTest.readyDiscoveryRejectsFirstEntryThatExceedsByteBudget`, `LaneSchedulerTest.readyDiscoveryStopsBeforeFirstEntryWhenTimeBudgetIsElapsed`, `DelayShardTest.typedReadyProjectionRefreshesEarliestActionBoundaryFromCurrentHead`); failed scheduler projection writes now roll back polled/offered work, fenced-rebuild queue state, ring/cursor/fairness state, discovery heads and readiness before rethrowing (`LaneSchedulerTest.failedPollProjectionWriteRestoresThePolledHeadInMemory`, `LaneSchedulerTest.failedReadinessProjectionWriteRestoresThePreviousGateProjection`, `LaneSchedulerTest.queueSnapshotRestoresExactFifoProjection`); failed terminal unregister restores exact prior active-ring membership, including a Lane that was already outside the ring (`LaneSchedulerTest.failedPersistentUnregisterDoesNotReactivatePreviouslyInactiveLane`); Lane/Shard counter restore validates the complete registered subset and rejects duplicate identities before applying any entry (`LaneSchedulerTest.invalidLaterRestoreEntryDoesNotPartiallyApplyEarlierCounters`, `LaneSchedulerTest.duplicateLaneRestoreIdentityDoesNotPartiallyApplyEarlierCounters`, `WorkerSchedulerTest.duplicateWorkerRestoreIdentityDoesNotPartiallyApplyEarlierCounters`); persisted semantic generation validation also happens before active-ring replacement, and a malformed later projection restores the exact pre-restore ring/counters (`LaneSchedulerTest.malformedPersistedSchedulerGenerationDoesNotPartiallyApplyTheActiveRing`); deficit entries are additionally fenced by the current Lane incarnation and observed version, so a same-key Lane version change cannot inherit stale credits (`LaneSchedulerTest.stalePersistedDeficitVersionDoesNotRestoreCreditsToARevisedLane`); Lane incarnation/version and message-generation checks remain enforced; full Oxia-fenced activation and typed ActiveLaneState cutover remain release blockers |
 | Worker Trusted UTC interval guard | Implemented (local deterministic guard; authority/wiring pending) | `TrustedUtcClock`, `TrustedUtcInterval`, `TrustedUtcClockTest`; injected monotonic projection, maximum uncertainty/sample age, wall/monotonic divergence fencing, stabilization window, conservative interval widening and strict due/pre-expiry predicates are covered; approved synchronization/signature source, Broker-time certification and production Worker/Admission wiring remain release blockers |
 | Worker-to-shard-to-lane bounded DRR | Implemented (core snapshot plus READY-aware outer filtering, recovery first-pass, large-head service, fenced shard unregister and local placement scoring) | `WorkerScheduler`, `LaneScheduler`, `WorkerSchedulerTest`, `LaneSchedulerTest`, `WorkerLoadVector`, `WorkerPlacementPolicy`, `WorkerPlacementPolicyTest`; outer and inner caps retain at least the current registered `weight * quantum` so weights above four are not silently clipped to a 4:1 long-run share, visits only shards with at least one schedulable Lane head, starts a new process/restore/READY recovery pass that serves each currently eligible shard at most once before repeating one, excludes due heads larger than the caller's global byte budget from the recovery opportunity set so they cannot block smaller healthy work (`WorkerSchedulerTest.oversizedHeadDoesNotHoldRecoveryFirstPassOpenForSmallerShard`), widens a shard visit to its smallest schedulable head when that head exceeds the outer deficit cap (still bounded by the caller's global byte budget), checks shard weight/quantum/cap arithmetic before registration and saturates runtime deficit accumulation, and the local placement seam hard-filters full committed capacity/DB slots before scoring projected `committed + required` dominant utilization plus unequal observed load; after ownership loss `WorkerScheduler.unregisterShard` requires a blocked shard with an empty local queue, removes it from the bounded outer ring, recomputes the cap from the remaining shard set and clamps retained deficits to that cap; `WorkerSchedulerTest.recoveryFirstPassServesEveryEligibleShardBeforeRepeatingOne`, `WorkerSchedulerTest.restoreStartsANewOuterFirstPass`, `WorkerSchedulerTest.outerDeficitCapDoesNotMakeLargeHeadUnserviceable`, `WorkerSchedulerTest.highWeightRetainsItsConfiguredOuterDeficitQuantum`, `WorkerSchedulerTest.shardUnregisterRequiresBlockedAndDrainedLocalQueue`, `WorkerSchedulerTest.unregisteringHighestWeightShardRecomputesOuterDeficitCap`, `LaneSchedulerTest.highWeightRetainsItsConfiguredDeficitQuantum`, `WorkerPlacementPolicyTest.projectedCommittedCapacityBreaksEqualTelemetryTie`, `WorkerSchedulerTest.rejectsQuantumAndWeightArithmeticOverflow` and `WorkerSchedulerTest.saturatesRestoredDeficitBeforeServing` cover the local fence; the outer ring is intentionally not durable across independent shard DBs, while broker assignors, Oxia desired-placement plans and authoritative placement weights remain pending |
-| Closed Stable Code registry | Implemented | `StableCode`, `FailureStageV1`, `RetryabilityV1`, `StableErrorV1`, `ProtocolCodecTest`; all Registry stable codes including activated-protocol/capacity-fence codes, code-derived retryability, retry-at presence, rejection of `OK` in error projections, ENQUEUE-stage fencing for managed/native submission errors, mutually exclusive managed/native prepared refs, bounded diagnostic code and canonical round-trip/rejection checks |
-| Non-persistence proof and Broker identity | Implemented (codec boundary) | `KafkaBrokerResourceIdentityV1`, `PulsarBrokerResourceIdentityV1`, `BrokerResourceIdentityV1`, `NonPersistenceProofKindV1`, `NonPersistenceProofV1`, `ProtocolCodecTest.brokerEvidenceAndQueuedAckIdentitiesRejectNonCanonicalUtf8AtConstruction`; closed Kafka/Pulsar identity branches, kind-specific attempt/resource/request/response presence, pre-ownership evidence prohibition, adapter-proof version and fields 1–7 digest, and strict direct-construction UTF-8 round-trip fencing for broker identities; authenticated adapter rejection classifiers and real non-persistence attestations remain pending |
-| Managed/native submission outcome unions | Implemented (wire codec plus embedded/Kafka/Pulsar managed and native transport-SPI bridges) | `EnqueueOutcomeKindV1`, `DefinitelyNotQueuedV1`, `EnqueueUncertainV1`, `EnqueueOutcomeMessageV1`, `SubmissionOutcomeKindV1`, `NativeDefinitelyNotQueuedV1`, `NativeEnqueueUncertainV1`, `SubmissionOutcomeMessageV1`, `PreparedSubmissionV1`, `PreparedSubmissionAdapter`, `CommandQueuedReceiptV1.PreparedCommandRef`, `TargetPartitionHashV1`, `EmbeddedDelayService.enqueueOutcomeV1`, `PinnedKafkaCommandIngress.enqueueOutcomeV1`, `PinnedPulsarCommandIngress.enqueueOutcomeV1`, `PinnedPulsarNativeSubmissionAdapter.submit`, `WireIngressOutcomeSupport`, `ProtocolCodecTest`, `PreparedCommandV1Test`, `EmbeddedDelayServiceTest`, `AutoFastScheduleTest.hashOnlyNativeSelectionRecomputesTheSignedPartition`, `AdapterIngressTest`, `NativeSubmissionAdapterTest`; closed branch tags, exact prepared/ref hash binding, retryability and physical-attempt checks, canonical managed NDL1/native prepared branches, exact managed/native branch dispatch without reselection, V1 managed submission strict `encodeFrameV1/decodeFrameV1` validation before transport ownership, strict V1 frame digest derivation for `PreparedCommandRefV1`, compatibility-body rejection in both submission and receipt projections, embedded queued/definite/uncertain projection, Kafka/Pulsar queued ACK and authenticated definitive-rejection proof projection, native capability signature/expiry and pinned-resource checks before transport ownership, native `HASH_ONLY`/unlisted `EXPLICIT_OR_HASH` target-partition recomputation shared with Admission, native receipt/guard-proof/uncertain/local-definite projection, managed wrapper projection of null/throw/exceptional-stage/registration failures, and conservative downgrade when evidence is absent; durable guard/credential protection, authenticated Producer ownership and production response evidence remain pending |
-| Hard shard quota admission | Implemented (core subset) | `ShardQuota`, `ShardQuotaTest`, `OutcomeReserveUsage`, `LaneQuotaUsageProjection`, `PublishAdmissionBody.ChargeVector`, `CapacityDimensionV1`, `CapacityVectorV1`, `CapacityGrantV1`, `QuotaGrantRefV1`, `ShardCapacityEnvelopeV1`, `DelayShardConfig`, `DelayShard`, `KeyCodecTest`, `DelayShardTest`, `CapacityVectorV1Test`, `ShardCapacityEnvelopeV1Test`; shard-local class-2 aggregate, per-Lane class-3 map and outcome reserve records/bytes are durable and source-ordered, with `ADMISSION_CAPACITY_GATED` Claim rollback, admission charge and definitive/verified settlement release in one WriteBatch; activation rebuilds and compares the canonical local aggregate, reads old class-1 `ShardQuota`/class-2 scalar values only for migration, and removes the stale class-1 projection on the next mutation; single message/reservation add/remove/commit entries reject negative bytes before applying checked arithmetic; an activation-supplied immutable envelope additionally binds the exact outcome grant and persists the full 66-dimensional outcome usage under registered `meta/CONTROL_RESERVE` keys, with restart/rotation checks; class-3/4/5/6 reserve/release now has checked grant-bounded local persistence, class 3/6 are dimension-disjoint under the shared `NON_OUTCOME_CONTROL` grant, and class-6 restart/invalid-dimension tests are covered; source-writer charge integration, Route Broker authority, multi-shard placement/Oxia authority and GC accounting remain pending |
+| Closed Stable Code registry | Implemented | `StableCode`, `FailureStage`, `Retryability`, `StableError`, `ProtocolCodecTest`; all Registry stable codes including activated-protocol/capacity-fence codes, code-derived retryability, retry-at presence, rejection of `OK` in error projections, ENQUEUE-stage fencing for managed/native submission errors, mutually exclusive managed/native prepared refs, bounded diagnostic code and canonical round-trip/rejection checks |
+| Non-persistence proof and Broker identity | Implemented (codec boundary) | `KafkaBrokerResourceIdentity`, `PulsarBrokerResourceIdentity`, `BrokerResourceIdentity`, `NonPersistenceProofKind`, `NonPersistenceProof`, `ProtocolCodecTest.brokerEvidenceAndQueuedAckIdentitiesRejectNonCanonicalUtf8AtConstruction`; closed Kafka/Pulsar identity branches, kind-specific attempt/resource/request/response presence, pre-ownership evidence prohibition, adapter-proof version and fields 1–7 digest, and strict direct-construction UTF-8 round-trip fencing for broker identities; authenticated adapter rejection classifiers and real non-persistence attestations remain pending |
+| Managed/native submission outcome unions | Implemented (wire codec plus embedded/Kafka/Pulsar managed and native transport-SPI bridges) | `EnqueueOutcomeKind`, `DefinitelyNotQueued`, `EnqueueUncertain`, `EnqueueOutcomeMessage`, `SubmissionOutcomeKind`, `NativeDefinitelyNotQueued`, `NativeEnqueueUncertain`, `SubmissionOutcomeMessage`, `PreparedSubmission`, `PreparedSubmissionAdapter`, `CanonicalCommandQueuedReceipt.PreparedCommandRef`, `TargetPartitionHash`, `EmbeddedDelayService.enqueueOutcome`, `PinnedKafkaCommandIngress.enqueueOutcome`, `PinnedPulsarCommandIngress.enqueueOutcome`, `PinnedPulsarNativeSubmissionAdapter.submit`, `WireIngressOutcomeSupport`, `ProtocolCodecTest`, `PreparedCommandTest`, `EmbeddedDelayServiceTest`, `AutoFastScheduleTest.hashOnlyNativeSelectionRecomputesTheSignedPartition`, `AdapterIngressTest`, `NativeSubmissionAdapterTest`; closed branch tags, exact prepared/ref hash binding, retryability and physical-attempt checks, canonical managed NDL1/native prepared branches, exact managed/native branch dispatch without reselection, managed submission strict `encodeFrame/decodeFrame` validation before transport ownership, strict frame digest derivation for `PreparedCommandRef`, compatibility-body rejection in both submission and receipt projections, embedded queued/definite/uncertain projection, Kafka/Pulsar queued ACK and authenticated definitive-rejection proof projection, native capability signature/expiry and pinned-resource checks before transport ownership, native `HASH_ONLY`/unlisted `EXPLICIT_OR_HASH` target-partition recomputation shared with Admission, native receipt/guard-proof/uncertain/local-definite projection, managed wrapper projection of null/throw/exceptional-stage/registration failures, and conservative downgrade when evidence is absent; durable guard/credential protection, authenticated Producer ownership and production response evidence remain pending |
+| Hard shard quota admission | Implemented (core subset) | `ShardQuota`, `ShardQuotaTest`, `OutcomeReserveUsage`, `LaneQuotaUsageProjection`, `PublishAdmissionBody.ChargeVector`, `CapacityDimension`, `CapacityVector`, `CapacityGrant`, `QuotaGrantRef`, `ShardCapacityEnvelope`, `DelayShardConfig`, `DelayShard`, `KeyCodecTest`, `DelayShardTest`, `CapacityVectorTest`, `ShardCapacityEnvelopeTest`; shard-local class-2 aggregate, per-Lane class-3 map and outcome reserve records/bytes are durable and source-ordered, with `ADMISSION_CAPACITY_GATED` Claim rollback, admission charge and definitive/verified settlement release in one WriteBatch; activation rebuilds and compares the canonical local aggregate, reads old class-1 `ShardQuota`/class-2 scalar values only for migration, and removes the stale class-1 projection on the next mutation; single message/reservation add/remove/commit entries reject negative bytes before applying checked arithmetic; an activation-supplied immutable envelope additionally binds the exact outcome grant and persists the full 66-dimensional outcome usage under registered `meta/CONTROL_RESERVE` keys, with restart/rotation checks; class-3/4/5/6 reserve/release now has checked grant-bounded local persistence, class 3/6 are dimension-disjoint under the shared `NON_OUTCOME_CONTROL` grant, and class-6 restart/invalid-dimension tests are covered; source-writer charge integration, Route Broker authority, multi-shard placement/Oxia authority and GC accounting remain pending |
 | Kafka/Pulsar ingress and target adapters | In progress (identity-pinned transport SPI) | release blocker until concrete pinned transports, authenticated non-persistence classifiers/proofs, target publish/evidence channels, production response evidence and real-broker tests exist |
 | Oxia Worker assignment CAS session fence | In progress (route-bound assignment record with handle-bound before/after I/O fence) | `OxiaSyncWorkerAssignmentBackend` checks the connected Oxia session marker before and after every assignment-record get/put/delete, so a committed desired-assignment CAS is not reported as success after marker loss; `OxiaSyncWorkerAssignmentBackendTest.sessionFenceRejectsACommittedAssignmentAfterTheMarkerChanges` covers the boundary. Assignment/Owner/Route transactionality, placement authority, session recovery, chaos and release gates remain open |
 | Oxia Owner Lease CAS session fence | In progress (ephemeral owner epoch/lease records with handle-bound before/after I/O fence) | `OxiaSyncOwnerLeaseBackend` wraps every durable owner-epoch and ephemeral lease get/put/delete with the connected Oxia session marker, so a committed lease whose response or exact reread is fenced is not reported as successful; `OxiaSyncOwnerLeaseBackendTest.sessionFenceRejectsACommittedLeaseAfterTheMarkerChanges` covers the boundary. Assignment/Owner/Route transactionality, placement authority, automatic session recovery, chaos and release gates remain open |
 | Oxia Route authority session I/O fence | In progress (session-bound Route record/watch surface with before/after synchronous and lazy range fences) | `OxiaRouteAuthoritySession` checks the exact marker before and after Route get/put/notification registration and range-scan creation, and its lazy range iterator fences each `hasNext`/`next`/`remove`; `reconnectNotifications` also requires the current marker before replacement and immediately before/after registering the replacement notification client; `OxiaSignedRouteSnapshotProvider.start()` retries a non-healthy already-started provider through `refresh()`, and `refresh()` establishes the initial notification stream after recovering a provider that never completed `start()`; a notification registration fenced after commit can therefore rotate the session and install a replacement stream; `OxiaSignedRouteSnapshotProviderTest.sessionFenceRejectsACommittedRouteHeadAfterTheMarkerChanges`, `notificationReconnectRequiresTheCurrentSessionBeforeRegistration`, `notificationReconnectRejectsACommittedRegistrationAfterTheMarkerChanges`, `startRetriesNotificationRegistrationAfterACommittedRegistrationIsFenced` and `refreshAfterAnInitialRouteGapRestoresTheNotificationStream` cover durable Route/notification operations whose marker disappears before or after the delegated call. Route event/head transactionality, automatic reconnect, multi-node failover, placement/source ownership, chaos and release gates remain open |
 | Recovery Set/Floor, catalog and restore replay | In progress (typed and crash-durable local catalog/Floor subset; single-record Oxia catalog CAS backend with session-bound I/O constructor) | release blocker; `OxiaSyncRecoveryCatalogBackend` stores one shard's manifest/resource/scalar-Floor/typed-Floor snapshot with canonical decode and version CAS, validates reusable local Store lineage/Floor/install projections against that snapshot, and its handle-bound constructor now passes the session-fenced catalog record client into the sibling Recovery Pin store, so catalog and pin record I/O are both checked before/after every operation. Upload-intent/catalog/pin transactionality, immutable Object Store publication, source/evidence replay and activation CAS remain |
 | Checkpoint Upload Intent + Recovery Catalog publication authority | In progress (single-record atomic publication plus handle-bound Oxia session fence) | `OxiaSyncCheckpointPublicationBackend` keeps the PUBLISHED Upload Intent and Recovery Catalog manifest projection in one canonical `/publication` record with version CAS; its `ClientHandle` constructor checks the connected session marker before and after every canonical publication-record read/write, and the deterministic response-loss regression proves a committed value is not reported as success after the marker changes. `CheckpointPublicationCoordinator` now rejects a split pair from either side at construction: if either supplied authority implements `CheckpointAtomicPublicationAuthority`, the same object must be supplied as both intent and catalog; `CheckpointUploadCoordinatorTest.rejectsMismatchedAtomicAuthorityRegardlessOfWhichSideDeclaresIt` covers the fail-closed boundary. The sibling ephemeral Recovery Pin remains a separate record; cross-record Intent/Catalog/Pin transactionality, immutable Object Store/provider evidence, source/evidence replay, Owner/session recovery, chaos and release gates remain |
-| Oxia credential Profile catalog, Head, Protection and bounded use lease | Implemented (single-record CAS plus trust-set-gated activation, verified material cache, same-generation renewal composition and session-bound I/O constructor; control/source/provider authority pending) | `OxiaSyncProfileCatalogBackend`, `CredentialProfileAuthority`, `CredentialAttestationTrustSet`, `OxiaObjectStoreCredentialLeaseActivator`, `VerifiedCredentialMaterialCache`, `RenewableS3CompatibleCheckpointObjectStoreAdapter`, `OxiaSyncProfileCatalogBackendTest`, `CredentialAttestationTrustSetTest`, `VerifiedCredentialMaterialCacheTest`, `OxiaObjectStoreCredentialLeaseActivatorTest`, `RenewableS3CompatibleCheckpointObjectStoreAdapterTest`, `OxiaRealProfileCatalogSmokeTest`; one canonical Oxia record per Profile version stores the exact semantic Profile, immutable generations, mutable Head and every Protection projection with a final digest. Generation-1 publication and `RotateEquivalentSecretRequestV1` use idempotent exact version CAS; `issueCredentialUseLease` compares the current Head/binding/fingerprint, checks attestation scope/age, verifies the exact verifier tuple/signature and retained key window, bounds the lease TTL, raises the relevant managed-channel or Object Store protection horizon monotonically in the same CAS, and returns a lease bound to the resulting protection revision. Persisted bindings are reverified on canonical decode/reopen, so an untrusted attestation cannot be activated from old Oxia bytes. `VerifiedCredentialMaterialCache` installs only exact Profile/generation/binding/reference/fingerprint material after trust-set verification and returns null on a cache miss; the renewable S3 adapter automatically renews only inside an explicit window, re-resolves the exact same Profile/Head/Binding/material fingerprint, atomically replaces the local gate after a protected lease reread, and rejects Head generation rotation as a quiescence boundary; Provider calls themselves do not reread Oxia except during due renewal. Response loss is accepted only after an exact reread, and the handle-bound Profile backend checks the connected session marker before and after every record I/O. The Dockerized real-service trust-set smoke passed against Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`; external secret-manager resolution/source-ordered refresh, actor/source ordering, retained-generation quota/GC, cross-record Owner/Route/session transactions, multi-node failover for this authority, provider credential rotation/quiescence, real Object Store and release gates remain pending |
+| Oxia credential Profile catalog, Head, Protection and bounded use lease | Implemented (single-record CAS plus trust-set-gated activation, verified material cache, same-generation renewal composition and session-bound I/O constructor; control/source/provider authority pending) | `OxiaSyncProfileCatalogBackend`, `CredentialProfileAuthority`, `CredentialAttestationTrustSet`, `OxiaObjectStoreCredentialLeaseActivator`, `VerifiedCredentialMaterialCache`, `RenewableS3CompatibleCheckpointObjectStoreAdapter`, `OxiaSyncProfileCatalogBackendTest`, `CredentialAttestationTrustSetTest`, `VerifiedCredentialMaterialCacheTest`, `OxiaObjectStoreCredentialLeaseActivatorTest`, `RenewableS3CompatibleCheckpointObjectStoreAdapterTest`, `OxiaRealProfileCatalogSmokeTest`; one canonical Oxia record per Profile version stores the exact semantic Profile, immutable generations, mutable Head and every Protection projection with a final digest. Generation-1 publication and `RotateEquivalentSecretRequest` use idempotent exact version CAS; `issueCredentialUseLease` compares the current Head/binding/fingerprint, checks attestation scope/age, verifies the exact verifier tuple/signature and retained key window, bounds the lease TTL, raises the relevant managed-channel or Object Store protection horizon monotonically in the same CAS, and returns a lease bound to the resulting protection revision. Persisted bindings are reverified on canonical decode/reopen, so an untrusted attestation cannot be activated from old Oxia bytes. `VerifiedCredentialMaterialCache` installs only exact Profile/generation/binding/reference/fingerprint material after trust-set verification and returns null on a cache miss; the renewable S3 adapter automatically renews only inside an explicit window, re-resolves the exact same Profile/Head/Binding/material fingerprint, atomically replaces the local gate after a protected lease reread, and rejects Head generation rotation as a quiescence boundary; Provider calls themselves do not reread Oxia except during due renewal. Response loss is accepted only after an exact reread, and the handle-bound Profile backend checks the connected session marker before and after every record I/O. The Dockerized real-service trust-set smoke passed against Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`; external secret-manager resolution/source-ordered refresh, actor/source ordering, retained-generation quota/GC, cross-record Owner/Route/session transactions, multi-node failover for this authority, provider credential rotation/quiescence, real Object Store and release gates remain pending |
 | S3-compatible checkpoint Object Store adapter | Implemented (bounded local provider seam; external authority pending) | `S3CompatibleCheckpointObjectStoreAdapter` verifies the exact Object Store Profile endpoint/credential-scope digests, signs HTTP requests with SigV4, reuses the canonical checkpoint object identity, writes files with `If-None-Match: *` and the manifest last, rereads exact length/SHA-256 after success, conflict or ambiguous response, and streams a bounded download into an atomic staging publication. Its lease-gated constructor wires `ObjectStoreCredentialUseLeaseGate` before every upload/download Provider call; the gate rechecks exact binding/protection/lease identity, configured TTL and attestation age, trusted-time validity and the loaded credential fingerprint. `S3CompatibleCheckpointObjectStoreAdapterTest` covers endpoint/credential drift, SigV4/conditional headers, manifest response loss, exact restore and immutable conflict; `ObjectStoreCredentialUseLeaseGateTest` covers current, expired, fingerprint-drift and short-protection cases. This does not establish Oxia Head/protection CAS, trust-set verification, secret resolution, credential rotation, real S3/MinIO conformance, provider quiescence or version-aware deletion, multi-shard RecoveryPin/catalog authority, chaos, or release PASS |
-| Large payload, quota grants, control reserve and GC | In progress (reservation/commit, shard hard-quota, 66-dimensional vector/grant/envelope codec, canonical class-2 local aggregate plus per-Lane map, bound outcome-reserve usage, checked `meta/CONTROL_RESERVE` class-3/4/5/6 reserve arithmetic, disjoint system-writer projection, retire-intent, delete-confirmed, retired-Message identity branch and catalog-backed local compaction subsets) | release blocker; `CapacityVectorV1`/`CapacityGrantV1`/`QuotaGrantRefV1`/`ShardCapacityEnvelopeV1` enforce the closed dimension registry, zero-explicit ordered amounts, grant/envelope digests, logical charge projection, component-grant projection and checked arithmetic locally. The bound `DelayShard` path persists class-1 envelope identity and class-2 exact outcome usage under `meta/CONTROL_RESERVE`; `meta/QUOTA` class 2 now carries the canonical aggregate for locally accounted dimensions, class 3 carries the per-Lane map, and old class-1/class-2 scalar values are migration-only. It exposes synchronous grant-bounded reserve/release for `meta/CONTROL_RESERVE` classes 3–6, and enforces the class-3/class-6 dimension partition plus combined `NON_OUTCOME_CONTROL` grant bound; it scans those reserve classes during activation and rejects stale/unknown, over-capacity or cross-partition projections instead of ignoring them. Because the Registry has not frozen value schemas for `meta/QUOTA` classes 4 (`retained/object usage`) and 5 (`grandfathered transfer state`), `DelayShard` now rejects non-empty values for those classes during activation rather than treating them as empty; a Registry revision is still required before they can be persisted/restored. `ResourceRetireIntentBody`/`ResourceRetireIntentRecord` plus `ResourceDeleteConfirmedBody`/`ResourceDeleteConfirmedRecord` provide canonical source-ordered `gc_cf/TASK` intent/tombstone persistence with applied mutation sequence; `DelayShard.retireMessageIdentity` additionally removes bounded terminal/DLQ projections and retains a type-1 version-5 `RETIRED_IDENTITY` key branch, while `compactRetiredMessageIdentity` requires source-fence and Floor coverage before deleting it; direct GC reads fence resource kind/hash/version against the embedded retire intent, including nested delete-confirmation intents; `RecoveryCatalogAuthority`/`OxiaRecoveryCatalog` plus `ResourceGcGuard` enforce local ancestry/source/sequence coverage and fail closed when an active RecoveryPin protects a checkpoint resource or its pin state cannot be read, `DelayShard.compactResourceDeleteConfirmation` removes only a covered unpinned local tombstone, and local payload/checkpoint version/etag comparison is enforced, but Route Broker source-writer operation charging/authority, Object Store/Oxia publication, multi-shard grant placement/authority, real provider delete attestation/ownership, durable catalog/Floor barrier, Route identity-retention policy, Lane terminal guard and full guarded GC remain |
-| Query, control operations, DLQ and observability | In progress (wire unions plus bounded local receipt/barrier/DLQ/SLO bridge) | `MessageQuerySnapshot`, `ReservationQuerySnapshot`, `DlqExportRecord`, `DlqExportResultBody`, source-ordered `DelayShard` DLQ export apply, `BoundedLocalQueryProjector`, `EmbeddedDelayService.queuedReceiptV1/appliedReceiptV1/queryCommand/queryMessage/registerControlOperation/advanceControlOperation/queryControlOperation`, `ControlOperationQueryResponseV1`/`CurrentControlOperationV1`/`ControlTargetStateViewV1`/`ControlTypedResultV1`, `ControlOperationAuthority`, `InMemoryControlOperationAuthority`, `OxiaControlOperationAuthority`, `SloObjectiveV1`/`SloSampleEventIdentityV1`/`SloSampleStartV1`/`SloSampleFinalV1`/`SloObservationOutboxV1`/`SloObservationOutboxStore`/`SloObservationOutboxExportRate`/`SloObservationCollector`/`SloObservationCollectorLimits` and closed SLO enum/time codecs, all V1 Command/Message query view codecs, `DelayShardTest`, `DlqExportRecordTest`, `DlqExportApplyTest`, `ControlOperationQueryResponseV1Test`, `ControlOperationAuthorityTest`, `SloObjectiveV1Test`, `SloObservationOutboxV1Test`, `SloObservationOutboxStoreTest`, `SloObservationOutboxExportRateTest`, `SloObservationCollectorTest`, `ShardStoreTest`, `EmbeddedDelayServiceTest`, `ProtocolCodecTest`; Dead Letter terminalization writes the deterministic `terminal_cf/DLQ_EXPORT` `NOT_CONFIGURED` record atomically; configured local outboxes can now apply signed `DLQ_EXPORT_RESULT_V1` transitions with checked attempt succession, PENDING next-attempt advancement, terminal monotonicity and mutation dedupe, preserving body `stable_code` in the applied System Mutation result, but configured `DlqExportRecord` now persists the canonical policy-derived retained charge (legacy v1 records decode as zero), and apply requires callback transfer byte-equality with that projection; mismatches remain `REJECTED(STALE_SYSTEM_MUTATION)` without advancing the outbox state; the Control Operation query response union now has canonical CURRENT/error/target-marker/revision/typed-result wire validation, while the local authority and embedded entry points add receipt-bound idempotent registration, strict revision CAS and fixed retention-bound queries; a reclaimed Message identity is now projected as `IDENTITY_RETIRED` through the type-1 version-5 `id_cf/MESSAGE` branch and is covered by the focused EmbeddedDelayService regression; SLO objective digest, direction/unit/population/exclusion semantics, all 14 objective branch tags/common identity field-shape checks, Start threshold timeout, exact sample/start/final digests, start matching, exact due identity/path/start consistency, `meta_cf/SLO_OUTBOX` key/value-envelope persistence, key/value sample identity fencing, deterministic authority-provided Start reconciliation, conservative AT_MOST/AT_LEAST Final merge, bounded outbox capacity and process-local bounded export-rate accounting are locally covered; Real target/evidence adapter ownership, production receipt/barrier routing, authorization-safe binding/evidence/retention lookup, durable Oxia control-operation state/routing, Start reconstruction from Message/Admission authority, production collector merge/export and observability remain release blockers |
+| Large payload, quota grants, control reserve and GC | In progress (reservation/commit, shard hard-quota, 66-dimensional vector/grant/envelope codec, canonical class-2 local aggregate plus per-Lane map, bound outcome-reserve usage, checked `meta/CONTROL_RESERVE` class-3/4/5/6 reserve arithmetic, disjoint system-writer projection, retire-intent, delete-confirmed, retired-Message identity branch and catalog-backed local compaction subsets) | release blocker; `CapacityVector`/`CapacityGrant`/`QuotaGrantRef`/`ShardCapacityEnvelope` enforce the closed dimension registry, zero-explicit ordered amounts, grant/envelope digests, logical charge projection, component-grant projection and checked arithmetic locally. The bound `DelayShard` path persists class-1 envelope identity and class-2 exact outcome usage under `meta/CONTROL_RESERVE`; `meta/QUOTA` class 2 now carries the canonical aggregate for locally accounted dimensions, class 3 carries the per-Lane map, and old class-1/class-2 scalar values are migration-only. It exposes synchronous grant-bounded reserve/release for `meta/CONTROL_RESERVE` classes 3–6, and enforces the class-3/class-6 dimension partition plus combined `NON_OUTCOME_CONTROL` grant bound; it scans those reserve classes during activation and rejects stale/unknown, over-capacity or cross-partition projections instead of ignoring them. Because the Registry has not frozen value schemas for `meta/QUOTA` classes 4 (`retained/object usage`) and 5 (`grandfathered transfer state`), `DelayShard` now rejects non-empty values for those classes during activation rather than treating them as empty; a Registry revision is still required before they can be persisted/restored. `ResourceRetireIntentBody`/`ResourceRetireIntentRecord` plus `ResourceDeleteConfirmedBody`/`ResourceDeleteConfirmedRecord` provide canonical source-ordered `gc_cf/TASK` intent/tombstone persistence with applied mutation sequence; `DelayShard.retireMessageIdentity` additionally removes bounded terminal/DLQ projections and retains a type-1 version-5 `RETIRED_IDENTITY` key branch, while `compactRetiredMessageIdentity` requires source-fence and Floor coverage before deleting it; direct GC reads fence resource kind/hash/version against the embedded retire intent, including nested delete-confirmation intents; `RecoveryCatalogAuthority`/`OxiaRecoveryCatalog` plus `ResourceGcGuard` enforce local ancestry/source/sequence coverage and fail closed when an active RecoveryPin protects a checkpoint resource or its pin state cannot be read, `DelayShard.compactResourceDeleteConfirmation` removes only a covered unpinned local tombstone, and local payload/checkpoint version/etag comparison is enforced, but Route Broker source-writer operation charging/authority, Object Store/Oxia publication, multi-shard grant placement/authority, real provider delete attestation/ownership, durable catalog/Floor barrier, Route identity-retention policy, Lane terminal guard and full guarded GC remain |
+| Query, control operations, DLQ and observability | In progress (wire unions plus bounded local receipt/barrier/DLQ/SLO bridge) | `MessageQuerySnapshot`, `ReservationQuerySnapshot`, `DlqExportRecord`, `DlqExportResultBody`, source-ordered `DelayShard` DLQ export apply, `BoundedLocalQueryProjector`, `EmbeddedDelayService.queuedReceipt/appliedReceipt/queryCommand/queryMessage/registerControlOperation/advanceControlOperation/queryControlOperation`, `ControlOperationQueryResponse`/`CurrentControlOperation`/`ControlTargetStateView`/`ControlTypedResult`, `ControlOperationAuthority`, `InMemoryControlOperationAuthority`, `OxiaControlOperationAuthority`, `SloObjective`/`SloSampleEventIdentity`/`SloSampleStart`/`SloSampleFinal`/`SloObservationOutbox`/`SloObservationOutboxStore`/`SloObservationOutboxExportRate`/`SloObservationCollector`/`SloObservationCollectorLimits` and closed SLO enum/time codecs, all Command/Message query view codecs, `DelayShardTest`, `DlqExportRecordTest`, `DlqExportApplyTest`, `ControlOperationQueryResponseTest`, `ControlOperationAuthorityTest`, `SloObjectiveTest`, `SloObservationOutboxTest`, `SloObservationOutboxStoreTest`, `SloObservationOutboxExportRateTest`, `SloObservationCollectorTest`, `ShardStoreTest`, `EmbeddedDelayServiceTest`, `ProtocolCodecTest`; Dead Letter terminalization writes the deterministic `terminal_cf/DLQ_EXPORT` `NOT_CONFIGURED` record atomically; configured local outboxes can now apply signed `DLQ_EXPORT_RESULT` transitions with checked attempt succession, PENDING next-attempt advancement, terminal monotonicity and mutation dedupe, preserving body `stable_code` in the applied System Mutation result, but configured `DlqExportRecord` now persists the canonical policy-derived retained charge (initial-format records decode as zero), and apply requires callback transfer byte-equality with that projection; mismatches remain `REJECTED(STALE_SYSTEM_MUTATION)` without advancing the outbox state; the Control Operation query response union now has canonical CURRENT/error/target-marker/revision/typed-result wire validation, while the local authority and embedded entry points add receipt-bound idempotent registration, strict revision CAS and fixed retention-bound queries; a reclaimed Message identity is now projected as `IDENTITY_RETIRED` through the type-1 version-5 `id_cf/MESSAGE` branch and is covered by the focused EmbeddedDelayService regression; SLO objective digest, direction/unit/population/exclusion semantics, all 14 objective branch tags/common identity field-shape checks, Start threshold timeout, exact sample/start/final digests, start matching, exact due identity/path/start consistency, `meta_cf/SLO_OUTBOX` key/value-envelope persistence, key/value sample identity fencing, deterministic authority-provided Start reconciliation, conservative AT_MOST/AT_LEAST Final merge, bounded outbox capacity and process-local bounded export-rate accounting are locally covered; Real target/evidence adapter ownership, production receipt/barrier routing, authorization-safe binding/evidence/retention lookup, durable Oxia control-operation state/routing, Start reconstruction from Message/Admission authority, production collector merge/export and observability remain release blockers |
 | Crash-durable local SLO collector merge projection | Implemented (embedded crash/replay seam; production authority pending) | `PersistentSloObservationCollector`, `PersistentSloObservationCollectorTest`; sorted canonical sample snapshots, `(sampleId,startDigest)` identity fence, direction-aware conservative Final merge, bounded sample/file state, checksum, atomic replacement, directory fsync and JVM/on-disk locking are covered; production rolling-window/late-finalization retention, authorization, ACK/export and metric publication remain release blockers |
 The query/control matrix's local durable operation state is now covered by
 `PersistentControlOperationAuthority`; the remaining durable-operation blocker
@@ -5677,8 +5677,8 @@ is the production Oxia routing/authorization/session boundary and source-ordered
 marker authority, not the embedded file recovery seam.
 | Real-service, chaos, benchmark, soak and upgrade evidence | Partial (bounded real Kafka/Pulsar/Oxia and Gateway receipts; full matrix and release gates open) | `e2e/run-gateway-real-e2e.sh`, the Kafka/Pulsar/Oxia receipts above, the real multi-node Oxia Gateway DataServer leader-stop run, Gateway STARTED/RETRY_UNCERTAIN response-loss rereads, Kafka K2/Worker response-loss/LSO/retention/process/network/TCP receipts, Pulsar destination/source-ACK/Worker response-loss receipts, Worker JVM and Broker process/network failover receipts, native multi-shard fleets and the combined Pulsar large-payload network-partition receipt provide bounded real-service evidence; arbitrary fault combinations, controller/coordinator/storage failover, benchmark, soak, upgrade, HA, Object Store failure injection and release-gate coverage remain open |
 
-The local DLQ bridge now retains a typed `RetryDecisionV1` alongside the raw
-body bytes. When an exact source-position Retry Policy catalog and V1 schedule
+The local DLQ bridge now retains a typed `RetryDecision` alongside the raw
+body bytes. When an exact source-position Retry Policy catalog and schedule
 binding are present, `DelayShard` recomputes the `DLQ_EXPORT` policy reference,
 terminalization `firstExportAt`, checked deadline, physical-attempt budget,
 possible-duplicate permission and deterministic next-retry jitter before the
@@ -5793,7 +5793,7 @@ when an already committed client Command is replayed. `DelayShardTest`
 that configuration boundary; it keeps the due-admission outbox empty and the replay result
 idempotent. This is local configuration/replay evidence, not production SLO authority.
 
-The source-ordered `PUBLISH_ADMISSION_V1` seam now also accepts an immutable
+The source-ordered `PUBLISH_ADMISSION` seam now also accepts an immutable
 `DUE_ADMISSION_LAG` objective restricted to `ALL_ACCEPTED`. After the typed Admission
 descriptor and local Profile/timing/shard-state checks establish the message identity,
 generation, managed path and `deliverAt/actionAt`, `DelayShard` calls
@@ -5809,7 +5809,7 @@ HEALTHY/full-interval proof, production Profile/Oxia/Broker authority and collec
 remain release blockers.
 
 `SloAuthoritativeStartFactory` now provides the typed local reconstruction projection for the
-two Shard-derived branches. `commandApplied(...)` uses the Registry `SourcePositionV1`
+two Shard-derived branches. `commandApplied(...)` uses the Registry `SourcePosition`
 canonical bytes, the Source Position Broker-persistence timestamp and its exact SHA-256;
 `dueAdmission(...)` requires the caller to provide the Delay Message ID, complete unsigned
 32-bit generation, managed path, exact ordinary `deliverAt`/handoff `actionAt`, and semantic
@@ -5948,22 +5948,22 @@ This bounds the rebuildable scheduler index; it does not replace the durable
 terminal guard or external retirement authority.
 
 The scheduler boundary now carries an explicit trusted due-through time through
-`LaneScheduler`, `PersistentLaneScheduler` and `WorkerScheduler`.  Inclusive
+`LaneScheduler`, `PersistentLaneScheduler` and `WorkerScheduler`. Inclusive
 eligibility (`eligibleAtEpochMs <= dueThroughEpochMs`) is enforced before a
 work item can be returned for Claim; a future READY projection may be retained
-in the process-local queue, but its poll remains fenced.  The durable discovery
+in the process-local queue, but its poll remains fenced. The durable discovery
 cursor advances only through eligible READY keys, so a future-only slice can be
-rediscovered after restart.  `LaneSchedulerTest.duePollUsesAnInclusiveEligibilityBoundary`,
+rediscovered after restart. `LaneSchedulerTest.duePollUsesAnInclusiveEligibilityBoundary`,
 `LaneSchedulerTest.persistentReadyDiscoveryAndPollFenceFutureDeliverAt` and
 `WorkerSchedulerTest.workerPollCarriesTheInclusiveDueThroughBoundaryToShardScheduler`
-cover the local time-boundary and restart seam.  The no-time overloads remain
+cover the local time-boundary and restart seam. The no-time overloads remain
 compatibility seams only; Trusted UTC production wiring, Broker-time evidence
 and Owner/Oxia scheduling authority are still release blockers.
 
 Recovery fairness now uses the same due-through boundary when building its
-eligible Lane/Shard sets and when choosing the minimum head byte budget.  A
+eligible Lane/Shard sets and when choosing the minimum head byte budget. A
 future-only Lane or Shard therefore cannot keep `recovery_first_pass` open and
-starve newly due work elsewhere.  The regressions are
+starve newly due work elsewhere. The regressions are
 `LaneSchedulerTest.persistentRecoveryFirstPassIgnoresFutureLaneForDueFairness`
 and `WorkerSchedulerTest.futureShardDoesNotHoldRecoveryFirstPassOpenForDueWork`;
 this remains local scheduler evidence rather than production placement or
@@ -6043,11 +6043,11 @@ cover the matching, replacement-identity and close-retry paths. This remains
 local orchestration evidence; production source stop, Oxia session fencing and
 worker restart coordination are still release blockers.
 
-The typed `ActiveLaneStateV1` constructor now applies the Registry READY-key
+The typed `ActiveLaneState` constructor now applies the Registry READY-key
 projection itself: when field 22 is present it must be the exact
 `timeline/READY` key derived from the Lane ID, runtime Lane version and field
 16 `nextEligibleAt`; arbitrary non-empty bytes are rejected before the state
-can be wrapped in `meta_cf/LANE`. `ActiveLaneStateV1Test.readyKeyMustBeTheExactLaneVersionAndEligibilityProjection`
+can be wrapped in `meta_cf/LANE`. `ActiveLaneStateTest.readyKeyMustBeTheExactLaneVersionAndEligibilityProjection`
 and `DelayShardTest.typedActiveLaneStateRejectsReadyKeyDriftAtConstruction`
 cover the direct codec boundary, while shard and persistent-scheduler
 discovery continue to revalidate the same bytes against the physical READY
@@ -6062,7 +6062,7 @@ transition would bypass evidence/capability reacquisition and is rejected;
 repeating the same readiness value is an idempotent local no-op. The focused
 regression is `LaneRecordTest.runtimeReadinessMustPassThroughRecoveryBeforeBecomingReadyAgain`.
 The legacy `LaneRecord` constructor now applies the same cross-axis fence as the
-typed `ActiveLaneStateV1` constructor: a direct projection cannot persist
+typed `ActiveLaneState` constructor: a direct projection cannot persist
 `runtimeReadiness=READY` behind a non-`OPEN` admission gate. The direct-construction
 regression is `LaneRecordTest.directProjectionCannotPersistReadyLaneBehindAClosedAdmissionGate`.
 This is a local lifecycle fence and does not prove the external activator's
@@ -6234,7 +6234,7 @@ serving a projection that was never durably published; process restart remains
 the recovery boundary for unrecoverable native failures.
 
 The strict first-seen ingress identity seam now closes the UUID/Broker timing
-boundary from the V1 design when a Route policy is supplied to
+boundary from the design when a Route policy is supplied to
 `DelayShardConfig`: `retryUntil` must equal the Command UUIDv7 timestamp plus
 the configured command retry window, and both the first-seen `commandId` and a
 new Schedule's `delayMessageId` must fall within the checked
@@ -6330,11 +6330,11 @@ Claim point at another Message; `ClaimRecordTest.claimRejectsTimelineKeyForAnoth
 covers this local value-integrity fence. Full Claim materialization/recovery
 authority remains a release blocker.
 
-`RecoveryPinV1` now binds its explicit `ShardSubjectV1` to the observed
-`RecoveryFloorRefV1.appliedSourcePosition` Shard during value construction and
+`RecoveryPin` now binds its explicit `ShardSubject` to the observed
+`RecoveryFloorRef.appliedSourcePosition` Shard during value construction and
 decode. A pin carrying a valid Floor from another Shard can no longer be
 serialized as a signed-looking intermediate value before the Catalog authority
-rejects it; `RecoveryPinV1Test.rejectsLineageGenerationAndDigestDrift` covers
+rejects it; `RecoveryPinTest.rejectsLineageGenerationAndDigestDrift` covers
 the foreign-Shard constructor path alongside the existing lineage and digest
 checks. This is local recovery-value integrity evidence only; Oxia session/CAS,
 Floor publication and source replay remain release blockers.
@@ -6582,7 +6582,7 @@ Object Store publication and external recovery authority remain release
 blockers.
 
 Manifest-backed `ShardStore.restoreFromCheckpoint` now requires the complete
-`meta_cf/FIXED` key 10 `CompatibleControlSnapshotV1` and requires its digest to
+`meta_cf/FIXED` key 10 `CompatibleControlSnapshot` and requires its digest to
 equal `CheckpointManifest.controlStateDigest`; a missing snapshot can no longer
 silently pass restore validation. `ShardStoreTest.restoreWithManifestRejectsMissingControlSnapshot`
 covers the missing-key path, while the existing catalog/lineage restore fixtures
@@ -6613,7 +6613,7 @@ tasks). The five opt-in real-Oxia methods remained skipped because
 
 The activation call-site audit found no production (`src/main`) caller of the
 legacy `OwnedDelayShard.activateForCommands(...)` overloads. They remain only
-for embedded ownership tests; V1 Worker/recovery wiring must use
+for embedded ownership tests; Worker/recovery wiring must use
 `activateForCommandsWithControlSnapshot(...)`, which proves the exact persisted
 shard control snapshot before exposing `ACTIVE_FOR_COMMANDS`.
 
@@ -6638,7 +6638,7 @@ catalog/Floor reuse gate; Owner Lease/session fencing, source replay and final
 
 The legacy raw-byte `DelayShard.claimForPublish(...)` primitive is now
 package-local. Production main sources have no caller of that overload: the
-public typed `claimForPublishV1(...)` entry is reached through
+public typed `claimForPublish(...)` entry is reached through
 `OwnedDelayShard`, while `ClaimHandoffWorkClassExecutor` supplies the bounded
 work-class and authority checks. The only cross-package compatibility bridge
 lives in test sources to create an activation-recovery fixture, and
@@ -6758,13 +6758,13 @@ The embedded-owner `PersistentLaneScheduler(store, delegate)` constructor and
 `embedded-scheduler` owner at epoch 1, which is suitable for local scheduler
 fixtures but cannot prove the current Owner Lease or bind production READY
 certificates. Cross-package tests obtain it through a test-only factory; the
-public constructor requires an explicit `OwnerIdentityV1`. Reflection coverage,
+public constructor requires an explicit `OwnerIdentity`. Reflection coverage,
 focused runtime/scheduler/ownership tests and the full local Gradle gate passed
 on 2026-08-13; five real-Oxia smokes remained skipped. Actual scheduler Owner
 construction from authenticated lease/session state remains integration work.
 
 `OwnedDelayShard` 的公开生产构造现在要求显式、非空的完整
-`OwnerIdentityV1`，并在构造时校验 Shard identity 与 lease `ownerEpoch`。旧两参数
+`OwnerIdentity`，并在构造时校验 Shard identity 与 lease `ownerEpoch`。旧两参数
 构造已降为 ownership 包内兼容 seam；它没有协议 Owner identity，因此不能通过
 strict due/Claim、expiry、Publish Admission 或 Owner-authored outcome gate。上述实时
 路径不再只比较 epoch，而是把 scheduler、Claim 或 mutation author 与绑定的完整
@@ -6832,8 +6832,8 @@ Oxia smoke 跳过。该 Store projection fence 不替代真实 session-bound lea
 或 Object Store publication authority。
 
 Large-payload proof authority is now fixed by the durable Prepare projection.
-`DelayShard` consults the exact `PayloadProofTrustSetRefV1` in a Registry V1
-Prepare's `V1ScheduleBinding` regardless of whether the later Commit body is V1
+`DelayShard` consults the exact `PayloadProofTrustSetRef` in a Registry
+Prepare's `ScheduleBinding` regardless of whether the later Commit body is
 or legacy; only a reservation created by legacy Prepare can use the old
 version-only verifier. The regression deliberately gives the pinned semantic
 and legacy fallback the same trust-set/key versions but different public keys,
@@ -6845,9 +6845,9 @@ catalog durability and Recovery-Floor historical key retention remain OPEN.
 
 The local payload adapter registration boundary now consumes that same exact
 Prepare authority. `EmbeddedDelayService` reloads the durable
-`V1ScheduleBinding` before registering a reservation, and
+`ScheduleBinding` before registering a reservation, and
 `InMemoryPayloadObjectStore` requires its full semantic ref—not only its
-version—to equal the pinned `PayloadProofTrustSetRefV1`. A close/reopen
+version—to equal the pinned `PayloadProofTrustSetRef`. A close/reopen
 regression proves that an adapter with the same version/key version but a
 different semantic hash returns the existing public `INTEGRITY_ERROR` and
 retains zero reservation/handle state. Code commit `3c2ed49a` and the complete
@@ -6856,10 +6856,10 @@ skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was unset. Production Object Store
 credentials, authenticated facade routing and Oxia semantic publication remain
 OPEN.
 
-`PrepareLargeScheduleV1` now closes the adjacent Object Store authority gap:
-required canonical field 15 carries the complete `OBJECT_STORE ProfileRefV1`,
+`PrepareLargeSchedule` now closes the adjacent Object Store authority gap:
+required canonical field 15 carries the complete `OBJECT_STORE ProfileRef`,
 catalog-backed apply resolves its exact immutable semantic/current credential
-Head, and the durable `V1ScheduleBinding` becomes the common authority for
+Head, and the durable `ScheduleBinding` becomes the common authority for
 receipt/handle/attestation registration and later Commit verification. The
 strict adapter path requires exact Profile and trust-set refs before it records
 a reservation. Typed Commit proofs require complete Profile-ref equality;
@@ -6894,7 +6894,7 @@ Code commit `c4af3096` and the complete six-task local Gradle gate passed on
 a local test seam and is not yet the embedded facade type or a production
 provider/credential/Oxia authority.
 
-Typed Claim persistence now reuses the durable V1 command sidecar instead of
+Typed Claim persistence now reuses the durable command sidecar instead of
 trusting an authority-supplied materialization merely because its compact
 `PayloadReference` matches. For ordinary Registry Schedule, `DelayShard`
 requires exact Destination Profile, business metadata, delivery window and
@@ -6913,7 +6913,7 @@ fetch/immutability, Adapter serialization/size and Producer/recovery authority
 remain OPEN.
 
 The same typed Claim boundary now consumes the complete immutable Lane identity
-already stored in `V1ScheduleBinding.canonicalLaneTuple`. The shared parser
+already stored in `ScheduleBinding.canonicalLaneTuple`. The shared parser
 reconstructs the exact Destination and Delivery Capability Profile refs,
 Kafka/Pulsar Broker target resource and physical partition, then rejects any
 materialization drift before the Claim batch. Kafka's repeated native-topic
@@ -6940,7 +6940,7 @@ prerequisite implementations, real Broker append and Producer ownership remain
 OPEN.
 
 Large-payload certified timing now has explicit restart evidence. After a
-catalog-backed V1 Prepare has durably stored its `V1ScheduleBinding`, the test
+catalog-backed Prepare has durably stored its `ScheduleBinding`, the test
 closes the shard DB, reopens a fresh `DelayShard`, and applies the signed Commit
 without any Prepare-turn resolver scratch. Commit reloads the exact Destination
 Profile from the Prepare body, resolves the pinned Delivery Capability through
@@ -6954,11 +6954,11 @@ recovery proof only; real Profile/Oxia publication, Object Store provider,
 Broker visibility guard and Producer authority remain OPEN.
 
 Certified large-payload timing is also rejected at the earliest stateful
-boundary. `ProfileCatalogV1ScheduleResolver.resolvePrepare` now uses the same
+boundary. `ProfileCatalogScheduleResolver.resolvePrepare` now uses the same
 single resolved Destination/Capability semantic pair as Schedule and runs the
 fixed-lead `expectedActionAt` check before invoking the Lane resolver. An
 underflow therefore returns stable `INVALID_DELIVERY_WINDOW` before any
-Reservation, Lane, `V1ScheduleBinding` or reservation-quota projection exists;
+Reservation, Lane, `ScheduleBinding` or reservation-quota projection exists;
 the subsequent valid Prepare still succeeds. Resolver and `DelayShard.apply`
 regressions passed in code commit `c9600447`; the complete six-task local
 Gradle gate passed on 2026-08-13 in 1m13s, with five real-Oxia smokes skipped
@@ -6995,7 +6995,7 @@ The source compile passed with `-Xlint:all -Werror` against the locked P1
 client, client-api and common artifacts.
 
 The corresponding Pulsar worktree is
-`nereus/delay-resource-guard-v1@f813c96687cc19e6fca1c82d3d161cf3e045c86b`,
+`nereus/delay-resource-guard@f813c96687cc19e6fca1c82d3d161cf3e045c86b`,
 descended from `5.0.0-M1@8dae0236c0a0d405ed7f8303081080520fe91551`. It adds the
 guarded `SUBSCRIBE` request field, success attestation and connection
 generation, client `GuardedConsumer`, and broker-side exact guard/current-view
@@ -7036,7 +7036,7 @@ Without that variable, the existing deterministic in-memory authority remains
 the default local mode.
 
 The fresh integrated run used Delay `a7fd5fa7dd35d5d8535d3c63e577208d29fc2c5`,
-Kafka `nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+Kafka `nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, Kafka client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, and
 broker image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`.
@@ -7073,7 +7073,7 @@ through `PulsarClientArtifactWorkerSourceFactory`, applies the next record via
 drains/releases the owner lease.
 
 The fresh single-node run used Pulsar
-`nereus/delay-resource-guard-v1@358ce4a1033bd566faebcd3465c3ba4606f3c83f`,
+`nereus/delay-resource-guard@358ce4a1033bd566faebcd3465c3ba4606f3c83f`,
 distribution SHA-256
 `7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5c5a1d137d`, client
 SHA-256 values `57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
@@ -7112,7 +7112,7 @@ Commit `0da18a7b4d6040eeb6700195a1132ee224087ffa` then made the optional
 Gradle argument array safe under the E2E harness's `set -u` mode.
 
 The optional run used P1
-`nereus/delay-resource-guard-v1@358ce4a1033bd566faebcd3465c3ba4606f3c83f`,
+`nereus/delay-resource-guard@358ce4a1033bd566faebcd3465c3ba4606f3c83f`,
 distribution SHA-256
 `7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5a1d137d`, client
 SHA-256 values `57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
@@ -7158,7 +7158,7 @@ revision and canonical assignment before either real Worker source factory
 constructs native source state.
 
 The fresh default Kafka run used Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
@@ -7183,7 +7183,7 @@ Kafka Worker assignment publication/acceptance passed: revision=1, worker=kafka-
 ```
 
 The fresh default Pulsar run used P1
-`nereus/delay-resource-guard-v1@358ce4a1033bd566faebcd3465c3ba4606f3c83f`,
+`nereus/delay-resource-guard@358ce4a1033bd566faebcd3465c3ba4606f3c83f`,
 distribution SHA-256
 `7ba7bd3d02e104fc935c2accd49b3e7645a4f4c21a4c5978e99dac5a1d137d`, P1 image
 `sha256:eb33130364ffaf319bb20052698745f5d84de20fe78cd5fa7d7c6a9f19c402c0`,
@@ -7222,7 +7222,7 @@ multi-broker failover or crash/failure-injection gates.
 ## 2026-08-15 signed Route publication to Worker assignment authority evidence
 
 Delay commit `e173cf0e02e701229f07c37ccac926416ea5c3cb` extends the assignment
-identity with the signed `RouteSnapshotV1.snapshotDigest`. The new
+identity with the signed `RouteSnapshot.snapshotDigest`. The new
 `RouteWorkerAssignmentCoordinator` obtains the active or exact historical
 Route through the tenant-authorized `RouteSnapshotProvider`, projects the
 partition barrier once, publishes the route-bound canonical assignment through
@@ -7238,7 +7238,7 @@ session-fenced `OxiaSignedRouteSnapshotProvider`, then placed and reread the
 route-bound assignment through `OxiaSyncWorkerAssignmentBackend` using a third
 Oxia session. The selected real-service tests passed with `BUILD SUCCESSFUL` at
 Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`; the run used Compose project
-`nereus-delay-v1-oxia-e2e-1786765353-47776`, host port `16660`, and Oxia image
+`nereus-delay-oxia-e2e-1786765353-47776`, host port `16660`, and Oxia image
 `sha256:7001f39d94a8d21d74928aad06e7666fcf4bcf3879ef6d27940c9a7ef8db702f`.
 The matching container and network were absent after cleanup; the image is
 retained locally.
@@ -7319,7 +7319,7 @@ response-loss reread, identity collision and catalog-generation binding. The
 opt-in Dockerized real-service suite also includes
 `OxiaRealCheckpointPublicationSmokeTest`. The run passed with Delay
 `bdcd4ddb`, Oxia `37a17bef17202d5fd6e232da5fd26d94865484`, Compose project
-`nereus-delay-v1-oxia-e2e-1786768622-85502`, host port `16663`, and locally
+`nereus-delay-oxia-e2e-1786768622-85502`, host port `16663`, and locally
 built Oxia image
 `sha256:2d133d6ff493f0fffd4ac744a448d735d84f7ed08df42db9bd1df7b630477d03`.
 The test exercised real Oxia parent-catalog CAS, PENDING intent creation,
@@ -7344,7 +7344,7 @@ rejected. `runCommandTurn` executes both bounded work classes on the same
 registry.
 
 The composition accepts either caller-owned exact Claim materialization or the
-derived-materialization overload. The latter reads the accepted V1 binding,
+derived-materialization overload. The latter reads the accepted binding,
 current durable Message and canonical Lane tuple behind the strict Owner/READY
 fence, then passes the resulting bytes through the same queue-wait
 Owner/Claim/permit/prerequisite rereads. The caller still supplies trusted
@@ -7372,7 +7372,7 @@ authority no longer exposes it after publication.
 
 The fresh Docker run used Oxia source
 `37a17bef17202d5fd6e232da5fd26d94865484`, Compose project
-`nereus-delay-v1-oxia-e2e-1786769822-98671`, host port `16664`, and the
+`nereus-delay-oxia-e2e-1786769822-98671`, host port `16664`, and the
 selected real-service suite exited `BUILD SUCCESSFUL`. This closes the
 one-shard Owner/session gate around the existing local filesystem upload and
 single-record Oxia publication cut. It does not claim remote Object Store
@@ -7614,7 +7614,7 @@ Status boundary: this closes one real three-DataServer, one-shard leader-stop
 and session-preserving Gateway recovery cut. It does not prove automatic
 reconnect after a total multi-node outage, partial placement/quorum loss,
 production Gateway HA, crash/response-loss resolution, load, live
-Kafka/Pulsar publication or V1 release PASS.
+Kafka/Pulsar publication or release PASS.
 
 ## Verification command
 
@@ -7677,7 +7677,7 @@ boundary evidence, multi-shard placement or release PASS.
 ## 2026-08-15 Kafka Shard Log System Mutation append/replay/ACK slice
 
 Delay commit `02f4b458` adds the first real Kafka Shard Log mutation vertical.
-`SystemMutationIdentityV1` derives the registered logical operation identity
+`SystemMutationIdentity` derives the registered logical operation identity
 from each canonical typed body during replay; the source decoder therefore
 does not accept an identity supplied by a caller. The Kafka source set now
 decodes both ordered NDL1 Client Command and signed System Mutation frames,
@@ -7751,11 +7751,11 @@ apply, signature trust-set authorization, Pulsar multi-broker failover,
 response-loss/crash coverage, automatic Claim/Publish orchestration,
 multi-shard production wiring or release PASS.
 
-## 2026-08-15 automatic V1 Claim materialization and Worker handoff slice
+## 2026-08-15 automatic Claim materialization and Worker handoff slice
 
-Delay commit `5dbd0874` exposes `CanonicalLaneTupleV1.project` and
-`DelayShard.resolveClaimMaterializationV1`. For a current scheduled Message
-with an accepted V1 Schedule or PrepareLargeSchedule binding, the materializer
+Delay commit `5dbd0874` exposes `CanonicalLaneTuple.project` and
+`DelayShard.resolveClaimMaterialization`. For a current scheduled Message
+with an accepted Schedule or PrepareLargeSchedule binding, the materializer
 derives Destination/Capability Profile refs, Broker resource identity,
 physical partition, adapter metadata, timing/actionAt and the exact inline or
 committed-object payload branch from durable state. PrepareLargeSchedule
@@ -7783,7 +7783,7 @@ open.
 ## 2026-08-15 Claim-derived Publish descriptor handoff slice
 
 Delay commit `4865ba4f` adds a derived Publish Admission overload. Given the
-exact durable Claim and an externally-authorized `ChannelResourceIdentityV1`,
+exact durable Claim and an externally-authorized `ChannelResourceIdentity`,
 `PublishAdmissionWorkClassExecutor` derives adapter kind, lane/resource/profile
 identity, payload/timing, the Claim-derived `publishAttemptId` and attempt
 number, plus the Reserved Publish metadata. The overload then enters the same
@@ -7817,7 +7817,7 @@ The shared Claim prerequisite gate, trusted UTC evidence, Claim deadline and
 charge remain explicit; the method does not create a channel, Ready
 Certificate, Publish descriptor, Broker append or external authority. This is
 one-shard local DUE/READY → Claim queue composition only. Commit `d413869b`
-updates `ClaimHandoffWorkClassExecutorTest` to use a real V1 binding and the
+updates `ClaimHandoffWorkClassExecutorTest` to use a real binding and the
 derived `WorkerCommandRuntime.submitClaim` overload, while retaining queue
 deferral, permit rejection and final Claim assertions. Focused compilation,
 checkstyle and the Claim/Publish/scheduling regressions passed; multi-shard
@@ -8104,7 +8104,7 @@ Claim/Publish authority or release PASS.
 Delay commit `7e0abb87fff8db1c1d2d2f73ffdd44a0c6097112` adds `KafkaClientArtifactRouteWorkerSmoke` and the
 `runRealKafkaRouteWorkerSmoke` task. The smoke appends one guarded K1 record,
 requires a non-empty Fetch v13 proof with exact cluster/TopicId/partition and
-`lastStableOffset`, and derives the signed Kafka `ActivationBarrierV1` from
+`lastStableOffset`, and derives the signed Kafka `ActivationBarrier` from
 that proof. It publishes the signed Route event/head through a real,
 session-fenced Oxia authority, refreshes the Route provider, projects the
 partition policy through `RouteWorkerAssignmentCoordinator`, publishes and
@@ -8246,7 +8246,7 @@ Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, as
 A preceding startup attempt on a separate Compose project was discarded after
 the initial topic metadata `UnknownTopicOrPartitionException`; it was not
 counted as evidence. This successful rerun confirms the default harness path
-after the Route Worker script change, but does not promote the result to a V1
+after the Route Worker script change, but does not promote the result to a current
 release PASS or add catalog-driven placement, Route session churn, native
 eligibility, production source ownership, remote Object Store authority,
 response-loss/crash cuts, Pulsar multi-broker failover, automatic
@@ -8263,7 +8263,7 @@ guard tuple on a native partitioned physical topic; the generic topic
 properties endpoint remains fail-closed for this tuple. The smoke creates a
 real one-partition Pulsar topic, stamps its physical `-partition-0` guard,
 derives
-`ActivationBarrierV1.pulsar` from the exact ledger/entry/batch position plus
+`ActivationBarrier.pulsar` from the exact ledger/entry/batch position plus
 the guarded connection generation and attestation digest. It then publishes
 the signed Route event/head through a real session-fenced Oxia authority,
 publishes and rereads the exact route-bound Worker assignment by revision CAS,
@@ -8273,7 +8273,7 @@ ACKs the post-barrier record, drains through a bounded local RocksDB
 checkpoint, and proves the Oxia owner lease and assignment are released.
 
 The assignment-only receipt from Delay
-`nereus/delay-full-implementation-v1@a73faf3e836ada67931f709d46214dde7caf3ad0`
+`nereus/delay-full-implementation@a73faf3e836ada67931f709d46214dde7caf3ad0`
 is retained as historical provenance. The current source-locked receipt uses
 Delay `bf858b089b927fcf65129214d8ed5a7fc5300deb`,
 P1 `0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1 base
@@ -8323,7 +8323,7 @@ automatic Claim/Publish authority or release PASS.
 The isolated `e2e/run-oxia-real-service.sh` harness was rerun from Delay
 `ac72e43803806b9c309b62150c0aa54b43f8a3ea` against Oxia
 `37a17bef17202d5fd6e232da5fd26d94865484`. It used Compose project
-`nereus-delay-v1-oxia-e2e-1786787138-90186` on host port `16675` and ran the
+`nereus-delay-oxia-e2e-1786787138-90186` on host port `16675` and ran the
 selected Owner Lease, Control, Recovery Catalog, checkpoint publication,
 signed Route publication/refresh and assignment, Gateway audit, and Gateway
 tenant-admission CAS real-service tests. The selected Gradle test task ended
@@ -8352,7 +8352,7 @@ service restart.
 The source-locked run used Oxia
 `37a17bef17202d5fd6e232da5fd26d94865484`, Docker image
 `sha256:1ea8324636e65d92bf6f0767062e58078fd617767c9c74540443c5b6a2c1293d`,
-Compose project `nereus-delay-v1-oxia-e2e-1786789198-22565`, and host port
+Compose project `nereus-delay-oxia-e2e-1786789198-22565`, and host port
 `16684`. The exact command was:
 
 ```bash
@@ -8401,7 +8401,7 @@ the recovered notification stream and expose the retired signed snapshot.
 The source-locked run used Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`, image
 `sha256:05d66cf3117d24b358baee21fb87caa001c99bec2f734ea9ce2549f7675d085a`,
-Compose project `nereus-delay-v1-oxia-e2e-1786822655-96457`, and host port
+Compose project `nereus-delay-oxia-e2e-1786822655-96457`, and host port
 `16675`:
 
 ```bash
@@ -8438,7 +8438,7 @@ bounded transaction cut, so the normal K2 smoke remains responsible for abort,
 same-name delete/recreate fencing and replacement-target commit.
 
 The source-locked run used Delay `6912b940`, Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`
 from base `c300006a7705c240642db6950b5a95fec982bfc5`, client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
@@ -8470,16 +8470,16 @@ rediscovery, with exact `read_committed` counts and target/receipt record
 reads. The observed result was `PUBLISHED`, not an injected or observed lost
 `EndTxn` response; generic response-loss resolution, LSO/retention-floor
 ambiguity and crash cuts remain independent open evidence. This is
-source-bound integration evidence, not a V1 production or release PASS.
+source-bound integration evidence, not a currentproduction or release PASS.
 
 ## 2026-08-15 strict typed Lane activation and complete Worker graph
 
 Delay commit `defce755` adds a strict typed Lane activation boundary. When the
-first V1 Schedule/Prepare projection contains a valid canonical Lane tuple,
-the Store now persists `ActiveLaneStateV1` with the exact Destination and
+first Schedule/Prepare projection contains a valid canonical Lane tuple,
+the Store now persists `ActiveLaneState` with the exact Destination and
 Capability Profile refs, tuple identity and typed readiness. Malformed legacy
 resolver bytes remain a compatibility projection and are never converted into
-typed identity by guessing. `ReadyCertificateV1` exposes its activation barrier
+typed identity by guessing. `ReadyCertificate` exposes its activation barrier
 and evidence cursors for the activation proof.
 
 `LaneActivationCoordinator` requires `CATCHING_UP`, captures the exact Lane
@@ -8522,7 +8522,7 @@ orchestration, crash/response-loss evidence and release gates remain open.
 Delay commit `7a48f85b` adds
 `WorkerSchedulingRuntime.openForActiveOwnerFromTypedLanes`. It accepts the
 exact Lane IDs supplied by the activation/Route projection, rereads each
-`ActiveLaneStateV1` from the same Store, and rejects missing or legacy state,
+`ActiveLaneState` from the same Store, and rejects missing or legacy state,
 non-OPEN/non-READY state, absent Ready Certificate, duplicate IDs and
 LaneRecord incarnation/version drift. Only after this gate does it construct
 the active-owner scheduler and rebuild its authoritative READY index. The
@@ -8576,7 +8576,7 @@ placement, remote Object Store checkpoint authority or release PASS.
 After the typed Lane scheduling bootstrap, the current Delay tree at
 `efa422a9ec16cb370376e0c5a72b18bbbdb3a906` was revalidated against both locked
 transport worktrees with the real-client harnesses. The Kafka run used
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`
 from base `c300006a7705c240642db6950b5a95fec982bfc5`, client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
@@ -8621,7 +8621,7 @@ The bounded due-to-Claim-to-Publish composition was committed at Delay source
 lock `5305748b02965f171ac751615bb00b4dda8a9eb0`. The real-client harnesses were
 rerun after that source lock against the same locked transport worktrees. The
 Kafka run used
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`
 from base `c300006a7705c240642db6950b5a95fec982bfc5`, client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
@@ -8671,7 +8671,7 @@ Delay commit `2a8c198328e5a8879db9c23faf6e805b6d7ea819` adds
 Claim and the caller-supplied Publish preparation authority. Before invoking the
 external callback, it rereads the context-bound Owner/Claim admission and the
 persisted typed Lane. The Lane must still be `OPEN` and `READY`, with a decodable
-`ReadyCertificateV1`; the Claim Owner, Store incarnation, Lane incarnation,
+`ReadyCertificate`; the Claim Owner, Store incarnation, Lane incarnation,
 materialization target/partition, activation barrier and Destination/Capability
 Profile refs must match that persisted certificate-backed projection exactly.
 
@@ -8704,7 +8704,7 @@ multi-shard placement, remote Object Store authority or release PASS.
 
 The fresh real-client receipts use Delay source lock
 `2a8c198328e5a8879db9c23faf6e805b6d7ea819`. Kafka used
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`
 from base `c300006a7705c240642db6950b5a95fec982bfc5`, client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
@@ -8790,7 +8790,7 @@ Object Store authority or release PASS.
 
 The fresh real-client receipts use Delay source lock
 `d02d81201d0cff3f9fa5fb3c8bba912721de5575`. Kafka used
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`
 from base `c300006a7705c240642db6950b5a95fec982bfc5`, client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
@@ -9115,7 +9115,7 @@ This closes positive typed K2 direct-adapter evidence only. At the time of this
 the source-applied physical publish provider, or that Fetch response-loss,
 retention-floor/crash recovery, live
 Profile/credential/channel/Object Store authority, source-ordered Outcome,
-Pulsar multi-broker parity, checkpoint/quiescence or V1 release gates are
+Pulsar multi-broker parity, checkpoint/quiescence or release gates are
 complete.
 
 ## 2026-08-15 typed Pulsar destination SEND ACK evidence
@@ -9130,7 +9130,7 @@ incomplete proof stays `UNKNOWN`.
 
 The focused test, full `check`, exact `compileRealPulsar`, and current-source
 real P1 E2E passed. Locks: P1
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 distribution SHA-256 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`,
 client SHAs `57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
 `f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`,
@@ -9148,7 +9148,7 @@ This is positive direct-destination evidence only. At that 2026-08-15 status
 snapshot, due/Claim/Publish source application through the real Worker
 physical executor, typed guard-rejection
 and response-loss/crash recovery, Pulsar multi-broker failover, live
-prerequisite/Object Store authority, checkpoint/quiescence and V1 release
+prerequisite/Object Store authority, checkpoint/quiescence and release
 gates remain open.
 
 ## 2026-08-17 Current-source Oxia Profile/Route authority and restart receipt
@@ -9163,7 +9163,7 @@ NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-real-20260817 \
   bash e2e/run-oxia-real-service.sh
 ```
 
-The isolated project was `nereus-delay-v1-oxia-e2e-1786899760-96148` at
+The isolated project was `nereus-delay-oxia-e2e-1786899760-96148` at
 `127.0.0.1:26420`, and its run-created Oxia image ID was
 `sha256:c42cd4b617a08b973dfd636399d07ef70903be7f56047da636f73b5d0347a604`.
 The report recorded `15` tests with `12` passed and `3` explicit skips,
@@ -9185,7 +9185,7 @@ NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-real-20260817 \
   bash e2e/run-oxia-real-service.sh
 ```
 
-It used project `nereus-delay-v1-oxia-e2e-1786899721-95680`, the same Oxia
+It used project `nereus-delay-oxia-e2e-1786899721-95680`, the same Oxia
 source, and temporary image ID
 `sha256:3d4b730477fab514bbbf160547b84e8043a1114793281083a835354dfb0e7845`.
 The first attempt exposed that explicit `reconnectSession()` incorrectly
@@ -9204,11 +9204,11 @@ No global Docker prune was used. This closes current-source single-record
 Profile CAS/trust verification, Route notification session recovery and the
 real Oxia authority smoke boundary; source-ordered Profile/trust publication,
 external secret-manager resolution, multi-node authority failover, provider
-rotation/quiescence, full chaos and V1 release gates remain open.
+rotation/quiescence, full chaos and release gates remain open.
 
-## 2026-08-17 V1 operations runbook draft and bounded local drills
+## 2026-08-17 operations runbook draft and bounded local drills
 
-`docs/V1-OPERATIONS-RUNBOOK.md` now defines the fail-closed procedures and
+`docs/OPERATIONS-RUNBOOK.md` now defines the fail-closed procedures and
 receipt fields for restore, Owner/channel fencing, Dead Letter replay,
 `UNCERTAIN` resolution and the disaster continuity boundary. It explicitly
 forbids direct Store/Oxia/Broker/Object Store mutation and remains
@@ -9234,9 +9234,9 @@ remain open; Gate 9 therefore stays `OPEN`.
 The current-source revalidation uses Delay
 `9e29af8e70fa4d84725d624959f377c271d9f319`, which contains the Gate 8
 implementation from `59e085ed643e7e16658004aa73761079d6c036ae`, Kafka K1
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 Pulsar P1
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. The locked MinIO image
 was
 `quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`
@@ -9280,24 +9280,24 @@ Both runner postchecks found no project containers, networks, volumes or
 run-created Kafka/Pulsar/Oxia images. The locked MinIO base and reusable Oxia
 base were retained; no global Docker prune was used. These are current-source
 positive production-authority revalidations, not benchmark, soak, full chaos,
-multi-shard, external credential/provider failover or V1 release approval.
+multi-shard, external credential/provider failover or release approval.
 
 ## 2026-08-17 Gate 8 protocol-tuple dedupe implementation receipt
 
 The current Delay source lock for this bounded Gate 8 slice is
 `59e085ed643e7e16658004aa73761079d6c036ae`. It adds the Client Command
 protocol tuple to `commandHash`, persists it in `dedupe/COMMAND` payload
-version 2, reads legacy payload version 1 as managed V1, and compares tuple
+version 2, reads legacy payload version 1 as managed , and compares tuple
 plus hash before returning a duplicate result. Same `commandId` with a
-different tuple is a position-level `COMMAND_ID_CONFLICT`; current V1
+different tuple is a position-level `COMMAND_ID_CONFLICT`; current
 wire/receipt projections reject unsupported tuples instead of silently
 downgrading them.
 
 The focused tests and full local check passed:
 
 ```text
-CommandProtocolTupleTest: managed V1 hash compatibility, tuple-bound hash and wire fail-closed
-CommandDedupeRecordTest: legacy v1 decode, tuple-bearing v2 round-trip and malformed-branch rejection
+CommandProtocolTupleTest: managed tuple hash compatibility, tuple-bound hash and wire fail-closed
+CommandDedupeRecordTest: initial-format decode, tuple-bearing current-format round-trip and malformed-branch rejection
 CommandProtocolDedupeApplyTest: same commandId/different tuple -> COMMAND_ID_CONFLICT
 GRADLE_USER_HOME=/tmp/nereus-delay-full-check-20260817 ./gradlew check --no-daemon --console=plain --quiet -> BUILD SUCCESSFUL
 ```
@@ -9306,20 +9306,20 @@ This closes a bounded durable identity/idempotency seam only. It does not close
 the authenticated activation marker, eligible-reader assignment, writer-before-
 reader cutover, downgrade, or full release artifact required by Gate 8.
 
-## 2026-08-17 V1 release-gate audit (not release-ready)
+## 2026-08-17 release-gate audit (not release-ready)
 
 The audit is source-bound to Delay
 `9e29af8e70fa4d84725d624959f377c271d9f319` (current-source Gateway/Broker
 revalidation; the Gate 8 implementation is `59e085ed643e7e16658004aa73761079d6c036ae`), Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
-Pulsar `nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+Pulsar `nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`
 and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. The prior audit snapshot
 was synchronized at documentation commit
 `ea134e6acdd28f333e4d87444f020d6e2ca623f6`; at the current source lock, the
 full local
 `GRADLE_USER_HOME=/tmp/nereus-delay-full-check-20260817 ./gradlew check --no-daemon --console=plain --quiet`
 and `bash e2e/validate-cross-repo-contracts.sh` pass. That is necessary
-evidence, not a V1 release claim.
+evidence, not a current release claim.
 
 | §23.5 gate | Current status | Evidence boundary |
 |---|---|---|
@@ -9330,7 +9330,7 @@ evidence, not a V1 release claim.
 | 5. Required benchmark configurations | OPEN | No source-locked benchmark campaign artifact covers the required size, burst, Lane, shard, compaction, restore and inline/object matrix. |
 | 6. Capacity artifacts and SLO catalog | OPEN | Required memory/RSS/cgroup, FD/file, disk/temp, reserve, adapter/zombie, fairness formulas and durable SLO denominator evidence are not complete. |
 | 7. Soak | OPEN | No certified soak spans the longest checkpoint/floor, retry, uncertainty and GC cycles with zero unexplained gaps/drift. |
-| 8. Upgrade/downgrade | PARTIAL | Tuple-bound command hash, durable v2 dedupe, legacy v1 read and same-command/different-tuple conflict tests pass; writer-before-reader, eligible-reader assignment, cutover/downgrade and release artifact remain open. |
+| 8. Upgrade/downgrade | PARTIAL | Tuple-bound command hash, durable current-format dedupe, initial-format read and same-command/different-tuple conflict tests pass; writer-before-reader, eligible-reader assignment, cutover/downgrade and release artifact remain open. |
 | 9. Operations runbook | OPEN | A fail-closed draft and bounded local restore/fence/DLQ/uncertain drills now exist; release-candidate fresh-process, external-authorization and disaster-continuity drills are not complete. |
 | 10. Kafka/Pulsar patch distribution gate | PARTIAL | K1/P1 source locks, binary digests, guarded receipts and delete/recreate/failover evidence exist; full Broker rollout, typed rejection/delete-recreate cut matrix and stock/name-fallback exclusion are not release-certified. |
 
@@ -9352,7 +9352,7 @@ verified as `PUBLISHED` with exact guarded destination payload readback.
 
 Checks passed: `./gradlew check`, exact `compileRealPulsar`, and the current
 source P1 E2E. Locks: P1
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 distribution SHA-256 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`,
 client SHAs `57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
 `f832e20478b7baa808e22f577028d26f7ae2fab8ddc0870d869a06e40dbd8394`,
@@ -9369,7 +9369,7 @@ Status boundary: this is not a full due/Claim/Object Store provider PASS.
 The Claim/certificate/readiness inputs are bounded smoke authority, the E2E
 does not invoke `runDueClaimPublishPhysicalTurn`, Oxia Route authority was
 disabled, and standalone Broker restart does not prove Pulsar multi-Broker
-failover, crash/response-loss resolution, checkpoint/quiescence or V1
+failover, crash/response-loss resolution, checkpoint/quiescence or
 release readiness.
 
 ## 2026-08-16 source-applied Kafka Worker physical Publish vertical
@@ -9387,7 +9387,7 @@ exact destination payload readback.
 
 Checks passed: `./gradlew check`, exact `compileRealKafka` against the locked
 client JAR, and the full current-source three-broker K1/K2 E2E. Locks: K1
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
@@ -9404,7 +9404,7 @@ failover evidence, not a full due/Claim/Object Store provider PASS. Claim,
 readiness, credential and payload inputs remain bounded smoke authority; the
 E2E does not invoke `runDueClaimPublishPhysicalTurn`, Oxia Route authority was
 disabled, and crash/response-loss coverage beyond the exercised K2 receipt,
-multi-shard placement, checkpoint/quiescence and V1 release gates remain
+multi-shard placement, checkpoint/quiescence and release gates remain
 open.
 
 ## 2026-08-16 provider-driven Kafka and Pulsar Worker physical Publish vertical
@@ -9421,7 +9421,7 @@ path.
 
 Kafka verification passed with `./gradlew check`, exact locked-client
 `compileRealKafka`, and the three-broker E2E. Locks: K1
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, image
 `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
@@ -9435,7 +9435,7 @@ Kafka source/Worker/K1/K2 real-client E2E passed: guarded source ACK/restart, as
 
 Pulsar verification passed with `./gradlew check`, exact locked-client
 `compileRealPulsar`, and the P1 E2E. Locks: P1
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 distribution SHA-256
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
 SHAs `57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
@@ -9454,7 +9454,7 @@ Status boundary: this closes positive provider-driven due-to-Claim-to-physical-
 Publish evidence for the two real Worker smokes. It remains bounded smoke
 authority, not live Profile/credential/Object Store/catalog authority; crash or
 response-loss resolution, Pulsar multi-Broker failover, placement,
-checkpoint/quiescence and §23.5 V1 release gates remain open. Pulsar ran with
+checkpoint/quiescence and §23.5 release gates remain open. Pulsar ran with
 `NEREUS_DELAY_PULSAR_WITH_OXIA=0`; neither receipt is a runtime, milestone or
 release PASS.
 
@@ -9483,14 +9483,14 @@ Status boundary: this closes positive real-Oxia authority evidence for the
 provider-driven P1 Worker path across a standalone Broker restart. Pulsar
 multi-Broker failover, Oxia failover/partition behavior, crash/response-loss
 resolution, live Profile/credential/Object Store/catalog authority,
-placement, checkpoint/quiescence and §23.5 V1 release gates remain open.
+placement, checkpoint/quiescence and §23.5 release gates remain open.
 
 ## 2026-08-16 real Oxia authority provider-driven Kafka vertical
 
 The provider-driven Kafka Worker E2E was rerun with
 `NEREUS_DELAY_KAFKA_WITH_OXIA=1`. Worker assignment/ownership and the
 due-to-Claim-to-physical-Publish graph used the real Oxia backend. Locks: K1
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
@@ -9510,7 +9510,7 @@ provider-driven Kafka Worker path across the three-broker K1/K2 run and
 broker-1 survivor cut. It remains one standalone Oxia service; Oxia
 failover/partition behavior, crash/response-loss resolution, live
 Profile/credential/Object Store/catalog authority, multi-shard placement,
-checkpoint/quiescence and §23.5 V1 release gates remain open.
+checkpoint/quiescence and §23.5 release gates remain open.
 
 ## 2026-08-16 real Oxia accepted-Route Kafka failover vertical
 
@@ -9518,7 +9518,7 @@ The accepted-Route Kafka Worker failover-only E2E used
 `NEREUS_DELAY_KAFKA_WITH_OXIA=1`,
 `NEREUS_DELAY_KAFKA_ROUTE_FAILOVER=1` and
 `NEREUS_DELAY_KAFKA_ROUTE_FAILOVER_ONLY=1`. Locks: K1
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
@@ -9536,7 +9536,7 @@ evidence across a three-broker broker-1 failover cut. It remains a
 failover-only single-shard receipt; Oxia failover/partition behavior,
 crash/response-loss resolution, live Profile/credential/Object Store/catalog
 authority, multi-shard placement, physical delayed Publish,
-checkpoint/quiescence and §23.5 V1 release gates remain open.
+checkpoint/quiescence and §23.5 release gates remain open.
 
 ## 2026-08-16 locked P1 two-Broker Worker failover vertical
 
@@ -9549,7 +9549,7 @@ Admin owner redirects and cleans its Docker resources on exit.
 
 The accepted run used Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`, P1
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 distribution SHA-256
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, image
 `sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
@@ -9569,7 +9569,7 @@ evidence for the bounded two-Broker harness. It is not production HA
 evidence: one BookKeeper and one ZooKeeper remain single points in this run,
 and Oxia failover/partition behavior, crash/response-loss resolution, live
 Profile/credential/Object Store/catalog authority, multi-shard placement,
-checkpoint/quiescence and §23.5 V1 release gates remain open.
+checkpoint/quiescence and §23.5 release gates remain open.
 
 ## 2026-08-16 Gateway STARTED CAS response-loss recovery
 
@@ -9603,7 +9603,7 @@ the deadline. The companion
 `retryAttemptCasResponseLossConvergesToUncertainAfterDeadlineWithoutPermit`
 verifies explicit retry recovery remains `EXISTING_RETRY`. This is deterministic local CAS evidence, not a real Oxia
 network fault-injection or physical transport response-loss receipt; Gateway
-transparent reconnect/HA, Kafka/Pulsar response-loss/crash resolution and V1
+transparent reconnect/HA, Kafka/Pulsar response-loss/crash resolution and
 release gates remain open.
 
 ## 2026-08-16 real Oxia Gateway STARTED CAS response-loss receipt
@@ -9639,7 +9639,7 @@ timestamps). This upgrades the earlier deterministic local CAS result to a
 real-Oxia durable post-commit response-loss receipt with controlled client-side
 response loss. It is not a raw socket fault-injection proof and does not close
 physical Kafka/Pulsar response-loss or crash resolution, transparent Gateway
-reconnect/HA, load, multi-shard placement or the §23.5 V1 release gates.
+reconnect/HA, load, multi-shard placement or the §23.5 release gates.
 
 ## 2026-08-16 real Oxia Gateway RETRY_UNCERTAIN response-loss receipt
 
@@ -9681,7 +9681,7 @@ calls. This is real-Oxia durable explicit-retry response-loss recovery with a
 controlled client-side post-commit response cut. It is not raw socket fault
 injection and does not close physical Kafka/Pulsar response-loss or crash
 resolution, transparent Gateway reconnect/HA, load, multi-shard placement or
-the §23.5 V1 release gates.
+the §23.5 release gates.
 
 ## Verification command
 
@@ -9705,7 +9705,7 @@ are verified. `NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS=1` with
 `NEREUS_DELAY_KAFKA_K2_RESPONSE_LOSS_ONLY=1` runs only this cut.
 
 The source-locked real three-Broker run used Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
@@ -9732,7 +9732,7 @@ The smoke also required one committed target, one committed receipt, and exact
 payload/key/value readback. This is source-bound real-Broker post-commit
 durability and typed recovery evidence with a controlled client-side response
 cut; it is not raw socket packet-loss injection, Broker failover/crash
-evidence, or a V1 release PASS. Generic Kafka crash, Fetch response-loss,
+evidence, or a current release PASS. Generic Kafka crash, Fetch response-loss,
 LSO/retention-floor ambiguity, and the §23.5 release gates remain open.
 
 ## 2026-08-16 Pulsar committed SEND response-loss receipt
@@ -9751,7 +9751,7 @@ smoke then consumes the exact guarded payload from the real Broker.
 The same commit fixes the single-node Pulsar image build context by copying
 the cluster entrypoint required by the shared Dockerfile. The source-locked
 receipt used Pulsar
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 distribution SHA-256
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
 SHA-256 values
@@ -9785,7 +9785,7 @@ Pulsar destination committed response-loss E2E passed: real SEND response loss r
 This is a controlled client-side post-send response cut after real Broker
 persistence, not raw socket packet-loss injection. It does not integrate the
 local `PulsarAttemptJournal`, prove response loss after a process or Broker
-crash, prove multi-Broker failover, or make the Pulsar destination and V1
+crash, prove multi-Broker failover, or make the Pulsar destination and
 release gates complete.
 
 ## 2026-08-16 Pulsar Worker source ACK response-loss receipt
@@ -9800,7 +9800,7 @@ failure. The second ACK uses the same source record, so the cursor cannot move
 past an unproven ACK and the Store apply is not repeated.
 
 The source-locked run used Pulsar
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 distribution SHA-256
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
 SHA-256 values
@@ -9835,7 +9835,7 @@ Pulsar Worker source ACK response-loss E2E passed: real ACK response loss was re
 This is controlled client-side loss after a real Broker ACK receipt. It is not
 raw packet-loss injection, consumer/process/Broker crash recovery,
 multi-Broker failover or proof that the entire D6 source-ACK/crash matrix and
-V1 release gates are complete.
+Current release gates are complete.
 
 ## 2026-08-16 Pulsar Worker source-applied destination response-loss receipt
 
@@ -9849,7 +9849,7 @@ destination provider validates that exact guard/attestation and constructs
 the exact destination payload back.
 
 The source-locked run used Pulsar
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 distribution SHA-256
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
 SHA-256 values
@@ -9885,7 +9885,7 @@ Pulsar Worker destination response-loss E2E passed: real SEND response loss reso
 This is source-applied Worker evidence with a controlled client-side
 post-SEND response cut. It does not prove raw network loss, a process/Broker
 crash between physical persistence and Outcome, multi-Broker failover,
-Attempt Journal recovery or the complete D6/V1 release matrix.
+Attempt Journal recovery or the complete D6/ release matrix.
 
 ## 2026-08-16 Kafka Worker source-applied destination response-loss receipt
 
@@ -9901,7 +9901,7 @@ The Worker source-applies that result as `PUBLISH_OUTCOME`, closes the same
 publish attempt as `PUBLISHED`, and reads back the exact destination payload.
 
 The source-locked receipt used Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
@@ -9933,7 +9933,7 @@ Kafka Worker destination response-loss E2E passed: real EndTxn response loss res
 This is source-applied Kafka Worker evidence with a controlled client-side
 post-commit response cut and in-memory Worker authority. It does not prove raw
 network packet loss, a process or Broker crash between physical persistence and
-Outcome, multi-Broker failover, Attempt Journal recovery or V1 release
+Outcome, multi-Broker failover, Attempt Journal recovery or release
 readiness.
 
 ## 2026-08-16 Kafka Worker source ACK response-loss receipt
@@ -9948,7 +9948,7 @@ reuses the already applied outcome on the next bounded turn. The second
 committed offset and checkpoint.
 
 The source-locked receipt used Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
@@ -9979,7 +9979,7 @@ Kafka Worker source ACK response-loss E2E passed: real commitSync ACK response l
 This is controlled client-side post-ACK response-loss evidence in one Kafka
 Worker process with in-memory authority. It is not raw network loss, process or
 Broker crash recovery, multi-Broker failover, consumer-group coordinator
-recovery evidence, or a complete D6/V1 release receipt.
+recovery evidence, or a complete D6/ release receipt.
 
 ## 2026-08-16 S3-compatible checkpoint Object Store adapter slice
 
@@ -10017,8 +10017,8 @@ Delay commit `078c66ce141a17a3e757aabb88bae5140d1d297a` adds
 `ObjectStoreCredentialUseLeaseGate` and wires it through the lease-gated
 `S3CompatibleCheckpointObjectStoreAdapter` constructor. Immediately before
 each upload or download can perform HTTP, the gate rechecks the exact
-`OBJECT_STORE` Profile, `CredentialBindingV1`, `CredentialBindingProtectionV1`
-and `CredentialUseLeaseV1` identity, the configured lease TTL and attestation
+`OBJECT_STORE` Profile, `CredentialBinding`, `CredentialBindingProtection`
+and `CredentialUseLease` identity, the configured lease TTL and attestation
 age, the current local trusted-time window and the immutable loaded credential
 fingerprint. The adapter rejects a gate bound to another Profile. Existing
 ungated constructors remain only for the bounded provider-shaped adapter seam;
@@ -10045,9 +10045,9 @@ transaction, chaos and release gates remain open.
 Delay commit `37d8efb49876e8eb95b9d214f0ad9ec1afe48595` adds
 `OxiaSyncProfileCatalogBackend`. Each bindable Profile version has one
 canonical Oxia record containing the exact Profile semantic envelope, sorted
-immutable credential bindings, current `CredentialBindingHeadV1` and matching
-`CredentialBindingProtectionV1` projections. Generation-1 publication and
-`RotateEquivalentSecretRequestV1` are idempotent conditional version CAS
+immutable credential bindings, current `CredentialBindingHead` and matching
+`CredentialBindingProtection` projections. Generation-1 publication and
+`RotateEquivalentSecretRequest` are idempotent conditional version CAS
 operations. `issueCredentialUseLease` validates the requested Head, binding,
 resolved credential fingerprint, attestation scope/age and configured lease
 TTL, then monotonically raises the corresponding managed-channel or Object
@@ -10065,7 +10065,7 @@ The deterministic authority regression is:
 
 The real-service run used Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
-`nereus-delay-v1-oxia-e2e-1786835835-39861`, host port `16693`, and
+`nereus-delay-oxia-e2e-1786835835-39861`, host port `16693`, and
 `OxiaRealProfileCatalogSmokeTest.profileHeadProtectionLeaseAndRotationReopenAgainstRealService`.
 The test report recorded `tests=1`, `skipped=0`, `failures=0`, `errors=0`; the
 full Dockerized Oxia real-service smoke ended with `BUILD SUCCESSFUL`.
@@ -10128,7 +10128,7 @@ The deterministic regression is:
 It passed with `BUILD SUCCESSFUL`; the full `./gradlew check --no-daemon
 --console=plain --quiet` also passed. The Dockerized real-service run used
 Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
-`nereus-delay-v1-oxia-e2e-1786837306-55484`, host port `16694`, and
+`nereus-delay-oxia-e2e-1786837306-55484`, host port `16694`, and
 `OxiaRealProfileCatalogSmokeTest.profileHeadProtectionLeaseAndRotationReopenAgainstRealService`.
 The report recorded `tests=1`, `skipped=0`, `failures=0`, `errors=0`; the run
 ended with `BUILD SUCCESSFUL` and
@@ -10139,7 +10139,7 @@ its integration with the single-record Profile CAS authority. It does not
 provide source-ordered trust-set publication/rotation, actor authorization,
 secret-manager resolution, cross-record Owner/Route/session transactions,
 multi-node authority failover, automatic lease renewal, provider
-rotation/quiescence, real S3/MinIO, chaos or V1 release evidence.
+rotation/quiescence, real S3/MinIO, chaos or release evidence.
 
 ## 2026-08-16 Same-generation Object Store lease renewal slice
 
@@ -10174,7 +10174,7 @@ This closes only same-generation opportunistic renewal and local gate
 replacement. It does not prove a scheduled multi-process renewal owner,
 source-ordered rotation/quiescence, secret-manager resolution, cross-record
 Owner/Route/session transactions, multi-node authority failover, real S3/MinIO,
-provider consistency/deletion, chaos or V1 release evidence.
+provider consistency/deletion, chaos or release evidence.
 
 ## 2026-08-16 Verified credential material cache slice
 
@@ -10202,7 +10202,7 @@ It passed with `BUILD SUCCESSFUL`; the full `./gradlew check --no-daemon
 --console=plain --quiet` also passed. This closes only the local verified
 cache boundary used to feed activation. An external secret-manager reader,
 source-ordered cache refresh/publication, actor authorization, multi-node
-failover, rotation/quiescence, real S3/MinIO, deletion, chaos and V1 release
+failover, rotation/quiescence, real S3/MinIO, deletion, chaos and release
 evidence remain open.
 
 ## 2026-08-16 MinIO S3-compatible checkpoint provider smoke
@@ -10232,12 +10232,12 @@ the adapter's real upload/idempotent-retry/download boundary. It does not
 claim generic S3 or other provider compatibility, Object Store credential
 authority/renewal or rotation, provider version-aware deletion, consistency
 attestation, external secret management, process/network chaos, multi-node
-failover, or V1 release evidence.
+failover, or release evidence.
 
 ## 2026-08-16 Exact Object Store provider-version boundary
 
 Delay commits `b971cd3f` and `2981a269` make the mandatory
-`ObjectStoreProfileSemanticV1.requireExactVersionDelete()` requirement
+`ObjectStoreProfileSemantic.requireExactVersionDelete()` requirement
 fail-closed in `S3CompatibleCheckpointObjectStoreAdapter`: successful,
 conflict-reread and download GET responses must carry `x-amz-version-id`; the
 adapter no longer treats a missing provider version as a production-safe
@@ -10260,14 +10260,14 @@ This closes the exact provider-version response boundary for the locked
 MinIO adapter path. It does not yet implement version-aware deletion of the
 complete checkpoint object set, deletion authorization from retire intent and
 Recovery Floor/Pin, provider consistency attestation, credential rotation,
-cross-provider behavior, chaos, failover or V1 release evidence.
+cross-provider behavior, chaos, failover or release evidence.
 
 ## 2026-08-16 Catalog-bound manifest version readback
 
 Delay commit `d7f51441` makes S3-compatible checkpoint download use the
 catalog-bound manifest provider version as the exact `versionId` query. The
 query is included in the SigV4 canonical request, and the response version is
-still compared byte-for-byte with the `CheckpointResourceV1` identity. The
+still compared byte-for-byte with the `CheckpointResource` identity. The
 local fake provider now rejects a different requested version, so the focused
 download regression cannot pass by reading whichever current object happens
 to be visible.
@@ -10284,7 +10284,7 @@ the harness ended with `BUILD SUCCESSFUL`.
 This closes exact catalog-version readback for the manifest object. File
 object provider-version capture, complete version-aware checkpoint deletion,
 retire/Floor/Pin authorization, provider consistency, credential rotation,
-chaos, failover and V1 release evidence remain open.
+chaos, failover and release evidence remain open.
 
 ## 2026-08-16 Exact checkpoint object-set deletion slice
 
@@ -10332,7 +10332,7 @@ This closes the bounded direct S3-compatible exact object-set delete path for
 one locked MinIO provider. It does not establish `ALREADY_ABSENT` partial-
 reconciliation, final-prefix sweeping, source-ordered retire authorization,
 Recovery Floor/Pin release, provider consistency/quiescence, credential
-rotation, generic cross-provider compatibility, chaos, failover or V1 release
+rotation, generic cross-provider compatibility, chaos, failover or release
 evidence.
 
 ## 2026-08-16 Checkpoint delete retry-convergence slice
@@ -10369,7 +10369,7 @@ This closes direct delete response-loss convergence for the bounded adapter.
 It does not establish final empty-prefix sweeping, source-ordered retire
 authorization, Recovery Floor/Pin release, provider consistency/quiescence,
 credential rotation, generic cross-provider compatibility, chaos, failover
-or V1 release evidence.
+or release evidence.
 
 ## 2026-08-16 Bounded checkpoint prefix sweep provider seam
 
@@ -10416,7 +10416,7 @@ This closes only the bounded direct provider sweep seam for one locked MinIO
 implementation. It does not close the external REAPING state transition,
 source-ordered retire authorization, Recovery Floor/Pin/Owner checks,
 multi-page listing policy, provider consistency/quiescence, credential
-rotation, generic provider compatibility, chaos, failover or V1 release
+rotation, generic provider compatibility, chaos, failover or release
 evidence.
 
 ## 2026-08-16 REAPING-to-prefix sweep coordination slice
@@ -10459,9 +10459,9 @@ empty-prefix proof.
 
 This closes only the bounded local REAPING-to-provider composition. It does
 not establish old-Owner abandonment or session-loss authority, provider
-ownership/quiescence horizons, external `RESOURCE_DELETE_CONFIRMED_V1`,
+ownership/quiescence horizons, external `RESOURCE_DELETE_CONFIRMED`,
 Recovery Floor/Pin/Owner transactions, multi-page policy, generic provider
-compatibility, chaos, failover or V1 release evidence.
+compatibility, chaos, failover or release evidence.
 
 ## 2026-08-16 Checkpoint REAPING quiescence proof gate
 
@@ -10505,7 +10505,7 @@ This closes only a local proof and ordering gate. The opaque old-owner and
 provider-horizon digests still require certified external issuers; this slice
 does not implement Owner/session loss detection, provider quiescence
 attestation, source-ordered delete confirmation, Recovery Floor/Pin/Owner
-transactions, multi-page policy, provider breadth, chaos, failover or V1
+transactions, multi-page policy, provider breadth, chaos, failover or
 release evidence.
 
 ## 2026-08-16 Checkpoint REAPING Owner proof gate
@@ -10558,7 +10558,7 @@ This closes the local typed Owner-proof and provider-call ordering boundary
 for the locked MinIO path. Certified external Owner/session loss authority,
 the production cross-record transaction, provider ownership/quiescence
 attestation, source-ordered delete confirmation, Recovery Floor/Pin/Owner
-transactions, multi-page policy, provider breadth, chaos, failover and V1
+transactions, multi-page policy, provider breadth, chaos, failover and
 release evidence remain open.
 
 ## 2026-08-16 Object Store provider-owned request horizon ledger
@@ -10611,7 +10611,7 @@ new-call fencing. The observation is not a provider-side execution or
 quiescence attestation: remote request completion, provider consistency,
 certified REAPING provider evidence, source-ordered delete confirmation,
 Recovery Floor/Pin/Owner transactions, provider breadth, chaos, failover and
-V1 release evidence remain external boundaries.
+Current release evidence remain external boundaries.
 
 ## 2026-08-16 Checkpoint delete-confirmation mutation composer
 
@@ -10619,9 +10619,9 @@ Delay commit `70e5f0da` adds the pure local
 `CheckpointDeleteConfirmationComposer`. Given an already-applied
 `ResourceRetireIntentRecord`, a `CheckpointDeleteResult`, trusted observation
 and confirmation intervals, a retry horizon, a canonical service author and
-an Ed25519 key, it composes a signed `RESOURCE_DELETE_CONFIRMED_V1` mutation.
+an Ed25519 key, it composes a signed `RESOURCE_DELETE_CONFIRMED` mutation.
 The composer requires a CHECKPOINT intent, compares the provider's complete
-`CheckpointResourceV1.exactResourceCanonicalBytes()` with the durable retire
+`CheckpointResource.exactResourceCanonicalBytes()` with the durable retire
 identity byte-for-byte, recomputes the identity hash, preserves the outcome-
 specific immutable-version rule, and requires the confirmation interval's
 earliest time to be at least the observation interval's latest time. The
@@ -10713,7 +10713,7 @@ The local tests cover session metadata/digest binding, response-loss
 convergence, singleton conflict, exact release and catalog-only fail-closed
 behavior. This closes only the single-pin Oxia record seam. Production
 cross-record Owner/session/catalog activation, source-ordered GC, provider
-attestation, multi-worker coordination, chaos, failover and V1 release gates
+attestation, multi-worker coordination, chaos, failover and release gates
 remain open.
 
 ## 2026-08-16 Atomic publication Recovery Pin CAS
@@ -10752,7 +10752,7 @@ skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was not configured; the full
 `./gradlew check --no-daemon --console=plain --quiet` returned 0. This closes
 the reusable single-pin record composition across both local Oxia authorities,
 not cross-record Owner/session/catalog activation, provider attestation,
-multi-worker coordination, chaos, failover or V1 release gates.
+multi-worker coordination, chaos, failover or release gates.
 
 ## 2026-08-16 Oxia Control Operation session-bound CAS
 
@@ -10781,7 +10781,7 @@ were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was not configured; the full
 the per-operation Oxia I/O session fence only. Authenticated actor/scope
 authorization, source-ordered registration and mutation routing,
 cross-record target/state transactions, automatic session recovery,
-production control-query routing, chaos and V1 release gates remain open.
+production control-query routing, chaos and release gates remain open.
 
 ## 2026-08-16 Oxia Control Target Registration session-bound CAS
 
@@ -10808,7 +10808,7 @@ configured; the full `./gradlew check --no-daemon --console=plain --quiet`
 returned 0. This closes only the target-registry per-record Oxia I/O session
 fence. Atomic Control Operation plus target registration, authenticated
 actor/scope authorization, source-ordered routing, automatic session
-recovery, production control routing, chaos and V1 release gates remain open.
+recovery, production control routing, chaos and release gates remain open.
 
 ## 2026-08-16 Oxia credential Profile catalog session-bound CAS
 
@@ -10838,7 +10838,7 @@ This closes only the single-record Profile authority's Oxia I/O session
 fence. Secret-manager resolution, source-ordered Profile publication,
 actor/target authorization, retained-generation GC, cross-record session
 transactions, automatic session recovery, provider rotation/quiescence,
-chaos and V1 release gates remain open.
+chaos and release gates remain open.
 
 ## 2026-08-16 Oxia Recovery Catalog session-bound CAS
 
@@ -10864,7 +10864,7 @@ real-service methods were skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was not
 configured; the full `./gradlew check --no-daemon --console=plain --quiet`
 returned 0. This closes catalog-record single-record I/O session fencing only;
 Catalog/Pin/Upload-Intent cross-record transactionality, source ordering,
-Owner/session recovery, provider publication/deletion, chaos and V1 release
+Owner/session recovery, provider publication/deletion, chaos and release
 gates remain open.
 
 ## 2026-08-16 Oxia Checkpoint Publication session-bound CAS
@@ -10896,7 +10896,7 @@ proves that a fake CAS can be durable while the fenced caller still receives a
 session failure and cannot report publication success. This closes only the
 single canonical publication-record I/O/session boundary. It does not provide
 an atomic Intent/Catalog/Pin transaction, provider completion or attestation,
-source/evidence replay, Owner/session recovery, chaos, failover or V1 release
+source/evidence replay, Owner/session recovery, chaos, failover or release
 gates.
 
 ## 2026-08-16 Oxia Checkpoint Upload Intent session-bound CAS
@@ -10926,7 +10926,7 @@ methods in `OxiaRealRecoveryAuthoritySmokeTest` were skipped because
 only the independent upload-intent single-record I/O/session boundary. It
 does not establish the combined Intent/Catalog/Pin transaction, Owner/session
 recovery, provider publication/attestation, source/evidence replay, chaos or
-V1 release gates.
+Current release gates.
 
 ## 2026-08-16 Oxia Worker assignment session-bound CAS
 
@@ -10953,7 +10953,7 @@ worker smoke method was skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was not
 configured; the full `./gradlew check --no-daemon --console=plain --quiet`
 returned 0. This closes only the desired-assignment single-record
 I/O/session boundary. Assignment/Owner/Route transactionality, placement
-authority, session recovery, raw chaos, failover and V1 release gates remain
+authority, session recovery, raw chaos, failover and release gates remain
 open.
 
 ## 2026-08-16 Oxia Owner Lease session-bound CAS
@@ -10981,7 +10981,7 @@ method was skipped because `NEREUS_DELAY_OXIA_ENDPOINT` was not configured,
 and the full `./gradlew check --no-daemon --console=plain --quiet` returned 0.
 This closes only the per-record owner epoch/lease I/O session fence. It does
 not establish Assignment/Owner/Route transactionality, placement authority,
-automatic session recovery, source ordering, raw chaos, failover or V1
+automatic session recovery, source ordering, raw chaos, failover or
 release readiness.
 
 ## 2026-08-16 Oxia Route authority session-bound I/O fence
@@ -11011,7 +11011,7 @@ authority methods and one real Route-worker method were skipped because
 `./gradlew check --no-daemon --console=plain --quiet` returned 0. This closes
 only per-operation Route session fencing and lazy range consumption. Route
 event/head transactionality, automatic reconnect, multi-node failover,
-placement/source ownership, raw chaos and V1 release readiness remain open.
+placement/source ownership, raw chaos and release readiness remain open.
 
 ## 2026-08-16 Atomic checkpoint publication authority pairing fence
 
@@ -11034,7 +11034,7 @@ The focused regression is:
 The focused checkpoint coordinator suite passed. This closes only constructor
 wiring and preserves the existing single-record atomic publication boundary;
 it does not add the missing Intent/Catalog/Pin transaction, Owner/session
-recovery, provider evidence, source ordering, chaos or V1 release readiness.
+recovery, provider evidence, source ordering, chaos or release readiness.
 
 ## 2026-08-16 Recovery Pin session-fenced client wiring correction
 
@@ -11059,7 +11059,7 @@ and release tests prove that a pin CAS committed before marker loss is not
 reported as success, while an unbound reread sees the exact committed or
 deleted state. This correction closes only the per-record pin I/O session
 fence; Catalog/Pin/Upload-Intent transactionality, Owner/session recovery,
-provider evidence, source ordering, chaos and V1 release gates remain open.
+provider evidence, source ordering, chaos and release gates remain open.
 
 ## 2026-08-16 Oxia Route notification reconnect session fence
 
@@ -11088,7 +11088,7 @@ authority methods and one real Route-worker method were skipped because
 the separate source-locked gate. This closes only the replacement notification
 registration fence. It does not establish event/head transactionality,
 automatic reconnect, multi-node failover, placement/source ownership, raw
-chaos or V1 release readiness.
+chaos or release readiness.
 
 ## 2026-08-16 Oxia Route provider start retry after notification fence
 
@@ -11107,7 +11107,7 @@ and requires replacement notification registration plus `HEALTHY` cache state.
 The Route provider/session suite passed 9 tests. This closes only the retry
 state transition after a fenced notification registration; it does not claim
 transparent automatic reconnect, event/head transactionality, multi-node
-failover, placement/source ownership, raw chaos or V1 release readiness.
+failover, placement/source ownership, raw chaos or release readiness.
 
 ## 2026-08-16 Oxia Route initial-refresh notification restoration
 
@@ -11125,7 +11125,7 @@ recovered revision plus exactly one initial notification registration. The
 deterministic Route provider/session suite passed 10 tests. This closes only
 initial-refresh notification restoration; it does not claim transparent
 automatic reconnect, event/head transactionality, multi-node failover,
-placement/source ownership, raw chaos or V1 release readiness.
+placement/source ownership, raw chaos or release readiness.
 
 ## 2026-08-16 fleet and Route resource close aggregation
 
@@ -11213,7 +11213,7 @@ The focused receipt is:
 The deterministic Direct SDK client suite passed 11 tests, including
 `closeRetriesEveryChildAfterTheFirstCloseFailure`. This is local Direct SDK
 teardown retryability only; it does not establish provider/session recovery,
-transport delivery, durable outbox authority, crash/chaos, failover or V1
+transport delivery, durable outbox authority, crash/chaos, failover or
 release evidence.
 
 ## 2026-08-16 Route connect prefix validation boundary
@@ -11237,7 +11237,7 @@ The deterministic Route session construction suite passed 1 test, including
 `connectRejectsAnInvalidKeyPrefixBeforeCreatingOxiaClients`. This closes only
 the local connect-input/resource-ordering boundary; it does not establish
 Oxia session recovery, Route transactionality, placement/source ownership,
-chaos/failover or V1 release evidence.
+chaos/failover or release evidence.
 
 ## 2026-08-16 Worker monitor teardown retry boundary
 
@@ -11262,7 +11262,7 @@ The deterministic monitor suites passed 12 tests, including
 `closeRetriesExecutorShutdownAfterTheFirstFailure` in both monitor classes.
 This closes only local Worker monitor teardown retryability; it does not turn
 a failed native process into safe recovery or provide production resource,
-Owner/Oxia, chaos/failover or V1 release evidence.
+Owner/Oxia, chaos/failover or release evidence.
 
 ## 2026-08-16 In-memory command transport registry teardown retry
 
@@ -11285,7 +11285,7 @@ The focused receipt is:
 The deterministic registry suite passed 1 test,
 `closeRetriesOnlyTheTransportThatFailedTheFirstTeardown`. This closes only
 the local registry lifecycle; it does not establish production Kafka/Pulsar
-client teardown, transport delivery, Broker failover, chaos or V1 release
+client teardown, transport delivery, Broker failover, chaos or release
 evidence.
 
 ## 2026-08-16 Guarded Pulsar transport teardown aggregation
@@ -11308,7 +11308,7 @@ The focused receipt is:
 The deterministic guarded transport suite passed 4 tests, including
 `pulsarCloseAttemptsNativeSenderAfterManagedSenderFailure`. This closes only
 local Pulsar transport teardown aggregation; it does not establish native or
-managed Broker delivery, client lifecycle authority, failover, chaos or V1
+managed Broker delivery, client lifecycle authority, failover, chaos or
 release evidence.
 
 ## 2026-08-16 Owner connect prefix validation boundary
@@ -11332,7 +11332,7 @@ The deterministic Owner backend suite passed 15 tests, including
 `connectRejectsAnInvalidKeyPrefixBeforeCreatingAnOxiaClient`. This closes only
 the local Owner connect-input/resource-ordering boundary; it does not
 establish Owner/Oxia recovery, lease authority, placement, chaos/failover or
-V1 release evidence.
+Current release evidence.
 
 ## 2026-08-16 Gateway admission lease release retry boundary
 
@@ -11354,13 +11354,13 @@ The deterministic Gateway admission suite passed 6 tests, including
 `leaseCloseRemainsRetryableAfterReleaseCasDoesNotConverge`. This closes only
 local durable admission-lease release retryability; it does not establish
 distributed Gateway authority, session recovery, transport delivery,
-failover, chaos or V1 release evidence.
+failover, chaos or release evidence.
 
 ## 2026-08-16 Gateway idempotency evidence monotonicity
 
 Delay commit `b19f998ffe811d0a6dee1051491eae6c61131712` makes Gateway
 idempotency outcome installation monotonic across late callbacks and retries.
-`GatewayIdempotencyRecordV1` validates that every outcome uses the durable
+`GatewayIdempotencyRecord` validates that every outcome uses the durable
 managed/native prepared branch, exact prepared command or native reference,
 and matching physical attempt identity. A repeated identical terminal outcome
 is a no-op; different terminal evidence for the same attempt is rejected
@@ -11388,7 +11388,7 @@ terminal evidence, foreign attempt identity, and retry from the highest
 unresolved attempt. The full `./gradlew check` passed 1532 tests with 24
 skips and zero failures/errors. This closes local durable evidence ordering
 and retry-precondition behavior only; it does not establish distributed
-Gateway authority, transport delivery, Broker failover, raw chaos or V1
+Gateway authority, transport delivery, Broker failover, raw chaos or
 release evidence.
 
 ## 2026-08-16 Gateway prepared-expiry fence and aggregate replay
@@ -11416,14 +11416,14 @@ including completed-aggregate replay after expiry and Oxia store-boundary
 expiry fencing. The full `./gradlew check` passed 1535 tests with 24 skips
 and zero failures/errors. This closes local prepared-expiry and replay
 ordering only; it does not establish distributed Gateway authority,
-transport delivery, Broker failover, raw chaos or V1 release evidence.
+transport delivery, Broker failover, raw chaos or release evidence.
 
 ## 2026-08-16 Gateway attempt projection integrity fence
 
 Delay commit `52c6ed1c604a98b56668e510a3cf84ad364ec9cc` makes the durable
 Gateway attempt projection reject impossible shapes before they can be used.
-`GatewayPhysicalAttemptV1` now requires `STARTED` to have no terminal evidence
-and every terminal state to carry evidence. `GatewayIdempotencyRecordV1`
+`GatewayPhysicalAttempt` now requires `STARTED` to have no terminal evidence
+and every terminal state to carry evidence. `GatewayIdempotencyRecord`
 requires source-ordered attempts, unique physical and retry identities, a
 phase consistent with the attempt states, and the correct presence of the
 aggregate for prepared/quiescent records.
@@ -11441,7 +11441,7 @@ failures/skips/errors, including impossible attempt evidence, phase mismatch
 and duplicate physical identity rejection. The full `./gradlew check` passed
 1536 tests with 24 skips and zero failures/errors. This closes local durable
 projection integrity only; it does not establish distributed Gateway
-authority, transport delivery, Broker failover, raw chaos or V1 release
+authority, transport delivery, Broker failover, raw chaos or release
 evidence.
 
 ## 2026-08-16 Gateway stored evidence binding
@@ -11469,7 +11469,7 @@ failures/skips/errors, including `gatewayProjectionRejectsOutcomeStateAndAggrega
 The full `./gradlew check` passed 1537 tests with 24 skips and zero
 failures/errors. This closes only local stored-evidence binding and aggregate
 recomputation; it does not establish distributed Gateway authority, transport
-delivery, Broker failover, raw chaos or V1 release evidence.
+delivery, Broker failover, raw chaos or release evidence.
 
 ## 2026-08-16 Gateway retry evidence hash binding
 
@@ -11497,7 +11497,7 @@ failures/skips/errors, including the retry-hash mismatch branch in
 `./gradlew check` passed 1537 tests with 24 skips and zero failures/errors.
 This closes only local retry-evidence hash binding; it does not establish
 distributed Gateway authority, transport delivery, Broker failover, raw chaos
-or V1 release evidence.
+or release evidence.
 
 ## 2026-08-16 Gateway operation/prepared binding
 
@@ -11522,12 +11522,12 @@ The focused Gateway suites passed 10 tests with zero failures/skips/errors;
 the full `./gradlew check` passed 1537 tests with 24 skips and zero
 failures/errors. This closes only local operation/prepared semantic binding;
 it does not establish distributed Gateway authority, transport delivery,
-Broker failover, raw chaos or V1 release evidence.
+Broker failover, raw chaos or release evidence.
 
 ## 2026-08-16 Gateway audit phase evidence
 
 Delay commit `745da182c72af27dff09a8fb55db6cc15a4f20e3` makes the
-`GatewayAuditEventV1` phase/digest union explicit: `COMPLETED` must carry an
+`GatewayAuditEvent` phase/digest union explicit: `COMPLETED` must carry an
 `outcomeHash`, while `RECEIVED` and `FAILED` must omit it. Digest-only audit
 shapes are rejected during construction before the event can reach the Oxia
 audit sink.
@@ -11544,7 +11544,7 @@ The focused audit suite passed 4 tests with zero failures/skips/errors; the
 full `./gradlew check` passed 1538 tests with 24 skips and zero
 failures/errors. This closes only local audit phase/digest shape validation;
 it does not establish distributed Gateway authority, transport delivery,
-Broker failover, raw chaos or V1 release evidence.
+Broker failover, raw chaos or release evidence.
 
 ## 2026-08-16 Gateway active attempt tail fence
 
@@ -11561,7 +11561,7 @@ regressions in
 The full `./gradlew check` passed 1538 tests with 24 skips and zero
 failures/errors. This closes only local active-attempt projection integrity;
 it does not establish distributed Gateway authority, transport delivery,
-Broker failover, raw chaos or V1 release evidence.
+Broker failover, raw chaos or release evidence.
 
 ## 2026-08-16 Gateway attempt timing/retry shape
 
@@ -11576,13 +11576,13 @@ failures/skips/errors, including zero/equal time-bound and malformed retry
 identity regressions. The full `./gradlew check` passed 1538 tests with 24
 skips and zero failures/errors. This closes only local physical-attempt
 temporal/retry-shape validation; it does not establish distributed Gateway
-authority, transport delivery, Broker failover, raw chaos or V1 release
+authority, transport delivery, Broker failover, raw chaos or release
 evidence.
 
 ## 2026-08-16 Gateway queued aggregate tail fence
 
 Delay commit `5b4d99e3` closes the remaining local sticky-success history gap
-in `GatewayIdempotencyRecordV1`. Projection validation now rejects any attempt
+in `GatewayIdempotencyRecord`. Projection validation now rejects any attempt
 after a persisted `QUEUED` attempt, including a later `STARTED` retry, so the
 first authenticated queued outcome cannot be followed by another physical
 submission. The existing valid retry path with an earlier unresolved uncertain
@@ -11608,7 +11608,7 @@ The source-locked `compileRealPulsar` task passed, and
 `runRealPulsarSmoke` passed with `persisted=PERSISTED`,
 `mismatch=UNKNOWN`, and `rejection=DEFINITIVELY_NOT_PERSISTED`. This closes
 only local opt-in SEND evidence binding; it does not establish Broker rollout,
-multi-broker failover, source/ACK integration, Worker production wiring or V1
+multi-broker failover, source/ACK integration, Worker production wiring or
 release evidence.
 
 ## 2026-08-16 Kafka client metadata identity fence
@@ -11625,7 +11625,7 @@ The source-locked `compileRealKafka` task passed against the K1
 broker-dependent K1/K2 smoke was not run. This closes only local opt-in
 metadata-to-guard identity binding; it does not establish Broker rollout,
 multi-broker failover, read-committed receipt authority, source/ACK
-integration, Worker production wiring or V1 release evidence.
+integration, Worker production wiring or release evidence.
 
 ## 2026-08-16 recovered publish evidence identity fence
 
@@ -11644,7 +11644,7 @@ artifacts. Follow-up commit `df2d021fc7e8c5586b062870325efa71835b6d3b` retains
 the explicit K2 owner check required by the cross-repository contract audit.
 This closes only local recovered-evidence identity binding; it does not
 establish live read-committed/Pulsar reread authority, Broker rollout or
-failover, source/ACK integration, Worker production wiring or V1 release
+failover, source/ACK integration, Worker production wiring or release
 evidence.
 
 ## 2026-08-16 Large-payload Gateway/Oxia/Kafka/Worker/MinIO vertical live receipt
@@ -11666,7 +11666,7 @@ The source-bound command passed on 2026-08-16:
 ```
 
 The receipt is locked to Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:4ad4078ccea32586873ae089a66c2d7425a0c96051d2a2de47dbd284f016724f`,
@@ -11702,7 +11702,7 @@ uses `InMemoryPayloadProofTrustSetCatalog` for local semantic resolution while
 the trust activation itself is source-ordered on real Kafka, and the final
 checkpoint is local rather than an Object Store checkpoint publication. Multi-
 shard placement, Kafka response-loss/LSO/retention recovery, Pulsar
-multi-Broker failover, raw crash/chaos and the V1 release gates remain open.
+multi-Broker failover, raw crash/chaos and the release gates remain open.
 
 ## 2026-08-16 Large-payload Gateway-to-Kafka destination authority receipt
 
@@ -11722,12 +11722,12 @@ The source-bound command passed after commit `33ff7a4b`:
 
 ```bash
 NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_DESTINATION_TOPIC=nereus-delay-large-payload-destination \
-NEREUS_DELAY_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-full-v1-kafka-composition-compile \
+NEREUS_DELAY_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-full-kafka-composition-compile \
   ./e2e/run-large-payload-gateway-e2e.sh
 ```
 
 The receipt used Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image `sha256:b0fcef7eb6f8350af6c22d333de889155acf4b1ec157887266568fc78beada0e`,
@@ -11764,7 +11764,7 @@ still supplies local semantic trust resolution while trust activation is
 source-ordered on real Kafka; the final checkpoint is local rather than a
 MinIO checkpoint publication. Kafka response-loss/LSO/retention recovery,
 Pulsar combined Gateway egress, multi-shard placement, raw crash/chaos and
-the V1 release gates remain open.
+the release gates remain open.
 
 ## 2026-08-16 Pulsar multi-Broker Worker failover live receipt
 
@@ -11778,9 +11778,9 @@ NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-multi-live-gradle 
 ```
 
 The current Delay source is
-`nereus/delay-full-implementation-v1@afbb2e30511b53b2f44adc620767685753acb48e`.
+`nereus/delay-full-implementation@afbb2e30511b53b2f44adc620767685753acb48e`.
 The receipt is locked to P1
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 distribution SHA-256
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3`,
 `pulsar-client-original` SHA-256
@@ -11815,7 +11815,7 @@ checkpoint release. The topology still has one ZooKeeper and one BookKeeper;
 it contains no Gateway ingress, no raw network/proxy/process cut, no Pulsar
 D3 completion, no catalog-driven multi-shard placement, and no combined
 Gateway-to-destination production-authority receipt. Oxia failover/partition,
-crash/response-loss, checkpoint publication/quiescence and the V1 release
+crash/response-loss, checkpoint publication/quiescence and the release
 gates remain open.
 
 ## 2026-08-16 Pulsar Large-payload Gateway-to-destination authority receipt
@@ -11832,7 +11832,7 @@ bash e2e/run-pulsar-large-payload-gateway-e2e.sh
 ```
 
 The receipt used P1
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 distribution SHA-256
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1
 image ID
@@ -11869,14 +11869,14 @@ partition, one ZooKeeper and one BookKeeper, and does not include the separate
 multi-Broker failover cut in the same Gateway chain. It does not prove
 multi-shard placement, raw crash/network/proxy/process chaos, Kafka
 response-loss/LSO/retention recovery, Object Store checkpoint publication or
-the V1 release gates. The global status therefore remains Partial.
+the release gates. The global status therefore remains Partial.
 
 ## 2026-08-16 Pulsar Large-payload clean production-authority revalidation
 
 After the guarded source reconnect replay and recovered `UNKNOWN` Publish
 Admission handling changes, the normal Large Payload authority path was rerun
 from the clean Delay tip
-`nereus/delay-full-implementation-v1@667458b98bd5adcec04eae53e2d2fe7da157be8c`.
+`nereus/delay-full-implementation@667458b98bd5adcec04eae53e2d2fe7da157be8c`.
 The cleanup fix in that commit also makes the receipt's exact Compose project
 and temporary image cleanup verifiable after the run.
 
@@ -11888,7 +11888,7 @@ NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-larg
 ```
 
 The run locked P1
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 distribution SHA-256
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1
 image ID
@@ -11924,12 +11924,12 @@ response-loss path needed to promote the recovered `UNKNOWN` branch.
 The existing boundaries remain unchanged: this does not combine the Gateway
 chain with the multi-Broker failover cut, and does not prove multi-shard
 placement, raw crash/network/proxy/process chaos, Kafka LSO/retention recovery,
-Object Store checkpoint publication or the V1 release gates.
+Object Store checkpoint publication or the release gates.
 
 ## 2026-08-16 Pulsar Worker destination response-loss with real Oxia
 
 The focused Worker destination response-loss runner was corrected at Delay
-`nereus/delay-full-implementation-v1@b647176ed92491fd96514eed2b87098454078a79`
+`nereus/delay-full-implementation@b647176ed92491fd96514eed2b87098454078a79`
 so its `NEREUS_DELAY_PULSAR_WITH_OXIA=1` mode passes the real Oxia endpoint and
 `-PpulsarWithOxia=true` into the focused Worker process. The same change keeps
 the temporary Oxia image within the runner's exact cleanup scope.
@@ -11945,7 +11945,7 @@ NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-worker-destination
 ```
 
 The run locked P1
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 distribution SHA-256
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
 artifact SHA-256 values
@@ -11978,12 +11978,12 @@ networks for either isolated Compose project. The focused run still used the
 normal source `ENQUEUED` admission path; it is not evidence that the recovered
 `UNKNOWN` Publish Admission branch executed. Raw socket/process/Broker cuts,
 combined Gateway multi-Broker failover, Object Store checkpoint publication,
-multi-shard placement and V1 release gates remain open.
+multi-shard placement and release gates remain open.
 
 ## 2026-08-16 Worker checkpoint publication with real Oxia and MinIO
 
 Delay commit
-`nereus/delay-full-implementation-v1@7a2b7b7461dd56ff5c3ebbc0e5471756d148ad18`
+`nereus/delay-full-implementation@7a2b7b7461dd56ff5c3ebbc0e5471756d148ad18`
 adds the focused `workerCheckpointRuntimePublishesToRealMinioAndOxia` smoke and
 `e2e/run-oxia-minio-checkpoint-e2e.sh`. The Worker checkpoint runtime now runs
 the same scheduled publication composition with a real Oxia session-bound
@@ -12021,11 +12021,11 @@ post-run exact-name checks found no project containers, network, volume or
 temporary Oxia image; the locked MinIO base image was intentionally retained.
 It does not prove real-Oxia REAPING/RecoveryPin competition, provider-side
 quiescence or consistency attestation, late-PUT/response-loss deletion,
-restore activation, multi-shard placement, raw chaos or V1 release readiness.
+restore activation, multi-shard placement, raw chaos or release readiness.
 
 ## 2026-08-16 Pulsar Worker UNKNOWN Publish Admission response-loss with real Oxia
 
-Delay commit `nereus/delay-full-implementation-v1@88d58c02` adds a one-shot
+Delay commit `nereus/delay-full-implementation@88d58c02` adds a one-shot
 client-side response-loss wrapper around the real guarded Shard Log mutation
 appender and a focused runner mode. The wrapper lets the real Pulsar producer
 persist the admission mutation, discards only the first local `PERSISTED`
@@ -12044,7 +12044,7 @@ NEREUS_DELAY_PULSAR_GRADLE_USER_HOME=/tmp/nereus-delay-pulsar-worker-admission-r
 ```
 
 The run locked P1
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 distribution SHA-256
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
 artifact SHA-256 values
@@ -12073,13 +12073,13 @@ This closes the bounded real-Broker/real-Oxia recovered `UNKNOWN` Publish
 Admission branch and its source-applied physical publish. It is a controlled
 client-side loss after real Pulsar persistence, not raw socket loss, process or
 Broker crash recovery, multi-Broker failover, combined Gateway failover,
-multi-shard placement, checkpoint REAPING or V1 release evidence. Exact-name
+multi-shard placement, checkpoint REAPING or release evidence. Exact-name
 post-run checks found no containers, images, volumes or networks for either
 isolated Compose project.
 
 ## 2026-08-16 Route-driven multi-shard Worker placement with real Oxia
 
-Delay commit `nereus/delay-full-implementation-v1@e629a404` extends the real
+Delay commit `nereus/delay-full-implementation@e629a404` extends the real
 Oxia Route-to-Worker assignment smoke from one partition to two Route policies
 and two independently CASed assignment records. The placement input first
 selects `worker-a` for partition 0; the second input reflects that committed
@@ -12095,7 +12095,7 @@ NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-multishard-20260816 \
 ```
 
 The run used Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`, Compose project
-`nereus-delay-v1-oxia-e2e-1786887413-34183`, host endpoint `127.0.0.1:16659`,
+`nereus-delay-oxia-e2e-1786887413-34183`, host endpoint `127.0.0.1:16659`,
 and temporary build image ID
 `sha256:e05630a933783a3925150ad1a1ca38869249d06a9983a6a7c4ed1e0bef98c460`.
 The test result XML recorded two tests with zero skips/failures/errors:
@@ -12111,7 +12111,7 @@ The exact temporary Oxia image was removed after the Compose trap had removed
 the container and network. This advances Route/Assignment multi-shard
 authority evidence only; it does not prove two native Kafka/Pulsar source
 consumers, per-shard Owner Lease/catch-up/ACK, production multi-shard Worker
-scheduling, raw chaos or V1 release readiness.
+scheduling, raw chaos or release readiness.
 
 ## 2026-08-16 Kafka source Fetch response-loss receipt
 
@@ -12129,7 +12129,7 @@ NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-fetch-response-loss-
 ```
 
 The receipt used Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image ID
@@ -12156,7 +12156,7 @@ response loss after a real Broker Fetch, not raw socket packet loss.
 
 Retention-floor recovery, consumer-coordinator/process/Broker crash cuts,
 multi-shard placement, Object Store checkpoint publication, raw chaos and the
-V1 release gates remain open.
+Current release gates remain open.
 
 ## 2026-08-16 Kafka source retention-floor receipt
 
@@ -12173,7 +12173,7 @@ NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-retention-floor-grad
 ```
 
 The post-commit receipt used Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image ID
@@ -12201,7 +12201,7 @@ only a deterministic test acceleration; it is not a disk-full or raw socket
 fault injection.
 
 Consumer-coordinator/process/Broker crash cuts, raw network/proxy chaos,
-multi-shard placement, Object Store checkpoint publication and the V1 release
+multi-shard placement, Object Store checkpoint publication and the release
 gates remain open.
 
 ## 2026-08-16 Kafka source process-crash recovery receipt
@@ -12220,7 +12220,7 @@ NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-process-crash-e2e-re
 ```
 
 The post-commit receipt used Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image ID
@@ -12247,7 +12247,7 @@ and the fetched LSO `2` bind the cut to the same source records.
 The receipt does not cover raw network/proxy/socket loss,
 consumer-coordinator or Broker crash/leader-failover cuts, Worker crash during
 apply/publish, catalog-driven multi-shard placement, Object Store checkpoint
-publication, the broader chaos matrix or V1 release readiness.
+publication, the broader chaos matrix or release readiness.
 
 ## 2026-08-16 Checkpoint REAPING with real Oxia Owner and MinIO
 
@@ -12289,7 +12289,7 @@ provider-generation fence and zero-length test horizon are included as local
 ownership evidence; this does not claim provider-side quiescence/consistency
 attestation, a cross-record production transaction, RecoveryPin competition,
 source-ordered delete confirmation, response-loss retry, multi-shard runtime,
-raw chaos or V1 release readiness. The runner removed the exact project
+raw chaos or release readiness. The runner removed the exact project
 containers, network, volume and temporary Oxia image while retaining the
 locked MinIO base image.
 
@@ -12314,7 +12314,7 @@ NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/Users/liusinan/.gradle \
 ```
 
 The run locked Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image ID
@@ -12338,7 +12338,7 @@ The runner's exact-name checks found no containers, networks, volumes or
 temporary Kafka/Oxia images for either isolated project. This is not a raw
 network/proxy/socket cut, a consumer-coordinator or controller-leader
 failover receipt, a Worker crash during apply/publish, a production
-multi-shard runtime, a full chaos matrix or V1 release evidence.
+multi-shard runtime, a full chaos matrix or release evidence.
 
 ## 2026-08-16 Kafka Broker network-partition Worker recovery receipt
 
@@ -12362,7 +12362,7 @@ NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/Users/liusinan/.gradle \
 ```
 
 The run locked Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image ID
@@ -12388,7 +12388,7 @@ final checkpoint under real Oxia authority. The network-partition slice
 intentionally skips physical destination publish during the survivor window,
 so it does not claim egress recovery, raw packet/proxy/socket injection,
 controller/coordinator leader proof beyond the topic-leader check, production
-multi-shard runtime, the full chaos matrix or V1 release evidence. Exact
+multi-shard runtime, the full chaos matrix or release evidence. Exact
 post-run checks found no containers, networks, volumes or temporary Kafka/Oxia
 images for either isolated project.
 
@@ -12413,7 +12413,7 @@ NEREUS_DELAY_KAFKA_GRADLE_USER_HOME=/tmp/nereus-delay-kafka-worker-process-crash
 ```
 
 The run locked Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image ID
@@ -12438,7 +12438,7 @@ Kafka Worker process-crash recovery E2E passed: a real Worker JVM was SIGKILLed 
 This closes the bounded OS-process Worker recovery cut for an unACKed source
 record. It does not claim a crash during physical destination publish, raw
 packet/proxy/socket fault injection, controller/coordinator leader failover,
-production multi-shard runtime, the complete chaos matrix or V1 release
+production multi-shard runtime, the complete chaos matrix or release
 evidence. Exact post-run checks found no containers, networks, volumes or
 temporary Kafka/Oxia images for either isolated project; base images were not
 globally pruned.
@@ -12456,7 +12456,7 @@ NEREUS_DELAY_E2E_GRADLE_USER_HOME=/tmp/nereus-delay-oxia-multishard-20260816-cur
 ```
 
 The isolated Compose project was
-`nereus-delay-v1-oxia-e2e-1786894971-29820`, endpoint `127.0.0.1:16659`, and
+`nereus-delay-oxia-e2e-1786894971-29820`, endpoint `127.0.0.1:16659`, and
 the temporary Oxia image was
 `sha256:01c76f33ffef8b9ca2e1e251a85f48d26b56035a360818ceeed14253ee064e05`.
 The selected real-service test XML recorded two tests with zero skips,
@@ -12466,7 +12466,7 @@ CAS and the two-shard/two-worker placement CAS.
 This refreshes current source evidence for real Oxia Route-driven placement
 only. It still does not prove two native Kafka/Pulsar source consumers,
 per-shard Owner Lease/catch-up/ACK, production multi-shard Worker scheduling,
-raw chaos or V1 release readiness. The exact temporary image was removed
+raw chaos or release readiness. The exact temporary image was removed
 explicitly after the runner left it behind; post-cleanup checks found no
 container, network, volume or project image, and no global Docker prune was
 used.
@@ -12474,7 +12474,7 @@ used.
 ## 2026-08-16 Kafka native multi-shard Worker fleet receipt
 
 The source-bound rerun used Delay `c6b2d0ea`, Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 Kafka client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, Kafka
 image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
@@ -12510,7 +12510,7 @@ vertical for two partitions: Route barrier, Assignment/Owner admission,
 per-shard catch-up, source apply/ACK, fleet dispatch, final checkpoint and
 exact Assignment withdrawal are all exercised against real Kafka and real
 Oxia. It does not promote the result to native Pulsar multi-shard production,
-multi-worker process placement, raw crash/chaos completeness or V1 release
+multi-worker process placement, raw crash/chaos completeness or release
 readiness. Exact post-run checks found no containers, networks, volumes or
 matching temporary Kafka/Oxia images for either isolated project; reusable
 base images were retained and no global Docker prune was used.
@@ -12527,7 +12527,7 @@ NEREUS_DELAY_KAFKA_LARGE_PAYLOAD_DESTINATION_TOPIC=nereus-delay-large-payload-de
 ```
 
 The source locks were Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, Kafka
 image `sha256:eb968fa8ea2fcc6c89dca3a9fbfcb4945af3909b574c3896947ffec85a2862e6`,
@@ -12556,7 +12556,7 @@ This refreshes the Kafka side of the combined Gateway + real Oxia + real Broker
 It remains one physical partition, retains the exact in-memory semantic trust
 resolver seam and does not close Kafka response-loss/LSO/retention recovery
 beyond its separately recorded slices, multi-shard placement, raw crash/chaos
-or the V1 release gate.
+or the release gate.
 
 The runner removed the exact Compose project, networks/volumes/orphans and
 run-created Kafka/Oxia images; reusable base images were retained and no
@@ -12607,7 +12607,7 @@ physical source partition and uses the harness's exact in-memory semantic trust
 resolver seam. The stop is an external harness action, not automatic Pulsar
 controller/coordinator leader failover. Credential Profile/Oxia catalog
 authority, multi-shard placement, raw crash/chaos, broader Pulsar network or
-controller failover and the V1 release gate remain open.
+controller failover and the release gate remain open.
 
 The runner removed the exact Compose project, its networks/volumes/orphans and
 run-created temporary images; reusable base images were retained and no global
@@ -12636,8 +12636,8 @@ KAFKA_DELAY_BROKER_TCP_CUT_TOPIC=nereus-delay-worker-broker-tcp-cut-live-2026081
   bash e2e/run-kafka-real-client-e2e.sh
 ```
 
-The run locked Delay `nereus/delay-full-implementation-v1@79d4617c`, Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+The run locked Delay `nereus/delay-full-implementation@79d4617c`, Kafka
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image ID
@@ -12663,7 +12663,7 @@ post-cut handoff marker files. This closes the bounded Kafka raw endpoint-cut
 plus explicit endpoint-handoff/source-Worker recovery slice. It does not claim
 automatic controller/coordinator failover, a Broker-1 crash, a Docker network
 partition, a production load balancer, multi-shard runtime, the complete
-chaos matrix or V1 release readiness. Exact post-run checks found no named
+chaos matrix or release readiness. Exact post-run checks found no named
 containers, networks, volumes or temporary Kafka/Oxia images; reusable base
 images were retained and no global Docker prune was used.
 
@@ -12688,7 +12688,7 @@ KAFKA_DELAY_WORKER_ACK_PROCESS_CRASH_TOPIC=nereus-delay-worker-ack-crash-live-20
 ```
 
 The run locked Kafka
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, broker
 image ID
@@ -12712,7 +12712,7 @@ Kafka Worker ACK process-crash recovery E2E passed: the Worker Store WriteBatch 
 This closes the bounded ACK-after-sync process-cut boundary for the source
 Worker. It does not claim a crash during destination physical publish, raw
 packet/proxy/socket injection, controller/coordinator leader failover,
-production multi-shard runtime, the complete chaos matrix or V1 release
+production multi-shard runtime, the complete chaos matrix or release
 evidence. Exact post-run checks found no containers, networks, volumes or
 temporary Kafka/Oxia images for either isolated project; base images were not
 globally pruned.
@@ -12720,7 +12720,7 @@ globally pruned.
 ## 2026-08-17 Pulsar native multi-shard Worker fleet receipt
 
 The source-bound real P1 rerun used Delay `c2003627`, Pulsar
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 Pulsar distribution SHA-256
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
 artifact SHA-256 values `57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
@@ -12760,7 +12760,7 @@ single P1 Broker: per-shard guarded source identity, signed barrier, recovery,
 Owner Lease, source apply/ACK, shared-fleet fairness, final checkpoint and
 exact Assignment withdrawal are exercised against real Pulsar and real Oxia.
 It does not promote Pulsar multi-Broker failover, multiple Worker processes,
-raw crash/chaos completeness or V1 release readiness. The run-created P1 image
+raw crash/chaos completeness or release readiness. The run-created P1 image
 and Oxia image (`sha256:a027689fe6948dd46d5ae8891ba8dfe0e54d384ad4ee54922d012418c225db4a`)
 were removed by exact Compose cleanup; post-run checks found no containers,
 networks, volumes or matching temporary images, and no global Docker prune was
@@ -12770,7 +12770,7 @@ used.
 
 The current-source rerun locks Delay to
 `35745db08672f1bf2e3178419422a46741da20d1`, Kafka to
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, Kafka
 image ID
@@ -12814,7 +12814,7 @@ Assignment/Owner authority, and `kafka-1` is reconnected and made ready again.
 It still deliberately skips physical destination publish during the survivor
 window, raw packet/proxy/socket injection, controller/coordinator failover
 beyond the topic-leader check, production multi-shard chaos, the full fault
-matrix and V1 release readiness. Exact post-run checks found no containers,
+matrix and release readiness. Exact post-run checks found no containers,
 networks, volumes or matching temporary Kafka/Oxia images for either isolated
 project; both the K1 image ID and the run-created Oxia image ID were absent,
 reusable base images were retained, and no global Docker prune was used.
@@ -12823,7 +12823,7 @@ reusable base images were retained, and no global Docker prune was used.
 
 The current-source raw endpoint-cut rerun locks Delay to
 `47fa6620e7816dbd13ea393b42891a53286009ec`, Kafka to
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, Kafka
 image ID
@@ -12873,7 +12873,7 @@ closes the bounded raw TCP endpoint-cut plus explicit endpoint-handoff/source-
 Worker recovery slice. It does not claim automatic Kafka controller/
 coordinator failover, Broker-1 crash recovery, Docker network partition,
 production load-balancer behavior, destination egress under the cut,
-multi-shard runtime, the complete chaos matrix or V1 release readiness. Exact
+multi-shard runtime, the complete chaos matrix or release readiness. Exact
 post-run checks found no containers, networks, volumes or matching temporary
 Kafka/Oxia images for either isolated project; both the K1 image ID and the
 run-created Oxia image ID were absent, reusable base images were retained, and
@@ -12891,7 +12891,7 @@ transport and PUBLISH_OUTCOME projection; one shared Worker fleet-level Claim
 and destination admission is used for both shards.
 
 The current real receipt used P1
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 distribution SHA-256
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1
 image `sha256:a2c76925f2504337a55c1b88d0a83cc80147d563189041514b63bc1e347cf9d3`,
@@ -12934,7 +12934,7 @@ prune or unrelated image deletion was used.
 ## 2026-08-17 Current-source release gate after Pulsar multi-shard egress
 
 The source-locked artifact is
-`/tmp/nereus-delay-v1-release-gate-20260817-r13/v1-release-candidate-gate.json`:
+`/tmp/nereus-delay-release-gate-20260817-r13/release-candidate-gate.json`:
 Delay `ee292f4090e23a3f26f949aa54ac075b8ed94a78`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
@@ -12947,7 +12947,7 @@ chaos are `PASS_BOUNDED`, not `PASS_CERTIFIED`.
 ## 2026-08-17 Current-source release gate after production-chain rerun
 
 The current source-locked gate artifact is
-`/tmp/nereus-delay-v1-release-gate-20260817-r19/v1-release-candidate-gate.json`
+`/tmp/nereus-delay-release-gate-20260817-r19/release-candidate-gate.json`
 at Delay `9f8b697ce5dbbeec79c70f237fa909172d2fccb3`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
@@ -12965,8 +12965,8 @@ the real-service boundary but do not change the certified-only release rule.
 After the documentation/source-lock refresh, the clean current Delay source
 `59abbde18ad2b0b5551e4ea59c5fc146db068982` reran both real multi-shard
 Large Payload destination paths. Kafka used K1
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
-P1 used `nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+P1 used `nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 and both used Oxia `37a17bef17202d5fd6e23282da5fd26d94865484` plus the locked
 MinIO image
 `quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
@@ -13000,7 +13000,7 @@ BUILD SUCCESSFUL in 1m 39s
 This closes the current-source real Gateway + Oxia + Broker + Worker + MinIO
 multi-shard production-chain boundary for both Broker families. It does not
 claim a separately deployed Gateway process, catalog-driven placement churn,
-controller/storage/provider failover, certified capacity/soak, or V1 release
+controller/storage/provider failover, certified capacity/soak, or release
 promotion. Exact postchecks found no containers, networks, volumes or
 run-generated Kafka/Pulsar/Oxia images for either project. The locked MinIO
 base and unrelated pre-existing images were retained; no global Docker prune
@@ -13029,7 +13029,7 @@ outcome; Kafka/Pulsar broker cuts, response-loss, LSO/retention and
 Checkpoint REAPING cells also passed.
 
 The matching source-locked release artifact is
-`/tmp/nereus-delay-v1-release-gate-20260817-r17/v1-release-candidate-gate.json`.
+`/tmp/nereus-delay-release-gate-20260817-r17/release-candidate-gate.json`.
 Source checks, cross-repository validation and full Gradle `check` pass. The
 decision remains intentionally `release_status=NOT_READY`: capacity is
 `PARTIAL`, certified soak is absent, and activation/cutover, operations and
@@ -13044,7 +13044,7 @@ deletion was used.
 
 The current-source Worker crash rerun locks Delay to
 `ade0c813bb8919793eecdd2e07cf76073432237f`, Kafka to
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, Kafka
 image ID
@@ -13089,7 +13089,7 @@ was durable and before `commitSync`; the fresh JVM reopened the same isolated
 Store root, reacquired the real Oxia lease and proved replay/dedupe/ACK. It
 does not claim a crash during physical destination publish, raw
 packet/proxy/socket or network chaos, controller/coordinator failover,
-production multi-shard fault coverage, the complete chaos matrix or V1 release
+production multi-shard fault coverage, the complete chaos matrix or release
 readiness. Exact post-run checks found no containers, networks, volumes or
 matching temporary Kafka/Oxia images for either isolated project; both the K1
 image ID and the run-created Oxia image ID were absent, reusable base images
@@ -13099,7 +13099,7 @@ were retained, and no global Docker prune was used.
 
 The current-source rerun locks Delay to
 `a3bb8462edc3d4e32006f5d98af958d1c8d7ef18`, Kafka to
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 the K1 client SHA-256 to
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, and
 the broker image ID to
@@ -13131,7 +13131,7 @@ response was discarded before ACK, the same group replayed exact offsets
 `0` and `1`, the batch LSO was `2`, and the recovered group offset reached
 `2`. This remains controlled client-side response loss after a real Fetch,
 not raw socket loss, Broker/coordinator crash recovery, multi-shard runtime,
-checkpoint publication, chaos completeness or V1 release readiness.
+checkpoint publication, chaos completeness or release readiness.
 Exact post-run checks found no containers, networks, volumes or matching
 temporary Kafka image tag or image ID; the reusable broker base image was
 retained and no global Docker prune was used.
@@ -13140,7 +13140,7 @@ retained and no global Docker prune was used.
 
 The current-source rerun locks Delay to
 `a3bb8462edc3d4e32006f5d98af958d1c8d7ef18`, Kafka to
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 the K1 client SHA-256 to
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, and
 the broker image ID to
@@ -13176,7 +13176,7 @@ guarded Fetch at offset `0` failed closed with typed
 readable, and its LSO was `21`. The accelerated retention configuration is a
 deterministic test setting; this is not disk ENOSPC, raw socket chaos,
 controller/coordinator failover, multi-shard placement, checkpoint
-publication or V1 release evidence. Exact post-run checks found no
+publication or release evidence. Exact post-run checks found no
 containers, networks, volumes or matching temporary Kafka image tag or image
 ID; the reusable broker base image was retained and no global Docker prune
 was used.
@@ -13185,7 +13185,7 @@ was used.
 
 The current-source Broker crash rerun locks Delay to
 `13857e57cee134c2bc0fcf20a4d8b988fbe0f02a`, Kafka to
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 client SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, Kafka
 image ID
@@ -13230,7 +13230,7 @@ recovery slice, including survivor source recovery, real Oxia authority,
 physical Kafka destination publish, typed receipt/readback, source ACK and
 final checkpoint before `kafka-1` rejoins. It does not claim raw endpoint or
 network-partition injection, controller/coordinator failover, production
-multi-shard fault coverage, the complete chaos matrix or V1 release
+multi-shard fault coverage, the complete chaos matrix or release
 readiness. Exact post-run checks found no containers, networks, volumes or
 matching temporary Kafka/Oxia images for either isolated project; both the K1
 image ID and the run-created Oxia image ID were absent, reusable base images
@@ -13240,7 +13240,7 @@ were retained, and no global Docker prune was used.
 
 The current-source rerun locks Delay to
 `19577006e4c104b2934617719b711aa5d549ed27`, P1 to
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 the P1 distribution SHA-256 to
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, the
 P1 client artifacts to `57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
@@ -13288,7 +13288,7 @@ physical PUBLISH, typed PULSAR_SEND_ACK readback, source ACK and final
 checkpoint, and Broker-1 was restarted by the runner. It is not Pulsar
 controller/coordinator failover, multi-Broker process chaos, raw socket or
 network fault injection, Gateway ingress, multi-shard production placement,
-or V1 release evidence.
+or release evidence.
 Exact post-run checks found no containers, networks, volumes or matching P1
 image; the run-created Oxia image tag and image ID were explicitly removed
 after the runner cleanup, reusable base images were retained and no global
@@ -13297,7 +13297,7 @@ Docker prune was used.
 ## 2026-08-17 Current-source release-gate rerun after Pulsar failover receipt
 
 The latest clean-source gate artifact is
-`/tmp/nereus-delay-v1-release-gate-20260817-r7/v1-release-candidate-gate.json`
+`/tmp/nereus-delay-release-gate-20260817-r7/release-candidate-gate.json`
 at Delay `9ec909d95b890dd227b572396091e500a9c72299`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
@@ -13311,7 +13311,7 @@ only records this fail-closed result.
 
 The successful current-source rerun locks Delay to
 `f3adc8cba4c78479f2daa883f0605136dc085f50`, Kafka to
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 the K1 client SHA-256 to
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, the
 K1 image ID to
@@ -13356,7 +13356,7 @@ typed receipt, real Oxia Route/Assignment/Owner, Gateway mTLS/RS256-JWT,
 source-ordered Worker apply/ACK, versioned MinIO upload/readback and exact
 destination payload authority. The source still has one physical partition and
 the local semantic trust resolver seam; this is not checkpoint REAPING/GC,
-external credential authority, full response-loss/chaos coverage or V1 release
+external credential authority, full response-loss/chaos coverage or release
 approval. Exact post-run checks found no containers, networks, volumes or
 matching temporary Kafka/Oxia images; the locked MinIO base was retained and
 no global Docker prune was used.
@@ -13365,7 +13365,7 @@ no global Docker prune was used.
 
 The current-source failover rerun locks Delay to
 `f3adc8cba4c78479f2daa883f0605136dc085f50`, P1 to
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 the P1 distribution SHA-256 to
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, the
 P1 client artifacts to `57de344822b16ff664a8e0d071b2392de1c82b5faabc6a93714b4eabba039a5c`,
@@ -13415,7 +13415,7 @@ SUBSCRIBE, exact payload apply/readback and typed destination evidence after
 the harness stopped broker-1. It remains one physical source partition and
 the stop is an external harness action, not automatic Pulsar controller or
 coordinator leader failover; Profile/Oxia external credential authority,
-checkpoint REAPING/GC, full chaos and V1 release gates remain open. Exact
+checkpoint REAPING/GC, full chaos and release gates remain open. Exact
 post-run checks found no containers, networks, volumes, P1 image or Oxia image
 for the project; the locked MinIO base was retained and no global Docker
 prune was used.
@@ -13455,7 +13455,7 @@ prefix after sweep. Exact post-run checks found no containers, networks,
 volumes, matching Oxia image or standalone MinIO container; the locked MinIO
 base was retained and no global Docker prune was used. This closes the
 current-source real Oxia/MinIO REAPING handoff, but not multi-worker disaster
-authority, external secret-manager rotation, full chaos, soak or V1 release
+authority, external secret-manager rotation, full chaos, soak or release
 gates.
 
 ## 2026-08-17 Current-source Gateway Oxia session-churn recovery receipt
@@ -13491,7 +13491,7 @@ live admission leases and two digest-only audit records. This closes the
 bounded single-node Gateway/Oxia session-churn and explicit recomposition
 slice. It does not close transparent automatic reconnect, multi-node Gateway
 HA, load, the full crash/response-loss matrix, external credential authority
-or V1 release gates. Exact post-run checks found no project resources or
+or release gates. Exact post-run checks found no project resources or
 matching temporary image; the locked MinIO base was retained and no global
 Docker prune was used.
 
@@ -13541,7 +13541,7 @@ prune was used.
 The current-source rerun locks Delay to
 `ef8ad3fcdb0765565b93036f901a45781f163bb0` (implementation behavior in this
 tree is unchanged from `e6d28a5b0fecc6c20daded998b1d324990fe95c2`), P1 to
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 the P1 distribution SHA-256 to
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, the
 P1 client artifacts to
@@ -13581,7 +13581,7 @@ is discarded, source replay resolves the exact mutation identity, and the
 Worker continues from `PUBLISHING` without appending a retry mutation. It is
 controlled client-side response loss after real persistence, not raw socket
 loss, process/Broker crash recovery, multi-Broker failover, multi-shard
-placement, checkpoint REAPING or V1 release evidence.
+placement, checkpoint REAPING or release evidence.
 
 The runner's exact cleanup removed the temporary P1 image
 `sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`
@@ -13595,7 +13595,7 @@ global Docker prune was used.
 
 The current-source rerun uses Delay
 `75f451758c30c6eafc50b252bffdcef22f0137b4`, P1
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 the P1 distribution SHA-256
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, the
 same client artifact SHA-256 values recorded above, P1 image
@@ -13628,7 +13628,7 @@ was discarded; the next bounded Worker turn ACKed the same source record and
 completed the vertical without a second physical publish. This is controlled
 client-side response loss, not raw socket loss, process/Broker crash
 recovery, multi-Broker failover, multi-shard placement, checkpoint REAPING or
-V1 release evidence.
+Current release evidence.
 
 The exact runner cleanup removed P1 image
 `sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`
@@ -13641,7 +13641,7 @@ untouched and no global Docker prune was used.
 
 The current-source P1 rerun uses Delay
 `75f451758c30c6eafc50b252bffdcef22f0137b4`, P1
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 the P1 distribution SHA-256
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, the
 same three client artifact SHA-256 values, and P1 image
@@ -13669,7 +13669,7 @@ This is the bounded real-P1 destination proof: the guarded SEND persisted the
 exact payload, the local response was discarded, and typed `PULSAR_SEND_ACK`
 evidence resolved the physical publish. It does not claim Worker/Oxia
 authority, raw socket loss, process/Broker crash recovery, multi-Broker
-failover, multi-shard placement, checkpoint REAPING or V1 release evidence.
+failover, multi-shard placement, checkpoint REAPING or release evidence.
 The exact runner cleanup removed the temporary P1 image; postchecks found no
 project containers, networks, volumes or matching image. The locked MinIO
 base was untouched and no global Docker prune was used.
@@ -13678,7 +13678,7 @@ base was untouched and no global Docker prune was used.
 
 The new focused crash runner is implemented at Delay
 `fdee96ca5e402bd725ff1454c1086b249e0ce8da` and locks P1 to
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`, the
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`, the
 P1 distribution SHA-256 to
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, the
 same three P1 client artifact SHA-256 values recorded above, P1 image
@@ -13714,7 +13714,7 @@ This closes the bounded current-source single-Worker JVM crash/reopen path
 with real P1 Broker and real Oxia Owner authority. It does not close a crash
 during physical destination publish, raw socket/network cuts, Broker or
 controller failover, multi-Worker process placement, checkpoint REAPING,
-full chaos or V1 release evidence. The initial retry used a local dependency
+full chaos or release evidence. The initial retry used a local dependency
 cache after an external Maven TLS handshake failure; the successful run and
 all postchecks were clean. Exact postchecks found no project resources,
 temporary P1/Oxia images or crash state; the locked MinIO base was untouched
@@ -13742,7 +13742,7 @@ This inventory is not a single all-combinations chaos PASS. Still open are
 controller/coordinator and ZooKeeper/BookKeeper/storage failover, arbitrary
 packet/proxy/socket combinations, fault injection during every Gateway/Object
 Store stage and physical egress stage, multi-process HA, certified benchmark
-and soak artifacts, upgrade/downgrade proof, and the V1 release-gate runbook/
+and soak artifacts, upgrade/downgrade proof, and the release-gate runbook/
 capacity/SLO/restore evidence. The current release status therefore remains
 `NOT READY`; positive bounded receipts cannot promote it.
 
@@ -13750,7 +13750,7 @@ capacity/SLO/restore evidence. The current release status therefore remains
 
 The source-bound combined implementation is Delay
 `888c0513c433234282a12eff6e401aa4a8a40116`, P1
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1
 distribution SHA-256
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
 artifact SHA-256 values
@@ -13808,7 +13808,7 @@ readback, typed destination evidence, source Outcome/apply and final
 checkpoint, followed by Broker-1 readiness after restart. It does not close
 automatic Pulsar controller/coordinator failover, raw socket/network cuts,
 ZooKeeper/BookKeeper/storage failover, multi-shard production placement, the
-full crash/chaos matrix or V1 release evidence. Exact postchecks found no
+full crash/chaos matrix or release evidence. Exact postchecks found no
 project containers, networks, volumes or matching P1/Oxia images; the locked
 MinIO base was retained and no global Docker prune was used.
 
@@ -13816,7 +13816,7 @@ MinIO base was retained and no global Docker prune was used.
 
 The current-source combined implementation is Delay
 `f95c8a5468d6a1ee6df0bc1bd99000dc769d8797`, P1
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1
 distribution SHA-256
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1
 image `sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
@@ -13864,12 +13864,12 @@ partition. The harness disconnects only Broker-1's exact Docker Compose network
 membership while the process remains alive, waits 75 seconds for the
 disconnected ownership lease to expire, renews the active lease during that
 window, then performs strict successor guarded SUBSCRIBE reactivation and
-reconnects Broker-1 after the destination publish. `PulsarSourceReactivationV1`
+reconnects Broker-1 after the destination publish. `PulsarSourceReactivation`
 still rejects equal generations; the large-payload fixture now settles the
 post-seek proof through a bounded quiet window before binding the Route barrier.
 This does not claim all network-failure shapes, controller/coordinator or
 ZooKeeper/BookKeeper/storage failover, multi-shard production placement, the
-full crash/chaos matrix or V1 release evidence. Exact postchecks found no
+full crash/chaos matrix or release evidence. Exact postchecks found no
 project containers, networks, volumes, P1 image or run-created Oxia image; the
 locked MinIO base was retained and no global Docker prune was used.
 
@@ -13877,7 +13877,7 @@ locked MinIO base was retained and no global Docker prune was used.
 
 The current-source implementation is Delay
 `123ffe6e6f70c7779a5712012f1836f8d792b43b`, P1
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 P1 distribution SHA-256
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, the
 three P1 client artifact SHA-256 values recorded above, P1 image
@@ -13918,7 +13918,7 @@ runner now waits for Pulsar's `/admin/v2/brokers/ready` endpoint and uses a
 bounded retry for transient topic-create connection loss. It does not close
 raw socket/network cuts, ZooKeeper/BookKeeper/controller failover, Gateway
 plus Broker combined failover, multi-shard placement, the full crash/chaos
-matrix or V1 release evidence. Exact postchecks found no project containers,
+matrix or release evidence. Exact postchecks found no project containers,
 networks, volumes or matching P1/Oxia images; the locked Oxia base remained,
 and no global Docker prune was used.
 
@@ -13926,7 +13926,7 @@ and no global Docker prune was used.
 
 The current-source rerun locks Delay to
 `9c6afd5e93621320da2b1c952553f6ffd28b364f`, Kafka K1 to
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 the K1 client artifact to SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, and the
 temporary K1 broker image to
@@ -13961,7 +13961,7 @@ Kafka K2 committed response-loss E2E passed: real EndTxn commit was followed by 
 This refreshes bounded current-source three-Broker KRaft evidence for a real
 post-commit client response cut and exact typed `read_committed` target/receipt
 resolution. It is not raw socket packet loss, Broker process/crash or failover
-coverage, the complete Kafka Fetch/LSO/retention matrix, or V1 release
+coverage, the complete Kafka Fetch/LSO/retention matrix, or release
 approval. Gate 2 and the release status therefore remain unchanged. Exact
 postchecks found no project containers, networks, volumes, dangling images or
 temporary `nereus-delay-kafka-k1` image; no global Docker prune was used.
@@ -13970,7 +13970,7 @@ temporary `nereus-delay-kafka-k1` image; no global Docker prune was used.
 
 The current-source rerun locks Delay to
 `cd0b90bd52d5db00cbccdf42be24bdcf41375dbc`, Kafka K1 to
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 the K1 client artifact to SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, K1
 broker image to
@@ -14007,14 +14007,14 @@ two physical source partitions, one signed Route, two real Oxia Assignment/
 Owner CAS paths, shared-fleet fairness, per-shard apply/ACK and final
 checkpoint/assignment release. It does not establish catalog-driven
 production placement, eligible-reader rollout authority, multi-shard large
-payload egress, arbitrary multi-shard chaos or V1 release readiness. Exact
+payload egress, arbitrary multi-shard chaos or release readiness. Exact
 postchecks found no project containers, networks, volumes, dangling images or
 temporary K1/Oxia image; no global Docker prune was used.
 
 ## 2026-08-17 Protocol activation payload codec boundary
 
 Commit `99049c6f` adds the strict Java codec for the Registry-defined
-`ProtocolVersionActivatePayloadV1`: exact `ProtocolTupleV1`, canonical schema
+`ProtocolVersionActivatePayload`: exact `ProtocolTuple`, canonical schema
 SHA-256 and compatible-reader-set evidence SHA-256 fields; canonical field
 ordering, fixed-width hash validation and nested tuple canonicality are
 enforced on decode. `ApplyShardControlBody` now exposes a typed field-1
@@ -14032,7 +14032,7 @@ this slice; Gate 8 therefore remains `PARTIAL` and the release remains
 
 The current-source rerun locks Delay to
 `499169a116fa401cb902a60bb805f9c72173ab69`, Kafka K1 to
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 the client artifact to SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, K1
 broker image to
@@ -14070,7 +14070,7 @@ This closes the bounded current-source Docker-network partition and survivor
 source-Worker recovery cut. It intentionally does not claim destination
 physical publish during the survivor window, raw packet/proxy/socket loss,
 automatic controller/coordinator failover beyond the topic-leader check,
-multi-shard chaos completeness or V1 release readiness. Exact postchecks found
+multi-shard chaos completeness or release readiness. Exact postchecks found
 no project containers, networks, volumes, dangling images or temporary
 K1/Oxia image; no global Docker prune was used.
 
@@ -14078,7 +14078,7 @@ K1/Oxia image; no global Docker prune was used.
 
 The current-source rerun locks Delay to
 `4800b3b269c623061149a398e9799adc8aa7c449`, Kafka K1 to
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 the client artifact to SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, and K1
 broker image to
@@ -14108,7 +14108,7 @@ Kafka source Fetch response-loss E2E passed: real read_committed Fetch v13 respo
 This is current-source controlled client-side Fetch response loss after a real
 Broker response, with exact replay and LSO evidence. It is not raw socket
 loss, coordinator/Broker crash recovery, retention-floor evidence by itself,
-the full chaos matrix or V1 release approval. Exact postchecks found no
+the full chaos matrix or release approval. Exact postchecks found no
 project containers, networks, volumes, dangling images or temporary K1 image;
 no global Docker prune was used.
 
@@ -14138,7 +14138,7 @@ Kafka source retention-floor E2E passed: real Broker retention advanced the earl
 ```
 
 This refreshes the deterministic accelerated-retention boundary only; it is
-not disk ENOSPC, raw socket/coordinator chaos, multi-shard placement or V1
+not disk ENOSPC, raw socket/coordinator chaos, multi-shard placement or
 release evidence. Exact postchecks found no project containers, networks,
 volumes, dangling images or temporary K1 image; no global Docker prune was
 used.
@@ -14147,7 +14147,7 @@ used.
 
 The current-source rerun locks Delay to
 `e690ee06951bfcf6a614fee82c9d772873bedf0b`, P1 to
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1
 distribution SHA-256
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, client
 artifact SHA-256 values
@@ -14193,18 +14193,18 @@ This closes the bounded current-source two-Broker/one-ZooKeeper/one-BookKeeper
 Pulsar process-crash Worker failover cut for one physical source topic. It does
 not establish raw network/socket cuts, controller/coordinator or
 ZooKeeper/BookKeeper storage failover, Gateway-plus-Broker combined failover,
-multi-shard chaos completeness or V1 release readiness. Exact postchecks found
+multi-shard chaos completeness or release readiness. Exact postchecks found
 no project containers, networks, volumes, dangling images, P1 image or
 run-created Oxia image; no global Docker prune was used.
 
-## 2026-08-17 Current-source V1 release-gate re-audit after fault receipts
+## 2026-08-17 Current-source release-gate re-audit after fault receipts
 
 The current re-audit locks Delay to
 e2621105c868b6d63cfc970f22f07634d9233eea (the protocol activation codec
 implementation is 99049c6f), Kafka K1 to
-nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9,
+nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9,
 Pulsar P1 to
-nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7,
+nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7,
 and Oxia to 37a17bef17202d5fd6e23282da5fd26d94865484. The current full
 GRADLE_USER_HOME=/tmp/nereus-delay-full-check-20260817-current ./gradlew check
 --no-daemon --console=plain --quiet passed, as did
@@ -14228,20 +14228,20 @@ The release result remains NOT READY:
 | 5. Required benchmark configurations | OPEN | No source-locked size/burst/Lane/shard/compaction/restore/inline-object benchmark campaign artifact exists. |
 | 6. Capacity artifacts and SLO catalog | OPEN | Memory/RSS/cgroup, FD/file, disk/temp, reserve, adapter/zombie, fairness and durable SLO denominator artifacts are incomplete. |
 | 7. Soak | OPEN | No certified long-cycle checkpoint/floor/retry/uncertainty/GC soak with zero unexplained drift exists. |
-| 8. Upgrade/downgrade | PARTIAL | Tuple codec/hash/dedupe and legacy-v1 read are covered; authenticated activation state, eligible-reader assignment, cutover/downgrade and release artifact remain open. |
+| 8. Upgrade/downgrade | PARTIAL | Tuple codec/hash/dedupe and legacy read are covered; authenticated activation state, eligible-reader assignment, cutover/downgrade and release artifact remain open. |
 | 9. Operations runbook | OPEN | Draft and bounded local drills exist; fresh-process external-authorization and disaster-continuity release-candidate drills are open. |
 | 10. Kafka/Pulsar patch distribution | PARTIAL | Source locks, digests, guarded receipts and bounded failover exist; full rollout and typed rejection/delete-recreate matrix are not release-certified. |
 
 Positive bounded receipts still cannot be promoted into benchmark, soak,
-upgrade, runbook, full-chaos or V1 release PASS.
+upgrade, runbook, full-chaos or release PASS.
 
 ## 2026-08-17 Initial Route control activation payload codec boundary
 
 Commit `853a37c4ffbca80bae9cf1a7390a3eb090ab6226` adds the strict Java codec
 for Registry ControlPayload field 14,
-`InitialRouteControlActivatePayloadV1`: repeated protocol tuples and Profile
+`InitialRouteControlActivatePayload`: repeated protocol tuples and Profile
 references are normalized and checked for the Registry ordering/uniqueness
-rules, while the initial `QuotaGrantRefV1` and 32-byte immutable snapshot hash
+rules, while the initial `QuotaGrantRef` and 32-byte immutable snapshot hash
 are decoded as typed values. `ApplyShardControlBody` now exposes the typed
 kind-14 accessor. The focused codec test and the current full `check` passed;
 the cross-repository contract audit also passed with Delay at this source
@@ -14250,14 +14250,14 @@ lock.
 This is a wire-model slice only. It does not add source-ordered initial
 activation state, change `DelayShard` kind-14 application, create another
 `meta/FIXED` key, or establish eligible-reader assignment, writer-before-reader
-cutover, downgrade, or release evidence. Gate 8 remains `PARTIAL` and V1
+cutover, downgrade, or release evidence. Gate 8 remains `PARTIAL` and
 remains `NOT READY`.
 
 ## 2026-08-17 Current-source Pulsar large-payload Broker process-crash failover audit
 
 The current-source receipt locks Delay to
 `5c74666bcf1dd669aa9d3b78d5f6cb1da8eb395b`, P1 to
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1
 distribution SHA-256 to
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1 image
 to `sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
@@ -14284,13 +14284,13 @@ The runner's exact cleanup removed the project containers, networks, volumes,
 temporary P1/Oxia images and staging directories. The locked MinIO base image
 was retained. This receipt does not establish raw socket loss, BookKeeper or
 controller failover, multi-shard large-payload placement, REAPING, soak,
-benchmark/capacity evidence, the full chaos matrix or V1 release readiness.
+benchmark/capacity evidence, the full chaos matrix or release readiness.
 
 ## 2026-08-17 Current-source Kafka large-payload destination authority audit
 
 The current-source receipt locks Delay to
 `55377153d3583c665b8fb07aa198617538b03915`, Kafka K1 to
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9`, the
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9`, the
 client artifact to SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, the K1
 image to
@@ -14321,14 +14321,14 @@ The runner's exact cleanup removed its Compose containers, network, volume,
 temporary K1/Oxia images and staging directory. The locked MinIO base image
 was retained. This receipt does not establish Kafka Broker crash/network
 partition during large-payload egress, multi-shard large-payload placement,
-REAPING, soak, benchmark/capacity evidence, the full chaos matrix or V1
+REAPING, soak, benchmark/capacity evidence, the full chaos matrix or
 release readiness.
 
 ## 2026-08-17 Current-source Pulsar native multi-shard Worker fleet audit
 
 The current-source receipt locks Delay to
 `10ed7b29b9b2a30d397acfec152c187a29bac1f0`, P1 to
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1
 distribution SHA-256 to
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, the
 P1 client artifacts to
@@ -14357,14 +14357,14 @@ The exact runner cleanup removed both Compose projects, their containers,
 networks, volumes, temporary P1/Oxia images and staging directories. This is a
 single-Broker multi-shard placement receipt; it does not establish
 multi-Broker failover, multi-shard large-payload egress, arbitrary placement
-chaos, REAPING, soak, benchmark/capacity evidence or V1 release readiness.
+chaos, REAPING, soak, benchmark/capacity evidence or release readiness.
 
 ## 2026-08-17 Current-source Kafka large-payload Broker process-crash failover audit
 
 The current-source receipt locks Delay to
 `d63285ff5232bf92f6b947becaed5456a9c68b66` (the E2E-only Broker-cut hook),
 Kafka K1 to
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9`, the
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9`, the
 client artifact to SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, the K1
 image to
@@ -14394,14 +14394,14 @@ The exact runner cleanup removed the project containers, network, volume,
 temporary K1/Oxia images and staging directory. The locked MinIO base image
 was retained. This does not establish raw socket loss, transaction
 coordinator/controller failover, multi-shard large-payload placement, soak,
-benchmark/capacity evidence, the full chaos matrix or V1 release readiness.
+benchmark/capacity evidence, the full chaos matrix or release readiness.
 
-## 2026-08-17 Incremental V1 release-gate re-audit after current large-payload fault receipts
+## 2026-08-17 Incremental release-gate re-audit after current large-payload fault receipts
 
 The current Delay source lock is
 5e8b6a247e280c9dc6533a63f4fa2d6833797062; Kafka remains
-nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9,
-Pulsar remains nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7,
+nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9,
+Pulsar remains nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7,
 and Oxia remains 37a17bef17202d5fd6e23282da5fd26d94865484. The current full
 Gradle check and cross-repository contract audit both passed.
 
@@ -14423,11 +14423,11 @@ The release result remains NOT READY:
 | 5. Required benchmark configurations | OPEN | No source-locked size/burst/Lane/shard/compaction/restore/inline-object benchmark campaign artifact exists. |
 | 6. Capacity artifacts and SLO catalog | OPEN | Memory/RSS/cgroup, FD/file, disk/temp, reserve, adapter/zombie, fairness and durable SLO denominator artifacts remain incomplete. |
 | 7. Soak | OPEN | No certified long-cycle checkpoint/floor/retry/uncertainty/GC soak with zero unexplained drift exists. |
-| 8. Upgrade/downgrade | PARTIAL | Tuple codec/hash/dedupe and legacy-v1 read are covered; authenticated activation state, eligible-reader assignment, cutover/downgrade and release artifact remain open. |
+| 8. Upgrade/downgrade | PARTIAL | Tuple codec/hash/dedupe and legacy read are covered; authenticated activation state, eligible-reader assignment, cutover/downgrade and release artifact remain open. |
 | 9. Operations runbook | OPEN | Draft and bounded local drills exist; fresh-process external-authorization and disaster-continuity release-candidate drills remain open. |
 | 10. Kafka/Pulsar patch distribution | PARTIAL | Current source locks, digests, guarded receipts and bounded large-payload failover exist; full rollout and typed rejection/delete-recreate matrix are not release-certified. |
 
-No bounded E2E receipt is reinterpreted as V1 release approval.
+No bounded E2E receipt is reinterpreted as release approval.
 
 ## 2026-08-17 Current-source Kafka large-payload Broker network-partition failover audit
 
@@ -14455,13 +14455,13 @@ The exact runner cleanup removed the project containers, network, volume,
 temporary K1/Oxia images and staging directory. The locked MinIO base image
 was retained. This does not establish raw socket loss, transaction
 coordinator/controller failover, multi-shard large-payload placement, soak,
-benchmark/capacity evidence, the full chaos matrix or V1 release readiness.
+benchmark/capacity evidence, the full chaos matrix or release readiness.
 
 ## 2026-08-17 Current-source Pulsar large-payload Broker network-partition failover audit
 
 The current-source receipt locks Delay to
 `183682c850e9e2f272bd22e864a85bc35a65f545`, P1 to
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1
 distribution SHA-256 to
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, P1 image
 to `sha256:819a2a34b91d34468ac6caa048ec5cbf959fb9ecb40dbfd649a9fabf067318de`,
@@ -14489,7 +14489,7 @@ The runner's exact cleanup removed the project containers, networks, volumes,
 temporary P1/Oxia images and staging directories. The locked MinIO base image
 was retained. This receipt does not establish raw socket loss, BookKeeper or
 controller failover, multi-shard large-payload placement, REAPING, soak,
-benchmark/capacity evidence, the full chaos matrix or V1 release readiness.
+benchmark/capacity evidence, the full chaos matrix or release readiness.
 
 ## 2026-08-17 Current-source Kafka Worker ACK process-crash recovery audit
 
@@ -14497,7 +14497,7 @@ The current-source receipt locks Delay to
 `06146b67aae0d4420ba7da3ad0f591bfdae64d12` (the preceding docs-only gate
 re-audit; the exercised Worker path is unchanged from the current code at
 `d63285ff5232bf92f6b947becaed5456a9c68b66`), Kafka K1 to
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9`, the
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9`, the
 client artifact to SHA-256
 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, the K1
 image to
@@ -14527,18 +14527,18 @@ networks or volumes, and the known temporary K1/Oxia image references were
 absent. This is a focused Worker ACK recovery receipt; it does not establish
 Gateway/mTLS/MinIO large-payload authority, Broker process/network failover,
 raw socket loss, REAPING, soak, benchmark/capacity evidence, the full chaos
-matrix or V1 release readiness.
+matrix or release readiness.
 
-## 2026-08-17 Incremental V1 release-gate delta after Worker ACK crash receipt
+## 2026-08-17 Incremental release-gate delta after Worker ACK crash receipt
 
 The current documentation/source lock is
 `27a46f8fd745cc2b007a891fc66ac8f992aab041`; the exercised Worker code path
 remains the current implementation from
 `d63285ff5232bf92f6b947becaed5456a9c68b66`. The current cross-repository
 contract audit passed with Kafka K1
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 Pulsar P1
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`.
 
 The current-source Worker ACK process-crash cut adds a fresh-process receipt
@@ -14556,7 +14556,7 @@ does not change the release classification:
 | 7. Soak | OPEN | No certified long-cycle soak with zero unexplained drift exists. |
 | 9. Operations runbook | OPEN | The runbook remains draft with bounded local drills only. |
 
-Overall V1 remains NOT READY; no focused Worker receipt is promoted to a
+Overall release readiness remains NOT READY; no focused Worker receipt is promoted to a
 release PASS.
 
 ## 2026-08-17 Current-source bounded chaos matrix: six-cell PASS
@@ -14566,9 +14566,9 @@ cells passing. The final artifact directory is
 `/var/folders/vk/l_r0z80j1dj93fsrjx3zqv4r0000gn/T/nereus-delay-bounded-chaos-final.XXXXXX.Y38VkPVksq`.
 The exact source locks were Delay
 `e2b6b2dad570ad1cbfd58894f908c2828eece59c`, Kafka K1
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 Pulsar P1
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. The Kafka client SHA-256
 was `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`, the
 K1 image was
@@ -14608,13 +14608,13 @@ and MinIO digest
 No global Docker prune or unrelated base-image deletion was performed.
 
 This is a six-cell bounded receipt set, not the complete §23.3 chaos matrix
-and not V1 release certification. GC pause, half-open behavior, ENOSPC,
+and not release certification. GC pause, half-open behavior, ENOSPC,
 fsync error, SST corruption, Broker leader/controller cuts, Oxia session
 expiry, Object Store 5xx/timeout/config drift, target-isolation gates,
 benchmark/capacity artifacts, soak, and authenticated activation-state /
 cutover evidence remain open. Gates 2, 3 and 10 are stronger but remain
 `PARTIAL`; Gates 5, 6, 7 and 9 remain `OPEN`, Gate 8 remains `PARTIAL`, and
-overall V1 remains `NOT READY`.
+overall release readiness remains `NOT READY`.
 
 ## 2026-08-17 Current-source expanded bounded response-loss matrix: ten-cell PASS
 
@@ -14624,9 +14624,9 @@ to ten cells and completed with `matrix_status=0`; every cell result file is
 `/var/folders/vk/l_r0z80j1dj93fsrjx3zqv4r0000gn/T/nereus-delay-response-chaos.XXXXXX.mVUdQ2xWUB`.
 The final source locks were Delay
 `e53e536adefeac272301e25bceffd1d5714e7ba7`, Kafka K1
-`nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+`nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
 Pulsar P1
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. The K1 client SHA-256
 was `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`,
 the K1 broker image was
@@ -14673,7 +14673,7 @@ unrelated base-image deletion was performed.
 
 This expanded receipt strengthens Gates 2, 3 and 10 but leaves them
 `PARTIAL`; Gates 5, 6, 7 and 9 remain `OPEN`, Gate 8 remains `PARTIAL`, and
-overall V1 remains `NOT READY`. The remaining release blockers are the full
+overall release readiness remains `NOT READY`. The remaining release blockers are the full
 §23.3 fault matrix, benchmark/capacity and SLO artifacts, certified soak,
 authenticated activation-state/cutover evidence, and operational rollout
 proof.
@@ -14734,7 +14734,7 @@ ENOSPC, fsync error, SST corruption, controller/coordinator/storage cuts,
 Oxia session expiry, Object Store 5xx/timeout/config drift, target-isolation
 gates, benchmark/capacity/SLO artifacts, soak, authenticated activation-state
 cutover and rollout proof remain open. Gates 2, 3 and 10 remain `PARTIAL`;
-Gates 5, 6, 7 and 9 remain `OPEN`, Gate 8 remains `PARTIAL`, and overall V1
+Gates 5, 6, 7 and 9 remain `OPEN`, Gate 8 remains `PARTIAL`, and overall
 remains `NOT READY`.
 
 ## 2026-08-17 Source-locked bounded capacity/SLO probe
@@ -14751,7 +14751,7 @@ collector projection through atomic file replacement, then reopens both the
 Store and collector and checks canonical bytes again.
 
 The current-source run used Delay
-`nereus/delay-full-implementation-v1@5248326726f89b761facbe7d872cf36abcc4a181`,
+`nereus/delay-full-implementation@5248326726f89b761facbe7d872cf36abcc4a181`,
 16 records per payload size, 24 SLO samples, and a separate Gradle user home.
 It passed with `BUILD SUCCESSFUL in 1m 13s`; the artifact was
 `/var/folders/vk/l_r0z80j1dj93fsrjx3zqv4r0000gn/T//nereus-delay-capacity.p2hcUY/bounded-capacity-slo-probe.json`.
@@ -14772,7 +14772,7 @@ compaction/checkpoint/restore and inline/object comparisons. Gate 6 remains
 `OPEN` because certified RSS/cgroup/FD/disk/temp, reserve/fairness,
 adapter/zombie and durable SLO collector capacity artifacts are not complete.
 Gate 7 remains `OPEN` because this bounded run is not a long-cycle soak. No
-focused probe result changes the V1 `NOT READY` classification.
+focused probe result changes the `NOT READY` classification.
 
 After the documentation commit, the current Delay source
 `2e8908a860dd066bdcd44d3ff8b20c2116aa3a7c` passed the full
@@ -14832,9 +14832,9 @@ and locked MinIO base (local ID
 `sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`).
 No global Docker prune or unrelated image deletion was performed.
 
-This is a current-source bounded authority receipt, not a V1 release PASS.
+This is a current-source bounded authority receipt, not a current release PASS.
 Gates 2, 3 and 10 remain `PARTIAL`; Gates 5, 6, 7 and 9 remain `OPEN`, Gate 8
-remains `PARTIAL`, and V1 remains `NOT READY` pending the full §23.3 chaos
+remains `PARTIAL`, and release readiness remains `NOT READY` pending the full §23.3 chaos
 matrix, source-locked benchmark/capacity/SLO artifacts, certified soak,
 authenticated activation-state/cutover and rollout proof.
 
@@ -14881,13 +14881,13 @@ and locked MinIO base (local ID
 remain among related images. No global Docker prune or unrelated image
 deletion was performed.
 
-This is current-source bounded evidence, not the complete §23.3 matrix or V1
+This is current-source bounded evidence, not the complete §23.3 matrix or
 release certification. Long GC/half-open behavior, ENOSPC, fsync/SST and
 controller/coordinator/storage cuts, Oxia session expiry, Object Store failure
 injection, target-isolation gates, benchmark/capacity artifacts, soak,
 authenticated activation-state/cutover and rollout proof remain open. Gates
 2, 3 and 10 remain `PARTIAL`; Gates 5, 6, 7 and 9 remain `OPEN`; Gate 8
-remains `PARTIAL`; V1 remains `NOT READY`.
+remains `PARTIAL`; release readiness remains `NOT READY`.
 
 ## 2026-08-17 Current-source Oxia/MinIO credential renewal receipt
 
@@ -14970,7 +14970,7 @@ No global Docker prune or unrelated image deletion was performed.
 These four cells strengthen the bounded Gateway/Broker/Worker/Object Store
 authority chain and the failover portion of Gates 2, 3 and 10, but do not
 close them. They remain `PARTIAL`; Gates 5, 6, 7 and 9 remain `OPEN`, Gate 8
-remains `PARTIAL`, and V1 remains `NOT READY`. Controller/coordinator/storage
+remains `PARTIAL`, and release readiness remains `NOT READY`. Controller/coordinator/storage
 failover, long GC/half-open/ENOSPC/fsync/SST, Oxia session expiry, Object Store
 5xx/timeout/config drift, target isolation, multi-shard placement, benchmark,
 soak, authenticated activation/cutover and rollout proof remain open.
@@ -15025,7 +15025,7 @@ This slice proves the adapter's local 5xx/timeout/config-drift semantics and a
 post-change real-provider regression. It does not yet inject 5xx/timeout or
 credential/config failure into a real MinIO data-plane during a Worker
 publication, and therefore does not close the production Object Store fault
-matrix or promote Gates 2/3/10 or V1 release readiness. Those external fault
+matrix or promote Gates 2/3/10 or release readiness. Those external fault
 cells, target isolation, the remaining §23.3 cuts, benchmark/soak and release
 proof remain open.
 
@@ -15079,7 +15079,7 @@ large-payload Worker Checkpoint Intent/Catalog/REAPING chain. Production
 Worker-level 5xx/timeout/config-drift authority, target isolation, the
 remaining §23.3 cuts, benchmark/soak and release proof remain open. Gates 2,
 3 and 10 remain `PARTIAL`; Gates 5, 6, 7 and 9 remain `OPEN`; Gate 8 remains
-`PARTIAL`; V1 remains `NOT READY`.
+`PARTIAL`; release readiness remains `NOT READY`.
 
 ## 2026-08-17 Current-source full large-payload production authority under real MinIO 503
 
@@ -15122,7 +15122,7 @@ and this chain is the payload PUT/attest/Worker-read path rather than the
 Checkpoint Intent/Catalog/REAPING upload path. Target isolation, the
 remaining §23.3 cuts, multi-shard placement, benchmark/soak and release proof
 remain open. Gates 2, 3 and 10 remain `PARTIAL`; Gates 5, 6, 7 and 9 remain
-`OPEN`; Gate 8 remains `PARTIAL`; V1 remains `NOT READY`.
+`OPEN`; Gate 8 remains `PARTIAL`; Release readinessremains `NOT READY`.
 
 ## 2026-08-17 Current-source full large-payload production authority under real MinIO timeout
 
@@ -15161,7 +15161,7 @@ pre-commit timeout must remain fail-closed. Checkpoint Intent/Catalog/REAPING
 provider-fault injection, target isolation, the remaining §23.3 cuts,
 multi-shard placement, benchmark/soak and release proof remain open. Gates 2,
 3 and 10 remain `PARTIAL`; Gates 5, 6, 7 and 9 remain `OPEN`; Gate 8 remains
-`PARTIAL`; V1 remains `NOT READY`.
+`PARTIAL`; release readiness remains `NOT READY`.
 
 ## 2026-08-17 Current-source real MinIO fault through Checkpoint Intent/Catalog/REAPING
 
@@ -15199,7 +15199,7 @@ does not provide provider-side quiescence/consistency certification, a
 pre-commit success path, multi-worker takeover, target isolation, the remaining
 §23.3 cuts, multi-shard placement, benchmark/soak or release proof. Gates 2,
 3 and 10 remain `PARTIAL`; Gates 5, 6, 7 and 9 remain `OPEN`; Gate 8 remains
-`PARTIAL`; V1 remains `NOT READY`.
+`PARTIAL`; release readiness remains `NOT READY`.
 
 ## 2026-08-17 Current-source real MinIO Checkpoint pre-commit fail-closed receipt
 
@@ -15231,8 +15231,8 @@ This closes the bounded Worker checkpoint pre-commit 503/timeout fail-closed
 cells. It does not close pre-commit faults through the full Gateway/large-
 payload production chain, provider-side quiescence/consistency certification,
 target isolation, the remaining §23.3 matrix, multi-shard placement,
-benchmark/soak or V1 release proof. Gates 2, 3 and 10 remain `PARTIAL`; Gates
-5, 6, 7 and 9 remain `OPEN`; Gate 8 remains `PARTIAL`; V1 remains `NOT READY`.
+benchmark/soak or release proof. Gates 2, 3 and 10 remain `PARTIAL`; Gates
+5, 6, 7 and 9 remain `OPEN`; Gate 8 remains `PARTIAL`; Release readinessremains `NOT READY`.
 
 ## 2026-08-17 Current-source full Gateway/Oxia/Broker/Worker/real MinIO large-payload pre-commit fail-closed receipt
 
@@ -15270,8 +15270,8 @@ large-payload fault cells across both Broker families. They do not close
 provider-side quiescence/consistency certification, Kafka response-loss/LSO/
 retention recovery, Pulsar multi-Broker failover, target isolation,
 multi-shard placement, the remaining crash/chaos matrix, benchmark/soak or
-the V1 release gate. Gates 2, 3 and 10 remain `PARTIAL`; Gates 5, 6, 7 and 9
-remain `OPEN`; Gate 8 remains `PARTIAL`; V1 remains `NOT READY`.
+the release gate. Gates 2, 3 and 10 remain `PARTIAL`; Gates 5, 6, 7 and 9
+remain `OPEN`; Gate 8 remains `PARTIAL`; Release readinessremains `NOT READY`.
 
 Exact postchecks after the four runs found no matching Compose containers,
 networks, volumes, listeners, fault-proxy processes or per-run images. The
@@ -15303,8 +15303,8 @@ This closes the bounded current-source Kafka Fetch response-loss/LSO,
 retention-floor and Pulsar two-Broker process-crash Worker cells. It does not
 close coordinator/controller or storage-service failover, target isolation,
 multi-shard production placement, the remaining crash/chaos matrix,
-benchmark/soak, or the V1 release gate. Gates 2, 3 and 10 remain `PARTIAL`;
-Gates 5, 6, 7 and 9 remain `OPEN`; Gate 8 remains `PARTIAL`; V1 remains
+benchmark/soak, or the release gate. Gates 2, 3 and 10 remain `PARTIAL`;
+Gates 5, 6, 7 and 9 remain `OPEN`; Gate 8 remains `PARTIAL`; Release readinessremains
 `NOT READY`.
 
 ## 2026-08-17 Current-source bounded capacity/SLO probe refresh
@@ -15328,15 +15328,15 @@ source but does not close the required benchmark configurations, platform
 resource authority, multi-Worker/multi-shard placement, checkpoint-restore
 throughput, long-cycle soak or durable SLO certification. Gates 5, 6 and 7
 therefore remain `OPEN`; Gates 2, 3 and 10 remain `PARTIAL`; Gate 8 remains
-`PARTIAL`; V1 remains `NOT READY`.
+`PARTIAL`; release readiness remains `NOT READY`.
 
 ## 2026-08-17 Initial Route control activation apply slice
 
 Delay commit `f6b7c4ee` advances Registry ControlPayload field 14 from a
 codec-only boundary to a source-ordered local apply boundary. `DelayShard`
-decodes `InitialRouteControlActivatePayloadV1`, projects its exact tuple,
+decodes `InitialRouteControlActivatePayload`, projects its exact tuple,
 Profile and initial grant set into the existing shard-bound
-`CompatibleControlSnapshotV1`, verifies the payload's immutable snapshot digest,
+`CompatibleControlSnapshot`, verifies the payload's immutable snapshot digest,
 and rejects a foreign or conflicting snapshot without overwriting key 10.
 
 The first accepted marker writes the snapshot at the existing `meta/FIXED` key
@@ -15352,7 +15352,7 @@ This is still a local activation projection, not the complete Gate 8 rollout:
 kind-1 Protocol Version activation state, authenticated eligible-reader
 assignment, writer-before-reader cutover, downgrade/release artifact, and the
 external Oxia control-operation/Worker authority remain open. Gate 8 therefore
-remains `PARTIAL` and V1 remains `NOT READY`. No Docker resource was used or
+remains `PARTIAL` and release readiness remains `NOT READY`. No Docker resource was used or
 changed for this slice.
 
 ## 2026-08-17 Bounded Linux platform capacity receipt
@@ -15383,8 +15383,8 @@ and MinIO bases were retained and no global Docker prune was used.
 ## 2026-08-17 Current-source Kafka/Pulsar two-shard Worker fleet receipts
 
 The current clean Delay source `54541a00b65bf911febb543ac1a956b1e281c602` was
-rerun with K1 `nereus/delay-guarded-producer-v1@05849884ca81fad767fda058444d1e17c7f9cbf9`,
-P1 `nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`
+rerun with K1 `nereus/delay-guarded-producer@05849884ca81fad767fda058444d1e17c7f9cbf9`,
+P1 `nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`
 and Oxia `37a17bef17202d5fd6e23282da5fd26d94865484`. Kafka used the K1 client
 SHA-256 `1609dbd2794c5034d165769608767d5f8a01ea63293019cc0341e00d88ee1ed3`,
 broker ports `32000/32001/32002`, Oxia `32010`, projects
@@ -15410,7 +15410,7 @@ apply/ACK and final checkpoint receipt, using guarded SUBSCRIBE barriers.
 These are current-source bounded placement PASS receipts. They do not close
 catalog-driven production placement, multi-shard large-payload egress,
 placement churn, target isolation, controller/coordinator/storage failover,
-the complete chaos matrix, benchmark/soak or V1 release readiness. Exact
+the complete chaos matrix, benchmark/soak or release readiness. Exact
 postchecks found no project containers, networks, volumes, listeners or
 temporary K1/P1/Oxia images; locked Oxia/MinIO bases were retained and no
 global Docker prune was used.
@@ -15434,7 +15434,7 @@ Dockerized Gateway Oxia session churn smoke passed for Oxia 37a17bef17202d5fd6e2
 
 This is a bounded single-node session-expiry cell, not full Oxia/provider or
 Gateway HA failover. Transparent reconnect, controller/coordinator/storage
-cuts, target isolation, the remaining chaos matrix, benchmark/soak and V1
+cuts, target isolation, the remaining chaos matrix, benchmark/soak and
 release proof remain open. Exact postchecks found no project containers,
 networks, volumes, listeners or generated image; no global Docker prune was
 used.
@@ -15460,7 +15460,7 @@ gateway-oxia-session-churn=0
 matrix_status=0
 ```
 
-The receipts cover real Kafka Broker process/TCP/network cuts, real Pulsar multi-Broker process failover, Worker process/ACK response-loss replay, real Oxia plus MinIO checkpoint REAPING, Kafka read-committed Fetch response loss and retention floor, Pulsar destination/source response loss, and Gateway/Oxia session expiry. This is a current-source bounded chaos PASS, not a V1 release gate: catalog-driven production placement, target isolation, controller/coordinator/storage/provider failover, full large-payload fault coverage, benchmark/soak, activation/cutover and release certification remain open.
+The receipts cover real Kafka Broker process/TCP/network cuts, real Pulsar multi-Broker process failover, Worker process/ACK response-loss replay, real Oxia plus MinIO checkpoint REAPING, Kafka read-committed Fetch response loss and retention floor, Pulsar destination/source response loss, and Gateway/Oxia session expiry. This is a current-source bounded chaos PASS, not a current release gate: catalog-driven production placement, target isolation, controller/coordinator/storage/provider failover, full large-payload fault coverage, benchmark/soak, activation/cutover and release certification remain open.
 
 Exact postchecks found no matrix containers, networks, project volumes, listeners or generated `nereus-delay`/K1/P1/Oxia images. The only related reusable images retained were locked Oxia `sha256:5aa715e4f19091931743e5af489af5f8d6ee15efcce6430a908c6f65cc6d6516` and locked MinIO `sha256:8f08aee614800a237906bd48114d733e5ac5bfac4ccdf731f141b0e880d7a253`; pre-existing unlabelled `pulsarconf`/`pulsardata` volumes were not touched because they were not created by this matrix. No global Docker prune was used.
 
@@ -15476,7 +15476,7 @@ payload sizes: 256, 4096, 65536 bytes
 all cases: store.reopen_verified=true, collector_reopen_verified=true
 ```
 
-The Linux platform probe was `AVAILABLE` in every case through `WorkerRuntimeResourceProbe`, with a 2 GiB cgroup limit, 256 MiB direct-memory cap, 65536 max open files and a 4 GiB executable temporary filesystem. This advances bounded local Store/SLO capacity evidence only; it is not Broker throughput, Lane/shard placement, compaction/restore, inline-object, long-cycle soak or V1 release certification. Gates 5, 6 and 7 therefore remain `OPEN`.
+The Linux platform probe was `AVAILABLE` in every case through `WorkerRuntimeResourceProbe`, with a 2 GiB cgroup limit, 256 MiB direct-memory cap, 65536 max open files and a 4 GiB executable temporary filesystem. This advances bounded local Store/SLO capacity evidence only; it is not Broker throughput, Lane/shard placement, compaction/restore, inline-object, long-cycle soak or release certification. Gates 5, 6 and 7 therefore remain `OPEN`.
 
 Exact postchecks removed the generated JDK image by ID and found no capacity-matrix containers, networks, volumes, listeners or temporary images. Locked Oxia/MinIO bases were not touched; no global Docker prune was used.
 
@@ -15515,13 +15515,13 @@ sourceBarriers=[2, 2], exactGatewayIdempotency=true
 This is a PASS for current-source Kafka two-shard Large Payload Object Store
 authority. The opt-in cell intentionally disables Kafka destination egress and
 does not cover Pulsar multi-shard large payload, Broker failover/fault modes,
-catalog-driven placement/churn, the required benchmark/soak campaign or V1
-release readiness. Gates 5, 6 and 7 remain `OPEN`; V1 remains `NOT READY`.
+catalog-driven placement/churn, the required benchmark/soak campaign or
+release readiness. Gates 5, 6 and 7 remain `OPEN`; Release readinessremains `NOT READY`.
 Exact postchecks found no project containers, networks, volumes, listeners or
 generated Kafka image; locked Oxia/MinIO bases were retained and no global
 Docker prune was used.
 
-## 2026-08-17 Current-source canonical bounded chaos and V1 release-candidate gate
+## 2026-08-17 Current-source canonical bounded chaos and release-candidate gate
 
 The current Delay source `fe62065750f86b607d4c395afd52197e3cb31008`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
@@ -15529,11 +15529,11 @@ The current Delay source `fe62065750f86b607d4c395afd52197e3cb31008`, K1
 `37a17bef17202d5fd6e23282da5fd26d94865484` completed the canonical rerun of
 `e2e/run-bounded-chaos-matrix.sh`. The valid JSON index is
 `/tmp/nereus-delay-chaos-release-20260817-r1/bounded-chaos-matrix.json` with
-schema `nereus-delay-bounded-chaos-matrix-v1`, `matrix_status=PASS_BOUNDED`,
+schema `nereus-delay-bounded-chaos-matrix`, `matrix_status=PASS_BOUNDED`,
 and all 13 cells reporting status `0`.
 
 The source-locked release-candidate audit is
-`/tmp/nereus-delay-v1-release-gate-20260817-r1/v1-release-candidate-gate.json`.
+`/tmp/nereus-delay-release-gate-20260817-r1/release-candidate-gate.json`.
 Clean source checks, cross-repository contract validation and the full Gradle
 `check` passed. The gate remains `release_status=NOT_READY` because the
 capacity artifact is `PARTIAL`, the chaos artifact is only `PASS_BOUNDED`, and
@@ -15543,7 +15543,7 @@ supplied. The gate accepts only `PASS_CERTIFIED` for those obligations;
 not a promotion override.
 
 This closes the canonical bounded-chaos and fail-closed release-gate runner
-slice, not V1 release readiness. The remaining release work is the certified
+slice, not release readiness. The remaining release work is the certified
 capacity/benchmark campaign, long-cycle soak, protocol activation/cutover,
 operations drills and the broader production fault/placement matrix.
 
@@ -15558,8 +15558,8 @@ remained. No global Docker prune was used.
 ## 2026-08-17 Source-ordered Protocol Version activation projection
 
 Delay commit `1c924f479c284161771c24b013622f645c4fab06` implements the first
-runtime slice behind the Registry kind-1 `ProtocolVersionActivatePayloadV1`.
-`ProtocolActivationStateV1` is a canonical, shard-bound projection persisted
+runtime slice behind the Registry kind-1 `ProtocolVersionActivatePayload`.
+`ProtocolActivationState` is a canonical, shard-bound projection persisted
 under `meta/FIXED` key 14 / ValueEnvelope type 11. It records each activated
 tuple, schema hash, compatible-reader-set evidence hash, exact marker source
 position and System Mutation ID, with a state digest and strict restart
@@ -15569,7 +15569,7 @@ Kind-14 Initial Route control now creates the empty activation projection in
 the same synchronous WriteBatch as the compatible control snapshot, mutation
 result and source cursor. A kind-1 marker can add only a tuple already present
 in the current compatible-reader snapshot; the marker evidence, result and
-source position commit atomically. Managed Command V1 remains the explicit
+source position commit atomically. Managed Command remains the explicit
 initial compatibility baseline. Other well-framed tuples before their marker
 persist `UNACTIVATED_PROTOCOL_VERSION`; a marked tuple absent from the current
 reader snapshot maps to `UNSUPPORTED_ACTIVATED_PROTOCOL`.
@@ -15578,14 +15578,14 @@ Focused codec, kind-14 regression, marker gate and restart tests passed, as did
 the full Gradle `check` (`BUILD SUCCESSFUL`, 2m27s) and the cross-repository
 contract validator. This is a source-ordered local activation projection and
 cutover gate, not yet authenticated multi-Worker rollout, downgrade/release
-packaging or a `PASS_CERTIFIED` activation artifact. The V1 release gate
+packaging or a `PASS_CERTIFIED` activation artifact. The release gate
 therefore remains `NOT_READY`; real Oxia/Broker activation/cutover evidence and
 certified soak/operations/benchmark artifacts remain separate obligations.
 
 ## 2026-08-17 Current-source release-gate rerun after activation slice
 
 The current source-locked gate artifact is
-`/tmp/nereus-delay-v1-release-gate-20260817-r3/v1-release-candidate-gate.json`
+`/tmp/nereus-delay-release-gate-20260817-r3/release-candidate-gate.json`
 for Delay `7835a4c4bb5ac8e083c73885047c4165918cbdab`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
@@ -15601,7 +15601,7 @@ the rerun used the already successful cache and passed without source changes.
 
 Commit `b0d2f757716d24cbf148a6990daeaf555cfa1369` adds
 `e2e/run-protocol-activation-cutover-smoke.sh`. From the clean
-`nereus/delay-full-implementation-v1` source it runs the canonical state,
+`nereus/delay-full-implementation` source it runs the canonical state,
 Initial Route and source-ordered marker/restart tests and emits a source-locked
 JSON receipt. The current run used
 `NEREUS_DELAY_PROTOCOL_ACTIVATION_GRADLE_USER_HOME=/tmp/nereus-delay-protocol-activation-full-check-20260817-r1`
@@ -15611,18 +15611,18 @@ with `status=PASS_BOUNDED` and Delay source
 `b0d2f757716d24cbf148a6990daeaf555cfa1369`.
 
 The receipt reports `BUILD SUCCESSFUL in 21s` for
-`ProtocolActivationStateV1Test`, `InitialRouteControlApplyTest` and
+`ProtocolActivationStateTest`, `InitialRouteControlApplyTest` and
 `ProtocolVersionActivationApplyTest`; it proves the kind-14 empty projection,
 kind-1 marker evidence, pre/post-marker behavior and restart digest validation.
 This remains a local projection receipt, not certified external Oxia
 eligible-reader rollout, writer-before-reader cutover, downgrade packaging,
 Broker/Pulsar cutover or disaster continuity. No Docker or external service
-was used, so no image cleanup was applicable. V1 remains `NOT_READY`.
+was used, so no image cleanup was applicable. Release readinessremains `NOT_READY`.
 
 ## 2026-08-17 Current-source release-gate rerun with activation receipt
 
 The latest clean-source gate artifact is
-`/tmp/nereus-delay-v1-release-gate-20260817-r4/v1-release-candidate-gate.json`
+`/tmp/nereus-delay-release-gate-20260817-r4/release-candidate-gate.json`
 at Delay `3e21eb072f41014ed893ef5799817f2f8cb305cb`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
@@ -15638,7 +15638,7 @@ operations artifacts are absent. This confirms the fail-closed
 After the activation slice, the clean Delay source
 `7ca4cd89d6f2f7fc5a4309dc3a383e5f34f736a6` reran the real P1/Pulsar/Oxia/
 Gateway/Worker/MinIO authority path with P1
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`, P1
 distribution SHA-256
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484` and MinIO repository digest
@@ -15656,7 +15656,7 @@ after exact Gateway Prepare replay was `6`; Prepare/Commit were at `3/2` and
 
 This is a current-source single-shard production-authority PASS. It does not
 close Pulsar multi-shard Large Payload, full Broker/controller/storage/provider
-failover, certified benchmark/soak or V1 release certification. Exact
+failover, certified benchmark/soak or release certification. Exact
 postchecks found no project containers, networks, volumes or listeners and no
 temporary P1/Oxia image; the locked MinIO base remained. No global Docker
 prune was used.
@@ -15664,14 +15664,14 @@ prune was used.
 ## 2026-08-17 Release artifact source-lock enforcement
 
 Commit `41b66de37980ecca624c0f2d69cbd52307d8d452` hardens
-`e2e/run-v1-release-gate.sh`: a supplied `PASS_CERTIFIED` artifact now must
+`e2e/run-release-gate.sh`: a supplied `PASS_CERTIFIED` artifact now must
 carry exact current `source_locks.delay`, `.kafka`, `.pulsar` and `.oxia`.
 Missing or stale locks are `BLOCKED`; `PASS_BOUNDED`, `PARTIAL`, missing and
 invalid artifacts remain non-promoting. The chaos artifact uses the same
 four-lock check rather than a separate status-only branch.
 
 The clean-source rerun is
-`/tmp/nereus-delay-v1-release-gate-20260817-r5/v1-release-candidate-gate.json`
+`/tmp/nereus-delay-release-gate-20260817-r5/release-candidate-gate.json`
 at Delay `41b66de37980ecca624c0f2d69cbd52307d8d452`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
@@ -15708,7 +15708,7 @@ and existing locked Oxia base were retained. No global Docker prune was used.
 ## 2026-08-17 Current-source release-gate rerun with bounded operations receipt
 
 The clean-source gate artifact is
-`/tmp/nereus-delay-v1-release-gate-20260817-r6/v1-release-candidate-gate.json`
+`/tmp/nereus-delay-release-gate-20260817-r6/release-candidate-gate.json`
 at Delay `d405d2fa00bcaf99a0d34c892291ea0a425d4c47`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
@@ -15739,7 +15739,7 @@ readback and `prepare=2/2`, `commit=2/3`; exact Gateway Prepare replay left
 
 This is a current-source single-shard Large Payload Broker-failover PASS. It
 does not establish Pulsar multi-shard Large Payload, controller/storage/
-provider failover, long-cycle soak or V1 release certification. Exact
+provider failover, long-cycle soak or release certification. Exact
 postchecks found no project containers, networks, volumes, listeners or
 generated P1/Oxia images; locked MinIO/Oxia bases were retained and no global
 Docker prune was used.
@@ -15765,7 +15765,7 @@ source `5/1`, `prepare=2/2`, `commit=2/3`, `sourceRecords=6` and
 
 This closes the named single-shard Pulsar Broker network-partition failover
 cell only. It does not establish Pulsar multi-shard Large Payload,
-controller/storage/provider failover, long-cycle soak or V1 release
+controller/storage/provider failover, long-cycle soak or release
 certification. Exact postchecks found no project containers, networks, volumes,
 listeners or generated P1/Oxia images. The locked Oxia and MinIO bases were
 retained; no global Docker prune or unrelated image deletion was performed.
@@ -15773,7 +15773,7 @@ retained; no global Docker prune or unrelated image deletion was performed.
 ## 2026-08-17 Current-source release-gate rerun after network-partition receipt
 
 The current source-locked artifact is
-`/tmp/nereus-delay-v1-release-gate-20260817-r8/v1-release-candidate-gate.json`
+`/tmp/nereus-delay-release-gate-20260817-r8/release-candidate-gate.json`
 at Delay `54759958b0c7af41ffa2374d835831ec7df72d13`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
@@ -15788,7 +15788,7 @@ therefore blocked until independently promoted to `PASS_CERTIFIED`.
 Delay `801e5be6a931f0dc4c5e991b79f099fdc6fd1b02` adds the opt-in
 `NEREUS_DELAY_PULSAR_LARGE_PAYLOAD_MULTI_SHARD=1` receipt to
 `e2e/run-pulsar-large-payload-gateway-e2e.sh`. The clean real run used P1
-`nereus/delay-resource-guard-v1@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`,
 P1 distribution SHA-256
 `373d8ac01bb82e6625a18690ed62a95719719acebf05145f8c2eefcfc23cd3f3`, Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`, P1 image
@@ -15818,7 +15818,7 @@ This is a current-source PASS for the two-shard Pulsar Large Payload Object
 Store authority boundary. The opt-in path intentionally does not create or
 publish to a destination topic; destination egress, multi-Broker failover in
 the same receipt, placement churn/catalog authority, provider/controller/
-storage failover, certified soak and V1 release certification remain open.
+storage failover, certified soak and release certification remain open.
 The existing single-shard path remains the destination-egress proof.
 
 Exact postchecks found no matching Compose containers, networks, volumes,
@@ -15839,7 +15839,7 @@ response-loss/process/network cells exiting zero, and locks Delay
 `37a17bef17202d5fd6e23282da5fd26d94865484`.
 
 The corresponding source-locked release artifact is
-`/tmp/nereus-delay-v1-release-gate-20260817-r11/v1-release-candidate-gate.json`.
+`/tmp/nereus-delay-release-gate-20260817-r11/release-candidate-gate.json`.
 Source checks, cross-repository validation and full Gradle `check` pass. The
 fail-closed result remains `release_status=NOT_READY`: capacity is `PARTIAL`,
 certified soak is absent, and activation, operations and chaos are
@@ -15899,7 +15899,7 @@ prune or unrelated image deletion was used.
 ## 2026-08-17 Current-source release gate after Kafka multi-shard egress
 
 The source-locked artifact is
-`/tmp/nereus-delay-v1-release-gate-20260817-r15/v1-release-candidate-gate.json`:
+`/tmp/nereus-delay-release-gate-20260817-r15/release-candidate-gate.json`:
 Delay `b641fc714db779787054811f7229709b1a3fa0ba`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
@@ -15930,7 +15930,7 @@ prune was used.
 ## 2026-08-17 Current-source r20 release gate after capacity refresh
 
 The source-locked gate is
-`/tmp/nereus-delay-v1-release-gate-20260817-r20/v1-release-candidate-gate.json`
+`/tmp/nereus-delay-release-gate-20260817-r20/release-candidate-gate.json`
 at Delay `0f04415e3c8abcf17952ae3f5c5e4796bb797831`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
@@ -15968,7 +15968,7 @@ interrupted attempt; the latter is not treated as runtime evidence.
 
 Protocol activation is recorded by
 `/tmp/nereus-delay-protocol-activation-current-20260817-r2/protocol-activation-cutover.json`
-as `PASS_BOUNDED`. `ProtocolActivationStateV1Test`,
+as `PASS_BOUNDED`. `ProtocolActivationStateTest`,
 `InitialRouteControlApplyTest` and `ProtocolVersionActivationApplyTest` passed,
 including atomic kind-14 projection creation, source-ordered kind-1 marker
 application, pre/post-marker tuple validation and restart digest validation.
@@ -15978,7 +15978,7 @@ Operations are recorded by
 publication plus exact `REAPING` path passed under the same four locks.
 
 The source-locked gate
-`/tmp/nereus-delay-v1-release-gate-20260817-r22/v1-release-candidate-gate.json`
+`/tmp/nereus-delay-release-gate-20260817-r22/release-candidate-gate.json`
 passed source cleanliness, cross-repository contract validation and full
 Gradle `check`, but correctly reports `release_status=NOT_READY`. Capacity is
 `PARTIAL`, certified soak is absent, and activation, operations and chaos are
@@ -16009,7 +16009,7 @@ image deletion was used.
 
 The source-locked runner
 `e2e/run-minio-fault-e2e.sh` passed against Delay
-`nereus/delay-full-implementation-v1@b982f423e0f6f3d7627e6f0fabfbed1e36c85498`.
+`nereus/delay-full-implementation@b982f423e0f6f3d7627e6f0fabfbed1e36c85498`.
 The canonical JSON receipt is
 `/tmp/nereus-delay-minio-fault-current-20260817-r3/minio-fault-e2e.json`.
 It records `status=PASS`, Gradle test exit code `0`, locked MinIO image ID
@@ -16035,7 +16035,7 @@ runtime evidence.
 Audit boundary: this closes the named real MinIO 5xx/timeout/config-drift
 fault slice and strengthens the Object Store failure evidence. It does not
 close all provider implementations, target-isolation/Worker placement,
-long-cycle soak, capacity certification or the V1 `PASS_CERTIFIED` gate.
+long-cycle soak, capacity certification or the `PASS_CERTIFIED` gate.
 
 ## 2026-08-17 Current-source real Oxia multi-node Gateway leader-failover receipt
 
@@ -16045,7 +16045,7 @@ server port sets, initial/successor leader, test log, built image IDs and
 post-cleanup resource checks. The clean current run is
 `/tmp/nereus-delay-oxia-multi-node-gateway-current-20260817-r2/oxia-multi-node-gateway-e2e.json`
 with `status=PASS`, Delay
-`nereus/delay-full-implementation-v1@53c9fc0c7b1609ba37109536326dad330d994ebb`,
+`nereus/delay-full-implementation@53c9fc0c7b1609ba37109536326dad330d994ebb`,
 K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`.
@@ -16065,12 +16065,12 @@ locked reusable bases were retained; no global Docker prune was used.
 This closes the bounded real Oxia DataServer leader-stop plus Gateway
 session-bound reread slice. It does not certify Gateway HA, coordinator
 failover, storage-service failover, placement churn, disaster continuity or
-the V1 `PASS_CERTIFIED` release gate.
+the `PASS_CERTIFIED` release gate.
 
 ## 2026-08-17 Current-source r25 release-gate refresh
 
 After the Oxia/Gateway receipt, the clean current source produced
-`/tmp/nereus-delay-v1-release-gate-20260817-r25/v1-release-candidate-gate.json`.
+`/tmp/nereus-delay-release-gate-20260817-r25/release-candidate-gate.json`.
 Delay `6a5cd494d7122a01d666cd681a3dac7fe6e11769`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
@@ -16093,7 +16093,7 @@ the real Gateway + Oxia + Broker + Worker + MinIO production authority path.
 The canonical receipt is
 `/tmp/nereus-delay-production-chain-soak-current-20260817-r2/production-chain-soak.json`.
 It reports `status=PASS_BOUNDED`, schema
-`nereus-delay-bounded-production-chain-soak-v1`, four expected cases and four
+`nereus-delay-bounded-production-chain-soak`, four expected cases and four
 zero exit codes. The receipt locks Delay `57a02095e51bf6c143aef57c330b415f95b61e96`,
 Kafka K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
@@ -16132,7 +16132,7 @@ documentation commit does not retroactively change its source lock.
 ## 2026-08-17 Current-source r28 release-gate refresh
 
 The fail-closed gate artifact is
-`/tmp/nereus-delay-v1-release-gate-20260817-r28/v1-release-candidate-gate.json`.
+`/tmp/nereus-delay-release-gate-20260817-r28/release-candidate-gate.json`.
 It locks Delay `cd79d92056c31f2e66ef8936d94359cddc141883`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
@@ -16149,7 +16149,7 @@ append does not refresh its runtime source lock.
 ## 2026-08-17 Current-source r29 release-gate refresh
 
 After the r28 documentation sync, the final current-source gate is
-`/tmp/nereus-delay-v1-release-gate-20260817-r29/v1-release-candidate-gate.json`.
+`/tmp/nereus-delay-release-gate-20260817-r29/release-candidate-gate.json`.
 Delay `830fce40c77c52a3a8b25d657355db9abee851c4`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
@@ -16169,7 +16169,7 @@ strictly sequential real-service run under the explicit
 `harness-integration-production-chain-r1` profile. Its canonical receipt is
 `/tmp/nereus-delay-certified-soak-harness-20260817-r5/certified-production-chain-soak.json`.
 The artifact schema is
-`nereus-delay-certified-production-chain-soak-v1` and its status is
+`nereus-delay-certified-production-chain-soak` and its status is
 `PASS_CERTIFIED` for this recorded harness profile only. It locks Delay
 `8f6fddd4c3e626a90bbe73be1360398c78114065`, Kafka K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
@@ -16187,7 +16187,7 @@ empty exact Docker postcheck.
 
 The profile policy required one cycle, at least 240 seconds, maximum sample
 gap 15 seconds, RSS `16777216 KiB`, FD `262144` and artifact bytes
-`8589934592`. This is a harness-integration receipt, not the V1 release soak:
+`8589934592`. This is a harness-integration receipt, not the release soak:
 §23.5 still requires a release-approved profile whose duration covers the
 longest configured checkpoint/floor/retry/uncertainty/GC interaction cycle.
 The release gate now additionally requires the certified-soak schema,
@@ -16205,7 +16205,7 @@ unrelated-image deletion was used.
 ## 2026-08-17 Current-source r30 release-gate refresh
 
 The current-source fail-closed gate artifact is
-`/tmp/nereus-delay-v1-release-gate-20260817-r30/v1-release-candidate-gate.json`.
+`/tmp/nereus-delay-release-gate-20260817-r30/release-candidate-gate.json`.
 It locks Delay `b9a7fa9994542b9bc9630d7b12c63ade2fc1c57b`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
@@ -16221,7 +16221,7 @@ append does not refresh the r30 runtime source lock.
 ## 2026-08-17 Current-source r32 release-gate refresh
 
 After the bounded-chaos documentation sync, the current-source gate artifact
-is `/tmp/nereus-delay-v1-release-gate-20260817-r32/v1-release-candidate-gate.json`.
+is `/tmp/nereus-delay-release-gate-20260817-r32/release-candidate-gate.json`.
 It locks Delay `5d282244524de0d002cc7122ebf389150a4fd9f2`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
@@ -16237,7 +16237,7 @@ documented runtime evidence only and is not promoted into the release gate.
 
 The clean current-source rerun produced
 `/tmp/nereus-delay-chaos-current-20260817-r3/bounded-chaos-matrix.json` with
-schema `nereus-delay-bounded-chaos-matrix-v1`, `matrix_status=PASS_BOUNDED`,
+schema `nereus-delay-bounded-chaos-matrix`, `matrix_status=PASS_BOUNDED`,
 and exact locks Delay `8cfa6acc97a7a966e76b0ce086572c53cd731f7d`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
@@ -16253,7 +16253,7 @@ cleanup. Only the canonical Oxia image and locked MinIO base were retained;
 no global Docker prune was used.
 
 This is fresh current-source bounded fault evidence, not §23.3 completion or
-V1 release certification. Long GC, half-open, ENOSPC, fsync/SST corruption,
+Current release certification. Long GC, half-open, ENOSPC, fsync/SST corruption,
 target isolation, controller/coordinator/storage/provider failover and the
 required durable state-dump/invariant matrix remain open. The current gate
 still correctly reports `release_status=NOT_READY`.
@@ -16275,7 +16275,7 @@ duplicate boundary and cell-specific fresh-process recovery status. r5 has
 cells record `fresh_process_recovery=PASS`; response-loss, checkpoint and
 session-churn cells remain explicitly `NOT_COVERED` for fresh-process recovery.
 The matrix-level audit still records `durable_state_dump=NOT_CAPTURED` and
-`invariant_audit=MARKER_ONLY`, so this is not full §23.3 completion or V1
+`invariant_audit=MARKER_ONLY`, so this is not full §23.3 completion or
 release certification. The release gate remains `release_status=NOT_READY`.
 
 Exact postchecks found no matching Delay containers, networks, volumes or
@@ -16300,7 +16300,7 @@ RocksDB local/WAL/SST and SLO outbox/collector limits. Every case must pass
 payload readback, Store reopen and collector reopen. The wrapper also records
 an exact empty container/network/volume/generated-image postcheck.
 
-This is certified bounded harness evidence, not the §23.4 V1 capacity
+This is certified bounded harness evidence, not the §23.4 capacity
 envelope: Broker throughput, Lane fairness, multi-Worker placement, Control
 Reserve, Adapter physical/zombie bounds, restore throughput, inline/object
 capacity, upgrade/downgrade and long-cycle soak remain separate. The release
@@ -16312,7 +16312,7 @@ is approved by this harness result.
 
 The clean current-source matrix receipt is
 `/tmp/nereus-delay-chaos-current-20260817-r6/bounded-chaos-matrix.json`.
-It reports `schema=nereus-delay-bounded-chaos-matrix-v1` and
+It reports `schema=nereus-delay-bounded-chaos-matrix` and
 `matrix_status=PASS_BOUNDED`; all 13 cells exited zero. The receipt locks
 Delay `396220a7ecc01fbd317dcd96ce3155365b9280a9`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
@@ -16329,7 +16329,7 @@ identity and Publish Attempt identity match across the two dumps. That cell
 is audited as `CAPTURED_AND_VERIFIED` with
 `INDEPENDENT_FIELDS_PASS` invariants.
 
-The matrix remains bounded evidence, not V1 release certification. The other
+The matrix remains bounded evidence, not release certification. The other
 12 cells retain their explicit `NOT_CAPTURED` durable-dump and/or
 `MARKER_ONLY` invariant boundaries; the matrix audit summary records release
 certification `OPEN`. Capacity envelope, approved long-cycle soak,
@@ -16345,7 +16345,7 @@ no global Docker prune or unrelated image deletion was used.
 ## 2026-08-17 Current HEAD release-candidate gate r37
 
 The current HEAD gate receipt is
-`/tmp/nereus-delay-v1-release-gate-20260817-r37/v1-release-candidate-gate.json`.
+`/tmp/nereus-delay-release-gate-20260817-r37/release-candidate-gate.json`.
 All four source checkouts were clean and the cross-repository validator and
 full Gradle check passed. The gate source locks are Delay
 `75fa4c468d1887c6901e4645e718f83f7ed0a790`, K1
@@ -16400,7 +16400,7 @@ evidence kept.
 ## 2026-08-17 Current HEAD release-candidate gate r38
 
 After the Gateway large-payload evidence commit, the current HEAD gate receipt
-is `/tmp/nereus-delay-v1-release-gate-20260817-r38/v1-release-candidate-gate.json`.
+is `/tmp/nereus-delay-release-gate-20260817-r38/release-candidate-gate.json`.
 It locks Delay `e1796ea14b82f0899c894b5e1e923d8289ae5a9d`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
@@ -16434,7 +16434,7 @@ response-loss cell has the same evidence level. The other 12 cells remain
 
 This advances bounded fault evidence only. It does not create a
 `PASS_CERTIFIED` release artifact: matrix release certification is `OPEN` and
-the V1 gate remains `release_status=NOT_READY` until the separate approved
+the gate remains `release_status=NOT_READY` until the separate approved
 capacity, soak, activation/cutover, operations, upgrade/downgrade and
 disaster-continuity evidence is supplied. The exact Docker postcheck was
 empty for generated resources; only the r7 receipt and its two audited state
@@ -16443,7 +16443,7 @@ dumps are retained.
 ## 2026-08-17 Current HEAD release-candidate gate r39
 
 The latest receipt is
-`/private/tmp/nereus-delay-v1-release-gate-20260817-r39/v1-release-candidate-gate.json`.
+`/private/tmp/nereus-delay-release-gate-20260817-r39/release-candidate-gate.json`.
 Source cleanliness, cross-repository validation and full Gradle `check` pass
 for Delay `a783c5e292dde247b2a79f04078e122057917ad4`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
@@ -16466,14 +16466,14 @@ the gate. The receipt fields are authoritative for the final candidate hash.
 The current evidence rows are:
 
 - Capacity: `PASS_CERTIFIED` only for profile
-  `nereus-delay-v1-rc1-bounded-capacity-r1`, with 3 cases, 3,888 payload
+  `nereus-delay-rc1-bounded-capacity-r1`, with 3 cases, 3,888 payload
   records, 664 SLO samples and passing resource/artifact/Docker policy. The
-  receipt is `/private/tmp/nereus-delay-v1-rc1-capacity-20260820-r2/certified-capacity-benchmark.json`.
+  receipt is `/private/tmp/nereus-delay-rc1-capacity-20260820-r2/certified-capacity-benchmark.json`.
 - Production-chain soak: `PASS_CERTIFIED` only for profile
-  `nereus-delay-v1-rc1-production-chain-soak-r1`, with four serial real
+  `nereus-delay-rc1-production-chain-soak-r1`, with four serial real
   Kafka/Pulsar/Oxia/Worker/MinIO cases, 62 resource samples, 9-second maximum
   sample gap and passing duration/invariant/cleanup policy. The receipt is
-  `/private/tmp/nereus-delay-v1-rc1-soak-20260820-r1/certified-production-chain-soak.json`.
+  `/private/tmp/nereus-delay-rc1-soak-20260820-r1/certified-production-chain-soak.json`.
 - Activation/cutover: `PASS_BOUNDED` for the local Delay Store projection
   tests; external Oxia eligibility, rollout ordering, downgrade packaging,
   Broker/Pulsar cutover and disaster continuity remain unproven.
@@ -16481,13 +16481,13 @@ The current evidence rows are:
   checkpoint/REAPING probes; external authorization, disaster continuity and
   multi-Worker soak remain unproven.
 - Chaos: `PASS_BOUNDED`, 14/14 cells exit zero in
-  `/private/tmp/nereus-delay-v1-rc1-chaos-20260820-r2/bounded-chaos-matrix.json`.
+  `/private/tmp/nereus-delay-rc1-chaos-20260820-r2/bounded-chaos-matrix.json`.
   Admission and destination response-loss have independently audited durable
   dumps; the other 12 cells remain marker-only and/or not captured for the
   full durable invariant matrix.
 
 The RC1 gate receipt is
-`/private/tmp/nereus-delay-v1-rc1-gate-20260820-r2/v1-release-candidate-gate.json`.
+`/private/tmp/nereus-delay-rc1-gate-20260820-r2/release-candidate-gate.json`.
 Source, cross-repository and full Gradle `check` pass; capacity and named soak
 pass their strict schemas; activation, operations and certified chaos are
 blocked by their bounded status. The release result is therefore
@@ -16511,12 +16511,12 @@ authoritative Delay SHA. K1 remains
 `37a17bef17202d5fd6e23282da5fd26d94865484`.
 
 ```text
-/private/tmp/nereus-delay-v1-rc1-capacity-20260821-r4/certified-capacity-benchmark.json
-/private/tmp/nereus-delay-v1-rc1-soak-20260821-r7/certified-production-chain-soak.json
-/private/tmp/nereus-delay-v1-rc1-activation-20260821-r5/protocol-activation-cutover.json
-/private/tmp/nereus-delay-v1-rc1-operations-20260821-r4/operations-drills.json
-/private/tmp/nereus-delay-v1-certified-chaos-20260821-r5/certified-chaos-matrix.json
-/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r4/v1-release-candidate-gate.json
+/private/tmp/nereus-delay-rc1-capacity-20260821-r4/certified-capacity-benchmark.json
+/private/tmp/nereus-delay-rc1-soak-20260821-r7/certified-production-chain-soak.json
+/private/tmp/nereus-delay-rc1-activation-20260821-r5/protocol-activation-cutover.json
+/private/tmp/nereus-delay-rc1-operations-20260821-r4/operations-drills.json
+/private/tmp/nereus-delay-certified-chaos-20260821-r5/certified-chaos-matrix.json
+/private/tmp/nereus-delay-rc1-release-gate-20260821-r4/release-candidate-gate.json
 ```
 
 Capacity, production-chain soak, activation/cutover and operations drills
@@ -16525,7 +16525,7 @@ are expected to be `PASS_CERTIFIED` for their declared profiles. The
 cells, while the certified chaos wrapper remains `BLOCKED` until every cell
 has durable before/after state, fresh-process recovery and independent-field
 invariants. Four cells currently meet that evidence level; the other ten are
-explicitly not captured at certified level. The fail-closed V1 Gate therefore
+explicitly not captured at certified level. The fail-closed Gate therefore
 remains `release_status=NOT_READY`.
 
 At this source lock, the full Gradle check, four source checks and
@@ -16546,7 +16546,7 @@ local Recovery Catalog/Floor authority is still a harness seam and is not a
 production-authority claim.
 
 The current-source pre-documentation chaos receipt is
-`/private/tmp/nereus-delay-v1-certified-chaos-20260821-r9/certified-chaos-matrix.json`:
+`/private/tmp/nereus-delay-certified-chaos-20260821-r9/certified-chaos-matrix.json`:
 the bounded child is `PASS_BOUNDED` with 14/14 cells, Docker postcheck is
 `PASS`, but the certified wrapper is `BLOCKED`; durable-state, fresh-process
 and independent-invariant evidence is `FAIL`, with only 5/14 cells captured at
@@ -16555,16 +16555,16 @@ timing-sensitive failure record and is not silently erased by the r9 bounded
 rerun.
 
 The pre-documentation gate
-`/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r5/v1-release-candidate-gate.json`
+`/private/tmp/nereus-delay-rc1-release-gate-20260821-r5/release-candidate-gate.json`
 records source, cross-repository and full Gradle checks as `PASS`, but
 `release_status=NOT_READY`: the older capacity/soak/activation/operations
 inputs are source-lock stale for this implementation and certified chaos is
 not promotable.
 
 After this documentation commit, the source-lock refresh targets are
-`/private/tmp/nereus-delay-v1-certified-chaos-20260821-r10/certified-chaos-matrix.json`
+`/private/tmp/nereus-delay-certified-chaos-20260821-r10/certified-chaos-matrix.json`
 and
-`/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r6/v1-release-candidate-gate.json`.
+`/private/tmp/nereus-delay-rc1-release-gate-20260821-r6/release-candidate-gate.json`.
 Their own `source_locks` are authoritative. This status is a release-evidence
 boundary, not a claim that the functional Worker egress chain is unimplemented.
 Related temporary artifacts may be moved to Trash only by exact path after
@@ -16577,7 +16577,7 @@ union with the Pulsar Worker process-crash cell. The focused real-broker run
 captured fsync-forced before/after Store state, preserved Store incarnation and
 DB identity across fresh JVM recovery, and observed source apply/ACK
 `false -> true` under real Oxia ownership. The focused dumps are retained at
-`/private/tmp/nereus-delay-v1-pulsar-worker-process-crash-20260821-r1/`.
+`/private/tmp/nereus-delay-pulsar-worker-process-crash-20260821-r1/`.
 
 Because this implementation commit follows the r10/r6 evidence, those receipts
 are historical pre-slice evidence. The post-documentation source-lock refresh
@@ -16588,7 +16588,7 @@ until their exact receipts and all fourteen cell audits pass.
 
 Before this documentation change, the current source passed one strict-
 sequential bounded production-chain cycle at
-`/private/tmp/nereus-delay-v1-production-chain-soak-20260821-r1/production-chain-soak.json`.
+`/private/tmp/nereus-delay-production-chain-soak-20260821-r1/production-chain-soak.json`.
 The receipt is `PASS_BOUNDED` with four of four cases passing and source locks
 Delay `d5dfa990c22f7659ebdb68f84e800646f34e7d46`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
@@ -16601,13 +16601,13 @@ Kafka `PUT_TIMEOUT_AFTER_COMMIT` and Pulsar `PUT_503_AFTER_COMMIT` MinIO
 uncertainty paths. They include source apply/ACK, exact destination payload
 readback, Gateway idempotency and exact per-project Docker cleanup. This
 materially confirms that Worker egress and Large Payload production chaining
-are implemented, but it remains bounded evidence rather than a V1 release
+are implemented, but it remains bounded evidence rather than a current release
 certificate. Chaos, capacity, aged soak, activation/cutover and operations
 remain independently gated.
 
 The documentation commit makes r1 historical. Re-run the same harness after
 the commit at
-`/private/tmp/nereus-delay-v1-production-chain-soak-20260821-r2/` and use only
+`/private/tmp/nereus-delay-production-chain-soak-20260821-r2/` and use only
 r2's exact source locks as the current handoff. Cleanup remains recoverable and
 exact-path: preserve source/worktrees and locked base images, and move only
 superseded temporary diagnostics or Gradle caches to Trash.
@@ -16642,7 +16642,7 @@ The focused receipt is
 PIDs `42487` and `42581` preserved the topic/guard/attempt/prepared hash and
 broker position `ledger=9, entry=0, sequence=0`; payload readback was exact and
 the duplicate count was zero. This is separate from the Worker destination
-response-loss cell and does not make the complete chaos wrapper or V1 gate
+response-loss cell and does not make the complete chaos wrapper or gate
 current until they are rerun against `b42135d4`.
 
 ## 2026-08-21 current-source Kafka Broker process-crash durable rejoin evidence
@@ -16682,7 +16682,7 @@ historical once their Delay source lock predates `75a008fc`; rerun the current
 wrapper and gate after this implementation and the following documentation
 commit. Docker cleanup for the focused run passed: no scoped containers,
 networks, volumes or generated images remained; locked Oxia/MinIO base images
-were retained. V1 remains fail-closed and `NOT_READY` until the complete
+were retained.Release readiness remains fail-closed and `NOT_READY` until the complete
 source-locked chaos and release inputs pass.
 
 ## 2026-08-21 current-source durable-state schema repair
@@ -16709,7 +16709,7 @@ versions and an empty object prefix. The Pulsar pair proves a single real
 SEND, typed `PULSAR_SEND_ACK` revalidation, exact payload readback and zero
 duplicates. The focused Docker postchecks passed. This closes the evidence
 contract defect only; the full current-source 14-cell wrapper must be rerun
-after this documentation commit, and the fail-closed V1 gate remains
+after this documentation commit, and the fail-closed gate remains
 `release_status=NOT_READY`.
 
 ## 2026-08-21 current-source certified chaos r13 and gate r10
@@ -16729,9 +16729,9 @@ not-covered boundaries.
 The receipts are:
 
 ```text
-/private/tmp/nereus-delay-v1-certified-chaos-20260821-r13/bounded-chaos/bounded-chaos-matrix.json
-/private/tmp/nereus-delay-v1-certified-chaos-20260821-r13/certified-chaos-matrix.json
-/private/tmp/nereus-delay-v1-rc1-release-gate-20260821-r10/v1-release-candidate-gate.json
+/private/tmp/nereus-delay-certified-chaos-20260821-r13/bounded-chaos/bounded-chaos-matrix.json
+/private/tmp/nereus-delay-certified-chaos-20260821-r13/certified-chaos-matrix.json
+/private/tmp/nereus-delay-rc1-release-gate-20260821-r10/release-candidate-gate.json
 ```
 
 The r13 source locks are Delay `4be08ee917e045b1466046aa69318645ac689ea5`,
@@ -16742,14 +16742,14 @@ no scoped resources. Gate r10 is fail-closed `release_status=NOT_READY`:
 source checks, cross-repo validator and full Gradle check are `PASS`, while
 the older certified capacity/soak/activation/operations artifacts fail exact
 Delay source-lock matching and the certified chaos status is `BLOCKED`.
-This is a current-source runtime/evidence handoff, not V1 release approval.
+This is a current-source runtime/evidence handoff, not release approval.
 
 ## 2026-08-21 current-source Kafka Broker TCP/network recovery evidence
 
 Delay commit `ae10068e` closes the durable/fresh-process/invariant evidence
 boundary for the Kafka `kafka-broker-tcp-cut` and
 `kafka-broker-network-partition` cells. The generalized Admin smoke writes the
-same `nereus-delay-chaos-durable-state-dump-v1` schema for both cells, with
+same `nereus-delay-chaos-durable-state-dump` schema for both cells, with
 cell-specific before/after phases, forced file-channel writes and real Kafka
 metadata readback. The bounded audit now requires matching topic/cluster/topic
 identity, exact replicas `[1,2,3]`, exact ISR/live membership before and after,
@@ -16776,7 +16776,7 @@ images.
 
 The independently audited bounded union is now 11/14, but the full wrapper
 has not been regenerated at `ae10068e`; Pulsar multi-Broker failover, Pulsar
-source-ACK response loss and Gateway/Oxia session churn remain open. The V1
+source-ACK response loss and Gateway/Oxia session churn remain open. The
 release boundary is unchanged: until the current-source chaos wrapper and all
 approved capacity/soak/activation/operations inputs are rerun, the gate stays
 fail-closed `release_status=NOT_READY`.
@@ -16860,7 +16860,7 @@ session/process-churn cell, not a claim of full Gateway HA/provider failover.
 With these two current-source focused receipts, the independently audited
 durable union is 14/14. This does not retroactively change the older wrapper or
 release artifacts: the complete current-source matrix must be rerun against
-Delay `63b72ee9944995a88b0cfe4505ede2051e4392f`, and V1 remains
+Delay `63b72ee9944995a88b0cfe4505ede2051e4392f`, and Release readinessremains
 `release_status=NOT_READY` until the approved capacity, soak,
 activation/cutover, operations and chaos inputs pass. Focused cleanup moved the
 unused source-ACK r2 diagnostic directory to recoverable Trash, removed the
@@ -16893,7 +16893,7 @@ declared cell: `audit_status=PASS`,
 `37a17bef17202d5fd6e23282da5fd26d94865484`.
 
 This closes the current-source bounded durable union at 14/14. It remains
-`PASS_BOUNDED`, not V1 release certification: the certified chaos wrapper
+`PASS_BOUNDED`, not release certification: the certified chaos wrapper
 must be regenerated from this post-documentation source, and capacity, soak,
 activation/cutover, operations and the fail-closed release gate remain
 independent inputs. The r14 artifact is retained only as audit-failure
@@ -16937,7 +16937,7 @@ independent field audit of `INDEPENDENT_FIELDS_PASS`.
 The next current-source bounded and certified runs must use Delay
 `b7b156e6`; the prior r15 matrix remains valid historical evidence for its own
 source lock, but is not a current-source receipt for these fixes. These focused
-receipts do not change the fail-closed V1 conclusion: capacity, soak,
+receipts do not change the fail-closed conclusion: capacity, soak,
 activation/cutover, operations, certified chaos and the release gate remain
 separate inputs.
 
@@ -16973,7 +16973,7 @@ That focused receipt proves a fresh Kafka process, changed process PID,
 same topic/cluster/topic ID, monotonic end offset and Broker-1 recovery;
 the independent comparison returned `INDEPENDENT_FIELDS_PASS`.
 
-r17 is the canonical current-source bounded receipt, not V1 release
+r17 is the canonical current-source bounded receipt, not release
 certification. Run certified chaos and the fail-closed release gate against
 the post-documentation source lock; capacity, soak, activation/cutover and
 operations remain independent release inputs.
@@ -16985,16 +16985,16 @@ historical diagnostics at the exact Delay source lock
 cec7641b96a57d3108723c8cb27eb51594846543:
 
 ~~~text
-/private/tmp/nereus-delay-v1-certified-chaos-20260821-r19/certified-chaos-matrix.json
-/private/tmp/nereus-delay-v1-release-gate-20260821-r20/v1-release-candidate-gate.json
+/private/tmp/nereus-delay-certified-chaos-20260821-r19/certified-chaos-matrix.json
+/private/tmp/nereus-delay-release-gate-20260821-r20/release-candidate-gate.json
 ~~~
 
 r19 is PASS_CERTIFIED only for the existing 14-cell chaos profile. r20 is
 NOT_READY: source, cross-repository validation and full Gradle check pass,
 while the old 98eaa5cf capacity/soak/activation/operations inputs fail exact
-current-source validation. Neither receipt is a complete V1 release result.
+current-source validation. Neither receipt is a complete release result.
 
-The final V1 evidence protocol now separates two locks. First, freeze a
+The final evidence protocol now separates two locks. First, freeze a
 candidate source lock for all four repositories after the last implementation
 and normative-document change. Run all ten exact-source gate inputs against
 that candidate. Then, if the six evidence ledgers need the final receipt
@@ -17003,32 +17003,32 @@ to change only these six paths:
 
 ~~~text
 docs/IMPLEMENTATION-STATUS.md
-docs/Nereus Delay V1 设计.md
-docs/V1-DESIGN-AUDIT.md
-docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md
-docs/V1-OPERATIONS-RUNBOOK.md
+docs/Nereus Delay 设计.md
+docs/DESIGN-AUDIT.md
+docs/DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md
+docs/OPERATIONS-RUNBOOK.md
 e2e/README.md
 ~~~
 
-An external nereus-delay-v1-evidence-manifest-v1 JSON then records the
+An external nereus-delay-evidence-manifest JSON then records the
 candidate source lock, overlay commit, exact post-overlay SHA-256 for all six
 ledgers, SHA-256 and expected status/source lock for all ten gate inputs, and
 the final release-gate artifact. The verifier
-e2e/verify-v1-evidence-manifest.sh rejects dirty worktrees, non-allowlisted
+e2e/verify-evidence-manifest.sh rejects dirty worktrees, non-allowlisted
 overlay changes, changed ledger bytes, changed artifact bytes, missing
 certified gate inputs and every source-lock mismatch. The manifest is
 intentionally outside the Delay checkout, so the documentation that records
 the manifest cannot hash itself recursively.
 
-The stable runbook entry `e2e/run-v1-release-gate.sh` now delegates to the
-fail-closed full-V1 validator `e2e/run-v1-full-release-gate.sh`. It requires
+The stable runbook entry `e2e/run-release-gate.sh` now delegates to the
+fail-closed full- validator `e2e/run-full-release-gate.sh`. It requires
 an external `NEREUS_DELAY_RELEASE_GATE_CANDIDATE_SOURCE_LOCK` JSON and exactly
 ten independently supplied artifacts. Each artifact must use schema
-`nereus-delay-v1-full-gate-input-v1`, `scope=full-v1`, `complete_v1=true`,
+`nereus-delay-full-gate-input`, `scope=full`, `complete=true`,
 `PASS_CERTIFIED`, exact candidate locks, zero exclusions and zero boundary
 claims. The resulting gate schema is
-`nereus-delay-v1-release-gate-v2`; old bounded schemas, missing inputs and
-artifacts that explicitly exclude full V1 remain `BLOCKED`.
+`nereus-delay-release-gate`; old bounded schemas, missing inputs and
+artifacts that explicitly exclude full remain `BLOCKED`.
 
 ## 2026-08-21 current-source protocol-golden receipt
 
@@ -17040,16 +17040,16 @@ The exact four-repository candidate lock used by the protocol gate is Delay
 `37a17bef17202d5fd6e23282da5fd26d94865484`.
 
 The independently generated receipt is
-`/private/tmp/nereus-delay-v1-protocol-golden-run-20260821-f.1N9Xji/protocol-golden.json`
+`/private/tmp/nereus-delay-protocol-golden-run-20260821-f.1N9Xji/protocol-golden.json`
 with SHA-256
 `e144407304580231c879ff3ed9f4c84951f85f537bcda2f06a9f101b1f375365`.
-It is `nereus-delay-v1-full-gate-input-v1`, `scope=full-v1`,
+It is `nereus-delay-full-gate-input`, `scope=full`,
 `PASS_CERTIFIED`, exact-source and has no exclusions. Delay ran 392 tests with
 zero failures, errors or skips; Kafka guarded tests ran 17 tests; Pulsar
 common and broker guarded tests ran 6 and 2 tests respectively. All three
 Gradle commands and the cross-repository validator exited successfully.
 
-This certifies only Gate 1, `protocol-golden`. The other nine full-V1 gates
+This certifies only Gate 1, `protocol-golden`. The other nine full- gates
 remain open and the receipt must not be used as a release result. Historical
 r19/r20 receipts remain historical and are not rewritten.
 
@@ -17061,13 +17061,13 @@ The exact-source no-early gate passed at Delay
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`:
 
-`/private/tmp/nereus-delay-v1-no-early-20260821-a.bOg67w/no-early.json`
+`/private/tmp/nereus-delay-no-early-20260821-a.bOg67w/no-early.json`
 (`91692a7301b5e4fc99605ef6698c0c9208a12ea1379f7123d9db928ae7138d37`).
 The artifact is `PASS_CERTIFIED`, exact-source and exclusion-free; 34 focused
 tests passed with zero failures/errors/skips. Its deterministic observations
 are `max_early_ms=0`, worker clock error bound 20 ms and Pulsar target clock
 ahead bound 20 ms. This closes only the no-early gate; the remaining eight
-full-V1 inputs and final release gate remain open.
+full- inputs and final release gate remain open.
 
 ## 2026-08-21 current-source Gateway plus real Broker plus Worker plus MinIO Large Payload egress
 
@@ -17078,7 +17078,7 @@ Kafka receipt used K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Oxia
 `sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`:
 
 ```text
-/private/tmp/nereus-delay-v1-real-service-kafka-20260821-c.4owPvQ/run.log
+/private/tmp/nereus-delay-real-service-kafka-20260821-c.4owPvQ/run.log
 sha256=358271def7aeb50bc503c8a09f4eda430fbd7e4db8850f6775ba6d22de60f4d8
 receipt.sha256=a4fa6afb765d5d361eb2bd864063dec010566440a2f496fe175f6460e63a542d
 ```
@@ -17092,7 +17092,7 @@ the corresponding two guarded SUBSCRIBE barriers, two Workers, two destination
 `PUBLISHED` outcomes, checkpoint and exact idempotency:
 
 ```text
-/private/tmp/nereus-delay-v1-real-service-pulsar-20260821-a.WCUeKp/run.log
+/private/tmp/nereus-delay-real-service-pulsar-20260821-a.WCUeKp/run.log
 sha256=84bf7f5171c0124463dd5efe40ca061ef7cea7bbc240bce14a569d77877c8d11
 receipt.sha256=3232a3004f0a35e562c436b7d19ed114db8be5fa119bdd9f9023632a3fcff788
 ```
@@ -17100,7 +17100,7 @@ receipt.sha256=3232a3004f0a35e562c436b7d19ed114db8be5fa119bdd9f9023632a3fcff788
 These are current-source same-adapter production-authority PASS receipts for
 the named Kafka and Pulsar paths. They do not yet close the full real-service
 matrix's `kafka-to-pulsar` and `pulsar-to-kafka` cross-adapter cells, activation
-cutover, the remaining fault/capacity/soak/operations/patch gates or V1 release
+cutover, the remaining fault/capacity/soak/operations/patch gates or release
 readiness. Exact postchecks found no scoped Compose containers, images,
 networks or volumes; locked Oxia and MinIO bases were retained and no global
 Docker prune was used.
@@ -17119,7 +17119,7 @@ MinIO to the locked digest
 `sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`.
 
 The canonical receipt is
-`/private/tmp/nereus-delay-v1-cross-20260821-r29/`:
+`/private/tmp/nereus-delay-cross-20260821-r29/`:
 
 ```text
 K_TO_P.log sha256=02db290caafda6d4cc814f2e2397726c50dcd91a2a3f1e0d9f2b27cfcdd76f40
@@ -17137,68 +17137,68 @@ Both directions returned `BUILD SUCCESSFUL`; the runner returned
 Compose/Oxia/MinIO resources were removed while locked base images were kept.
 
 This closes the named cross-adapter Large Payload real-service cells. It does
-not close the full `real-service` gate or complete V1 release certification:
+not close the full `real-service` gate or complete release certification:
 activation/cutover, the full 19-cell chaos matrix, capacity, soak,
 upgrade/downgrade, operations/disaster-continuity and patch-distribution
 inputs remain independent fail-closed requirements.
 
-## 2026-08-21 current-source V1 closure audit
+## 2026-08-21 current-source closure audit
 
 The frozen implementation candidate is Delay
 `e44a23ccd76e9976c49427ebf46240fda8410abd`, with Kafka K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`. The candidate lock is retained at
-`/private/tmp/nereus-delay-v1-real-service-candidate-20260821/source-lock.json`
+`/private/tmp/nereus-delay-real-service-candidate-20260821/source-lock.json`
 (SHA-256 `5fe71747ac103bd543badcc3350bdec264ac7c217562af445510ef3f1065afa3`).
 
 Current source-bound receipts are:
 
 - `protocol-golden`: `PASS_CERTIFIED`,
-  `/private/tmp/nereus-delay-v1-protocol-golden-current-20260821-r2/protocol-golden.json`,
+  `/private/tmp/nereus-delay-protocol-golden-current-20260821-r2/protocol-golden.json`,
   SHA-256 `362f54f6cec0d6041be3be07f1b8ba6188322980f00fa853a4eae2fb4791d90c`.
 - `no-early`: `PASS_CERTIFIED`,
-  `/private/tmp/nereus-delay-v1-no-early-current-20260821-r2/no-early.json`,
+  `/private/tmp/nereus-delay-no-early-current-20260821-r2/no-early.json`,
   SHA-256 `d424f5017a110ff884355b4d7f28c5367a2855d2562eac97606efce6054d1a3a`.
 - `real-service`: `PASS_CERTIFIED`,
-  `/private/tmp/nereus-delay-v1-real-service-candidate-20260821/real-service-r6/real-service.json`,
+  `/private/tmp/nereus-delay-real-service-candidate-20260821/real-service-r6/real-service.json`,
   SHA-256 `db0297371961dbc8d3791a80f24940eaa07ca27da5938e6aa4fb547097e779c0`.
   This closes the current Gateway + real Oxia + real Kafka/Pulsar + Worker +
   MinIO Large Payload production-authority chain, including both cross-adapter
   directions and activation cutover. Worker egress is therefore implemented
   and source-certified; it is not an outstanding implementation item.
 - Standalone activation/cutover is also `PASS_CERTIFIED` at
-  `/private/tmp/nereus-delay-v1-activation-current-20260821-r2/protocol-activation-cutover.json`
+  `/private/tmp/nereus-delay-activation-current-20260821-r2/protocol-activation-cutover.json`
   (SHA-256 `7e64c1b5fc21489b054fac3fc979fe2730211f6ff98acadacf7b7f65cb5c70a1`).
 - Capacity, soak and operations each have current `PASS_CERTIFIED` bounded
-  receipts at `/private/tmp/nereus-delay-v1-capacity-current-20260821-r2/certified-capacity-benchmark.json`,
-  `/private/tmp/nereus-delay-v1-soak-current-20260821-r3/certified-production-chain-soak.json`
-  and `/private/tmp/nereus-delay-v1-operations-current-20260821-r2/operations-drills.json`.
+  receipts at `/private/tmp/nereus-delay-capacity-current-20260821-r2/certified-capacity-benchmark.json`,
+  `/private/tmp/nereus-delay-soak-current-20260821-r3/certified-production-chain-soak.json`
+  and `/private/tmp/nereus-delay-operations-current-20260821-r2/operations-drills.json`.
   Their underlying matrices are explicitly `PASS_BOUNDED`; they do not satisfy
   the complete §23 capacity, soak or operations inputs.
 - The current 19-cell chaos artifact is
-  `/private/tmp/nereus-delay-v1-full-chaos-20260821-r44/full-chaos-matrix.json`
+  `/private/tmp/nereus-delay-full-chaos-20260821-r44/full-chaos-matrix.json`
   (SHA-256 `eff0509a9927fabf9c50607ee89c6cbdaf5156977e501c3e955a596d0e895135`):
   11 cells are independently `PASS`, while 8 remain `BLOCKED` for
   credential-binding-drift, long-GC, half-open, ENOSPC, fsync-error, SST
   corruption, broker-leader-failover and disaster-host-fault.
 
 The strict release audit is
-`/private/tmp/nereus-delay-v1-release-gate-current-20260821-r6/v1-release-candidate-gate.json`
+`/private/tmp/nereus-delay-release-gate-current-20260821-r6/release-candidate-gate.json`
 (SHA-256 `bd64e1897210f834b6160223221c3b65360b74c7861fa6b37c874b0f202fd597`).
 It passed all four source checks, cross-repository contracts, full Gradle
 check, protocol-golden, real-service and no-early, but its final status is
 `NOT_READY`. Chaos, benchmark, complete capacity/soak, upgrade/downgrade,
 complete operations and patch-distribution remain fail-closed release inputs;
-this is not a V1 release PASS.
+this is not a current release PASS.
 
-## 2026-08-21 full-v1 contract runner implementation
+## 2026-08-21 full contract runner implementation
 
-\`e2e/run-v1-full-contract-gate.sh\` is now a source-locked producer for the
-Delay-owned full-v1 contract inputs. It checks all four clean worktrees against
+\`e2e/run-full-contract-gate.sh\` is now a source-locked producer for the
+Delay-owned full contract inputs. It checks all four clean worktrees against
 an explicit candidate lock, runs a fresh Gradle test set, records the exact
 required/observed coverage list, and emits the
-\`nereus-delay-v1-full-gate-input-v1\` schema. It never rewrites a bounded child
+\`nereus-delay-full-gate-input\` schema. It never rewrites a bounded child
 receipt and emits no boundary-free PASS unless the test and independent audit
 checks pass.
 
@@ -17212,9 +17212,9 @@ artifact remains a probe receipt until the final candidate lock is frozen.
 The runner deliberately keeps the physical Broker/Lane capacity envelope
 blocked until a dedicated real-observation producer exists; soak and operations
 require their real-service child. Therefore this implementation slice does not
-change the V1 release decision or promote any bounded RC1 evidence.
+change the release decision or promote any bounded RC1 evidence.
 
-\`e2e/run-v1-full-patch-distribution-gate.sh\` is the corresponding source-locked
+\`e2e/run-full-patch-distribution-gate.sh\` is the corresponding source-locked
 distribution producer. It runs the K1 guarded producer integration tests, the
 P1 guard API/broker tests, Delay guarded-transport tests, records Kafka/Pulsar
 binary SHA-256 digests, and requires an actual multi-Broker partial-rollout
@@ -17222,23 +17222,23 @@ child before emitting a boundary-free PASS. Missing built artifacts, typed
 rejection evidence, delete/recreate proof or the cluster child remains a hard
 FAIL.
 
-## 2026-08-21 full-v1 physical capacity-envelope runner
+## 2026-08-21 full physical capacity-envelope runner
 
-`e2e/run-v1-full-capacity-envelope-gate.sh` is now the source-locked producer
+`e2e/run-full-capacity-envelope-gate.sh` is now the source-locked producer
 for the physical `benchmark`/`capacity` inputs. It verifies all four
 checkouts, runs fresh Delay capacity/resource contracts, and can run the real
 Kafka and Pulsar multi-shard Large Payload chains. A separate
-`nereus-delay-v1-capacity-observation-v1` measurement artifact is mandatory
+`nereus-delay-capacity-observation` measurement artifact is mandatory
 for PASS; functional E2E is never treated as a capacity certificate.
 
 Base Delay `9ab82d11c0b1b8bd60547d94ea695403d2c73b1c` with K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484` produced the retained probe
-`/private/tmp/nereus-delay-v1-full-capacity-real-current-20260821-r3/`.
+`/private/tmp/nereus-delay-full-capacity-real-current-20260821-r3/`.
 Local tests and both real children passed; the full input remains `FAIL` with
 `measurement_status=MISSING`, so throughput, Lane fairness, resource bounds,
-SLO envelope and V1 release status remain unpromoted. Related Docker
+SLO envelope and release status remain unpromoted. Related Docker
 containers, images, networks and volumes were absent after cleanup.
 
 ## 2026-08-22 current-source guarded patch-distribution certification
@@ -17246,7 +17246,7 @@ containers, images, networks and volumes were absent after cleanup.
 The gate fix is Delay `1631f8c1821116e8c7b3ef3f7166bab06c4b8a76`: K1, P1 and
 Delay tests now use `--rerun-tasks`, so an up-to-date Gradle result cannot be
 mistaken for fresh execution. The canonical artifact is
-`/private/tmp/nereus-delay-v1-patch-distribution-current-20260822-r3/full-v1-gate-input.json`
+`/private/tmp/nereus-delay-patch-distribution-current-20260822-r3/full-gate-input.json`
 with SHA-256
 `c92104c707d208035aff782a3def37d84c409830bd2214bc543381e5eeab2ebb`.
 
@@ -17258,9 +17258,9 @@ cases passed, Pulsar guarded common/broker tests and Delay guarded transport
 tests were freshly executed, and the real two-Broker Pulsar partial-rollout
 child passed broker stop/recovery, physical publish, ACK and checkpoint
 release. Binary digests are in
-`/private/tmp/nereus-delay-v1-patch-distribution-current-20260822-r3/binary-digests.tsv`.
+`/private/tmp/nereus-delay-patch-distribution-current-20260822-r3/binary-digests.tsv`.
 
-This certifies only the patch-distribution input, not the V1 release. Capacity
+This certifies only the patch-distribution input, not the release. Capacity
 measurement, complete chaos, soak, upgrade/downgrade, operations/disaster and
 the remaining release inputs stay fail-closed. Exact scoped Docker postchecks
 were empty; base images were retained.
@@ -17272,14 +17272,14 @@ The final audit for candidate lock Delay
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484` is retained at
-`/private/tmp/nereus-delay-v1-release-gate-current-20260822-r1/v1-release-candidate-gate.json`
+`/private/tmp/nereus-delay-release-gate-current-20260822-r1/release-candidate-gate.json`
 with SHA-256
 `6436c4279cf3be7e579cbd0bae5c48fa6a1684e857bc711691dca015cba0b3d0`.
 The documentation-only overlay is Delay `03e285c7d2d99c1389cf6d8d73338a9e8f8205c0`.
 
 Source checks, cross-repository contracts and the full Gradle `check` passed;
 the patch-distribution input is also exact-source `PASS`. The nine other full
-V1 inputs were absent and therefore `BLOCKED` by the validator, leaving the
+Current inputs were absent and therefore `BLOCKED` by the validator, leaving the
 strict release result `NOT_READY`. The Gradle run still skips opt-in external
 Oxia/MinIO/chaos methods when their endpoints are unset; this audit does not
 promote those skips or any bounded receipt into release PASS.
@@ -17292,7 +17292,7 @@ The current documentation-overlay source is Delay `336f6586a7013938356eea6bd3093
 `37a17bef17202d5fd6e23282da5fd26d94865484`.
 
 The source-locked physical-capacity runner produced
-`/private/tmp/nereus-delay-v1-full-capacity-current-20260822-r1/full-v1-gate-input.json`
+`/private/tmp/nereus-delay-full-capacity-current-20260822-r1/full-gate-input.json`
 (SHA-256 `1e69acee2181ba87ec0d03bea9cc8689ed40951eda1db1ff5bb8ddd4361cba0d`).
 Its Delay contract tests and both real children passed. Kafka's two-shard
 Gateway mTLS/JWT -> Oxia Assignment/Owner -> Worker -> real MinIO -> destination
@@ -17307,7 +17307,7 @@ functional Large Payload E2E is now current-source evidence, but it is not a
 Broker/Lane/resource capacity envelope.
 
 The current-source operations retry is retained at
-`/private/tmp/nereus-delay-v1-operations-current-20260822-r2/full-v1-gate-input.json`
+`/private/tmp/nereus-delay-operations-current-20260822-r2/full-gate-input.json`
 (SHA-256 `69cc717120703bba10fdf0650f2187298a68b87fb52d9e6c0e32d99d4247af2a`).
 Its bounded child is `PASS_BOUNDED` (SHA-256
 `bca3dcdfb55fcb871396ca0af484a30a32ca389795086027398ea277d0acac59`): local
@@ -17316,9 +17316,9 @@ recovery and exact Docker cleanup all passed. The certified operations wrapper
 remains `BLOCKED` only because the independent multi-Worker soak artifact is
 missing; no operations or disaster-continuity release PASS is claimed.
 
-For the candidate source lock itself, the upgrade/downgrade full-v1 artifact was
+For the candidate source lock itself, the upgrade/downgrade full artifact was
 rerun in an isolated candidate clone at
-`/private/tmp/nereus-delay-v1-upgrade-downgrade-candidate-20260822-r1/full-v1-gate-input.json`
+`/private/tmp/nereus-delay-upgrade-downgrade-candidate-20260822-r1/full-gate-input.json`
 (SHA-256 `023460f978fcc6a74c752419521e86e0869eb087fbb08aa4419e8af2547778a1`).
 It is `PASS_CERTIFIED`, exclusion-free and covers all six required cells. The
 capacity, soak, operations, chaos and remaining release obligations stay
@@ -17328,7 +17328,7 @@ were not globally pruned.
 ## 2026-08-22 release audit after candidate upgrade refresh
 
 The strict audit artifact is
-`/private/tmp/nereus-delay-v1-release-gate-current-20260822-r2/v1-release-candidate-gate.json`
+`/private/tmp/nereus-delay-release-gate-current-20260822-r2/release-candidate-gate.json`
 with SHA-256 `6a3f7ff024933555613fd93c682d41d9b56b00c711e8d531947e086aac13c375`.
 It used candidate Delay `1631f8c1821116e8c7b3ef3f7166bab06c4b8a76`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
@@ -17339,12 +17339,12 @@ overlay was Delay `ea3a76e24b7c7aa5e4bb20a3be50e0b101d13172`.
 Source checks, cross-repository contracts and full Gradle `check` passed. The
 candidate-source upgrade/downgrade and patch-distribution artifacts passed
 exactly. Capacity and operations were present but rejected because they were
-not complete `PASS_CERTIFIED` full-v1 inputs (`measurement_status=MISSING` and
+not complete `PASS_CERTIFIED` full inputs (`measurement_status=MISSING` and
 missing independent soak, respectively); protocol-golden, chaos, real-service,
-no-early, benchmark and soak had no complete full-v1 artifact. The resulting
+no-early, benchmark and soak had no complete full artifact. The resulting
 release status is therefore `NOT_READY`; no complete ten-gate manifest exists.
 
-## 2026-08-22 current full-V1 candidate and production-authority evidence
+## 2026-08-22 current full- candidate and production-authority evidence
 
 Current candidate locks: Delay `a40588bec6d363a4cfd2a4b7d3df5695649a0d79`, K1
 `05849884ca81fad767fda058444d1e17c7f9cbf9`, P1
@@ -17353,26 +17353,26 @@ Current candidate locks: Delay `a40588bec6d363a4cfd2a4b7d3df5695649a0d79`, K1
 and the cross-repository contract validator passed at these exact locks.
 
 Large Payload Gateway production-authority E2E
-`/private/tmp/nereus-delay-v1-large-payload-production-20260822-r3/` is
+`/private/tmp/nereus-delay-large-payload-production-20260822-r3/` is
 `PASS_CERTIFIED`: Kafka-to-Pulsar and Pulsar-to-Kafka both proved exact payload
 readback and idempotency through real Kafka, Pulsar, Oxia and MinIO.
 
-Full-v1 receipts pass for protocol-golden r3, no-early r4, real-service r2,
+Full receipts pass for protocol-golden r3, no-early r4, real-service r2,
 chaos r6 (19/19 cells), upgrade-downgrade r4, patch-distribution r5, soak r15
 and operations r16. Soak covers 3 configured cycles / 12 cases and 800 seconds
 with exact Docker cleanup; the strict release checker nevertheless records
-`gate-soak=BLOCKED` because the full-v1 wrapper does not emit the required
+`gate-soak=BLOCKED` because the full wrapper does not emit the required
 `policy.longest_configured_period_seconds` field. Capacity r10 and benchmark
 r11 remain `FAIL` because the required physical Broker/Lane measurement
 artifact is missing; bounded probes are not promoted.
 
 The strict audit
-`/private/tmp/nereus-delay-v1-full-gates-20260822-r20/release/v1-release-candidate-gate.json`
-is `NOT_READY`; no V1 certification manifest exists. Post-run Docker checks
+`/private/tmp/nereus-delay-full-gates-20260822-r20/release/release-candidate-gate.json`
+is `NOT_READY`; no certification manifest exists. Post-run Docker checks
 found no matching generated Delay/Large Payload/real-client/Oxia-MinIO
 resources. The locked MinIO base and canonical Oxia image were retained.
 
-## 2026-08-22 current full-V1 release certification
+## 2026-08-22 current full- release certification
 
 The current candidate is Delay `c448e52607c8ff8bf3206c443fed35137a0c4cdc`,
 Kafka K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
@@ -17380,22 +17380,22 @@ Kafka K1 `05849884ca81fad767fda058444d1e17c7f9cbf9`, Pulsar P1
 `37a17bef17202d5fd6e23282da5fd26d94865484`. All four worktrees were clean,
 on the expected branches, and exact source-locked by the release checker.
 
-The strict full-V1 receipt is
-`/private/tmp/nereus-delay-v1-release-gate-20260822-r1/v1-release-candidate-gate.json`
+The strict full- receipt is
+`/private/tmp/nereus-delay-release-gate-20260822-r1/release-candidate-gate.json`
 (SHA-256 `e25fcec81e766afb6d9ba8c2e68149439bd25ced902ab3b260d346be11e563e9`)
 with `release_status=PASS`. Cross-repository validation and full Gradle
 `check` passed. The ten required current-source inputs are:
 
 | Gate | Receipt |
 | --- | --- |
-| protocol-golden | `/private/tmp/nereus-delay-v1-full-protocol-20260822-r3/protocol-golden.json` |
-| chaos | `/private/tmp/nereus-delay-v1-full-chaos-20260822-r1/full-chaos-matrix.json` |
-| real-service | `/private/tmp/nereus-delay-v1-full-real-service-20260822-r1/real-service.json` |
-| no-early | `/private/tmp/nereus-delay-v1-full-no-early-20260822-r2/no-early.json` |
-| benchmark / capacity | `/private/tmp/nereus-delay-v1-full-benchmark-20260822-r24/full-v1-gate-input.json` / `/private/tmp/nereus-delay-v1-full-capacity-20260822-r24/full-v1-gate-input.json` |
-| soak | `/private/tmp/nereus-delay-v1-full-soak-20260822-r25/full-v1-gate-input.json` |
-| upgrade-downgrade / operations | `/private/tmp/nereus-delay-v1-full-upgrade-downgrade-20260822-r3/full-v1-gate-input.json` / `/private/tmp/nereus-delay-v1-full-operations-20260822-r2/full-v1-gate-input.json` |
-| patch-distribution | `/private/tmp/nereus-delay-v1-full-patch-distribution-20260822-r1/full-v1-gate-input.json` |
+| protocol-golden | `/private/tmp/nereus-delay-full-protocol-20260822-r3/protocol-golden.json` |
+| chaos | `/private/tmp/nereus-delay-full-chaos-20260822-r1/full-chaos-matrix.json` |
+| real-service | `/private/tmp/nereus-delay-full-real-service-20260822-r1/real-service.json` |
+| no-early | `/private/tmp/nereus-delay-full-no-early-20260822-r2/no-early.json` |
+| benchmark / capacity | `/private/tmp/nereus-delay-full-benchmark-20260822-r24/full-gate-input.json` / `/private/tmp/nereus-delay-full-capacity-20260822-r24/full-gate-input.json` |
+| soak | `/private/tmp/nereus-delay-full-soak-20260822-r25/full-gate-input.json` |
+| upgrade-downgrade / operations | `/private/tmp/nereus-delay-full-upgrade-downgrade-20260822-r3/full-gate-input.json` / `/private/tmp/nereus-delay-full-operations-20260822-r2/full-gate-input.json` |
+| patch-distribution | `/private/tmp/nereus-delay-full-patch-distribution-20260822-r1/full-gate-input.json` |
 
 Benchmark and capacity now have independent physical observation artifacts,
 not only functional E2E: their observation SHA-256 values are
@@ -17410,7 +17410,7 @@ the fail-closed boundary.
 This is a release certification for the exact candidate source locks and does
 not imply that K1/P1/Oxia have been merged into unrelated target branches.
 
-## 2026-08-22 latest full-V1 authority audit — f4b7e005
+## 2026-08-22 latest full- authority audit — f4b7e005
 
 This is the newest status section and supersedes earlier same-day PASS or
 NOT_READY notes. The exact candidate source lock is Delay
@@ -17420,9 +17420,9 @@ NOT_READY notes. The exact candidate source lock is Delay
 `37a17bef17202d5fd6e23282da5fd26d94865484`.
 
 The strict ten-gate receipt is
-`/private/tmp/nereus-delay-v1-release-gate-20260822-f4b7e005-rerun/v1-release-candidate-gate.json`;
+`/private/tmp/nereus-delay-release-gate-20260822-f4b7e005-rerun/release-candidate-gate.json`;
 it reports `release_status=NOT_READY`. Source cleanliness, exact source locks,
-cross-repository contracts and full Gradle `check` pass. Eight of ten full-V1
+cross-repository contracts and full Gradle `check` pass. Eight of ten full-
 gates are `PASS_CERTIFIED`; Benchmark and Capacity are blocked because their
 independent physical measurement matrices are missing. Functional probes and
 the real production chain do not substitute for those measurements.
@@ -17441,7 +17441,7 @@ the real production chain do not substitute for those measurements.
 | patch-distribution | `PASS_CERTIFIED`, Kafka/Pulsar rollout and rejection cells |
 
 The current receipts are retained under the f4-named directories in
-`/private/tmp/nereus-delay-v1-*`. No complete ten-gate evidence manifest is
+`/private/tmp/nereus-delay-*`. No complete ten-gate evidence manifest is
 claimed until the independently generated §23.4 benchmark and capacity
 artifacts pass with the same source lock. The f4 code change also fixes the
 release validator's certified-chaos cell acceptance; it does not widen any
@@ -17462,18 +17462,18 @@ physical capacity harness required by §23.4: guarded K1 and P1 artifact
 producers, object-reference mode, arrival/ordering/consistency/health/
 placement dimensions, bounded in-flight admission, broker evidence and
 resource snapshots. The serial real-broker runner is
-`e2e/run-v1-physical-capacity-matrix.sh`; it defaults to the 1M/10M/100M
+`e2e/run-physical-capacity-matrix.sh`; it defaults to the 1M/10M/100M
 cardinality profile, executes Kafka before Pulsar, and fails closed unless
 all required cells and MinIO object evidence pass. It is an implementation
 slice, not a measurement receipt.
 
 The slice passed K1/P1 compilation, the full Gradle `test` and
 `checkDocumentation`, shell syntax checks and diff checks, and was pushed to
-`origin/nereus/delay-full-implementation-v1`. The previous f4 physical and
+`origin/nereus/delay-full-implementation`. The previous f4 physical and
 release receipts are historical provenance only: the Delay source has moved to
 `a11d281c`, so a new candidate source lock and new source-qualified physical
 measurements are required. Until those measurements and the remaining
-source-locked gates are rerun, the current V1 release status remains
+source-locked gates are rerun, the current release status remains
 `NOT_READY`.
 
 The runner uses exact generated Docker resources and retains only the pinned
@@ -17497,13 +17497,13 @@ it does not reduce the 1M/10M/100M matrix cardinalities or change runtime
 delivery semantics.
 
 The source-locked FAST smoke at
-`/private/tmp/nereus-delay-v1-capacity-smoke-6209d824/capacity-matrix.json`
+`/private/tmp/nereus-delay-capacity-smoke-6209d824/capacity-matrix.json`
 has 8/8 physical observations `PASS` and exact Docker cleanup `PASS`, but the
 matrix itself is intentionally `FAIL` because FAST uses 1,000/2,000/4,000
 records and is non-certifying. The formal 1M/10M/100M matrix is still pending;
-therefore §23.4 and the V1 release remain `NOT_READY`.
+therefore §23.4 and the release remain `NOT_READY`.
 
-## 2026-08-22 current-source full V1 certification — 6f9ab51c
+## 2026-08-22 current-source full certification — 6f9ab51c
 
 The frozen candidate source lock is Delay
 `6f9ab51c392ea47dba46e0d6d67ff7f7d0aa0312`, Kafka K1
@@ -17511,43 +17511,43 @@ The frozen candidate source lock is Delay
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
 `37a17bef17202d5fd6e23282da5fd26d94865484`. The pre-overlay candidate
 release receipt
-`/private/tmp/nereus-delay-v1-release-candidate-6f9ab51c/v1-release-candidate-gate.json`
+`/private/tmp/nereus-delay-release-candidate-6f9ab51c/release-candidate-gate.json`
 has `release_status=PASS`: all source checks, cross-repository contract
-validation, full Gradle `check` and all ten full-V1 gates pass.
+validation, full Gradle `check` and all ten full- gates pass.
 
 The ten exact-source `PASS_CERTIFIED` inputs are:
 
 | gate | artifact | SHA-256 |
 | --- | --- | --- |
-| protocol-golden | `/private/tmp/nereus-delay-v1-protocol-golden-6f9ab51c/protocol-golden.json` | `987f29b85496a296a7375d72eca5a3749335773a80f3d18e8b021e554e313253` |
-| chaos | `/private/tmp/nereus-delay-v1-full-chaos-6f9ab51c/full-chaos-matrix.json` | `49fb28741abafc12db03185b83a6d53b44c900d4ee4a16dca126b1876a91de80` |
-| real-service | `/private/tmp/nereus-delay-v1-real-service-6f9ab51c/real-service.json` | `2886a91d44f10900395c62fa821e435144c236c431295af74a6705b75a9cd43a` |
-| no-early | `/private/tmp/nereus-delay-v1-no-early-6f9ab51c/no-early.json` | `667de31953e8cdb665a2eb13b8e905c33dc3f10124c3767176e6f42e088e7c14` |
-| benchmark | `/private/tmp/nereus-delay-v1-benchmark-envelope-6f9ab51c/full-v1-gate-input.json` | `bcf78ac3cc4584502f311b9102af9b34a888ac6e192b97859a44618797ea0bed` |
-| capacity | `/private/tmp/nereus-delay-v1-capacity-envelope-6f9ab51c/full-v1-gate-input.json` | `cd9de96dc830a5d466c4a8679cf2b51ee5927545f75cc521c3ad66ba32139fb1` |
-| soak | `/private/tmp/nereus-delay-v1-soak-6f9ab51c/full-v1-gate-input.json` | `fdf3c369bf2b1ce2b649a858d0654de13864bb82c95407b1e9d0f4a2a606fe96` |
-| upgrade-downgrade | `/private/tmp/nereus-delay-v1-upgrade-downgrade-6f9ab51c/full-v1-gate-input.json` | `0f98682a7578fab55914f457cb33502bbb336cccddad2a8bd52196e1439c275f` |
-| operations | `/private/tmp/nereus-delay-v1-operations-6f9ab51c-r4/full-v1-gate-input.json` | `5bebe0adec9b0c6cf6742f6a530cf67d5151e7e9f5ff68e1e86a6c373aa5f04a` |
-| patch-distribution | `/private/tmp/nereus-delay-v1-patch-distribution-6f9ab51c/full-v1-gate-input.json` | `f763a9ea27e1bafc8009c91d895653e0d4a6002030e7ff392f83a3492b2672ab` |
+| protocol-golden | `/private/tmp/nereus-delay-protocol-golden-6f9ab51c/protocol-golden.json` | `987f29b85496a296a7375d72eca5a3749335773a80f3d18e8b021e554e313253` |
+| chaos | `/private/tmp/nereus-delay-full-chaos-6f9ab51c/full-chaos-matrix.json` | `49fb28741abafc12db03185b83a6d53b44c900d4ee4a16dca126b1876a91de80` |
+| real-service | `/private/tmp/nereus-delay-real-service-6f9ab51c/real-service.json` | `2886a91d44f10900395c62fa821e435144c236c431295af74a6705b75a9cd43a` |
+| no-early | `/private/tmp/nereus-delay-no-early-6f9ab51c/no-early.json` | `667de31953e8cdb665a2eb13b8e905c33dc3f10124c3767176e6f42e088e7c14` |
+| benchmark | `/private/tmp/nereus-delay-benchmark-envelope-6f9ab51c/full-gate-input.json` | `bcf78ac3cc4584502f311b9102af9b34a888ac6e192b97859a44618797ea0bed` |
+| capacity | `/private/tmp/nereus-delay-capacity-envelope-6f9ab51c/full-gate-input.json` | `cd9de96dc830a5d466c4a8679cf2b51ee5927545f75cc521c3ad66ba32139fb1` |
+| soak | `/private/tmp/nereus-delay-soak-6f9ab51c/full-gate-input.json` | `fdf3c369bf2b1ce2b649a858d0654de13864bb82c95407b1e9d0f4a2a606fe96` |
+| upgrade-downgrade | `/private/tmp/nereus-delay-upgrade-downgrade-6f9ab51c/full-gate-input.json` | `0f98682a7578fab55914f457cb33502bbb336cccddad2a8bd52196e1439c275f` |
+| operations | `/private/tmp/nereus-delay-operations-6f9ab51c-r4/full-gate-input.json` | `5bebe0adec9b0c6cf6742f6a530cf67d5151e7e9f5ff68e1e86a6c373aa5f04a` |
+| patch-distribution | `/private/tmp/nereus-delay-patch-distribution-6f9ab51c/full-gate-input.json` | `f763a9ea27e1bafc8009c91d895653e0d4a6002030e7ff392f83a3492b2672ab` |
 
 The supporting physical receipts are the benchmark observation
-`/private/tmp/nereus-delay-v1-benchmark-observation-6f9ab51c-r2/capacity-observation.json`
+`/private/tmp/nereus-delay-benchmark-observation-6f9ab51c-r2/capacity-observation.json`
 (`c836707323db0298cf15b4121b5f0614a140875cd18f992c359d4dca5d5ca6e3`),
 capacity observation
-`/private/tmp/nereus-delay-v1-capacity-observation-6f9ab51c/capacity-observation.json`
+`/private/tmp/nereus-delay-capacity-observation-6f9ab51c/capacity-observation.json`
 (`c86ff0cbca4101e286f94a81971579af8ea203566fd62577422cc7b41ef38b32`) and
 the real 1M/10M/100M matrix
-`/private/tmp/nereus-delay-v1-capacity-full-6f9ab51c-r3/capacity-matrix.json`
+`/private/tmp/nereus-delay-capacity-full-6f9ab51c-r3/capacity-matrix.json`
 (`dc79514ab74671c28a8e608803cb6c43d3c2f2408a0388a36e076a87fb2390c4`).
 The soak child is
-`/private/tmp/nereus-delay-v1-soak-6f9ab51c/production-chain-soak/certified-production-chain-soak.json`
+`/private/tmp/nereus-delay-soak-6f9ab51c/production-chain-soak/certified-production-chain-soak.json`
 (`9d5cc72e6789ec7c0bfe497b15f7be27a7d20bf0031fa25aff0dcc5dfb47b9c6`),
 and the activation/cutover child is
-`/private/tmp/nereus-delay-v1-upgrade-downgrade-6f9ab51c/protocol-activation-cutover/protocol-activation-cutover.json`
+`/private/tmp/nereus-delay-upgrade-downgrade-6f9ab51c/protocol-activation-cutover/protocol-activation-cutover.json`
 (`d5bb3ff56c130dac8bb7a9e4e0ee54978c74d14be1a60c7b59f6ce72450a84c7`).
 
 The final post-overlay receipt is bound to
-`/private/tmp/nereus-delay-v1-release-final-6f9ab51c/v1-release-candidate-gate.json`.
+`/private/tmp/nereus-delay-release-final-6f9ab51c/release-candidate-gate.json`.
 This six-ledger documentation overlay does not change runtime source or
 promote any feature branch into a target `main`; merge, deployment and
 promotion remain explicit downstream decisions.
@@ -17558,7 +17558,7 @@ no global Docker prune: the pinned Oxia, MinIO and exact benchmark
 images were retained, while generated Nereus images/resources were absent.
 Eighty-eight unreferenced `/private/tmp/nereus-delay*` directories were moved
 recoverably to
-`/Users/liusinan/.Trash/nereus-delay-cleanup-20260822-full-v1`; every target
+`/Users/liusinan/.Trash/nereus-delay-cleanup-20260822-full`; every target
 was checked for absence of `.git`. The ten current evidence trees, candidate
 lock and historical directories still referenced by the ledgers remain in
 place. No source checkout or code directory was moved.

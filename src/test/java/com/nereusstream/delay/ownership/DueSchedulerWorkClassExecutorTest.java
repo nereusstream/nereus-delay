@@ -3,18 +3,18 @@ package com.nereusstream.delay.ownership;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import com.nereusstream.delay.protocol.ActiveLaneStateV1;
+import com.nereusstream.delay.protocol.ActiveLaneState;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
 import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.LaneCircuitStateV1;
-import com.nereusstream.delay.protocol.LaneRecordEnvelopeV1;
+import com.nereusstream.delay.protocol.LaneCircuitState;
+import com.nereusstream.delay.protocol.LaneRecordEnvelope;
 import com.nereusstream.delay.protocol.OrderingMode;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.ProtocolTestFixtures;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
 import com.nereusstream.delay.protocol.PublishAdmissionBodyTest;
@@ -72,16 +72,16 @@ class DueSchedulerWorkClassExecutorTest {
                 .orElseThrow();
         final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
         final KafkaSourcePosition source = new KafkaSourcePosition(shard, "due-work-cluster", topic, 0, null, 1_000);
-        final ProfileRefV1 destination = new ProfileRefV1(
+        final ProfileRef destination = new ProfileRef(
                 Bytes.utf8("due-work-destination"),
                 1,
                 Bytes.sha256(Bytes.utf8("due-work-destination-semantic")),
-                ProfileKindV1.DESTINATION);
-        final ProfileRefV1 capability = new ProfileRefV1(
+                ProfileKind.DESTINATION);
+        final ProfileRef capability = new ProfileRef(
                 Bytes.utf8("due-work-capability"),
                 1,
                 Bytes.sha256(Bytes.utf8("due-work-capability-semantic")),
-                ProfileKindV1.DELIVERY_CAPABILITY);
+                ProfileKind.DELIVERY_CAPABILITY);
         final byte[] laneTuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
         final DestinationLaneId laneId = DestinationLaneId.derive(laneTuple);
         final LaneRecord lane = new LaneRecord(
@@ -129,7 +129,7 @@ class DueSchedulerWorkClassExecutorTest {
                 SharedRocksDbResources foreignResources = new SharedRocksDbResources(foreignConfig);
                 ShardStore store = ShardStore.open(config, shard, resources);
                 ShardStore foreignStore = ShardStore.open(foreignConfig, shard, foreignResources)) {
-            final OwnerIdentityV1 owner = new OwnerIdentityV1(
+            final OwnerIdentity owner = new OwnerIdentity(
                     Bytes.utf8("due-work-deployment"),
                     Bytes.utf8("due-work-worker"),
                     lease.ownerEpoch(),
@@ -156,7 +156,7 @@ class DueSchedulerWorkClassExecutorTest {
                             .canonicalBytes(),
                     owner,
                     store.metadata().storeIncarnation());
-            final ActiveLaneStateV1 activeLane = new ActiveLaneStateV1(
+            final ActiveLaneState activeLane = new ActiveLaneState(
                     laneId,
                     incarnation(),
                     com.nereusstream.delay.runtime.AdmissionGate.OPEN,
@@ -171,7 +171,7 @@ class DueSchedulerWorkClassExecutorTest {
                     zeroCharge(),
                     2_000L,
                     2_000L,
-                    LaneCircuitStateV1.CLOSED,
+                    LaneCircuitState.CLOSED,
                     0,
                     0,
                     0,
@@ -184,7 +184,7 @@ class DueSchedulerWorkClassExecutorTest {
                         ColumnFamily.META,
                         2,
                         KeyCodec.metaLane(laneId),
-                        LaneRecordEnvelopeV1.active(activeLane).canonicalBytes());
+                        LaneRecordEnvelope.active(activeLane).canonicalBytes());
                 batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(messageId), message.encode());
                 batch.putValue(
                         ColumnFamily.TIMELINE,
@@ -211,7 +211,7 @@ class DueSchedulerWorkClassExecutorTest {
                     IllegalStateException.class, () -> expiredScheduler.discoverReady(certificateBoundary, budget));
             assertEquals(0, expiredScheduler.snapshot().lanes().get(0).pendingItems());
             final byte[] otherWorker = Bytes.utf8("due-work-other-owner");
-            final OwnerIdentityV1 otherOwner = new OwnerIdentityV1(
+            final OwnerIdentity otherOwner = new OwnerIdentity(
                     Bytes.utf8("embedded-scheduler"),
                     otherWorker,
                     lease.ownerEpoch(),
@@ -303,7 +303,7 @@ class DueSchedulerWorkClassExecutorTest {
     }
 
     private static byte[] bindReadyCertificate(
-            final byte[] encoded, final OwnerIdentityV1 owner, final byte[] storeIncarnation) {
+            final byte[] encoded, final OwnerIdentity owner, final byte[] storeIncarnation) {
         final byte[] ownerAuthor = owner.canonicalBytes();
         final byte[] prefix = CanonicalProtobuf.message(output -> {
             final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(encoded);
@@ -326,8 +326,7 @@ class DueSchedulerWorkClassExecutorTest {
             while (reader.hasRemaining()) {
                 writeField(output, reader.next());
             }
-            CanonicalProtobuf.bytes(
-                    output, 16, Bytes.sha256(Bytes.utf8("nereus-delay-ready-certificate-v1\0"), prefix));
+            CanonicalProtobuf.bytes(output, 16, Bytes.sha256(Bytes.utf8("nereus-delay-ready-certificate\0"), prefix));
         });
     }
 

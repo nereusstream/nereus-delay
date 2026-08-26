@@ -5,20 +5,20 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import com.nereusstream.delay.protocol.AdapterKindV1;
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.AdapterKind;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.ChannelKindV1;
-import com.nereusstream.delay.protocol.ChannelResourceIdentityV1;
-import com.nereusstream.delay.protocol.CredentialUseKindV1;
-import com.nereusstream.delay.protocol.CredentialUseLeaseV1;
+import com.nereusstream.delay.protocol.ChannelKind;
+import com.nereusstream.delay.protocol.ChannelResourceIdentity;
+import com.nereusstream.delay.protocol.CredentialUseKind;
+import com.nereusstream.delay.protocol.CredentialUseLease;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.PulsarJournalGenerationResourceV1;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.PulsarJournalGenerationResource;
 import com.nereusstream.delay.protocol.ResourceKind;
 import com.nereusstream.delay.protocol.ResourceRetireIntentBody;
 import com.nereusstream.delay.protocol.RouteIncarnation;
@@ -416,7 +416,7 @@ class PulsarAttemptJournalTest {
 
         assertTrue(journal.evidenceCursor(producer, 1).isEmpty());
         journal.appendNext(producer, identity(shard, 10));
-        final com.nereusstream.delay.protocol.EvidenceCursorV1 mapped =
+        final com.nereusstream.delay.protocol.EvidenceCursor mapped =
                 journal.evidenceCursor(producer, 1).orElseThrow();
         assertEquals(2, mapped.ledgerId());
         assertEquals(70, mapped.entryId());
@@ -426,7 +426,7 @@ class PulsarAttemptJournalTest {
         assertThrows(IllegalArgumentException.class, () -> journal.evidenceCursor(producer, 0));
 
         journal.retireNotPublished(journal.records().get(0).mapping().mappingId());
-        final com.nereusstream.delay.protocol.EvidenceCursorV1 retired =
+        final com.nereusstream.delay.protocol.EvidenceCursor retired =
                 journal.evidenceCursor(producer, 1).orElseThrow();
         assertEquals(71, retired.entryId());
         assertEquals(1_010, retired.maxBrokerPersistedAtThroughCursor());
@@ -443,17 +443,17 @@ class PulsarAttemptJournalTest {
                 journal.appendNext(producer, identity(shard, 11)).record().mapping();
         final byte[] targetAckEvidence = Bytes.sha256(Bytes.utf8("target-ack-evidence"));
 
-        final com.nereusstream.delay.protocol.PublishEvidenceV1 evidence =
+        final com.nereusstream.delay.protocol.PublishEvidence evidence =
                 journal.publishedEvidence(mapping, 2, targetAckEvidence);
         assertEquals(
-                com.nereusstream.delay.protocol.PublishEvidenceKindV1.PULSAR_ATTEMPT_JOURNAL, evidence.evidenceKind());
+                com.nereusstream.delay.protocol.PublishEvidenceKind.PULSAR_ATTEMPT_JOURNAL, evidence.evidenceKind());
         assertEquals(
-                com.nereusstream.delay.protocol.EvidenceVerificationStatusV1.VERIFIED_PUBLISHED,
+                com.nereusstream.delay.protocol.EvidenceVerificationStatus.VERIFIED_PUBLISHED,
                 evidence.verificationStatus());
         evidence.requireBusinessMutation(mapping.publishAttemptId(), true);
         assertArrayEquals(
                 evidence.canonicalBytes(),
-                com.nereusstream.delay.protocol.PublishEvidenceV1.decode(evidence.canonicalBytes())
+                com.nereusstream.delay.protocol.PublishEvidence.decode(evidence.canonicalBytes())
                         .canonicalBytes());
 
         journal.retireNotPublished(mapping.mappingId());
@@ -475,26 +475,26 @@ class PulsarAttemptJournalTest {
         final PulsarAttemptJournal.Mapping mapping =
                 journal.appendNext(producer, identity(shard, 12)).record().mapping();
         journal.retireNotPublished(mapping.mappingId());
-        final ChannelResourceIdentityV1 channel = fencedJournalChannel(producer, 3, journalResource);
+        final ChannelResourceIdentity channel = fencedJournalChannel(producer, 3, journalResource);
         final byte[] retirementBarrier = Bytes.sha256(Bytes.utf8("retirement-barrier"));
         assertEquals(
                 shard.partition(),
                 journal.evidenceCursor(producer, 3).orElseThrow().physicalPartition());
 
-        final com.nereusstream.delay.protocol.PublishEvidenceV1 evidence =
+        final com.nereusstream.delay.protocol.PublishEvidence evidence =
                 journal.notPublishedEvidence(mapping, 3, channel, retirementBarrier);
         assertEquals(
-                com.nereusstream.delay.protocol.PublishEvidenceKindV1.PULSAR_JOURNAL_ABSENCE, evidence.evidenceKind());
+                com.nereusstream.delay.protocol.PublishEvidenceKind.PULSAR_JOURNAL_ABSENCE, evidence.evidenceKind());
         assertEquals(
-                com.nereusstream.delay.protocol.EvidenceVerificationStatusV1.VERIFIED_NOT_PUBLISHED,
+                com.nereusstream.delay.protocol.EvidenceVerificationStatus.VERIFIED_NOT_PUBLISHED,
                 evidence.verificationStatus());
         evidence.requireBusinessMutation(mapping.publishAttemptId(), false);
         assertArrayEquals(
                 evidence.canonicalBytes(),
-                com.nereusstream.delay.protocol.PublishEvidenceV1.decode(evidence.canonicalBytes())
+                com.nereusstream.delay.protocol.PublishEvidence.decode(evidence.canonicalBytes())
                         .canonicalBytes());
 
-        final ChannelResourceIdentityV1 wrongLane = fencedJournalChannel(
+        final ChannelResourceIdentity wrongLane = fencedJournalChannel(
                 new PulsarAttemptJournal.ProducerKey(
                         new DestinationLaneId(bytes(32, 99)),
                         producer.laneIncarnation(),
@@ -512,10 +512,10 @@ class PulsarAttemptJournalTest {
         final PulsarJournalResource resource = new PulsarJournalResource(
                 "cluster", bytes(32, 21), "persistent://nereus/system/attempt-journal", Long.MIN_VALUE, 7);
 
-        final PulsarJournalGenerationResourceV1 typed = resource.protocolResource(Long.MIN_VALUE);
+        final PulsarJournalGenerationResource typed = resource.protocolResource(Long.MIN_VALUE);
         assertEquals(resource.partition(), typed.partition());
         assertEquals(Long.MIN_VALUE, typed.evidenceGeneration());
-        assertEquals(typed, PulsarJournalGenerationResourceV1.decode(typed.canonicalBytes()));
+        assertEquals(typed, PulsarJournalGenerationResource.decode(typed.canonicalBytes()));
         final ResourceRetireIntentBody.ExactResourceIdentity identity = ResourceRetireIntentBody.decodeResourceIdentity(
                 ResourceKind.PULSAR_JOURNAL_GENERATION, resource.exactResourceCanonicalBytes(Long.MIN_VALUE));
         assertArrayEquals(resource.exactResourceCanonicalBytes(Long.MIN_VALUE), identity.canonicalBytes());
@@ -530,9 +530,9 @@ class PulsarAttemptJournalTest {
                 Long.MIN_VALUE,
                 Integer.MIN_VALUE);
 
-        final PulsarJournalGenerationResourceV1 typed = resource.protocolResource(1);
+        final PulsarJournalGenerationResource typed = resource.protocolResource(1);
         assertEquals(Integer.MIN_VALUE, typed.partition());
-        assertEquals(typed, PulsarJournalGenerationResourceV1.decode(typed.canonicalBytes()));
+        assertEquals(typed, PulsarJournalGenerationResource.decode(typed.canonicalBytes()));
     }
 
     private static PulsarAttemptJournal.JournalPosition position(final long entryId) {
@@ -551,31 +551,29 @@ class PulsarAttemptJournalTest {
                 new PulsarTargetResource("cluster", bytes(32, 3), "persistent://tenant/ns/topic", 4, 0));
     }
 
-    private static ChannelResourceIdentityV1 fencedJournalChannel(
+    private static ChannelResourceIdentity fencedJournalChannel(
             final PulsarAttemptJournal.ProducerKey producer,
             final long evidenceGeneration,
             final PulsarJournalResource journalResource) {
         final PulsarTargetResource target = producer.target();
-        final BrokerResourceIdentityV1 targetBroker =
-                BrokerResourceIdentityV1.pulsar(new PulsarBrokerResourceIdentityV1(
-                        target.authenticatedClusterId(),
-                        target.resourceIncarnation(),
-                        target.physicalTopic(),
-                        target.physicalTopicCreationTimestamp()));
-        final BrokerResourceIdentityV1 evidenceBroker =
-                BrokerResourceIdentityV1.pulsar(new PulsarBrokerResourceIdentityV1(
-                        journalResource.authenticatedClusterId(),
-                        journalResource.resourceIncarnation(),
-                        journalResource.physicalTopic(),
-                        journalResource.physicalTopicCreationTimestamp()));
+        final BrokerResourceIdentity targetBroker = BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
+                target.authenticatedClusterId(),
+                target.resourceIncarnation(),
+                target.physicalTopic(),
+                target.physicalTopicCreationTimestamp()));
+        final BrokerResourceIdentity evidenceBroker = BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
+                journalResource.authenticatedClusterId(),
+                journalResource.resourceIncarnation(),
+                journalResource.physicalTopic(),
+                journalResource.physicalTopicCreationTimestamp()));
         final byte[] producerIdentity = Bytes.utf8("stable-producer");
         final byte[] guardDigest = Bytes.sha256(Bytes.utf8("journal-guard"));
         final byte[] bindingDigest = Bytes.sha256(Bytes.utf8("journal-binding"));
         final byte[] fingerprint = Bytes.sha256(Bytes.utf8("journal-fingerprint"));
         final byte[] prefix = com.nereusstream.delay.protocol.CanonicalProtobuf.message(output -> {
-            com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(output, 1, AdapterKindV1.PULSAR.wireValue());
+            com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(output, 1, AdapterKind.PULSAR.wireValue());
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(
-                    output, 2, ChannelKindV1.PULSAR_DEDUP_PRODUCER.wireValue());
+                    output, 2, ChannelKind.PULSAR_DEDUP_PRODUCER.wireValue());
             com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(
                     output, 3, producer.laneId().bytes());
             com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(output, 4, producer.laneIncarnation());
@@ -589,11 +587,11 @@ class PulsarAttemptJournalTest {
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint64(output, 12, evidenceGeneration);
             com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(output, 13, guardDigest);
         });
-        final ProfileRefV1 profile = new ProfileRefV1(
+        final ProfileRef profile = new ProfileRef(
                 Bytes.utf8("journal-destination"),
                 1,
                 Bytes.sha256(Bytes.utf8("journal-destination-semantic")),
-                ProfileKindV1.DESTINATION);
+                ProfileKind.DESTINATION);
         final TrustedUtcIntervalEvidence issuedAt = new TrustedUtcIntervalEvidence(
                 1_000,
                 1_001,
@@ -605,19 +603,19 @@ class PulsarAttemptJournalTest {
                 Bytes.sha256(Bytes.utf8("journal-time")),
                 0,
                 null);
-        final CredentialUseLeaseV1 lease = new CredentialUseLeaseV1(
+        final CredentialUseLease lease = new CredentialUseLease(
                 profile,
-                CredentialUseKindV1.DESTINATION_CHANNEL,
-                CredentialUseLeaseV1.destinationChannelHolderScope(prefix),
+                CredentialUseKind.DESTINATION_CHANNEL,
+                CredentialUseLease.destinationChannelHolderScope(prefix),
                 1,
                 bindingDigest,
                 fingerprint,
                 issuedAt,
                 9_000,
                 1);
-        return new ChannelResourceIdentityV1(
-                AdapterKindV1.PULSAR,
-                ChannelKindV1.PULSAR_DEDUP_PRODUCER,
+        return new ChannelResourceIdentity(
+                AdapterKind.PULSAR,
+                ChannelKind.PULSAR_DEDUP_PRODUCER,
                 producer.laneId().bytes(),
                 producer.laneIncarnation(),
                 targetBroker,

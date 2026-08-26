@@ -34,7 +34,7 @@ public record KafkaDestinationRequest(
         if (actionAtEpochMs < 0 || deliverAtEpochMs < actionAtEpochMs) {
             throw new IllegalArgumentException("invalid Kafka destination request");
         }
-        // Kafka V1 has no certified delayed-handoff branch.  An early
+        // Kafka has no certified delayed-handoff branch. An early
         // actionAt is only meaningful for the Pulsar guarded handoff path;
         // allowing it here would let a malformed adapter request publish
         // before the consumer-visible deliverAt boundary.

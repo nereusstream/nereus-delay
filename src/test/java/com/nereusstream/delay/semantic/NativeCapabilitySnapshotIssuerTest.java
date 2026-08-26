@@ -3,30 +3,30 @@ package com.nereusstream.delay.semantic;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import com.nereusstream.delay.protocol.ActivationBarrierV1;
-import com.nereusstream.delay.protocol.AdapterKindV1;
+import com.nereusstream.delay.protocol.ActivationBarrier;
+import com.nereusstream.delay.protocol.AdapterKind;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CredentialBindingProtectionV1;
-import com.nereusstream.delay.protocol.CredentialBindingV1;
-import com.nereusstream.delay.protocol.CredentialEquivalenceAttestationV1;
-import com.nereusstream.delay.protocol.DeliveryCapabilitySemanticV1;
-import com.nereusstream.delay.protocol.DestinationProfileSemanticV1;
-import com.nereusstream.delay.protocol.IngressCredentialBindingRefV1;
-import com.nereusstream.delay.protocol.OutcomeCapabilityV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
+import com.nereusstream.delay.protocol.CredentialBinding;
+import com.nereusstream.delay.protocol.CredentialBindingProtection;
+import com.nereusstream.delay.protocol.CredentialEquivalenceAttestation;
+import com.nereusstream.delay.protocol.DeliveryCapabilitySemantic;
+import com.nereusstream.delay.protocol.DestinationProfileSemantic;
+import com.nereusstream.delay.protocol.IngressCredentialBindingRef;
+import com.nereusstream.delay.protocol.OutcomeCapability;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
+import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
-import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.PulsarIngressRouteResourceV1;
-import com.nereusstream.delay.protocol.PulsarPhysicalPartitionIdentityV1;
-import com.nereusstream.delay.protocol.QuotaGrantRefV1;
+import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.PulsarIngressRouteResource;
+import com.nereusstream.delay.protocol.PulsarPhysicalPartitionIdentity;
+import com.nereusstream.delay.protocol.QuotaGrantRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.RouteLifecycleV1;
-import com.nereusstream.delay.protocol.RoutePartitionPolicyV1;
-import com.nereusstream.delay.protocol.RouteSnapshotV1;
-import com.nereusstream.delay.protocol.RoutingHashVersionV1;
-import com.nereusstream.delay.protocol.TimingCapabilityV1;
+import com.nereusstream.delay.protocol.RouteLifecycle;
+import com.nereusstream.delay.protocol.RoutePartitionPolicy;
+import com.nereusstream.delay.protocol.RouteSnapshot;
+import com.nereusstream.delay.protocol.RoutingHashVersion;
+import com.nereusstream.delay.protocol.TimingCapability;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.InMemoryProfileCatalog;
 import java.security.KeyPair;
@@ -48,7 +48,7 @@ class NativeCapabilitySnapshotIssuerTest {
                 7,
                 500);
 
-        final NativePreparationSnapshotV1 prepared = issuer.issue(
+        final NativePreparationSnapshot prepared = issuer.issue(
                 fixture.tenant(), fixture.route(), fixture.destination().ref(), 0, 420, fixture.issuedAt());
 
         assertEquals(1, authority.protectionCalls);
@@ -89,7 +89,7 @@ class NativeCapabilitySnapshotIssuerTest {
     void rejectsForeignGuardEvidenceBeforeProtection() throws Exception {
         final Fixture fixture = fixture();
         final RecordingAuthority authority = new RecordingAuthority(
-                new PulsarBrokerResourceIdentityV1("other-cluster", bytes(32, 130), "persistent://other/ns/topic", 131),
+                new PulsarBrokerResourceIdentity("other-cluster", bytes(32, 130), "persistent://other/ns/topic", 131),
                 fixture.tenant());
         final NativeCapabilitySnapshotIssuer issuer = new NativeCapabilitySnapshotIssuer(
                 fixture.catalog(),
@@ -112,15 +112,15 @@ class NativeCapabilitySnapshotIssuerTest {
         final KeyPair attestationKeys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final AuthenticatedTenantContext tenant =
                 new AuthenticatedTenantContext(bytes(32, 1), bytes(32, 2), bytes(32, 3));
-        final PulsarBrokerResourceIdentityV1 target = new PulsarBrokerResourceIdentityV1(
+        final PulsarBrokerResourceIdentity target = new PulsarBrokerResourceIdentity(
                 "target-cluster", bytes(32, 10), "persistent://tenant/ns/destination", 20);
-        final ProfileSemanticEnvelopeV1 capability = capability();
-        final DestinationProfileSemanticV1 destinationBody = new DestinationProfileSemanticV1(
-                AdapterKindV1.PULSAR,
-                com.nereusstream.delay.protocol.BrokerResourceIdentityV1.pulsar(target),
+        final ProfileSemanticEnvelope capability = capability();
+        final DestinationProfileSemantic destinationBody = new DestinationProfileSemantic(
+                AdapterKind.PULSAR,
+                com.nereusstream.delay.protocol.BrokerResourceIdentity.pulsar(target),
                 1,
-                com.nereusstream.delay.protocol.TargetPartitionPolicyV1.EXPLICIT_ONLY,
-                com.nereusstream.delay.protocol.TargetPartitionHashInputV1.ORDERING_KEY,
+                com.nereusstream.delay.protocol.TargetPartitionPolicy.EXPLICIT_ONLY,
+                com.nereusstream.delay.protocol.TargetPartitionHashInput.ORDERING_KEY,
                 List.of(0),
                 capability.ref(),
                 1,
@@ -136,9 +136,9 @@ class NativeCapabilitySnapshotIssuerTest {
                 0,
                 1,
                 bytes(32, 41));
-        final ProfileSemanticEnvelopeV1 destination =
-                new ProfileSemanticEnvelopeV1(ProfileKindV1.DESTINATION, Bytes.utf8("destination"), 1, destinationBody);
-        final byte[] secretReference = Bytes.utf8("secret-reference-v1");
+        final ProfileSemanticEnvelope destination =
+                new ProfileSemanticEnvelope(ProfileKind.DESTINATION, Bytes.utf8("destination"), 1, destinationBody);
+        final byte[] secretReference = Bytes.utf8("secret-reference");
         final TrustedUtcIntervalEvidence attestationTime = new TrustedUtcIntervalEvidence(
                 200,
                 210,
@@ -150,21 +150,20 @@ class NativeCapabilitySnapshotIssuerTest {
                 bytes(32, 45),
                 0,
                 null);
-        final CredentialEquivalenceAttestationV1 attestation = CredentialEquivalenceAttestationV1.signed(
+        final CredentialEquivalenceAttestation attestation = CredentialEquivalenceAttestation.signed(
                 destination.ref(),
                 1,
                 Bytes.sha256(secretReference),
                 destinationBody.credentialAuthorizationScopeDigest(),
                 bytes(32, 46),
                 1,
-                Bytes.utf8("credential-verifier-v1"),
+                Bytes.utf8("credential-verifier"),
                 attestationTime,
                 900,
                 bytes(32, 47),
                 1,
                 attestationKeys.getPrivate());
-        final CredentialBindingV1 binding =
-                CredentialBindingV1.create(destination.ref(), 1, secretReference, attestation);
+        final CredentialBinding binding = CredentialBinding.create(destination.ref(), 1, secretReference, attestation);
         final InMemoryProfileCatalog catalog = new InMemoryProfileCatalog();
         catalog.publish(capability);
         catalog.publish(destination, binding);
@@ -173,11 +172,11 @@ class NativeCapabilitySnapshotIssuerTest {
                 issuerKeys, attestationKeys, routeKeys, tenant, target, destination, catalog, route(routeKeys));
     }
 
-    private static ProfileSemanticEnvelopeV1 capability() {
-        final DeliveryCapabilitySemanticV1 body = new DeliveryCapabilitySemanticV1(
-                AdapterKindV1.PULSAR,
-                OutcomeCapabilityV1.AT_LEAST_ONCE,
-                TimingCapabilityV1.ORDINARY_MANAGED | TimingCapabilityV1.PULSAR_AUTO_FAST,
+    private static ProfileSemanticEnvelope capability() {
+        final DeliveryCapabilitySemantic body = new DeliveryCapabilitySemantic(
+                AdapterKind.PULSAR,
+                OutcomeCapability.AT_LEAST_ONCE,
+                TimingCapability.ORDINARY_MANAGED | TimingCapability.PULSAR_AUTO_FAST,
                 null,
                 0,
                 0,
@@ -187,39 +186,39 @@ class NativeCapabilitySnapshotIssuerTest {
                 bytes(32, 61),
                 0,
                 0);
-        return new ProfileSemanticEnvelopeV1(ProfileKindV1.DELIVERY_CAPABILITY, Bytes.utf8("capability"), 1, body);
+        return new ProfileSemanticEnvelope(ProfileKind.DELIVERY_CAPABILITY, Bytes.utf8("capability"), 1, body);
     }
 
-    private static RouteSnapshotV1 route(final KeyPair keys) {
-        final PulsarPhysicalPartitionIdentityV1 physical = new PulsarPhysicalPartitionIdentityV1(
+    private static RouteSnapshot route(final KeyPair keys) {
+        final PulsarPhysicalPartitionIdentity physical = new PulsarPhysicalPartitionIdentity(
                 0, "persistent://tenant/ns/commands-partition-0", bytes(32, 80), 81);
-        final PulsarIngressRouteResourceV1 ingress = new PulsarIngressRouteResourceV1(
-                "source-cluster", "persistent://tenant/ns/commands", List.of(physical));
-        final PulsarBrokerResourceIdentityV1 source = new PulsarBrokerResourceIdentityV1(
+        final PulsarIngressRouteResource ingress =
+                new PulsarIngressRouteResource("source-cluster", "persistent://tenant/ns/commands", List.of(physical));
+        final PulsarBrokerResourceIdentity source = new PulsarBrokerResourceIdentity(
                 "source-cluster",
                 physical.resourceIncarnation(),
                 physical.physicalTopic(),
                 physical.physicalTopicCreationTimestamp());
-        final QuotaGrantRefV1 quota = new QuotaGrantRefV1(
+        final QuotaGrantRef quota = new QuotaGrantRef(
                 bytes(32, 82),
                 1,
                 new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
-        final RoutePartitionPolicyV1 policy = new RoutePartitionPolicyV1(
+        final RoutePartitionPolicy policy = new RoutePartitionPolicy(
                 0,
-                ActivationBarrierV1.empty(
-                        com.nereusstream.delay.protocol.BrokerResourceIdentityV1.pulsar(source), 0, 1L, bytes(32, 83)),
+                ActivationBarrier.empty(
+                        com.nereusstream.delay.protocol.BrokerResourceIdentity.pulsar(source), 0, 1L, bytes(32, 83)),
                 quota,
                 1,
                 bytes(32, 84));
-        return RouteSnapshotV1.create(
+        return RouteSnapshot.create(
                 new RouteIncarnation(bytes(16, 85)),
                 bytes(32, 1),
                 bytes(32, 2),
-                RouteLifecycleV1.ACTIVE_FOR_NEW,
+                RouteLifecycle.ACTIVE_FOR_NEW,
                 900,
                 ingress,
-                RoutingHashVersionV1.ROUTING_HASH_V1,
-                new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1),
+                RoutingHashVersion.ROUTING_HASH,
+                new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1),
                 1,
                 List.of(policy),
                 100,
@@ -231,7 +230,7 @@ class NativeCapabilitySnapshotIssuerTest {
                 500,
                 100,
                 1000,
-                new IngressCredentialBindingRefV1(bytes(32, 86), 1, bytes(32, 87), bytes(32, 88), bytes(32, 89)),
+                new IngressCredentialBindingRef(bytes(32, 86), 1, bytes(32, 87), bytes(32, 88), bytes(32, 89)),
                 bytes(32, 90),
                 new TrustedUtcIntervalEvidence(
                         200,
@@ -261,10 +260,10 @@ class NativeCapabilitySnapshotIssuerTest {
             KeyPair attestationKeys,
             KeyPair routeKeys,
             AuthenticatedTenantContext tenant,
-            PulsarBrokerResourceIdentityV1 target,
-            ProfileSemanticEnvelopeV1 destination,
+            PulsarBrokerResourceIdentity target,
+            ProfileSemanticEnvelope destination,
             InMemoryProfileCatalog catalog,
-            RouteSnapshotV1 route) {
+            RouteSnapshot route) {
         private TrustedUtcIntervalEvidence issuedAt() {
             return new TrustedUtcIntervalEvidence(
                     300,
@@ -281,22 +280,21 @@ class NativeCapabilitySnapshotIssuerTest {
     }
 
     private static final class RecordingAuthority implements NativeCapabilityIssuanceAuthority {
-        private final PulsarBrokerResourceIdentityV1 target;
+        private final PulsarBrokerResourceIdentity target;
         private final AuthenticatedTenantContext tenant;
         private int protectionCalls;
         private long protectedUntil;
         private boolean returnShortProtection;
 
-        private RecordingAuthority(
-                final PulsarBrokerResourceIdentityV1 target, final AuthenticatedTenantContext tenant) {
+        private RecordingAuthority(final PulsarBrokerResourceIdentity target, final AuthenticatedTenantContext tenant) {
             this.target = target;
             this.tenant = tenant;
         }
 
         @Override
         public GuardEvidence resolveGuard(
-                final com.nereusstream.delay.protocol.ProfileRefV1 destination,
-                final com.nereusstream.delay.protocol.ProfileRefV1 capability,
+                final com.nereusstream.delay.protocol.ProfileRef destination,
+                final com.nereusstream.delay.protocol.ProfileRef capability,
                 final int physicalPartition,
                 final byte[] principalScopeDigest,
                 final TrustedUtcIntervalEvidence issuedAt) {
@@ -304,12 +302,12 @@ class NativeCapabilitySnapshotIssuerTest {
         }
 
         @Override
-        public CredentialBindingProtectionV1 protectNativeCapability(
-                final CredentialBindingV1 binding, final long notAfterEpochMs) {
+        public CredentialBindingProtection protectNativeCapability(
+                final CredentialBinding binding, final long notAfterEpochMs) {
             protectionCalls++;
             protectedUntil = notAfterEpochMs;
             final long horizon = returnShortProtection ? notAfterEpochMs - 1 : notAfterEpochMs;
-            return CredentialBindingProtectionV1.forBinding(binding, 0, 0, horizon, 0, 2);
+            return CredentialBindingProtection.forBinding(binding, 0, 0, horizon, 0, 2);
         }
     }
 }

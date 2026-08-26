@@ -1,6 +1,6 @@
 package com.nereusstream.delay.semantic;
 
-import com.nereusstream.delay.protocol.AdapterKindV1;
+import com.nereusstream.delay.protocol.AdapterKind;
 import com.nereusstream.delay.protocol.Bytes;
 import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
@@ -8,10 +8,10 @@ import java.util.Objects;
 
 /** Tenant-scoped Route selector; it carries no tenant authority or credential. */
 public final class RouteSelectionHint {
-    private final AdapterKindV1 adapterKind;
+    private final AdapterKind adapterKind;
     private final byte[] routeAliasUtf8Nfc;
 
-    public RouteSelectionHint(final AdapterKindV1 adapterKind, final byte[] routeAliasUtf8Nfc) {
+    public RouteSelectionHint(final AdapterKind adapterKind, final byte[] routeAliasUtf8Nfc) {
         this.adapterKind = Objects.requireNonNull(adapterKind, "adapterKind");
         Objects.requireNonNull(routeAliasUtf8Nfc, "routeAliasUtf8Nfc");
         if (routeAliasUtf8Nfc.length == 0 || routeAliasUtf8Nfc.length > 128) {
@@ -27,7 +27,7 @@ public final class RouteSelectionHint {
         this.routeAliasUtf8Nfc = Bytes.copy(routeAliasUtf8Nfc);
     }
 
-    public AdapterKindV1 adapterKind() {
+    public AdapterKind adapterKind() {
         return adapterKind;
     }
 

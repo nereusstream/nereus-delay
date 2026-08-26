@@ -1,7 +1,7 @@
 package com.nereusstream.delay.store;
 
-import com.nereusstream.delay.protocol.CapacityDimensionV1;
-import com.nereusstream.delay.protocol.CapacityVectorV1;
+import com.nereusstream.delay.protocol.CapacityDimension;
+import com.nereusstream.delay.protocol.CapacityVector;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
@@ -9,7 +9,7 @@ import java.util.Objects;
 /**
  * Deterministic local placement scoring seam for a multi-DB Worker.
  *
- * <p>The policy is deliberately not an Oxia/Kafka/Pulsar authority.  It
+ * <p>The policy is deliberately not an Oxia/Kafka/Pulsar authority. It
  * filters candidates using committed hard capacity and DB slots, then ranks
  * the survivors using a dominant-resource score and bounded load telemetry.
  * Ownership, assignment and lease CAS remain outside this class.</p>
@@ -23,9 +23,9 @@ public final class WorkerPlacementPolicy {
 
     public Decision select(
             final List<WorkerCandidate> candidates,
-            final CapacityVectorV1 incomingShardCapacity,
-            final CapacityVectorV1 workerFixedCost,
-            final CapacityVectorV1 transitionDemand,
+            final CapacityVector incomingShardCapacity,
+            final CapacityVector workerFixedCost,
+            final CapacityVector transitionDemand,
             final String currentWorkerId,
             final long nowEpochMs,
             final long movementBytes) {
@@ -36,7 +36,7 @@ public final class WorkerPlacementPolicy {
         if (nowEpochMs < 0 || movementBytes < 0) {
             throw new IllegalArgumentException("placement time and movement bytes must be non-negative");
         }
-        final CapacityVectorV1 required =
+        final CapacityVector required =
                 incomingShardCapacity.add(workerFixedCost).add(transitionDemand);
         final List<ScoredCandidate> eligible = candidates.stream()
                 .filter(candidate -> candidate.eligible(required))
@@ -69,11 +69,11 @@ public final class WorkerPlacementPolicy {
 
     private ScoredCandidate score(
             final WorkerCandidate candidate,
-            final CapacityVectorV1 required,
+            final CapacityVector required,
             final String currentWorkerId,
             final long nowEpochMs,
             final long movementBytes) {
-        final CapacityVectorV1 projectedCapacity = candidate.committedCapacity().add(required);
+        final CapacityVector projectedCapacity = candidate.committedCapacity().add(required);
         double score = dominantCapacityUtilization(candidate.hardCapacity(), projectedCapacity)
                 + candidate.load().dominantUtilization(candidate.loadCeilings());
         if (candidate.telemetryStale(nowEpochMs, configuration.telemetryMaxAgeMs())) {
@@ -92,9 +92,9 @@ public final class WorkerPlacementPolicy {
     }
 
     private static double dominantCapacityUtilization(
-            final CapacityVectorV1 hardCapacity, final CapacityVectorV1 required) {
+            final CapacityVector hardCapacity, final CapacityVector required) {
         double result = 0.0d;
-        for (CapacityDimensionV1 dimension : CapacityDimensionV1.values()) {
+        for (CapacityDimension dimension : CapacityDimension.values()) {
             final long capacity = hardCapacity.amount(dimension);
             final long amount = required.amount(dimension);
             if (capacity == 0) {
@@ -130,8 +130,8 @@ public final class WorkerPlacementPolicy {
 
     public record WorkerCandidate(
             String workerId,
-            CapacityVectorV1 hardCapacity,
-            CapacityVectorV1 committedCapacity,
+            CapacityVector hardCapacity,
+            CapacityVector committedCapacity,
             long ownedShardDbs,
             long maxOwnedShardDbs,
             long openShardDbs,
@@ -158,7 +158,7 @@ public final class WorkerPlacementPolicy {
             }
         }
 
-        public boolean eligible(final CapacityVectorV1 required) {
+        public boolean eligible(final CapacityVector required) {
             return healthy
                     && ownedShardDbs < maxOwnedShardDbs
                     && openShardDbs < maxOpenShardDbs

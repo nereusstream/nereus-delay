@@ -29,10 +29,10 @@ class DlqExportResultBodyTest {
                 1);
 
         final DlqExportResultBody decoded = DlqExportResultBody.decode(body);
-        assertEquals(DlqExportStateV1.PUBLISHED, decoded.resultingState());
+        assertEquals(DlqExportState.PUBLISHED, decoded.resultingState());
         assertArrayEquals(
                 SystemMutation.computeDlqExportAttemptLogicalIdentity(exportId, 1), decoded.logicalOperationIdentity());
-        assertArrayEquals(PublishEvidenceV1.decode(evidence).evidenceId(), decoded.evidenceId());
+        assertArrayEquals(PublishEvidence.decode(evidence).evidenceId(), decoded.evidenceId());
         assertEquals(1, decoded.parsedRetryDecision().completedAttemptNo());
         assertEquals(1_000, decoded.parsedRetryDecision().firstAttemptAt());
         assertEquals(2, decoded.parsedRetryDecision().retryDomain());
@@ -210,7 +210,7 @@ class DlqExportResultBodyTest {
                 4,
                 1);
         assertEquals(
-                DlqExportStateV1.UNCERTAIN, DlqExportResultBody.decode(unknown).resultingState());
+                DlqExportState.UNCERTAIN, DlqExportResultBody.decode(unknown).resultingState());
 
         final byte[] badEvidence = body(
                 shard,
@@ -298,7 +298,7 @@ class DlqExportResultBodyTest {
                 0,
                 new byte[0]);
         return CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.bytes(output, 1, new ShardSubjectV1(shard).canonicalBytes());
+            CanonicalProtobuf.bytes(output, 1, new ShardSubject(shard).canonicalBytes());
             CanonicalProtobuf.uint32(output, 2, SystemMutationType.DLQ_EXPORT_RESULT.wireValue());
             CanonicalProtobuf.int64(output, 3, 9_000);
             CanonicalProtobuf.bytes(output, 10, exportId);
@@ -359,19 +359,17 @@ class DlqExportResultBodyTest {
             CanonicalProtobuf.uint64(output, 3, 1);
             CanonicalProtobuf.uint64(output, 5, 1_001);
             CanonicalProtobuf.bytes(
-                    output, 6, ExternalDeliveryIdentityV1.dlqExport(exportId).canonicalBytes());
+                    output, 6, ExternalDeliveryIdentity.dlqExport(exportId).canonicalBytes());
             CanonicalProtobuf.bytes(output, 7, nonZero(32, 12));
             CanonicalProtobuf.bytes(output, 8, nonZero(32, 13));
         });
-        return PublishEvidenceV1.create(
-                        PublishEvidenceKindV1.KAFKA_PRODUCE_ACK,
-                        EvidenceVerificationStatusV1.VERIFIED_PUBLISHED,
-                        branch)
+        return PublishEvidence.create(
+                        PublishEvidenceKind.KAFKA_PRODUCE_ACK, EvidenceVerificationStatus.VERIFIED_PUBLISHED, branch)
                 .canonicalBytes();
     }
 
     private static byte[] kafkaResource() {
-        return BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+        return BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(
                         "cluster-a", java.util.UUID.nameUUIDFromBytes(Bytes.utf8("topic"))))
                 .canonicalBytes();
     }

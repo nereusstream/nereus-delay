@@ -5,17 +5,17 @@ import java.util.Objects;
 import java.util.function.Consumer;
 
 /**
- * Local composition seam for the V1 Worker event loop.
+ * Local composition seam for the Worker event loop.
  *
  * <p>{@link WorkClassScheduler} owns queue fairness and
- * {@link WorkClassResourcePool} owns shared record/byte tokens.  This class
+ * {@link WorkClassResourcePool} owns shared record/byte tokens. This class
  * binds them at the bounded-turn boundary: tokens are acquired immediately
  * before a task leaves its queue, and the returned {@link Turn} must be closed
- * before another turn can be polled.  A failed acquisition restores the
+ * before another turn can be polled. A failed acquisition restores the
  * scheduler queue and releases any tokens acquired earlier in that poll.</p>
  *
  * <p>The class does not execute callbacks, perform RocksDB writes, or claim
- * Oxia authority.  Production code must perform those actions while holding a
+ * Oxia authority. Production code must perform those actions while holding a
  * turn and keep the external write/admission authorities around this local
  * seam.</p>
  */
@@ -74,11 +74,11 @@ public final class WorkClassEventLoop {
      * Runs one bounded turn and always closes its resource leases.
      *
      * <p>The callback executes outside the event-loop monitor, so producers
-     * may offer later work while this bounded chunk is running.  A callback
+     * may offer later work while this bounded chunk is running. A callback
      * failure does not leave the selected chunk's shared capacity borrowed:
-     * the turn is closed before the original failure is rethrown.  The
+     * the turn is closed before the original failure is rethrown. The
      * callback is still responsible for keeping its own RocksDB/Oxia and
-     * external I/O operations within the V1 chunk boundary.</p>
+     * external I/O operations within the chunk boundary.</p>
      */
     public void runTurn(final SchedulerBudget budget, final Consumer<WorkClassTask> executor) {
         Objects.requireNonNull(executor, "executor");
@@ -227,7 +227,7 @@ public final class WorkClassEventLoop {
         private final List<WorkClassTask> tasks;
         private final List<WorkClassResourcePool.ResourceLease> leases;
         /**
-         * Poll reads this while holding the event-loop monitor.  Keep the read
+         * Poll reads this while holding the event-loop monitor. Keep the read
          * lock-free: close holds the Turn monitor and later enters the event
          * loop to clear {@code activeTurn}, so taking the Turn monitor from
          * poll would invert that order and deadlock concurrent close/poll.
@@ -278,7 +278,7 @@ public final class WorkClassEventLoop {
         }
 
         /**
-         * Releases all tokens exactly once.  Hold-time/clock violations are
+         * Releases all tokens exactly once. Hold-time/clock violations are
          * reported after every lease has been released so a failed close does
          * not strand shared capacity.
          */

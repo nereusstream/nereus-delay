@@ -9,7 +9,7 @@ import java.util.Objects;
  * native reservations.
  *
  * <p>Each allocation has an immutable identity and must be released through
- * its returned handle.  This makes shared cache/WBM reservations and later
+ * its returned handle. This makes shared cache/WBM reservations and later
  * per-DB observations auditable without allowing a caller to count one
  * allocation twice or treat an overflow as unlimited capacity.</p>
  */
@@ -75,7 +75,7 @@ public final class WorkerNativeResourceLedger {
         if (current != reservation) {
             throw new IllegalStateException("native allocation is not active: " + reservation.allocationId);
         }
-        // Compute both successor buckets before changing the identity map.  A
+        // Compute both successor buckets before changing the identity map. A
         // corrupted or otherwise inconsistent projection must leave the
         // reservation active so a later close can retry; removing it first
         // would make the failed release look completed while leaking capacity

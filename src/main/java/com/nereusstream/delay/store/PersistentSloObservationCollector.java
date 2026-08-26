@@ -2,8 +2,8 @@ package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.SloObservationOutboxV1;
-import com.nereusstream.delay.protocol.SloThresholdDirectionV1;
+import com.nereusstream.delay.protocol.SloObservationOutbox;
+import com.nereusstream.delay.protocol.SloThresholdDirection;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -24,9 +24,9 @@ import java.util.Objects;
  * Crash-durable local projection of the at-least-once SLO collector merge.
  *
  * <p>The state file retains the exact canonical outbox projection for every
- * sample in deterministic sample-id order.  Each operation rereads the file
+ * sample in deterministic sample-id order. Each operation rereads the file
  * while holding a JVM and on-disk lock, then publishes a replacement through
- * a checksummed temporary file, atomic rename and directory fsync.  This is
+ * a checksummed temporary file, atomic rename and directory fsync. This is
  * an embedded durability seam; it is not the production collector's
  * authorization, rolling-window policy or metric publication authority.</p>
  */
@@ -38,7 +38,7 @@ public final class PersistentSloObservationCollector {
     private static final int MAX_STATE_BYTES = 64 * 1024 * 1024;
     private static final int MAX_SAMPLE_BYTES = 8 * 1024 * 1024;
     private static final int MAX_SAMPLES = 65_536;
-    private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-slo-collector-state-v1\0");
+    private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-slo-collector-state\0");
     private static final Object JVM_LOCK = new Object();
 
     private final Path stateFile;
@@ -63,19 +63,18 @@ public final class PersistentSloObservationCollector {
     }
 
     /** Merges one exported outbox record and durably publishes the result. */
-    public SloObservationOutboxV1 merge(
-            final SloObservationOutboxV1 incoming, final SloThresholdDirectionV1 direction) {
+    public SloObservationOutbox merge(final SloObservationOutbox incoming, final SloThresholdDirection direction) {
         Objects.requireNonNull(incoming, "incoming");
         Objects.requireNonNull(direction, "direction");
         return mutate(() -> delegate.merge(incoming, direction));
     }
 
     /** Returns a deterministic sample projection sorted by canonical sample ID. */
-    public List<SloObservationOutboxV1> snapshot() {
+    public List<SloObservationOutbox> snapshot() {
         return read(delegate::snapshot);
     }
 
-    public SloObservationOutboxV1 get(final byte[] sampleId) {
+    public SloObservationOutbox get(final byte[] sampleId) {
         return read(() -> delegate.get(sampleId));
     }
 
@@ -90,7 +89,7 @@ public final class PersistentSloObservationCollector {
     private <T> T mutate(final IoAction<T> action) {
         return withExclusiveLock(() -> {
             delegate = load();
-            final List<SloObservationOutboxV1> before = delegate.snapshot();
+            final List<SloObservationOutbox> before = delegate.snapshot();
             try {
                 final T result = action.run();
                 persist(delegate.snapshot());
@@ -121,15 +120,15 @@ public final class PersistentSloObservationCollector {
         return decodeState(encoded);
     }
 
-    private SloObservationCollector rebuild(final List<SloObservationOutboxV1> values) {
+    private SloObservationCollector rebuild(final List<SloObservationOutbox> values) {
         final SloObservationCollector result = new SloObservationCollector(limits);
-        for (SloObservationOutboxV1 value : values) {
+        for (SloObservationOutbox value : values) {
             result.merge(value, value.start().objective().requiredDirection());
         }
         return result;
     }
 
-    private void persist(final List<SloObservationOutboxV1> values) throws IOException {
+    private void persist(final List<SloObservationOutbox> values) throws IOException {
         ensureParentDirectory();
         rejectSymbolicLink(stateFile, "SLO collector state");
         final byte[] payload = encodeSnapshot(values);
@@ -220,16 +219,16 @@ public final class PersistentSloObservationCollector {
         LocalStatePathGuard.ensureRealDirectoryPath(parent, "SLO collector state parent");
     }
 
-    private static byte[] encodeSnapshot(final List<SloObservationOutboxV1> values) {
+    private static byte[] encodeSnapshot(final List<SloObservationOutbox> values) {
         Objects.requireNonNull(values, "values");
-        final List<SloObservationOutboxV1> sorted = new ArrayList<>(values);
+        final List<SloObservationOutbox> sorted = new ArrayList<>(values);
         sorted.sort(Comparator.comparing(value -> Bytes.hex(value.sampleId())));
         if (sorted.size() > MAX_SAMPLES) {
             throw new IllegalStateException("SLO collector sample count exceeds bound");
         }
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, FORMAT_VERSION);
-            for (SloObservationOutboxV1 value : sorted) {
+            for (SloObservationOutbox value : sorted) {
                 final byte[] sample = value.canonicalBytes();
                 if (sample.length > MAX_SAMPLE_BYTES) {
                     throw new IllegalStateException("SLO collector sample exceeds bound");
@@ -260,14 +259,14 @@ public final class PersistentSloObservationCollector {
         if (!Bytes.constantTimeEquals(digest, Bytes.sha256(DIGEST_DOMAIN, payload))) {
             throw new IllegalStateException("SLO collector state checksum mismatch");
         }
-        final List<SloObservationOutboxV1> values = decodePayload(payload);
+        final List<SloObservationOutbox> values = decodePayload(payload);
         if (!Arrays.equals(payload, encodeSnapshot(values))) {
             throw new IllegalStateException("SLO collector state is not canonical");
         }
         return rebuild(values);
     }
 
-    private static List<SloObservationOutboxV1> decodePayload(final byte[] payload) {
+    private static List<SloObservationOutbox> decodePayload(final byte[] payload) {
         final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(payload, true);
         final List<CanonicalProtobuf.Reader.Field> fields = new ArrayList<>();
         while (reader.hasRemaining()) {
@@ -276,7 +275,7 @@ public final class PersistentSloObservationCollector {
         if (fields.isEmpty() || fields.get(0).number() != 1 || uint32(fields.get(0), 1) != FORMAT_VERSION) {
             throw new IllegalStateException("SLO collector snapshot has invalid version field");
         }
-        final List<SloObservationOutboxV1> values = new ArrayList<>();
+        final List<SloObservationOutbox> values = new ArrayList<>();
         String previousId = null;
         for (int index = 1; index < fields.size(); index++) {
             if (fields.get(index).number() != 2) {
@@ -286,7 +285,7 @@ public final class PersistentSloObservationCollector {
             if (sampleBytes.length > MAX_SAMPLE_BYTES) {
                 throw new IllegalStateException("SLO collector sample exceeds bound");
             }
-            final SloObservationOutboxV1 value = SloObservationOutboxV1.decode(sampleBytes);
+            final SloObservationOutbox value = SloObservationOutbox.decode(sampleBytes);
             final String currentId = Bytes.hex(value.sampleId());
             if (previousId != null && previousId.compareTo(currentId) >= 0) {
                 throw new IllegalStateException("SLO collector samples are not strictly sorted");

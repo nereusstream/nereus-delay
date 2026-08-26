@@ -12,8 +12,8 @@ import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.PublishEvidenceKindV1;
-import com.nereusstream.delay.protocol.PublishEvidenceV1;
+import com.nereusstream.delay.protocol.PublishEvidence;
+import com.nereusstream.delay.protocol.PublishEvidenceKind;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import java.lang.reflect.InvocationTargetException;
@@ -339,8 +339,8 @@ public final class KafkaClientArtifactTransactionalSmoke {
             throw new IllegalStateException(
                     label + " was not published: " + result.disposition() + "/" + result.stableCode());
         }
-        final PublishEvidenceV1 evidence = PublishEvidenceV1.decode(result.evidence());
-        if (evidence.evidenceKind() != PublishEvidenceKindV1.KAFKA_TRANSACTIONAL_RECEIPT) {
+        final PublishEvidence evidence = PublishEvidence.decode(result.evidence());
+        if (evidence.evidenceKind() != PublishEvidenceKind.KAFKA_TRANSACTIONAL_RECEIPT) {
             throw new IllegalStateException(label + " did not return KAFKA_TRANSACTIONAL_RECEIPT evidence");
         }
         evidence.requireBusinessMutation(result.externalDeliveryIdentity(), true);

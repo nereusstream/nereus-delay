@@ -22,20 +22,20 @@ import com.nereusstream.delay.ownership.WorkerAssignmentAuthority;
 import com.nereusstream.delay.ownership.WorkerAssignmentCoordinator;
 import com.nereusstream.delay.ownership.WorkerShardRuntime;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CapacityDimensionV1;
-import com.nereusstream.delay.protocol.CapacityVectorV1;
-import com.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
+import com.nereusstream.delay.protocol.CapacityDimension;
+import com.nereusstream.delay.protocol.CapacityVector;
+import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
-import com.nereusstream.delay.protocol.QuotaGrantRefV1;
+import com.nereusstream.delay.protocol.QuotaGrantRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
 import com.nereusstream.delay.protocol.StableCode;
@@ -162,7 +162,7 @@ public final class KafkaClientArtifactMutationWorkerSmoke {
                                 System.currentTimeMillis(),
                                 LEASE_DURATION_MS)
                         .orElseThrow();
-                final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshot(shard);
+                final CompatibleControlSnapshot controlSnapshot = controlSnapshot(shard);
                 final Path root = Files.createTempDirectory("nereus-delay-kafka-mutation-worker-");
                 try {
                     final ShardStoreConfig storeConfig = ShardStoreConfig.defaults(root);
@@ -175,7 +175,7 @@ public final class KafkaClientArtifactMutationWorkerSmoke {
                         final OwnedDelayShard ownedShard = new OwnedDelayShard(
                                 delayShard,
                                 lease,
-                                new OwnerIdentityV1(
+                                new OwnerIdentity(
                                         bytes(16, 70),
                                         bytes(16, 71),
                                         lease.ownerEpoch(),
@@ -333,7 +333,7 @@ public final class KafkaClientArtifactMutationWorkerSmoke {
             final OxiaOwnerLeaseStore authority,
             final OwnedDelayShard ownedShard,
             final KeyPair verificationKey,
-            final CompatibleControlSnapshotV1 controlSnapshot,
+            final CompatibleControlSnapshot controlSnapshot,
             final WorkClassExecutionRegistry workClasses,
             final SystemMutation expectedMutation,
             final KafkaSourcePosition expectedPosition) {
@@ -466,7 +466,7 @@ public final class KafkaClientArtifactMutationWorkerSmoke {
                 null);
         final int keyVersion = 1;
         final byte[] proofId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                Bytes.utf8("nereus-delay-time-fence-proof\0"),
                 shard.routeIncarnation().bytes(),
                 Bytes.u32beBits(shard.partition()),
                 Bytes.i64be(closeThrough),
@@ -474,7 +474,7 @@ public final class KafkaClientArtifactMutationWorkerSmoke {
                 Bytes.lp32(evidence.canonicalBytes()));
         final byte[] body = com.nereusstream.delay.protocol.CanonicalProtobuf.message(output -> {
             com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(
-                    output, 1, new ShardSubjectV1(shard).canonicalBytes());
+                    output, 1, new ShardSubject(shard).canonicalBytes());
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(
                     output, 2, SystemMutationType.TIME_FENCE.wireValue());
             com.nereusstream.delay.protocol.CanonicalProtobuf.int64(output, 3, retryUntil);
@@ -525,7 +525,7 @@ public final class KafkaClientArtifactMutationWorkerSmoke {
         final WorkerPlacementPolicy.WorkerCandidate candidate = new WorkerPlacementPolicy.WorkerCandidate(
                 "kafka-mutation-worker",
                 capacity(1),
-                CapacityVectorV1.empty(),
+                CapacityVector.empty(),
                 0,
                 16,
                 0,
@@ -541,8 +541,8 @@ public final class KafkaClientArtifactMutationWorkerSmoke {
                 1,
                 List.of(candidate),
                 capacity(1),
-                CapacityVectorV1.empty(),
-                CapacityVectorV1.empty(),
+                CapacityVector.empty(),
+                CapacityVector.empty(),
                 null,
                 now,
                 0,
@@ -557,10 +557,10 @@ public final class KafkaClientArtifactMutationWorkerSmoke {
         return accepted;
     }
 
-    private static CapacityVectorV1 capacity(final long dbInstances) {
-        final long[] values = new long[CapacityDimensionV1.COUNT];
-        values[CapacityDimensionV1.DB_INSTANCES.wireValue() - 1] = dbInstances;
-        return new CapacityVectorV1(values);
+    private static CapacityVector capacity(final long dbInstances) {
+        final long[] values = new long[CapacityDimension.COUNT];
+        values[CapacityDimension.DB_INSTANCES.wireValue() - 1] = dbInstances;
+        return new CapacityVector(values);
     }
 
     private static GuardedConsumer<byte[], byte[]> workerConsumer(
@@ -609,16 +609,16 @@ public final class KafkaClientArtifactMutationWorkerSmoke {
         return new KafkaProducer<>(configuration, new ByteArraySerializer(), new ByteArraySerializer());
     }
 
-    private static com.nereusstream.delay.runtime.V1ScheduleResolver scheduleResolver() {
-        final byte[] tuple = Bytes.utf8("kafka-mutation-worker-canonical-lane-tuple-v1");
+    private static com.nereusstream.delay.runtime.ScheduleResolver scheduleResolver() {
+        final byte[] tuple = Bytes.utf8("kafka-mutation-worker-canonical-lane-tuple");
         final com.nereusstream.delay.protocol.DestinationLaneId lane =
                 com.nereusstream.delay.protocol.DestinationLaneId.derive(tuple);
-        return new com.nereusstream.delay.runtime.V1ScheduleResolver() {
+        return new com.nereusstream.delay.runtime.ScheduleResolver() {
             @Override
             public ResolvedSchedule resolveSchedule(
                     final ShardId shard,
                     final com.nereusstream.delay.protocol.DelayMessageId message,
-                    final com.nereusstream.delay.protocol.ScheduleIntentV1 intent,
+                    final com.nereusstream.delay.protocol.CanonicalScheduleIntent intent,
                     final com.nereusstream.delay.protocol.SourcePosition source) {
                 return new ResolvedSchedule(lane, tuple, intent.inlinePayload(), null);
             }
@@ -627,19 +627,19 @@ public final class KafkaClientArtifactMutationWorkerSmoke {
             public ResolvedPrepare resolvePrepare(
                     final ShardId shard,
                     final com.nereusstream.delay.protocol.DelayMessageId message,
-                    final com.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1 body,
+                    final com.nereusstream.delay.protocol.PrepareLargeScheduleBody body,
                     final com.nereusstream.delay.protocol.SourcePosition source) {
                 return new ResolvedPrepare(lane, tuple);
             }
         };
     }
 
-    private static CompatibleControlSnapshotV1 controlSnapshot(final ShardId shard) {
-        return new CompatibleControlSnapshotV1(
-                new ShardSubjectV1(shard),
-                List.of(new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1)),
-                List.of(new ProfileRefV1(bytes(32, 50), 1, bytes(32, 51), ProfileKindV1.DESTINATION)),
-                new QuotaGrantRefV1(
+    private static CompatibleControlSnapshot controlSnapshot(final ShardId shard) {
+        return new CompatibleControlSnapshot(
+                new ShardSubject(shard),
+                List.of(new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1)),
+                List.of(new ProfileRef(bytes(32, 50), 1, bytes(32, 51), ProfileKind.DESTINATION)),
+                new QuotaGrantRef(
                         bytes(32, 52),
                         1,
                         new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));

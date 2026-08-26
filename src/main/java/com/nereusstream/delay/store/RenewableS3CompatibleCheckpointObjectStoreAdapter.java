@@ -1,13 +1,13 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CredentialBindingHeadV1;
-import com.nereusstream.delay.protocol.CredentialBindingProtectionV1;
-import com.nereusstream.delay.protocol.CredentialBindingV1;
-import com.nereusstream.delay.protocol.CredentialUseKindV1;
-import com.nereusstream.delay.protocol.CredentialUseLeaseV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
+import com.nereusstream.delay.protocol.CredentialBinding;
+import com.nereusstream.delay.protocol.CredentialBindingHead;
+import com.nereusstream.delay.protocol.CredentialBindingProtection;
+import com.nereusstream.delay.protocol.CredentialUseKind;
+import com.nereusstream.delay.protocol.CredentialUseLease;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.CredentialProfileAuthority;
 import java.nio.file.Path;
@@ -31,8 +31,8 @@ public final class RenewableS3CompatibleCheckpointObjectStoreAdapter
     private final ObjectStoreCredentialUseLeaseGate gate;
     private final CredentialProfileAuthority authority;
     private final OxiaObjectStoreCredentialLeaseActivator.CredentialMaterialResolver materialResolver;
-    private final ProfileSemanticEnvelopeV1 profile;
-    private final CredentialBindingV1 binding;
+    private final ProfileSemanticEnvelope profile;
+    private final CredentialBinding binding;
     private final byte[] holderScopeDigest;
     private final long maximumLeaseTtlMs;
     private final long maximumAttestationAgeMs;
@@ -45,8 +45,8 @@ public final class RenewableS3CompatibleCheckpointObjectStoreAdapter
             final ObjectStoreCredentialUseLeaseGate gate,
             final CredentialProfileAuthority authority,
             final OxiaObjectStoreCredentialLeaseActivator.CredentialMaterialResolver materialResolver,
-            final ProfileSemanticEnvelopeV1 profile,
-            final CredentialBindingV1 binding,
+            final ProfileSemanticEnvelope profile,
+            final CredentialBinding binding,
             final byte[] holderScopeDigest,
             final long maximumLeaseTtlMs,
             final long maximumAttestationAgeMs,
@@ -59,7 +59,7 @@ public final class RenewableS3CompatibleCheckpointObjectStoreAdapter
         this.materialResolver = Objects.requireNonNull(materialResolver, "materialResolver");
         this.profile = requireObjectStoreProfile(profile);
         this.binding = Objects.requireNonNull(binding, "binding");
-        Bytes.requireLength(holderScopeDigest, CredentialUseLeaseV1.HASH_LENGTH, "holderScopeDigest");
+        Bytes.requireLength(holderScopeDigest, CredentialUseLease.HASH_LENGTH, "holderScopeDigest");
         this.holderScopeDigest = Bytes.copy(holderScopeDigest);
         if (maximumLeaseTtlMs <= 0
                 || maximumAttestationAgeMs <= 0
@@ -78,7 +78,7 @@ public final class RenewableS3CompatibleCheckpointObjectStoreAdapter
     }
 
     @Override
-    public synchronized com.nereusstream.delay.protocol.CheckpointResourceV1 upload(
+    public synchronized com.nereusstream.delay.protocol.CheckpointResource upload(
             final CheckpointUploadRequest request) {
         requireProviderAdmission();
         renewIfNeeded();
@@ -93,7 +93,7 @@ public final class RenewableS3CompatibleCheckpointObjectStoreAdapter
     }
 
     /** Returns the current local lease projection without reading the authority. */
-    public CredentialUseLeaseV1 lease() {
+    public CredentialUseLease lease() {
         return gate.lease();
     }
 
@@ -121,17 +121,17 @@ public final class RenewableS3CompatibleCheckpointObjectStoreAdapter
         if (gate.validUntilEpochMs() - now > renewBeforeMs) {
             return;
         }
-        final ProfileSemanticEnvelopeV1 currentProfile = authority.resolve(profile.ref());
+        final ProfileSemanticEnvelope currentProfile = authority.resolve(profile.ref());
         if (currentProfile == null || !currentProfile.equals(profile)) {
             throw new IllegalStateException("Object Store Profile authority changed during renewal");
         }
-        final CredentialBindingHeadV1 head = Objects.requireNonNull(
+        final CredentialBindingHead head = Objects.requireNonNull(
                 authority.resolveHead(profile.ref()), "Object Store Profile has no renewal Head");
         if (head.secretGeneration() != binding.secretGeneration()
                 || !Bytes.constantTimeEquals(head.bindingDigest(), binding.bindingDigest())) {
             throw new IllegalStateException("Object Store credential rotation requires adapter quiescence");
         }
-        final CredentialBindingV1 currentBinding = Objects.requireNonNull(
+        final CredentialBinding currentBinding = Objects.requireNonNull(
                 authority.resolveBinding(profile.ref(), head.secretGeneration()),
                 "Object Store Profile has no renewal binding");
         if (!currentBinding.equals(binding)) {
@@ -159,10 +159,10 @@ public final class RenewableS3CompatibleCheckpointObjectStoreAdapter
         if (validUntil <= now) {
             throw new IllegalStateException("Object Store renewal evidence cannot produce a live lease");
         }
-        final CredentialUseLeaseV1 renewedLease = Objects.requireNonNull(
+        final CredentialUseLease renewedLease = Objects.requireNonNull(
                 authority.issueCredentialUseLease(
                         profile.ref(),
-                        CredentialUseKindV1.OBJECT_STORE_ADAPTER,
+                        CredentialUseKind.OBJECT_STORE_ADAPTER,
                         holderScopeDigest,
                         binding.secretGeneration(),
                         binding.bindingDigest(),
@@ -171,7 +171,7 @@ public final class RenewableS3CompatibleCheckpointObjectStoreAdapter
                         validUntil,
                         head.headRevision()),
                 "Object Store renewed credential lease");
-        final CredentialBindingProtectionV1 protection = Objects.requireNonNull(
+        final CredentialBindingProtection protection = Objects.requireNonNull(
                 authority.resolveProtection(profile.ref(), renewedLease.secretGeneration()),
                 "Object Store renewed protection");
         renewedLease.requireBinding(binding);
@@ -186,9 +186,9 @@ public final class RenewableS3CompatibleCheckpointObjectStoreAdapter
         }
     }
 
-    private static ProfileSemanticEnvelopeV1 requireObjectStoreProfile(final ProfileSemanticEnvelopeV1 value) {
-        final ProfileSemanticEnvelopeV1 profile = Objects.requireNonNull(value, "profile");
-        if (profile.profileKind() != ProfileKindV1.OBJECT_STORE) {
+    private static ProfileSemanticEnvelope requireObjectStoreProfile(final ProfileSemanticEnvelope value) {
+        final ProfileSemanticEnvelope profile = Objects.requireNonNull(value, "profile");
+        if (profile.profileKind() != ProfileKind.OBJECT_STORE) {
             throw new IllegalArgumentException("renewable adapter requires an OBJECT_STORE Profile");
         }
         return profile;

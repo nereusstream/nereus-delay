@@ -44,7 +44,7 @@ public final class SystemMutationBodyCodec {
         if (fields.isEmpty() || fields.get(0).number() != 1 || fields.get(0).wireType() != 2) {
             throw new IllegalArgumentException("System Mutation body subject field is missing");
         }
-        return ShardSubjectV1.decode(fields.get(0).rawValue()).shardId();
+        return ShardSubject.decode(fields.get(0).rawValue()).shardId();
     }
 
     /** Rejects a message identity whose self-routing Shard differs from the body subject. */

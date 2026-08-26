@@ -5,7 +5,7 @@ import com.nereusstream.delay.protocol.SourcePosition;
 /**
  * One record from the single source-ordered Shard Log replay stream.
  *
- * <p>Commands and signed System Mutations share one source cursor.  Keeping
+ * <p>Commands and signed System Mutations share one source cursor. Keeping
  * the entry boundary typed prevents a caller from replaying the two record
  * kinds through independent streams and accidentally changing their relative
  * order.</p>

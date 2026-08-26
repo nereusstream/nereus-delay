@@ -1,17 +1,17 @@
 package com.nereusstream.delay.ownership;
 
-import com.nereusstream.delay.protocol.AdapterKindV1;
+import com.nereusstream.delay.protocol.AdapterKind;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.ChannelResourceIdentityV1;
-import com.nereusstream.delay.protocol.ClaimMaterializationV1;
+import com.nereusstream.delay.protocol.ChannelResourceIdentity;
+import com.nereusstream.delay.protocol.ClaimMaterialization;
 import com.nereusstream.delay.protocol.ClaimResultBody;
 import com.nereusstream.delay.protocol.DeliveryMode;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.PreparedPublishDescriptorV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.PreparedPublishDescriptor;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
-import com.nereusstream.delay.protocol.ReadyCertificateV1;
-import com.nereusstream.delay.protocol.ReservedPublishMetadataV1;
+import com.nereusstream.delay.protocol.ReadyCertificate;
+import com.nereusstream.delay.protocol.ReservedPublishMetadata;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
@@ -29,15 +29,15 @@ import java.util.function.LongSupplier;
 /**
  * Bounded Claim-to-PUBLISH_ADMISSION handoff.
  *
- * <p>The exact mutation is prepared and signed before queue admission.  The
+ * <p>The exact mutation is prepared and signed before queue admission. The
  * bounded action rechecks the Owner/Claim boundary, asks the injected live
- * prerequisite gate, and then calls the external Shard Log appender.  It never
+ * prerequisite gate, and then calls the external Shard Log appender. It never
  * calls {@code DelayShard.applySystemMutation}; only the source-ordered
  * {@link SourceApplyWorkClassExecutor} may apply a mutation and advance the
  * local Source Position.</p>
  */
 public final class PublishAdmissionWorkClassExecutor {
-    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-publish-admission-handoff-task-v1\0");
+    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-publish-admission-handoff-task\0");
 
     private final WorkClassExecutionRegistry workClasses;
     private final OwnedDelayShard ownedShard;
@@ -78,8 +78,8 @@ public final class PublishAdmissionWorkClassExecutor {
     public Submission submit(
             final ClaimRecord claim,
             final ClaimExecutionAdmission.Reservation reservation,
-            final ChannelResourceIdentityV1 channel,
-            final ReadyCertificateV1 readyCertificate,
+            final ChannelResourceIdentity channel,
+            final ReadyCertificate readyCertificate,
             final TrustedUtcIntervalEvidence decisionTime,
             final long retryUntilEpochMs,
             final int signingKeyVersion,
@@ -99,14 +99,14 @@ public final class PublishAdmissionWorkClassExecutor {
 
     /**
      * Prepares the exact canonical body/envelope and registers one bounded
-     * append action.  The Claim reservation remains active until the source
+     * append action. The Claim reservation remains active until the source
      * ordered Admission apply or an explicit Claim revoke releases it.
      */
     public Submission submit(
             final ClaimRecord claim,
             final ClaimExecutionAdmission.Reservation reservation,
-            final PreparedPublishDescriptorV1 descriptor,
-            final ReadyCertificateV1 readyCertificate,
+            final PreparedPublishDescriptor descriptor,
+            final ReadyCertificate readyCertificate,
             final TrustedUtcIntervalEvidence decisionTime,
             final long retryUntilEpochMs,
             final int signingKeyVersion,
@@ -134,19 +134,19 @@ public final class PublishAdmissionWorkClassExecutor {
         return submission;
     }
 
-    private static PreparedPublishDescriptorV1 deriveDescriptor(
-            final ClaimRecord claim, final ChannelResourceIdentityV1 channel) {
-        final ClaimMaterializationV1 materialization = claim.materialization();
+    private static PreparedPublishDescriptor deriveDescriptor(
+            final ClaimRecord claim, final ChannelResourceIdentity channel) {
+        final ClaimMaterialization materialization = claim.materialization();
         final ClaimResultBody.ClaimPrecondition precondition =
                 ClaimResultBody.decodePrecondition(claim.preconditionBytes());
         final long attemptNo = Math.addExact(Integer.toUnsignedLong(precondition.expectedAdmissionsUsed()), 1);
         final byte[] publishAttemptId = SystemMutation.computePublishAttemptLogicalIdentity(
                 claim.claimId(), claim.delayMessageId(), Integer.toUnsignedLong(claim.generation()), attemptNo);
-        final AdapterKindV1 adapterKind = materialization.targetResource().kind()
-                        == com.nereusstream.delay.protocol.BrokerResourceIdentityV1.Kind.KAFKA
-                ? AdapterKindV1.KAFKA
-                : AdapterKindV1.PULSAR;
-        final ReservedPublishMetadataV1 reserved = new ReservedPublishMetadataV1(
+        final AdapterKind adapterKind = materialization.targetResource().kind()
+                        == com.nereusstream.delay.protocol.BrokerResourceIdentity.Kind.KAFKA
+                ? AdapterKind.KAFKA
+                : AdapterKind.PULSAR;
+        final ReservedPublishMetadata reserved = new ReservedPublishMetadata(
                 claim.delayMessageId().routingId().shardId().routeIncarnation(),
                 claim.delayMessageId().routingId().shardId().unsignedPartition(),
                 claim.delayMessageId(),
@@ -156,7 +156,7 @@ public final class PublishAdmissionWorkClassExecutor {
                 materialization.capabilityProfile().semanticHash(),
                 materialization.deliverAtEpochMs(),
                 DeliveryMode.MANAGED);
-        return new PreparedPublishDescriptorV1(
+        return new PreparedPublishDescriptor(
                 adapterKind,
                 claim.laneId(),
                 claim.laneIncarnation(),
@@ -212,7 +212,7 @@ public final class PublishAdmissionWorkClassExecutor {
                     submission.complete(AdmissionHandoffResult.unknown(request.mutation, request.reservation, null));
             }
         } catch (RuntimeException failure) {
-            // A writer exception has no non-persistence proof.  Fence the
+            // A writer exception has no non-persistence proof. Fence the
             // owner and retain the exact mutation/Claim for evidence-driven
             // recovery; do not create a local retry with new bytes.
             ownedShard.fence();
@@ -233,8 +233,8 @@ public final class PublishAdmissionWorkClassExecutor {
             ClaimRecord claim,
             SystemMutation mutation,
             PublishAdmissionBody body,
-            PreparedPublishDescriptorV1 descriptor,
-            ReadyCertificateV1 readyCertificate,
+            PreparedPublishDescriptor descriptor,
+            ReadyCertificate readyCertificate,
             TrustedUtcIntervalEvidence decisionTime) {
         public AdmissionPrerequisite {
             Objects.requireNonNull(claim, "claim");
@@ -373,8 +373,8 @@ public final class PublishAdmissionWorkClassExecutor {
     private static final class Request {
         private final ClaimRecord claim;
         private final ClaimExecutionAdmission.Reservation reservation;
-        private final PreparedPublishDescriptorV1 descriptor;
-        private final ReadyCertificateV1 readyCertificate;
+        private final PreparedPublishDescriptor descriptor;
+        private final ReadyCertificate readyCertificate;
         private final TrustedUtcIntervalEvidence decisionTime;
         private final SystemMutation mutation;
         private final PublishAdmissionBody body;
@@ -383,8 +383,8 @@ public final class PublishAdmissionWorkClassExecutor {
         private Request(
                 final ClaimRecord claim,
                 final ClaimExecutionAdmission.Reservation reservation,
-                final PreparedPublishDescriptorV1 descriptor,
-                final ReadyCertificateV1 readyCertificate,
+                final PreparedPublishDescriptor descriptor,
+                final ReadyCertificate readyCertificate,
                 final TrustedUtcIntervalEvidence decisionTime,
                 final SystemMutation mutation,
                 final PublishAdmissionBody body,
@@ -402,8 +402,8 @@ public final class PublishAdmissionWorkClassExecutor {
         private static Request prepare(
                 final ClaimRecord claim,
                 final ClaimExecutionAdmission.Reservation reservation,
-                final PreparedPublishDescriptorV1 descriptor,
-                final ReadyCertificateV1 readyCertificate,
+                final PreparedPublishDescriptor descriptor,
+                final ReadyCertificate readyCertificate,
                 final TrustedUtcIntervalEvidence decisionTime,
                 final long retryUntilEpochMs,
                 final int signingKeyVersion,
@@ -412,8 +412,8 @@ public final class PublishAdmissionWorkClassExecutor {
             final ClaimRecord typedClaim = Objects.requireNonNull(claim, "claim");
             final ClaimExecutionAdmission.Reservation typedReservation =
                     Objects.requireNonNull(reservation, "reservation");
-            final PreparedPublishDescriptorV1 typedDescriptor = Objects.requireNonNull(descriptor, "descriptor");
-            final ReadyCertificateV1 typedCertificate = Objects.requireNonNull(readyCertificate, "readyCertificate");
+            final PreparedPublishDescriptor typedDescriptor = Objects.requireNonNull(descriptor, "descriptor");
+            final ReadyCertificate typedCertificate = Objects.requireNonNull(readyCertificate, "readyCertificate");
             final TrustedUtcIntervalEvidence typedDecision = Objects.requireNonNull(decisionTime, "decisionTime");
             Objects.requireNonNull(signingKey, "signingKey");
             Objects.requireNonNull(ownerClock, "ownerClock");
@@ -447,7 +447,7 @@ public final class PublishAdmissionWorkClassExecutor {
             if (!Arrays.equals(expectedAttempt, typedDescriptor.publishAttemptId())) {
                 throw new IllegalArgumentException("Prepared Publish attempt identity is not Claim-derived");
             }
-            final OwnerIdentityV1 owner = OwnerIdentityV1.decode(typedClaim.ownerIdentity());
+            final OwnerIdentity owner = OwnerIdentity.decode(typedClaim.ownerIdentity());
             if (!Arrays.equals(owner.canonicalBytes(), typedCertificate.ownerIdentity())
                     || !Arrays.equals(typedClaim.storeIncarnation(), typedCertificate.storeIncarnation())
                     || !Arrays.equals(typedClaim.laneId().bytes(), typedCertificate.destinationLaneId())

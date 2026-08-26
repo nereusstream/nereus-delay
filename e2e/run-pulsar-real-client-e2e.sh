@@ -251,7 +251,7 @@ trap cleanup EXIT INT TERM
 
 require_clean_pulsar_checkout() {
   test -z "$(git -C "${pulsar_dir}" status --porcelain)"
-  test "$(git -C "${pulsar_dir}" branch --show-current)" = "nereus/delay-resource-guard-v1"
+  test "$(git -C "${pulsar_dir}" branch --show-current)" = "nereus/delay-resource-guard"
   git -C "${pulsar_dir}" merge-base --is-ancestor \
     8dae0236c0a0d405ed7f8303081080520fe91551 HEAD
 }
@@ -456,7 +456,7 @@ if [[ "${worker_destination_response_loss_process_crash_only}" == "1" ]]; then
     exit 1
   fi
   if ! jq -e '
-        .schema == "nereus-delay-chaos-durable-state-dump-v1"
+        .schema == "nereus-delay-chaos-durable-state-dump"
         and .cell == "pulsar-worker-destination-response-loss-process-crash"
         and .phase == "DESTINATION_RESPONSE_LOSS_PERSISTED"
         and .attempt_state == "PUBLISHING"
@@ -492,7 +492,7 @@ if [[ "${worker_destination_response_loss_process_crash_only}" == "1" ]]; then
     "${worker_process_crash_resume_log}" \
     || { cat "${worker_process_crash_resume_log}" >&2; exit 1; }
   if ! jq -e '
-        .schema == "nereus-delay-chaos-durable-state-dump-v1"
+        .schema == "nereus-delay-chaos-durable-state-dump"
         and .cell == "pulsar-worker-destination-response-loss-process-crash"
         and .phase == "RECOVERED_AFTER_FRESH_PROCESS"
         and .attempt_state == "PUBLISHED"
@@ -574,7 +574,7 @@ if [[ "${worker_admission_response_loss_process_crash_only}" == "1" ]]; then
     exit 1
   fi
   if ! jq -e '
-        .schema == "nereus-delay-chaos-durable-state-dump-v1"
+        .schema == "nereus-delay-chaos-durable-state-dump"
         and .cell == "pulsar-worker-admission-response-loss-process-crash"
         and .phase == "ADMISSION_RESPONSE_LOSS_PERSISTED"
         and .attempt_state == "PUBLISHING"
@@ -613,7 +613,7 @@ if [[ "${worker_admission_response_loss_process_crash_only}" == "1" ]]; then
     exit 1
   fi
   if ! jq -e '
-        .schema == "nereus-delay-chaos-durable-state-dump-v1"
+        .schema == "nereus-delay-chaos-durable-state-dump"
         and .cell == "pulsar-worker-admission-response-loss-process-crash"
         and .phase == "RECOVERED_AFTER_FRESH_PROCESS"
         and .attempt_state == "PUBLISHED"
@@ -688,7 +688,7 @@ if [[ "${worker_process_crash_only}" == "1" ]]; then
     exit 1
   fi
   if ! jq -e '
-        .schema == "nereus-delay-chaos-durable-state-dump-v1"
+        .schema == "nereus-delay-chaos-durable-state-dump"
         and .cell == "pulsar-worker-process-crash"
         and .phase == "PULSAR_WORKER_PROCESS_CRASH_READY"
         and .source_record_prepared == true
@@ -720,7 +720,7 @@ if [[ "${worker_process_crash_only}" == "1" ]]; then
   rg -F --quiet "Pulsar Worker vertical smoke passed" "${worker_process_crash_resume_log}" \
     || { cat "${worker_process_crash_resume_log}" >&2; exit 1; }
   if ! jq -e '
-        .schema == "nereus-delay-chaos-durable-state-dump-v1"
+        .schema == "nereus-delay-chaos-durable-state-dump"
         and .cell == "pulsar-worker-process-crash"
         and .phase == "RECOVERED_AFTER_FRESH_PROCESS"
         and .source_record_prepared == true
@@ -827,7 +827,7 @@ if [[ "${source_ack_response_loss_process_crash_only}" == "1" ]]; then
   fi
   rg -F "Pulsar Worker source ACK response-loss process-crash cut reached" "${source_ack_process_crash_log}"
   if ! jq -e '
-        .schema == "nereus-delay-chaos-durable-state-dump-v1"
+        .schema == "nereus-delay-chaos-durable-state-dump"
         and .cell == "pulsar-source-ack-response-loss"
         and .phase == "SOURCE_ACK_RESPONSE_LOSS_PERSISTED"
         and (.source_ack_source_position | (type == "string" and length > 0))
@@ -878,7 +878,7 @@ if [[ "${source_ack_response_loss_process_crash_only}" == "1" ]]; then
   rg -F --quiet "Pulsar Worker vertical smoke passed" "${source_ack_process_resume_log}" \
     || { cat "${source_ack_process_resume_log}" >&2; exit 1; }
   if ! jq -e '
-        .schema == "nereus-delay-chaos-durable-state-dump-v1"
+        .schema == "nereus-delay-chaos-durable-state-dump"
         and .cell == "pulsar-source-ack-response-loss"
         and .phase == "RECOVERED_AFTER_FRESH_PROCESS"
         and (.physical_topic | (type == "string" and length > 0))

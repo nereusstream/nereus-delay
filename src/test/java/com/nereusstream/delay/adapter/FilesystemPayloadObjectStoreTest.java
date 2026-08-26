@@ -10,19 +10,19 @@ import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.LargeScheduleIntent;
-import com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
-import com.nereusstream.delay.protocol.ObjectStoreProviderKindV1;
+import com.nereusstream.delay.protocol.ObjectStoreProfileSemantic;
+import com.nereusstream.delay.protocol.ObjectStoreProviderKind;
 import com.nereusstream.delay.protocol.OrderingMode;
-import com.nereusstream.delay.protocol.PayloadAttestationOutcomeV1;
-import com.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
-import com.nereusstream.delay.protocol.PayloadProofVerifierKeyV1;
-import com.nereusstream.delay.protocol.PayloadUploadHandleOutcomeV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
+import com.nereusstream.delay.protocol.PayloadAttestationOutcome;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetSemantic;
+import com.nereusstream.delay.protocol.PayloadProofVerifierKey;
+import com.nereusstream.delay.protocol.PayloadUploadHandleOutcome;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.UploadHandleKindV1;
+import com.nereusstream.delay.protocol.UploadHandleKind;
 import com.nereusstream.delay.runtime.PayloadReservation;
 import com.nereusstream.delay.runtime.PayloadReservationStatus;
 import java.nio.file.Files;
@@ -41,8 +41,8 @@ class FilesystemPayloadObjectStoreTest {
     @Test
     void payloadSurvivesAdapterRestartAndProofBytesRemainStable() throws Exception {
         final KeyPair keyPair = keyPair();
-        final PayloadProofTrustSetSemanticV1 trust = trustSet(keyPair, 9_000);
-        final ProfileSemanticEnvelopeV1 profile = profile();
+        final PayloadProofTrustSetSemantic trust = trustSet(keyPair, 9_000);
+        final ProfileSemanticEnvelope profile = profile();
         final PayloadReservation reservation = reservation(5_000, Bytes.utf8("large"));
         final byte[] tenant = Bytes.sha256(Bytes.utf8("tenant"));
 
@@ -50,21 +50,21 @@ class FilesystemPayloadObjectStoreTest {
                 new FilesystemPayloadObjectStore(tempDir, profile, tenant, trust, 7, keyPair.getPrivate());
         first.register(reservation, trust.ref(), profile.ref());
         final var handle = first.issueUploadHandle(
-                        reservation.reservationId(), UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_000)
+                        reservation.reservationId(), UploadHandleKind.OPAQUE_SINGLE_PUT, 1_000)
                 .issued();
         first.upload(handle, Bytes.utf8("large"), 1_001);
         final var firstAttestation = first.attest(handle, 1_002);
-        assertEquals(PayloadAttestationOutcomeV1.ATTESTED, firstAttestation.outcome());
+        assertEquals(PayloadAttestationOutcome.ATTESTED, firstAttestation.outcome());
 
         final FilesystemPayloadObjectStore reopened =
                 new FilesystemPayloadObjectStore(tempDir, profile, tenant, trust, 7, keyPair.getPrivate());
         reopened.register(PayloadReservation.decode(reservation.encode()), trust.ref(), profile.ref());
         final var reopenedHandle = reopened.issueUploadHandle(
-                        reservation.reservationId(), UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_000)
+                        reservation.reservationId(), UploadHandleKind.OPAQUE_SINGLE_PUT, 1_000)
                 .issued();
         assertEquals(handle, reopenedHandle);
         final var reopenedAttestation = reopened.attest(reopenedHandle, 1_003);
-        assertEquals(PayloadAttestationOutcomeV1.ATTESTED, reopenedAttestation.outcome());
+        assertEquals(PayloadAttestationOutcome.ATTESTED, reopenedAttestation.outcome());
         assertArrayEquals(
                 firstAttestation.proof().canonicalBytes(),
                 reopenedAttestation.proof().canonicalBytes());
@@ -74,9 +74,9 @@ class FilesystemPayloadObjectStoreTest {
     void registryRegistrationRequiresExactPrepareAuthoritiesBeforeHandleOrFileState() throws Exception {
         final KeyPair adapterKey = keyPair();
         final KeyPair foreignKey = keyPair();
-        final PayloadProofTrustSetSemanticV1 adapterTrust = trustSet(adapterKey, 9_000);
-        final PayloadProofTrustSetSemanticV1 foreignTrust = trustSet(foreignKey, 9_000);
-        final ProfileSemanticEnvelopeV1 profile = profile();
+        final PayloadProofTrustSetSemantic adapterTrust = trustSet(adapterKey, 9_000);
+        final PayloadProofTrustSetSemantic foreignTrust = trustSet(foreignKey, 9_000);
+        final ProfileSemanticEnvelope profile = profile();
         final PayloadReservation reservation = reservation(5_000, Bytes.utf8("large"));
         final FilesystemPayloadObjectStore store = new FilesystemPayloadObjectStore(
                 tempDir, profile, Bytes.sha256(Bytes.utf8("tenant")), adapterTrust, 7, adapterKey.getPrivate());
@@ -85,13 +85,13 @@ class FilesystemPayloadObjectStoreTest {
         assertNotEquals(adapterTrust.ref(), foreignTrust.ref());
         assertThrows(
                 IllegalArgumentException.class, () -> store.register(reservation, foreignTrust.ref(), profile.ref()));
-        final ProfileRefV1 foreignProfile = new ProfileRefV1(
-                Bytes.utf8("foreign-object-store"), 1, profile.ref().semanticHash(), ProfileKindV1.OBJECT_STORE);
+        final ProfileRef foreignProfile = new ProfileRef(
+                Bytes.utf8("foreign-object-store"), 1, profile.ref().semanticHash(), ProfileKind.OBJECT_STORE);
         assertThrows(
                 IllegalArgumentException.class, () -> store.register(reservation, adapterTrust.ref(), foreignProfile));
         assertEquals(
-                PayloadUploadHandleOutcomeV1.NOT_FOUND_OR_NOT_AUTHORIZED,
-                store.issueUploadHandle(reservation.reservationId(), UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_000)
+                PayloadUploadHandleOutcome.NOT_FOUND_OR_NOT_AUTHORIZED,
+                store.issueUploadHandle(reservation.reservationId(), UploadHandleKind.OPAQUE_SINGLE_PUT, 1_000)
                         .outcome());
         try (var files = Files.walk(tempDir.resolve("objects"))) {
             assertEquals(0, files.filter(Files::isRegularFile).count());
@@ -104,7 +104,7 @@ class FilesystemPayloadObjectStoreTest {
     @Test
     void immutableConflictAndCorruptionFailClosed() throws Exception {
         final KeyPair keyPair = keyPair();
-        final ProfileSemanticEnvelopeV1 profile = profile();
+        final ProfileSemanticEnvelope profile = profile();
         final PayloadReservation reservation = reservation(5_000, Bytes.utf8("large"));
         final FilesystemPayloadObjectStore store = new FilesystemPayloadObjectStore(
                 tempDir,
@@ -115,7 +115,7 @@ class FilesystemPayloadObjectStoreTest {
                 keyPair.getPrivate());
         store.register(reservation);
         final var handle = store.issueUploadHandle(
-                        reservation.reservationId(), UploadHandleKindV1.OPAQUE_SINGLE_PUT, 1_000)
+                        reservation.reservationId(), UploadHandleKind.OPAQUE_SINGLE_PUT, 1_000)
                 .issued();
         store.upload(handle, Bytes.utf8("large"), 1_001);
         assertThrows(IllegalStateException.class, () -> store.upload(handle, Bytes.utf8("other"), 1_002));
@@ -127,7 +127,7 @@ class FilesystemPayloadObjectStoreTest {
                 .resolve(identity + ".payload");
         Files.write(object, Bytes.utf8("corrupt"));
         assertEquals(
-                PayloadAttestationOutcomeV1.OBJECT_IDENTITY_CONFLICT,
+                PayloadAttestationOutcome.OBJECT_IDENTITY_CONFLICT,
                 store.attest(handle, 1_003).outcome());
     }
 
@@ -153,9 +153,9 @@ class FilesystemPayloadObjectStoreTest {
                         keyPair.getPrivate()));
     }
 
-    private static ProfileSemanticEnvelopeV1 profile() {
-        final ObjectStoreProfileSemanticV1 body = new ObjectStoreProfileSemanticV1(
-                ObjectStoreProviderKindV1.S3,
+    private static ProfileSemanticEnvelope profile() {
+        final ObjectStoreProfileSemantic body = new ObjectStoreProfileSemantic(
+                ObjectStoreProviderKind.S3,
                 digest("endpoint"),
                 digest("credential-scope"),
                 1,
@@ -165,15 +165,15 @@ class FilesystemPayloadObjectStoreTest {
                 true,
                 digest("encryption"),
                 1_024,
-                ObjectStoreProfileSemanticV1.SINGLE_PUT,
+                ObjectStoreProfileSemantic.SINGLE_PUT,
                 1,
                 digest("lifecycle"));
-        return new ProfileSemanticEnvelopeV1(ProfileKindV1.OBJECT_STORE, Bytes.utf8("object-store"), 1, body);
+        return new ProfileSemanticEnvelope(ProfileKind.OBJECT_STORE, Bytes.utf8("object-store"), 1, body);
     }
 
-    private static PayloadProofTrustSetSemanticV1 trustSet(final KeyPair keyPair, final long notAfter) {
-        return new PayloadProofTrustSetSemanticV1(
-                9, List.of(PayloadProofVerifierKeyV1.fromPublicKey(7, keyPair.getPublic(), 0, notAfter)));
+    private static PayloadProofTrustSetSemantic trustSet(final KeyPair keyPair, final long notAfter) {
+        return new PayloadProofTrustSetSemantic(
+                9, List.of(PayloadProofVerifierKey.fromPublicKey(7, keyPair.getPublic(), 0, notAfter)));
     }
 
     private static PayloadReservation reservation(final long expiry, final byte[] payload) {

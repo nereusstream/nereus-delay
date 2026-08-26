@@ -10,7 +10,7 @@ import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
 /**
- * Process-local action registry for the bounded V1 work-class dispatcher.
+ * Process-local action registry for the bounded work-class dispatcher.
  *
  * <p>Each queue identity is registered with one exact synchronous action
  * before it is offered. Queue admission failure removes that registration.

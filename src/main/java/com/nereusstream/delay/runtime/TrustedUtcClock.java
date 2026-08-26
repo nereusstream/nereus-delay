@@ -4,12 +4,12 @@ import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.util.Objects;
 
 /**
- * Local Worker clock guard for the V1 Trusted UTC Interval contract.
+ * Local Worker clock guard for the Trusted UTC Interval contract.
  *
  * <p>The guard consumes approved interval samples and advances them with a
- * caller-supplied monotonic reading.  It never reads {@code currentTimeMillis}
+ * caller-supplied monotonic reading. It never reads {@code currentTimeMillis}
  * itself, so a caller cannot accidentally turn an unqualified wall clock into
- * a due or pre-expiry decision.  The external time source/signature authority
+ * a due or pre-expiry decision. The external time source/signature authority
  * remains outside this class.</p>
  */
 public final class TrustedUtcClock {
@@ -27,7 +27,7 @@ public final class TrustedUtcClock {
     }
 
     /**
-     * Installs one approved sample and returns its projected interval.  A
+     * Installs one approved sample and returns its projected interval. A
      * wide, regressing, stale or step-inconsistent sample closes the gate and
      * starts a fresh stabilization window instead of throwing a business
      * result or making an unsafe timing decision.
@@ -177,7 +177,7 @@ public final class TrustedUtcClock {
         return value <= amount ? 0 : value - amount;
     }
 
-    /** Required Worker clock safety bounds; values are deliberately not defaulted by V1. */
+    /** Required Worker clock safety bounds; values are deliberately not defaulted by the current design. */
     public record Config(
             long maxUncertaintyMs, long maxSampleAgeMs, long maxWallMonotonicDivergenceMs, long stabilizationWindowMs) {
         public Config {

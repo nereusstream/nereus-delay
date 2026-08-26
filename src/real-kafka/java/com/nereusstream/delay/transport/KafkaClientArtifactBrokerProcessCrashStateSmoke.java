@@ -183,40 +183,40 @@ public final class KafkaClientArtifactBrokerProcessCrashStateSmoke {
         Files.createDirectories(directory);
         final String fileName = phase.equals("before") ? "before-process-crash.json" : "after-fresh-process.json";
         final String json = "{\n"
-                + "  \"schema\": \"nereus-delay-chaos-durable-state-dump-v1\",\n"
-                + "  \"cell\": " + jsonString(boundary.cell()) + ",\n"
-                + "  \"phase\": " + jsonString(phase.equals("before") ? boundary.beforePhase() : boundary.afterPhase())
+                + " \"schema\": \"nereus-delay-chaos-durable-state-dump\",\n"
+                + " \"cell\": " + jsonString(boundary.cell()) + ",\n"
+                + " \"phase\": " + jsonString(phase.equals("before") ? boundary.beforePhase() : boundary.afterPhase())
                 + ",\n"
-                + "  \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
-                + "  \"topic\": " + jsonString(topic) + ",\n"
-                + "  \"cluster_id\": " + jsonString(clusterId) + ",\n"
-                + "  \"topic_id\": " + jsonString(topicId.toString()) + ",\n"
-                + "  \"partition\": 0,\n"
-                + "  \"leader_id\": " + state.leaderId() + ",\n"
-                + "  \"replica_ids\": " + jsonArray(state.replicaIds()) + ",\n"
-                + "  \"isr_ids\": " + jsonArray(state.isrBrokerIds()) + ",\n"
-                + "  \"live_broker_ids\": " + jsonArray(state.liveBrokerIds()) + ",\n"
-                + "  \"end_offset\": " + state.endOffset() + ",\n"
-                + "  \"broker_1_rejoined\": "
+                + " \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
+                + " \"topic\": " + jsonString(topic) + ",\n"
+                + " \"cluster_id\": " + jsonString(clusterId) + ",\n"
+                + " \"topic_id\": " + jsonString(topicId.toString()) + ",\n"
+                + " \"partition\": 0,\n"
+                + " \"leader_id\": " + state.leaderId() + ",\n"
+                + " \"replica_ids\": " + jsonArray(state.replicaIds()) + ",\n"
+                + " \"isr_ids\": " + jsonArray(state.isrBrokerIds()) + ",\n"
+                + " \"live_broker_ids\": " + jsonArray(state.liveBrokerIds()) + ",\n"
+                + " \"end_offset\": " + state.endOffset() + ",\n"
+                + " \"broker_1_rejoined\": "
                 + (boundary.cell().equals("kafka-broker-process-crash")
                         && phase.equals("after")
                         && state.liveBrokerIds().contains(CRASHED_BROKER_ID)
                         && state.isrBrokerIds().contains(CRASHED_BROKER_ID))
                 + ",\n"
-                + "  \"broker_1_recovery_observed\": "
+                + " \"broker_1_recovery_observed\": "
                 + (phase.equals("after")
                         && state.liveBrokerIds().contains(CRASHED_BROKER_ID)
                         && state.isrBrokerIds().contains(CRASHED_BROKER_ID))
                 + ",\n"
-                + "  \"leader_moved_without_broker_loss\": "
+                + " \"leader_moved_without_broker_loss\": "
                 + (boundary.cell().equals("kafka-broker-leader-failover")
                         && phase.equals("after")
                         && state.leaderId() == 2
                         && state.liveBrokerIds().contains(CRASHED_BROKER_ID)
                         && state.isrBrokerIds().contains(CRASHED_BROKER_ID))
                 + ",\n"
-                + "  \"durable_broker_read\": true,\n"
-                + "  \"dump_forced\": true\n"
+                + " \"durable_broker_read\": true,\n"
+                + " \"dump_forced\": true\n"
                 + "}\n";
         final Path target = directory.resolve(fileName);
         try (var channel = java.nio.channels.FileChannel.open(

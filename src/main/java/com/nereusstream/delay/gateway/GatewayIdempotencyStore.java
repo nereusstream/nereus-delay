@@ -1,7 +1,7 @@
 package com.nereusstream.delay.gateway;
 
-import com.nereusstream.delay.protocol.PreparedSubmissionV1;
-import com.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import com.nereusstream.delay.protocol.PreparedSubmission;
+import com.nereusstream.delay.protocol.SubmissionOutcomeMessage;
 import com.nereusstream.delay.semantic.TrustedClock;
 import com.nereusstream.delay.transport.Digest32;
 import com.nereusstream.delay.transport.GatewayAttemptOwnershipPermit;
@@ -12,9 +12,9 @@ import java.util.Objects;
 public interface GatewayIdempotencyStore {
     PrepareResult prepareIfAbsent(
             Digest32 keyHash,
-            GatewayOperationKindV1 operation,
+            GatewayOperationKind operation,
             Digest32 bodyHash,
-            PreparedSubmissionV1 submission,
+            PreparedSubmission submission,
             long retainUntilEpochMs);
 
     AttemptStart startAttempt(Digest32 keyHash);
@@ -22,10 +22,10 @@ public interface GatewayIdempotencyStore {
     RetryStart startRetry(
             Digest32 keyHash, PhysicalEnqueueAttemptId expectedPriorAttemptId, PhysicalEnqueueAttemptId retryRequestId);
 
-    GatewayIdempotencyRecordV1 finish(
-            Digest32 keyHash, PhysicalEnqueueAttemptId attemptId, SubmissionOutcomeMessageV1 outcome);
+    GatewayIdempotencyRecord finish(
+            Digest32 keyHash, PhysicalEnqueueAttemptId attemptId, SubmissionOutcomeMessage outcome);
 
-    GatewayIdempotencyRecordV1 exact(Digest32 keyHash);
+    GatewayIdempotencyRecord exact(Digest32 keyHash);
 
     enum PrepareState {
         CREATED,
@@ -33,14 +33,14 @@ public interface GatewayIdempotencyStore {
         CONFLICT
     }
 
-    record PrepareResult(PrepareState state, GatewayIdempotencyRecordV1 record) {
+    record PrepareResult(PrepareState state, GatewayIdempotencyRecord record) {
         public PrepareResult {
             Objects.requireNonNull(state, "state");
             Objects.requireNonNull(record, "record");
         }
     }
 
-    record AttemptStart(GatewayIdempotencyRecordV1 record, GatewayAttemptOwnershipPermit permit) {
+    record AttemptStart(GatewayIdempotencyRecord record, GatewayAttemptOwnershipPermit permit) {
         public AttemptStart {
             Objects.requireNonNull(record, "record");
         }
@@ -54,7 +54,7 @@ public interface GatewayIdempotencyStore {
         NOT_RETRYABLE
     }
 
-    record RetryStart(GatewayIdempotencyRecordV1 record, GatewayAttemptOwnershipPermit permit, RetryState state) {
+    record RetryStart(GatewayIdempotencyRecord record, GatewayAttemptOwnershipPermit permit, RetryState state) {
         public RetryStart {
             Objects.requireNonNull(record, "record");
             Objects.requireNonNull(state, "state");

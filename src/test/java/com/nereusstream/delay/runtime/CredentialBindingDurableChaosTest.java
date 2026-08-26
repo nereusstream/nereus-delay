@@ -11,14 +11,14 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CredentialBindingProtectionV1;
-import com.nereusstream.delay.protocol.CredentialBindingV1;
-import com.nereusstream.delay.protocol.CredentialEquivalenceAttestationV1;
-import com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
-import com.nereusstream.delay.protocol.ObjectStoreProviderKindV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
-import com.nereusstream.delay.protocol.RotateEquivalentSecretRequestV1;
+import com.nereusstream.delay.protocol.CredentialBinding;
+import com.nereusstream.delay.protocol.CredentialBindingProtection;
+import com.nereusstream.delay.protocol.CredentialEquivalenceAttestation;
+import com.nereusstream.delay.protocol.ObjectStoreProfileSemantic;
+import com.nereusstream.delay.protocol.ObjectStoreProviderKind;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
+import com.nereusstream.delay.protocol.RotateEquivalentSecretRequest;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.store.CheckpointManifestLimits;
 import com.nereusstream.delay.store.OxiaObjectStoreCredentialLeaseActivator;
@@ -56,7 +56,7 @@ class CredentialBindingDurableChaosTest {
     private static final String PHASE_ENV = "NEREUS_DELAY_CREDENTIAL_CHAOS_PHASE";
     private static final String PREFIX_ENV = "NEREUS_DELAY_CREDENTIAL_CHAOS_PREFIX";
     private static final String OXIA_ENV = "NEREUS_DELAY_OXIA_ENDPOINT";
-    private static final String SCHEMA = "nereus-delay-chaos-durable-state-dump-v1";
+    private static final String SCHEMA = "nereus-delay-chaos-durable-state-dump";
     private static final String CELL = "credential-binding-drift";
     private static final String FAULT = "CREDENTIAL_BINDING_ROTATION";
     private static final String BEFORE_PHASE = "BEFORE_FRESH_PROCESS_RECOVERY";
@@ -102,14 +102,14 @@ class CredentialBindingDurableChaosTest {
             final S3CompatibleCheckpointObjectStoreAdapter oldAdapter =
                     activate(authority, fixture.profile(), fixture.fingerprint(1), now, oldLeaseUntil);
             assertNotNull(oldAdapter);
-            final CredentialBindingProtectionV1 oldProtection =
+            final CredentialBindingProtection oldProtection =
                     authority.resolveProtection(fixture.profile().ref(), 1);
             assertNotNull(oldProtection);
             assertTrue(oldProtection.objectStoreLeaseProtectionUntilEpochMs() >= oldLeaseUntil);
 
-            final CredentialBindingV1 nextBinding = fixture.binding(2);
-            final CredentialBindingV1 firstBinding = fixture.binding(1);
-            final RotateEquivalentSecretRequestV1 rotation = new RotateEquivalentSecretRequestV1(
+            final CredentialBinding nextBinding = fixture.binding(2);
+            final CredentialBinding firstBinding = fixture.binding(1);
+            final RotateEquivalentSecretRequest rotation = new RotateEquivalentSecretRequest(
                     fixture.profile().ref(),
                     1,
                     2,
@@ -121,7 +121,7 @@ class CredentialBindingDurableChaosTest {
             final var rotatedHead = authority.rotate(rotation);
             assertEquals(2, rotatedHead.secretGeneration());
             assertEquals(2, rotatedHead.headRevision());
-            final CredentialBindingProtectionV1 rotatedOldProtection =
+            final CredentialBindingProtection rotatedOldProtection =
                     authority.resolveProtection(fixture.profile().ref(), 1);
             assertNotNull(rotatedOldProtection);
             assertTrue(rotatedOldProtection.objectStoreLeaseProtectionUntilEpochMs() >= oldLeaseUntil);
@@ -156,20 +156,21 @@ class CredentialBindingDurableChaosTest {
         assertEquals(FAULT, before.get("fault").getAsString());
         assertEquals(prefix, manifest.get("key_prefix").getAsString());
         assertEquals(prefix, before.get("key_prefix").getAsString());
-        final ProfileSemanticEnvelopeV1 profile = ProfileSemanticEnvelopeV1.decode(
+        final ProfileSemanticEnvelope profile = ProfileSemanticEnvelope.decode(
                 decode(manifest.get("profile_bytes").getAsString()));
         final PublicKey verifier = KeyFactory.getInstance("Ed25519")
                 .generatePublic(new X509EncodedKeySpec(
                         decode(manifest.get("verifier_public_key").getAsString())));
-        final byte[] fingerprintV1 = decode(manifest.get("fingerprint_v1").getAsString());
-        final byte[] fingerprintV2 = decode(manifest.get("fingerprint_v2").getAsString());
+        final byte[] fingerprint = decode(manifest.get("fingerprint").getAsString());
+        final byte[] fingerprintCurrent =
+                decode(manifest.get("fingerprint_current").getAsString());
         final long now = System.currentTimeMillis();
         try (OxiaSyncOwnerLeaseBackend.ClientHandle client = connect(oxiaEndpoint, prefix)) {
             final OxiaSyncProfileCatalogBackend authority = authority(client, prefix, verifier);
             final var head = authority.resolveHead(profile.ref());
-            final CredentialBindingV1 current = authority.resolveBinding(profile.ref(), head.secretGeneration());
-            final CredentialBindingV1 old = authority.resolveBinding(profile.ref(), 1);
-            final CredentialBindingProtectionV1 oldProtection = authority.resolveProtection(profile.ref(), 1);
+            final CredentialBinding current = authority.resolveBinding(profile.ref(), head.secretGeneration());
+            final CredentialBinding old = authority.resolveBinding(profile.ref(), 1);
+            final CredentialBindingProtection oldProtection = authority.resolveProtection(profile.ref(), 1);
             assertNotNull(head);
             assertNotNull(current);
             assertNotNull(old);
@@ -186,7 +187,7 @@ class CredentialBindingDurableChaosTest {
                             authority,
                             (resolvedProfile, resolvedBinding) ->
                                     new OxiaObjectStoreCredentialLeaseActivator.ObjectStoreCredentialMaterial(
-                                            ACCESS_KEY, SECRET_KEY, null, fingerprintV1),
+                                            ACCESS_KEY, SECRET_KEY, null, fingerprint),
                             MAX_LEASE_TTL_MS,
                             MAX_ATTESTATION_AGE_MS);
             assertThrows(
@@ -198,13 +199,13 @@ class CredentialBindingDurableChaosTest {
                             authority,
                             (resolvedProfile, resolvedBinding) ->
                                     new OxiaObjectStoreCredentialLeaseActivator.ObjectStoreCredentialMaterial(
-                                            ACCESS_KEY, SECRET_KEY, null, fingerprintV2),
+                                            ACCESS_KEY, SECRET_KEY, null, fingerprintCurrent),
                             MAX_LEASE_TTL_MS,
                             MAX_ATTESTATION_AGE_MS);
             final S3CompatibleCheckpointObjectStoreAdapter newAdapter =
                     activate(rightMaterialActivator, profile, now, now + NEW_LEASE_TTL_MS);
             assertNotNull(newAdapter);
-            final CredentialBindingProtectionV1 newProtection = authority.resolveProtection(profile.ref(), 2);
+            final CredentialBindingProtection newProtection = authority.resolveProtection(profile.ref(), 2);
             assertNotNull(newProtection);
             assertTrue(newProtection.objectStoreLeaseProtectionUntilEpochMs() >= now + NEW_LEASE_TTL_MS);
             assertNotEquals(
@@ -232,7 +233,7 @@ class CredentialBindingDurableChaosTest {
 
     private static S3CompatibleCheckpointObjectStoreAdapter activate(
             final OxiaSyncProfileCatalogBackend authority,
-            final ProfileSemanticEnvelopeV1 profile,
+            final ProfileSemanticEnvelope profile,
             final byte[] fingerprint,
             final long now,
             final long validUntil) {
@@ -248,7 +249,7 @@ class CredentialBindingDurableChaosTest {
 
     private static S3CompatibleCheckpointObjectStoreAdapter activate(
             final OxiaObjectStoreCredentialLeaseActivator activator,
-            final ProfileSemanticEnvelopeV1 profile,
+            final ProfileSemanticEnvelope profile,
             final long now,
             final long validUntil) {
         return activator.activateS3Compatible(new OxiaObjectStoreCredentialLeaseActivator.ActivationRequest(
@@ -293,8 +294,8 @@ class CredentialBindingDurableChaosTest {
 
     private static Fixture fixture(final long now) throws Exception {
         final URI endpoint = ENDPOINT;
-        final ObjectStoreProfileSemanticV1 semantic = new ObjectStoreProfileSemanticV1(
-                ObjectStoreProviderKindV1.S3_COMPATIBLE,
+        final ObjectStoreProfileSemantic semantic = new ObjectStoreProfileSemantic(
+                ObjectStoreProviderKind.S3_COMPATIBLE,
                 S3CompatibleCheckpointObjectStoreAdapter.endpointConfigDigest(endpoint, REGION, BUCKET),
                 S3CompatibleCheckpointObjectStoreAdapter.credentialAuthorizationScopeDigest(ACCESS_KEY, REGION, BUCKET),
                 1,
@@ -304,21 +305,21 @@ class CredentialBindingDurableChaosTest {
                 true,
                 bytes(32, 1),
                 1 << 20,
-                ObjectStoreProfileSemanticV1.SINGLE_PUT,
+                ObjectStoreProfileSemantic.SINGLE_PUT,
                 1,
                 bytes(32, 2));
-        final ProfileSemanticEnvelopeV1 profile = new ProfileSemanticEnvelopeV1(
-                ProfileKindV1.OBJECT_STORE, Bytes.utf8("credential-drift-profile"), 1, semantic);
+        final ProfileSemanticEnvelope profile = new ProfileSemanticEnvelope(
+                ProfileKind.OBJECT_STORE, Bytes.utf8("credential-drift-profile"), 1, semantic);
         return new Fixture(profile, KeyPairGenerator.getInstance("Ed25519").generateKeyPair(), now);
     }
 
-    private static CredentialBindingV1 binding(final Fixture fixture, final long generation) {
+    private static CredentialBinding binding(final Fixture fixture, final long generation) {
         final byte[] reference = Bytes.utf8("secret://credential-drift/v" + generation);
-        final CredentialEquivalenceAttestationV1 attestation = CredentialEquivalenceAttestationV1.signed(
+        final CredentialEquivalenceAttestation attestation = CredentialEquivalenceAttestation.signed(
                 fixture.profile().ref(),
                 generation,
                 Bytes.sha256(reference),
-                ((ObjectStoreProfileSemanticV1) fixture.profile().body()).credentialAuthorizationScopeDigest(),
+                ((ObjectStoreProfileSemantic) fixture.profile().body()).credentialAuthorizationScopeDigest(),
                 fixture.fingerprint(generation),
                 1,
                 Bytes.utf8("credential-chaos"),
@@ -327,7 +328,7 @@ class CredentialBindingDurableChaosTest {
                 bytes(32, (int) (50 + generation)),
                 1,
                 fixture.keyPair().getPrivate());
-        return CredentialBindingV1.create(fixture.profile().ref(), generation, reference, attestation);
+        return CredentialBinding.create(fixture.profile().ref(), generation, reference, attestation);
     }
 
     private static JsonObject manifest(final String prefix, final Fixture fixture) {
@@ -339,8 +340,8 @@ class CredentialBindingDurableChaosTest {
         result.addProperty("profile_bytes", encode(fixture.profile().canonicalBytes()));
         result.addProperty(
                 "verifier_public_key", encode(fixture.keyPair().getPublic().getEncoded()));
-        result.addProperty("fingerprint_v1", encode(fixture.fingerprint(1)));
-        result.addProperty("fingerprint_v2", encode(fixture.fingerprint(2)));
+        result.addProperty("fingerprint", encode(fixture.fingerprint(1)));
+        result.addProperty("fingerprint_current", encode(fixture.fingerprint(2)));
         result.addProperty(
                 "profile_sha256", Bytes.hex(Bytes.sha256(fixture.profile().canonicalBytes())));
         return result;
@@ -360,9 +361,9 @@ class CredentialBindingDurableChaosTest {
             final long freshLeaseGeneration,
             final long freshProtectionUntil,
             final String recoveryAction) {
-        final ProfileSemanticEnvelopeV1 profile = profileOrFixture instanceof Fixture fixture
+        final ProfileSemanticEnvelope profile = profileOrFixture instanceof Fixture fixture
                 ? fixture.profile()
-                : (ProfileSemanticEnvelopeV1) profileOrFixture;
+                : (ProfileSemanticEnvelope) profileOrFixture;
         final JsonObject result = new JsonObject();
         result.addProperty("schema", SCHEMA);
         result.addProperty("cell", CELL);
@@ -441,13 +442,13 @@ class CredentialBindingDurableChaosTest {
         return value;
     }
 
-    private record Fixture(ProfileSemanticEnvelopeV1 profile, KeyPair keyPair, long now) {
+    private record Fixture(ProfileSemanticEnvelope profile, KeyPair keyPair, long now) {
         private Fixture {
             Objects.requireNonNull(profile, "profile");
             Objects.requireNonNull(keyPair, "keyPair");
         }
 
-        private CredentialBindingV1 binding(final long generation) {
+        private CredentialBinding binding(final long generation) {
             return CredentialBindingDurableChaosTest.binding(this, generation);
         }
 

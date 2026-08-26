@@ -3,17 +3,17 @@ package com.nereusstream.delay.runtime;
 import com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.CredentialBindingHeadV1;
-import com.nereusstream.delay.protocol.CredentialBindingProtectionV1;
-import com.nereusstream.delay.protocol.CredentialBindingV1;
-import com.nereusstream.delay.protocol.CredentialUseKindV1;
-import com.nereusstream.delay.protocol.CredentialUseLeaseV1;
-import com.nereusstream.delay.protocol.DestinationProfileSemanticV1;
-import com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
-import com.nereusstream.delay.protocol.RotateEquivalentSecretRequestV1;
+import com.nereusstream.delay.protocol.CredentialBinding;
+import com.nereusstream.delay.protocol.CredentialBindingHead;
+import com.nereusstream.delay.protocol.CredentialBindingProtection;
+import com.nereusstream.delay.protocol.CredentialUseKind;
+import com.nereusstream.delay.protocol.CredentialUseLease;
+import com.nereusstream.delay.protocol.DestinationProfileSemantic;
+import com.nereusstream.delay.protocol.ObjectStoreProfileSemantic;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
+import com.nereusstream.delay.protocol.RotateEquivalentSecretRequest;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
@@ -47,7 +47,7 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
     private static final int MAX_RECORD_BYTES = 8 * 1024 * 1024;
     private static final int MAX_BINDINGS = 4096;
     private static final int MAX_CAS_ATTEMPTS = 32;
-    private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-oxia-profile-catalog-v1\0");
+    private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-oxia-profile-catalog\0");
     private static final String PROFILE_SUFFIX = "/profile";
 
     private final RecordClient client;
@@ -112,7 +112,7 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
     }
 
     /** Publishes generation one and its initial protection projection atomically. */
-    public CredentialBindingHeadV1 publish(final ProfileSemanticEnvelopeV1 profile, final CredentialBindingV1 binding) {
+    public CredentialBindingHead publish(final ProfileSemanticEnvelope profile, final CredentialBinding binding) {
         requireBindableProfile(profile);
         Objects.requireNonNull(binding, "binding");
         if (!profile.ref().equals(binding.profile()) || binding.secretGeneration() != 1) {
@@ -125,30 +125,30 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
                 if (!current.profile().equals(profile)) {
                     throw new IllegalStateException("Profile version already has different semantic bytes");
                 }
-                final CredentialBindingV1 existing = current.bindings().get(1L);
+                final CredentialBinding existing = current.bindings().get(1L);
                 if (existing == null || !existing.equals(binding)) {
                     throw new IllegalStateException("Profile generation one binding bytes conflict");
                 }
                 return Change.unchanged(current, current.head());
             }
-            final CredentialBindingProtectionV1 protection =
-                    CredentialBindingProtectionV1.forBinding(binding, 0, 0, 0, 0, 1);
-            final CredentialBindingHeadV1 head = CredentialBindingHeadV1.forBinding(binding, 1);
+            final CredentialBindingProtection protection =
+                    CredentialBindingProtection.forBinding(binding, 0, 0, 0, 0, 1);
+            final CredentialBindingHead head = CredentialBindingHead.forBinding(binding, 1);
             return Change.changed(new State(profile, head, Map.of(1L, binding), Map.of(1L, protection)), head);
         });
     }
 
     /** Applies the exact checked successor of the current credential Head. */
-    public CredentialBindingHeadV1 rotate(final RotateEquivalentSecretRequestV1 request) {
+    public CredentialBindingHead rotate(final RotateEquivalentSecretRequest request) {
         Objects.requireNonNull(request, "request");
-        final CredentialBindingV1 nextBinding = request.newBinding();
+        final CredentialBinding nextBinding = request.newBinding();
         return mutate(request.profile(), current -> {
             if (current == null) {
                 throw new IllegalStateException("Profile has no durable credential catalog record");
             }
-            final CredentialBindingHeadV1 head = current.head();
+            final CredentialBindingHead head = current.head();
             final long nextRevision = increment(request.expectedBindingHeadRevision(), "credential Head revision");
-            final CredentialBindingV1 existingNext = current.bindings().get(request.newSecretGeneration());
+            final CredentialBinding existingNext = current.bindings().get(request.newSecretGeneration());
             if (head.secretGeneration() == request.newSecretGeneration()
                     && head.headRevision() == nextRevision
                     && Bytes.constantTimeEquals(head.bindingDigest(), nextBinding.bindingDigest())) {
@@ -157,7 +157,7 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
                 }
                 return Change.unchanged(current, head);
             }
-            final CredentialBindingV1 expected = current.bindings().get(request.expectedSecretGeneration());
+            final CredentialBinding expected = current.bindings().get(request.expectedSecretGeneration());
             if (expected == null || !Bytes.constantTimeEquals(expected.bindingDigest(), head.bindingDigest())) {
                 throw new IllegalStateException("credential Head has no matching immutable generation");
             }
@@ -171,17 +171,17 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
             if (existingNext != null && !existingNext.equals(nextBinding)) {
                 throw new IllegalStateException("credential generation already has different immutable bytes");
             }
-            final Map<Long, CredentialBindingV1> bindings = new TreeMap<>(Long::compareUnsigned);
+            final Map<Long, CredentialBinding> bindings = new TreeMap<>(Long::compareUnsigned);
             bindings.putAll(current.bindings());
             bindings.put(nextBinding.secretGeneration(), nextBinding);
-            final Map<Long, CredentialBindingProtectionV1> protections = new TreeMap<>(Long::compareUnsigned);
+            final Map<Long, CredentialBindingProtection> protections = new TreeMap<>(Long::compareUnsigned);
             protections.putAll(current.protections());
             if (!protections.containsKey(nextBinding.secretGeneration())) {
                 protections.put(
                         nextBinding.secretGeneration(),
-                        CredentialBindingProtectionV1.forBinding(nextBinding, 0, 0, 0, 0, 1));
+                        CredentialBindingProtection.forBinding(nextBinding, 0, 0, 0, 0, 1));
             }
-            final CredentialBindingHeadV1 nextHead = CredentialBindingHeadV1.forBinding(nextBinding, nextRevision);
+            final CredentialBindingHead nextHead = CredentialBindingHead.forBinding(nextBinding, nextRevision);
             return Change.changed(new State(current.profile(), nextHead, bindings, protections), nextHead);
         });
     }
@@ -191,9 +191,9 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
      * request. The corresponding protection horizon is raised monotonically
      * in the same Oxia record CAS before the lease is returned.
      */
-    public CredentialUseLeaseV1 issueCredentialUseLease(
-            final ProfileRefV1 profile,
-            final CredentialUseKindV1 kind,
+    public CredentialUseLease issueCredentialUseLease(
+            final ProfileRef profile,
+            final CredentialUseKind kind,
             final byte[] holderScopeDigest,
             final long expectedSecretGeneration,
             final byte[] expectedBindingDigest,
@@ -204,11 +204,11 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
         requireBindableProfileRef(profile);
         Objects.requireNonNull(kind, "kind");
         requireKindMatchesProfile(profile, kind);
-        Bytes.requireLength(holderScopeDigest, CredentialUseLeaseV1.HASH_LENGTH, "holderScopeDigest");
-        Bytes.requireLength(expectedBindingDigest, CredentialBindingV1.HASH_LENGTH, "expectedBindingDigest");
+        Bytes.requireLength(holderScopeDigest, CredentialUseLease.HASH_LENGTH, "holderScopeDigest");
+        Bytes.requireLength(expectedBindingDigest, CredentialBinding.HASH_LENGTH, "expectedBindingDigest");
         Bytes.requireLength(
                 resolvedCredentialFingerprintDigest,
-                CredentialUseLeaseV1.HASH_LENGTH,
+                CredentialUseLease.HASH_LENGTH,
                 "resolvedCredentialFingerprintDigest");
         Objects.requireNonNull(issuedAt, "issuedAt");
         if (expectedSecretGeneration == 0 || expectedHeadRevision == 0) {
@@ -218,15 +218,14 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
             if (current == null) {
                 throw new IllegalStateException("Profile has no durable credential catalog record");
             }
-            final CredentialBindingHeadV1 head = current.head();
+            final CredentialBindingHead head = current.head();
             if (head.secretGeneration() != expectedSecretGeneration
                     || head.headRevision() != expectedHeadRevision
                     || !Bytes.constantTimeEquals(head.bindingDigest(), expectedBindingDigest)) {
                 throw new IllegalStateException("credential lease Head CAS precondition failed");
             }
-            final CredentialBindingV1 binding = current.bindings().get(expectedSecretGeneration);
-            final CredentialBindingProtectionV1 protection =
-                    current.protections().get(expectedSecretGeneration);
+            final CredentialBinding binding = current.bindings().get(expectedSecretGeneration);
+            final CredentialBindingProtection protection = current.protections().get(expectedSecretGeneration);
             if (binding == null || protection == null) {
                 throw new IllegalStateException("credential generation lacks binding or protection");
             }
@@ -247,7 +246,7 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
             final long currentProtectionUntil = protectionUntil(protection, kind);
             final long nextProtectionUntil = Math.max(currentProtectionUntil, validUntilEpochMs);
             if (nextProtectionUntil == currentProtectionUntil) {
-                final CredentialUseLeaseV1 lease = new CredentialUseLeaseV1(
+                final CredentialUseLease lease = new CredentialUseLease(
                         profile,
                         kind,
                         holderScopeDigest,
@@ -263,9 +262,9 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
             }
             final long nextProtectionRevision =
                     increment(protection.protectionRevision(), "credential protection revision");
-            final CredentialBindingProtectionV1 nextProtection =
+            final CredentialBindingProtection nextProtection =
                     protectionForLease(protection, kind, nextProtectionUntil, nextProtectionRevision);
-            final CredentialUseLeaseV1 lease = new CredentialUseLeaseV1(
+            final CredentialUseLease lease = new CredentialUseLease(
                     profile,
                     kind,
                     holderScopeDigest,
@@ -277,7 +276,7 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
                     nextProtection.protectionRevision());
             lease.requireTtlAtMost(maximumLeaseTtlMs);
             lease.requireProtectedBy(nextProtection);
-            final Map<Long, CredentialBindingProtectionV1> protections = new TreeMap<>(Long::compareUnsigned);
+            final Map<Long, CredentialBindingProtection> protections = new TreeMap<>(Long::compareUnsigned);
             protections.putAll(current.protections());
             protections.put(expectedSecretGeneration, nextProtection);
             return Change.changed(new State(current.profile(), head, current.bindings(), protections), lease);
@@ -285,14 +284,14 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
     }
 
     @Override
-    public ProfileSemanticEnvelopeV1 resolve(final ProfileRefV1 reference) {
+    public ProfileSemanticEnvelope resolve(final ProfileRef reference) {
         Objects.requireNonNull(reference, "reference");
         final State state = read(reference);
         return state == null ? null : state.profile();
     }
 
     @Override
-    public CredentialBindingV1 resolveBinding(final ProfileRefV1 profile, final long secretGeneration) {
+    public CredentialBinding resolveBinding(final ProfileRef profile, final long secretGeneration) {
         Objects.requireNonNull(profile, "profile");
         if (secretGeneration == 0) {
             throw new IllegalArgumentException("secretGeneration must be non-zero");
@@ -302,14 +301,14 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
     }
 
     @Override
-    public CredentialBindingHeadV1 resolveHead(final ProfileRefV1 profile) {
+    public CredentialBindingHead resolveHead(final ProfileRef profile) {
         Objects.requireNonNull(profile, "profile");
         final State state = read(profile);
         return state == null ? null : state.head();
     }
 
     @Override
-    public CredentialBindingProtectionV1 resolveProtection(final ProfileRefV1 profile, final long secretGeneration) {
+    public CredentialBindingProtection resolveProtection(final ProfileRef profile, final long secretGeneration) {
         Objects.requireNonNull(profile, "profile");
         if (secretGeneration == 0) {
             throw new IllegalArgumentException("secretGeneration must be non-zero");
@@ -318,7 +317,7 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
         return state == null ? null : state.protections().get(secretGeneration);
     }
 
-    private <T> T mutate(final ProfileRefV1 profile, final Mutation<T> mutation) {
+    private <T> T mutate(final ProfileRef profile, final Mutation<T> mutation) {
         final String key = profileKey(profile);
         for (int attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
             final GetResult currentResult = client.get(key);
@@ -359,11 +358,11 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
         throw new IllegalStateException("Oxia Profile catalog CAS did not converge");
     }
 
-    private State read(final ProfileRefV1 profile) {
+    private State read(final ProfileRef profile) {
         return decodeRecord(client.get(profileKey(profile)), profile);
     }
 
-    private State decodeRecord(final GetResult result, final ProfileRefV1 requestedProfile) {
+    private State decodeRecord(final GetResult result, final ProfileRef requestedProfile) {
         if (result == null) {
             return null;
         }
@@ -380,7 +379,7 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
             throw new IllegalStateException("unsupported Oxia Profile catalog record version");
         }
         final byte[] stateBytes = bytes(next(reader, 2), 2, MAX_RECORD_BYTES);
-        final byte[] digest = bytes(next(reader, 3), 3, CredentialBindingV1.HASH_LENGTH);
+        final byte[] digest = bytes(next(reader, 3), 3, CredentialBinding.HASH_LENGTH);
         if (reader.hasRemaining() || !Bytes.constantTimeEquals(digest, Bytes.sha256(DIGEST_DOMAIN, stateBytes))) {
             throw new IllegalStateException("Oxia Profile catalog record is non-canonical or corrupt");
         }
@@ -408,12 +407,12 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
         Objects.requireNonNull(encoded, "encoded");
         final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(encoded, true);
         final CanonicalProtobuf.Reader.Field profileField = next(reader, 1);
-        final ProfileSemanticEnvelopeV1 profile =
-                ProfileSemanticEnvelopeV1.decode(bytes(profileField, 1, MAX_RECORD_BYTES));
+        final ProfileSemanticEnvelope profile =
+                ProfileSemanticEnvelope.decode(bytes(profileField, 1, MAX_RECORD_BYTES));
         requireBindableProfile(profile);
-        CredentialBindingHeadV1 head = null;
-        final Map<Long, CredentialBindingV1> bindings = new TreeMap<>(Long::compareUnsigned);
-        final Map<Long, CredentialBindingProtectionV1> protections = new TreeMap<>(Long::compareUnsigned);
+        CredentialBindingHead head = null;
+        final Map<Long, CredentialBinding> bindings = new TreeMap<>(Long::compareUnsigned);
+        final Map<Long, CredentialBindingProtection> protections = new TreeMap<>(Long::compareUnsigned);
         int phase = 2;
         long previousBinding = 0;
         long previousProtection = 0;
@@ -425,10 +424,10 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
                 if (head != null) {
                     throw new IllegalStateException("duplicate Oxia Profile catalog Head");
                 }
-                head = CredentialBindingHeadV1.decode(bytes(field, 2, MAX_RECORD_BYTES));
+                head = CredentialBindingHead.decode(bytes(field, 2, MAX_RECORD_BYTES));
             } else if (field.number() == 3 && (phase == 2 || phase == 3)) {
                 phase = 3;
-                final CredentialBindingV1 binding = CredentialBindingV1.decode(bytes(field, 3, MAX_RECORD_BYTES));
+                final CredentialBinding binding = CredentialBinding.decode(bytes(field, 3, MAX_RECORD_BYTES));
                 requireBindingIdentity(profile, binding);
                 requireCredentialScope(profile, binding);
                 requireCredentialAttestation(profile, binding);
@@ -445,8 +444,8 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
                 hasPreviousBinding = true;
             } else if (field.number() == 4 && (phase == 3 || phase == 4)) {
                 phase = 4;
-                final CredentialBindingProtectionV1 protection =
-                        CredentialBindingProtectionV1.decode(bytes(field, 4, MAX_RECORD_BYTES));
+                final CredentialBindingProtection protection =
+                        CredentialBindingProtection.decode(bytes(field, 4, MAX_RECORD_BYTES));
                 if (!profile.ref().equals(protection.profile())) {
                     throw new IllegalStateException("Oxia Profile catalog protection Profile differs");
                 }
@@ -472,12 +471,12 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
         if (!profile.ref().equals(head.profile())) {
             throw new IllegalStateException("Oxia Profile catalog Head Profile differs");
         }
-        final CredentialBindingV1 headBinding = bindings.get(head.secretGeneration());
+        final CredentialBinding headBinding = bindings.get(head.secretGeneration());
         if (headBinding == null || !Bytes.constantTimeEquals(head.bindingDigest(), headBinding.bindingDigest())) {
             throw new IllegalStateException("Oxia Profile catalog Head has no matching binding");
         }
-        for (Map.Entry<Long, CredentialBindingProtectionV1> entry : protections.entrySet()) {
-            final CredentialBindingV1 binding = bindings.get(entry.getKey());
+        for (Map.Entry<Long, CredentialBindingProtection> entry : protections.entrySet()) {
+            final CredentialBinding binding = bindings.get(entry.getKey());
             if (!Bytes.constantTimeEquals(
                     binding.bindingDigest(), entry.getValue().bindingDigest())) {
                 throw new IllegalStateException("Oxia Profile catalog protection has no matching binding");
@@ -495,55 +494,51 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
             CanonicalProtobuf.bytes(output, 1, state.profile().canonicalBytes());
             CanonicalProtobuf.bytes(output, 2, state.head().canonicalBytes());
             state.bindings().values().stream()
-                    .sorted(Comparator.comparing(CredentialBindingV1::secretGeneration, Long::compareUnsigned))
+                    .sorted(Comparator.comparing(CredentialBinding::secretGeneration, Long::compareUnsigned))
                     .forEach(binding -> CanonicalProtobuf.bytes(output, 3, binding.canonicalBytes()));
             state.protections().values().stream()
-                    .sorted(Comparator.comparing(
-                            CredentialBindingProtectionV1::secretGeneration, Long::compareUnsigned))
+                    .sorted(Comparator.comparing(CredentialBindingProtection::secretGeneration, Long::compareUnsigned))
                     .forEach(protection -> CanonicalProtobuf.bytes(output, 4, protection.canonicalBytes()));
         });
     }
 
-    private static void requireBindableProfile(final ProfileSemanticEnvelopeV1 profile) {
+    private static void requireBindableProfile(final ProfileSemanticEnvelope profile) {
         Objects.requireNonNull(profile, "profile");
         requireBindableProfileRef(profile.ref());
-        if (!(profile.body() instanceof DestinationProfileSemanticV1)
-                && !(profile.body() instanceof ObjectStoreProfileSemanticV1)) {
+        if (!(profile.body() instanceof DestinationProfileSemantic)
+                && !(profile.body() instanceof ObjectStoreProfileSemantic)) {
             throw new IllegalArgumentException("credential Profile body is not bindable");
         }
     }
 
-    private static void requireBindableProfileRef(final ProfileRefV1 profile) {
+    private static void requireBindableProfileRef(final ProfileRef profile) {
         Objects.requireNonNull(profile, "profile");
-        if (profile.profileKind() != ProfileKindV1.DESTINATION && profile.profileKind() != ProfileKindV1.OBJECT_STORE) {
+        if (profile.profileKind() != ProfileKind.DESTINATION && profile.profileKind() != ProfileKind.OBJECT_STORE) {
             throw new IllegalArgumentException("credential Profile must be DESTINATION or OBJECT_STORE");
         }
     }
 
-    private static void requireKindMatchesProfile(final ProfileRefV1 profile, final CredentialUseKindV1 kind) {
-        if ((kind == CredentialUseKindV1.DESTINATION_CHANNEL && profile.profileKind() != ProfileKindV1.DESTINATION)
-                || (kind == CredentialUseKindV1.OBJECT_STORE_ADAPTER
-                        && profile.profileKind() != ProfileKindV1.OBJECT_STORE)) {
+    private static void requireKindMatchesProfile(final ProfileRef profile, final CredentialUseKind kind) {
+        if ((kind == CredentialUseKind.DESTINATION_CHANNEL && profile.profileKind() != ProfileKind.DESTINATION)
+                || (kind == CredentialUseKind.OBJECT_STORE_ADAPTER
+                        && profile.profileKind() != ProfileKind.OBJECT_STORE)) {
             throw new IllegalArgumentException("credential lease kind/profile mismatch");
         }
     }
 
-    private static void requireCredentialScope(
-            final ProfileSemanticEnvelopeV1 profile, final CredentialBindingV1 binding) {
+    private static void requireCredentialScope(final ProfileSemanticEnvelope profile, final CredentialBinding binding) {
         requireBindingIdentity(profile, binding);
-        final byte[] expectedScope = profile.body() instanceof DestinationProfileSemanticV1 destination
+        final byte[] expectedScope = profile.body() instanceof DestinationProfileSemantic destination
                 ? destination.credentialAuthorizationScopeDigest()
-                : ((ObjectStoreProfileSemanticV1) profile.body()).credentialAuthorizationScopeDigest();
+                : ((ObjectStoreProfileSemantic) profile.body()).credentialAuthorizationScopeDigest();
         binding.equivalenceAttestation().requireAuthorizationScopeDigest(expectedScope);
     }
 
-    private void requireCredentialAttestation(
-            final ProfileSemanticEnvelopeV1 profile, final CredentialBindingV1 binding) {
+    private void requireCredentialAttestation(final ProfileSemanticEnvelope profile, final CredentialBinding binding) {
         attestationTrustSet.verify(profile, binding);
     }
 
-    private static void requireBindingIdentity(
-            final ProfileSemanticEnvelopeV1 profile, final CredentialBindingV1 binding) {
+    private static void requireBindingIdentity(final ProfileSemanticEnvelope profile, final CredentialBinding binding) {
         if (!profile.ref().equals(binding.profile())) {
             throw new IllegalArgumentException("credential binding Profile differs");
         }
@@ -551,25 +546,24 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
                 .requireCandidate(profile.ref(), binding.secretGeneration(), binding.secretReferenceSha256());
     }
 
-    private static long protectionUntil(
-            final CredentialBindingProtectionV1 protection, final CredentialUseKindV1 kind) {
-        return kind == CredentialUseKindV1.OBJECT_STORE_ADAPTER
+    private static long protectionUntil(final CredentialBindingProtection protection, final CredentialUseKind kind) {
+        return kind == CredentialUseKind.OBJECT_STORE_ADAPTER
                 ? protection.objectStoreLeaseProtectionUntilEpochMs()
                 : protection.managedChannelProtectionUntilEpochMs();
     }
 
-    private static CredentialBindingProtectionV1 protectionForLease(
-            final CredentialBindingProtectionV1 protection,
-            final CredentialUseKindV1 kind,
+    private static CredentialBindingProtection protectionForLease(
+            final CredentialBindingProtection protection,
+            final CredentialUseKind kind,
             final long until,
             final long revision) {
-        final long managed = kind == CredentialUseKindV1.DESTINATION_CHANNEL
+        final long managed = kind == CredentialUseKind.DESTINATION_CHANNEL
                 ? until
                 : protection.managedChannelProtectionUntilEpochMs();
-        final long objectStore = kind == CredentialUseKindV1.OBJECT_STORE_ADAPTER
+        final long objectStore = kind == CredentialUseKind.OBJECT_STORE_ADAPTER
                 ? until
                 : protection.objectStoreLeaseProtectionUntilEpochMs();
-        return CredentialBindingProtectionV1.create(
+        return CredentialBindingProtection.create(
                 protection.profile(),
                 protection.secretGeneration(),
                 protection.bindingDigest(),
@@ -580,7 +574,7 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
                 revision);
     }
 
-    private String profileKey(final ProfileRefV1 profile) {
+    private String profileKey(final ProfileRef profile) {
         return keyPrefix + "/profile/" + profile.profileKind().wireValue() + "/"
                 + Bytes.hex(profile.profileId()) + "/" + Long.toUnsignedString(profile.version())
                 + PROFILE_SUFFIX;
@@ -632,16 +626,16 @@ public final class OxiaSyncProfileCatalogBackend implements CredentialProfileAut
     }
 
     private record State(
-            ProfileSemanticEnvelopeV1 profile,
-            CredentialBindingHeadV1 head,
-            Map<Long, CredentialBindingV1> bindings,
-            Map<Long, CredentialBindingProtectionV1> protections) {
+            ProfileSemanticEnvelope profile,
+            CredentialBindingHead head,
+            Map<Long, CredentialBinding> bindings,
+            Map<Long, CredentialBindingProtection> protections) {
         private State {
             Objects.requireNonNull(profile, "profile");
             Objects.requireNonNull(head, "head");
-            final Map<Long, CredentialBindingV1> orderedBindings = new TreeMap<>(Long::compareUnsigned);
+            final Map<Long, CredentialBinding> orderedBindings = new TreeMap<>(Long::compareUnsigned);
             orderedBindings.putAll(Objects.requireNonNull(bindings, "bindings"));
-            final Map<Long, CredentialBindingProtectionV1> orderedProtections = new TreeMap<>(Long::compareUnsigned);
+            final Map<Long, CredentialBindingProtection> orderedProtections = new TreeMap<>(Long::compareUnsigned);
             orderedProtections.putAll(Objects.requireNonNull(protections, "protections"));
             bindings = Map.copyOf(orderedBindings);
             protections = Map.copyOf(orderedProtections);

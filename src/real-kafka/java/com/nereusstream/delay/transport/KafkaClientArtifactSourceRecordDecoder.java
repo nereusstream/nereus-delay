@@ -11,7 +11,7 @@ import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SystemMutation;
 import java.util.Objects;
 
-/** Decodes the two ordered V1 Shard Log record kinds for the Kafka source set. */
+/** Decodes the two ordered Shard Log record kinds for the Kafka source set. */
 final class KafkaClientArtifactSourceRecordDecoder {
     private KafkaClientArtifactSourceRecordDecoder() {}
 
@@ -43,7 +43,7 @@ final class KafkaClientArtifactSourceRecordDecoder {
             final SourcePosition position,
             final Long sourceConnectionGeneration,
             final byte[] guardAttestationDigest) {
-        final PreparedCommand command = CommandCodec.decodeFrameV1(frame);
+        final PreparedCommand command = CommandCodec.decodeManagedFrame(frame);
         if (!shard.equals(command.shardId())) {
             throw new IllegalArgumentException("Kafka source command belongs to another Shard");
         }

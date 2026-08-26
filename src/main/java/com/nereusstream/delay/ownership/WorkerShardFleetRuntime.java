@@ -17,11 +17,11 @@ import java.util.function.LongSupplier;
  * Bounded round-robin dispatch over the independently stored Worker shards in
  * one process.
  *
- * <p>The fleet owns no assignment, lease or broker authority.  Each shard
- * runtime has already crossed those gates before it is admitted here.  This
+ * <p>The fleet owns no assignment, lease or broker authority. Each shard
+ * runtime has already crossed those gates before it is admitted here. This
  * class only prevents the event loop from repeatedly servicing the first
  * ready shard while other accepted shards never receive a source, scheduling
- * or command turn.  The supplied budget applies to the selected shard turn;
+ * or command turn. The supplied budget applies to the selected shard turn;
  * the shared work-class registry remains the single process-wide queue and
  * admission authority.</p>
  */
@@ -197,7 +197,7 @@ public final class WorkerShardFleetRuntime implements AutoCloseable {
             try {
                 runtime.close();
             } catch (RuntimeException | Error failure) {
-                // Every admitted shard must get a close attempt.  A shard
+                // Every admitted shard must get a close attempt. A shard
                 // that still needs an owner-drain retry must not prevent a
                 // later shard from releasing its Store/source resources.
                 closeFailure = appendCloseFailure(closeFailure, failure);

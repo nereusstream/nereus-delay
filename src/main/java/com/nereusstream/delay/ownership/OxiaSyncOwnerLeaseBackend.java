@@ -30,7 +30,7 @@ import java.util.concurrent.ThreadLocalRandom;
 /**
  * Oxia implementation of the owner-lease CAS surface.
  *
- * <p>The lease record is an Oxia ephemeral record.  A separate durable epoch
+ * <p>The lease record is an Oxia ephemeral record. A separate durable epoch
  * record is incremented with version CAS before the ephemeral record is
  * created; losing a race may consume an epoch, but it can never reuse one.
  * The public client constructor does not own or close its client. The
@@ -38,13 +38,13 @@ import java.util.concurrent.ThreadLocalRandom;
  * {@link ClientHandle} that owns the connected client.</p>
  *
  * <p>The backend is deliberately below {@link OxiaOwnerLeaseStore}: the
- * latter remains responsible for validating the response against the V1
- * fencing contract.  A response lost after a successful Oxia write is
+ * latter remains responsible for validating the response against the
+ * fencing contract. A response lost after a successful Oxia write is
  * propagated as an exception rather than guessed as a successful CAS.</p>
  */
 public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.LeaseCasBackend {
     private static final int MAX_EPOCH_CAS_ATTEMPTS = 32;
-    private static final byte[] SESSION_DOMAIN = Bytes.utf8("nereus-delay-oxia-session-identity-v1\0");
+    private static final byte[] SESSION_DOMAIN = Bytes.utf8("nereus-delay-oxia-session-identity\0");
 
     private final RecordClient rawClient;
     private final RecordClient client;
@@ -187,8 +187,8 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
     }
 
     /**
-     * Derives the 32-byte V1 session identity from the metadata attached to an
-     * Oxia ephemeral record.  Callers of context-bound acquisition should pass
+     * Derives the 32-byte session identity from the metadata attached to an
+     * Oxia ephemeral record. Callers of context-bound acquisition should pass
      * this value, not a process-local random value.
      */
     public static byte[] sessionIdentity(final Version version) {
@@ -421,7 +421,7 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
                 failure.addSuppressed(rereadFailure);
             }
             // A malformed response must not strand an ephemeral record that
-            // would block the next owner.  Cleanup is best effort; the
+            // would block the next owner. Cleanup is best effort; the
             // original integrity/transport failure remains authoritative.
             if (result != null && result.version() != null) {
                 try {
@@ -514,7 +514,7 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
                 }
                 return next;
             } catch (KeyAlreadyExistsException | UnexpectedVersionIdException conflict) {
-                // Another worker won the version CAS.  Re-read and retry.
+                // Another worker won the version CAS. Re-read and retry.
             } catch (RuntimeException responseFailure) {
                 if (epochValueWasCommitted(key, expected)) {
                     return next;
@@ -575,7 +575,7 @@ public final class OxiaSyncOwnerLeaseBackend implements OxiaOwnerLeaseStore.Leas
         if (result == null || result.version() == null) {
             throw new IllegalStateException("Oxia lease put returned no version");
         }
-        // The Oxia PutResult intentionally does not echo the value.  The
+        // The Oxia PutResult intentionally does not echo the value. The
         // request bytes are canonical and have already passed the CAS, so the
         // response projection is the exact value that was submitted.
         return encodeLease(fallback);

@@ -168,7 +168,7 @@ class SourceApplyWorkClassExecutorTest {
                 0,
                 null);
         final byte[] proofId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                Bytes.utf8("nereus-delay-time-fence-proof\0"),
                 shard.routeIncarnation().bytes(),
                 Bytes.u32be(shard.partition()),
                 Bytes.i64be(2_000),

@@ -2,21 +2,21 @@ package com.nereusstream.delay.ownership;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import com.nereusstream.delay.protocol.ActivationBarrierV1;
-import com.nereusstream.delay.protocol.AdapterKindV1;
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.ActivationBarrier;
+import com.nereusstream.delay.protocol.AdapterKind;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.IngressCredentialBindingRefV1;
-import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.KafkaIngressRouteResourceV1;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
+import com.nereusstream.delay.protocol.IngressCredentialBindingRef;
+import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.KafkaIngressRouteResource;
+import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
-import com.nereusstream.delay.protocol.QuotaGrantRefV1;
+import com.nereusstream.delay.protocol.QuotaGrantRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.RouteLifecycleV1;
-import com.nereusstream.delay.protocol.RoutePartitionPolicyV1;
-import com.nereusstream.delay.protocol.RouteSnapshotV1;
-import com.nereusstream.delay.protocol.RoutingHashVersionV1;
+import com.nereusstream.delay.protocol.RouteLifecycle;
+import com.nereusstream.delay.protocol.RoutePartitionPolicy;
+import com.nereusstream.delay.protocol.RouteSnapshot;
+import com.nereusstream.delay.protocol.RoutingHashVersion;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.route.RouteSnapshotProvider;
 import com.nereusstream.delay.semantic.AuthenticatedTenantContext;
@@ -31,12 +31,12 @@ class RouteSourceAssignmentResolverTest {
     @Test
     void activeAndHistoricalLookupsUseTheAuthorizedRouteProvider() throws Exception {
         final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-        final RouteSnapshotV1 route = route(keys, RouteLifecycleV1.ACTIVE_FOR_NEW, 1);
-        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKindV1.KAFKA, Bytes.utf8("primary"));
+        final RouteSnapshot route = route(keys, RouteLifecycle.ACTIVE_FOR_NEW, 1);
+        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKind.KAFKA, Bytes.utf8("primary"));
         final AuthenticatedTenantContext tenant = tenant();
         final RouteSnapshotProvider provider = new RouteSnapshotProvider() {
             @Override
-            public RouteSnapshotV1 activeForNewSchedule(
+            public RouteSnapshot activeForNewSchedule(
                     final AuthenticatedTenantContext context, final RouteSelectionHint selected) {
                 assertEquals(tenant, context);
                 assertEquals(hint, selected);
@@ -44,7 +44,7 @@ class RouteSourceAssignmentResolverTest {
             }
 
             @Override
-            public RouteSnapshotV1 exact(final RouteIncarnation incarnation, final AuthenticatedTenantContext context) {
+            public RouteSnapshot exact(final RouteIncarnation incarnation, final AuthenticatedTenantContext context) {
                 assertEquals(tenant, context);
                 return route.routeIncarnation().equals(incarnation) ? route : null;
             }
@@ -69,17 +69,17 @@ class RouteSourceAssignmentResolverTest {
     @Test
     void missingOrUnauthorizedHistoricalRouteFailsClosed() throws Exception {
         final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-        final RouteSnapshotV1 route = route(keys, RouteLifecycleV1.CONTROL_ONLY, 2);
+        final RouteSnapshot route = route(keys, RouteLifecycle.CONTROL_ONLY, 2);
         final AuthenticatedTenantContext tenant = tenant();
         final RouteSnapshotProvider provider = new RouteSnapshotProvider() {
             @Override
-            public RouteSnapshotV1 activeForNewSchedule(
+            public RouteSnapshot activeForNewSchedule(
                     final AuthenticatedTenantContext context, final RouteSelectionHint hint) {
                 throw new IllegalStateException("not used");
             }
 
             @Override
-            public RouteSnapshotV1 exact(final RouteIncarnation incarnation, final AuthenticatedTenantContext context) {
+            public RouteSnapshot exact(final RouteIncarnation incarnation, final AuthenticatedTenantContext context) {
                 return null;
             }
 
@@ -100,29 +100,28 @@ class RouteSourceAssignmentResolverTest {
         return new AuthenticatedTenantContext(bytes(32, 1), bytes(32, 2), bytes(32, 3));
     }
 
-    private static RouteSnapshotV1 route(
-            final KeyPair keys, final RouteLifecycleV1 lifecycle, final long controlVersion) {
+    private static RouteSnapshot route(final KeyPair keys, final RouteLifecycle lifecycle, final long controlVersion) {
         final UUID topic = UUID.fromString("12345678-1234-7abc-8def-1234567890ab");
-        final KafkaIngressRouteResourceV1 ingress =
-                new KafkaIngressRouteResourceV1("cluster", "persistent://tenant/ns/delay", topic, 1);
-        final BrokerResourceIdentityV1 broker =
-                BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1("cluster", topic));
-        final QuotaGrantRefV1 quota = new QuotaGrantRefV1(
+        final KafkaIngressRouteResource ingress =
+                new KafkaIngressRouteResource("cluster", "persistent://tenant/ns/delay", topic, 1);
+        final BrokerResourceIdentity broker =
+                BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity("cluster", topic));
+        final QuotaGrantRef quota = new QuotaGrantRef(
                 Bytes.sha256(Bytes.utf8("quota")),
                 1,
                 new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
-        return RouteSnapshotV1.create(
+        return RouteSnapshot.create(
                 new RouteIncarnation(bytes(16, 30)),
                 bytes(32, 1),
                 bytes(32, 2),
                 lifecycle,
                 900,
                 ingress,
-                RoutingHashVersionV1.ROUTING_HASH_V1,
-                new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1),
+                RoutingHashVersion.ROUTING_HASH,
+                new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1),
                 controlVersion,
-                List.of(new RoutePartitionPolicyV1(
-                        0, ActivationBarrierV1.kafka(broker, 0, 17, 18), quota, 1, bytes(32, 3))),
+                List.of(new RoutePartitionPolicy(
+                        0, ActivationBarrier.kafka(broker, 0, 17, 18), quota, 1, bytes(32, 3))),
                 100,
                 200,
                 1024,
@@ -132,7 +131,7 @@ class RouteSourceAssignmentResolverTest {
                 500,
                 100,
                 1000,
-                new IngressCredentialBindingRefV1(bytes(32, 40), 1, bytes(32, 41), bytes(32, 42), bytes(32, 43)),
+                new IngressCredentialBindingRef(bytes(32, 40), 1, bytes(32, 41), bytes(32, 42), bytes(32, 43)),
                 bytes(32, 44),
                 new TrustedUtcIntervalEvidence(
                         200,

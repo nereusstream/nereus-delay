@@ -38,46 +38,46 @@ import com.nereusstream.delay.ownership.WorkerPublishOutcomeMutationFactory;
 import com.nereusstream.delay.ownership.WorkerPublishPreparationCoordinator;
 import com.nereusstream.delay.ownership.WorkerSchedulingRuntime;
 import com.nereusstream.delay.ownership.WorkerShardRuntime;
-import com.nereusstream.delay.protocol.ActivationBarrierV1;
-import com.nereusstream.delay.protocol.ActiveLaneStateV1;
-import com.nereusstream.delay.protocol.AdapterKindV1;
-import com.nereusstream.delay.protocol.AdapterMetadataV1;
+import com.nereusstream.delay.protocol.ActivationBarrier;
+import com.nereusstream.delay.protocol.ActiveLaneState;
+import com.nereusstream.delay.protocol.AdapterKind;
+import com.nereusstream.delay.protocol.AdapterMetadata;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.CapacityDimensionV1;
-import com.nereusstream.delay.protocol.CapacityVectorV1;
-import com.nereusstream.delay.protocol.ChannelKindV1;
-import com.nereusstream.delay.protocol.ChannelResourceIdentityV1;
-import com.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
-import com.nereusstream.delay.protocol.CredentialUseKindV1;
-import com.nereusstream.delay.protocol.CredentialUseLeaseV1;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
+import com.nereusstream.delay.protocol.CapacityDimension;
+import com.nereusstream.delay.protocol.CapacityVector;
+import com.nereusstream.delay.protocol.ChannelKind;
+import com.nereusstream.delay.protocol.ChannelResourceIdentity;
+import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
+import com.nereusstream.delay.protocol.CredentialUseKind;
+import com.nereusstream.delay.protocol.CredentialUseLease;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DeliveryMode;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
-import com.nereusstream.delay.protocol.EvidenceVerificationStatusV1;
+import com.nereusstream.delay.protocol.EvidenceCursor;
+import com.nereusstream.delay.protocol.EvidenceVerificationStatus;
 import com.nereusstream.delay.protocol.OrderingMode;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
-import com.nereusstream.delay.protocol.PublishEvidenceKindV1;
-import com.nereusstream.delay.protocol.PublishEvidenceV1;
+import com.nereusstream.delay.protocol.PublishEvidence;
+import com.nereusstream.delay.protocol.PublishEvidenceKind;
 import com.nereusstream.delay.protocol.PublishOutcomeBody;
 import com.nereusstream.delay.protocol.PulsarActivationBarrier;
-import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.PulsarMetadataV1;
+import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.PulsarMetadata;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
-import com.nereusstream.delay.protocol.QuotaGrantRefV1;
-import com.nereusstream.delay.protocol.ReadyCertificateV1;
-import com.nereusstream.delay.protocol.RetryPolicyRefV1;
+import com.nereusstream.delay.protocol.QuotaGrantRef;
+import com.nereusstream.delay.protocol.ReadyCertificate;
+import com.nereusstream.delay.protocol.RetryPolicyRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
 import com.nereusstream.delay.protocol.StableCode;
@@ -90,7 +90,7 @@ import com.nereusstream.delay.runtime.LaneRecord;
 import com.nereusstream.delay.runtime.MessageRecord;
 import com.nereusstream.delay.runtime.MessageStatus;
 import com.nereusstream.delay.runtime.PublishAttemptLedger;
-import com.nereusstream.delay.runtime.V1ScheduleResolver;
+import com.nereusstream.delay.runtime.ScheduleResolver;
 import com.nereusstream.delay.scheduler.ClaimExecutionAdmission;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClass;
@@ -328,7 +328,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                     .orElseThrow();
             final WorkClassExecutionRegistry workClasses = workClasses();
             final KeyPair verificationKey = sourceAuthorityKeyPair();
-            final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshot(shard);
+            final CompatibleControlSnapshot controlSnapshot = controlSnapshot(shard);
             boolean runtimeDrained = false;
             try {
                 final ShardStoreConfig storeConfig = ShardStoreConfig.defaults(root);
@@ -343,7 +343,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                     store.recordControlSnapshot(controlSnapshot);
                     final DelayShard delayShard = new DelayShard(
                             store, DelayShardConfig.defaults(), null, null, scheduleResolver(destinationPhysicalTopic));
-                    final OwnerIdentityV1 ownerIdentity = new OwnerIdentityV1(
+                    final OwnerIdentity ownerIdentity = new OwnerIdentity(
                             bytes(16, 70),
                             bytes(16, 71),
                             lease.ownerEpoch(),
@@ -792,7 +792,7 @@ public final class PulsarClientArtifactWorkerSmoke {
             final WorkerShardRuntime runtime,
             final DelayShard delayShard,
             final OwnedDelayShard ownedShard,
-            final OwnerIdentityV1 ownerIdentity,
+            final OwnerIdentity ownerIdentity,
             final OxiaOwnerLeaseStore authority,
             final ShardStore store,
             final WorkClassExecutionRegistry workClasses,
@@ -823,7 +823,7 @@ public final class PulsarClientArtifactWorkerSmoke {
             final WorkerShardRuntime runtime,
             final DelayShard delayShard,
             final OwnedDelayShard ownedShard,
-            final OwnerIdentityV1 ownerIdentity,
+            final OwnerIdentity ownerIdentity,
             final OxiaOwnerLeaseStore authority,
             final ShardStore store,
             final WorkClassExecutionRegistry workClasses,
@@ -857,7 +857,7 @@ public final class PulsarClientArtifactWorkerSmoke {
             final WorkerShardRuntime runtime,
             final DelayShard delayShard,
             final OwnedDelayShard ownedShard,
-            final OwnerIdentityV1 ownerIdentity,
+            final OwnerIdentity ownerIdentity,
             final OxiaOwnerLeaseStore authority,
             final ShardStore store,
             final WorkClassExecutionRegistry workClasses,
@@ -1171,9 +1171,9 @@ public final class PulsarClientArtifactWorkerSmoke {
                 || !Arrays.equals(outcome.publishAttemptId(), publishAttemptId)) {
             throw new IllegalStateException("Pulsar Worker Publish Outcome was not a definitive PUBLISHED result");
         }
-        final PublishEvidenceV1 evidence = PublishEvidenceV1.decode(outcome.evidence());
-        if (evidence.evidenceKind() != PublishEvidenceKindV1.PULSAR_SEND_ACK
-                || evidence.verificationStatus() != EvidenceVerificationStatusV1.VERIFIED_PUBLISHED) {
+        final PublishEvidence evidence = PublishEvidence.decode(outcome.evidence());
+        if (evidence.evidenceKind() != PublishEvidenceKind.PULSAR_SEND_ACK
+                || evidence.verificationStatus() != EvidenceVerificationStatus.VERIFIED_PUBLISHED) {
             throw new IllegalStateException("Pulsar Worker Publish Outcome carried the wrong evidence branch");
         }
         evidence.requireBusinessMutation(publishAttemptId, true);
@@ -1207,7 +1207,7 @@ public final class PulsarClientArtifactWorkerSmoke {
     static void bindActiveOwnerPublishGraph(
             final WorkerShardRuntime runtime,
             final OwnedDelayShard ownedShard,
-            final OwnerIdentityV1 ownerIdentity,
+            final OwnerIdentity ownerIdentity,
             final OxiaOwnerLeaseStore authority,
             final ShardStore store,
             final WorkClassExecutionRegistry workClasses,
@@ -1220,7 +1220,7 @@ public final class PulsarClientArtifactWorkerSmoke {
     static void bindActiveOwnerPublishGraph(
             final WorkerShardRuntime runtime,
             final OwnedDelayShard ownedShard,
-            final OwnerIdentityV1 ownerIdentity,
+            final OwnerIdentity ownerIdentity,
             final OxiaOwnerLeaseStore authority,
             final ShardStore store,
             final WorkClassExecutionRegistry workClasses,
@@ -1243,7 +1243,7 @@ public final class PulsarClientArtifactWorkerSmoke {
     static void bindActiveOwnerPublishGraph(
             final WorkerShardRuntime runtime,
             final OwnedDelayShard ownedShard,
-            final OwnerIdentityV1 ownerIdentity,
+            final OwnerIdentity ownerIdentity,
             final OxiaOwnerLeaseStore authority,
             final ShardStore store,
             final WorkClassExecutionRegistry workClasses,
@@ -1356,7 +1356,7 @@ public final class PulsarClientArtifactWorkerSmoke {
         if (rawBatchIndex >= 0 && (rawBatchSize <= 0 || Integer.compareUnsigned(rawBatchIndex, rawBatchSize) >= 0)) {
             return Optional.empty();
         }
-        final PublishEvidenceV1 typed = PulsarSendAckEvidence.published(
+        final PublishEvidence typed = PulsarSendAckEvidence.published(
                 request,
                 preparedPublishHash,
                 producerNameHash,
@@ -1474,7 +1474,7 @@ public final class PulsarClientArtifactWorkerSmoke {
             final String destinationPhysicalTopic,
             final ShardStore store,
             final OwnedDelayShard ownedShard,
-            final OwnerIdentityV1 ownerIdentity,
+            final OwnerIdentity ownerIdentity,
             final OxiaOwnerLeaseStore authority,
             final WorkClassExecutionRegistry workClasses,
             final KeyPair verificationKey)
@@ -1510,12 +1510,12 @@ public final class PulsarClientArtifactWorkerSmoke {
             final String destinationPhysicalTopic,
             final ShardStore store,
             final OwnedDelayShard ownedShard,
-            final OwnerIdentityV1 ownerIdentity,
+            final OwnerIdentity ownerIdentity,
             final OxiaOwnerLeaseStore authority,
             final WorkClassExecutionRegistry workClasses,
             final KeyPair verificationKey,
-            final ProfileRefV1 destinationProfile,
-            final ProfileRefV1 capabilityProfile,
+            final ProfileRef destinationProfile,
+            final ProfileRef capabilityProfile,
             final long workClassBytes)
             throws Exception {
         return createPhysicalPublishBridge(
@@ -1549,12 +1549,12 @@ public final class PulsarClientArtifactWorkerSmoke {
             final String destinationPhysicalTopic,
             final ShardStore store,
             final OwnedDelayShard ownedShard,
-            final OwnerIdentityV1 ownerIdentity,
+            final OwnerIdentity ownerIdentity,
             final OxiaOwnerLeaseStore authority,
             final WorkClassExecutionRegistry workClasses,
             final KeyPair verificationKey,
-            final ProfileRefV1 destinationProfile,
-            final ProfileRefV1 capabilityProfile,
+            final ProfileRef destinationProfile,
+            final ProfileRef capabilityProfile,
             final DestinationLaneId requestedLaneId,
             final byte[] requestedLaneIncarnation,
             final long workClassBytes)
@@ -1590,12 +1590,12 @@ public final class PulsarClientArtifactWorkerSmoke {
             final String destinationPhysicalTopic,
             final ShardStore store,
             final OwnedDelayShard ownedShard,
-            final OwnerIdentityV1 ownerIdentity,
+            final OwnerIdentity ownerIdentity,
             final OxiaOwnerLeaseStore authority,
             final WorkClassExecutionRegistry workClasses,
             final KeyPair verificationKey,
-            final ProfileRefV1 destinationProfile,
-            final ProfileRefV1 capabilityProfile,
+            final ProfileRef destinationProfile,
+            final ProfileRef capabilityProfile,
             final DestinationLaneId requestedLaneId,
             final byte[] requestedLaneIncarnation,
             final long workClassBytes,
@@ -1632,12 +1632,12 @@ public final class PulsarClientArtifactWorkerSmoke {
             final String destinationPhysicalTopic,
             final ShardStore store,
             final OwnedDelayShard ownedShard,
-            final OwnerIdentityV1 ownerIdentity,
+            final OwnerIdentity ownerIdentity,
             final OxiaOwnerLeaseStore authority,
             final WorkClassExecutionRegistry workClasses,
             final KeyPair verificationKey,
-            final ProfileRefV1 destinationProfile,
-            final ProfileRefV1 capabilityProfile,
+            final ProfileRef destinationProfile,
+            final ProfileRef capabilityProfile,
             final DestinationLaneId requestedLaneId,
             final byte[] requestedLaneIncarnation,
             final long workClassBytes,
@@ -1682,12 +1682,12 @@ public final class PulsarClientArtifactWorkerSmoke {
             final String destinationPhysicalTopic,
             final ShardStore store,
             final OwnedDelayShard ownedShard,
-            final OwnerIdentityV1 ownerIdentity,
+            final OwnerIdentity ownerIdentity,
             final OxiaOwnerLeaseStore authority,
             final WorkClassExecutionRegistry workClasses,
             final KeyPair verificationKey,
-            final ProfileRefV1 destinationProfile,
-            final ProfileRefV1 capabilityProfile,
+            final ProfileRef destinationProfile,
+            final ProfileRef capabilityProfile,
             final DestinationLaneId requestedLaneId,
             final byte[] requestedLaneIncarnation,
             final long workClassBytes,
@@ -1714,8 +1714,8 @@ public final class PulsarClientArtifactWorkerSmoke {
         Bytes.requireLength(laneIncarnation, 16, "laneIncarnation");
         final boolean reusePersistedLaneReadiness =
                 requestedLaneId != null && hasAdmissionResponseLossProcessCrash() && !hasWorkerAdmissionResponseLoss();
-        final ActiveLaneStateV1 persistedLane =
-                reusePersistedLaneReadiness ? ownedShard.getActiveLaneStateV1(laneId) : null;
+        final ActiveLaneState persistedLane =
+                reusePersistedLaneReadiness ? ownedShard.getActiveLaneState(laneId) : null;
         if (reusePersistedLaneReadiness
                 && (persistedLane == null
                         || !Arrays.equals(persistedLane.laneIncarnation(), laneIncarnation)
@@ -1726,11 +1726,11 @@ public final class PulsarClientArtifactWorkerSmoke {
             throw new IllegalStateException(
                     "Pulsar admission response-loss recovery did not find the exact durable READY Lane proof");
         }
-        final com.nereusstream.delay.protocol.BrokerResourceIdentityV1 target =
+        final com.nereusstream.delay.protocol.BrokerResourceIdentity target =
                 destinationResource(destinationPhysicalTopic);
-        final ChannelResourceIdentityV1 channel;
-        final ReadyCertificateV1 readyCertificate;
-        final List<EvidenceCursorV1> evidenceCursors;
+        final ChannelResourceIdentity channel;
+        final ReadyCertificate readyCertificate;
+        final List<EvidenceCursor> evidenceCursors;
         if (persistedLane == null) {
             final TopicResourceGuard destinationGuard =
                     new TopicResourceGuard(CLUSTER, DESTINATION_INCARNATION, DESTINATION_CREATION_TIMESTAMP);
@@ -1763,7 +1763,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                     validUntil,
                     destinationProfile,
                     destinationPartition);
-            evidenceCursors = List.of(EvidenceCursorV1.pulsar(
+            evidenceCursors = List.of(EvidenceCursor.pulsar(
                     laneId.bytes(),
                     laneIncarnation,
                     DESTINATION_INCARNATION,
@@ -1777,8 +1777,8 @@ public final class PulsarClientArtifactWorkerSmoke {
                     0,
                     1));
         } else {
-            readyCertificate = ReadyCertificateV1.decode(persistedLane.readyCertificate());
-            channel = ChannelResourceIdentityV1.decode(readyCertificate.channel());
+            readyCertificate = ReadyCertificate.decode(persistedLane.readyCertificate());
+            channel = ChannelResourceIdentity.decode(readyCertificate.channel());
             if (!Arrays.equals(channel.destinationLaneId(), laneId.bytes())
                     || !Arrays.equals(channel.laneIncarnation(), laneIncarnation)
                     || !channel.targetResource().equals(target)
@@ -1923,22 +1923,22 @@ public final class PulsarClientArtifactWorkerSmoke {
                 admissionResponseLossObserved);
     }
 
-    private static ChannelResourceIdentityV1 channel(
+    private static ChannelResourceIdentity channel(
             final DestinationLaneId laneId,
             final byte[] laneIncarnation,
-            final com.nereusstream.delay.protocol.BrokerResourceIdentityV1 target,
+            final com.nereusstream.delay.protocol.BrokerResourceIdentity target,
             final String physicalTopic,
             final byte[] attestationDigest,
             final TrustedUtcIntervalEvidence issuedAt,
-            final ProfileRefV1 destinationProfile,
+            final ProfileRef destinationProfile,
             final int destinationPartition) {
         final byte[] producer = Bytes.utf8("pulsar-worker-destination-producer");
         final byte[] binding = Bytes.sha256(Bytes.utf8("pulsar-worker-channel-binding"), target.canonicalBytes());
         final byte[] fingerprint =
                 Bytes.sha256(Bytes.utf8("pulsar-worker-channel-fingerprint"), Bytes.utf8(physicalTopic));
         final byte[] prefix = CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.uint32(output, 1, AdapterKindV1.PULSAR.wireValue());
-            CanonicalProtobuf.uint32(output, 2, ChannelKindV1.PULSAR_DEDUP_PRODUCER.wireValue());
+            CanonicalProtobuf.uint32(output, 1, AdapterKind.PULSAR.wireValue());
+            CanonicalProtobuf.uint32(output, 2, ChannelKind.PULSAR_DEDUP_PRODUCER.wireValue());
             CanonicalProtobuf.bytes(output, 3, laneId.bytes());
             CanonicalProtobuf.bytes(output, 4, laneIncarnation);
             CanonicalProtobuf.bytes(output, 5, target.canonicalBytes());
@@ -1951,19 +1951,19 @@ public final class PulsarClientArtifactWorkerSmoke {
             CanonicalProtobuf.uint64(output, 12, 1);
             CanonicalProtobuf.bytes(output, 13, attestationDigest);
         });
-        final CredentialUseLeaseV1 lease = new CredentialUseLeaseV1(
+        final CredentialUseLease lease = new CredentialUseLease(
                 destinationProfile,
-                CredentialUseKindV1.DESTINATION_CHANNEL,
-                CredentialUseLeaseV1.destinationChannelHolderScope(prefix),
+                CredentialUseKind.DESTINATION_CHANNEL,
+                CredentialUseLease.destinationChannelHolderScope(prefix),
                 1,
                 binding,
                 fingerprint,
                 issuedAt,
                 Math.addExact(issuedAt.latestEpochMs(), 60_000),
                 1);
-        return new ChannelResourceIdentityV1(
-                AdapterKindV1.PULSAR,
-                ChannelKindV1.PULSAR_DEDUP_PRODUCER,
+        return new ChannelResourceIdentity(
+                AdapterKind.PULSAR,
+                ChannelKind.PULSAR_DEDUP_PRODUCER,
                 laneId.bytes(),
                 laneIncarnation,
                 target,
@@ -1981,22 +1981,22 @@ public final class PulsarClientArtifactWorkerSmoke {
                 lease);
     }
 
-    private static ReadyCertificateV1 readyCertificate(
-            final com.nereusstream.delay.protocol.OwnerIdentityV1 owner,
+    private static ReadyCertificate readyCertificate(
+            final com.nereusstream.delay.protocol.OwnerIdentity owner,
             final byte[] storeIncarnation,
             final DestinationLaneId laneId,
             final byte[] laneIncarnation,
-            final ChannelResourceIdentityV1 channel,
-            final com.nereusstream.delay.protocol.BrokerResourceIdentityV1 target,
+            final ChannelResourceIdentity channel,
+            final com.nereusstream.delay.protocol.BrokerResourceIdentity target,
             final String physicalTopic,
             final byte[] attestationDigest,
             final TrustedUtcIntervalEvidence issuedAt,
             final long validUntil,
-            final ProfileRefV1 destinationProfile,
+            final ProfileRef destinationProfile,
             final int destinationPartition) {
-        final ActivationBarrierV1 barrier =
-                ActivationBarrierV1.pulsar(target, destinationPartition, 0, 0, 0, 1, 1, attestationDigest);
-        final EvidenceCursorV1 cursor = EvidenceCursorV1.pulsar(
+        final ActivationBarrier barrier =
+                ActivationBarrier.pulsar(target, destinationPartition, 0, 0, 0, 1, 1, attestationDigest);
+        final EvidenceCursor cursor = EvidenceCursor.pulsar(
                 laneId.bytes(),
                 laneIncarnation,
                 DESTINATION_INCARNATION,
@@ -2031,28 +2031,27 @@ public final class PulsarClientArtifactWorkerSmoke {
             while (reader.hasRemaining()) {
                 writeField(output, reader.next());
             }
-            CanonicalProtobuf.bytes(
-                    output, 16, Bytes.sha256(Bytes.utf8("nereus-delay-ready-certificate-v1\0"), prefix));
+            CanonicalProtobuf.bytes(output, 16, Bytes.sha256(Bytes.utf8("nereus-delay-ready-certificate\0"), prefix));
         });
-        return ReadyCertificateV1.decode(encoded);
+        return ReadyCertificate.decode(encoded);
     }
 
     static byte[] canonicalLaneTuple(
-            final String physicalTopic, final ProfileRefV1 destination, final ProfileRefV1 capability) {
+            final String physicalTopic, final ProfileRef destination, final ProfileRef capability) {
         return canonicalLaneTuple(physicalTopic, destination, capability, 0);
     }
 
     static byte[] canonicalLaneTuple(
             final String physicalTopic,
-            final ProfileRefV1 destination,
-            final ProfileRefV1 capability,
+            final ProfileRef destination,
+            final ProfileRef capability,
             final int destinationPartition) {
         if (destinationPartition < 0) {
             throw new IllegalArgumentException("Pulsar destination partition must be non-negative");
         }
         return Bytes.concat(
                 bytes(32, 61),
-                Bytes.u8(AdapterKindV1.PULSAR.wireValue()),
+                Bytes.u8(AdapterKind.PULSAR.wireValue()),
                 Bytes.lp32(Bytes.utf8(CLUSTER)),
                 Bytes.u8(2),
                 DESTINATION_INCARNATION,
@@ -2069,26 +2068,26 @@ public final class PulsarClientArtifactWorkerSmoke {
                 Bytes.u32be(0));
     }
 
-    private static com.nereusstream.delay.protocol.BrokerResourceIdentityV1 destinationResource(
+    private static com.nereusstream.delay.protocol.BrokerResourceIdentity destinationResource(
             final String physicalTopic) {
-        return com.nereusstream.delay.protocol.BrokerResourceIdentityV1.pulsar(new PulsarBrokerResourceIdentityV1(
+        return com.nereusstream.delay.protocol.BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
                 CLUSTER, DESTINATION_INCARNATION, physicalTopic, DESTINATION_CREATION_TIMESTAMP));
     }
 
-    private static ProfileRefV1 destinationProfile(final String identity) {
-        return new ProfileRefV1(
+    private static ProfileRef destinationProfile(final String identity) {
+        return new ProfileRef(
                 Bytes.utf8("destination-" + identity),
                 1,
                 Bytes.sha256(Bytes.utf8("destination-semantic-" + identity)),
-                ProfileKindV1.DESTINATION);
+                ProfileKind.DESTINATION);
     }
 
-    static ProfileRefV1 capabilityProfile() {
-        return new ProfileRefV1(
+    static ProfileRef capabilityProfile() {
+        return new ProfileRef(
                 Bytes.utf8("pulsar-worker-capability"),
                 1,
                 Bytes.sha256(Bytes.utf8("pulsar-worker-capability-semantic")),
-                ProfileKindV1.DELIVERY_CAPABILITY);
+                ProfileKind.DELIVERY_CAPABILITY);
     }
 
     private static byte[] claimCharge(final long payloadBytes) {
@@ -2098,7 +2097,7 @@ public final class PulsarClientArtifactWorkerSmoke {
 
     private static byte[] retryDecision(
             final long firstAttemptAt, final long retryDeadline, final int completedAttemptNo) {
-        final RetryPolicyRefV1 policy = new RetryPolicyRefV1(
+        final RetryPolicyRef policy = new RetryPolicyRef(
                 Bytes.utf8("pulsar-worker-retry"), 1, Bytes.sha256(Bytes.utf8("pulsar-worker-retry-semantic")));
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, 1);
@@ -2136,7 +2135,7 @@ public final class PulsarClientArtifactWorkerSmoke {
         return command.delayMessageId();
     }
 
-    private static long branchNumber(final PublishEvidenceV1 evidence, final int number) {
+    private static long branchNumber(final PublishEvidence evidence, final int number) {
         final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(evidence.branch());
         while (reader.hasRemaining()) {
             final CanonicalProtobuf.Reader.Field field = reader.next();
@@ -2179,12 +2178,12 @@ public final class PulsarClientArtifactWorkerSmoke {
         private final AutoCloseable appenderResource;
         private final DestinationLaneId laneId;
         private final byte[] laneIncarnation;
-        private final ProfileRefV1 destinationProfile;
-        private final ProfileRefV1 capabilityProfile;
-        private final com.nereusstream.delay.protocol.BrokerResourceIdentityV1 targetResource;
-        private final ChannelResourceIdentityV1 channel;
-        private final ReadyCertificateV1 readyCertificate;
-        private final List<EvidenceCursorV1> evidenceCursors;
+        private final ProfileRef destinationProfile;
+        private final ProfileRef capabilityProfile;
+        private final com.nereusstream.delay.protocol.BrokerResourceIdentity targetResource;
+        private final ChannelResourceIdentity channel;
+        private final ReadyCertificate readyCertificate;
+        private final List<EvidenceCursor> evidenceCursors;
         private final String destinationPhysicalTopic;
         private final boolean destinationResponseLoss;
         private final AtomicBoolean destinationResponseEvidenceResolved;
@@ -2197,12 +2196,12 @@ public final class PulsarClientArtifactWorkerSmoke {
                 final AutoCloseable appenderResource,
                 final DestinationLaneId laneId,
                 final byte[] laneIncarnation,
-                final ProfileRefV1 destinationProfile,
-                final ProfileRefV1 capabilityProfile,
-                final com.nereusstream.delay.protocol.BrokerResourceIdentityV1 targetResource,
-                final ChannelResourceIdentityV1 channel,
-                final ReadyCertificateV1 readyCertificate,
-                final List<EvidenceCursorV1> evidenceCursors,
+                final ProfileRef destinationProfile,
+                final ProfileRef capabilityProfile,
+                final com.nereusstream.delay.protocol.BrokerResourceIdentity targetResource,
+                final ChannelResourceIdentity channel,
+                final ReadyCertificate readyCertificate,
+                final List<EvidenceCursor> evidenceCursors,
                 final String destinationPhysicalTopic,
                 final boolean destinationResponseLoss,
                 final AtomicBoolean destinationResponseEvidenceResolved,
@@ -2246,27 +2245,27 @@ public final class PulsarClientArtifactWorkerSmoke {
             return Bytes.copy(laneIncarnation);
         }
 
-        ProfileRefV1 destinationProfile() {
+        ProfileRef destinationProfile() {
             return destinationProfile;
         }
 
-        ProfileRefV1 capabilityProfile() {
+        ProfileRef capabilityProfile() {
             return capabilityProfile;
         }
 
-        com.nereusstream.delay.protocol.BrokerResourceIdentityV1 targetResource() {
+        com.nereusstream.delay.protocol.BrokerResourceIdentity targetResource() {
             return targetResource;
         }
 
-        ChannelResourceIdentityV1 channel() {
+        ChannelResourceIdentity channel() {
             return channel;
         }
 
-        ReadyCertificateV1 readyCertificate() {
+        ReadyCertificate readyCertificate() {
             return readyCertificate;
         }
 
-        List<EvidenceCursorV1> evidenceCursors() {
+        List<EvidenceCursor> evidenceCursors() {
             return evidenceCursors;
         }
 
@@ -2370,7 +2369,7 @@ public final class PulsarClientArtifactWorkerSmoke {
         final WorkerPlacementPolicy.WorkerCandidate candidate = new WorkerPlacementPolicy.WorkerCandidate(
                 "pulsar-worker",
                 capacity(1),
-                CapacityVectorV1.empty(),
+                CapacityVector.empty(),
                 0,
                 16,
                 0,
@@ -2386,8 +2385,8 @@ public final class PulsarClientArtifactWorkerSmoke {
                 1,
                 List.of(candidate),
                 capacity(1),
-                CapacityVectorV1.empty(),
-                CapacityVectorV1.empty(),
+                CapacityVector.empty(),
+                CapacityVector.empty(),
                 null,
                 now,
                 0,
@@ -2402,10 +2401,10 @@ public final class PulsarClientArtifactWorkerSmoke {
         return accepted;
     }
 
-    private static CapacityVectorV1 capacity(final long dbInstances) {
-        final long[] values = new long[CapacityDimensionV1.COUNT];
-        values[CapacityDimensionV1.DB_INSTANCES.wireValue() - 1] = dbInstances;
-        return new CapacityVectorV1(values);
+    private static CapacityVector capacity(final long dbInstances) {
+        final long[] values = new long[CapacityDimension.COUNT];
+        values[CapacityDimension.DB_INSTANCES.wireValue() - 1] = dbInstances;
+        return new CapacityVector(values);
     }
 
     private static OxiaSyncOwnerLeaseBackend.ClientHandle connectOxiaIfConfigured() {
@@ -2532,9 +2531,9 @@ public final class PulsarClientArtifactWorkerSmoke {
             throw new IllegalStateException(
                     "Pulsar destination response-loss recovery replayed a non-definitive or divergent Outcome");
         }
-        final PublishEvidenceV1 evidence = PublishEvidenceV1.decode(outcome.evidence());
-        if (evidence.evidenceKind() != PublishEvidenceKindV1.PULSAR_SEND_ACK
-                || evidence.verificationStatus() != EvidenceVerificationStatusV1.VERIFIED_PUBLISHED) {
+        final PublishEvidence evidence = PublishEvidence.decode(outcome.evidence());
+        if (evidence.evidenceKind() != PublishEvidenceKind.PULSAR_SEND_ACK
+                || evidence.verificationStatus() != EvidenceVerificationStatus.VERIFIED_PUBLISHED) {
             throw new IllegalStateException(
                     "Pulsar destination response-loss recovery replayed the wrong destination evidence branch");
         }
@@ -2726,24 +2725,24 @@ public final class PulsarClientArtifactWorkerSmoke {
         final String shard = metadata.shardId().routeIncarnation().uuid() + "/"
                 + metadata.shardId().partition();
         final String json = "{\n"
-                + "  \"schema\": \"nereus-delay-chaos-durable-state-dump-v1\",\n"
-                + "  \"cell\": " + jsonString(cell) + ",\n"
-                + "  \"phase\": " + jsonString(phase) + ",\n"
-                + "  \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
-                + "  \"store_root\": " + jsonString(root.toString()) + ",\n"
-                + "  \"shard\": " + jsonString(shard) + ",\n"
-                + "  \"store_incarnation\": " + jsonString(Bytes.hex(metadata.storeIncarnation())) + ",\n"
-                + "  \"db_identity\": " + jsonString(Bytes.hex(metadata.dbIdentity())) + ",\n"
-                + "  \"physical_schedule_position\": " + jsonNullable(schedulePosition) + ",\n"
-                + "  \"applied_source_position\": " + jsonNullable(appliedSourcePosition) + ",\n"
-                + "  \"shard_mutation_sequence\": " + store.shardMutationSequence() + ",\n"
-                + "  \"attempt_state\": " + jsonString(observedAttemptState) + ",\n"
-                + "  \"publish_attempt_id\": " + jsonNullable(publishAttemptId) + ",\n"
-                + "  \"attempt_source_position\": " + jsonNullable(attemptSourcePosition) + ",\n"
-                + "  \"message_id\": " + jsonNullable(messageId) + ",\n"
-                + "  \"outcome_applied\": " + outcomeApplied + ",\n"
-                + "  \"durable_store_read\": true,\n"
-                + "  \"dump_forced\": true\n"
+                + " \"schema\": \"nereus-delay-chaos-durable-state-dump\",\n"
+                + " \"cell\": " + jsonString(cell) + ",\n"
+                + " \"phase\": " + jsonString(phase) + ",\n"
+                + " \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
+                + " \"store_root\": " + jsonString(root.toString()) + ",\n"
+                + " \"shard\": " + jsonString(shard) + ",\n"
+                + " \"store_incarnation\": " + jsonString(Bytes.hex(metadata.storeIncarnation())) + ",\n"
+                + " \"db_identity\": " + jsonString(Bytes.hex(metadata.dbIdentity())) + ",\n"
+                + " \"physical_schedule_position\": " + jsonNullable(schedulePosition) + ",\n"
+                + " \"applied_source_position\": " + jsonNullable(appliedSourcePosition) + ",\n"
+                + " \"shard_mutation_sequence\": " + store.shardMutationSequence() + ",\n"
+                + " \"attempt_state\": " + jsonString(observedAttemptState) + ",\n"
+                + " \"publish_attempt_id\": " + jsonNullable(publishAttemptId) + ",\n"
+                + " \"attempt_source_position\": " + jsonNullable(attemptSourcePosition) + ",\n"
+                + " \"message_id\": " + jsonNullable(messageId) + ",\n"
+                + " \"outcome_applied\": " + outcomeApplied + ",\n"
+                + " \"durable_store_read\": true,\n"
+                + " \"dump_forced\": true\n"
                 + "}\n";
         try (FileChannel channel = FileChannel.open(
                 target, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
@@ -2776,32 +2775,32 @@ public final class PulsarClientArtifactWorkerSmoke {
         final String shardValue = metadata.shardId().routeIncarnation().uuid() + "/"
                 + metadata.shardId().partition();
         final String json = "{\n"
-                + "  \"schema\": \"nereus-delay-chaos-durable-state-dump-v1\",\n"
-                + "  \"cell\": \"pulsar-source-ack-response-loss\",\n"
-                + "  \"phase\": " + jsonString(phase) + ",\n"
-                + "  \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
-                + "  \"store_root\": " + jsonString(root.toString()) + ",\n"
-                + "  \"physical_topic\": " + jsonString(physicalTopic) + ",\n"
-                + "  \"cluster_id\": " + jsonString(CLUSTER) + ",\n"
-                + "  \"route_uuid\": "
+                + " \"schema\": \"nereus-delay-chaos-durable-state-dump\",\n"
+                + " \"cell\": \"pulsar-source-ack-response-loss\",\n"
+                + " \"phase\": " + jsonString(phase) + ",\n"
+                + " \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
+                + " \"store_root\": " + jsonString(root.toString()) + ",\n"
+                + " \"physical_topic\": " + jsonString(physicalTopic) + ",\n"
+                + " \"cluster_id\": " + jsonString(CLUSTER) + ",\n"
+                + " \"route_uuid\": "
                 + jsonString(metadata.shardId().routeIncarnation().uuid().toString()) + ",\n"
-                + "  \"shard\": " + jsonString(shardValue) + ",\n"
-                + "  \"partition\": " + shard.partition() + ",\n"
-                + "  \"store_incarnation\": " + jsonString(Bytes.hex(metadata.storeIncarnation())) + ",\n"
-                + "  \"db_identity\": " + jsonString(Bytes.hex(metadata.dbIdentity())) + ",\n"
-                + "  \"source_ack_source_position\": "
+                + " \"shard\": " + jsonString(shardValue) + ",\n"
+                + " \"partition\": " + shard.partition() + ",\n"
+                + " \"store_incarnation\": " + jsonString(Bytes.hex(metadata.storeIncarnation())) + ",\n"
+                + " \"db_identity\": " + jsonString(Bytes.hex(metadata.dbIdentity())) + ",\n"
+                + " \"source_ack_source_position\": "
                 + jsonNullable(ackSourcePosition == null ? null : Bytes.hex(ackSourcePosition.canonicalBytes())) + ",\n"
-                + "  \"applied_source_position\": "
+                + " \"applied_source_position\": "
                 + jsonNullable(appliedSourcePosition == null ? null : Bytes.hex(appliedSourcePosition.canonicalBytes()))
                 + ",\n"
-                + "  \"recovery_replayed_entries\": " + recoveryReplayedEntries + ",\n"
-                + "  \"recovery_replayed_ack_source\": " + recoveryReplayedAckSource + ",\n"
-                + "  \"source_apply_durable\": true,\n"
-                + "  \"source_ack_committed\": true,\n"
-                + "  \"ack_response_lost\": true,\n"
-                + "  \"duplicate_source_apply_observed\": " + recoveryReplayedAckSource + ",\n"
-                + "  \"durable_store_read\": true,\n"
-                + "  \"dump_forced\": true\n"
+                + " \"recovery_replayed_entries\": " + recoveryReplayedEntries + ",\n"
+                + " \"recovery_replayed_ack_source\": " + recoveryReplayedAckSource + ",\n"
+                + " \"source_apply_durable\": true,\n"
+                + " \"source_ack_committed\": true,\n"
+                + " \"ack_response_lost\": true,\n"
+                + " \"duplicate_source_apply_observed\": " + recoveryReplayedAckSource + ",\n"
+                + " \"durable_store_read\": true,\n"
+                + " \"dump_forced\": true\n"
                 + "}\n";
         try (FileChannel channel = FileChannel.open(
                 target, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
@@ -2834,25 +2833,25 @@ public final class PulsarClientArtifactWorkerSmoke {
         final String shardValue = metadata.shardId().routeIncarnation().uuid() + "/"
                 + metadata.shardId().partition();
         final String json = "{\n"
-                + "  \"schema\": \"nereus-delay-chaos-durable-state-dump-v1\",\n"
-                + "  \"cell\": \"pulsar-worker-process-crash\",\n"
-                + "  \"phase\": " + jsonString(phase) + ",\n"
-                + "  \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
-                + "  \"store_root\": " + jsonString(root.toString()) + ",\n"
-                + "  \"physical_topic\": " + jsonString(physicalTopic) + ",\n"
-                + "  \"cluster_id\": " + jsonString(CLUSTER) + ",\n"
-                + "  \"route_uuid\": "
+                + " \"schema\": \"nereus-delay-chaos-durable-state-dump\",\n"
+                + " \"cell\": \"pulsar-worker-process-crash\",\n"
+                + " \"phase\": " + jsonString(phase) + ",\n"
+                + " \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
+                + " \"store_root\": " + jsonString(root.toString()) + ",\n"
+                + " \"physical_topic\": " + jsonString(physicalTopic) + ",\n"
+                + " \"cluster_id\": " + jsonString(CLUSTER) + ",\n"
+                + " \"route_uuid\": "
                 + jsonString(metadata.shardId().routeIncarnation().uuid().toString()) + ",\n"
-                + "  \"shard\": " + jsonString(shardValue) + ",\n"
-                + "  \"partition\": " + shard.partition() + ",\n"
-                + "  \"store_incarnation\": " + jsonString(Bytes.hex(metadata.storeIncarnation())) + ",\n"
-                + "  \"db_identity\": " + jsonString(Bytes.hex(metadata.dbIdentity())) + ",\n"
-                + "  \"applied_source_position\": " + jsonNullable(appliedSourcePosition) + ",\n"
-                + "  \"source_record_prepared\": true,\n"
-                + "  \"source_record_applied\": " + sourceAckCommitted + ",\n"
-                + "  \"source_ack_committed\": " + sourceAckCommitted + ",\n"
-                + "  \"durable_store_read\": true,\n"
-                + "  \"dump_forced\": true\n"
+                + " \"shard\": " + jsonString(shardValue) + ",\n"
+                + " \"partition\": " + shard.partition() + ",\n"
+                + " \"store_incarnation\": " + jsonString(Bytes.hex(metadata.storeIncarnation())) + ",\n"
+                + " \"db_identity\": " + jsonString(Bytes.hex(metadata.dbIdentity())) + ",\n"
+                + " \"applied_source_position\": " + jsonNullable(appliedSourcePosition) + ",\n"
+                + " \"source_record_prepared\": true,\n"
+                + " \"source_record_applied\": " + sourceAckCommitted + ",\n"
+                + " \"source_ack_committed\": " + sourceAckCommitted + ",\n"
+                + " \"durable_store_read\": true,\n"
+                + " \"dump_forced\": true\n"
                 + "}\n";
         try (FileChannel channel = FileChannel.open(
                 target, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
@@ -3035,7 +3034,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                             CREATION_TIMESTAMP,
                             0,
                             command.commandId(),
-                            com.nereusstream.delay.protocol.CommandCodec.encodeFrameV1(command)))
+                            com.nereusstream.delay.protocol.CommandCodec.encodeManagedFrame(command)))
                     .toCompletableFuture()
                     .get(15, TimeUnit.SECONDS);
             if (result.disposition() != PulsarSendResult.Disposition.PERSISTED) {
@@ -3063,11 +3062,11 @@ public final class PulsarClientArtifactWorkerSmoke {
 
     private static PreparedCommand command(
             final ShardId shard, final String identity, final byte[] payload, final long delayMs) {
-        final ProfileRefV1 destination = destinationProfile(identity);
-        final RetryPolicyRefV1 retryPolicy = new RetryPolicyRefV1(
+        final ProfileRef destination = destinationProfile(identity);
+        final RetryPolicyRef retryPolicy = new RetryPolicyRef(
                 Bytes.utf8("retry-" + identity), 1, Bytes.sha256(Bytes.utf8("retry-semantic-" + identity)));
         final long deliverAt = System.currentTimeMillis() + delayMs;
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
                 destination,
                 retryPolicy,
                 deliverAt,
@@ -3077,20 +3076,20 @@ public final class PulsarClientArtifactWorkerSmoke {
                 payload,
                 Bytes.utf8("source-" + identity),
                 null,
-                AdapterMetadataV1.pulsar(new PulsarMetadataV1(null, null, null, List.of())),
+                AdapterMetadata.pulsar(new PulsarMetadata(null, null, null, List.of())),
                 null,
                 null);
-        return PreparedCommand.scheduleV1(shard, intent, deliverAt + 20_000);
+        return PreparedCommand.schedule(shard, intent, deliverAt + 20_000);
     }
 
-    private static V1ScheduleResolver scheduleResolver(final String destinationPhysicalTopic) {
+    private static ScheduleResolver scheduleResolver(final String destinationPhysicalTopic) {
         if (destinationPhysicalTopic != null) {
-            return new V1ScheduleResolver() {
+            return new ScheduleResolver() {
                 @Override
                 public ResolvedSchedule resolveSchedule(
                         final ShardId shard,
                         final DelayMessageId message,
-                        final ScheduleIntentV1 intent,
+                        final CanonicalScheduleIntent intent,
                         final com.nereusstream.delay.protocol.SourcePosition source) {
                     final byte[] tuple =
                             canonicalLaneTuple(destinationPhysicalTopic, intent.profile(), capabilityProfile());
@@ -3101,7 +3100,7 @@ public final class PulsarClientArtifactWorkerSmoke {
                 public ResolvedPrepare resolvePrepare(
                         final ShardId shard,
                         final DelayMessageId message,
-                        final com.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1 body,
+                        final com.nereusstream.delay.protocol.PrepareLargeScheduleBody body,
                         final com.nereusstream.delay.protocol.SourcePosition source) {
                     final byte[] tuple = canonicalLaneTuple(
                             destinationPhysicalTopic,
@@ -3111,14 +3110,14 @@ public final class PulsarClientArtifactWorkerSmoke {
                 }
             };
         }
-        final byte[] tuple = Bytes.utf8("pulsar-worker-canonical-lane-tuple-v1");
+        final byte[] tuple = Bytes.utf8("pulsar-worker-canonical-lane-tuple");
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
-        return new V1ScheduleResolver() {
+        return new ScheduleResolver() {
             @Override
             public ResolvedSchedule resolveSchedule(
                     final ShardId shard,
                     final com.nereusstream.delay.protocol.DelayMessageId message,
-                    final ScheduleIntentV1 intent,
+                    final CanonicalScheduleIntent intent,
                     final com.nereusstream.delay.protocol.SourcePosition source) {
                 return new ResolvedSchedule(lane, tuple, intent.inlinePayload(), null);
             }
@@ -3127,19 +3126,19 @@ public final class PulsarClientArtifactWorkerSmoke {
             public ResolvedPrepare resolvePrepare(
                     final ShardId shard,
                     final com.nereusstream.delay.protocol.DelayMessageId message,
-                    final com.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1 body,
+                    final com.nereusstream.delay.protocol.PrepareLargeScheduleBody body,
                     final com.nereusstream.delay.protocol.SourcePosition source) {
                 return new ResolvedPrepare(lane, tuple);
             }
         };
     }
 
-    private static CompatibleControlSnapshotV1 controlSnapshot(final ShardId shard) {
-        return new CompatibleControlSnapshotV1(
-                new ShardSubjectV1(shard),
-                List.of(new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1)),
-                List.of(new ProfileRefV1(bytes(32, 50), 1, bytes(32, 51), ProfileKindV1.DESTINATION)),
-                new QuotaGrantRefV1(
+    private static CompatibleControlSnapshot controlSnapshot(final ShardId shard) {
+        return new CompatibleControlSnapshot(
+                new ShardSubject(shard),
+                List.of(new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1)),
+                List.of(new ProfileRef(bytes(32, 50), 1, bytes(32, 51), ProfileKind.DESTINATION)),
+                new QuotaGrantRef(
                         bytes(32, 52),
                         1,
                         new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));

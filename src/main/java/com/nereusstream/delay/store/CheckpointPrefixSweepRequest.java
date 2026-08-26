@@ -1,20 +1,20 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
 import java.util.Arrays;
 import java.util.Objects;
 
 /** Exact bounded prefix identity supplied after external REAPING authorization. */
 public record CheckpointPrefixSweepRequest(
-        ProfileRefV1 objectStoreProfile, byte[] recoveryLineageId, byte[] checkpointId, int maxVersions) {
+        ProfileRef objectStoreProfile, byte[] recoveryLineageId, byte[] checkpointId, int maxVersions) {
     private static final int ID_LENGTH = 16;
     private static final int MAX_SINGLE_PAGE_VERSIONS = 1_000;
 
     public CheckpointPrefixSweepRequest {
         objectStoreProfile = Objects.requireNonNull(objectStoreProfile, "objectStoreProfile");
-        if (objectStoreProfile.profileKind() != ProfileKindV1.OBJECT_STORE) {
+        if (objectStoreProfile.profileKind() != ProfileKind.OBJECT_STORE) {
             throw new IllegalArgumentException("checkpoint prefix sweep requires an OBJECT_STORE profile");
         }
         requireNonZeroFixed(recoveryLineageId, "recoveryLineageId");

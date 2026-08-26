@@ -13,7 +13,7 @@ kafka_client_jar="${NEREUS_DELAY_KAFKA_CLIENT_JAR:-${kafka_dir}/clients/build/li
 pulsar_tarball="${NEREUS_DELAY_PULSAR_TARBALL:-${pulsar_dir}/distribution/server/build/distributions/apache-pulsar-5.0.0-M1-bin.tar.gz}"
 pulsar_client_cp="${pulsar_dir}/pulsar-client/build/libs/pulsar-client-original-5.0.0-M1.jar:${pulsar_dir}/pulsar-client-api/build/libs/pulsar-client-api-5.0.0-M1.jar:${pulsar_dir}/pulsar-common/build/libs/pulsar-common-5.0.0-M1.jar"
 
-artifact_dir="${NEREUS_DELAY_CROSS_ARTIFACT_DIR:-$(mktemp -d -t nereus-delay-v1-cross.XXXXXX)}"
+artifact_dir="${NEREUS_DELAY_CROSS_ARTIFACT_DIR:-$(mktemp -d -t nereus-delay-cross.XXXXXX)}"
 mkdir -p "${artifact_dir}"
 artifact_dir="$(cd "${artifact_dir}" && pwd)"
 
@@ -72,8 +72,8 @@ docker compose version >/dev/null 2>&1
 test -s "${kafka_client_jar}"
 test -s "${pulsar_tarball}"
 test -d "${kafka_dir}" && test -d "${pulsar_dir}" && test -d "${oxia_dir}"
-test "$(git -C "${kafka_dir}" branch --show-current)" = "nereus/delay-guarded-producer-v1"
-test "$(git -C "${pulsar_dir}" branch --show-current)" = "nereus/delay-resource-guard-v1"
+test "$(git -C "${kafka_dir}" branch --show-current)" = "nereus/delay-guarded-producer"
+test "$(git -C "${pulsar_dir}" branch --show-current)" = "nereus/delay-resource-guard"
 test -z "$(git -C "${kafka_dir}" status --porcelain)"
 test -z "$(git -C "${pulsar_dir}" status --porcelain)"
 test -z "$(git -C "${oxia_dir}" status --porcelain)"

@@ -7,18 +7,18 @@ import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.SloFinalOutcomeV1;
-import com.nereusstream.delay.protocol.SloObjectiveNameV1;
-import com.nereusstream.delay.protocol.SloObservationOutboxV1;
-import com.nereusstream.delay.protocol.SloPathV1;
-import com.nereusstream.delay.protocol.SloPopulationV1;
-import com.nereusstream.delay.protocol.SloSampleEventIdentityV1;
-import com.nereusstream.delay.protocol.SloSampleFinalV1;
-import com.nereusstream.delay.protocol.SloSampleStartV1;
-import com.nereusstream.delay.protocol.SloThresholdDirectionV1;
-import com.nereusstream.delay.protocol.SloThresholdUnitV1;
-import com.nereusstream.delay.protocol.SloTimeEndpointKindV1;
-import com.nereusstream.delay.protocol.SloTimeEndpointV1;
+import com.nereusstream.delay.protocol.SloFinalOutcome;
+import com.nereusstream.delay.protocol.SloObjectiveName;
+import com.nereusstream.delay.protocol.SloObservationOutbox;
+import com.nereusstream.delay.protocol.SloPath;
+import com.nereusstream.delay.protocol.SloPopulation;
+import com.nereusstream.delay.protocol.SloSampleEventIdentity;
+import com.nereusstream.delay.protocol.SloSampleFinal;
+import com.nereusstream.delay.protocol.SloSampleStart;
+import com.nereusstream.delay.protocol.SloThresholdDirection;
+import com.nereusstream.delay.protocol.SloThresholdUnit;
+import com.nereusstream.delay.protocol.SloTimeEndpoint;
+import com.nereusstream.delay.protocol.SloTimeEndpointKind;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -31,7 +31,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Bounded, source-locked local capacity evidence for the real Store/SLO
- * boundaries.  This is an evidence producer, not a release certification:
+ * boundaries. This is an evidence producer, not a release certification:
  * it deliberately records unavailable platform authorities instead of
  * substituting host or guessed values for cgroup/rlimit observations.
  */
@@ -61,7 +61,7 @@ class BoundedCapacitySloProbeTest {
         final SloObservationOutboxExportRate exportRate = new SloObservationOutboxExportRate(
                 new SloObservationOutboxExportRate.Limits(outboxMaxRecords, MAX_SLO_BYTES));
         final List<PayloadRun> payloadRuns = new ArrayList<>();
-        final List<SloObservationOutboxV1> exportedSamples;
+        final List<SloObservationOutbox> exportedSamples;
         final SloObservationOutboxStore.Usage outboxUsage;
         final SloObservationOutboxExportRate.Usage exportUsage;
         final RocksDbUsageSnapshot usageBefore;
@@ -77,9 +77,9 @@ class BoundedCapacitySloProbeTest {
             }
             final long sloStartNanos = System.nanoTime();
             for (int sample = 0; sample < sloSamples; sample++) {
-                final SloSampleStartV1 start = sampleStart(sample);
+                final SloSampleStart start = sampleStart(sample);
                 outbox.ensureStart(start);
-                outbox.mergeFinal(sampleFinal(start, sample), SloThresholdDirectionV1.AT_MOST);
+                outbox.mergeFinal(sampleFinal(start, sample), SloThresholdDirection.AT_MOST);
             }
             sloElapsedNanos = Math.max(1L, System.nanoTime() - sloStartNanos);
             exportedSamples = outbox.scan(outboxMaxRecords, MAX_SLO_BYTES);
@@ -140,11 +140,11 @@ class BoundedCapacitySloProbeTest {
         return new PayloadRun(payloadSize, records, inputBytes, elapsedNanos, records, recordsPerSecond);
     }
 
-    private static void writeCollectorEvidence(final Path stateFile, final List<SloObservationOutboxV1> samples) {
+    private static void writeCollectorEvidence(final Path stateFile, final List<SloObservationOutbox> samples) {
         final PersistentSloObservationCollector collector = new PersistentSloObservationCollector(
                 stateFile, new SloObservationCollectorLimits(Math.max(512, samples.size() + 1), MAX_SLO_BYTES));
-        for (SloObservationOutboxV1 sample : samples) {
-            collector.merge(sample, SloThresholdDirectionV1.AT_MOST);
+        for (SloObservationOutbox sample : samples) {
+            collector.merge(sample, SloThresholdDirection.AT_MOST);
         }
         assertEquals(samples.size(), collector.size());
     }
@@ -153,12 +153,12 @@ class BoundedCapacitySloProbeTest {
             final ShardStoreConfig config,
             final ShardId shardId,
             final int payloadRecords,
-            final List<SloObservationOutboxV1> expectedSamples) {
+            final List<SloObservationOutbox> expectedSamples) {
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore reopened = ShardStore.open(config, shardId, resources)) {
             final SloObservationOutboxStore outbox = new SloObservationOutboxStore(
                     reopened, new SloObservationOutboxLimits(Math.max(512, expectedSamples.size() + 1), MAX_SLO_BYTES));
-            final List<SloObservationOutboxV1> actualSamples =
+            final List<SloObservationOutbox> actualSamples =
                     outbox.scan(Math.max(512, expectedSamples.size() + 1), MAX_SLO_BYTES);
             assertEquals(expectedSamples.size(), actualSamples.size());
             for (int payloadSize : PAYLOAD_SIZES) {
@@ -175,13 +175,12 @@ class BoundedCapacitySloProbeTest {
         }
     }
 
-    private static void verifyCollectorReopen(
-            final Path stateFile, final List<SloObservationOutboxV1> expectedSamples) {
+    private static void verifyCollectorReopen(final Path stateFile, final List<SloObservationOutbox> expectedSamples) {
         final PersistentSloObservationCollector reopened = new PersistentSloObservationCollector(
                 stateFile, new SloObservationCollectorLimits(Math.max(512, expectedSamples.size() + 1), MAX_SLO_BYTES));
         assertEquals(expectedSamples.size(), reopened.size());
-        for (SloObservationOutboxV1 expected : expectedSamples) {
-            final SloObservationOutboxV1 actual = reopened.get(expected.sampleId());
+        for (SloObservationOutbox expected : expectedSamples) {
+            final SloObservationOutbox actual = reopened.get(expected.sampleId());
             assertNotNull(actual);
             assertArrayEquals(expected.canonicalBytes(), actual.canonicalBytes());
         }
@@ -232,7 +231,7 @@ class BoundedCapacitySloProbeTest {
             final Path collectorState,
             final ShardStoreConfig config,
             final ShardId shardId,
-            final List<SloObservationOutboxV1> samples)
+            final List<SloObservationOutbox> samples)
             throws IOException {
         final Path artifact = artifactPath();
         Files.writeString(
@@ -269,32 +268,32 @@ class BoundedCapacitySloProbeTest {
             final boolean reopenVerified) {
         final StringBuilder json = new StringBuilder(8_192);
         json.append("{\n");
-        field(json, "schema", "nereus-delay-bounded-capacity-slo-probe-v1", true);
+        field(json, "schema", "nereus-delay-bounded-capacity-slo-probe", true);
         field(json, "status", "PARTIAL", true);
         field(json, "source_lock", envOr("NEREUS_DELAY_CAPACITY_SOURCE_LOCK", "unspecified"), true);
         field(json, "started_at", Instant.now().toString(), true);
         field(json, "platform", System.getProperty("os.name") + " " + System.getProperty("os.arch"), true);
         field(json, "java_runtime", System.getProperty("java.runtime.version"), true);
-        json.append("  \"configuration\": {\n");
+        json.append(" \"configuration\": {\n");
         numberField(json, "payload_records_per_size", payloadRecords, true);
         numberField(json, "slo_samples", sloSamples, true);
-        json.append("    \"payload_sizes_bytes\": [256, 4096, 65536],\n");
+        json.append(" \"payload_sizes_bytes\": [256, 4096, 65536],\n");
         numberField(json, "slo_outbox_max_records", Math.max(512, sloSamples + 1), true);
         numberField(json, "slo_outbox_max_bytes", MAX_SLO_BYTES, false);
-        json.append("  },\n");
-        json.append("  \"platform_probe\": ")
+        json.append(" },\n");
+        json.append(" \"platform_probe\": ")
                 .append(platformProbeJson(config.rootPath()))
                 .append(",\n");
-        json.append("  \"store\": {\n");
+        json.append(" \"store\": {\n");
         field(json, "shard_id", shardId.routeIncarnation().uuid() + "/" + shardId.partition(), true);
         numberField(json, "max_open_shard_dbs", config.maxOpenShardDbs(), true);
         numberField(json, "max_total_open_files", config.maxTotalOpenFiles(), true);
         numberField(json, "shared_block_cache_bytes", config.sharedBlockCacheBytes(), true);
         numberField(json, "shared_write_buffer_budget_bytes", config.sharedWriteBufferBudgetBytes(), true);
-        json.append("    \"payload_runs\": [\n");
+        json.append(" \"payload_runs\": [\n");
         for (int index = 0; index < payloadRuns.size(); index++) {
             final PayloadRun run = payloadRuns.get(index);
-            json.append("      {");
+            json.append(" {");
             numberFieldInline(json, "payload_bytes", run.payloadBytes(), true);
             numberFieldInline(json, "records", run.records(), true);
             numberFieldInline(json, "input_bytes", run.inputBytes(), true);
@@ -303,12 +302,12 @@ class BoundedCapacitySloProbeTest {
             numberFieldInline(json, "records_per_second", run.recordsPerSecond(), false);
             json.append("}").append(index + 1 == payloadRuns.size() ? "\n" : ",\n");
         }
-        json.append("    ],\n");
+        json.append(" ],\n");
         usageJson(json, "usage_before", usageBefore, true);
         usageJson(json, "usage_after", usageAfter, true);
         booleanField(json, "reopen_verified", reopenVerified, false);
-        json.append("  },\n");
-        json.append("  \"slo\": {\n");
+        json.append(" },\n");
+        json.append(" \"slo\": {\n");
         numberField(json, "durable_start_final_samples", sloSamples, true);
         numberField(json, "elapsed_nanos", sloElapsedNanos, true);
         numberField(json, "outbox_record_count", outboxUsage.recordCount(), true);
@@ -317,10 +316,9 @@ class BoundedCapacitySloProbeTest {
         numberField(json, "exported_bytes", exportUsage.bytes(), true);
         numberField(json, "collector_state_bytes", fileSize(collectorState), true);
         booleanField(json, "collector_reopen_verified", reopenVerified, false);
-        json.append("  },\n");
-        json.append("  \"boundaries\": [\n");
-        stringItem(
-                json, "This is a bounded local evidence artifact, not a V1 benchmark or capacity certification.", true);
+        json.append(" },\n");
+        json.append(" \"boundaries\": [\n");
+        stringItem(json, "This is a bounded local evidence artifact, not a benchmark or capacity certification.", true);
         stringItem(
                 json,
                 "It covers real synchronous RocksDB writes, payload readback, durable SLO outbox merge, "
@@ -337,7 +335,7 @@ class BoundedCapacitySloProbeTest {
                 "The platform probe is authoritative only when WorkerRuntimeResourceProbe can read bounded JVM, "
                         + "procfs, cgroup, rlimit and filesystem sources; unavailable sources remain PARTIAL.",
                 false);
-        json.append("  ]\n");
+        json.append(" ]\n");
         json.append("}\n");
         return json.toString();
     }
@@ -368,7 +366,7 @@ class BoundedCapacitySloProbeTest {
             final String name,
             final RocksDbUsageSnapshot usage,
             final boolean trailingComma) {
-        json.append("    ").append(jsonString(name)).append(": {");
+        json.append(" ").append(jsonString(name)).append(": {");
         numberFieldInline(json, "live_sst_bytes", usage.liveSstBytes(), true);
         numberFieldInline(json, "wal_bytes", usage.walBytes(), true);
         numberFieldInline(json, "manifest_bytes", usage.manifestBytes(), true);
@@ -381,7 +379,7 @@ class BoundedCapacitySloProbeTest {
         json.append("}").append(trailingComma ? ",\n" : "\n");
     }
 
-    private static SloSampleStartV1 sampleStart(final int seed) {
+    private static SloSampleStart sampleStart(final int seed) {
         final byte[] commandHash = Bytes.sha256(Bytes.utf8("bounded-capacity-command-" + seed));
         final byte[] physicalAttemptId =
                 Arrays.copyOf(Bytes.sha256(Bytes.utf8("bounded-capacity-attempt-" + seed)), 16);
@@ -390,36 +388,36 @@ class BoundedCapacitySloProbeTest {
             CanonicalProtobuf.bytes(output, 2, commandHash);
             CanonicalProtobuf.bytes(output, 3, physicalAttemptId);
         });
-        final SloSampleEventIdentityV1 identity =
-                new SloSampleEventIdentityV1(SloObjectiveNameV1.COMMAND_QUEUED_LATENCY, branch);
+        final SloSampleEventIdentity identity =
+                new SloSampleEventIdentity(SloObjectiveName.COMMAND_QUEUED_LATENCY, branch);
         final long startEpoch = SAMPLE_START_EPOCH_MS + seed;
-        return new SloSampleStartV1(
+        return new SloSampleStart(
                 Bytes.sha256(Bytes.utf8("bounded-capacity-sample-" + seed)),
-                SloObjectiveNameV1.COMMAND_QUEUED_LATENCY,
-                SloPopulationV1.ALL_ACCEPTED,
-                SloPathV1.NOT_APPLICABLE,
+                SloObjectiveName.COMMAND_QUEUED_LATENCY,
+                SloPopulation.ALL_ACCEPTED,
+                SloPath.NOT_APPLICABLE,
                 identity,
-                endpoint(SloTimeEndpointKindV1.SEMANTIC_FIXED_EPOCH, startEpoch, seed + 5),
+                endpoint(SloTimeEndpointKind.SEMANTIC_FIXED_EPOCH, startEpoch, seed + 5),
                 startEpoch + 1_000);
     }
 
-    private static SloSampleFinalV1 sampleFinal(final SloSampleStartV1 start, final int seed) {
+    private static SloSampleFinal sampleFinal(final SloSampleStart start, final int seed) {
         final long finalEpoch = start.start().earliestEpochMs() + 2;
-        return new SloSampleFinalV1(
+        return new SloSampleFinal(
                 start.sampleId(),
                 start.startDigest(),
-                SloFinalOutcomeV1.SUCCESS,
-                SloThresholdUnitV1.MILLISECONDS,
+                SloFinalOutcome.SUCCESS,
+                SloThresholdUnit.MILLISECONDS,
                 1,
                 2,
                 null,
-                endpoint(SloTimeEndpointKindV1.BROKER_PERSISTENCE, finalEpoch, seed + 6),
+                endpoint(SloTimeEndpointKind.BROKER_PERSISTENCE, finalEpoch, seed + 6),
                 Bytes.sha256(Bytes.utf8("bounded-capacity-slo-evidence-" + seed)),
                 1);
     }
 
-    private static SloTimeEndpointV1 endpoint(final SloTimeEndpointKindV1 kind, final long epoch, final int seed) {
-        return new SloTimeEndpointV1(kind, epoch, epoch, bytes(32, seed));
+    private static SloTimeEndpoint endpoint(final SloTimeEndpointKind kind, final long epoch, final int seed) {
+        return new SloTimeEndpoint(kind, epoch, epoch, bytes(32, seed));
     }
 
     private static byte[] payloadKey(final int payloadSize, final int record) {
@@ -491,7 +489,7 @@ class BoundedCapacitySloProbeTest {
 
     private static void field(
             final StringBuilder json, final String name, final String value, final boolean trailingComma) {
-        json.append("  ").append(jsonString(name)).append(":").append(jsonString(value));
+        json.append(" ").append(jsonString(name)).append(":").append(jsonString(value));
         json.append(trailingComma ? ",\n" : "\n");
     }
 
@@ -503,13 +501,13 @@ class BoundedCapacitySloProbeTest {
 
     private static void numberField(
             final StringBuilder json, final String name, final long value, final boolean trailingComma) {
-        json.append("    ").append(jsonString(name)).append(":").append(value);
+        json.append(" ").append(jsonString(name)).append(":").append(value);
         json.append(trailingComma ? ",\n" : "\n");
     }
 
     private static void booleanField(
             final StringBuilder json, final String name, final boolean value, final boolean trailingComma) {
-        json.append("    ").append(jsonString(name)).append(":").append(value);
+        json.append(" ").append(jsonString(name)).append(":").append(value);
         json.append(trailingComma ? ",\n" : "\n");
     }
 
@@ -520,7 +518,7 @@ class BoundedCapacitySloProbeTest {
     }
 
     private static void stringItem(final StringBuilder json, final String value, final boolean trailingComma) {
-        json.append("    ").append(jsonString(value));
+        json.append(" ").append(jsonString(value));
         json.append(trailingComma ? ",\n" : "\n");
     }
 

@@ -5,7 +5,7 @@ import java.util.concurrent.CompletableFuture;
 
 /**
  * A logical destination result completed without observing the underlying
- * transport stage's physical completion.  The bounded admission wrapper uses
+ * transport stage's physical completion. The bounded admission wrapper uses
  * this marker to retain the request/byte charge as a zombie rather than
  * treating {@code UNKNOWN} as a release proof.
  */

@@ -61,7 +61,7 @@ public record PulsarActivationBarrier(
     /**
      * Compatibility constructor for callers that predate the pinned batch
      * shape. A zero batch size means the same-entry shape cannot be fenced by
-     * this legacy seam; V1 source adapters must provide the batch size.
+     * this legacy seam; source adapters must provide the batch size.
      */
     @Deprecated
     public PulsarActivationBarrier(
@@ -164,7 +164,7 @@ public record PulsarActivationBarrier(
         if (empty) {
             // An empty barrier means that no replayed record is required; it
             // does not discard the physical source identity captured by the
-            // assignment.  Validate a persisted cursor before accepting it,
+            // assignment. Validate a persisted cursor before accepting it,
             // otherwise a stale DB from another Pulsar resource could satisfy
             // the barrier without any catch-up record.
             if (lastAppliedPosition != null) {

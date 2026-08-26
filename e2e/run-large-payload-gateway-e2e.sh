@@ -135,7 +135,7 @@ if ! docker image inspect --format '{{join .RepoDigests "\\n"}}' "${minio_image}
 fi
 
 test -d "${kafka_dir}" && test -d "${oxia_checkout}"
-test "$(git -C "${kafka_dir}" branch --show-current)" = "nereus/delay-guarded-producer-v1"
+test "$(git -C "${kafka_dir}" branch --show-current)" = "nereus/delay-guarded-producer"
 test -z "$(git -C "${kafka_dir}" status --porcelain)"
 git -C "${kafka_dir}" merge-base --is-ancestor \
   c300006a7705c240642db6950b5a95fec982bfc5 HEAD

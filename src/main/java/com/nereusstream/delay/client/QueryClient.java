@@ -1,60 +1,60 @@
 package com.nereusstream.delay.client;
 
 import com.nereusstream.delay.adapter.CommandResultRetentionPolicy;
-import com.nereusstream.delay.protocol.CommandQueryResponseV1;
-import com.nereusstream.delay.protocol.CommandQueuedReceiptV1;
+import com.nereusstream.delay.protocol.CanonicalCommandQueuedReceipt;
+import com.nereusstream.delay.protocol.CommandQueryResponse;
 import com.nereusstream.delay.protocol.DelayMessageId;
-import com.nereusstream.delay.protocol.DlqExportStateV1;
-import com.nereusstream.delay.protocol.FirstScheduleEligibilityV1;
-import com.nereusstream.delay.protocol.MessageQueryResponseV1;
-import com.nereusstream.delay.protocol.OpaquePayloadUploadHandleV1;
-import com.nereusstream.delay.protocol.PayloadAttestationResponseV1;
-import com.nereusstream.delay.protocol.PayloadReservationReceiptV1;
-import com.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
-import com.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
-import com.nereusstream.delay.protocol.PublicEvidenceRefV1;
-import com.nereusstream.delay.protocol.UploadHandleKindV1;
+import com.nereusstream.delay.protocol.DlqExportState;
+import com.nereusstream.delay.protocol.FirstScheduleEligibility;
+import com.nereusstream.delay.protocol.MessageQueryResponse;
+import com.nereusstream.delay.protocol.OpaquePayloadUploadHandle;
+import com.nereusstream.delay.protocol.PayloadAttestationResponse;
+import com.nereusstream.delay.protocol.PayloadReservationReceipt;
+import com.nereusstream.delay.protocol.PayloadUploadHandleResponse;
+import com.nereusstream.delay.protocol.PublicDestinationBindingView;
+import com.nereusstream.delay.protocol.PublicEvidenceRef;
+import com.nereusstream.delay.protocol.UploadHandleKind;
 import com.nereusstream.delay.runtime.CommandResult;
 import java.util.concurrent.CompletionStage;
 
 /** Query/application facade explicitly supplied to the production client builder. */
 public interface QueryClient extends AutoCloseable {
-    CompletionStage<CommandQueryResponseV1> getCommandResult(
-            CommandQueuedReceiptV1 receipt,
+    CompletionStage<CommandQueryResponse> getCommandResult(
+            CanonicalCommandQueuedReceipt receipt,
             long nowEpochMs,
             long fullResultRetainUntilEpochMs,
-            PublicDestinationBindingViewV1 binding);
+            PublicDestinationBindingView binding);
 
-    CompletionStage<CommandQueryResponseV1> getCommandResult(
-            CommandQueuedReceiptV1 receipt,
+    CompletionStage<CommandQueryResponse> getCommandResult(
+            CanonicalCommandQueuedReceipt receipt,
             long nowEpochMs,
             CommandResultRetentionPolicy retentionPolicy,
-            PublicDestinationBindingViewV1 binding);
+            PublicDestinationBindingView binding);
 
-    CompletionStage<CommandQueryResponseV1> awaitAppliedV1(
-            CommandQueuedReceiptV1 receipt,
+    CompletionStage<CommandQueryResponse> awaitApplied(
+            CanonicalCommandQueuedReceipt receipt,
             long nowEpochMs,
             long fullResultRetainUntilEpochMs,
-            PublicDestinationBindingViewV1 binding);
+            PublicDestinationBindingView binding);
 
-    CompletionStage<CommandQueryResponseV1> awaitAppliedV1(
-            CommandQueuedReceiptV1 receipt,
+    CompletionStage<CommandQueryResponse> awaitApplied(
+            CanonicalCommandQueuedReceipt receipt,
             long nowEpochMs,
             CommandResultRetentionPolicy retentionPolicy,
-            PublicDestinationBindingViewV1 binding);
+            PublicDestinationBindingView binding);
 
-    CompletionStage<MessageQueryResponseV1> getMessage(
+    CompletionStage<MessageQueryResponse> getMessage(
             DelayMessageId messageId,
-            PublicDestinationBindingViewV1 binding,
-            DlqExportStateV1 dlqExportState,
-            PublicEvidenceRefV1 evidence,
-            FirstScheduleEligibilityV1 unknownEligibility);
+            PublicDestinationBindingView binding,
+            DlqExportState dlqExportState,
+            PublicEvidenceRef evidence,
+            FirstScheduleEligibility unknownEligibility);
 
-    CompletionStage<PayloadUploadHandleResponseV1> issuePayloadUploadHandle(
-            PayloadReservationReceiptV1 reservation, UploadHandleKindV1 kind, long nowEpochMs);
+    CompletionStage<PayloadUploadHandleResponse> issuePayloadUploadHandle(
+            PayloadReservationReceipt reservation, UploadHandleKind kind, long nowEpochMs);
 
-    CompletionStage<PayloadAttestationResponseV1> attestPayloadUpload(
-            PayloadReservationReceiptV1 reservation, OpaquePayloadUploadHandleV1 handle, long nowEpochMs);
+    CompletionStage<PayloadAttestationResponse> attestPayloadUpload(
+            PayloadReservationReceipt reservation, OpaquePayloadUploadHandle handle, long nowEpochMs);
 
     CompletionStage<CommandResult> awaitApplied(CommandQueuedReceipt receipt);
 

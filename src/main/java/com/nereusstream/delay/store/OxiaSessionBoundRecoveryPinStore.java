@@ -1,7 +1,7 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.RecoveryPinV1;
+import com.nereusstream.delay.protocol.RecoveryPin;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.Version;
@@ -26,7 +26,7 @@ import java.util.function.LongSupplier;
 final class OxiaSessionBoundRecoveryPinStore {
     private static final int MAX_CAS_ATTEMPTS = 32;
     private static final int MAX_PIN_BYTES = 4 * 1024;
-    private static final byte[] SESSION_IDENTITY_DOMAIN = Bytes.utf8("nereus-delay-oxia-session-identity-v1\0");
+    private static final byte[] SESSION_IDENTITY_DOMAIN = Bytes.utf8("nereus-delay-oxia-session-identity\0");
 
     private final RecordClient client;
     private final String pinRecordKey;
@@ -44,9 +44,9 @@ final class OxiaSessionBoundRecoveryPinStore {
         }
     }
 
-    RecoveryPinV1 create(
-            final RecoveryPinV1 pin, final Runnable validateRequest, final LongSupplier currentCatalogGeneration) {
-        final RecoveryPinV1 requested = Objects.requireNonNull(pin, "pin");
+    RecoveryPin create(
+            final RecoveryPin pin, final Runnable validateRequest, final LongSupplier currentCatalogGeneration) {
+        final RecoveryPin requested = Objects.requireNonNull(pin, "pin");
         Objects.requireNonNull(validateRequest, "validateRequest");
         Objects.requireNonNull(currentCatalogGeneration, "currentCatalogGeneration");
         requireCallerSession(requested);
@@ -89,8 +89,8 @@ final class OxiaSessionBoundRecoveryPinStore {
         throw new IllegalStateException("RecoveryPin ephemeral CAS did not converge");
     }
 
-    void release(final RecoveryPinV1 pin) {
-        final RecoveryPinV1 requested = Objects.requireNonNull(pin, "pin");
+    void release(final RecoveryPin pin) {
+        final RecoveryPin requested = Objects.requireNonNull(pin, "pin");
         requireCallerSession(requested);
         for (int attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
             final PinRecord current = readPinRecord();
@@ -127,7 +127,7 @@ final class OxiaSessionBoundRecoveryPinStore {
         throw new IllegalStateException("RecoveryPin release CAS did not converge");
     }
 
-    Optional<RecoveryPinV1> active() {
+    Optional<RecoveryPin> active() {
         final PinRecord active = readPinRecord();
         return active == null ? Optional.empty() : Optional.of(active.pin());
     }
@@ -144,26 +144,26 @@ final class OxiaSessionBoundRecoveryPinStore {
         if (encoded == null || encoded.length == 0 || encoded.length > MAX_PIN_BYTES) {
             throw new IllegalStateException("Oxia RecoveryPin has an invalid size");
         }
-        final RecoveryPinV1 pin = RecoveryPinV1.decode(encoded);
+        final RecoveryPin pin = RecoveryPin.decode(encoded);
         requireSession(result.version(), pin.oxiaSessionIdentityDigest());
         return new PinRecord(pin, result.version());
     }
 
-    private PinRecord requirePinRecord(final PinRecord record, final RecoveryPinV1 expected) {
+    private PinRecord requirePinRecord(final PinRecord record, final RecoveryPin expected) {
         if (record == null || !record.pin().equals(expected)) {
             throw new IllegalStateException("Oxia RecoveryPin reread does not match the exact request");
         }
         return record;
     }
 
-    private void validatePinPutResult(final PutResult result, final RecoveryPinV1 expected) {
+    private void validatePinPutResult(final PutResult result, final RecoveryPin expected) {
         if (result == null || !pinRecordKey.equals(result.key()) || result.version() == null) {
             throw new IllegalStateException("Oxia RecoveryPin put returned an invalid record identity");
         }
         requireSession(result.version(), expected.oxiaSessionIdentityDigest());
     }
 
-    private void requireCallerSession(final RecoveryPinV1 pin) {
+    private void requireCallerSession(final RecoveryPin pin) {
         if (sessionIdentity == null) {
             throw new IllegalStateException(
                     "RecoveryPin create/release requires an identity-bearing connected Oxia session");
@@ -173,7 +173,7 @@ final class OxiaSessionBoundRecoveryPinStore {
         }
     }
 
-    private static void requireCatalogGeneration(final RecoveryPinV1 pin, final LongSupplier currentCatalogGeneration) {
+    private static void requireCatalogGeneration(final RecoveryPin pin, final LongSupplier currentCatalogGeneration) {
         if (currentCatalogGeneration.getAsLong() != pin.observedCatalogGeneration()) {
             throw new IllegalStateException("RecoveryPin catalog generation changed during creation");
         }
@@ -252,5 +252,5 @@ final class OxiaSessionBoundRecoveryPinStore {
         }
     }
 
-    private record PinRecord(RecoveryPinV1 pin, Version version) {}
+    private record PinRecord(RecoveryPin pin, Version version) {}
 }

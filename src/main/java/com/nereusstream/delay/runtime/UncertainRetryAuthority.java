@@ -1,6 +1,6 @@
 package com.nereusstream.delay.runtime;
 
-/** Registry {@code UncertainRetryAuthorityV1} values. */
+/** Registry {@code UncertainRetryAuthority} values. */
 public enum UncertainRetryAuthority {
     NONE(1),
     PINNED_POLICY(2),

@@ -3,17 +3,17 @@ package com.nereusstream.delay.runtime;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CredentialBindingHeadV1;
-import com.nereusstream.delay.protocol.CredentialBindingProtectionV1;
-import com.nereusstream.delay.protocol.CredentialBindingV1;
-import com.nereusstream.delay.protocol.CredentialEquivalenceAttestationV1;
-import com.nereusstream.delay.protocol.CredentialUseKindV1;
-import com.nereusstream.delay.protocol.CredentialUseLeaseV1;
-import com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
-import com.nereusstream.delay.protocol.ObjectStoreProviderKindV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
+import com.nereusstream.delay.protocol.CredentialBinding;
+import com.nereusstream.delay.protocol.CredentialBindingHead;
+import com.nereusstream.delay.protocol.CredentialBindingProtection;
+import com.nereusstream.delay.protocol.CredentialEquivalenceAttestation;
+import com.nereusstream.delay.protocol.CredentialUseKind;
+import com.nereusstream.delay.protocol.CredentialUseLease;
+import com.nereusstream.delay.protocol.ObjectStoreProfileSemantic;
+import com.nereusstream.delay.protocol.ObjectStoreProviderKind;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.store.CheckpointManifestLimits;
 import com.nereusstream.delay.store.OxiaObjectStoreCredentialLeaseActivator;
@@ -84,9 +84,9 @@ class OxiaObjectStoreCredentialLeaseActivatorTest {
     void rejectsAuthorityLeaseThatIsNotProtectedByTheRereadProjection() throws Exception {
         final Fixture fixture = fixture();
         final FakeAuthority authority = new FakeAuthority(fixture);
-        authority.lease = new CredentialUseLeaseV1(
+        authority.lease = new CredentialUseLease(
                 fixture.profile().ref(),
-                CredentialUseKindV1.OBJECT_STORE_ADAPTER,
+                CredentialUseKind.OBJECT_STORE_ADAPTER,
                 bytes(32, 30),
                 1,
                 fixture.binding().bindingDigest(),
@@ -107,7 +107,7 @@ class OxiaObjectStoreCredentialLeaseActivatorTest {
     }
 
     private static OxiaObjectStoreCredentialLeaseActivator.ActivationRequest request(
-            final ProfileRefV1 profile, final long validUntil) {
+            final ProfileRef profile, final long validUntil) {
         return new OxiaObjectStoreCredentialLeaseActivator.ActivationRequest(
                 profile,
                 ENDPOINT,
@@ -123,8 +123,8 @@ class OxiaObjectStoreCredentialLeaseActivatorTest {
     }
 
     private static Fixture fixture() throws Exception {
-        final ObjectStoreProfileSemanticV1 semantic = new ObjectStoreProfileSemanticV1(
-                ObjectStoreProviderKindV1.S3_COMPATIBLE,
+        final ObjectStoreProfileSemantic semantic = new ObjectStoreProfileSemantic(
+                ObjectStoreProviderKind.S3_COMPATIBLE,
                 S3CompatibleCheckpointObjectStoreAdapter.endpointConfigDigest(ENDPOINT, REGION, BUCKET),
                 S3CompatibleCheckpointObjectStoreAdapter.credentialAuthorizationScopeDigest(ACCESS_KEY, REGION, BUCKET),
                 1,
@@ -134,14 +134,14 @@ class OxiaObjectStoreCredentialLeaseActivatorTest {
                 true,
                 bytes(32, 1),
                 1 << 20,
-                ObjectStoreProfileSemanticV1.SINGLE_PUT,
+                ObjectStoreProfileSemantic.SINGLE_PUT,
                 1,
                 bytes(32, 2));
-        final ProfileSemanticEnvelopeV1 profile = new ProfileSemanticEnvelopeV1(
-                ProfileKindV1.OBJECT_STORE, Bytes.utf8("activation-object-store"), 1, semantic);
-        final byte[] reference = Bytes.utf8("secret://activation/v1");
+        final ProfileSemanticEnvelope profile = new ProfileSemanticEnvelope(
+                ProfileKind.OBJECT_STORE, Bytes.utf8("activation-object-store"), 1, semantic);
+        final byte[] reference = Bytes.utf8("secret://activation/initial");
         final byte[] fingerprint = bytes(32, 5);
-        final CredentialEquivalenceAttestationV1 attestation = CredentialEquivalenceAttestationV1.signed(
+        final CredentialEquivalenceAttestation attestation = CredentialEquivalenceAttestation.signed(
                 profile.ref(),
                 1,
                 Bytes.sha256(reference),
@@ -154,13 +154,13 @@ class OxiaObjectStoreCredentialLeaseActivatorTest {
                 bytes(32, 6),
                 1,
                 KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPrivate());
-        final CredentialBindingV1 binding = CredentialBindingV1.create(profile.ref(), 1, reference, attestation);
-        final CredentialBindingHeadV1 head = CredentialBindingHeadV1.forBinding(binding, 1);
-        final CredentialBindingProtectionV1 protection =
-                CredentialBindingProtectionV1.forBinding(binding, 0, 6_000, 0, 0, 2);
-        final CredentialUseLeaseV1 lease = new CredentialUseLeaseV1(
+        final CredentialBinding binding = CredentialBinding.create(profile.ref(), 1, reference, attestation);
+        final CredentialBindingHead head = CredentialBindingHead.forBinding(binding, 1);
+        final CredentialBindingProtection protection =
+                CredentialBindingProtection.forBinding(binding, 0, 6_000, 0, 0, 2);
+        final CredentialUseLease lease = new CredentialUseLease(
                 profile.ref(),
-                CredentialUseKindV1.OBJECT_STORE_ADAPTER,
+                CredentialUseKind.OBJECT_STORE_ADAPTER,
                 bytes(32, 30),
                 1,
                 binding.bindingDigest(),
@@ -194,11 +194,11 @@ class OxiaObjectStoreCredentialLeaseActivatorTest {
     }
 
     private record Fixture(
-            ProfileSemanticEnvelopeV1 profile,
-            CredentialBindingV1 binding,
-            CredentialBindingHeadV1 head,
-            CredentialBindingProtectionV1 protection,
-            CredentialUseLeaseV1 lease,
+            ProfileSemanticEnvelope profile,
+            CredentialBinding binding,
+            CredentialBindingHead head,
+            CredentialBindingProtection protection,
+            CredentialUseLease lease,
             byte[] fingerprint) {
         @Override
         public byte[] fingerprint() {
@@ -208,7 +208,7 @@ class OxiaObjectStoreCredentialLeaseActivatorTest {
 
     private static final class FakeAuthority implements CredentialProfileAuthority {
         private final Fixture fixture;
-        private CredentialUseLeaseV1 lease;
+        private CredentialUseLease lease;
         private int issueCalls;
 
         private FakeAuthority(final Fixture fixture) {
@@ -217,29 +217,29 @@ class OxiaObjectStoreCredentialLeaseActivatorTest {
         }
 
         @Override
-        public ProfileSemanticEnvelopeV1 resolve(final ProfileRefV1 reference) {
+        public ProfileSemanticEnvelope resolve(final ProfileRef reference) {
             return fixture.profile().ref().equals(reference) ? fixture.profile() : null;
         }
 
         @Override
-        public CredentialBindingV1 resolveBinding(final ProfileRefV1 profile, final long generation) {
+        public CredentialBinding resolveBinding(final ProfileRef profile, final long generation) {
             return fixture.profile().ref().equals(profile) && generation == 1 ? fixture.binding() : null;
         }
 
         @Override
-        public CredentialBindingHeadV1 resolveHead(final ProfileRefV1 profile) {
+        public CredentialBindingHead resolveHead(final ProfileRef profile) {
             return fixture.profile().ref().equals(profile) ? fixture.head() : null;
         }
 
         @Override
-        public CredentialBindingProtectionV1 resolveProtection(final ProfileRefV1 profile, final long generation) {
+        public CredentialBindingProtection resolveProtection(final ProfileRef profile, final long generation) {
             return fixture.profile().ref().equals(profile) && generation == 1 ? fixture.protection() : null;
         }
 
         @Override
-        public CredentialUseLeaseV1 issueCredentialUseLease(
-                final ProfileRefV1 profile,
-                final CredentialUseKindV1 kind,
+        public CredentialUseLease issueCredentialUseLease(
+                final ProfileRef profile,
+                final CredentialUseKind kind,
                 final byte[] holderScopeDigest,
                 final long expectedSecretGeneration,
                 final byte[] expectedBindingDigest,

@@ -2,9 +2,9 @@ package com.nereusstream.delay.ownership;
 
 import com.nereusstream.delay.adapter.DestinationPublishRequest;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.ChannelResourceIdentityV1;
+import com.nereusstream.delay.protocol.ChannelResourceIdentity;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.ReadyCertificateV1;
+import com.nereusstream.delay.protocol.ReadyCertificate;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
 import com.nereusstream.delay.protocol.SystemMutation;
@@ -36,13 +36,13 @@ import java.util.function.LongSupplier;
  *
  * <p>The runtime is deliberately narrow: it binds the broker-neutral source
  * apply loop to the owner drain coordinator and the process-wide resource
- * gate.  It does not create a Kafka/Pulsar client or an Oxia authority.  The
+ * gate. It does not create a Kafka/Pulsar client or an Oxia authority. The
  * adapters provide those boundaries through {@link SourceRecordConsumer} and
  * {@link OxiaOwnerLeaseStore}.</p>
  *
  * <p>A source record retained after apply/ACK uncertainty blocks drain until
- * the same record is retried and ACKed.  Once drain starts, source turns are
- * fenced; a checkpoint that is still queued keeps the runtime retryable.  The
+ * the same record is retried and ACKed. Once drain starts, source turns are
+ * fenced; a checkpoint that is still queued keeps the runtime retryable. The
  * source is closed only after the owner drain has closed the Store and
  * released the matching lease.</p>
  */
@@ -74,7 +74,7 @@ public final class WorkerShardRuntime implements AutoCloseable {
 
     /**
      * Creates the source/apply/drain composition with an active-owner
-     * scheduling graph.  The graph shares the same WorkClass registry and is
+     * scheduling graph. The graph shares the same WorkClass registry and is
      * fenced by this runtime when owner drain stops source admission.
      */
     public WorkerShardRuntime(
@@ -243,7 +243,7 @@ public final class WorkerShardRuntime implements AutoCloseable {
     /**
      * Binds the active-owner scheduling and Claim/Publish graph after a
      * source-only bootstrap has applied the Schedule and persisted its typed
-     * Lane readiness projection.  This is a one-way composition boundary: a
+     * Lane readiness projection. This is a one-way composition boundary: a
      * runtime cannot replace an already admitted graph or bind a provider
      * without the matching scheduling/command identities.
      */
@@ -358,7 +358,7 @@ public final class WorkerShardRuntime implements AutoCloseable {
 
     /**
      * Runs one bounded due-discovery action and queues at most one derived
-     * Claim from the resulting READY ring.  The Claim action is returned
+     * Claim from the resulting READY ring. The Claim action is returned
      * unexecuted so the caller can schedule its normal command turn through
      * the shared WorkClass registry.
      */
@@ -376,9 +376,9 @@ public final class WorkerShardRuntime implements AutoCloseable {
 
     /**
      * Runs a bounded due-to-Claim-to-Publish composition on the shared Worker
-     * graph.  The exact Claim and Publish tasks are observed through bounded
+     * graph. The exact Claim and Publish tasks are observed through bounded
      * fair command turns rather than by reaching into an executor's private
-     * action.  An empty preparation result means that the external live
+     * action. An empty preparation result means that the external live
      * authority is not ready yet; the successful Claim and its active
      * reservation are returned for an evidence-driven retry or revoke.
      */
@@ -423,7 +423,7 @@ public final class WorkerShardRuntime implements AutoCloseable {
             preparation = Objects.requireNonNull(provider.prepare(claimResult), "Publish preparation result");
         } catch (RuntimeException | Error failure) {
             // A live prerequisite authority that throws has not proved that
-            // the Claim can safely continue.  Fence this owner and retain
+            // the Claim can safely continue. Fence this owner and retain
             // the exact Claim/reservation for evidence-driven recovery.
             ownedShard.fence();
             throw failure;
@@ -441,7 +441,7 @@ public final class WorkerShardRuntime implements AutoCloseable {
 
     /**
      * Runs the bounded due-to-Claim-to-Publish composition using the provider
-     * bound when this Worker graph was assembled.  A graph without that
+     * bound when this Worker graph was assembled. A graph without that
      * binding fails closed instead of silently falling back to a caller that
      * may not have the typed Lane identity fence.
      */
@@ -502,7 +502,7 @@ public final class WorkerShardRuntime implements AutoCloseable {
         return commandRuntime.submitClaim(request);
     }
 
-    /** Queues a Claim handoff whose V1 materialization is derived locally. */
+    /** Queues a Claim handoff whose materialization is derived locally. */
     public synchronized ClaimHandoffWorkClassExecutor.Submission submitClaim(
             final ScheduleWorkItem item,
             final TrustedUtcIntervalEvidence evidence,
@@ -528,8 +528,8 @@ public final class WorkerShardRuntime implements AutoCloseable {
     public synchronized PublishAdmissionWorkClassExecutor.Submission submitPublish(
             final ClaimRecord claim,
             final ClaimExecutionAdmission.Reservation reservation,
-            final ChannelResourceIdentityV1 channel,
-            final ReadyCertificateV1 readyCertificate,
+            final ChannelResourceIdentity channel,
+            final ReadyCertificate readyCertificate,
             final TrustedUtcIntervalEvidence decisionTime,
             final long retryUntilEpochMs,
             final int signingKeyVersion,
@@ -599,12 +599,12 @@ public final class WorkerShardRuntime implements AutoCloseable {
     /**
      * Replays the assigned source until one exact Admission Source Position
      * has been applied, then reloads its durable PUBLISHING ledger and starts
-     * the bounded physical adapter bridge.  The source turn remains the only
+     * the bounded physical adapter bridge. The source turn remains the only
      * path that can create the local attempt projection; a caller cannot
      * manufacture a PUBLISHING ledger by supplying an attempt object.
      *
      * <p>An empty payload result is a deliberate external Object Store
-     * deferral.  The payload provider runs only after the source-applied
+     * deferral. The payload provider runs only after the source-applied
      * ledger has been reloaded, and the physical executor repeats the frozen
      * inline/length/hash validation before any destination call.</p>
      */
@@ -698,7 +698,7 @@ public final class WorkerShardRuntime implements AutoCloseable {
 
     /**
      * Runs the bound due/Claim/Publish graph, source-applies its exact
-     * Admission append, and starts the physical publish bridge.  The method
+     * Admission append, and starts the physical publish bridge. The method
      * returns before an asynchronous destination result is source-applied;
      * the returned physical submission retains the signed Outcome handoff
      * and the normal Worker command/source loops remain authoritative.
@@ -773,7 +773,7 @@ public final class WorkerShardRuntime implements AutoCloseable {
 
     /**
      * Resolves an uncertain Publish Admission by replaying the exact mutation
-     * from the assigned source.  A source connection-generation change can
+     * from the assigned source. A source connection-generation change can
      * make the append evidence UNKNOWN after the broker accepted the bytes;
      * retrying the append would create a second logical record, so only an
      * exact source mutation match may reopen the physical handoff.
@@ -899,7 +899,7 @@ public final class WorkerShardRuntime implements AutoCloseable {
     }
 
     /**
-     * Runs or retries the owner drain.  A pending source ACK is rejected
+     * Runs or retries the owner drain. A pending source ACK is rejected
      * before the drain coordinator can transition the authoritative lease, so
      * the caller can retry the same source record without deadlocking the
      * source lifecycle.
@@ -941,7 +941,7 @@ public final class WorkerShardRuntime implements AutoCloseable {
                 });
         if (result.pendingCheckpointTask() == null) {
             // The precondition above proves that close cannot discard an
-            // unacknowledged source record.  OwnerDrainCoordinator has also
+            // unacknowledged source record. OwnerDrainCoordinator has also
             // completed Store close and exact lease release at this point.
             sourceLoop.close();
             terminal = true;
@@ -950,7 +950,7 @@ public final class WorkerShardRuntime implements AutoCloseable {
     }
 
     /**
-     * Refuses to tear down an active owner.  Production shutdown must use the
+     * Refuses to tear down an active owner. Production shutdown must use the
      * same drain path so source, Store and lease boundaries remain ordered.
      */
     @Override

@@ -1,9 +1,9 @@
 package com.nereusstream.delay.store;
 
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
-import com.nereusstream.delay.protocol.RecoveryFloorRefV1;
-import com.nereusstream.delay.protocol.RecoveryPinV1;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.EvidenceCursor;
+import com.nereusstream.delay.protocol.RecoveryFloorRef;
+import com.nereusstream.delay.protocol.RecoveryPin;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SourcePosition;
 import java.util.List;
@@ -11,7 +11,7 @@ import java.util.Optional;
 
 /**
  * Authority boundary for the immutable checkpoint catalog and Recovery
- * Floor.  The embedded implementation is deterministic; production wiring
+ * Floor. The embedded implementation is deterministic; production wiring
  * supplies the same CAS/read contract through Oxia.
  */
 public interface RecoveryCatalogAuthority {
@@ -20,10 +20,10 @@ public interface RecoveryCatalogAuthority {
     RecoveryFloor advanceFloor(byte[] checkpointId, long expectedCatalogGeneration, byte[] evidenceCursorDigest);
 
     /** Advances a typed Floor while preserving same-generation cursor dominance. */
-    default RecoveryFloorRefV1 advanceFloor(
+    default RecoveryFloorRef advanceFloor(
             final byte[] checkpointId,
             final long expectedCatalogGeneration,
-            final List<EvidenceCursorV1> evidenceCursors) {
+            final List<EvidenceCursor> evidenceCursors) {
         throw new UnsupportedOperationException("typed Recovery Floor CAS is not implemented");
     }
 
@@ -33,7 +33,7 @@ public interface RecoveryCatalogAuthority {
      * implementations must perform this check in the same Oxia transaction.
      */
     default RecoveryCatalog.Publication publishUploadedCheckpoint(
-            final CheckpointUploadIntentV1 publishedIntent,
+            final CheckpointUploadIntent publishedIntent,
             final CheckpointManifest manifest,
             final long expectedCatalogGeneration) {
         throw new UnsupportedOperationException("upload-intent/catalog CAS is not implemented");
@@ -44,7 +44,7 @@ public interface RecoveryCatalogAuthority {
     Optional<RecoveryFloor> currentFloor();
 
     /** Returns the typed Floor when the authority has one; legacy projections may be empty. */
-    default Optional<RecoveryFloorRefV1> currentFloorRef() {
+    default Optional<RecoveryFloorRef> currentFloorRef() {
         return Optional.empty();
     }
 
@@ -55,7 +55,7 @@ public interface RecoveryCatalogAuthority {
 
     /**
      * Validates whether a local Store's persisted recovery projections may be
-     * considered for reuse.  Production implementations must perform the
+     * considered for reuse. Production implementations must perform the
      * same read against the current Oxia catalog/Floor transaction; the local
      * implementation is deterministic and side-effect free.
      */
@@ -68,17 +68,17 @@ public interface RecoveryCatalogAuthority {
      * Production implementations must perform the exact Owner Lease/session
      * and catalog-generation CAS in Oxia before returning success.
      */
-    default RecoveryPinV1 createRecoveryPin(final RecoveryPinV1 pin) {
+    default RecoveryPin createRecoveryPin(final RecoveryPin pin) {
         throw new UnsupportedOperationException("session-bound RecoveryPin CAS is not implemented");
     }
 
     /** Releases exactly the pin value that was created by this authority. */
-    default void releaseRecoveryPin(final RecoveryPinV1 pin) {
+    default void releaseRecoveryPin(final RecoveryPin pin) {
         throw new UnsupportedOperationException("session-bound RecoveryPin CAS is not implemented");
     }
 
     /** Returns the active local pin when the implementation exposes one. */
-    default Optional<RecoveryPinV1> activeRecoveryPin() {
+    default Optional<RecoveryPin> activeRecoveryPin() {
         throw new UnsupportedOperationException("session-bound RecoveryPin read is not implemented");
     }
 }

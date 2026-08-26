@@ -1,10 +1,10 @@
 package com.nereusstream.delay.gateway;
 
-import com.nereusstream.delay.protocol.OpaquePayloadUploadHandleV1;
-import com.nereusstream.delay.protocol.PayloadAttestationResponseV1;
-import com.nereusstream.delay.protocol.PayloadReservationReceiptV1;
-import com.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
-import com.nereusstream.delay.protocol.UploadHandleKindV1;
+import com.nereusstream.delay.protocol.OpaquePayloadUploadHandle;
+import com.nereusstream.delay.protocol.PayloadAttestationResponse;
+import com.nereusstream.delay.protocol.PayloadReservationReceipt;
+import com.nereusstream.delay.protocol.PayloadUploadHandleResponse;
+import com.nereusstream.delay.protocol.UploadHandleKind;
 import com.nereusstream.delay.semantic.AuthenticatedTenantContext;
 import java.util.concurrent.CompletionStage;
 
@@ -14,15 +14,15 @@ import java.util.concurrent.CompletionStage;
  * proof-key custody; the Gateway never accepts those as request fields.
  */
 public interface GatewayPayloadAuthority {
-    CompletionStage<PayloadUploadHandleResponseV1> issueUploadHandle(
+    CompletionStage<PayloadUploadHandleResponse> issueUploadHandle(
             AuthenticatedTenantContext tenant,
-            PayloadReservationReceiptV1 receipt,
-            UploadHandleKindV1 kind,
+            PayloadReservationReceipt receipt,
+            UploadHandleKind kind,
             long nowEpochMs);
 
-    CompletionStage<PayloadAttestationResponseV1> attestUpload(
+    CompletionStage<PayloadAttestationResponse> attestUpload(
             AuthenticatedTenantContext tenant,
-            PayloadReservationReceiptV1 receipt,
-            OpaquePayloadUploadHandleV1 handle,
+            PayloadReservationReceipt receipt,
+            OpaquePayloadUploadHandle handle,
             long nowEpochMs);
 }

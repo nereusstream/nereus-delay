@@ -13,7 +13,7 @@ import java.util.Objects;
  * Durable, restartable cursor for the local part of a source-ordered Lane close.
  *
  * <p>The close marker owns the semantic decision and transfers the unadmitted
- * quota once.  This value only records where bounded terminal/reservation
+ * quota once. This value only records where bounded terminal/reservation
  * materialization must resume; it never contains a new source-log decision.</p>
  */
 public final class LaneCloseMaterializationCursor {
@@ -248,7 +248,7 @@ public final class LaneCloseMaterializationCursor {
             CanonicalProtobuf.uint64(output, 10, transferredReservationMessages);
             CanonicalProtobuf.uint64(output, 11, transferredReservationBytes);
         });
-        return Bytes.sha256(Bytes.utf8("nereus-delay-lane-close-cursor-v1\0"), fields);
+        return Bytes.sha256(Bytes.utf8("nereus-delay-lane-close-cursor\0"), fields);
     }
 
     private static long uint(final CanonicalProtobuf.Reader.Field field, final int number) {

@@ -1,12 +1,12 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
-import com.nereusstream.delay.protocol.RecoveryFloorRefV1;
-import com.nereusstream.delay.protocol.RecoveryPinV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
+import com.nereusstream.delay.protocol.EvidenceCursor;
+import com.nereusstream.delay.protocol.RecoveryFloorRef;
+import com.nereusstream.delay.protocol.RecoveryPin;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SourcePosition;
 import java.nio.ByteBuffer;
@@ -18,7 +18,7 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Validation boundary for an Oxia-backed checkpoint catalog.  The backend
+ * Validation boundary for an Oxia-backed checkpoint catalog. The backend
  * owns the actual immutable publication and CAS records; this class rejects
  * response loss/malformed identity rather than treating a convenient local
  * cache as catalog authority.
@@ -73,16 +73,16 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
     }
 
     @Override
-    public RecoveryFloorRefV1 advanceFloor(
+    public RecoveryFloorRef advanceFloor(
             final byte[] checkpointId,
             final long expectedCatalogGeneration,
-            final List<EvidenceCursorV1> evidenceCursors) {
+            final List<EvidenceCursor> evidenceCursors) {
         Bytes.requireLength(checkpointId, 16, "checkpointId");
         final byte[] requestedCheckpointId = Bytes.copy(checkpointId);
         final byte[] backendCheckpointId = Bytes.copy(requestedCheckpointId);
-        final List<EvidenceCursorV1> requestedEvidenceCursors =
+        final List<EvidenceCursor> requestedEvidenceCursors =
                 List.copyOf(Objects.requireNonNull(evidenceCursors, "evidenceCursors"));
-        final RecoveryFloorRefV1 result = Objects.requireNonNull(
+        final RecoveryFloorRef result = Objects.requireNonNull(
                 backend.advanceFloor(backendCheckpointId, expectedCatalogGeneration, requestedEvidenceCursors),
                 "Oxia typed Floor result");
         if (!Bytes.constantTimeEquals(requestedCheckpointId, result.checkpointId())
@@ -98,10 +98,10 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
 
     @Override
     public RecoveryCatalog.Publication publishUploadedCheckpoint(
-            final CheckpointUploadIntentV1 publishedIntent,
+            final CheckpointUploadIntent publishedIntent,
             final CheckpointManifest manifest,
             final long expectedCatalogGeneration) {
-        final CheckpointUploadIntentV1 intent = Objects.requireNonNull(publishedIntent, "publishedIntent");
+        final CheckpointUploadIntent intent = Objects.requireNonNull(publishedIntent, "publishedIntent");
         final CheckpointManifest requested = Objects.requireNonNull(manifest, "manifest");
         validateUploadedPublicationRequest(intent, requested, expectedCatalogGeneration);
         final RecoveryCatalog.Publication result = Objects.requireNonNull(
@@ -139,8 +139,8 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
     }
 
     @Override
-    public Optional<RecoveryFloorRefV1> currentFloorRef() {
-        final Optional<RecoveryFloorRefV1> result =
+    public Optional<RecoveryFloorRef> currentFloorRef() {
+        final Optional<RecoveryFloorRef> result =
                 Objects.requireNonNull(backend.currentFloorRef(), "Oxia typed Floor result");
         result.ifPresent(floor -> validateTypedFloorIdentity(floor, publishedManifest(floor.checkpointId())));
         return result;
@@ -218,8 +218,8 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
     }
 
     @Override
-    public RecoveryPinV1 createRecoveryPin(final RecoveryPinV1 pin) {
-        final RecoveryPinV1 result = Objects.requireNonNull(
+    public RecoveryPin createRecoveryPin(final RecoveryPin pin) {
+        final RecoveryPin result = Objects.requireNonNull(
                 backend.createRecoveryPin(Objects.requireNonNull(pin, "pin")), "Oxia RecoveryPin result");
         if (!result.equals(pin)) {
             throw new IllegalStateException("Oxia RecoveryPin result changed identity/value");
@@ -228,12 +228,12 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
     }
 
     @Override
-    public void releaseRecoveryPin(final RecoveryPinV1 pin) {
+    public void releaseRecoveryPin(final RecoveryPin pin) {
         backend.releaseRecoveryPin(Objects.requireNonNull(pin, "pin"));
     }
 
     @Override
-    public Optional<RecoveryPinV1> activeRecoveryPin() {
+    public Optional<RecoveryPin> activeRecoveryPin() {
         return Objects.requireNonNull(backend.activeRecoveryPin(), "Oxia RecoveryPin result");
     }
 
@@ -250,14 +250,14 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
 
     /**
      * Mirrors the local catalog's request-to-manifest binding before an
-     * external Oxia CAS is attempted.  The remote backend must not become the
+     * external Oxia CAS is attempted. The remote backend must not become the
      * first place that discovers a malformed or cross-shard upload intent.
      */
     private static void validateUploadedPublicationRequest(
-            final CheckpointUploadIntentV1 intent,
+            final CheckpointUploadIntent intent,
             final CheckpointManifest manifest,
             final long expectedCatalogGeneration) {
-        if (intent.state() != CheckpointUploadStateV1.PUBLISHED || intent.publishedManifest() == null) {
+        if (intent.state() != CheckpointUploadState.PUBLISHED || intent.publishedManifest() == null) {
             throw new IllegalArgumentException("catalog publication requires a PUBLISHED upload intent");
         }
         if (expectedCatalogGeneration != intent.baseCatalogGeneration()) {
@@ -268,7 +268,7 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
                 || !Bytes.constantTimeEquals(intent.checkpointId(), manifest.checkpointId())) {
             throw new IllegalArgumentException("upload intent and manifest shard/checkpoint identity differ");
         }
-        final CheckpointResourceV1 resource = intent.publishedManifest();
+        final CheckpointResource resource = intent.publishedManifest();
         if (!Bytes.constantTimeEquals(resource.manifestSha256(), manifest.manifestSha256())
                 || resource.manifestLength() != manifest.canonicalJsonBytes().length) {
             throw new IllegalArgumentException("published manifest object identity does not match manifest bytes");
@@ -378,8 +378,8 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
         } catch (IllegalArgumentException | ArithmeticException exception) {
             throw new IllegalStateException("Oxia floor coverage ancestry has an invalid source link", exception);
         }
-        for (EvidenceCursorV1 parentCursor : parent.evidenceCursors()) {
-            final EvidenceCursorV1 childCursor = child.evidenceCursors().stream()
+        for (EvidenceCursor parentCursor : parent.evidenceCursors()) {
+            final EvidenceCursor childCursor = child.evidenceCursors().stream()
                     .filter(cursor -> cursor.sameIdentity(parentCursor))
                     .findFirst()
                     .orElse(null);
@@ -421,7 +421,7 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
         }
     }
 
-    private static void validateTypedFloorIdentity(final RecoveryFloorRefV1 result, final CheckpointManifest manifest) {
+    private static void validateTypedFloorIdentity(final RecoveryFloorRef result, final CheckpointManifest manifest) {
         if (!Bytes.constantTimeEquals(result.recoveryLineageId(), manifest.recoveryLineageId())
                 || !Bytes.constantTimeEquals(result.checkpointId(), manifest.checkpointId())
                 || !Bytes.constantTimeEquals(result.manifestSha256(), manifest.manifestSha256())
@@ -437,7 +437,7 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
         RecoveryCatalog.Publication publish(CheckpointManifest manifest, long expectedCatalogGeneration);
 
         default RecoveryCatalog.Publication publishUploadedCheckpoint(
-                final CheckpointUploadIntentV1 publishedIntent,
+                final CheckpointUploadIntent publishedIntent,
                 final CheckpointManifest manifest,
                 final long expectedCatalogGeneration) {
             throw new UnsupportedOperationException("upload-intent/catalog CAS is not implemented");
@@ -445,10 +445,10 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
 
         RecoveryFloor advanceFloor(byte[] checkpointId, long expectedCatalogGeneration, byte[] evidenceCursorDigest);
 
-        default RecoveryFloorRefV1 advanceFloor(
+        default RecoveryFloorRef advanceFloor(
                 final byte[] checkpointId,
                 final long expectedCatalogGeneration,
-                final List<EvidenceCursorV1> evidenceCursors) {
+                final List<EvidenceCursor> evidenceCursors) {
             throw new UnsupportedOperationException("typed Recovery Floor CAS is not implemented");
         }
 
@@ -456,7 +456,7 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
 
         Optional<RecoveryFloor> currentFloor();
 
-        default Optional<RecoveryFloorRefV1> currentFloorRef() {
+        default Optional<RecoveryFloorRef> currentFloorRef() {
             throw new UnsupportedOperationException("typed Recovery Floor read is not implemented");
         }
 
@@ -469,15 +469,15 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
             throw new UnsupportedOperationException("local Store recovery validation is not implemented");
         }
 
-        default RecoveryPinV1 createRecoveryPin(final RecoveryPinV1 pin) {
+        default RecoveryPin createRecoveryPin(final RecoveryPin pin) {
             throw new UnsupportedOperationException("session-bound RecoveryPin CAS is not implemented");
         }
 
-        default void releaseRecoveryPin(final RecoveryPinV1 pin) {
+        default void releaseRecoveryPin(final RecoveryPin pin) {
             throw new UnsupportedOperationException("session-bound RecoveryPin CAS is not implemented");
         }
 
-        default Optional<RecoveryPinV1> activeRecoveryPin() {
+        default Optional<RecoveryPin> activeRecoveryPin() {
             throw new UnsupportedOperationException("session-bound RecoveryPin read is not implemented");
         }
     }
@@ -497,7 +497,7 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
 
         @Override
         public RecoveryCatalog.Publication publishUploadedCheckpoint(
-                final CheckpointUploadIntentV1 publishedIntent,
+                final CheckpointUploadIntent publishedIntent,
                 final CheckpointManifest manifest,
                 final long expectedCatalogGeneration) {
             return delegate.publishUploadedCheckpoint(publishedIntent, manifest, expectedCatalogGeneration);
@@ -510,10 +510,10 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
         }
 
         @Override
-        public RecoveryFloorRefV1 advanceFloor(
+        public RecoveryFloorRef advanceFloor(
                 final byte[] checkpointId,
                 final long expectedCatalogGeneration,
-                final List<EvidenceCursorV1> evidenceCursors) {
+                final List<EvidenceCursor> evidenceCursors) {
             return delegate.advanceFloor(checkpointId, expectedCatalogGeneration, evidenceCursors);
         }
 
@@ -528,7 +528,7 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
         }
 
         @Override
-        public Optional<RecoveryFloorRefV1> currentFloorRef() {
+        public Optional<RecoveryFloorRef> currentFloorRef() {
             return delegate.currentFloorRef();
         }
 
@@ -551,17 +551,17 @@ public final class OxiaRecoveryCatalog implements RecoveryCatalogAuthority {
         }
 
         @Override
-        public RecoveryPinV1 createRecoveryPin(final RecoveryPinV1 pin) {
+        public RecoveryPin createRecoveryPin(final RecoveryPin pin) {
             return delegate.createRecoveryPin(pin);
         }
 
         @Override
-        public void releaseRecoveryPin(final RecoveryPinV1 pin) {
+        public void releaseRecoveryPin(final RecoveryPin pin) {
             delegate.releaseRecoveryPin(pin);
         }
 
         @Override
-        public Optional<RecoveryPinV1> activeRecoveryPin() {
+        public Optional<RecoveryPin> activeRecoveryPin() {
             return delegate.activeRecoveryPin();
         }
     }

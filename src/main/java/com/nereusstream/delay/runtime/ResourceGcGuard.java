@@ -2,7 +2,7 @@ package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.RecoveryPinV1;
+import com.nereusstream.delay.protocol.RecoveryPin;
 import com.nereusstream.delay.protocol.ResourceKind;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
@@ -72,7 +72,7 @@ public final class ResourceGcGuard {
 
     /**
      * Evaluates the same necessary predicate against a catalog-backed
-     * candidate.  In addition to the Floor scalar checks this verifies the
+     * candidate. In addition to the Floor scalar checks this verifies the
      * exact parent-hash ancestry through {@link RecoveryCatalogAuthority}; it remains a
      * local proof and does not replace Oxia/provider authorization.
      */
@@ -124,8 +124,8 @@ public final class ResourceGcGuard {
 
     /**
      * A checkpoint object is not deletable while the exact checkpoint is held
-     * by an active recovery pin.  A pin protects both its selected candidate
-     * and the observed Floor checkpoint.  If the authority cannot read the
+     * by an active recovery pin. A pin protects both its selected candidate
+     * and the observed Floor checkpoint. If the authority cannot read the
      * pin, this predicate fails closed rather than treating the absence of a
      * response as proof that no pin exists.
      */
@@ -134,7 +134,7 @@ public final class ResourceGcGuard {
         if (intent.resourceKind() != ResourceKind.CHECKPOINT) {
             return null;
         }
-        final Optional<RecoveryPinV1> active;
+        final Optional<RecoveryPin> active;
         try {
             active = Objects.requireNonNull(catalog.activeRecoveryPin(), "activeRecoveryPin");
         } catch (RuntimeException | Error exception) {
@@ -146,7 +146,7 @@ public final class ResourceGcGuard {
         return null;
     }
 
-    private static boolean checkpointIdentityMatchesPin(final byte[] encodedIdentity, final RecoveryPinV1 pin) {
+    private static boolean checkpointIdentityMatchesPin(final byte[] encodedIdentity, final RecoveryPin pin) {
         try {
             final CanonicalProtobuf.Reader outerReader = new CanonicalProtobuf.Reader(encodedIdentity);
             final CanonicalProtobuf.Reader.Field outer = outerReader.next();
@@ -180,7 +180,7 @@ public final class ResourceGcGuard {
                             pin.observedFloor().checkpointId(),
                             pin.observedFloor().manifestSha256());
         } catch (IllegalArgumentException exception) {
-            // ResourceRetireIntentRecord already validates the identity.  If
+            // ResourceRetireIntentRecord already validates the identity. If
             // a future identity version reaches this guard, fail closed.
             return false;
         }
@@ -212,10 +212,10 @@ public final class ResourceGcGuard {
     private static boolean sameIntent(final ResourceRetireIntentRecord left, final ResourceRetireIntentRecord right) {
         Objects.requireNonNull(left, "left");
         Objects.requireNonNull(right, "right");
-        // Delete confirmation carries a copy of the retire intent.  The
+        // Delete confirmation carries a copy of the retire intent. The
         // source mutation/resource tuple alone is not enough to prove that
         // copy is exact: protections, applied sequence and source position
-        // are part of the durable retention boundary as well.  Compare the
+        // are part of the durable retention boundary as well. Compare the
         // canonical record bytes so a tampered or stale nested intent cannot
         // authorize compaction.
         return Arrays.equals(left.encode(), right.encode());

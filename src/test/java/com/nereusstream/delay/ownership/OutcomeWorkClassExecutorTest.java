@@ -9,7 +9,7 @@ import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SystemMutation;
@@ -141,7 +141,7 @@ class OutcomeWorkClassExecutorTest {
         final ShardStoreConfig config = ShardStoreConfig.defaults(tempDir.resolve(name + "-store"));
         final SharedRocksDbResources resources = new SharedRocksDbResources(config);
         final ShardStore store = ShardStore.open(config, shard, resources);
-        final OwnerIdentityV1 owner = new OwnerIdentityV1(
+        final OwnerIdentity owner = new OwnerIdentity(
                 Bytes.utf8("outcome-deployment"),
                 Bytes.utf8("outcome-worker"),
                 lease.ownerEpoch(),
@@ -218,7 +218,7 @@ class OutcomeWorkClassExecutorTest {
             ShardId shard,
             UUID topic,
             OwnerLease lease,
-            OwnerIdentityV1 owner,
+            OwnerIdentity owner,
             OxiaOwnerLeaseStore authority,
             OwnedDelayShard owned,
             WorkClassExecutionRegistry workClasses,

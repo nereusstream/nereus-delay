@@ -4,15 +4,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.DlqExportModeV1;
+import com.nereusstream.delay.protocol.DlqExportMode;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
-import com.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
-import com.nereusstream.delay.protocol.PayloadProofVerifierKeyV1;
-import com.nereusstream.delay.protocol.RetryPolicySemanticV1;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetRef;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetSemantic;
+import com.nereusstream.delay.protocol.PayloadProofVerifierKey;
+import com.nereusstream.delay.protocol.RetryPolicySemantic;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.UncertainPolicyV1;
+import com.nereusstream.delay.protocol.UncertainPolicy;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -22,8 +22,8 @@ class PolicyCatalogTest {
     void retryPolicyCatalogRequiresExactSourceVisibleHistory() {
         final ShardId shard = new ShardId(RouteIncarnation.fromUuid(new UUID(11, 12)), 4);
         final UUID topic = new UUID(13, 14);
-        final RetryPolicySemanticV1 first = retryPolicy("policy", 1);
-        final RetryPolicySemanticV1 second = retryPolicy("policy", 2);
+        final RetryPolicySemantic first = retryPolicy("policy", 1);
+        final RetryPolicySemantic second = retryPolicy("policy", 2);
         final InMemoryRetryPolicyCatalog catalog = new InMemoryRetryPolicyCatalog();
         catalog.publish(first, position(shard, topic, 10));
         catalog.publish(second, position(shard, topic, 20));
@@ -44,27 +44,27 @@ class PolicyCatalogTest {
 
     @Test
     void trustSetCatalogDoesNotResolveUnknownOrMismatchedReferences() {
-        final PayloadProofTrustSetSemanticV1 semantic = new PayloadProofTrustSetSemanticV1(
-                3, List.of(new PayloadProofVerifierKeyV1(1, bytes(32, 9), 100, 200)));
+        final PayloadProofTrustSetSemantic semantic =
+                new PayloadProofTrustSetSemantic(3, List.of(new PayloadProofVerifierKey(1, bytes(32, 9), 100, 200)));
         final InMemoryPayloadProofTrustSetCatalog catalog = new InMemoryPayloadProofTrustSetCatalog();
         catalog.publish(semantic);
         assertEquals(semantic, catalog.resolve(semantic.ref()));
-        assertNull(catalog.resolve(new PayloadProofTrustSetRefV1(4, bytes(32, 8))));
+        assertNull(catalog.resolve(new PayloadProofTrustSetRef(4, bytes(32, 8))));
         catalog.publish(semantic);
         assertEquals(1, catalog.size());
     }
 
-    private static RetryPolicySemanticV1 retryPolicy(final String id, final long version) {
-        return new RetryPolicySemanticV1(
+    private static RetryPolicySemantic retryPolicy(final String id, final long version) {
+        return new RetryPolicySemantic(
                 Bytes.utf8(id),
                 version,
                 10,
                 100,
                 3,
                 1_000,
-                UncertainPolicyV1.HOLD_FOR_EVIDENCE,
+                UncertainPolicy.HOLD_FOR_EVIDENCE,
                 0,
-                DlqExportModeV1.NOT_CONFIGURED,
+                DlqExportMode.NOT_CONFIGURED,
                 0,
                 0,
                 0,

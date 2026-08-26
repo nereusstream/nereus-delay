@@ -8,10 +8,10 @@ import java.util.Objects;
  * Tracks the local ownership horizon of one Object Store adapter instance.
  *
  * <p>The tracker is deliberately narrower than a provider quiescence
- * attestation.  It fences new local operations, keeps an operation active
+ * attestation. It fences new local operations, keeps an operation active
  * until the complete adapter method (including streamed response bodies) has
  * returned, and retains a bounded uncertainty horizon after an ambiguous
- * failure.  A caller may bind the resulting observation into an external
+ * failure. A caller may bind the resulting observation into an external
  * provider attestation, but this class never claims that a remote provider has
  * stopped executing a request.</p>
  */
@@ -78,7 +78,7 @@ public final class ObjectStoreProviderOwnershipTracker {
 
     /**
      * Requires the local fence, operation drain and ambiguity horizon to be
-     * closed.  The returned observation is still only local evidence.
+     * closed. The returned observation is still only local evidence.
      */
     public synchronized Observation requireLocallyQuiescent() {
         final Observation observation = observe();
@@ -138,7 +138,7 @@ public final class ObjectStoreProviderOwnershipTracker {
             final long maximumProviderOwnershipLifetimeMs,
             final long operationSequence) {
         return Bytes.sha256(
-                Bytes.utf8("nereus-delay-object-store-provider-ownership-observation-v1\0"),
+                Bytes.utf8("nereus-delay-object-store-provider-ownership-observation\0"),
                 Bytes.u8(acceptingNewOperations ? 1 : 0),
                 Bytes.u64be(activeOperationCount),
                 Bytes.u64be(observedAtEpochMs),

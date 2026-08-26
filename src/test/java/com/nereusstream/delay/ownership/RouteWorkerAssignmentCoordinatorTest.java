@@ -4,24 +4,24 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import com.nereusstream.delay.protocol.ActivationBarrierV1;
-import com.nereusstream.delay.protocol.AdapterKindV1;
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.ActivationBarrier;
+import com.nereusstream.delay.protocol.AdapterKind;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CapacityDimensionV1;
-import com.nereusstream.delay.protocol.CapacityVectorV1;
-import com.nereusstream.delay.protocol.IngressCredentialBindingRefV1;
-import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.KafkaIngressRouteResourceV1;
-import com.nereusstream.delay.protocol.ProtocolCapabilityDeclarationV1;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
+import com.nereusstream.delay.protocol.CapacityDimension;
+import com.nereusstream.delay.protocol.CapacityVector;
+import com.nereusstream.delay.protocol.IngressCredentialBindingRef;
+import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.KafkaIngressRouteResource;
+import com.nereusstream.delay.protocol.ProtocolCapabilityDeclaration;
+import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
-import com.nereusstream.delay.protocol.QuotaGrantRefV1;
+import com.nereusstream.delay.protocol.QuotaGrantRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.RouteLifecycleV1;
-import com.nereusstream.delay.protocol.RoutePartitionPolicyV1;
-import com.nereusstream.delay.protocol.RouteSnapshotV1;
-import com.nereusstream.delay.protocol.RoutingHashVersionV1;
+import com.nereusstream.delay.protocol.RouteLifecycle;
+import com.nereusstream.delay.protocol.RoutePartitionPolicy;
+import com.nereusstream.delay.protocol.RouteSnapshot;
+import com.nereusstream.delay.protocol.RoutingHashVersion;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.route.InMemorySignedRouteSnapshotProvider;
@@ -43,8 +43,8 @@ class RouteWorkerAssignmentCoordinatorTest {
         final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final InMemorySignedRouteSnapshotProvider routes =
                 new InMemorySignedRouteSnapshotProvider(keys.getPublic(), () -> 200);
-        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKindV1.KAFKA, Bytes.utf8("primary"));
-        final RouteSnapshotV1 snapshot = route(keys);
+        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKind.KAFKA, Bytes.utf8("primary"));
+        final RouteSnapshot snapshot = route(keys);
         routes.accept(1, 0, hint, snapshot);
         final InMemoryWorkerAssignmentAuthority authority = new InMemoryWorkerAssignmentAuthority();
         final WorkerAssignmentCoordinator worker = new WorkerAssignmentCoordinator(
@@ -74,7 +74,7 @@ class RouteWorkerAssignmentCoordinatorTest {
         final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final InMemorySignedRouteSnapshotProvider routes =
                 new InMemorySignedRouteSnapshotProvider(keys.getPublic(), () -> 200);
-        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKindV1.KAFKA, Bytes.utf8("primary"));
+        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKind.KAFKA, Bytes.utf8("primary"));
         routes.accept(1, 0, hint, route(keys));
         final InMemoryWorkerAssignmentAuthority authority = new InMemoryWorkerAssignmentAuthority();
         final WorkerAssignmentCoordinator worker = new WorkerAssignmentCoordinator(
@@ -93,8 +93,8 @@ class RouteWorkerAssignmentCoordinatorTest {
                 1,
                 List.of(candidate()),
                 capacity(1),
-                CapacityVectorV1.empty(),
-                CapacityVectorV1.empty(),
+                CapacityVector.empty(),
+                CapacityVector.empty(),
                 null,
                 200,
                 0,
@@ -120,15 +120,15 @@ class RouteWorkerAssignmentCoordinatorTest {
         final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final InMemorySignedRouteSnapshotProvider routes =
                 new InMemorySignedRouteSnapshotProvider(keys.getPublic(), () -> 200);
-        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKindV1.KAFKA, Bytes.utf8("primary"));
+        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKind.KAFKA, Bytes.utf8("primary"));
         routes.accept(1, 0, hint, route(keys));
         final InMemoryWorkerAssignmentAuthority assignments = new InMemoryWorkerAssignmentAuthority();
         final WorkerAssignmentCoordinator worker = new WorkerAssignmentCoordinator(
                 new WorkerPlacementPolicy(new WorkerPlacementPolicy.Configuration(1_000, 0, 0, 0, 0)), assignments);
         final InMemoryProtocolCapabilityAuthority capabilities = new InMemoryProtocolCapabilityAuthority();
-        final ProtocolTupleV1 tuple = route(keys).protocolTuple();
+        final ProtocolTuple tuple = route(keys).protocolTuple();
         capabilities.publish(
-                new ProtocolCapabilityDeclarationV1("worker-a", bytes(32, 70), List.of(tuple), 1, bytes(32, 71)), 0);
+                new ProtocolCapabilityDeclaration("worker-a", bytes(32, 70), List.of(tuple), 1, bytes(32, 71)), 0);
         final RouteWorkerAssignmentCoordinator coordinator =
                 new RouteWorkerAssignmentCoordinator(routes, worker, capabilities);
 
@@ -154,8 +154,8 @@ class RouteWorkerAssignmentCoordinatorTest {
                 1,
                 List.of(candidate()),
                 capacity(1),
-                CapacityVectorV1.empty(),
-                CapacityVectorV1.empty(),
+                CapacityVector.empty(),
+                CapacityVector.empty(),
                 null,
                 200,
                 0,
@@ -166,7 +166,7 @@ class RouteWorkerAssignmentCoordinatorTest {
         return new WorkerPlacementPolicy.WorkerCandidate(
                 "worker-a",
                 capacity(2),
-                CapacityVectorV1.empty(),
+                CapacityVector.empty(),
                 0,
                 10,
                 0,
@@ -178,38 +178,38 @@ class RouteWorkerAssignmentCoordinatorTest {
                 0);
     }
 
-    private static CapacityVectorV1 capacity(final long dbInstances) {
-        final long[] values = new long[CapacityDimensionV1.COUNT];
-        values[CapacityDimensionV1.DB_INSTANCES.wireValue() - 1] = dbInstances;
-        return new CapacityVectorV1(values);
+    private static CapacityVector capacity(final long dbInstances) {
+        final long[] values = new long[CapacityDimension.COUNT];
+        values[CapacityDimension.DB_INSTANCES.wireValue() - 1] = dbInstances;
+        return new CapacityVector(values);
     }
 
     private static AuthenticatedTenantContext tenant() {
         return new AuthenticatedTenantContext(bytes(32, 1), bytes(32, 2), bytes(32, 3));
     }
 
-    private static RouteSnapshotV1 route(final KeyPair keys) {
+    private static RouteSnapshot route(final KeyPair keys) {
         final UUID topic = UUID.fromString("12345678-1234-7abc-8def-1234567890ab");
-        final KafkaIngressRouteResourceV1 ingress =
-                new KafkaIngressRouteResourceV1("cluster", "persistent://tenant/ns/delay", topic, 1);
-        final BrokerResourceIdentityV1 broker =
-                BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1("cluster", topic));
-        final QuotaGrantRefV1 quota = new QuotaGrantRefV1(
+        final KafkaIngressRouteResource ingress =
+                new KafkaIngressRouteResource("cluster", "persistent://tenant/ns/delay", topic, 1);
+        final BrokerResourceIdentity broker =
+                BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity("cluster", topic));
+        final QuotaGrantRef quota = new QuotaGrantRef(
                 Bytes.sha256(Bytes.utf8("quota")),
                 1,
                 new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
-        return RouteSnapshotV1.create(
+        return RouteSnapshot.create(
                 new RouteIncarnation(bytes(16, 30)),
                 bytes(32, 1),
                 bytes(32, 2),
-                RouteLifecycleV1.ACTIVE_FOR_NEW,
+                RouteLifecycle.ACTIVE_FOR_NEW,
                 900,
                 ingress,
-                RoutingHashVersionV1.ROUTING_HASH_V1,
-                new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1),
+                RoutingHashVersion.ROUTING_HASH,
+                new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1),
                 1,
-                List.of(new RoutePartitionPolicyV1(
-                        0, ActivationBarrierV1.kafka(broker, 0, 17, 18), quota, 1, bytes(32, 3))),
+                List.of(new RoutePartitionPolicy(
+                        0, ActivationBarrier.kafka(broker, 0, 17, 18), quota, 1, bytes(32, 3))),
                 100,
                 200,
                 1024,
@@ -219,7 +219,7 @@ class RouteWorkerAssignmentCoordinatorTest {
                 500,
                 100,
                 1000,
-                new IngressCredentialBindingRefV1(bytes(32, 40), 1, bytes(32, 41), bytes(32, 42), bytes(32, 43)),
+                new IngressCredentialBindingRef(bytes(32, 40), 1, bytes(32, 41), bytes(32, 42), bytes(32, 43)),
                 bytes(32, 44),
                 new TrustedUtcIntervalEvidence(
                         200,
@@ -248,7 +248,7 @@ class RouteWorkerAssignmentCoordinatorTest {
         private final Map<String, Publication> values = new java.util.HashMap<>();
 
         @Override
-        public Publication publish(final ProtocolCapabilityDeclarationV1 declaration, final long expectedRevision) {
+        public Publication publish(final ProtocolCapabilityDeclaration declaration, final long expectedRevision) {
             final Publication publication = new Publication(expectedRevision + 1, declaration);
             values.put(declaration.workerId(), publication);
             return publication;

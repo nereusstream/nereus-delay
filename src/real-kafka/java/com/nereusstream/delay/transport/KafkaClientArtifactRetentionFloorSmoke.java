@@ -1,17 +1,17 @@
 package com.nereusstream.delay.transport;
 
-import com.nereusstream.delay.protocol.AdapterMetadataV1;
+import com.nereusstream.delay.protocol.AdapterMetadata;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.DeliveryMode;
-import com.nereusstream.delay.protocol.KafkaMetadataV1;
+import com.nereusstream.delay.protocol.KafkaMetadata;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.RetryPolicyRefV1;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.RetryPolicyRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
 import com.nereusstream.delay.protocol.ShardId;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -160,7 +160,8 @@ public final class KafkaClientArtifactRetentionFloorSmoke {
                 for (int record = 0; record < RECORDS_PER_ROUND; record++) {
                     final PreparedCommand command = command(shard, "retention-" + round + "-" + record);
                     guarded.sendGuarded(
-                                    new ProducerRecord<>(topic, 0, null, CommandCodec.encodeFrameV1(command)), guard)
+                                    new ProducerRecord<>(topic, 0, null, CommandCodec.encodeManagedFrame(command)),
+                                    guard)
                             .get(10, TimeUnit.SECONDS);
                 }
                 producer.flush();
@@ -181,7 +182,7 @@ public final class KafkaClientArtifactRetentionFloorSmoke {
             final ProducerResourceGuard guard = new ProducerResourceGuard(clusterId, topic, topicId, 0);
             guarded.sendGuarded(
                             new ProducerRecord<>(
-                                    topic, 0, null, CommandCodec.encodeFrameV1(command(shard, "retention-tail"))),
+                                    topic, 0, null, CommandCodec.encodeManagedFrame(command(shard, "retention-tail"))),
                             guard)
                     .get(10, TimeUnit.SECONDS);
             producer.flush();
@@ -338,15 +339,15 @@ public final class KafkaClientArtifactRetentionFloorSmoke {
     }
 
     private static PreparedCommand command(final ShardId shard, final String identity) {
-        final ProfileRefV1 destination = new ProfileRefV1(
+        final ProfileRef destination = new ProfileRef(
                 Bytes.utf8("destination-" + identity),
                 1,
                 Bytes.sha256(Bytes.utf8("destination-semantic-" + identity)),
-                ProfileKindV1.DESTINATION);
-        final RetryPolicyRefV1 retryPolicy = new RetryPolicyRefV1(
+                ProfileKind.DESTINATION);
+        final RetryPolicyRef retryPolicy = new RetryPolicyRef(
                 Bytes.utf8("retry-" + identity), 1, Bytes.sha256(Bytes.utf8("retry-semantic-" + identity)));
         final long deliverAt = System.currentTimeMillis() + 60_000;
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
                 destination,
                 retryPolicy,
                 deliverAt,
@@ -356,10 +357,10 @@ public final class KafkaClientArtifactRetentionFloorSmoke {
                 new byte[0],
                 Bytes.utf8("source-" + identity),
                 null,
-                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())),
+                AdapterMetadata.kafka(new KafkaMetadata(null, List.of())),
                 null,
                 null);
-        return PreparedCommand.scheduleV1(shard, intent, deliverAt + 20_000);
+        return PreparedCommand.schedule(shard, intent, deliverAt + 20_000);
     }
 
     private static void ensureTopic(final Admin admin, final String topic) throws Exception {
@@ -420,25 +421,25 @@ public final class KafkaClientArtifactRetentionFloorSmoke {
         final String fileName =
                 phase.equals("RETENTION_FLOOR_REJECTED") ? "before-process-crash.json" : "after-fresh-process.json";
         final String json = "{\n"
-                + "  \"schema\": \"nereus-delay-chaos-durable-state-dump-v1\",\n"
-                + "  \"cell\": \"kafka-retention-floor-process-crash\",\n"
-                + "  \"phase\": " + jsonString(phase) + ",\n"
-                + "  \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
-                + "  \"topic\": " + jsonString(topic) + ",\n"
-                + "  \"topic_id\": " + jsonString(topicId.toString()) + ",\n"
-                + "  \"route_uuid\": "
+                + " \"schema\": \"nereus-delay-chaos-durable-state-dump\",\n"
+                + " \"cell\": \"kafka-retention-floor-process-crash\",\n"
+                + " \"phase\": " + jsonString(phase) + ",\n"
+                + " \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
+                + " \"topic\": " + jsonString(topic) + ",\n"
+                + " \"topic_id\": " + jsonString(topicId.toString()) + ",\n"
+                + " \"route_uuid\": "
                 + jsonString(shard.routeIncarnation().uuid().toString()) + ",\n"
-                + "  \"partition\": " + shard.partition() + ",\n"
-                + "  \"old_offset\": 0,\n"
-                + "  \"retention_floor\": " + jsonNullable(after == null ? null : after.beginningOffset()) + ",\n"
-                + "  \"end_offset\": " + jsonNullable(after == null ? null : after.endOffset()) + ",\n"
-                + "  \"before_floor_observation\": " + jsonNullable(before == null ? null : before.beginningOffset())
+                + " \"partition\": " + shard.partition() + ",\n"
+                + " \"old_offset\": 0,\n"
+                + " \"retention_floor\": " + jsonNullable(after == null ? null : after.beginningOffset()) + ",\n"
+                + " \"end_offset\": " + jsonNullable(after == null ? null : after.endOffset()) + ",\n"
+                + " \"before_floor_observation\": " + jsonNullable(before == null ? null : before.beginningOffset())
                 + ",\n"
-                + "  \"floor_fetch_offset\": " + jsonNullable(floorFetchOffset) + ",\n"
-                + "  \"fetch_lso\": " + jsonNullable(fetchLso) + ",\n"
-                + "  \"stale_offset_rejected\": " + staleOffsetRejected + ",\n"
-                + "  \"durable_broker_read\": true,\n"
-                + "  \"dump_forced\": true\n"
+                + " \"floor_fetch_offset\": " + jsonNullable(floorFetchOffset) + ",\n"
+                + " \"fetch_lso\": " + jsonNullable(fetchLso) + ",\n"
+                + " \"stale_offset_rejected\": " + staleOffsetRejected + ",\n"
+                + " \"durable_broker_read\": true,\n"
+                + " \"dump_forced\": true\n"
                 + "}\n";
         final Path target = directory.resolve(fileName);
         try (var channel = java.nio.channels.FileChannel.open(

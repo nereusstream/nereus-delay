@@ -10,11 +10,11 @@ import java.util.function.Consumer;
 /**
  * Production composition boundary for the bounded Worker work-class loop.
  *
- * <p>The dispatcher requires one handler for every frozen V1 work class before
- * it accepts work.  It delegates queue admission, fairness, resource leases
+ * <p>The dispatcher requires one handler for every frozen work class before
+ * it accepts work. It delegates queue admission, fairness, resource leases
  * and borrowed-hold checks to {@link WorkClassEventLoop}; this class only
- * routes a selected task to the handler for its class.  A handler owns the
- * durable retry/replay identity for the task.  A task whose handler was
+ * routes a selected task to the handler for its class. A handler owns the
+ * durable retry/replay identity for the task. A task whose handler was
  * invoked is therefore never requeued implicitly; exact trailing tasks whose
  * handlers were never invoked are safely returned to their class queues when
  * a fatal or borrowed-hold boundary stops the turn.</p>
@@ -32,7 +32,7 @@ public final class WorkClassDispatcher {
         this.eventLoop = Objects.requireNonNull(eventLoop, "eventLoop");
         Objects.requireNonNull(handlers, "handlers");
         if (!EnumSet.allOf(WorkClass.class).equals(handlers.keySet())) {
-            throw new IllegalArgumentException("handlers must cover every V1 work class exactly");
+            throw new IllegalArgumentException("handlers must cover every work class exactly");
         }
         for (WorkClass workClass : WorkClass.values()) {
             this.handlers.put(workClass, Objects.requireNonNull(handlers.get(workClass), "handler for " + workClass));

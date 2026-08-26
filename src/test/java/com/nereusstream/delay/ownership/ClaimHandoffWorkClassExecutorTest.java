@@ -4,28 +4,28 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import com.nereusstream.delay.protocol.ActiveLaneStateV1;
-import com.nereusstream.delay.protocol.AdapterMetadataV1;
+import com.nereusstream.delay.protocol.ActiveLaneState;
+import com.nereusstream.delay.protocol.AdapterMetadata;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.ChannelResourceIdentityV1;
-import com.nereusstream.delay.protocol.ClaimMaterializationV1;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
+import com.nereusstream.delay.protocol.ChannelResourceIdentity;
+import com.nereusstream.delay.protocol.ClaimMaterialization;
 import com.nereusstream.delay.protocol.DeliveryMode;
 import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.LaneCircuitStateV1;
-import com.nereusstream.delay.protocol.LaneRecordEnvelopeV1;
+import com.nereusstream.delay.protocol.LaneCircuitState;
+import com.nereusstream.delay.protocol.LaneRecordEnvelope;
 import com.nereusstream.delay.protocol.OrderingMode;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
 import com.nereusstream.delay.protocol.PublishAdmissionBodyTest;
-import com.nereusstream.delay.protocol.ReadyCertificateV1;
+import com.nereusstream.delay.protocol.ReadyCertificate;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
@@ -37,7 +37,7 @@ import com.nereusstream.delay.runtime.LaneRecord;
 import com.nereusstream.delay.runtime.MessageRecord;
 import com.nereusstream.delay.runtime.MessageStatus;
 import com.nereusstream.delay.runtime.RuntimeReadiness;
-import com.nereusstream.delay.runtime.V1ScheduleResolver;
+import com.nereusstream.delay.runtime.ScheduleResolver;
 import com.nereusstream.delay.scheduler.ClaimExecutionAdmission;
 import com.nereusstream.delay.scheduler.LaneScheduler;
 import com.nereusstream.delay.scheduler.PersistentLaneScheduler;
@@ -83,14 +83,14 @@ class ClaimHandoffWorkClassExecutorTest {
                         assignment, "claim-work-owner", Bytes.sha256(Bytes.utf8("claim-work-session")), 100, 100)
                 .orElseThrow();
         final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
-        final ProfileRefV1 destination = profile(ProfileKindV1.DESTINATION, "destination");
-        final ProfileRefV1 capability = profile(ProfileKindV1.DELIVERY_CAPABILITY, "capability");
+        final ProfileRef destination = profile(ProfileKind.DESTINATION, "destination");
+        final ProfileRef capability = profile(ProfileKind.DELIVERY_CAPABILITY, "capability");
         final byte[] laneTuple = canonicalClaimKafkaLaneTuple(destination, capability);
         final DestinationLaneId laneId = DestinationLaneId.derive(laneTuple);
         final byte[] payload = Bytes.utf8("claim-work-payload");
-        final ScheduleIntentV1 scheduleIntent = ScheduleIntentV1.create(
+        final CanonicalScheduleIntent scheduleIntent = CanonicalScheduleIntent.create(
                 destination,
-                new com.nereusstream.delay.protocol.RetryPolicyRefV1(
+                new com.nereusstream.delay.protocol.RetryPolicyRef(
                         Bytes.utf8("claim-work-retry"), 1, Bytes.sha256(Bytes.utf8("claim-work-retry-semantic"))),
                 2_000,
                 9_000,
@@ -99,16 +99,16 @@ class ClaimHandoffWorkClassExecutorTest {
                 Bytes.utf8("claim-work-ordering"),
                 payload,
                 null,
-                AdapterMetadataV1.kafka(new com.nereusstream.delay.protocol.KafkaMetadataV1(null, List.of())),
+                AdapterMetadata.kafka(new com.nereusstream.delay.protocol.KafkaMetadata(null, List.of())),
                 null,
                 null);
-        final PreparedCommand schedule = PreparedCommand.scheduleV1(shardId, scheduleIntent, 10_000);
-        final V1ScheduleResolver resolver = new V1ScheduleResolver() {
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId, scheduleIntent, 10_000);
+        final ScheduleResolver resolver = new ScheduleResolver() {
             @Override
             public ResolvedSchedule resolveSchedule(
                     final ShardId shard,
                     final com.nereusstream.delay.protocol.DelayMessageId messageId,
-                    final ScheduleIntentV1 intent,
+                    final CanonicalScheduleIntent intent,
                     final SourcePosition source) {
                 return new ResolvedSchedule(laneId, laneTuple, payload, null);
             }
@@ -117,7 +117,7 @@ class ClaimHandoffWorkClassExecutorTest {
             public ResolvedPrepare resolvePrepare(
                     final ShardId shard,
                     final com.nereusstream.delay.protocol.DelayMessageId messageId,
-                    final com.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1 body,
+                    final com.nereusstream.delay.protocol.PrepareLargeScheduleBody body,
                     final SourcePosition source) {
                 throw new UnsupportedOperationException("not used by this test");
             }
@@ -130,7 +130,7 @@ class ClaimHandoffWorkClassExecutorTest {
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
-            final OwnerIdentityV1 owner = new OwnerIdentityV1(
+            final OwnerIdentity owner = new OwnerIdentity(
                     Bytes.utf8("claim-work-deployment"),
                     Bytes.utf8("claim-work-worker"),
                     lease.ownerEpoch(),
@@ -168,7 +168,7 @@ class ClaimHandoffWorkClassExecutorTest {
                             .canonicalBytes(),
                     scheduler.ownerIdentity(),
                     store.metadata().storeIncarnation());
-            final ActiveLaneStateV1 activeLane = new ActiveLaneStateV1(
+            final ActiveLaneState activeLane = new ActiveLaneState(
                     laneId,
                     lane.laneIncarnation(),
                     com.nereusstream.delay.runtime.AdmissionGate.OPEN,
@@ -183,7 +183,7 @@ class ClaimHandoffWorkClassExecutorTest {
                     zeroCharge(),
                     message.runtimeIndex().timeline().actionAtEpochMs(),
                     lane.nextEligibleAtEpochMs(),
-                    LaneCircuitStateV1.CLOSED,
+                    LaneCircuitState.CLOSED,
                     0,
                     0,
                     0,
@@ -195,7 +195,7 @@ class ClaimHandoffWorkClassExecutorTest {
                     ColumnFamily.META,
                     2,
                     KeyCodec.metaLane(laneId),
-                    LaneRecordEnvelopeV1.active(activeLane).canonicalBytes()));
+                    LaneRecordEnvelope.active(activeLane).canonicalBytes()));
             com.nereusstream.delay.scheduler.PersistentLaneSchedulerTestSupport.register(scheduler, lane);
             scheduler.discoverReady(evidence, budget);
 
@@ -226,8 +226,8 @@ class ClaimHandoffWorkClassExecutorTest {
                     new WorkerSchedulingRuntime(workClasses, owned, authority, scheduler);
             final KeyPair verificationKey =
                     KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-            final ReadyCertificateV1 readyCertificate = ReadyCertificateV1.decode(certificate);
-            final ChannelResourceIdentityV1 channel = ChannelResourceIdentityV1.decode(readyCertificate.channel());
+            final ReadyCertificate readyCertificate = ReadyCertificate.decode(certificate);
+            final ChannelResourceIdentity channel = ChannelResourceIdentity.decode(readyCertificate.channel());
             final WorkerPublishPreparationCoordinator preparationCoordinator = new WorkerPublishPreparationCoordinator(
                     owned,
                     authority,
@@ -268,8 +268,7 @@ class ClaimHandoffWorkClassExecutorTest {
                     preparationCoordinator);
             final WorkerShardFleetRuntime fleet =
                     new WorkerShardFleetRuntime(workClasses, resources, List.of(workerRuntime));
-            final ClaimMaterializationV1 materialization =
-                    shard.resolveClaimMaterializationV1(schedule.delayMessageId());
+            final ClaimMaterialization materialization = shard.resolveClaimMaterialization(schedule.delayMessageId());
             final byte[] claimCharge = claimCharge(payload.length);
 
             final WorkerSchedulingRuntime.DueTurn dueTurn = workerRuntime.runDueTurn(evidence, budget, () -> 101);
@@ -359,7 +358,7 @@ class ClaimHandoffWorkClassExecutorTest {
                     () -> 101,
                     preparation -> java.util.Optional.of(new WorkerCommandRuntime.PublishPreparation(
                             preparation.channel(),
-                            ReadyCertificateV1.decode(bindReadyCertificate(
+                            ReadyCertificate.decode(bindReadyCertificate(
                                     certificate, owner, Bytes.sha256(Bytes.utf8("claim-work-foreign-store")))),
                             evidence,
                             3_000,
@@ -387,11 +386,11 @@ class ClaimHandoffWorkClassExecutorTest {
                 null);
     }
 
-    private static ProfileRefV1 profile(final ProfileKindV1 kind, final String value) {
-        return new ProfileRefV1(Bytes.utf8(value), 1, Bytes.sha256(Bytes.utf8(value + "-hash")), kind);
+    private static ProfileRef profile(final ProfileKind kind, final String value) {
+        return new ProfileRef(Bytes.utf8(value), 1, Bytes.sha256(Bytes.utf8(value + "-hash")), kind);
     }
 
-    private static byte[] canonicalClaimKafkaLaneTuple(final ProfileRefV1 destination, final ProfileRefV1 capability) {
+    private static byte[] canonicalClaimKafkaLaneTuple(final ProfileRef destination, final ProfileRef capability) {
         final byte[] topicUuid = new byte[16];
         return Bytes.concat(
                 new byte[32],
@@ -421,7 +420,7 @@ class ClaimHandoffWorkClassExecutorTest {
     }
 
     private static byte[] bindReadyCertificate(
-            final byte[] encoded, final OwnerIdentityV1 owner, final byte[] storeIncarnation) {
+            final byte[] encoded, final OwnerIdentity owner, final byte[] storeIncarnation) {
         final byte[] prefix = CanonicalProtobuf.message(output -> {
             final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(encoded);
             while (reader.hasRemaining()) {
@@ -443,8 +442,7 @@ class ClaimHandoffWorkClassExecutorTest {
             while (reader.hasRemaining()) {
                 writeField(output, reader.next());
             }
-            CanonicalProtobuf.bytes(
-                    output, 16, Bytes.sha256(Bytes.utf8("nereus-delay-ready-certificate-v1\0"), prefix));
+            CanonicalProtobuf.bytes(output, 16, Bytes.sha256(Bytes.utf8("nereus-delay-ready-certificate\0"), prefix));
         });
     }
 

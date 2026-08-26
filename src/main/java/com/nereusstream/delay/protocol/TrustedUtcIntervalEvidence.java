@@ -5,7 +5,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
-/** Canonical TrustedUtcIntervalEvidenceV1 used by source-ordered timing mutations. */
+/** Canonical TrustedUtcIntervalEvidence used by source-ordered timing mutations. */
 public final class TrustedUtcIntervalEvidence {
     public static final int HASH_LENGTH = 32;
     public static final int SIGNATURE_LENGTH = 64;

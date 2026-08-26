@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-/** Semantic parser for the lane-gate subset of {@code ApplyShardControlV1}. */
+/** Semantic parser for the lane-gate subset of {@code ApplyShardControl}. */
 public final class ApplyShardControlBody {
     private final ControlRef controlRef;
     private final int controlKind;
@@ -72,39 +72,39 @@ public final class ApplyShardControlBody {
     }
 
     /** Decodes the field-1 protocol-tuple activation branch. */
-    public ProtocolVersionActivatePayloadV1 protocolVersionActivate() {
+    public ProtocolVersionActivatePayload protocolVersionActivate() {
         requireControlKind(1);
-        return ProtocolVersionActivatePayloadV1.decode(branchPayload(1));
+        return ProtocolVersionActivatePayload.decode(branchPayload(1));
     }
 
     /** Decodes the field-14 initial Route control activation branch. */
-    public InitialRouteControlActivatePayloadV1 initialRouteControlActivate() {
+    public InitialRouteControlActivatePayload initialRouteControlActivate() {
         requireControlKind(14);
-        return InitialRouteControlActivatePayloadV1.decode(branchPayload(14));
+        return InitialRouteControlActivatePayload.decode(branchPayload(14));
     }
 
     /** Decodes the field-12 trust-set activation branch. */
-    public PayloadProofTrustSetActivatePayloadV1 payloadProofTrustSetActivate() {
+    public PayloadProofTrustSetActivatePayload payloadProofTrustSetActivate() {
         requireControlKind(12);
-        return PayloadProofTrustSetActivatePayloadV1.decode(branchPayload(12));
+        return PayloadProofTrustSetActivatePayload.decode(branchPayload(12));
     }
 
     /** Decodes the field-2 Profile first-binding activation branch. */
-    public ProfileBindingActivatePayloadV1 profileBindingActivate() {
+    public ProfileBindingActivatePayload profileBindingActivate() {
         requireControlKind(2);
-        return ProfileBindingActivatePayloadV1.decode(branchPayload(2));
+        return ProfileBindingActivatePayload.decode(branchPayload(2));
     }
 
     /** Decodes the field-3 Profile first-binding close branch. */
-    public ProfileNewBindingClosePayloadV1 profileNewBindingClose() {
+    public ProfileNewBindingClosePayload profileNewBindingClose() {
         requireControlKind(3);
-        return ProfileNewBindingClosePayloadV1.decode(branchPayload(3));
+        return ProfileNewBindingClosePayload.decode(branchPayload(3));
     }
 
     /** Decodes the field-13 trust-set issuance-close branch. */
-    public PayloadProofIssuanceClosePayloadV1 payloadProofIssuanceClose() {
+    public PayloadProofIssuanceClosePayload payloadProofIssuanceClose() {
         requireControlKind(13);
-        return PayloadProofIssuanceClosePayloadV1.decode(branchPayload(13));
+        return PayloadProofIssuanceClosePayload.decode(branchPayload(13));
     }
 
     public LaneTarget laneTarget() {
@@ -168,8 +168,8 @@ public final class ApplyShardControlBody {
         }
         final List<CanonicalProtobuf.Reader.Field> fields = laneBranchFields();
         final int acknowledgementField = controlKind == 10 ? 2 : 5;
-        final AcknowledgementSetV1 acknowledgements =
-                AcknowledgementSetV1.decode(fields.get(acknowledgementField - 1).rawValue());
+        final AcknowledgementSet acknowledgements =
+                AcknowledgementSet.decode(fields.get(acknowledgementField - 1).rawValue());
         return acknowledgements.acknowledgements().stream()
                 .anyMatch(acknowledgement -> acknowledgement.kind().wireValue() == acknowledgementKind);
     }
@@ -180,11 +180,11 @@ public final class ApplyShardControlBody {
     }
 
     private static void validateControlReason(final byte[] encoded) {
-        ControlReasonV1.decode(encoded);
+        ControlReason.decode(encoded);
     }
 
     private static void validateAcknowledgementSet(final byte[] encoded) {
-        AcknowledgementSetV1.decode(encoded);
+        AcknowledgementSet.decode(encoded);
     }
 
     private void validatePayloadBranch() {

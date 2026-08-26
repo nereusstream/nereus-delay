@@ -1,21 +1,21 @@
 package com.nereusstream.delay.semantic;
 
-import com.nereusstream.delay.protocol.AdapterKindV1;
+import com.nereusstream.delay.protocol.AdapterKind;
+import com.nereusstream.delay.protocol.CanonicalPayloadCommitProof;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.CommandId;
 import com.nereusstream.delay.protocol.DelayMessageId;
-import com.nereusstream.delay.protocol.MessagePreconditionV1;
-import com.nereusstream.delay.protocol.NativePreparedDeliveryV1;
-import com.nereusstream.delay.protocol.PayloadCommitProofV1;
-import com.nereusstream.delay.protocol.PayloadReservationReceiptV1;
+import com.nereusstream.delay.protocol.MessagePrecondition;
+import com.nereusstream.delay.protocol.NativePreparedDelivery;
+import com.nereusstream.delay.protocol.PayloadReservationReceipt;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.PreparedSubmissionV1;
-import com.nereusstream.delay.protocol.RouteSnapshotV1;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
+import com.nereusstream.delay.protocol.PreparedSubmission;
+import com.nereusstream.delay.protocol.RouteSnapshot;
 import com.nereusstream.delay.protocol.SelfRoutingId;
 import com.nereusstream.delay.protocol.StableCode;
-import com.nereusstream.delay.protocol.SubmissionModeV1;
-import com.nereusstream.delay.route.RouteHashV1;
+import com.nereusstream.delay.protocol.SubmissionMode;
+import com.nereusstream.delay.route.RouteHash;
 import com.nereusstream.delay.route.RouteSnapshotProvider;
 import java.nio.ByteBuffer;
 import java.util.Objects;
@@ -55,18 +55,18 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
     }
 
     @Override
-    public PreparedSubmissionV1 prepareSchedule(
+    public PreparedSubmission prepareSchedule(
             final AuthenticatedTenantContext tenant,
             final RouteSelectionHint route,
-            final ScheduleIntentV1 intent,
+            final CanonicalScheduleIntent intent,
             final long retryUntilEpochMs,
-            final SubmissionModeV1 submissionMode) {
+            final SubmissionMode submissionMode) {
         Objects.requireNonNull(tenant, "tenant");
         Objects.requireNonNull(route, "route");
         Objects.requireNonNull(intent, "intent");
         Objects.requireNonNull(submissionMode, "submissionMode");
         final TrustedTimeSnapshot trustedTime = time();
-        final RouteSnapshotV1 snapshot = activeRoute(tenant, route, trustedTime);
+        final RouteSnapshot snapshot = activeRoute(tenant, route, trustedTime);
         requireIngressRoute(snapshot, route.adapterKind());
         requireRetryWindow(snapshot, retryUntilEpochMs, trustedTime);
         if (intent.hasInlinePayload() && intent.inlinePayload().length > snapshot.maxInlinePayloadBytes()) {
@@ -76,17 +76,17 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
         final UUID logicalMessageUuid = nextUuid(trustedTime);
         final byte[] routingKey =
                 intent.orderingKey().length == 0 ? uuidBytes(logicalMessageUuid) : intent.orderingKey();
-        final int partition = RouteHashV1.partition(snapshot, tenant.tenantRoutingScope(), routingKey);
+        final int partition = RouteHash.partition(snapshot, tenant.tenantRoutingScope(), routingKey);
         final com.nereusstream.delay.protocol.ShardId shard =
                 new com.nereusstream.delay.protocol.ShardId(snapshot.routeIncarnation(), partition);
         final UUID logicalCommandUuid = nextIndependentUuid(trustedTime, logicalMessageUuid);
         final PreparedCommand managed =
-                PreparedCommand.scheduleV1(shard, logicalMessageUuid, logicalCommandUuid, intent, retryUntilEpochMs);
+                PreparedCommand.schedule(shard, logicalMessageUuid, logicalCommandUuid, intent, retryUntilEpochMs);
         final byte[] managedFrame = strictFrameWithinRoute(managed, snapshot);
-        if (submissionMode == SubmissionModeV1.MANAGED || nativeSnapshots == null || !intent.hasInlinePayload()) {
-            return PreparedSubmissionV1.managed(managedFrame);
+        if (submissionMode == SubmissionMode.MANAGED || nativeSnapshots == null || !intent.hasInlinePayload()) {
+            return PreparedSubmission.managed(managedFrame);
         }
-        final Optional<NativePreparationSnapshotV1> nativeCandidate;
+        final Optional<NativePreparationSnapshot> nativeCandidate;
         try {
             nativeCandidate = Objects.requireNonNull(
                     nativeSnapshots.eligibleFor(tenant, snapshot, intent, managed, trustedTime),
@@ -95,14 +95,14 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
             throw SemanticPreparationException.of(StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE, failure);
         }
         if (nativeCandidate.isEmpty()) {
-            return PreparedSubmissionV1.managed(managedFrame);
+            return PreparedSubmission.managed(managedFrame);
         }
         try {
-            return PreparedSubmissionV1.nativePrepared(
+            return PreparedSubmission.nativePrepared(
                     prepareNative(tenant, managed, intent, nativeCandidate.get(), snapshot, trustedTime));
         } catch (SemanticPreparationException failure) {
             if (failure.error().code() == StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE) {
-                return PreparedSubmissionV1.managed(managedFrame);
+                return PreparedSubmission.managed(managedFrame);
             }
             throw failure;
         }
@@ -112,21 +112,21 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
     public PreparedCommand prepareLargeSchedule(
             final AuthenticatedTenantContext tenant,
             final RouteSelectionHint route,
-            final LargeSchedulePreparationV1 request,
+            final LargeSchedulePreparation request,
             final long retryUntilEpochMs) {
         Objects.requireNonNull(request, "request");
         final TrustedTimeSnapshot trustedTime = time();
-        final RouteSnapshotV1 snapshot = activeRoute(tenant, route, trustedTime);
+        final RouteSnapshot snapshot = activeRoute(tenant, route, trustedTime);
         requireIngressRoute(snapshot, route.adapterKind());
         requireRetryWindow(snapshot, retryUntilEpochMs, trustedTime);
         final UUID logicalMessageUuid = nextUuid(trustedTime);
         final byte[] routingKey = request.intentWithoutPayload().orderingKey().length == 0
                 ? uuidBytes(logicalMessageUuid)
                 : request.intentWithoutPayload().orderingKey();
-        final int partition = RouteHashV1.partition(snapshot, tenant.tenantRoutingScope(), routingKey);
+        final int partition = RouteHash.partition(snapshot, tenant.tenantRoutingScope(), routingKey);
         final com.nereusstream.delay.protocol.ShardId shard =
                 new com.nereusstream.delay.protocol.ShardId(snapshot.routeIncarnation(), partition);
-        final PreparedCommand command = PreparedCommand.prepareLargeV1(
+        final PreparedCommand command = PreparedCommand.prepareLarge(
                 shard,
                 logicalMessageUuid,
                 nextIndependentUuid(trustedTime, logicalMessageUuid),
@@ -144,8 +144,8 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
     @Override
     public PreparedCommand preparePayloadCommit(
             final AuthenticatedTenantContext tenant,
-            final PayloadReservationReceiptV1 reservation,
-            final PayloadCommitProofV1 proof,
+            final PayloadReservationReceipt reservation,
+            final CanonicalPayloadCommitProof proof,
             final long retryUntilEpochMs) {
         Objects.requireNonNull(tenant, "tenant");
         Objects.requireNonNull(reservation, "reservation");
@@ -156,13 +156,13 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
             throw SemanticPreparationException.of(StableCode.PAYLOAD_PROOF_INVALID, null);
         }
         final TrustedTimeSnapshot trustedTime = time();
-        final RouteSnapshotV1 snapshot = exactRoute(tenant, reservation.shardId());
+        final RouteSnapshot snapshot = exactRoute(tenant, reservation.shardId());
         requireRetryWindow(snapshot, retryUntilEpochMs, trustedTime);
         if (!java.util.Arrays.equals(tenant.tenantRoutingScope(), proof.tenantRoutingScope())) {
             throw SemanticPreparationException.of(StableCode.UNAUTHORIZED, null);
         }
         final CommandId commandId = commandId(reservation.shardId(), nextUuid(trustedTime));
-        final PreparedCommand command = PreparedCommand.commitLargeV1(
+        final PreparedCommand command = PreparedCommand.commitLarge(
                 reservation.shardId(),
                 commandId,
                 reservation.delayMessageId(),
@@ -177,16 +177,16 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
     public PreparedCommand prepareCancel(
             final AuthenticatedTenantContext tenant,
             final DelayMessageId messageId,
-            final MessagePreconditionV1 precondition,
+            final MessagePrecondition precondition,
             final long retryUntilEpochMs) {
         Objects.requireNonNull(messageId, "messageId");
         Objects.requireNonNull(precondition, "precondition");
         final TrustedTimeSnapshot trustedTime = time();
         final com.nereusstream.delay.protocol.ShardId shard =
                 messageId.routingId().shardId();
-        final RouteSnapshotV1 snapshot = exactRoute(tenant, shard);
+        final RouteSnapshot snapshot = exactRoute(tenant, shard);
         requireRetryWindow(snapshot, retryUntilEpochMs, trustedTime);
-        final PreparedCommand command = PreparedCommand.cancelV1(
+        final PreparedCommand command = PreparedCommand.cancel(
                 shard, commandId(shard, nextUuid(trustedTime)), messageId, precondition, retryUntilEpochMs);
         strictFrameWithinRoute(command, snapshot);
         return command;
@@ -196,7 +196,7 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
     public PreparedCommand prepareReschedule(
             final AuthenticatedTenantContext tenant,
             final DelayMessageId messageId,
-            final MessagePreconditionV1 precondition,
+            final MessagePrecondition precondition,
             final long deliverAtEpochMs,
             final long expireAtEpochMs,
             final long retryUntilEpochMs) {
@@ -205,9 +205,9 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
         final TrustedTimeSnapshot trustedTime = time();
         final com.nereusstream.delay.protocol.ShardId shard =
                 messageId.routingId().shardId();
-        final RouteSnapshotV1 snapshot = exactRoute(tenant, shard);
+        final RouteSnapshot snapshot = exactRoute(tenant, shard);
         requireRetryWindow(snapshot, retryUntilEpochMs, trustedTime);
-        final PreparedCommand command = PreparedCommand.rescheduleV1(
+        final PreparedCommand command = PreparedCommand.reschedule(
                 shard,
                 commandId(shard, nextUuid(trustedTime)),
                 messageId,
@@ -220,27 +220,27 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
     }
 
     @Override
-    public PreparedSubmissionV1 prepareManaged(final AuthenticatedTenantContext tenant, final PreparedCommand command) {
+    public PreparedSubmission prepareManaged(final AuthenticatedTenantContext tenant, final PreparedCommand command) {
         Objects.requireNonNull(tenant, "tenant");
         Objects.requireNonNull(command, "command");
-        final RouteSnapshotV1 snapshot = exactRoute(tenant, command.shardId());
-        return PreparedSubmissionV1.managed(strictFrameWithinRoute(command, snapshot));
+        final RouteSnapshot snapshot = exactRoute(tenant, command.shardId());
+        return PreparedSubmission.managed(strictFrameWithinRoute(command, snapshot));
     }
 
-    private NativePreparedDeliveryV1 prepareNative(
+    private NativePreparedDelivery prepareNative(
             final AuthenticatedTenantContext tenant,
             final PreparedCommand managed,
-            final ScheduleIntentV1 intent,
-            final NativePreparationSnapshotV1 candidate,
-            final RouteSnapshotV1 snapshot,
+            final CanonicalScheduleIntent intent,
+            final NativePreparationSnapshot candidate,
+            final RouteSnapshot snapshot,
             final TrustedTimeSnapshot trustedTime) {
         try {
-            NativePreparationEligibilityV1.require(tenant, snapshot, intent, managed, candidate, trustedTime);
+            NativePreparationEligibility.require(tenant, snapshot, intent, managed, candidate, trustedTime);
         } catch (RuntimeException failure) {
             throw SemanticPreparationException.of(StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE, failure);
         }
         try {
-            return NativePreparedDeliveryV1.create(
+            return NativePreparedDelivery.create(
                     NativeDeliveryIdGenerator.require(nativeDeliveryIds.next(managed, intent)),
                     candidate.destination().ref(),
                     candidate.capability().ref(),
@@ -257,11 +257,11 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
         }
     }
 
-    private RouteSnapshotV1 activeRoute(
+    private RouteSnapshot activeRoute(
             final AuthenticatedTenantContext tenant,
             final RouteSelectionHint route,
             final TrustedTimeSnapshot trustedTime) {
-        final RouteSnapshotV1 snapshot;
+        final RouteSnapshot snapshot;
         try {
             snapshot = routes.activeForNewSchedule(tenant, route);
             if (snapshot == null) {
@@ -277,10 +277,10 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
         return snapshot;
     }
 
-    private RouteSnapshotV1 exactRoute(
+    private RouteSnapshot exactRoute(
             final AuthenticatedTenantContext tenant, final com.nereusstream.delay.protocol.ShardId shard) {
         try {
-            final RouteSnapshotV1 snapshot = routes.exact(shard.routeIncarnation(), tenant);
+            final RouteSnapshot snapshot = routes.exact(shard.routeIncarnation(), tenant);
             if (snapshot == null) {
                 throw new IllegalArgumentException("Route cache returned no historical snapshot");
             }
@@ -296,9 +296,9 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
         }
     }
 
-    private byte[] strictFrameWithinRoute(final PreparedCommand command, final RouteSnapshotV1 snapshot) {
+    private byte[] strictFrameWithinRoute(final PreparedCommand command, final RouteSnapshot snapshot) {
         try {
-            final byte[] frame = CommandCodec.encodeFrameV1(command);
+            final byte[] frame = CommandCodec.encodeManagedFrame(command);
             if (frame.length > snapshot.maxCommandBytes()) {
                 throw SemanticPreparationException.of(StableCode.PAYLOAD_TOO_LARGE, null);
             }
@@ -311,18 +311,18 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
     }
 
     /**
-     * The Gateway route selects the command ingress adapter.  The intent
+     * The Gateway route selects the command ingress adapter. The intent
      * metadata selects the destination adapter and is checked later by the
      * immutable Destination Profile/Claim materialization boundary.
      */
-    private static void requireIngressRoute(final RouteSnapshotV1 snapshot, final AdapterKindV1 selected) {
+    private static void requireIngressRoute(final RouteSnapshot snapshot, final AdapterKind selected) {
         if (snapshot.ingress().adapterKind() != selected) {
             throw SemanticPreparationException.of(StableCode.INGRESS_ROUTE_MISMATCH, null);
         }
     }
 
     private static void requireRetryWindow(
-            final RouteSnapshotV1 snapshot, final long retryUntilEpochMs, final TrustedTimeSnapshot trustedTime) {
+            final RouteSnapshot snapshot, final long retryUntilEpochMs, final TrustedTimeSnapshot trustedTime) {
         if (retryUntilEpochMs < trustedTime.epochMs()) {
             throw SemanticPreparationException.of(StableCode.PREPARED_COMMAND_EXPIRED, null);
         }

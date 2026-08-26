@@ -18,8 +18,8 @@ import java.util.function.LongSupplier;
  * Active-owner entrypoint for one bounded persistent READY-discovery turn.
  *
  * <p>The task identity binds the exact Shard, canonical trusted-time evidence
- * and all scan-budget fields.  Its byte charge reserves the canonical request
- * bytes plus the complete configured scan-byte envelope.  Queue rejection is
+ * and all scan-budget fields. Its byte charge reserves the canonical request
+ * bytes plus the complete configured scan-byte envelope. Queue rejection is
  * side-effect free: the local strict-owner preflight reads neither Oxia nor
  * RocksDB, and the persistent scheduler is invoked only by the selected
  * {@link WorkClass#DUE_SCHEDULER} action.</p>
@@ -28,13 +28,13 @@ import java.util.function.LongSupplier;
  * uses the evidence's earliest UTC bound as the inclusive due-through fence.
  * An ordinary or fatal discovery failure remains a generic failed action for
  * explicit exact retry; the READY index and scheduler rollback remain the
- * durable/process recovery authorities.  Successful discovery removes the
- * process action and exposes only the newly promoted due heads.  Claim and
+ * durable/process recovery authorities. Successful discovery removes the
+ * process action and exposes only the newly promoted due heads. Claim and
  * Publish Admission remain a later bounded handoff and are deliberately not
  * performed by this discovery-only bridge.</p>
  */
 public final class DueSchedulerWorkClassExecutor {
-    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-due-discovery-task-v1\0");
+    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-due-discovery-task\0");
 
     private final WorkClassExecutionRegistry workClasses;
     private final OwnedDelayShard ownedShard;

@@ -11,7 +11,7 @@ import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
@@ -154,7 +154,7 @@ public final class KafkaClientArtifactMutationSmoke {
         final int keyVersion = 1;
         final long closeThrough = 1_000;
         final byte[] proofId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                Bytes.utf8("nereus-delay-time-fence-proof\0"),
                 shard.routeIncarnation().bytes(),
                 Bytes.u32beBits(shard.partition()),
                 Bytes.i64be(closeThrough),
@@ -162,7 +162,7 @@ public final class KafkaClientArtifactMutationSmoke {
                 Bytes.lp32(evidence.canonicalBytes()));
         final byte[] body = com.nereusstream.delay.protocol.CanonicalProtobuf.message(output -> {
             com.nereusstream.delay.protocol.CanonicalProtobuf.bytes(
-                    output, 1, new ShardSubjectV1(shard).canonicalBytes());
+                    output, 1, new ShardSubject(shard).canonicalBytes());
             com.nereusstream.delay.protocol.CanonicalProtobuf.uint32(
                     output, 2, SystemMutationType.TIME_FENCE.wireValue());
             com.nereusstream.delay.protocol.CanonicalProtobuf.int64(output, 3, 9_000);

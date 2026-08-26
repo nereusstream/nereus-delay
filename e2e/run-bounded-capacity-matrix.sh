@@ -125,7 +125,7 @@ done
 matrix_artifact="$artifact_dir/capacity-benchmark-matrix.json"
 matrix_tmp="$artifact_dir/.capacity-benchmark-matrix.json.tmp"
 jq -n \
-    --arg schema "nereus-delay-bounded-capacity-benchmark-matrix-v1" \
+    --arg schema "nereus-delay-bounded-capacity-benchmark-matrix" \
     --arg status "PARTIAL" \
     --arg source "$delay_source" \
     --arg image "$image" \
@@ -148,7 +148,7 @@ jq -n \
         {name: "sustained", artifact: $sustained[0]}
       ],
       boundaries: [
-        "This is a bounded Linux local Store/SLO campaign artifact, not a V1 release certification.",
+        "This is a bounded Linux local Store/SLO campaign artifact, not a  release certification.",
         "It covers three source-locked payload-record/SLO-sample configurations, synchronous RocksDB writes, payload readback, durable SLO merge, and persistent reopen.",
         "It does not certify Broker throughput, Lane distributions, multi-shard placement, compaction/restore throughput, inline-object flow, long-cycle soak, or external credential/provider authority."
       ]

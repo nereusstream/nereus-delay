@@ -1,10 +1,10 @@
 # Use checkpoint/replay recovery without warm standby
 
-Nereus Delay V1 recovers one shard from a verified immutable RocksDB checkpoint plus complete Shard Log replay and does not implement a warm standby. The physical Command Topic partition is that Shard Log: it interleaves tenant Commands with authenticated System Mutations for Publish Admission, outcomes, expiry, evidence resolution, and resource retirement/deletion. Reversible Claim/materialization and other derivable runtime state may be absent and is rebuilt. No second delta log exists.
+Nereus Delay recovers one shard from a verified immutable RocksDB checkpoint plus complete Shard Log replay and does not implement a warm standby. The physical Command Topic partition is that Shard Log: it interleaves tenant Commands with authenticated System Mutations for Publish Admission, outcomes, expiry, evidence resolution, and resource retirement/deletion. Reversible Claim/materialization and other derivable runtime state may be absent and is rebuilt. No second delta log exists.
 
 ## Checkpoint creation
 
-- The active Owner creates a native RocksDB checkpoint of its one-shard DB. The checkpoint's own `meta_cf` is the authority for applied Shard Log Position, the canonical sorted `EvidenceCursorV1` array, DB/shard identity, format versions, quota/Lane state, and local runtime state. Evidence cursors use the main spec's tagged Kafka-receipt/Pulsar-Attempt-Journal variants; no untyped destination receipt cursor is accepted.
+- The active Owner creates a native RocksDB checkpoint of its one-shard DB. The checkpoint's own `meta_cf` is the authority for applied Shard Log Position, the canonical sorted `EvidenceCursor` array, DB/shard identity, format versions, quota/Lane state, and local runtime state. Evidence cursors use the main spec's tagged Kafka-receipt/Pulsar-Attempt-Journal variants; no untyped destination receipt cursor is accepted.
 - Local creation uses a unique temporary directory and may hard-link immutable files on the same filesystem. The uploader writes to a unique immutable object prefix, records every relative filename, length, checksum, object version/etag, and total bytes, and reopens/verifies the checkpoint metadata before publication.
 - Upload completion alone has no recovery meaning. The Worker revalidates Source Assignment, exact Owner Lease, store/DB incarnation, source replay margin, and base catalog version, then uses Oxia CAS to add the manifest to the Recovery Set. Lost CAS response is resolved by rereading the exact checkpoint identity.
 - Creation and upload are staggered and bounded by per-Worker concurrency, bandwidth, temporary-disk, and object-request limits. Failure leaves an orphan candidate but never replaces the catalog.
@@ -35,4 +35,4 @@ Planned drain may create a final checkpoint to reduce replay, but correctness as
 
 ## Deferred standby
 
-A future warm standby may consume the complete Shard Log only with an explicit independent replay subscription, snapshot cut, resource budget, and integrity protocol. It must remain non-publishing until it acquires both Source Assignment and a new Owner Lease. V1 implements none of that; neither joining the active source subscription twice nor copying live RocksDB files is a standby design.
+A future warm standby may consume the complete Shard Log only with an explicit independent replay subscription, snapshot cut, resource budget, and integrity protocol. It must remain non-publishing until it acquires both Source Assignment and a new Owner Lease. Nereus Delay implements none of that; neither joining the active source subscription twice nor copying live RocksDB files is a standby design.

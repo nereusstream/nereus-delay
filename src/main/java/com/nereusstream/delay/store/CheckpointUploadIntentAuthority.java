@@ -1,7 +1,7 @@
 package com.nereusstream.delay.store;
 
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.util.Optional;
 
@@ -13,19 +13,18 @@ import java.util.Optional;
  * upload and Owner Lease/session authorization remain separate authorities.</p>
  */
 public interface CheckpointUploadIntentAuthority {
-    CheckpointUploadIntentV1 create(CheckpointUploadIntentV1 pending);
+    CheckpointUploadIntent create(CheckpointUploadIntent pending);
 
-    CheckpointUploadIntentV1 publish(CheckpointUploadIntentV1 expectedPending, CheckpointResourceV1 resource);
+    CheckpointUploadIntent publish(CheckpointUploadIntent expectedPending, CheckpointResource resource);
 
-    Optional<CheckpointUploadIntentV1> currentPublishedFor(CheckpointUploadIntentV1 expectedPending);
+    Optional<CheckpointUploadIntent> currentPublishedFor(CheckpointUploadIntent expectedPending);
 
-    CheckpointUploadIntentV1 beginReaping(
-            CheckpointUploadIntentV1 expectedPending, TrustedUtcIntervalEvidence evidence);
+    CheckpointUploadIntent beginReaping(CheckpointUploadIntent expectedPending, TrustedUtcIntervalEvidence evidence);
 
-    CheckpointUploadIntentV1 beginReaping(
-            CheckpointUploadIntentV1 expectedPending,
+    CheckpointUploadIntent beginReaping(
+            CheckpointUploadIntent expectedPending,
             TrustedUtcIntervalEvidence evidence,
             RecoveryCatalogAuthority catalog);
 
-    Optional<CheckpointUploadIntentV1> current(CheckpointUploadIntentV1 identity);
+    Optional<CheckpointUploadIntent> current(CheckpointUploadIntent identity);
 }

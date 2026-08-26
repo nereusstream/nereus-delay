@@ -7,9 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.RecoveryCandidateKindV1;
-import com.nereusstream.delay.protocol.RecoveryCandidateRefV1;
-import com.nereusstream.delay.protocol.RecoveryFloorRefV1;
+import com.nereusstream.delay.protocol.RecoveryCandidateKind;
+import com.nereusstream.delay.protocol.RecoveryCandidateRef;
+import com.nereusstream.delay.protocol.RecoveryFloorRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import java.nio.file.Path;
@@ -32,7 +32,7 @@ class StoreRecoveryMetadataTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 17);
         final byte[] lineage = bytes(16, 1);
         final byte[] checkpoint = bytes(16, 2);
-        final RecoveryFloorRefV1 floor = new RecoveryFloorRefV1(
+        final RecoveryFloorRef floor = new RecoveryFloorRef(
                 lineage,
                 checkpoint,
                 bytes(32, 3),
@@ -43,14 +43,14 @@ class StoreRecoveryMetadataTest {
         final StoreRecoveryMetadata persisted;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
-            final RecoveryCandidateRefV1 candidate = new RecoveryCandidateRefV1(
-                    RecoveryCandidateKindV1.LOCAL_STORE,
+            final RecoveryCandidateRef candidate = new RecoveryCandidateRef(
+                    RecoveryCandidateKind.LOCAL_STORE,
                     lineage,
                     checkpoint,
                     bytes(32, 3),
                     store.metadata().storeIncarnation());
             assertEquals(
-                    com.nereusstream.delay.protocol.RecoveryInstallPhaseV1.OPEN,
+                    com.nereusstream.delay.protocol.RecoveryInstallPhase.OPEN,
                     store.recoveryMetadata().installState().phase());
             assertFalse(store.hasReusableRecoveryProof());
 
@@ -79,7 +79,7 @@ class StoreRecoveryMetadataTest {
                     persisted.lastObservedFloor(), reopened.recoveryMetadata().lastObservedFloor());
             assertEquals(7, reopened.recoveryMetadata().catalogGeneration());
             assertEquals(
-                    com.nereusstream.delay.protocol.RecoveryInstallPhaseV1.OPEN,
+                    com.nereusstream.delay.protocol.RecoveryInstallPhase.OPEN,
                     reopened.recoveryMetadata().installState().phase());
             assertTrue(reopened.hasReusableRecoveryProof());
         }
@@ -92,7 +92,7 @@ class StoreRecoveryMetadataTest {
         final ShardId shardId = new ShardId(RouteIncarnation.random(), 18);
         final byte[] lineage = bytes(16, 11);
         final byte[] checkpoint = bytes(16, 12);
-        final RecoveryFloorRefV1 floor = new RecoveryFloorRefV1(
+        final RecoveryFloorRef floor = new RecoveryFloorRef(
                 lineage,
                 checkpoint,
                 bytes(32, 13),
@@ -103,8 +103,8 @@ class StoreRecoveryMetadataTest {
         final StoreRecoveryMetadata persisted;
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
-            final RecoveryCandidateRefV1 candidate = new RecoveryCandidateRefV1(
-                    RecoveryCandidateKindV1.LOCAL_STORE,
+            final RecoveryCandidateRef candidate = new RecoveryCandidateRef(
+                    RecoveryCandidateKind.LOCAL_STORE,
                     lineage,
                     checkpoint,
                     bytes(32, 13),

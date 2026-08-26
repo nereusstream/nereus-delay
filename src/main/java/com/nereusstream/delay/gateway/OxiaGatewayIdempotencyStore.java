@@ -2,9 +2,9 @@ package com.nereusstream.delay.gateway;
 
 import com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.PreparedSubmissionV1;
-import com.nereusstream.delay.protocol.SubmissionOutcomeKindV1;
-import com.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import com.nereusstream.delay.protocol.PreparedSubmission;
+import com.nereusstream.delay.protocol.SubmissionOutcomeKind;
+import com.nereusstream.delay.protocol.SubmissionOutcomeMessage;
 import com.nereusstream.delay.semantic.TrustedClock;
 import com.nereusstream.delay.transport.Digest32;
 import com.nereusstream.delay.transport.GatewayAttemptOwnershipPermit;
@@ -79,9 +79,9 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
     @Override
     public synchronized GatewayIdempotencyStore.PrepareResult prepareIfAbsent(
             final Digest32 keyHash,
-            final GatewayOperationKindV1 operation,
+            final GatewayOperationKind operation,
             final Digest32 bodyHash,
-            final PreparedSubmissionV1 submission,
+            final PreparedSubmission submission,
             final long retainUntilEpochMs) {
         Objects.requireNonNull(keyHash, "keyHash");
         Objects.requireNonNull(operation, "operation");
@@ -93,12 +93,12 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
             return classifyPrepare(existing.record(), operation, bodyHash);
         }
         final long now = now();
-        final GatewayIdempotencyRecordV1 created = new GatewayIdempotencyRecordV1(
+        final GatewayIdempotencyRecord created = new GatewayIdempotencyRecord(
                 keyHash,
                 operation,
                 bodyHash,
                 submission.canonicalBytes(),
-                GatewayIdempotencyPhaseV1.PREPARED,
+                GatewayIdempotencyPhase.PREPARED,
                 List.of(),
                 null,
                 now,
@@ -119,7 +119,7 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
     @Override
     public synchronized GatewayIdempotencyStore.AttemptStart startAttempt(final Digest32 keyHash) {
         final Entry current = require(keyHash);
-        if (current.record().phase() != GatewayIdempotencyPhaseV1.PREPARED
+        if (current.record().phase() != GatewayIdempotencyPhase.PREPARED
                 || current.record().aggregateOutcomeBytes() != null) {
             final Entry recovered = recoverExpiredStartedAttempt(keyHash, current);
             return new GatewayIdempotencyStore.AttemptStart(recovered.record(), null);
@@ -131,16 +131,16 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
         final long uncertaintyAt = checkedAdd(started, outcomeWaitMs);
         final long ownershipNotAfter = checkedAdd(started, ownershipMaxAgeMs);
         final PhysicalEnqueueAttemptId attemptId = PhysicalEnqueueAttemptId.random();
-        final GatewayPhysicalAttemptV1 attempt = new GatewayPhysicalAttemptV1(
+        final GatewayPhysicalAttempt attempt = new GatewayPhysicalAttempt(
                 1,
                 attemptId,
-                GatewayPhysicalAttemptStateV1.STARTED,
+                GatewayPhysicalAttemptState.STARTED,
                 null,
                 started,
                 uncertaintyAt,
                 checkedIncrement(current.record().revision()),
                 ownershipNotAfter);
-        final GatewayIdempotencyRecordV1 next = current.record().withAttempt(attempt);
+        final GatewayIdempotencyRecord next = current.record().withAttempt(attempt);
         try {
             put(current.key(), next, Set.of(PutOption.IfVersionIdEquals(current.versionId())));
             return new GatewayIdempotencyStore.AttemptStart(
@@ -157,24 +157,24 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
     }
 
     private Entry recoverExpiredStartedAttempt(final Digest32 keyHash, final Entry current) {
-        if (current.record().phase() != GatewayIdempotencyPhaseV1.ACTIVE
+        if (current.record().phase() != GatewayIdempotencyPhase.ACTIVE
                 || current.record().attempts().isEmpty()) {
             return current;
         }
-        final GatewayPhysicalAttemptV1 started =
+        final GatewayPhysicalAttempt started =
                 current.record().attempts().get(current.record().attempts().size() - 1);
-        if (started.state() != GatewayPhysicalAttemptStateV1.STARTED || now() < started.uncertaintyAtEpochMs()) {
+        if (started.state() != GatewayPhysicalAttemptState.STARTED || now() < started.uncertaintyAtEpochMs()) {
             return current;
         }
-        final PreparedSubmissionV1 prepared =
-                PreparedSubmissionV1.decode(current.record().preparedSubmissionBytes());
-        final SubmissionOutcomeMessageV1 uncertain =
+        final PreparedSubmission prepared =
+                PreparedSubmission.decode(current.record().preparedSubmissionBytes());
+        final SubmissionOutcomeMessage uncertain =
                 GatewayOutcomeSupport.uncertain(prepared, started.physicalAttemptId());
-        final GatewayIdempotencyRecordV1 recovered = current.record()
+        final GatewayIdempotencyRecord recovered = current.record()
                 .withOutcome(
-                        new GatewayIdempotencyRecordV1.PhysicalEnqueueAttemptIdMatch(started.physicalAttemptId()),
+                        new GatewayIdempotencyRecord.PhysicalEnqueueAttemptIdMatch(started.physicalAttemptId()),
                         uncertain,
-                        GatewayPhysicalAttemptStateV1.UNCERTAIN);
+                        GatewayPhysicalAttemptState.UNCERTAIN);
         try {
             put(current.key(), recovered, Set.of(PutOption.IfVersionIdEquals(current.versionId())));
         } catch (RuntimeException raceOrResponseLoss) {
@@ -191,8 +191,8 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
         Objects.requireNonNull(expectedPrior, "expectedPrior");
         Objects.requireNonNull(retryRequestId, "retryRequestId");
         final Entry current = recoverExpiredStartedAttempt(keyHash, require(keyHash));
-        final Digest32 retryHash = GatewayIdempotencyHashV1.retryRequestHash(keyHash, expectedPrior, retryRequestId);
-        for (GatewayPhysicalAttemptV1 attempt : current.record().attempts()) {
+        final Digest32 retryHash = GatewayIdempotencyHash.retryRequestHash(keyHash, expectedPrior, retryRequestId);
+        for (GatewayPhysicalAttempt attempt : current.record().attempts()) {
             if (retryRequestId.equals(attempt.retryRequestId())) {
                 return new GatewayIdempotencyStore.RetryStart(
                         current.record(),
@@ -203,13 +203,13 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
             }
         }
         if (current.record().aggregateOutcomeBytes() == null
-                || current.record().phase() != GatewayIdempotencyPhaseV1.QUIESCENT) {
+                || current.record().phase() != GatewayIdempotencyPhase.QUIESCENT) {
             return new GatewayIdempotencyStore.RetryStart(
                     current.record(), null, GatewayIdempotencyStore.RetryState.NOT_RETRYABLE);
         }
-        final SubmissionOutcomeMessageV1 aggregate;
+        final SubmissionOutcomeMessage aggregate;
         try {
-            aggregate = SubmissionOutcomeMessageV1.decode(current.record().aggregateOutcomeBytes());
+            aggregate = SubmissionOutcomeMessage.decode(current.record().aggregateOutcomeBytes());
         } catch (RuntimeException malformed) {
             return new GatewayIdempotencyStore.RetryStart(
                     current.record(), null, GatewayIdempotencyStore.RetryState.NOT_RETRYABLE);
@@ -218,9 +218,9 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
             return new GatewayIdempotencyStore.RetryStart(
                     current.record(), null, GatewayIdempotencyStore.RetryState.NOT_RETRYABLE);
         }
-        GatewayPhysicalAttemptV1 prior = null;
+        GatewayPhysicalAttempt prior = null;
         for (int index = current.record().attempts().size() - 1; index >= 0; index--) {
-            if (current.record().attempts().get(index).state() == GatewayPhysicalAttemptStateV1.UNCERTAIN) {
+            if (current.record().attempts().get(index).state() == GatewayPhysicalAttemptState.UNCERTAIN) {
                 prior = current.record().attempts().get(index);
                 break;
             }
@@ -233,10 +233,10 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
         final long uncertaintyAt = checkedAdd(started, outcomeWaitMs);
         final long ownershipNotAfter = checkedAdd(started, ownershipMaxAgeMs);
         final PhysicalEnqueueAttemptId attemptId = PhysicalEnqueueAttemptId.random();
-        final GatewayPhysicalAttemptV1 attempt = new GatewayPhysicalAttemptV1(
+        final GatewayPhysicalAttempt attempt = new GatewayPhysicalAttempt(
                 current.record().attempts().size() + 1,
                 attemptId,
-                GatewayPhysicalAttemptStateV1.STARTED,
+                GatewayPhysicalAttemptState.STARTED,
                 null,
                 started,
                 uncertaintyAt,
@@ -244,7 +244,7 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
                 retryHash,
                 checkedIncrement(current.record().revision()),
                 ownershipNotAfter);
-        final GatewayIdempotencyRecordV1 next = current.record().withAttempt(attempt);
+        final GatewayIdempotencyRecord next = current.record().withAttempt(attempt);
         try {
             put(current.key(), next, Set.of(PutOption.IfVersionIdEquals(current.versionId())));
             return new GatewayIdempotencyStore.RetryStart(
@@ -265,10 +265,8 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
     }
 
     @Override
-    public synchronized GatewayIdempotencyRecordV1 finish(
-            final Digest32 keyHash,
-            final PhysicalEnqueueAttemptId attemptId,
-            final SubmissionOutcomeMessageV1 outcome) {
+    public synchronized GatewayIdempotencyRecord finish(
+            final Digest32 keyHash, final PhysicalEnqueueAttemptId attemptId, final SubmissionOutcomeMessage outcome) {
         Objects.requireNonNull(attemptId, "attemptId");
         Objects.requireNonNull(outcome, "outcome");
         final Entry current = require(keyHash);
@@ -276,9 +274,9 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
                 .filter(item -> item.physicalAttemptId().equals(attemptId))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Gateway attempt does not belong to record"));
-        final GatewayPhysicalAttemptStateV1 state = stateFor(outcome);
-        final GatewayIdempotencyRecordV1 next = current.record()
-                .withOutcome(new GatewayIdempotencyRecordV1.PhysicalEnqueueAttemptIdMatch(attemptId), outcome, state);
+        final GatewayPhysicalAttemptState state = stateFor(outcome);
+        final GatewayIdempotencyRecord next = current.record()
+                .withOutcome(new GatewayIdempotencyRecord.PhysicalEnqueueAttemptIdMatch(attemptId), outcome, state);
         if (next == current.record()) {
             return next;
         }
@@ -295,7 +293,7 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
     }
 
     @Override
-    public synchronized GatewayIdempotencyRecordV1 exact(final Digest32 keyHash) {
+    public synchronized GatewayIdempotencyRecord exact(final Digest32 keyHash) {
         final Entry entry = read(recordKey(Objects.requireNonNull(keyHash, "keyHash")), keyHash);
         return entry == null ? null : entry.record();
     }
@@ -306,7 +304,7 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
     }
 
     private GatewayIdempotencyStore.PrepareResult classifyPrepare(
-            final GatewayIdempotencyRecordV1 record, final GatewayOperationKindV1 operation, final Digest32 bodyHash) {
+            final GatewayIdempotencyRecord record, final GatewayOperationKind operation, final Digest32 bodyHash) {
         if (record.operation() != operation || !record.requestBodyHash().equals(bodyHash)) {
             return new GatewayIdempotencyStore.PrepareResult(GatewayIdempotencyStore.PrepareState.CONFLICT, record);
         }
@@ -332,14 +330,14 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
                 || result.value().length > MAX_RECORD_BYTES) {
             throw new IllegalStateException("Oxia Gateway record response is not exact");
         }
-        final GatewayIdempotencyRecordV1 record = GatewayIdempotencyRecordV1.decode(result.value());
+        final GatewayIdempotencyRecord record = GatewayIdempotencyRecord.decode(result.value());
         if (!record.gatewayKeyHash().equals(keyHash)) {
             throw new IllegalStateException("Oxia Gateway record key/hash mismatch");
         }
         return new Entry(key, record, result.version().versionId());
     }
 
-    private void put(final String key, final GatewayIdempotencyRecordV1 record, final Set<PutOption> options) {
+    private void put(final String key, final GatewayIdempotencyRecord record, final Set<PutOption> options) {
         final byte[] value = record.canonicalBytes();
         if (value.length > MAX_RECORD_BYTES) {
             throw new IllegalArgumentException("Gateway idempotency record exceeds bounded size");
@@ -381,24 +379,24 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
         return value + 1;
     }
 
-    private static boolean isUncertain(final SubmissionOutcomeMessageV1 outcome) {
-        return outcome.kind() == SubmissionOutcomeKindV1.NATIVE_ENQUEUE_UNCERTAIN
-                || outcome.kind() == SubmissionOutcomeKindV1.MANAGED
+    private static boolean isUncertain(final SubmissionOutcomeMessage outcome) {
+        return outcome.kind() == SubmissionOutcomeKind.NATIVE_ENQUEUE_UNCERTAIN
+                || outcome.kind() == SubmissionOutcomeKind.MANAGED
                         && outcome.managed().kind()
-                                == com.nereusstream.delay.protocol.EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN;
+                                == com.nereusstream.delay.protocol.EnqueueOutcomeKind.ENQUEUE_UNCERTAIN;
     }
 
-    private static GatewayPhysicalAttemptStateV1 stateFor(final SubmissionOutcomeMessageV1 outcome) {
+    private static GatewayPhysicalAttemptState stateFor(final SubmissionOutcomeMessage outcome) {
         return switch (outcome.kind()) {
             case MANAGED ->
                 switch (outcome.managed().kind()) {
-                    case QUEUED -> GatewayPhysicalAttemptStateV1.QUEUED;
-                    case DEFINITELY_NOT_QUEUED -> GatewayPhysicalAttemptStateV1.DEFINITELY_NOT_QUEUED;
-                    case ENQUEUE_UNCERTAIN -> GatewayPhysicalAttemptStateV1.UNCERTAIN;
+                    case QUEUED -> GatewayPhysicalAttemptState.QUEUED;
+                    case DEFINITELY_NOT_QUEUED -> GatewayPhysicalAttemptState.DEFINITELY_NOT_QUEUED;
+                    case ENQUEUE_UNCERTAIN -> GatewayPhysicalAttemptState.UNCERTAIN;
                 };
-            case NATIVE_RECEIPT -> GatewayPhysicalAttemptStateV1.QUEUED;
-            case NATIVE_DEFINITELY_NOT_QUEUED -> GatewayPhysicalAttemptStateV1.DEFINITELY_NOT_QUEUED;
-            case NATIVE_ENQUEUE_UNCERTAIN -> GatewayPhysicalAttemptStateV1.UNCERTAIN;
+            case NATIVE_RECEIPT -> GatewayPhysicalAttemptState.QUEUED;
+            case NATIVE_DEFINITELY_NOT_QUEUED -> GatewayPhysicalAttemptState.DEFINITELY_NOT_QUEUED;
+            case NATIVE_ENQUEUE_UNCERTAIN -> GatewayPhysicalAttemptState.UNCERTAIN;
         };
     }
 
@@ -415,7 +413,7 @@ public final class OxiaGatewayIdempotencyStore implements GatewayIdempotencyStor
         return value;
     }
 
-    private record Entry(String key, GatewayIdempotencyRecordV1 record, long versionId) {}
+    private record Entry(String key, GatewayIdempotencyRecord record, long versionId) {}
 
     private static final class SyncRecordClient implements OxiaGatewayRecordClient {
         private final SyncOxiaClient delegate;

@@ -9,19 +9,19 @@ import com.nereusstream.delay.ownership.OwnerLease;
 import com.nereusstream.delay.ownership.OwnerLeaseContext;
 import com.nereusstream.delay.ownership.ShardLifecycleState;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
-import com.nereusstream.delay.protocol.ObjectStoreProviderKindV1;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
+import com.nereusstream.delay.protocol.ObjectStoreProfileSemantic;
+import com.nereusstream.delay.protocol.ObjectStoreProviderKind;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import com.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -69,7 +69,7 @@ class S3CompatibleMinioRealSmokeTest {
                 fixture.checkpointDirectory(),
                 fixture.manifest().canonicalJsonBytes());
 
-        final CheckpointResourceV1 first = adapter.upload(request);
+        final CheckpointResource first = adapter.upload(request);
         final String providerVersion = new String(first.immutableVersion(), StandardCharsets.UTF_8);
         assertFalse(providerVersion.startsWith("sha256-"));
         System.out.println("MinIO checkpoint manifest provider version=" + providerVersion);
@@ -90,7 +90,7 @@ class S3CompatibleMinioRealSmokeTest {
                 () -> adapter.download(
                         new CheckpointDownloadRequest(fixture.manifest(), first), tempDir.resolve("deleted")));
 
-        final CheckpointResourceV1 sweptResource = adapter.upload(request);
+        final CheckpointResource sweptResource = adapter.upload(request);
         final CheckpointUploadIntentStore reapingStore = new CheckpointUploadIntentStore();
         reapingStore.create(fixture.pending());
         final CheckpointReapingOwnerProof ownerProof = ownerProof(fixture.pending());
@@ -126,7 +126,7 @@ class S3CompatibleMinioRealSmokeTest {
             persistBefore("object-store-5xx", fixture, "PUT_503_AFTER_COMMIT");
             final S3CompatibleCheckpointObjectStoreAdapter adapter =
                     adapter(fixture, accessKey, secretKey, Duration.ofSeconds(5));
-            final CheckpointResourceV1 resource = adapter.upload(new CheckpointUploadRequest(
+            final CheckpointResource resource = adapter.upload(new CheckpointUploadRequest(
                     fixture.pending(),
                     fixture.manifest(),
                     fixture.checkpointDirectory(),
@@ -191,7 +191,7 @@ class S3CompatibleMinioRealSmokeTest {
             persistBefore("object-store-timeout", fixture, "PUT_TIMEOUT_AFTER_COMMIT");
             final S3CompatibleCheckpointObjectStoreAdapter adapter =
                     adapter(fixture, accessKey, secretKey, Duration.ofMillis(750));
-            final CheckpointResourceV1 resource = adapter.upload(new CheckpointUploadRequest(
+            final CheckpointResource resource = adapter.upload(new CheckpointUploadRequest(
                     fixture.pending(),
                     fixture.manifest(),
                     fixture.checkpointDirectory(),
@@ -288,11 +288,11 @@ class S3CompatibleMinioRealSmokeTest {
     }
 
     private static void persistPublished(
-            final String cell, final Fixture fixture, final CheckpointResourceV1 resource, final String fault)
+            final String cell, final Fixture fixture, final CheckpointResource resource, final String fault)
             throws Exception {
         final Path stateDirectory = requiredStateDirectory();
         final Path cellDirectory = stateDirectory.resolve(cell);
-        final CheckpointUploadIntentV1 published = new CheckpointUploadIntentV1(
+        final CheckpointUploadIntent published = new CheckpointUploadIntent(
                 fixture.pending().shard(),
                 fixture.pending().recoveryLineageId(),
                 fixture.pending().checkpointId(),
@@ -305,7 +305,7 @@ class S3CompatibleMinioRealSmokeTest {
                 fixture.pending().objectStoreProfile(),
                 fixture.pending().checkpointCreatedAt(),
                 fixture.pending().uploadDeadlineEpochMs(),
-                CheckpointUploadStateV1.PUBLISHED,
+                CheckpointUploadState.PUBLISHED,
                 fixture.pending().stateRevision() + 1,
                 resource,
                 null);
@@ -327,13 +327,13 @@ class S3CompatibleMinioRealSmokeTest {
         final Path cellDirectory = requiredStateDirectory().resolve(cell);
         final CheckpointManifest manifest = CheckpointManifest.decodeCanonicalJson(
                 Files.readAllBytes(cellDirectory.resolve("manifest.json")), LIMITS);
-        final ProfileSemanticEnvelopeV1 profile =
-                ProfileSemanticEnvelopeV1.decode(Files.readAllBytes(cellDirectory.resolve("profile.bin")));
-        final CheckpointUploadIntentV1 published =
-                CheckpointUploadIntentV1.decode(Files.readAllBytes(cellDirectory.resolve("published-intent.bin")));
-        final CheckpointResourceV1 resource =
-                CheckpointResourceV1.decode(Files.readAllBytes(cellDirectory.resolve("resource.bin")));
-        assertEquals(CheckpointUploadStateV1.PUBLISHED, published.state());
+        final ProfileSemanticEnvelope profile =
+                ProfileSemanticEnvelope.decode(Files.readAllBytes(cellDirectory.resolve("profile.bin")));
+        final CheckpointUploadIntent published =
+                CheckpointUploadIntent.decode(Files.readAllBytes(cellDirectory.resolve("published-intent.bin")));
+        final CheckpointResource resource =
+                CheckpointResource.decode(Files.readAllBytes(cellDirectory.resolve("resource.bin")));
+        assertEquals(CheckpointUploadState.PUBLISHED, published.state());
         assertEquals(resource, published.publishedManifest());
         assertArrayEquals(manifest.manifestSha256(), resource.manifestSha256());
         final String accessKey = required("NEREUS_DELAY_MINIO_ACCESS_KEY");
@@ -367,11 +367,11 @@ class S3CompatibleMinioRealSmokeTest {
         final Path cellDirectory = requiredStateDirectory().resolve(cell);
         final CheckpointManifest manifest = CheckpointManifest.decodeCanonicalJson(
                 Files.readAllBytes(cellDirectory.resolve("manifest.json")), LIMITS);
-        final ProfileSemanticEnvelopeV1 profile =
-                ProfileSemanticEnvelopeV1.decode(Files.readAllBytes(cellDirectory.resolve("profile.bin")));
-        final CheckpointUploadIntentV1 pending =
-                CheckpointUploadIntentV1.decode(Files.readAllBytes(cellDirectory.resolve("pending-intent.bin")));
-        assertEquals(CheckpointUploadStateV1.PENDING_UPLOAD, pending.state());
+        final ProfileSemanticEnvelope profile =
+                ProfileSemanticEnvelope.decode(Files.readAllBytes(cellDirectory.resolve("profile.bin")));
+        final CheckpointUploadIntent pending =
+                CheckpointUploadIntent.decode(Files.readAllBytes(cellDirectory.resolve("pending-intent.bin")));
+        assertEquals(CheckpointUploadState.PENDING_UPLOAD, pending.state());
         final String accessKey = required("NEREUS_DELAY_MINIO_ACCESS_KEY");
         final String secretKey = required("NEREUS_DELAY_MINIO_SECRET_KEY");
         final S3CompatibleCheckpointObjectStoreAdapter adapter =
@@ -397,26 +397,26 @@ class S3CompatibleMinioRealSmokeTest {
             final String phase,
             final String fault,
             final CheckpointManifest manifest,
-            final CheckpointUploadIntentV1 intent,
-            final CheckpointResourceV1 resource,
+            final CheckpointUploadIntent intent,
+            final CheckpointResource resource,
             final boolean objectPresent,
             final String recoveryAction)
             throws Exception {
         final String resourceDigest = resource == null ? "" : Bytes.hex(resource.manifestSha256());
         final String json = "{\n"
-                + "  \"schema\": \"nereus-delay-chaos-durable-state-dump-v1\",\n"
-                + "  \"cell\": " + jsonString(cell) + ",\n"
-                + "  \"phase\": " + jsonString(phase) + ",\n"
-                + "  \"fault\": " + jsonString(fault) + ",\n"
-                + "  \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
-                + "  \"manifest_sha256\": " + jsonString(Bytes.hex(manifest.manifestSha256())) + ",\n"
-                + "  \"manifest_bytes\": " + manifest.canonicalJsonBytes().length + ",\n"
-                + "  \"intent_state\": " + jsonString(intent.state().name()) + ",\n"
-                + "  \"resource_present\": " + resourcePresent(objectPresent) + ",\n"
-                + "  \"resource_manifest_sha256\": " + jsonString(resourceDigest) + ",\n"
-                + "  \"recovery_action\": " + jsonString(recoveryAction) + ",\n"
-                + "  \"durable_store_read\": true,\n"
-                + "  \"dump_forced\": true\n"
+                + " \"schema\": \"nereus-delay-chaos-durable-state-dump\",\n"
+                + " \"cell\": " + jsonString(cell) + ",\n"
+                + " \"phase\": " + jsonString(phase) + ",\n"
+                + " \"fault\": " + jsonString(fault) + ",\n"
+                + " \"process_pid\": " + ProcessHandle.current().pid() + ",\n"
+                + " \"manifest_sha256\": " + jsonString(Bytes.hex(manifest.manifestSha256())) + ",\n"
+                + " \"manifest_bytes\": " + manifest.canonicalJsonBytes().length + ",\n"
+                + " \"intent_state\": " + jsonString(intent.state().name()) + ",\n"
+                + " \"resource_present\": " + resourcePresent(objectPresent) + ",\n"
+                + " \"resource_manifest_sha256\": " + jsonString(resourceDigest) + ",\n"
+                + " \"recovery_action\": " + jsonString(recoveryAction) + ",\n"
+                + " \"durable_store_read\": true,\n"
+                + " \"dump_forced\": true\n"
                 + "}\n";
         writeForced(path, json.getBytes(StandardCharsets.UTF_8));
     }
@@ -448,7 +448,7 @@ class S3CompatibleMinioRealSmokeTest {
     }
 
     private static S3CompatibleCheckpointObjectStoreAdapter adapter(
-            final ProfileSemanticEnvelopeV1 profile,
+            final ProfileSemanticEnvelope profile,
             final String accessKey,
             final String secretKey,
             final Duration timeout) {
@@ -484,12 +484,12 @@ class S3CompatibleMinioRealSmokeTest {
         Files.createDirectories(directory);
         Files.writeString(directory.resolve("CURRENT"), "MANIFEST-1\n");
         Files.writeString(directory.resolve("000001.sst"), "sst-bytes");
-        final ProfileSemanticEnvelopeV1 profile = profile(endpoint, region, bucket, accessKey);
+        final ProfileSemanticEnvelope profile = profile(endpoint, region, bucket, accessKey);
         final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
         final byte[] lineage = uuidBytes(UUID.randomUUID());
         final byte[] checkpoint = uuidBytes(UUID.randomUUID());
         final UUID storeIncarnation = UUID.randomUUID();
-        final OwnerIdentityV1 owner = new OwnerIdentityV1(bytes(8, 5), bytes(8, 6), 42, bytes(32, 7));
+        final OwnerIdentity owner = new OwnerIdentity(bytes(8, 5), bytes(8, 6), 42, bytes(32, 7));
         final List<CheckpointFileInventory> inventory = CheckpointFileInventory.collect(directory, LIMITS);
         final List<CheckpointManifest.FileEntry> files = inventory.stream()
                 .map(file -> new CheckpointManifest.FileEntry(
@@ -520,8 +520,8 @@ class S3CompatibleMinioRealSmokeTest {
                 bytes(32, 12),
                 List.of(),
                 files);
-        final CheckpointUploadIntentV1 pending = new CheckpointUploadIntentV1(
-                new ShardSubjectV1(shard),
+        final CheckpointUploadIntent pending = new CheckpointUploadIntent(
+                new ShardSubject(shard),
                 lineage,
                 checkpoint,
                 owner,
@@ -533,17 +533,17 @@ class S3CompatibleMinioRealSmokeTest {
                 profile.ref(),
                 evidence(900),
                 5_000,
-                CheckpointUploadStateV1.PENDING_UPLOAD,
+                CheckpointUploadState.PENDING_UPLOAD,
                 1,
                 null,
                 null);
         return new Fixture(directory, profile, manifest, pending);
     }
 
-    private static ProfileSemanticEnvelopeV1 profile(
+    private static ProfileSemanticEnvelope profile(
             final URI endpoint, final String region, final String bucket, final String accessKey) {
-        final ObjectStoreProfileSemanticV1 semantic = new ObjectStoreProfileSemanticV1(
-                ObjectStoreProviderKindV1.S3_COMPATIBLE,
+        final ObjectStoreProfileSemantic semantic = new ObjectStoreProfileSemantic(
+                ObjectStoreProviderKind.S3_COMPATIBLE,
                 S3CompatibleCheckpointObjectStoreAdapter.endpointConfigDigest(endpoint, region, bucket),
                 S3CompatibleCheckpointObjectStoreAdapter.credentialAuthorizationScopeDigest(accessKey, region, bucket),
                 1,
@@ -553,10 +553,10 @@ class S3CompatibleMinioRealSmokeTest {
                 true,
                 bytes(32, 20),
                 1 << 20,
-                ObjectStoreProfileSemanticV1.SINGLE_PUT,
+                ObjectStoreProfileSemantic.SINGLE_PUT,
                 1,
                 bytes(32, 21));
-        return new ProfileSemanticEnvelopeV1(ProfileKindV1.OBJECT_STORE, Bytes.utf8("checkpoint-store"), 1, semantic);
+        return new ProfileSemanticEnvelope(ProfileKind.OBJECT_STORE, Bytes.utf8("checkpoint-store"), 1, semantic);
     }
 
     private static String required(final String name) {
@@ -600,7 +600,7 @@ class S3CompatibleMinioRealSmokeTest {
     }
 
     private static CheckpointReapingQuiescenceProof quiescence(
-            final CheckpointUploadIntentV1 pending, final CheckpointReapingOwnerProof ownerProof) {
+            final CheckpointUploadIntent pending, final CheckpointReapingOwnerProof ownerProof) {
         return new CheckpointReapingQuiescenceProof(
                 pending.intentDigest(),
                 evidence(5_000),
@@ -614,7 +614,7 @@ class S3CompatibleMinioRealSmokeTest {
                 bytes(32, 61));
     }
 
-    private static CheckpointReapingOwnerProof ownerProof(final CheckpointUploadIntentV1 pending) {
+    private static CheckpointReapingOwnerProof ownerProof(final CheckpointUploadIntent pending) {
         final OwnerLease lease = new OwnerLease(
                 pending.shard().shardId(),
                 "owner-proof",
@@ -635,7 +635,7 @@ class S3CompatibleMinioRealSmokeTest {
 
     private record Fixture(
             Path checkpointDirectory,
-            ProfileSemanticEnvelopeV1 profile,
+            ProfileSemanticEnvelope profile,
             CheckpointManifest manifest,
-            CheckpointUploadIntentV1 pending) {}
+            CheckpointUploadIntent pending) {}
 }

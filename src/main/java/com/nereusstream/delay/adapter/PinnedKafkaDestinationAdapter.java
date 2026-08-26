@@ -1,6 +1,6 @@
 package com.nereusstream.delay.adapter;
 
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.StableCode;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -65,7 +65,7 @@ public final class PinnedKafkaDestinationAdapter implements DestinationPublishAd
                 return handled == null ? UnobservedDestinationPublishStage.unknown() : handled;
             } catch (RuntimeException fallbackFailure) {
                 // Callback registration itself is not evidence that the
-                // Broker did not publish after Producer ownership.  Return a
+                // Broker did not publish after Producer ownership. Return a
                 // marked logical UNKNOWN so a physical-admission wrapper can
                 // retain the charge for certified teardown/release.
                 return UnobservedDestinationPublishStage.unknown();
@@ -86,9 +86,9 @@ public final class PinnedKafkaDestinationAdapter implements DestinationPublishAd
         if (result.disposition() != DestinationPublishResult.Disposition.PUBLISHED) {
             return result;
         }
-        final BrokerResourceIdentityV1 identity = result.brokerResource();
+        final BrokerResourceIdentity identity = result.brokerResource();
         if (identity == null
-                || identity.kind() != BrokerResourceIdentityV1.Kind.KAFKA
+                || identity.kind() != BrokerResourceIdentity.Kind.KAFKA
                 || !resource.authenticatedClusterId().equals(identity.kafka().authenticatedClusterId())
                 || !resource.nativeTopicUuid().equals(identity.kafka().nativeTopicUuid())
                 || resource.partition() != result.brokerPartition()) {

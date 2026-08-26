@@ -132,7 +132,7 @@ public final class InMemoryOwnerLeaseStore implements OwnerLeaseStore {
 
     /**
      * Advances the raw {@code uint64} owner epoch without treating the sign
-     * bit as an arithmetic overflow.  Oxia owns the production sequence; the
+     * bit as an arithmetic overflow. Oxia owns the production sequence; the
      * in-memory authority must nevertheless model the same complete wire
      * domain and fail only when the all-ones value has been consumed.
      */

@@ -2,32 +2,32 @@ package com.nereusstream.delay.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import com.nereusstream.delay.protocol.AdapterMetadataV1;
+import com.nereusstream.delay.protocol.AdapterMetadata;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DeliveryMode;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.DlqExportModeV1;
-import com.nereusstream.delay.protocol.DlqExportStateV1;
-import com.nereusstream.delay.protocol.KafkaMetadataV1;
+import com.nereusstream.delay.protocol.DlqExportMode;
+import com.nereusstream.delay.protocol.DlqExportState;
+import com.nereusstream.delay.protocol.KafkaMetadata;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.RetryPolicySemanticV1;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.RetryPolicySemantic;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
+import com.nereusstream.delay.protocol.ScheduleBinding;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
-import com.nereusstream.delay.protocol.UncertainPolicyV1;
-import com.nereusstream.delay.protocol.V1ScheduleBinding;
+import com.nereusstream.delay.protocol.UncertainPolicy;
 import com.nereusstream.delay.store.ColumnFamily;
 import com.nereusstream.delay.store.KeyCodec;
 import com.nereusstream.delay.store.ShardStore;
@@ -120,7 +120,7 @@ class DlqExportApplyTest {
             assertEquals(ApplyStatus.REJECTED, mismatched.applyStatus());
             assertEquals(StableCode.STALE_SYSTEM_MUTATION, mismatched.stableCode());
             assertEquals(
-                    DlqExportStateV1.PENDING,
+                    DlqExportState.PENDING,
                     delayShard.getDlqExportRecord(messageId, 0).state());
             assertEquals(1, delayShard.getDlqExportRecord(messageId, 0).physicalAttemptNo());
 
@@ -128,7 +128,7 @@ class DlqExportApplyTest {
                     delayShard.applySystemMutation(mutation, sourceAfterTwice(source), keyPair.getPublic());
             assertEquals(StableCode.OK, result.stableCode());
             assertEquals(
-                    DlqExportStateV1.PUBLISHED,
+                    DlqExportState.PUBLISHED,
                     delayShard.getDlqExportRecord(messageId, 0).state());
             assertEquals(1, delayShard.getDlqExportRecord(messageId, 0).physicalAttemptNo());
             assertArrayEquals(
@@ -145,25 +145,25 @@ class DlqExportApplyTest {
         final DestinationLaneId lane = DestinationLaneId.derive(laneTuple);
         final KafkaSourcePosition terminalSource =
                 new KafkaSourcePosition(shardId, "dlq-test", java.util.UUID.randomUUID(), 20, null, 2_000);
-        final RetryPolicySemanticV1 policy = new RetryPolicySemanticV1(
+        final RetryPolicySemantic policy = new RetryPolicySemantic(
                 Bytes.utf8("catalog-dlq-policy"),
                 1,
                 100,
                 1_000,
                 3,
                 4_000,
-                UncertainPolicyV1.HOLD_FOR_EVIDENCE,
+                UncertainPolicy.HOLD_FOR_EVIDENCE,
                 0,
-                DlqExportModeV1.BASELINE_AT_LEAST_ONCE,
+                DlqExportMode.BASELINE_AT_LEAST_ONCE,
                 100,
                 500,
                 3,
                 1_000,
                 true,
                 nonZero(32, 41));
-        final ProfileRefV1 profile =
-                new ProfileRefV1(Bytes.utf8("catalog-dlq-profile"), 1, nonZero(32, 42), ProfileKindV1.DESTINATION);
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
+        final ProfileRef profile =
+                new ProfileRef(Bytes.utf8("catalog-dlq-profile"), 1, nonZero(32, 42), ProfileKind.DESTINATION);
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
                 profile,
                 policy.ref(),
                 2_000,
@@ -173,12 +173,12 @@ class DlqExportApplyTest {
                 laneTuple,
                 Bytes.utf8("payload"),
                 null,
-                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())),
+                AdapterMetadata.kafka(new KafkaMetadata(null, List.of())),
                 null,
                 null);
-        final PreparedCommand schedule = PreparedCommand.scheduleV1(shardId, intent, 9_000);
+        final PreparedCommand schedule = PreparedCommand.schedule(shardId, intent, 9_000);
         final DelayMessageId messageId = schedule.delayMessageId();
-        final V1ScheduleBinding binding = V1ScheduleBinding.fromCommand(schedule, lane, laneTuple);
+        final ScheduleBinding binding = ScheduleBinding.fromCommand(schedule, lane, laneTuple);
         final byte[] envelopeHash = Bytes.sha256(Bytes.utf8("catalog-dlq-envelope"));
         final MessageRecord dead = new MessageRecord(
                         MessageStatus.DEAD_LETTER,
@@ -228,7 +228,7 @@ class DlqExportApplyTest {
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
             store.write(batch -> {
                 batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(messageId), dead.encode());
-                batch.putValue(ColumnFamily.ID, 4, KeyCodec.idV1ScheduleBinding(messageId), binding.encode());
+                batch.putValue(ColumnFamily.ID, 4, KeyCodec.idScheduleBinding(messageId), binding.encode());
                 batch.putValue(ColumnFamily.TERMINAL, 1, KeyCodec.terminalGeneration(messageId, 0), terminal.encode());
                 batch.putValue(
                         ColumnFamily.TERMINAL,
@@ -260,7 +260,7 @@ class DlqExportApplyTest {
             assertEquals(ApplyStatus.APPLIED, result.applyStatus());
             assertEquals(StableCode.OK, result.stableCode());
             assertEquals(
-                    DlqExportStateV1.PUBLISHED,
+                    DlqExportState.PUBLISHED,
                     delayShard.getDlqExportRecord(messageId, 0).state());
         }
     }
@@ -327,7 +327,7 @@ class DlqExportApplyTest {
                     delayShard.applySystemMutation(mutation, appliedPosition, keyPair.getPublic());
             assertEquals(StableCode.DLQ_EXPORT_OUTCOME_UNKNOWN, result.stableCode());
             assertEquals(
-                    DlqExportStateV1.UNCERTAIN,
+                    DlqExportState.UNCERTAIN,
                     delayShard.getDlqExportRecord(messageId, 0).state());
             assertEquals(result, delayShard.applySystemMutation(mutation, appliedPosition, keyPair.getPublic()));
         }
@@ -409,7 +409,7 @@ class DlqExportApplyTest {
             CanonicalProtobuf.bytes(output, 20, transfer);
             CanonicalProtobuf.bytes(output, 21, observed.canonicalBytes());
             CanonicalProtobuf.bytes(output, 22, retryDecision(retryPolicyRef));
-            CanonicalProtobuf.uint32(output, 23, DlqExportStateV1.PUBLISHED.wireValue());
+            CanonicalProtobuf.uint32(output, 23, DlqExportState.PUBLISHED.wireValue());
             CanonicalProtobuf.uint32(output, 24, 1);
         });
     }
@@ -460,7 +460,7 @@ class DlqExportApplyTest {
             CanonicalProtobuf.bytes(output, 20, chargeVector());
             CanonicalProtobuf.bytes(output, 21, observed.canonicalBytes());
             CanonicalProtobuf.bytes(output, 22, retry);
-            CanonicalProtobuf.uint32(output, 23, DlqExportStateV1.UNCERTAIN.wireValue());
+            CanonicalProtobuf.uint32(output, 23, DlqExportState.UNCERTAIN.wireValue());
             CanonicalProtobuf.uint32(output, 24, 1);
         });
     }
@@ -470,8 +470,8 @@ class DlqExportApplyTest {
             CanonicalProtobuf.bytes(
                     output,
                     1,
-                    com.nereusstream.delay.protocol.BrokerResourceIdentityV1.kafka(
-                                    new com.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1(
+                    com.nereusstream.delay.protocol.BrokerResourceIdentity.kafka(
+                                    new com.nereusstream.delay.protocol.KafkaBrokerResourceIdentity(
                                             "cluster-a", java.util.UUID.nameUUIDFromBytes(Bytes.utf8("dlq-topic"))))
                             .canonicalBytes());
             CanonicalProtobuf.uint32(output, 2, 0);
@@ -480,14 +480,14 @@ class DlqExportApplyTest {
             CanonicalProtobuf.bytes(
                     output,
                     6,
-                    com.nereusstream.delay.protocol.ExternalDeliveryIdentityV1.dlqExport(exportId)
+                    com.nereusstream.delay.protocol.ExternalDeliveryIdentity.dlqExport(exportId)
                             .canonicalBytes());
             CanonicalProtobuf.bytes(output, 7, Bytes.sha256(Bytes.utf8("dlq-prepared")));
             CanonicalProtobuf.bytes(output, 8, Bytes.sha256(Bytes.utf8("dlq-response")));
         });
-        return com.nereusstream.delay.protocol.PublishEvidenceV1.create(
-                        com.nereusstream.delay.protocol.PublishEvidenceKindV1.KAFKA_PRODUCE_ACK,
-                        com.nereusstream.delay.protocol.EvidenceVerificationStatusV1.VERIFIED_PUBLISHED,
+        return com.nereusstream.delay.protocol.PublishEvidence.create(
+                        com.nereusstream.delay.protocol.PublishEvidenceKind.KAFKA_PRODUCE_ACK,
+                        com.nereusstream.delay.protocol.EvidenceVerificationStatus.VERIFIED_PUBLISHED,
                         branch)
                 .canonicalBytes();
     }

@@ -14,20 +14,20 @@ import java.util.function.LongSupplier;
  * Cross-package production entrypoint for one active Shard Log record.
  *
  * <p>The exact canonical Source Position plus NDL1 frame size is charged to
- * the bounded {@link WorkClass#SOURCE_APPLY} queue.  The task identity binds
+ * the bounded {@link WorkClass#SOURCE_APPLY} queue. The task identity binds
  * both byte sequences, so a same-position/different-record substitution
- * cannot reuse an existing action.  Queue rejection has no Store, lease or
+ * cannot reuse an existing action. Queue rejection has no Store, lease or
  * source-ack side effect.</p>
  *
  * <p>An ordinary apply failure is captured in the returned
  * {@link Submission}; {@link OwnedDelayShard} has already fenced the local
  * owner when the WriteBatch/authority result is unproven, and the physical
- * Broker record remains the retry authority.  The generic work registry must
- * not create a second retry stream.  A fatal {@link Error} is recorded and
+ * Broker record remains the retry authority. The generic work registry must
+ * not create a second retry stream. A fatal {@link Error} is recorded and
  * rethrown into the event-loop fatal-stop path.</p>
  */
 public final class SourceApplyWorkClassExecutor {
-    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-source-apply-task-v1\0");
+    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-source-apply-task\0");
 
     private final WorkClassExecutionRegistry workClasses;
     private final OwnedDelayShard ownedShard;
@@ -53,7 +53,7 @@ public final class SourceApplyWorkClassExecutor {
 
     /**
      * Registers one exact recovery replay action in the same SOURCE_APPLY
-     * queue.  Recovery differs only in its local lifecycle (CATCHING_UP);
+     * queue. Recovery differs only in its local lifecycle (CATCHING_UP);
      * it never acknowledges a broker record and the caller retains the
      * source cursor until the returned outcome is proven.
      */

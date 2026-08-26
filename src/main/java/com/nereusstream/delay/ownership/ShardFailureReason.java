@@ -1,6 +1,6 @@
 package com.nereusstream.delay.ownership;
 
-/** Closed V1 reason projection for a terminal FAILED shard lifecycle. */
+/** Closed reason projection for a terminal FAILED shard lifecycle. */
 public enum ShardFailureReason {
     NONE(0),
     SOURCE_GAP(1),

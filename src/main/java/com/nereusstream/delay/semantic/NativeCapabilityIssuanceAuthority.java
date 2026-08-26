@@ -1,8 +1,8 @@
 package com.nereusstream.delay.semantic;
 
-import com.nereusstream.delay.protocol.CredentialBindingProtectionV1;
-import com.nereusstream.delay.protocol.CredentialBindingV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
+import com.nereusstream.delay.protocol.CredentialBinding;
+import com.nereusstream.delay.protocol.CredentialBindingProtection;
+import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 
 /**
@@ -16,8 +16,8 @@ public interface NativeCapabilityIssuanceAuthority {
      * pair, partition and authenticated principal scope.
      */
     GuardEvidence resolveGuard(
-            ProfileRefV1 destination,
-            ProfileRefV1 capability,
+            ProfileRef destination,
+            ProfileRef capability,
             int physicalPartition,
             byte[] principalScopeDigest,
             TrustedUtcIntervalEvidence issuedAt);
@@ -27,11 +27,11 @@ public interface NativeCapabilityIssuanceAuthority {
      * exposed. The returned value must be the exact binding with a protection
      * horizon covering {@code notAfterEpochMs}.
      */
-    CredentialBindingProtectionV1 protectNativeCapability(CredentialBindingV1 binding, long notAfterEpochMs);
+    CredentialBindingProtection protectNativeCapability(CredentialBinding binding, long notAfterEpochMs);
 
     /** Exact immutable Broker guard projection returned by the external authority. */
     record GuardEvidence(
-            com.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1 target,
+            com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity target,
             int physicalPartition,
             byte[] resourceGuardAttestationSha256,
             long resourceGuardConfigGeneration,

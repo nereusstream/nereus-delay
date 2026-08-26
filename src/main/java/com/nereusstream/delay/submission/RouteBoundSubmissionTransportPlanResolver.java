@@ -6,18 +6,18 @@ import com.nereusstream.delay.adapter.PulsarIngressResource;
 import com.nereusstream.delay.adapter.PulsarNativeSendRequest;
 import com.nereusstream.delay.adapter.PulsarSendRequest;
 import com.nereusstream.delay.adapter.PulsarTargetResource;
-import com.nereusstream.delay.protocol.AdapterKindV1;
+import com.nereusstream.delay.protocol.AdapterKind;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CommandCodec;
-import com.nereusstream.delay.protocol.IngressCredentialBindingRefV1;
-import com.nereusstream.delay.protocol.KafkaIngressRouteResourceV1;
-import com.nereusstream.delay.protocol.NativeCapabilitySnapshotV1;
-import com.nereusstream.delay.protocol.NativePreparedDeliveryV1;
+import com.nereusstream.delay.protocol.IngressCredentialBindingRef;
+import com.nereusstream.delay.protocol.KafkaIngressRouteResource;
+import com.nereusstream.delay.protocol.NativeCapabilitySnapshot;
+import com.nereusstream.delay.protocol.NativePreparedDelivery;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.PreparedSubmissionV1;
-import com.nereusstream.delay.protocol.PulsarIngressRouteResourceV1;
-import com.nereusstream.delay.protocol.PulsarPhysicalPartitionIdentityV1;
-import com.nereusstream.delay.protocol.RouteSnapshotV1;
+import com.nereusstream.delay.protocol.PreparedSubmission;
+import com.nereusstream.delay.protocol.PulsarIngressRouteResource;
+import com.nereusstream.delay.protocol.PulsarPhysicalPartitionIdentity;
+import com.nereusstream.delay.protocol.RouteSnapshot;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.route.RouteSnapshotProvider;
 import com.nereusstream.delay.semantic.AuthenticatedTenantContext;
@@ -42,20 +42,20 @@ public final class RouteBoundSubmissionTransportPlanResolver implements Submissi
 
     @Override
     public SubmissionTransportPlan resolve(
-            final AuthenticatedTenantContext tenant, final PreparedSubmissionV1 submission) {
+            final AuthenticatedTenantContext tenant, final PreparedSubmission submission) {
         Objects.requireNonNull(tenant, "tenant");
         Objects.requireNonNull(submission, "submission");
         return submission.isManaged() ? resolveManaged(tenant, submission) : resolveNative(tenant, submission);
     }
 
     private SubmissionTransportPlan resolveManaged(
-            final AuthenticatedTenantContext tenant, final PreparedSubmissionV1 submission) {
+            final AuthenticatedTenantContext tenant, final PreparedSubmission submission) {
         final byte[] frame = submission.managedFrame();
-        final PreparedCommand command = decodeCanonicalV1(frame);
-        final RouteSnapshotV1 route = exactRoute(tenant, command);
+        final PreparedCommand command = decodeCanonical(frame);
+        final RouteSnapshot route = exactRoute(tenant, command);
         final int partition = command.shardId().partition();
         final CredentialBindingKey binding = credentialBinding(route.credentialBinding());
-        if (route.ingress() instanceof KafkaIngressRouteResourceV1 kafka) {
+        if (route.ingress() instanceof KafkaIngressRouteResource kafka) {
             final KafkaIngressResource resource = new KafkaIngressResource(
                     command.shardId(),
                     kafka.authenticatedClusterId(),
@@ -74,12 +74,12 @@ public final class RouteBoundSubmissionTransportPlanResolver implements Submissi
                     new ManagedRouteAuthority(route),
                     key,
                     request,
-                    new SubmissionProjectionKey(PreparedSubmissionBranch.MANAGED, AdapterKindV1.KAFKA));
+                    new SubmissionProjectionKey(PreparedSubmissionBranch.MANAGED, AdapterKind.KAFKA));
         }
-        if (!(route.ingress() instanceof PulsarIngressRouteResourceV1 pulsar)) {
+        if (!(route.ingress() instanceof PulsarIngressRouteResource pulsar)) {
             throw failure(StableCode.INGRESS_ROUTE_MISMATCH, null);
         }
-        final PulsarPhysicalPartitionIdentityV1 physical = pulsar.partition(partition);
+        final PulsarPhysicalPartitionIdentity physical = pulsar.partition(partition);
         final PulsarIngressResource resource = new PulsarIngressResource(
                 command.shardId(),
                 pulsar.authenticatedClusterId(),
@@ -100,13 +100,13 @@ public final class RouteBoundSubmissionTransportPlanResolver implements Submissi
                 new ManagedRouteAuthority(route),
                 key,
                 request,
-                new SubmissionProjectionKey(PreparedSubmissionBranch.MANAGED, AdapterKindV1.PULSAR));
+                new SubmissionProjectionKey(PreparedSubmissionBranch.MANAGED, AdapterKind.PULSAR));
     }
 
     private SubmissionTransportPlan resolveNative(
-            final AuthenticatedTenantContext tenant, final PreparedSubmissionV1 submission) {
-        final NativePreparedDeliveryV1 prepared = submission.nativePrepared();
-        final NativeCapabilitySnapshotV1 snapshot = prepared.capabilitySnapshot();
+            final AuthenticatedTenantContext tenant, final PreparedSubmission submission) {
+        final NativePreparedDelivery prepared = submission.nativePrepared();
+        final NativeCapabilitySnapshot snapshot = prepared.capabilitySnapshot();
         try {
             if (!Arrays.equals(snapshot.sdkPrincipalScopeDigest(), tenant.principalScopeHash())
                     || !prepared.target().equals(snapshot.target())
@@ -145,12 +145,12 @@ public final class RouteBoundSubmissionTransportPlanResolver implements Submissi
                 new NativeTargetAuthority(prepared),
                 key,
                 request,
-                new SubmissionProjectionKey(PreparedSubmissionBranch.NATIVE, AdapterKindV1.PULSAR));
+                new SubmissionProjectionKey(PreparedSubmissionBranch.NATIVE, AdapterKind.PULSAR));
     }
 
-    private RouteSnapshotV1 exactRoute(final AuthenticatedTenantContext tenant, final PreparedCommand command) {
+    private RouteSnapshot exactRoute(final AuthenticatedTenantContext tenant, final PreparedCommand command) {
         try {
-            final RouteSnapshotV1 route = routes.exact(command.shardId().routeIncarnation(), tenant);
+            final RouteSnapshot route = routes.exact(command.shardId().routeIncarnation(), tenant);
             if (route == null) {
                 throw failure(StableCode.ROUTE_SNAPSHOT_UNAVAILABLE, null);
             }
@@ -172,10 +172,10 @@ public final class RouteBoundSubmissionTransportPlanResolver implements Submissi
         }
     }
 
-    private static PreparedCommand decodeCanonicalV1(final byte[] frame) {
+    private static PreparedCommand decodeCanonical(final byte[] frame) {
         try {
-            final PreparedCommand command = CommandCodec.decodeFrameV1(frame);
-            if (!Arrays.equals(frame, CommandCodec.encodeFrameV1(command))) {
+            final PreparedCommand command = CommandCodec.decodeManagedFrame(frame);
+            if (!Arrays.equals(frame, CommandCodec.encodeManagedFrame(command))) {
                 throw failure(StableCode.INVALID_PREPARED_COMMAND, null);
             }
             return command;
@@ -186,7 +186,7 @@ public final class RouteBoundSubmissionTransportPlanResolver implements Submissi
         }
     }
 
-    private static CredentialBindingKey credentialBinding(final IngressCredentialBindingRefV1 binding) {
+    private static CredentialBindingKey credentialBinding(final IngressCredentialBindingRef binding) {
         return new CredentialBindingKey(
                 binding.generation(),
                 new Digest32(binding.bindingDigest()),

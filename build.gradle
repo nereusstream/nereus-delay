@@ -45,7 +45,7 @@ dependencies {
     testRuntimeOnly 'org.slf4j:slf4j-simple:2.0.17'
 }
 
-// Real upstream client bindings are opt-in.  The shared V1 semantic/core
+// Real upstream client bindings are opt-in. The shared semantic/core
 // build must remain independent of Kafka/Pulsar client classes; callers that
 // have the locked K1 artifact can run `compileRealKafka` with
 // `-PkafkaClientJar=/absolute/path/to/kafka-clients.jar`.
@@ -859,14 +859,17 @@ spotless {
     }
 }
 
-def v1DocumentPaths = [
+def designDocumentPaths = [
         'CONTEXT.md',
         'docs/README.md',
-        'docs/Nereus Delay V1 设计.md',
-        'docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md',
-        'docs/V1-PROTOCOL-REGISTRY.md',
+        'docs/Nereus Delay 设计.md',
+        'docs/DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md',
+        'docs/PROTOCOL-REGISTRY.md',
         'docs/IMPLEMENTATION-STATUS.md',
-        'docs/V1-DESIGN-AUDIT.md',
+        'docs/DESIGN-AUDIT.md',
+        'docs/proposals/README.md',
+        'docs/proposals/TEMPLATE.md',
+        'docs/proposals/0001-adopt-continuous-design-evolution.md',
         'docs/adr/README.md',
         'docs/adr/0043-share-one-semantic-core-across-direct-sdk-and-delay-gateway.md',
         'docs/adr/0044-use-first-class-guarded-broker-transports.md'
@@ -874,59 +877,74 @@ def v1DocumentPaths = [
 
 tasks.register('checkDocumentation') {
     group = 'verification'
-    description = 'Checks the V1 authority documents and their frozen revision markers.'
+    description = 'Checks the current authority documents, accepted proposals, and shared baseline revision.'
     doLast {
-        v1DocumentPaths.each { path ->
+        designDocumentPaths.each { path ->
             if (!file(path).isFile()) {
-                throw new GradleException("required V1 document is missing: ${path}")
+                throw new GradleException("required design-governance document is missing: ${path}")
             }
         }
         def read = { path -> file(path).getText('UTF-8') }
-        def revision = 'V1-FROZEN-2026-08-13'
-        def design = read('docs/Nereus Delay V1 设计.md')
-        def detailedDesign = read('docs/V1-DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md')
-        def registry = read('docs/V1-PROTOCOL-REGISTRY.md')
+        def revision = 'DESIGN-BASELINE-2026-08-25'
+        def design = read('docs/Nereus Delay 设计.md')
+        def detailedDesign = read('docs/DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md')
+        def registry = read('docs/PROTOCOL-REGISTRY.md')
         def adrIndex = read('docs/adr/README.md')
         def documentMap = read('docs/README.md')
         def status = read('docs/IMPLEMENTATION-STATUS.md')
-        def audit = read('docs/V1-DESIGN-AUDIT.md')
+        def audit = read('docs/DESIGN-AUDIT.md')
+        def proposalIndex = read('docs/proposals/README.md')
+        def proposalTemplate = read('docs/proposals/TEMPLATE.md')
+        def governanceProposal = read('docs/proposals/0001-adopt-continuous-design-evolution.md')
 
         [
-                [design, "本文是 Nereus Delay V1 的实现与验收基线"],
+                [design, '本文是 Nereus Delay 当前实现与验收基线'],
                 [design, '一个独立 RocksDB DB'],
                 [registry, '唯一数值注册表'],
-                [registry, 'IngressRouteSnapshotV1'],
+                [registry, 'IngressRouteSnapshot'],
                 [adrIndex, '0001'],
                 [adrIndex, '0044'],
                 [detailedDesign, 'Direct Java SDK'],
                 [detailedDesign, 'ResourceIncarnationMismatch = 26'],
-                [detailedDesign, 'GatewayIdempotencyRecordV1'],
-                [documentMap, '仍然有效'],
+                [detailedDesign, 'GatewayIdempotencyRecord'],
+                [documentMap, '不是废弃文档'],
                 [documentMap, 'IMPLEMENTATION-STATUS.md'],
+                [documentMap, 'proposals/'],
+                [proposalIndex, '兼容不是默认目标'],
+                [proposalTemplate, '数据、协议与兼容策略'],
+                [governanceProposal, 'Status: Accepted'],
+                [governanceProposal, '选择：**直接替换**'],
                 [status, revision],
                 [audit, revision]
         ].each { entry ->
             if (!entry[0].contains(entry[1])) {
-                throw new GradleException("V1 documentation invariant is missing: ${entry[1]}")
+                throw new GradleException("documentation invariant is missing: ${entry[1]}")
             }
         }
 
         def revisionMarkers = [
-                design.find(/V1-FROZEN-\d{4}-\d{2}-\d{2}/),
-                detailedDesign.find(/V1-FROZEN-\d{4}-\d{2}-\d{2}/),
-                registry.find(/V1-FROZEN-\d{4}-\d{2}-\d{2}/),
-                adrIndex.find(/V1-FROZEN-\d{4}-\d{2}-\d{2}/),
-                status.find(/V1-FROZEN-\d{4}-\d{2}-\d{2}/),
-                audit.find(/V1-FROZEN-\d{4}-\d{2}-\d{2}/)
+                design.find(/DESIGN-BASELINE-\d{4}-\d{2}-\d{2}/),
+                detailedDesign.find(/DESIGN-BASELINE-\d{4}-\d{2}-\d{2}/),
+                registry.find(/DESIGN-BASELINE-\d{4}-\d{2}-\d{2}/),
+                adrIndex.find(/DESIGN-BASELINE-\d{4}-\d{2}-\d{2}/),
+                status.find(/DESIGN-BASELINE-\d{4}-\d{2}-\d{2}/),
+                audit.find(/DESIGN-BASELINE-\d{4}-\d{2}-\d{2}/)
         ]
         if (revisionMarkers.any { it != revision }) {
-            throw new GradleException("V1 document revision markers are inconsistent: ${revisionMarkers}")
+            throw new GradleException("document baseline revisions are inconsistent: ${revisionMarkers}")
         }
     }
 }
 
+tasks.register('checkProjectVersionMarkers', Exec) {
+    group = 'verification'
+    description = 'Rejects project-wide numbered version labels while allowing fixed external API names.'
+    commandLine 'bash', 'scripts/check-project-version-markers.sh'
+}
+
 tasks.named('check').configure {
     dependsOn tasks.named('checkDocumentation')
+    dependsOn tasks.named('checkProjectVersionMarkers')
 }
 
 jacocoTestReport {

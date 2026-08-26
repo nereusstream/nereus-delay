@@ -5,17 +5,17 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.RecoveryCandidateKindV1;
-import com.nereusstream.delay.protocol.RecoveryCandidateRefV1;
-import com.nereusstream.delay.protocol.RecoveryFloorRefV1;
-import com.nereusstream.delay.protocol.RecoveryPinV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.RecoveryCandidateKind;
+import com.nereusstream.delay.protocol.RecoveryCandidateRef;
+import com.nereusstream.delay.protocol.RecoveryFloorRef;
+import com.nereusstream.delay.protocol.RecoveryPin;
 import com.nereusstream.delay.protocol.ResourceKind;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.store.CheckpointManifest;
@@ -272,7 +272,7 @@ class ResourceGcGuardTest {
     @Test
     void checkpointGcRetainsCheckpointPinnedAsCandidateOrObservedFloor() {
         final Fixture fixture = fixture();
-        final RecoveryPinV1 candidatePin =
+        final RecoveryPin candidatePin =
                 pin(fixture, fixture.floor().checkpointId(), fixture.floor().manifestSha256());
         assertEquals(
                 ResourceGcGuard.Decision.RECOVERY_PIN_PROTECTS_RESOURCE,
@@ -284,7 +284,7 @@ class ResourceGcGuardTest {
 
         final byte[] otherCheckpoint = id16(51);
         final byte[] otherManifest = id32(52);
-        final RecoveryPinV1 floorPin = pin(fixture, otherCheckpoint, otherManifest);
+        final RecoveryPin floorPin = pin(fixture, otherCheckpoint, otherManifest);
         assertEquals(
                 ResourceGcGuard.Decision.RECOVERY_PIN_PROTECTS_RESOURCE,
                 ResourceGcGuard.evaluate(
@@ -356,7 +356,7 @@ class ResourceGcGuardTest {
         final byte[] manifestHash = id32(2);
         final byte[] resourceIdentity = checkpointIdentity(checkpointId, manifestHash);
         final byte[] resourceIdentityHash =
-                Bytes.sha256(Bytes.utf8("nereus-delay-resource-identity-v1\0"), resourceIdentity);
+                Bytes.sha256(Bytes.utf8("nereus-delay-resource-identity\0"), resourceIdentity);
         final ResourceRetireIntentRecord intent = new ResourceRetireIntentRecord(
                 id32(3),
                 id32(4),
@@ -397,10 +397,10 @@ class ResourceGcGuardTest {
         return new Fixture(shard, intent, confirmation, floor);
     }
 
-    private static RecoveryPinV1 pin(
+    private static RecoveryPin pin(
             final Fixture fixture, final byte[] candidateCheckpoint, final byte[] candidateManifest) {
         final RecoveryFloor floor = fixture.floor();
-        final RecoveryFloorRefV1 floorRef = new RecoveryFloorRefV1(
+        final RecoveryFloorRef floorRef = new RecoveryFloorRef(
                 floor.recoveryLineageId(),
                 floor.checkpointId(),
                 floor.manifestSha256(),
@@ -408,16 +408,16 @@ class ResourceGcGuardTest {
                 floor.appliedSourcePosition(),
                 floor.includedMutationSequence(),
                 List.of());
-        final RecoveryCandidateRefV1 candidate = new RecoveryCandidateRefV1(
-                RecoveryCandidateKindV1.CATALOG_CHECKPOINT,
+        final RecoveryCandidateRef candidate = new RecoveryCandidateRef(
+                RecoveryCandidateKind.CATALOG_CHECKPOINT,
                 floor.recoveryLineageId(),
                 candidateCheckpoint,
                 candidateManifest,
                 null);
-        return new RecoveryPinV1(
+        return new RecoveryPin(
                 id16(11),
-                new ShardSubjectV1(fixture.shard()),
-                new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(12)),
+                new ShardSubject(fixture.shard()),
+                new OwnerIdentity(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(12)),
                 candidate,
                 floorRef,
                 floor.catalogGeneration(),
@@ -425,13 +425,13 @@ class ResourceGcGuardTest {
     }
 
     private static RecoveryCatalogAuthority authority(
-            final RecoveryFloor floor, final RecoveryPinV1 pin, final Throwable pinFailure) {
+            final RecoveryFloor floor, final RecoveryPin pin, final Throwable pinFailure) {
         return authority(floor, pin, pinFailure, null, null);
     }
 
     private static RecoveryCatalogAuthority authority(
             final RecoveryFloor floor,
-            final RecoveryPinV1 pin,
+            final RecoveryPin pin,
             final Throwable pinFailure,
             final Throwable floorFailure,
             final Throwable proofFailure) {
@@ -480,7 +480,7 @@ class ResourceGcGuardTest {
             }
 
             @Override
-            public Optional<RecoveryPinV1> activeRecoveryPin() {
+            public Optional<RecoveryPin> activeRecoveryPin() {
                 if (pinFailure != null) {
                     throwUnchecked(pinFailure);
                 }
@@ -506,7 +506,7 @@ class ResourceGcGuardTest {
             CanonicalProtobuf.bytes(
                     output,
                     3,
-                    new ProfileRefV1(Bytes.utf8("checkpoint-profile"), 1, id32(15), ProfileKindV1.OBJECT_STORE)
+                    new ProfileRef(Bytes.utf8("checkpoint-profile"), 1, id32(15), ProfileKind.OBJECT_STORE)
                             .canonicalBytes());
             CanonicalProtobuf.bytes(output, 4, Bytes.utf8("bucket"));
             CanonicalProtobuf.bytes(output, 5, Bytes.utf8("checkpoint/1"));
@@ -552,7 +552,7 @@ class ResourceGcGuardTest {
             CanonicalProtobuf.uint32(output, 3, 1);
         });
         final byte[] references = CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1, reference));
-        final byte[] digest = Bytes.sha256(Bytes.utf8("nereus-delay-protection-set-v1\0"), references);
+        final byte[] digest = Bytes.sha256(Bytes.utf8("nereus-delay-protection-set\0"), references);
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, reference);
             CanonicalProtobuf.bytes(output, 2, digest);
@@ -567,7 +567,7 @@ class ResourceGcGuardTest {
             CanonicalProtobuf.bytes(output, 4, position(sourceShard, 1, 1_001).canonicalBytes());
         });
         final byte[] references = CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1, reference));
-        final byte[] digest = Bytes.sha256(Bytes.utf8("nereus-delay-protection-set-v1\0"), references);
+        final byte[] digest = Bytes.sha256(Bytes.utf8("nereus-delay-protection-set\0"), references);
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, reference);
             CanonicalProtobuf.bytes(output, 2, digest);

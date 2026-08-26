@@ -14,7 +14,7 @@ import java.util.function.LongSupplier;
 
 /** Active-owner entrypoint for one bounded Lane-close cursor discovery turn. */
 public final class LaneCloseDiscoveryWorkClassExecutor {
-    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-lane-close-discovery-task-v1\0");
+    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-lane-close-discovery-task\0");
 
     private final WorkClassExecutionRegistry workClasses;
     private final OwnedDelayShard ownedShard;

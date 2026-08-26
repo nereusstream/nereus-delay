@@ -33,16 +33,16 @@ class OxiaRealGatewayAdmissionSmokeTest {
                 prefix + "/client")) {
             final OxiaGatewayAdmissionController controller = new OxiaGatewayAdmissionController(
                     client, prefix, clock, new OxiaGatewayAdmissionController.Limits(1, 100, 1, 1, 10, 8));
-            final GatewayAdmissionLease first = reserve(controller, tenant, GatewayIngressOperationV1.SCHEDULE, 80);
+            final GatewayAdmissionLease first = reserve(controller, tenant, GatewayIngressOperation.SCHEDULE, 80);
             assertEquals(
                     GatewayAdmissionController.State.REJECTED,
                     controller
-                            .reserve(new GatewayAdmissionRequestV1(tenant, GatewayIngressOperationV1.SCHEDULE, 1))
+                            .reserve(new GatewayAdmissionRequest(tenant, GatewayIngressOperation.SCHEDULE, 1))
                             .state());
 
             clock.value = 110;
             final GatewayAdmissionLease replacement =
-                    reserve(controller, tenant, GatewayIngressOperationV1.SCHEDULE, 100);
+                    reserve(controller, tenant, GatewayIngressOperation.SCHEDULE, 100);
             first.close();
             replacement.close();
 
@@ -53,7 +53,7 @@ class OxiaRealGatewayAdmissionSmokeTest {
             assertEquals(1, records.size());
             assertEquals(
                     0,
-                    GatewayAdmissionRecordV1.decode(records.get(0).value())
+                    GatewayAdmissionRecord.decode(records.get(0).value())
                             .leases()
                             .size());
         }
@@ -62,10 +62,10 @@ class OxiaRealGatewayAdmissionSmokeTest {
     private static GatewayAdmissionLease reserve(
             final OxiaGatewayAdmissionController controller,
             final AuthenticatedTenantContext tenant,
-            final GatewayIngressOperationV1 operation,
+            final GatewayIngressOperation operation,
             final long bytes) {
         final GatewayAdmissionController.Decision decision =
-                controller.reserve(new GatewayAdmissionRequestV1(tenant, operation, bytes));
+                controller.reserve(new GatewayAdmissionRequest(tenant, operation, bytes));
         assertEquals(GatewayAdmissionController.State.ACCEPTED, decision.state());
         return decision.lease();
     }

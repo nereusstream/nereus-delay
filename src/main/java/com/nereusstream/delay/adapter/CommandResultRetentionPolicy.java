@@ -12,7 +12,7 @@ public record CommandResultRetentionPolicy(long policyVersion, long fullCommandR
     }
 
     /**
-     * Computes the V1 full-result boundary from the first result Source
+     * Computes the full-result boundary from the first result Source
      * Position. Overflow is a configuration/integrity failure, never a
      * wrapped or saturated retention deadline.
      */

@@ -1,6 +1,6 @@
 package com.nereusstream.delay.store;
 
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
 import java.nio.file.Path;
 import java.util.Objects;
 
@@ -9,11 +9,11 @@ import java.util.Objects;
  * boundary.
  *
  * <p>The upload intent is advanced before the catalog publication is
- * attempted.  If the catalog call fails after the intent became
+ * attempted. If the catalog call fails after the intent became
  * {@code PUBLISHED}, retrying with the same pending identity rereads that
- * exact successor and retries the idempotent catalog binding.  The Oxia
+ * exact successor and retries the idempotent catalog binding. The Oxia
  * implementation still has to replace this pair with the single transaction
- * required by V1; this class does not claim cross-record atomicity.</p>
+ * required by the current design; this class does not claim cross-record atomicity.</p>
  */
 public final class CheckpointPublicationCoordinator {
     private final CheckpointUploadCoordinator uploadCoordinator;
@@ -47,12 +47,12 @@ public final class CheckpointPublicationCoordinator {
 
     /**
      * Uploads one exact checkpoint and then binds its published object to the
-     * expected catalog generation.  The catalog generation is checked before
+     * expected catalog generation. The catalog generation is checked before
      * provider I/O so an obviously stale intent cannot create an orphan.
      */
     CheckpointPublication publish(
             final Path checkpointDirectory,
-            final CheckpointUploadIntentV1 pending,
+            final CheckpointUploadIntent pending,
             final CheckpointManifest manifest,
             final long expectedCatalogGeneration,
             final long nowEpochMs,
@@ -61,7 +61,7 @@ public final class CheckpointPublicationCoordinator {
         if (pending.baseCatalogGeneration() != expectedCatalogGeneration) {
             throw new IllegalStateException("checkpoint intent catalog generation does not match request");
         }
-        final CheckpointUploadIntentV1 published =
+        final CheckpointUploadIntent published =
                 uploadCoordinator.upload(checkpointDirectory, pending, manifest, nowEpochMs, adapter);
         final RecoveryCatalog.Publication publication = Objects.requireNonNull(
                 catalog.publishUploadedCheckpoint(published, manifest, expectedCatalogGeneration),
@@ -70,7 +70,7 @@ public final class CheckpointPublicationCoordinator {
     }
 
     public record CheckpointPublication(
-            CheckpointUploadIntentV1 uploadIntent, RecoveryCatalog.Publication catalogPublication) {
+            CheckpointUploadIntent uploadIntent, RecoveryCatalog.Publication catalogPublication) {
         public CheckpointPublication {
             Objects.requireNonNull(uploadIntent, "uploadIntent");
             Objects.requireNonNull(catalogPublication, "catalogPublication");

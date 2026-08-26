@@ -1,22 +1,22 @@
 package com.nereusstream.delay.adapter;
 
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CommandQueuedReceiptV1;
-import com.nereusstream.delay.protocol.DefinitelyNotQueuedV1;
-import com.nereusstream.delay.protocol.EnqueueOutcomeMessageV1;
-import com.nereusstream.delay.protocol.EnqueueUncertainV1;
-import com.nereusstream.delay.protocol.FailureStageV1;
-import com.nereusstream.delay.protocol.NativeEnqueueUncertainV1;
-import com.nereusstream.delay.protocol.NativePreparedDeliveryV1;
-import com.nereusstream.delay.protocol.NonPersistenceProofKindV1;
-import com.nereusstream.delay.protocol.NonPersistenceProofV1;
+import com.nereusstream.delay.protocol.CanonicalCommandQueuedReceipt;
+import com.nereusstream.delay.protocol.DefinitelyNotQueued;
+import com.nereusstream.delay.protocol.EnqueueOutcomeMessage;
+import com.nereusstream.delay.protocol.EnqueueUncertain;
+import com.nereusstream.delay.protocol.FailureStage;
+import com.nereusstream.delay.protocol.NativeEnqueueUncertain;
+import com.nereusstream.delay.protocol.NativePreparedDelivery;
+import com.nereusstream.delay.protocol.NonPersistenceProof;
+import com.nereusstream.delay.protocol.NonPersistenceProofKind;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.PreparedSubmissionV1;
-import com.nereusstream.delay.protocol.RetryabilityV1;
+import com.nereusstream.delay.protocol.PreparedSubmission;
+import com.nereusstream.delay.protocol.Retryability;
 import com.nereusstream.delay.protocol.StableCode;
-import com.nereusstream.delay.protocol.StableErrorV1;
-import com.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import com.nereusstream.delay.protocol.StableError;
+import com.nereusstream.delay.protocol.SubmissionOutcomeMessage;
 import com.nereusstream.delay.transport.PhysicalEnqueueAttemptId;
 import java.util.Objects;
 
@@ -24,24 +24,26 @@ import java.util.Objects;
 public final class WireIngressOutcomeSupport {
     private WireIngressOutcomeSupport() {}
 
-    public static EnqueueOutcomeMessageV1 localDefinite(final PreparedCommand command, final StableCode code) {
-        final CommandQueuedReceiptV1.PreparedCommandRef ref = CommandQueuedReceiptV1.PreparedCommandRef.from(command);
-        final NonPersistenceProofV1 proof = NonPersistenceProofV1.create(
-                NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP, null, ref.frameSha256(), null, null, null);
-        return EnqueueOutcomeMessageV1.definitelyNotQueued(new DefinitelyNotQueuedV1(
-                ref, proof, StableErrorV1.of(FailureStageV1.ENQUEUE, code, null, ref, null, null)));
+    public static EnqueueOutcomeMessage localDefinite(final PreparedCommand command, final StableCode code) {
+        final CanonicalCommandQueuedReceipt.PreparedCommandRef ref =
+                CanonicalCommandQueuedReceipt.PreparedCommandRef.from(command);
+        final NonPersistenceProof proof = NonPersistenceProof.create(
+                NonPersistenceProofKind.LOCAL_BEFORE_PRODUCER_OWNERSHIP, null, ref.frameSha256(), null, null, null);
+        return EnqueueOutcomeMessage.definitelyNotQueued(
+                new DefinitelyNotQueued(ref, proof, StableError.of(FailureStage.ENQUEUE, code, null, ref, null, null)));
     }
 
-    public static EnqueueOutcomeMessageV1 uncertain(
+    public static EnqueueOutcomeMessage uncertain(
             final PreparedCommand command,
             final byte[] physicalAttemptId,
             final StableCode code,
             final Integer diagnosticCode) {
-        final CommandQueuedReceiptV1.PreparedCommandRef ref = CommandQueuedReceiptV1.PreparedCommandRef.from(command);
-        return EnqueueOutcomeMessageV1.uncertain(new EnqueueUncertainV1(
+        final CanonicalCommandQueuedReceipt.PreparedCommandRef ref =
+                CanonicalCommandQueuedReceipt.PreparedCommandRef.from(command);
+        return EnqueueOutcomeMessage.uncertain(new EnqueueUncertain(
                 ref,
                 requireAttempt(physicalAttemptId),
-                StableErrorV1.of(FailureStageV1.ENQUEUE, exactRetryCode(code), null, ref, null, diagnosticCode)));
+                StableError.of(FailureStage.ENQUEUE, exactRetryCode(code), null, ref, null, diagnosticCode)));
     }
 
     /**
@@ -49,51 +51,52 @@ public final class WireIngressOutcomeSupport {
      * retry branch as an unobservable transport result. The prepared branch
      * and physical attempt are never replaced while projecting uncertainty.
      */
-    public static SubmissionOutcomeMessageV1 uncertain(
-            final PreparedSubmissionV1 submission, final PhysicalEnqueueAttemptId physicalAttemptId) {
+    public static SubmissionOutcomeMessage uncertain(
+            final PreparedSubmission submission, final PhysicalEnqueueAttemptId physicalAttemptId) {
         Objects.requireNonNull(submission, "submission");
         Objects.requireNonNull(physicalAttemptId, "physicalAttemptId");
         if (submission.isManaged()) {
             final PreparedCommand command =
-                    com.nereusstream.delay.protocol.CommandCodec.decodeFrameV1(submission.managedFrame());
-            return SubmissionOutcomeMessageV1.managed(
+                    com.nereusstream.delay.protocol.CommandCodec.decodeManagedFrame(submission.managedFrame());
+            return SubmissionOutcomeMessage.managed(
                     uncertain(command, physicalAttemptId.bytes(), StableCode.ENQUEUE_RESULT_UNCERTAIN, null));
         }
-        final NativePreparedDeliveryV1 prepared = submission.nativePrepared();
-        final StableErrorV1 error = StableErrorV1.of(
-                FailureStageV1.ENQUEUE,
+        final NativePreparedDelivery prepared = submission.nativePrepared();
+        final StableError error = StableError.of(
+                FailureStage.ENQUEUE,
                 StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN,
                 null,
                 null,
                 prepared.preparedRef(),
                 null);
-        return SubmissionOutcomeMessageV1.nativeUncertain(
-                new NativeEnqueueUncertainV1(prepared.preparedRef(), physicalAttemptId.bytes(), error));
+        return SubmissionOutcomeMessage.nativeUncertain(
+                new NativeEnqueueUncertain(prepared.preparedRef(), physicalAttemptId.bytes(), error));
     }
 
-    public static EnqueueOutcomeMessageV1 brokerDefinite(
+    public static EnqueueOutcomeMessage brokerDefinite(
             final PreparedCommand command,
             final byte[] physicalAttemptId,
             final StableCode code,
-            final NonPersistenceProofKindV1 proofKind,
-            final BrokerResourceIdentityV1 resource,
+            final NonPersistenceProofKind proofKind,
+            final BrokerResourceIdentity resource,
             final byte[] requestBytes,
             final byte[] responseBytes) {
         Objects.requireNonNull(resource, "resource");
-        final CommandQueuedReceiptV1.PreparedCommandRef ref = CommandQueuedReceiptV1.PreparedCommandRef.from(command);
+        final CanonicalCommandQueuedReceipt.PreparedCommandRef ref =
+                CanonicalCommandQueuedReceipt.PreparedCommandRef.from(command);
         final byte[] attempt = requireAttempt(physicalAttemptId);
         if (responseBytes == null) {
             return uncertain(command, attempt, StableCode.ENQUEUE_RESULT_UNCERTAIN, code.wireValue());
         }
-        final NonPersistenceProofV1 proof = NonPersistenceProofV1.create(
+        final NonPersistenceProof proof = NonPersistenceProof.create(
                 proofKind,
                 attempt,
                 ref.frameSha256(),
                 resource,
                 Bytes.sha256(Objects.requireNonNull(requestBytes, "requestBytes")),
                 Bytes.sha256(responseBytes));
-        return EnqueueOutcomeMessageV1.definitelyNotQueued(new DefinitelyNotQueuedV1(
-                ref, proof, StableErrorV1.of(FailureStageV1.ENQUEUE, code, null, ref, null, null)));
+        return EnqueueOutcomeMessage.definitelyNotQueued(
+                new DefinitelyNotQueued(ref, proof, StableError.of(FailureStage.ENQUEUE, code, null, ref, null, null)));
     }
 
     public static StableCode stableCode(final int wireValue, final StableCode fallback) {
@@ -136,7 +139,7 @@ public final class WireIngressOutcomeSupport {
     }
 
     public static byte[] requireAttempt(final byte[] physicalAttemptId) {
-        Bytes.requireLength(physicalAttemptId, NonPersistenceProofV1.ATTEMPT_ID_LENGTH, "physicalEnqueueAttemptId");
+        Bytes.requireLength(physicalAttemptId, NonPersistenceProof.ATTEMPT_ID_LENGTH, "physicalEnqueueAttemptId");
         for (byte value : physicalAttemptId) {
             if (value != 0) {
                 return Bytes.copy(physicalAttemptId);
@@ -147,7 +150,7 @@ public final class WireIngressOutcomeSupport {
 
     private static StableCode exactRetryCode(final StableCode code) {
         final StableCode managed = managedCode(code);
-        return RetryabilityV1.forCode(managed) == RetryabilityV1.RETRY_EXACT_BYTES
+        return Retryability.forCode(managed) == Retryability.RETRY_EXACT_BYTES
                 ? managed
                 : StableCode.ENQUEUE_RESULT_UNCERTAIN;
     }

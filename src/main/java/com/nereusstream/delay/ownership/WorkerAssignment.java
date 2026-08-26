@@ -11,7 +11,7 @@ import java.util.Objects;
 /**
  * Exact placement decision accepted by a Worker.
  *
- * <p>The assignment is separate from the ephemeral Owner Lease.  The
+ * <p>The assignment is separate from the ephemeral Owner Lease. The
  * authority publishes this immutable projection first; a Worker must reread
  * the exact projection before it opens a Store or acquires the lease.</p>
  */
@@ -22,7 +22,7 @@ public record WorkerAssignment(
         byte[] capacityEnvelopeDigest,
         byte[] routeSnapshotDigest) {
     private static final int VERSION = 1;
-    private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-worker-assignment-v1\0");
+    private static final byte[] DIGEST_DOMAIN = Bytes.utf8("nereus-delay-worker-assignment\0");
 
     /** Creates an assignment that is not yet bound to a Route snapshot. */
     public WorkerAssignment(

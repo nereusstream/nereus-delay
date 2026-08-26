@@ -6,8 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.RouteLifecycleV1;
-import com.nereusstream.delay.protocol.RouteSnapshotV1;
+import com.nereusstream.delay.protocol.RouteLifecycle;
+import com.nereusstream.delay.protocol.RouteSnapshot;
 import com.nereusstream.delay.semantic.AuthenticatedTenantContext;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -48,8 +48,8 @@ class OxiaRealRouteAuthoritySmokeTest {
             final OxiaSignedRouteSnapshotProvider provider =
                     new OxiaSignedRouteSnapshotProvider(providerSession, prefix, keys.getPublic(), () -> 200);
             final RouteIncarnation incarnation = new RouteIncarnation(bytes(16, 30));
-            final RouteSnapshotV1 active =
-                    OxiaSignedRouteSnapshotProviderTest.snapshot(keys, incarnation, RouteLifecycleV1.ACTIVE_FOR_NEW, 1);
+            final RouteSnapshot active =
+                    OxiaSignedRouteSnapshotProviderTest.snapshot(keys, incarnation, RouteLifecycle.ACTIVE_FOR_NEW, 1);
 
             assertEquals(1, publisher.publish(route.hint(), active, 0).revision());
             provider.refresh().toCompletableFuture().join();
@@ -59,13 +59,13 @@ class OxiaRealRouteAuthoritySmokeTest {
                     active.canonicalBytes(),
                     provider.activeForNewSchedule(route.tenant(), route.hint()).canonicalBytes());
 
-            final RouteSnapshotV1 retired =
-                    OxiaSignedRouteSnapshotProviderTest.snapshot(keys, incarnation, RouteLifecycleV1.RETIRED, 2);
+            final RouteSnapshot retired =
+                    OxiaSignedRouteSnapshotProviderTest.snapshot(keys, incarnation, RouteLifecycle.RETIRED, 2);
             assertEquals(2, publisher.publish(route.hint(), retired, 1).revision());
             provider.refresh().toCompletableFuture().join();
             assertEquals(2, provider.publishedRevision());
             assertEquals(
-                    RouteLifecycleV1.RETIRED,
+                    RouteLifecycle.RETIRED,
                     provider.exact(incarnation, route.tenant()).lifecycle());
             assertThrows(
                     IllegalArgumentException.class, () -> provider.activeForNewSchedule(route.tenant(), route.hint()));
@@ -100,8 +100,8 @@ class OxiaRealRouteAuthoritySmokeTest {
             try {
                 provider.start().toCompletableFuture().join();
                 final RouteIncarnation incarnation = new RouteIncarnation(bytes(16, 30));
-                final RouteSnapshotV1 active = OxiaSignedRouteSnapshotProviderTest.snapshot(
-                        keys, incarnation, RouteLifecycleV1.ACTIVE_FOR_NEW, 1);
+                final RouteSnapshot active = OxiaSignedRouteSnapshotProviderTest.snapshot(
+                        keys, incarnation, RouteLifecycle.ACTIVE_FOR_NEW, 1);
                 publisher.publish(route.hint(), active, 0);
 
                 awaitRevision(provider, 1);
@@ -111,12 +111,12 @@ class OxiaRealRouteAuthoritySmokeTest {
                         provider.activeForNewSchedule(route.tenant(), route.hint())
                                 .canonicalBytes());
 
-                final RouteSnapshotV1 retired =
-                        OxiaSignedRouteSnapshotProviderTest.snapshot(keys, incarnation, RouteLifecycleV1.RETIRED, 2);
+                final RouteSnapshot retired =
+                        OxiaSignedRouteSnapshotProviderTest.snapshot(keys, incarnation, RouteLifecycle.RETIRED, 2);
                 publisher.publish(route.hint(), retired, 1);
                 awaitRevision(provider, 2);
                 assertEquals(
-                        RouteLifecycleV1.RETIRED,
+                        RouteLifecycle.RETIRED,
                         provider.exact(incarnation, route.tenant()).lifecycle());
                 assertTrue(provider.health() == RouteCacheHealth.HEALTHY);
             } finally {
@@ -155,8 +155,8 @@ class OxiaRealRouteAuthoritySmokeTest {
             try {
                 provider.start().toCompletableFuture().join();
                 final RouteIncarnation incarnation = new RouteIncarnation(bytes(16, 30));
-                final RouteSnapshotV1 active = OxiaSignedRouteSnapshotProviderTest.snapshot(
-                        keys, incarnation, RouteLifecycleV1.ACTIVE_FOR_NEW, 1);
+                final RouteSnapshot active = OxiaSignedRouteSnapshotProviderTest.snapshot(
+                        keys, incarnation, RouteLifecycle.ACTIVE_FOR_NEW, 1);
                 assertEquals(1, publisher.publish(route.hint(), active, 0).revision());
                 awaitRevision(provider, 1);
                 assertEquals(RouteCacheHealth.HEALTHY, provider.health());
@@ -213,8 +213,8 @@ class OxiaRealRouteAuthoritySmokeTest {
                 provider.start().toCompletableFuture().join();
                 final byte[] providerIdentityBeforeRestart = providerSession.sessionIdentity();
                 final RouteIncarnation incarnation = new RouteIncarnation(bytes(16, 30));
-                final RouteSnapshotV1 active = OxiaSignedRouteSnapshotProviderTest.snapshot(
-                        keys, incarnation, RouteLifecycleV1.ACTIVE_FOR_NEW, 1);
+                final RouteSnapshot active = OxiaSignedRouteSnapshotProviderTest.snapshot(
+                        keys, incarnation, RouteLifecycle.ACTIVE_FOR_NEW, 1);
                 assertEquals(1, publisher.publish(route.hint(), active, 0).revision());
                 awaitRevision(provider, 1);
                 assertEquals(RouteCacheHealth.HEALTHY, provider.health());
@@ -231,12 +231,12 @@ class OxiaRealRouteAuthoritySmokeTest {
                 assertEquals(RouteCacheHealth.HEALTHY, provider.health());
                 assertEquals(1, provider.publishedRevision());
 
-                final RouteSnapshotV1 retired =
-                        OxiaSignedRouteSnapshotProviderTest.snapshot(keys, incarnation, RouteLifecycleV1.RETIRED, 2);
+                final RouteSnapshot retired =
+                        OxiaSignedRouteSnapshotProviderTest.snapshot(keys, incarnation, RouteLifecycle.RETIRED, 2);
                 assertEquals(2, publisher.publish(route.hint(), retired, 1).revision());
                 awaitRevision(provider, 2, Duration.ofSeconds(30));
                 assertEquals(
-                        RouteLifecycleV1.RETIRED,
+                        RouteLifecycle.RETIRED,
                         provider.exact(incarnation, route.tenant()).lifecycle());
                 assertEquals(RouteCacheHealth.HEALTHY, provider.health());
                 System.out.println("Oxia Route notification restart recovery passed: revision=2, session rotated, "

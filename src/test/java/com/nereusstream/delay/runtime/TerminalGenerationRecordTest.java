@@ -45,7 +45,7 @@ class TerminalGenerationRecordTest {
     }
 
     @Test
-    void readsLegacyV1SummaryAsEmptyObligationSet() {
+    void readsLegacySummaryAsEmptyObligationSet() {
         final DelayMessageId messageId = DelayMessageId.random(new ShardId(RouteIncarnation.random(), 1));
         final byte[] sourcePosition = sourcePosition(messageId.routingId().shardId());
         final byte[] legacy = Bytes.concat(

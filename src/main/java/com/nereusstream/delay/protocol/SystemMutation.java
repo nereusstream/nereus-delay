@@ -142,9 +142,9 @@ public final class SystemMutation {
         return Bytes.copy(signature);
     }
 
-    /** Encodes the canonical ShardLogEnvelopeV1, including the system-mutation oneof branch. */
+    /** Encodes the canonical ShardLogEnvelope, including the system-mutation oneof branch. */
     public byte[] canonicalEnvelope() {
-        final byte[] subject = new ShardSubjectV1(shardId).canonicalBytes();
+        final byte[] subject = new ShardSubject(shardId).canonicalBytes();
         final byte[] mutation = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, ENVELOPE_VERSION);
             CanonicalProtobuf.bytes(output, 2, systemMutationId);
@@ -198,8 +198,7 @@ public final class SystemMutation {
     /** Decodes an envelope and derives its registered logical operation identity. */
     public static SystemMutation decodeEnvelope(final byte[] envelope) {
         final EnvelopeFields fields = readEnvelope(envelope);
-        return decodeEnvelope(
-                envelope, SystemMutationIdentityV1.resolve(fields.shardId(), fields.type(), fields.body()));
+        return decodeEnvelope(envelope, SystemMutationIdentity.resolve(fields.shardId(), fields.type(), fields.body()));
     }
 
     public static SystemMutation decodeEnvelope(final byte[] envelope, final byte[] logicalOperationIdentity) {
@@ -237,7 +236,7 @@ public final class SystemMutation {
         requireVarint(fields.get(0), 1, ENVELOPE_VERSION);
         final byte[] id = requireFixed(fields.get(1), 2, HASH_LENGTH);
         final ShardId shard =
-                ShardSubjectV1.decode(requireBytes(fields.get(2), 3)).shardId();
+                ShardSubject.decode(requireBytes(fields.get(2), 3)).shardId();
         final SystemMutationType type = SystemMutationType.fromWire(requireVarint(fields.get(3), 4));
         final long retryUntil = requireVarint(fields.get(4), 5);
         final byte[] body = requireBytes(fields.get(5), 6);
@@ -273,13 +272,13 @@ public final class SystemMutation {
             throw new IllegalArgumentException("retryUntil must be non-negative");
         }
         return Bytes.sha256(
-                Bytes.utf8("nereus-delay-system-mutation-hash-v1\0"),
+                Bytes.utf8("nereus-delay-system-mutation-hash\0"),
                 Bytes.u8(FRAMING_VERSION),
                 Bytes.u32be(LOG_ENVELOPE_VERSION),
                 Bytes.u32be(ENVELOPE_VERSION),
                 Bytes.u32be(BODY_VERSION),
                 Bytes.u16be(Objects.requireNonNull(type, "type").wireValue()),
-                new ShardSubjectV1(Objects.requireNonNull(shardId, "shardId")).canonicalHashBytes(),
+                new ShardSubject(Objects.requireNonNull(shardId, "shardId")).canonicalHashBytes(),
                 Bytes.i64be(retryUntilEpochMs),
                 Bytes.lp32(canonicalBody));
     }
@@ -290,10 +289,10 @@ public final class SystemMutation {
             final byte[] logicalOperationIdentity,
             final byte[] mutationHash) {
         return Bytes.sha256(
-                Bytes.utf8("nereus-delay-system-mutation-id-v1"),
+                Bytes.utf8("nereus-delay-system-mutation-id"),
                 Bytes.u16be(Objects.requireNonNull(type, "type").wireValue()),
                 Bytes.lp32(fixed(logicalOperationIdentity, HASH_LENGTH, "logicalOperationIdentity")),
-                new ShardSubjectV1(Objects.requireNonNull(shardId, "shardId")).canonicalHashBytes(),
+                new ShardSubject(Objects.requireNonNull(shardId, "shardId")).canonicalHashBytes(),
                 fixed(mutationHash, HASH_LENGTH, "mutationHash"));
     }
 
@@ -307,7 +306,7 @@ public final class SystemMutation {
             throw new IllegalArgumentException("attemptNo must be a positive uint32");
         }
         return Bytes.sha256(
-                Bytes.utf8("nereus-delay-publish-attempt-id-v1\0"),
+                Bytes.utf8("nereus-delay-publish-attempt-id\0"),
                 fixed(claimId, HASH_LENGTH, "claimId"),
                 fixed(messageId, DelayMessageId.LENGTH, "messageId"),
                 Bytes.u32be(generation),
@@ -321,7 +320,7 @@ public final class SystemMutation {
                 claimId, Objects.requireNonNull(messageId, "messageId").bytes(), generation, attemptNo);
     }
 
-    /** Computes the registered logical identity for RESOURCE_RETIRE_INTENT_V1. */
+    /** Computes the registered logical identity for RESOURCE_RETIRE_INTENT. */
     public static byte[] computeResourceRetireLogicalIdentity(
             final ResourceKind resourceKind,
             final byte[] resourceIdentityHash,
@@ -338,7 +337,7 @@ public final class SystemMutation {
             throw new IllegalArgumentException("invalid resource-retire logical identity inputs");
         }
         return Bytes.sha256(
-                Bytes.utf8("nereus-delay-retire-logical-id-v1"),
+                Bytes.utf8("nereus-delay-retire-logical-id"),
                 Bytes.u8(resourceKind),
                 fixed(resourceIdentityHash, HASH_LENGTH, "resourceIdentityHash"),
                 Bytes.u64beBits(expectedResourceStateVersion));
@@ -350,7 +349,7 @@ public final class SystemMutation {
             throw new IllegalArgumentException("physicalAttemptNo must be positive");
         }
         return Bytes.sha256(
-                Bytes.utf8("nereus-delay-dlq-export-attempt-logical-id-v1\0"),
+                Bytes.utf8("nereus-delay-dlq-export-attempt-logical-id\0"),
                 fixed(dlqExportId, HASH_LENGTH, "dlqExportId"),
                 Bytes.u32beBits(physicalAttemptNo));
     }
@@ -362,7 +361,7 @@ public final class SystemMutation {
             throw new IllegalArgumentException("expireAtEpochMs must be non-negative");
         }
         return Bytes.sha256(
-                Bytes.utf8("nereus-delay-expiry-logical-id-v1"),
+                Bytes.utf8("nereus-delay-expiry-logical-id"),
                 fixed(messageId, DelayMessageId.LENGTH, "messageId"),
                 Bytes.u32beBits(generation),
                 Bytes.i64be(expireAtEpochMs));
@@ -378,7 +377,7 @@ public final class SystemMutation {
     /** Computes the logical identity for one DLQ export evidence resolution. */
     public static byte[] computeDlqExportEvidenceLogicalIdentity(final byte[] dlqExportId, final byte[] evidenceId) {
         return Bytes.sha256(
-                Bytes.utf8("nereus-delay-dlq-export-evidence-logical-id-v1\0"),
+                Bytes.utf8("nereus-delay-dlq-export-evidence-logical-id\0"),
                 fixed(dlqExportId, HASH_LENGTH, "dlqExportId"),
                 fixed(evidenceId, HASH_LENGTH, "evidenceId"));
     }
@@ -394,7 +393,7 @@ public final class SystemMutation {
         if (fields.size() < 3) {
             throw new IllegalArgumentException("System Mutation body common fields are incomplete");
         }
-        final ShardSubjectV1 subject = ShardSubjectV1.decode(requireBytes(fields.get(0), 1));
+        final ShardSubject subject = ShardSubject.decode(requireBytes(fields.get(0), 1));
         if (!subject.shardId().equals(shardId)) {
             throw new IllegalArgumentException("System Mutation body shard subject does not match outer shard");
         }
@@ -431,7 +430,7 @@ public final class SystemMutation {
             final byte[] authorIdentity,
             final int signingKeyVersion) {
         return Bytes.sha256(
-                Bytes.utf8("nereus-delay-system-mutation-signature-v1\0"),
+                Bytes.utf8("nereus-delay-system-mutation-signature\0"),
                 Bytes.u32be(ShardLogFrame.MAGIC),
                 Bytes.u8(FRAMING_VERSION),
                 Bytes.u8(ShardLogFrame.SYSTEM_MUTATION_KIND),
@@ -440,7 +439,7 @@ public final class SystemMutation {
                 Bytes.u32be(BODY_VERSION),
                 Bytes.u16be(Objects.requireNonNull(type, "type").wireValue()),
                 Bytes.lp32(fixed(systemMutationId, HASH_LENGTH, "systemMutationId")),
-                new ShardSubjectV1(Objects.requireNonNull(shardId, "shardId")).canonicalHashBytes(),
+                new ShardSubject(Objects.requireNonNull(shardId, "shardId")).canonicalHashBytes(),
                 Bytes.i64be(retryUntilEpochMs),
                 Bytes.lp32(canonicalBody),
                 Bytes.lp32(fixed(mutationHash, HASH_LENGTH, "mutationHash")),

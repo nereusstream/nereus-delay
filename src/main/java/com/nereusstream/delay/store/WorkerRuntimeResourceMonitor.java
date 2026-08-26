@@ -18,7 +18,7 @@ import java.util.function.Supplier;
  *
  * <p>The monitor is deliberately separate from the RocksDB resource owner so
  * its lifecycle is explicit: a service starts one after startup validation and
- * closes it before releasing the shared resources.  Any probe or validation
+ * closes it before releasing the shared resources. Any probe or validation
  * failure is recorded as a sticky {@code DRAIN_OR_MIGRATE} safety breach; a
  * later healthy observation cannot silently reopen business admission.</p>
  */
@@ -49,7 +49,7 @@ public final class WorkerRuntimeResourceMonitor implements AutoCloseable {
     }
 
     /**
-     * Creates an explicitly controlled monitor.  The injected executor is a
+     * Creates an explicitly controlled monitor. The injected executor is a
      * deterministic seam for tests and platform lifecycle integration.
      */
     WorkerRuntimeResourceMonitor(

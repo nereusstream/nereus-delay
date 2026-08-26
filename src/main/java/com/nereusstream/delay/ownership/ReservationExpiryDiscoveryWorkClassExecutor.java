@@ -14,7 +14,7 @@ import java.util.function.LongSupplier;
 
 /** Active-owner entrypoint for one bounded RESERVATION_EXPIRY discovery turn. */
 public final class ReservationExpiryDiscoveryWorkClassExecutor {
-    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-reservation-expiry-discovery-task-v1\0");
+    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-reservation-expiry-discovery-task\0");
 
     private final WorkClassExecutionRegistry workClasses;
     private final OwnedDelayShard ownedShard;

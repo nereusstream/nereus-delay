@@ -43,11 +43,11 @@ import org.junit.jupiter.api.Test;
 class LongGcDurableChaosTest {
     private static final String ARTIFACT_ENV = "NEREUS_DELAY_LONG_GC_ARTIFACT_DIR";
     private static final String PHASE_ENV = "NEREUS_DELAY_LONG_GC_PHASE";
-    private static final String SCHEMA = "nereus-delay-long-gc-durable-state-dump-v1";
+    private static final String SCHEMA = "nereus-delay-long-gc-durable-state-dump";
     private static final String BEFORE_PHASE = "BEFORE_FRESH_PROCESS_RECOVERY";
     private static final String AFTER_PHASE = "RECOVERED_AFTER_FRESH_PROCESS";
     private static final String FAULT = "LONG_GC";
-    private static final String VALUE_TEXT = "long-gc-durable-store-value-v1";
+    private static final String VALUE_TEXT = "long-gc-durable-store-value";
     private static final long MIN_LONG_GC_PAUSE_MS = 50;
     private static final RouteIncarnation ROUTE =
             RouteIncarnation.fromUuid(UUID.fromString("01234567-89ab-cdef-0123-456789abcdef"));
@@ -286,7 +286,7 @@ class LongGcDurableChaosTest {
     }
 
     private static byte[] key() {
-        return Bytes.utf8("long-gc-chaos-key-v1");
+        return Bytes.utf8("long-gc-chaos-key");
     }
 
     private static byte[] value() {

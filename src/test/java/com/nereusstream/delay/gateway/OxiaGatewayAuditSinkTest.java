@@ -22,7 +22,7 @@ class OxiaGatewayAuditSinkTest {
     void recordsAnImmutableEventAndDeduplicatesExactRetries() {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaGatewayAuditSink sink = new OxiaGatewayAuditSink(records, "delay/gateway");
-        final GatewayAuditEventV1 event = event(10, GatewayAuditPhaseV1.RECEIVED);
+        final GatewayAuditEvent event = event(10, GatewayAuditPhase.RECEIVED);
 
         sink.record(event);
         sink.record(event);
@@ -38,7 +38,7 @@ class OxiaGatewayAuditSinkTest {
         final OxiaGatewayAuditSink sink = new OxiaGatewayAuditSink(records, "delay/lost");
         records.loseNextPutResponse = true;
 
-        sink.record(event(20, GatewayAuditPhaseV1.COMPLETED));
+        sink.record(event(20, GatewayAuditPhase.COMPLETED));
 
         assertEquals(1, records.putCount);
         assertEquals(1, records.values().size());
@@ -48,7 +48,7 @@ class OxiaGatewayAuditSinkTest {
     void rejectsARecordWithTheSameKeyAndDifferentBytes() {
         final FakeRecordClient records = new FakeRecordClient();
         final OxiaGatewayAuditSink sink = new OxiaGatewayAuditSink(records, "delay/conflict");
-        final GatewayAuditEventV1 event = event(30, GatewayAuditPhaseV1.FAILED);
+        final GatewayAuditEvent event = event(30, GatewayAuditPhase.FAILED);
         sink.record(event);
         final String key = records.values().keySet().iterator().next();
         records.records.put(
@@ -64,31 +64,26 @@ class OxiaGatewayAuditSinkTest {
         final Digest32 operation = new Digest32(bytes(32, 4));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new GatewayAuditEventV1(
-                        GatewayIngressOperationV1.SCHEDULE,
+                () -> new GatewayAuditEvent(
+                        GatewayIngressOperation.SCHEDULE,
                         operation,
                         operation,
-                        GatewayAuditPhaseV1.RECEIVED,
+                        GatewayAuditPhase.RECEIVED,
                         operation,
                         40));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new GatewayAuditEventV1(
-                        GatewayIngressOperationV1.SCHEDULE,
-                        operation,
-                        operation,
-                        GatewayAuditPhaseV1.COMPLETED,
-                        null,
-                        40));
+                () -> new GatewayAuditEvent(
+                        GatewayIngressOperation.SCHEDULE, operation, operation, GatewayAuditPhase.COMPLETED, null, 40));
     }
 
-    private static GatewayAuditEventV1 event(final long observedAt, final GatewayAuditPhaseV1 phase) {
-        return new GatewayAuditEventV1(
-                GatewayIngressOperationV1.SCHEDULE,
+    private static GatewayAuditEvent event(final long observedAt, final GatewayAuditPhase phase) {
+        return new GatewayAuditEvent(
+                GatewayIngressOperation.SCHEDULE,
                 new Digest32(bytes(32, 1)),
                 new Digest32(bytes(32, 2)),
                 phase,
-                phase == GatewayAuditPhaseV1.COMPLETED ? new Digest32(bytes(32, 3)) : null,
+                phase == GatewayAuditPhase.COMPLETED ? new Digest32(bytes(32, 3)) : null,
                 observedAt);
     }
 

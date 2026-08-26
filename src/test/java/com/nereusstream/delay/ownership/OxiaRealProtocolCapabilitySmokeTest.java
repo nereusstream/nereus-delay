@@ -4,13 +4,13 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.ProtocolActivationStateV1;
-import com.nereusstream.delay.protocol.ProtocolCapabilityDeclarationV1;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
-import com.nereusstream.delay.protocol.ProtocolVersionActivatePayloadV1;
+import com.nereusstream.delay.protocol.ProtocolActivationState;
+import com.nereusstream.delay.protocol.ProtocolCapabilityDeclaration;
+import com.nereusstream.delay.protocol.ProtocolTuple;
+import com.nereusstream.delay.protocol.ProtocolVersionActivatePayload;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
@@ -25,7 +25,7 @@ class OxiaRealProtocolCapabilitySmokeTest {
     void eligibleReaderSetIsSessionBoundAndActivationEvidenceIsExact() throws Exception {
         final String endpoint = endpoint();
         final String prefix = "nereus-delay-real-protocol-capability/" + UUID.randomUUID();
-        final ProtocolTupleV1 tuple = new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1);
+        final ProtocolTuple tuple = new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1);
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle session = OxiaSyncOwnerLeaseBackend.connect(
                 endpoint,
@@ -41,14 +41,14 @@ class OxiaRealProtocolCapabilitySmokeTest {
             final ProtocolActivationAuthorityCoordinator coordinator =
                     new ProtocolActivationAuthorityCoordinator(authority);
             final var evidence = coordinator.requireEligibleReaders(tuple, List.of("worker-b", "worker-a"));
-            final ProtocolVersionActivatePayloadV1 payload =
-                    new ProtocolVersionActivatePayloadV1(tuple, bytes(32, 90), evidence.evidenceHash());
+            final ProtocolVersionActivatePayload payload =
+                    new ProtocolVersionActivatePayload(tuple, bytes(32, 90), evidence.evidenceHash());
             final var authorized = coordinator.authorize(payload, List.of("worker-a", "worker-b"));
             assertArrayEquals(evidence.evidenceHash(), authorized.evidenceHash());
             final ShardId shard = new ShardId(new RouteIncarnation(bytes(16, 60)), 0);
             final KafkaSourcePosition markerPosition = new KafkaSourcePosition(
                     shard, "activation-cluster", UUID.fromString("12345678-1234-4abc-8def-1234567890ab"), 7, 0, 8);
-            final ProtocolActivationStateV1 marker = new ProtocolActivationStateV1(new ShardSubjectV1(shard), List.of())
+            final ProtocolActivationState marker = new ProtocolActivationState(new ShardSubject(shard), List.of())
                     .activate(tuple, bytes(32, 90), authorized.evidenceHash(), markerPosition, bytes(32, 91));
             assertArrayEquals(
                     authorized.evidenceHash(), marker.activation(tuple).compatibleReaderSetEvidenceHash());
@@ -73,9 +73,9 @@ class OxiaRealProtocolCapabilitySmokeTest {
         }
     }
 
-    private static ProtocolCapabilityDeclarationV1 declaration(
-            final String workerId, final ProtocolTupleV1 tuple, final byte[] sessionIdentity, final int seed) {
-        return new ProtocolCapabilityDeclarationV1(workerId, bytes(32, seed), List.of(tuple), seed, sessionIdentity);
+    private static ProtocolCapabilityDeclaration declaration(
+            final String workerId, final ProtocolTuple tuple, final byte[] sessionIdentity, final int seed) {
+        return new ProtocolCapabilityDeclaration(workerId, bytes(32, seed), List.of(tuple), seed, sessionIdentity);
     }
 
     private static String endpoint() {

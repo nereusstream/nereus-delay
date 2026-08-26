@@ -10,7 +10,7 @@ import java.util.Objects;
  * Result of one ordered Shard Log replay entry. Exactly one branch is set.
  *
  * <p>The result branch is projected to this physical entry's Source Position
- * by the mixed replay seam.  A logical duplicate can therefore carry a
+ * by the mixed replay seam. A logical duplicate can therefore carry a
  * different anchor here while its durable Command/System Mutation result
  * remains anchored at the first occurrence.</p>
  */

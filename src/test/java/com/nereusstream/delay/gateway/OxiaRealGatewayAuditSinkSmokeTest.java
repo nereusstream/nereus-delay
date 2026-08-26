@@ -24,7 +24,7 @@ class OxiaRealGatewayAuditSinkSmokeTest {
         Assumptions.assumeTrue(endpoint != null && !endpoint.isBlank(), "NEREUS_DELAY_OXIA_ENDPOINT is not configured");
         final String namespace = configured("NEREUS_DELAY_OXIA_NAMESPACE", "default");
         final String prefix = "nereus-delay-real-gateway/" + UUID.randomUUID();
-        final GatewayAuditEventV1 event = event();
+        final GatewayAuditEvent event = event();
 
         try (OxiaSyncOwnerLeaseBackend.ClientHandle client = OxiaSyncOwnerLeaseBackend.connect(
                 endpoint,
@@ -46,12 +46,12 @@ class OxiaRealGatewayAuditSinkSmokeTest {
         }
     }
 
-    private static GatewayAuditEventV1 event() {
-        return new GatewayAuditEventV1(
-                GatewayIngressOperationV1.SCHEDULE,
+    private static GatewayAuditEvent event() {
+        return new GatewayAuditEvent(
+                GatewayIngressOperation.SCHEDULE,
                 new Digest32(Bytes.sha256(Bytes.utf8("gateway-key"))),
                 new Digest32(Bytes.sha256(Bytes.utf8("request-body"))),
-                GatewayAuditPhaseV1.COMPLETED,
+                GatewayAuditPhase.COMPLETED,
                 new Digest32(Bytes.sha256(Bytes.utf8("outcome"))),
                 System.currentTimeMillis());
     }

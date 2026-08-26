@@ -9,14 +9,14 @@ import com.nereusstream.delay.ownership.OwnerLease;
 import com.nereusstream.delay.ownership.OwnerLeaseContext;
 import com.nereusstream.delay.ownership.ShardLifecycleState;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -28,14 +28,13 @@ class CheckpointReapingSweepCoordinatorTest {
     @Test
     void winsReapingCasBeforeSweepingTheExactPrefix() {
         final CheckpointUploadIntentStore store = new CheckpointUploadIntentStore();
-        final CheckpointUploadIntentV1 pending = pending();
+        final CheckpointUploadIntent pending = pending();
         final CheckpointReapingOwnerProof ownerProof = ownerProof(pending);
         store.create(pending);
         final AtomicReference<CheckpointPrefixSweepRequest> observed = new AtomicReference<>();
         final CheckpointPrefixSweepAdapter adapter = request -> {
             assertEquals(
-                    CheckpointUploadStateV1.REAPING,
-                    store.current().orElseThrow().state());
+                    CheckpointUploadState.REAPING, store.current().orElseThrow().state());
             observed.set(request);
             return result(3, 3);
         };
@@ -48,7 +47,7 @@ class CheckpointReapingSweepCoordinatorTest {
                         quiescence(pending, ownerProof, evidence(5_000)),
                         100);
 
-        assertEquals(CheckpointUploadStateV1.REAPING, result.reapingIntent().state());
+        assertEquals(CheckpointUploadState.REAPING, result.reapingIntent().state());
         assertEquals(3, result.prefixSweep().listedVersionCount());
         assertEquals(3, result.prefixSweep().deletedVersionCount());
         assertTrue(result.prefixSweep().emptyAfterSweep());
@@ -61,7 +60,7 @@ class CheckpointReapingSweepCoordinatorTest {
     @Test
     void responseLossLeavesReapingStateAndRetryUsesTheSamePrefix() {
         final CheckpointUploadIntentStore store = new CheckpointUploadIntentStore();
-        final CheckpointUploadIntentV1 pending = pending();
+        final CheckpointUploadIntent pending = pending();
         final CheckpointReapingOwnerProof ownerProof = ownerProof(pending);
         store.create(pending);
         final AtomicInteger calls = new AtomicInteger();
@@ -86,7 +85,7 @@ class CheckpointReapingSweepCoordinatorTest {
                         quiescence(pending, ownerProof, evidence(5_000)),
                         100));
         assertEquals(
-                CheckpointUploadStateV1.REAPING, store.current().orElseThrow().state());
+                CheckpointUploadState.REAPING, store.current().orElseThrow().state());
         final CheckpointReapingSweepResult retried = coordinator.reap(
                 pending, new RecoveryCatalog(), ownerProof, quiescence(pending, ownerProof, evidence(5_000)), 100);
 
@@ -99,7 +98,7 @@ class CheckpointReapingSweepCoordinatorTest {
     @Test
     void catalogProtectionPreventsProviderSweep() {
         final CheckpointUploadIntentStore store = new CheckpointUploadIntentStore();
-        final CheckpointUploadIntentV1 pending = pending();
+        final CheckpointUploadIntent pending = pending();
         final CheckpointReapingOwnerProof ownerProof = ownerProof(pending);
         store.create(pending);
         final AtomicBoolean called = new AtomicBoolean();
@@ -113,7 +112,7 @@ class CheckpointReapingSweepCoordinatorTest {
         assertThrows(IllegalStateException.class, () -> new CheckpointReapingSweepCoordinator(store, adapter)
                 .reap(pending, catalog, ownerProof, quiescence(pending, ownerProof, evidence(5_000)), 100));
         assertEquals(
-                CheckpointUploadStateV1.PENDING_UPLOAD,
+                CheckpointUploadState.PENDING_UPLOAD,
                 store.current().orElseThrow().state());
         assertFalse(called.get());
     }
@@ -121,7 +120,7 @@ class CheckpointReapingSweepCoordinatorTest {
     @Test
     void providerOwnershipHorizonBlocksSweepAfterTheRequestWindow() {
         final CheckpointUploadIntentStore store = new CheckpointUploadIntentStore();
-        final CheckpointUploadIntentV1 pending = pending();
+        final CheckpointUploadIntent pending = pending();
         final CheckpointReapingOwnerProof ownerProof = ownerProof(pending);
         store.create(pending);
         final AtomicBoolean called = new AtomicBoolean();
@@ -135,14 +134,14 @@ class CheckpointReapingSweepCoordinatorTest {
         assertThrows(IllegalStateException.class, () -> new CheckpointReapingSweepCoordinator(store, adapter)
                 .reap(pending, new RecoveryCatalog(), ownerProof, proof, 100));
         assertEquals(
-                CheckpointUploadStateV1.REAPING, store.current().orElseThrow().state());
+                CheckpointUploadState.REAPING, store.current().orElseThrow().state());
         assertFalse(called.get());
     }
 
     @Test
     void quiescenceReceiptMustBindTheExactOwnerProof() {
         final CheckpointUploadIntentStore store = new CheckpointUploadIntentStore();
-        final CheckpointUploadIntentV1 pending = pending();
+        final CheckpointUploadIntent pending = pending();
         final CheckpointReapingOwnerProof ownerProof = ownerProof(pending);
         store.create(pending);
         final AtomicBoolean called = new AtomicBoolean();
@@ -165,13 +164,13 @@ class CheckpointReapingSweepCoordinatorTest {
         assertThrows(IllegalStateException.class, () -> new CheckpointReapingSweepCoordinator(store, adapter)
                 .reap(pending, new RecoveryCatalog(), ownerProof, mismatched, 100));
         assertEquals(
-                CheckpointUploadStateV1.REAPING, store.current().orElseThrow().state());
+                CheckpointUploadState.REAPING, store.current().orElseThrow().state());
         assertFalse(called.get());
     }
 
     @Test
     void horizonMustCoverProviderLifetimeAndTrustedClockWidth() {
-        final CheckpointUploadIntentV1 pending = pending();
+        final CheckpointUploadIntent pending = pending();
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new CheckpointReapingQuiescenceProof(
@@ -191,29 +190,29 @@ class CheckpointReapingSweepCoordinatorTest {
         return new CheckpointPrefixSweepResult(listed, deleted, bytes(32, 40), bytes(32, 41));
     }
 
-    private static CheckpointUploadIntentV1 pending() {
+    private static CheckpointUploadIntent pending() {
         final com.nereusstream.delay.protocol.ShardId shard =
                 new com.nereusstream.delay.protocol.ShardId(new RouteIncarnation(bytes(16, 1)), 3);
-        return new CheckpointUploadIntentV1(
-                new ShardSubjectV1(shard),
+        return new CheckpointUploadIntent(
+                new ShardSubject(shard),
                 bytes(16, 2),
                 bytes(16, 3),
-                new OwnerIdentityV1(bytes(8, 4), bytes(8, 5), 9, bytes(32, 6)),
+                new OwnerIdentity(bytes(8, 4), bytes(8, 5), 9, bytes(32, 6)),
                 bytes(16, 7),
                 bytes(32, 8),
                 11,
                 bytes(16, 9),
                 bytes(32, 10),
-                new ProfileRefV1(Bytes.utf8("store"), 1, bytes(32, 15), ProfileKindV1.OBJECT_STORE),
+                new ProfileRef(Bytes.utf8("store"), 1, bytes(32, 15), ProfileKind.OBJECT_STORE),
                 evidence(1_000),
                 5_000,
-                CheckpointUploadStateV1.PENDING_UPLOAD,
+                CheckpointUploadState.PENDING_UPLOAD,
                 2,
                 null,
                 null);
     }
 
-    private static CheckpointManifest manifest(final CheckpointUploadIntentV1 pending) {
+    private static CheckpointManifest manifest(final CheckpointUploadIntent pending) {
         final com.nereusstream.delay.protocol.ShardId shard = pending.shard().shardId();
         final KafkaSourcePosition position = new KafkaSourcePosition(
                 shard, "cluster", UUID.fromString("00000000-0000-0000-0000-000000000001"), 1, null, 1_001);
@@ -259,14 +258,14 @@ class CheckpointReapingSweepCoordinatorTest {
     }
 
     private static CheckpointReapingQuiescenceProof quiescence(
-            final CheckpointUploadIntentV1 pending,
+            final CheckpointUploadIntent pending,
             final CheckpointReapingOwnerProof ownerProof,
             final TrustedUtcIntervalEvidence reapingEvidence) {
         return quiescence(pending, ownerProof, reapingEvidence, evidence(10_000), evidence(7_000), evidence(7_000));
     }
 
     private static CheckpointReapingQuiescenceProof quiescence(
-            final CheckpointUploadIntentV1 pending,
+            final CheckpointUploadIntent pending,
             final CheckpointReapingOwnerProof ownerProof,
             final TrustedUtcIntervalEvidence reapingEvidence,
             final TrustedUtcIntervalEvidence observedAt,
@@ -285,7 +284,7 @@ class CheckpointReapingSweepCoordinatorTest {
                 bytes(32, 61));
     }
 
-    private static CheckpointReapingOwnerProof ownerProof(final CheckpointUploadIntentV1 pending) {
+    private static CheckpointReapingOwnerProof ownerProof(final CheckpointUploadIntent pending) {
         final OwnerLease lease = new OwnerLease(
                 pending.shard().shardId(),
                 "owner-proof",

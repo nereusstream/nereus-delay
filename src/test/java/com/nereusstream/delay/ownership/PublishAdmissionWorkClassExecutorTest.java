@@ -4,34 +4,34 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import com.nereusstream.delay.protocol.ActivationBarrierV1;
-import com.nereusstream.delay.protocol.AdapterKindV1;
+import com.nereusstream.delay.protocol.ActivationBarrier;
+import com.nereusstream.delay.protocol.AdapterKind;
 import com.nereusstream.delay.protocol.AuthorIdentity;
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.ChannelKindV1;
-import com.nereusstream.delay.protocol.ChannelResourceIdentityV1;
-import com.nereusstream.delay.protocol.ClaimMaterializationV1;
-import com.nereusstream.delay.protocol.CredentialUseKindV1;
-import com.nereusstream.delay.protocol.CredentialUseLeaseV1;
+import com.nereusstream.delay.protocol.ChannelKind;
+import com.nereusstream.delay.protocol.ChannelResourceIdentity;
+import com.nereusstream.delay.protocol.ClaimMaterialization;
+import com.nereusstream.delay.protocol.CredentialUseKind;
+import com.nereusstream.delay.protocol.CredentialUseLease;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DeliveryMode;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
+import com.nereusstream.delay.protocol.EvidenceCursor;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
-import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.KafkaMetadataV1;
+import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.KafkaMetadata;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.PayloadForPublishV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.PayloadForPublish;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.PreparedPublishDescriptorV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
+import com.nereusstream.delay.protocol.PreparedPublishDescriptor;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
-import com.nereusstream.delay.protocol.ReadyCertificateV1;
-import com.nereusstream.delay.protocol.ReservedPublishMetadataV1;
+import com.nereusstream.delay.protocol.ReadyCertificate;
+import com.nereusstream.delay.protocol.ReservedPublishMetadata;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SystemMutation;
@@ -86,8 +86,8 @@ class PublishAdmissionWorkClassExecutorTest {
                         100)
                 .orElseThrow();
         final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
-        final ProfileRefV1 destination = profile(ProfileKindV1.DESTINATION, "publish-admission-destination");
-        final ProfileRefV1 capability = profile(ProfileKindV1.DELIVERY_CAPABILITY, "publish-admission-capability");
+        final ProfileRef destination = profile(ProfileKind.DESTINATION, "publish-admission-destination");
+        final ProfileRef capability = profile(ProfileKind.DELIVERY_CAPABILITY, "publish-admission-capability");
         final DestinationLaneId laneId =
                 DestinationLaneId.derive(Bytes.concat(destination.canonicalBytes(), capability.canonicalBytes()));
         final byte[] payload = Bytes.utf8("publish-admission-payload");
@@ -103,7 +103,7 @@ class PublishAdmissionWorkClassExecutorTest {
 
         try (SharedRocksDbResources resources = new SharedRocksDbResources(config);
                 ShardStore store = ShardStore.open(config, shardId, resources)) {
-            final OwnerIdentityV1 owner = new OwnerIdentityV1(
+            final OwnerIdentity owner = new OwnerIdentity(
                     Bytes.utf8("publish-admission-deployment"),
                     Bytes.utf8("publish-admission-worker"),
                     lease.ownerEpoch(),
@@ -118,17 +118,17 @@ class PublishAdmissionWorkClassExecutorTest {
             owned.activateForCommands(authority, 101);
 
             final MessageRecord message = shard.getMessage(schedule.delayMessageId());
-            final ClaimMaterializationV1 materialization =
+            final ClaimMaterialization materialization =
                     materialization(destination, capability, schedule.delayMessageId(), message, payload);
-            final ClaimRecord claim = shard.claimForPublishV1(
+            final ClaimRecord claim = shard.claimForPublish(
                     schedule.delayMessageId(),
                     AuthorIdentity.owner(
                             owner.deploymentId(), owner.workerRunId(), owner.ownerEpoch(), owner.leaseFencingDigest()),
                     3_000,
                     materialization,
                     claimCharge(payload.length));
-            final PreparedPublishDescriptorV1 descriptor = descriptor(claim, materialization);
-            final ReadyCertificateV1 certificate =
+            final PreparedPublishDescriptor descriptor = descriptor(claim, materialization);
+            final ReadyCertificate certificate =
                     certificate(owner, store.metadata().storeIncarnation(), descriptor, sourceTopic);
             final TrustedUtcIntervalEvidence decision = evidence(2_000, 2_001);
 
@@ -183,7 +183,7 @@ class PublishAdmissionWorkClassExecutorTest {
                             1,
                             keyPair.getPrivate(),
                             () -> 101));
-            final ReadyCertificateV1 certificateIssuedAfterDecision = certificate(
+            final ReadyCertificate certificateIssuedAfterDecision = certificate(
                     owner, store.metadata().storeIncarnation(), descriptor, sourceTopic, evidence(2_200, 2_201));
             assertThrows(
                     IllegalArgumentException.class,
@@ -270,34 +270,34 @@ class PublishAdmissionWorkClassExecutorTest {
         }
     }
 
-    private static ClaimMaterializationV1 materialization(
-            final ProfileRefV1 destination,
-            final ProfileRefV1 capability,
+    private static ClaimMaterialization materialization(
+            final ProfileRef destination,
+            final ProfileRef capability,
             final DelayMessageId messageId,
             final MessageRecord message,
             final byte[] payload) {
-        return new ClaimMaterializationV1(
+        return new ClaimMaterialization(
                 destination,
                 capability,
-                BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+                BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(
                         "publish-admission-cluster", UUID.nameUUIDFromBytes(Bytes.utf8("publish-admission-target")))),
                 0,
                 messageId,
                 Integer.toUnsignedLong(message.generation()),
-                PayloadForPublishV1.inline(payload),
-                com.nereusstream.delay.protocol.AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())),
+                PayloadForPublish.inline(payload),
+                com.nereusstream.delay.protocol.AdapterMetadata.kafka(new KafkaMetadata(null, List.of())),
                 message.deliverAtEpochMs(),
                 message.expireAtEpochMs(),
                 message.runtimeIndex().timeline().actionAtEpochMs());
     }
 
-    private static PreparedPublishDescriptorV1 descriptor(
-            final ClaimRecord claim, final ClaimMaterializationV1 materialization) {
+    private static PreparedPublishDescriptor descriptor(
+            final ClaimRecord claim, final ClaimMaterialization materialization) {
         final byte[] attempt = SystemMutation.computePublishAttemptLogicalIdentity(
                 claim.claimId(), claim.delayMessageId(), Integer.toUnsignedLong(claim.generation()), 1);
-        final ChannelResourceIdentityV1 channel =
+        final ChannelResourceIdentity channel =
                 channel(materialization, claim.laneId().bytes(), claim.laneIncarnation());
-        final ReservedPublishMetadataV1 reserved = new ReservedPublishMetadataV1(
+        final ReservedPublishMetadata reserved = new ReservedPublishMetadata(
                 claim.delayMessageId().routingId().shardId().routeIncarnation(),
                 claim.delayMessageId().routingId().shardId().partition(),
                 claim.delayMessageId(),
@@ -307,8 +307,8 @@ class PublishAdmissionWorkClassExecutorTest {
                 materialization.capabilityProfile().semanticHash(),
                 materialization.deliverAtEpochMs(),
                 DeliveryMode.MANAGED);
-        return new PreparedPublishDescriptorV1(
-                AdapterKindV1.KAFKA,
+        return new PreparedPublishDescriptor(
+                AdapterKind.KAFKA,
                 claim.laneId(),
                 claim.laneIncarnation(),
                 materialization.destinationProfile(),
@@ -328,16 +328,16 @@ class PublishAdmissionWorkClassExecutorTest {
                 materialization.actionAtEpochMs());
     }
 
-    private static ChannelResourceIdentityV1 channel(
-            final ClaimMaterializationV1 materialization, final byte[] lane, final byte[] laneIncarnation) {
+    private static ChannelResourceIdentity channel(
+            final ClaimMaterialization materialization, final byte[] lane, final byte[] laneIncarnation) {
         final byte[] producer = Bytes.utf8("publish-admission-producer");
         final byte[] guard = Bytes.sha256(Bytes.utf8("publish-admission-guard"));
         final byte[] binding = Bytes.sha256(Bytes.utf8("publish-admission-binding"));
         final byte[] fingerprint = Bytes.sha256(Bytes.utf8("publish-admission-fingerprint"));
         final TrustedUtcIntervalEvidence issuedAt = evidence(1_000, 1_001);
         final byte[] prefix = CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.uint32(output, 1, AdapterKindV1.KAFKA.wireValue());
-            CanonicalProtobuf.uint32(output, 2, ChannelKindV1.BASELINE_PRODUCER.wireValue());
+            CanonicalProtobuf.uint32(output, 1, AdapterKind.KAFKA.wireValue());
+            CanonicalProtobuf.uint32(output, 2, ChannelKind.BASELINE_PRODUCER.wireValue());
             CanonicalProtobuf.bytes(output, 3, lane);
             CanonicalProtobuf.bytes(output, 4, laneIncarnation);
             CanonicalProtobuf.bytes(output, 5, materialization.targetResource().canonicalBytes());
@@ -348,19 +348,19 @@ class PublishAdmissionWorkClassExecutorTest {
             CanonicalProtobuf.bytes(output, 10, Bytes.sha256(producer));
             CanonicalProtobuf.bytes(output, 13, guard);
         });
-        final CredentialUseLeaseV1 lease = new CredentialUseLeaseV1(
+        final CredentialUseLease lease = new CredentialUseLease(
                 materialization.destinationProfile(),
-                CredentialUseKindV1.DESTINATION_CHANNEL,
-                CredentialUseLeaseV1.destinationChannelHolderScope(prefix),
+                CredentialUseKind.DESTINATION_CHANNEL,
+                CredentialUseLease.destinationChannelHolderScope(prefix),
                 1,
                 binding,
                 fingerprint,
                 issuedAt,
                 9_000,
                 1);
-        return new ChannelResourceIdentityV1(
-                AdapterKindV1.KAFKA,
-                ChannelKindV1.BASELINE_PRODUCER,
+        return new ChannelResourceIdentity(
+                AdapterKind.KAFKA,
+                ChannelKind.BASELINE_PRODUCER,
                 lane,
                 laneIncarnation,
                 materialization.targetResource(),
@@ -378,25 +378,25 @@ class PublishAdmissionWorkClassExecutorTest {
                 lease);
     }
 
-    private static ReadyCertificateV1 certificate(
-            final OwnerIdentityV1 owner,
+    private static ReadyCertificate certificate(
+            final OwnerIdentity owner,
             final byte[] storeIncarnation,
-            final PreparedPublishDescriptorV1 descriptor,
+            final PreparedPublishDescriptor descriptor,
             final UUID sourceTopic) {
         return certificate(owner, storeIncarnation, descriptor, sourceTopic, evidence(1_000, 1_001));
     }
 
-    private static ReadyCertificateV1 certificate(
-            final OwnerIdentityV1 owner,
+    private static ReadyCertificate certificate(
+            final OwnerIdentity owner,
             final byte[] storeIncarnation,
-            final PreparedPublishDescriptorV1 descriptor,
+            final PreparedPublishDescriptor descriptor,
             final UUID sourceTopic,
             final TrustedUtcIntervalEvidence issuedAt) {
-        final byte[] barrier = ActivationBarrierV1.kafka(
+        final byte[] barrier = ActivationBarrier.kafka(
                         descriptor.targetResource(), (int) descriptor.physicalPartition(), 0, 0)
                 .canonicalBytes();
         final byte[] topicUuid = uuidBytes(sourceTopic);
-        final byte[] cursor = EvidenceCursorV1.kafka(
+        final byte[] cursor = EvidenceCursor.kafka(
                         descriptor.destinationLaneId().bytes(),
                         descriptor.laneIncarnation(),
                         topicUuid,
@@ -430,10 +430,9 @@ class PublishAdmissionWorkClassExecutorTest {
             while (reader.hasRemaining()) {
                 writeField(output, reader.next());
             }
-            CanonicalProtobuf.bytes(
-                    output, 16, Bytes.sha256(Bytes.utf8("nereus-delay-ready-certificate-v1\0"), prefix));
+            CanonicalProtobuf.bytes(output, 16, Bytes.sha256(Bytes.utf8("nereus-delay-ready-certificate\0"), prefix));
         });
-        return ReadyCertificateV1.decode(encoded);
+        return ReadyCertificate.decode(encoded);
     }
 
     private static TrustedUtcIntervalEvidence evidence(final long earliest, final long latest) {
@@ -450,8 +449,8 @@ class PublishAdmissionWorkClassExecutorTest {
                 null);
     }
 
-    private static ProfileRefV1 profile(final ProfileKindV1 kind, final String value) {
-        return new ProfileRefV1(Bytes.utf8(value), 1, Bytes.sha256(Bytes.utf8(value + "-semantic")), kind);
+    private static ProfileRef profile(final ProfileKind kind, final String value) {
+        return new ProfileRef(Bytes.utf8(value), 1, Bytes.sha256(Bytes.utf8(value + "-semantic")), kind);
     }
 
     private static byte[] claimCharge(final long payloadBytes) {

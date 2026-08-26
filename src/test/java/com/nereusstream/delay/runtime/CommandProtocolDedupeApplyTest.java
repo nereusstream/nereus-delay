@@ -10,7 +10,7 @@ import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
+import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ScheduleIntent;
 import com.nereusstream.delay.protocol.ShardId;
@@ -44,19 +44,13 @@ class CommandProtocolDedupeApplyTest {
                 OrderingMode.BEST_EFFORT,
                 Bytes.utf8("payload")));
         final PreparedCommand managed = PreparedCommand.create(
-                shardId,
-                commandId,
-                messageId,
-                CommandType.SCHEDULE,
-                ProtocolTupleV1.managedCommandV1(),
-                retryUntil,
-                body);
+                shardId, commandId, messageId, CommandType.SCHEDULE, ProtocolTuple.managedCommand(), retryUntil, body);
         final PreparedCommand next = PreparedCommand.create(
                 shardId,
                 commandId,
                 messageId,
                 CommandType.SCHEDULE,
-                new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 2),
+                new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 2),
                 retryUntil,
                 body);
 
@@ -74,7 +68,7 @@ class CommandProtocolDedupeApplyTest {
             final byte[] encoded = store.getValue(ColumnFamily.DEDUPE, KeyCodec.dedupeCommand(commandId), 1)
                     .payload();
             assertEquals(
-                    ProtocolTupleV1.managedCommandV1(),
+                    ProtocolTuple.managedCommand(),
                     CommandDedupeRecord.decode(encoded).protocolTuple());
         }
     }

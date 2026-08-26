@@ -29,7 +29,7 @@ public final class GatewayGrpcContext {
         };
     }
 
-    /** Captures headers/transport attributes without copying them into V1 records. */
+    /** Captures headers/transport attributes without copying them into records. */
     public static ServerInterceptor capturePeerContext() {
         return new ServerInterceptor() {
             @Override

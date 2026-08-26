@@ -14,15 +14,15 @@ import com.nereusstream.delay.gateway.OxiaGatewayAdmissionController;
 import com.nereusstream.delay.gateway.OxiaGatewayAuditSink;
 import com.nereusstream.delay.gateway.OxiaGatewayIdempotencyStore;
 import com.nereusstream.delay.gateway.RsaSha256GatewayJwtVerifier;
-import com.nereusstream.delay.gateway.v1.DelayGatewayV1Grpc;
-import com.nereusstream.delay.gateway.v1.GatewayAttestPayloadUploadRequestV1;
-import com.nereusstream.delay.gateway.v1.GatewayCommitLargeScheduleRequestV1;
-import com.nereusstream.delay.gateway.v1.GatewayIssuePayloadUploadHandleRequestV1;
-import com.nereusstream.delay.gateway.v1.GatewayPayloadAttestationResponseV1;
-import com.nereusstream.delay.gateway.v1.GatewayPayloadUploadHandleResponseV1;
-import com.nereusstream.delay.gateway.v1.GatewayPrepareLargeScheduleRequestV1;
-import com.nereusstream.delay.gateway.v1.GatewayRouteSelectorV1;
-import com.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1;
+import com.nereusstream.delay.gateway.wire.DelayGatewayGrpc;
+import com.nereusstream.delay.gateway.wire.GatewayAttestPayloadUploadRequest;
+import com.nereusstream.delay.gateway.wire.GatewayCommitLargeScheduleRequest;
+import com.nereusstream.delay.gateway.wire.GatewayIssuePayloadUploadHandleRequest;
+import com.nereusstream.delay.gateway.wire.GatewayPayloadAttestationResponse;
+import com.nereusstream.delay.gateway.wire.GatewayPayloadUploadHandleResponse;
+import com.nereusstream.delay.gateway.wire.GatewayPrepareLargeScheduleRequest;
+import com.nereusstream.delay.gateway.wire.GatewayRouteSelector;
+import com.nereusstream.delay.gateway.wire.GatewaySubmissionOutcome;
 import com.nereusstream.delay.ownership.OwnedDelayShard;
 import com.nereusstream.delay.ownership.OwnerLease;
 import com.nereusstream.delay.ownership.OwnerRecoveryCoordinator;
@@ -44,68 +44,68 @@ import com.nereusstream.delay.ownership.WorkerAssignmentAuthority;
 import com.nereusstream.delay.ownership.WorkerAssignmentCoordinator;
 import com.nereusstream.delay.ownership.WorkerShardFleetRuntime;
 import com.nereusstream.delay.ownership.WorkerShardRuntime;
-import com.nereusstream.delay.protocol.ActivationBarrierV1;
-import com.nereusstream.delay.protocol.AdapterKindV1;
-import com.nereusstream.delay.protocol.AdapterMetadataV1;
+import com.nereusstream.delay.protocol.ActivationBarrier;
+import com.nereusstream.delay.protocol.AdapterKind;
+import com.nereusstream.delay.protocol.AdapterMetadata;
 import com.nereusstream.delay.protocol.AuthorIdentity;
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.CanonicalCommandQueuedReceipt;
+import com.nereusstream.delay.protocol.CanonicalPayloadCommitProof;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.CapacityDimensionV1;
-import com.nereusstream.delay.protocol.CapacityVectorV1;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
+import com.nereusstream.delay.protocol.CapacityDimension;
+import com.nereusstream.delay.protocol.CapacityVector;
 import com.nereusstream.delay.protocol.CommandCodec;
-import com.nereusstream.delay.protocol.CommandQueuedReceiptV1;
-import com.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
+import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
 import com.nereusstream.delay.protocol.ControlRef;
 import com.nereusstream.delay.protocol.DeliveryMode;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.EnqueueOutcomeKindV1;
-import com.nereusstream.delay.protocol.IngressCredentialBindingRefV1;
+import com.nereusstream.delay.protocol.EnqueueOutcomeKind;
+import com.nereusstream.delay.protocol.IngressCredentialBindingRef;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
-import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.KafkaIngressRouteResourceV1;
-import com.nereusstream.delay.protocol.KafkaMetadataV1;
+import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.KafkaIngressRouteResource;
+import com.nereusstream.delay.protocol.KafkaMetadata;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
-import com.nereusstream.delay.protocol.ObjectStoreProviderKindV1;
-import com.nereusstream.delay.protocol.OpaquePayloadUploadHandleV1;
+import com.nereusstream.delay.protocol.ObjectStoreProfileSemantic;
+import com.nereusstream.delay.protocol.ObjectStoreProviderKind;
+import com.nereusstream.delay.protocol.OpaquePayloadUploadHandle;
 import com.nereusstream.delay.protocol.OrderingMode;
-import com.nereusstream.delay.protocol.PayloadAttestationOutcomeV1;
-import com.nereusstream.delay.protocol.PayloadAttestationResponseV1;
-import com.nereusstream.delay.protocol.PayloadCommitProofV1;
-import com.nereusstream.delay.protocol.PayloadProofTrustSetActivatePayloadV1;
-import com.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
-import com.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
-import com.nereusstream.delay.protocol.PayloadProofVerifierKeyV1;
-import com.nereusstream.delay.protocol.PayloadReservationReceiptV1;
-import com.nereusstream.delay.protocol.PayloadUploadHandleOutcomeV1;
-import com.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
+import com.nereusstream.delay.protocol.PayloadAttestationOutcome;
+import com.nereusstream.delay.protocol.PayloadAttestationResponse;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetActivatePayload;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetRef;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetSemantic;
+import com.nereusstream.delay.protocol.PayloadProofVerifierKey;
+import com.nereusstream.delay.protocol.PayloadReservationReceipt;
+import com.nereusstream.delay.protocol.PayloadUploadHandleOutcome;
+import com.nereusstream.delay.protocol.PayloadUploadHandleResponse;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
+import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
-import com.nereusstream.delay.protocol.QuotaGrantRefV1;
-import com.nereusstream.delay.protocol.RetryPolicyRefV1;
+import com.nereusstream.delay.protocol.QuotaGrantRef;
+import com.nereusstream.delay.protocol.RetryPolicyRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.RouteLifecycleV1;
-import com.nereusstream.delay.protocol.RoutePartitionPolicyV1;
-import com.nereusstream.delay.protocol.RouteSnapshotV1;
-import com.nereusstream.delay.protocol.RoutingHashVersionV1;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
+import com.nereusstream.delay.protocol.RouteLifecycle;
+import com.nereusstream.delay.protocol.RoutePartitionPolicy;
+import com.nereusstream.delay.protocol.RouteSnapshot;
+import com.nereusstream.delay.protocol.RoutingHashVersion;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
-import com.nereusstream.delay.protocol.StableErrorV1;
-import com.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import com.nereusstream.delay.protocol.ShardSubject;
+import com.nereusstream.delay.protocol.StableError;
+import com.nereusstream.delay.protocol.SubmissionOutcomeMessage;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
-import com.nereusstream.delay.protocol.UploadHandleKindV1;
+import com.nereusstream.delay.protocol.UploadHandleKind;
 import com.nereusstream.delay.route.OxiaRouteAuthoritySession;
 import com.nereusstream.delay.route.OxiaSignedRouteSnapshotProvider;
 import com.nereusstream.delay.route.OxiaSignedRouteSnapshotPublisher;
-import com.nereusstream.delay.route.RouteHashV1;
+import com.nereusstream.delay.route.RouteHash;
 import com.nereusstream.delay.runtime.DelayShard;
 import com.nereusstream.delay.runtime.DelayShardConfig;
 import com.nereusstream.delay.runtime.InMemoryPayloadProofTrustSetCatalog;
@@ -114,7 +114,7 @@ import com.nereusstream.delay.runtime.MessageRecord;
 import com.nereusstream.delay.runtime.MessageStatus;
 import com.nereusstream.delay.runtime.PayloadReservation;
 import com.nereusstream.delay.runtime.PayloadReservationStatus;
-import com.nereusstream.delay.runtime.V1ScheduleResolver;
+import com.nereusstream.delay.runtime.ScheduleResolver;
 import com.nereusstream.delay.scheduler.ClaimExecutionAdmission;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClass;
@@ -189,7 +189,7 @@ import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 
 /**
- * Opt-in production-authority vertical proof for the V1 large-payload path.
+ * Opt-in production-authority vertical proof for the large-payload path.
  *
  * <p>The process requires real Kafka, Oxia, Gateway certificates and a
  * versioned S3-compatible Object Store. It publishes the source-ordered trust
@@ -247,11 +247,10 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 new AuthenticatedTenantContext(bytes(32, 1), bytes(32, 2), bytes(32, 3));
         final KeyPair proofKeys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final long proofNow = System.currentTimeMillis();
-        final PayloadProofVerifierKeyV1 proofVerifierKey = PayloadProofVerifierKeyV1.fromPublicKey(
+        final PayloadProofVerifierKey proofVerifierKey = PayloadProofVerifierKey.fromPublicKey(
                 7, proofKeys.getPublic(), Math.max(0, proofNow - 60_000), proofNow + 3_600_000);
-        final PayloadProofTrustSetSemanticV1 trustSet =
-                new PayloadProofTrustSetSemanticV1(1, List.of(proofVerifierKey));
-        final ProfileSemanticEnvelopeV1 objectStoreProfile =
+        final PayloadProofTrustSetSemantic trustSet = new PayloadProofTrustSetSemantic(1, List.of(proofVerifierKey));
+        final ProfileSemanticEnvelope objectStoreProfile =
                 objectStoreProfile(minioUri, minioRegion, minioBucket, minioAccessKey);
         final byte[] payload = payload();
         final byte[] payloadHash = Bytes.sha256(payload);
@@ -288,7 +287,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         }
         final RouteIncarnation routeIncarnation = RouteIncarnation.random();
         final ShardId shard = new ShardId(routeIncarnation, 0);
-        final RouteSelectionHint routeHint = new RouteSelectionHint(AdapterKindV1.KAFKA, Bytes.utf8("primary"));
+        final RouteSelectionHint routeHint = new RouteSelectionHint(AdapterKind.KAFKA, Bytes.utf8("primary"));
         final SystemMutation trustActivation = trustActivation(shard, trustSet.ref(), tenant, controlKeys);
         final PreparedCommand beforeRoute = command(shard, "large-payload-before-route");
         final Map<String, Object> adminConfiguration = Map.of(
@@ -313,7 +312,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                     ? null
                     : toUuid(describe(admin, receiptPhysicalTopic).topicId());
             appendFrame(bootstrap, clusterId, topic, topicId, trustActivation.encodeFrame(), 0);
-            appendFrame(bootstrap, clusterId, topic, topicId, CommandCodec.encodeFrameV1(beforeRoute), 1);
+            appendFrame(bootstrap, clusterId, topic, topicId, CommandCodec.encodeManagedFrame(beforeRoute), 1);
 
             final org.apache.kafka.clients.consumer.GuardedFetchEvidence fetchEvidence =
                     fetchEvidence(bootstrap, clusterId, topic, nativeTopicId, shard);
@@ -325,7 +324,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                                 + fetchEvidence);
             }
             final long barrierOffset = 2;
-            final RouteSnapshotV1 snapshot = routeSnapshot(
+            final RouteSnapshot snapshot = routeSnapshot(
                     clusterId, topic, nativeTopicId, routeIncarnation, fetchEvidence, tenant, controlKeys);
             final String namespace = configured("NEREUS_DELAY_OXIA_NAMESPACE", "default");
             final String routePrefix = "nereus-delay/kafka-large-payload-route/" + UUID.randomUUID();
@@ -402,7 +401,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                                 LEASE_DURATION_MS)
                         .orElseThrow();
                 final WorkClassExecutionRegistry workClasses = workClasses();
-                final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshot(shard, destinationProfile());
+                final CompatibleControlSnapshot controlSnapshot = controlSnapshot(shard, destinationProfile());
                 final Path root = Files.createTempDirectory("nereus-delay-kafka-large-payload-");
                 boolean assignmentWithdrawn = false;
                 try {
@@ -415,13 +414,13 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                         final InMemoryPayloadProofTrustSetCatalog trustCatalog =
                                 new InMemoryPayloadProofTrustSetCatalog();
                         trustCatalog.publish(trustSet);
-                        final V1ScheduleResolver resolver = destinationPhysicalTopic == null
+                        final ScheduleResolver resolver = destinationPhysicalTopic == null
                                 ? scheduleResolver()
                                 : scheduleResolver(clusterId, destinationTopicId, destinationPhysicalTopic);
                         final DelayShard delayShard =
                                 new DelayShard(store, DelayShardConfig.defaults(), null, null, resolver, trustCatalog);
-                        final com.nereusstream.delay.protocol.OwnerIdentityV1 ownerIdentity =
-                                new com.nereusstream.delay.protocol.OwnerIdentityV1(
+                        final com.nereusstream.delay.protocol.OwnerIdentity ownerIdentity =
+                                new com.nereusstream.delay.protocol.OwnerIdentity(
                                         bytes(16, 70),
                                         bytes(16, 71),
                                         lease.ownerEpoch(),
@@ -541,13 +540,13 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                             final ManagedChannel channel = channel(
                                     gatewayPort, trustedClientCertificates, clientCertificate, clientPrivateKey);
                             try {
-                                final DelayGatewayV1Grpc.DelayGatewayV1BlockingStub gateway = stub(channel, token);
-                                final ScheduleIntentV1 intent = largeScheduleIntent(System.currentTimeMillis());
-                                final GatewayPrepareLargeScheduleRequestV1 prepareRequest = prepareRequest(
+                                final DelayGatewayGrpc.DelayGatewayBlockingStub gateway = stub(channel, token);
+                                final CanonicalScheduleIntent intent = largeScheduleIntent(System.currentTimeMillis());
+                                final GatewayPrepareLargeScheduleRequest prepareRequest = prepareRequest(
                                         intent, payload.length, payloadHash, trustSet.ref(), objectStoreProfile.ref());
-                                final GatewaySubmissionOutcomeV1 prepareResponse =
+                                final GatewaySubmissionOutcome prepareResponse =
                                         gateway.prepareLargeSchedule(prepareRequest);
-                                final CommandQueuedReceiptV1 prepareReceipt =
+                                final CanonicalCommandQueuedReceipt prepareReceipt =
                                         requireQueued(prepareResponse, "PrepareLargeSchedule", barrierOffset);
                                 final KafkaSourcePosition preparePosition =
                                         (KafkaSourcePosition) prepareReceipt.sourcePosition();
@@ -588,26 +587,25 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                                                     + reservation.status());
                                 }
                                 payloadStore.register(reservation, trustSet.ref(), objectStoreProfile.ref());
-                                final PayloadReservationReceiptV1 receipt =
-                                        payloadStore.reservationReceipt(reservation);
+                                final PayloadReservationReceipt receipt = payloadStore.reservationReceipt(reservation);
 
-                                final GatewayPayloadUploadHandleResponseV1 handleResponse =
+                                final GatewayPayloadUploadHandleResponse handleResponse =
                                         gateway.issuePayloadUploadHandle(
-                                                GatewayIssuePayloadUploadHandleRequestV1.newBuilder()
-                                                        .setPayloadReservationReceiptV1(
+                                                GatewayIssuePayloadUploadHandleRequest.newBuilder()
+                                                        .setPayloadReservationReceipt(
                                                                 ByteString.copyFrom(receipt.payload()))
                                                         .setUploadHandleKind(
-                                                                UploadHandleKindV1.OPAQUE_SINGLE_PUT.wireValue())
+                                                                UploadHandleKind.OPAQUE_SINGLE_PUT.wireValue())
                                                         .build());
-                                final PayloadUploadHandleResponseV1 handleDomain =
-                                        PayloadUploadHandleResponseV1.decode(handleResponse
-                                                .getPayloadUploadHandleResponseV1()
+                                final PayloadUploadHandleResponse handleDomain =
+                                        PayloadUploadHandleResponse.decode(handleResponse
+                                                .getPayloadUploadHandleResponse()
                                                 .toByteArray());
-                                if (handleDomain.outcome() != PayloadUploadHandleOutcomeV1.ISSUED) {
+                                if (handleDomain.outcome() != PayloadUploadHandleOutcome.ISSUED) {
                                     throw new IllegalStateException("Gateway did not issue the payload upload handle: "
                                             + handleDomain.outcome());
                                 }
-                                final OpaquePayloadUploadHandleV1 handle = handleDomain.issued();
+                                final OpaquePayloadUploadHandle handle = handleDomain.issued();
                                 try {
                                     payloadStore.upload(receipt, handle, payload, System.currentTimeMillis());
                                 } catch (RuntimeException failure) {
@@ -627,9 +625,9 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                                         throw new IllegalStateException(
                                                 "Kafka pre-commit payload failure crossed the Commit boundary");
                                     }
-                                    final PayloadAttestationResponseV1 absent =
+                                    final PayloadAttestationResponse absent =
                                             payloadStore.attest(receipt, handle, System.currentTimeMillis());
-                                    if (absent.outcome() != PayloadAttestationOutcomeV1.OBJECT_NOT_READY_RETRYABLE) {
+                                    if (absent.outcome() != PayloadAttestationOutcome.OBJECT_NOT_READY_RETRYABLE) {
                                         throw new IllegalStateException(
                                                 "Kafka pre-commit payload failure did not leave the object absent: "
                                                         + absent.outcome());
@@ -668,17 +666,17 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                                                     + "payload object absent, owner released");
                                     return;
                                 }
-                                final GatewayPayloadAttestationResponseV1 attestationResponse =
-                                        gateway.attestPayloadUpload(GatewayAttestPayloadUploadRequestV1.newBuilder()
-                                                .setPayloadReservationReceiptV1(ByteString.copyFrom(receipt.payload()))
-                                                .setOpaquePayloadUploadHandleV1(
+                                final GatewayPayloadAttestationResponse attestationResponse =
+                                        gateway.attestPayloadUpload(GatewayAttestPayloadUploadRequest.newBuilder()
+                                                .setPayloadReservationReceipt(ByteString.copyFrom(receipt.payload()))
+                                                .setOpaquePayloadUploadHandle(
                                                         ByteString.copyFrom(handle.canonicalBytes()))
                                                 .build());
-                                final PayloadAttestationResponseV1 attestation =
-                                        PayloadAttestationResponseV1.decode(attestationResponse
-                                                .getPayloadAttestationResponseV1()
+                                final PayloadAttestationResponse attestation =
+                                        PayloadAttestationResponse.decode(attestationResponse
+                                                .getPayloadAttestationResponse()
                                                 .toByteArray());
-                                if (attestation.outcome() != PayloadAttestationOutcomeV1.ATTESTED
+                                if (attestation.outcome() != PayloadAttestationOutcome.ATTESTED
                                         || attestation.proof() == null
                                         || new String(
                                                         attestation.proof().immutableObjectVersion(),
@@ -687,11 +685,11 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                                     throw new IllegalStateException(
                                             "Gateway/MinIO did not return a provider-issued immutable payload proof");
                                 }
-                                final PayloadCommitProofV1 proof = attestation.proof();
-                                final GatewayCommitLargeScheduleRequestV1 commitRequest = commitRequest(receipt, proof);
-                                final GatewaySubmissionOutcomeV1 commitResponse =
+                                final CanonicalPayloadCommitProof proof = attestation.proof();
+                                final GatewayCommitLargeScheduleRequest commitRequest = commitRequest(receipt, proof);
+                                final GatewaySubmissionOutcome commitResponse =
                                         gateway.commitLargeSchedule(commitRequest);
-                                final CommandQueuedReceiptV1 commitReceipt =
+                                final CanonicalCommandQueuedReceipt commitReceipt =
                                         requireQueued(commitResponse, "CommitLargeSchedule", barrierOffset + 1);
                                 final KafkaSourcePosition commitPosition =
                                         (KafkaSourcePosition) commitReceipt.sourcePosition();
@@ -855,7 +853,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
 
     /**
      * Runs the same authenticated Gateway/Object Store path over two source
-     * shards admitted to one fair Worker fleet.  The normal smoke remains the
+     * shards admitted to one fair Worker fleet. The normal smoke remains the
      * single-shard production authority receipt; this opt-in path specifically
      * proves that Large Payload reservations do not collapse the Route/Owner
      * boundary back to partition zero.
@@ -882,8 +880,8 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
             final int gatewayPort,
             final AuthenticatedTenantContext tenant,
             final KeyPair proofKeys,
-            final PayloadProofTrustSetSemanticV1 trustSet,
-            final ProfileSemanticEnvelopeV1 objectStoreProfile,
+            final PayloadProofTrustSetSemantic trustSet,
+            final ProfileSemanticEnvelope objectStoreProfile,
             final byte[] payload,
             final byte[] payloadHash,
             final KeyPair controlKeys)
@@ -922,7 +920,13 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 final PreparedCommand beforeRoute = command(shard, "large-payload-multi-before-" + partition);
                 appendFrame(bootstrap, clusterId, topic, topicId, activation.encodeFrame(), partition, 0);
                 appendFrame(
-                        bootstrap, clusterId, topic, topicId, CommandCodec.encodeFrameV1(beforeRoute), partition, 1);
+                        bootstrap,
+                        clusterId,
+                        topic,
+                        topicId,
+                        CommandCodec.encodeManagedFrame(beforeRoute),
+                        partition,
+                        1);
                 final org.apache.kafka.clients.consumer.GuardedFetchEvidence evidence =
                         fetchEvidence(bootstrap, clusterId, topic, nativeTopicId, shard);
                 if (evidence.firstRecordOffset() != 0
@@ -935,7 +939,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 probes.add(new LargeShardProbe(shard, activation, beforeRoute, evidence, 2));
             }
 
-            final RouteSelectionHint routeHint = new RouteSelectionHint(AdapterKindV1.KAFKA, Bytes.utf8("primary"));
+            final RouteSelectionHint routeHint = new RouteSelectionHint(AdapterKind.KAFKA, Bytes.utf8("primary"));
             final String namespace = configured("NEREUS_DELAY_OXIA_NAMESPACE", "default");
             final String routePrefix = "nereus-delay/kafka-large-payload-multi-route/" + UUID.randomUUID();
             final String assignmentPrefix = "nereus-delay/kafka-large-payload-multi-assignment/" + UUID.randomUUID();
@@ -959,7 +963,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                                     "nereus-delay-large-multi-assignment-" + UUID.randomUUID(),
                                     Duration.ofSeconds(15),
                                     assignmentPrefix)) {
-                final RouteSnapshotV1 snapshot = multiRouteSnapshot(
+                final RouteSnapshot snapshot = multiRouteSnapshot(
                         clusterId, topic, nativeTopicId, routeIncarnation, probes, tenant, controlKeys);
                 final OxiaSignedRouteSnapshotPublisher publisher =
                         new OxiaSignedRouteSnapshotPublisher(publisherSession, routePrefix, controlKeys.getPublic());
@@ -1022,8 +1026,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 final List<DelayShard> delayShards = new ArrayList<>(shardCount);
                 final List<WorkerShardRuntime> runtimes = new ArrayList<>(shardCount);
                 final List<OwnedDelayShard> ownedShards = new ArrayList<>(shardCount);
-                final List<com.nereusstream.delay.protocol.OwnerIdentityV1> ownerIdentities =
-                        new ArrayList<>(shardCount);
+                final List<com.nereusstream.delay.protocol.OwnerIdentity> ownerIdentities = new ArrayList<>(shardCount);
                 final List<KafkaClientArtifactWorkerSmoke.PhysicalPublishBridge> physicalBridges =
                         new ArrayList<>(shardCount);
                 WorkerShardFleetRuntime fleet = null;
@@ -1052,8 +1055,8 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                                 trustCatalog);
                         delayShards.add(delayShard);
                         final OwnerLease lease = admission.lease();
-                        final com.nereusstream.delay.protocol.OwnerIdentityV1 ownerIdentity =
-                                new com.nereusstream.delay.protocol.OwnerIdentityV1(
+                        final com.nereusstream.delay.protocol.OwnerIdentity ownerIdentity =
+                                new com.nereusstream.delay.protocol.OwnerIdentity(
                                         bytes(16, 70 + probe.shard().partition()),
                                         bytes(16, 90 + probe.shard().partition()),
                                         lease.ownerEpoch(),
@@ -1210,24 +1213,24 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                         final ManagedChannel channel =
                                 channel(gatewayPort, trustedClientCertificates, clientCertificate, clientPrivateKey);
                         try {
-                            final DelayGatewayV1Grpc.DelayGatewayV1BlockingStub gateway =
+                            final DelayGatewayGrpc.DelayGatewayBlockingStub gateway =
                                     stub(channel, token(jwtKeys, tenant, certificateFingerprint(clientCertificate)));
                             for (LargeShardAdmission admissionRecord : admissions) {
                                 final int partition =
                                         admissionRecord.probe().shard().partition();
                                 final byte[] orderingKey = orderingKeyForPartition(snapshot, tenant, partition);
-                                final ScheduleIntentV1 intent =
+                                final CanonicalScheduleIntent intent =
                                         largeScheduleIntent(System.currentTimeMillis(), orderingKey);
-                                final GatewayPrepareLargeScheduleRequestV1 prepareRequest = prepareRequest(
+                                final GatewayPrepareLargeScheduleRequest prepareRequest = prepareRequest(
                                         intent,
                                         payload.length,
                                         payloadHash,
                                         trustSet.ref(),
                                         objectStoreProfile.ref(),
                                         partition);
-                                final GatewaySubmissionOutcomeV1 prepareResponse =
+                                final GatewaySubmissionOutcome prepareResponse =
                                         gateway.prepareLargeSchedule(prepareRequest);
-                                final CommandQueuedReceiptV1 prepareReceipt = requireQueued(
+                                final CanonicalCommandQueuedReceipt prepareReceipt = requireQueued(
                                         prepareResponse,
                                         "PrepareLargeSchedule",
                                         partition,
@@ -1247,46 +1250,45 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                                                     + ": " + reservation.status());
                                 }
                                 payloadStore.register(reservation, trustSet.ref(), objectStoreProfile.ref());
-                                final PayloadReservationReceiptV1 receipt =
-                                        payloadStore.reservationReceipt(reservation);
-                                final GatewayPayloadUploadHandleResponseV1 handleResponse =
+                                final PayloadReservationReceipt receipt = payloadStore.reservationReceipt(reservation);
+                                final GatewayPayloadUploadHandleResponse handleResponse =
                                         gateway.issuePayloadUploadHandle(
-                                                GatewayIssuePayloadUploadHandleRequestV1.newBuilder()
-                                                        .setPayloadReservationReceiptV1(
+                                                GatewayIssuePayloadUploadHandleRequest.newBuilder()
+                                                        .setPayloadReservationReceipt(
                                                                 ByteString.copyFrom(receipt.payload()))
                                                         .setUploadHandleKind(
-                                                                UploadHandleKindV1.OPAQUE_SINGLE_PUT.wireValue())
+                                                                UploadHandleKind.OPAQUE_SINGLE_PUT.wireValue())
                                                         .build());
-                                final PayloadUploadHandleResponseV1 handleDomain =
-                                        PayloadUploadHandleResponseV1.decode(handleResponse
-                                                .getPayloadUploadHandleResponseV1()
+                                final PayloadUploadHandleResponse handleDomain =
+                                        PayloadUploadHandleResponse.decode(handleResponse
+                                                .getPayloadUploadHandleResponse()
                                                 .toByteArray());
-                                if (handleDomain.outcome() != PayloadUploadHandleOutcomeV1.ISSUED) {
+                                if (handleDomain.outcome() != PayloadUploadHandleOutcome.ISSUED) {
                                     throw new IllegalStateException(
                                             "Kafka multi-shard Gateway did not issue upload handle partition="
                                                     + partition + ": " + handleDomain.outcome());
                                 }
-                                final OpaquePayloadUploadHandleV1 handle = handleDomain.issued();
+                                final OpaquePayloadUploadHandle handle = handleDomain.issued();
                                 payloadStore.upload(receipt, handle, payload, System.currentTimeMillis());
-                                final PayloadAttestationResponseV1 attestation = PayloadAttestationResponseV1.decode(
-                                        gateway.attestPayloadUpload(GatewayAttestPayloadUploadRequestV1.newBuilder()
-                                                        .setPayloadReservationReceiptV1(
+                                final PayloadAttestationResponse attestation = PayloadAttestationResponse.decode(
+                                        gateway.attestPayloadUpload(GatewayAttestPayloadUploadRequest.newBuilder()
+                                                        .setPayloadReservationReceipt(
                                                                 ByteString.copyFrom(receipt.payload()))
-                                                        .setOpaquePayloadUploadHandleV1(
+                                                        .setOpaquePayloadUploadHandle(
                                                                 ByteString.copyFrom(handle.canonicalBytes()))
                                                         .build())
-                                                .getPayloadAttestationResponseV1()
+                                                .getPayloadAttestationResponse()
                                                 .toByteArray());
-                                if (attestation.outcome() != PayloadAttestationOutcomeV1.ATTESTED
+                                if (attestation.outcome() != PayloadAttestationOutcome.ATTESTED
                                         || attestation.proof() == null) {
                                     throw new IllegalStateException(
                                             "Kafka multi-shard Gateway/MinIO attestation failed partition=" + partition
                                                     + ": " + attestation.outcome());
                                 }
-                                final PayloadCommitProofV1 proof = attestation.proof();
-                                final GatewaySubmissionOutcomeV1 commitResponse =
+                                final CanonicalPayloadCommitProof proof = attestation.proof();
+                                final GatewaySubmissionOutcome commitResponse =
                                         gateway.commitLargeSchedule(commitRequest(receipt, proof, partition));
-                                final CommandQueuedReceiptV1 commitReceipt = requireQueued(
+                                final CanonicalCommandQueuedReceipt commitReceipt = requireQueued(
                                         commitResponse,
                                         "CommitLargeSchedule",
                                         partition,
@@ -1576,7 +1578,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
             final OwnedDelayShard ownedShard,
             final List<SourceReplayEntry> entries,
             final KeyPair verificationKeys,
-            final CompatibleControlSnapshotV1 controlSnapshot,
+            final CompatibleControlSnapshot controlSnapshot,
             final WorkClassExecutionRegistry workClasses) {
         final OwnerRecoveryCoordinator recovery = new OwnerRecoveryCoordinator(
                 ownedShard,
@@ -1667,37 +1669,37 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         }
     }
 
-    static CommandQueuedReceiptV1 requireQueued(
-            final GatewaySubmissionOutcomeV1 response, final String operation, final long expectedOffset) {
+    static CanonicalCommandQueuedReceipt requireQueued(
+            final GatewaySubmissionOutcome response, final String operation, final long expectedOffset) {
         return requireQueued(response, operation, -1, expectedOffset);
     }
 
-    static CommandQueuedReceiptV1 requireQueued(
-            final GatewaySubmissionOutcomeV1 response,
+    static CanonicalCommandQueuedReceipt requireQueued(
+            final GatewaySubmissionOutcome response,
             final String operation,
             final int expectedPartition,
             final long expectedOffset) {
         if (!response.hasSubmissionOutcomeNdr1()) {
-            final StableErrorV1 error =
-                    StableErrorV1.decode(response.getPreparationErrorV1().toByteArray());
+            final StableError error =
+                    StableError.decode(response.getPreparationError().toByteArray());
             throw new IllegalStateException(operation + " returned preparation error: stage=" + error.stage()
                     + ", code=" + error.code() + ", retryability=" + error.retryability()
                     + ", retryAtEpochMs=" + error.retryAtEpochMs()
                     + ", diagnosticCode=" + error.diagnosticCode());
         }
-        final SubmissionOutcomeMessageV1 outcome = SubmissionOutcomeMessageV1.decode(
+        final SubmissionOutcomeMessage outcome = SubmissionOutcomeMessage.decode(
                 response.getSubmissionOutcomeNdr1().toByteArray());
-        if (outcome.kind() != com.nereusstream.delay.protocol.SubmissionOutcomeKindV1.MANAGED
-                || outcome.managed().kind() != EnqueueOutcomeKindV1.QUEUED) {
+        if (outcome.kind() != com.nereusstream.delay.protocol.SubmissionOutcomeKind.MANAGED
+                || outcome.managed().kind() != EnqueueOutcomeKind.QUEUED) {
             final String detail;
-            if (outcome.kind() != com.nereusstream.delay.protocol.SubmissionOutcomeKindV1.MANAGED) {
+            if (outcome.kind() != com.nereusstream.delay.protocol.SubmissionOutcomeKind.MANAGED) {
                 detail = "kind=" + outcome.kind();
-            } else if (outcome.managed().kind() == EnqueueOutcomeKindV1.DEFINITELY_NOT_QUEUED) {
+            } else if (outcome.managed().kind() == EnqueueOutcomeKind.DEFINITELY_NOT_QUEUED) {
                 detail = "kind=" + outcome.managed().kind() + ", code="
                         + outcome.managed().definitelyNotQueued().error().code()
                         + ", stage="
                         + outcome.managed().definitelyNotQueued().error().stage();
-            } else if (outcome.managed().kind() == EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN) {
+            } else if (outcome.managed().kind() == EnqueueOutcomeKind.ENQUEUE_UNCERTAIN) {
                 detail = "kind=" + outcome.managed().kind() + ", code="
                         + outcome.managed().uncertain().error().code()
                         + ", stage=" + outcome.managed().uncertain().error().stage();
@@ -1706,7 +1708,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
             }
             throw new IllegalStateException(operation + " did not produce a managed QUEUED outcome: " + detail);
         }
-        final CommandQueuedReceiptV1 receipt = outcome.managed().queued();
+        final CanonicalCommandQueuedReceipt receipt = outcome.managed().queued();
         if (!(receipt.sourcePosition() instanceof KafkaSourcePosition position)
                 || position.offset() != expectedOffset
                 || (expectedPartition >= 0 && position.shardId().partition() != expectedPartition)) {
@@ -1717,67 +1719,67 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         return receipt;
     }
 
-    static byte[] reservationId(final CommandQueuedReceiptV1 receipt) {
+    static byte[] reservationId(final CanonicalCommandQueuedReceipt receipt) {
         return Bytes.sha256(
-                Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                Bytes.utf8("nereus-delay-reservation-id\0"),
                 receipt.command().commandId().bytes(),
                 receipt.command().delayMessageId().bytes(),
                 receipt.command().commandHash());
     }
 
-    static GatewayPrepareLargeScheduleRequestV1 prepareRequest(
-            final ScheduleIntentV1 intent,
+    static GatewayPrepareLargeScheduleRequest prepareRequest(
+            final CanonicalScheduleIntent intent,
             final long payloadLength,
             final byte[] payloadHash,
-            final PayloadProofTrustSetRefV1 trustSet,
-            final ProfileRefV1 objectStoreProfile) {
+            final PayloadProofTrustSetRef trustSet,
+            final ProfileRef objectStoreProfile) {
         return prepareRequest(intent, payloadLength, payloadHash, trustSet, objectStoreProfile, 0);
     }
 
-    static GatewayPrepareLargeScheduleRequestV1 prepareRequest(
-            final ScheduleIntentV1 intent,
+    static GatewayPrepareLargeScheduleRequest prepareRequest(
+            final CanonicalScheduleIntent intent,
             final long payloadLength,
             final byte[] payloadHash,
-            final PayloadProofTrustSetRefV1 trustSet,
-            final ProfileRefV1 objectStoreProfile,
+            final PayloadProofTrustSetRef trustSet,
+            final ProfileRef objectStoreProfile,
             final int partition) {
-        return GatewayPrepareLargeScheduleRequestV1.newBuilder()
+        return GatewayPrepareLargeScheduleRequest.newBuilder()
                 .setIdempotencyKey(ByteString.copyFrom(bytes(16, 80 + (partition * 2))))
-                .setRoute(GatewayRouteSelectorV1.newBuilder()
-                        .setIngressAdapterKind(AdapterKindV1.KAFKA.wireValue())
+                .setRoute(GatewayRouteSelector.newBuilder()
+                        .setIngressAdapterKind(AdapterKind.KAFKA.wireValue())
                         .setRouteAliasUtf8Nfc(ByteString.copyFromUtf8("primary")))
-                .setScheduleIntentV1(ByteString.copyFrom(intent.canonicalBytes()))
+                .setCanonicalScheduleIntent(ByteString.copyFrom(intent.canonicalBytes()))
                 .setExpectedPayloadLength(payloadLength)
                 .setPayloadSha256(ByteString.copyFrom(payloadHash))
                 .setReservationTtlMs(120_000)
-                .setPayloadProofTrustSetRefV1(ByteString.copyFrom(trustSet.canonicalBytes()))
-                .setObjectStoreProfileRefV1(ByteString.copyFrom(objectStoreProfile.canonicalBytes()))
+                .setPayloadProofTrustSetRef(ByteString.copyFrom(trustSet.canonicalBytes()))
+                .setObjectStoreProfileRef(ByteString.copyFrom(objectStoreProfile.canonicalBytes()))
                 .setRetryUntilEpochMs(System.currentTimeMillis() + 120_000)
                 .build();
     }
 
-    static GatewayCommitLargeScheduleRequestV1 commitRequest(
-            final PayloadReservationReceiptV1 receipt, final PayloadCommitProofV1 proof) {
+    static GatewayCommitLargeScheduleRequest commitRequest(
+            final PayloadReservationReceipt receipt, final CanonicalPayloadCommitProof proof) {
         return commitRequest(receipt, proof, 0);
     }
 
-    static GatewayCommitLargeScheduleRequestV1 commitRequest(
-            final PayloadReservationReceiptV1 receipt, final PayloadCommitProofV1 proof, final int partition) {
-        return GatewayCommitLargeScheduleRequestV1.newBuilder()
+    static GatewayCommitLargeScheduleRequest commitRequest(
+            final PayloadReservationReceipt receipt, final CanonicalPayloadCommitProof proof, final int partition) {
+        return GatewayCommitLargeScheduleRequest.newBuilder()
                 .setIdempotencyKey(ByteString.copyFrom(bytes(16, 81 + (partition * 2))))
-                .setPayloadReservationReceiptV1(ByteString.copyFrom(receipt.payload()))
-                .setPayloadCommitProofV1(ByteString.copyFrom(proof.canonicalBytes()))
+                .setPayloadReservationReceipt(ByteString.copyFrom(receipt.payload()))
+                .setCanonicalPayloadCommitProof(ByteString.copyFrom(proof.canonicalBytes()))
                 .setRetryUntilEpochMs(System.currentTimeMillis() + 120_000)
                 .build();
     }
 
-    static ScheduleIntentV1 largeScheduleIntent(final long now) {
+    static CanonicalScheduleIntent largeScheduleIntent(final long now) {
         return largeScheduleIntent(now, Bytes.utf8("large-payload-key"));
     }
 
-    static ScheduleIntentV1 largeScheduleIntent(final long now, final byte[] orderingKey) {
+    static CanonicalScheduleIntent largeScheduleIntent(final long now, final byte[] orderingKey) {
         final long deliverAt = now + 15_000;
-        return ScheduleIntentV1.forPrepare(
+        return CanonicalScheduleIntent.forPrepare(
                 destinationProfile(),
                 retryPolicy(),
                 deliverAt,
@@ -1785,14 +1787,14 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 DeliveryMode.MANAGED,
                 OrderingMode.BEST_EFFORT,
                 orderingKey,
-                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())),
+                AdapterMetadata.kafka(new KafkaMetadata(null, List.of())),
                 null,
                 null);
     }
 
     private static PreparedCommand command(final ShardId shard, final String identity) {
         final long deliverAt = System.currentTimeMillis() + 1_000;
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
                 destinationProfile(),
                 retryPolicy(),
                 deliverAt,
@@ -1802,29 +1804,29 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 new byte[0],
                 Bytes.utf8(identity),
                 null,
-                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())),
+                AdapterMetadata.kafka(new KafkaMetadata(null, List.of())),
                 null,
                 null);
-        return PreparedCommand.scheduleV1(shard, intent, deliverAt + 20_000);
+        return PreparedCommand.schedule(shard, intent, deliverAt + 20_000);
     }
 
-    static ProfileRefV1 destinationProfile() {
-        return new ProfileRefV1(
+    static ProfileRef destinationProfile() {
+        return new ProfileRef(
                 Bytes.utf8("destination-large-payload"),
                 1,
                 Bytes.sha256(Bytes.utf8("destination-large-payload-semantic")),
-                ProfileKindV1.DESTINATION);
+                ProfileKind.DESTINATION);
     }
 
-    static RetryPolicyRefV1 retryPolicy() {
-        return new RetryPolicyRefV1(
+    static RetryPolicyRef retryPolicy() {
+        return new RetryPolicyRef(
                 Bytes.utf8("retry-large-payload"), 1, Bytes.sha256(Bytes.utf8("retry-large-payload-semantic")));
     }
 
-    static ProfileSemanticEnvelopeV1 objectStoreProfile(
+    static ProfileSemanticEnvelope objectStoreProfile(
             final URI endpoint, final String region, final String bucket, final String accessKey) {
-        final ObjectStoreProfileSemanticV1 semantic = new ObjectStoreProfileSemanticV1(
-                ObjectStoreProviderKindV1.S3_COMPATIBLE,
+        final ObjectStoreProfileSemantic semantic = new ObjectStoreProfileSemantic(
+                ObjectStoreProviderKind.S3_COMPATIBLE,
                 S3CompatiblePayloadObjectStore.endpointConfigDigest(endpoint, region, bucket),
                 S3CompatiblePayloadObjectStore.credentialAuthorizationScopeDigest(accessKey, region, bucket),
                 1,
@@ -1834,11 +1836,10 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 true,
                 bytes(32, 20),
                 8L << 20,
-                ObjectStoreProfileSemanticV1.SINGLE_PUT,
+                ObjectStoreProfileSemantic.SINGLE_PUT,
                 1,
                 bytes(32, 21));
-        return new ProfileSemanticEnvelopeV1(
-                ProfileKindV1.OBJECT_STORE, Bytes.utf8("large-payload-store"), 1, semantic);
+        return new ProfileSemanticEnvelope(ProfileKind.OBJECT_STORE, Bytes.utf8("large-payload-store"), 1, semantic);
     }
 
     static byte[] payload() {
@@ -1851,7 +1852,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
 
     static SystemMutation trustActivation(
             final ShardId shard,
-            final PayloadProofTrustSetRefV1 trustSet,
+            final PayloadProofTrustSetRef trustSet,
             final AuthenticatedTenantContext tenant,
             final KeyPair signingKeys) {
         final long retryUntil = System.currentTimeMillis() + 300_000;
@@ -1878,14 +1879,14 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
     private static byte[] trustSetControlBody(
             final ShardId shard,
             final ControlRef controlRef,
-            final PayloadProofTrustSetRefV1 trustSet,
+            final PayloadProofTrustSetRef trustSet,
             final long retryUntil) {
         final byte[] subject = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, shard.routeIncarnation().bytes());
             CanonicalProtobuf.uint32(output, 2, shard.partition());
         });
         final byte[] payload = CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(
-                output, 12, new PayloadProofTrustSetActivatePayloadV1(trustSet).canonicalBytes()));
+                output, 12, new PayloadProofTrustSetActivatePayload(trustSet).canonicalBytes()));
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, subject);
             CanonicalProtobuf.uint32(output, 2, SystemMutationType.APPLY_SHARD_CONTROL.wireValue());
@@ -1898,15 +1899,15 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         });
     }
 
-    static V1ScheduleResolver scheduleResolver() {
-        final byte[] tuple = Bytes.utf8("large-payload-kafka-canonical-lane-tuple-v1");
+    static ScheduleResolver scheduleResolver() {
+        final byte[] tuple = Bytes.utf8("large-payload-kafka-canonical-lane-tuple");
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
-        return new V1ScheduleResolver() {
+        return new ScheduleResolver() {
             @Override
             public ResolvedSchedule resolveSchedule(
                     final ShardId shard,
                     final com.nereusstream.delay.protocol.DelayMessageId message,
-                    final ScheduleIntentV1 intent,
+                    final CanonicalScheduleIntent intent,
                     final com.nereusstream.delay.protocol.SourcePosition source) {
                 return new ResolvedSchedule(lane, tuple, intent.inlinePayload(), null);
             }
@@ -1915,35 +1916,35 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
             public ResolvedPrepare resolvePrepare(
                     final ShardId shard,
                     final com.nereusstream.delay.protocol.DelayMessageId message,
-                    final com.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1 body,
+                    final com.nereusstream.delay.protocol.PrepareLargeScheduleBody body,
                     final com.nereusstream.delay.protocol.SourcePosition source) {
                 return new ResolvedPrepare(lane, tuple);
             }
         };
     }
 
-    static V1ScheduleResolver scheduleResolver(
+    static ScheduleResolver scheduleResolver(
             final String clusterId, final UUID destinationTopicId, final String destinationPhysicalTopic) {
         return scheduleResolver(clusterId, destinationTopicId, destinationPhysicalTopic, 0);
     }
 
-    static V1ScheduleResolver scheduleResolver(
+    static ScheduleResolver scheduleResolver(
             final String clusterId,
             final UUID destinationTopicId,
             final String destinationPhysicalTopic,
             final int destinationPartition) {
-        final ProfileRefV1 destination = destinationProfile();
-        final ProfileRefV1 capability = capabilityProfile();
+        final ProfileRef destination = destinationProfile();
+        final ProfileRef capability = capabilityProfile();
         final byte[] tuple = canonicalLaneTuple(
                 clusterId, destinationTopicId, destinationPhysicalTopic, destination, capability, destinationPartition);
         final DestinationLaneId lane = DestinationLaneId.derive(tuple);
-        final V1ScheduleResolver compatibilityResolver = scheduleResolver();
-        return new V1ScheduleResolver() {
+        final ScheduleResolver compatibilityResolver = scheduleResolver();
+        return new ScheduleResolver() {
             @Override
             public ResolvedSchedule resolveSchedule(
                     final ShardId shard,
                     final com.nereusstream.delay.protocol.DelayMessageId message,
-                    final ScheduleIntentV1 intent,
+                    final CanonicalScheduleIntent intent,
                     final com.nereusstream.delay.protocol.SourcePosition source) {
                 // The pre-route Schedule is a recovery/barrier fixture. Keep
                 // it on the legacy compatibility lane so a physical
@@ -1955,7 +1956,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
             public ResolvedPrepare resolvePrepare(
                     final ShardId shard,
                     final com.nereusstream.delay.protocol.DelayMessageId message,
-                    final com.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1 body,
+                    final com.nereusstream.delay.protocol.PrepareLargeScheduleBody body,
                     final com.nereusstream.delay.protocol.SourcePosition source) {
                 return new ResolvedPrepare(lane, tuple);
             }
@@ -1968,20 +1969,20 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 clusterId, destinationTopicId, destinationPhysicalTopic, destinationProfile(), capabilityProfile()));
     }
 
-    private static ProfileRefV1 capabilityProfile() {
-        return new ProfileRefV1(
+    private static ProfileRef capabilityProfile() {
+        return new ProfileRef(
                 Bytes.utf8("kafka-worker-capability"),
                 1,
                 Bytes.sha256(Bytes.utf8("kafka-worker-capability-semantic")),
-                ProfileKindV1.DELIVERY_CAPABILITY);
+                ProfileKind.DELIVERY_CAPABILITY);
     }
 
     private static byte[] canonicalLaneTuple(
             final String clusterId,
             final UUID topicId,
             final String physicalTopic,
-            final ProfileRefV1 destination,
-            final ProfileRefV1 capability) {
+            final ProfileRef destination,
+            final ProfileRef capability) {
         return canonicalLaneTuple(clusterId, topicId, physicalTopic, destination, capability, 0);
     }
 
@@ -1989,8 +1990,8 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
             final String clusterId,
             final UUID topicId,
             final String physicalTopic,
-            final ProfileRefV1 destination,
-            final ProfileRefV1 capability,
+            final ProfileRef destination,
+            final ProfileRef capability,
             final int physicalPartition) {
         if (physicalTopic == null || physicalTopic.isBlank()) {
             throw new IllegalArgumentException("Kafka physical topic must be nonblank");
@@ -2001,7 +2002,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         final byte[] topicUuid = uuidBytes(topicId);
         return Bytes.concat(
                 Bytes.sha256(Bytes.utf8("kafka-worker-tenant-routing-scope")),
-                Bytes.u8(AdapterKindV1.KAFKA.wireValue()),
+                Bytes.u8(AdapterKind.KAFKA.wireValue()),
                 Bytes.lp32(Bytes.utf8(clusterId)),
                 Bytes.u8(1),
                 topicUuid,
@@ -2017,7 +2018,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 Bytes.sha256(Bytes.utf8("kafka-worker-ordering-domain")));
     }
 
-    static RouteSnapshotV1 routeSnapshot(
+    static RouteSnapshot routeSnapshot(
             final String clusterId,
             final String topic,
             final UUID topicId,
@@ -2026,14 +2027,14 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
             final AuthenticatedTenantContext tenant,
             final KeyPair signingKeys) {
         final long now = System.currentTimeMillis();
-        final BrokerResourceIdentityV1 broker =
-                BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(clusterId, topicId));
-        final RoutePartitionPolicyV1 policy = new RoutePartitionPolicyV1(
+        final BrokerResourceIdentity broker =
+                BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(clusterId, topicId));
+        final RoutePartitionPolicy policy = new RoutePartitionPolicy(
                 0,
-                ActivationBarrierV1.kafka(broker, 0, 2, evidence.lastStableOffset()),
+                ActivationBarrier.kafka(broker, 0, 2, evidence.lastStableOffset()),
                 zeroQuota(),
                 1,
-                Bytes.sha256(Bytes.utf8("large-payload-fetch-proof-v1\0"), evidence.fetchResponseBodySha256()));
+                Bytes.sha256(Bytes.utf8("large-payload-fetch-proof\0"), evidence.fetchResponseBodySha256()));
         final TrustedUtcIntervalEvidence issuedAt = new TrustedUtcIntervalEvidence(
                 now - 100,
                 now,
@@ -2045,15 +2046,15 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 Bytes.sha256(Bytes.utf8("large-payload-route-issued-at")),
                 0,
                 null);
-        return RouteSnapshotV1.create(
+        return RouteSnapshot.create(
                 incarnation,
                 tenant.authenticatedTenantScopeHash(),
                 tenant.tenantRoutingScope(),
-                RouteLifecycleV1.ACTIVE_FOR_NEW,
+                RouteLifecycle.ACTIVE_FOR_NEW,
                 now + 30_000,
-                new com.nereusstream.delay.protocol.KafkaIngressRouteResourceV1(clusterId, topic, topicId, 1),
-                RoutingHashVersionV1.ROUTING_HASH_V1,
-                new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1),
+                new com.nereusstream.delay.protocol.KafkaIngressRouteResource(clusterId, topic, topicId, 1),
+                RoutingHashVersion.ROUTING_HASH,
+                new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1),
                 1,
                 List.of(policy),
                 100,
@@ -2065,14 +2066,14 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 180_000,
                 now - 1_000,
                 now + 300_000,
-                new IngressCredentialBindingRefV1(bytes(32, 40), 1, bytes(32, 41), bytes(32, 42), bytes(32, 43)),
+                new IngressCredentialBindingRef(bytes(32, 40), 1, bytes(32, 41), bytes(32, 42), bytes(32, 43)),
                 Bytes.sha256(Bytes.utf8("large-payload-route-prerequisite")),
                 issuedAt,
                 1,
                 signingKeys.getPrivate());
     }
 
-    private static RouteSnapshotV1 multiRouteSnapshot(
+    private static RouteSnapshot multiRouteSnapshot(
             final String clusterId,
             final String topic,
             final UUID topicId,
@@ -2081,20 +2082,20 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
             final AuthenticatedTenantContext tenant,
             final KeyPair signingKeys) {
         final long now = System.currentTimeMillis();
-        final BrokerResourceIdentityV1 broker =
-                BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(clusterId, topicId));
-        final List<RoutePartitionPolicyV1> policies = probes.stream()
+        final BrokerResourceIdentity broker =
+                BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(clusterId, topicId));
+        final List<RoutePartitionPolicy> policies = probes.stream()
                 .map(probe -> {
                     final int partition = probe.shard().partition();
                     final org.apache.kafka.clients.consumer.GuardedFetchEvidence evidence = probe.evidence();
-                    return new RoutePartitionPolicyV1(
+                    return new RoutePartitionPolicy(
                             partition,
-                            ActivationBarrierV1.kafka(
+                            ActivationBarrier.kafka(
                                     broker, partition, probe.barrierOffset(), evidence.lastStableOffset()),
                             zeroQuota(),
                             1,
                             Bytes.sha256(
-                                    Bytes.utf8("large-payload-multi-fetch-proof-v1\0"),
+                                    Bytes.utf8("large-payload-multi-fetch-proof\0"),
                                     evidence.fetchResponseBodySha256()));
                 })
                 .toList();
@@ -2109,15 +2110,15 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 Bytes.sha256(Bytes.utf8("large-payload-multi-route-issued-at")),
                 0,
                 null);
-        return RouteSnapshotV1.create(
+        return RouteSnapshot.create(
                 incarnation,
                 tenant.authenticatedTenantScopeHash(),
                 tenant.tenantRoutingScope(),
-                RouteLifecycleV1.ACTIVE_FOR_NEW,
+                RouteLifecycle.ACTIVE_FOR_NEW,
                 now + 30_000,
-                new KafkaIngressRouteResourceV1(clusterId, topic, topicId, probes.size()),
-                RoutingHashVersionV1.ROUTING_HASH_V1,
-                new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1),
+                new KafkaIngressRouteResource(clusterId, topic, topicId, probes.size()),
+                RoutingHashVersion.ROUTING_HASH,
+                new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1),
                 1,
                 policies,
                 100,
@@ -2129,7 +2130,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 180_000,
                 now - 1_000,
                 now + 300_000,
-                new IngressCredentialBindingRefV1(bytes(32, 40), 1, bytes(32, 41), bytes(32, 42), bytes(32, 43)),
+                new IngressCredentialBindingRef(bytes(32, 40), 1, bytes(32, 41), bytes(32, 42), bytes(32, 43)),
                 Bytes.sha256(Bytes.utf8("large-payload-multi-route-prerequisite")),
                 issuedAt,
                 1,
@@ -2146,7 +2147,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 List.of(new WorkerPlacementPolicy.WorkerCandidate(
                         "kafka-large-payload-worker",
                         capacity(2),
-                        CapacityVectorV1.empty(),
+                        CapacityVector.empty(),
                         0,
                         16,
                         0,
@@ -2157,8 +2158,8 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                         true,
                         0)),
                 capacity(1),
-                CapacityVectorV1.empty(),
-                CapacityVectorV1.empty(),
+                CapacityVector.empty(),
+                CapacityVector.empty(),
                 null,
                 now,
                 0,
@@ -2176,7 +2177,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 List.of(new WorkerPlacementPolicy.WorkerCandidate(
                         workerId,
                         capacity(2),
-                        CapacityVectorV1.empty(),
+                        CapacityVector.empty(),
                         0,
                         16,
                         0,
@@ -2187,8 +2188,8 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                         true,
                         0)),
                 capacity(1),
-                CapacityVectorV1.empty(),
-                CapacityVectorV1.empty(),
+                CapacityVector.empty(),
+                CapacityVector.empty(),
                 null,
                 now,
                 0,
@@ -2196,10 +2197,10 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
     }
 
     private static byte[] orderingKeyForPartition(
-            final RouteSnapshotV1 snapshot, final AuthenticatedTenantContext tenant, final int partition) {
+            final RouteSnapshot snapshot, final AuthenticatedTenantContext tenant, final int partition) {
         for (int attempt = 0; attempt < 100_000; attempt++) {
             final byte[] candidate = Bytes.utf8("large-payload-multi-ordering-key-" + attempt);
-            if (RouteHashV1.partition(snapshot, tenant.tenantRoutingScope(), candidate) == partition) {
+            if (RouteHash.partition(snapshot, tenant.tenantRoutingScope(), candidate) == partition) {
                 return candidate;
             }
         }
@@ -2208,7 +2209,7 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
 
     static void requireRouteAssignment(
             final WorkerAssignment assignment,
-            final RouteSnapshotV1 snapshot,
+            final RouteSnapshot snapshot,
             final String clusterId,
             final UUID topicId,
             final long barrierOffset) {
@@ -2222,10 +2223,10 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         }
     }
 
-    static CompatibleControlSnapshotV1 controlSnapshot(final ShardId shard, final ProfileRefV1 destinationProfile) {
-        return new CompatibleControlSnapshotV1(
-                new ShardSubjectV1(shard),
-                List.of(new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1)),
+    static CompatibleControlSnapshot controlSnapshot(final ShardId shard, final ProfileRef destinationProfile) {
+        return new CompatibleControlSnapshot(
+                new ShardSubject(shard),
+                List.of(new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1)),
                 List.of(destinationProfile),
                 zeroQuota());
     }
@@ -2257,14 +2258,14 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
                 System::nanoTime);
     }
 
-    private static CapacityVectorV1 capacity(final long dbInstances) {
-        final long[] values = new long[CapacityDimensionV1.COUNT];
-        values[CapacityDimensionV1.DB_INSTANCES.wireValue() - 1] = dbInstances;
-        return new CapacityVectorV1(values);
+    private static CapacityVector capacity(final long dbInstances) {
+        final long[] values = new long[CapacityDimension.COUNT];
+        values[CapacityDimension.DB_INSTANCES.wireValue() - 1] = dbInstances;
+        return new CapacityVector(values);
     }
 
-    private static QuotaGrantRefV1 zeroQuota() {
-        return new QuotaGrantRefV1(
+    private static QuotaGrantRef zeroQuota() {
+        return new QuotaGrantRef(
                 bytes(32, 50),
                 1,
                 new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
@@ -2410,10 +2411,10 @@ public final class KafkaClientArtifactLargePayloadGatewaySmoke {
         return input + "." + encode(signature.sign());
     }
 
-    static DelayGatewayV1Grpc.DelayGatewayV1BlockingStub stub(final ManagedChannel channel, final String token) {
+    static DelayGatewayGrpc.DelayGatewayBlockingStub stub(final ManagedChannel channel, final String token) {
         final Metadata headers = new Metadata();
         headers.put(Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER), "Bearer " + token);
-        return DelayGatewayV1Grpc.newBlockingStub(
+        return DelayGatewayGrpc.newBlockingStub(
                 ClientInterceptors.intercept(channel, MetadataUtils.newAttachHeadersInterceptor(headers)));
     }
 

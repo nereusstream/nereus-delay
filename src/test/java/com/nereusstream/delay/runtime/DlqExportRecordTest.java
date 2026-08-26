@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.DelayMessageId;
-import com.nereusstream.delay.protocol.DlqExportStateV1;
+import com.nereusstream.delay.protocol.DlqExportState;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
 import com.nereusstream.delay.protocol.RouteIncarnation;
@@ -23,7 +23,7 @@ class DlqExportRecordTest {
 
         final DlqExportRecord record = DlqExportRecord.notConfigured(messageId, 2, 17, source);
 
-        assertEquals(DlqExportStateV1.NOT_CONFIGURED, record.state());
+        assertEquals(DlqExportState.NOT_CONFIGURED, record.state());
         assertEquals(0, record.physicalAttemptNo());
         assertEquals(record, DlqExportRecord.decode(record.encode()));
         assertArrayEquals(record.dlqExportId(), DlqExportRecord.deriveId(messageId, 2, 17));
@@ -60,7 +60,7 @@ class DlqExportRecordTest {
                 1,
                 envelope,
                 emptyCharge,
-                DlqExportStateV1.PENDING,
+                DlqExportState.PENDING,
                 highBit,
                 source);
 
@@ -86,7 +86,7 @@ class DlqExportRecordTest {
                         0,
                         1,
                         Bytes.sha256(Bytes.utf8("envelope")),
-                        DlqExportStateV1.NOT_CONFIGURED,
+                        DlqExportState.NOT_CONFIGURED,
                         1,
                         source));
     }

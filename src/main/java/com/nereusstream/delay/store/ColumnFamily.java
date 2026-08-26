@@ -1,6 +1,6 @@
 package com.nereusstream.delay.store;
 
-/** Closed V1 RocksDB column-family set (plus RocksDB's empty default CF). */
+/** Closed RocksDB column-family set (plus RocksDB's empty default CF). */
 public enum ColumnFamily {
     TIMELINE("timeline_cf"),
     ID("id_cf"),

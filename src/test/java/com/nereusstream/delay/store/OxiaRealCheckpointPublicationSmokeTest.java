@@ -12,28 +12,28 @@ import com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
 import com.nereusstream.delay.ownership.ShardLifecycleState;
 import com.nereusstream.delay.ownership.SourceAssignment;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
-import com.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
+import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
-import com.nereusstream.delay.protocol.ObjectStoreProviderKindV1;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
+import com.nereusstream.delay.protocol.ObjectStoreProfileSemantic;
+import com.nereusstream.delay.protocol.ObjectStoreProviderKind;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
+import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
-import com.nereusstream.delay.protocol.QuotaGrantRefV1;
-import com.nereusstream.delay.protocol.RecoveryCandidateKindV1;
-import com.nereusstream.delay.protocol.RecoveryCandidateRefV1;
-import com.nereusstream.delay.protocol.RecoveryFloorRefV1;
-import com.nereusstream.delay.protocol.RecoveryPinV1;
+import com.nereusstream.delay.protocol.QuotaGrantRef;
+import com.nereusstream.delay.protocol.RecoveryCandidateKind;
+import com.nereusstream.delay.protocol.RecoveryCandidateRef;
+import com.nereusstream.delay.protocol.RecoveryFloorRef;
+import com.nereusstream.delay.protocol.RecoveryPin;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClass;
@@ -68,8 +68,8 @@ class OxiaRealCheckpointPublicationSmokeTest {
     @Test
     void workerCheckpointRuntimePublishesAtomicIntentAndCatalogAgainstRealService() throws Exception {
         final String endpoint = endpoint();
-        final ProfileRefV1 objectStore =
-                new ProfileRefV1(Bytes.utf8("checkpoint-store"), 1, id32(4), ProfileKindV1.OBJECT_STORE);
+        final ProfileRef objectStore =
+                new ProfileRef(Bytes.utf8("checkpoint-store"), 1, id32(4), ProfileKind.OBJECT_STORE);
         final Path objectRoot = tempDir.resolve("objects");
         final PublishedCheckpoint published = publishWorkerCheckpoint(
                 endpoint,
@@ -88,7 +88,7 @@ class OxiaRealCheckpointPublicationSmokeTest {
         final String bucket = required("NEREUS_DELAY_MINIO_BUCKET");
         final String accessKey = required("NEREUS_DELAY_MINIO_ACCESS_KEY");
         final String secretKey = required("NEREUS_DELAY_MINIO_SECRET_KEY");
-        final ProfileSemanticEnvelopeV1 profile = minioProfile(minioEndpoint, region, bucket, accessKey);
+        final ProfileSemanticEnvelope profile = minioProfile(minioEndpoint, region, bucket, accessKey);
         final S3CompatibleCheckpointObjectStoreAdapter adapter = new S3CompatibleCheckpointObjectStoreAdapter(
                 profile,
                 minioEndpoint,
@@ -104,7 +104,7 @@ class OxiaRealCheckpointPublicationSmokeTest {
 
         final PublishedCheckpoint published = publishWorkerCheckpoint(
                 oxiaEndpoint, "nereus-delay-real-checkpoint-minio/" + UUID.randomUUID(), profile.ref(), adapter);
-        final CheckpointResourceV1 resource = published.resource();
+        final CheckpointResource resource = published.resource();
         final Path restored = adapter.download(
                 new CheckpointDownloadRequest(published.manifest(), resource), tempDir.resolve("restored"));
         assertEquals(
@@ -129,7 +129,7 @@ class OxiaRealCheckpointPublicationSmokeTest {
         final String bucket = required("NEREUS_DELAY_MINIO_BUCKET");
         final String accessKey = required("NEREUS_DELAY_MINIO_ACCESS_KEY");
         final String secretKey = required("NEREUS_DELAY_MINIO_SECRET_KEY");
-        final ProfileSemanticEnvelopeV1 profile = minioProfile(minioEndpoint, region, bucket, accessKey);
+        final ProfileSemanticEnvelope profile = minioProfile(minioEndpoint, region, bucket, accessKey);
         final S3CompatibleCheckpointObjectStoreAdapter adapter = new S3CompatibleCheckpointObjectStoreAdapter(
                 profile,
                 minioEndpoint,
@@ -158,7 +158,7 @@ class OxiaRealCheckpointPublicationSmokeTest {
     private PublishedCheckpoint publishWorkerCheckpoint(
             final String endpoint,
             final String prefix,
-            final ProfileRefV1 objectStore,
+            final ProfileRef objectStore,
             final CheckpointUploadAdapter adapter)
             throws Exception {
         final WorkerCheckpointRun run = runWorkerCheckpoint(endpoint, prefix, objectStore, adapter);
@@ -169,7 +169,7 @@ class OxiaRealCheckpointPublicationSmokeTest {
     private WorkerCheckpointRun runWorkerCheckpoint(
             final String endpoint,
             final String prefix,
-            final ProfileRefV1 objectStore,
+            final ProfileRef objectStore,
             final CheckpointUploadAdapter adapter)
             throws Exception {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 23);
@@ -193,9 +193,9 @@ class OxiaRealCheckpointPublicationSmokeTest {
             final OwnerLease activeLease = ownerAuthority
                     .transitionOrRead(acquiring, ShardLifecycleState.ACTIVE_FOR_COMMANDS)
                     .orElseThrow();
-            final OwnerIdentityV1 owner = new OwnerIdentityV1(
+            final OwnerIdentity owner = new OwnerIdentity(
                     Bytes.utf8("deployment"), Bytes.utf8("worker"), activeLease.ownerEpoch(), id32(1));
-            final CompatibleControlSnapshotV1 controlSnapshot = controlSnapshot(shard);
+            final CompatibleControlSnapshot controlSnapshot = controlSnapshot(shard);
             store.recordControlSnapshot(controlSnapshot);
             final KafkaSourcePosition parentPosition =
                     new KafkaSourcePosition(shard, "cluster", sourceTopic, 0, null, 900);
@@ -211,8 +211,8 @@ class OxiaRealCheckpointPublicationSmokeTest {
             final CheckpointManifest parent =
                     parentManifest(store, shard, lineage, owner, controlSnapshot, parentPosition);
             assertEquals(1, publicationBackend.publish(parent, 0).catalogGeneration());
-            final CheckpointUploadIntentV1 pending = new CheckpointUploadIntentV1(
-                    new ShardSubjectV1(shard),
+            final CheckpointUploadIntent pending = new CheckpointUploadIntent(
+                    new ShardSubject(shard),
                     lineage,
                     checkpointId,
                     owner,
@@ -224,7 +224,7 @@ class OxiaRealCheckpointPublicationSmokeTest {
                     objectStore,
                     evidence(1_000),
                     5_000,
-                    CheckpointUploadStateV1.PENDING_UPLOAD,
+                    CheckpointUploadState.PENDING_UPLOAD,
                     1,
                     null,
                     null);
@@ -267,7 +267,7 @@ class OxiaRealCheckpointPublicationSmokeTest {
                     submitted.outcome().orElseThrow();
             if (outcome.result() != null) {
                 assertEquals(
-                        CheckpointUploadStateV1.PUBLISHED,
+                        CheckpointUploadState.PUBLISHED,
                         outcome.result().publication().uploadIntent().state());
                 assertEquals(
                         outcome.result().publication().uploadIntent(),
@@ -277,7 +277,7 @@ class OxiaRealCheckpointPublicationSmokeTest {
                         publicationBackend.manifest(checkpointId).orElseThrow().canonicalJsonBytes());
                 assertTrue(Files.isDirectory(checkpointDirectory));
                 assertFalse(scheduler.isInFlight(shard));
-                final CheckpointUploadIntentV1 publishedIntent =
+                final CheckpointUploadIntent publishedIntent =
                         outcome.result().publication().uploadIntent();
                 assertTrue(ownerAuthority.release(activeLease));
                 assertTrue(ownerAuthority.current(shard).isEmpty());
@@ -326,8 +326,8 @@ class OxiaRealCheckpointPublicationSmokeTest {
             final OxiaSyncCheckpointPublicationBackend backend =
                     new OxiaSyncCheckpointPublicationBackend(owner, prefix + "/publication", LIMITS);
             assertEquals(1, backend.publish(manifest, 0).catalogGeneration());
-            final RecoveryFloorRefV1 floor = backend.advanceFloor(manifest.checkpointId(), 1, List.of());
-            final RecoveryPinV1 pin = recoveryPin(shard, manifest, floor, owner.sessionIdentity());
+            final RecoveryFloorRef floor = backend.advanceFloor(manifest.checkpointId(), 1, List.of());
+            final RecoveryPin pin = recoveryPin(shard, manifest, floor, owner.sessionIdentity());
 
             assertEquals(pin, backend.createRecoveryPin(pin));
             assertEquals(pin, backend.activeRecoveryPin().orElseThrow());
@@ -374,10 +374,10 @@ class OxiaRealCheckpointPublicationSmokeTest {
         }
     }
 
-    private static ProfileSemanticEnvelopeV1 minioProfile(
+    private static ProfileSemanticEnvelope minioProfile(
             final URI endpoint, final String region, final String bucket, final String accessKey) {
-        final ObjectStoreProfileSemanticV1 semantic = new ObjectStoreProfileSemanticV1(
-                ObjectStoreProviderKindV1.S3_COMPATIBLE,
+        final ObjectStoreProfileSemantic semantic = new ObjectStoreProfileSemantic(
+                ObjectStoreProviderKind.S3_COMPATIBLE,
                 S3CompatibleCheckpointObjectStoreAdapter.endpointConfigDigest(endpoint, region, bucket),
                 S3CompatibleCheckpointObjectStoreAdapter.credentialAuthorizationScopeDigest(accessKey, region, bucket),
                 1,
@@ -387,10 +387,10 @@ class OxiaRealCheckpointPublicationSmokeTest {
                 true,
                 id32(20),
                 1 << 20,
-                ObjectStoreProfileSemanticV1.SINGLE_PUT,
+                ObjectStoreProfileSemantic.SINGLE_PUT,
                 1,
                 id32(21));
-        return new ProfileSemanticEnvelopeV1(ProfileKindV1.OBJECT_STORE, Bytes.utf8("checkpoint-store"), 1, semantic);
+        return new ProfileSemanticEnvelope(ProfileKind.OBJECT_STORE, Bytes.utf8("checkpoint-store"), 1, semantic);
     }
 
     private static OxiaSyncOwnerLeaseBackend.ClientHandle client(final String endpoint, final String identifier)
@@ -403,8 +403,8 @@ class OxiaRealCheckpointPublicationSmokeTest {
             final ShardStore store,
             final ShardId shard,
             final byte[] lineage,
-            final OwnerIdentityV1 owner,
-            final CompatibleControlSnapshotV1 controlSnapshot,
+            final OwnerIdentity owner,
+            final CompatibleControlSnapshot controlSnapshot,
             final KafkaSourcePosition position) {
         final CheckpointManifest.FileEntry file = new CheckpointManifest.FileEntry(
                 "CURRENT", 1, id32(10), Bytes.utf8("parent-object"), Bytes.utf8("parent-version"), null);
@@ -431,10 +431,10 @@ class OxiaRealCheckpointPublicationSmokeTest {
     private static CheckpointManifest childManifest(
             final Path directory,
             final ShardStore store,
-            final CheckpointUploadIntentV1 pending,
+            final CheckpointUploadIntent pending,
             final CheckpointManifest parent,
-            final OwnerIdentityV1 owner,
-            final CompatibleControlSnapshotV1 controlSnapshot) {
+            final OwnerIdentity owner,
+            final CompatibleControlSnapshot controlSnapshot) {
         final List<CheckpointManifest.FileEntry> files = CheckpointFileInventory.collect(directory).stream()
                 .map(file -> new CheckpointManifest.FileEntry(
                         file.name(),
@@ -490,33 +490,33 @@ class OxiaRealCheckpointPublicationSmokeTest {
                 List.of(file));
     }
 
-    private static RecoveryPinV1 recoveryPin(
+    private static RecoveryPin recoveryPin(
             final ShardId shard,
             final CheckpointManifest manifest,
-            final RecoveryFloorRefV1 floor,
+            final RecoveryFloorRef floor,
             final byte[] sessionIdentity) {
-        final RecoveryCandidateRefV1 candidate = new RecoveryCandidateRefV1(
-                RecoveryCandidateKindV1.CATALOG_CHECKPOINT,
+        final RecoveryCandidateRef candidate = new RecoveryCandidateRef(
+                RecoveryCandidateKind.CATALOG_CHECKPOINT,
                 manifest.recoveryLineageId(),
                 manifest.checkpointId(),
                 manifest.manifestSha256(),
                 null);
-        return new RecoveryPinV1(
+        return new RecoveryPin(
                 id16(22),
-                new ShardSubjectV1(shard),
-                new OwnerIdentityV1(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(38)),
+                new ShardSubject(shard),
+                new OwnerIdentity(Bytes.utf8("deployment"), Bytes.utf8("worker"), 1, id32(38)),
                 candidate,
                 floor,
                 floor.catalogGeneration(),
                 sessionIdentity);
     }
 
-    private static CompatibleControlSnapshotV1 controlSnapshot(final ShardId shard) {
-        return new CompatibleControlSnapshotV1(
-                new ShardSubjectV1(shard),
-                List.of(new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1)),
-                List.of(new ProfileRefV1(id32(20), 1, id32(21), ProfileKindV1.DESTINATION)),
-                new QuotaGrantRefV1(
+    private static CompatibleControlSnapshot controlSnapshot(final ShardId shard) {
+        return new CompatibleControlSnapshot(
+                new ShardSubject(shard),
+                List.of(new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1)),
+                List.of(new ProfileRef(id32(20), 1, id32(21), ProfileKind.DESTINATION)),
+                new QuotaGrantRef(
                         id32(22),
                         1,
                         new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));
@@ -585,5 +585,5 @@ class OxiaRealCheckpointPublicationSmokeTest {
         return bytes;
     }
 
-    private record PublishedCheckpoint(Path directory, CheckpointManifest manifest, CheckpointResourceV1 resource) {}
+    private record PublishedCheckpoint(Path directory, CheckpointManifest manifest, CheckpointResource resource) {}
 }

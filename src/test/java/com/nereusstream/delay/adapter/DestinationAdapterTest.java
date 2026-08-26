@@ -4,13 +4,13 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentity;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
@@ -62,7 +62,7 @@ class DestinationAdapterTest {
             assertArrayEquals(request.publishAttemptId(), actual.publishAttemptId());
             assertEquals(2_000, actual.deliverAtEpochMs());
             return CompletableFuture.completedFuture(DestinationPublishResult.published(
-                    BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+                    BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(
                             resource.authenticatedClusterId(), resource.nativeTopicUuid())),
                     resource.partition(),
                     Bytes.utf8("record-identity"),
@@ -251,7 +251,7 @@ class DestinationAdapterTest {
         final KafkaTargetResource resource = new KafkaTargetResource("cluster", UUID.randomUUID(), 4);
         final PinnedKafkaDestinationAdapter.KafkaDestinationTransport transport =
                 actual -> CompletableFuture.completedFuture(DestinationPublishResult.published(
-                        BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1("cluster", UUID.randomUUID())),
+                        BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity("cluster", UUID.randomUUID())),
                         resource.partition(),
                         Bytes.utf8("record"),
                         2_001,
@@ -271,7 +271,7 @@ class DestinationAdapterTest {
                 new PulsarTargetResource("cluster", token, "persistent://tenant/ns/published", 8100, 0);
         final PinnedPulsarDestinationAdapter.PulsarDestinationTransport transport =
                 actual -> CompletableFuture.completedFuture(DestinationPublishResult.published(
-                        BrokerResourceIdentityV1.pulsar(new PulsarBrokerResourceIdentityV1(
+                        BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
                                 resource.authenticatedClusterId(), resource.resourceIncarnation(),
                                 resource.physicalTopic(), resource.physicalTopicCreationTimestamp())),
                         resource.partition(),

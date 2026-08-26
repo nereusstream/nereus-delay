@@ -1,10 +1,10 @@
 package com.nereusstream.delay.runtime;
 
-import com.nereusstream.delay.protocol.CredentialBindingHeadV1;
-import com.nereusstream.delay.protocol.CredentialBindingProtectionV1;
-import com.nereusstream.delay.protocol.CredentialBindingV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
+import com.nereusstream.delay.protocol.CredentialBinding;
+import com.nereusstream.delay.protocol.CredentialBindingHead;
+import com.nereusstream.delay.protocol.CredentialBindingProtection;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 
 /**
  * Exact lookup seam for immutable Profile semantics and private credential
@@ -16,11 +16,11 @@ import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
  * authority; source-ordered first-binding markers remain shard-local state.</p>
  */
 public interface ProfileCatalog {
-    ProfileSemanticEnvelopeV1 resolve(ProfileRefV1 reference);
+    ProfileSemanticEnvelope resolve(ProfileRef reference);
 
-    CredentialBindingV1 resolveBinding(ProfileRefV1 profile, long secretGeneration);
+    CredentialBinding resolveBinding(ProfileRef profile, long secretGeneration);
 
-    CredentialBindingHeadV1 resolveHead(ProfileRefV1 profile);
+    CredentialBindingHead resolveHead(ProfileRef profile);
 
-    CredentialBindingProtectionV1 resolveProtection(ProfileRefV1 profile, long secretGeneration);
+    CredentialBindingProtection resolveProtection(ProfileRef profile, long secretGeneration);
 }

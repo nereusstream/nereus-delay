@@ -4,25 +4,25 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import com.nereusstream.delay.protocol.ActivationBarrierV1;
-import com.nereusstream.delay.protocol.ActiveLaneStateV1;
-import com.nereusstream.delay.protocol.AdapterKindV1;
+import com.nereusstream.delay.protocol.ActivationBarrier;
+import com.nereusstream.delay.protocol.ActiveLaneState;
+import com.nereusstream.delay.protocol.AdapterKind;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CanonicalLaneTupleV1;
+import com.nereusstream.delay.protocol.CanonicalLaneTuple;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.ChannelKindV1;
-import com.nereusstream.delay.protocol.ChannelResourceIdentityV1;
-import com.nereusstream.delay.protocol.CredentialUseKindV1;
-import com.nereusstream.delay.protocol.CredentialUseLeaseV1;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
+import com.nereusstream.delay.protocol.ChannelKind;
+import com.nereusstream.delay.protocol.ChannelResourceIdentity;
+import com.nereusstream.delay.protocol.CredentialUseKind;
+import com.nereusstream.delay.protocol.CredentialUseLease;
+import com.nereusstream.delay.protocol.EvidenceCursor;
 import com.nereusstream.delay.protocol.KafkaActivationBarrier;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.ProtocolTestFixtures;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
-import com.nereusstream.delay.protocol.ReadyCertificateV1;
+import com.nereusstream.delay.protocol.ReadyCertificate;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
@@ -67,27 +67,27 @@ class LaneActivationCoordinatorTest {
                         10_000)
                 .orElseThrow();
         final OxiaOwnerLeaseStore authority = new OxiaOwnerLeaseStore(backend);
-        final OwnerIdentityV1 owner = new OwnerIdentityV1(
+        final OwnerIdentity owner = new OwnerIdentity(
                 Bytes.utf8("lane-activation-deployment"),
                 Bytes.utf8("lane-activation-worker"),
                 lease.ownerEpoch(),
                 Bytes.sha256(Bytes.utf8("lane-activation-fence")));
-        final ProfileRefV1 destination = new ProfileRefV1(
+        final ProfileRef destination = new ProfileRef(
                 Bytes.utf8("lane-activation-destination"),
                 1,
                 Bytes.sha256(Bytes.utf8("lane-activation-destination-semantic")),
-                ProfileKindV1.DESTINATION);
-        final ProfileRefV1 capability = new ProfileRefV1(
+                ProfileKind.DESTINATION);
+        final ProfileRef capability = new ProfileRef(
                 Bytes.utf8("lane-activation-capability"),
                 1,
                 Bytes.sha256(Bytes.utf8("lane-activation-capability-semantic")),
-                ProfileKindV1.DELIVERY_CAPABILITY);
+                ProfileKind.DELIVERY_CAPABILITY);
         final byte[] tuple = ProtocolTestFixtures.canonicalKafkaLaneTuple(destination, capability);
-        final CanonicalLaneTupleV1.Projection tupleProjection = CanonicalLaneTupleV1.project(tuple);
+        final CanonicalLaneTuple.Projection tupleProjection = CanonicalLaneTuple.project(tuple);
         final com.nereusstream.delay.protocol.DestinationLaneId laneId =
                 com.nereusstream.delay.protocol.DestinationLaneId.derive(tuple);
         final byte[] laneIncarnation = bytes(16, 44);
-        final ActiveLaneStateV1 initial = new ActiveLaneStateV1(
+        final ActiveLaneState initial = new ActiveLaneState(
                 laneId,
                 laneIncarnation,
                 AdmissionGate.OPEN,
@@ -102,7 +102,7 @@ class LaneActivationCoordinatorTest {
                 zeroChargeVector(),
                 null,
                 null,
-                com.nereusstream.delay.protocol.LaneCircuitStateV1.CLOSED,
+                com.nereusstream.delay.protocol.LaneCircuitState.CLOSED,
                 0,
                 0,
                 0,
@@ -122,7 +122,7 @@ class LaneActivationCoordinatorTest {
                         ColumnFamily.META,
                         2,
                         KeyCodec.metaLane(laneId),
-                        com.nereusstream.delay.protocol.LaneRecordEnvelopeV1.active(initial)
+                        com.nereusstream.delay.protocol.LaneRecordEnvelope.active(initial)
                                 .canonicalBytes());
                 batch.putValue(ColumnFamily.META, 7, KeyCodec.metaQuota(3), quota);
             });
@@ -132,11 +132,10 @@ class LaneActivationCoordinatorTest {
             owned.recordCatchup(
                     new KafkaSourcePosition(shardId, "lane-activation-source-cluster", sourceTopic, 0, null, 1_000));
 
-            final ChannelResourceIdentityV1 channel = channel(tupleProjection, laneId.bytes(), laneIncarnation);
-            final ReadyCertificateV1 certificate = certificate(
+            final ChannelResourceIdentity channel = channel(tupleProjection, laneId.bytes(), laneIncarnation);
+            final ReadyCertificate certificate = certificate(
                     owner, store.metadata().storeIncarnation(), laneId.bytes(), laneIncarnation, channel, sourceTopic);
-            final EvidenceCursorV1 evidenceCursor =
-                    certificate.evidenceCursors().get(0);
+            final EvidenceCursor evidenceCursor = certificate.evidenceCursors().get(0);
             final LaneActivationPrerequisites proof = new LaneActivationPrerequisites(
                     channel, certificate, List.of(evidenceCursor), evidence(2_000, 2_001));
             final LaneActivationCoordinator coordinator = new LaneActivationCoordinator(owned, authority);
@@ -152,7 +151,7 @@ class LaneActivationCoordinatorTest {
             assertNotNull(requestSeen.get());
             assertEquals(RuntimeReadiness.READY, activated.runtimeReadiness());
             assertEquals(2, activated.laneVersion());
-            final ActiveLaneStateV1 ready = shard.getActiveLaneStateV1(laneId);
+            final ActiveLaneState ready = shard.getActiveLaneState(laneId);
             assertNotNull(ready);
             assertEquals(RuntimeReadiness.READY, ready.runtimeReadiness());
             assertArrayEquals(certificate.canonicalBytes(), ready.readyCertificate());
@@ -162,14 +161,14 @@ class LaneActivationCoordinatorTest {
             assertEquals(activated.laneVersion(), retry.laneVersion());
             assertArrayEquals(
                     certificate.canonicalBytes(),
-                    shard.getActiveLaneStateV1(laneId).readyCertificate());
+                    shard.getActiveLaneState(laneId).readyCertificate());
 
-            final OwnerIdentityV1 foreignOwner = new OwnerIdentityV1(
+            final OwnerIdentity foreignOwner = new OwnerIdentity(
                     Bytes.utf8("foreign-deployment"),
                     Bytes.utf8("foreign-worker"),
                     owner.ownerEpoch(),
                     Bytes.sha256(Bytes.utf8("foreign-fence")));
-            final ReadyCertificateV1 foreignCertificate = certificate(
+            final ReadyCertificate foreignCertificate = certificate(
                     foreignOwner,
                     store.metadata().storeIncarnation(),
                     laneId.bytes(),
@@ -182,20 +181,20 @@ class LaneActivationCoordinatorTest {
                     IllegalArgumentException.class, () -> coordinator.activate(laneId, 2_000, ignored -> foreignProof));
             assertArrayEquals(
                     certificate.canonicalBytes(),
-                    shard.getActiveLaneStateV1(laneId).readyCertificate());
+                    shard.getActiveLaneState(laneId).readyCertificate());
         }
     }
 
-    private static ChannelResourceIdentityV1 channel(
-            final CanonicalLaneTupleV1.Projection tuple, final byte[] laneId, final byte[] laneIncarnation) {
+    private static ChannelResourceIdentity channel(
+            final CanonicalLaneTuple.Projection tuple, final byte[] laneId, final byte[] laneIncarnation) {
         final byte[] producer = Bytes.utf8("lane-activation-producer");
         final byte[] guard = Bytes.sha256(Bytes.utf8("lane-activation-resource-guard"));
         final byte[] binding = Bytes.sha256(Bytes.utf8("lane-activation-binding"));
         final byte[] fingerprint = Bytes.sha256(Bytes.utf8("lane-activation-fingerprint"));
         final TrustedUtcIntervalEvidence issuedAt = evidence(1_000, 1_001);
         final byte[] prefix = CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.uint32(output, 1, AdapterKindV1.KAFKA.wireValue());
-            CanonicalProtobuf.uint32(output, 2, ChannelKindV1.BASELINE_PRODUCER.wireValue());
+            CanonicalProtobuf.uint32(output, 1, AdapterKind.KAFKA.wireValue());
+            CanonicalProtobuf.uint32(output, 2, ChannelKind.BASELINE_PRODUCER.wireValue());
             CanonicalProtobuf.bytes(output, 3, laneId);
             CanonicalProtobuf.bytes(output, 4, laneIncarnation);
             CanonicalProtobuf.bytes(output, 5, tuple.targetResource().canonicalBytes());
@@ -206,19 +205,19 @@ class LaneActivationCoordinatorTest {
             CanonicalProtobuf.bytes(output, 10, Bytes.sha256(producer));
             CanonicalProtobuf.bytes(output, 13, guard);
         });
-        final CredentialUseLeaseV1 lease = new CredentialUseLeaseV1(
+        final CredentialUseLease lease = new CredentialUseLease(
                 tuple.destinationProfile(),
-                CredentialUseKindV1.DESTINATION_CHANNEL,
-                CredentialUseLeaseV1.destinationChannelHolderScope(prefix),
+                CredentialUseKind.DESTINATION_CHANNEL,
+                CredentialUseLease.destinationChannelHolderScope(prefix),
                 1,
                 binding,
                 fingerprint,
                 issuedAt,
                 9_000,
                 1);
-        return new ChannelResourceIdentityV1(
-                AdapterKindV1.KAFKA,
-                ChannelKindV1.BASELINE_PRODUCER,
+        return new ChannelResourceIdentity(
+                AdapterKind.KAFKA,
+                ChannelKind.BASELINE_PRODUCER,
                 laneId,
                 laneIncarnation,
                 tuple.targetResource(),
@@ -236,17 +235,17 @@ class LaneActivationCoordinatorTest {
                 lease);
     }
 
-    private static ReadyCertificateV1 certificate(
-            final OwnerIdentityV1 owner,
+    private static ReadyCertificate certificate(
+            final OwnerIdentity owner,
             final byte[] storeIncarnation,
             final byte[] laneId,
             final byte[] laneIncarnation,
-            final ChannelResourceIdentityV1 channel,
+            final ChannelResourceIdentity channel,
             final UUID sourceTopic) {
-        final byte[] barrier = ActivationBarrierV1.kafka(
+        final byte[] barrier = ActivationBarrier.kafka(
                         channel.targetResource(), (int) channel.physicalPartition(), 0, 0)
                 .canonicalBytes();
-        final byte[] cursor = EvidenceCursorV1.kafka(laneId, laneIncarnation, uuidBytes(sourceTopic), 0, 1, 2_000, 1, 1)
+        final byte[] cursor = EvidenceCursor.kafka(laneId, laneIncarnation, uuidBytes(sourceTopic), 0, 1, 2_000, 1, 1)
                 .canonicalBytes();
         final byte[] prefix = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, 1);
@@ -270,10 +269,9 @@ class LaneActivationCoordinatorTest {
             while (reader.hasRemaining()) {
                 writeField(output, reader.next());
             }
-            CanonicalProtobuf.bytes(
-                    output, 16, Bytes.sha256(Bytes.utf8("nereus-delay-ready-certificate-v1\0"), prefix));
+            CanonicalProtobuf.bytes(output, 16, Bytes.sha256(Bytes.utf8("nereus-delay-ready-certificate\0"), prefix));
         });
-        return ReadyCertificateV1.decode(encoded);
+        return ReadyCertificate.decode(encoded);
     }
 
     private static TrustedUtcIntervalEvidence evidence(final long earliest, final long latest) {

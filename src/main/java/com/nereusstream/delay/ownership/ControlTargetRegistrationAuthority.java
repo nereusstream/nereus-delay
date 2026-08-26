@@ -1,7 +1,7 @@
 package com.nereusstream.delay.ownership;
 
-import com.nereusstream.delay.protocol.ControlTargetRefV1;
-import com.nereusstream.delay.protocol.PreparedControlOperationV1;
+import com.nereusstream.delay.protocol.ControlTargetRef;
+import com.nereusstream.delay.protocol.PreparedControlOperation;
 import com.nereusstream.delay.protocol.SystemMutation;
 import java.util.Optional;
 
@@ -11,11 +11,11 @@ import java.util.Optional;
  * transaction; the local implementation is only a deterministic test model.
  */
 public interface ControlTargetRegistrationAuthority {
-    RegistrationResult register(PreparedControlOperationV1 prepared);
+    RegistrationResult register(PreparedControlOperation prepared);
 
-    Optional<PreparedControlOperationV1> find(byte[] operationId);
+    Optional<PreparedControlOperation> find(byte[] operationId);
 
-    void validateMutation(PreparedControlOperationV1 prepared, ControlTargetRefV1 target, SystemMutation mutation);
+    void validateMutation(PreparedControlOperation prepared, ControlTargetRef target, SystemMutation mutation);
 
     enum RegistrationResult {
         RECORDED,

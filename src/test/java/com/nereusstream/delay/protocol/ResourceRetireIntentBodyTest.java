@@ -24,7 +24,7 @@ class ResourceRetireIntentBodyTest {
         assertEquals(1, decoded.protections().references().size());
         assertArrayEquals(
                 Bytes.sha256(
-                        Bytes.utf8("nereus-delay-resource-identity-v1\0"),
+                        Bytes.utf8("nereus-delay-resource-identity\0"),
                         decoded.resource().canonicalBytes()),
                 decoded.resource().identityHash());
         assertArrayEquals(
@@ -72,7 +72,7 @@ class ResourceRetireIntentBodyTest {
     void preservesUnsignedResourceIdentityProfileAndExternalGenerationBits() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 27);
         final byte[] payload = CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.bytes(output, 1, profileRef(Long.MIN_VALUE, ProfileKindV1.OBJECT_STORE));
+            CanonicalProtobuf.bytes(output, 1, profileRef(Long.MIN_VALUE, ProfileKind.OBJECT_STORE));
             CanonicalProtobuf.bytes(output, 2, Bytes.utf8("container"));
             CanonicalProtobuf.bytes(output, 3, Bytes.utf8("object-key"));
             CanonicalProtobuf.bytes(output, 4, Bytes.utf8("version-1"));
@@ -99,8 +99,8 @@ class ResourceRetireIntentBodyTest {
                 protectionSet()));
         assertArrayEquals(kafka, branch(kafkaBody.resource()));
 
-        final PulsarBrokerResourceIdentityV1 broker = new PulsarBrokerResourceIdentityV1(
-                "cluster", new byte[32], "persistent://tenant/topic", Long.MIN_VALUE);
+        final PulsarBrokerResourceIdentity broker =
+                new PulsarBrokerResourceIdentity("cluster", new byte[32], "persistent://tenant/topic", Long.MIN_VALUE);
         final byte[] pulsar = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, broker.canonicalBytes());
             CanonicalProtobuf.uint32(output, 2, 5);
@@ -140,7 +140,7 @@ class ResourceRetireIntentBodyTest {
     void objectResourceIdentitiesUseObjectStoreProfilesAndAllowZeroLengthObjects() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 28);
         final byte[] payload = CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.bytes(output, 1, profileRef(1, ProfileKindV1.OBJECT_STORE));
+            CanonicalProtobuf.bytes(output, 1, profileRef(1, ProfileKind.OBJECT_STORE));
             CanonicalProtobuf.bytes(output, 2, Bytes.utf8("container"));
             CanonicalProtobuf.bytes(output, 3, Bytes.utf8("empty-object"));
             CanonicalProtobuf.bytes(output, 4, Bytes.utf8("version-1"));
@@ -154,7 +154,7 @@ class ResourceRetireIntentBodyTest {
         final byte[] checkpoint = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, bytes(16, 31));
             CanonicalProtobuf.bytes(output, 2, bytes(16, 32));
-            CanonicalProtobuf.bytes(output, 3, profileRef(1, ProfileKindV1.OBJECT_STORE));
+            CanonicalProtobuf.bytes(output, 3, profileRef(1, ProfileKind.OBJECT_STORE));
             CanonicalProtobuf.bytes(output, 4, Bytes.utf8("container"));
             CanonicalProtobuf.bytes(output, 5, Bytes.utf8("empty-manifest"));
             CanonicalProtobuf.bytes(output, 6, Bytes.utf8("version-1"));
@@ -166,7 +166,7 @@ class ResourceRetireIntentBodyTest {
         assertArrayEquals(checkpoint, branch(checkpointBody.resource()));
 
         final byte[] wrongProfile = CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.bytes(output, 1, profileRef(1, ProfileKindV1.DESTINATION));
+            CanonicalProtobuf.bytes(output, 1, profileRef(1, ProfileKind.DESTINATION));
             CanonicalProtobuf.bytes(output, 2, Bytes.utf8("container"));
             CanonicalProtobuf.bytes(output, 3, Bytes.utf8("object"));
             CanonicalProtobuf.bytes(output, 4, Bytes.utf8("version-1"));
@@ -255,7 +255,7 @@ class ResourceRetireIntentBodyTest {
             CanonicalProtobuf.bytes(output, 4, Bytes.sha256(Bytes.utf8("root-policy")));
         });
         final byte[] identity = branch(ResourceKind.LOCAL_STORE, branch);
-        final byte[] identityHash = Bytes.sha256(Bytes.utf8("nereus-delay-resource-identity-v1\0"), identity);
+        final byte[] identityHash = Bytes.sha256(Bytes.utf8("nereus-delay-resource-identity\0"), identity);
         final ResourceRetireIntentBody.ExactResourceIdentity exact =
                 new ResourceRetireIntentBody.ExactResourceIdentity(ResourceKind.LOCAL_STORE, identity, identityHash);
         assertArrayEquals(identity, exact.canonicalBytes());
@@ -287,7 +287,7 @@ class ResourceRetireIntentBodyTest {
         final ResourceRetireIntentBody.ProtectionSet valid = new ResourceRetireIntentBody.ProtectionSet(
                 decodedRefs,
                 protectionSet,
-                Bytes.sha256(Bytes.utf8("nereus-delay-protection-set-v1\0"), CanonicalProtobuf.message(output -> {
+                Bytes.sha256(Bytes.utf8("nereus-delay-protection-set\0"), CanonicalProtobuf.message(output -> {
                     for (ResourceRetireIntentBody.ProtectionRef ref : decodedRefs) {
                         CanonicalProtobuf.bytes(output, 1, ref.canonicalBytes());
                     }
@@ -357,10 +357,10 @@ class ResourceRetireIntentBodyTest {
     }
 
     private static byte[] profileRef() {
-        return profileRef(1, ProfileKindV1.OBJECT_STORE);
+        return profileRef(1, ProfileKind.OBJECT_STORE);
     }
 
-    private static byte[] profileRef(final long version, final ProfileKindV1 kind) {
+    private static byte[] profileRef(final long version, final ProfileKind kind) {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, Bytes.utf8("object-store"));
             CanonicalProtobuf.uint64Bits(output, 2, version);
@@ -383,7 +383,7 @@ class ResourceRetireIntentBodyTest {
                 CanonicalProtobuf.bytes(output, 1, ref);
             }
         });
-        final byte[] digest = Bytes.sha256(Bytes.utf8("nereus-delay-protection-set-v1\0"), canonicalRefs);
+        final byte[] digest = Bytes.sha256(Bytes.utf8("nereus-delay-protection-set\0"), canonicalRefs);
         return CanonicalProtobuf.message(output -> {
             for (byte[] ref : refs) {
                 CanonicalProtobuf.bytes(output, 1, ref);

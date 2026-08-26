@@ -1,6 +1,6 @@
 package com.nereusstream.delay.protocol;
 
-/** Closed V1 Command query result tags. */
+/** Closed Command query result tags. */
 public enum CommandQueryResult {
     PENDING(1),
     APPLIED(2),

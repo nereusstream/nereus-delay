@@ -1,13 +1,13 @@
 package com.nereusstream.delay.gateway;
 
-import com.nereusstream.delay.protocol.FailureStageV1;
-import com.nereusstream.delay.protocol.PreparedSubmissionV1;
+import com.nereusstream.delay.protocol.FailureStage;
+import com.nereusstream.delay.protocol.PreparedSubmission;
 import com.nereusstream.delay.protocol.StableCode;
-import com.nereusstream.delay.protocol.StableErrorV1;
-import com.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import com.nereusstream.delay.protocol.StableError;
+import com.nereusstream.delay.protocol.SubmissionOutcomeMessage;
 import com.nereusstream.delay.semantic.AuthenticatedTenantContext;
 import com.nereusstream.delay.semantic.DelaySemanticCore;
-import com.nereusstream.delay.semantic.LargeSchedulePreparationV1;
+import com.nereusstream.delay.semantic.LargeSchedulePreparation;
 import com.nereusstream.delay.semantic.SemanticPreparationException;
 import com.nereusstream.delay.semantic.TrustedClock;
 import com.nereusstream.delay.submission.SubmissionCoordinator;
@@ -42,28 +42,28 @@ public final class GatewayScheduleService {
         this.trustedClock = Objects.requireNonNull(trustedClock, "trustedClock");
     }
 
-    public CompletionStage<GatewaySubmissionOutcomeV1> schedule(
-            final AuthenticatedTenantContext tenant, final GatewayScheduleRequestV1 request) {
+    public CompletionStage<GatewaySubmissionOutcome> schedule(
+            final AuthenticatedTenantContext tenant, final GatewayScheduleRequest request) {
         Objects.requireNonNull(tenant, "tenant");
         Objects.requireNonNull(request, "request");
         final com.nereusstream.delay.transport.Digest32 keyHash;
         final com.nereusstream.delay.transport.Digest32 bodyHash;
         try {
-            keyHash = GatewayIdempotencyHashV1.keyHash(tenant.authenticatedTenantScopeHash(), request.idempotencyKey());
-            bodyHash = GatewayIdempotencyHashV1.bodyHash(GatewayOperationKindV1.SCHEDULE, request.canonicalBodyBytes());
+            keyHash = GatewayIdempotencyHash.keyHash(tenant.authenticatedTenantScopeHash(), request.idempotencyKey());
+            bodyHash = GatewayIdempotencyHash.bodyHash(GatewayOperationKind.SCHEDULE, request.canonicalBodyBytes());
         } catch (RuntimeException invalidRequest) {
             return completed(preparationError(StableCode.INVALID_METADATA));
         }
 
         final GatewayIdempotencyStore.PrepareResult prepared;
-        final PreparedSubmissionV1 submission;
+        final PreparedSubmission submission;
         try {
-            final GatewayIdempotencyRecordV1 existing = idempotency.exact(keyHash);
+            final GatewayIdempotencyRecord existing = idempotency.exact(keyHash);
             if (existing != null && !existing.requestBodyHash().equals(bodyHash)) {
                 return completed(preparationError(StableCode.PREPARED_SUBMISSION_MISMATCH));
             }
             if (existing != null) {
-                submission = PreparedSubmissionV1.decode(existing.preparedSubmissionBytes());
+                submission = PreparedSubmission.decode(existing.preparedSubmissionBytes());
                 prepared = new GatewayIdempotencyStore.PrepareResult(
                         GatewayIdempotencyStore.PrepareState.EXISTING_MATCH, existing);
             } else {
@@ -74,10 +74,10 @@ public final class GatewayScheduleService {
                         request.retryUntilEpochMs(),
                         request.submissionMode());
                 prepared = idempotency.prepareIfAbsent(
-                        keyHash, GatewayOperationKindV1.SCHEDULE, bodyHash, submission, request.retryUntilEpochMs());
+                        keyHash, GatewayOperationKind.SCHEDULE, bodyHash, submission, request.retryUntilEpochMs());
             }
         } catch (SemanticPreparationException failure) {
-            return completed(GatewaySubmissionOutcomeV1.preparationError(failure.error()));
+            return completed(GatewaySubmissionOutcome.preparationError(failure.error()));
         } catch (OxiaGatewaySessionUnavailableException failure) {
             throw failure;
         } catch (RuntimeException failure) {
@@ -90,14 +90,14 @@ public final class GatewayScheduleService {
     }
 
     /** Cancel path using the same durable prepared-bytes/attempt protocol as Schedule. */
-    public CompletionStage<GatewaySubmissionOutcomeV1> cancel(
-            final AuthenticatedTenantContext tenant, final GatewayCancelRequestV1 request) {
+    public CompletionStage<GatewaySubmissionOutcome> cancel(
+            final AuthenticatedTenantContext tenant, final GatewayCancelRequest request) {
         Objects.requireNonNull(tenant, "tenant");
         Objects.requireNonNull(request, "request");
         return prepareCommand(
                 tenant,
                 request.idempotencyKey(),
-                GatewayOperationKindV1.CANCEL,
+                GatewayOperationKind.CANCEL,
                 request.canonicalBodyBytes(),
                 request.retryUntilEpochMs(),
                 () -> semanticCore.prepareCancel(
@@ -105,14 +105,14 @@ public final class GatewayScheduleService {
     }
 
     /** Reschedule path using the same durable prepared-bytes/attempt protocol as Schedule. */
-    public CompletionStage<GatewaySubmissionOutcomeV1> reschedule(
-            final AuthenticatedTenantContext tenant, final GatewayRescheduleRequestV1 request) {
+    public CompletionStage<GatewaySubmissionOutcome> reschedule(
+            final AuthenticatedTenantContext tenant, final GatewayRescheduleRequest request) {
         Objects.requireNonNull(tenant, "tenant");
         Objects.requireNonNull(request, "request");
         return prepareCommand(
                 tenant,
                 request.idempotencyKey(),
-                GatewayOperationKindV1.RESCHEDULE,
+                GatewayOperationKind.RESCHEDULE,
                 request.canonicalBodyBytes(),
                 request.retryUntilEpochMs(),
                 () -> semanticCore.prepareReschedule(
@@ -125,20 +125,20 @@ public final class GatewayScheduleService {
     }
 
     /** PrepareLargeSchedule path using the shared durable prepared-bytes protocol. */
-    public CompletionStage<GatewaySubmissionOutcomeV1> prepareLargeSchedule(
-            final AuthenticatedTenantContext tenant, final GatewayPrepareLargeScheduleRequestV1 request) {
+    public CompletionStage<GatewaySubmissionOutcome> prepareLargeSchedule(
+            final AuthenticatedTenantContext tenant, final GatewayPrepareLargeScheduleRequest request) {
         Objects.requireNonNull(tenant, "tenant");
         Objects.requireNonNull(request, "request");
         return prepareCommand(
                 tenant,
                 request.idempotencyKey(),
-                GatewayOperationKindV1.PREPARE_LARGE_SCHEDULE,
+                GatewayOperationKind.PREPARE_LARGE_SCHEDULE,
                 request.canonicalBodyBytes(),
                 request.retryUntilEpochMs(),
                 () -> semanticCore.prepareLargeSchedule(
                         tenant,
                         request.route(),
-                        new LargeSchedulePreparationV1(
+                        new LargeSchedulePreparation(
                                 request.scheduleIntent(),
                                 request.expectedPayloadLength(),
                                 request.payloadSha256(),
@@ -149,51 +149,51 @@ public final class GatewayScheduleService {
     }
 
     /** CommitLargeSchedule path using the shared durable prepared-bytes protocol. */
-    public CompletionStage<GatewaySubmissionOutcomeV1> commitLargeSchedule(
-            final AuthenticatedTenantContext tenant, final GatewayCommitLargeScheduleRequestV1 request) {
+    public CompletionStage<GatewaySubmissionOutcome> commitLargeSchedule(
+            final AuthenticatedTenantContext tenant, final GatewayCommitLargeScheduleRequest request) {
         Objects.requireNonNull(tenant, "tenant");
         Objects.requireNonNull(request, "request");
         return prepareCommand(
                 tenant,
                 request.idempotencyKey(),
-                GatewayOperationKindV1.COMMIT_LARGE_SCHEDULE,
+                GatewayOperationKind.COMMIT_LARGE_SCHEDULE,
                 request.canonicalBodyBytes(),
                 request.retryUntilEpochMs(),
                 () -> semanticCore.preparePayloadCommit(
                         tenant, request.reservation(), request.proof(), request.retryUntilEpochMs()));
     }
 
-    private CompletionStage<GatewaySubmissionOutcomeV1> continueAttempt(
+    private CompletionStage<GatewaySubmissionOutcome> continueAttempt(
             final AuthenticatedTenantContext tenant,
             final com.nereusstream.delay.transport.Digest32 keyHash,
-            final PreparedSubmissionV1 submission) {
+            final PreparedSubmission submission) {
         return continueStartedAttempt(tenant, keyHash, submission, idempotency.startAttempt(keyHash));
     }
 
-    private CompletionStage<GatewaySubmissionOutcomeV1> prepareCommand(
+    private CompletionStage<GatewaySubmissionOutcome> prepareCommand(
             final AuthenticatedTenantContext tenant,
             final byte[] idempotencyKey,
-            final GatewayOperationKindV1 operation,
+            final GatewayOperationKind operation,
             final byte[] canonicalBody,
             final long retryUntilEpochMs,
             final CommandPreparation preparation) {
         final com.nereusstream.delay.transport.Digest32 keyHash;
         final com.nereusstream.delay.transport.Digest32 bodyHash;
         try {
-            keyHash = GatewayIdempotencyHashV1.keyHash(tenant.authenticatedTenantScopeHash(), idempotencyKey);
-            bodyHash = GatewayIdempotencyHashV1.bodyHash(operation, canonicalBody);
+            keyHash = GatewayIdempotencyHash.keyHash(tenant.authenticatedTenantScopeHash(), idempotencyKey);
+            bodyHash = GatewayIdempotencyHash.bodyHash(operation, canonicalBody);
         } catch (RuntimeException invalidRequest) {
             return completed(preparationError(StableCode.INVALID_METADATA));
         }
         final GatewayIdempotencyStore.PrepareResult prepared;
-        final PreparedSubmissionV1 submission;
+        final PreparedSubmission submission;
         try {
-            final GatewayIdempotencyRecordV1 existing = idempotency.exact(keyHash);
+            final GatewayIdempotencyRecord existing = idempotency.exact(keyHash);
             if (existing != null && !existing.requestBodyHash().equals(bodyHash)) {
                 return completed(preparationError(StableCode.PREPARED_SUBMISSION_MISMATCH));
             }
             if (existing != null) {
-                submission = PreparedSubmissionV1.decode(existing.preparedSubmissionBytes());
+                submission = PreparedSubmission.decode(existing.preparedSubmissionBytes());
                 prepared = new GatewayIdempotencyStore.PrepareResult(
                         GatewayIdempotencyStore.PrepareState.EXISTING_MATCH, existing);
             } else {
@@ -201,7 +201,7 @@ public final class GatewayScheduleService {
                 prepared = idempotency.prepareIfAbsent(keyHash, operation, bodyHash, submission, retryUntilEpochMs);
             }
         } catch (SemanticPreparationException failure) {
-            return completed(GatewaySubmissionOutcomeV1.preparationError(failure.error()));
+            return completed(GatewaySubmissionOutcome.preparationError(failure.error()));
         } catch (OxiaGatewaySessionUnavailableException failure) {
             throw failure;
         } catch (RuntimeException failure) {
@@ -214,24 +214,24 @@ public final class GatewayScheduleService {
     }
 
     /** Retries only the stored exact prepared bytes after an uncertain aggregate. */
-    public CompletionStage<GatewaySubmissionOutcomeV1> retryUncertain(
-            final AuthenticatedTenantContext tenant, final GatewayRetryUncertainRequestV1 request) {
+    public CompletionStage<GatewaySubmissionOutcome> retryUncertain(
+            final AuthenticatedTenantContext tenant, final GatewayRetryUncertainRequest request) {
         Objects.requireNonNull(tenant, "tenant");
         Objects.requireNonNull(request, "request");
         final com.nereusstream.delay.transport.Digest32 keyHash;
         try {
-            keyHash = GatewayIdempotencyHashV1.keyHash(
+            keyHash = GatewayIdempotencyHash.keyHash(
                     tenant.authenticatedTenantScopeHash(), request.originalIdempotencyKey());
         } catch (RuntimeException invalidRequest) {
             return completed(preparationError(StableCode.INVALID_METADATA));
         }
-        final GatewayIdempotencyRecordV1 record = idempotency.exact(keyHash);
+        final GatewayIdempotencyRecord record = idempotency.exact(keyHash);
         if (record == null) {
             return completed(preparationError(StableCode.NOT_FOUND_OR_NOT_AUTHORIZED));
         }
-        final PreparedSubmissionV1 submission;
+        final PreparedSubmission submission;
         try {
-            submission = PreparedSubmissionV1.decode(record.preparedSubmissionBytes());
+            submission = PreparedSubmission.decode(record.preparedSubmissionBytes());
         } catch (RuntimeException malformed) {
             return completed(preparationError(StableCode.INTEGRITY_ERROR));
         }
@@ -254,17 +254,16 @@ public final class GatewayScheduleService {
                 new GatewayIdempotencyStore.AttemptStart(started.record(), started.permit()));
     }
 
-    private CompletionStage<GatewaySubmissionOutcomeV1> continueStartedAttempt(
+    private CompletionStage<GatewaySubmissionOutcome> continueStartedAttempt(
             final AuthenticatedTenantContext tenant,
             final com.nereusstream.delay.transport.Digest32 keyHash,
-            final PreparedSubmissionV1 submission,
+            final PreparedSubmission submission,
             final GatewayIdempotencyStore.AttemptStart started) {
         if (started.permit() == null) {
             final byte[] aggregate = started.record().aggregateOutcomeBytes();
             if (aggregate != null) {
                 try {
-                    return completed(
-                            GatewaySubmissionOutcomeV1.submission(SubmissionOutcomeMessageV1.decode(aggregate)));
+                    return completed(GatewaySubmissionOutcome.submission(SubmissionOutcomeMessage.decode(aggregate)));
                 } catch (RuntimeException malformed) {
                     return completed(preparationError(StableCode.INTEGRITY_ERROR));
                 }
@@ -275,20 +274,20 @@ public final class GatewayScheduleService {
                             trustedClock.nowEpochMs() >= started.record().retainUntilEpochMs()
                                     ? StableCode.PREPARED_COMMAND_EXPIRED
                                     : StableCode.SDK_BACKPRESSURE_NOT_SUBMITTED;
-                    return completed(GatewaySubmissionOutcomeV1.submission(
-                            GatewayOutcomeSupport.localDefinite(submission, code)));
+                    return completed(
+                            GatewaySubmissionOutcome.submission(GatewayOutcomeSupport.localDefinite(submission, code)));
                 } catch (RuntimeException unavailable) {
-                    return completed(GatewaySubmissionOutcomeV1.submission(
+                    return completed(GatewaySubmissionOutcome.submission(
                             GatewayOutcomeSupport.localDefinite(submission, StableCode.ROUTE_SNAPSHOT_UNAVAILABLE)));
                 }
             }
-            final GatewayPhysicalAttemptV1 last =
+            final GatewayPhysicalAttempt last =
                     started.record().attempts().get(started.record().attempts().size() - 1);
-            return completed(GatewaySubmissionOutcomeV1.submission(
+            return completed(GatewaySubmissionOutcome.submission(
                     GatewayOutcomeSupport.uncertain(submission, last.physicalAttemptId())));
         }
         final GatewayAttemptOwnershipPermit permit = started.permit();
-        final CompletionStage<SubmissionOutcomeMessageV1> stage;
+        final CompletionStage<SubmissionOutcomeMessage> stage;
         try {
             stage = submissions.submit(tenant, submission, permit);
         } catch (RuntimeException failure) {
@@ -299,7 +298,7 @@ public final class GatewayScheduleService {
         }
         try {
             return stage.handle((outcome, failure) -> {
-                final SubmissionOutcomeMessageV1 resolved;
+                final SubmissionOutcomeMessage resolved;
                 if (failure != null || outcome == null) {
                     resolved = GatewayOutcomeSupport.uncertain(submission, permit.physicalAttemptId());
                 } else {
@@ -310,21 +309,21 @@ public final class GatewayScheduleService {
                 } catch (OxiaGatewaySessionUnavailableException sessionFailure) {
                     throw sessionFailure;
                 } catch (RuntimeException ignored) {
-                    return GatewaySubmissionOutcomeV1.submission(
+                    return GatewaySubmissionOutcome.submission(
                             GatewayOutcomeSupport.uncertain(submission, permit.physicalAttemptId()));
                 }
-                return GatewaySubmissionOutcomeV1.submission(resolved);
+                return GatewaySubmissionOutcome.submission(resolved);
             });
         } catch (RuntimeException failure) {
             return finishAfterFailure(keyHash, submission, permit);
         }
     }
 
-    private CompletionStage<GatewaySubmissionOutcomeV1> finishAfterFailure(
+    private CompletionStage<GatewaySubmissionOutcome> finishAfterFailure(
             final com.nereusstream.delay.transport.Digest32 keyHash,
-            final PreparedSubmissionV1 submission,
+            final PreparedSubmission submission,
             final GatewayAttemptOwnershipPermit permit) {
-        final SubmissionOutcomeMessageV1 outcome = permit.state() == TransportOwnershipState.LIBRARY_OWNED
+        final SubmissionOutcomeMessage outcome = permit.state() == TransportOwnershipState.LIBRARY_OWNED
                 ? GatewayOutcomeSupport.uncertain(submission, permit.physicalAttemptId())
                 : GatewayOutcomeSupport.localDefinite(submission, StableCode.BROKER_RESOURCE_UNCERTIFIED);
         try {
@@ -332,15 +331,15 @@ public final class GatewayScheduleService {
         } catch (OxiaGatewaySessionUnavailableException failure) {
             throw failure;
         } catch (RuntimeException ignored) {
-            return completed(GatewaySubmissionOutcomeV1.submission(
+            return completed(GatewaySubmissionOutcome.submission(
                     GatewayOutcomeSupport.uncertain(submission, permit.physicalAttemptId())));
         }
-        return completed(GatewaySubmissionOutcomeV1.submission(outcome));
+        return completed(GatewaySubmissionOutcome.submission(outcome));
     }
 
-    private static GatewaySubmissionOutcomeV1 preparationError(final StableCode code) {
-        return GatewaySubmissionOutcomeV1.preparationError(
-                StableErrorV1.of(FailureStageV1.PREPARATION, code, null, null, null, null));
+    private static GatewaySubmissionOutcome preparationError(final StableCode code) {
+        return GatewaySubmissionOutcome.preparationError(
+                StableError.of(FailureStage.PREPARATION, code, null, null, null, null));
     }
 
     private static <T> CompletionStage<T> completed(final T value) {

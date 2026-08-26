@@ -9,23 +9,23 @@ class ClaimResultBodyTest {
     void claimPreconditionAcceptsCompleteUnsignedProfileVersions() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 16);
         final DelayMessageId messageId = DelayMessageId.random(shard);
-        final byte[] destination = new ProfileRefV1(
+        final byte[] destination = new ProfileRef(
                         Bytes.utf8("claim-destination"),
                         Long.MIN_VALUE,
                         Bytes.sha256(Bytes.utf8("claim-destination-hash")),
-                        ProfileKindV1.DESTINATION)
+                        ProfileKind.DESTINATION)
                 .canonicalBytes();
-        final byte[] capability = new ProfileRefV1(
+        final byte[] capability = new ProfileRef(
                         Bytes.utf8("claim-capability"),
                         -1L,
                         Bytes.sha256(Bytes.utf8("claim-capability-hash")),
-                        ProfileKindV1.DELIVERY_CAPABILITY)
+                        ProfileKind.DELIVERY_CAPABILITY)
                 .canonicalBytes();
         final byte[] materialization = materialization(
                 messageId,
                 destination,
                 capability,
-                BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+                BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(
                                 "claim-cluster", java.util.UUID.nameUUIDFromBytes(Bytes.utf8("claim-topic"))))
                         .canonicalBytes(),
                 payload(),
@@ -39,17 +39,17 @@ class ClaimResultBodyTest {
     void claimMaterializationRejectsNonCanonicalBrokerResourceIdentity() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 16);
         final DelayMessageId messageId = DelayMessageId.random(shard);
-        final byte[] destination = new ProfileRefV1(
+        final byte[] destination = new ProfileRef(
                         Bytes.utf8("claim-destination"),
                         1,
                         Bytes.sha256(Bytes.utf8("claim-destination-hash")),
-                        ProfileKindV1.DESTINATION)
+                        ProfileKind.DESTINATION)
                 .canonicalBytes();
-        final byte[] capability = new ProfileRefV1(
+        final byte[] capability = new ProfileRef(
                         Bytes.utf8("claim-capability"),
                         1,
                         Bytes.sha256(Bytes.utf8("claim-capability-hash")),
-                        ProfileKindV1.DELIVERY_CAPABILITY)
+                        ProfileKind.DELIVERY_CAPABILITY)
                 .canonicalBytes();
         final byte[] broker = CanonicalProtobuf.message(
                 output -> CanonicalProtobuf.bytes(output, 1, CanonicalProtobuf.message(inner -> {
@@ -68,17 +68,17 @@ class ClaimResultBodyTest {
     void claimMaterializationRejectsCommittedPayloadWithWrongProfileKind() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 16);
         final DelayMessageId messageId = DelayMessageId.random(shard);
-        final byte[] destination = new ProfileRefV1(
+        final byte[] destination = new ProfileRef(
                         Bytes.utf8("claim-destination"),
                         1,
                         Bytes.sha256(Bytes.utf8("claim-destination-hash")),
-                        ProfileKindV1.DESTINATION)
+                        ProfileKind.DESTINATION)
                 .canonicalBytes();
-        final byte[] capability = new ProfileRefV1(
+        final byte[] capability = new ProfileRef(
                         Bytes.utf8("claim-capability"),
                         1,
                         Bytes.sha256(Bytes.utf8("claim-capability-hash")),
-                        ProfileKindV1.DELIVERY_CAPABILITY)
+                        ProfileKind.DELIVERY_CAPABILITY)
                 .canonicalBytes();
         final byte[] objectPayload = new byte[] {7};
         final byte[] descriptor = CanonicalProtobuf.message(output -> {
@@ -100,7 +100,7 @@ class ClaimResultBodyTest {
                 messageId,
                 destination,
                 capability,
-                BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+                BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(
                                 "claim-cluster", java.util.UUID.nameUUIDFromBytes(Bytes.utf8("claim-topic"))))
                         .canonicalBytes(),
                 objectPayloadValue,
@@ -115,25 +115,25 @@ class ClaimResultBodyTest {
     void claimMaterializationRequiresDestinationAndCapabilityProfileSlots() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 16);
         final DelayMessageId messageId = DelayMessageId.random(shard);
-        final byte[] wrongDestination = new ProfileRefV1(
+        final byte[] wrongDestination = new ProfileRef(
                         Bytes.utf8("claim-object-store"),
                         1,
                         Bytes.sha256(Bytes.utf8("claim-object-store-hash")),
-                        ProfileKindV1.OBJECT_STORE)
+                        ProfileKind.OBJECT_STORE)
                 .canonicalBytes();
-        final byte[] wrongCapability = new ProfileRefV1(
+        final byte[] wrongCapability = new ProfileRef(
                         Bytes.utf8("claim-destination"),
                         1,
                         Bytes.sha256(Bytes.utf8("claim-destination-hash")),
-                        ProfileKindV1.DESTINATION)
+                        ProfileKind.DESTINATION)
                 .canonicalBytes();
-        final byte[] capability = new ProfileRefV1(
+        final byte[] capability = new ProfileRef(
                         Bytes.utf8("claim-capability"),
                         1,
                         Bytes.sha256(Bytes.utf8("claim-capability-hash")),
-                        ProfileKindV1.DELIVERY_CAPABILITY)
+                        ProfileKind.DELIVERY_CAPABILITY)
                 .canonicalBytes();
-        final byte[] broker = BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+        final byte[] broker = BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(
                         "claim-cluster", java.util.UUID.nameUUIDFromBytes(Bytes.utf8("claim-topic"))))
                 .canonicalBytes();
 
@@ -141,11 +141,11 @@ class ClaimResultBodyTest {
                 materialization(messageId, wrongDestination, capability, broker, payload(), adapterMetadata());
         final byte[] wrongCapabilityMaterialization = materialization(
                 messageId,
-                new ProfileRefV1(
+                new ProfileRef(
                                 Bytes.utf8("claim-destination"),
                                 1,
                                 Bytes.sha256(Bytes.utf8("claim-destination-hash")),
-                                ProfileKindV1.DESTINATION)
+                                ProfileKind.DESTINATION)
                         .canonicalBytes(),
                 wrongCapability,
                 broker,
@@ -195,7 +195,7 @@ class ClaimResultBodyTest {
             CanonicalProtobuf.bytes(output, 9, Bytes.sha256(Bytes.utf8("timeline")));
             CanonicalProtobuf.bytes(output, 10, materialization);
             CanonicalProtobuf.bytes(
-                    output, 11, Bytes.sha256(Bytes.utf8("nereus-delay-claim-materialization-v1\0"), materialization));
+                    output, 11, Bytes.sha256(Bytes.utf8("nereus-delay-claim-materialization\0"), materialization));
             CanonicalProtobuf.bytes(output, 12, chargeVector());
             CanonicalProtobuf.int64(output, 13, 3_000);
             CanonicalProtobuf.bytes(

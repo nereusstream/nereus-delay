@@ -1,48 +1,48 @@
 package com.nereusstream.delay.semantic;
 
+import com.nereusstream.delay.protocol.CanonicalPayloadCommitProof;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.DelayMessageId;
-import com.nereusstream.delay.protocol.MessagePreconditionV1;
-import com.nereusstream.delay.protocol.PayloadCommitProofV1;
-import com.nereusstream.delay.protocol.PayloadReservationReceiptV1;
+import com.nereusstream.delay.protocol.MessagePrecondition;
+import com.nereusstream.delay.protocol.PayloadReservationReceipt;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.PreparedSubmissionV1;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
-import com.nereusstream.delay.protocol.SubmissionModeV1;
+import com.nereusstream.delay.protocol.PreparedSubmission;
+import com.nereusstream.delay.protocol.SubmissionMode;
 
 /** Shared zero-I/O preparation API used by Direct SDK and Gateway compositions. */
 public interface DelaySemanticCore {
-    PreparedSubmissionV1 prepareSchedule(
+    PreparedSubmission prepareSchedule(
             AuthenticatedTenantContext tenant,
             RouteSelectionHint route,
-            ScheduleIntentV1 intent,
+            CanonicalScheduleIntent intent,
             long retryUntilEpochMs,
-            SubmissionModeV1 submissionMode);
+            SubmissionMode submissionMode);
 
     PreparedCommand prepareLargeSchedule(
             AuthenticatedTenantContext tenant,
             RouteSelectionHint route,
-            LargeSchedulePreparationV1 request,
+            LargeSchedulePreparation request,
             long retryUntilEpochMs);
 
     PreparedCommand preparePayloadCommit(
             AuthenticatedTenantContext tenant,
-            PayloadReservationReceiptV1 reservation,
-            PayloadCommitProofV1 proof,
+            PayloadReservationReceipt reservation,
+            CanonicalPayloadCommitProof proof,
             long retryUntilEpochMs);
 
     PreparedCommand prepareCancel(
             AuthenticatedTenantContext tenant,
             DelayMessageId messageId,
-            MessagePreconditionV1 precondition,
+            MessagePrecondition precondition,
             long retryUntilEpochMs);
 
     PreparedCommand prepareReschedule(
             AuthenticatedTenantContext tenant,
             DelayMessageId messageId,
-            MessagePreconditionV1 precondition,
+            MessagePrecondition precondition,
             long deliverAtEpochMs,
             long expireAtEpochMs,
             long retryUntilEpochMs);
 
-    PreparedSubmissionV1 prepareManaged(AuthenticatedTenantContext tenant, PreparedCommand command);
+    PreparedSubmission prepareManaged(AuthenticatedTenantContext tenant, PreparedCommand command);
 }

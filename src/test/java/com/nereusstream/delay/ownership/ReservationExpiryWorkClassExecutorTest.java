@@ -222,7 +222,7 @@ class ReservationExpiryWorkClassExecutorTest {
                     9);
             final PreparedCommand prepare = PreparedCommand.prepareLarge(shardId, intent, 9_000);
             reservationId = Bytes.sha256(
-                    Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                    Bytes.utf8("nereus-delay-reservation-id\0"),
                     prepare.commandId().bytes(),
                     prepare.delayMessageId().bytes(),
                     prepare.commandHash());
@@ -240,7 +240,7 @@ class ReservationExpiryWorkClassExecutorTest {
                     0,
                     null);
             final byte[] proofId = Bytes.sha256(
-                    Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                    Bytes.utf8("nereus-delay-time-fence-proof\0"),
                     shardId.routeIncarnation().bytes(),
                     Bytes.u32be(shardId.partition()),
                     Bytes.i64be(5_000),

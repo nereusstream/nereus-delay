@@ -3,38 +3,38 @@ package com.nereusstream.delay.client;
 import com.nereusstream.delay.adapter.CommandResultRetentionPolicy;
 import com.nereusstream.delay.adapter.QueuedReceiptQueryPolicy;
 import com.nereusstream.delay.adapter.WireIngressOutcomeSupport;
+import com.nereusstream.delay.protocol.CanonicalCommandQueuedReceipt;
+import com.nereusstream.delay.protocol.CanonicalPayloadCommitProof;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.CommandCodec;
-import com.nereusstream.delay.protocol.CommandQueryResponseV1;
-import com.nereusstream.delay.protocol.CommandQueuedReceiptV1;
+import com.nereusstream.delay.protocol.CommandQueryResponse;
 import com.nereusstream.delay.protocol.DelayMessageId;
-import com.nereusstream.delay.protocol.DlqExportStateV1;
-import com.nereusstream.delay.protocol.FirstScheduleEligibilityV1;
+import com.nereusstream.delay.protocol.DlqExportState;
+import com.nereusstream.delay.protocol.FirstScheduleEligibility;
 import com.nereusstream.delay.protocol.LargeScheduleIntent;
-import com.nereusstream.delay.protocol.MessagePreconditionV1;
-import com.nereusstream.delay.protocol.MessageQueryResponseV1;
-import com.nereusstream.delay.protocol.OpaquePayloadUploadHandleV1;
-import com.nereusstream.delay.protocol.PayloadAttestationResponseV1;
-import com.nereusstream.delay.protocol.PayloadCommitProofV1;
-import com.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
-import com.nereusstream.delay.protocol.PayloadReservationReceiptV1;
-import com.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
+import com.nereusstream.delay.protocol.MessagePrecondition;
+import com.nereusstream.delay.protocol.MessageQueryResponse;
+import com.nereusstream.delay.protocol.OpaquePayloadUploadHandle;
+import com.nereusstream.delay.protocol.PayloadAttestationResponse;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetRef;
+import com.nereusstream.delay.protocol.PayloadReservationReceipt;
+import com.nereusstream.delay.protocol.PayloadUploadHandleResponse;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.PreparedSubmissionV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.PublicDestinationBindingViewV1;
-import com.nereusstream.delay.protocol.PublicEvidenceRefV1;
+import com.nereusstream.delay.protocol.PreparedSubmission;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.PublicDestinationBindingView;
+import com.nereusstream.delay.protocol.PublicEvidenceRef;
 import com.nereusstream.delay.protocol.ScheduleIntent;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
 import com.nereusstream.delay.protocol.StableCode;
-import com.nereusstream.delay.protocol.SubmissionModeV1;
-import com.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
-import com.nereusstream.delay.protocol.UploadHandleKindV1;
+import com.nereusstream.delay.protocol.SubmissionMode;
+import com.nereusstream.delay.protocol.SubmissionOutcomeMessage;
+import com.nereusstream.delay.protocol.UploadHandleKind;
 import com.nereusstream.delay.route.RouteSnapshotProvider;
 import com.nereusstream.delay.runtime.CommandResult;
 import com.nereusstream.delay.semantic.AuthenticatedTenantContext;
 import com.nereusstream.delay.semantic.DefaultDelaySemanticCore;
 import com.nereusstream.delay.semantic.DelaySemanticCore;
-import com.nereusstream.delay.semantic.LargeSchedulePreparationV1;
+import com.nereusstream.delay.semantic.LargeSchedulePreparation;
 import com.nereusstream.delay.semantic.LogicalUuidV7Generator;
 import com.nereusstream.delay.semantic.NativePreparationSnapshotProvider;
 import com.nereusstream.delay.semantic.RouteSelectionHint;
@@ -90,11 +90,11 @@ public final class DefaultDelayClient implements DelayClient {
     }
 
     @Override
-    public PreparedCommand prepareScheduleV1(final ScheduleIntentV1 intent, final long retryUntilEpochMs) {
+    public PreparedCommand prepareSchedule(final CanonicalScheduleIntent intent, final long retryUntilEpochMs) {
         ensureOpen();
         try {
-            return CommandCodec.decodeFrameV1(
-                    prepareScheduleSubmissionV1(intent, retryUntilEpochMs, SubmissionModeV1.MANAGED)
+            return CommandCodec.decodeManagedFrame(
+                    prepareScheduleSubmission(intent, retryUntilEpochMs, SubmissionMode.MANAGED)
                             .managedFrame());
         } catch (SemanticPreparationException failure) {
             throw new PreparationFailure(failure.error(), failure);
@@ -104,24 +104,19 @@ public final class DefaultDelayClient implements DelayClient {
     }
 
     @Override
-    public PreparedCommand prepareLargeSchedule(final LargeScheduleIntent intent, final long retryUntilEpochMs) {
-        throw PreparationFailure.of(StableCode.INVALID_COMMAND);
-    }
-
-    @Override
-    public PreparedCommand prepareLargeScheduleV1(
-            final ScheduleIntentV1 intentWithoutPayload,
+    public PreparedCommand prepareLargeSchedule(
+            final CanonicalScheduleIntent intentWithoutPayload,
             final long expectedPayloadLength,
             final byte[] payloadSha256,
             final long reservationTtlMs,
-            final PayloadProofTrustSetRefV1 trustSet,
-            final ProfileRefV1 objectStoreProfile,
+            final PayloadProofTrustSetRef trustSet,
+            final ProfileRef objectStoreProfile,
             final long retryUntilEpochMs) {
         ensureOpen();
         final PreparedCommand command = semanticCore.prepareLargeSchedule(
                 tenant,
                 defaultRoute,
-                new LargeSchedulePreparationV1(
+                new LargeSchedulePreparation(
                         intentWithoutPayload,
                         expectedPayloadLength,
                         payloadSha256,
@@ -133,12 +128,24 @@ public final class DefaultDelayClient implements DelayClient {
     }
 
     @Override
+    public PreparedCommand prepareLargeSchedule(final LargeScheduleIntent intent, final long retryUntilEpochMs) {
+        throw PreparationFailure.of(StableCode.INVALID_COMMAND);
+    }
+
+    @Override
     public PreparedCommand prepareLargePayloadCommit(
-            final PayloadReservationReceiptV1 reservation,
-            final PayloadCommitProofV1 proof,
+            final PayloadReservationReceipt reservation,
+            final CanonicalPayloadCommitProof proof,
             final long retryUntilEpochMs) {
         ensureOpen();
         return semanticCore.preparePayloadCommit(tenant, reservation, proof, retryUntilEpochMs);
+    }
+
+    @Override
+    public PreparedCommand prepareCancel(
+            final DelayMessageId messageId, final MessagePrecondition precondition, final long retryUntilEpochMs) {
+        ensureOpen();
+        return semanticCore.prepareCancel(tenant, messageId, precondition, retryUntilEpochMs);
     }
 
     @Override
@@ -148,10 +155,15 @@ public final class DefaultDelayClient implements DelayClient {
     }
 
     @Override
-    public PreparedCommand prepareCancelV1(
-            final DelayMessageId messageId, final MessagePreconditionV1 precondition, final long retryUntilEpochMs) {
+    public PreparedCommand prepareReschedule(
+            final DelayMessageId messageId,
+            final MessagePrecondition precondition,
+            final long deliverAtEpochMs,
+            final long expireAtEpochMs,
+            final long retryUntilEpochMs) {
         ensureOpen();
-        return semanticCore.prepareCancel(tenant, messageId, precondition, retryUntilEpochMs);
+        return semanticCore.prepareReschedule(
+                tenant, messageId, precondition, deliverAtEpochMs, expireAtEpochMs, retryUntilEpochMs);
     }
 
     @Override
@@ -165,26 +177,14 @@ public final class DefaultDelayClient implements DelayClient {
     }
 
     @Override
-    public PreparedCommand prepareRescheduleV1(
-            final DelayMessageId messageId,
-            final MessagePreconditionV1 precondition,
-            final long deliverAtEpochMs,
-            final long expireAtEpochMs,
-            final long retryUntilEpochMs) {
-        ensureOpen();
-        return semanticCore.prepareReschedule(
-                tenant, messageId, precondition, deliverAtEpochMs, expireAtEpochMs, retryUntilEpochMs);
-    }
-
-    @Override
-    public PreparedSubmissionV1 prepareManagedSubmissionV1(final PreparedCommand command) {
+    public PreparedSubmission prepareManagedSubmission(final PreparedCommand command) {
         ensureOpen();
         return semanticCore.prepareManaged(tenant, command);
     }
 
     @Override
-    public PreparedSubmissionV1 prepareScheduleSubmissionV1(
-            final ScheduleIntentV1 intent, final long retryUntilEpochMs, final SubmissionModeV1 submissionMode) {
+    public PreparedSubmission prepareScheduleSubmission(
+            final CanonicalScheduleIntent intent, final long retryUntilEpochMs, final SubmissionMode submissionMode) {
         ensureOpen();
         Objects.requireNonNull(intent, "intent");
         Objects.requireNonNull(submissionMode, "submissionMode");
@@ -198,7 +198,7 @@ public final class DefaultDelayClient implements DelayClient {
     }
 
     @Override
-    public PreparedSubmissionV1 prepareAutoFast(final AutoFastSchedule request) {
+    public PreparedSubmission prepareAutoFast(final AutoFastSchedule request) {
         ensureOpen();
         Objects.requireNonNull(request, "request");
         if (request.nativeCandidate() != null) {
@@ -208,10 +208,10 @@ public final class DefaultDelayClient implements DelayClient {
     }
 
     @Override
-    public List<PreparedSubmissionV1> prepareAutoFastBatch(final List<AutoFastSchedule> requests) {
+    public List<PreparedSubmission> prepareAutoFastBatch(final List<AutoFastSchedule> requests) {
         ensureOpen();
         Objects.requireNonNull(requests, "requests");
-        final List<PreparedSubmissionV1> result = new ArrayList<>(requests.size());
+        final List<PreparedSubmission> result = new ArrayList<>(requests.size());
         for (AutoFastSchedule request : requests) {
             result.add(prepareAutoFast(request));
         }
@@ -219,16 +219,16 @@ public final class DefaultDelayClient implements DelayClient {
     }
 
     @Override
-    public CompletionStage<SubmissionOutcomeMessageV1> submit(
-            final PreparedSubmissionV1 submission,
+    public CompletionStage<SubmissionOutcomeMessage> submit(
+            final PreparedSubmission submission,
             final long receiptQueryUntilEpochMs,
             final byte[] physicalEnqueueAttemptId) {
         return submitInternal(submission, PhysicalEnqueueAttemptId.require(physicalEnqueueAttemptId));
     }
 
     @Override
-    public CompletionStage<SubmissionOutcomeMessageV1> submit(
-            final PreparedSubmissionV1 submission,
+    public CompletionStage<SubmissionOutcomeMessage> submit(
+            final PreparedSubmission submission,
             final QueuedReceiptQueryPolicy routePolicy,
             final byte[] physicalEnqueueAttemptId) {
         Objects.requireNonNull(routePolicy, "routePolicy");
@@ -237,29 +237,19 @@ public final class DefaultDelayClient implements DelayClient {
 
     @Override
     public CompletionStage<EnqueueOutcome> enqueue(final PreparedCommand command) {
-        return enqueueV1(command);
-    }
-
-    @Override
-    public CompletionStage<EnqueueOutcome> enqueueV1(final PreparedCommand command) {
         ensureOpen();
-        final PreparedSubmissionV1 submission = prepareManagedSubmissionV1(command);
+        final PreparedSubmission submission = prepareManagedSubmission(command);
         return submitInternal(submission, PhysicalEnqueueAttemptId.random())
                 .thenApply(outcome -> toLegacy(command, outcome));
     }
 
     @Override
     public CompletionStage<List<EnqueueOutcome>> enqueueBatch(final List<PreparedCommand> commands) {
-        return enqueueBatchV1(commands);
-    }
-
-    @Override
-    public CompletionStage<List<EnqueueOutcome>> enqueueBatchV1(final List<PreparedCommand> commands) {
         ensureOpen();
         Objects.requireNonNull(commands, "commands");
         final List<CompletionStage<EnqueueOutcome>> stages = new ArrayList<>(commands.size());
         for (PreparedCommand command : commands) {
-            stages.add(enqueueV1(command));
+            stages.add(enqueue(command));
         }
         final CompletableFuture<?>[] futures =
                 stages.stream().map(CompletionStage::toCompletableFuture).toArray(CompletableFuture[]::new);
@@ -269,67 +259,67 @@ public final class DefaultDelayClient implements DelayClient {
     }
 
     @Override
-    public CompletionStage<CommandQueryResponseV1> getCommandResult(
-            final CommandQueuedReceiptV1 receipt,
+    public CompletionStage<CommandQueryResponse> getCommandResult(
+            final CanonicalCommandQueuedReceipt receipt,
             final long nowEpochMs,
             final long fullResultRetainUntilEpochMs,
-            final PublicDestinationBindingViewV1 binding) {
+            final PublicDestinationBindingView binding) {
         ensureOpen();
         return queryClient.getCommandResult(receipt, nowEpochMs, fullResultRetainUntilEpochMs, binding);
     }
 
     @Override
-    public CompletionStage<CommandQueryResponseV1> getCommandResult(
-            final CommandQueuedReceiptV1 receipt,
+    public CompletionStage<CommandQueryResponse> getCommandResult(
+            final CanonicalCommandQueuedReceipt receipt,
             final long nowEpochMs,
             final CommandResultRetentionPolicy policy,
-            final PublicDestinationBindingViewV1 binding) {
+            final PublicDestinationBindingView binding) {
         ensureOpen();
         return queryClient.getCommandResult(receipt, nowEpochMs, policy, binding);
     }
 
     @Override
-    public CompletionStage<CommandQueryResponseV1> awaitAppliedV1(
-            final CommandQueuedReceiptV1 receipt,
+    public CompletionStage<CommandQueryResponse> awaitApplied(
+            final CanonicalCommandQueuedReceipt receipt,
             final long nowEpochMs,
             final long fullResultRetainUntilEpochMs,
-            final PublicDestinationBindingViewV1 binding) {
+            final PublicDestinationBindingView binding) {
         ensureOpen();
-        return queryClient.awaitAppliedV1(receipt, nowEpochMs, fullResultRetainUntilEpochMs, binding);
+        return queryClient.awaitApplied(receipt, nowEpochMs, fullResultRetainUntilEpochMs, binding);
     }
 
     @Override
-    public CompletionStage<CommandQueryResponseV1> awaitAppliedV1(
-            final CommandQueuedReceiptV1 receipt,
+    public CompletionStage<CommandQueryResponse> awaitApplied(
+            final CanonicalCommandQueuedReceipt receipt,
             final long nowEpochMs,
             final CommandResultRetentionPolicy policy,
-            final PublicDestinationBindingViewV1 binding) {
+            final PublicDestinationBindingView binding) {
         ensureOpen();
-        return queryClient.awaitAppliedV1(receipt, nowEpochMs, policy, binding);
+        return queryClient.awaitApplied(receipt, nowEpochMs, policy, binding);
     }
 
     @Override
-    public CompletionStage<MessageQueryResponseV1> getMessage(
+    public CompletionStage<MessageQueryResponse> getMessage(
             final DelayMessageId messageId,
-            final PublicDestinationBindingViewV1 binding,
-            final DlqExportStateV1 dlqExportState,
-            final PublicEvidenceRefV1 evidence,
-            final FirstScheduleEligibilityV1 unknownEligibility) {
+            final PublicDestinationBindingView binding,
+            final DlqExportState dlqExportState,
+            final PublicEvidenceRef evidence,
+            final FirstScheduleEligibility unknownEligibility) {
         ensureOpen();
         return queryClient.getMessage(messageId, binding, dlqExportState, evidence, unknownEligibility);
     }
 
     @Override
-    public CompletionStage<PayloadUploadHandleResponseV1> issuePayloadUploadHandle(
-            final PayloadReservationReceiptV1 reservation, final UploadHandleKindV1 kind, final long nowEpochMs) {
+    public CompletionStage<PayloadUploadHandleResponse> issuePayloadUploadHandle(
+            final PayloadReservationReceipt reservation, final UploadHandleKind kind, final long nowEpochMs) {
         ensureOpen();
         return queryClient.issuePayloadUploadHandle(reservation, kind, nowEpochMs);
     }
 
     @Override
-    public CompletionStage<PayloadAttestationResponseV1> attestPayloadUpload(
-            final PayloadReservationReceiptV1 reservation,
-            final OpaquePayloadUploadHandleV1 handle,
+    public CompletionStage<PayloadAttestationResponse> attestPayloadUpload(
+            final PayloadReservationReceipt reservation,
+            final OpaquePayloadUploadHandle handle,
             final long nowEpochMs) {
         ensureOpen();
         return queryClient.attestPayloadUpload(reservation, handle, nowEpochMs);
@@ -391,8 +381,8 @@ public final class DefaultDelayClient implements DelayClient {
         throw new IllegalStateException("unexpected checked teardown failure", failure);
     }
 
-    private CompletionStage<SubmissionOutcomeMessageV1> submitInternal(
-            final PreparedSubmissionV1 submission, final PhysicalEnqueueAttemptId attempt) {
+    private CompletionStage<SubmissionOutcomeMessage> submitInternal(
+            final PreparedSubmission submission, final PhysicalEnqueueAttemptId attempt) {
         ensureOpen();
         Objects.requireNonNull(submission, "submission");
         try {
@@ -418,12 +408,12 @@ public final class DefaultDelayClient implements DelayClient {
                 });
     }
 
-    private static EnqueueOutcome toLegacy(final PreparedCommand command, final SubmissionOutcomeMessageV1 outcome) {
-        if (outcome.kind() == com.nereusstream.delay.protocol.SubmissionOutcomeKindV1.MANAGED) {
+    private static EnqueueOutcome toLegacy(final PreparedCommand command, final SubmissionOutcomeMessage outcome) {
+        if (outcome.kind() == com.nereusstream.delay.protocol.SubmissionOutcomeKind.MANAGED) {
             final var managed = outcome.managed();
             return switch (managed.kind()) {
                 case QUEUED -> {
-                    final CommandQueuedReceiptV1 receipt = managed.queued();
+                    final CanonicalCommandQueuedReceipt receipt = managed.queued();
                     yield EnqueueOutcome.queued(
                             command,
                             new CommandQueuedReceipt(

@@ -27,9 +27,9 @@ public final class WorkerAssignmentCoordinator {
             final byte[] capacityEnvelopeDigest,
             final long placementEpoch,
             final List<WorkerPlacementPolicy.WorkerCandidate> candidates,
-            final com.nereusstream.delay.protocol.CapacityVectorV1 incomingShardCapacity,
-            final com.nereusstream.delay.protocol.CapacityVectorV1 workerFixedCost,
-            final com.nereusstream.delay.protocol.CapacityVectorV1 transitionDemand,
+            final com.nereusstream.delay.protocol.CapacityVector incomingShardCapacity,
+            final com.nereusstream.delay.protocol.CapacityVector workerFixedCost,
+            final com.nereusstream.delay.protocol.CapacityVector transitionDemand,
             final String currentWorkerId,
             final long nowEpochMs,
             final long movementBytes,
@@ -51,7 +51,7 @@ public final class WorkerAssignmentCoordinator {
 
     /**
      * Scores and publishes an assignment optionally bound to a signed Route
-     * snapshot digest.  The empty digest overload above preserves the local
+     * snapshot digest. The empty digest overload above preserves the local
      * source-assignment seam used by non-Route composition tests.
      */
     public PlacementResult place(
@@ -60,9 +60,9 @@ public final class WorkerAssignmentCoordinator {
             final byte[] routeSnapshotDigest,
             final long placementEpoch,
             final List<WorkerPlacementPolicy.WorkerCandidate> candidates,
-            final com.nereusstream.delay.protocol.CapacityVectorV1 incomingShardCapacity,
-            final com.nereusstream.delay.protocol.CapacityVectorV1 workerFixedCost,
-            final com.nereusstream.delay.protocol.CapacityVectorV1 transitionDemand,
+            final com.nereusstream.delay.protocol.CapacityVector incomingShardCapacity,
+            final com.nereusstream.delay.protocol.CapacityVector workerFixedCost,
+            final com.nereusstream.delay.protocol.CapacityVector transitionDemand,
             final String currentWorkerId,
             final long nowEpochMs,
             final long movementBytes,

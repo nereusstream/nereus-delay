@@ -101,7 +101,7 @@ cleanup() {
         result_status="FAIL"
     fi
     jq -n \
-        --arg schema "nereus-delay-minio-fault-e2e-v1" \
+        --arg schema "nereus-delay-minio-fault-e2e" \
         --arg status "$result_status" \
         --arg source_ref "$source_ref" \
         --arg source_lock "$source_lock" \
@@ -158,7 +158,7 @@ cleanup() {
           started_at: $started_at,
           finished_at: $finished_at,
           boundaries: [
-            "This is a source-locked real MinIO Object Store fault receipt, not V1 release certification.",
+            "This is a source-locked real MinIO Object Store fault receipt, not  release certification.",
             "It covers provider 5xx/timeout response loss after and before Commit plus credential configuration drift.",
             "It does not certify all Broker/Worker placement, Object Store provider implementations, long-cycle soak or PASS_CERTIFIED capacity envelopes."
           ]

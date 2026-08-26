@@ -57,15 +57,16 @@ class ProtocolCodecTest {
     void commandQueuedReceiptKafkaPayloadBindsPreparedCommandSourceAndAck() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 8);
         final UUID topic = UUID.randomUUID();
-        final PreparedCommand command = scheduleV1(shard, "receipt-lane", 2_000, 8_000, 9_000);
+        final PreparedCommand command = schedule(shard, "receipt-lane", 2_000, 8_000, 9_000);
         final KafkaSourcePosition source = new KafkaSourcePosition(shard, "cluster-a", topic, 7, 3, 1_234);
-        final CommandQueuedReceiptV1.KafkaQueuedAck ack = new CommandQueuedReceiptV1.KafkaQueuedAck(
+        final CanonicalCommandQueuedReceipt.KafkaQueuedAck ack = new CanonicalCommandQueuedReceipt.KafkaQueuedAck(
                 "cluster-a", topic, 8, 7, 3, 1_234, Bytes.sha256(Bytes.utf8("broker-response")));
         final byte[] attempt = new byte[16];
         attempt[15] = 1;
 
-        final CommandQueuedReceiptV1 receipt = CommandQueuedReceiptV1.create(command, source, ack, 9_000, attempt);
-        final CommandQueuedReceiptV1 decoded = CommandQueuedReceiptV1.decodeFrame(receipt.frame());
+        final CanonicalCommandQueuedReceipt receipt =
+                CanonicalCommandQueuedReceipt.create(command, source, ack, 9_000, attempt);
+        final CanonicalCommandQueuedReceipt decoded = CanonicalCommandQueuedReceipt.decodeFrame(receipt.frame());
 
         assertEquals(receipt, decoded);
         assertEquals(command.commandId(), decoded.command().commandId());
@@ -78,12 +79,12 @@ class ProtocolCodecTest {
 
         final byte[] tampered = receipt.payload();
         tampered[tampered.length - 1] ^= 1;
-        assertThrows(IllegalArgumentException.class, () -> CommandQueuedReceiptV1.decodePayload(tampered));
-        final CommandQueuedReceiptV1.KafkaQueuedAck wrongAck =
-                new CommandQueuedReceiptV1.KafkaQueuedAck("cluster-a", topic, 8, 8, 3, 1_235, ack.responseSha256());
+        assertThrows(IllegalArgumentException.class, () -> CanonicalCommandQueuedReceipt.decodePayload(tampered));
+        final CanonicalCommandQueuedReceipt.KafkaQueuedAck wrongAck = new CanonicalCommandQueuedReceipt.KafkaQueuedAck(
+                "cluster-a", topic, 8, 8, 3, 1_235, ack.responseSha256());
         assertThrows(
                 IllegalArgumentException.class,
-                () -> CommandQueuedReceiptV1.create(command, source, wrongAck, 9_000, attempt));
+                () -> CanonicalCommandQueuedReceipt.create(command, source, wrongAck, 9_000, attempt));
     }
 
     @Test
@@ -91,9 +92,9 @@ class ProtocolCodecTest {
         final ShardId commandShard = new ShardId(RouteIncarnation.random(), 8);
         final ShardId sourceShard = new ShardId(RouteIncarnation.random(), 9);
         final UUID topic = UUID.randomUUID();
-        final PreparedCommand command = scheduleV1(commandShard, "receipt-shard-fence", 2_000, 8_000, 9_000);
+        final PreparedCommand command = schedule(commandShard, "receipt-shard-fence", 2_000, 8_000, 9_000);
         final KafkaSourcePosition source = new KafkaSourcePosition(sourceShard, "cluster-a", topic, 7, 3, 1_234);
-        final CommandQueuedReceiptV1.KafkaQueuedAck ack = new CommandQueuedReceiptV1.KafkaQueuedAck(
+        final CanonicalCommandQueuedReceipt.KafkaQueuedAck ack = new CanonicalCommandQueuedReceipt.KafkaQueuedAck(
                 "cluster-a",
                 topic,
                 sourceShard.partition(),
@@ -106,7 +107,7 @@ class ProtocolCodecTest {
 
         assertThrows(
                 IllegalArgumentException.class,
-                () -> CommandQueuedReceiptV1.create(command, source, ack, 9_000, attempt));
+                () -> CanonicalCommandQueuedReceipt.create(command, source, ack, 9_000, attempt));
     }
 
     @Test
@@ -123,15 +124,16 @@ class ProtocolCodecTest {
                         Bytes.utf8("legacy-receipt")),
                 9_000);
         final KafkaSourcePosition source = new KafkaSourcePosition(shard, "cluster-legacy", topic, 7, 3, 1_234);
-        final CommandQueuedReceiptV1.KafkaQueuedAck ack = new CommandQueuedReceiptV1.KafkaQueuedAck(
+        final CanonicalCommandQueuedReceipt.KafkaQueuedAck ack = new CanonicalCommandQueuedReceipt.KafkaQueuedAck(
                 "cluster-legacy", topic, shard.partition(), 7, 3, 1_234, Bytes.sha256(Bytes.utf8("legacy-response")));
         final byte[] attempt = new byte[16];
         attempt[15] = 1;
 
         assertThrows(
                 IllegalArgumentException.class,
-                () -> CommandQueuedReceiptV1.create(legacy, source, ack, 9_000, attempt));
-        assertThrows(IllegalArgumentException.class, () -> CommandQueuedReceiptV1.PreparedCommandRef.from(legacy));
+                () -> CanonicalCommandQueuedReceipt.create(legacy, source, ack, 9_000, attempt));
+        assertThrows(
+                IllegalArgumentException.class, () -> CanonicalCommandQueuedReceipt.PreparedCommandRef.from(legacy));
     }
 
     @Test
@@ -141,8 +143,8 @@ class ProtocolCodecTest {
         resource[0] = 7;
         final PulsarSourcePosition source = new PulsarSourcePosition(
                 shard, resource, "persistent://tenant/topic", 4, 5, 1, 3, PulsarSourcePosition.EntryKind.BATCH, 2_345);
-        final PreparedCommand command = cancelV1(shard, 9_000);
-        final CommandQueuedReceiptV1.PulsarQueuedAck ack = new CommandQueuedReceiptV1.PulsarQueuedAck(
+        final PreparedCommand command = cancel(shard, 9_000);
+        final CanonicalCommandQueuedReceipt.PulsarQueuedAck ack = new CanonicalCommandQueuedReceipt.PulsarQueuedAck(
                 "pulsar-cluster",
                 resource,
                 "persistent://tenant/topic",
@@ -157,8 +159,8 @@ class ProtocolCodecTest {
         final byte[] attempt = new byte[16];
         attempt[0] = 1;
 
-        final CommandQueuedReceiptV1 decoded =
-                CommandQueuedReceiptV1.decodeFrame(CommandQueuedReceiptV1.create(command, source, ack, 3_000, attempt)
+        final CanonicalCommandQueuedReceipt decoded = CanonicalCommandQueuedReceipt.decodeFrame(
+                CanonicalCommandQueuedReceipt.create(command, source, ack, 3_000, attempt)
                         .frame());
         assertEquals(source, decoded.sourcePosition());
         assertEquals(ack, decoded.brokerAck());
@@ -167,24 +169,23 @@ class ProtocolCodecTest {
 
     @Test
     void queryErrorResponsesKeepClosedResultTagsAndRetryPresence() {
-        final CommandQueryResponseV1 command = CommandQueryResponseV1.error(StableCode.SHARD_TRANSITIONING, 7_000L);
-        assertEquals(command, CommandQueryResponseV1.decode(command.canonicalBytes()));
-        final MessageQueryResponseV1 message = MessageQueryResponseV1.error(StableCode.INVALID_RECEIPT, null);
-        assertEquals(message, MessageQueryResponseV1.decode(message.canonicalBytes()));
-        assertThrows(
-                IllegalArgumentException.class, () -> new PublicQueryErrorV1(StableCode.SHARD_UNAVAILABLE, 7_000L));
+        final CommandQueryResponse command = CommandQueryResponse.error(StableCode.SHARD_TRANSITIONING, 7_000L);
+        assertEquals(command, CommandQueryResponse.decode(command.canonicalBytes()));
+        final MessageQueryResponse message = MessageQueryResponse.error(StableCode.INVALID_RECEIPT, null);
+        assertEquals(message, MessageQueryResponse.decode(message.canonicalBytes()));
+        assertThrows(IllegalArgumentException.class, () -> new PublicQueryError(StableCode.SHARD_UNAVAILABLE, 7_000L));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> PublicQueryErrorV1.decode(CanonicalProtobuf.message(output -> {
+                () -> PublicQueryError.decode(CanonicalProtobuf.message(output -> {
                     CanonicalProtobuf.uint32(output, 1, StableCode.SHARD_TRANSITIONING.wireValue());
                 })));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> PublicQueryErrorV1.decode(CanonicalProtobuf.message(output -> {
+                () -> PublicQueryError.decode(CanonicalProtobuf.message(output -> {
                     CanonicalProtobuf.uint32(output, 1, StableCode.SHARD_TRANSITIONING.wireValue());
                     CanonicalProtobuf.bytes(output, 2, Bytes.utf8("not-a-varint"));
                 })));
-        assertThrows(IllegalArgumentException.class, () -> CommandQueryResponseV1.error(StableCode.OK, null));
+        assertThrows(IllegalArgumentException.class, () -> CommandQueryResponse.error(StableCode.OK, null));
     }
 
     @Test
@@ -193,114 +194,113 @@ class ProtocolCodecTest {
         final UUID topic = UUID.randomUUID();
         final KafkaSourcePosition current = new KafkaSourcePosition(shard, "cluster-query", topic, 10, 2, 1_000);
         final KafkaSourcePosition awaited = new KafkaSourcePosition(shard, "cluster-query", topic, 11, 2, 1_001);
-        final PublicDestinationBindingViewV1 binding = publicBinding();
+        final PublicDestinationBindingView binding = publicBinding();
         final int highBitGeneration = (int) 0x8000_0000L;
 
-        final PendingCommandViewV1 pendingView = new PendingCommandViewV1(awaited, current, 2_000);
+        final PendingCommandView pendingView = new PendingCommandView(awaited, current, 2_000);
         assertEquals(
-                CommandQueryResponseV1.pending(pendingView),
-                CommandQueryResponseV1.decode(
-                        CommandQueryResponseV1.pending(pendingView).canonicalBytes()));
+                CommandQueryResponse.pending(pendingView),
+                CommandQueryResponse.decode(
+                        CommandQueryResponse.pending(pendingView).canonicalBytes()));
 
-        final PublicCommandResultV1 appliedView = new PublicCommandResultV1(
-                CommandApplyStatusV1.APPLIED, StableCode.OK, awaited, highBitGeneration, 1L, binding, 3_000);
-        final PublicCommandResultV1 rejectedView = new PublicCommandResultV1(
-                CommandApplyStatusV1.REJECTED, StableCode.INVALID_COMMAND, awaited, null, null, null, 3_000);
+        final PublicCommandResult appliedView = new PublicCommandResult(
+                CommandApplyStatus.APPLIED, StableCode.OK, awaited, highBitGeneration, 1L, binding, 3_000);
+        final PublicCommandResult rejectedView = new PublicCommandResult(
+                CommandApplyStatus.REJECTED, StableCode.INVALID_COMMAND, awaited, null, null, null, 3_000);
         assertEquals(
-                CommandQueryResponseV1.applied(appliedView),
-                CommandQueryResponseV1.decode(
-                        CommandQueryResponseV1.applied(appliedView).canonicalBytes()));
+                CommandQueryResponse.applied(appliedView),
+                CommandQueryResponse.decode(
+                        CommandQueryResponse.applied(appliedView).canonicalBytes()));
         assertEquals(
-                CommandQueryResponseV1.rejected(rejectedView),
-                CommandQueryResponseV1.decode(
-                        CommandQueryResponseV1.rejected(rejectedView).canonicalBytes()));
+                CommandQueryResponse.rejected(rejectedView),
+                CommandQueryResponse.decode(
+                        CommandQueryResponse.rejected(rejectedView).canonicalBytes()));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new PublicCommandResultV1(
-                        CommandApplyStatusV1.REJECTED, StableCode.INVALID_COMMAND, awaited, 0, null, null, 3_000));
+                () -> new PublicCommandResult(
+                        CommandApplyStatus.REJECTED, StableCode.INVALID_COMMAND, awaited, 0, null, null, 3_000));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new PublicCommandResultV1(
-                        CommandApplyStatusV1.APPLIED, StableCode.OK, awaited, null, 1L, null, 3_000));
+                () -> new PublicCommandResult(
+                        CommandApplyStatus.APPLIED, StableCode.OK, awaited, null, 1L, null, 3_000));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new PublicCommandResultV1(
-                        CommandApplyStatusV1.REJECTED, StableCode.INVALID_COMMAND, awaited, null, null, null, 1_000));
+                () -> new PublicCommandResult(
+                        CommandApplyStatus.REJECTED, StableCode.INVALID_COMMAND, awaited, null, null, null, 1_000));
 
-        final CompactCommandResultV1 compact =
-                new CompactCommandResultV1(CommandApplyStatusV1.REJECTED, StableCode.INVALID_COMMAND, awaited, 3_000);
+        final CompactCommandResult compact =
+                new CompactCommandResult(CommandApplyStatus.REJECTED, StableCode.INVALID_COMMAND, awaited, 3_000);
         assertEquals(
-                CommandQueryResponseV1.resultExpired(compact),
-                CommandQueryResponseV1.decode(
-                        CommandQueryResponseV1.resultExpired(compact).canonicalBytes()));
+                CommandQueryResponse.resultExpired(compact),
+                CommandQueryResponse.decode(
+                        CommandQueryResponse.resultExpired(compact).canonicalBytes()));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new CompactCommandResultV1(
-                        CommandApplyStatusV1.REJECTED, StableCode.INVALID_COMMAND, awaited, 1_000));
+                () -> new CompactCommandResult(
+                        CommandApplyStatus.REJECTED, StableCode.INVALID_COMMAND, awaited, 1_000));
         assertEquals(
-                CommandQueryResponseV1.resultEvidenceExpired(),
-                CommandQueryResponseV1.decode(
-                        CommandQueryResponseV1.resultEvidenceExpired().canonicalBytes()));
+                CommandQueryResponse.resultEvidenceExpired(),
+                CommandQueryResponse.decode(
+                        CommandQueryResponse.resultEvidenceExpired().canonicalBytes()));
 
-        final ReservedMessageViewV1 reserved =
-                new ReservedMessageViewV1(new byte[32], 1, PayloadReservationStateV1.PAYLOAD_RESERVED, 4_000, binding);
-        final ActiveMessageViewV1 active = new ActiveMessageViewV1(
+        final ReservedMessageView reserved =
+                new ReservedMessageView(new byte[32], 1, PayloadReservationState.PAYLOAD_RESERVED, 4_000, binding);
+        final ActiveMessageView active = new ActiveMessageView(
                 highBitGeneration,
                 2,
-                MessageGenerationStateV1.UNCERTAIN,
+                MessageGenerationState.UNCERTAIN,
                 1_000,
                 5_000,
                 binding,
-                PayloadAvailabilityV1.INLINE_RETAINED,
+                PayloadAvailability.INLINE_RETAINED,
                 true);
-        final PublicEvidenceRefV1 evidence = new PublicEvidenceRefV1(
-                PublishEvidenceKindV1.KAFKA_PRODUCE_ACK,
+        final PublicEvidenceRef evidence = new PublicEvidenceRef(
+                PublishEvidenceKind.KAFKA_PRODUCE_ACK,
                 Bytes.sha256(Bytes.utf8("evidence")),
-                EvidenceVerificationStatusV1.VERIFIED_PUBLISHED);
-        final TerminalMessageViewV1 terminal = new TerminalMessageViewV1(
+                EvidenceVerificationStatus.VERIFIED_PUBLISHED);
+        final TerminalMessageView terminal = new TerminalMessageView(
                 highBitGeneration,
                 3,
-                MessageGenerationStateV1.PUBLISHED,
+                MessageGenerationState.PUBLISHED,
                 StableCode.OK,
                 binding,
-                PayloadAvailabilityV1.INLINE_RETAINED,
-                DlqExportStateV1.NOT_CONFIGURED,
+                PayloadAvailability.INLINE_RETAINED,
+                DlqExportState.NOT_CONFIGURED,
                 false,
                 evidence);
         assertEquals(
-                MessageQueryResponseV1.reserved(reserved),
-                MessageQueryResponseV1.decode(
-                        MessageQueryResponseV1.reserved(reserved).canonicalBytes()));
+                MessageQueryResponse.reserved(reserved),
+                MessageQueryResponse.decode(
+                        MessageQueryResponse.reserved(reserved).canonicalBytes()));
         assertEquals(
-                MessageQueryResponseV1.active(active),
-                MessageQueryResponseV1.decode(
-                        MessageQueryResponseV1.active(active).canonicalBytes()));
+                MessageQueryResponse.active(active),
+                MessageQueryResponse.decode(MessageQueryResponse.active(active).canonicalBytes()));
         assertEquals(
-                MessageQueryResponseV1.terminal(terminal),
-                MessageQueryResponseV1.decode(
-                        MessageQueryResponseV1.terminal(terminal).canonicalBytes()));
+                MessageQueryResponse.terminal(terminal),
+                MessageQueryResponse.decode(
+                        MessageQueryResponse.terminal(terminal).canonicalBytes()));
         assertEquals(
-                MessageQueryResponseV1.identityRetired(),
-                MessageQueryResponseV1.decode(
-                        MessageQueryResponseV1.identityRetired().canonicalBytes()));
+                MessageQueryResponse.identityRetired(),
+                MessageQueryResponse.decode(
+                        MessageQueryResponse.identityRetired().canonicalBytes()));
         assertEquals(
-                MessageQueryResponseV1.unknown(FirstScheduleEligibilityV1.NOT_PROVEN),
-                MessageQueryResponseV1.decode(MessageQueryResponseV1.unknown(FirstScheduleEligibilityV1.NOT_PROVEN)
+                MessageQueryResponse.unknown(FirstScheduleEligibility.NOT_PROVEN),
+                MessageQueryResponse.decode(MessageQueryResponse.unknown(FirstScheduleEligibility.NOT_PROVEN)
                         .canonicalBytes()));
 
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new CommandQueryResponseV1(CommandQueryResult.APPLIED, rejectedView));
+                () -> new CommandQueryResponse(CommandQueryResult.APPLIED, rejectedView));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new ActiveMessageViewV1(
+                () -> new ActiveMessageView(
                         0,
                         2,
-                        MessageGenerationStateV1.PUBLISHED,
+                        MessageGenerationState.PUBLISHED,
                         1_000,
                         5_000,
                         binding,
-                        PayloadAvailabilityV1.INLINE_RETAINED,
+                        PayloadAvailability.INLINE_RETAINED,
                         false));
     }
 
@@ -308,23 +308,23 @@ class ProtocolCodecTest {
     void commandAppliedReceiptBindsQueuedDigestAndAppliedSourcePosition() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 5);
         final UUID topic = UUID.randomUUID();
-        final PreparedCommand command = scheduleV1(shard, "applied-lane", 1_000, 5_000, 8_000);
+        final PreparedCommand command = schedule(shard, "applied-lane", 1_000, 5_000, 8_000);
         final KafkaSourcePosition queuedPosition =
                 new KafkaSourcePosition(shard, "cluster-applied", topic, 10, 1, 1_000);
         final KafkaSourcePosition appliedPosition =
                 new KafkaSourcePosition(shard, "cluster-applied", topic, 11, 1, 1_001);
         final byte[] attempt = new byte[16];
         attempt[0] = 1;
-        final CommandQueuedReceiptV1 queued = CommandQueuedReceiptV1.create(
+        final CanonicalCommandQueuedReceipt queued = CanonicalCommandQueuedReceipt.create(
                 command,
                 queuedPosition,
-                new CommandQueuedReceiptV1.KafkaQueuedAck(
+                new CanonicalCommandQueuedReceipt.KafkaQueuedAck(
                         "cluster-applied", topic, shard.partition(), 10, 1, 1_000, Bytes.sha256(Bytes.utf8("ack"))),
                 2_000,
                 attempt);
-        final CommandAppliedReceiptV1 applied = CommandAppliedReceiptV1.create(
+        final CommandAppliedReceipt applied = CommandAppliedReceipt.create(
                 queued,
-                CommandApplyStatusV1.APPLIED,
+                CommandApplyStatus.APPLIED,
                 StableCode.OK,
                 appliedPosition,
                 (int) 0x8000_0000L,
@@ -332,31 +332,31 @@ class ProtocolCodecTest {
                 publicBinding(),
                 3_000);
 
-        assertEquals(applied, CommandAppliedReceiptV1.decodeFrame(applied.frame()));
+        assertEquals(applied, CommandAppliedReceipt.decodeFrame(applied.frame()));
         assertEquals(
                 ReceiptKind.COMMAND_APPLIED,
                 ReceiptFrame.decode(applied.frame()).kind());
 
-        final CommandAppliedReceiptV1 rejected = CommandAppliedReceiptV1.create(
+        final CommandAppliedReceipt rejected = CommandAppliedReceipt.create(
                 queued,
-                CommandApplyStatusV1.REJECTED,
+                CommandApplyStatus.REJECTED,
                 StableCode.INVALID_COMMAND,
                 appliedPosition,
                 null,
                 null,
                 null,
                 3_000);
-        assertEquals(rejected, CommandAppliedReceiptV1.decodePayload(rejected.payload()));
+        assertEquals(rejected, CommandAppliedReceipt.decodePayload(rejected.payload()));
 
         final byte[] tampered = applied.payload();
         tampered[tampered.length - 1] ^= 1;
-        assertThrows(IllegalArgumentException.class, () -> CommandAppliedReceiptV1.decodePayload(tampered));
+        assertThrows(IllegalArgumentException.class, () -> CommandAppliedReceipt.decodePayload(tampered));
         final KafkaSourcePosition beforeQueued = new KafkaSourcePosition(shard, "cluster-applied", topic, 9, 1, 999);
         assertThrows(
                 IllegalArgumentException.class,
-                () -> CommandAppliedReceiptV1.create(
+                () -> CommandAppliedReceipt.create(
                         queued,
-                        CommandApplyStatusV1.APPLIED,
+                        CommandApplyStatus.APPLIED,
                         StableCode.OK,
                         beforeQueued,
                         0,
@@ -367,9 +367,9 @@ class ProtocolCodecTest {
                 new KafkaSourcePosition(shard, "cluster-applied", topic, 10, 2, 1_002);
         assertThrows(
                 IllegalArgumentException.class,
-                () -> CommandAppliedReceiptV1.create(
+                () -> CommandAppliedReceipt.create(
                         queued,
-                        CommandApplyStatusV1.APPLIED,
+                        CommandApplyStatus.APPLIED,
                         StableCode.OK,
                         conflictingSameOffset,
                         0,
@@ -378,9 +378,9 @@ class ProtocolCodecTest {
                         3_000));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> CommandAppliedReceiptV1.create(
+                () -> CommandAppliedReceipt.create(
                         queued,
-                        CommandApplyStatusV1.REJECTED,
+                        CommandApplyStatus.REJECTED,
                         StableCode.INVALID_COMMAND,
                         appliedPosition,
                         0,
@@ -389,13 +389,13 @@ class ProtocolCodecTest {
                         3_000));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> CommandAppliedReceiptV1.create(
-                        queued, CommandApplyStatusV1.APPLIED, StableCode.OK, appliedPosition, null, 1L, null, 3_000));
+                () -> CommandAppliedReceipt.create(
+                        queued, CommandApplyStatus.APPLIED, StableCode.OK, appliedPosition, null, 1L, null, 3_000));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> CommandAppliedReceiptV1.create(
+                () -> CommandAppliedReceipt.create(
                         queued,
-                        CommandApplyStatusV1.REJECTED,
+                        CommandApplyStatus.REJECTED,
                         StableCode.INVALID_COMMAND,
                         appliedPosition,
                         null,
@@ -410,14 +410,13 @@ class ProtocolCodecTest {
         final DelayMessageId messageId = DelayMessageId.random(shard);
         final KafkaSourcePosition source =
                 new KafkaSourcePosition(shard, "cluster-payload", UUID.randomUUID(), 12, 1, 1_200);
-        final ProfileRefV1 objectStore = new ProfileRefV1(
+        final ProfileRef objectStore = new ProfileRef(
                 Bytes.utf8("object-store"),
                 3,
                 Bytes.sha256(Bytes.utf8("object-store-semantic")),
-                ProfileKindV1.OBJECT_STORE);
-        final PayloadProofTrustSetRefV1 trustSet =
-                new PayloadProofTrustSetRefV1(4, Bytes.sha256(Bytes.utf8("trust-set")));
-        final PayloadReservationReceiptV1 receipt = PayloadReservationReceiptV1.create(
+                ProfileKind.OBJECT_STORE);
+        final PayloadProofTrustSetRef trustSet = new PayloadProofTrustSetRef(4, Bytes.sha256(Bytes.utf8("trust-set")));
+        final PayloadReservationReceipt receipt = PayloadReservationReceipt.create(
                 Bytes.sha256(Bytes.utf8("reservation")),
                 messageId,
                 shard,
@@ -431,22 +430,22 @@ class ProtocolCodecTest {
                 9_000,
                 trustSet);
 
-        assertEquals(receipt, PayloadReservationReceiptV1.decodeFrame(receipt.frame()));
+        assertEquals(receipt, PayloadReservationReceipt.decodeFrame(receipt.frame()));
         assertEquals(
                 ReceiptKind.PAYLOAD_RESERVATION,
                 ReceiptFrame.decode(receipt.frame()).kind());
         final byte[] tampered = receipt.payload();
         tampered[tampered.length - 1] ^= 1;
-        assertThrows(IllegalArgumentException.class, () -> PayloadReservationReceiptV1.decodePayload(tampered));
+        assertThrows(IllegalArgumentException.class, () -> PayloadReservationReceipt.decodePayload(tampered));
 
-        final ProfileRefV1 destination = new ProfileRefV1(
+        final ProfileRef destination = new ProfileRef(
                 Bytes.utf8("destination"),
                 1,
                 Bytes.sha256(Bytes.utf8("destination-semantic")),
-                ProfileKindV1.DESTINATION);
+                ProfileKind.DESTINATION);
         assertThrows(
                 IllegalArgumentException.class,
-                () -> PayloadReservationReceiptV1.create(
+                () -> PayloadReservationReceipt.create(
                         new byte[32],
                         messageId,
                         shard,
@@ -461,7 +460,7 @@ class ProtocolCodecTest {
                         trustSet));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> PayloadReservationReceiptV1.create(
+                () -> PayloadReservationReceipt.create(
                         new byte[32],
                         messageId,
                         new ShardId(RouteIncarnation.random(), 6),
@@ -489,7 +488,7 @@ class ProtocolCodecTest {
                 Bytes.sha256(Bytes.utf8("control-sample")),
                 0,
                 null);
-        final ControlOperationReceiptV1 receipt = ControlOperationReceiptV1.create(
+        final ControlOperationReceipt receipt = ControlOperationReceipt.create(
                 Bytes.sha256(Bytes.utf8("operation")),
                 Bytes.sha256(Bytes.utf8("request")),
                 Bytes.sha256(Bytes.utf8("scope")),
@@ -498,16 +497,16 @@ class ProtocolCodecTest {
                 registeredAt,
                 5_000);
 
-        assertEquals(receipt, ControlOperationReceiptV1.decodeFrame(receipt.frame()));
+        assertEquals(receipt, ControlOperationReceipt.decodeFrame(receipt.frame()));
         assertEquals(
                 ReceiptKind.CONTROL_OPERATION,
                 ReceiptFrame.decode(receipt.frame()).kind());
         final byte[] tampered = receipt.payload();
         tampered[tampered.length - 1] ^= 1;
-        assertThrows(IllegalArgumentException.class, () -> ControlOperationReceiptV1.decodePayload(tampered));
+        assertThrows(IllegalArgumentException.class, () -> ControlOperationReceipt.decodePayload(tampered));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> ControlOperationReceiptV1.create(
+                () -> ControlOperationReceipt.create(
                         new byte[32],
                         Bytes.sha256(Bytes.utf8("request")),
                         Bytes.sha256(Bytes.utf8("scope")),
@@ -517,7 +516,7 @@ class ProtocolCodecTest {
                         5_000));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> ControlOperationReceiptV1.create(
+                () -> ControlOperationReceipt.create(
                         Bytes.sha256(Bytes.utf8("operation")),
                         Bytes.sha256(Bytes.utf8("request")),
                         Bytes.sha256(Bytes.utf8("scope")),
@@ -531,15 +530,15 @@ class ProtocolCodecTest {
     void nativeDeliveryReceiptPinsPulsarTargetAndPhysicalAttempt() {
         final byte[] resource = new byte[32];
         resource[0] = 9;
-        final PulsarBrokerResourceIdentityV1 target = new PulsarBrokerResourceIdentityV1(
+        final PulsarBrokerResourceIdentity target = new PulsarBrokerResourceIdentity(
                 "pulsar-native", resource, "persistent://tenant/native", Long.MIN_VALUE);
-        assertEquals(target, PulsarBrokerResourceIdentityV1.decode(target.canonicalBytes()));
-        final ProfileRefV1 destination = new ProfileRefV1(
+        assertEquals(target, PulsarBrokerResourceIdentity.decode(target.canonicalBytes()));
+        final ProfileRef destination = new ProfileRef(
                 Bytes.utf8("native-destination"),
                 2,
                 Bytes.sha256(Bytes.utf8("native-destination-semantic")),
-                ProfileKindV1.DESTINATION);
-        final NativePreparedRefV1 prepared = new NativePreparedRefV1(
+                ProfileKind.DESTINATION);
+        final NativePreparedRef prepared = new NativePreparedRef(
                 nonZero(32, 1),
                 Bytes.sha256(Bytes.utf8("submission")),
                 destination,
@@ -548,7 +547,7 @@ class ProtocolCodecTest {
                 Bytes.sha256(Bytes.utf8("capability-snapshot")),
                 5_000,
                 Bytes.sha256(Bytes.utf8("prepared-bytes")));
-        final CommandQueuedReceiptV1.PulsarQueuedAck ack = new CommandQueuedReceiptV1.PulsarQueuedAck(
+        final CanonicalCommandQueuedReceipt.PulsarQueuedAck ack = new CanonicalCommandQueuedReceipt.PulsarQueuedAck(
                 "pulsar-native",
                 resource,
                 "persistent://tenant/native",
@@ -562,20 +561,20 @@ class ProtocolCodecTest {
                 Bytes.sha256(Bytes.utf8("send-receipt")));
         final byte[] attempt = nonZero(16, 2);
 
-        final NativeDeliveryReceiptV1 receipt = NativeDeliveryReceiptV1.create(prepared, ack, attempt);
-        assertEquals(receipt, NativeDeliveryReceiptV1.decodeFrame(receipt.frame()));
+        final NativeDeliveryReceipt receipt = NativeDeliveryReceipt.create(prepared, ack, attempt);
+        assertEquals(receipt, NativeDeliveryReceipt.decodeFrame(receipt.frame()));
         assertEquals(
                 ReceiptKind.NATIVE_DELIVERY,
                 ReceiptFrame.decode(receipt.frame()).kind());
 
         final byte[] tampered = receipt.payload();
         tampered[tampered.length - 1] ^= 1;
-        assertThrows(IllegalArgumentException.class, () -> NativeDeliveryReceiptV1.decodePayload(tampered));
+        assertThrows(IllegalArgumentException.class, () -> NativeDeliveryReceipt.decodePayload(tampered));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> NativeDeliveryReceiptV1.create(
+                () -> NativeDeliveryReceipt.create(
                         prepared,
-                        new CommandQueuedReceiptV1.PulsarQueuedAck(
+                        new CanonicalCommandQueuedReceipt.PulsarQueuedAck(
                                 "pulsar-native",
                                 resource,
                                 "persistent://tenant/native",
@@ -590,7 +589,7 @@ class ProtocolCodecTest {
                         attempt));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new NativePreparedRefV1(
+                () -> new NativePreparedRef(
                         new byte[32],
                         Bytes.sha256(Bytes.utf8("submission")),
                         destination,
@@ -606,18 +605,18 @@ class ProtocolCodecTest {
         final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
         final KeyPair keyPair = keyPairGenerator.generateKeyPair();
         final byte[] resource = nonZero(32, 3);
-        final PulsarBrokerResourceIdentityV1 target =
-                new PulsarBrokerResourceIdentityV1("pulsar-snapshot", resource, "persistent://tenant/snapshot", 2_000);
-        final ProfileRefV1 destination = new ProfileRefV1(
+        final PulsarBrokerResourceIdentity target =
+                new PulsarBrokerResourceIdentity("pulsar-snapshot", resource, "persistent://tenant/snapshot", 2_000);
+        final ProfileRef destination = new ProfileRef(
                 Bytes.utf8("snapshot-destination"),
                 4,
                 Bytes.sha256(Bytes.utf8("snapshot-destination-semantic")),
-                ProfileKindV1.DESTINATION);
-        final ProfileRefV1 capability = new ProfileRefV1(
+                ProfileKind.DESTINATION);
+        final ProfileRef capability = new ProfileRef(
                 Bytes.utf8("snapshot-capability"),
                 5,
                 Bytes.sha256(Bytes.utf8("snapshot-capability-semantic")),
-                ProfileKindV1.DELIVERY_CAPABILITY);
+                ProfileKind.DELIVERY_CAPABILITY);
         final TrustedUtcIntervalEvidence issuedAt = new TrustedUtcIntervalEvidence(
                 2_100,
                 2_110,
@@ -630,7 +629,7 @@ class ProtocolCodecTest {
                 0,
                 null);
 
-        final NativeCapabilitySnapshotV1 snapshot = NativeCapabilitySnapshotV1.create(
+        final NativeCapabilitySnapshot snapshot = NativeCapabilitySnapshot.create(
                 destination,
                 capability,
                 target,
@@ -645,7 +644,7 @@ class ProtocolCodecTest {
                 3_000,
                 Integer.MIN_VALUE,
                 keyPair.getPrivate());
-        final NativeCapabilitySnapshotV1 decoded = NativeCapabilitySnapshotV1.decode(snapshot.canonicalBytes());
+        final NativeCapabilitySnapshot decoded = NativeCapabilitySnapshot.decode(snapshot.canonicalBytes());
 
         assertEquals(snapshot, decoded);
         assertEquals(Long.MIN_VALUE, decoded.resourceGuardConfigGeneration());
@@ -656,10 +655,10 @@ class ProtocolCodecTest {
 
         final byte[] tamperedSignature = snapshot.canonicalBytes();
         tamperedSignature[tamperedSignature.length - 1] ^= 1;
-        assertFalse(NativeCapabilitySnapshotV1.decode(tamperedSignature).verifySignature(keyPair.getPublic()));
+        assertFalse(NativeCapabilitySnapshot.decode(tamperedSignature).verifySignature(keyPair.getPublic()));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> NativeCapabilitySnapshotV1.create(
+                () -> NativeCapabilitySnapshot.create(
                         destination,
                         capability,
                         target,
@@ -678,28 +677,27 @@ class ProtocolCodecTest {
 
     @Test
     void pulsarMetadataKeepsOptionalKeysAndSortedUniqueProperties() {
-        final PulsarMetadataV1 metadata = new PulsarMetadataV1(
+        final PulsarMetadata metadata = new PulsarMetadata(
                 Bytes.utf8("partition-key"),
-                PulsarMetadataV1.KeyEncoding.UTF8,
+                PulsarMetadata.KeyEncoding.UTF8,
                 Bytes.utf8("ordering-key"),
-                java.util.List.of(
-                        new PulsarMetadataV1.Property("a", "one"), new PulsarMetadataV1.Property("z", "two")));
-        assertEquals(metadata, PulsarMetadataV1.decode(metadata.canonicalBytes()));
-        assertEquals(new PulsarMetadataV1(null, null, null, java.util.List.of()), PulsarMetadataV1.decode(new byte[0]));
+                java.util.List.of(new PulsarMetadata.Property("a", "one"), new PulsarMetadata.Property("z", "two")));
+        assertEquals(metadata, PulsarMetadata.decode(metadata.canonicalBytes()));
+        assertEquals(new PulsarMetadata(null, null, null, java.util.List.of()), PulsarMetadata.decode(new byte[0]));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new PulsarMetadataV1(Bytes.utf8("key"), null, null, java.util.List.of()));
+                () -> new PulsarMetadata(Bytes.utf8("key"), null, null, java.util.List.of()));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new PulsarMetadataV1(
+                () -> new PulsarMetadata(
                         null,
                         null,
                         null,
                         java.util.List.of(
-                                new PulsarMetadataV1.Property("z", "two"), new PulsarMetadataV1.Property("a", "one"))));
+                                new PulsarMetadata.Property("z", "two"), new PulsarMetadata.Property("a", "one"))));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> PulsarMetadataV1.decode(
+                () -> PulsarMetadata.decode(
                         CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1, Bytes.utf8("key")))));
     }
 
@@ -708,18 +706,18 @@ class ProtocolCodecTest {
         final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
         final KeyPair keyPair = keyPairGenerator.generateKeyPair();
         final byte[] resource = nonZero(32, 5);
-        final PulsarBrokerResourceIdentityV1 target =
-                new PulsarBrokerResourceIdentityV1("pulsar-prepared", resource, "persistent://tenant/prepared", 2_500);
-        final ProfileRefV1 destination = new ProfileRefV1(
+        final PulsarBrokerResourceIdentity target =
+                new PulsarBrokerResourceIdentity("pulsar-prepared", resource, "persistent://tenant/prepared", 2_500);
+        final ProfileRef destination = new ProfileRef(
                 Bytes.utf8("prepared-destination"),
                 1,
                 Bytes.sha256(Bytes.utf8("prepared-destination-semantic")),
-                ProfileKindV1.DESTINATION);
-        final ProfileRefV1 capability = new ProfileRefV1(
+                ProfileKind.DESTINATION);
+        final ProfileRef capability = new ProfileRef(
                 Bytes.utf8("prepared-capability"),
                 1,
                 Bytes.sha256(Bytes.utf8("prepared-capability-semantic")),
-                ProfileKindV1.DELIVERY_CAPABILITY);
+                ProfileKind.DELIVERY_CAPABILITY);
         final TrustedUtcIntervalEvidence issuedAt = new TrustedUtcIntervalEvidence(
                 2_600,
                 2_610,
@@ -732,7 +730,7 @@ class ProtocolCodecTest {
                 0,
                 null);
         final byte[] guard = Bytes.sha256(Bytes.utf8("prepared-guard"));
-        final NativeCapabilitySnapshotV1 snapshot = NativeCapabilitySnapshotV1.create(
+        final NativeCapabilitySnapshot snapshot = NativeCapabilitySnapshot.create(
                 destination,
                 capability,
                 target,
@@ -747,13 +745,13 @@ class ProtocolCodecTest {
                 4_000,
                 5,
                 keyPair.getPrivate());
-        final PulsarMetadataV1 metadata = new PulsarMetadataV1(
+        final PulsarMetadata metadata = new PulsarMetadata(
                 Bytes.utf8("partition"),
-                PulsarMetadataV1.KeyEncoding.UTF8,
+                PulsarMetadata.KeyEncoding.UTF8,
                 null,
-                java.util.List.of(new PulsarMetadataV1.Property("trace", "native")));
+                java.util.List.of(new PulsarMetadata.Property("trace", "native")));
 
-        final NativePreparedDeliveryV1 prepared = NativePreparedDeliveryV1.create(
+        final NativePreparedDelivery prepared = NativePreparedDelivery.create(
                 nonZero(32, 6),
                 destination,
                 capability,
@@ -765,8 +763,8 @@ class ProtocolCodecTest {
                 2_700,
                 2_800,
                 snapshot);
-        final NativePreparedDeliveryV1 decoded = NativePreparedDeliveryV1.decode(prepared.canonicalBytes());
-        final NativePreparedRefV1 ref = prepared.preparedRef();
+        final NativePreparedDelivery decoded = NativePreparedDelivery.decode(prepared.canonicalBytes());
+        final NativePreparedRef ref = prepared.preparedRef();
 
         assertEquals(prepared, decoded);
         assertArrayEquals(snapshot.snapshotDigest(), ref.capabilitySnapshotDigest());
@@ -775,14 +773,14 @@ class ProtocolCodecTest {
 
         final byte[] tampered = prepared.canonicalBytes();
         tampered[tampered.length - 1] ^= 1;
-        assertThrows(IllegalArgumentException.class, () -> NativePreparedDeliveryV1.decode(tampered));
+        assertThrows(IllegalArgumentException.class, () -> NativePreparedDelivery.decode(tampered));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> NativePreparedDeliveryV1.create(
+                () -> NativePreparedDelivery.create(
                         nonZero(32, 6),
                         destination,
                         capability,
-                        new PulsarBrokerResourceIdentityV1(
+                        new PulsarBrokerResourceIdentity(
                                 "pulsar-prepared", nonZero(32, 7), "persistent://tenant/prepared", 2_500),
                         1,
                         Bytes.utf8("inline-payload"),
@@ -796,39 +794,38 @@ class ProtocolCodecTest {
     @Test
     void stableErrorPinsRegistryRetryabilityAndPreparedRefPresence() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 12);
-        final PreparedCommand command = cancelV1(shard, 9_000);
-        final CommandQueuedReceiptV1.PreparedCommandRef commandRef =
-                CommandQueuedReceiptV1.PreparedCommandRef.from(command);
-        final StableErrorV1 uncertain = StableErrorV1.of(
-                FailureStageV1.ENQUEUE, StableCode.ENQUEUE_RESULT_UNCERTAIN, null, commandRef, null, 7);
-        assertEquals(uncertain, StableErrorV1.decode(uncertain.canonicalBytes()));
+        final PreparedCommand command = cancel(shard, 9_000);
+        final CanonicalCommandQueuedReceipt.PreparedCommandRef commandRef =
+                CanonicalCommandQueuedReceipt.PreparedCommandRef.from(command);
+        final StableError uncertain =
+                StableError.of(FailureStage.ENQUEUE, StableCode.ENQUEUE_RESULT_UNCERTAIN, null, commandRef, null, 7);
+        assertEquals(uncertain, StableError.decode(uncertain.canonicalBytes()));
         assertEquals(
-                RetryabilityV1.RETRY_EXACT_BYTES_AFTER_RETRY_AT,
-                RetryabilityV1.forCode(StableCode.SHARD_TRANSITIONING));
-        final StableErrorV1 delayed =
-                StableErrorV1.of(FailureStageV1.QUERY, StableCode.SHARD_TRANSITIONING, 12_000L, null, null, null);
-        assertEquals(delayed, StableErrorV1.decode(delayed.canonicalBytes()));
+                Retryability.RETRY_EXACT_BYTES_AFTER_RETRY_AT, Retryability.forCode(StableCode.SHARD_TRANSITIONING));
+        final StableError delayed =
+                StableError.of(FailureStage.QUERY, StableCode.SHARD_TRANSITIONING, 12_000L, null, null, null);
+        assertEquals(delayed, StableError.decode(delayed.canonicalBytes()));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new StableErrorV1(
-                        FailureStageV1.ENQUEUE,
+                () -> new StableError(
+                        FailureStage.ENQUEUE,
                         StableCode.ENQUEUE_RESULT_UNCERTAIN,
-                        RetryabilityV1.NEVER,
+                        Retryability.NEVER,
                         null,
                         commandRef,
                         null,
                         null));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> StableErrorV1.of(FailureStageV1.QUERY, StableCode.SHARD_TRANSITIONING, null, null, null, null));
-        final PulsarBrokerResourceIdentityV1 target = new PulsarBrokerResourceIdentityV1(
+                () -> StableError.of(FailureStage.QUERY, StableCode.SHARD_TRANSITIONING, null, null, null, null));
+        final PulsarBrokerResourceIdentity target = new PulsarBrokerResourceIdentity(
                 "stable-error", nonZero(32, 8), "persistent://tenant/stable-error", 1_000);
-        final ProfileRefV1 destination = new ProfileRefV1(
+        final ProfileRef destination = new ProfileRef(
                 Bytes.utf8("stable-error-destination"),
                 1,
                 Bytes.sha256(Bytes.utf8("stable-error-destination-semantic")),
-                ProfileKindV1.DESTINATION);
-        final NativePreparedRefV1 nativeRef = new NativePreparedRefV1(
+                ProfileKind.DESTINATION);
+        final NativePreparedRef nativeRef = new NativePreparedRef(
                 nonZero(32, 9),
                 Bytes.sha256(Bytes.utf8("native-submission")),
                 destination,
@@ -839,26 +836,21 @@ class ProtocolCodecTest {
                 Bytes.sha256(Bytes.utf8("native-prepared")));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> StableErrorV1.of(
-                        FailureStageV1.ENQUEUE,
-                        StableCode.ENQUEUE_RESULT_UNCERTAIN,
-                        null,
-                        commandRef,
-                        nativeRef,
-                        null));
+                () -> StableError.of(
+                        FailureStage.ENQUEUE, StableCode.ENQUEUE_RESULT_UNCERTAIN, null, commandRef, nativeRef, null));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> StableErrorV1.of(FailureStageV1.QUERY, StableCode.OK, null, null, null, null));
+                () -> StableError.of(FailureStage.QUERY, StableCode.OK, null, null, null, null));
 
-        final NonPersistenceProofV1 managedProof = NonPersistenceProofV1.create(
-                NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP,
+        final NonPersistenceProof managedProof = NonPersistenceProof.create(
+                NonPersistenceProofKind.LOCAL_BEFORE_PRODUCER_OWNERSHIP,
                 null,
                 commandRef.frameSha256(),
                 null,
                 null,
                 null);
-        final NonPersistenceProofV1 nativeProof = NonPersistenceProofV1.create(
-                NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP,
+        final NonPersistenceProof nativeProof = NonPersistenceProof.create(
+                NonPersistenceProofKind.LOCAL_BEFORE_PRODUCER_OWNERSHIP,
                 null,
                 nativeRef.submissionHash(),
                 null,
@@ -866,25 +858,23 @@ class ProtocolCodecTest {
                 null);
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new DefinitelyNotQueuedV1(
+                () -> new DefinitelyNotQueued(
                         commandRef,
                         managedProof,
-                        StableErrorV1.of(
-                                FailureStageV1.QUERY, StableCode.INVALID_COMMAND, null, commandRef, null, null)));
+                        StableError.of(FailureStage.QUERY, StableCode.INVALID_COMMAND, null, commandRef, null, null)));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new EnqueueUncertainV1(
+                () -> new EnqueueUncertain(
                         commandRef,
                         nonZero(16, 11),
-                        StableErrorV1.of(
-                                FailureStageV1.QUERY, StableCode.CLIENT_CLOSED, null, commandRef, null, null)));
+                        StableError.of(FailureStage.QUERY, StableCode.CLIENT_CLOSED, null, commandRef, null, null)));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new NativeDefinitelyNotQueuedV1(
+                () -> new NativeDefinitelyNotQueued(
                         nativeRef,
                         nativeProof,
-                        StableErrorV1.of(
-                                FailureStageV1.QUERY,
+                        StableError.of(
+                                FailureStage.QUERY,
                                 StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE,
                                 null,
                                 null,
@@ -892,52 +882,52 @@ class ProtocolCodecTest {
                                 null)));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new NativeEnqueueUncertainV1(
+                () -> new NativeEnqueueUncertain(
                         nativeRef,
                         nonZero(16, 12),
-                        StableErrorV1.of(FailureStageV1.QUERY, StableCode.CLIENT_CLOSED, null, null, nativeRef, null)));
+                        StableError.of(FailureStage.QUERY, StableCode.CLIENT_CLOSED, null, null, nativeRef, null)));
     }
 
     @Test
     void nonPersistenceProofEnforcesKindSpecificBrokerEvidence() {
         final byte[] preparedHash = Bytes.sha256(Bytes.utf8("prepared-submission"));
         final byte[] attempt = nonZero(16, 10);
-        final NonPersistenceProofV1 local = NonPersistenceProofV1.create(
-                NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP, null, preparedHash, null, null, null);
-        assertEquals(local, NonPersistenceProofV1.decode(local.canonicalBytes()));
+        final NonPersistenceProof local = NonPersistenceProof.create(
+                NonPersistenceProofKind.LOCAL_BEFORE_PRODUCER_OWNERSHIP, null, preparedHash, null, null, null);
+        assertEquals(local, NonPersistenceProof.decode(local.canonicalBytes()));
 
-        final PulsarBrokerResourceIdentityV1 pulsar =
-                new PulsarBrokerResourceIdentityV1("proof-pulsar", nonZero(32, 11), "persistent://tenant/proof", 1_111);
-        final NonPersistenceProofV1 pulsarProof = NonPersistenceProofV1.create(
-                NonPersistenceProofKindV1.PULSAR_GUARD_REJECTION,
+        final PulsarBrokerResourceIdentity pulsar =
+                new PulsarBrokerResourceIdentity("proof-pulsar", nonZero(32, 11), "persistent://tenant/proof", 1_111);
+        final NonPersistenceProof pulsarProof = NonPersistenceProof.create(
+                NonPersistenceProofKind.PULSAR_GUARD_REJECTION,
                 attempt,
                 preparedHash,
-                BrokerResourceIdentityV1.pulsar(pulsar),
+                BrokerResourceIdentity.pulsar(pulsar),
                 Bytes.sha256(Bytes.utf8("pulsar-request")),
                 Bytes.sha256(Bytes.utf8("pulsar-response")));
-        assertEquals(pulsarProof, NonPersistenceProofV1.decode(pulsarProof.canonicalBytes()));
+        assertEquals(pulsarProof, NonPersistenceProof.decode(pulsarProof.canonicalBytes()));
         assertEquals(
-                pulsar, BrokerResourceIdentityV1.decode(pulsar.canonicalBytes()).pulsar());
+                pulsar, BrokerResourceIdentity.decode(pulsar.canonicalBytes()).pulsar());
 
-        final KafkaBrokerResourceIdentityV1 kafka = new KafkaBrokerResourceIdentityV1("proof-kafka", UUID.randomUUID());
-        final NonPersistenceProofV1 kafkaProof = NonPersistenceProofV1.create(
-                NonPersistenceProofKindV1.KAFKA_DEFINITIVE_REJECTION,
+        final KafkaBrokerResourceIdentity kafka = new KafkaBrokerResourceIdentity("proof-kafka", UUID.randomUUID());
+        final NonPersistenceProof kafkaProof = NonPersistenceProof.create(
+                NonPersistenceProofKind.KAFKA_DEFINITIVE_REJECTION,
                 attempt,
                 preparedHash,
-                BrokerResourceIdentityV1.kafka(kafka),
+                BrokerResourceIdentity.kafka(kafka),
                 Bytes.sha256(Bytes.utf8("kafka-request")),
                 Bytes.sha256(Bytes.utf8("kafka-response")));
         assertEquals(
-                kafka, BrokerResourceIdentityV1.decode(kafka.canonicalBytes()).kafka());
-        assertEquals(kafkaProof, NonPersistenceProofV1.decode(kafkaProof.canonicalBytes()));
+                kafka, BrokerResourceIdentity.decode(kafka.canonicalBytes()).kafka());
+        assertEquals(kafkaProof, NonPersistenceProof.decode(kafkaProof.canonicalBytes()));
 
         final byte[] tampered = pulsarProof.canonicalBytes();
         tampered[tampered.length - 1] ^= 1;
-        assertThrows(IllegalArgumentException.class, () -> NonPersistenceProofV1.decode(tampered));
+        assertThrows(IllegalArgumentException.class, () -> NonPersistenceProof.decode(tampered));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> NonPersistenceProofV1.create(
-                        NonPersistenceProofKindV1.PULSAR_GUARD_REJECTION,
+                () -> NonPersistenceProof.create(
+                        NonPersistenceProofKind.PULSAR_GUARD_REJECTION,
                         attempt,
                         preparedHash,
                         null,
@@ -945,11 +935,11 @@ class ProtocolCodecTest {
                         Bytes.sha256(Bytes.utf8("response"))));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> NonPersistenceProofV1.create(
-                        NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP,
+                () -> NonPersistenceProof.create(
+                        NonPersistenceProofKind.LOCAL_BEFORE_PRODUCER_OWNERSHIP,
                         attempt,
                         preparedHash,
-                        BrokerResourceIdentityV1.pulsar(pulsar),
+                        BrokerResourceIdentity.pulsar(pulsar),
                         Bytes.sha256(Bytes.utf8("request")),
                         Bytes.sha256(Bytes.utf8("response"))));
     }
@@ -957,13 +947,13 @@ class ProtocolCodecTest {
     @Test
     void enqueueAndSubmissionOutcomeUnionsKeepBranchIdentityClosed() throws Exception {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 13);
-        final PreparedCommand command = cancelV1(shard, 9_000);
+        final PreparedCommand command = cancel(shard, 9_000);
         final KafkaSourcePosition source =
                 new KafkaSourcePosition(shard, "outcome-cluster", UUID.randomUUID(), 4, 1, 1_000);
-        final CommandQueuedReceiptV1 queuedReceipt = CommandQueuedReceiptV1.create(
+        final CanonicalCommandQueuedReceipt queuedReceipt = CanonicalCommandQueuedReceipt.create(
                 command,
                 source,
-                new CommandQueuedReceiptV1.KafkaQueuedAck(
+                new CanonicalCommandQueuedReceipt.KafkaQueuedAck(
                         "outcome-cluster",
                         source.nativeTopicUuid(),
                         13,
@@ -973,50 +963,50 @@ class ProtocolCodecTest {
                         Bytes.sha256(Bytes.utf8("outcome-ack"))),
                 2_000,
                 nonZero(16, 12));
-        final CommandQueuedReceiptV1.PreparedCommandRef commandRef = queuedReceipt.command();
-        final EnqueueOutcomeMessageV1 queued = EnqueueOutcomeMessageV1.queued(queuedReceipt);
-        assertEquals(queued, EnqueueOutcomeMessageV1.decode(queued.canonicalBytes()));
+        final CanonicalCommandQueuedReceipt.PreparedCommandRef commandRef = queuedReceipt.command();
+        final EnqueueOutcomeMessage queued = EnqueueOutcomeMessage.queued(queuedReceipt);
+        assertEquals(queued, EnqueueOutcomeMessage.decode(queued.canonicalBytes()));
 
-        final NonPersistenceProofV1 localProof = NonPersistenceProofV1.create(
-                NonPersistenceProofKindV1.LOCAL_BEFORE_PRODUCER_OWNERSHIP,
+        final NonPersistenceProof localProof = NonPersistenceProof.create(
+                NonPersistenceProofKind.LOCAL_BEFORE_PRODUCER_OWNERSHIP,
                 null,
                 commandRef.frameSha256(),
                 null,
                 null,
                 null);
-        final DefinitelyNotQueuedV1 definite = new DefinitelyNotQueuedV1(
+        final DefinitelyNotQueued definite = new DefinitelyNotQueued(
                 commandRef,
                 localProof,
-                StableErrorV1.of(
-                        FailureStageV1.ENQUEUE,
+                StableError.of(
+                        FailureStage.ENQUEUE,
                         StableCode.BROKER_DEFINITIVE_NOT_PERSISTED,
                         null,
                         commandRef,
                         null,
                         null));
         assertEquals(
-                EnqueueOutcomeMessageV1.definitelyNotQueued(definite),
-                EnqueueOutcomeMessageV1.decode(
-                        EnqueueOutcomeMessageV1.definitelyNotQueued(definite).canonicalBytes()));
-        final EnqueueUncertainV1 uncertain = new EnqueueUncertainV1(
+                EnqueueOutcomeMessage.definitelyNotQueued(definite),
+                EnqueueOutcomeMessage.decode(
+                        EnqueueOutcomeMessage.definitelyNotQueued(definite).canonicalBytes()));
+        final EnqueueUncertain uncertain = new EnqueueUncertain(
                 commandRef,
                 nonZero(16, 13),
-                StableErrorV1.of(
-                        FailureStageV1.ENQUEUE, StableCode.ENQUEUE_RESULT_UNCERTAIN, null, commandRef, null, null));
+                StableError.of(
+                        FailureStage.ENQUEUE, StableCode.ENQUEUE_RESULT_UNCERTAIN, null, commandRef, null, null));
         assertEquals(
-                EnqueueOutcomeMessageV1.uncertain(uncertain),
-                EnqueueOutcomeMessageV1.decode(
-                        EnqueueOutcomeMessageV1.uncertain(uncertain).canonicalBytes()));
+                EnqueueOutcomeMessage.uncertain(uncertain),
+                EnqueueOutcomeMessage.decode(
+                        EnqueueOutcomeMessage.uncertain(uncertain).canonicalBytes()));
 
         final byte[] resource = nonZero(32, 14);
-        final PulsarBrokerResourceIdentityV1 target =
-                new PulsarBrokerResourceIdentityV1("outcome-pulsar", resource, "persistent://tenant/outcome", 1_400);
-        final ProfileRefV1 destination = new ProfileRefV1(
+        final PulsarBrokerResourceIdentity target =
+                new PulsarBrokerResourceIdentity("outcome-pulsar", resource, "persistent://tenant/outcome", 1_400);
+        final ProfileRef destination = new ProfileRef(
                 Bytes.utf8("outcome-destination"),
                 1,
                 Bytes.sha256(Bytes.utf8("outcome-destination-semantic")),
-                ProfileKindV1.DESTINATION);
-        final NativePreparedRefV1 nativeRef = new NativePreparedRefV1(
+                ProfileKind.DESTINATION);
+        final NativePreparedRef nativeRef = new NativePreparedRef(
                 nonZero(32, 15),
                 Bytes.sha256(Bytes.utf8("outcome-native-submission")),
                 destination,
@@ -1025,7 +1015,7 @@ class ProtocolCodecTest {
                 Bytes.sha256(Bytes.utf8("outcome-snapshot")),
                 5_000,
                 Bytes.sha256(Bytes.utf8("outcome-prepared")));
-        final CommandQueuedReceiptV1.PulsarQueuedAck ack = new CommandQueuedReceiptV1.PulsarQueuedAck(
+        final CanonicalCommandQueuedReceipt.PulsarQueuedAck ack = new CanonicalCommandQueuedReceipt.PulsarQueuedAck(
                 "outcome-pulsar",
                 resource,
                 "persistent://tenant/outcome",
@@ -1037,87 +1027,78 @@ class ProtocolCodecTest {
                 1,
                 1_500,
                 Bytes.sha256(Bytes.utf8("native-ack")));
-        final NativeDeliveryReceiptV1 nativeReceipt = NativeDeliveryReceiptV1.create(nativeRef, ack, nonZero(16, 16));
+        final NativeDeliveryReceipt nativeReceipt = NativeDeliveryReceipt.create(nativeRef, ack, nonZero(16, 16));
         assertEquals(
-                SubmissionOutcomeMessageV1.nativeReceipt(nativeReceipt),
-                SubmissionOutcomeMessageV1.decode(
-                        SubmissionOutcomeMessageV1.nativeReceipt(nativeReceipt).canonicalBytes()));
+                SubmissionOutcomeMessage.nativeReceipt(nativeReceipt),
+                SubmissionOutcomeMessage.decode(
+                        SubmissionOutcomeMessage.nativeReceipt(nativeReceipt).canonicalBytes()));
 
-        final NonPersistenceProofV1 nativeProof = NonPersistenceProofV1.create(
-                NonPersistenceProofKindV1.PULSAR_GUARD_REJECTION,
+        final NonPersistenceProof nativeProof = NonPersistenceProof.create(
+                NonPersistenceProofKind.PULSAR_GUARD_REJECTION,
                 nonZero(16, 17),
                 nativeRef.submissionHash(),
-                BrokerResourceIdentityV1.pulsar(target),
+                BrokerResourceIdentity.pulsar(target),
                 Bytes.sha256(Bytes.utf8("native-request")),
                 Bytes.sha256(Bytes.utf8("native-response")));
-        final NativeDefinitelyNotQueuedV1 nativeDefinite = new NativeDefinitelyNotQueuedV1(
+        final NativeDefinitelyNotQueued nativeDefinite = new NativeDefinitelyNotQueued(
                 nativeRef,
                 nativeProof,
-                StableErrorV1.of(
-                        FailureStageV1.ENQUEUE,
+                StableError.of(
+                        FailureStage.ENQUEUE,
                         StableCode.NATIVE_GUARD_DEFINITIVE_NOT_PERSISTED,
                         null,
                         null,
                         nativeRef,
                         null));
         assertEquals(
-                SubmissionOutcomeMessageV1.nativeDefinitelyNotQueued(nativeDefinite),
-                SubmissionOutcomeMessageV1.decode(SubmissionOutcomeMessageV1.nativeDefinitelyNotQueued(nativeDefinite)
+                SubmissionOutcomeMessage.nativeDefinitelyNotQueued(nativeDefinite),
+                SubmissionOutcomeMessage.decode(SubmissionOutcomeMessage.nativeDefinitelyNotQueued(nativeDefinite)
                         .canonicalBytes()));
-        final NativeEnqueueUncertainV1 nativeUncertain = new NativeEnqueueUncertainV1(
+        final NativeEnqueueUncertain nativeUncertain = new NativeEnqueueUncertain(
                 nativeRef,
                 nonZero(16, 18),
-                StableErrorV1.of(
-                        FailureStageV1.ENQUEUE,
-                        StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN,
-                        null,
-                        null,
-                        nativeRef,
-                        null));
+                StableError.of(
+                        FailureStage.ENQUEUE, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN, null, null, nativeRef, null));
         assertEquals(
-                SubmissionOutcomeMessageV1.nativeUncertain(nativeUncertain),
-                SubmissionOutcomeMessageV1.decode(SubmissionOutcomeMessageV1.nativeUncertain(nativeUncertain)
+                SubmissionOutcomeMessage.nativeUncertain(nativeUncertain),
+                SubmissionOutcomeMessage.decode(SubmissionOutcomeMessage.nativeUncertain(nativeUncertain)
                         .canonicalBytes()));
 
-        final PreparedCommand managedCommand = PreparedCommand.cancelV1(
-                shard, DelayMessageId.random(shard), new MessagePreconditionV1(null, null), 9_000);
-        final PreparedSubmissionV1 managedPrepared =
-                PreparedSubmissionV1.managed(CommandCodec.encodeFrameV1(managedCommand));
-        assertEquals(managedPrepared, PreparedSubmissionV1.decode(managedPrepared.canonicalBytes()));
-        final NativePreparedDeliveryV1 nativePrepared = nativePreparedForOutcomeTest();
-        final PreparedSubmissionV1 nativePreparedSubmission = PreparedSubmissionV1.nativePrepared(nativePrepared);
-        assertEquals(nativePreparedSubmission, PreparedSubmissionV1.decode(nativePreparedSubmission.canonicalBytes()));
+        final PreparedCommand managedCommand =
+                PreparedCommand.cancel(shard, DelayMessageId.random(shard), new MessagePrecondition(null, null), 9_000);
+        final PreparedSubmission managedPrepared =
+                PreparedSubmission.managed(CommandCodec.encodeManagedFrame(managedCommand));
+        assertEquals(managedPrepared, PreparedSubmission.decode(managedPrepared.canonicalBytes()));
+        final NativePreparedDelivery nativePrepared = nativePreparedForOutcomeTest();
+        final PreparedSubmission nativePreparedSubmission = PreparedSubmission.nativePrepared(nativePrepared);
+        assertEquals(nativePreparedSubmission, PreparedSubmission.decode(nativePreparedSubmission.canonicalBytes()));
     }
 
     @Test
     void payloadUploadAndAttestationResponsesKeepPayloadScopedBranches() throws Exception {
-        final ProfileRefV1 objectStore = new ProfileRefV1(
+        final ProfileRef objectStore = new ProfileRef(
                 Bytes.utf8("payload-object-store"),
                 2,
                 Bytes.sha256(Bytes.utf8("payload-object-store-semantic")),
-                ProfileKindV1.OBJECT_STORE);
-        final OpaquePayloadUploadHandleV1 handle = OpaquePayloadUploadHandleV1.create(
-                nonZero(32, 21),
-                objectStore,
-                UploadHandleKindV1.OPAQUE_SINGLE_PUT,
-                9_000,
-                Bytes.utf8("opaque-envelope"));
-        final PayloadUploadHandleResponseV1 issued = PayloadUploadHandleResponseV1.issued(handle);
-        assertEquals(issued, PayloadUploadHandleResponseV1.decode(issued.canonicalBytes()));
-        final StableErrorV1 uploadRetry = StableErrorV1.of(
-                FailureStageV1.PAYLOAD, StableCode.OBJECT_STORE_UNAVAILABLE_RETRYABLE, 8_000L, null, null, null);
-        final PayloadUploadHandleResponseV1 unavailable = PayloadUploadHandleResponseV1.error(
-                PayloadUploadHandleOutcomeV1.OBJECT_STORE_UNAVAILABLE_RETRYABLE, uploadRetry);
-        assertEquals(unavailable, PayloadUploadHandleResponseV1.decode(unavailable.canonicalBytes()));
+                ProfileKind.OBJECT_STORE);
+        final OpaquePayloadUploadHandle handle = OpaquePayloadUploadHandle.create(
+                nonZero(32, 21), objectStore, UploadHandleKind.OPAQUE_SINGLE_PUT, 9_000, Bytes.utf8("opaque-envelope"));
+        final PayloadUploadHandleResponse issued = PayloadUploadHandleResponse.issued(handle);
+        assertEquals(issued, PayloadUploadHandleResponse.decode(issued.canonicalBytes()));
+        final StableError uploadRetry = StableError.of(
+                FailureStage.PAYLOAD, StableCode.OBJECT_STORE_UNAVAILABLE_RETRYABLE, 8_000L, null, null, null);
+        final PayloadUploadHandleResponse unavailable = PayloadUploadHandleResponse.error(
+                PayloadUploadHandleOutcome.OBJECT_STORE_UNAVAILABLE_RETRYABLE, uploadRetry);
+        assertEquals(unavailable, PayloadUploadHandleResponse.decode(unavailable.canonicalBytes()));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> PayloadUploadHandleResponseV1.error(PayloadUploadHandleOutcomeV1.INTEGRITY_ERROR, uploadRetry));
+                () -> PayloadUploadHandleResponse.error(PayloadUploadHandleOutcome.INTEGRITY_ERROR, uploadRetry));
 
         final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
         final KeyPair keyPair = keyPairGenerator.generateKeyPair();
         final ShardId shard = new ShardId(RouteIncarnation.random(), 2);
         final DelayMessageId messageId = DelayMessageId.random(shard);
-        final PayloadCommitProofV1 proof = PayloadCommitProofV1.signed(
+        final CanonicalPayloadCommitProof proof = CanonicalPayloadCommitProof.signed(
                 nonZero(32, 22),
                 nonZero(32, 23),
                 shard.routeIncarnation().bytes(),
@@ -1134,69 +1115,69 @@ class ProtocolCodecTest {
                 Bytes.sha256(Bytes.utf8("payload")),
                 7_000,
                 keyPair.getPrivate());
-        final PayloadAttestationResponseV1 attested = PayloadAttestationResponseV1.attested(proof);
-        assertEquals(attested, PayloadAttestationResponseV1.decode(attested.canonicalBytes()));
-        final StableErrorV1 notReadyError = StableErrorV1.of(
-                FailureStageV1.PAYLOAD, StableCode.OBJECT_NOT_READY_RETRYABLE, 6_000L, null, null, null);
-        final PayloadAttestationResponseV1 notReady = PayloadAttestationResponseV1.error(
-                PayloadAttestationOutcomeV1.OBJECT_NOT_READY_RETRYABLE, notReadyError);
-        assertEquals(notReady, PayloadAttestationResponseV1.decode(notReady.canonicalBytes()));
+        final PayloadAttestationResponse attested = PayloadAttestationResponse.attested(proof);
+        assertEquals(attested, PayloadAttestationResponse.decode(attested.canonicalBytes()));
+        final StableError notReadyError =
+                StableError.of(FailureStage.PAYLOAD, StableCode.OBJECT_NOT_READY_RETRYABLE, 6_000L, null, null, null);
+        final PayloadAttestationResponse notReady =
+                PayloadAttestationResponse.error(PayloadAttestationOutcome.OBJECT_NOT_READY_RETRYABLE, notReadyError);
+        assertEquals(notReady, PayloadAttestationResponse.decode(notReady.canonicalBytes()));
 
         final byte[] tampered = handle.canonicalBytes();
         tampered[tampered.length - 1] ^= 1;
-        assertThrows(IllegalArgumentException.class, () -> OpaquePayloadUploadHandleV1.decode(tampered));
+        assertThrows(IllegalArgumentException.class, () -> OpaquePayloadUploadHandle.decode(tampered));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> PayloadAttestationResponseV1.error(PayloadAttestationOutcomeV1.INTEGRITY_ERROR, notReadyError));
+                () -> PayloadAttestationResponse.error(PayloadAttestationOutcome.INTEGRITY_ERROR, notReadyError));
     }
 
     @Test
     void publicQueryViewsRejectUnsafeBindingAndNonCanonicalBranchShape() {
-        final ProfileRefV1 destination = new ProfileRefV1(
+        final ProfileRef destination = new ProfileRef(
                 Bytes.utf8("destination"),
                 1,
                 Bytes.sha256(Bytes.utf8("destination-semantic")),
-                ProfileKindV1.DESTINATION);
-        final ProfileRefV1 capability = new ProfileRefV1(
+                ProfileKind.DESTINATION);
+        final ProfileRef capability = new ProfileRef(
                 Bytes.utf8("capability"),
                 1,
                 Bytes.sha256(Bytes.utf8("capability-semantic")),
-                ProfileKindV1.DELIVERY_CAPABILITY);
+                ProfileKind.DELIVERY_CAPABILITY);
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new PublicDestinationBindingViewV1(
+                () -> new PublicDestinationBindingView(
                         destination,
                         capability,
-                        AdapterKindV1.KAFKA,
+                        AdapterKind.KAFKA,
                         Bytes.utf8("e\u0301"),
                         0,
                         OrderingMode.BEST_EFFORT));
 
-        final CommandQueryResponseV1 unknown = CommandQueryResponseV1.unknown();
+        final CommandQueryResponse unknown = CommandQueryResponse.unknown();
         final byte[] nonCanonical = unknown.canonicalBytes();
         nonCanonical[nonCanonical.length - 1] = 1;
-        assertThrows(IllegalArgumentException.class, () -> CommandQueryResponseV1.decode(nonCanonical));
+        assertThrows(IllegalArgumentException.class, () -> CommandQueryResponse.decode(nonCanonical));
     }
 
     @Test
     void publicClosedUnionTagsRejectHighBitUint32AsInvalidInput() {
         final byte[] highBitError =
                 CanonicalProtobuf.message(output -> CanonicalProtobuf.uint32(output, 1, 0x8000_0000L));
-        assertThrows(IllegalArgumentException.class, () -> PublicQueryErrorV1.decode(highBitError));
+        assertThrows(IllegalArgumentException.class, () -> PublicQueryError.decode(highBitError));
 
         final byte[] highBitCommandResult = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, 1);
             CanonicalProtobuf.uint32(output, 2, 0x8000_0000L);
             CanonicalProtobuf.bytes(output, 10, new byte[0]);
         });
-        assertThrows(IllegalArgumentException.class, () -> CommandQueryResponseV1.decode(highBitCommandResult));
+        assertThrows(IllegalArgumentException.class, () -> CommandQueryResponse.decode(highBitCommandResult));
 
         final byte[] highBitMessageResult = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, 1);
             CanonicalProtobuf.uint32(output, 2, 0x8000_0000L);
             CanonicalProtobuf.bytes(output, 10, new byte[0]);
         });
-        assertThrows(IllegalArgumentException.class, () -> MessageQueryResponseV1.decode(highBitMessageResult));
+        assertThrows(IllegalArgumentException.class, () -> MessageQueryResponse.decode(highBitMessageResult));
     }
 
     @Test
@@ -1262,12 +1243,12 @@ class ProtocolCodecTest {
         final ScheduleIntent intent = new ScheduleIntent(lane, 1, 2, OrderingMode.DELIVERY_TIME_FIFO, payload);
         payload[0] = 9;
         final byte[] encoded = intent.canonicalBytes();
-        final ScheduleIntent decoded = CommandBodies.decodeSchedule(encoded);
+        final ScheduleIntent decoded = CommandBodies.decodeDirectSchedule(encoded);
         assertArrayEquals(new byte[] {1, 2, 3}, decoded.payload());
         assertEquals(intent, decoded);
         assertThrows(
                 IllegalArgumentException.class,
-                () -> CommandBodies.decodeSchedule(Arrays.copyOf(encoded, encoded.length - 1)));
+                () -> CommandBodies.decodeDirectSchedule(Arrays.copyOf(encoded, encoded.length - 1)));
     }
 
     @Test
@@ -1303,23 +1284,23 @@ class ProtocolCodecTest {
         assertEquals(
                 1, kafka.compareWithinShard(new KafkaSourcePosition(shard, "cluster", topic, Long.MAX_VALUE, 3, 10)));
 
-        final PreparedCommand command = scheduleV1(shard, "unsigned-source", 2_000, 8_000, 9_000);
+        final PreparedCommand command = schedule(shard, "unsigned-source", 2_000, 8_000, 9_000);
         final byte[] response = Bytes.sha256(Bytes.utf8("unsigned-response"));
         final byte[] attempt = new byte[16];
         attempt[0] = 1;
-        final CommandQueuedReceiptV1 receipt = CommandQueuedReceiptV1.create(
+        final CanonicalCommandQueuedReceipt receipt = CanonicalCommandQueuedReceipt.create(
                 command,
                 kafka,
-                new CommandQueuedReceiptV1.KafkaQueuedAck(
+                new CanonicalCommandQueuedReceipt.KafkaQueuedAck(
                         "cluster", topic, shard.partition(), Long.MIN_VALUE, 3, 10, response),
                 9_000,
                 attempt);
-        assertEquals(receipt, CommandQueuedReceiptV1.decodeFrame(receipt.frame()));
+        assertEquals(receipt, CanonicalCommandQueuedReceipt.decodeFrame(receipt.frame()));
 
-        final EvidenceCursorV1 cursor = EvidenceCursorV1.kafka(
+        final EvidenceCursor cursor = EvidenceCursor.kafka(
                 new byte[32], new byte[16], uuidBytes(topic), shard.partition(), 1, 10, Long.MIN_VALUE, -1L);
-        assertEquals(cursor, EvidenceCursorV1.decode(cursor.canonicalBytes()));
-        assertTrue(cursor.dominates(EvidenceCursorV1.kafka(
+        assertEquals(cursor, EvidenceCursor.decode(cursor.canonicalBytes()));
+        assertTrue(cursor.dominates(EvidenceCursor.kafka(
                 new byte[32],
                 new byte[16],
                 uuidBytes(topic),
@@ -1439,29 +1420,30 @@ class ProtocolCodecTest {
     @Test
     void brokerEvidenceAndQueuedAckIdentitiesRejectNonCanonicalUtf8AtConstruction() {
         final UUID topic = UUID.randomUUID();
-        assertThrows(IllegalArgumentException.class, () -> new KafkaBrokerResourceIdentityV1("cluster\uD800", topic));
+        assertThrows(IllegalArgumentException.class, () -> new KafkaBrokerResourceIdentity("cluster\uD800", topic));
 
         final byte[] resource = Bytes.sha256(Bytes.utf8("broker-resource"));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new PulsarBrokerResourceIdentityV1("cluster\uD800", resource, "topic", 1));
+                () -> new PulsarBrokerResourceIdentity("cluster\uD800", resource, "topic", 1));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new PulsarBrokerResourceIdentityV1("cluster", resource, "topic\uD800", 1));
+                () -> new PulsarBrokerResourceIdentity("cluster", resource, "topic\uD800", 1));
 
         final byte[] lane = Bytes.sha256(Bytes.utf8("evidence-lane"));
         final byte[] incarnation = Bytes.sha256(Bytes.utf8("lane-incarnation"));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> EvidenceCursorV1.pulsar(lane, incarnation, resource, 0, 1, 1, "topic\uD800", 1, 1, 1, 0, 1));
+                () -> EvidenceCursor.pulsar(lane, incarnation, resource, 0, 1, 1, "topic\uD800", 1, 1, 1, 0, 1));
 
         final byte[] response = Bytes.sha256(Bytes.utf8("response"));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new CommandQueuedReceiptV1.KafkaQueuedAck("cluster\uD800", topic, 0, 1, null, 1, response));
+                () -> new CanonicalCommandQueuedReceipt.KafkaQueuedAck(
+                        "cluster\uD800", topic, 0, 1, null, 1, response));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new CommandQueuedReceiptV1.PulsarQueuedAck(
+                () -> new CanonicalCommandQueuedReceipt.PulsarQueuedAck(
                         "cluster", resource, "topic\uD800", 1, 0, 1, 1, 0, 1, 1, response));
     }
 
@@ -1491,7 +1473,7 @@ class ProtocolCodecTest {
                 Bytes.sha256(Bytes.utf8("payload")),
                 10_000,
                 Long.MIN_VALUE);
-        assertEquals(intent, CommandBodies.decodePrepareLarge(CommandBodies.prepareLarge(intent)));
+        assertEquals(intent, CommandBodies.decodeDirectPrepareLarge(CommandBodies.prepareLarge(intent)));
         final PreparedCommand prepare = PreparedCommand.prepareLarge(shard, intent, 20_000);
         assertEquals(prepare, CommandCodec.decodeFrame(CommandCodec.encodeFrame(prepare)));
 
@@ -1517,7 +1499,7 @@ class ProtocolCodecTest {
                 keyPair.getPrivate());
         assertTrue(proof.verifySignature(keyPair.getPublic()));
         assertEquals(proof, PayloadCommitProof.decode(proof.canonicalBytes()));
-        assertEquals(proof, CommandBodies.decodeCommitLarge(CommandBodies.commitLarge(proof)));
+        assertEquals(proof, CommandBodies.decodeDirectCommitLarge(CommandBodies.commitLarge(proof)));
         final PreparedCommand commit = PreparedCommand.commitLarge(shard, messageId, proof, 20_000);
         assertEquals(commit, CommandCodec.decodeFrame(CommandCodec.encodeFrame(commit)));
         final byte[] tampered = proof.canonicalBytes();
@@ -1572,13 +1554,13 @@ class ProtocolCodecTest {
         final int keyVersion = 1;
         final long closeThrough = 1_000;
         final byte[] proofId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                Bytes.utf8("nereus-delay-time-fence-proof\0"),
                 shard.routeIncarnation().bytes(),
                 Bytes.u32beBits(shard.partition()),
                 Bytes.i64be(closeThrough),
                 Bytes.u32beBits(keyVersion),
                 Bytes.lp32(evidence.canonicalBytes()));
-        final byte[] subject = new ShardSubjectV1(shard).canonicalBytes();
+        final byte[] subject = new ShardSubject(shard).canonicalBytes();
         final byte[] body = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, subject);
             CanonicalProtobuf.uint32(output, 2, SystemMutationType.TIME_FENCE.wireValue());
@@ -1657,7 +1639,7 @@ class ProtocolCodecTest {
         final AuthorIdentity service =
                 AuthorIdentity.decode(AuthorIdentity.service(Bytes.utf8("service"), Bytes.utf8("service-run"), highBit)
                         .canonicalBytes());
-        final OwnerIdentityV1 typedOwner = OwnerIdentityV1.decode(new OwnerIdentityV1(
+        final OwnerIdentity typedOwner = OwnerIdentity.decode(new OwnerIdentity(
                         Bytes.utf8("deployment"),
                         Bytes.utf8("worker"),
                         highBit,
@@ -1796,17 +1778,18 @@ class ProtocolCodecTest {
     @Test
     void queuedReceiptRejectsHighBitInt64TimingFields() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
-        final PreparedCommand command = scheduleV1(shard, "queued-timing", 2_000, 8_000, 9_000);
+        final PreparedCommand command = schedule(shard, "queued-timing", 2_000, 8_000, 9_000);
         final UUID topic = UUID.randomUUID();
         final KafkaSourcePosition source = new KafkaSourcePosition(shard, "cluster-a", topic, 7, 3, 1_234);
         final byte[] response = Bytes.sha256(Bytes.utf8("queued-timing-response"));
-        final CommandQueuedReceiptV1 receipt = CommandQueuedReceiptV1.create(
+        final CanonicalCommandQueuedReceipt receipt = CanonicalCommandQueuedReceipt.create(
                 command,
                 source,
-                new CommandQueuedReceiptV1.KafkaQueuedAck("cluster-a", topic, shard.partition(), 7, 3, 1_234, response),
+                new CanonicalCommandQueuedReceipt.KafkaQueuedAck(
+                        "cluster-a", topic, shard.partition(), 7, 3, 1_234, response),
                 9_000,
                 new byte[] {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1});
-        final var fields = QueryCodecSupport.read(receipt.payload(), "CommandQueuedReceiptV1");
+        final var fields = QueryCodecSupport.read(receipt.payload(), "CanonicalCommandQueuedReceipt");
         final byte[] malformed = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, 1);
             CanonicalProtobuf.bytes(output, 2, fields.get(1).rawValue());
@@ -1818,7 +1801,7 @@ class ProtocolCodecTest {
             CanonicalProtobuf.bytes(output, 8, fields.get(7).rawValue());
         });
 
-        assertThrows(IllegalArgumentException.class, () -> CommandQueuedReceiptV1.decodePayload(malformed));
+        assertThrows(IllegalArgumentException.class, () -> CanonicalCommandQueuedReceipt.decodePayload(malformed));
     }
 
     private static byte[] systemBody(final ShardId shard, final SystemMutationType type, final long retryUntil) {
@@ -1871,42 +1854,42 @@ class ProtocolCodecTest {
         });
     }
 
-    private static PublicDestinationBindingViewV1 publicBinding() {
-        final ProfileRefV1 destination = new ProfileRefV1(
+    private static PublicDestinationBindingView publicBinding() {
+        final ProfileRef destination = new ProfileRef(
                 Bytes.utf8("destination"),
                 1,
                 Bytes.sha256(Bytes.utf8("destination-semantic")),
-                ProfileKindV1.DESTINATION);
-        final ProfileRefV1 capability = new ProfileRefV1(
+                ProfileKind.DESTINATION);
+        final ProfileRef capability = new ProfileRef(
                 Bytes.utf8("capability"),
                 1,
                 Bytes.sha256(Bytes.utf8("capability-semantic")),
-                ProfileKindV1.DELIVERY_CAPABILITY);
-        return new PublicDestinationBindingViewV1(
+                ProfileKind.DELIVERY_CAPABILITY);
+        return new PublicDestinationBindingView(
                 destination,
                 capability,
-                AdapterKindV1.KAFKA,
+                AdapterKind.KAFKA,
                 Bytes.utf8("safe-destination"),
                 2,
                 OrderingMode.BEST_EFFORT);
     }
 
-    private static NativePreparedDeliveryV1 nativePreparedForOutcomeTest() throws Exception {
+    private static NativePreparedDelivery nativePreparedForOutcomeTest() throws Exception {
         final KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("Ed25519");
         final KeyPair keyPair = keyPairGenerator.generateKeyPair();
         final byte[] resource = nonZero(32, 19);
-        final PulsarBrokerResourceIdentityV1 target = new PulsarBrokerResourceIdentityV1(
+        final PulsarBrokerResourceIdentity target = new PulsarBrokerResourceIdentity(
                 "prepared-outcome", resource, "persistent://tenant/prepared-outcome", 1_900);
-        final ProfileRefV1 destination = new ProfileRefV1(
+        final ProfileRef destination = new ProfileRef(
                 Bytes.utf8("prepared-outcome-destination"),
                 1,
                 Bytes.sha256(Bytes.utf8("prepared-outcome-destination-semantic")),
-                ProfileKindV1.DESTINATION);
-        final ProfileRefV1 capability = new ProfileRefV1(
+                ProfileKind.DESTINATION);
+        final ProfileRef capability = new ProfileRef(
                 Bytes.utf8("prepared-outcome-capability"),
                 1,
                 Bytes.sha256(Bytes.utf8("prepared-outcome-capability-semantic")),
-                ProfileKindV1.DELIVERY_CAPABILITY);
+                ProfileKind.DELIVERY_CAPABILITY);
         final TrustedUtcIntervalEvidence issuedAt = new TrustedUtcIntervalEvidence(
                 2_000,
                 2_010,
@@ -1918,7 +1901,7 @@ class ProtocolCodecTest {
                 Bytes.sha256(Bytes.utf8("prepared-outcome-sample")),
                 0,
                 null);
-        final NativeCapabilitySnapshotV1 snapshot = NativeCapabilitySnapshotV1.create(
+        final NativeCapabilitySnapshot snapshot = NativeCapabilitySnapshot.create(
                 destination,
                 capability,
                 target,
@@ -1933,30 +1916,30 @@ class ProtocolCodecTest {
                 3_000,
                 1,
                 keyPair.getPrivate());
-        return NativePreparedDeliveryV1.create(
+        return NativePreparedDelivery.create(
                 nonZero(32, 20),
                 destination,
                 capability,
                 target,
                 0,
                 Bytes.utf8("prepared-outcome-payload"),
-                new PulsarMetadataV1(null, null, null, java.util.List.of()),
+                new PulsarMetadata(null, null, null, java.util.List.of()),
                 null,
                 2_100,
                 2_200,
                 snapshot);
     }
 
-    private static PreparedCommand scheduleV1(
+    private static PreparedCommand schedule(
             final ShardId shard, final String lane, final long deliverAt, final long expireAt, final long retryUntil) {
-        final ProfileRefV1 destination = new ProfileRefV1(
+        final ProfileRef destination = new ProfileRef(
                 Bytes.utf8("destination-" + lane),
                 1,
                 Bytes.sha256(Bytes.utf8("destination-semantic-" + lane)),
-                ProfileKindV1.DESTINATION);
-        final RetryPolicyRefV1 retryPolicy = new RetryPolicyRefV1(
-                Bytes.utf8("retry-" + lane), 1, Bytes.sha256(Bytes.utf8("retry-semantic-" + lane)));
-        final ScheduleIntentV1 intent = ScheduleIntentV1.create(
+                ProfileKind.DESTINATION);
+        final RetryPolicyRef retryPolicy =
+                new RetryPolicyRef(Bytes.utf8("retry-" + lane), 1, Bytes.sha256(Bytes.utf8("retry-semantic-" + lane)));
+        final CanonicalScheduleIntent intent = CanonicalScheduleIntent.create(
                 destination,
                 retryPolicy,
                 deliverAt,
@@ -1966,15 +1949,15 @@ class ProtocolCodecTest {
                 new byte[0],
                 Bytes.utf8("payload"),
                 null,
-                AdapterMetadataV1.kafka(new KafkaMetadataV1(null, java.util.List.of())),
+                AdapterMetadata.kafka(new KafkaMetadata(null, java.util.List.of())),
                 null,
                 null);
-        return PreparedCommand.scheduleV1(shard, intent, retryUntil);
+        return PreparedCommand.schedule(shard, intent, retryUntil);
     }
 
-    private static PreparedCommand cancelV1(final ShardId shard, final long retryUntil) {
-        return PreparedCommand.cancelV1(
-                shard, DelayMessageId.random(shard), new MessagePreconditionV1(0L, null), retryUntil);
+    private static PreparedCommand cancel(final ShardId shard, final long retryUntil) {
+        return PreparedCommand.cancel(
+                shard, DelayMessageId.random(shard), new MessagePrecondition(0L, null), retryUntil);
     }
 
     private static byte[] nonZero(final int length, final int firstByte) {

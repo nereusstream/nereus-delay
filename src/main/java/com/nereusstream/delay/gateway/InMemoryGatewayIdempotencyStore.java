@@ -1,8 +1,8 @@
 package com.nereusstream.delay.gateway;
 
-import com.nereusstream.delay.protocol.PreparedSubmissionV1;
-import com.nereusstream.delay.protocol.SubmissionOutcomeKindV1;
-import com.nereusstream.delay.protocol.SubmissionOutcomeMessageV1;
+import com.nereusstream.delay.protocol.PreparedSubmission;
+import com.nereusstream.delay.protocol.SubmissionOutcomeKind;
+import com.nereusstream.delay.protocol.SubmissionOutcomeMessage;
 import com.nereusstream.delay.semantic.TrustedClock;
 import com.nereusstream.delay.transport.Digest32;
 import com.nereusstream.delay.transport.GatewayAttemptOwnershipPermit;
@@ -13,7 +13,7 @@ import java.util.Objects;
 
 /** Single-process conformance store modelling the Gateway one-record CAS rules. */
 public final class InMemoryGatewayIdempotencyStore implements GatewayIdempotencyStore {
-    private final Map<Digest32, GatewayIdempotencyRecordV1> records = new HashMap<>();
+    private final Map<Digest32, GatewayIdempotencyRecord> records = new HashMap<>();
     private final TrustedClock trustedClock;
     private final long ownershipMaxAgeMs;
     private final long outcomeWaitMs;
@@ -28,27 +28,27 @@ public final class InMemoryGatewayIdempotencyStore implements GatewayIdempotency
 
     public synchronized PrepareResult prepareIfAbsent(
             final Digest32 keyHash,
-            final GatewayOperationKindV1 operation,
+            final GatewayOperationKind operation,
             final Digest32 bodyHash,
-            final PreparedSubmissionV1 submission,
+            final PreparedSubmission submission,
             final long retainUntilEpochMs) {
         Objects.requireNonNull(keyHash, "keyHash");
         Objects.requireNonNull(operation, "operation");
         Objects.requireNonNull(bodyHash, "bodyHash");
         Objects.requireNonNull(submission, "submission");
-        final GatewayIdempotencyRecordV1 existing = records.get(keyHash);
+        final GatewayIdempotencyRecord existing = records.get(keyHash);
         if (existing != null) {
             return new PrepareResult(
                     existing.requestBodyHash().equals(bodyHash) ? PrepareState.EXISTING_MATCH : PrepareState.CONFLICT,
                     existing);
         }
         final long now = now();
-        final GatewayIdempotencyRecordV1 created = new GatewayIdempotencyRecordV1(
+        final GatewayIdempotencyRecord created = new GatewayIdempotencyRecord(
                 keyHash,
                 operation,
                 bodyHash,
                 submission.canonicalBytes(),
-                GatewayIdempotencyPhaseV1.PREPARED,
+                GatewayIdempotencyPhase.PREPARED,
                 java.util.List.of(),
                 null,
                 now,
@@ -59,22 +59,20 @@ public final class InMemoryGatewayIdempotencyStore implements GatewayIdempotency
     }
 
     public synchronized AttemptStart startAttempt(final Digest32 keyHash) {
-        final GatewayIdempotencyRecordV1 current = require(keyHash);
-        if (current.phase() != GatewayIdempotencyPhaseV1.PREPARED || current.aggregateOutcomeBytes() != null) {
-            if (current.phase() == GatewayIdempotencyPhaseV1.ACTIVE
+        final GatewayIdempotencyRecord current = require(keyHash);
+        if (current.phase() != GatewayIdempotencyPhase.PREPARED || current.aggregateOutcomeBytes() != null) {
+            if (current.phase() == GatewayIdempotencyPhase.ACTIVE
                     && !current.attempts().isEmpty()) {
-                final GatewayPhysicalAttemptV1 started =
+                final GatewayPhysicalAttempt started =
                         current.attempts().get(current.attempts().size() - 1);
-                if (started.state() == GatewayPhysicalAttemptStateV1.STARTED
-                        && now() >= started.uncertaintyAtEpochMs()) {
-                    final PreparedSubmissionV1 prepared =
-                            PreparedSubmissionV1.decode(current.preparedSubmissionBytes());
-                    final SubmissionOutcomeMessageV1 uncertain =
+                if (started.state() == GatewayPhysicalAttemptState.STARTED && now() >= started.uncertaintyAtEpochMs()) {
+                    final PreparedSubmission prepared = PreparedSubmission.decode(current.preparedSubmissionBytes());
+                    final SubmissionOutcomeMessage uncertain =
                             GatewayOutcomeSupport.uncertain(prepared, started.physicalAttemptId());
-                    final GatewayIdempotencyRecordV1 recovered = current.withOutcome(
-                            new GatewayIdempotencyRecordV1.PhysicalEnqueueAttemptIdMatch(started.physicalAttemptId()),
+                    final GatewayIdempotencyRecord recovered = current.withOutcome(
+                            new GatewayIdempotencyRecord.PhysicalEnqueueAttemptIdMatch(started.physicalAttemptId()),
                             uncertain,
-                            GatewayPhysicalAttemptStateV1.UNCERTAIN);
+                            GatewayPhysicalAttemptState.UNCERTAIN);
                     records.put(keyHash, recovered);
                     return new AttemptStart(recovered, null);
                 }
@@ -88,16 +86,16 @@ public final class InMemoryGatewayIdempotencyStore implements GatewayIdempotency
         final long uncertaintyAt = checkedAdd(started, outcomeWaitMs);
         final long ownershipNotAfter = checkedAdd(started, ownershipMaxAgeMs);
         final PhysicalEnqueueAttemptId id = PhysicalEnqueueAttemptId.random();
-        final GatewayPhysicalAttemptV1 attempt = new GatewayPhysicalAttemptV1(
+        final GatewayPhysicalAttempt attempt = new GatewayPhysicalAttempt(
                 1,
                 id,
-                GatewayPhysicalAttemptStateV1.STARTED,
+                GatewayPhysicalAttemptState.STARTED,
                 null,
                 started,
                 uncertaintyAt,
                 checkedIncrement(current.revision()),
                 ownershipNotAfter);
-        final GatewayIdempotencyRecordV1 next = current.withAttempt(attempt);
+        final GatewayIdempotencyRecord next = current.withAttempt(attempt);
         records.put(keyHash, next);
         return new AttemptStart(
                 next, new GatewayAttemptOwnershipPermit(id, next.revision(), ownershipNotAfter, trustedClock));
@@ -108,11 +106,11 @@ public final class InMemoryGatewayIdempotencyStore implements GatewayIdempotency
             final Digest32 keyHash,
             final PhysicalEnqueueAttemptId expectedPriorAttemptId,
             final PhysicalEnqueueAttemptId retryRequestId) {
-        GatewayIdempotencyRecordV1 current = require(keyHash);
+        GatewayIdempotencyRecord current = require(keyHash);
         current = recoverExpiredStartedAttempt(keyHash, current);
         final Digest32 retryHash =
-                GatewayIdempotencyHashV1.retryRequestHash(keyHash, expectedPriorAttemptId, retryRequestId);
-        for (GatewayPhysicalAttemptV1 attempt : current.attempts()) {
+                GatewayIdempotencyHash.retryRequestHash(keyHash, expectedPriorAttemptId, retryRequestId);
+        for (GatewayPhysicalAttempt attempt : current.attempts()) {
             if (retryRequestId.equals(attempt.retryRequestId())) {
                 return new RetryStart(
                         current,
@@ -120,25 +118,25 @@ public final class InMemoryGatewayIdempotencyStore implements GatewayIdempotency
                         retryHash.equals(attempt.retryRequestHash()) ? RetryState.EXISTING_RETRY : RetryState.CONFLICT);
             }
         }
-        if (current.aggregateOutcomeBytes() == null || current.phase() != GatewayIdempotencyPhaseV1.QUIESCENT) {
+        if (current.aggregateOutcomeBytes() == null || current.phase() != GatewayIdempotencyPhase.QUIESCENT) {
             return new RetryStart(current, null, RetryState.NOT_RETRYABLE);
         }
-        final SubmissionOutcomeMessageV1 aggregate;
+        final SubmissionOutcomeMessage aggregate;
         try {
-            aggregate = SubmissionOutcomeMessageV1.decode(current.aggregateOutcomeBytes());
+            aggregate = SubmissionOutcomeMessage.decode(current.aggregateOutcomeBytes());
         } catch (RuntimeException malformed) {
             return new RetryStart(current, null, RetryState.NOT_RETRYABLE);
         }
-        final boolean uncertain = aggregate.kind() == SubmissionOutcomeKindV1.NATIVE_ENQUEUE_UNCERTAIN
-                || (aggregate.kind() == SubmissionOutcomeKindV1.MANAGED
+        final boolean uncertain = aggregate.kind() == SubmissionOutcomeKind.NATIVE_ENQUEUE_UNCERTAIN
+                || (aggregate.kind() == SubmissionOutcomeKind.MANAGED
                         && aggregate.managed().kind()
-                                == com.nereusstream.delay.protocol.EnqueueOutcomeKindV1.ENQUEUE_UNCERTAIN);
+                                == com.nereusstream.delay.protocol.EnqueueOutcomeKind.ENQUEUE_UNCERTAIN);
         if (!uncertain || current.attempts().isEmpty()) {
             return new RetryStart(current, null, RetryState.NOT_RETRYABLE);
         }
-        GatewayPhysicalAttemptV1 prior = null;
+        GatewayPhysicalAttempt prior = null;
         for (int index = current.attempts().size() - 1; index >= 0; index--) {
-            if (current.attempts().get(index).state() == GatewayPhysicalAttemptStateV1.UNCERTAIN) {
+            if (current.attempts().get(index).state() == GatewayPhysicalAttemptState.UNCERTAIN) {
                 prior = current.attempts().get(index);
                 break;
             }
@@ -150,10 +148,10 @@ public final class InMemoryGatewayIdempotencyStore implements GatewayIdempotency
         final long uncertaintyAt = checkedAdd(started, outcomeWaitMs);
         final long ownershipNotAfter = checkedAdd(started, ownershipMaxAgeMs);
         final PhysicalEnqueueAttemptId id = PhysicalEnqueueAttemptId.random();
-        final GatewayPhysicalAttemptV1 attempt = new GatewayPhysicalAttemptV1(
+        final GatewayPhysicalAttempt attempt = new GatewayPhysicalAttempt(
                 current.attempts().size() + 1,
                 id,
-                GatewayPhysicalAttemptStateV1.STARTED,
+                GatewayPhysicalAttemptState.STARTED,
                 null,
                 started,
                 uncertaintyAt,
@@ -161,7 +159,7 @@ public final class InMemoryGatewayIdempotencyStore implements GatewayIdempotency
                 retryHash,
                 checkedIncrement(current.revision()),
                 ownershipNotAfter);
-        final GatewayIdempotencyRecordV1 next = current.withAttempt(attempt);
+        final GatewayIdempotencyRecord next = current.withAttempt(attempt);
         records.put(keyHash, next);
         return new RetryStart(
                 next,
@@ -169,60 +167,58 @@ public final class InMemoryGatewayIdempotencyStore implements GatewayIdempotency
                 RetryState.STARTED);
     }
 
-    private GatewayIdempotencyRecordV1 recoverExpiredStartedAttempt(
-            final Digest32 keyHash, final GatewayIdempotencyRecordV1 current) {
-        if (current.phase() != GatewayIdempotencyPhaseV1.ACTIVE
+    private GatewayIdempotencyRecord recoverExpiredStartedAttempt(
+            final Digest32 keyHash, final GatewayIdempotencyRecord current) {
+        if (current.phase() != GatewayIdempotencyPhase.ACTIVE
                 || current.attempts().isEmpty()) {
             return current;
         }
-        final GatewayPhysicalAttemptV1 started =
+        final GatewayPhysicalAttempt started =
                 current.attempts().get(current.attempts().size() - 1);
-        if (started.state() != GatewayPhysicalAttemptStateV1.STARTED || now() < started.uncertaintyAtEpochMs()) {
+        if (started.state() != GatewayPhysicalAttemptState.STARTED || now() < started.uncertaintyAtEpochMs()) {
             return current;
         }
-        final PreparedSubmissionV1 prepared = PreparedSubmissionV1.decode(current.preparedSubmissionBytes());
-        final SubmissionOutcomeMessageV1 uncertain =
+        final PreparedSubmission prepared = PreparedSubmission.decode(current.preparedSubmissionBytes());
+        final SubmissionOutcomeMessage uncertain =
                 GatewayOutcomeSupport.uncertain(prepared, started.physicalAttemptId());
-        final GatewayIdempotencyRecordV1 recovered = current.withOutcome(
-                new GatewayIdempotencyRecordV1.PhysicalEnqueueAttemptIdMatch(started.physicalAttemptId()),
+        final GatewayIdempotencyRecord recovered = current.withOutcome(
+                new GatewayIdempotencyRecord.PhysicalEnqueueAttemptIdMatch(started.physicalAttemptId()),
                 uncertain,
-                GatewayPhysicalAttemptStateV1.UNCERTAIN);
+                GatewayPhysicalAttemptState.UNCERTAIN);
         records.put(keyHash, recovered);
         return recovered;
     }
 
-    public synchronized GatewayIdempotencyRecordV1 finish(
-            final Digest32 keyHash,
-            final PhysicalEnqueueAttemptId attemptId,
-            final SubmissionOutcomeMessageV1 outcome) {
-        final GatewayIdempotencyRecordV1 current = require(keyHash);
-        final GatewayPhysicalAttemptV1 attempt = current.attempts().stream()
+    public synchronized GatewayIdempotencyRecord finish(
+            final Digest32 keyHash, final PhysicalEnqueueAttemptId attemptId, final SubmissionOutcomeMessage outcome) {
+        final GatewayIdempotencyRecord current = require(keyHash);
+        final GatewayPhysicalAttempt attempt = current.attempts().stream()
                 .filter(value -> value.physicalAttemptId().equals(attemptId))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Gateway attempt does not belong to record"));
-        final GatewayPhysicalAttemptStateV1 state =
+        final GatewayPhysicalAttemptState state =
                 switch (outcome.kind()) {
                     case MANAGED ->
                         switch (outcome.managed().kind()) {
-                            case QUEUED -> GatewayPhysicalAttemptStateV1.QUEUED;
-                            case DEFINITELY_NOT_QUEUED -> GatewayPhysicalAttemptStateV1.DEFINITELY_NOT_QUEUED;
-                            case ENQUEUE_UNCERTAIN -> GatewayPhysicalAttemptStateV1.UNCERTAIN;
+                            case QUEUED -> GatewayPhysicalAttemptState.QUEUED;
+                            case DEFINITELY_NOT_QUEUED -> GatewayPhysicalAttemptState.DEFINITELY_NOT_QUEUED;
+                            case ENQUEUE_UNCERTAIN -> GatewayPhysicalAttemptState.UNCERTAIN;
                         };
-                    case NATIVE_RECEIPT -> GatewayPhysicalAttemptStateV1.QUEUED;
-                    case NATIVE_DEFINITELY_NOT_QUEUED -> GatewayPhysicalAttemptStateV1.DEFINITELY_NOT_QUEUED;
-                    case NATIVE_ENQUEUE_UNCERTAIN -> GatewayPhysicalAttemptStateV1.UNCERTAIN;
+                    case NATIVE_RECEIPT -> GatewayPhysicalAttemptState.QUEUED;
+                    case NATIVE_DEFINITELY_NOT_QUEUED -> GatewayPhysicalAttemptState.DEFINITELY_NOT_QUEUED;
+                    case NATIVE_ENQUEUE_UNCERTAIN -> GatewayPhysicalAttemptState.UNCERTAIN;
                 };
-        final GatewayIdempotencyRecordV1 next = current.withOutcome(
-                new GatewayIdempotencyRecordV1.PhysicalEnqueueAttemptIdMatch(attemptId), outcome, state);
+        final GatewayIdempotencyRecord next = current.withOutcome(
+                new GatewayIdempotencyRecord.PhysicalEnqueueAttemptIdMatch(attemptId), outcome, state);
         records.put(keyHash, next);
         return next;
     }
 
-    public synchronized GatewayIdempotencyRecordV1 exact(final Digest32 keyHash) {
+    public synchronized GatewayIdempotencyRecord exact(final Digest32 keyHash) {
         return records.get(keyHash);
     }
 
-    private GatewayIdempotencyRecordV1 require(final Digest32 keyHash) {
+    private GatewayIdempotencyRecord require(final Digest32 keyHash) {
         return Objects.requireNonNull(records.get(keyHash), "Gateway idempotency record not found");
     }
 

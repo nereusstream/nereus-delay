@@ -11,7 +11,7 @@ class ReplayDeadLetterBodyTest {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 3);
         final DelayMessageId messageId = DelayMessageId.random(shard);
         final ControlRef controlRef = new ControlRef(bytes(1), bytes(2), 7);
-        final RetryPolicyRefV1 retryPolicy = new RetryPolicyRefV1(bytes(3), 4, bytes(4));
+        final RetryPolicyRef retryPolicy = new RetryPolicyRef(bytes(3), 4, bytes(4));
         final byte[] acknowledgement = bytes(5);
 
         final byte[] encoded = ReplayDeadLetterBody.encode(
@@ -47,7 +47,7 @@ class ReplayDeadLetterBodyTest {
     void encoderRejectsAReservedAcknowledgementAndCrossShardMessage() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 0);
         final DelayMessageId messageId = DelayMessageId.random(shard);
-        final RetryPolicyRefV1 retryPolicy = new RetryPolicyRefV1(bytes(6), 1, bytes(7));
+        final RetryPolicyRef retryPolicy = new RetryPolicyRef(bytes(6), 1, bytes(7));
         final ControlRef controlRef = new ControlRef(bytes(8), bytes(9), 0);
 
         assertThrows(
@@ -76,9 +76,9 @@ class ReplayDeadLetterBodyTest {
         final ShardId messageShard = new ShardId(RouteIncarnation.random(), 1);
         final DelayMessageId messageId = DelayMessageId.random(messageShard);
         final ControlRef controlRef = new ControlRef(bytes(11), bytes(12), 0);
-        final RetryPolicyRefV1 retryPolicy = new RetryPolicyRefV1(bytes(13), 1, bytes(14));
+        final RetryPolicyRef retryPolicy = new RetryPolicyRef(bytes(13), 1, bytes(14));
         final byte[] encoded = CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.bytes(output, 1, new ShardSubjectV1(bodyShard).canonicalBytes());
+            CanonicalProtobuf.bytes(output, 1, new ShardSubject(bodyShard).canonicalBytes());
             CanonicalProtobuf.uint32(output, 2, SystemMutationType.REPLAY_DEAD_LETTER.wireValue());
             CanonicalProtobuf.int64(output, 3, 1);
             CanonicalProtobuf.bytes(output, 10, controlRef.canonicalBytes());
@@ -100,7 +100,7 @@ class ReplayDeadLetterBodyTest {
         final DelayMessageId messageId = DelayMessageId.random(shard);
         final ControlRef controlRef = new ControlRef(bytes(15), bytes(16), 0);
         final byte[] body = CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.bytes(output, 1, new ShardSubjectV1(shard).canonicalBytes());
+            CanonicalProtobuf.bytes(output, 1, new ShardSubject(shard).canonicalBytes());
             CanonicalProtobuf.uint32(output, 2, SystemMutationType.REPLAY_DEAD_LETTER.wireValue());
             CanonicalProtobuf.int64(output, 3, 9_000);
             CanonicalProtobuf.bytes(output, 10, controlRef.canonicalBytes());

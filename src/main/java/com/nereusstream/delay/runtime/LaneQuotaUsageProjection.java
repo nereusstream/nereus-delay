@@ -2,8 +2,8 @@ package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.LaneQuotaUsageEntryV1;
-import com.nereusstream.delay.protocol.LaneQuotaUsageMapV1;
+import com.nereusstream.delay.protocol.LaneQuotaUsageEntry;
+import com.nereusstream.delay.protocol.LaneQuotaUsageMap;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -14,7 +14,7 @@ import java.util.Objects;
  * Immutable local projection for the Registry {@code meta/QUOTA} per-Lane map.
  *
  * <p>The projection deliberately uses the same checked arithmetic boundary as
- * the shard aggregate.  It currently owns the message, reservation, Lane and
+ * the shard aggregate. It currently owns the message, reservation, Lane and
  * durable Claim/attempt inflight dimensions that the compatibility runtime can
  * account exactly; retained and external-adapter dimensions remain zero until
  * their respective durable ledgers are wired into the runtime.</p>
@@ -22,21 +22,21 @@ import java.util.Objects;
 public final class LaneQuotaUsageProjection {
     private static final int INCARNATION_LENGTH = 16;
 
-    private final LaneQuotaUsageMapV1 map;
+    private final LaneQuotaUsageMap map;
 
-    private LaneQuotaUsageProjection(final LaneQuotaUsageMapV1 map) {
+    private LaneQuotaUsageProjection(final LaneQuotaUsageMap map) {
         this.map = Objects.requireNonNull(map, "map");
     }
 
     public static LaneQuotaUsageProjection empty() {
-        return new LaneQuotaUsageProjection(new LaneQuotaUsageMapV1(List.of()));
+        return new LaneQuotaUsageProjection(new LaneQuotaUsageMap(List.of()));
     }
 
     public static LaneQuotaUsageProjection decode(final byte[] encoded) {
-        return new LaneQuotaUsageProjection(LaneQuotaUsageMapV1.decode(encoded));
+        return new LaneQuotaUsageProjection(LaneQuotaUsageMap.decode(encoded));
     }
 
-    public LaneQuotaUsageMapV1 map() {
+    public LaneQuotaUsageMap map() {
         return map;
     }
 
@@ -47,7 +47,7 @@ public final class LaneQuotaUsageProjection {
     /** Returns the exact usage vector for a Lane incarnation; a missing entry is corruption. */
     public PublishAdmissionBody.ChargeVector usageFor(final DestinationLaneId laneId, final byte[] laneIncarnation) {
         Objects.requireNonNull(laneId, "laneId");
-        final LaneQuotaUsageEntryV1 entry = find(laneId, fixedIncarnation(laneIncarnation));
+        final LaneQuotaUsageEntry entry = find(laneId, fixedIncarnation(laneIncarnation));
         if (entry == null) {
             throw new IllegalStateException("missing per-Lane quota usage for " + laneId);
         }
@@ -60,7 +60,7 @@ public final class LaneQuotaUsageProjection {
         requireRevision(usageRevision);
         Objects.requireNonNull(laneId, "laneId");
         final byte[] incarnation = fixedIncarnation(laneIncarnation);
-        final LaneQuotaUsageEntryV1 current = find(laneId, incarnation);
+        final LaneQuotaUsageEntry current = find(laneId, incarnation);
         if (current != null && current.usage().laneCount() > 0) {
             return this;
         }
@@ -199,7 +199,7 @@ public final class LaneQuotaUsageProjection {
     }
 
     /**
-     * Transfers unadmitted Lane work to the close materializer.  The Lane
+     * Transfers unadmitted Lane work to the close materializer. The Lane
      * remains active until its terminal guard is installed, so its Lane slot
      * is intentionally retained here.
      */
@@ -231,7 +231,7 @@ public final class LaneQuotaUsageProjection {
     public LaneQuotaUsageProjection removeLane(
             final DestinationLaneId laneId, final byte[] laneIncarnation, final long usageRevision) {
         requireRevision(usageRevision);
-        final LaneQuotaUsageEntryV1 current = requireEntry(laneId, laneIncarnation);
+        final LaneQuotaUsageEntry current = requireEntry(laneId, laneIncarnation);
         final PublishAdmissionBody.ChargeVector usage = current.usage();
         if (usage.laneCount() != 1 || usage.strongLaneCount() > 1) {
             throw new IllegalStateException("invalid per-Lane cardinality usage");
@@ -242,8 +242,7 @@ public final class LaneQuotaUsageProjection {
         final PublishAdmissionBody.ChargeVector next = change(
                 usage,
                 new long[] {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, usage.strongLaneCount() == 0 ? 0 : -1});
-        return replace(
-                laneId, laneIncarnation, new LaneQuotaUsageEntryV1(laneId, laneIncarnation, next, usageRevision));
+        return replace(laneId, laneIncarnation, new LaneQuotaUsageEntry(laneId, laneIncarnation, next, usageRevision));
     }
 
     private LaneQuotaUsageProjection update(
@@ -255,7 +254,7 @@ public final class LaneQuotaUsageProjection {
             final boolean removeIfEmpty) {
         Objects.requireNonNull(laneId, "laneId");
         final byte[] incarnation = fixedIncarnation(laneIncarnation);
-        final LaneQuotaUsageEntryV1 current = find(laneId, incarnation);
+        final LaneQuotaUsageEntry current = find(laneId, incarnation);
         if (current == null && !newLane) {
             throw new IllegalStateException("missing per-Lane quota entry");
         }
@@ -264,32 +263,32 @@ public final class LaneQuotaUsageProjection {
         }
         final PublishAdmissionBody.ChargeVector prior = current == null ? zeroUsage() : current.usage();
         final PublishAdmissionBody.ChargeVector next = change(prior, deltas);
-        final LaneQuotaUsageEntryV1 replacement = new LaneQuotaUsageEntryV1(laneId, incarnation, next, usageRevision);
+        final LaneQuotaUsageEntry replacement = new LaneQuotaUsageEntry(laneId, incarnation, next, usageRevision);
         return replace(laneId, incarnation, replacement, removeIfEmpty);
     }
 
     private LaneQuotaUsageProjection replace(
-            final DestinationLaneId laneId, final byte[] incarnation, final LaneQuotaUsageEntryV1 replacement) {
+            final DestinationLaneId laneId, final byte[] incarnation, final LaneQuotaUsageEntry replacement) {
         return replace(laneId, incarnation, replacement, true);
     }
 
     private LaneQuotaUsageProjection replace(
             final DestinationLaneId laneId,
             final byte[] incarnation,
-            final LaneQuotaUsageEntryV1 replacement,
+            final LaneQuotaUsageEntry replacement,
             final boolean removeIfEmpty) {
-        final List<LaneQuotaUsageEntryV1> entries = new ArrayList<>(map.entries());
+        final List<LaneQuotaUsageEntry> entries = new ArrayList<>(map.entries());
         entries.removeIf(entry -> entry.laneId().equals(laneId) && Arrays.equals(entry.laneIncarnation(), incarnation));
         if (!removeIfEmpty || hasUsage(replacement.usage())) {
             entries.add(replacement);
         }
-        final List<LaneQuotaUsageEntryV1> normalized = entries.stream()
+        final List<LaneQuotaUsageEntry> normalized = entries.stream()
                 .map(entry -> entry.usageRevision() == replacement.usageRevision()
                         ? entry
-                        : new LaneQuotaUsageEntryV1(
+                        : new LaneQuotaUsageEntry(
                                 entry.laneId(), entry.laneIncarnation(), entry.usage(), replacement.usageRevision()))
                 .toList();
-        return new LaneQuotaUsageProjection(new LaneQuotaUsageMapV1(normalized.stream()
+        return new LaneQuotaUsageProjection(new LaneQuotaUsageMap(normalized.stream()
                 .sorted((left, right) -> {
                     int result = Arrays.compareUnsigned(
                             left.laneId().bytes(), right.laneId().bytes());
@@ -300,17 +299,17 @@ public final class LaneQuotaUsageProjection {
                 .toList()));
     }
 
-    private LaneQuotaUsageEntryV1 requireEntry(final DestinationLaneId laneId, final byte[] incarnation) {
-        final LaneQuotaUsageEntryV1 result = find(laneId, fixedIncarnation(incarnation));
+    private LaneQuotaUsageEntry requireEntry(final DestinationLaneId laneId, final byte[] incarnation) {
+        final LaneQuotaUsageEntry result = find(laneId, fixedIncarnation(incarnation));
         if (result == null) {
             throw new IllegalStateException("missing per-Lane quota entry");
         }
         return result;
     }
 
-    private LaneQuotaUsageEntryV1 find(final DestinationLaneId laneId, final byte[] incarnation) {
+    private LaneQuotaUsageEntry find(final DestinationLaneId laneId, final byte[] incarnation) {
         boolean sawForeignIncarnation = false;
-        for (LaneQuotaUsageEntryV1 entry : map.entries()) {
+        for (LaneQuotaUsageEntry entry : map.entries()) {
             if (entry.laneId().equals(laneId)) {
                 if (Arrays.equals(entry.laneIncarnation(), incarnation)) {
                     return entry;
@@ -409,7 +408,7 @@ public final class LaneQuotaUsageProjection {
 
     /**
      * A Lane slot can be removed only after every resource dimension has been
-     * released.  Keeping this check over the complete Registry vector makes
+     * released. Keeping this check over the complete Registry vector makes
      * retirement fail closed when a later local projection starts accounting a
      * dimension that the current compatibility adapter does not yet populate.
      */

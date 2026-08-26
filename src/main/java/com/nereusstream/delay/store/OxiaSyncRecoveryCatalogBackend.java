@@ -3,13 +3,13 @@ package com.nereusstream.delay.store;
 import com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
-import com.nereusstream.delay.protocol.RecoveryFloorRefV1;
-import com.nereusstream.delay.protocol.RecoveryPinV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.EvidenceCursor;
+import com.nereusstream.delay.protocol.RecoveryFloorRef;
+import com.nereusstream.delay.protocol.RecoveryPin;
 import com.nereusstream.delay.protocol.ShardId;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SourcePosition;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
@@ -34,17 +34,17 @@ import java.util.Set;
 /**
  * Single-record Oxia CAS backend for the Recovery Catalog.
  *
- * <p>All catalog state for one shard is encoded as one canonical record.  A
+ * <p>All catalog state for one shard is encoded as one canonical record. A
  * publication, scalar Floor advance, and typed Floor advance therefore share
  * one Oxia version CAS; this class never presents a sequence of independent
- * puts as a transaction.  Recovery Pins use a separate Oxia ephemeral record
- * bound to the same client session.  Pin creation validates the exact catalog
+ * puts as a transaction. Recovery Pins use a separate Oxia ephemeral record
+ * bound to the same client session. Pin creation validates the exact catalog
  * generation before and after the ephemeral CAS, but it is deliberately not a
  * cross-record transaction with the catalog or upload intent.</p>
  *
  * <p>The backend is below {@link OxiaRecoveryCatalog}; the latter validates
  * every returned projection against the request and the exact published
- * manifest.  This class only supplies durable CAS/read semantics.</p>
+ * manifest. This class only supplies durable CAS/read semantics.</p>
  */
 public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog.CasBackend {
     private static final int SNAPSHOT_VERSION = 1;
@@ -134,13 +134,13 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
     }
 
     @Override
-    public RecoveryFloorRefV1 advanceFloor(
+    public RecoveryFloorRef advanceFloor(
             final byte[] checkpointId,
             final long expectedCatalogGeneration,
-            final List<EvidenceCursorV1> evidenceCursors) {
+            final List<EvidenceCursor> evidenceCursors) {
         Bytes.requireLength(checkpointId, 16, "checkpointId");
         final byte[] requestedCheckpointId = Bytes.copy(checkpointId);
-        final List<EvidenceCursorV1> requestedCursors =
+        final List<EvidenceCursor> requestedCursors =
                 List.copyOf(Objects.requireNonNull(evidenceCursors, "evidenceCursors"));
         return mutate(
                 expectedCatalogGeneration,
@@ -159,7 +159,7 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
     }
 
     @Override
-    public Optional<RecoveryFloorRefV1> currentFloorRef() {
+    public Optional<RecoveryFloorRef> currentFloorRef() {
         return readCatalog().currentFloorRef();
     }
 
@@ -171,7 +171,7 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
 
     /**
      * Validates a reusable local Store projection against the current remote
-     * catalog snapshot.  This is intentionally a read-only catalog/Floor
+     * catalog snapshot. This is intentionally a read-only catalog/Floor
      * check; Owner Lease/session fencing is still supplied by the caller's
      * separate authority and is never inferred from local metadata.
      */
@@ -185,13 +185,13 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
 
     /**
      * Creates one session-bound ephemeral Recovery Pin after validating the
-     * exact catalog generation.  The catalog reread after the ephemeral CAS
+     * exact catalog generation. The catalog reread after the ephemeral CAS
      * closes the obvious cross-record race; a shared Oxia transaction is still
      * required if pin creation must be linearized with another catalog write.
      */
     @Override
-    public RecoveryPinV1 createRecoveryPin(final RecoveryPinV1 pin) {
-        final RecoveryPinV1 requested = Objects.requireNonNull(pin, "pin");
+    public RecoveryPin createRecoveryPin(final RecoveryPin pin) {
+        final RecoveryPin requested = Objects.requireNonNull(pin, "pin");
         return pinStore.create(
                 requested,
                 () -> {
@@ -206,13 +206,13 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
 
     /** Releases only the exact session-bound pin returned by this authority. */
     @Override
-    public void releaseRecoveryPin(final RecoveryPinV1 pin) {
+    public void releaseRecoveryPin(final RecoveryPin pin) {
         pinStore.release(Objects.requireNonNull(pin, "pin"));
     }
 
     /** Reads the active ephemeral pin, failing closed on malformed/sessionless bytes. */
     @Override
-    public Optional<RecoveryPinV1> activeRecoveryPin() {
+    public Optional<RecoveryPin> activeRecoveryPin() {
         return pinStore.active();
     }
 
@@ -229,13 +229,13 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
     }
 
     /**
-     * The upload intent is a separate authority record.  Treating it as if it
+     * The upload intent is a separate authority record. Treating it as if it
      * were part of this catalog record would allow a non-transactional pair of
      * puts to claim atomicity, so the production adapter fails closed.
      */
     @Override
     public RecoveryCatalog.Publication publishUploadedCheckpoint(
-            final CheckpointUploadIntentV1 publishedIntent,
+            final CheckpointUploadIntent publishedIntent,
             final CheckpointManifest manifest,
             final long expectedCatalogGeneration) {
         throw new UnsupportedOperationException(
@@ -326,9 +326,9 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
         final long catalogGeneration = uint64(generation, 2);
         ShardId catalogShard = null;
         final List<CheckpointManifest> manifests = new ArrayList<>();
-        final Map<String, CheckpointResourceV1> resources = new HashMap<>();
+        final Map<String, CheckpointResource> resources = new HashMap<>();
         RecoveryFloor floor = null;
-        RecoveryFloorRefV1 typedFloor = null;
+        RecoveryFloorRef typedFloor = null;
         while (index < fields.size()) {
             final CanonicalProtobuf.Reader.Field field = fields.get(index++);
             switch (field.number()) {
@@ -336,7 +336,7 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
                     if (catalogShard != null) {
                         throw new IllegalArgumentException("duplicate Oxia catalog shard field");
                     }
-                    catalogShard = ShardSubjectV1.decode(bytes(field, 3)).shardId();
+                    catalogShard = ShardSubject.decode(bytes(field, 3)).shardId();
                 }
                 case 4 -> {
                     if (manifests.size() >= MAX_MANIFESTS) {
@@ -355,7 +355,7 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
                     if (resources.size() >= MAX_MANIFESTS) {
                         throw new IllegalArgumentException("Oxia catalog resource count exceeds bound");
                     }
-                    final CheckpointResourceV1 resource = CheckpointResourceV1.decode(bytes(field, 5));
+                    final CheckpointResource resource = CheckpointResource.decode(bytes(field, 5));
                     manifestLimits.validateResource(resource);
                     final String checkpointKey = Bytes.hex(resource.checkpointId());
                     if (resources.put(checkpointKey, resource) != null) {
@@ -372,7 +372,7 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
                     if (typedFloor != null) {
                         throw new IllegalArgumentException("duplicate Oxia typed Floor field");
                     }
-                    typedFloor = RecoveryFloorRefV1.decode(bytes(field, 7));
+                    typedFloor = RecoveryFloorRef.decode(bytes(field, 7));
                 }
                 default -> throw new IllegalArgumentException("unknown Oxia catalog snapshot field " + field.number());
             }
@@ -400,7 +400,7 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
         final List<CheckpointManifest> manifests = snapshot.manifests().stream()
                 .sorted(Comparator.comparing(manifest -> Bytes.hex(manifest.checkpointId())))
                 .toList();
-        final List<CheckpointResourceV1> resources = snapshot.manifestResources().values().stream()
+        final List<CheckpointResource> resources = snapshot.manifestResources().values().stream()
                 .sorted(Comparator.comparing(resource -> Bytes.hex(resource.checkpointId())))
                 .toList();
         final Map<String, CheckpointManifest> manifestsById = new HashMap<>();
@@ -413,14 +413,14 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
             manifestsById.put(checkpointId, manifest);
         }
         final HashSet<String> resourceIds = new HashSet<>();
-        for (Map.Entry<String, CheckpointResourceV1> entry :
+        for (Map.Entry<String, CheckpointResource> entry :
                 snapshot.manifestResources().entrySet()) {
-            final CheckpointResourceV1 resource = entry.getValue();
+            final CheckpointResource resource = entry.getValue();
             if (!Bytes.hex(resource.checkpointId()).equals(entry.getKey())) {
                 throw new IllegalStateException("Oxia catalog resource map key does not match checkpoint identity");
             }
         }
-        for (CheckpointResourceV1 resource : resources) {
+        for (CheckpointResource resource : resources) {
             final String checkpointId = Bytes.hex(resource.checkpointId());
             final CheckpointManifest manifest = manifestsById.get(checkpointId);
             if (!resourceIds.add(checkpointId)
@@ -443,7 +443,7 @@ public final class OxiaSyncRecoveryCatalogBackend implements OxiaRecoveryCatalog
             CanonicalProtobuf.uint32(output, 1, SNAPSHOT_VERSION);
             CanonicalProtobuf.uint64Bits(output, 2, snapshot.catalogGeneration());
             if (snapshot.catalogShard() != null) {
-                CanonicalProtobuf.bytes(output, 3, new ShardSubjectV1(snapshot.catalogShard()).canonicalBytes());
+                CanonicalProtobuf.bytes(output, 3, new ShardSubject(snapshot.catalogShard()).canonicalBytes());
             }
             manifests.forEach(manifest -> CanonicalProtobuf.bytes(output, 4, manifest.canonicalJsonBytes()));
             resources.forEach(resource -> CanonicalProtobuf.bytes(output, 5, resource.canonicalBytes()));

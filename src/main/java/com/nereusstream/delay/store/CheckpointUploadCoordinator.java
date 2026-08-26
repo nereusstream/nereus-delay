@@ -1,9 +1,9 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -45,9 +45,9 @@ public final class CheckpointUploadCoordinator {
         return resources;
     }
 
-    CheckpointUploadIntentV1 upload(
+    CheckpointUploadIntent upload(
             final Path checkpointDirectory,
-            final CheckpointUploadIntentV1 pending,
+            final CheckpointUploadIntent pending,
             final CheckpointManifest manifest,
             final long nowEpochMs,
             final CheckpointUploadAdapter adapter) {
@@ -58,7 +58,7 @@ public final class CheckpointUploadCoordinator {
         if (nowEpochMs < 0) {
             throw new IllegalArgumentException("nowEpochMs must be non-negative");
         }
-        if (pending.state() != CheckpointUploadStateV1.PENDING_UPLOAD) {
+        if (pending.state() != CheckpointUploadState.PENDING_UPLOAD) {
             throw new IllegalArgumentException("checkpoint upload requires PENDING_UPLOAD intent");
         }
         validateManifestIdentity(pending, manifest);
@@ -66,7 +66,7 @@ public final class CheckpointUploadCoordinator {
         final byte[] manifestBytes = manifest.canonicalJsonBytes();
         final var published = intentStore.currentPublishedFor(pending);
         if (published.isPresent()) {
-            final CheckpointUploadIntentV1 publishedIntent = published.orElseThrow();
+            final CheckpointUploadIntent publishedIntent = published.orElseThrow();
             limits.validateResource(publishedIntent.publishedManifest());
             validatePublishedResource(pending, manifest, publishedIntent.publishedManifest(), manifestBytes);
             return publishedIntent;
@@ -89,14 +89,14 @@ public final class CheckpointUploadCoordinator {
             slotAcquired = true;
             // The upload slot is a process-wide resource, not an intent lock.
             // Another owner/reaper may have advanced the exact intent while
-            // this call was waiting for the slot.  Re-read immediately before
+            // this call was waiting for the slot. Re-read immediately before
             // provider I/O so a stale PENDING_UPLOAD cannot create an orphan
-            // object whose later CAS is guaranteed to fail.  A concurrently
+            // object whose later CAS is guaranteed to fail. A concurrently
             // completed publication is returned idempotently and does not
             // invoke the provider a second time.
             final var publishedAfterSlot = intentStore.currentPublishedFor(pending);
             if (publishedAfterSlot.isPresent()) {
-                final CheckpointUploadIntentV1 publishedIntent = publishedAfterSlot.orElseThrow();
+                final CheckpointUploadIntent publishedIntent = publishedAfterSlot.orElseThrow();
                 limits.validateResource(publishedIntent.publishedManifest());
                 validatePublishedResource(pending, manifest, publishedIntent.publishedManifest(), manifestBytes);
                 return publishedIntent;
@@ -105,7 +105,7 @@ public final class CheckpointUploadCoordinator {
             if (pendingAfterSlot.isEmpty() || !pendingAfterSlot.orElseThrow().equals(pending)) {
                 throw new IllegalStateException("checkpoint upload intent changed before provider I/O");
             }
-            final CheckpointResourceV1 resource =
+            final CheckpointResource resource =
                     Objects.requireNonNull(adapter.upload(request), "checkpoint upload adapter returned null resource");
             limits.validateResource(resource);
             validatePublishedResource(pending, manifest, resource, manifestBytes);
@@ -143,7 +143,7 @@ public final class CheckpointUploadCoordinator {
     }
 
     private static void validateManifestIdentity(
-            final CheckpointUploadIntentV1 pending, final CheckpointManifest manifest) {
+            final CheckpointUploadIntent pending, final CheckpointManifest manifest) {
         if (!pending.shard().shardId().equals(manifest.shardId())
                 || !Bytes.constantTimeEquals(pending.recoveryLineageId(), manifest.recoveryLineageId())
                 || !Bytes.constantTimeEquals(pending.checkpointId(), manifest.checkpointId())) {
@@ -191,9 +191,9 @@ public final class CheckpointUploadCoordinator {
     }
 
     private static void validatePublishedResource(
-            final CheckpointUploadIntentV1 pending,
+            final CheckpointUploadIntent pending,
             final CheckpointManifest manifest,
-            final CheckpointResourceV1 resource,
+            final CheckpointResource resource,
             final byte[] manifestBytes) {
         if (!Bytes.constantTimeEquals(resource.recoveryLineageId(), pending.recoveryLineageId())
                 || !Bytes.constantTimeEquals(resource.checkpointId(), pending.checkpointId())

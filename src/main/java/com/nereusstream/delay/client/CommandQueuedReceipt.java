@@ -1,9 +1,9 @@
 package com.nereusstream.delay.client;
 
 import com.nereusstream.delay.adapter.QueuedReceiptQueryPolicy;
+import com.nereusstream.delay.protocol.CanonicalCommandQueuedReceipt;
+import com.nereusstream.delay.protocol.CanonicalCommandQueuedReceipt.SafeBrokerAck;
 import com.nereusstream.delay.protocol.CommandId;
-import com.nereusstream.delay.protocol.CommandQueuedReceiptV1;
-import com.nereusstream.delay.protocol.CommandQueuedReceiptV1.SafeBrokerAck;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.ShardId;
@@ -27,10 +27,10 @@ public record CommandQueuedReceipt(
 
     /**
      * Projects this legacy in-memory locator into the canonical serializable
-     * V1 receipt after the caller supplies the immutable query policy boundary
+     *Current receipt after the caller supplies the immutable query policy boundary
      * and the per-attempt Broker evidence required by the wire contract.
      */
-    public CommandQueuedReceiptV1 toV1(
+    public CanonicalCommandQueuedReceipt to(
             final PreparedCommand preparedCommand,
             final SafeBrokerAck brokerAck,
             final long receiptQueryUntilEpochMs,
@@ -41,17 +41,17 @@ public record CommandQueuedReceipt(
                 || !shardId.equals(preparedCommand.shardId())) {
             throw new IllegalArgumentException("prepared command does not match queued receipt locator");
         }
-        return CommandQueuedReceiptV1.create(
+        return CanonicalCommandQueuedReceipt.create(
                 preparedCommand, sourcePosition, brokerAck, receiptQueryUntilEpochMs, physicalEnqueueAttemptId);
     }
 
     /** Projects using the immutable Route policy rather than a caller timestamp. */
-    public CommandQueuedReceiptV1 toV1(
+    public CanonicalCommandQueuedReceipt to(
             final PreparedCommand preparedCommand,
             final SafeBrokerAck brokerAck,
             final QueuedReceiptQueryPolicy routePolicy,
             final byte[] physicalEnqueueAttemptId) {
         Objects.requireNonNull(routePolicy, "routePolicy");
-        return toV1(preparedCommand, brokerAck, routePolicy.queryUntil(sourcePosition), physicalEnqueueAttemptId);
+        return to(preparedCommand, brokerAck, routePolicy.queryUntil(sourcePosition), physicalEnqueueAttemptId);
     }
 }

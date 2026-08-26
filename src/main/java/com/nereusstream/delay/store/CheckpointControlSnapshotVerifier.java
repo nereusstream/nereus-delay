@@ -1,7 +1,7 @@
 package com.nereusstream.delay.store;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
+import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
@@ -39,7 +39,7 @@ final class CheckpointControlSnapshotVerifier {
 
     /**
      * Validates the physical identity of a checkpoint against its complete
-     * manifest.  A manifest must describe the DB image that is actually being
+     * manifest. A manifest must describe the DB image that is actually being
      * uploaded; file checksums and the control snapshot alone are not enough
      * because an image can otherwise be paired with another Store Incarnation
      * or DB identity.
@@ -140,7 +140,7 @@ final class CheckpointControlSnapshotVerifier {
                 }
                 final byte[] payload =
                         ValueEnvelope.decode(encoded, META_FIXED_VALUE_TYPE).payload();
-                final CompatibleControlSnapshotV1 snapshot = CompatibleControlSnapshotV1.decode(payload);
+                final CompatibleControlSnapshot snapshot = CompatibleControlSnapshot.decode(payload);
                 if (!expectedShard.equals(snapshot.shard().shardId())) {
                     throw new IllegalArgumentException("checkpoint control snapshot belongs to another shard");
                 }

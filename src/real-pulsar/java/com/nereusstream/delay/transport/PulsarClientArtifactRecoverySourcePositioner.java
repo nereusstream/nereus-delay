@@ -143,7 +143,7 @@ public final class PulsarClientArtifactRecoverySourcePositioner {
             throw new IllegalArgumentException("Pulsar recovery position does not match the guarded assignment");
         }
         if (accepted.entryKind() == PulsarSourcePosition.EntryKind.BATCH) {
-            // Route partitions are separate physical topics.  Pulsar's native
+            // Route partitions are separate physical topics. Pulsar's native
             // MessageId therefore uses -1 for the partition index even though
             // the Nereus ShardId carries the logical partition number.
             return new BatchMessageIdImpl(

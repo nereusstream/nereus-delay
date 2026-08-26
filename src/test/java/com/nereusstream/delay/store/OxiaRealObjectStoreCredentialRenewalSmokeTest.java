@@ -4,13 +4,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.ownership.OxiaSyncOwnerLeaseBackend;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CredentialBindingV1;
-import com.nereusstream.delay.protocol.CredentialEquivalenceAttestationV1;
-import com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
-import com.nereusstream.delay.protocol.ObjectStoreProviderKindV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
-import com.nereusstream.delay.protocol.RotateEquivalentSecretRequestV1;
+import com.nereusstream.delay.protocol.CredentialBinding;
+import com.nereusstream.delay.protocol.CredentialEquivalenceAttestation;
+import com.nereusstream.delay.protocol.ObjectStoreProfileSemantic;
+import com.nereusstream.delay.protocol.ObjectStoreProviderKind;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
+import com.nereusstream.delay.protocol.RotateEquivalentSecretRequest;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.CredentialAttestationTrustSet;
 import com.nereusstream.delay.runtime.OxiaSyncProfileCatalogBackend;
@@ -102,13 +102,13 @@ class OxiaRealObjectStoreCredentialRenewalSmokeTest {
                     now + 6_500,
                     authority.resolveProtection(fixture.profile().ref(), 1).objectStoreLeaseProtectionUntilEpochMs());
 
-            final CredentialBindingV1 rotated = binding(fixture.profile(), 2, now, fixture.keyPair());
-            final RotateEquivalentSecretRequestV1 rotation = new RotateEquivalentSecretRequestV1(
+            final CredentialBinding rotated = binding(fixture.profile(), 2, now, fixture.keyPair());
+            final RotateEquivalentSecretRequest rotation = new RotateEquivalentSecretRequest(
                     fixture.profile().ref(),
                     1,
                     2,
-                    Bytes.utf8("secret://real-minio/v2"),
-                    Bytes.sha256(Bytes.utf8("secret://real-minio/v2")),
+                    Bytes.utf8("secret://real-minio/current"),
+                    Bytes.sha256(Bytes.utf8("secret://real-minio/current")),
                     rotated.equivalenceAttestation(),
                     fixture.binding().bindingDigest(),
                     1);
@@ -125,8 +125,8 @@ class OxiaRealObjectStoreCredentialRenewalSmokeTest {
     private static Fixture fixture(
             final URI endpoint, final String region, final String bucket, final String accessKey, final long now)
             throws Exception {
-        final ObjectStoreProfileSemanticV1 semantic = new ObjectStoreProfileSemanticV1(
-                ObjectStoreProviderKindV1.S3_COMPATIBLE,
+        final ObjectStoreProfileSemantic semantic = new ObjectStoreProfileSemantic(
+                ObjectStoreProviderKind.S3_COMPATIBLE,
                 S3CompatibleCheckpointObjectStoreAdapter.endpointConfigDigest(endpoint, region, bucket),
                 S3CompatibleCheckpointObjectStoreAdapter.credentialAuthorizationScopeDigest(accessKey, region, bucket),
                 1,
@@ -136,15 +136,15 @@ class OxiaRealObjectStoreCredentialRenewalSmokeTest {
                 true,
                 bytes(32, 1),
                 1 << 20,
-                ObjectStoreProfileSemanticV1.SINGLE_PUT,
+                ObjectStoreProfileSemantic.SINGLE_PUT,
                 1,
                 bytes(32, 2));
-        final ProfileSemanticEnvelopeV1 profile = new ProfileSemanticEnvelopeV1(
-                ProfileKindV1.OBJECT_STORE, Bytes.utf8("real-renewable-object-store"), 1, semantic);
+        final ProfileSemanticEnvelope profile = new ProfileSemanticEnvelope(
+                ProfileKind.OBJECT_STORE, Bytes.utf8("real-renewable-object-store"), 1, semantic);
         final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-        final byte[] reference = Bytes.utf8("secret://real-minio/v1");
+        final byte[] reference = Bytes.utf8("secret://real-minio/initial");
         final byte[] fingerprint = bytes(32, 5);
-        final CredentialEquivalenceAttestationV1 attestation = CredentialEquivalenceAttestationV1.signed(
+        final CredentialEquivalenceAttestation attestation = CredentialEquivalenceAttestation.signed(
                 profile.ref(),
                 1,
                 Bytes.sha256(reference),
@@ -159,17 +159,17 @@ class OxiaRealObjectStoreCredentialRenewalSmokeTest {
                 keyPair.getPrivate());
         return new Fixture(
                 profile,
-                CredentialBindingV1.create(profile.ref(), 1, reference, attestation),
+                CredentialBinding.create(profile.ref(), 1, reference, attestation),
                 fingerprint,
                 keyPair,
                 Bytes.utf8("real-minio-verifier"));
     }
 
-    private static CredentialBindingV1 binding(
-            final ProfileSemanticEnvelopeV1 profile, final long generation, final long now, final KeyPair keyPair) {
-        final ObjectStoreProfileSemanticV1 semantic = (ObjectStoreProfileSemanticV1) profile.body();
-        final byte[] reference = Bytes.utf8("secret://real-minio/v2");
-        final CredentialEquivalenceAttestationV1 attestation = CredentialEquivalenceAttestationV1.signed(
+    private static CredentialBinding binding(
+            final ProfileSemanticEnvelope profile, final long generation, final long now, final KeyPair keyPair) {
+        final ObjectStoreProfileSemantic semantic = (ObjectStoreProfileSemantic) profile.body();
+        final byte[] reference = Bytes.utf8("secret://real-minio/current");
+        final CredentialEquivalenceAttestation attestation = CredentialEquivalenceAttestation.signed(
                 profile.ref(),
                 generation,
                 Bytes.sha256(reference),
@@ -182,7 +182,7 @@ class OxiaRealObjectStoreCredentialRenewalSmokeTest {
                 bytes(32, 9),
                 1,
                 keyPair.getPrivate());
-        return CredentialBindingV1.create(profile.ref(), generation, reference, attestation);
+        return CredentialBinding.create(profile.ref(), generation, reference, attestation);
     }
 
     private static TrustedUtcIntervalEvidence evidence(final long earliest) {
@@ -219,8 +219,8 @@ class OxiaRealObjectStoreCredentialRenewalSmokeTest {
     }
 
     private record Fixture(
-            ProfileSemanticEnvelopeV1 profile,
-            CredentialBindingV1 binding,
+            ProfileSemanticEnvelope profile,
+            CredentialBinding binding,
             byte[] fingerprint,
             KeyPair keyPair,
             byte[] verifierId) {

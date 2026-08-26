@@ -1,7 +1,7 @@
 package com.nereusstream.delay.route;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.RouteSnapshotV1;
+import com.nereusstream.delay.protocol.RouteSnapshot;
 import com.nereusstream.delay.semantic.RouteSelectionHint;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
@@ -49,14 +49,14 @@ public final class OxiaSignedRouteSnapshotPublisher {
     }
 
     public Publication publish(
-            final RouteSelectionHint route, final RouteSnapshotV1 snapshot, final long expectedPreviousRevision) {
+            final RouteSelectionHint route, final RouteSnapshot snapshot, final long expectedPreviousRevision) {
         Objects.requireNonNull(route, "route");
         Objects.requireNonNull(snapshot, "snapshot");
         client.startSession();
         if (expectedPreviousRevision < 0) {
             throw new IllegalArgumentException("expectedPreviousRevision must be non-negative");
         }
-        final RouteSnapshotV1 verified = RouteSnapshotV1.decode(snapshot.canonicalBytes(), verificationKey);
+        final RouteSnapshot verified = RouteSnapshot.decode(snapshot.canonicalBytes(), verificationKey);
         final HeadEntry currentHead = readHead();
         final long observedRevision =
                 currentHead == null ? 0 : currentHead.head().publishedRevision();
@@ -69,21 +69,21 @@ public final class OxiaSignedRouteSnapshotPublisher {
         } catch (ArithmeticException overflow) {
             throw new IllegalArgumentException("Route revision exhausted", overflow);
         }
-        final OxiaRouteSnapshotRecordV1 event =
-                OxiaRouteSnapshotRecordV1.create(nextRevision, expectedPreviousRevision, route, verified);
+        final OxiaRouteSnapshotRecord event =
+                OxiaRouteSnapshotRecord.create(nextRevision, expectedPreviousRevision, route, verified);
         if (expectedPreviousRevision > 0) {
             final GetResult previousResult = client.get(eventKey(expectedPreviousRevision));
             if (previousResult == null || previousResult.value() == null) {
                 throw new IllegalStateException("previous Route event is unavailable");
             }
-            final OxiaRouteSnapshotRecordV1 previous =
-                    OxiaRouteSnapshotRecordV1.decode(previousResult.value(), verificationKey);
+            final OxiaRouteSnapshotRecord previous =
+                    OxiaRouteSnapshotRecord.decode(previousResult.value(), verificationKey);
             if (previous.snapshot().routeIncarnation().equals(verified.routeIncarnation())) {
-                RouteSnapshotCompatibilityV1.requireCompatibleSuccessor(previous.snapshot(), verified);
+                RouteSnapshotCompatibility.requireCompatibleSuccessor(previous.snapshot(), verified);
             }
         }
         putEventExactly(event);
-        final OxiaRouteSnapshotHeadV1 nextHead = new OxiaRouteSnapshotHeadV1(nextRevision, event.recordDigest());
+        final OxiaRouteSnapshotHead nextHead = new OxiaRouteSnapshotHead(nextRevision, event.recordDigest());
         try {
             putHeadExactly(nextHead, currentHead);
         } catch (RuntimeException failure) {
@@ -97,7 +97,7 @@ public final class OxiaSignedRouteSnapshotPublisher {
         return new Publication(nextRevision, event.recordDigest());
     }
 
-    private void putEventExactly(final OxiaRouteSnapshotRecordV1 event) {
+    private void putEventExactly(final OxiaRouteSnapshotRecord event) {
         final String key = eventKey(event.revision());
         final GetResult existing = client.get(key);
         if (existing != null) {
@@ -130,7 +130,7 @@ public final class OxiaSignedRouteSnapshotPublisher {
         }
     }
 
-    private void putHeadExactly(final OxiaRouteSnapshotHeadV1 nextHead, final HeadEntry currentHead) {
+    private void putHeadExactly(final OxiaRouteSnapshotHead nextHead, final HeadEntry currentHead) {
         final Set<PutOption> options = currentHead == null
                 ? Set.of(PutOption.IfRecordDoesNotExist)
                 : Set.of(PutOption.IfVersionIdEquals(currentHead.versionId()));
@@ -153,7 +153,7 @@ public final class OxiaSignedRouteSnapshotPublisher {
             throw new IllegalStateException("Oxia Route head response is not exact");
         }
         return new HeadEntry(
-                OxiaRouteSnapshotHeadV1.decode(result.value()), result.version().versionId());
+                OxiaRouteSnapshotHead.decode(result.value()), result.version().versionId());
     }
 
     private String eventKey(final long revision) {
@@ -188,7 +188,7 @@ public final class OxiaSignedRouteSnapshotPublisher {
         }
     }
 
-    private record HeadEntry(OxiaRouteSnapshotHeadV1 head, long versionId) {}
+    private record HeadEntry(OxiaRouteSnapshotHead head, long versionId) {}
 
     private static final class SyncRecordClient implements OxiaRouteRecordClient {
         private final SyncOxiaClient delegate;

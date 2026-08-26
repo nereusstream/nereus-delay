@@ -7,10 +7,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
 import com.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
 import com.nereusstream.delay.protocol.ResourceKind;
 import com.nereusstream.delay.protocol.RouteIncarnation;
@@ -89,7 +89,7 @@ class CheckpointDeleteConfirmationComposerTest {
     void rejectsProviderIdentityThatDiffersFromRetireIntent() throws Exception {
         final Fixture fixture = fixture();
         final KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-        final CheckpointResourceV1 different = new CheckpointResourceV1(
+        final CheckpointResource different = new CheckpointResource(
                 fixture.resource().recoveryLineageId(),
                 fixture.resource().checkpointId(),
                 fixture.resource().objectStoreProfile(),
@@ -137,10 +137,10 @@ class CheckpointDeleteConfirmationComposerTest {
 
     private static Fixture fixture() {
         final ShardId shard = new ShardId(RouteIncarnation.random(), 7);
-        final CheckpointResourceV1 resource = new CheckpointResourceV1(
+        final CheckpointResource resource = new CheckpointResource(
                 id16(1),
                 id16(2),
-                new ProfileRefV1(Bytes.utf8("checkpoint-profile"), 1, id32(3), ProfileKindV1.OBJECT_STORE),
+                new ProfileRef(Bytes.utf8("checkpoint-profile"), 1, id32(3), ProfileKind.OBJECT_STORE),
                 Bytes.utf8("bucket"),
                 Bytes.utf8("checkpoint/manifest"),
                 Bytes.utf8("object-version"),
@@ -154,7 +154,7 @@ class CheckpointDeleteConfirmationComposerTest {
                 id32(6),
                 ResourceKind.CHECKPOINT,
                 identity,
-                Bytes.sha256(Bytes.utf8("nereus-delay-resource-identity-v1\0"), identity),
+                Bytes.sha256(Bytes.utf8("nereus-delay-resource-identity\0"), identity),
                 4,
                 5,
                 protectionSet(),
@@ -169,7 +169,7 @@ class CheckpointDeleteConfirmationComposerTest {
             CanonicalProtobuf.uint64Bits(output, 3, 1);
         });
         final byte[] references = CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(output, 1, reference));
-        final byte[] digest = Bytes.sha256(Bytes.utf8("nereus-delay-protection-set-v1\0"), references);
+        final byte[] digest = Bytes.sha256(Bytes.utf8("nereus-delay-protection-set\0"), references);
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, reference);
             CanonicalProtobuf.bytes(output, 2, digest);
@@ -202,5 +202,5 @@ class CheckpointDeleteConfirmationComposerTest {
         return Bytes.sha256(Bytes.utf8("checkpoint-confirmation-" + seed));
     }
 
-    private record Fixture(ShardId shard, CheckpointResourceV1 resource, ResourceRetireIntentRecord intent) {}
+    private record Fixture(ShardId shard, CheckpointResource resource, ResourceRetireIntentRecord intent) {}
 }

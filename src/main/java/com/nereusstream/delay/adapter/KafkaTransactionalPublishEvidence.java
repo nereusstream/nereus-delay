@@ -1,15 +1,15 @@
 package com.nereusstream.delay.adapter;
 
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
-import com.nereusstream.delay.protocol.EvidenceKindV1;
-import com.nereusstream.delay.protocol.EvidenceVerificationStatusV1;
-import com.nereusstream.delay.protocol.ExternalDeliveryIdentityV1;
-import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.PublishEvidenceKindV1;
-import com.nereusstream.delay.protocol.PublishEvidenceV1;
+import com.nereusstream.delay.protocol.EvidenceCursor;
+import com.nereusstream.delay.protocol.EvidenceKind;
+import com.nereusstream.delay.protocol.EvidenceVerificationStatus;
+import com.nereusstream.delay.protocol.ExternalDeliveryIdentity;
+import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.PublishEvidence;
+import com.nereusstream.delay.protocol.PublishEvidenceKind;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Builds the closed V1 Kafka transactional-receipt evidence branch from a
+ * Builds the closed Kafka transactional-receipt evidence branch from a
  * physical read_committed observation.
  *
  * <p>The cursor and receipt position are caller-supplied because only the
@@ -31,9 +31,9 @@ public final class KafkaTransactionalPublishEvidence {
     private KafkaTransactionalPublishEvidence() {}
 
     /** Creates the typed VERIFIED_PUBLISHED K2 evidence envelope. */
-    public static PublishEvidenceV1 published(
+    public static PublishEvidence published(
             final KafkaTransactionalDestinationRequest request,
-            final EvidenceCursorV1 receiptCursor,
+            final EvidenceCursor receiptCursor,
             final long receiptOffset,
             final byte[] receiptRecordHash) {
         Objects.requireNonNull(request, "request");
@@ -47,7 +47,7 @@ public final class KafkaTransactionalPublishEvidence {
             throw new IllegalArgumentException("receipt record digest does not match the exact request");
         }
         final KafkaReceiptJournal.Mapping mapping = request.mapping();
-        final BrokerResourceIdentityV1 target = BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+        final BrokerResourceIdentity target = BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(
                 request.target().authenticatedClusterId(), request.target().nativeTopicUuid()));
         final byte[] branch = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, receiptCursor.canonicalBytes());
@@ -55,7 +55,7 @@ public final class KafkaTransactionalPublishEvidence {
             CanonicalProtobuf.bytes(
                     output,
                     3,
-                    ExternalDeliveryIdentityV1.publishAttempt(mapping.publishAttemptId())
+                    ExternalDeliveryIdentity.publishAttempt(mapping.publishAttemptId())
                             .canonicalBytes());
             CanonicalProtobuf.bytes(output, 4, mapping.preparedPublishHash());
             CanonicalProtobuf.bytes(output, 5, target.canonicalBytes());
@@ -63,26 +63,24 @@ public final class KafkaTransactionalPublishEvidence {
             CanonicalProtobuf.bytes(output, 7, mapping.producer().transactionalIdentitySha256());
             CanonicalProtobuf.bytes(output, 8, receiptRecordHash);
         });
-        return PublishEvidenceV1.create(
-                PublishEvidenceKindV1.KAFKA_TRANSACTIONAL_RECEIPT,
-                EvidenceVerificationStatusV1.VERIFIED_PUBLISHED,
-                branch);
+        return PublishEvidence.create(
+                PublishEvidenceKind.KAFKA_TRANSACTIONAL_RECEIPT, EvidenceVerificationStatus.VERIFIED_PUBLISHED, branch);
     }
 
     /**
      * Verifies provider-returned evidence before a source-locked transport
-     * promotes an uncertain transaction to PUBLISHED.  The provider owns the
+     * promotes an uncertain transaction to PUBLISHED. The provider owns the
      * read_committed proof; this method owns the final request/evidence
      * identity binding.
      */
     public static void requireExactBinding(
-            final PublishEvidenceV1 evidence,
+            final PublishEvidence evidence,
             final KafkaTransactionalDestinationRequest request,
             final long receiptOffset) {
         Objects.requireNonNull(evidence, "evidence");
         Objects.requireNonNull(request, "request");
-        if (evidence.evidenceKind() != PublishEvidenceKindV1.KAFKA_TRANSACTIONAL_RECEIPT
-                || evidence.verificationStatus() != EvidenceVerificationStatusV1.VERIFIED_PUBLISHED) {
+        if (evidence.evidenceKind() != PublishEvidenceKind.KAFKA_TRANSACTIONAL_RECEIPT
+                || evidence.verificationStatus() != EvidenceVerificationStatus.VERIFIED_PUBLISHED) {
             throw new IllegalArgumentException("Kafka transaction evidence has the wrong branch");
         }
         evidence.requireBusinessMutation(request.mapping().publishAttemptId(), true);
@@ -90,12 +88,12 @@ public final class KafkaTransactionalPublishEvidence {
             throw new IllegalArgumentException("receiptOffset must be non-negative");
         }
         final List<CanonicalProtobuf.Reader.Field> fields = branchFields(evidence.branch());
-        final EvidenceCursorV1 cursor = EvidenceCursorV1.decode(bytes(fields.get(0), 1));
+        final EvidenceCursor cursor = EvidenceCursor.decode(bytes(fields.get(0), 1));
         validateCursor(request, cursor, receiptOffset);
         if (fields.get(1).unsignedValue() != receiptOffset
                 || !Arrays.equals(bytes(fields.get(3), 4), request.mapping().preparedPublishHash())
-                || !BrokerResourceIdentityV1.decode(bytes(fields.get(4), 5))
-                        .equals(BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+                || !BrokerResourceIdentity.decode(bytes(fields.get(4), 5))
+                        .equals(BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(
                                 request.target().authenticatedClusterId(),
                                 request.target().nativeTopicUuid())))
                 || uint(fields.get(5), 6) != request.target().partition()
@@ -107,11 +105,9 @@ public final class KafkaTransactionalPublishEvidence {
     }
 
     private static void validateCursor(
-            final KafkaTransactionalDestinationRequest request,
-            final EvidenceCursorV1 cursor,
-            final long receiptOffset) {
+            final KafkaTransactionalDestinationRequest request, final EvidenceCursor cursor, final long receiptOffset) {
         final KafkaReceiptJournal.Mapping mapping = request.mapping();
-        if (cursor.evidenceKind() != EvidenceKindV1.KAFKA_RECEIPT_CONTIGUOUS
+        if (cursor.evidenceKind() != EvidenceKind.KAFKA_RECEIPT_CONTIGUOUS
                 || !Arrays.equals(
                         cursor.destinationLaneId(), mapping.producer().laneId().bytes())
                 || !Arrays.equals(cursor.laneIncarnation(), mapping.producer().laneIncarnation())

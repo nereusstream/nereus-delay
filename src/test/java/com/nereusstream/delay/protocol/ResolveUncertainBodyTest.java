@@ -136,13 +136,13 @@ class ResolveUncertainBodyTest {
     }
 
     private static byte[] evidence(final byte[] attemptId, final boolean published) {
-        final ExternalDeliveryIdentityV1 owner = ExternalDeliveryIdentityV1.publishAttempt(attemptId);
+        final ExternalDeliveryIdentity owner = ExternalDeliveryIdentity.publishAttempt(attemptId);
         final byte[] branch = published
                 ? CanonicalProtobuf.message(output -> {
                     CanonicalProtobuf.bytes(
                             output,
                             1,
-                            BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1(
+                            BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity(
                                             "cluster-a", UUID.nameUUIDFromBytes(Bytes.utf8("resolve-topic"))))
                                     .canonicalBytes());
                     CanonicalProtobuf.uint32(output, 2, 0);
@@ -161,13 +161,11 @@ class ResolveUncertainBodyTest {
                     CanonicalProtobuf.uint32(output, 6, 1);
                     CanonicalProtobuf.uint32(output, 7, StableCode.CAPABILITY_UNAVAILABLE.wireValue());
                 });
-        return PublishEvidenceV1.create(
+        return PublishEvidence.create(
+                        published ? PublishEvidenceKind.KAFKA_PRODUCE_ACK : PublishEvidenceKind.ADAPTER_NON_SUBMISSION,
                         published
-                                ? PublishEvidenceKindV1.KAFKA_PRODUCE_ACK
-                                : PublishEvidenceKindV1.ADAPTER_NON_SUBMISSION,
-                        published
-                                ? EvidenceVerificationStatusV1.VERIFIED_PUBLISHED
-                                : EvidenceVerificationStatusV1.VERIFIED_NOT_PUBLISHED,
+                                ? EvidenceVerificationStatus.VERIFIED_PUBLISHED
+                                : EvidenceVerificationStatus.VERIFIED_NOT_PUBLISHED,
                         branch)
                 .canonicalBytes();
     }

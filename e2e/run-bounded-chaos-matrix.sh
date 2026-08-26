@@ -35,9 +35,9 @@ require_checkout() {
   echo "${label} branch: ${branch} (base ${base})"
 }
 
-require_checkout "${delay_dir}" "nereus/delay-full-implementation-v1" "${delay_base}" "Delay"
-require_checkout "${kafka_dir}" "nereus/delay-guarded-producer-v1" "${kafka_base}" "Kafka"
-require_checkout "${pulsar_dir}" "nereus/delay-resource-guard-v1" "${pulsar_base}" "Pulsar"
+require_checkout "${delay_dir}" "nereus/delay-full-implementation" "${delay_base}" "Delay"
+require_checkout "${kafka_dir}" "nereus/delay-guarded-producer" "${kafka_base}" "Kafka"
+require_checkout "${pulsar_dir}" "nereus/delay-resource-guard" "${pulsar_base}" "Pulsar"
 require_checkout "${oxia_dir}" "main" "$(git -C "${oxia_dir}" rev-parse HEAD)" "Oxia"
 
 delay_source="$(git -C "${delay_dir}" rev-parse HEAD)"
@@ -47,7 +47,7 @@ oxia_source="$(git -C "${oxia_dir}" rev-parse HEAD)"
 
 echo "Bounded chaos matrix artifact directory: ${artifact_dir}"
 echo "Matrix Gradle cache: ${matrix_gradle_home}"
-echo "Matrix scope: current-source focused cuts only; this is not a V1 release gate by itself."
+echo "Matrix scope: current-source focused cuts only; this is not a  release gate by itself."
 echo "Matrix audit: every cell must emit its deterministic injection and recovery evidence markers; durable state dumps and independent invariant audits remain explicit release requirements."
 
 audit_cell() {
@@ -252,8 +252,8 @@ audit_cell() {
           -n '
             ($before[0]) as $pre
             | ($after[0]) as $post
-            | $pre.schema == "nereus-delay-chaos-durable-state-dump-v1"
-              and $post.schema == "nereus-delay-chaos-durable-state-dump-v1"
+            | $pre.schema == "nereus-delay-chaos-durable-state-dump"
+              and $post.schema == "nereus-delay-chaos-durable-state-dump"
               and $pre.cell == "kafka-broker-process-crash"
               and $post.cell == $pre.cell
               and $pre.phase == "BROKER_PROCESS_CRASH_READY"
@@ -319,8 +319,8 @@ audit_cell() {
           -n '
             ($before[0]) as $pre
             | ($after[0]) as $post
-            | $pre.schema == "nereus-delay-chaos-durable-state-dump-v1"
-              and $post.schema == "nereus-delay-chaos-durable-state-dump-v1"
+            | $pre.schema == "nereus-delay-chaos-durable-state-dump"
+              and $post.schema == "nereus-delay-chaos-durable-state-dump"
               and $pre.cell == $cell
               and $post.cell == $pre.cell
               and $pre.phase == $before_phase
@@ -371,8 +371,8 @@ audit_cell() {
           -n '
             ($before[0]) as $pre
             | ($after[0]) as $post
-            | $pre.schema == "nereus-delay-chaos-durable-state-dump-v1"
-              and $post.schema == "nereus-delay-chaos-durable-state-dump-v1"
+            | $pre.schema == "nereus-delay-chaos-durable-state-dump"
+              and $post.schema == "nereus-delay-chaos-durable-state-dump"
               and $pre.cell == "pulsar-multi-broker-process-crash"
               and $post.cell == $pre.cell
               and $pre.phase == "PULSAR_BROKER_PROCESS_CRASH_READY"
@@ -425,8 +425,8 @@ audit_cell() {
           -n '
             ($before[0]) as $pre
             | ($after[0]) as $post
-            | $pre.schema == "nereus-delay-chaos-durable-state-dump-v1"
-              and $post.schema == "nereus-delay-chaos-durable-state-dump-v1"
+            | $pre.schema == "nereus-delay-chaos-durable-state-dump"
+              and $post.schema == "nereus-delay-chaos-durable-state-dump"
               and $pre.cell == "kafka-worker-process-crash"
               and $post.cell == $pre.cell
               and $pre.phase == "WORKER_PROCESS_CRASH_READY"
@@ -477,8 +477,8 @@ audit_cell() {
           -n '
             ($before[0]) as $pre
             | ($after[0]) as $post
-            | $pre.schema == "nereus-delay-chaos-durable-state-dump-v1"
-              and $post.schema == "nereus-delay-chaos-durable-state-dump-v1"
+            | $pre.schema == "nereus-delay-chaos-durable-state-dump"
+              and $post.schema == "nereus-delay-chaos-durable-state-dump"
               and $pre.cell == "kafka-worker-ack-process-crash"
               and $post.cell == $pre.cell
               and $pre.phase == "WORKER_ACK_PROCESS_CRASH_READY"
@@ -529,8 +529,8 @@ audit_cell() {
           -n '
             ($before[0]) as $pre
             | ($after[0]) as $post
-            | $pre.schema == "nereus-delay-chaos-durable-state-dump-v1"
-              and $post.schema == "nereus-delay-chaos-durable-state-dump-v1"
+            | $pre.schema == "nereus-delay-chaos-durable-state-dump"
+              and $post.schema == "nereus-delay-chaos-durable-state-dump"
               and $pre.cell == "pulsar-worker-process-crash"
               and $post.cell == $pre.cell
               and $pre.phase == "PULSAR_WORKER_PROCESS_CRASH_READY"
@@ -580,8 +580,8 @@ audit_cell() {
           -n '
             ($before[0]) as $pre
             | ($after[0]) as $post
-            | $pre.schema == "nereus-delay-chaos-durable-state-dump-v1"
-              and $post.schema == "nereus-delay-chaos-durable-state-dump-v1"
+            | $pre.schema == "nereus-delay-chaos-durable-state-dump"
+              and $post.schema == "nereus-delay-chaos-durable-state-dump"
               and $pre.cell == "pulsar-worker-admission-response-loss-process-crash"
               and $post.cell == $pre.cell
               and $pre.phase == "ADMISSION_RESPONSE_LOSS_PERSISTED"
@@ -629,8 +629,8 @@ audit_cell() {
           -n '
             ($before[0]) as $pre
             | ($after[0]) as $post
-            | $pre.schema == "nereus-delay-chaos-durable-state-dump-v1"
-              and $post.schema == "nereus-delay-chaos-durable-state-dump-v1"
+            | $pre.schema == "nereus-delay-chaos-durable-state-dump"
+              and $post.schema == "nereus-delay-chaos-durable-state-dump"
               and $pre.cell == "pulsar-worker-destination-response-loss-process-crash"
               and $post.cell == $pre.cell
               and $pre.phase == "DESTINATION_RESPONSE_LOSS_PERSISTED"
@@ -679,8 +679,8 @@ audit_cell() {
           -n '
             ($before[0]) as $pre
             | ($after[0]) as $post
-            | $pre.schema == "nereus-delay-chaos-durable-state-dump-v1"
-              and $post.schema == "nereus-delay-chaos-durable-state-dump-v1"
+            | $pre.schema == "nereus-delay-chaos-durable-state-dump"
+              and $post.schema == "nereus-delay-chaos-durable-state-dump"
               and $pre.cell == "kafka-fetch-response-loss-process-crash"
               and $post.cell == $pre.cell
               and $pre.phase == "FETCH_RESPONSE_LOSS_PERSISTED"
@@ -727,8 +727,8 @@ audit_cell() {
           -n '
             ($before[0]) as $pre
             | ($after[0]) as $post
-            | $pre.schema == "nereus-delay-chaos-durable-state-dump-v1"
-              and $post.schema == "nereus-delay-chaos-durable-state-dump-v1"
+            | $pre.schema == "nereus-delay-chaos-durable-state-dump"
+              and $post.schema == "nereus-delay-chaos-durable-state-dump"
               and $pre.cell == "kafka-retention-floor-process-crash"
               and $post.cell == $pre.cell
               and $pre.phase == "RETENTION_FLOOR_REJECTED"
@@ -776,8 +776,8 @@ audit_cell() {
           -n '
             ($before[0]) as $pre
             | ($after[0]) as $post
-            | $pre.schema == "nereus-delay-chaos-durable-state-dump-v1"
-              and $post.schema == "nereus-delay-chaos-durable-state-dump-v1"
+            | $pre.schema == "nereus-delay-chaos-durable-state-dump"
+              and $post.schema == "nereus-delay-chaos-durable-state-dump"
               and $pre.cell == "checkpoint-reaping"
               and $post.cell == $pre.cell
               and $pre.phase == "REAPING_READY"
@@ -828,8 +828,8 @@ audit_cell() {
           -n '
             ($before[0]) as $pre
             | ($after[0]) as $post
-            | $pre.schema == "nereus-delay-chaos-durable-state-dump-v1"
-              and $post.schema == "nereus-delay-chaos-durable-state-dump-v1"
+            | $pre.schema == "nereus-delay-chaos-durable-state-dump"
+              and $post.schema == "nereus-delay-chaos-durable-state-dump"
               and $pre.cell == "pulsar-destination-response-loss"
               and $post.cell == $pre.cell
               and $pre.phase == "DESTINATION_RESPONSE_LOSS_READY"
@@ -884,8 +884,8 @@ audit_cell() {
           -n '
             ($before[0]) as $pre
             | ($after[0]) as $post
-            | $pre.schema == "nereus-delay-chaos-durable-state-dump-v1"
-              and $post.schema == "nereus-delay-chaos-durable-state-dump-v1"
+            | $pre.schema == "nereus-delay-chaos-durable-state-dump"
+              and $post.schema == "nereus-delay-chaos-durable-state-dump"
               and $pre.cell == "pulsar-source-ack-response-loss"
               and $post.cell == $pre.cell
               and $pre.phase == "SOURCE_ACK_RESPONSE_LOSS_PERSISTED"
@@ -944,8 +944,8 @@ audit_cell() {
           -n '
             ($before[0]) as $pre
             | ($after[0]) as $post
-            | $pre.schema == "nereus-delay-chaos-durable-state-dump-v1"
-              and $post.schema == "nereus-delay-chaos-durable-state-dump-v1"
+            | $pre.schema == "nereus-delay-chaos-durable-state-dump"
+              and $post.schema == "nereus-delay-chaos-durable-state-dump"
               and $pre.cell == "gateway-oxia-session-churn"
               and $post.cell == $pre.cell
               and $pre.phase == "BEFORE_OXIA_RESTART"
@@ -1288,7 +1288,7 @@ else
   matrix_result="FAIL"
 fi
 jq -n \
-  --arg schema "nereus-delay-bounded-chaos-matrix-v1" \
+  --arg schema "nereus-delay-bounded-chaos-matrix" \
   --arg status "${matrix_result}" \
   --arg delay "${delay_source}" \
   --arg kafka "${kafka_source}" \
@@ -1315,7 +1315,7 @@ jq -n \
       release_certification: "OPEN"
     },
     boundaries: [
-      "This is a bounded current-source fault matrix, not V1 release certification.",
+      "This is a bounded current-source fault matrix, not  release certification.",
       "Each bounded cell must emit its declared injection and required recovery markers; missing markers fail the bounded artifact.",
       "The Kafka Broker process/network/TCP cuts, Kafka Worker ACK, Pulsar Worker process-crash, Fetch/retention-floor and Pulsar Worker Publish Admission/destination response-loss cells capture and independently audit external durable state dumps; the remaining cells still require their own §23.3 durable evidence.",
       "A release gate must additionally prove required benchmark/capacity, certified soak, activation/cutover, operations and external authority evidence."

@@ -1,8 +1,8 @@
 package com.nereusstream.delay.gateway;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.PayloadAttestationResponseV1;
-import com.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
+import com.nereusstream.delay.protocol.PayloadAttestationResponse;
+import com.nereusstream.delay.protocol.PayloadUploadHandleResponse;
 import com.nereusstream.delay.semantic.AuthenticatedTenantContext;
 import com.nereusstream.delay.semantic.TrustedClock;
 import com.nereusstream.delay.transport.Digest32;
@@ -12,8 +12,8 @@ import java.util.concurrent.CompletionStage;
 
 /** Authenticated Gateway composition for receipt-bound payload operations. */
 public final class GatewayPayloadIngressService {
-    private static final byte[] KEY_DOMAIN = Bytes.utf8("nereus-delay-gateway-payload-audit-key-v1\0");
-    private static final byte[] BODY_DOMAIN = Bytes.utf8("nereus-delay-gateway-payload-audit-body-v1\0");
+    private static final byte[] KEY_DOMAIN = Bytes.utf8("nereus-delay-gateway-payload-audit-key\0");
+    private static final byte[] BODY_DOMAIN = Bytes.utf8("nereus-delay-gateway-payload-audit-body\0");
 
     private final GatewayPayloadAuthority payloadAuthority;
     private final GatewayTenantAuthority tenantAuthority;
@@ -34,8 +34,8 @@ public final class GatewayPayloadIngressService {
         this.trustedClock = Objects.requireNonNull(trustedClock, "trustedClock");
     }
 
-    public CompletionStage<PayloadUploadHandleResponseV1> issueUploadHandle(
-            final GatewayPeerContext peerContext, final GatewayIssuePayloadUploadHandleRequestV1 request) {
+    public CompletionStage<PayloadUploadHandleResponse> issueUploadHandle(
+            final GatewayPeerContext peerContext, final GatewayIssuePayloadUploadHandleRequest request) {
         Objects.requireNonNull(peerContext, "peerContext");
         Objects.requireNonNull(request, "request");
         final AuthenticatedTenantContext tenant = authenticate(peerContext);
@@ -46,8 +46,8 @@ public final class GatewayPayloadIngressService {
                         payloadAuthority.issueUploadHandle(context, request.reservation(), request.kind(), now));
     }
 
-    public CompletionStage<PayloadAttestationResponseV1> attestUpload(
-            final GatewayPeerContext peerContext, final GatewayAttestPayloadUploadRequestV1 request) {
+    public CompletionStage<PayloadAttestationResponse> attestUpload(
+            final GatewayPeerContext peerContext, final GatewayAttestPayloadUploadRequest request) {
         Objects.requireNonNull(peerContext, "peerContext");
         Objects.requireNonNull(request, "request");
         final AuthenticatedTenantContext tenant = authenticate(peerContext);
@@ -65,7 +65,7 @@ public final class GatewayPayloadIngressService {
         final GatewayAdmissionLease lease;
         try {
             final GatewayAdmissionController.Decision decision = admission.reserve(
-                    new GatewayAdmissionRequestV1(tenant, GatewayIngressOperationV1.CONTROL, canonicalBody.length));
+                    new GatewayAdmissionRequest(tenant, GatewayIngressOperation.CONTROL, canonicalBody.length));
             if (decision.state() == GatewayAdmissionController.State.REJECTED) {
                 recordFailure(keyHash, bodyHash);
                 throw new GatewayIngressException(
@@ -80,8 +80,8 @@ public final class GatewayPayloadIngressService {
             throw new GatewayIngressException(GatewayIngressException.Kind.INTERNAL, failure);
         }
         try {
-            audit.record(new GatewayAuditEventV1(
-                    GatewayIngressOperationV1.CONTROL, keyHash, bodyHash, GatewayAuditPhaseV1.RECEIVED, null, now()));
+            audit.record(new GatewayAuditEvent(
+                    GatewayIngressOperation.CONTROL, keyHash, bodyHash, GatewayAuditPhase.RECEIVED, null, now()));
         } catch (RuntimeException failure) {
             lease.close();
             throw new GatewayIngressException(GatewayIngressException.Kind.UNAVAILABLE, failure);
@@ -105,8 +105,8 @@ public final class GatewayPayloadIngressService {
                                     ? new IllegalStateException("payload authority returned no response")
                                     : failure));
                 }
-                audit.record(GatewayAuditEventV1.completed(
-                        GatewayIngressOperationV1.CONTROL, keyHash, bodyHash, canonicalBytes(response), now()));
+                audit.record(GatewayAuditEvent.completed(
+                        GatewayIngressOperation.CONTROL, keyHash, bodyHash, canonicalBytes(response), now()));
                 return response;
             } catch (GatewayIngressException failureFromAudit) {
                 throw new CompletionException(failureFromAudit);
@@ -130,8 +130,8 @@ public final class GatewayPayloadIngressService {
 
     private void recordFailure(final Digest32 keyHash, final Digest32 bodyHash) {
         try {
-            audit.record(new GatewayAuditEventV1(
-                    GatewayIngressOperationV1.CONTROL, keyHash, bodyHash, GatewayAuditPhaseV1.FAILED, null, now()));
+            audit.record(new GatewayAuditEvent(
+                    GatewayIngressOperation.CONTROL, keyHash, bodyHash, GatewayAuditPhase.FAILED, null, now()));
         } catch (RuntimeException failure) {
             throw new GatewayIngressException(GatewayIngressException.Kind.UNAVAILABLE, failure);
         }
@@ -150,10 +150,10 @@ public final class GatewayPayloadIngressService {
     }
 
     private static byte[] canonicalBytes(final Object response) {
-        if (response instanceof PayloadUploadHandleResponseV1 upload) {
+        if (response instanceof PayloadUploadHandleResponse upload) {
             return upload.canonicalBytes();
         }
-        if (response instanceof PayloadAttestationResponseV1 attestation) {
+        if (response instanceof PayloadAttestationResponse attestation) {
             return attestation.canonicalBytes();
         }
         throw new IllegalArgumentException("unsupported payload response type");

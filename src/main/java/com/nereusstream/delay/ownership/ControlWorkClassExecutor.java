@@ -16,7 +16,7 @@ import java.util.function.LongSupplier;
  * remain separate; this class only owns the queue and external append fence.
  */
 public final class ControlWorkClassExecutor {
-    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-control-mutation-handoff-task-v1\0");
+    private static final byte[] TASK_ID_DOMAIN = Bytes.utf8("nereus-delay-control-mutation-handoff-task\0");
 
     private final WorkClassExecutionRegistry workClasses;
     private final OwnedDelayShard ownedShard;

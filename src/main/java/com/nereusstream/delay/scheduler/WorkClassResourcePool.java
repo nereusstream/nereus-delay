@@ -11,7 +11,7 @@ import java.util.function.LongSupplier;
  *
  * <p>A request may borrow currently idle capacity, but every other class's
  * configured non-borrowable minimum is protected before the request is
- * admitted.  Borrowed leases have a bounded hold window; callers must finish
+ * admitted. Borrowed leases have a bounded hold window; callers must finish
  * or release them before the next bounded work chunk.</p>
  */
 public final class WorkClassResourcePool {
@@ -35,7 +35,7 @@ public final class WorkClassResourcePool {
             final LongSupplier clockNanos) {
         Objects.requireNonNull(policies, "policies");
         if (!java.util.EnumSet.allOf(WorkClass.class).equals(policies.keySet())) {
-            throw new IllegalArgumentException("policies must cover every V1 work class exactly");
+            throw new IllegalArgumentException("policies must cover every work class exactly");
         }
         if (totalRecords <= 0 || totalBytes <= 0 || maxBorrowedHoldNanos <= 0) {
             throw new IllegalArgumentException("work-class resource limits must be positive");

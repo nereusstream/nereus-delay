@@ -136,7 +136,7 @@ for command_name in curl openssl shasum; do
   fi
 done
 test -d "${pulsar_dir}" && test -d "${oxia_checkout}" && test -s "${tarball}"
-test "$(git -C "${pulsar_dir}" branch --show-current)" = "nereus/delay-resource-guard-v1"
+test "$(git -C "${pulsar_dir}" branch --show-current)" = "nereus/delay-resource-guard"
 test -z "$(git -C "${pulsar_dir}" status --porcelain)"
 git -C "${pulsar_dir}" merge-base --is-ancestor 8dae0236c0a0d405ed7f8303081080520fe91551 HEAD
 test -z "$(git -C "${oxia_checkout}" status --porcelain)"

@@ -107,7 +107,7 @@ public final class SourcePositionCodec {
 
     private static long requireNonNegative(final long value, final String name) {
         if (value < 0) {
-            throw new IllegalArgumentException(name + " is outside signed V1 range");
+            throw new IllegalArgumentException(name + " is outside signed range");
         }
         return value;
     }

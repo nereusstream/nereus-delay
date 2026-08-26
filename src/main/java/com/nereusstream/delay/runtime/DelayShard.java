@@ -1,97 +1,97 @@
 package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.ownership.ControlTargetRegistrationAuthority;
-import com.nereusstream.delay.protocol.ActiveLaneStateV1;
+import com.nereusstream.delay.protocol.ActiveLaneState;
 import com.nereusstream.delay.protocol.ApplyShardControlBody;
 import com.nereusstream.delay.protocol.AuthorIdentity;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.CancelCommandBodyV1;
-import com.nereusstream.delay.protocol.CanonicalLaneTupleV1;
+import com.nereusstream.delay.protocol.CancelCommandBody;
+import com.nereusstream.delay.protocol.CanonicalLaneTuple;
+import com.nereusstream.delay.protocol.CanonicalPayloadCommitProof;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
-import com.nereusstream.delay.protocol.CapacityDimensionV1;
-import com.nereusstream.delay.protocol.CapacityGrantV1;
-import com.nereusstream.delay.protocol.CapacityVectorV1;
-import com.nereusstream.delay.protocol.ChannelResourceIdentityV1;
-import com.nereusstream.delay.protocol.ClaimMaterializationV1;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
+import com.nereusstream.delay.protocol.CapacityDimension;
+import com.nereusstream.delay.protocol.CapacityGrant;
+import com.nereusstream.delay.protocol.CapacityVector;
+import com.nereusstream.delay.protocol.ChannelResourceIdentity;
+import com.nereusstream.delay.protocol.ClaimMaterialization;
 import com.nereusstream.delay.protocol.ClaimResultBody;
 import com.nereusstream.delay.protocol.CommandBodies;
 import com.nereusstream.delay.protocol.CommandId;
 import com.nereusstream.delay.protocol.CommandType;
-import com.nereusstream.delay.protocol.CommitLargeScheduleBodyV1;
-import com.nereusstream.delay.protocol.CommittedPayloadDescriptorV1;
-import com.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
+import com.nereusstream.delay.protocol.CommitLargeScheduleBody;
+import com.nereusstream.delay.protocol.CommittedPayloadDescriptor;
+import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
 import com.nereusstream.delay.protocol.ControlRef;
-import com.nereusstream.delay.protocol.ControlTargetRefV1;
-import com.nereusstream.delay.protocol.CredentialBindingHeadV1;
+import com.nereusstream.delay.protocol.ControlTargetRef;
+import com.nereusstream.delay.protocol.CredentialBindingHead;
 import com.nereusstream.delay.protocol.DelayMessageId;
-import com.nereusstream.delay.protocol.DeliveryCapabilitySemanticV1;
+import com.nereusstream.delay.protocol.DeliveryCapabilitySemantic;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.DestinationProfileSemanticV1;
+import com.nereusstream.delay.protocol.DestinationProfileSemantic;
 import com.nereusstream.delay.protocol.DlqExportResultBody;
-import com.nereusstream.delay.protocol.DlqExportStateV1;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
-import com.nereusstream.delay.protocol.InitialRouteControlActivatePayloadV1;
-import com.nereusstream.delay.protocol.LaneCircuitStateV1;
-import com.nereusstream.delay.protocol.LaneQuotaUsageEntryV1;
-import com.nereusstream.delay.protocol.LaneRecordEnvelopeV1;
-import com.nereusstream.delay.protocol.LaneRetirementProgressV1;
-import com.nereusstream.delay.protocol.LaneTerminalGuardV1;
+import com.nereusstream.delay.protocol.DlqExportState;
+import com.nereusstream.delay.protocol.EvidenceCursor;
+import com.nereusstream.delay.protocol.InitialRouteControlActivatePayload;
+import com.nereusstream.delay.protocol.LaneCircuitState;
+import com.nereusstream.delay.protocol.LaneQuotaUsageEntry;
+import com.nereusstream.delay.protocol.LaneRecordEnvelope;
+import com.nereusstream.delay.protocol.LaneRetirementProgress;
+import com.nereusstream.delay.protocol.LaneTerminalGuard;
 import com.nereusstream.delay.protocol.LargeScheduleIntent;
-import com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.PayloadCommitProofV1;
+import com.nereusstream.delay.protocol.ObjectStoreProfileSemantic;
+import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PayloadCommitProofView;
-import com.nereusstream.delay.protocol.PayloadForPublishV1;
+import com.nereusstream.delay.protocol.PayloadForPublish;
 import com.nereusstream.delay.protocol.PayloadProofTrustSet;
 import com.nereusstream.delay.protocol.PayloadProofTrustSetControlState;
-import com.nereusstream.delay.protocol.PayloadProofTrustSetRefV1;
-import com.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetRef;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetSemantic;
 import com.nereusstream.delay.protocol.PayloadReference;
-import com.nereusstream.delay.protocol.PrepareLargeScheduleBodyV1;
+import com.nereusstream.delay.protocol.PrepareLargeScheduleBody;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.PreparedControlOperationV1;
-import com.nereusstream.delay.protocol.ProfileAcceptanceV1;
-import com.nereusstream.delay.protocol.ProfileBindingActivatePayloadV1;
+import com.nereusstream.delay.protocol.PreparedControlOperation;
+import com.nereusstream.delay.protocol.ProfileAcceptance;
+import com.nereusstream.delay.protocol.ProfileBindingActivatePayload;
 import com.nereusstream.delay.protocol.ProfileBindingControlState;
-import com.nereusstream.delay.protocol.ProfileNewBindingClosePayloadV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
-import com.nereusstream.delay.protocol.ProtocolActivationStateV1;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
+import com.nereusstream.delay.protocol.ProfileNewBindingClosePayload;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
+import com.nereusstream.delay.protocol.ProtocolActivationState;
+import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
-import com.nereusstream.delay.protocol.PublishEvidenceKindV1;
-import com.nereusstream.delay.protocol.PublishEvidenceV1;
+import com.nereusstream.delay.protocol.PublishEvidence;
+import com.nereusstream.delay.protocol.PublishEvidenceKind;
 import com.nereusstream.delay.protocol.PublishOutcomeBody;
-import com.nereusstream.delay.protocol.ReadyCertificateV1;
+import com.nereusstream.delay.protocol.ReadyCertificate;
 import com.nereusstream.delay.protocol.ReplayDeadLetterBody;
-import com.nereusstream.delay.protocol.RescheduleCommandBodyV1;
+import com.nereusstream.delay.protocol.RescheduleCommandBody;
 import com.nereusstream.delay.protocol.ResolveUncertainBody;
 import com.nereusstream.delay.protocol.ResourceDeleteConfirmedBody;
 import com.nereusstream.delay.protocol.ResourceKind;
 import com.nereusstream.delay.protocol.ResourceRetireIntentBody;
-import com.nereusstream.delay.protocol.RetryJitterV1;
-import com.nereusstream.delay.protocol.RetryPolicyRefV1;
-import com.nereusstream.delay.protocol.RetryPolicySemanticV1;
-import com.nereusstream.delay.protocol.ScheduleCommandBodyV1;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
-import com.nereusstream.delay.protocol.ShardCapacityEnvelopeV1;
-import com.nereusstream.delay.protocol.ShardSubjectV1;
+import com.nereusstream.delay.protocol.RetryJitter;
+import com.nereusstream.delay.protocol.RetryPolicyRef;
+import com.nereusstream.delay.protocol.RetryPolicySemantic;
+import com.nereusstream.delay.protocol.ScheduleBinding;
+import com.nereusstream.delay.protocol.ScheduleCommandBody;
+import com.nereusstream.delay.protocol.ShardCapacityEnvelope;
+import com.nereusstream.delay.protocol.ShardSubject;
 import com.nereusstream.delay.protocol.SloAuthoritativeStartFactory;
-import com.nereusstream.delay.protocol.SloObjectiveNameV1;
-import com.nereusstream.delay.protocol.SloObjectiveV1;
-import com.nereusstream.delay.protocol.SloPathV1;
-import com.nereusstream.delay.protocol.SloPopulationV1;
-import com.nereusstream.delay.protocol.SloSampleStartV1;
+import com.nereusstream.delay.protocol.SloObjective;
+import com.nereusstream.delay.protocol.SloObjectiveName;
+import com.nereusstream.delay.protocol.SloPath;
+import com.nereusstream.delay.protocol.SloPopulation;
+import com.nereusstream.delay.protocol.SloSampleStart;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationBodyCodec;
 import com.nereusstream.delay.protocol.SystemMutationType;
-import com.nereusstream.delay.protocol.TimingCapabilityV1;
+import com.nereusstream.delay.protocol.TimingCapability;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.protocol.UnsignedInt32;
-import com.nereusstream.delay.protocol.V1ScheduleBinding;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
 import com.nereusstream.delay.store.BoundedReadBudget;
@@ -130,9 +130,9 @@ public final class DelayShard {
     private static final int PAYLOAD_PROOF_CONTROL_VALUE_TYPE = 9;
     private static final int PROFILE_CONTROL_VALUE_TYPE = 10;
     private static final int PROTOCOL_ACTIVATION_VALUE_TYPE = 11;
-    /** Legacy compatibility projection; V1 class 1 is reserved for grant identity/version. */
+    /** Legacy compatibility projection; class 1 is reserved for grant identity/version. */
     private static final int META_LEGACY_QUOTA_USAGE = 1;
-    /** Registry class 2: canonical aggregate CapacityVectorV1 usage. */
+    /** Registry class 2: canonical aggregate CapacityVector usage. */
     private static final int META_QUOTA_AGGREGATE_USAGE = 2;
 
     private static final int META_LANE_QUOTA_USAGE = 3;
@@ -157,22 +157,22 @@ public final class DelayShard {
     private final ControlTargetRegistrationAuthority controlTargetRegistrationAuthority;
     private final ProfileCatalog profileCatalog;
     /** Optional immutable catalog projection for command-applied SLO Starts. */
-    private final SloObjectiveV1 commandAppliedSloObjective;
+    private final SloObjective commandAppliedSloObjective;
     /** Optional ALL_ACCEPTED due-admission objective for source Admission turns. */
-    private final SloObjectiveV1 dueAdmissionSloObjective;
+    private final SloObjective dueAdmissionSloObjective;
 
     private final SloObservationOutboxStore sloObservationOutboxStore;
     private PayloadProofTrustSetControlState payloadProofTrustSetControlState;
     private ProfileBindingControlState profileBindingControlState;
-    private ProtocolActivationStateV1 protocolActivationState;
-    private final ShardCapacityEnvelopeV1 capacityEnvelope;
-    private final V1ScheduleResolver v1ScheduleResolver;
+    private ProtocolActivationState protocolActivationState;
+    private final ShardCapacityEnvelope capacityEnvelope;
+    private final ScheduleResolver scheduleResolver;
     /** Single-writer scratch; consumed by the same apply turn before the batch is written. */
-    private V1ScheduleResolver.ResolvedSchedule lastResolvedSchedule;
+    private ScheduleResolver.ResolvedSchedule lastResolvedSchedule;
     /** Message identity for the single-writer Schedule projection scratch. */
     private DelayMessageId lastResolvedScheduleMessageId;
 
-    private V1ScheduleResolver.ResolvedPrepare lastResolvedPrepare;
+    private ScheduleResolver.ResolvedPrepare lastResolvedPrepare;
     private SourcePosition lastAppliedSourcePosition;
     private long closedIngressDeadlineThrough;
     private long mutationSequence;
@@ -180,8 +180,8 @@ public final class DelayShard {
     private ShardQuota quota;
     private LaneQuotaUsageProjection laneQuotaUsage;
     private OutcomeReserveUsage outcomeReserve;
-    private CapacityVectorV1 outcomeReserveVector;
-    private final Map<Integer, CapacityVectorV1> controlReserveUsage = new HashMap<>();
+    private CapacityVector outcomeReserveVector;
+    private final Map<Integer, CapacityVector> controlReserveUsage = new HashMap<>();
 
     public DelayShard(final ShardStore store, final DelayShardConfig config) {
         this(store, config, null, null, null, null);
@@ -194,7 +194,7 @@ public final class DelayShard {
 
     /**
      * Opens a shard with an immutable capacity envelope supplied by the
-     * placement/activation authority.  The envelope is persisted before any
+     * placement/activation authority. The envelope is persisted before any
      * command can charge its outcome grant; a different grant or digest can
      * therefore never reuse this DB's usage projection.
      */
@@ -202,13 +202,13 @@ public final class DelayShard {
             final ShardStore store,
             final DelayShardConfig config,
             final PayloadProofTrustSet payloadProofTrustSet,
-            final ShardCapacityEnvelopeV1 capacityEnvelope) {
+            final ShardCapacityEnvelope capacityEnvelope) {
         this(store, config, payloadProofTrustSet, capacityEnvelope, null, null);
     }
 
     /**
-     * Opens a shard with an explicit source-position-pinned V1 Schedule
-     * resolver.  The resolver is optional for legacy commands; a Registry
+     * Opens a shard with an explicit source-position-pinned Schedule
+     * resolver. The resolver is optional for legacy commands; a Registry
      * Schedule/Prepare body without one fails closed with
      * {@link StableCode#ROUTE_SNAPSHOT_UNAVAILABLE}.
      */
@@ -216,9 +216,9 @@ public final class DelayShard {
             final ShardStore store,
             final DelayShardConfig config,
             final PayloadProofTrustSet payloadProofTrustSet,
-            final ShardCapacityEnvelopeV1 capacityEnvelope,
-            final V1ScheduleResolver v1ScheduleResolver) {
-        this(store, config, payloadProofTrustSet, capacityEnvelope, v1ScheduleResolver, null);
+            final ShardCapacityEnvelope capacityEnvelope,
+            final ScheduleResolver scheduleResolver) {
+        this(store, config, payloadProofTrustSet, capacityEnvelope, scheduleResolver, null);
     }
 
     /**
@@ -230,15 +230,15 @@ public final class DelayShard {
             final ShardStore store,
             final DelayShardConfig config,
             final PayloadProofTrustSet payloadProofTrustSet,
-            final ShardCapacityEnvelopeV1 capacityEnvelope,
-            final V1ScheduleResolver v1ScheduleResolver,
+            final ShardCapacityEnvelope capacityEnvelope,
+            final ScheduleResolver scheduleResolver,
             final PayloadProofTrustSetControlCatalog payloadProofTrustSetControlCatalog) {
         this(
                 store,
                 config,
                 payloadProofTrustSet,
                 capacityEnvelope,
-                v1ScheduleResolver,
+                scheduleResolver,
                 payloadProofTrustSetControlCatalog,
                 null);
     }
@@ -246,14 +246,14 @@ public final class DelayShard {
     /**
      * Opens a shard with an optional source-position-pinned Retry Policy
      * catalog. A supplied catalog turns on fail-closed semantic lookup for
-     * V1 Schedule/Prepare; older constructors retain compatibility behavior.
+     * Schedule/Prepare; older constructors retain compatibility behavior.
      */
     public DelayShard(
             final ShardStore store,
             final DelayShardConfig config,
             final PayloadProofTrustSet payloadProofTrustSet,
-            final ShardCapacityEnvelopeV1 capacityEnvelope,
-            final V1ScheduleResolver v1ScheduleResolver,
+            final ShardCapacityEnvelope capacityEnvelope,
+            final ScheduleResolver scheduleResolver,
             final PayloadProofTrustSetControlCatalog payloadProofTrustSetControlCatalog,
             final RetryPolicyCatalog retryPolicyCatalog) {
         this(
@@ -261,7 +261,7 @@ public final class DelayShard {
                 config,
                 payloadProofTrustSet,
                 capacityEnvelope,
-                v1ScheduleResolver,
+                scheduleResolver,
                 payloadProofTrustSetControlCatalog,
                 retryPolicyCatalog,
                 null);
@@ -277,8 +277,8 @@ public final class DelayShard {
             final ShardStore store,
             final DelayShardConfig config,
             final PayloadProofTrustSet payloadProofTrustSet,
-            final ShardCapacityEnvelopeV1 capacityEnvelope,
-            final V1ScheduleResolver v1ScheduleResolver,
+            final ShardCapacityEnvelope capacityEnvelope,
+            final ScheduleResolver scheduleResolver,
             final PayloadProofTrustSetControlCatalog payloadProofTrustSetControlCatalog,
             final RetryPolicyCatalog retryPolicyCatalog,
             final ControlTargetRegistrationAuthority controlTargetRegistrationAuthority) {
@@ -287,7 +287,7 @@ public final class DelayShard {
                 config,
                 payloadProofTrustSet,
                 capacityEnvelope,
-                v1ScheduleResolver,
+                scheduleResolver,
                 payloadProofTrustSetControlCatalog,
                 retryPolicyCatalog,
                 controlTargetRegistrationAuthority,
@@ -296,10 +296,10 @@ public final class DelayShard {
 
     /**
      * Opens a shard with an optional exact Profile semantic catalog. When
-     * supplied, the catalog decorates a raw V1 Schedule resolver with the
+     * supplied, the catalog decorates a raw Schedule resolver with the
      * exact Profile/Capability and credential-Head gate, and Publish
      * Admission validates descriptor timing against the same semantics;
-     * callers that already pass a {@link ProfileCatalogV1ScheduleResolver}
+     * callers that already pass a {@link ProfileCatalogScheduleResolver}
      * are not wrapped twice. Without a catalog, only ordinary managed
      * {@code actionAt=deliverAt} is accepted by the local compatibility path.
      */
@@ -307,8 +307,8 @@ public final class DelayShard {
             final ShardStore store,
             final DelayShardConfig config,
             final PayloadProofTrustSet payloadProofTrustSet,
-            final ShardCapacityEnvelopeV1 capacityEnvelope,
-            final V1ScheduleResolver v1ScheduleResolver,
+            final ShardCapacityEnvelope capacityEnvelope,
+            final ScheduleResolver scheduleResolver,
             final PayloadProofTrustSetControlCatalog payloadProofTrustSetControlCatalog,
             final RetryPolicyCatalog retryPolicyCatalog,
             final ControlTargetRegistrationAuthority controlTargetRegistrationAuthority,
@@ -318,7 +318,7 @@ public final class DelayShard {
                 config,
                 payloadProofTrustSet,
                 capacityEnvelope,
-                v1ScheduleResolver,
+                scheduleResolver,
                 payloadProofTrustSetControlCatalog,
                 retryPolicyCatalog,
                 controlTargetRegistrationAuthority,
@@ -341,19 +341,19 @@ public final class DelayShard {
             final ShardStore store,
             final DelayShardConfig config,
             final PayloadProofTrustSet payloadProofTrustSet,
-            final ShardCapacityEnvelopeV1 capacityEnvelope,
-            final V1ScheduleResolver v1ScheduleResolver,
+            final ShardCapacityEnvelope capacityEnvelope,
+            final ScheduleResolver scheduleResolver,
             final PayloadProofTrustSetControlCatalog payloadProofTrustSetControlCatalog,
             final RetryPolicyCatalog retryPolicyCatalog,
             final ControlTargetRegistrationAuthority controlTargetRegistrationAuthority,
             final ProfileCatalog profileCatalog,
-            final SloObjectiveV1 commandAppliedSloObjective) {
+            final SloObjective commandAppliedSloObjective) {
         this(
                 store,
                 config,
                 payloadProofTrustSet,
                 capacityEnvelope,
-                v1ScheduleResolver,
+                scheduleResolver,
                 payloadProofTrustSetControlCatalog,
                 retryPolicyCatalog,
                 controlTargetRegistrationAuthority,
@@ -372,20 +372,20 @@ public final class DelayShard {
             final ShardStore store,
             final DelayShardConfig config,
             final PayloadProofTrustSet payloadProofTrustSet,
-            final ShardCapacityEnvelopeV1 capacityEnvelope,
-            final V1ScheduleResolver v1ScheduleResolver,
+            final ShardCapacityEnvelope capacityEnvelope,
+            final ScheduleResolver scheduleResolver,
             final PayloadProofTrustSetControlCatalog payloadProofTrustSetControlCatalog,
             final RetryPolicyCatalog retryPolicyCatalog,
             final ControlTargetRegistrationAuthority controlTargetRegistrationAuthority,
             final ProfileCatalog profileCatalog,
-            final SloObjectiveV1 commandAppliedSloObjective,
+            final SloObjective commandAppliedSloObjective,
             final SloObservationOutboxLimits sloObservationOutboxLimits) {
         this(
                 store,
                 config,
                 payloadProofTrustSet,
                 capacityEnvelope,
-                v1ScheduleResolver,
+                scheduleResolver,
                 payloadProofTrustSetControlCatalog,
                 retryPolicyCatalog,
                 controlTargetRegistrationAuthority,
@@ -405,14 +405,14 @@ public final class DelayShard {
             final ShardStore store,
             final DelayShardConfig config,
             final PayloadProofTrustSet payloadProofTrustSet,
-            final ShardCapacityEnvelopeV1 capacityEnvelope,
-            final V1ScheduleResolver v1ScheduleResolver,
+            final ShardCapacityEnvelope capacityEnvelope,
+            final ScheduleResolver scheduleResolver,
             final PayloadProofTrustSetControlCatalog payloadProofTrustSetControlCatalog,
             final RetryPolicyCatalog retryPolicyCatalog,
             final ControlTargetRegistrationAuthority controlTargetRegistrationAuthority,
             final ProfileCatalog profileCatalog,
-            final SloObjectiveV1 commandAppliedSloObjective,
-            final SloObjectiveV1 dueAdmissionSloObjective,
+            final SloObjective commandAppliedSloObjective,
+            final SloObjective dueAdmissionSloObjective,
             final SloObservationOutboxLimits sloObservationOutboxLimits) {
         this.store = Objects.requireNonNull(store, "store");
         this.config = Objects.requireNonNull(config, "config");
@@ -422,12 +422,12 @@ public final class DelayShard {
         this.controlTargetRegistrationAuthority = controlTargetRegistrationAuthority;
         this.profileCatalog = profileCatalog;
         if (commandAppliedSloObjective != null
-                && commandAppliedSloObjective.name() != SloObjectiveNameV1.COMMAND_APPLIED_LATENCY) {
+                && commandAppliedSloObjective.name() != SloObjectiveName.COMMAND_APPLIED_LATENCY) {
             throw new IllegalArgumentException("command-applied SLO objective has the wrong name");
         }
         if (dueAdmissionSloObjective != null
-                && (dueAdmissionSloObjective.name() != SloObjectiveNameV1.DUE_ADMISSION_LAG
-                        || dueAdmissionSloObjective.population() != SloPopulationV1.ALL_ACCEPTED)) {
+                && (dueAdmissionSloObjective.name() != SloObjectiveName.DUE_ADMISSION_LAG
+                        || dueAdmissionSloObjective.population() != SloPopulation.ALL_ACCEPTED)) {
             throw new IllegalArgumentException("due-admission objective must be ALL_ACCEPTED DUE_ADMISSION_LAG");
         }
         this.commandAppliedSloObjective = commandAppliedSloObjective;
@@ -438,7 +438,7 @@ public final class DelayShard {
                 ? null
                 : new SloObservationOutboxStore(store, sloObservationOutboxLimits);
         this.capacityEnvelope = capacityEnvelope;
-        this.v1ScheduleResolver = bindProfileCatalogResolver(v1ScheduleResolver, profileCatalog);
+        this.scheduleResolver = bindProfileCatalogResolver(scheduleResolver, profileCatalog);
         final var sourceValue = store.getValue(ColumnFamily.META, KeyCodec.metaFixed(META_APPLIED_SOURCE_POSITION), 1);
         final byte[] source = sourceValue == null ? null : sourceValue.payload();
         lastAppliedSourcePosition = source == null ? null : SourcePositionCodec.decode(source);
@@ -470,7 +470,7 @@ public final class DelayShard {
                 ColumnFamily.META, KeyCodec.metaFixed(META_PROTOCOL_ACTIVATION_STATE), PROTOCOL_ACTIVATION_VALUE_TYPE);
         protocolActivationState = protocolActivationValue == null
                 ? null
-                : ProtocolActivationStateV1.decode(protocolActivationValue.payload());
+                : ProtocolActivationState.decode(protocolActivationValue.payload());
         if (protocolActivationState != null
                 && !store.shardId().equals(protocolActivationState.shard().shardId())) {
             throw new IllegalStateException("persisted protocol activation state belongs to another shard");
@@ -490,7 +490,7 @@ public final class DelayShard {
         final ShardQuota rebuiltQuota = rebuildShardQuota(rebuiltLaneQuota, rebuildRevision);
         if (persistedQuota == null) {
             // Legacy stores may have the durable records but no aggregate
-            // projection yet.  Reuse the rebuilt counts in memory; the next
+            // projection yet. Reuse the rebuilt counts in memory; the next
             // source-ordered mutation persists the canonical value.
             quota = rebuiltQuota;
         } else if (!sameQuotaUsage(persistedQuota, rebuiltQuota)) {
@@ -503,16 +503,16 @@ public final class DelayShard {
         validateTypedActiveLaneQuotaProjection(persistedLaneQuota);
         final var aggregateQuotaValue =
                 store.getValue(ColumnFamily.META, KeyCodec.metaQuota(META_QUOTA_AGGREGATE_USAGE), 7);
-        CapacityVectorV1 persistedQuotaAggregate = null;
+        CapacityVector persistedQuotaAggregate = null;
         OutcomeReserveUsage legacyPersistedOutcomeReserve = null;
         if (aggregateQuotaValue != null) {
             try {
-                persistedQuotaAggregate = CapacityVectorV1.decode(aggregateQuotaValue.payload());
+                persistedQuotaAggregate = CapacityVector.decode(aggregateQuotaValue.payload());
             } catch (IllegalArgumentException notAnAggregateVector) {
                 // Stores written before the Registry class-2 projection was
                 // closed carried the scalar OutcomeReserveUsage here. Keep
                 // it readable for one-way source-ordered migration, but do
-                // not treat it as the V1 class-2 value.
+                // not treat it as the class-2 value.
                 legacyPersistedOutcomeReserve = OutcomeReserveUsage.decode(aggregateQuotaValue.payload());
             }
         }
@@ -526,11 +526,11 @@ public final class DelayShard {
             throw new IllegalStateException("persisted outcome reserve exceeds the active shard grant");
         }
         outcomeReserveVector = loadCapacityEnvelopeState(capacityEnvelope);
-        final CapacityVectorV1 rebuiltOutcomeReserveVector = rebuildOutcomeReserveVector();
+        final CapacityVector rebuiltOutcomeReserveVector = rebuildOutcomeReserveVector();
         if (capacityEnvelope == null) {
             // Compatibility shards do not persist a grant-bound vector, but
             // their open attempt ledgers still carry the canonical Admission
-            // charge.  Rebuild that local projection as well; otherwise a
+            // charge. Rebuild that local projection as well; otherwise a
             // restart would forget the vector and a later release could
             // underflow even though the scalar reserve was restored.
             outcomeReserveVector = rebuiltOutcomeReserveVector;
@@ -540,8 +540,7 @@ public final class DelayShard {
         if (persistedQuotaAggregate != null && !outcomeReserve.equals(outcomeReserveUsage(persistedQuotaAggregate))) {
             throw new IllegalStateException("persisted outcome reserve disagrees with runtime state");
         }
-        final CapacityVectorV1 rebuiltQuotaAggregate =
-                aggregateQuotaUsage(rebuiltLaneQuota, rebuiltOutcomeReserveVector);
+        final CapacityVector rebuiltQuotaAggregate = aggregateQuotaUsage(rebuiltLaneQuota, rebuiltOutcomeReserveVector);
         if (persistedQuotaAggregate != null && !persistedQuotaAggregate.equals(rebuiltQuotaAggregate)) {
             throw new IllegalStateException("persisted quota aggregate disagrees with runtime state");
         }
@@ -557,12 +556,12 @@ public final class DelayShard {
         persistCapacityEnvelopeBindingIfAbsent(capacityEnvelope);
     }
 
-    private static V1ScheduleResolver bindProfileCatalogResolver(
-            final V1ScheduleResolver resolver, final ProfileCatalog catalog) {
+    private static ScheduleResolver bindProfileCatalogResolver(
+            final ScheduleResolver resolver, final ProfileCatalog catalog) {
         if (resolver == null) {
             return null;
         }
-        if (resolver instanceof ProfileCatalogV1ScheduleResolver decorated) {
+        if (resolver instanceof ProfileCatalogScheduleResolver decorated) {
             if (catalog == null) {
                 throw new IllegalArgumentException(
                         "Profile catalog Schedule resolver requires the shard Profile catalog");
@@ -570,12 +569,12 @@ public final class DelayShard {
             decorated.requireProfileCatalog(catalog);
             return decorated;
         }
-        return catalog == null ? resolver : new ProfileCatalogV1ScheduleResolver(resolver, catalog);
+        return catalog == null ? resolver : new ProfileCatalogScheduleResolver(resolver, catalog);
     }
 
     /**
      * Fences the typed ACTIVE Lane projection against the Registry class-3
-     * quota map before activation.  The typed state's field 14 is a durable
+     * quota map before activation. The typed state's field 14 is a durable
      * mirror of the exact (Lane ID, incarnation) entry; opening a typed Lane
      * without that map or with a different usage vector would make recovery
      * depend on an unproven projection, so the shard fails closed.
@@ -602,7 +601,7 @@ public final class DelayShard {
             if (persistedLaneQuota == null) {
                 throw new IllegalStateException("typed ACTIVE Lane is missing the class-3 quota map");
             }
-            final ActiveLaneStateV1 state = value.typedActiveState();
+            final ActiveLaneState state = value.typedActiveState();
             if (!state.laneId().equals(laneId)) {
                 throw new IllegalStateException("typed Lane key/value identity mismatch during quota validation");
             }
@@ -616,7 +615,7 @@ public final class DelayShard {
     }
 
     /** Ensures typed READY metadata is the exact key derived from its Lane state. */
-    private static void validateTypedReadyKey(final ActiveLaneStateV1 state) {
+    private static void validateTypedReadyKey(final ActiveLaneState state) {
         final byte[] encodedReadyKey = state.encodedReadyKey();
         if (encodedReadyKey == null) {
             return;
@@ -640,7 +639,7 @@ public final class DelayShard {
     }
 
     /**
-     * V1 registers quota classes 4 and 5, but their value schemas are not
+     * registers quota classes 4 and 5, but their value schemas are not
      * frozen yet. Do not silently treat a persisted retained/object or
      * grandfathered-transfer projection as empty; activation must stop until
      * a Registry revision supplies the decoder and accounting rules.
@@ -692,7 +691,7 @@ public final class DelayShard {
                     if (commandRetryWindowExpired(command, sourcePosition)) {
                         // A later physical duplicate can be outside the
                         // command's retry window even though the first
-                        // logical result remains valid.  Keep that result
+                        // logical result remains valid. Keep that result
                         // immutable, but replay the exact position-level
                         // rejection rather than exposing the first result for
                         // this physical record.
@@ -775,7 +774,7 @@ public final class DelayShard {
             };
         } catch (WindowViolationException exception) {
             return persistRejected(command, sourcePosition, StableCode.INVALID_DELIVERY_WINDOW);
-        } catch (V1CommandResolutionException exception) {
+        } catch (CommandResolutionException exception) {
             return persistRejected(command, sourcePosition, exception.stableCode());
         } catch (ArithmeticException | IllegalArgumentException exception) {
             return persistRejected(command, sourcePosition, StableCode.INVALID_COMMAND);
@@ -784,7 +783,7 @@ public final class DelayShard {
         return result;
     }
 
-    private CapacityVectorV1 loadCapacityEnvelopeState(final ShardCapacityEnvelopeV1 envelope) {
+    private CapacityVector loadCapacityEnvelopeState(final ShardCapacityEnvelope envelope) {
         final List<com.nereusstream.delay.store.ShardStore.KeyValue> bindingEntries = scanControlReserveClass(1);
         final List<com.nereusstream.delay.store.ShardStore.KeyValue> usageEntries = scanControlReserveClass(2);
         final List<com.nereusstream.delay.store.ShardStore.KeyValue> nonOutcomeEntries = scanControlReserveClass(3);
@@ -800,7 +799,7 @@ public final class DelayShard {
                     || !systemWriterEntries.isEmpty()) {
                 throw new IllegalStateException("capacity envelope is required for persisted control reserve state");
             }
-            return CapacityVectorV1.empty();
+            return CapacityVector.empty();
         }
         final byte[] bindingKey =
                 KeyCodec.metaControlReserve(1, envelope.outcomeReserve().grantId());
@@ -821,15 +820,15 @@ public final class DelayShard {
             if (!usageEntries.isEmpty()) {
                 throw new IllegalStateException("persisted outcome reserve has no envelope identity");
             }
-        } else if (!envelope.equals(ShardCapacityEnvelopeV1.decode(persistedBinding.payload()))) {
+        } else if (!envelope.equals(ShardCapacityEnvelope.decode(persistedBinding.payload()))) {
             throw new IllegalStateException("persisted capacity envelope identity differs from active envelope");
         }
-        final CapacityVectorV1 nonOutcomeUsage = reserveProjectionUsage(
+        final CapacityVector nonOutcomeUsage = reserveProjectionUsage(
                 nonOutcomeEntries,
                 CONTROL_RESERVE_NON_OUTCOME_CLASS,
                 envelope.nonOutcomeControl(),
                 "non-outcome control");
-        final CapacityVectorV1 systemWriterUsage = reserveProjectionUsage(
+        final CapacityVector systemWriterUsage = reserveProjectionUsage(
                 systemWriterEntries,
                 CONTROL_RESERVE_SYSTEM_WRITER_CLASS,
                 envelope.nonOutcomeControl(),
@@ -843,15 +842,15 @@ public final class DelayShard {
                 emergencyEntries, CONTROL_RESERVE_EMERGENCY_CLASS, envelope.emergencyHeadroom(), "emergency headroom");
         final ValueEnvelope.Decoded persistedUsage =
                 store.getValue(ColumnFamily.META, usageKey, CAPACITY_RESERVE_VALUE_TYPE);
-        final CapacityVectorV1 usage =
-                persistedUsage == null ? CapacityVectorV1.empty() : CapacityVectorV1.decode(persistedUsage.payload());
+        final CapacityVector usage =
+                persistedUsage == null ? CapacityVector.empty() : CapacityVector.decode(persistedUsage.payload());
         if (!envelope.outcomeReserve().vector().covers(usage)) {
             throw new IllegalStateException("persisted outcome reserve exceeds immutable capacity grant");
         }
         return usage;
     }
 
-    private void persistCapacityEnvelopeBindingIfAbsent(final ShardCapacityEnvelopeV1 envelope) {
+    private void persistCapacityEnvelopeBindingIfAbsent(final ShardCapacityEnvelope envelope) {
         if (envelope == null) {
             return;
         }
@@ -863,16 +862,16 @@ public final class DelayShard {
         }
     }
 
-    private void loadControlReserveUsage(final ShardCapacityEnvelopeV1 envelope) {
+    private void loadControlReserveUsage(final ShardCapacityEnvelope envelope) {
         if (envelope == null) {
             return;
         }
-        final CapacityVectorV1 nonOutcomeUsage = reserveProjectionUsage(
+        final CapacityVector nonOutcomeUsage = reserveProjectionUsage(
                 scanControlReserveClass(CONTROL_RESERVE_NON_OUTCOME_CLASS),
                 CONTROL_RESERVE_NON_OUTCOME_CLASS,
                 envelope.nonOutcomeControl(),
                 "non-outcome control");
-        final CapacityVectorV1 systemWriterUsage = reserveProjectionUsage(
+        final CapacityVector systemWriterUsage = reserveProjectionUsage(
                 scanControlReserveClass(CONTROL_RESERVE_SYSTEM_WRITER_CLASS),
                 CONTROL_RESERVE_SYSTEM_WRITER_CLASS,
                 envelope.nonOutcomeControl(),
@@ -898,23 +897,23 @@ public final class DelayShard {
         controlReserveUsage.put(CONTROL_RESERVE_SYSTEM_WRITER_CLASS, systemWriterUsage);
     }
 
-    private CapacityVectorV1 reserveProjectionUsage(
+    private CapacityVector reserveProjectionUsage(
             final List<com.nereusstream.delay.store.ShardStore.KeyValue> entries,
             final int reserveClass,
-            final CapacityGrantV1 grant,
+            final CapacityGrant grant,
             final String name) {
         if (entries.size() > 1) {
             throw new IllegalStateException("multiple " + name + " reserve projections exist");
         }
         if (entries.isEmpty()) {
-            return CapacityVectorV1.empty();
+            return CapacityVector.empty();
         }
         final byte[] expectedKey = KeyCodec.metaControlReserve(reserveClass, grant.grantId());
         if (!Arrays.equals(entries.get(0).key(), expectedKey)) {
             throw new IllegalStateException(name + " reserve grant identity does not match envelope");
         }
-        final CapacityVectorV1 usage =
-                CapacityVectorV1.decode(ValueEnvelope.decode(entries.get(0).value(), CAPACITY_RESERVE_VALUE_TYPE)
+        final CapacityVector usage =
+                CapacityVector.decode(ValueEnvelope.decode(entries.get(0).value(), CAPACITY_RESERVE_VALUE_TYPE)
                         .payload());
         if (!grant.vector().covers(usage)) {
             throw new IllegalStateException(name + " reserve usage exceeds immutable capacity grant");
@@ -928,8 +927,8 @@ public final class DelayShard {
         return store.scan(ColumnFamily.META, lower, upper, 2);
     }
 
-    private CapacityVectorV1 mutateControlReserve(
-            final int reserveClass, final CapacityVectorV1 amount, final boolean add) {
+    private CapacityVector mutateControlReserve(
+            final int reserveClass, final CapacityVector amount, final boolean add) {
         validateMutableControlReserveClass(reserveClass);
         validateControlReservePartition(
                 amount,
@@ -938,14 +937,14 @@ public final class DelayShard {
         if (capacityEnvelope == null) {
             throw new IllegalStateException("capacity envelope is required for control reserve accounting");
         }
-        final CapacityGrantV1 grant = controlReserveGrant(reserveClass);
-        final CapacityVectorV1 current = controlReserveUsage.getOrDefault(reserveClass, CapacityVectorV1.empty());
-        final CapacityVectorV1 next = add ? current.add(amount) : current.subtract(amount);
-        final CapacityVectorV1 sibling = reserveClass == CONTROL_RESERVE_NON_OUTCOME_CLASS
-                ? controlReserveUsage.getOrDefault(CONTROL_RESERVE_SYSTEM_WRITER_CLASS, CapacityVectorV1.empty())
+        final CapacityGrant grant = controlReserveGrant(reserveClass);
+        final CapacityVector current = controlReserveUsage.getOrDefault(reserveClass, CapacityVector.empty());
+        final CapacityVector next = add ? current.add(amount) : current.subtract(amount);
+        final CapacityVector sibling = reserveClass == CONTROL_RESERVE_NON_OUTCOME_CLASS
+                ? controlReserveUsage.getOrDefault(CONTROL_RESERVE_SYSTEM_WRITER_CLASS, CapacityVector.empty())
                 : reserveClass == CONTROL_RESERVE_SYSTEM_WRITER_CLASS
-                        ? controlReserveUsage.getOrDefault(CONTROL_RESERVE_NON_OUTCOME_CLASS, CapacityVectorV1.empty())
-                        : CapacityVectorV1.empty();
+                        ? controlReserveUsage.getOrDefault(CONTROL_RESERVE_NON_OUTCOME_CLASS, CapacityVector.empty())
+                        : CapacityVector.empty();
         if (!grant.vector().covers(next.add(sibling))) {
             throw new IllegalStateException("control reserve exceeds immutable capacity grant");
         }
@@ -961,7 +960,7 @@ public final class DelayShard {
         return next;
     }
 
-    private CapacityGrantV1 controlReserveGrant(final int reserveClass) {
+    private CapacityGrant controlReserveGrant(final int reserveClass) {
         return switch (reserveClass) {
             case CONTROL_RESERVE_NON_OUTCOME_CLASS, CONTROL_RESERVE_SYSTEM_WRITER_CLASS ->
                 capacityEnvelope.nonOutcomeControl();
@@ -978,19 +977,19 @@ public final class DelayShard {
     }
 
     /**
-     * Class 6 is a projection of the Route Broker system-writer budget.  It
+     * Class 6 is a projection of the Route Broker system-writer budget. It
      * shares the immutable NON_OUTCOME_CONTROL grant with class 3, but the
      * two projections must remain dimension-disjoint so the same grant cannot
-     * be charged twice.  The actual Broker quota authority remains outside
+     * be charged twice. The actual Broker quota authority remains outside
      * this shard-local persistence primitive.
      */
     private static void validateControlReservePartition(
-            final CapacityVectorV1 vector, final boolean systemWriter, final String name) {
+            final CapacityVector vector, final boolean systemWriter, final String name) {
         Objects.requireNonNull(vector, "vector");
-        for (CapacityDimensionV1 dimension : CapacityDimensionV1.values()) {
-            final boolean writerDimension = dimension == CapacityDimensionV1.SYSTEM_WRITER_RESERVED_RECORDS
-                    || dimension == CapacityDimensionV1.SYSTEM_WRITER_RESERVED_BYTES
-                    || dimension == CapacityDimensionV1.SYSTEM_WRITER_RESERVED_BYTES_PER_SECOND;
+        for (CapacityDimension dimension : CapacityDimension.values()) {
+            final boolean writerDimension = dimension == CapacityDimension.SYSTEM_WRITER_RESERVED_RECORDS
+                    || dimension == CapacityDimension.SYSTEM_WRITER_RESERVED_BYTES
+                    || dimension == CapacityDimension.SYSTEM_WRITER_RESERVED_BYTES_PER_SECOND;
             if (writerDimension != systemWriter && vector.amount(dimension) != 0) {
                 throw new IllegalArgumentException(
                         name + " projection contains an out-of-partition dimension: " + dimension);
@@ -999,43 +998,41 @@ public final class DelayShard {
     }
 
     private static void ensureNonOutcomeProjectionFits(
-            final CapacityGrantV1 grant,
-            final CapacityVectorV1 nonOutcomeUsage,
-            final CapacityVectorV1 systemWriterUsage) {
+            final CapacityGrant grant, final CapacityVector nonOutcomeUsage, final CapacityVector systemWriterUsage) {
         if (!grant.vector().covers(nonOutcomeUsage.add(systemWriterUsage))) {
             throw new IllegalStateException("non-outcome and system-writer projections exceed immutable grant");
         }
     }
 
-    private static OutcomeReserveUsage outcomeReserveUsage(final CapacityVectorV1 vector) {
+    private static OutcomeReserveUsage outcomeReserveUsage(final CapacityVector vector) {
         final long records = Math.addExact(
                 Math.addExact(
-                        vector.amount(CapacityDimensionV1.RESULT_RECORDS),
-                        vector.amount(CapacityDimensionV1.SYSTEM_MUTATION_RECORDS)),
-                vector.amount(CapacityDimensionV1.EVIDENCE_RECORDS));
+                        vector.amount(CapacityDimension.RESULT_RECORDS),
+                        vector.amount(CapacityDimension.SYSTEM_MUTATION_RECORDS)),
+                vector.amount(CapacityDimension.EVIDENCE_RECORDS));
         final long bytes = Math.addExact(
                 Math.addExact(
-                        vector.amount(CapacityDimensionV1.RESULT_BYTES),
-                        vector.amount(CapacityDimensionV1.SYSTEM_MUTATION_BYTES)),
+                        vector.amount(CapacityDimension.RESULT_BYTES),
+                        vector.amount(CapacityDimension.SYSTEM_MUTATION_BYTES)),
                 Math.addExact(
-                        vector.amount(CapacityDimensionV1.OUTCOME_WAL_BYTES),
-                        vector.amount(CapacityDimensionV1.EVIDENCE_BYTES)));
+                        vector.amount(CapacityDimension.OUTCOME_WAL_BYTES),
+                        vector.amount(CapacityDimension.EVIDENCE_BYTES)));
         return new OutcomeReserveUsage(records, bytes);
     }
 
     /**
      * Builds the Registry class-2 aggregate from the local projections that
-     * have an exact durable ledger.  The per-Lane map owns the logical and
+     * have an exact durable ledger. The per-Lane map owns the logical and
      * inflight dimensions; the open-attempt projection owns outcome result,
-     * system-mutation, WAL and evidence dimensions.  External/physical
+     * system-mutation, WAL and evidence dimensions. External/physical
      * dimensions remain zero until their ledgers are wired into the shard.
      */
-    private static CapacityVectorV1 aggregateQuotaUsage(
-            final LaneQuotaUsageProjection lanes, final CapacityVectorV1 outcome) {
+    private static CapacityVector aggregateQuotaUsage(
+            final LaneQuotaUsageProjection lanes, final CapacityVector outcome) {
         Objects.requireNonNull(lanes, "lanes");
         Objects.requireNonNull(outcome, "outcome");
-        final long[] amounts = new long[CapacityDimensionV1.COUNT];
-        for (LaneQuotaUsageEntryV1 entry : lanes.map().entries()) {
+        final long[] amounts = new long[CapacityDimension.COUNT];
+        for (LaneQuotaUsageEntry entry : lanes.map().entries()) {
             final long[] laneAmounts = entry.usage().toCapacityVector().amounts();
             for (int index = 0; index < 17; index++) {
                 try {
@@ -1046,8 +1043,8 @@ public final class DelayShard {
             }
         }
         final long[] outcomeAmounts = outcome.amounts();
-        for (int index = CapacityDimensionV1.RESULT_RECORDS.wireValue() - 1;
-                index <= CapacityDimensionV1.EVIDENCE_BYTES.wireValue() - 1;
+        for (int index = CapacityDimension.RESULT_RECORDS.wireValue() - 1;
+                index <= CapacityDimension.EVIDENCE_BYTES.wireValue() - 1;
                 index++) {
             try {
                 amounts[index] = Math.addExact(amounts[index], outcomeAmounts[index]);
@@ -1055,7 +1052,7 @@ public final class DelayShard {
                 throw new IllegalStateException("quota aggregate arithmetic overflow", exception);
             }
         }
-        return new CapacityVectorV1(amounts);
+        return new CapacityVector(amounts);
     }
 
     public synchronized MessageRecord getMessage(final DelayMessageId messageId) {
@@ -1182,7 +1179,7 @@ public final class DelayShard {
                     batch.delete(ColumnFamily.TERMINAL, KeyCodec.terminalDlqExport(exportId));
                 }
             }
-            batch.delete(ColumnFamily.ID, KeyCodec.idV1ScheduleBinding(messageId));
+            batch.delete(ColumnFamily.ID, KeyCodec.idScheduleBinding(messageId));
             batch.putValue(ColumnFamily.ID, MESSAGE_VALUE_TYPE, KeyCodec.idMessage(messageId), retired.encode());
         });
         return retired;
@@ -1234,37 +1231,37 @@ public final class DelayShard {
     }
 
     /** Returns the exact accepted Registry Schedule/Prepare binding, if any. */
-    public synchronized V1ScheduleBinding getV1ScheduleBinding(final DelayMessageId messageId) {
+    public synchronized ScheduleBinding getScheduleBinding(final DelayMessageId messageId) {
         Objects.requireNonNull(messageId, "messageId");
         if (!store.shardId().equals(messageId.routingId().shardId())) {
-            throw new IllegalStateException("V1 Schedule binding key shard mismatch");
+            throw new IllegalStateException(" Schedule binding key shard mismatch");
         }
-        final var value = store.getValue(ColumnFamily.ID, KeyCodec.idV1ScheduleBinding(messageId), 4);
+        final var value = store.getValue(ColumnFamily.ID, KeyCodec.idScheduleBinding(messageId), 4);
         if (value == null) {
             return null;
         }
-        final V1ScheduleBinding binding = V1ScheduleBinding.decode(value.payload());
+        final ScheduleBinding binding = ScheduleBinding.decode(value.payload());
         if (!binding.delayMessageId().equals(messageId)) {
-            throw new IllegalStateException("V1 Schedule binding key/value identity mismatch");
+            throw new IllegalStateException(" Schedule binding key/value identity mismatch");
         }
         final MessageRecord message = getMessage(messageId);
         if (message != null && !message.laneId().equals(binding.laneId())) {
-            throw new IllegalStateException("V1 Schedule binding Lane does not match message");
+            throw new IllegalStateException(" Schedule binding Lane does not match message");
         }
         return binding;
     }
 
     /**
-     * Derives the replay-stable Claim materialization from the accepted V1
+     * Derives the replay-stable Claim materialization from the accepted
      * Schedule binding and the current durable Message generation.
      *
-     * <p>This closes the local durable projection boundary only.  It does not
+     * <p>This closes the local durable projection boundary only. It does not
      * infer live Profile readiness, serialization, credentials, channel
      * leases, or a Claim charge; those remain explicit Worker prerequisite
-     * gates.  A missing binding, current timeline, or committed object proof
+     * gates. A missing binding, current timeline, or committed object proof
      * fails closed rather than falling back to a compatibility projection.</p>
      */
-    public synchronized ClaimMaterializationV1 resolveClaimMaterializationV1(final DelayMessageId messageId) {
+    public synchronized ClaimMaterialization resolveClaimMaterialization(final DelayMessageId messageId) {
         final DelayMessageId exactMessageId = Objects.requireNonNull(messageId, "messageId");
         final MessageRecord current = getMessage(exactMessageId);
         if (current == null) {
@@ -1273,19 +1270,19 @@ public final class DelayShard {
         if (current.status() != MessageStatus.SCHEDULED) {
             throw new IllegalStateException("Claim materialization requires a scheduled Message");
         }
-        final V1ScheduleBinding binding = getV1ScheduleBinding(exactMessageId);
+        final ScheduleBinding binding = getScheduleBinding(exactMessageId);
         if (binding == null) {
-            throw new IllegalStateException("automatic Claim materialization requires a V1 Schedule binding");
+            throw new IllegalStateException("automatic Claim materialization requires a Schedule binding");
         }
-        final ScheduleIntentV1 intent;
-        final PayloadForPublishV1 payload;
+        final CanonicalScheduleIntent intent;
+        final PayloadForPublish payload;
         if (binding.commandType() == CommandType.SCHEDULE) {
-            intent = ScheduleCommandBodyV1.decode(binding.canonicalBody()).intent();
+            intent = ScheduleCommandBody.decode(binding.canonicalBody()).intent();
             payload = intent.hasInlinePayload()
-                    ? PayloadForPublishV1.inline(current.payload())
-                    : PayloadForPublishV1.object(intent.committedPayload());
+                    ? PayloadForPublish.inline(current.payload())
+                    : PayloadForPublish.object(intent.committedPayload());
         } else if (binding.commandType() == CommandType.PREPARE_LARGE_SCHEDULE) {
-            final PrepareLargeScheduleBodyV1 prepare = PrepareLargeScheduleBodyV1.decode(binding.canonicalBody());
+            final PrepareLargeScheduleBody prepare = PrepareLargeScheduleBody.decode(binding.canonicalBody());
             intent = prepare.intentWithoutPayload();
             final PayloadReference reference = current.payloadReference();
             if (reference == null
@@ -1295,7 +1292,7 @@ public final class DelayShard {
                     || !reference.hasCommitIdentity()) {
                 throw new IllegalStateException("committed PrepareLarge payload proof is unavailable");
             }
-            final CommittedPayloadDescriptorV1 descriptor = new CommittedPayloadDescriptorV1(
+            final CommittedPayloadDescriptor descriptor = new CommittedPayloadDescriptor(
                     prepare.objectStoreProfile(),
                     reference.container(),
                     reference.objectKey(),
@@ -1305,16 +1302,16 @@ public final class DelayShard {
                     reference.payloadSha256(),
                     reference.reservationId(),
                     reference.proofId());
-            payload = PayloadForPublishV1.object(descriptor);
+            payload = PayloadForPublish.object(descriptor);
         } else {
-            throw new IllegalStateException("unsupported V1 Claim binding command type");
+            throw new IllegalStateException("unsupported Claim binding command type");
         }
         final TimelineWorkRef timeline = current.runtimeIndex().timeline();
         if (timeline == null) {
             throw new IllegalStateException("scheduled Message has no durable TimelineWorkRef");
         }
-        final CanonicalLaneTupleV1.Projection lane = CanonicalLaneTupleV1.project(binding.canonicalLaneTuple());
-        final ClaimMaterializationV1 materialization = new ClaimMaterializationV1(
+        final CanonicalLaneTuple.Projection lane = CanonicalLaneTuple.project(binding.canonicalLaneTuple());
+        final ClaimMaterialization materialization = new ClaimMaterialization(
                 lane.destinationProfile(),
                 lane.capabilityProfile(),
                 lane.targetResource(),
@@ -1361,9 +1358,7 @@ public final class DelayShard {
                 payloadAvailability(current),
                 current.runtimeIndex().possibleDestinationDuplicate(),
                 terminalCode,
-                terminalCode == null
-                        ? DlqExportStateV1.NOT_CONFIGURED
-                        : dlqExportState(messageId, current.generation()));
+                terminalCode == null ? DlqExportState.NOT_CONFIGURED : dlqExportState(messageId, current.generation()));
     }
 
     /** Returns the durable local DLQ export outbox for one terminal generation. */
@@ -1390,9 +1385,9 @@ public final class DelayShard {
     }
 
     /** Returns the durable export state, with legacy terminals defaulting to NOT_CONFIGURED. */
-    public synchronized DlqExportStateV1 dlqExportState(final DelayMessageId messageId, final int generation) {
+    public synchronized DlqExportState dlqExportState(final DelayMessageId messageId, final int generation) {
         final DlqExportRecord record = getDlqExportRecord(messageId, generation);
-        return record == null ? DlqExportStateV1.NOT_CONFIGURED : record.state();
+        return record == null ? DlqExportState.NOT_CONFIGURED : record.state();
     }
 
     /** Returns the exact local Claim at an Owner Epoch, or {@code null} when it is no longer live. */
@@ -1446,7 +1441,7 @@ public final class DelayShard {
     }
 
     /**
-     * Claims a scheduled message with the typed V1 materialization projection.
+     * Claims a scheduled message with the typed materialization projection.
      *
      * <p>The package-local byte-array primitive remains available to runtime
      * implementation and tests only. This entrypoint binds the replay-stable
@@ -1455,11 +1450,11 @@ public final class DelayShard {
      * delivery window or payload under an otherwise valid canonical
      * materialization.</p>
      */
-    public synchronized ClaimRecord claimForPublishV1(
+    public synchronized ClaimRecord claimForPublish(
             final DelayMessageId messageId,
             final AuthorIdentity owner,
             final long claimDeadlineEpochMs,
-            final ClaimMaterializationV1 materialization,
+            final ClaimMaterialization materialization,
             final byte[] claimedCharge) {
         Objects.requireNonNull(materialization, "materialization");
         final MessageRecord current = getMessage(Objects.requireNonNull(messageId, "messageId"));
@@ -1504,7 +1499,7 @@ public final class DelayShard {
         final byte[] timelineKey = timelineKey(messageId, current);
         final long nextClaimSequence = nextUnsignedSequence(claimSequence, "Claim sequence");
         final byte[] claimId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-claim-id-v1\0"),
+                Bytes.utf8("nereus-delay-claim-id\0"),
                 store.metadata().storeIncarnation(),
                 Bytes.u64beBits(owner.generation()),
                 Bytes.u64beBits(nextClaimSequence),
@@ -1584,7 +1579,7 @@ public final class DelayShard {
     }
 
     private void requireClaimMaterializationMatchesMessage(
-            final DelayMessageId messageId, final MessageRecord current, final ClaimMaterializationV1 materialization) {
+            final DelayMessageId messageId, final MessageRecord current, final ClaimMaterialization materialization) {
         if (current == null) {
             throw new IllegalStateException("Claim materialization requires an existing Message");
         }
@@ -1603,7 +1598,7 @@ public final class DelayShard {
             throw new IllegalArgumentException("Claim materialization action time mismatch");
         }
 
-        final PayloadForPublishV1 payload = materialization.payload();
+        final PayloadForPublish payload = materialization.payload();
         if (payload.length() != current.payloadLength()) {
             throw new IllegalArgumentException("Claim materialization payload length mismatch");
         }
@@ -1615,25 +1610,25 @@ public final class DelayShard {
                 || !PayloadReference.fromDescriptor(payload.object()).equals(current.payloadReference())) {
             throw new IllegalArgumentException("Claim materialization object payload mismatch");
         }
-        requireClaimMaterializationMatchesV1Binding(messageId, materialization);
+        requireClaimMaterializationMatchesBinding(messageId, materialization);
     }
 
-    private void requireClaimMaterializationMatchesV1Binding(
-            final DelayMessageId messageId, final ClaimMaterializationV1 materialization) {
-        final V1ScheduleBinding binding = getV1ScheduleBinding(messageId);
+    private void requireClaimMaterializationMatchesBinding(
+            final DelayMessageId messageId, final ClaimMaterialization materialization) {
+        final ScheduleBinding binding = getScheduleBinding(messageId);
         if (binding == null) {
             return;
         }
-        final ScheduleIntentV1 intent;
-        final PrepareLargeScheduleBodyV1 prepare;
+        final CanonicalScheduleIntent intent;
+        final PrepareLargeScheduleBody prepare;
         if (binding.commandType() == CommandType.SCHEDULE) {
-            intent = ScheduleCommandBodyV1.decode(binding.canonicalBody()).intent();
+            intent = ScheduleCommandBody.decode(binding.canonicalBody()).intent();
             prepare = null;
         } else if (binding.commandType() == CommandType.PREPARE_LARGE_SCHEDULE) {
-            prepare = PrepareLargeScheduleBodyV1.decode(binding.canonicalBody());
+            prepare = PrepareLargeScheduleBody.decode(binding.canonicalBody());
             intent = prepare.intentWithoutPayload();
         } else {
-            throw new IllegalStateException("unsupported V1 Claim binding command type");
+            throw new IllegalStateException("unsupported Claim binding command type");
         }
         if (!materialization.destinationProfile().equals(intent.profile())) {
             throw new IllegalArgumentException("Claim materialization Destination Profile mismatch");
@@ -1643,17 +1638,17 @@ public final class DelayShard {
         }
         if (materialization.deliverAtEpochMs() != intent.deliverAtEpochMs()
                 || materialization.expireAtEpochMs() != intent.expireAtEpochMs()) {
-            throw new IllegalArgumentException("Claim materialization V1 delivery window mismatch");
+            throw new IllegalArgumentException("Claim materialization delivery window mismatch");
         }
         binding.requireClaimLaneProjection(materialization);
-        final PayloadForPublishV1 payload = materialization.payload();
+        final PayloadForPublish payload = materialization.payload();
         if (prepare == null) {
             if (intent.hasInlinePayload()) {
                 if (!payload.hasInlinePayload() || !Arrays.equals(payload.inlinePayload(), intent.inlinePayload())) {
-                    throw new IllegalArgumentException("Claim materialization V1 inline payload mismatch");
+                    throw new IllegalArgumentException("Claim materialization inline payload mismatch");
                 }
             } else if (payload.hasInlinePayload() || !payload.object().equals(intent.committedPayload())) {
-                throw new IllegalArgumentException("Claim materialization V1 object payload mismatch");
+                throw new IllegalArgumentException("Claim materialization object payload mismatch");
             }
         } else if (payload.hasInlinePayload()
                 || !payload.object().objectStoreProfile().equals(prepare.objectStoreProfile())
@@ -1709,7 +1704,7 @@ public final class DelayShard {
 
     /**
      * Restores a CLAIMED message from the exact timeline snapshot retained by
-     * its Claim.  The Claim's source work is the only replay-stable authority
+     * its Claim. The Claim's source work is the only replay-stable authority
      * while the current runtime branch carries only the Claim identity; using
      * a fresh compatibility MessageRecord would otherwise lose an early
      * actionAt when the resolver/catalog is unavailable during rollback.
@@ -1789,7 +1784,7 @@ public final class DelayShard {
      *
      * <p>The bounded scan is performed while the shard single-writer lock is
      * held, so the discovered Claim identities cannot change between the scan
-     * and the individual atomic rollback batches.  A scan over the configured
+     * and the individual atomic rollback batches. A scan over the configured
      * bound fails closed instead of silently leaving an unknown Claim during
      * owner drain.</p>
      */
@@ -1824,17 +1819,17 @@ public final class DelayShard {
 
     /**
      * Requeues every live reversible Claim before a recovered owner is
-     * activated.  A Claim is a pre-Producer reservation, so a checkpoint may
+     * activated. A Claim is a pre-Producer reservation, so a checkpoint may
      * legitimately reopen with {@code CLAIMED} work even though no Admission
-     * exists in the replayed source prefix.  Recovery must restore that work
+     * exists in the replayed source prefix. Recovery must restore that work
      * to its exact semantic timeline key/work kind while assigning a checked
      * successor runtime revision; it must not treat the old Owner Epoch as a
      * current publishing authority.
      *
      * <p>The scan is bounded by the configured pending-message envelope and
-     * fails closed on overflow.  Each rollback uses the same synchronous
+     * fails closed on overflow. Each rollback uses the same synchronous
      * message/timeline/inflight/READY/quota WriteBatch as an owner drain, so a
-     * crash cannot expose a half-requeued Claim.  PUBLISHING/UNCERTAIN
+     * crash cannot expose a half-requeued Claim. PUBLISHING/UNCERTAIN
      * attempt obligations are deliberately outside this method and remain
      * subject to source-ordered outcome recovery.</p>
      *
@@ -1904,7 +1899,7 @@ public final class DelayShard {
 
     /**
      * Materializes a reservation that has already been logically expired by a
-     * persisted TIME_FENCE watermark.  This is a local bounded cursor action,
+     * persisted TIME_FENCE watermark. This is a local bounded cursor action,
      * not a new source-log decision.
      */
     synchronized PayloadReservation materializeReservationExpiry(final byte[] reservationId) {
@@ -1915,7 +1910,7 @@ public final class DelayShard {
     /**
      * Materializes one exact scanner candidate after a bounded GC queue wait.
      * A candidate may become stale while it is queued because a source-ordered
-     * Commit, Cancel or Lane Close changed the reservation.  Such a candidate
+     * Commit, Cancel or Lane Close changed the reservation. Such a candidate
      * is reported as a no-op result rather than being applied to a different
      * reservation projection.
      */
@@ -1992,7 +1987,7 @@ public final class DelayShard {
 
     /**
      * Checks the immutable command identity evidence retained with a durable
-     * result.  A query locator contains more than the command id; its command
+     * result. A query locator contains more than the command id; its command
      * hash must match the dedupe record before the result can be projected.
      */
     public synchronized boolean matchesCommandHash(final CommandId commandId, final byte[] expectedCommandHash) {
@@ -2084,7 +2079,7 @@ public final class DelayShard {
 
     /**
      * Physically removes a completed local GC task only after the exact
-     * catalog-backed Floor proof is present.  This is background compaction,
+     * catalog-backed Floor proof is present. This is background compaction,
      * not a new Shard Log mutation; the source-ordered intent and confirmation
      * records have already supplied the durable audit boundary.
      */
@@ -2217,7 +2212,7 @@ public final class DelayShard {
                     persistSystemResult(
                             mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.STALE_SYSTEM_MUTATION);
             };
-        } catch (V1CommandResolutionException exception) {
+        } catch (CommandResolutionException exception) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED, exception.stableCode());
         } catch (ArithmeticException | IllegalArgumentException exception) {
             return persistSystemResult(
@@ -2229,14 +2224,14 @@ public final class DelayShard {
             final SystemMutation mutation, final SourcePosition sourcePosition) {
         try {
             final ControlRef controlRef = controlRefFor(mutation);
-            final PreparedControlOperationV1 prepared = controlTargetRegistrationAuthority
+            final PreparedControlOperation prepared = controlTargetRegistrationAuthority
                     .find(controlRef.operationId())
                     .orElse(null);
             if (prepared == null) {
                 return persistSystemResult(
                         mutation, sourcePosition, ApplyStatus.REJECTED, StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
             }
-            final ControlTargetRefV1 target = prepared.targets().stream()
+            final ControlTargetRef target = prepared.targets().stream()
                     .filter(candidate -> candidate.targetIndex() == controlRef.targetIndex())
                     .findFirst()
                     .orElse(null);
@@ -2248,7 +2243,7 @@ public final class DelayShard {
             return null;
         } catch (IllegalArgumentException exception) {
             // An explicitly observed registration/binding mismatch is an
-            // authoritative position-level rejection.  Do not widen this
+            // authoritative position-level rejection. Do not widen this
             // catch to RuntimeException: an Oxia lookup/validation failure is
             // an unproven authority boundary and must retain the Source
             // Position for retry instead of being misreported as
@@ -2322,7 +2317,7 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.VERSION_CONFLICT);
         }
 
-        // Resume has a closed result union in the V1 contract.  Do not let
+        // Resume has a closed result union in the contract. Do not let
         // LaneRecord.resumeByAdmin() collapse an already terminal or
         // source-closed Lane into the generic TOO_LATE result: callers must be
         // able to distinguish an idempotent OPEN, a reversible pause, a
@@ -2489,7 +2484,7 @@ public final class DelayShard {
      */
     private SystemMutationResult applyProtocolVersionActivationControlMutation(
             final ApplyShardControlBody body, final SystemMutation mutation, final SourcePosition sourcePosition) {
-        final CompatibleControlSnapshotV1 snapshot = store.controlSnapshot();
+        final CompatibleControlSnapshot snapshot = store.controlSnapshot();
         if (snapshot == null) {
             return persistSystemResult(
                     mutation, sourcePosition, ApplyStatus.REJECTED, StableCode.ROUTE_SNAPSHOT_UNAVAILABLE);
@@ -2499,9 +2494,9 @@ public final class DelayShard {
             return persistSystemResult(
                     mutation, sourcePosition, ApplyStatus.REJECTED, StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
-        final ProtocolActivationStateV1 current = protocolActivationState;
+        final ProtocolActivationState current = protocolActivationState;
         if (current != null) {
-            final ProtocolActivationStateV1.Activation existing = current.activation(payload.tuple());
+            final ProtocolActivationState.Activation existing = current.activation(payload.tuple());
             if (existing != null) {
                 if (!Arrays.equals(existing.canonicalSchemaHash(), payload.canonicalSchemaHash())
                         || !Arrays.equals(
@@ -2514,10 +2509,9 @@ public final class DelayShard {
                         mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.STALE_SYSTEM_MUTATION);
             }
         }
-        final ProtocolActivationStateV1 base = current == null
-                ? new ProtocolActivationStateV1(new ShardSubjectV1(store.shardId()), List.of())
-                : current;
-        final ProtocolActivationStateV1 next = base.activate(
+        final ProtocolActivationState base =
+                current == null ? new ProtocolActivationState(new ShardSubject(store.shardId()), List.of()) : current;
+        final ProtocolActivationState next = base.activate(
                 payload.tuple(),
                 payload.canonicalSchemaHash(),
                 payload.compatibleReaderSetEvidenceHash(),
@@ -2541,7 +2535,7 @@ public final class DelayShard {
     }
 
     /**
-     * Managed Command V1 remains the initial compatibility baseline. Once a
+     * Managed Command remains the initial compatibility baseline. Once a
      * kind-1 marker has been observed, every other tuple must be present in
      * the authenticated control snapshot and in the durable marker set.
      */
@@ -2549,15 +2543,15 @@ public final class DelayShard {
         if (protocolActivationState == null) {
             return null;
         }
-        final CompatibleControlSnapshotV1 snapshot = store.controlSnapshot();
+        final CompatibleControlSnapshot snapshot = store.controlSnapshot();
         if (snapshot == null) {
             return StableCode.ROUTE_SNAPSHOT_UNAVAILABLE;
         }
-        final ProtocolTupleV1 tuple = command.protocolTuple();
+        final ProtocolTuple tuple = command.protocolTuple();
         if (protocolActivationState.isMarkedActivated(tuple)) {
             return snapshot.protocolTuples().contains(tuple) ? null : StableCode.UNSUPPORTED_ACTIVATED_PROTOCOL;
         }
-        if (ProtocolTupleV1.managedCommandV1().equals(tuple)
+        if (ProtocolTuple.managedCommand().equals(tuple)
                 && snapshot.protocolTuples().contains(tuple)) {
             return null;
         }
@@ -2567,17 +2561,17 @@ public final class DelayShard {
     /**
      * Applies the one-time source-ordered Route control snapshot activation.
      * The payload is deliberately projected into the existing shard-bound
-     * {@link CompatibleControlSnapshotV1}; no second metadata namespace is
+     * {@link CompatibleControlSnapshot}; no second metadata namespace is
      * allowed to represent the same activation input. The snapshot, mutation
      * result and source cursor share one synchronous WriteBatch.
      */
     private SystemMutationResult applyInitialRouteControlMutation(
             final ApplyShardControlBody body, final SystemMutation mutation, final SourcePosition sourcePosition) {
-        final InitialRouteControlActivatePayloadV1 payload = body.initialRouteControlActivate();
-        final CompatibleControlSnapshotV1 snapshot;
+        final InitialRouteControlActivatePayload payload = body.initialRouteControlActivate();
+        final CompatibleControlSnapshot snapshot;
         try {
-            snapshot = new CompatibleControlSnapshotV1(
-                    new ShardSubjectV1(store.shardId()),
+            snapshot = new CompatibleControlSnapshot(
+                    new ShardSubject(store.shardId()),
                     payload.protocolTuples(),
                     payload.profiles(),
                     payload.initialQuotaGrant());
@@ -2589,7 +2583,7 @@ public final class DelayShard {
             return persistSystemResult(
                     mutation, sourcePosition, ApplyStatus.REJECTED, StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
-        final CompatibleControlSnapshotV1 existing = store.controlSnapshot();
+        final CompatibleControlSnapshot existing = store.controlSnapshot();
         if (existing != null) {
             if (existing.equals(snapshot)) {
                 return persistSystemResult(
@@ -2600,8 +2594,8 @@ public final class DelayShard {
         }
         final SystemMutationResult result = SystemMutationResult.from(
                 mutation, ApplyStatus.APPLIED, StableCode.OK, sourcePosition.canonicalBytes());
-        final ProtocolActivationStateV1 initialProtocolActivationState =
-                new ProtocolActivationStateV1(new ShardSubjectV1(store.shardId()), List.of());
+        final ProtocolActivationState initialProtocolActivationState =
+                new ProtocolActivationState(new ShardSubject(store.shardId()), List.of());
         store.write(batch -> {
             batch.putControlSnapshot(snapshot);
             batch.putValue(
@@ -2626,7 +2620,7 @@ public final class DelayShard {
      */
     private SystemMutationResult applyPayloadProofTrustSetControlMutation(
             final ApplyShardControlBody body, final SystemMutation mutation, final SourcePosition sourcePosition) {
-        final PayloadProofTrustSetRefV1 trustSet;
+        final PayloadProofTrustSetRef trustSet;
         final PayloadProofTrustSetControlState next;
         if (payloadProofTrustSetControlCatalog == null) {
             return persistSystemResult(
@@ -2645,7 +2639,7 @@ public final class DelayShard {
         } else {
             final var payload = body.payloadProofIssuanceClose();
             trustSet = payload.trustSet();
-            final PayloadProofTrustSetSemanticV1 semantic = requireTrustSetSemantic(trustSet);
+            final PayloadProofTrustSetSemantic semantic = requireTrustSetSemantic(trustSet);
             if (semantic.keys().stream().noneMatch(key -> key.keyVersion() == payload.proofKeyVersion())) {
                 return persistSystemResult(
                         mutation,
@@ -2677,10 +2671,10 @@ public final class DelayShard {
         return result;
     }
 
-    private PayloadProofTrustSetSemanticV1 requireTrustSetSemantic(final PayloadProofTrustSetRefV1 reference) {
-        final PayloadProofTrustSetSemanticV1 semantic = payloadProofTrustSetControlCatalog.resolve(reference);
+    private PayloadProofTrustSetSemantic requireTrustSetSemantic(final PayloadProofTrustSetRef reference) {
+        final PayloadProofTrustSetSemantic semantic = payloadProofTrustSetControlCatalog.resolve(reference);
         if (semantic == null || !semantic.ref().equals(reference)) {
-            throw new V1CommandResolutionException(
+            throw new CommandResolutionException(
                     StableCode.ROUTE_SNAPSHOT_UNAVAILABLE,
                     "trust-set semantic value is unavailable or does not match its reference");
         }
@@ -2689,10 +2683,10 @@ public final class DelayShard {
 
     private SystemMutationResult applyProfileBindingControlMutation(
             final ApplyShardControlBody body, final SystemMutation mutation, final SourcePosition sourcePosition) {
-        final ProfileRefV1 profile;
+        final ProfileRef profile;
         final ProfileBindingControlState next;
         if (body.controlKind() == 2) {
-            final ProfileBindingActivatePayloadV1 payload = body.profileBindingActivate();
+            final ProfileBindingActivatePayload payload = body.profileBindingActivate();
             profile = payload.profile();
             if (!profileReferenceMatchesBody(body, profile)) {
                 return persistSystemResult(
@@ -2700,7 +2694,7 @@ public final class DelayShard {
             }
             next = profileBindingControlState.activate(profile, sourcePosition);
         } else {
-            final ProfileNewBindingClosePayloadV1 payload = body.profileNewBindingClose();
+            final ProfileNewBindingClosePayload payload = body.profileNewBindingClose();
             profile = payload.profile();
             if (!profileReferenceMatchesBody(body, profile)) {
                 return persistSystemResult(
@@ -2725,14 +2719,14 @@ public final class DelayShard {
         return result;
     }
 
-    private static boolean profileReferenceMatchesBody(final ApplyShardControlBody body, final ProfileRefV1 profile) {
+    private static boolean profileReferenceMatchesBody(final ApplyShardControlBody body, final ProfileRef profile) {
         return body.semanticVersion() == profile.version()
                 && Bytes.constantTimeEquals(body.semanticHash(), profile.semanticHash());
     }
 
-    private void requireProfileFirstBinding(final ProfileRefV1 profile, final SourcePosition sourcePosition) {
+    private void requireProfileFirstBinding(final ProfileRef profile, final SourcePosition sourcePosition) {
         if (!profileBindingControlState.hasMarkers()) {
-            // A catalog-backed V1 path is the production-shaped seam: it must
+            // A catalog-backed path is the production-shaped seam: it must
             // not infer that an empty marker projection means "all Profiles
             // are active". The activation target set is source ordered and a
             // new Route cannot admit tenant bindings until its first marker
@@ -2741,19 +2735,18 @@ public final class DelayShard {
             if (profileCatalog == null) {
                 return;
             }
-            throw new V1CommandResolutionException(
+            throw new CommandResolutionException(
                     StableCode.PROFILE_VERSION_NOT_ACTIVE_AT_SOURCE_POSITION,
                     "Profile activation markers are not applied for this Route");
         }
-        final ProfileAcceptanceV1 acceptance =
-                profileBindingControlState.firstBindingAcceptance(profile, sourcePosition);
-        if (acceptance == ProfileAcceptanceV1.ABSENT) {
-            throw new V1CommandResolutionException(
+        final ProfileAcceptance acceptance = profileBindingControlState.firstBindingAcceptance(profile, sourcePosition);
+        if (acceptance == ProfileAcceptance.ABSENT) {
+            throw new CommandResolutionException(
                     StableCode.PROFILE_VERSION_NOT_ACTIVE_AT_SOURCE_POSITION,
                     "Profile version is not active for first binding at this source position");
         }
-        if (acceptance == ProfileAcceptanceV1.CLOSED_FOR_FIRST_BINDING) {
-            throw new V1CommandResolutionException(
+        if (acceptance == ProfileAcceptance.CLOSED_FOR_FIRST_BINDING) {
+            throw new CommandResolutionException(
                     StableCode.PROFILE_DEPRECATED_FOR_NEW_USE,
                     "Profile version is closed for first binding at this source position");
         }
@@ -2797,7 +2790,7 @@ public final class DelayShard {
     }
 
     /**
-     * Computes the one-time quota transfer owned by a Close marker.  The scan
+     * Computes the one-time quota transfer owned by a Close marker. The scan
      * is deliberately bounded by the shard's hard pending-message limit: if a
      * complete proof cannot be made, the source mutation is rejected rather
      * than installing a close overlay with guessed counters.
@@ -2866,7 +2859,7 @@ public final class DelayShard {
 
     /**
      * Validates and recognizes the compact branch while scanning the shared
-     * MESSAGE key range.  Rebuild/retirement scans must skip a tombstone as a
+     * MESSAGE key range. Rebuild/retirement scans must skip a tombstone as a
      * live Message, but malformed branch bytes still fail closed.
      */
     private boolean isRetiredMessageEntry(
@@ -3182,7 +3175,7 @@ public final class DelayShard {
         } catch (IllegalArgumentException | IllegalStateException exception) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.STALE_SYSTEM_MUTATION);
         }
-        final SloSampleStartV1 dueAdmissionStart = dueAdmissionStart(body);
+        final SloSampleStart dueAdmissionStart = dueAdmissionStart(body);
         final OutcomeReserveUsage admissionCharge;
         try {
             admissionCharge = OutcomeReserveUsage.from(body.chargeVector());
@@ -3210,7 +3203,7 @@ public final class DelayShard {
             }
         }
         final long firstAttemptAt = body.decisionTime().latestEpochMs();
-        final RetryPolicySemanticV1 admissionPolicy = retryPolicyFor(messageId, current, sourcePosition);
+        final RetryPolicySemantic admissionPolicy = retryPolicyFor(messageId, current, sourcePosition);
         final long retryDeadline =
                 retryDeadlineForAdmission(firstAttemptAt, current.expireAtEpochMs(), admissionPolicy);
         final PublishAttemptLedger admission = PublishAttemptLedger.publishingWithRetryWindow(
@@ -3242,7 +3235,7 @@ public final class DelayShard {
                     dueAdmissionStart);
             return result;
         } catch (ShardStore.RocksDbWriteFailure exception) {
-            // A native WriteBatch failure is not semantic staleness.  Let the
+            // A native WriteBatch failure is not semantic staleness. Let the
             // caller stop before Source ACK instead of trying to persist a
             // second result that would incorrectly advance the source cursor.
             throw exception;
@@ -3277,17 +3270,16 @@ public final class DelayShard {
             body.requireOrdinaryManagedTiming();
             return;
         }
-        final ProfileRefV1 destinationRef =
-                ProfileRefV1.decode(body.descriptor().destinationProfile());
-        final ProfileRefV1 capabilityRef = ProfileRefV1.decode(body.descriptor().capabilityProfile());
-        final ProfileSemanticEnvelopeV1 destination = profileCatalog.resolve(destinationRef);
-        final ProfileSemanticEnvelopeV1 capability = profileCatalog.resolve(capabilityRef);
+        final ProfileRef destinationRef = ProfileRef.decode(body.descriptor().destinationProfile());
+        final ProfileRef capabilityRef = ProfileRef.decode(body.descriptor().capabilityProfile());
+        final ProfileSemanticEnvelope destination = profileCatalog.resolve(destinationRef);
+        final ProfileSemanticEnvelope capability = profileCatalog.resolve(capabilityRef);
         if (destination == null
                 || capability == null
                 || !destination.ref().equals(destinationRef)
                 || !capability.ref().equals(capabilityRef)
-                || !(destination.body() instanceof DestinationProfileSemanticV1 destinationBody)
-                || !(capability.body() instanceof DeliveryCapabilitySemanticV1 capabilityBody)) {
+                || !(destination.body() instanceof DestinationProfileSemantic destinationBody)
+                || !(capability.body() instanceof DeliveryCapabilitySemantic capabilityBody)) {
             throw new IllegalArgumentException("Publish Admission Profile semantics are unavailable");
         }
         body.requireTimingPolicy(destinationBody, capabilityBody);
@@ -3295,7 +3287,7 @@ public final class DelayShard {
 
     /**
      * Advances a source-ordered Admission that cannot fit its shard outcome
-     * reserve.  A live Claim is revoked in the same batch; no attempt or
+     * reserve. A live Claim is revoked in the same batch; no attempt or
      * Producer-side state is created.
      */
     private SystemMutationResult persistAdmissionCapacityGated(
@@ -3303,7 +3295,7 @@ public final class DelayShard {
             final SystemMutation mutation,
             final SourcePosition sourcePosition,
             final ClaimRecord claim,
-            final SloSampleStartV1 dueAdmissionStart) {
+            final SloSampleStart dueAdmissionStart) {
         final DelayMessageId messageId = new DelayMessageId(body.messageId());
         final MessageRecord current = getMessage(messageId);
         if (current == null
@@ -3359,7 +3351,7 @@ public final class DelayShard {
                         claim == null
                                 ? KeyCodec.inflight(
                                         INFLIGHT_CLAIMED_KIND,
-                                        OwnerIdentityV1.decode(body.ownerIdentity())
+                                        OwnerIdentity.decode(body.ownerIdentity())
                                                 .ownerEpoch(),
                                         body.claimId())
                                 : claim.encodedKey());
@@ -3412,7 +3404,7 @@ public final class DelayShard {
                     mutation, sourcePosition, ApplyStatus.REJECTED, StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
         final byte[] expectedProofId = Bytes.sha256(
-                Bytes.utf8("nereus-delay-time-fence-proof-v1\0"),
+                Bytes.utf8("nereus-delay-time-fence-proof\0"),
                 store.shardId().routeIncarnation().bytes(),
                 Bytes.u32beBits(store.shardId().partition()),
                 Bytes.i64be(closeThrough),
@@ -3470,7 +3462,7 @@ public final class DelayShard {
             // A different Owner epoch cannot address the durable key directly.
             // Scan only this exact attempt so a mismatched author is reported
             // as an authorization failure instead of being mistaken for a
-            // missing/stale attempt.  The scan is bounded and fails closed.
+            // missing/stale attempt. The scan is bounded and fails closed.
             ledger = findOpenPublishAttempt(attemptId);
             recoveryUnknown = sideEffect == 3
                     && isCrossOwnerRecoveryUnknown(outcome)
@@ -3547,7 +3539,7 @@ public final class DelayShard {
 
     /**
      * The only initial Outcome that may be authored by a recovery Owner with
-     * a different epoch.  The live Oxia/source guard is external to this
+     * a different epoch. The live Oxia/source guard is external to this
      * local shard; keeping the tuple closed here prevents a cross-Owner
      * definitive result or a policy retry from bypassing that authority.
      */
@@ -3560,21 +3552,21 @@ public final class DelayShard {
                 && !outcome.retryDecision().hasNextRetryAt();
     }
 
-    private static OwnerIdentityV1 canonicalOwnerIdentity(final byte[] encoded) {
+    private static OwnerIdentity canonicalOwnerIdentity(final byte[] encoded) {
         try {
-            return OwnerIdentityV1.decode(encoded);
+            return OwnerIdentity.decode(encoded);
         } catch (IllegalArgumentException exception) {
             return null;
         }
     }
 
     /**
-     * New V1 ledgers retain a canonical OwnerIdentity, while old embedded
-     * fixtures used an opaque owner token.  Preserve the latter compatibility
+     * New ledgers retain a canonical OwnerIdentity, while old embedded
+     * fixtures used an opaque owner token. Preserve the latter compatibility
      * seam but never weaken the canonical identity comparison.
      */
     private static boolean matchesAdmittedOwner(final PublishAttemptLedger ledger, final AuthorIdentity author) {
-        final OwnerIdentityV1 admittedOwner = canonicalOwnerIdentity(ledger.ownerIdentity());
+        final OwnerIdentity admittedOwner = canonicalOwnerIdentity(ledger.ownerIdentity());
         if (admittedOwner != null) {
             return admittedOwner.ownerEpoch() == ledger.ownerEpoch()
                     && Arrays.equals(
@@ -3585,7 +3577,7 @@ public final class DelayShard {
 
     /**
      * Existing publish obligations must never outlive their durable Lane
-     * projection.  Only canonical V1 ledgers carry an authoritative Lane
+     * projection. Only canonical ledgers carry an authoritative Lane
      * incarnation; legacy embedded ledgers retain the historical opaque
      * incarnation compatibility seam while still requiring Lane presence.
      */
@@ -3604,7 +3596,7 @@ public final class DelayShard {
      * Recomputes the local Retry Policy projection before a source-ordered
      * outcome changes durable timeline state. Compatibility shards without a
      * source-pinned catalog retain their legacy structural-only behavior; a
-     * catalogued V1 binding must match the immutable ref, deadline and
+     * catalogued binding must match the immutable ref, deadline and
      * deterministic full-jitter timestamp exactly.
      */
     private void validateRetryDecisionBinding(
@@ -3630,7 +3622,7 @@ public final class DelayShard {
         }
         if (retryPolicyCatalog == null) {
             // A compatibility shard without a policy catalog cannot recompute
-            // exponential cap/jitter, but a V2 ledger still supplies the
+            // exponential cap/jitter, but a Current ledger still supplies the
             // immutable first-attempt/deadline fact and must not be bypassed.
             if (ledger.hasRetryWindow()
                     && decision.hasNextRetryAt()
@@ -3639,10 +3631,10 @@ public final class DelayShard {
             }
             return;
         }
-        final RetryPolicySemanticV1 policy = retryPolicyFor(ledger.delayMessageId(), current, sourcePosition);
+        final RetryPolicySemantic policy = retryPolicyFor(ledger.delayMessageId(), current, sourcePosition);
         if (policy == null
                 || !decision.policy().matches(policy)
-                || decision.retryDomain() != RetryJitterV1.MESSAGE_PUBLISH
+                || decision.retryDomain() != RetryJitter.MESSAGE_PUBLISH
                 || decision.completedAttemptNo() != UnsignedInt32.toLong(ledger.attemptNo())
                 || decision.firstAttemptAt() >= current.expireAtEpochMs()) {
             throw new IllegalArgumentException("RetryDecision does not match the pinned Retry Policy");
@@ -3657,8 +3649,8 @@ public final class DelayShard {
         }
         if (decision.hasNextRetryAt()) {
             final long backoffCap = policy.retryBackoffCap(decision.completedAttemptNo());
-            final long jitter = RetryJitterV1.delayMs(
-                    RetryJitterV1.MESSAGE_PUBLISH,
+            final long jitter = RetryJitter.delayMs(
+                    RetryJitter.MESSAGE_PUBLISH,
                     ledger.delayMessageId(),
                     UnsignedInt32.toLong(ledger.generation()),
                     decision.completedAttemptNo(),
@@ -3671,7 +3663,7 @@ public final class DelayShard {
     }
 
     private static long retryDeadlineForAdmission(
-            final long firstAttemptAt, final long expireAt, final RetryPolicySemanticV1 policy) {
+            final long firstAttemptAt, final long expireAt, final RetryPolicySemantic policy) {
         if (firstAttemptAt < 0 || expireAt < firstAttemptAt) {
             throw new IllegalArgumentException("invalid Admission retry window");
         }
@@ -3687,7 +3679,7 @@ public final class DelayShard {
         }
     }
 
-    /** Validates V2 ledger facts before an attempt can become durable. */
+    /** Validates Current ledger facts before an attempt can become durable. */
     private void validatePersistedRetryWindow(
             final PublishAttemptLedger admission,
             final MessageRecord current,
@@ -3718,7 +3710,7 @@ public final class DelayShard {
                 || !Arrays.equals(body.laneIncarnation(), lane.laneIncarnation())) {
             throw new IllegalArgumentException("typed retry window Lane identity is stale");
         }
-        final OwnerIdentityV1 owner = OwnerIdentityV1.decode(body.ownerIdentity());
+        final OwnerIdentity owner = OwnerIdentity.decode(body.ownerIdentity());
         if (owner.ownerEpoch() != admission.ownerEpoch()) {
             throw new IllegalArgumentException("typed retry window owner generation is stale");
         }
@@ -3726,7 +3718,7 @@ public final class DelayShard {
                 || body.descriptor().expireAtEpochMs() != current.expireAtEpochMs()) {
             throw new IllegalArgumentException("typed retry window message timing is stale");
         }
-        final RetryPolicySemanticV1 policy = retryPolicyFor(admission.delayMessageId(), current, sourcePosition);
+        final RetryPolicySemantic policy = retryPolicyFor(admission.delayMessageId(), current, sourcePosition);
         final long expectedFirst = body.decisionTime().latestEpochMs();
         final long expectedDeadline = retryDeadlineForAdmission(expectedFirst, current.expireAtEpochMs(), policy);
         if (admission.firstAttemptAtEpochMs() != expectedFirst
@@ -3736,7 +3728,7 @@ public final class DelayShard {
     }
 
     /**
-     * Canonical V1 ledgers retain the complete Admission body, whose trusted
+     * Canonical ledgers retain the complete Admission body, whose trusted
      * decision interval is the durable first-attempt fact. Synthetic legacy
      * ledgers may carry opaque bytes; keep that bounded compatibility seam but
      * never downgrade a body that claims the canonical System Mutation shape.
@@ -3893,7 +3885,7 @@ public final class DelayShard {
         } catch (ArithmeticException exception) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
         }
-        final RetryPolicySemanticV1 pinnedPolicy = retryPolicyFor(body.messageId(), current, sourcePosition);
+        final RetryPolicySemantic pinnedPolicy = retryPolicyFor(body.messageId(), current, sourcePosition);
         final int maxPublishAdmissions =
                 pinnedPolicy == null ? config.maxPublishAdmissions() : pinnedPolicy.maxPublishAdmissions();
         if (current.runtimeIndex().admissionsUsed() >= maxPublishAdmissions) {
@@ -4001,7 +3993,7 @@ public final class DelayShard {
 
     /**
      * Settles one exact UNCERTAIN obligation with authenticated definitive
-     * non-publication evidence.  The evidence branch never invents a retry
+     * non-publication evidence. The evidence branch never invents a retry
      * policy: once the named obligation is removed, the remaining runtime
      * index either stays uncertain, preserves another current PUBLISHING
      * attempt, or follows the ordinary all-absent definitive-retry
@@ -4086,7 +4078,7 @@ public final class DelayShard {
                         StableCode.LANE_CLOSED_AFTER_ADMISSION_NOT_PUBLISHED);
             }
 
-            final RetryPolicySemanticV1 pinnedPolicy = retryPolicyFor(body.messageId(), current, sourcePosition);
+            final RetryPolicySemantic pinnedPolicy = retryPolicyFor(body.messageId(), current, sourcePosition);
             final int maxPublishAdmissions =
                     pinnedPolicy == null ? config.maxPublishAdmissions() : pinnedPolicy.maxPublishAdmissions();
             if (index.admissionsUsed() >= maxPublishAdmissions) {
@@ -4151,9 +4143,9 @@ public final class DelayShard {
                     || revokedClaim.runtimeRevision() != current.stateVersion()) {
                 throw new IllegalStateException("uncertain Claim work is missing its exact record");
             }
-            // The Claim precondition freezes the old obligation-set digest.  Once
+            // The Claim precondition freezes the old obligation-set digest. Once
             // one old attempt is settled, retaining that Claim would make a later
-            // Admission fail against an already-invalid digest.  Revoke it
+            // Admission fail against an already-invalid digest. Revoke it
             // atomically and leave the generation UNCERTAIN/NONE; a subsequent
             // source-ordered Resolve retry can materialize a fresh timeline.
             nextRuntime = GenerationRuntimeIndex.none(
@@ -4203,7 +4195,7 @@ public final class DelayShard {
                         current.retryEligibilityAtEpochMs())
                 .withRuntimeIndex(nextRuntime);
         final OutcomeReserveUsage nextOutcomeReserve = releasedOutcomeReserve(ledger);
-        final CapacityVectorV1 nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
+        final CapacityVector nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
         LaneQuotaUsageProjection nextLaneQuota = mutateInflightQuotaUsage(
                 laneQuotaUsage,
                 ledger.laneId(),
@@ -4273,7 +4265,7 @@ public final class DelayShard {
                         current.retryEligibilityAtEpochMs())
                 .withRuntimeIndex(nextRuntime);
         final OutcomeReserveUsage nextOutcomeReserve = releasedOutcomeReserve(ledger);
-        final CapacityVectorV1 nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
+        final CapacityVector nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
         final LaneQuotaUsageProjection nextLaneQuota = mutateInflightQuotaUsage(
                 laneQuotaUsage,
                 ledger.laneId(),
@@ -4360,7 +4352,7 @@ public final class DelayShard {
                 current.runtimeIndex(),
                 remaining));
         final OutcomeReserveUsage nextOutcomeReserve = releasedOutcomeReserve(ledger);
-        final CapacityVectorV1 nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
+        final CapacityVector nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
         LaneQuotaUsageProjection nextLaneQuota = mutateInflightQuotaUsage(
                 laneQuotaUsage,
                 ledger.laneId(),
@@ -4504,7 +4496,7 @@ public final class DelayShard {
             default -> throw new IllegalStateException("unsupported terminalized work kind");
         }
         final OutcomeReserveUsage nextOutcomeReserve = releasedOutcomeReserve(ledger);
-        final CapacityVectorV1 nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
+        final CapacityVector nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
         final Map<DestinationLaneId, LaneProjection> projections = readyProjections(
                 sourcePosition, ledger.delayMessageId(), current, terminalMessage, null, projectedLaneQuota);
         final SystemMutationResult result = terminalStatus == MessageStatus.DEAD_LETTER
@@ -4811,13 +4803,13 @@ public final class DelayShard {
     }
 
     /**
-     * Applies the replay-stable CLAIM_RESULT_V1 subset.  A locally persisted
+     * Applies the replay-stable CLAIM_RESULT subset. A locally persisted
      * Claim is consumed by exact precondition/instance identity; after replay,
      * the source-derived SCHEDULED fallback remains accepted when the Claim
-     * record itself was not present in the restored checkpoint.  The local
+     * record itself was not present in the restored checkpoint. The local
      * GenerationRuntimeIndex and obligation-set fences are checked before
      * terminalization; external materialization/recovery and grant authority
-     * remain separate release work.  This never treats a callback as a direct
+     * remain separate release work. This never treats a callback as a direct
      * terminal write: the result, terminal projection, quota transfer, indexes,
      * and source position share one synchronous batch.
      */
@@ -5007,7 +4999,7 @@ public final class DelayShard {
      * Validates the replay-stable portion of a source-ordered Publish Admission.
      *
      * <p>The local Claim and its runtime instance are useful optimizations, but
-     * neither is the source of truth after checkpoint/replay.  The signed body
+     * neither is the source of truth after checkpoint/replay. The signed body
      * must therefore still match the current Message/Lane projection and the
      * generation runtime counters before a new PUBLISHING obligation is made
      * durable.</p>
@@ -5120,7 +5112,7 @@ public final class DelayShard {
             final GenerationRuntimeIndex index,
             final boolean uncertainRetryAdmission,
             final SourcePosition sourcePosition) {
-        final RetryPolicySemanticV1 policy = retryPolicyFor(messageId, current, sourcePosition);
+        final RetryPolicySemantic policy = retryPolicyFor(messageId, current, sourcePosition);
         final int maxPublishAdmissions = policy == null ? config.maxPublishAdmissions() : policy.maxPublishAdmissions();
         final int maxUncertainRetries = policy == null ? config.maxUncertainRetries() : policy.maxUncertainRetries();
         if (index.admissionsUsed() >= maxPublishAdmissions) {
@@ -5145,7 +5137,7 @@ public final class DelayShard {
                 // Reschedule creates a new generation but must retain the
                 // prior generation's pinned action boundary when the
                 // deliverAt is unchanged (and must re-derive the same pinned
-                // Profile handoff boundary when it changes).  Rebuilding
+                // Profile handoff boundary when it changes). Rebuilding
                 // from `next` alone would lose that source projection because
                 // its compatibility runtime index is intentionally empty.
                 return next.withRuntimeIndex(rescheduledTimelineRuntimeIndex(messageId, prior, next));
@@ -5191,8 +5183,8 @@ public final class DelayShard {
 
     /**
      * Selects the success terminal projection from the immutable Admission
-     * timing and the verified evidence branch.  The wire outcome intentionally
-     * keeps {@code PublishSideEffectV1.PUBLISHED} as the only success branch;
+     * timing and the verified evidence branch. The wire outcome intentionally
+     * keeps {@code PublishSideEffect.PUBLISHED} as the only success branch;
      * {@code HANDED_OFF} is a local aggregate projection for a certified
      * Pulsar handoff (fixed early {@code actionAt} plus a Broker send ACK).
      */
@@ -5207,7 +5199,7 @@ public final class DelayShard {
             // the historical ordinary-managed success API.
             return MessageStatus.PUBLISHED;
         }
-        final PublishEvidenceV1 proof = PublishEvidenceV1.decode(evidence);
+        final PublishEvidence proof = PublishEvidence.decode(evidence);
         final PublishAdmissionBody admission;
         try {
             admission = PublishAdmissionBody.decode(ledger.admissionBytes());
@@ -5227,11 +5219,11 @@ public final class DelayShard {
         if (actionAt == deliverAt) {
             return MessageStatus.PUBLISHED;
         }
-        final ChannelResourceIdentityV1 channel =
-                ChannelResourceIdentityV1.decode(admission.channel().canonicalBytes());
+        final ChannelResourceIdentity channel =
+                ChannelResourceIdentity.decode(admission.channel().canonicalBytes());
         if (actionAt < deliverAt
-                && channel.adapterKind() == com.nereusstream.delay.protocol.AdapterKindV1.PULSAR
-                && proof.evidenceKind() == PublishEvidenceKindV1.PULSAR_SEND_ACK) {
+                && channel.adapterKind() == com.nereusstream.delay.protocol.AdapterKind.PULSAR
+                && proof.evidenceKind() == PublishEvidenceKind.PULSAR_SEND_ACK) {
             proof.requireCertifiedPulsarHandoffBinding(admission);
             return MessageStatus.HANDED_OFF;
         }
@@ -5313,10 +5305,10 @@ public final class DelayShard {
             final GenerationRuntimeIndex base,
             final List<AttemptObligationRef> obligations) {
         // Retry/rollback paths commonly construct a compatibility MessageRecord
-        // first and then replace its runtime projection.  That temporary record
+        // first and then replace its runtime projection. That temporary record
         // has no TimelineWorkRef, so resolving from `message` alone would fall
         // back to deliverAt when the source-position resolver is not available
-        // on the current process.  The prior runtime projection is the durable
+        // on the current process. The prior runtime projection is the durable
         // action boundary for the same generation and must be carried forward.
         final long actionAt = actionAtFor(messageId, message, base);
         final byte[] key = timelineKey(messageId, message, actionAt);
@@ -5353,9 +5345,9 @@ public final class DelayShard {
 
     /**
      * Resolves the durable action boundary without changing the business
-     * meaning of {@code deliverAt}.  The optional resolver projection is used
+     * meaning of {@code deliverAt}. The optional resolver projection is used
      * during the initial Schedule apply; later retries/recovery derive the
-     * same value from the persisted V1 Schedule binding.  Legacy messages and
+     * same value from the persisted Schedule binding. Legacy messages and
      * catalog-less embedded seams remain ordinary managed ({@code actionAt =
      * deliverAt}).
      */
@@ -5406,52 +5398,49 @@ public final class DelayShard {
         if (profileCatalog == null) {
             return deliverAtEpochMs;
         }
-        final V1ScheduleBinding binding = getV1ScheduleBinding(messageId);
+        final ScheduleBinding binding = getScheduleBinding(messageId);
         if (binding == null) {
             return deliverAtEpochMs;
         }
-        final ProfileRefV1 destinationRef =
-                binding.commandType() == com.nereusstream.delay.protocol.CommandType.SCHEDULE
-                        ? CommandBodies.decodeScheduleV1(binding.canonicalBody())
-                                .intent()
-                                .profile()
-                        : CommandBodies.decodePrepareLargeV1(binding.canonicalBody())
-                                .intentWithoutPayload()
-                                .profile();
-        final ProfileSemanticEnvelopeV1 destination = profileCatalog.resolve(destinationRef);
+        final ProfileRef destinationRef = binding.commandType() == com.nereusstream.delay.protocol.CommandType.SCHEDULE
+                ? CommandBodies.decodeSchedule(binding.canonicalBody()).intent().profile()
+                : CommandBodies.decodePrepareLarge(binding.canonicalBody())
+                        .intentWithoutPayload()
+                        .profile();
+        final ProfileSemanticEnvelope destination = profileCatalog.resolve(destinationRef);
         if (destination == null
                 || !destination.ref().equals(destinationRef)
-                || destination.profileKind() != com.nereusstream.delay.protocol.ProfileKindV1.DESTINATION
-                || !(destination.body() instanceof DestinationProfileSemanticV1 body)) {
-            throw new V1CommandResolutionException(
+                || destination.profileKind() != com.nereusstream.delay.protocol.ProfileKind.DESTINATION
+                || !(destination.body() instanceof DestinationProfileSemantic body)) {
+            throw new CommandResolutionException(
                     StableCode.ROUTE_SNAPSHOT_UNAVAILABLE,
                     "pinned Destination Profile is unavailable during actionAt derivation");
         }
-        final ProfileSemanticEnvelopeV1 capability = profileCatalog.resolve(body.deliveryCapability());
+        final ProfileSemanticEnvelope capability = profileCatalog.resolve(body.deliveryCapability());
         if (capability == null
                 || !capability.ref().equals(body.deliveryCapability())
-                || capability.profileKind() != com.nereusstream.delay.protocol.ProfileKindV1.DELIVERY_CAPABILITY
-                || !(capability.body() instanceof DeliveryCapabilitySemanticV1 capabilityBody)
+                || capability.profileKind() != com.nereusstream.delay.protocol.ProfileKind.DELIVERY_CAPABILITY
+                || !(capability.body() instanceof DeliveryCapabilitySemantic capabilityBody)
                 || capabilityBody.adapterKind() != body.adapterKind()) {
-            throw new V1CommandResolutionException(
+            throw new CommandResolutionException(
                     StableCode.ROUTE_SNAPSHOT_UNAVAILABLE,
                     "pinned Delivery Capability is unavailable during actionAt derivation");
         }
-        if (body.adapterKind() != com.nereusstream.delay.protocol.AdapterKindV1.PULSAR
+        if (body.adapterKind() != com.nereusstream.delay.protocol.AdapterKind.PULSAR
                 || body.handoffLeadMs() <= 0
-                || !TimingCapabilityV1.includes(
-                        capabilityBody.timingCapabilityBits(), TimingCapabilityV1.PULSAR_GUARDED_HANDOFF)) {
+                || !TimingCapability.includes(
+                        capabilityBody.timingCapabilityBits(), TimingCapability.PULSAR_GUARDED_HANDOFF)) {
             return deliverAtEpochMs;
         }
         try {
             return checkedActionAt(Math.subtractExact(deliverAtEpochMs, body.handoffLeadMs()), deliverAtEpochMs);
         } catch (ArithmeticException overflow) {
-            throw new IllegalStateException("V1 certified handoff actionAt arithmetic overflow", overflow);
+            throw new IllegalStateException(" certified handoff actionAt arithmetic overflow", overflow);
         }
     }
 
     /**
-     * Recovers the immutable action boundary retained by a live Claim.  A
+     * Recovers the immutable action boundary retained by a live Claim. A
      * CLAIMED Message intentionally has no current TimelineWorkRef, and an
      * older open Admission may be opaque or may be the obligation currently
      * being settled; the Claim snapshot remains the exact local source for
@@ -5481,8 +5470,8 @@ public final class DelayShard {
 
     /**
      * Recovers the pinned action boundary while the current generation is in
-     * PUBLISHING/UNCERTAIN state.  Those runtime branches intentionally carry
-     * only the active attempt/obligation identity, while a canonical V1
+     * PUBLISHING/UNCERTAIN state. Those runtime branches intentionally carry
+     * only the active attempt/obligation identity, while a canonical
      * Publish Admission retains the immutable descriptor that pinned actionAt.
      * Legacy opaque ledgers have no such evidence and remain on the ordinary
      * compatibility path.
@@ -5515,7 +5504,7 @@ public final class DelayShard {
 
     private static long checkedActionAt(final long actionAtEpochMs, final long deliverAtEpochMs) {
         if (actionAtEpochMs < 0 || actionAtEpochMs > deliverAtEpochMs) {
-            throw new IllegalStateException("V1 actionAt is outside the deliverAt boundary");
+            throw new IllegalStateException(" actionAt is outside the deliverAt boundary");
         }
         return actionAtEpochMs;
     }
@@ -5655,7 +5644,7 @@ public final class DelayShard {
                     Math.max(1, nextQuota.usageRevision()));
             final LaneQuotaUsageProjection projectedLaneQuota = nextLaneQuota;
             final OutcomeReserveUsage nextOutcomeReserve = releasedOutcomeReserve(ledger);
-            final CapacityVectorV1 nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
+            final CapacityVector nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
             final Map<com.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
                     sourcePosition, ledger.delayMessageId(), current, terminalMessage, null, projectedLaneQuota);
             final MessageRecord terminalMessageForWrite = terminalMessage;
@@ -5739,7 +5728,7 @@ public final class DelayShard {
             laneOverrides.put(current.laneId(), lane.withReadiness(RuntimeReadiness.BLOCKED));
         }
         final OutcomeReserveUsage nextOutcomeReserve = releasedOutcomeReserve(ledger);
-        final CapacityVectorV1 nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
+        final CapacityVector nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
         final LaneQuotaUsageProjection nextLaneQuota = removeAttemptQuotaUsage(ledger);
         final Map<com.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = readyProjections(
                 sourcePosition, ledger.delayMessageId(), current, scheduled, null, laneOverrides, nextLaneQuota);
@@ -5931,7 +5920,7 @@ public final class DelayShard {
         }
         final DlqExportRecord current = getDlqExportRecord(messageId, body.generation());
         if (current == null
-                || current.state() == DlqExportStateV1.NOT_CONFIGURED
+                || current.state() == DlqExportState.NOT_CONFIGURED
                 || !Bytes.constantTimeEquals(current.exportEnvelopeHash(), body.exportEnvelopeHash())
                 || !Bytes.constantTimeEquals(current.dlqExportId(), body.dlqExportId())) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.STALE_SYSTEM_MUTATION);
@@ -5945,7 +5934,7 @@ public final class DelayShard {
         try {
             validateDlqRetryDecision(body, messageId, getMessage(messageId), terminal, sourcePosition);
             validateDlqExportAttempt(current, body);
-            final int nextAttempt = body.resultingState() == DlqExportStateV1.PENDING
+            final int nextAttempt = body.resultingState() == DlqExportState.PENDING
                     ? UnsignedInt32.successor(body.physicalAttemptNo())
                     : body.physicalAttemptNo();
             final DlqExportRecord next = new DlqExportRecord(
@@ -5979,7 +5968,7 @@ public final class DelayShard {
 
     /**
      * Recomputes the DLQ retry domain when the shard has the immutable
-     * source-position policy catalog for this V1 binding. Legacy records and
+     * source-position policy catalog for this binding. Legacy records and
      * catalog-less compatibility shards retain structural validation only.
      */
     private void validateDlqRetryDecision(
@@ -5988,16 +5977,15 @@ public final class DelayShard {
             final MessageRecord current,
             final TerminalGenerationRecord terminal,
             final SourcePosition sourcePosition) {
-        if (retryPolicyCatalog == null || current == null || getV1ScheduleBinding(messageId) == null) {
+        if (retryPolicyCatalog == null || current == null || getScheduleBinding(messageId) == null) {
             return;
         }
-        final RetryPolicySemanticV1 policy = retryPolicyFor(messageId, current, sourcePosition);
-        if (policy == null
-                || policy.dlqExportMode() == com.nereusstream.delay.protocol.DlqExportModeV1.NOT_CONFIGURED) {
+        final RetryPolicySemantic policy = retryPolicyFor(messageId, current, sourcePosition);
+        if (policy == null || policy.dlqExportMode() == com.nereusstream.delay.protocol.DlqExportMode.NOT_CONFIGURED) {
             throw new IllegalStateException("DLQ export result has no enabled pinned DLQ policy");
         }
         final DlqExportResultBody.RetryDecision decision = body.parsedRetryDecision();
-        if (decision.retryDomain() != RetryJitterV1.DLQ_EXPORT
+        if (decision.retryDomain() != RetryJitter.DLQ_EXPORT
                 || !decision.policy().matches(policy)) {
             throw new IllegalStateException("DLQ RetryDecision does not match the pinned Retry Policy");
         }
@@ -6017,7 +6005,7 @@ public final class DelayShard {
                 || completedAttemptNo > policy.dlqMaxAttempts()) {
             throw new IllegalStateException("DLQ RetryDecision attempt does not match the export policy");
         }
-        if (body.resultingState() == DlqExportStateV1.PENDING) {
+        if (body.resultingState() == DlqExportState.PENDING) {
             if (body.sideEffect() == 3 && !policy.dlqAllowPossibleDuplicate()) {
                 throw new IllegalStateException("DLQ unknown retry requires possible-duplicate policy permission");
             }
@@ -6025,8 +6013,8 @@ public final class DelayShard {
                 throw new IllegalStateException("DLQ scheduled retry exceeds the pinned attempt budget");
             }
             final long cap = policy.dlqRetryBackoffCap(completedAttemptNo);
-            final long jitter = RetryJitterV1.delayMs(
-                    RetryJitterV1.DLQ_EXPORT,
+            final long jitter = RetryJitter.delayMs(
+                    RetryJitter.DLQ_EXPORT,
                     messageId,
                     UnsignedInt32.toLong(body.generation()),
                     completedAttemptNo,
@@ -6040,17 +6028,17 @@ public final class DelayShard {
 
     private static void validateDlqExportAttempt(final DlqExportRecord current, final DlqExportResultBody body) {
         if (body.eventKind() == 1) {
-            if (current.state() == DlqExportStateV1.PUBLISHED || current.state() == DlqExportStateV1.FAILED_PERMANENT) {
+            if (current.state() == DlqExportState.PUBLISHED || current.state() == DlqExportState.FAILED_PERMANENT) {
                 throw new IllegalStateException("terminal DLQ export cannot accept another attempt outcome");
             }
-            final int expectedAttempt = current.state() == DlqExportStateV1.UNCERTAIN
+            final int expectedAttempt = current.state() == DlqExportState.UNCERTAIN
                     ? UnsignedInt32.successor(current.physicalAttemptNo())
                     : current.physicalAttemptNo();
             if (body.physicalAttemptNo() != expectedAttempt) {
                 throw new IllegalStateException("DLQ export attempt number is not the checked successor");
             }
         } else {
-            if (current.state() != DlqExportStateV1.UNCERTAIN && current.state() != DlqExportStateV1.PENDING) {
+            if (current.state() != DlqExportState.UNCERTAIN && current.state() != DlqExportState.PENDING) {
                 throw new IllegalStateException("evidence resolution has no open DLQ export state");
             }
             if (UnsignedInt32.compare(body.physicalAttemptNo(), current.physicalAttemptNo()) > 0) {
@@ -6456,7 +6444,7 @@ public final class DelayShard {
 
     /**
      * Persists the adapter-owned Attempt Journal mapping evidence for one
-     * already durable PUBLISHING attempt.  This local evidence update does not
+     * already durable PUBLISHING attempt. This local evidence update does not
      * advance the Command/Shard source position; callers must invoke it from
      * the fenced single-writer adapter event loop only after the exact Journal
      * append has returned a durable position.
@@ -6523,7 +6511,7 @@ public final class DelayShard {
             final boolean claimMayBeMissing,
             final boolean uncertainRetryAdmission,
             final OutcomeReserveUsage admissionCharge,
-            final SloSampleStartV1 dueAdmissionStart) {
+            final SloSampleStart dueAdmissionStart) {
         Objects.requireNonNull(admission, "admission");
         validateMutationPosition(sourcePosition);
         if (admission.state() != AttemptLedgerState.PUBLISHING) {
@@ -6591,7 +6579,7 @@ public final class DelayShard {
         final byte[] priorTimelineKey =
                 claim == null ? timelineKey(admission.delayMessageId(), current) : claim.timelineKey();
         final OutcomeReserveUsage nextOutcomeReserve = outcomeReserve.add(admissionCharge);
-        final CapacityVectorV1 nextOutcomeReserveVector = outcomeReserveVector.add(outcomeCapacityCharge(admission));
+        final CapacityVector nextOutcomeReserveVector = outcomeReserveVector.add(outcomeCapacityCharge(admission));
         if (!nextOutcomeReserve.fits(
                 OutcomeReserveUsage.empty(), config.maxOutcomeReserveRecords(), config.maxOutcomeReserveBytes())) {
             throw new IllegalStateException("Publish Admission outcome reserve exceeds shard grant");
@@ -6661,7 +6649,7 @@ public final class DelayShard {
 
     /**
      * A definitive outcome may release only the exact charge vector retained by
-     * its Admission.  Synthetic direct ledgers used by the embedded compatibility
+     * its Admission. Synthetic direct ledgers used by the embedded compatibility
      * seam carry no canonical Admission body and therefore retain the all-zero
      * vector; they must not accept an arbitrary transfer from the callback.
      */
@@ -6690,7 +6678,7 @@ public final class DelayShard {
         return outcomeReserve.remove(outcomeReserveCharge(ledger));
     }
 
-    private CapacityVectorV1 outcomeCapacityCharge(final PublishAttemptLedger ledger) {
+    private CapacityVector outcomeCapacityCharge(final PublishAttemptLedger ledger) {
         try {
             return PublishAdmissionBody.decode(ledger.admissionBytes())
                     .chargeVector()
@@ -6698,12 +6686,12 @@ public final class DelayShard {
         } catch (RuntimeException legacyOrMalformedDirectLedger) {
             failClosedForMalformedCanonicalAdmission(ledger.admissionBytes(), legacyOrMalformedDirectLedger);
             // Synthetic direct ledgers do not carry a canonical ChargeVector.
-            return CapacityVectorV1.empty();
+            return CapacityVector.empty();
         }
     }
 
     /**
-     * Keeps the embedded pre-V1 ledger adapter bounded without allowing a
+     * Keeps the embedded pre-registry ledger adapter bounded without allowing a
      * malformed canonical PUBLISH_ADMISSION body to masquerade as a zero-charge
      * legacy record. Canonical System Mutation bodies begin with field 1, a
      * length-delimited nested common-field block (protobuf tag {@code 0x0a});
@@ -6716,11 +6704,11 @@ public final class DelayShard {
         }
     }
 
-    private CapacityVectorV1 releasedOutcomeReserveVector(final PublishAttemptLedger ledger) {
+    private CapacityVector releasedOutcomeReserveVector(final PublishAttemptLedger ledger) {
         return outcomeReserveVector.subtract(outcomeCapacityCharge(ledger));
     }
 
-    private void validateOutcomeReserveVector(final CapacityVectorV1 nextUsage) {
+    private void validateOutcomeReserveVector(final CapacityVector nextUsage) {
         if (capacityEnvelope != null
                 && !capacityEnvelope.outcomeReserve().vector().covers(nextUsage)) {
             throw new IllegalStateException("Publish Admission outcome reserve exceeds immutable capacity grant");
@@ -6730,10 +6718,10 @@ public final class DelayShard {
     private void persistOutcomeReserve(
             final ShardStore.Batch batch,
             final OutcomeReserveUsage nextUsage,
-            final CapacityVectorV1 nextVector,
+            final CapacityVector nextVector,
             final LaneQuotaUsageProjection nextLaneQuota)
             throws org.rocksdb.RocksDBException {
-        // Class 1 accepted only the pre-Registry ShardQuota projection.  Once
+        // Class 1 accepted only the pre-Registry ShardQuota projection. Once
         // a source-ordered mutation has written the canonical class-2 vector,
         // remove that legacy value so a later activation cannot validate a
         // stale scalar against the current ledgers.
@@ -6806,7 +6794,7 @@ public final class DelayShard {
                         && currentLane.admissionGate() != AdmissionGate.RETIRED);
         final long retryAt;
         if (scheduleUncertainRetry) {
-            final RetryPolicySemanticV1 pinnedPolicy =
+            final RetryPolicySemantic pinnedPolicy =
                     retryPolicyFor(currentLedger.delayMessageId(), current, sourcePosition);
             final int maxUncertainRetries =
                     pinnedPolicy == null ? config.maxUncertainRetries() : pinnedPolicy.maxUncertainRetries();
@@ -7025,7 +7013,7 @@ public final class DelayShard {
                 next.runtimeIndex().possibleDestinationDuplicate(),
                 next.runtimeIndex().attemptObligations());
         final OutcomeReserveUsage nextOutcomeReserve = releasedOutcomeReserve(ledger);
-        final CapacityVectorV1 nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
+        final CapacityVector nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
         final ShardQuota nextQuota = quota.removeSchedule(current.payloadLength());
         LaneQuotaUsageProjection nextLaneQuota = removeScheduleQuotaUsage(current, nextQuota);
         nextLaneQuota = mutateInflightQuotaUsage(
@@ -7068,7 +7056,7 @@ public final class DelayShard {
 
     /**
      * Settles verified success while another reversible work item is still
-     * present for the same generation.  A late success proves that the
+     * present for the same generation. A late success proves that the
      * generation must not be retried: timeline/Claim work is removed and the
      * generation becomes terminal, while a different current PUBLISHING
      * attempt remains the sole current work and keeps the generation open.
@@ -7086,7 +7074,7 @@ public final class DelayShard {
                 withoutObligation(current.runtimeIndex(), ledger.publishAttemptId());
         final boolean duplicate = true;
         final OutcomeReserveUsage nextOutcomeReserve = releasedOutcomeReserve(ledger);
-        final CapacityVectorV1 nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
+        final CapacityVector nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
         if (current.runtimeIndex().currentWorkKind() == CurrentSendWorkKind.PUBLISHING) {
             final byte[] currentAttemptId = current.runtimeIndex().publishAttemptId();
             if (currentAttemptId.length == 0 || Arrays.equals(currentAttemptId, ledger.publishAttemptId())) {
@@ -7287,7 +7275,7 @@ public final class DelayShard {
                 duplicate,
                 remaining);
         final OutcomeReserveUsage nextOutcomeReserve = releasedOutcomeReserve(ledger);
-        final CapacityVectorV1 nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
+        final CapacityVector nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
         final LaneQuotaUsageProjection nextLaneQuota = removeAttemptQuotaUsage(ledger);
         store.write(batch -> {
             batch.delete(ColumnFamily.INFLIGHT, ledger.encodedKey());
@@ -7335,7 +7323,7 @@ public final class DelayShard {
                 duplicate,
                 remaining);
         final OutcomeReserveUsage nextOutcomeReserve = releasedOutcomeReserve(ledger);
-        final CapacityVectorV1 nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
+        final CapacityVector nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
         final MessageRecord current = getMessage(ledger.delayMessageId());
         final LaneQuotaUsageProjection nextLaneQuota = removeAttemptQuotaUsage(ledger);
         store.write(batch -> {
@@ -7366,11 +7354,11 @@ public final class DelayShard {
 
     /**
      * Returns the typed immutable Lane projection, or {@code null} for a
-     * legacy compatibility Lane.  Production activation requires this typed
+     * legacy compatibility Lane. Production activation requires this typed
      * state so Profile/capability/tuple identity cannot be replaced by a
      * readiness-only compatibility record.
      */
-    public synchronized ActiveLaneStateV1 getActiveLaneStateV1(
+    public synchronized ActiveLaneState getActiveLaneState(
             final com.nereusstream.delay.protocol.DestinationLaneId laneId) {
         final LaneValue value = readLaneValue(Objects.requireNonNull(laneId, "laneId"));
         return value == null ? null : value.typedActiveState();
@@ -7612,7 +7600,7 @@ public final class DelayShard {
 
     /**
      * Materializes one exact close-cursor candidate after a bounded GC queue
-     * wait.  A different local turn may have advanced or removed the cursor
+     * wait. A different local turn may have advanced or removed the cursor
      * while this candidate was queued; that is a no-op outcome, not permission
      * to apply the candidate to a newer cursor without reporting the drift.
      */
@@ -7655,25 +7643,25 @@ public final class DelayShard {
     }
 
     /**
-     * Applies a strict typed Lane activation.  The caller must supply the
+     * Applies a strict typed Lane activation. The caller must supply the
      * exact Channel Resource, Ready Certificate and evidence cursor set
-     * produced by the external prerequisite authority.  This is intentionally
+     * produced by the external prerequisite authority. This is intentionally
      * separate from the runtime-package readiness test seam above: a raw enum
      * can never make a typed Lane schedulable.
      */
     public synchronized LaneRecord activateLaneReadiness(
             final com.nereusstream.delay.protocol.DestinationLaneId laneId,
             final byte[] laneIncarnation,
-            final ChannelResourceIdentityV1 channel,
-            final ReadyCertificateV1 readyCertificate,
-            final List<EvidenceCursorV1> evidenceCursors) {
+            final ChannelResourceIdentity channel,
+            final ReadyCertificate readyCertificate,
+            final List<EvidenceCursor> evidenceCursors) {
         final DestinationLaneId exactLaneId = Objects.requireNonNull(laneId, "laneId");
         final byte[] exactIncarnation = Bytes.copy(Objects.requireNonNull(laneIncarnation, "laneIncarnation"));
-        final ChannelResourceIdentityV1 exactChannel = Objects.requireNonNull(channel, "channel");
-        final ReadyCertificateV1 exactCertificate = Objects.requireNonNull(readyCertificate, "readyCertificate");
-        final List<EvidenceCursorV1> exactEvidence =
+        final ChannelResourceIdentity exactChannel = Objects.requireNonNull(channel, "channel");
+        final ReadyCertificate exactCertificate = Objects.requireNonNull(readyCertificate, "readyCertificate");
+        final List<EvidenceCursor> exactEvidence =
                 List.copyOf(Objects.requireNonNull(evidenceCursors, "evidenceCursors"));
-        final ActiveLaneStateV1 currentTyped = getActiveLaneStateV1(exactLaneId);
+        final ActiveLaneState currentTyped = getActiveLaneState(exactLaneId);
         if (currentTyped == null) {
             throw new IllegalStateException("strict Lane activation requires a typed active Lane");
         }
@@ -7682,8 +7670,7 @@ public final class DelayShard {
                 || !Arrays.equals(exactChannel.laneIncarnation(), exactIncarnation)) {
             throw new IllegalArgumentException("Lane activation identity does not match the typed Lane");
         }
-        final ChannelResourceIdentityV1 certificateChannel =
-                ChannelResourceIdentityV1.decode(exactCertificate.channel());
+        final ChannelResourceIdentity certificateChannel = ChannelResourceIdentity.decode(exactCertificate.channel());
         if (!exactChannel.equals(certificateChannel)
                 || !Arrays.equals(exactCertificate.destinationLaneId(), exactLaneId.bytes())
                 || !Arrays.equals(exactCertificate.laneIncarnation(), exactIncarnation)
@@ -7691,7 +7678,7 @@ public final class DelayShard {
                 || !exactEvidence.equals(exactCertificate.evidenceCursors())) {
             throw new IllegalArgumentException("Lane activation proof is not self-consistent");
         }
-        final CanonicalLaneTupleV1.Projection tuple = CanonicalLaneTupleV1.project(currentTyped.canonicalLaneTuple());
+        final CanonicalLaneTuple.Projection tuple = CanonicalLaneTuple.project(currentTyped.canonicalLaneTuple());
         if (!tuple.destinationProfile().equals(currentTyped.destinationProfile())
                 || !tuple.capabilityProfile().equals(currentTyped.capabilityProfile())
                 || !tuple.targetResource().equals(exactChannel.targetResource())
@@ -7702,7 +7689,7 @@ public final class DelayShard {
                         != exactCertificate.activationBarrier().partition()) {
             throw new IllegalArgumentException("Lane activation proof does not match the pinned Lane tuple");
         }
-        for (EvidenceCursorV1 cursor : exactEvidence) {
+        for (EvidenceCursor cursor : exactEvidence) {
             if (!Arrays.equals(cursor.destinationLaneId(), exactLaneId.bytes())
                     || !Arrays.equals(cursor.laneIncarnation(), exactIncarnation)) {
                 throw new IllegalArgumentException("Lane activation evidence belongs to another Lane");
@@ -7763,15 +7750,15 @@ public final class DelayShard {
 
     /**
      * Atomically replaces one closed active Lane with its terminal guard at
-     * the same {@code meta_cf/LANE} key.  The caller supplies the already
+     * the same {@code meta_cf/LANE} key. The caller supplies the already
      * applied retirement progress and must invoke this only after the
      * Recovery-Floor and external-channel checks have passed.
      */
-    synchronized LaneTerminalGuardV1 retireLaneWithTerminalGuard(
+    synchronized LaneTerminalGuard retireLaneWithTerminalGuard(
             final com.nereusstream.delay.protocol.DestinationLaneId laneId,
             final long expectedLaneControlVersion,
-            final LaneRetirementProgressV1 progress,
-            final LaneTerminalGuardV1 guard) {
+            final LaneRetirementProgress progress,
+            final LaneTerminalGuard guard) {
         Objects.requireNonNull(laneId, "laneId");
         Objects.requireNonNull(progress, "progress");
         Objects.requireNonNull(guard, "guard");
@@ -7794,7 +7781,7 @@ public final class DelayShard {
             throw new IllegalStateException("terminal guard does not match the closed lane or retirement progress");
         }
         if (currentValue.typedActiveState() != null) {
-            final ActiveLaneStateV1 typed = currentValue.typedActiveState();
+            final ActiveLaneState typed = currentValue.typedActiveState();
             if (!typed.destinationProfile().equals(guard.destinationProfile())
                     || !typed.capabilityProfile().equals(guard.capabilityProfile())
                     || !Arrays.equals(typed.canonicalLaneTuple(), guard.canonicalLaneTuple())
@@ -7819,7 +7806,7 @@ public final class DelayShard {
                     ColumnFamily.META,
                     2,
                     KeyCodec.metaLane(laneId),
-                    LaneRecordEnvelopeV1.terminal(guard).canonicalBytes());
+                    LaneRecordEnvelope.terminal(guard).canonicalBytes());
             persistQuota(batch, nextQuota, nextLaneQuota);
         });
         quota = nextQuota;
@@ -7838,7 +7825,7 @@ public final class DelayShard {
     }
 
     /** Returns the terminal guard at the Lane key, or {@code null} while active. */
-    public synchronized LaneTerminalGuardV1 getLaneTerminalGuard(
+    public synchronized LaneTerminalGuard getLaneTerminalGuard(
             final com.nereusstream.delay.protocol.DestinationLaneId laneId) {
         final LaneValue value = readLaneValue(laneId);
         return value == null || value.isActive() ? null : value.terminalGuard();
@@ -7881,12 +7868,12 @@ public final class DelayShard {
     }
 
     /** Returns the shard-bound control snapshot required by strict activation. */
-    public synchronized CompatibleControlSnapshotV1 controlSnapshot() {
+    public synchronized CompatibleControlSnapshot controlSnapshot() {
         return store.controlSnapshot();
     }
 
     /** Returns the durable source-ordered Protocol Version marker projection. */
-    public synchronized ProtocolActivationStateV1 protocolActivationState() {
+    public synchronized ProtocolActivationState protocolActivationState() {
         return protocolActivationState;
     }
 
@@ -7899,7 +7886,7 @@ public final class DelayShard {
     }
 
     /** Returns the canonical local per-Lane quota projection. */
-    public synchronized com.nereusstream.delay.protocol.LaneQuotaUsageMapV1 laneQuotaUsage() {
+    public synchronized com.nereusstream.delay.protocol.LaneQuotaUsageMap laneQuotaUsage() {
         return laneQuotaUsage.map();
     }
 
@@ -7909,28 +7896,28 @@ public final class DelayShard {
     }
 
     /** Returns the exact 66-dimensional outcome grant usage when an envelope is bound. */
-    public synchronized CapacityVectorV1 outcomeReserveVector() {
+    public synchronized CapacityVector outcomeReserveVector() {
         return outcomeReserveVector;
     }
 
     /** Returns the Registry class-2 aggregate for locally accounted dimensions. */
-    public synchronized CapacityVectorV1 quotaAggregateUsage() {
+    public synchronized CapacityVector quotaAggregateUsage() {
         return aggregateQuotaUsage(laneQuotaUsage, outcomeReserveVector);
     }
 
     /** Returns the immutable placement envelope bound to this shard, if one was supplied. */
-    public ShardCapacityEnvelopeV1 capacityEnvelope() {
+    public ShardCapacityEnvelope capacityEnvelope() {
         return capacityEnvelope;
     }
 
     /** Returns the persisted usage of a control reserve class (3-6). */
-    public synchronized CapacityVectorV1 controlReserveUsage(final int reserveClass) {
+    public synchronized CapacityVector controlReserveUsage(final int reserveClass) {
         validateMutableControlReserveClass(reserveClass);
-        return controlReserveUsage.getOrDefault(reserveClass, CapacityVectorV1.empty());
+        return controlReserveUsage.getOrDefault(reserveClass, CapacityVector.empty());
     }
 
     /** Returns the local class-6 projection for the Route Broker system writer. */
-    public synchronized CapacityVectorV1 systemWriterReserveUsage() {
+    public synchronized CapacityVector systemWriterReserveUsage() {
         return controlReserveUsage(CONTROL_RESERVE_SYSTEM_WRITER_CLASS);
     }
 
@@ -7942,22 +7929,22 @@ public final class DelayShard {
      * ordered control mutation, Broker writer quota and Oxia placement
      * authority remain callers' responsibilities.
      */
-    synchronized CapacityVectorV1 reserveControlCapacity(final int reserveClass, final CapacityVectorV1 amount) {
+    synchronized CapacityVector reserveControlCapacity(final int reserveClass, final CapacityVector amount) {
         return mutateControlReserve(reserveClass, Objects.requireNonNull(amount, "amount"), true);
     }
 
     /** Charges the local class-6 system-writer projection. */
-    synchronized CapacityVectorV1 reserveSystemWriterCapacity(final CapacityVectorV1 amount) {
+    synchronized CapacityVector reserveSystemWriterCapacity(final CapacityVector amount) {
         return reserveControlCapacity(CONTROL_RESERVE_SYSTEM_WRITER_CLASS, amount);
     }
 
     /** Releases an exact checked class-3/4/5/6 control reserve projection. */
-    synchronized CapacityVectorV1 releaseControlCapacity(final int reserveClass, final CapacityVectorV1 amount) {
+    synchronized CapacityVector releaseControlCapacity(final int reserveClass, final CapacityVector amount) {
         return mutateControlReserve(reserveClass, Objects.requireNonNull(amount, "amount"), false);
     }
 
     /** Releases an exact local class-6 system-writer projection. */
-    synchronized CapacityVectorV1 releaseSystemWriterCapacity(final CapacityVectorV1 amount) {
+    synchronized CapacityVector releaseSystemWriterCapacity(final CapacityVector amount) {
         return releaseControlCapacity(CONTROL_RESERVE_SYSTEM_WRITER_CLASS, amount);
     }
 
@@ -7975,7 +7962,7 @@ public final class DelayShard {
     }
 
     /**
-     * Returns the bounded READY head projection.  A malformed, orphaned, or
+     * Returns the bounded READY head projection. A malformed, orphaned, or
      * version-mismatched entry fences discovery instead of silently falling
      * back to a full timeline scan.
      */
@@ -8047,7 +8034,7 @@ public final class DelayShard {
             final MessageRecord message,
             final TimelineWorkRef work,
             final long expectedNextEligibleAtEpochMs) {
-        final ActiveLaneStateV1 state = laneValue.typedActiveState();
+        final ActiveLaneState state = laneValue.typedActiveState();
         if (state == null) {
             return;
         }
@@ -8061,7 +8048,7 @@ public final class DelayShard {
     }
 
     /**
-     * Rebuilds all READY projections while the shard is fenced.  This is the
+     * Rebuilds all READY projections while the shard is fenced. This is the
      * deterministic repair path for startup/recovery; normal command and
      * readiness mutations update the affected projection in their own batch.
      *
@@ -8319,7 +8306,7 @@ public final class DelayShard {
                     : applyCommitLarge(command, sourcePosition);
         } catch (WindowViolationException exception) {
             return persistRejected(command, sourcePosition, StableCode.INVALID_DELIVERY_WINDOW);
-        } catch (V1CommandResolutionException exception) {
+        } catch (CommandResolutionException exception) {
             return persistRejected(command, sourcePosition, exception.stableCode());
         } catch (ArithmeticException | IllegalArgumentException exception) {
             return persistRejected(command, sourcePosition, StableCode.INVALID_COMMAND);
@@ -8328,11 +8315,11 @@ public final class DelayShard {
 
     private LargeScheduleIntent decodePrepareLargeIntent(
             final PreparedCommand command, final SourcePosition sourcePosition) {
-        if (!CommandBodies.isRegistryClientBodyV1(command.canonicalBody())) {
-            return CommandBodies.decodePrepareLarge(command.canonicalBody());
+        if (!CommandBodies.isRegistryClientBody(command.canonicalBody())) {
+            return CommandBodies.decodeDirectPrepareLarge(command.canonicalBody());
         }
-        final PrepareLargeScheduleBodyV1 body = CommandBodies.decodePrepareLargeV1(command.canonicalBody());
-        requireV1BodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
+        final PrepareLargeScheduleBody body = CommandBodies.decodePrepareLarge(command.canonicalBody());
+        requireBodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
         requireProfileFirstBinding(body.intentWithoutPayload().profile(), sourcePosition);
         requireProfileFirstBinding(body.objectStoreProfile(), sourcePosition);
         requireObjectStorePayloadLimit(body.objectStoreProfile(), body.expectedPayloadLength());
@@ -8340,18 +8327,18 @@ public final class DelayShard {
                 body.intentWithoutPayload().retryPolicy(),
                 body.intentWithoutPayload().orderingMode(),
                 sourcePosition);
-        final V1ScheduleResolver resolver = requireV1ScheduleResolver();
-        final V1ScheduleResolver.ResolvedPrepare resolved = Objects.requireNonNull(
+        final ScheduleResolver resolver = requireScheduleResolver();
+        final ScheduleResolver.ResolvedPrepare resolved = Objects.requireNonNull(
                 resolver.resolvePrepare(command.shardId(), command.delayMessageId(), body, sourcePosition),
                 "resolved PrepareLargeSchedule projection");
         if (payloadProofTrustSetControlCatalog != null
                 && !payloadProofTrustSetControlState.activatedAt(body.trustSet(), sourcePosition)) {
-            throw new V1CommandResolutionException(
+            throw new CommandResolutionException(
                     StableCode.PAYLOAD_PROOF_KEY_NOT_AUTHORIZED_AT_SOURCE_POSITION,
                     "PrepareLargeSchedule trust set is not active at its source position");
         }
         lastResolvedPrepare = resolved;
-        final ScheduleIntentV1 intent = body.intentWithoutPayload();
+        final CanonicalScheduleIntent intent = body.intentWithoutPayload();
         return new LargeScheduleIntent(
                 resolved.laneId(),
                 intent.deliverAtEpochMs(),
@@ -8364,42 +8351,42 @@ public final class DelayShard {
     }
 
     /** Requires the exact Object Store semantic/current Head and its immutable object-size bound. */
-    private void requireObjectStorePayloadLimit(final ProfileRefV1 reference, final long payloadLength) {
+    private void requireObjectStorePayloadLimit(final ProfileRef reference, final long payloadLength) {
         if (profileCatalog == null) {
             return;
         }
-        final ProfileSemanticEnvelopeV1 semantic = profileCatalog.resolve(reference);
-        final CredentialBindingHeadV1 head = profileCatalog.resolveHead(reference);
+        final ProfileSemanticEnvelope semantic = profileCatalog.resolve(reference);
+        final CredentialBindingHead head = profileCatalog.resolveHead(reference);
         if (semantic == null
                 || !semantic.ref().equals(reference)
-                || !(semantic.body() instanceof ObjectStoreProfileSemanticV1 objectStore)
+                || !(semantic.body() instanceof ObjectStoreProfileSemantic objectStore)
                 || head == null
                 || !head.profile().equals(reference)) {
-            throw new V1CommandResolutionException(
+            throw new CommandResolutionException(
                     StableCode.ROUTE_SNAPSHOT_UNAVAILABLE,
                     "Object Store Profile semantic or credential Head is unavailable");
         }
         if (payloadLength > objectStore.maxObjectBytes()) {
-            throw new V1CommandResolutionException(
+            throw new CommandResolutionException(
                     StableCode.PAYLOAD_TOO_LARGE, "payload exceeds the immutable Object Store Profile maximum");
         }
     }
 
     private ScheduleApplication decodeScheduleApplication(
             final PreparedCommand command, final SourcePosition sourcePosition) {
-        if (!CommandBodies.isRegistryClientBodyV1(command.canonicalBody())) {
-            final var legacy = CommandBodies.decodeSchedule(command.canonicalBody());
+        if (!CommandBodies.isRegistryClientBody(command.canonicalBody())) {
+            final var direct = CommandBodies.decodeDirectSchedule(command.canonicalBody());
             return new ScheduleApplication(
-                    legacy.deliverAtEpochMs(),
-                    legacy.expireAtEpochMs(),
-                    legacy.deliverAtEpochMs(),
-                    legacy.laneId(),
-                    legacy.orderingMode(),
-                    legacy.payload(),
+                    direct.deliverAtEpochMs(),
+                    direct.expireAtEpochMs(),
+                    direct.deliverAtEpochMs(),
+                    direct.laneId(),
+                    direct.orderingMode(),
+                    direct.payload(),
                     null);
         }
-        final ScheduleCommandBodyV1 body = CommandBodies.decodeScheduleV1(command.canonicalBody());
-        requireV1BodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
+        final ScheduleCommandBody body = CommandBodies.decodeSchedule(command.canonicalBody());
+        requireBodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
         requireProfileFirstBinding(body.intent().profile(), sourcePosition);
         if (!body.intent().hasInlinePayload()) {
             requireProfileFirstBinding(body.intent().committedPayload().objectStoreProfile(), sourcePosition);
@@ -8408,8 +8395,8 @@ public final class DelayShard {
                     body.intent().committedPayload().length());
         }
         requireRetryPolicy(body.intent().retryPolicy(), body.intent().orderingMode(), sourcePosition);
-        final V1ScheduleResolver resolver = requireV1ScheduleResolver();
-        final V1ScheduleResolver.ResolvedSchedule resolved = Objects.requireNonNull(
+        final ScheduleResolver resolver = requireScheduleResolver();
+        final ScheduleResolver.ResolvedSchedule resolved = Objects.requireNonNull(
                 resolver.resolveSchedule(command.shardId(), command.delayMessageId(), body.intent(), sourcePosition),
                 "resolved Schedule projection");
         lastResolvedSchedule = resolved;
@@ -8425,81 +8412,81 @@ public final class DelayShard {
                 resolved.payloadReference());
     }
 
-    private V1ScheduleResolver requireV1ScheduleResolver() {
-        if (v1ScheduleResolver == null) {
-            throw new V1CommandResolutionException(
+    private ScheduleResolver requireScheduleResolver() {
+        if (scheduleResolver == null) {
+            throw new CommandResolutionException(
                     StableCode.ROUTE_SNAPSHOT_UNAVAILABLE,
-                    "V1 Schedule/Prepare requires a source-position-pinned resolver");
+                    " Schedule/Prepare requires a source-position-pinned resolver");
         }
-        return v1ScheduleResolver;
+        return scheduleResolver;
     }
 
     private void requireRetryPolicy(
-            final RetryPolicyRefV1 reference,
+            final RetryPolicyRef reference,
             final com.nereusstream.delay.protocol.OrderingMode orderingMode,
             final SourcePosition sourcePosition) {
         if (retryPolicyCatalog == null) {
             return;
         }
-        final RetryPolicySemanticV1 semantic = retryPolicyCatalog.resolve(
+        final RetryPolicySemantic semantic = retryPolicyCatalog.resolve(
                 Objects.requireNonNull(reference, "reference"),
                 Objects.requireNonNull(sourcePosition, "sourcePosition"));
         if (semantic == null) {
-            throw new V1CommandResolutionException(
+            throw new CommandResolutionException(
                     StableCode.RETRY_POLICY_NOT_ACTIVE_AT_SOURCE_POSITION,
                     "Retry Policy is not active at the command Source Position");
         }
         if (!reference.matches(semantic)) {
-            throw new V1CommandResolutionException(
+            throw new CommandResolutionException(
                     StableCode.INVALID_COMMAND, "Retry Policy reference does not match catalog semantic bytes");
         }
         try {
             semantic.validateFor(orderingMode);
         } catch (IllegalArgumentException exception) {
-            throw new V1CommandResolutionException(
+            throw new CommandResolutionException(
                     StableCode.INVALID_COMMAND, "Retry Policy is incompatible with the requested ordering mode");
         }
         ensureRetryPolicyFitsConfig(semantic);
     }
 
-    private void ensureRetryPolicyFitsConfig(final RetryPolicySemanticV1 semantic) {
+    private void ensureRetryPolicyFitsConfig(final RetryPolicySemantic semantic) {
         if (semantic.maxPublishAdmissions() > config.maxPublishAdmissions()
                 || semantic.maxUncertainRetries() > config.maxUncertainRetries()) {
-            throw new V1CommandResolutionException(
+            throw new CommandResolutionException(
                     StableCode.INVALID_COMMAND, "local shard limits cannot honor the immutable Retry Policy budget");
         }
     }
 
-    /** Resolves the policy pinned by an accepted V1 binding for later replay turns. */
-    private RetryPolicySemanticV1 retryPolicyFor(
+    /** Resolves the policy pinned by an accepted binding for later replay turns. */
+    private RetryPolicySemantic retryPolicyFor(
             final DelayMessageId messageId, final MessageRecord message, final SourcePosition sourcePosition) {
         if (retryPolicyCatalog == null) {
             return null;
         }
-        final V1ScheduleBinding binding = getV1ScheduleBinding(messageId);
+        final ScheduleBinding binding = getScheduleBinding(messageId);
         if (binding == null) {
             return null;
         }
-        final RetryPolicyRefV1 reference;
+        final RetryPolicyRef reference;
         if (binding.commandType() == com.nereusstream.delay.protocol.CommandType.SCHEDULE) {
-            reference = CommandBodies.decodeScheduleV1(binding.canonicalBody())
+            reference = CommandBodies.decodeSchedule(binding.canonicalBody())
                     .intent()
                     .retryPolicy();
         } else {
-            reference = CommandBodies.decodePrepareLargeV1(binding.canonicalBody())
+            reference = CommandBodies.decodePrepareLarge(binding.canonicalBody())
                     .intentWithoutPayload()
                     .retryPolicy();
         }
-        final RetryPolicySemanticV1 semantic = retryPolicyCatalog.resolve(reference, sourcePosition);
+        final RetryPolicySemantic semantic = retryPolicyCatalog.resolve(reference, sourcePosition);
         if (semantic == null || !reference.matches(semantic)) {
-            throw new V1CommandResolutionException(
+            throw new CommandResolutionException(
                     StableCode.RETRY_POLICY_NOT_ACTIVE_AT_SOURCE_POSITION,
                     "pinned Retry Policy is unavailable or mismatched for replay");
         }
         try {
             semantic.validateFor(message.orderingMode());
         } catch (IllegalArgumentException exception) {
-            throw new V1CommandResolutionException(
+            throw new CommandResolutionException(
                     StableCode.INVALID_COMMAND, "pinned Retry Policy no longer matches message ordering");
         }
         ensureRetryPolicyFitsConfig(semantic);
@@ -8507,12 +8494,12 @@ public final class DelayShard {
     }
 
     private static void validateResolvedSchedulePayload(
-            final ScheduleIntentV1 intent, final V1ScheduleResolver.ResolvedSchedule resolved) {
+            final CanonicalScheduleIntent intent, final ScheduleResolver.ResolvedSchedule resolved) {
         if (intent.hasInlinePayload()) {
             if (resolved.payloadReference() != null
                     || !Arrays.equals(intent.inlinePayload(), resolved.inlinePayload())) {
-                throw new V1CommandResolutionException(
-                        StableCode.INVALID_COMMAND, "resolved inline payload does not match ScheduleIntentV1");
+                throw new CommandResolutionException(
+                        StableCode.INVALID_COMMAND, "resolved inline payload does not match CanonicalScheduleIntent");
             }
             return;
         }
@@ -8529,8 +8516,8 @@ public final class DelayShard {
                 || !optionalBytesEqual(reference.etag(), descriptor.etag())
                 || reference.length() != descriptor.length()
                 || !Bytes.constantTimeEquals(reference.payloadSha256(), descriptor.payloadSha256())) {
-            throw new V1CommandResolutionException(
-                    StableCode.INVALID_COMMAND, "resolved object payload does not match ScheduleIntentV1");
+            throw new CommandResolutionException(
+                    StableCode.INVALID_COMMAND, "resolved object payload does not match CanonicalScheduleIntent");
         }
     }
 
@@ -8587,12 +8574,12 @@ public final class DelayShard {
 
     private CommandResult applyCommitLarge(final PreparedCommand command, final SourcePosition sourcePosition) {
         final PayloadCommitProofView proof;
-        if (CommandBodies.isRegistryClientBodyV1(command.canonicalBody())) {
-            final CommitLargeScheduleBodyV1 body = CommandBodies.decodeCommitLargeV1(command.canonicalBody());
-            requireV1BodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
+        if (CommandBodies.isRegistryClientBody(command.canonicalBody())) {
+            final CommitLargeScheduleBody body = CommandBodies.decodeCommitLarge(command.canonicalBody());
+            requireBodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
             proof = body.proof();
         } else {
-            proof = CommandBodies.decodeCommitLarge(command.canonicalBody());
+            proof = CommandBodies.decodeDirectCommitLarge(command.canonicalBody());
         }
         final PayloadReservation storedReservation = readStoredReservation(proof.reservationId());
         if (storedReservation == null || !storedReservation.delayMessageId().equals(command.delayMessageId())) {
@@ -8603,7 +8590,7 @@ public final class DelayShard {
             throw new IllegalStateException("large payload commit references a reservation on a missing Lane");
         }
         // A terminal guard is the irreversible identity fence for the old
-        // Lane tuple.  Check it before the reservation lifecycle: a stale
+        // Lane tuple. Check it before the reservation lifecycle: a stale
         // RESERVED/COMMITTED value must never project a new Message and
         // resurrect the compact terminal key as an ACTIVE Lane value.
         if (reservationLane.admissionGate() == AdmissionGate.RETIRED) {
@@ -8615,9 +8602,9 @@ public final class DelayShard {
         }
         // The durable Prepare binding chooses the Object Store authority for
         // every Commit attempt, including a retry after the reservation has
-        // already reached COMMITTED.  A lifecycle fast path must not weaken
+        // already reached COMMITTED. A lifecycle fast path must not weaken
         // that pinned identity boundary.
-        final PrepareLargeScheduleBodyV1 pinnedPrepare = pinnedPrepareBodyIfPresent(command.delayMessageId());
+        final PrepareLargeScheduleBody pinnedPrepare = pinnedPrepareBodyIfPresent(command.delayMessageId());
         if (pinnedPrepare != null && !proofMatchesPinnedObjectStore(proof, pinnedPrepare.objectStoreProfile())) {
             return persistRejected(command, sourcePosition, StableCode.PAYLOAD_PROOF_INVALID);
         }
@@ -8656,12 +8643,12 @@ public final class DelayShard {
         }
         // A later legacy body can change only the proof encoding; it cannot
         // weaken the trust-set semantic reference pinned by Prepare.
-        final PayloadProofTrustSetRefV1 pinnedTrustSet = pinnedPrepare == null ? null : pinnedPrepare.trustSet();
+        final PayloadProofTrustSetRef pinnedTrustSet = pinnedPrepare == null ? null : pinnedPrepare.trustSet();
         final boolean proofAuthorized;
         if (pinnedTrustSet != null) {
             if (payloadProofTrustSetControlCatalog == null) {
-                throw new V1CommandResolutionException(
-                        StableCode.ROUTE_SNAPSHOT_UNAVAILABLE, "V1 payload proof trust-set catalog is unavailable");
+                throw new CommandResolutionException(
+                        StableCode.ROUTE_SNAPSHOT_UNAVAILABLE, " payload proof trust-set catalog is unavailable");
             }
             if (proof.trustSetVersion() != pinnedTrustSet.version()
                     || !payloadProofTrustSetControlState.firstSeenIssuanceOpen(
@@ -8726,28 +8713,28 @@ public final class DelayShard {
         return result;
     }
 
-    private PrepareLargeScheduleBodyV1 pinnedPrepareBodyIfPresent(final DelayMessageId messageId) {
-        final V1ScheduleBinding binding = getV1ScheduleBinding(messageId);
+    private PrepareLargeScheduleBody pinnedPrepareBodyIfPresent(final DelayMessageId messageId) {
+        final ScheduleBinding binding = getScheduleBinding(messageId);
         if (binding == null) {
             return null;
         }
         if (binding.commandType() != com.nereusstream.delay.protocol.CommandType.PREPARE_LARGE_SCHEDULE) {
-            throw new V1CommandResolutionException(
-                    StableCode.ROUTE_SNAPSHOT_UNAVAILABLE, "large payload reservation has a non-Prepare V1 binding");
+            throw new CommandResolutionException(
+                    StableCode.ROUTE_SNAPSHOT_UNAVAILABLE, "large payload reservation has a non-Prepare binding");
         }
-        return CommandBodies.decodePrepareLargeV1(binding.canonicalBody());
+        return CommandBodies.decodePrepareLarge(binding.canonicalBody());
     }
 
     private static boolean proofMatchesPinnedObjectStore(
-            final PayloadCommitProofView proof, final ProfileRefV1 pinnedProfile) {
-        return proof instanceof PayloadCommitProofV1 typed
+            final PayloadCommitProofView proof, final ProfileRef pinnedProfile) {
+        return proof instanceof CanonicalPayloadCommitProof typed
                 ? typed.objectStoreProfile().equals(pinnedProfile)
                 : Bytes.constantTimeEquals(proof.objectStoreProfileHash(), pinnedProfile.semanticHash());
     }
 
     private static byte[] reservationId(final PreparedCommand command) {
         return Bytes.sha256(
-                Bytes.utf8("nereus-delay-reservation-id-v1\0"),
+                Bytes.utf8("nereus-delay-reservation-id\0"),
                 command.commandId().bytes(),
                 command.delayMessageId().bytes(),
                 command.commandHash());
@@ -8768,15 +8755,15 @@ public final class DelayShard {
 
     private boolean historicallyVerifies(
             final PayloadCommitProofView proof,
-            final PrepareLargeScheduleBodyV1 pinnedPrepare,
+            final PrepareLargeScheduleBody pinnedPrepare,
             final SourcePosition sourcePosition) {
         if (pinnedPrepare == null) {
             return payloadProofTrustSet != null && payloadProofTrustSet.verifiesHistoricalSignature(proof);
         }
-        final PayloadProofTrustSetRefV1 pinnedTrustSet = pinnedPrepare.trustSet();
+        final PayloadProofTrustSetRef pinnedTrustSet = pinnedPrepare.trustSet();
         if (payloadProofTrustSetControlCatalog == null) {
-            throw new V1CommandResolutionException(
-                    StableCode.ROUTE_SNAPSHOT_UNAVAILABLE, "V1 payload proof trust-set catalog is unavailable");
+            throw new CommandResolutionException(
+                    StableCode.ROUTE_SNAPSHOT_UNAVAILABLE, " payload proof trust-set catalog is unavailable");
         }
         return proof.trustSetVersion() == pinnedTrustSet.version()
                 && payloadProofTrustSetControlState.historicalVerificationAllowed(
@@ -9025,36 +9012,36 @@ public final class DelayShard {
     }
 
     private CancelRequest decodeCancelRequest(final PreparedCommand command) {
-        if (CommandBodies.isRegistryClientBodyV1(command.canonicalBody())) {
-            final CancelCommandBodyV1 body = CommandBodies.decodeCancelV1(command.canonicalBody());
-            requireV1BodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
-            return new CancelRequest(
-                    body.precondition().expectedGeneration(),
-                    body.precondition().expectedStateVersion());
+        if (!CommandBodies.isRegistryClientBody(command.canonicalBody())) {
+            final int expectedGeneration = CommandBodies.decodeDirectCancel(command.canonicalBody());
+            return new CancelRequest(expectedGeneration < 0 ? null : (long) expectedGeneration, null);
         }
-        final int expectedGeneration = CommandBodies.decodeCancel(command.canonicalBody());
-        return new CancelRequest(expectedGeneration < 0 ? null : (long) expectedGeneration, null);
+        final CancelCommandBody body = CommandBodies.decodeCancel(command.canonicalBody());
+        requireBodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
+        return new CancelRequest(
+                body.precondition().expectedGeneration(), body.precondition().expectedStateVersion());
     }
 
     private RescheduleRequest decodeRescheduleRequest(final PreparedCommand command) {
-        if (CommandBodies.isRegistryClientBodyV1(command.canonicalBody())) {
-            final RescheduleCommandBodyV1 body = CommandBodies.decodeRescheduleV1(command.canonicalBody());
-            requireV1BodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
+        if (!CommandBodies.isRegistryClientBody(command.canonicalBody())) {
+            final CommandBodies.DirectRescheduleValues values =
+                    CommandBodies.decodeDirectReschedule(command.canonicalBody());
             return new RescheduleRequest(
-                    body.precondition().expectedGeneration(),
-                    body.precondition().expectedStateVersion(),
-                    body.newDeliverAtEpochMs(),
-                    body.newExpireAtEpochMs());
+                    values.expectedGeneration() < 0 ? null : (long) values.expectedGeneration(),
+                    null,
+                    values.deliverAtEpochMs(),
+                    values.expireAtEpochMs());
         }
-        final CommandBodies.RescheduleValues values = CommandBodies.decodeReschedule(command.canonicalBody());
+        final RescheduleCommandBody body = CommandBodies.decodeReschedule(command.canonicalBody());
+        requireBodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
         return new RescheduleRequest(
-                values.expectedGeneration() < 0 ? null : (long) values.expectedGeneration(),
-                null,
-                values.deliverAtEpochMs(),
-                values.expireAtEpochMs());
+                body.precondition().expectedGeneration(),
+                body.precondition().expectedStateVersion(),
+                body.newDeliverAtEpochMs(),
+                body.newExpireAtEpochMs());
     }
 
-    private static void requireV1BodyIdentity(
+    private static void requireBodyIdentity(
             final PreparedCommand command, final DelayMessageId bodyMessageId, final long bodyRetryUntilEpochMs) {
         if (!command.delayMessageId().equals(bodyMessageId) || command.retryUntilEpochMs() != bodyRetryUntilEpochMs) {
             throw new IllegalArgumentException("Client body common fields do not match outer command");
@@ -9080,7 +9067,7 @@ public final class DelayShard {
     }
 
     /**
-     * Computes the local compatibility identity-freshness boundary.  The
+     * Computes the local compatibility identity-freshness boundary. The
      * production Route policy may choose a stricter maximum preparation age;
      * this embedded shard has no separate Route catalog input, so its bounded
      * message-lifetime horizon is the only safe local upper bound.
@@ -9185,8 +9172,7 @@ public final class DelayShard {
         if (commandAppliedSloObjective == null) {
             return;
         }
-        final SloSampleStartV1 start =
-                SloAuthoritativeStartFactory.commandApplied(commandAppliedSloObjective, position);
+        final SloSampleStart start = SloAuthoritativeStartFactory.commandApplied(commandAppliedSloObjective, position);
         persistSloStart(batch, start);
     }
 
@@ -9196,13 +9182,13 @@ public final class DelayShard {
      * projection; production profile/eligibility authority must still prove
      * the same path before this hook is enabled.
      */
-    private SloSampleStartV1 dueAdmissionStart(final PublishAdmissionBody body) {
+    private SloSampleStart dueAdmissionStart(final PublishAdmissionBody body) {
         if (dueAdmissionSloObjective == null) {
             return null;
         }
         final long deliverAt = body.descriptor().deliverAtEpochMs();
         final long actionAt = body.descriptor().actionAtEpochMs();
-        final SloPathV1 path = actionAt == deliverAt ? SloPathV1.ORDINARY_MANAGED : SloPathV1.MANAGED_PULSAR_HANDOFF;
+        final SloPath path = actionAt == deliverAt ? SloPath.ORDINARY_MANAGED : SloPath.MANAGED_PULSAR_HANDOFF;
         return SloAuthoritativeStartFactory.dueAdmission(
                 dueAdmissionSloObjective,
                 new DelayMessageId(body.messageId()),
@@ -9212,7 +9198,7 @@ public final class DelayShard {
                 Bytes.sha256(body.descriptor().canonicalBytes()));
     }
 
-    private void persistSloStart(final ShardStore.Batch batch, final SloSampleStartV1 start)
+    private void persistSloStart(final ShardStore.Batch batch, final SloSampleStart start)
             throws org.rocksdb.RocksDBException {
         if (start == null) {
             return;
@@ -9291,7 +9277,7 @@ public final class DelayShard {
         final MessageRecord persistedNext = normalizeCommandRuntime(command.delayMessageId(), prior, next, result);
         LaneQuotaUsageProjection nextLaneQuota =
                 laneQuotaAfterCommand(position, prior, persistedNext, reservation, nextQuota);
-        final V1ScheduleBinding v1Binding = v1ScheduleBinding(command, result, persistedNext, reservation);
+        final ScheduleBinding scheduleBinding = scheduleBinding(command, result, persistedNext, reservation);
         final ClaimRecord priorClaim = prior != null && prior.status() == MessageStatus.CLAIMED
                 ? findClaimForMessage(command.delayMessageId())
                 : null;
@@ -9365,9 +9351,12 @@ public final class DelayShard {
                                     reservation.reservationExpiryEpochMs(), reservation.reservationId()));
                 }
             }
-            if (v1Binding != null) {
+            if (scheduleBinding != null) {
                 batch.putValue(
-                        ColumnFamily.ID, 4, KeyCodec.idV1ScheduleBinding(command.delayMessageId()), v1Binding.encode());
+                        ColumnFamily.ID,
+                        4,
+                        KeyCodec.idScheduleBinding(command.delayMessageId()),
+                        scheduleBinding.encode());
             }
             for (LaneProjection projection : projections.values()) {
                 deleteReadyKey(batch, projection.previousLane());
@@ -9530,7 +9519,7 @@ public final class DelayShard {
                 throw exception;
             }
             // Direct restore/compatibility fixtures may contain a durable
-            // Claim or attempt that predates the persisted class-3 map.  Use
+            // Claim or attempt that predates the persisted class-3 map. Use
             // the ledgers as the source of truth, repair the projection, and
             // then apply the same release atomically in the caller's batch.
             final LaneQuotaUsageProjection rebuilt = rebuildLaneQuotaUsage();
@@ -9590,7 +9579,7 @@ public final class DelayShard {
             final ShardStore.Batch batch, final ShardQuota nextQuota, final LaneQuotaUsageProjection nextLaneQuota)
             throws org.rocksdb.RocksDBException {
         // See persistOutcomeReserve: class 1 is a one-way compatibility
-        // projection, never a new V1 write.
+        // projection, never a new write.
         batch.delete(ColumnFamily.META, KeyCodec.metaQuota(META_LEGACY_QUOTA_USAGE));
         batch.putValue(
                 ColumnFamily.META,
@@ -9603,34 +9592,34 @@ public final class DelayShard {
         }
     }
 
-    private V1ScheduleBinding v1ScheduleBinding(
+    private ScheduleBinding scheduleBinding(
             final PreparedCommand command,
             final CommandResult result,
             final MessageRecord next,
             final PayloadReservation reservation) {
         if (result.applyStatus() != ApplyStatus.APPLIED
-                || !CommandBodies.isRegistryClientBodyV1(command.canonicalBody())) {
+                || !CommandBodies.isRegistryClientBody(command.canonicalBody())) {
             return null;
         }
         if (command.type() == com.nereusstream.delay.protocol.CommandType.SCHEDULE
                 && result.stableCode() == StableCode.SCHEDULED
                 && next != null) {
-            final V1ScheduleResolver.ResolvedSchedule resolved =
-                    Objects.requireNonNull(lastResolvedSchedule, "resolved V1 Schedule projection");
+            final ScheduleResolver.ResolvedSchedule resolved =
+                    Objects.requireNonNull(lastResolvedSchedule, "resolved Schedule projection");
             if (!resolved.laneId().equals(next.laneId())) {
-                throw new IllegalStateException("resolved V1 Schedule Lane changed during apply");
+                throw new IllegalStateException("resolved Schedule Lane changed during apply");
             }
-            return V1ScheduleBinding.fromCommand(command, next.laneId(), resolved.canonicalLaneTuple());
+            return ScheduleBinding.fromCommand(command, next.laneId(), resolved.canonicalLaneTuple());
         }
         if (command.type() == com.nereusstream.delay.protocol.CommandType.PREPARE_LARGE_SCHEDULE
                 && result.stableCode() == StableCode.OK
                 && reservation != null) {
-            final V1ScheduleResolver.ResolvedPrepare resolved =
-                    Objects.requireNonNull(lastResolvedPrepare, "resolved V1 Prepare projection");
+            final ScheduleResolver.ResolvedPrepare resolved =
+                    Objects.requireNonNull(lastResolvedPrepare, "resolved Prepare projection");
             if (!resolved.laneId().equals(reservation.intent().laneId())) {
-                throw new IllegalStateException("resolved V1 Prepare Lane changed during apply");
+                throw new IllegalStateException("resolved Prepare Lane changed during apply");
             }
-            return V1ScheduleBinding.fromCommand(command, reservation.intent().laneId(), resolved.canonicalLaneTuple());
+            return ScheduleBinding.fromCommand(command, reservation.intent().laneId(), resolved.canonicalLaneTuple());
         }
         return null;
     }
@@ -9754,14 +9743,12 @@ public final class DelayShard {
     }
 
     private void putReadyProjection(
-            final ShardStore.Batch batch,
-            final LaneProjection projection,
-            final ReadyCertificateV1 activationCertificate)
+            final ShardStore.Batch batch, final LaneProjection projection, final ReadyCertificate activationCertificate)
             throws org.rocksdb.RocksDBException {
         final LaneValue previousValue = projection.previousValue();
         final byte[] laneValue;
         if (previousValue != null && previousValue.typedActiveState() != null) {
-            final ActiveLaneStateV1 state = previousValue.typedActiveState();
+            final ActiveLaneState state = previousValue.typedActiveState();
             final byte[] readyKey = projection.readyValue() == null
                     ? null
                     : KeyCodec.timelineReady(
@@ -9769,7 +9756,7 @@ public final class DelayShard {
                             projection.readyValue().laneId(),
                             projection.readyValue().laneVersion());
             final PublishAdmissionBody.ChargeVector usage = projection.laneUsage();
-            final ActiveLaneStateV1 nextState = state.withLocalProjection(
+            final ActiveLaneState nextState = state.withLocalProjection(
                     projection.lane().admissionGate(),
                     projection.lane().runtimeReadiness(),
                     projection.lane().runtimeReadiness() == RuntimeReadiness.BLOCKED
@@ -9787,12 +9774,12 @@ public final class DelayShard {
                                     ? state.readyCertificate()
                                     : null)
                             : activationCertificate.canonicalBytes());
-            laneValue = LaneRecordEnvelopeV1.active(nextState).canonicalBytes();
+            laneValue = LaneRecordEnvelope.active(nextState).canonicalBytes();
         } else {
-            final ActiveLaneStateV1 typed = typedInitialLaneState(projection);
+            final ActiveLaneState typed = typedInitialLaneState(projection);
             laneValue = typed == null
-                    ? LaneRecordEnvelopeV1.active(projection.lane().encode()).canonicalBytes()
-                    : LaneRecordEnvelopeV1.active(typed).canonicalBytes();
+                    ? LaneRecordEnvelope.active(projection.lane().encode()).canonicalBytes()
+                    : LaneRecordEnvelope.active(typed).canonicalBytes();
         }
         batch.putValue(ColumnFamily.META, 2, KeyCodec.metaLane(projection.lane().laneId()), laneValue);
         if (projection.readyValue() != null) {
@@ -9806,12 +9793,12 @@ public final class DelayShard {
     }
 
     /**
-     * Creates the first typed Lane projection from the exact V1 resolver
-     * tuple.  Legacy commands and existing legacy Lanes retain their old
+     * Creates the first typed Lane projection from the exact resolver
+     * tuple. Legacy commands and existing legacy Lanes retain their old
      * compatibility value; they are never upgraded from an arbitrary byte
      * string or from caller-supplied Profile names.
      */
-    private ActiveLaneStateV1 typedInitialLaneState(final LaneProjection projection) {
+    private ActiveLaneState typedInitialLaneState(final LaneProjection projection) {
         if (projection.previousValue() != null
                 || (projection.lane().laneVersion() != 0 && projection.lane().laneVersion() != 1)
                 || projection.lane().laneControlVersion() != 1) {
@@ -9827,12 +9814,12 @@ public final class DelayShard {
         } else {
             return null;
         }
-        final CanonicalLaneTupleV1.Projection tuple;
+        final CanonicalLaneTuple.Projection tuple;
         try {
-            tuple = CanonicalLaneTupleV1.project(tupleBytes);
+            tuple = CanonicalLaneTuple.project(tupleBytes);
         } catch (IllegalArgumentException malformedTuple) {
             // The raw resolver remains a compatibility seam for historical
-            // tests/clients.  A malformed tuple must retain the legacy
+            // tests/clients. A malformed tuple must retain the legacy
             // projection, which strict activation will refuse later, rather
             // than manufacturing typed identity from unparsed bytes.
             return null;
@@ -9843,7 +9830,7 @@ public final class DelayShard {
         final long typedLaneVersion = Math.max(1, projection.lane().laneVersion());
         final Long earliestActionAt = projection.earliestActionAtEpochMs();
         final Long nextEligibleAt = projection.nextEligibleAtEpochMs();
-        return new ActiveLaneStateV1(
+        return new ActiveLaneState(
                 projection.lane().laneId(),
                 projection.lane().laneIncarnation(),
                 projection.lane().admissionGate(),
@@ -9858,7 +9845,7 @@ public final class DelayShard {
                 projection.laneUsage(),
                 earliestActionAt,
                 nextEligibleAt,
-                LaneCircuitStateV1.CLOSED,
+                LaneCircuitState.CLOSED,
                 0,
                 0,
                 0,
@@ -10115,7 +10102,7 @@ public final class DelayShard {
         final RescheduleRequest values = decodeRescheduleRequest(command);
         // applyReschedule() already validates the new window and derives the
         // immutable action boundary from the prior runtime projection (or the
-        // pinned Profile binding).  Rebuild the same value here instead of
+        // pinned Profile binding). Rebuild the same value here instead of
         // using the legacy constructor whose default actionAt is deliverAt;
         // otherwise the later persistMutation() normalization would silently
         // erase a certified early handoff on a same-deliverAt Reschedule.
@@ -10317,7 +10304,7 @@ public final class DelayShard {
     }
 
     /** Rebuilds the exact 66-dimensional outcome projection from open ledgers. */
-    private CapacityVectorV1 rebuildOutcomeReserveVector() {
+    private CapacityVector rebuildOutcomeReserveVector() {
         final long configuredLimit = Math.max(config.maxPendingMessages(), config.maxOutcomeReserveRecords());
         final int limit = boundedLimitPlusOne(configuredLimit);
         final List<com.nereusstream.delay.store.ShardStore.KeyValue> attempts = store.scan(
@@ -10328,7 +10315,7 @@ public final class DelayShard {
         if (attempts.size() >= limit && configuredLimit < Integer.MAX_VALUE) {
             throw new IllegalStateException("outcome reserve vector rebuild exceeded configured bound");
         }
-        CapacityVectorV1 result = CapacityVectorV1.empty();
+        CapacityVector result = CapacityVector.empty();
         for (var entry : attempts) {
             final PublishAttemptLedger ledger = decodePublishAttempt(entry);
             try {
@@ -10460,7 +10447,7 @@ public final class DelayShard {
 
     private static long maxLaneQuotaRevision(final LaneQuotaUsageProjection projection) {
         long revision = 0;
-        for (LaneQuotaUsageEntryV1 entry : projection.map().entries()) {
+        for (LaneQuotaUsageEntry entry : projection.map().entries()) {
             revision = Math.max(revision, entry.usageRevision());
         }
         return revision;
@@ -10468,7 +10455,7 @@ public final class DelayShard {
 
     /**
      * Reconciles the persisted runtime locator with every live Claim/attempt
-     * ledger before the shard can serve work.  A checkpoint that loses one
+     * ledger before the shard can serve work. A checkpoint that loses one
      * side of this relationship is not safely replayable, so activation fails
      * closed instead of guessing a current obligation.
      */
@@ -10608,7 +10595,7 @@ public final class DelayShard {
 
     private void validateMessageRuntimeBranches(final DelayMessageId messageId, final MessageRecord message) {
         final GenerationRuntimeIndex index = message.runtimeIndex();
-        final RetryPolicySemanticV1 pinnedPolicy = retryPolicyCatalog == null
+        final RetryPolicySemantic pinnedPolicy = retryPolicyCatalog == null
                 ? null
                 : retryPolicyFor(messageId, message, SourcePositionCodec.decode(message.scheduleSourcePosition()));
         final int maxPublishAdmissions =
@@ -10699,7 +10686,7 @@ public final class DelayShard {
         if (value.isActive()) {
             return value.asLaneRecord();
         }
-        final LaneTerminalGuardV1 guard = value.terminalGuard();
+        final LaneTerminalGuard guard = value.terminalGuard();
         return new LaneRecord(
                 guard.laneId(),
                 guard.laneIncarnation(),
@@ -10736,9 +10723,9 @@ public final class DelayShard {
     }
 
     /**
-     * Conservative local retirement proof.  A lane is retired only when this
+     * Conservative local retirement proof. A lane is retired only when this
      * bounded scan can prove that no current message or reversible attempt
-     * still names it.  If the configured bound is exceeded we fail closed and
+     * still names it. If the configured bound is exceeded we fail closed and
      * require the recovery/GC coordinator to retry after compaction.
      */
     private boolean hasLaneRuntimeWork(final com.nereusstream.delay.protocol.DestinationLaneId laneId) {
@@ -10801,15 +10788,15 @@ public final class DelayShard {
 
     private static LaneValue decodeLaneValue(final byte[] payload) {
         Objects.requireNonNull(payload, "payload");
-        // Pre-envelope databases used the fixed LaneRecord adapter bytes.  A
+        // Pre-envelope databases used the fixed LaneRecord adapter bytes. A
         // zero first byte is the big-endian version marker, while every new
-        // protobuf envelope starts with field 1's tag (0x08).  Preserve read
+        // protobuf envelope starts with field 1's tag (0x08). Preserve read
         // compatibility without treating malformed new values as legacy data.
         if (payload.length >= 4 && payload[0] == 0) {
             LaneRecord.decode(payload);
             return LaneValue.active(payload);
         }
-        final LaneRecordEnvelopeV1 envelope = LaneRecordEnvelopeV1.decode(payload);
+        final LaneRecordEnvelope envelope = LaneRecordEnvelope.decode(payload);
         return envelope.isActive()
                 ? envelope.typedActiveState()
                         .map(LaneValue::typedActive)
@@ -10964,7 +10951,7 @@ public final class DelayShard {
                 CanonicalProtobuf.bytes(
                         output,
                         11,
-                        Bytes.sha256(Bytes.utf8("nereus-delay-claim-materialization-v1\0"), normalizedMaterialization));
+                        Bytes.sha256(Bytes.utf8("nereus-delay-claim-materialization\0"), normalizedMaterialization));
             }
             CanonicalProtobuf.bytes(output, 12, normalizedCharge);
             CanonicalProtobuf.int64(output, 13, claimDeadlineEpochMs);
@@ -11012,7 +10999,7 @@ public final class DelayShard {
 
     /**
      * Encodes the Registry TimelineWorkRef as the authoritative DUE/ORDERED
-     * value.  The older TimelineEntry pointer is accepted only when reading
+     * value. The older TimelineEntry pointer is accepted only when reading
      * pre-migration local stores; all new writes must carry the complete work
      * projection so actionAt/retry eligibility cannot drift from Message.
      */
@@ -11029,7 +11016,7 @@ public final class DelayShard {
     }
 
     /**
-     * Validates a DUE/ORDERED value against the current Message.  A v1
+     * Validates a DUE/ORDERED value against the current Message. A initial-format
      * TimelineEntry pointer is a bounded read-only migration seam; a current
      * writer's TimelineWorkRef must byte-match the Message runtime index and
      * the physical timeline key.
@@ -11153,8 +11140,8 @@ public final class DelayShard {
     private record LaneValue(
             boolean isActive,
             byte[] activeStateBytes,
-            ActiveLaneStateV1 typedActiveState,
-            LaneTerminalGuardV1 terminalGuard) {
+            ActiveLaneState typedActiveState,
+            LaneTerminalGuard terminalGuard) {
         private LaneValue {
             if (isActive == (terminalGuard != null)) {
                 throw new IllegalArgumentException("invalid lane value branch");
@@ -11180,12 +11167,12 @@ public final class DelayShard {
             return new LaneValue(true, stateBytes, null, null);
         }
 
-        private static LaneValue typedActive(final ActiveLaneStateV1 state) {
+        private static LaneValue typedActive(final ActiveLaneState state) {
             Objects.requireNonNull(state, "state");
             return new LaneValue(true, state.canonicalBytes(), state, null);
         }
 
-        private static LaneValue terminal(final LaneTerminalGuardV1 guard) {
+        private static LaneValue terminal(final LaneTerminalGuard guard) {
             return new LaneValue(false, null, null, guard);
         }
 

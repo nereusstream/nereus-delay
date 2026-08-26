@@ -1,18 +1,18 @@
 package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.ControlReasonV1;
-import com.nereusstream.delay.protocol.CredentialBindingHeadV1;
-import com.nereusstream.delay.protocol.CredentialBindingProtectionV1;
-import com.nereusstream.delay.protocol.CredentialBindingV1;
-import com.nereusstream.delay.protocol.DeprecateDestinationProfileRequestV1;
-import com.nereusstream.delay.protocol.DestinationProfileSemanticV1;
-import com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
-import com.nereusstream.delay.protocol.PublishDestinationProfileRequestV1;
-import com.nereusstream.delay.protocol.RotateEquivalentSecretRequestV1;
+import com.nereusstream.delay.protocol.ControlReason;
+import com.nereusstream.delay.protocol.CredentialBinding;
+import com.nereusstream.delay.protocol.CredentialBindingHead;
+import com.nereusstream.delay.protocol.CredentialBindingProtection;
+import com.nereusstream.delay.protocol.DeprecateDestinationProfileRequest;
+import com.nereusstream.delay.protocol.DestinationProfileSemantic;
+import com.nereusstream.delay.protocol.ObjectStoreProfileSemantic;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
+import com.nereusstream.delay.protocol.PublishDestinationProfileRequest;
+import com.nereusstream.delay.protocol.RotateEquivalentSecretRequest;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
@@ -27,10 +27,10 @@ import java.util.Objects;
  * shard activation, retained-generation quota CAS or Oxia session fencing.</p>
  */
 public final class InMemoryProfileCatalog implements ProfileCatalog {
-    private final Map<ProfileRefV1, Entry> entries = new HashMap<>();
+    private final Map<ProfileRef, Entry> entries = new HashMap<>();
 
     /** Publishes a non-credential-bearing immutable Profile exactly once. */
-    public synchronized void publish(final ProfileSemanticEnvelopeV1 profile) {
+    public synchronized void publish(final ProfileSemanticEnvelope profile) {
         Objects.requireNonNull(profile, "profile");
         if (requiresCredentialBinding(profile.profileKind())) {
             throw new IllegalArgumentException("DESTINATION and OBJECT_STORE Profiles require generation-1 binding");
@@ -39,27 +39,27 @@ public final class InMemoryProfileCatalog implements ProfileCatalog {
     }
 
     /** Publishes a credential-bearing Profile and its exact generation-1 binding. */
-    public synchronized void publish(final ProfileSemanticEnvelopeV1 profile, final CredentialBindingV1 binding) {
+    public synchronized void publish(final ProfileSemanticEnvelope profile, final CredentialBinding binding) {
         Objects.requireNonNull(profile, "profile");
         Objects.requireNonNull(binding, "binding");
         if (!requiresCredentialBinding(profile.profileKind())) {
             throw new IllegalArgumentException("only DESTINATION and OBJECT_STORE Profiles have bindings");
         }
         if (!profile.ref().equals(binding.profile())
-                || binding.secretGeneration() != PublishDestinationProfileRequestV1.INITIAL_SECRET_GENERATION) {
+                || binding.secretGeneration() != PublishDestinationProfileRequest.INITIAL_SECRET_GENERATION) {
             throw new IllegalArgumentException("Profile publication requires an exact generation-1 binding");
         }
         requireCredentialScope(profile, binding);
         putProfile(profile, binding);
     }
 
-    public synchronized void publish(final PublishDestinationProfileRequestV1 request) {
+    public synchronized void publish(final PublishDestinationProfileRequest request) {
         Objects.requireNonNull(request, "request");
         publish(request.profile(), request.credentialBinding());
     }
 
     /** Records the global deprecation intent; shard activation/close remains separate. */
-    public synchronized void deprecate(final DeprecateDestinationProfileRequestV1 request) {
+    public synchronized void deprecate(final DeprecateDestinationProfileRequest request) {
         Objects.requireNonNull(request, "request");
         final Entry entry = requireEntry(request.profile());
         if (entry.deprecationReason == null) {
@@ -74,23 +74,23 @@ public final class InMemoryProfileCatalog implements ProfileCatalog {
      * Head. A retry after the new Head is already visible is idempotent when
      * the exact derived binding is present.
      */
-    public synchronized CredentialBindingHeadV1 rotate(final RotateEquivalentSecretRequestV1 request) {
+    public synchronized CredentialBindingHead rotate(final RotateEquivalentSecretRequest request) {
         Objects.requireNonNull(request, "request");
         final Entry entry = requireEntry(request.profile());
         if (entry.head == null) {
             throw new IllegalStateException("Profile has no credential binding Head");
         }
-        final CredentialBindingV1 nextBinding = request.newBinding();
+        final CredentialBinding nextBinding = request.newBinding();
         requireCredentialScope(entry.profile, nextBinding);
-        final CredentialBindingHeadV1 current = entry.head;
+        final CredentialBindingHead current = entry.head;
         final long nextRevision = checkedIncrement(request.expectedBindingHeadRevision(), "binding Head revision");
-        final CredentialBindingV1 expectedBinding = entry.bindings.get(request.expectedSecretGeneration());
+        final CredentialBinding expectedBinding = entry.bindings.get(request.expectedSecretGeneration());
         if (current.secretGeneration() == request.newSecretGeneration()
                 && current.headRevision() == nextRevision
                 && expectedBinding != null
                 && Bytes.constantTimeEquals(expectedBinding.bindingDigest(), request.expectedBindingDigest())
                 && Bytes.constantTimeEquals(current.bindingDigest(), nextBinding.bindingDigest())) {
-            final CredentialBindingV1 existing = entry.bindings.get(request.newSecretGeneration());
+            final CredentialBinding existing = entry.bindings.get(request.newSecretGeneration());
             if (nextBinding.equals(existing)) {
                 return current;
             }
@@ -105,16 +105,15 @@ public final class InMemoryProfileCatalog implements ProfileCatalog {
                 || !Bytes.constantTimeEquals(current.bindingDigest(), request.expectedBindingDigest())) {
             throw new IllegalStateException("credential binding Head CAS precondition failed");
         }
-        final CredentialBindingV1 existing = entry.bindings.get(request.newSecretGeneration());
+        final CredentialBinding existing = entry.bindings.get(request.newSecretGeneration());
         if (existing != null && !existing.equals(nextBinding)) {
             throw new IllegalStateException("credential generation already has different immutable bytes");
         }
-        final CredentialBindingHeadV1 nextHead = CredentialBindingHeadV1.forBinding(nextBinding, nextRevision);
+        final CredentialBindingHead nextHead = CredentialBindingHead.forBinding(nextBinding, nextRevision);
         if (existing == null) {
             entry.bindings.put(request.newSecretGeneration(), nextBinding);
             entry.protections.put(
-                    request.newSecretGeneration(),
-                    CredentialBindingProtectionV1.forBinding(nextBinding, 0, 0, 0, 0, 1));
+                    request.newSecretGeneration(), CredentialBindingProtection.forBinding(nextBinding, 0, 0, 0, 0, 1));
         } else if (!entry.protections.containsKey(request.newSecretGeneration())) {
             throw new IllegalStateException("credential generation is missing its protection record");
         }
@@ -123,14 +122,14 @@ public final class InMemoryProfileCatalog implements ProfileCatalog {
     }
 
     @Override
-    public synchronized ProfileSemanticEnvelopeV1 resolve(final ProfileRefV1 reference) {
+    public synchronized ProfileSemanticEnvelope resolve(final ProfileRef reference) {
         Objects.requireNonNull(reference, "reference");
         final Entry entry = entries.get(reference);
         return entry != null && entry.profile.ref().equals(reference) ? entry.profile : null;
     }
 
     @Override
-    public synchronized CredentialBindingV1 resolveBinding(final ProfileRefV1 profile, final long secretGeneration) {
+    public synchronized CredentialBinding resolveBinding(final ProfileRef profile, final long secretGeneration) {
         Objects.requireNonNull(profile, "profile");
         if (secretGeneration == 0) {
             throw new IllegalArgumentException("secretGeneration must be non-zero");
@@ -140,15 +139,15 @@ public final class InMemoryProfileCatalog implements ProfileCatalog {
     }
 
     @Override
-    public synchronized CredentialBindingHeadV1 resolveHead(final ProfileRefV1 profile) {
+    public synchronized CredentialBindingHead resolveHead(final ProfileRef profile) {
         Objects.requireNonNull(profile, "profile");
         final Entry entry = entries.get(profile);
         return entry == null ? null : entry.head;
     }
 
     @Override
-    public synchronized CredentialBindingProtectionV1 resolveProtection(
-            final ProfileRefV1 profile, final long secretGeneration) {
+    public synchronized CredentialBindingProtection resolveProtection(
+            final ProfileRef profile, final long secretGeneration) {
         Objects.requireNonNull(profile, "profile");
         if (secretGeneration == 0) {
             throw new IllegalArgumentException("secretGeneration must be non-zero");
@@ -157,13 +156,13 @@ public final class InMemoryProfileCatalog implements ProfileCatalog {
         return entry == null ? null : entry.protections.get(secretGeneration);
     }
 
-    public synchronized boolean isDeprecated(final ProfileRefV1 profile) {
+    public synchronized boolean isDeprecated(final ProfileRef profile) {
         Objects.requireNonNull(profile, "profile");
         final Entry entry = entries.get(profile);
         return entry != null && entry.deprecationReason != null;
     }
 
-    public synchronized ControlReasonV1 deprecationReason(final ProfileRefV1 profile) {
+    public synchronized ControlReason deprecationReason(final ProfileRef profile) {
         Objects.requireNonNull(profile, "profile");
         final Entry entry = entries.get(profile);
         return entry == null ? null : entry.deprecationReason;
@@ -179,8 +178,8 @@ public final class InMemoryProfileCatalog implements ProfileCatalog {
                 .sum();
     }
 
-    private void putProfile(final ProfileSemanticEnvelopeV1 profile, final CredentialBindingV1 binding) {
-        final ProfileRefV1 reference = profile.ref();
+    private void putProfile(final ProfileSemanticEnvelope profile, final CredentialBinding binding) {
+        final ProfileRef reference = profile.ref();
         final Entry existing = entries.get(reference);
         if (existing != null) {
             if (!existing.profile.equals(profile)
@@ -189,7 +188,7 @@ public final class InMemoryProfileCatalog implements ProfileCatalog {
             }
             return;
         }
-        for (ProfileRefV1 existingReference : entries.keySet()) {
+        for (ProfileRef existingReference : entries.keySet()) {
             if (sameVersion(existingReference, reference)) {
                 throw new IllegalStateException("Profile version already has another semantic hash");
             }
@@ -198,13 +197,13 @@ public final class InMemoryProfileCatalog implements ProfileCatalog {
         if (binding != null) {
             entry.bindings.put(binding.secretGeneration(), binding);
             entry.protections.put(
-                    binding.secretGeneration(), CredentialBindingProtectionV1.forBinding(binding, 0, 0, 0, 0, 1));
-            entry.head = CredentialBindingHeadV1.forBinding(binding, 1);
+                    binding.secretGeneration(), CredentialBindingProtection.forBinding(binding, 0, 0, 0, 0, 1));
+            entry.head = CredentialBindingHead.forBinding(binding, 1);
         }
         entries.put(reference, entry);
     }
 
-    private Entry requireEntry(final ProfileRefV1 reference) {
+    private Entry requireEntry(final ProfileRef reference) {
         final Entry entry = entries.get(reference);
         if (entry == null || !entry.profile.ref().equals(reference)) {
             throw new IllegalStateException("Profile is not published with exact semantic bytes");
@@ -212,16 +211,15 @@ public final class InMemoryProfileCatalog implements ProfileCatalog {
         return entry;
     }
 
-    private static boolean requiresCredentialBinding(final ProfileKindV1 kind) {
-        return kind == ProfileKindV1.DESTINATION || kind == ProfileKindV1.OBJECT_STORE;
+    private static boolean requiresCredentialBinding(final ProfileKind kind) {
+        return kind == ProfileKind.DESTINATION || kind == ProfileKind.OBJECT_STORE;
     }
 
-    private static void requireCredentialScope(
-            final ProfileSemanticEnvelopeV1 profile, final CredentialBindingV1 binding) {
+    private static void requireCredentialScope(final ProfileSemanticEnvelope profile, final CredentialBinding binding) {
         final byte[] expectedScope;
-        if (profile.body() instanceof DestinationProfileSemanticV1 destination) {
+        if (profile.body() instanceof DestinationProfileSemantic destination) {
             expectedScope = destination.credentialAuthorizationScopeDigest();
-        } else if (profile.body() instanceof ObjectStoreProfileSemanticV1 objectStore) {
+        } else if (profile.body() instanceof ObjectStoreProfileSemantic objectStore) {
             expectedScope = objectStore.credentialAuthorizationScopeDigest();
         } else {
             throw new IllegalArgumentException("credential binding Profile body is not bindable");
@@ -229,7 +227,7 @@ public final class InMemoryProfileCatalog implements ProfileCatalog {
         binding.equivalenceAttestation().requireAuthorizationScopeDigest(expectedScope);
     }
 
-    private static boolean sameVersion(final ProfileRefV1 left, final ProfileRefV1 right) {
+    private static boolean sameVersion(final ProfileRef left, final ProfileRef right) {
         return left.profileKind() == right.profileKind()
                 && left.version() == right.version()
                 && Arrays.equals(left.profileId(), right.profileId());
@@ -243,13 +241,13 @@ public final class InMemoryProfileCatalog implements ProfileCatalog {
     }
 
     private static final class Entry {
-        private final ProfileSemanticEnvelopeV1 profile;
-        private final Map<Long, CredentialBindingV1> bindings = new HashMap<>();
-        private final Map<Long, CredentialBindingProtectionV1> protections = new HashMap<>();
-        private CredentialBindingHeadV1 head;
-        private ControlReasonV1 deprecationReason;
+        private final ProfileSemanticEnvelope profile;
+        private final Map<Long, CredentialBinding> bindings = new HashMap<>();
+        private final Map<Long, CredentialBindingProtection> protections = new HashMap<>();
+        private CredentialBindingHead head;
+        private ControlReason deprecationReason;
 
-        private Entry(final ProfileSemanticEnvelopeV1 profile) {
+        private Entry(final ProfileSemanticEnvelope profile) {
             this.profile = Objects.requireNonNull(profile, "profile");
         }
     }

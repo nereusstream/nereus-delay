@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 class ExternalResourceBranchTest {
     @Test
     void kafkaReceiptSlotPreservesTypedIdentityAndRawUnsignedFields() {
-        final KafkaReceiptSlotResourceV1 resource = new KafkaReceiptSlotResourceV1(
+        final KafkaReceiptSlotResource resource = new KafkaReceiptSlotResource(
                 "cluster",
                 UUID.fromString("00000000-0000-0000-0000-000000000004"),
                 new RouteIncarnation(bytes(16, 2)),
@@ -18,7 +18,7 @@ class ExternalResourceBranchTest {
                 0x8000_0001,
                 Long.MIN_VALUE);
 
-        final KafkaReceiptSlotResourceV1 decoded = KafkaReceiptSlotResourceV1.decode(resource.canonicalBytes());
+        final KafkaReceiptSlotResource decoded = KafkaReceiptSlotResource.decode(resource.canonicalBytes());
         assertEquals(resource, decoded);
         assertArrayEquals(resource.canonicalBytes(), decoded.canonicalBytes());
         assertEquals(0x8000_0003, decoded.shardPartition());
@@ -32,26 +32,26 @@ class ExternalResourceBranchTest {
 
     @Test
     void pulsarJournalGenerationRequiresPulsarResourceAndRoundTrips() {
-        final BrokerResourceIdentityV1 broker = BrokerResourceIdentityV1.pulsar(
-                new PulsarBrokerResourceIdentityV1("cluster", bytes(32, 3), "journal", Long.MIN_VALUE));
-        final PulsarJournalGenerationResourceV1 resource =
-                new PulsarJournalGenerationResourceV1(broker, 0x8000_0005, Long.MIN_VALUE);
+        final BrokerResourceIdentity broker = BrokerResourceIdentity.pulsar(
+                new PulsarBrokerResourceIdentity("cluster", bytes(32, 3), "journal", Long.MIN_VALUE));
+        final PulsarJournalGenerationResource resource =
+                new PulsarJournalGenerationResource(broker, 0x8000_0005, Long.MIN_VALUE);
 
-        assertEquals(resource, PulsarJournalGenerationResourceV1.decode(resource.canonicalBytes()));
+        assertEquals(resource, PulsarJournalGenerationResource.decode(resource.canonicalBytes()));
         final ResourceRetireIntentBody.ExactResourceIdentity identity = ResourceRetireIntentBody.decodeResourceIdentity(
                 ResourceKind.PULSAR_JOURNAL_GENERATION, resource.exactResourceCanonicalBytes());
         assertArrayEquals(resource.exactResourceCanonicalBytes(), identity.canonicalBytes());
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new PulsarJournalGenerationResourceV1(
-                        BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1("cluster", UUID.randomUUID())),
+                () -> new PulsarJournalGenerationResource(
+                        BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity("cluster", UUID.randomUUID())),
                         0,
                         1));
     }
 
     @Test
     void payloadObjectRoundTripsOptionalEtagAndRejectsWrongProfileKind() {
-        final PayloadObjectResourceV1 resource = new PayloadObjectResourceV1(
+        final PayloadObjectResource resource = new PayloadObjectResource(
                 objectStoreProfile(),
                 Bytes.utf8("container"),
                 Bytes.utf8("payload/key"),
@@ -60,7 +60,7 @@ class ExternalResourceBranchTest {
                 123,
                 bytes(32, 11));
 
-        final PayloadObjectResourceV1 decoded = PayloadObjectResourceV1.decode(resource.canonicalBytes());
+        final PayloadObjectResource decoded = PayloadObjectResource.decode(resource.canonicalBytes());
         assertEquals(resource, decoded);
         assertNull(decoded.etag());
         final ResourceRetireIntentBody.ExactResourceIdentity identity = ResourceRetireIntentBody.decodeResourceIdentity(
@@ -68,8 +68,8 @@ class ExternalResourceBranchTest {
         assertArrayEquals(resource.exactResourceCanonicalBytes(), identity.canonicalBytes());
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new PayloadObjectResourceV1(
-                        new ProfileRefV1(Bytes.utf8("destination"), 1, bytes(32, 12), ProfileKindV1.DESTINATION),
+                () -> new PayloadObjectResource(
+                        new ProfileRef(Bytes.utf8("destination"), 1, bytes(32, 12), ProfileKind.DESTINATION),
                         Bytes.utf8("container"),
                         Bytes.utf8("key"),
                         Bytes.utf8("version"),
@@ -80,13 +80,13 @@ class ExternalResourceBranchTest {
 
     @Test
     void dlqExportRoundTripsWithTypedBrokerTarget() {
-        final DlqExportResourceV1 resource = new DlqExportResourceV1(
+        final DlqExportResource resource = new DlqExportResource(
                 bytes(32, 14),
-                BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1("cluster", UUID.randomUUID())),
+                BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity("cluster", UUID.randomUUID())),
                 Bytes.utf8("object-or-message-id"),
                 bytes(32, 15));
 
-        assertEquals(resource, DlqExportResourceV1.decode(resource.canonicalBytes()));
+        assertEquals(resource, DlqExportResource.decode(resource.canonicalBytes()));
         final ResourceRetireIntentBody.ExactResourceIdentity identity = ResourceRetireIntentBody.decodeResourceIdentity(
                 ResourceKind.DLQ_EXPORT_OBJECT, resource.exactResourceCanonicalBytes());
         assertArrayEquals(resource.exactResourceCanonicalBytes(), identity.canonicalBytes());
@@ -94,10 +94,10 @@ class ExternalResourceBranchTest {
 
     @Test
     void laneChannelRoundTripsThroughTypedChannelIdentity() {
-        final LaneChannelResourceV1 resource = new LaneChannelResourceV1(
-                ChannelResourceIdentityV1.decode(ProtocolTestFixtures.baselineKafkaChannel()));
+        final LaneChannelResource resource =
+                new LaneChannelResource(ChannelResourceIdentity.decode(ProtocolTestFixtures.baselineKafkaChannel()));
 
-        assertEquals(resource, LaneChannelResourceV1.decode(resource.canonicalBytes()));
+        assertEquals(resource, LaneChannelResource.decode(resource.canonicalBytes()));
         final ResourceRetireIntentBody.ExactResourceIdentity identity = ResourceRetireIntentBody.decodeResourceIdentity(
                 ResourceKind.LANE_CHANNEL, resource.exactResourceCanonicalBytes());
         assertArrayEquals(resource.exactResourceCanonicalBytes(), identity.canonicalBytes());
@@ -105,13 +105,13 @@ class ExternalResourceBranchTest {
 
     @Test
     void localStoreRoundTripsShardIdentityAndDbIdentity() {
-        final LocalStoreResourceV1 resource = new LocalStoreResourceV1(
-                new ShardSubjectV1(new RouteIncarnation(bytes(16, 16)), 0x8000_0007),
+        final LocalStoreResource resource = new LocalStoreResource(
+                new ShardSubject(new RouteIncarnation(bytes(16, 16)), 0x8000_0007),
                 bytes(16, 17),
                 bytes(32, 18),
                 bytes(32, 19));
 
-        final LocalStoreResourceV1 decoded = LocalStoreResourceV1.decode(resource.canonicalBytes());
+        final LocalStoreResource decoded = LocalStoreResource.decode(resource.canonicalBytes());
         assertEquals(resource, decoded);
         assertEquals(0x8000_0007, decoded.shard().partition());
         final ResourceRetireIntentBody.ExactResourceIdentity identity = ResourceRetireIntentBody.decodeResourceIdentity(
@@ -119,8 +119,8 @@ class ExternalResourceBranchTest {
         assertArrayEquals(resource.exactResourceCanonicalBytes(), identity.canonicalBytes());
     }
 
-    private static ProfileRefV1 objectStoreProfile() {
-        return new ProfileRefV1(Bytes.utf8("object-store"), 1, bytes(32, 10), ProfileKindV1.OBJECT_STORE);
+    private static ProfileRef objectStoreProfile() {
+        return new ProfileRef(Bytes.utf8("object-store"), 1, bytes(32, 10), ProfileKind.OBJECT_STORE);
     }
 
     private static byte[] bytes(final int length, final int firstByte) {

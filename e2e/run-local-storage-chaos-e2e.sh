@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 delay_dir="$(cd "${script_dir}/.." && pwd)"
-artifact_dir="${NEREUS_DELAY_STORAGE_CHAOS_ARTIFACT_DIR:-/private/tmp/nereus-delay-v1-local-storage-chaos-$(date +%Y%m%d-%H%M%S)}"
+artifact_dir="${NEREUS_DELAY_STORAGE_CHAOS_ARTIFACT_DIR:-/private/tmp/nereus-delay-local-storage-chaos-$(date +%Y%m%d-%H%M%S)}"
 gradle_home="${NEREUS_DELAY_STORAGE_CHAOS_GRADLE_USER_HOME:-${GRADLE_USER_HOME:-}}"
 if [[ -z "${gradle_home}" ]]; then
   gradle_home="${artifact_dir}/gradle-user-home"
@@ -132,7 +132,7 @@ run_disaster_cell() {
   set -e
   jq -n --argjson pid "${before_pid}" --arg signal "SIGKILL" --argjson signal_number 9 \
     --argjson kill_exit "${kill_exit}" \
-    '{schema:"nereus-delay-storage-chaos-kill-receipt-v1",fault:"DISASTER_HOST_FAULT",
+    '{schema:"nereus-delay-storage-chaos-kill-receipt",fault:"DISASTER_HOST_FAULT",
       target_process_pid:$pid,signal:$signal,signal_number:$signal_number,kill_exit:$kill_exit,exact_target:true}' \
     >"${cell_dir}/kill-receipt.json"
   /opt/homebrew/bin/gio trash -- "${hold_file}"
@@ -194,7 +194,7 @@ validate_cell() {
       fsync-error)
         if [[ "${before_exit}" == "0" && "${after_exit}" == "0" ]] \
           && jq -e \
-            '.schema == "nereus-delay-storage-chaos-durable-state-dump-v1"
+            '.schema == "nereus-delay-storage-chaos-durable-state-dump"
              and .cell == "fsync-error"
              and .phase == "BEFORE_FRESH_PROCESS_RECOVERY"
              and .fault == "FSYNC_ERROR"
@@ -204,7 +204,7 @@ validate_cell() {
              and .write_outcome_uncertain == true
              and .value_written_before_fault == true' "${cell_dir}/before.json" >/dev/null \
           && jq -e \
-            '.schema == "nereus-delay-storage-chaos-durable-state-dump-v1"
+            '.schema == "nereus-delay-storage-chaos-durable-state-dump"
              and .cell == "fsync-error"
              and .phase == "RECOVERED_AFTER_FRESH_PROCESS"
              and .fault == "FSYNC_ERROR"
@@ -221,7 +221,7 @@ validate_cell() {
       sst-corruption)
         if [[ "${before_exit}" == "0" && "${after_exit}" == "0" ]] \
           && jq -e \
-            '.schema == "nereus-delay-storage-chaos-durable-state-dump-v1"
+            '.schema == "nereus-delay-storage-chaos-durable-state-dump"
              and .cell == "sst-corruption"
              and .phase == "BEFORE_FRESH_PROCESS_RECOVERY"
              and .fault == "SST_CORRUPTION"
@@ -231,7 +231,7 @@ validate_cell() {
              and (.clean_checkpoint_file_count | type == "number" and . >= 1)' \
             "${cell_dir}/before.json" >/dev/null \
           && jq -e \
-            '.schema == "nereus-delay-storage-chaos-durable-state-dump-v1"
+            '.schema == "nereus-delay-storage-chaos-durable-state-dump"
              and .cell == "sst-corruption"
              and .phase == "RECOVERED_AFTER_FRESH_PROCESS"
              and .fault == "SST_CORRUPTION"
@@ -249,7 +249,7 @@ validate_cell() {
       disaster-host-fault)
         if [[ "${after_exit}" == "0" && -s "${cell_dir}/kill-receipt.json" ]] \
           && jq -e \
-            '.schema == "nereus-delay-storage-chaos-durable-state-dump-v1"
+            '.schema == "nereus-delay-storage-chaos-durable-state-dump"
              and .cell == "disaster-host-fault"
              and .phase == "BEFORE_FRESH_PROCESS_RECOVERY"
              and .fault == "DISASTER_HOST_FAULT"
@@ -258,7 +258,7 @@ validate_cell() {
              and .host_fault_pending == true
              and .store_left_open_for_host_fault == true' "${cell_dir}/before.json" >/dev/null \
           && jq -e \
-            '.schema == "nereus-delay-storage-chaos-kill-receipt-v1"
+            '.schema == "nereus-delay-storage-chaos-kill-receipt"
              and .fault == "DISASTER_HOST_FAULT"
              and .signal == "SIGKILL"
              and .signal_number == 9
@@ -267,7 +267,7 @@ validate_cell() {
             --argjson before_pid "$(jq -er '.process_pid' "${cell_dir}/before.json")" \
             "${cell_dir}/kill-receipt.json" >/dev/null \
           && jq -e \
-            '.schema == "nereus-delay-storage-chaos-durable-state-dump-v1"
+            '.schema == "nereus-delay-storage-chaos-durable-state-dump"
              and .cell == "disaster-host-fault"
              and .phase == "RECOVERED_AFTER_FRESH_PROCESS"
              and .fault == "DISASTER_HOST_FAULT"
@@ -286,7 +286,7 @@ validate_cell() {
       enospc)
         if [[ "${before_exit}" == "0" && "${after_exit}" == "0" ]] \
           && jq -e \
-            '.schema == "nereus-delay-storage-chaos-durable-state-dump-v1"
+            '.schema == "nereus-delay-storage-chaos-durable-state-dump"
              and .cell == "enospc"
              and .phase == "BEFORE_FRESH_PROCESS_RECOVERY"
              and .fault == "ENOSPC"
@@ -298,7 +298,7 @@ validate_cell() {
              and (.filler_records_attempted | type == "number" and . >= 1)' \
             "${cell_dir}/before.json" >/dev/null \
           && jq -e \
-            '.schema == "nereus-delay-storage-chaos-durable-state-dump-v1"
+            '.schema == "nereus-delay-storage-chaos-durable-state-dump"
              and .cell == "enospc"
              and .phase == "RECOVERED_AFTER_FRESH_PROCESS"
              and .fault == "ENOSPC"
@@ -341,7 +341,7 @@ summary_tmp="${artifact_dir}/local-storage-chaos-e2e.json.tmp"
 jq -n --arg status "${overall_status}" --arg artifact "${artifact_dir}" \
   --arg delay "${delay_sha}" --argjson cells "${cells_json}" \
   '{
-    schema:"nereus-delay-local-storage-chaos-e2e-v1",
+    schema:"nereus-delay-local-storage-chaos-e2e",
     status:$status,
     source_locks:{delay:$delay},
     scope:"fsync-error,sst-corruption,enospc,disaster-host-fault",

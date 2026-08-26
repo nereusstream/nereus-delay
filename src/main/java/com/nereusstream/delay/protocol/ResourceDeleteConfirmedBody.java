@@ -5,7 +5,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
-/** Canonical semantic parser for {@code RESOURCE_DELETE_CONFIRMED_V1}. */
+/** Canonical semantic parser for {@code RESOURCE_DELETE_CONFIRMED}. */
 public final class ResourceDeleteConfirmedBody {
     private static final int HASH_LENGTH = 32;
 

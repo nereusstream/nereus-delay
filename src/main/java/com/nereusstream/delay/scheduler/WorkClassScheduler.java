@@ -11,9 +11,9 @@ import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
 /**
- * Local bounded scheduler for the V1 Worker event-loop work classes.
+ * Local bounded scheduler for the Worker event-loop work classes.
  *
- * <p>This primitive owns queue and turn accounting only.  It deliberately
+ * <p>This primitive owns queue and turn accounting only. It deliberately
  * does not execute callbacks, perform WriteBatch admission, or grant shared
  * I/O tokens; production Worker wiring must compose those authorities around
  * the returned bounded task list.</p>
@@ -27,7 +27,7 @@ public final class WorkClassScheduler {
     private long lastClockNanos;
     /**
      * A preemptive class may take the first bounded turn, but a continuously
-     * queued preemptive class must yield a later turn to ordinary work.  Keep
+     * queued preemptive class must yield a later turn to ordinary work. Keep
      * this debt across small caller polls; otherwise a maxMessages=1 caller
      * could starve every non-preemptive class forever.
      */
@@ -39,7 +39,7 @@ public final class WorkClassScheduler {
             final LongSupplier clockNanos) {
         Objects.requireNonNull(policies, "policies");
         if (!EnumSet.allOf(WorkClass.class).equals(policies.keySet())) {
-            throw new IllegalArgumentException("policies must cover every V1 work class exactly");
+            throw new IllegalArgumentException("policies must cover every work class exactly");
         }
         if (maxEventLoopClassDelayNanos <= 0) {
             throw new IllegalArgumentException("maxEventLoopClassDelayNanos must be positive");
@@ -73,13 +73,13 @@ public final class WorkClassScheduler {
 
     /**
      * Polls a bounded turn and invokes {@code beforeRemove} immediately before
-     * each selected head is removed.  The callback is part of the same local
+     * each selected head is removed. The callback is part of the same local
      * mutation boundary: if it rejects a task, the complete scheduler snapshot
      * is restored and no selected task is returned.
      *
      * <p>This hook lets a Worker compose queue selection with a separate
      * resource-token authority without acquiring tokens for work that remains
-     * queued.  The callback must not execute the task.</p>
+     * queued. The callback must not execute the task.</p>
      */
     synchronized List<WorkClassTask> poll(final SchedulerBudget budget, final Consumer<WorkClassTask> beforeRemove) {
         Objects.requireNonNull(budget, "budget");
@@ -111,7 +111,7 @@ public final class WorkClassScheduler {
                     break;
                 }
                 final ClassState state = states.get(order.get(selected));
-                // Read the service timestamp before mutating the queue.  A clock
+                // Read the service timestamp before mutating the queue. A clock
                 // regression/invalid sample must fail closed without losing a
                 // durable-looking head from the in-memory bounded queue.
                 final long servedAtNanos = readClock();
@@ -136,7 +136,7 @@ public final class WorkClassScheduler {
             }
             return List.copyOf(result);
         } catch (RuntimeException | Error failure) {
-            // A bounded poll is one scheduler mutation boundary.  If a later
+            // A bounded poll is one scheduler mutation boundary. If a later
             // clock sample or arithmetic/selection check fails after an item
             // was removed, the caller receives no result list; restore the
             // exact queue, credit, cursor and fairness projection instead of
@@ -156,7 +156,7 @@ public final class WorkClassScheduler {
 
     /**
      * Restores tasks that left a bounded poll but whose handlers were never
-     * invoked.  The caller supplies the original selection order; reversing
+     * invoked. The caller supplies the original selection order; reversing
      * the insertion preserves every class-local FIFO ahead of work offered
      * while the turn was active.
      */

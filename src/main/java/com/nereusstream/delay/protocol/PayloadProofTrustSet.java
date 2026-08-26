@@ -34,11 +34,11 @@ public final class PayloadProofTrustSet {
     }
 
     /** Builds the local verifier adapter from the canonical Registry semantic value. */
-    public static PayloadProofTrustSet fromSemantic(final PayloadProofTrustSetSemanticV1 semantic) {
+    public static PayloadProofTrustSet fromSemantic(final PayloadProofTrustSetSemantic semantic) {
         Objects.requireNonNull(semantic, "semantic");
         final Map<Integer, PublicKey> keys = new HashMap<>();
         final Map<Integer, KeyWindow> windows = new HashMap<>();
-        for (PayloadProofVerifierKeyV1 key : semantic.keys()) {
+        for (PayloadProofVerifierKey key : semantic.keys()) {
             keys.put(key.keyVersion(), key.toPublicKey());
             windows.put(key.keyVersion(), new KeyWindow(key.verifyNotBeforeEpochMs(), key.verifyNotAfterEpochMs()));
         }

@@ -15,7 +15,7 @@ import org.rocksdb.RocksDBException;
 /**
  * A point-in-time physical usage observation for one open shard database.
  *
- * <p>The values are observations, not reservations.  They are deliberately
+ * <p>The values are observations, not reservations. They are deliberately
  * kept separate from the immutable capacity grant because RocksDB can change
  * WAL/SST/manifest state between two observations.</p>
  */

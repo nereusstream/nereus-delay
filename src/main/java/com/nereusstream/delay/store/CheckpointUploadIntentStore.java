@@ -1,8 +1,8 @@
 package com.nereusstream.delay.store;
 
-import com.nereusstream.delay.protocol.CheckpointResourceV1;
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
+import com.nereusstream.delay.protocol.CheckpointResource;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -22,7 +22,7 @@ import java.util.Optional;
  *
  * <p>The production protocol stores this value in Oxia and compares the
  * active Owner Lease/session, lineage head and catalog generation in the same
- * transaction.  This class only supplies the exact value/state transition
+ * transaction. This class only supplies the exact value/state transition
  * semantics for local tests and embedded orchestration; it does not upload,
  * publish, delete or attest an Object Store object.</p>
  */
@@ -33,10 +33,10 @@ public final class CheckpointUploadIntentStore implements CheckpointUploadIntent
     private static final int DIGEST_LENGTH = 32;
     private static final int MAX_INTENT_BYTES = 8 * 1024 * 1024;
     private static final byte[] DIGEST_DOMAIN =
-            com.nereusstream.delay.protocol.Bytes.utf8("nereus-delay-checkpoint-upload-intent-state-v1\0");
+            com.nereusstream.delay.protocol.Bytes.utf8("nereus-delay-checkpoint-upload-intent-state\0");
     private static final Object JVM_LOCK = new Object();
 
-    private CheckpointUploadIntentV1 current;
+    private CheckpointUploadIntent current;
     private final Path stateFile;
 
     /** Creates the process-local in-memory projection used by embedded tests. */
@@ -47,9 +47,9 @@ public final class CheckpointUploadIntentStore implements CheckpointUploadIntent
     /**
      * Creates a crash-durable local projection backed by one state file.
      *
-     * <p>The file is an implementation-local recovery seam.  It is not the
+     * <p>The file is an implementation-local recovery seam. It is not the
      * production Oxia upload-intent authority or an Object Store publication
-     * record.  Callers must provide a path dedicated to this one intent.</p>
+     * record. Callers must provide a path dedicated to this one intent.</p>
      */
     public CheckpointUploadIntentStore(final Path stateFile) {
         this.stateFile = normalizeStateFile(stateFile);
@@ -61,14 +61,14 @@ public final class CheckpointUploadIntentStore implements CheckpointUploadIntent
     }
 
     /**
-     * Creates a PENDING_UPLOAD intent.  A retry with byte-identical intent is
+     * Creates a PENDING_UPLOAD intent. A retry with byte-identical intent is
      * idempotent; a different value cannot replace the active intent.
      */
-    public synchronized CheckpointUploadIntentV1 create(final CheckpointUploadIntentV1 pending) {
+    public synchronized CheckpointUploadIntent create(final CheckpointUploadIntent pending) {
         Objects.requireNonNull(pending, "pending");
-        requireState(pending, CheckpointUploadStateV1.PENDING_UPLOAD);
+        requireState(pending, CheckpointUploadState.PENDING_UPLOAD);
         return withExclusiveLock(() -> {
-            final CheckpointUploadIntentV1 existing = readCurrent();
+            final CheckpointUploadIntent existing = readCurrent();
             if (existing == null) {
                 writeCurrent(pending);
                 return pending;
@@ -82,18 +82,17 @@ public final class CheckpointUploadIntentStore implements CheckpointUploadIntent
 
     /**
      * Atomically projects PENDING_UPLOAD to PUBLISHED after an exact expected
-     * value match.  The resource identity is additionally checked by the
+     * value match. The resource identity is additionally checked by the
      * immutable intent codec.
      */
-    public synchronized CheckpointUploadIntentV1 publish(
-            final CheckpointUploadIntentV1 expectedPending, final CheckpointResourceV1 resource) {
+    public synchronized CheckpointUploadIntent publish(
+            final CheckpointUploadIntent expectedPending, final CheckpointResource resource) {
         Objects.requireNonNull(expectedPending, "expectedPending");
-        requireState(expectedPending, CheckpointUploadStateV1.PENDING_UPLOAD);
+        requireState(expectedPending, CheckpointUploadState.PENDING_UPLOAD);
         Objects.requireNonNull(resource, "resource");
         return withExclusiveLock(() -> {
             requireExpectedPending(expectedPending, readCurrent());
-            final CheckpointUploadIntentV1 next =
-                    next(expectedPending, CheckpointUploadStateV1.PUBLISHED, resource, null);
+            final CheckpointUploadIntent next = next(expectedPending, CheckpointUploadState.PUBLISHED, resource, null);
             writeCurrent(next);
             return next;
         });
@@ -104,47 +103,46 @@ public final class CheckpointUploadIntentStore implements CheckpointUploadIntent
      * A different pending value, revision or resource identity is not treated
      * as the caller's response.
      */
-    public synchronized Optional<CheckpointUploadIntentV1> currentPublishedFor(
-            final CheckpointUploadIntentV1 expectedPending) {
+    public synchronized Optional<CheckpointUploadIntent> currentPublishedFor(
+            final CheckpointUploadIntent expectedPending) {
         Objects.requireNonNull(expectedPending, "expectedPending");
-        requireState(expectedPending, CheckpointUploadStateV1.PENDING_UPLOAD);
+        requireState(expectedPending, CheckpointUploadState.PENDING_UPLOAD);
         return withExclusiveLock(() -> {
-            final CheckpointUploadIntentV1 existing = readCurrent();
-            if (existing == null || existing.state() != CheckpointUploadStateV1.PUBLISHED) {
+            final CheckpointUploadIntent existing = readCurrent();
+            if (existing == null || existing.state() != CheckpointUploadState.PUBLISHED) {
                 return Optional.empty();
             }
-            final CheckpointUploadIntentV1 expectedPublished =
-                    next(expectedPending, CheckpointUploadStateV1.PUBLISHED, existing.publishedManifest(), null);
+            final CheckpointUploadIntent expectedPublished =
+                    next(expectedPending, CheckpointUploadState.PUBLISHED, existing.publishedManifest(), null);
             return existing.equals(expectedPublished) ? Optional.of(existing) : Optional.empty();
         });
     }
 
     /**
-     * Atomically competes for the PENDING_UPLOAD to REAPING transition.  The
+     * Atomically competes for the PENDING_UPLOAD to REAPING transition. The
      * evidence is retained in the value so a later reaper cannot treat a
-     * deadline alone as delete authority.  The local projection enforces the
+     * deadline alone as delete authority. The local projection enforces the
      * trusted-time lower bound; the caller must still prove owner abandonment
      * or lease loss through the external authority before invoking it.
      */
-    public synchronized CheckpointUploadIntentV1 beginReaping(
-            final CheckpointUploadIntentV1 expectedPending, final TrustedUtcIntervalEvidence evidence) {
+    public synchronized CheckpointUploadIntent beginReaping(
+            final CheckpointUploadIntent expectedPending, final TrustedUtcIntervalEvidence evidence) {
         Objects.requireNonNull(expectedPending, "expectedPending");
-        requireState(expectedPending, CheckpointUploadStateV1.PENDING_UPLOAD);
+        requireState(expectedPending, CheckpointUploadState.PENDING_UPLOAD);
         Objects.requireNonNull(evidence, "evidence");
         evidence.requireEarliestAtLeast(expectedPending.uploadDeadlineEpochMs());
         return withExclusiveLock(() -> {
-            final CheckpointUploadIntentV1 existing = readCurrent();
-            if (existing != null && existing.state() == CheckpointUploadStateV1.REAPING) {
-                final CheckpointUploadIntentV1 expectedReaping =
-                        next(expectedPending, CheckpointUploadStateV1.REAPING, null, evidence);
+            final CheckpointUploadIntent existing = readCurrent();
+            if (existing != null && existing.state() == CheckpointUploadState.REAPING) {
+                final CheckpointUploadIntent expectedReaping =
+                        next(expectedPending, CheckpointUploadState.REAPING, null, evidence);
                 if (existing.equals(expectedReaping)) {
                     return existing;
                 }
                 throw new IllegalStateException("checkpoint reaping successor does not match current state");
             }
             requireExpectedPending(expectedPending, existing);
-            final CheckpointUploadIntentV1 next =
-                    next(expectedPending, CheckpointUploadStateV1.REAPING, null, evidence);
+            final CheckpointUploadIntent next = next(expectedPending, CheckpointUploadState.REAPING, null, evidence);
             writeCurrent(next);
             return next;
         });
@@ -157,8 +155,8 @@ public final class CheckpointUploadIntentStore implements CheckpointUploadIntent
      * callers must combine it with owner-abandonment, provider quiescence and
      * exact-version delete authority.
      */
-    public synchronized CheckpointUploadIntentV1 beginReaping(
-            final CheckpointUploadIntentV1 expectedPending,
+    public synchronized CheckpointUploadIntent beginReaping(
+            final CheckpointUploadIntent expectedPending,
             final TrustedUtcIntervalEvidence evidence,
             final RecoveryCatalogAuthority catalog) {
         final CheckpointReapingGuard.Decision decision =
@@ -170,29 +168,29 @@ public final class CheckpointUploadIntentStore implements CheckpointUploadIntent
     }
 
     /** Returns the current local projection, if an intent has been created. */
-    public synchronized Optional<CheckpointUploadIntentV1> current() {
+    public synchronized Optional<CheckpointUploadIntent> current() {
         return withExclusiveLock(() -> Optional.ofNullable(readCurrent()));
     }
 
     @Override
-    public synchronized Optional<CheckpointUploadIntentV1> current(final CheckpointUploadIntentV1 identity) {
+    public synchronized Optional<CheckpointUploadIntent> current(final CheckpointUploadIntent identity) {
         Objects.requireNonNull(identity, "identity");
         return withExclusiveLock(() -> {
-            final CheckpointUploadIntentV1 existing = readCurrent();
+            final CheckpointUploadIntent existing = readCurrent();
             return existing == null || !existing.equals(identity) ? Optional.empty() : Optional.of(existing);
         });
     }
 
     private void requireExpectedPending(
-            final CheckpointUploadIntentV1 expectedPending, final CheckpointUploadIntentV1 existing) {
+            final CheckpointUploadIntent expectedPending, final CheckpointUploadIntent existing) {
         Objects.requireNonNull(expectedPending, "expectedPending");
-        requireState(expectedPending, CheckpointUploadStateV1.PENDING_UPLOAD);
+        requireState(expectedPending, CheckpointUploadState.PENDING_UPLOAD);
         if (existing == null || !existing.equals(expectedPending)) {
             throw new IllegalStateException("checkpoint upload intent expected value does not match current state");
         }
     }
 
-    private CheckpointUploadIntentV1 readCurrent() throws IOException {
+    private CheckpointUploadIntent readCurrent() throws IOException {
         if (stateFile == null) {
             return current;
         }
@@ -205,7 +203,7 @@ public final class CheckpointUploadIntentStore implements CheckpointUploadIntent
         return decode(encoded);
     }
 
-    private void writeCurrent(final CheckpointUploadIntentV1 next) throws IOException {
+    private void writeCurrent(final CheckpointUploadIntent next) throws IOException {
         Objects.requireNonNull(next, "next");
         if (stateFile == null) {
             current = next;
@@ -311,7 +309,7 @@ public final class CheckpointUploadIntentStore implements CheckpointUploadIntent
         LocalStatePathGuard.ensureRealDirectoryPath(parent, "checkpoint upload intent state parent");
     }
 
-    private static CheckpointUploadIntentV1 decode(final byte[] encoded) {
+    private static CheckpointUploadIntent decode(final byte[] encoded) {
         if (encoded.length < HEADER_LENGTH + DIGEST_LENGTH) {
             throw new IllegalStateException("checkpoint upload intent state is truncated");
         }
@@ -334,7 +332,7 @@ public final class CheckpointUploadIntentStore implements CheckpointUploadIntent
             throw new IllegalStateException("checkpoint upload intent state checksum mismatch");
         }
         try {
-            return CheckpointUploadIntentV1.decode(payload);
+            return CheckpointUploadIntent.decode(payload);
         } catch (RuntimeException malformed) {
             throw new IllegalStateException("checkpoint upload intent state is malformed", malformed);
         }
@@ -360,18 +358,18 @@ public final class CheckpointUploadIntentStore implements CheckpointUploadIntent
         T run() throws IOException;
     }
 
-    private static void requireState(final CheckpointUploadIntentV1 intent, final CheckpointUploadStateV1 state) {
+    private static void requireState(final CheckpointUploadIntent intent, final CheckpointUploadState state) {
         if (intent.state() != state) {
             throw new IllegalArgumentException("checkpoint upload intent must be " + state);
         }
     }
 
-    private static CheckpointUploadIntentV1 next(
-            final CheckpointUploadIntentV1 expected,
-            final CheckpointUploadStateV1 state,
-            final CheckpointResourceV1 resource,
+    private static CheckpointUploadIntent next(
+            final CheckpointUploadIntent expected,
+            final CheckpointUploadState state,
+            final CheckpointResource resource,
             final TrustedUtcIntervalEvidence evidence) {
-        return new CheckpointUploadIntentV1(
+        return new CheckpointUploadIntent(
                 expected.shard(),
                 expected.recoveryLineageId(),
                 expected.checkpointId(),

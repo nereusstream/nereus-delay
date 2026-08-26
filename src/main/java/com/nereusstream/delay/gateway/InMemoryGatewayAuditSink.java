@@ -17,7 +17,7 @@ public final class InMemoryGatewayAuditSink implements GatewayAuditSink {
     }
 
     @Override
-    public synchronized void record(final GatewayAuditEventV1 event) {
+    public synchronized void record(final GatewayAuditEvent event) {
         Objects.requireNonNull(event, "event");
         if (events.size() >= maxEvents) {
             throw new IllegalStateException("Gateway audit sink capacity is exhausted");

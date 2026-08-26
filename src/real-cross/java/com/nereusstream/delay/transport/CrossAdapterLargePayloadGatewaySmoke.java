@@ -14,13 +14,13 @@ import com.nereusstream.delay.gateway.OxiaGatewayAdmissionController;
 import com.nereusstream.delay.gateway.OxiaGatewayAuditSink;
 import com.nereusstream.delay.gateway.OxiaGatewayIdempotencyStore;
 import com.nereusstream.delay.gateway.RsaSha256GatewayJwtVerifier;
-import com.nereusstream.delay.gateway.v1.DelayGatewayV1Grpc;
-import com.nereusstream.delay.gateway.v1.GatewayAttestPayloadUploadRequestV1;
-import com.nereusstream.delay.gateway.v1.GatewayIssuePayloadUploadHandleRequestV1;
-import com.nereusstream.delay.gateway.v1.GatewayPayloadAttestationResponseV1;
-import com.nereusstream.delay.gateway.v1.GatewayPayloadUploadHandleResponseV1;
-import com.nereusstream.delay.gateway.v1.GatewayPrepareLargeScheduleRequestV1;
-import com.nereusstream.delay.gateway.v1.GatewaySubmissionOutcomeV1;
+import com.nereusstream.delay.gateway.wire.DelayGatewayGrpc;
+import com.nereusstream.delay.gateway.wire.GatewayAttestPayloadUploadRequest;
+import com.nereusstream.delay.gateway.wire.GatewayIssuePayloadUploadHandleRequest;
+import com.nereusstream.delay.gateway.wire.GatewayPayloadAttestationResponse;
+import com.nereusstream.delay.gateway.wire.GatewayPayloadUploadHandleResponse;
+import com.nereusstream.delay.gateway.wire.GatewayPrepareLargeScheduleRequest;
+import com.nereusstream.delay.gateway.wire.GatewaySubmissionOutcome;
 import com.nereusstream.delay.ownership.OwnedDelayShard;
 import com.nereusstream.delay.ownership.OwnerLease;
 import com.nereusstream.delay.ownership.OxiaOwnerLeaseStore;
@@ -34,53 +34,53 @@ import com.nereusstream.delay.ownership.WorkerAssignment;
 import com.nereusstream.delay.ownership.WorkerAssignmentAuthority;
 import com.nereusstream.delay.ownership.WorkerPhysicalPublishExecutor;
 import com.nereusstream.delay.ownership.WorkerShardRuntime;
-import com.nereusstream.delay.protocol.AdapterKindV1;
-import com.nereusstream.delay.protocol.AdapterMetadataV1;
+import com.nereusstream.delay.protocol.AdapterKind;
+import com.nereusstream.delay.protocol.AdapterMetadata;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.ChannelResourceIdentityV1;
+import com.nereusstream.delay.protocol.CanonicalCommandQueuedReceipt;
+import com.nereusstream.delay.protocol.CanonicalPayloadCommitProof;
+import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
+import com.nereusstream.delay.protocol.ChannelResourceIdentity;
 import com.nereusstream.delay.protocol.CommandCodec;
-import com.nereusstream.delay.protocol.CommandQueuedReceiptV1;
-import com.nereusstream.delay.protocol.CompatibleControlSnapshotV1;
+import com.nereusstream.delay.protocol.CompatibleControlSnapshot;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DeliveryMode;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.EvidenceCursorV1;
-import com.nereusstream.delay.protocol.EvidenceVerificationStatusV1;
-import com.nereusstream.delay.protocol.IngressCredentialBindingRefV1;
-import com.nereusstream.delay.protocol.KafkaMetadataV1;
+import com.nereusstream.delay.protocol.EvidenceCursor;
+import com.nereusstream.delay.protocol.EvidenceVerificationStatus;
+import com.nereusstream.delay.protocol.IngressCredentialBindingRef;
+import com.nereusstream.delay.protocol.KafkaMetadata;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
-import com.nereusstream.delay.protocol.OpaquePayloadUploadHandleV1;
+import com.nereusstream.delay.protocol.OpaquePayloadUploadHandle;
 import com.nereusstream.delay.protocol.OrderingMode;
-import com.nereusstream.delay.protocol.OwnerIdentityV1;
-import com.nereusstream.delay.protocol.PayloadAttestationOutcomeV1;
-import com.nereusstream.delay.protocol.PayloadAttestationResponseV1;
-import com.nereusstream.delay.protocol.PayloadCommitProofV1;
-import com.nereusstream.delay.protocol.PayloadProofTrustSetSemanticV1;
-import com.nereusstream.delay.protocol.PayloadProofVerifierKeyV1;
-import com.nereusstream.delay.protocol.PayloadReservationReceiptV1;
-import com.nereusstream.delay.protocol.PayloadUploadHandleOutcomeV1;
-import com.nereusstream.delay.protocol.PayloadUploadHandleResponseV1;
+import com.nereusstream.delay.protocol.OwnerIdentity;
+import com.nereusstream.delay.protocol.PayloadAttestationOutcome;
+import com.nereusstream.delay.protocol.PayloadAttestationResponse;
+import com.nereusstream.delay.protocol.PayloadProofTrustSetSemantic;
+import com.nereusstream.delay.protocol.PayloadProofVerifierKey;
+import com.nereusstream.delay.protocol.PayloadReservationReceipt;
+import com.nereusstream.delay.protocol.PayloadUploadHandleOutcome;
+import com.nereusstream.delay.protocol.PayloadUploadHandleResponse;
 import com.nereusstream.delay.protocol.PreparedCommand;
-import com.nereusstream.delay.protocol.ProfileKindV1;
-import com.nereusstream.delay.protocol.ProfileRefV1;
-import com.nereusstream.delay.protocol.ProfileSemanticEnvelopeV1;
+import com.nereusstream.delay.protocol.ProfileKind;
+import com.nereusstream.delay.protocol.ProfileRef;
+import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
-import com.nereusstream.delay.protocol.PublishEvidenceKindV1;
-import com.nereusstream.delay.protocol.PublishEvidenceV1;
+import com.nereusstream.delay.protocol.PublishEvidence;
+import com.nereusstream.delay.protocol.PublishEvidenceKind;
 import com.nereusstream.delay.protocol.PublishOutcomeBody;
-import com.nereusstream.delay.protocol.PulsarMetadataV1;
+import com.nereusstream.delay.protocol.PulsarMetadata;
 import com.nereusstream.delay.protocol.PulsarSourcePosition;
-import com.nereusstream.delay.protocol.ReadyCertificateV1;
+import com.nereusstream.delay.protocol.ReadyCertificate;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.RouteSnapshotV1;
-import com.nereusstream.delay.protocol.ScheduleIntentV1;
+import com.nereusstream.delay.protocol.RouteSnapshot;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
 import com.nereusstream.delay.protocol.SystemMutationType;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
-import com.nereusstream.delay.protocol.UploadHandleKindV1;
+import com.nereusstream.delay.protocol.UploadHandleKind;
 import com.nereusstream.delay.route.OxiaRouteAuthoritySession;
 import com.nereusstream.delay.route.OxiaSignedRouteSnapshotProvider;
 import com.nereusstream.delay.route.OxiaSignedRouteSnapshotPublisher;
@@ -157,7 +157,7 @@ import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.TopicResourceGuard;
 
 /**
- * Real cross-adapter production-authority proof.  The source command log and
+ * Real cross-adapter production-authority proof. The source command log and
  * the destination physical/evidence log are deliberately owned by different
  * upstream clients in each direction.
  */
@@ -279,8 +279,8 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
                 PULSAR_DESTINATION_CREATED_AT);
         final AuthenticatedTenantContext tenant = tenant();
         final KeyPair proofKeys = ed25519();
-        final PayloadProofTrustSetSemanticV1 trustSet = trustSet(proofKeys);
-        final ProfileSemanticEnvelopeV1 objectStoreProfile = objectStoreProfile(configuration);
+        final PayloadProofTrustSetSemantic trustSet = trustSet(proofKeys);
+        final ProfileSemanticEnvelope objectStoreProfile = objectStoreProfile(configuration);
         final byte[] payload = payload();
         final byte[] payloadHash = Bytes.sha256(payload);
         final KeyPair controlKeys = ed25519();
@@ -288,7 +288,7 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
         final ShardId shard = new ShardId(routeIncarnation, 0);
         final SystemMutation activation =
                 KafkaClientArtifactLargePayloadGatewaySmoke.trustActivation(shard, trustSet.ref(), tenant, controlKeys);
-        final PreparedCommand beforeRoute = sourceCommand(shard, "cross-k-to-p-before-route", AdapterKindV1.PULSAR);
+        final PreparedCommand beforeRoute = sourceCommand(shard, "cross-k-to-p-before-route", AdapterKind.PULSAR);
         final Map<String, Object> adminConfiguration = Map.of(
                 AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG,
                 configuration.kafkaBootstrap(),
@@ -315,7 +315,7 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
                     clusterId,
                     sourceTopic,
                     sourceTopicUuid,
-                    CommandCodec.encodeFrameV1(beforeRoute),
+                    CommandCodec.encodeManagedFrame(beforeRoute),
                     1);
             final org.apache.kafka.clients.consumer.GuardedFetchEvidence fetchEvidence =
                     KafkaClientArtifactLargePayloadGatewaySmoke.fetchEvidence(
@@ -325,9 +325,9 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
                     || fetchEvidence.lastStableOffset() < 2) {
                 throw new IllegalStateException("K->P source barrier did not cover activation and pre-route records");
             }
-            final RouteSnapshotV1 snapshot = KafkaClientArtifactLargePayloadGatewaySmoke.routeSnapshot(
+            final RouteSnapshot snapshot = KafkaClientArtifactLargePayloadGatewaySmoke.routeSnapshot(
                     clusterId, sourceTopic, sourceTopicId, routeIncarnation, fetchEvidence, tenant, controlKeys);
-            final RouteSelectionHint routeHint = new RouteSelectionHint(AdapterKindV1.KAFKA, Bytes.utf8("primary"));
+            final RouteSelectionHint routeHint = new RouteSelectionHint(AdapterKind.KAFKA, Bytes.utf8("primary"));
             final String routePrefix = "nereus-delay/cross-k-to-p-route/" + UUID.randomUUID();
             final String assignmentPrefix = "nereus-delay/cross-k-to-p-assignment/" + UUID.randomUUID();
             final String gatewayPrefix = "nereus-delay/cross-k-to-p-gateway/" + UUID.randomUUID();
@@ -383,12 +383,11 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
                                 LEASE_DURATION_MS)
                         .orElseThrow();
                 final WorkClassExecutionRegistry workClasses = workClasses();
-                final ProfileRefV1 destinationProfile =
-                        KafkaClientArtifactLargePayloadGatewaySmoke.destinationProfile();
-                final CompatibleControlSnapshotV1 controlSnapshot =
+                final ProfileRef destinationProfile = KafkaClientArtifactLargePayloadGatewaySmoke.destinationProfile();
+                final CompatibleControlSnapshot controlSnapshot =
                         KafkaClientArtifactLargePayloadGatewaySmoke.controlSnapshot(shard, destinationProfile);
                 final Path root = Files.createTempDirectory("nereus-delay-cross-k-to-p-");
-                final OwnerIdentityV1 ownerIdentity = new OwnerIdentityV1(
+                final OwnerIdentity ownerIdentity = new OwnerIdentity(
                         bytes(16, 70),
                         bytes(16, 71),
                         lease.ownerEpoch(),
@@ -438,13 +437,13 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
                                 configuration.gatewayPort(), configuration.gatewayCaCertificate(),
                                 configuration.gatewayClientCertificate(), configuration.gatewayClientKey()))) {
                             final ManagedChannel channel = channelHandle.channel();
-                            final DelayGatewayV1Grpc.DelayGatewayV1BlockingStub gateway = gatewayStub(
+                            final DelayGatewayGrpc.DelayGatewayBlockingStub gateway = gatewayStub(
                                     channel,
                                     gatewayToken(
                                             gatewayFixture.jwtKeys(),
                                             tenant,
                                             certificateFingerprint(configuration.gatewayClientCertificate())));
-                            final GatewayPrepareLargeScheduleRequestV1 prepareRequest =
+                            final GatewayPrepareLargeScheduleRequest prepareRequest =
                                     KafkaClientArtifactLargePayloadGatewaySmoke.prepareRequest(
                                             PulsarClientArtifactLargePayloadGatewaySmoke.largeScheduleIntent(
                                                     System.currentTimeMillis()),
@@ -452,9 +451,9 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
                                             payloadHash,
                                             trustSet.ref(),
                                             objectStoreProfile.ref());
-                            final GatewaySubmissionOutcomeV1 prepareResponse =
+                            final GatewaySubmissionOutcome prepareResponse =
                                     gateway.prepareLargeSchedule(prepareRequest);
-                            final CommandQueuedReceiptV1 prepareReceipt =
+                            final CanonicalCommandQueuedReceipt prepareReceipt =
                                     KafkaClientArtifactLargePayloadGatewaySmoke.requireQueued(
                                             prepareResponse, "K->P PrepareLargeSchedule", 2);
                             final KafkaSourcePosition preparePosition =
@@ -512,43 +511,39 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
                                         "K->P Prepare did not leave RESERVED reservation: " + reservation.status());
                             }
                             payloadStore.register(reservation, trustSet.ref(), objectStoreProfile.ref());
-                            final PayloadReservationReceiptV1 receipt = payloadStore.reservationReceipt(reservation);
-                            final GatewayPayloadUploadHandleResponseV1 handleResponse =
-                                    gateway.issuePayloadUploadHandle(
-                                            GatewayIssuePayloadUploadHandleRequestV1.newBuilder()
-                                                    .setPayloadReservationReceiptV1(
-                                                            ByteString.copyFrom(receipt.payload()))
-                                                    .setUploadHandleKind(
-                                                            UploadHandleKindV1.OPAQUE_SINGLE_PUT.wireValue())
-                                                    .build());
-                            final PayloadUploadHandleResponseV1 handleDomain =
-                                    PayloadUploadHandleResponseV1.decode(handleResponse
-                                            .getPayloadUploadHandleResponseV1()
+                            final PayloadReservationReceipt receipt = payloadStore.reservationReceipt(reservation);
+                            final GatewayPayloadUploadHandleResponse handleResponse =
+                                    gateway.issuePayloadUploadHandle(GatewayIssuePayloadUploadHandleRequest.newBuilder()
+                                            .setPayloadReservationReceipt(ByteString.copyFrom(receipt.payload()))
+                                            .setUploadHandleKind(UploadHandleKind.OPAQUE_SINGLE_PUT.wireValue())
+                                            .build());
+                            final PayloadUploadHandleResponse handleDomain =
+                                    PayloadUploadHandleResponse.decode(handleResponse
+                                            .getPayloadUploadHandleResponse()
                                             .toByteArray());
-                            if (handleDomain.outcome() != PayloadUploadHandleOutcomeV1.ISSUED) {
+                            if (handleDomain.outcome() != PayloadUploadHandleOutcome.ISSUED) {
                                 throw new IllegalStateException(
                                         "K->P Gateway did not issue upload handle: " + handleDomain.outcome());
                             }
-                            final OpaquePayloadUploadHandleV1 handle = handleDomain.issued();
+                            final OpaquePayloadUploadHandle handle = handleDomain.issued();
                             payloadStore.upload(receipt, handle, payload, System.currentTimeMillis());
-                            final GatewayPayloadAttestationResponseV1 attestationResponse =
-                                    gateway.attestPayloadUpload(GatewayAttestPayloadUploadRequestV1.newBuilder()
-                                            .setPayloadReservationReceiptV1(ByteString.copyFrom(receipt.payload()))
-                                            .setOpaquePayloadUploadHandleV1(
-                                                    ByteString.copyFrom(handle.canonicalBytes()))
+                            final GatewayPayloadAttestationResponse attestationResponse =
+                                    gateway.attestPayloadUpload(GatewayAttestPayloadUploadRequest.newBuilder()
+                                            .setPayloadReservationReceipt(ByteString.copyFrom(receipt.payload()))
+                                            .setOpaquePayloadUploadHandle(ByteString.copyFrom(handle.canonicalBytes()))
                                             .build());
-                            final PayloadAttestationResponseV1 attestation =
-                                    PayloadAttestationResponseV1.decode(attestationResponse
-                                            .getPayloadAttestationResponseV1()
+                            final PayloadAttestationResponse attestation =
+                                    PayloadAttestationResponse.decode(attestationResponse
+                                            .getPayloadAttestationResponse()
                                             .toByteArray());
-                            if (attestation.outcome() != PayloadAttestationOutcomeV1.ATTESTED
+                            if (attestation.outcome() != PayloadAttestationOutcome.ATTESTED
                                     || attestation.proof() == null) {
                                 throw new IllegalStateException("K->P Gateway/MinIO did not attest payload");
                             }
-                            final PayloadCommitProofV1 proof = attestation.proof();
-                            final GatewaySubmissionOutcomeV1 commitResponse = gateway.commitLargeSchedule(
+                            final CanonicalPayloadCommitProof proof = attestation.proof();
+                            final GatewaySubmissionOutcome commitResponse = gateway.commitLargeSchedule(
                                     KafkaClientArtifactLargePayloadGatewaySmoke.commitRequest(receipt, proof));
-                            final CommandQueuedReceiptV1 commitReceipt =
+                            final CanonicalCommandQueuedReceipt commitReceipt =
                                     KafkaClientArtifactLargePayloadGatewaySmoke.requireQueued(
                                             commitResponse, "K->P CommitLargeSchedule", 3);
                             final KafkaSourcePosition commitPosition =
@@ -686,8 +681,8 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
                 configuration.pulsarAdminUrls());
         final AuthenticatedTenantContext tenant = tenant();
         final KeyPair proofKeys = ed25519();
-        final PayloadProofTrustSetSemanticV1 trustSet = trustSet(proofKeys);
-        final ProfileSemanticEnvelopeV1 objectStoreProfile = objectStoreProfile(configuration);
+        final PayloadProofTrustSetSemantic trustSet = trustSet(proofKeys);
+        final ProfileSemanticEnvelope objectStoreProfile = objectStoreProfile(configuration);
         final byte[] payload = payload();
         final byte[] payloadHash = Bytes.sha256(payload);
         final KeyPair controlKeys = ed25519();
@@ -695,7 +690,7 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
         final ShardId shard = new ShardId(routeIncarnation, 0);
         final SystemMutation activation = PulsarClientArtifactLargePayloadGatewaySmoke.trustActivation(
                 shard, trustSet.ref(), tenant, controlKeys);
-        final PreparedCommand beforeRoute = sourceCommand(shard, "cross-p-to-k-before-route", AdapterKindV1.KAFKA);
+        final PreparedCommand beforeRoute = sourceCommand(shard, "cross-p-to-k-before-route", AdapterKind.KAFKA);
         final TopicResourceGuard sourceGuard =
                 new TopicResourceGuard(PULSAR_CLUSTER, PULSAR_SOURCE_INCARNATION, PULSAR_SOURCE_CREATED_AT);
         final Map<String, Object> adminConfiguration = Map.of(
@@ -739,7 +734,7 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
                             shard,
                             Optional.empty(),
                             Duration.ofSeconds(5));
-            final RouteSnapshotV1 snapshot = PulsarClientArtifactLargePayloadGatewaySmoke.routeSnapshot(
+            final RouteSnapshot snapshot = PulsarClientArtifactLargePayloadGatewaySmoke.routeSnapshot(
                     sourcePhysicalBase,
                     sourcePhysicalTopic,
                     routeIncarnation,
@@ -747,7 +742,7 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
                     sourceProof,
                     tenant,
                     controlKeys);
-            final RouteSelectionHint routeHint = new RouteSelectionHint(AdapterKindV1.PULSAR, Bytes.utf8("primary"));
+            final RouteSelectionHint routeHint = new RouteSelectionHint(AdapterKind.PULSAR, Bytes.utf8("primary"));
             final String routePrefix = "nereus-delay/cross-p-to-k-route/" + UUID.randomUUID();
             final String assignmentPrefix = "nereus-delay/cross-p-to-k-assignment/" + UUID.randomUUID();
             final String gatewayPrefix = "nereus-delay/cross-p-to-k-gateway/" + UUID.randomUUID();
@@ -803,12 +798,11 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
                                 LEASE_DURATION_MS)
                         .orElseThrow();
                 final WorkClassExecutionRegistry workClasses = workClasses();
-                final ProfileRefV1 destinationProfile =
-                        KafkaClientArtifactLargePayloadGatewaySmoke.destinationProfile();
-                final CompatibleControlSnapshotV1 controlSnapshot =
+                final ProfileRef destinationProfile = KafkaClientArtifactLargePayloadGatewaySmoke.destinationProfile();
+                final CompatibleControlSnapshot controlSnapshot =
                         KafkaClientArtifactLargePayloadGatewaySmoke.controlSnapshot(shard, destinationProfile);
                 final Path root = Files.createTempDirectory("nereus-delay-cross-p-to-k-");
-                final OwnerIdentityV1 ownerIdentity = new OwnerIdentityV1(
+                final OwnerIdentity ownerIdentity = new OwnerIdentity(
                         bytes(16, 72),
                         bytes(16, 73),
                         lease.ownerEpoch(),
@@ -885,13 +879,13 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
                         try (ManagedChannelHandle channelHandle = new ManagedChannelHandle(tlsChannel(
                                 configuration.gatewayPort(), configuration.gatewayCaCertificate(),
                                 configuration.gatewayClientCertificate(), configuration.gatewayClientKey()))) {
-                            final DelayGatewayV1Grpc.DelayGatewayV1BlockingStub gateway = gatewayStub(
+                            final DelayGatewayGrpc.DelayGatewayBlockingStub gateway = gatewayStub(
                                     channelHandle.channel(),
                                     gatewayToken(
                                             gatewayFixture.jwtKeys(),
                                             tenant,
                                             certificateFingerprint(configuration.gatewayClientCertificate())));
-                            final GatewayPrepareLargeScheduleRequestV1 prepareRequest =
+                            final GatewayPrepareLargeScheduleRequest prepareRequest =
                                     PulsarClientArtifactLargePayloadGatewaySmoke.prepareRequest(
                                             KafkaClientArtifactLargePayloadGatewaySmoke.largeScheduleIntent(
                                                     System.currentTimeMillis()),
@@ -899,9 +893,9 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
                                             payloadHash,
                                             trustSet.ref(),
                                             objectStoreProfile.ref());
-                            final GatewaySubmissionOutcomeV1 prepareResponse =
+                            final GatewaySubmissionOutcome prepareResponse =
                                     gateway.prepareLargeSchedule(prepareRequest);
-                            final CommandQueuedReceiptV1 prepareReceipt =
+                            final CanonicalCommandQueuedReceipt prepareReceipt =
                                     PulsarClientArtifactLargePayloadGatewaySmoke.requireQueued(
                                             prepareResponse, "P->K PrepareLargeSchedule", beforeRoutePosition);
                             final PulsarSourcePosition preparePosition =
@@ -949,43 +943,39 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
                                         "P->K Prepare did not leave RESERVED reservation: " + reservation.status());
                             }
                             payloadStore.register(reservation, trustSet.ref(), objectStoreProfile.ref());
-                            final PayloadReservationReceiptV1 receipt = payloadStore.reservationReceipt(reservation);
-                            final GatewayPayloadUploadHandleResponseV1 handleResponse =
-                                    gateway.issuePayloadUploadHandle(
-                                            GatewayIssuePayloadUploadHandleRequestV1.newBuilder()
-                                                    .setPayloadReservationReceiptV1(
-                                                            ByteString.copyFrom(receipt.payload()))
-                                                    .setUploadHandleKind(
-                                                            UploadHandleKindV1.OPAQUE_SINGLE_PUT.wireValue())
-                                                    .build());
-                            final PayloadUploadHandleResponseV1 handleDomain =
-                                    PayloadUploadHandleResponseV1.decode(handleResponse
-                                            .getPayloadUploadHandleResponseV1()
+                            final PayloadReservationReceipt receipt = payloadStore.reservationReceipt(reservation);
+                            final GatewayPayloadUploadHandleResponse handleResponse =
+                                    gateway.issuePayloadUploadHandle(GatewayIssuePayloadUploadHandleRequest.newBuilder()
+                                            .setPayloadReservationReceipt(ByteString.copyFrom(receipt.payload()))
+                                            .setUploadHandleKind(UploadHandleKind.OPAQUE_SINGLE_PUT.wireValue())
+                                            .build());
+                            final PayloadUploadHandleResponse handleDomain =
+                                    PayloadUploadHandleResponse.decode(handleResponse
+                                            .getPayloadUploadHandleResponse()
                                             .toByteArray());
-                            if (handleDomain.outcome() != PayloadUploadHandleOutcomeV1.ISSUED) {
+                            if (handleDomain.outcome() != PayloadUploadHandleOutcome.ISSUED) {
                                 throw new IllegalStateException(
                                         "P->K Gateway did not issue upload handle: " + handleDomain.outcome());
                             }
-                            final OpaquePayloadUploadHandleV1 handle = handleDomain.issued();
+                            final OpaquePayloadUploadHandle handle = handleDomain.issued();
                             payloadStore.upload(receipt, handle, payload, System.currentTimeMillis());
-                            final GatewayPayloadAttestationResponseV1 attestationResponse =
-                                    gateway.attestPayloadUpload(GatewayAttestPayloadUploadRequestV1.newBuilder()
-                                            .setPayloadReservationReceiptV1(ByteString.copyFrom(receipt.payload()))
-                                            .setOpaquePayloadUploadHandleV1(
-                                                    ByteString.copyFrom(handle.canonicalBytes()))
+                            final GatewayPayloadAttestationResponse attestationResponse =
+                                    gateway.attestPayloadUpload(GatewayAttestPayloadUploadRequest.newBuilder()
+                                            .setPayloadReservationReceipt(ByteString.copyFrom(receipt.payload()))
+                                            .setOpaquePayloadUploadHandle(ByteString.copyFrom(handle.canonicalBytes()))
                                             .build());
-                            final PayloadAttestationResponseV1 attestation =
-                                    PayloadAttestationResponseV1.decode(attestationResponse
-                                            .getPayloadAttestationResponseV1()
+                            final PayloadAttestationResponse attestation =
+                                    PayloadAttestationResponse.decode(attestationResponse
+                                            .getPayloadAttestationResponse()
                                             .toByteArray());
-                            if (attestation.outcome() != PayloadAttestationOutcomeV1.ATTESTED
+                            if (attestation.outcome() != PayloadAttestationOutcome.ATTESTED
                                     || attestation.proof() == null) {
                                 throw new IllegalStateException("P->K Gateway/MinIO did not attest payload");
                             }
-                            final PayloadCommitProofV1 proof = attestation.proof();
-                            final GatewaySubmissionOutcomeV1 commitResponse = gateway.commitLargeSchedule(
+                            final CanonicalPayloadCommitProof proof = attestation.proof();
+                            final GatewaySubmissionOutcome commitResponse = gateway.commitLargeSchedule(
                                     PulsarClientArtifactLargePayloadGatewaySmoke.commitRequest(receipt, proof));
-                            final CommandQueuedReceiptV1 commitReceipt =
+                            final CanonicalCommandQueuedReceipt commitReceipt =
                                     PulsarClientArtifactLargePayloadGatewaySmoke.requireQueued(
                                             commitResponse, "P->K CommitLargeSchedule", preparePosition);
                             final PulsarSourcePosition commitPosition =
@@ -1131,18 +1121,18 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
         return KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
     }
 
-    private static PayloadProofTrustSetSemanticV1 trustSet(final KeyPair proofKeys) {
+    private static PayloadProofTrustSetSemantic trustSet(final KeyPair proofKeys) {
         final long now = System.currentTimeMillis();
-        return new PayloadProofTrustSetSemanticV1(
+        return new PayloadProofTrustSetSemantic(
                 1,
-                List.of(PayloadProofVerifierKeyV1.fromPublicKey(
+                List.of(PayloadProofVerifierKey.fromPublicKey(
                         7, proofKeys.getPublic(), Math.max(0, now - 60_000), now + 3_600_000)));
     }
 
-    private static ProfileSemanticEnvelopeV1 objectStoreProfile(final CrossConfig configuration) {
-        final com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1 semantic =
-                new com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1(
-                        com.nereusstream.delay.protocol.ObjectStoreProviderKindV1.S3_COMPATIBLE,
+    private static ProfileSemanticEnvelope objectStoreProfile(final CrossConfig configuration) {
+        final com.nereusstream.delay.protocol.ObjectStoreProfileSemantic semantic =
+                new com.nereusstream.delay.protocol.ObjectStoreProfileSemantic(
+                        com.nereusstream.delay.protocol.ObjectStoreProviderKind.S3_COMPATIBLE,
                         S3CompatiblePayloadObjectStore.endpointConfigDigest(
                                 configuration.minioEndpoint(),
                                 configuration.minioRegion(),
@@ -1158,15 +1148,14 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
                         true,
                         bytes(32, 20),
                         8L << 20,
-                        com.nereusstream.delay.protocol.ObjectStoreProfileSemanticV1.SINGLE_PUT,
+                        com.nereusstream.delay.protocol.ObjectStoreProfileSemantic.SINGLE_PUT,
                         1,
                         bytes(32, 21));
-        return new ProfileSemanticEnvelopeV1(
-                ProfileKindV1.OBJECT_STORE, Bytes.utf8("large-payload-store"), 1, semantic);
+        return new ProfileSemanticEnvelope(ProfileKind.OBJECT_STORE, Bytes.utf8("large-payload-store"), 1, semantic);
     }
 
-    private static CredentialBindingKey credentialBinding(final RouteSnapshotV1 snapshot) {
-        final IngressCredentialBindingRefV1 binding = snapshot.credentialBinding();
+    private static CredentialBindingKey credentialBinding(final RouteSnapshot snapshot) {
+        final IngressCredentialBindingRef binding = snapshot.credentialBinding();
         return new CredentialBindingKey(
                 binding.generation(),
                 new Digest32(binding.bindingDigest()),
@@ -1176,8 +1165,8 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
     private static S3CompatiblePayloadObjectStore newPayloadStore(
             final CrossConfig configuration,
             final AuthenticatedTenantContext tenant,
-            final PayloadProofTrustSetSemanticV1 trustSet,
-            final ProfileSemanticEnvelopeV1 objectStoreProfile,
+            final PayloadProofTrustSetSemantic trustSet,
+            final ProfileSemanticEnvelope objectStoreProfile,
             final KeyPair proofKeys) {
         return new S3CompatiblePayloadObjectStore(
                 objectStoreProfile,
@@ -1210,11 +1199,11 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
     }
 
     private static PreparedCommand sourceCommand(
-            final ShardId shard, final String identity, final AdapterKindV1 destinationAdapter) {
+            final ShardId shard, final String identity, final AdapterKind destinationAdapter) {
         final long deliverAt = System.currentTimeMillis() + 1_000;
-        final ScheduleIntentV1 intent;
-        if (destinationAdapter == AdapterKindV1.KAFKA) {
-            intent = ScheduleIntentV1.create(
+        final CanonicalScheduleIntent intent;
+        if (destinationAdapter == AdapterKind.KAFKA) {
+            intent = CanonicalScheduleIntent.create(
                     KafkaClientArtifactLargePayloadGatewaySmoke.destinationProfile(),
                     KafkaClientArtifactLargePayloadGatewaySmoke.retryPolicy(),
                     deliverAt,
@@ -1224,11 +1213,11 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
                     new byte[0],
                     Bytes.utf8(identity),
                     null,
-                    AdapterMetadataV1.kafka(new KafkaMetadataV1(null, List.of())),
+                    AdapterMetadata.kafka(new KafkaMetadata(null, List.of())),
                     null,
                     null);
-        } else if (destinationAdapter == AdapterKindV1.PULSAR) {
-            intent = ScheduleIntentV1.create(
+        } else if (destinationAdapter == AdapterKind.PULSAR) {
+            intent = CanonicalScheduleIntent.create(
                     PulsarClientArtifactLargePayloadGatewaySmoke.destinationProfile(),
                     PulsarClientArtifactLargePayloadGatewaySmoke.retryPolicy(),
                     deliverAt,
@@ -1238,13 +1227,13 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
                     new byte[0],
                     Bytes.utf8(identity),
                     null,
-                    AdapterMetadataV1.pulsar(new PulsarMetadataV1(null, null, null, List.of())),
+                    AdapterMetadata.pulsar(new PulsarMetadata(null, null, null, List.of())),
                     null,
                     null);
         } else {
             throw new IllegalArgumentException("cross destination adapter must be Kafka or Pulsar");
         }
-        return PreparedCommand.scheduleV1(shard, intent, deliverAt + 20_000);
+        return PreparedCommand.schedule(shard, intent, deliverAt + 20_000);
     }
 
     private static WorkClassExecutionRegistry workClasses() {
@@ -1577,11 +1566,11 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
                 .build();
     }
 
-    private static DelayGatewayV1Grpc.DelayGatewayV1BlockingStub gatewayStub(
+    private static DelayGatewayGrpc.DelayGatewayBlockingStub gatewayStub(
             final ManagedChannel channel, final String token) {
         final Metadata headers = new Metadata();
         headers.put(Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER), "Bearer " + token);
-        return DelayGatewayV1Grpc.newBlockingStub(
+        return DelayGatewayGrpc.newBlockingStub(
                 ClientInterceptors.intercept(channel, MetadataUtils.newAttachHeadersInterceptor(headers)));
     }
 
@@ -1625,18 +1614,18 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
 
         abstract byte[] laneIncarnation();
 
-        abstract ChannelResourceIdentityV1 channel();
+        abstract ChannelResourceIdentity channel();
 
-        abstract ReadyCertificateV1 readyCertificate();
+        abstract ReadyCertificate readyCertificate();
 
-        abstract List<EvidenceCursorV1> evidenceCursors();
+        abstract List<EvidenceCursor> evidenceCursors();
 
-        abstract PublishEvidenceKindV1 expectedEvidenceKind();
+        abstract PublishEvidenceKind expectedEvidenceKind();
 
         abstract void bindGraph(
                 WorkerShardRuntime runtime,
                 OwnedDelayShard ownedShard,
-                OwnerIdentityV1 ownerIdentity,
+                OwnerIdentity ownerIdentity,
                 OxiaOwnerLeaseStore authority,
                 ShardStore store,
                 WorkClassExecutionRegistry workClasses,
@@ -1709,30 +1698,30 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
         }
 
         @Override
-        ChannelResourceIdentityV1 channel() {
+        ChannelResourceIdentity channel() {
             return delegate.channel();
         }
 
         @Override
-        ReadyCertificateV1 readyCertificate() {
+        ReadyCertificate readyCertificate() {
             return delegate.readyCertificate();
         }
 
         @Override
-        List<EvidenceCursorV1> evidenceCursors() {
+        List<EvidenceCursor> evidenceCursors() {
             return delegate.evidenceCursors();
         }
 
         @Override
-        PublishEvidenceKindV1 expectedEvidenceKind() {
-            return PublishEvidenceKindV1.PULSAR_SEND_ACK;
+        PublishEvidenceKind expectedEvidenceKind() {
+            return PublishEvidenceKind.PULSAR_SEND_ACK;
         }
 
         @Override
         void bindGraph(
                 final WorkerShardRuntime runtime,
                 final OwnedDelayShard ownedShard,
-                final OwnerIdentityV1 ownerIdentity,
+                final OwnerIdentity ownerIdentity,
                 final OxiaOwnerLeaseStore authority,
                 final ShardStore store,
                 final WorkClassExecutionRegistry workClasses,
@@ -1778,9 +1767,9 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
                 throw new IllegalStateException("cross Pulsar target response-loss evidence did not resolve");
             }
             if (delegate.destinationResponseLoss()) {
-                final PublishEvidenceV1 evidence = PublishEvidenceV1.decode(result.evidence());
-                if (evidence.evidenceKind() != PublishEvidenceKindV1.PULSAR_SEND_ACK
-                        || evidence.verificationStatus() != EvidenceVerificationStatusV1.VERIFIED_PUBLISHED) {
+                final PublishEvidence evidence = PublishEvidence.decode(result.evidence());
+                if (evidence.evidenceKind() != PublishEvidenceKind.PULSAR_SEND_ACK
+                        || evidence.verificationStatus() != EvidenceVerificationStatus.VERIFIED_PUBLISHED) {
                     throw new IllegalStateException(
                             "cross Pulsar target response-loss evidence branch is not verified");
                 }
@@ -1834,30 +1823,30 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
         }
 
         @Override
-        ChannelResourceIdentityV1 channel() {
+        ChannelResourceIdentity channel() {
             return delegate.channel();
         }
 
         @Override
-        ReadyCertificateV1 readyCertificate() {
+        ReadyCertificate readyCertificate() {
             return delegate.readyCertificate();
         }
 
         @Override
-        List<EvidenceCursorV1> evidenceCursors() {
+        List<EvidenceCursor> evidenceCursors() {
             return delegate.evidenceCursors();
         }
 
         @Override
-        PublishEvidenceKindV1 expectedEvidenceKind() {
-            return PublishEvidenceKindV1.KAFKA_TRANSACTIONAL_RECEIPT;
+        PublishEvidenceKind expectedEvidenceKind() {
+            return PublishEvidenceKind.KAFKA_TRANSACTIONAL_RECEIPT;
         }
 
         @Override
         void bindGraph(
                 final WorkerShardRuntime runtime,
                 final OwnedDelayShard ownedShard,
-                final OwnerIdentityV1 ownerIdentity,
+                final OwnerIdentity ownerIdentity,
                 final OxiaOwnerLeaseStore authority,
                 final ShardStore store,
                 final WorkClassExecutionRegistry workClasses,
@@ -1936,7 +1925,7 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
             final WorkerShardRuntime runtime,
             final DelayShard delayShard,
             final OwnedDelayShard ownedShard,
-            final OwnerIdentityV1 ownerIdentity,
+            final OwnerIdentity ownerIdentity,
             final OxiaOwnerLeaseStore authority,
             final ShardStore store,
             final WorkClassExecutionRegistry workClasses,
@@ -2027,9 +2016,9 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
             throw new IllegalStateException("cross Worker target did not return typed PUBLISHED evidence: "
                     + physicalResult.disposition() + "/" + physicalResult.stableCode());
         }
-        final PublishEvidenceV1 physicalEvidence = PublishEvidenceV1.decode(physicalResult.evidence());
+        final PublishEvidence physicalEvidence = PublishEvidence.decode(physicalResult.evidence());
         if (physicalEvidence.evidenceKind() != bridge.expectedEvidenceKind()
-                || physicalEvidence.verificationStatus() != EvidenceVerificationStatusV1.VERIFIED_PUBLISHED) {
+                || physicalEvidence.verificationStatus() != EvidenceVerificationStatus.VERIFIED_PUBLISHED) {
             throw new IllegalStateException("cross Worker target evidence kind/status mismatch: "
                     + physicalEvidence.evidenceKind() + "/" + physicalEvidence.verificationStatus());
         }
@@ -2068,9 +2057,9 @@ public final class CrossAdapterLargePayloadGatewaySmoke {
                 || !Arrays.equals(outcome.publishAttemptId(), publishAttemptId)) {
             throw new IllegalStateException("cross Worker Publish Outcome was not definitive PUBLISHED");
         }
-        final PublishEvidenceV1 outcomeEvidence = PublishEvidenceV1.decode(outcome.evidence());
+        final PublishEvidence outcomeEvidence = PublishEvidence.decode(outcome.evidence());
         if (outcomeEvidence.evidenceKind() != bridge.expectedEvidenceKind()
-                || outcomeEvidence.verificationStatus() != EvidenceVerificationStatusV1.VERIFIED_PUBLISHED) {
+                || outcomeEvidence.verificationStatus() != EvidenceVerificationStatus.VERIFIED_PUBLISHED) {
             throw new IllegalStateException("cross Worker source-applied outcome evidence mismatch");
         }
         outcomeEvidence.requireBusinessMutation(publishAttemptId, true);

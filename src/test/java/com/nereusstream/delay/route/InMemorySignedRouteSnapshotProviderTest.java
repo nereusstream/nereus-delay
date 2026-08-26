@@ -3,21 +3,21 @@ package com.nereusstream.delay.route;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import com.nereusstream.delay.protocol.ActivationBarrierV1;
-import com.nereusstream.delay.protocol.AdapterKindV1;
-import com.nereusstream.delay.protocol.BrokerResourceIdentityV1;
+import com.nereusstream.delay.protocol.ActivationBarrier;
+import com.nereusstream.delay.protocol.AdapterKind;
+import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
-import com.nereusstream.delay.protocol.IngressCredentialBindingRefV1;
-import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentityV1;
-import com.nereusstream.delay.protocol.KafkaIngressRouteResourceV1;
-import com.nereusstream.delay.protocol.ProtocolTupleV1;
+import com.nereusstream.delay.protocol.IngressCredentialBindingRef;
+import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.KafkaIngressRouteResource;
+import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
-import com.nereusstream.delay.protocol.QuotaGrantRefV1;
+import com.nereusstream.delay.protocol.QuotaGrantRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
-import com.nereusstream.delay.protocol.RouteLifecycleV1;
-import com.nereusstream.delay.protocol.RoutePartitionPolicyV1;
-import com.nereusstream.delay.protocol.RouteSnapshotV1;
-import com.nereusstream.delay.protocol.RoutingHashVersionV1;
+import com.nereusstream.delay.protocol.RouteLifecycle;
+import com.nereusstream.delay.protocol.RoutePartitionPolicy;
+import com.nereusstream.delay.protocol.RouteSnapshot;
+import com.nereusstream.delay.protocol.RoutingHashVersion;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.semantic.AuthenticatedTenantContext;
 import com.nereusstream.delay.semantic.RouteSelectionHint;
@@ -31,10 +31,10 @@ class InMemorySignedRouteSnapshotProviderTest {
     @Test
     void contiguousSignedWatchPublishesAliasAndHistoricalRoute() throws Exception {
         final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-        final RouteSnapshotV1 snapshot = snapshot(keys);
+        final RouteSnapshot snapshot = snapshot(keys);
         final InMemorySignedRouteSnapshotProvider provider =
                 new InMemorySignedRouteSnapshotProvider(keys.getPublic(), () -> 200);
-        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKindV1.KAFKA, Bytes.utf8("primary"));
+        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKind.KAFKA, Bytes.utf8("primary"));
         final AuthenticatedTenantContext tenant =
                 new AuthenticatedTenantContext(bytes(32, 1), bytes(32, 2), bytes(32, 3));
 
@@ -53,7 +53,7 @@ class InMemorySignedRouteSnapshotProviderTest {
         final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final InMemorySignedRouteSnapshotProvider provider =
                 new InMemorySignedRouteSnapshotProvider(keys.getPublic(), () -> 200);
-        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKindV1.KAFKA, Bytes.utf8("primary"));
+        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKind.KAFKA, Bytes.utf8("primary"));
         provider.accept(1, 0, hint, snapshot(keys));
 
         assertThrows(IllegalArgumentException.class, () -> provider.accept(3, 1, hint, snapshot(keys)));
@@ -70,7 +70,7 @@ class InMemorySignedRouteSnapshotProviderTest {
         final KeyPair wrong = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final InMemorySignedRouteSnapshotProvider provider =
                 new InMemorySignedRouteSnapshotProvider(wrong.getPublic(), () -> 200);
-        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKindV1.KAFKA, Bytes.utf8("primary"));
+        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKind.KAFKA, Bytes.utf8("primary"));
 
         assertThrows(IllegalArgumentException.class, () -> provider.accept(1, 0, hint, snapshot(signer)));
         assertEquals(RouteCacheHealth.SIGNATURE_INVALID, provider.health());
@@ -81,46 +81,46 @@ class InMemorySignedRouteSnapshotProviderTest {
         final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         final InMemorySignedRouteSnapshotProvider provider =
                 new InMemorySignedRouteSnapshotProvider(keys.getPublic(), () -> 200);
-        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKindV1.KAFKA, Bytes.utf8("primary"));
-        final RouteSnapshotV1 first = snapshot(keys);
-        final RouteSnapshotV1 successor = snapshot(keys, RouteLifecycleV1.CONTROL_ONLY, 2);
+        final RouteSelectionHint hint = new RouteSelectionHint(AdapterKind.KAFKA, Bytes.utf8("primary"));
+        final RouteSnapshot first = snapshot(keys);
+        final RouteSnapshot successor = snapshot(keys, RouteLifecycle.CONTROL_ONLY, 2);
 
         provider.accept(1, 0, hint, first);
         provider.accept(2, 1, hint, successor);
 
         assertEquals(RouteCacheHealth.HEALTHY, provider.health());
         assertEquals(
-                RouteLifecycleV1.CONTROL_ONLY,
+                RouteLifecycle.CONTROL_ONLY,
                 provider.exact(
                                 first.routeIncarnation(),
                                 new AuthenticatedTenantContext(bytes(32, 1), bytes(32, 2), bytes(32, 3)))
                         .lifecycle());
     }
 
-    private static RouteSnapshotV1 snapshot(final KeyPair keys) {
-        return snapshot(keys, RouteLifecycleV1.ACTIVE_FOR_NEW, 1);
+    private static RouteSnapshot snapshot(final KeyPair keys) {
+        return snapshot(keys, RouteLifecycle.ACTIVE_FOR_NEW, 1);
     }
 
-    private static RouteSnapshotV1 snapshot(
-            final KeyPair keys, final RouteLifecycleV1 lifecycle, final long controlVersion) {
+    private static RouteSnapshot snapshot(
+            final KeyPair keys, final RouteLifecycle lifecycle, final long controlVersion) {
         final UUID topic = UUID.fromString("12345678-1234-7abc-8def-1234567890ab");
-        final KafkaIngressRouteResourceV1 ingress =
-                new KafkaIngressRouteResourceV1("cluster", "persistent://tenant/ns/delay", topic, 2);
-        final BrokerResourceIdentityV1 broker =
-                BrokerResourceIdentityV1.kafka(new KafkaBrokerResourceIdentityV1("cluster", topic));
-        final QuotaGrantRefV1 quota = new QuotaGrantRefV1(
+        final KafkaIngressRouteResource ingress =
+                new KafkaIngressRouteResource("cluster", "persistent://tenant/ns/delay", topic, 2);
+        final BrokerResourceIdentity broker =
+                BrokerResourceIdentity.kafka(new KafkaBrokerResourceIdentity("cluster", topic));
+        final QuotaGrantRef quota = new QuotaGrantRef(
                 bytes(32, 20),
                 1,
                 new PublishAdmissionBody.ChargeVector(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
-        return RouteSnapshotV1.create(
+        return RouteSnapshot.create(
                 new RouteIncarnation(bytes(16, 30)),
                 bytes(32, 1),
                 bytes(32, 2),
                 lifecycle,
                 900,
                 ingress,
-                RoutingHashVersionV1.ROUTING_HASH_V1,
-                new ProtocolTupleV1(1, 1, ProtocolTupleV1.CLIENT_COMMAND, 1, 1),
+                RoutingHashVersion.ROUTING_HASH,
+                new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1),
                 controlVersion,
                 List.of(policy(0, broker, quota), policy(1, broker, quota)),
                 100,
@@ -132,7 +132,7 @@ class InMemorySignedRouteSnapshotProviderTest {
                 500,
                 100,
                 1000,
-                new IngressCredentialBindingRefV1(bytes(32, 40), 1, bytes(32, 41), bytes(32, 42), bytes(32, 43)),
+                new IngressCredentialBindingRef(bytes(32, 40), 1, bytes(32, 41), bytes(32, 42), bytes(32, 43)),
                 bytes(32, 44),
                 new TrustedUtcIntervalEvidence(
                         200,
@@ -149,10 +149,10 @@ class InMemorySignedRouteSnapshotProviderTest {
                 keys.getPrivate());
     }
 
-    private static RoutePartitionPolicyV1 policy(
-            final int number, final BrokerResourceIdentityV1 broker, final QuotaGrantRefV1 quota) {
-        return new RoutePartitionPolicyV1(
-                number, ActivationBarrierV1.kafka(broker, number, 0, 0), quota, 1, bytes(32, 50 + number));
+    private static RoutePartitionPolicy policy(
+            final int number, final BrokerResourceIdentity broker, final QuotaGrantRef quota) {
+        return new RoutePartitionPolicy(
+                number, ActivationBarrier.kafka(broker, number, 0, 0), quota, 1, bytes(32, 50 + number));
     }
 
     private static byte[] bytes(final int length, final int seed) {

@@ -1,8 +1,8 @@
 package com.nereusstream.delay.store;
 
-import com.nereusstream.delay.protocol.CheckpointUploadIntentV1;
-import com.nereusstream.delay.protocol.CheckpointUploadStateV1;
-import com.nereusstream.delay.protocol.RecoveryPinV1;
+import com.nereusstream.delay.protocol.CheckpointUploadIntent;
+import com.nereusstream.delay.protocol.CheckpointUploadState;
+import com.nereusstream.delay.protocol.RecoveryPin;
 import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import java.util.Objects;
 import java.util.Optional;
@@ -10,7 +10,7 @@ import java.util.Optional;
 /**
  * Read-only necessary-condition check for entering checkpoint orphan reaping.
  * A deadline is only one input: an already published catalog entry or an
- * active recovery pin remains a hard protection.  Oxia CAS, owner-abandonment
+ * active recovery pin remains a hard protection. Oxia CAS, owner-abandonment
  * proof, provider-request quiescence and exact-version deletion remain outside
  * this local predicate.
  */
@@ -28,13 +28,13 @@ public final class CheckpointReapingGuard {
     }
 
     public static Decision evaluate(
-            final CheckpointUploadIntentV1 pending,
+            final CheckpointUploadIntent pending,
             final TrustedUtcIntervalEvidence evidence,
             final RecoveryCatalogAuthority catalog) {
         Objects.requireNonNull(pending, "pending");
         Objects.requireNonNull(evidence, "evidence");
         Objects.requireNonNull(catalog, "catalog");
-        if (pending.state() != CheckpointUploadStateV1.PENDING_UPLOAD) {
+        if (pending.state() != CheckpointUploadState.PENDING_UPLOAD) {
             return Decision.INTENT_NOT_PENDING;
         }
         try {
@@ -49,7 +49,7 @@ public final class CheckpointReapingGuard {
         } catch (RuntimeException | Error exception) {
             return Decision.CATALOG_STATE_UNAVAILABLE;
         }
-        final Optional<RecoveryPinV1> active;
+        final Optional<RecoveryPin> active;
         try {
             active = Objects.requireNonNull(catalog.activeRecoveryPin(), "activeRecoveryPin");
         } catch (RuntimeException | Error exception) {
@@ -61,7 +61,7 @@ public final class CheckpointReapingGuard {
         return Decision.REAPING_ALLOWED;
     }
 
-    private static boolean protectsPending(final RecoveryPinV1 pin, final CheckpointUploadIntentV1 pending) {
+    private static boolean protectsPending(final RecoveryPin pin, final CheckpointUploadIntent pending) {
         return matches(
                         pin.candidate().recoveryLineageId(),
                         pin.candidate().checkpointId(),

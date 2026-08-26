@@ -11,17 +11,17 @@ import java.util.function.LongSupplier;
 /**
  * One-record bounded source-reader/apply/ack handoff.
  *
- * <p>The coordinator owns no broker cursor or Source Position allocation.  It
+ * <p>The coordinator owns no broker cursor or Source Position allocation. It
  * keeps one caller-owned {@link SourceReplayCursor} look-ahead entry, or one
  * native {@link SourceRecordConsumer.PolledSourceRecord}, and uses {@link
  * SourceApplyWorkClassExecutor} for the bounded {@code SOURCE_APPLY} action.
  * The exact entry is retained until the external acknowledgement is
- * confirmed.  Consequently a queue rejection, an apply failure, an ACK
+ * confirmed. Consequently a queue rejection, an apply failure, an ACK
  * response loss, or an ACK rejection cannot make the process-local cursor
  * outrun the broker's retry authority.</p>
  *
  * <p>Each call to {@link #runTurn(SchedulerBudget, LongSupplier)} handles at
- * most one physical record.  The Worker must schedule another call while the
+ * most one physical record. The Worker must schedule another call while the
  * result is not {@link TurnStatus#EXHAUSTED}; this keeps source work bounded
  * independently from the WorkClass queue's own record/byte/time limits.</p>
  */
@@ -55,7 +55,7 @@ public final class SourceApplyCoordinator {
     }
 
     /**
-     * Builds the Worker-facing variant.  The consumer's ACK callback is also
+     * Builds the Worker-facing variant. The consumer's ACK callback is also
      * its native cursor-advance authority; it must return {@code ACKED} only
      * after that broker operation is durably accepted.
      */
@@ -78,7 +78,7 @@ public final class SourceApplyCoordinator {
     }
 
     /**
-     * Runs one bounded source handoff.  The source cursor advances only after
+     * Runs one bounded source handoff. The source cursor advances only after
      * a successful broker ACK and an exact look-ahead identity check.
      */
     public synchronized TurnResult runTurn(final SchedulerBudget workBudget, final LongSupplier ownerClock) {

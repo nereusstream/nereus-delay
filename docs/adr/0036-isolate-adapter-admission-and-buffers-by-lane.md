@@ -1,6 +1,6 @@
 # Isolate Adapter admission and buffers by Destination Lane
 
-Nereus Delay V1 carries Destination Lane fault isolation through the Adapter submission boundary. Scheduler fairness and per-Lane RocksDB state are insufficient if unrelated Lanes share an unbounded Producer queue, metadata wait, transaction lock, callback executor, or client buffer. Every Lane therefore has a bounded Adapter Channel admission domain for tasks, messages, bytes, connections/producers, and deadlines.
+Nereus Delay carries Destination Lane fault isolation through the Adapter submission boundary. Scheduler fairness and per-Lane RocksDB state are insufficient if unrelated Lanes share an unbounded Producer queue, metadata wait, transaction lock, callback executor, or client buffer. Every Lane therefore has a bounded Adapter Channel admission domain for tasks, messages, bytes, connections/producers, and deadlines.
 
 ## Submission boundary
 
@@ -28,4 +28,4 @@ The Worker separately caps total Adapter connections/producers/threads/requests/
 
 ## Guarantee boundary
 
-A cluster-wide or shared-network outage can make every Lane using that dependency unavailable. The hard V1 promise is that a failure confined to one topic, credential, Lane buffer, circuit, Producer, or unresolved attempt cannot consume unrelated Lane reserve or pause Command application. Tests inject permanently blocking synchronous metadata calls, dropped callbacks, Futures that ignore cancellation, full client buffers, metadata failure, and one-Lane connection churn. Repeated logical timeouts must converge at the offending Lane's zombie cap, while memory, threads, connections and requests stay bounded and a READY Lane on an independent target continues within its certified service-gap bound.
+A cluster-wide or shared-network outage can make every Lane using that dependency unavailable. The hard promise is that a failure confined to one topic, credential, Lane buffer, circuit, Producer, or unresolved attempt cannot consume unrelated Lane reserve or pause Command application. Tests inject permanently blocking synchronous metadata calls, dropped callbacks, Futures that ignore cancellation, full client buffers, metadata failure, and one-Lane connection churn. Repeated logical timeouts must converge at the offending Lane's zombie cap, while memory, threads, connections and requests stay bounded and a READY Lane on an independent target continues within its certified service-gap bound.
