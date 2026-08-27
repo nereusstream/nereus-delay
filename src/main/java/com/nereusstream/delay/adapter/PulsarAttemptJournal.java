@@ -158,6 +158,9 @@ public final class PulsarAttemptJournal {
         if (state.retired) {
             return new AppendResult(state.retirementRecord, true);
         }
+        if (state.ownershipStarted || state.published) {
+            throw conflict("a mapping after ownership start cannot be retired as not published");
+        }
         final JournalPosition position = append(RecordKind.RETIRED_NOT_PUBLISHED, state.mapping);
         final JournalRecord record = new JournalRecord(RecordKind.RETIRED_NOT_PUBLISHED, state.mapping, position);
         state.retired = true;
@@ -166,6 +169,73 @@ public final class PulsarAttemptJournal {
         records.add(record);
         lastPosition = position;
         return new AppendResult(record, false);
+    }
+
+    /** Durably marks Producer ownership before invoking the physical SEND. */
+    public synchronized AppendResult markOwnershipStarted(final byte[] mappingId) {
+        final MappingState state = requireMapping(mappingId);
+        if (state.published || state.retired) {
+            throw conflict("terminal mapping cannot enter ownership");
+        }
+        if (state.ownershipStarted) {
+            return new AppendResult(state.ownershipRecord, true);
+        }
+        final JournalPosition position = append(RecordKind.OWNERSHIP_STARTED, state.mapping);
+        final JournalRecord record = new JournalRecord(RecordKind.OWNERSHIP_STARTED, state.mapping, position);
+        state.ownershipStarted = true;
+        state.ownershipRecord = record;
+        records.add(record);
+        lastPosition = position;
+        return new AppendResult(record, false);
+    }
+
+    /** Durably records an authenticated Broker publication for the exact mapping. */
+    public synchronized AppendResult markPublished(final byte[] mappingId) {
+        final MappingState state = requireMapping(mappingId);
+        if (state.retired) {
+            throw conflict("retired mapping cannot become published");
+        }
+        if (!state.ownershipStarted) {
+            throw conflict("PUBLISHED requires an OWNERSHIP_STARTED predecessor");
+        }
+        if (state.published) {
+            return new AppendResult(state.publishedRecord, true);
+        }
+        final JournalPosition position = append(RecordKind.PUBLISHED, state.mapping);
+        final JournalRecord record = new JournalRecord(RecordKind.PUBLISHED, state.mapping, position);
+        state.published = true;
+        state.publishedRecord = record;
+        state.producer.unresolvedMappingId = null;
+        records.add(record);
+        lastPosition = position;
+        return new AppendResult(record, false);
+    }
+
+    /** Returns the exact four-state H3 projection for one mapping. */
+    public synchronized AttemptState state(final byte[] mappingId) {
+        return requireMapping(mappingId).state();
+    }
+
+    /** Marks ownership for an exact mapping, including its immutable body fence. */
+    public synchronized AppendResult markOwnershipStarted(final Mapping mapping) {
+        Objects.requireNonNull(mapping, "mapping");
+        requireShard(mapping);
+        final MappingState state = requireMapping(mapping.mappingId());
+        if (!state.mapping.sameCanonical(mapping)) {
+            throw conflict("ownership marker mapping body conflict");
+        }
+        return markOwnershipStarted(mapping.mappingId());
+    }
+
+    /** Marks authenticated publication for an exact mapping, including its body fence. */
+    public synchronized AppendResult markPublished(final Mapping mapping) {
+        Objects.requireNonNull(mapping, "mapping");
+        requireShard(mapping);
+        final MappingState state = requireMapping(mapping.mappingId());
+        if (!state.mapping.sameCanonical(mapping)) {
+            throw conflict("published marker mapping body conflict");
+        }
+        return markPublished(mapping.mappingId());
     }
 
     /** Replays one already-durable Journal record during local recovery. */
@@ -178,28 +248,42 @@ public final class PulsarAttemptJournal {
             if (!current.mapping.sameCanonical(record.mapping())) {
                 throw conflict("Attempt Journal mapping id/body conflict");
             }
-            if (record.kind() == RecordKind.MAPPED) {
-                // JournalPosition is reconstructed during replay; compare its
-                // canonical bytes rather than relying on record identity.
-                if (Arrays.equals(
-                        current.mappedRecord.position().canonicalBytes(),
-                        record.position().canonicalBytes())) {
+            final JournalRecord prior = current.record(record.kind());
+            // JournalPosition is reconstructed during replay; compare its
+            // canonical bytes rather than relying on record identity.
+            if (prior != null) {
+                if (Arrays.equals(prior.position().canonicalBytes(), record.position().canonicalBytes())) {
                     return;
                 }
-                throw conflict("Attempt Journal mapped record replay conflict");
-            }
-            if (current.retired) {
-                if (Arrays.equals(
-                        current.retirementRecord.position().canonicalBytes(),
-                        record.position().canonicalBytes())) {
-                    return;
-                }
-                throw conflict("Attempt Journal retirement record replay conflict");
+                throw conflict("Attempt Journal state record replay conflict");
             }
             validatePosition(record.position());
-            current.retired = true;
-            current.retirementRecord = record;
-            current.producer.unresolvedMappingId = null;
+            switch (record.kind()) {
+                case MAPPED -> throw conflict("duplicate mapped record replay conflict");
+                case OWNERSHIP_STARTED -> {
+                    if (current.retired || current.published || current.ownershipStarted) {
+                        throw conflict("invalid OWNERSHIP_STARTED replay transition");
+                    }
+                    current.ownershipStarted = true;
+                    current.ownershipRecord = record;
+                }
+                case PUBLISHED -> {
+                    if (current.retired || current.published || !current.ownershipStarted) {
+                        throw conflict("invalid PUBLISHED replay transition");
+                    }
+                    current.published = true;
+                    current.publishedRecord = record;
+                    current.producer.unresolvedMappingId = null;
+                }
+                case RETIRED_NOT_PUBLISHED -> {
+                    if (current.retired || current.published || current.ownershipStarted) {
+                        throw conflict("invalid RETIRED_NOT_PUBLISHED replay transition");
+                    }
+                    current.retired = true;
+                    current.retirementRecord = record;
+                    current.producer.unresolvedMappingId = null;
+                }
+            }
             records.add(record);
             lastPosition = record.position();
             return;
@@ -435,6 +519,9 @@ public final class PulsarAttemptJournal {
                 && Long.compareUnsigned(evidence.brokerLastSequenceId(), state.lastSequenceId) > 0) {
             return Resolution.divergence(latest.mapping, "Broker sequence is above the Journal maximum");
         }
+        if (latest.published) {
+            return Resolution.published(latest.mapping);
+        }
         if (evidence.brokerLastSequenceId() >= 0
                 && Long.compareUnsigned(evidence.brokerLastSequenceId(), latest.mapping.sequenceId()) >= 0) {
             if (latest.retired) {
@@ -456,7 +543,11 @@ public final class PulsarAttemptJournal {
         synchronized (this) {
             requireShard(mapping);
             final MappingState state = mappings.get(Bytes.hex(mapping.mappingId()));
-            if (state == null || !state.mapping.sameCanonical(mapping) || state.retired) {
+            if (state == null
+                    || !state.mapping.sameCanonical(mapping)
+                    || state.retired
+                    || state.ownershipStarted
+                    || state.published) {
                 throw conflict("target SEND has no exact durable non-retired mapping");
             }
         }
@@ -465,6 +556,30 @@ public final class PulsarAttemptJournal {
             // A null stage is not evidence of non-publication. Keep the exact
             // mapped attempt unresolved and force the caller through its
             // UNKNOWN/evidence path instead of leaking an untyped NPE.
+            throw new JournalException(
+                    StableCode.PULSAR_EVIDENCE_DIVERGENCE, "target sender returned no CompletionStage");
+        }
+        return result;
+    }
+
+    /** Allows physical SEND only after the exact ownership marker is durable. */
+    public <T> CompletionStage<T> sendAfterOwnershipStarted(
+            final Mapping mapping, final TargetSender<T> sender) {
+        Objects.requireNonNull(mapping, "mapping");
+        Objects.requireNonNull(sender, "sender");
+        synchronized (this) {
+            requireShard(mapping);
+            final MappingState state = mappings.get(Bytes.hex(mapping.mappingId()));
+            if (state == null
+                    || !state.mapping.sameCanonical(mapping)
+                    || !state.ownershipStarted
+                    || state.retired
+                    || state.published) {
+                throw conflict("target SEND requires an exact durable ownership marker");
+            }
+        }
+        final CompletionStage<T> result = sender.send(mapping);
+        if (result == null) {
             throw new JournalException(
                     StableCode.PULSAR_EVIDENCE_DIVERGENCE, "target sender returned no CompletionStage");
         }
@@ -551,6 +666,15 @@ public final class PulsarAttemptJournal {
         }
     }
 
+    private MappingState requireMapping(final byte[] mappingId) {
+        Bytes.requireLength(mappingId, HASH_LENGTH, "mappingId");
+        final MappingState state = mappings.get(Bytes.hex(mappingId));
+        if (state == null) {
+            throw conflict("unknown Attempt Journal mapping");
+        }
+        return state;
+    }
+
     private static long nextSequence(final long lastSequenceId) {
         try {
             return Math.addExact(lastSequenceId, 1);
@@ -575,11 +699,31 @@ public final class PulsarAttemptJournal {
 
     public enum RecordKind {
         MAPPED(1),
-        RETIRED_NOT_PUBLISHED(2);
+        OWNERSHIP_STARTED(2),
+        PUBLISHED(3),
+        RETIRED_NOT_PUBLISHED(4);
 
         private final int wireValue;
 
         RecordKind(final int wireValue) {
+            this.wireValue = wireValue;
+        }
+
+        public int wireValue() {
+            return wireValue;
+        }
+    }
+
+    /** Exact H3 Attempt Journal state projection. */
+    public enum AttemptState {
+        MAPPED(1),
+        OWNERSHIP_STARTED(2),
+        PUBLISHED(3),
+        RETIRED_NOT_PUBLISHED(4);
+
+        private final int wireValue;
+
+        AttemptState(final int wireValue) {
             this.wireValue = wireValue;
         }
 
@@ -917,6 +1061,10 @@ public final class PulsarAttemptJournal {
         private final Mapping mapping;
         private final ProducerState producer;
         private final JournalRecord mappedRecord;
+        private boolean ownershipStarted;
+        private JournalRecord ownershipRecord;
+        private boolean published;
+        private JournalRecord publishedRecord;
         private boolean retired;
         private JournalRecord retirementRecord;
 
@@ -924,6 +1072,28 @@ public final class PulsarAttemptJournal {
             this.mapping = mapping;
             this.producer = producer;
             this.mappedRecord = mappedRecord;
+        }
+
+        private AttemptState state() {
+            if (retired) {
+                return AttemptState.RETIRED_NOT_PUBLISHED;
+            }
+            if (published) {
+                return AttemptState.PUBLISHED;
+            }
+            if (ownershipStarted) {
+                return AttemptState.OWNERSHIP_STARTED;
+            }
+            return AttemptState.MAPPED;
+        }
+
+        private JournalRecord record(final RecordKind kind) {
+            return switch (kind) {
+                case MAPPED -> mappedRecord;
+                case OWNERSHIP_STARTED -> ownershipRecord;
+                case PUBLISHED -> publishedRecord;
+                case RETIRED_NOT_PUBLISHED -> retirementRecord;
+            };
         }
     }
 
