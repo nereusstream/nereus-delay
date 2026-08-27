@@ -70,6 +70,16 @@ tasks.named('compileRealCrossJava').configure { enabled = false }
 def realKafkaClientJar = findProperty('kafkaClientJar')
 def realPulsarClientClasspath = findProperty('pulsarClientClasspath')
 def realPulsarRuntimeDir = findProperty('pulsarRuntimeDir')
+// Keep opt-in tasks discoverable when their runtime inputs are intentionally
+// absent.  The task actions below retain the explicit fail-on-missing checks;
+// these empty collections only prevent Gradle's configuration phase from
+// dereferencing null while listing or importing the task graph.
+def realKafkaClientFiles = realKafkaClientJar == null ? files() : files(realKafkaClientJar)
+def realPulsarClientFiles = realPulsarClientClasspath == null
+        ? files() : files(realPulsarClientClasspath.split(File.pathSeparator))
+def realPulsarRuntimeFiles = realPulsarRuntimeDir == null
+        ? files() : fileTree(realPulsarRuntimeDir).include('**/*.jar')
+project.ext.optionalRealTaskArgument = { value -> value == null ? '' : value.toString() }
 
 tasks.register('compileRealKafka', JavaCompile) {
     group = 'verification'
@@ -84,7 +94,7 @@ tasks.register('compileRealKafka', JavaCompile) {
     // The shared main API exposes Oxia-backed authority constructors. Keep
     // upstream Kafka isolated, but make the shared main compile dependencies
     // visible when javac resolves those public signatures.
-    classpath = files(sourceSets.main.output, sourceSets.main.compileClasspath, realKafkaClientJar)
+    classpath = files(sourceSets.main.output, sourceSets.main.compileClasspath, realKafkaClientFiles)
     destinationDirectory = layout.buildDirectory.dir('classes/java/realKafka')
     options.release = 21
     options.encoding = 'UTF-8'
@@ -101,9 +111,10 @@ tasks.register('runRealKafkaSmoke', JavaExec) {
                     'runRealKafkaSmoke requires -PkafkaClientJar=... -PkafkaBootstrap=host:port -PkafkaTopic=name')
         }
     }
-    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientFiles)
     mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactSmoke'
-    args findProperty('kafkaBootstrap'), findProperty('kafkaTopic')
+    args project.ext.optionalRealTaskArgument.call(findProperty('kafkaBootstrap')),
+            project.ext.optionalRealTaskArgument.call(findProperty('kafkaTopic'))
     if (findProperty('smokeMode') != null) {
         args findProperty('smokeMode')
     }
@@ -121,9 +132,11 @@ tasks.register('runRealKafkaK2Smoke', JavaExec) {
                             + '-PkafkaTargetTopic=name -PkafkaReceiptTopic=name')
         }
     }
-    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientFiles)
     mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactTransactionalSmoke'
-    args findProperty('kafkaBootstrap'), findProperty('kafkaTargetTopic'), findProperty('kafkaReceiptTopic')
+    args project.ext.optionalRealTaskArgument.call(findProperty('kafkaBootstrap')),
+            project.ext.optionalRealTaskArgument.call(findProperty('kafkaTargetTopic')),
+            project.ext.optionalRealTaskArgument.call(findProperty('kafkaReceiptTopic'))
 }
 
 tasks.register('runRealKafkaSourceSmoke', JavaExec) {
@@ -138,9 +151,10 @@ tasks.register('runRealKafkaSourceSmoke', JavaExec) {
                             + '-PkafkaSourceTopic=name')
         }
     }
-    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientFiles)
     mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactSourceSmoke'
-    args findProperty('kafkaBootstrap'), findProperty('kafkaSourceTopic')
+    args project.ext.optionalRealTaskArgument.call(findProperty('kafkaBootstrap')),
+            project.ext.optionalRealTaskArgument.call(findProperty('kafkaSourceTopic'))
 }
 
 tasks.register('runRealKafkaFetchResponseLossSmoke', JavaExec) {
@@ -155,9 +169,10 @@ tasks.register('runRealKafkaFetchResponseLossSmoke', JavaExec) {
                             + '-PkafkaFetchResponseLossTopic=name')
         }
     }
-    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientFiles)
     mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactFetchResponseLossSmoke'
-    args findProperty('kafkaBootstrap'), findProperty('kafkaFetchResponseLossTopic')
+    args project.ext.optionalRealTaskArgument.call(findProperty('kafkaBootstrap')),
+            project.ext.optionalRealTaskArgument.call(findProperty('kafkaFetchResponseLossTopic'))
 }
 
 tasks.register('runRealKafkaRetentionFloorSmoke', JavaExec) {
@@ -172,9 +187,10 @@ tasks.register('runRealKafkaRetentionFloorSmoke', JavaExec) {
                             + '-PkafkaRetentionFloorTopic=name')
         }
     }
-    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientFiles)
     mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactRetentionFloorSmoke'
-    args findProperty('kafkaBootstrap'), findProperty('kafkaRetentionFloorTopic')
+    args project.ext.optionalRealTaskArgument.call(findProperty('kafkaBootstrap')),
+            project.ext.optionalRealTaskArgument.call(findProperty('kafkaRetentionFloorTopic'))
 }
 
 tasks.register('runRealKafkaProcessCrashRecoverySmoke', JavaExec) {
@@ -190,10 +206,11 @@ tasks.register('runRealKafkaProcessCrashRecoverySmoke', JavaExec) {
                             + '-PkafkaProcessCrashMode=crash|resume')
         }
     }
-    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientFiles)
     mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactProcessCrashRecoverySmoke'
-    args findProperty('kafkaBootstrap'), findProperty('kafkaProcessCrashTopic'),
-            findProperty('kafkaProcessCrashMode')
+    args project.ext.optionalRealTaskArgument.call(findProperty('kafkaBootstrap')),
+            project.ext.optionalRealTaskArgument.call(findProperty('kafkaProcessCrashTopic')),
+            project.ext.optionalRealTaskArgument.call(findProperty('kafkaProcessCrashMode'))
 }
 
 tasks.register('runRealKafkaSurvivorLeaderRecoverySmoke', JavaExec) {
@@ -208,9 +225,10 @@ tasks.register('runRealKafkaSurvivorLeaderRecoverySmoke', JavaExec) {
                             + '-PkafkaBootstrap=host:port -PkafkaSurvivorTopics=topic[,topic...]')
         }
     }
-    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientFiles)
     mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactSurvivorLeaderRecoverySmoke'
-    args findProperty('kafkaBootstrap'), findProperty('kafkaSurvivorTopics')
+    args project.ext.optionalRealTaskArgument.call(findProperty('kafkaBootstrap')),
+            project.ext.optionalRealTaskArgument.call(findProperty('kafkaSurvivorTopics'))
 }
 
 tasks.register('runRealKafkaLeaderPlacementSmoke', JavaExec) {
@@ -225,10 +243,11 @@ tasks.register('runRealKafkaLeaderPlacementSmoke', JavaExec) {
                             + '-PkafkaBootstrap=host:port -PkafkaLeaderPlacementTopic=name')
         }
     }
-    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientFiles)
     mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactLeaderPlacementSmoke'
-    args findProperty('kafkaBootstrap'), findProperty('kafkaLeaderPlacementTopic'),
-            findProperty('kafkaLeaderPlacementGroup')
+    args project.ext.optionalRealTaskArgument.call(findProperty('kafkaBootstrap')),
+            project.ext.optionalRealTaskArgument.call(findProperty('kafkaLeaderPlacementTopic')),
+            project.ext.optionalRealTaskArgument.call(findProperty('kafkaLeaderPlacementGroup'))
 }
 
 tasks.register('runRealKafkaTcpFaultProxy', JavaExec) {
@@ -248,9 +267,9 @@ tasks.register('runRealKafkaTcpFaultProxy', JavaExec) {
                     + 'kafkaProxy* properties')
         }
     }
-    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientFiles)
     mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactTcpFaultProxy'
-    args proxyProperties.collect { findProperty(it) }
+    args proxyProperties.collect { project.ext.optionalRealTaskArgument.call(findProperty(it)) }
 }
 
 tasks.register('runRealKafkaHalfOpenProxy', JavaExec) {
@@ -269,9 +288,9 @@ tasks.register('runRealKafkaHalfOpenProxy', JavaExec) {
                     + 'kafkaHalfOpen* properties')
         }
     }
-    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientFiles)
     mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactHalfOpenProxy'
-    args proxyProperties.collect { findProperty(it) }
+    args proxyProperties.collect { project.ext.optionalRealTaskArgument.call(findProperty(it)) }
 }
 
 tasks.register('runRealKafkaMutationSmoke', JavaExec) {
@@ -286,9 +305,10 @@ tasks.register('runRealKafkaMutationSmoke', JavaExec) {
                             + '-PkafkaMutationTopic=name')
         }
     }
-    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientFiles)
     mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactMutationSmoke'
-    args findProperty('kafkaBootstrap'), findProperty('kafkaMutationTopic')
+    args project.ext.optionalRealTaskArgument.call(findProperty('kafkaBootstrap')),
+            project.ext.optionalRealTaskArgument.call(findProperty('kafkaMutationTopic'))
 }
 
 tasks.register('runRealKafkaMutationWorkerSmoke', JavaExec) {
@@ -303,9 +323,10 @@ tasks.register('runRealKafkaMutationWorkerSmoke', JavaExec) {
                             + '-PkafkaMutationWorkerTopic=name')
         }
     }
-    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientFiles)
     mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactMutationWorkerSmoke'
-    args findProperty('kafkaBootstrap'), findProperty('kafkaMutationWorkerTopic')
+    args project.ext.optionalRealTaskArgument.call(findProperty('kafkaBootstrap')),
+            project.ext.optionalRealTaskArgument.call(findProperty('kafkaMutationWorkerTopic'))
 }
 
 tasks.register('runRealKafkaWorkerSmoke', JavaExec) {
@@ -320,12 +341,13 @@ tasks.register('runRealKafkaWorkerSmoke', JavaExec) {
                             + '-PkafkaWorkerTopic=name')
         }
     }
-    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientFiles)
     mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactWorkerSmoke'
-    args findProperty('kafkaBootstrap'), findProperty('kafkaWorkerTopic'),
-            findProperty('kafkaWorkerMode') ?: 'run'
+    args project.ext.optionalRealTaskArgument.call(findProperty('kafkaBootstrap')),
+            project.ext.optionalRealTaskArgument.call(findProperty('kafkaWorkerTopic')),
+            project.ext.optionalRealTaskArgument.call(findProperty('kafkaWorkerMode') ?: 'run')
     if (findProperty('kafkaWorkerDestinationTopic') != null) {
-        args findProperty('kafkaWorkerDestinationTopic')
+    args project.ext.optionalRealTaskArgument.call(findProperty('kafkaWorkerDestinationTopic'))
     }
 }
 
@@ -341,9 +363,10 @@ tasks.register('runRealKafkaBrokerProcessCrashStateSmoke', JavaExec) {
                             + '-PkafkaBootstrap=host:port -PkafkaBrokerProcessCrashTopic=name')
         }
     }
-    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientFiles)
     mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactBrokerProcessCrashStateSmoke'
-    args findProperty('kafkaBootstrap'), findProperty('kafkaBrokerProcessCrashTopic')
+    args project.ext.optionalRealTaskArgument.call(findProperty('kafkaBootstrap')),
+            project.ext.optionalRealTaskArgument.call(findProperty('kafkaBrokerProcessCrashTopic'))
 }
 
 tasks.register('runRealKafkaBrokerRecoveryStateSmoke', JavaExec) {
@@ -358,9 +381,10 @@ tasks.register('runRealKafkaBrokerRecoveryStateSmoke', JavaExec) {
                             + '-PkafkaBootstrap=host:port -PkafkaBrokerRecoveryTopic=name')
         }
     }
-    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientFiles)
     mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactBrokerProcessCrashStateSmoke'
-    args findProperty('kafkaBootstrap'), findProperty('kafkaBrokerRecoveryTopic')
+    args project.ext.optionalRealTaskArgument.call(findProperty('kafkaBootstrap')),
+            project.ext.optionalRealTaskArgument.call(findProperty('kafkaBrokerRecoveryTopic'))
 }
 
 tasks.register('runRealKafkaRouteWorkerSmoke', JavaExec) {
@@ -375,9 +399,10 @@ tasks.register('runRealKafkaRouteWorkerSmoke', JavaExec) {
                             + '-PkafkaRouteWorkerTopic=name and NEREUS_DELAY_OXIA_ENDPOINT')
         }
     }
-    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientFiles)
     mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactRouteWorkerSmoke'
-    args findProperty('kafkaBootstrap'), findProperty('kafkaRouteWorkerTopic')
+    args project.ext.optionalRealTaskArgument.call(findProperty('kafkaBootstrap')),
+            project.ext.optionalRealTaskArgument.call(findProperty('kafkaRouteWorkerTopic'))
 }
 
 tasks.register('runRealKafkaLargePayloadGatewaySmoke', JavaExec) {
@@ -393,9 +418,10 @@ tasks.register('runRealKafkaLargePayloadGatewaySmoke', JavaExec) {
                             + 'NEREUS_DELAY_OXIA_ENDPOINT, Gateway TLS and MinIO env')
         }
     }
-    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientFiles)
     mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactLargePayloadGatewaySmoke'
-    args findProperty('kafkaBootstrap'), findProperty('kafkaLargePayloadTopic')
+    args project.ext.optionalRealTaskArgument.call(findProperty('kafkaBootstrap')),
+            project.ext.optionalRealTaskArgument.call(findProperty('kafkaLargePayloadTopic'))
 }
 
 tasks.register('runRealKafkaCapacityProducer', JavaExec) {
@@ -413,9 +439,9 @@ tasks.register('runRealKafkaCapacityProducer', JavaExec) {
             throw new GradleException('runRealKafkaCapacityProducer requires the K1 client and all kafkaCapacity* properties')
         }
     }
-    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientJar)
+    classpath = files(sourceSets.main.runtimeClasspath, sourceSets.realKafka.output, realKafkaClientFiles)
     mainClass = 'com.nereusstream.delay.transport.KafkaClientArtifactCapacityProducer'
-    args requiredProperties.collect { findProperty(it) }
+    args requiredProperties.collect { project.ext.optionalRealTaskArgument.call(findProperty(it)) }
 }
 
 tasks.register('compileRealPulsar', JavaCompile) {
@@ -432,7 +458,7 @@ tasks.register('compileRealPulsar', JavaCompile) {
     // See compileRealKafka: the real binding may call a shared Oxia-backed
     // authority, whose public signature is part of the main API surface.
     classpath = files(sourceSets.main.output, sourceSets.main.compileClasspath,
-            realPulsarClientClasspath.split(File.pathSeparator))
+            realPulsarClientFiles)
     destinationDirectory = layout.buildDirectory.dir('classes/java/realPulsar')
     options.release = 21
     options.encoding = 'UTF-8'
@@ -450,7 +476,7 @@ tasks.register('runRealPulsarSmoke', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.runtimeClasspath,
-            sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator))
+            sourceSets.realPulsar.output, realPulsarClientFiles)
     mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactBindingSmoke'
 }
 
@@ -465,7 +491,7 @@ tasks.register('runRealPulsarH0Smoke', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.runtimeClasspath,
-            sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator))
+            sourceSets.realPulsar.output, realPulsarClientFiles)
     mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactH0Smoke'
 }
 
@@ -493,10 +519,12 @@ tasks.register('runRealPulsarServiceSmoke', JavaExec) {
     // Netty/SLF4J runtime graph.  The locked P1 distribution owns these ABI
     // versions; only Delay bytecode plus the explicit P1 graph is required.
     classpath = files(sourceSets.main.output,
-            sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
-            fileTree(realPulsarRuntimeDir).include('**/*.jar'))
+            sourceSets.realPulsar.output, realPulsarClientFiles,
+            realPulsarRuntimeFiles)
     mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactRealServiceSmoke'
-    args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarTopic')
+    args project.ext.optionalRealTaskArgument.call(findProperty('pulsarServiceUrl')),
+            project.ext.optionalRealTaskArgument.call(findProperty('pulsarAdminUrl')),
+            project.ext.optionalRealTaskArgument.call(findProperty('pulsarTopic'))
 }
 
 tasks.register('runRealPulsarDestinationSmoke', JavaExec) {
@@ -520,10 +548,12 @@ tasks.register('runRealPulsarDestinationSmoke', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.output,
-            sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
-            fileTree(realPulsarRuntimeDir).include('**/*.jar'))
+            sourceSets.realPulsar.output, realPulsarClientFiles,
+            realPulsarRuntimeFiles)
     mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactDestinationSmoke'
-    args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarDestinationTopic')
+    args project.ext.optionalRealTaskArgument.call(findProperty('pulsarServiceUrl')),
+            project.ext.optionalRealTaskArgument.call(findProperty('pulsarAdminUrl')),
+            project.ext.optionalRealTaskArgument.call(findProperty('pulsarDestinationTopic'))
 }
 
 tasks.register('runRealPulsarNativeSmoke', JavaExec) {
@@ -547,10 +577,12 @@ tasks.register('runRealPulsarNativeSmoke', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.output,
-            sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
-            fileTree(realPulsarRuntimeDir).include('**/*.jar'))
+            sourceSets.realPulsar.output, realPulsarClientFiles,
+            realPulsarRuntimeFiles)
     mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactNativeSmoke'
-    args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarNativeTopic')
+    args project.ext.optionalRealTaskArgument.call(findProperty('pulsarServiceUrl')),
+            project.ext.optionalRealTaskArgument.call(findProperty('pulsarAdminUrl')),
+            project.ext.optionalRealTaskArgument.call(findProperty('pulsarNativeTopic'))
 }
 
 tasks.register('runRealPulsarSourceSmoke', JavaExec) {
@@ -574,10 +606,12 @@ tasks.register('runRealPulsarSourceSmoke', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.output,
-            sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
-            fileTree(realPulsarRuntimeDir).include('**/*.jar'))
+            sourceSets.realPulsar.output, realPulsarClientFiles,
+            realPulsarRuntimeFiles)
     mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactSourceSmoke'
-    args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarTopic')
+    args project.ext.optionalRealTaskArgument.call(findProperty('pulsarServiceUrl')),
+            project.ext.optionalRealTaskArgument.call(findProperty('pulsarAdminUrl')),
+            project.ext.optionalRealTaskArgument.call(findProperty('pulsarTopic'))
 }
 
 tasks.register('runRealPulsarMutationSmoke', JavaExec) {
@@ -601,10 +635,12 @@ tasks.register('runRealPulsarMutationSmoke', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.output,
-            sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
-            fileTree(realPulsarRuntimeDir).include('**/*.jar'))
+            sourceSets.realPulsar.output, realPulsarClientFiles,
+            realPulsarRuntimeFiles)
     mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactMutationSmoke'
-    args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarMutationTopic')
+    args project.ext.optionalRealTaskArgument.call(findProperty('pulsarServiceUrl')),
+            project.ext.optionalRealTaskArgument.call(findProperty('pulsarAdminUrl')),
+            project.ext.optionalRealTaskArgument.call(findProperty('pulsarMutationTopic'))
 }
 
 tasks.register('runRealPulsarMutationWorkerSmoke', JavaExec) {
@@ -630,10 +666,12 @@ tasks.register('runRealPulsarMutationWorkerSmoke', JavaExec) {
     def optionalOxiaClasspath = findProperty('pulsarWithOxia') == 'true'
             ? sourceSets.main.runtimeClasspath : files()
     classpath = files(sourceSets.main.output,
-            sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
-            fileTree(realPulsarRuntimeDir).include('**/*.jar'), optionalOxiaClasspath)
+            sourceSets.realPulsar.output, realPulsarClientFiles,
+            realPulsarRuntimeFiles, optionalOxiaClasspath)
     mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactMutationWorkerSmoke'
-    args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarMutationWorkerTopic')
+    args project.ext.optionalRealTaskArgument.call(findProperty('pulsarServiceUrl')),
+            project.ext.optionalRealTaskArgument.call(findProperty('pulsarAdminUrl')),
+            project.ext.optionalRealTaskArgument.call(findProperty('pulsarMutationWorkerTopic'))
 }
 
 tasks.register('runRealPulsarRouteWorkerSmoke', JavaExec) {
@@ -659,10 +697,12 @@ tasks.register('runRealPulsarRouteWorkerSmoke', JavaExec) {
     def optionalOxiaClasspath = findProperty('pulsarWithOxia') == 'true'
             ? sourceSets.main.runtimeClasspath : files()
     classpath = files(sourceSets.main.output,
-            sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
-            fileTree(realPulsarRuntimeDir).include('**/*.jar'), optionalOxiaClasspath)
+            sourceSets.realPulsar.output, realPulsarClientFiles,
+            realPulsarRuntimeFiles, optionalOxiaClasspath)
     mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactRouteWorkerSmoke'
-    args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarRouteWorkerTopic')
+    args project.ext.optionalRealTaskArgument.call(findProperty('pulsarServiceUrl')),
+            project.ext.optionalRealTaskArgument.call(findProperty('pulsarAdminUrl')),
+            project.ext.optionalRealTaskArgument.call(findProperty('pulsarRouteWorkerTopic'))
 }
 
 tasks.register('runRealPulsarWorkerSmoke', JavaExec) {
@@ -688,11 +728,14 @@ tasks.register('runRealPulsarWorkerSmoke', JavaExec) {
     def optionalOxiaClasspath = findProperty('pulsarWithOxia') == 'true'
             ? sourceSets.main.runtimeClasspath : files()
     classpath = files(sourceSets.main.output,
-            sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
-            fileTree(realPulsarRuntimeDir).include('**/*.jar'), optionalOxiaClasspath)
+            sourceSets.realPulsar.output, realPulsarClientFiles,
+            realPulsarRuntimeFiles, optionalOxiaClasspath)
     mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactWorkerSmoke'
-    args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarTopic'),
-            findProperty('pulsarWorkerMode') ?: 'run', findProperty('pulsarWorkerDestinationTopic') ?: ''
+    args project.ext.optionalRealTaskArgument.call(findProperty('pulsarServiceUrl')),
+            project.ext.optionalRealTaskArgument.call(findProperty('pulsarAdminUrl')),
+            project.ext.optionalRealTaskArgument.call(findProperty('pulsarTopic')),
+            project.ext.optionalRealTaskArgument.call(findProperty('pulsarWorkerMode') ?: 'run'),
+            project.ext.optionalRealTaskArgument.call(findProperty('pulsarWorkerDestinationTopic'))
 }
 
 tasks.register('runRealPulsarBrokerRecoveryStateSmoke', JavaExec) {
@@ -716,10 +759,11 @@ tasks.register('runRealPulsarBrokerRecoveryStateSmoke', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.output,
-            sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
-            fileTree(realPulsarRuntimeDir).include('**/*.jar'))
+            sourceSets.realPulsar.output, realPulsarClientFiles,
+            realPulsarRuntimeFiles)
     mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactBrokerProcessCrashStateSmoke'
-    args findProperty('pulsarAdminUrl'), findProperty('pulsarBrokerRecoveryTopic')
+    args project.ext.optionalRealTaskArgument.call(findProperty('pulsarAdminUrl')),
+            project.ext.optionalRealTaskArgument.call(findProperty('pulsarBrokerRecoveryTopic'))
 }
 
 tasks.register('runRealPulsarLargePayloadGatewaySmoke', JavaExec) {
@@ -744,10 +788,12 @@ tasks.register('runRealPulsarLargePayloadGatewaySmoke', JavaExec) {
     }
     def optionalOxiaClasspath = sourceSets.main.runtimeClasspath
     classpath = files(sourceSets.main.output,
-            sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator),
-            fileTree(realPulsarRuntimeDir).include('**/*.jar'), optionalOxiaClasspath)
+            sourceSets.realPulsar.output, realPulsarClientFiles,
+            realPulsarRuntimeFiles, optionalOxiaClasspath)
     mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactLargePayloadGatewaySmoke'
-    args findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'), findProperty('pulsarLargePayloadTopic')
+    args project.ext.optionalRealTaskArgument.call(findProperty('pulsarServiceUrl')),
+            project.ext.optionalRealTaskArgument.call(findProperty('pulsarAdminUrl')),
+            project.ext.optionalRealTaskArgument.call(findProperty('pulsarLargePayloadTopic'))
 }
 
 tasks.register('runRealPulsarCapacityProducer', JavaExec) {
@@ -772,9 +818,9 @@ tasks.register('runRealPulsarCapacityProducer', JavaExec) {
         }
     }
     classpath = files(sourceSets.main.output, sourceSets.realPulsar.output,
-            realPulsarClientClasspath.split(File.pathSeparator), fileTree(realPulsarRuntimeDir).include('**/*.jar'))
+            realPulsarClientFiles, realPulsarRuntimeFiles)
     mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactCapacityProducer'
-    args requiredProperties.collect { findProperty(it) }
+    args requiredProperties.collect { project.ext.optionalRealTaskArgument.call(findProperty(it)) }
 }
 
 tasks.register('compileRealCross', JavaCompile) {
@@ -790,8 +836,8 @@ tasks.register('compileRealCross', JavaCompile) {
     }
     source = sourceSets.realCross.java
     classpath = files(sourceSets.main.output, sourceSets.realKafka.output, sourceSets.realPulsar.output,
-            sourceSets.main.compileClasspath, realKafkaClientJar,
-            realPulsarClientClasspath.split(File.pathSeparator))
+            sourceSets.main.compileClasspath, realKafkaClientFiles,
+            realPulsarClientFiles)
     destinationDirectory = layout.buildDirectory.dir('classes/java/realCross')
     options.release = 21
     options.encoding = 'UTF-8'
@@ -823,12 +869,13 @@ tasks.register('runRealCrossLargePayloadGatewaySmoke', JavaExec) {
     // pair for Oxia; P1's client is built against its exact 4.2.x family and
     // must own those classes when the two real-client bindings share one JVM.
     classpath = files(sourceSets.main.output, sourceSets.realKafka.output, sourceSets.realPulsar.output,
-            sourceSets.realCross.output, realKafkaClientJar,
-            realPulsarClientClasspath.split(File.pathSeparator),
-            fileTree(realPulsarRuntimeDir).include('**/*.jar'), sourceSets.main.runtimeClasspath)
+            sourceSets.realCross.output, realKafkaClientFiles,
+            realPulsarClientFiles, realPulsarRuntimeFiles, sourceSets.main.runtimeClasspath)
     mainClass = 'com.nereusstream.delay.transport.CrossAdapterLargePayloadGatewaySmoke'
-    args findProperty('kafkaBootstrap'), findProperty('pulsarServiceUrl'), findProperty('pulsarAdminUrl'),
-            findProperty('crossDirection')
+    args project.ext.optionalRealTaskArgument.call(findProperty('kafkaBootstrap')),
+            project.ext.optionalRealTaskArgument.call(findProperty('pulsarServiceUrl')),
+            project.ext.optionalRealTaskArgument.call(findProperty('pulsarAdminUrl')),
+            project.ext.optionalRealTaskArgument.call(findProperty('crossDirection'))
 }
 
 protobuf {
