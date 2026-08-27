@@ -1,0 +1,44 @@
+services:
+  pulsar-broker-1:
+    environment:
+      PULSAR_DELAYED_DELIVERY_STRICT: ${NEREUS_DELAY_PULSAR_DELAYED_DELIVERY_STRICT:-false}
+
+  pulsar-broker-2:
+    environment:
+      PULSAR_DELAYED_DELIVERY_STRICT: ${NEREUS_DELAY_PULSAR_DELAYED_DELIVERY_STRICT:-false}
+
+  minio:
+    image: ${NEREUS_DELAY_MINIO_IMAGE:?NEREUS_DELAY_MINIO_IMAGE is required}
+    hostname: minio
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${NEREUS_DELAY_MINIO_ACCESS_KEY:?NEREUS_DELAY_MINIO_ACCESS_KEY is required}
+      MINIO_ROOT_PASSWORD: ${NEREUS_DELAY_MINIO_SECRET_KEY:?NEREUS_DELAY_MINIO_SECRET_KEY is required}
+    ports:
+      - "127.0.0.1:${NEREUS_DELAY_MINIO_PORT:?NEREUS_DELAY_MINIO_PORT is required}:9000"
+    networks:
+      - default
+    volumes:
+      - minio-data:/data
+
+volumes:
+  zk-data:
+    name: ${NEREUS_DELAY_DISPOSABLE_RESOURCE_PREFIX:?NEREUS_DELAY_DISPOSABLE_RESOURCE_PREFIX is required}-zk-data
+  bookie-data:
+    name: ${NEREUS_DELAY_DISPOSABLE_RESOURCE_PREFIX:?NEREUS_DELAY_DISPOSABLE_RESOURCE_PREFIX is required}-bookie-data
+  broker-1-data:
+    name: ${NEREUS_DELAY_DISPOSABLE_RESOURCE_PREFIX:?NEREUS_DELAY_DISPOSABLE_RESOURCE_PREFIX is required}-broker-1-data
+  broker-1-logs:
+    name: ${NEREUS_DELAY_DISPOSABLE_RESOURCE_PREFIX:?NEREUS_DELAY_DISPOSABLE_RESOURCE_PREFIX is required}-broker-1-logs
+  broker-2-data:
+    name: ${NEREUS_DELAY_DISPOSABLE_RESOURCE_PREFIX:?NEREUS_DELAY_DISPOSABLE_RESOURCE_PREFIX is required}-broker-2-data
+  broker-2-logs:
+    name: ${NEREUS_DELAY_DISPOSABLE_RESOURCE_PREFIX:?NEREUS_DELAY_DISPOSABLE_RESOURCE_PREFIX is required}-broker-2-logs
+  minio-data:
+    name: ${NEREUS_DELAY_DISPOSABLE_RESOURCE_PREFIX:?NEREUS_DELAY_DISPOSABLE_RESOURCE_PREFIX is required}-minio-data
+
+networks:
+  pulsar-cluster:
+    name: ${NEREUS_DELAY_DISPOSABLE_RESOURCE_PREFIX:?NEREUS_DELAY_DISPOSABLE_RESOURCE_PREFIX is required}-pulsar
+  default:
+    name: ${NEREUS_DELAY_DISPOSABLE_RESOURCE_PREFIX:?NEREUS_DELAY_DISPOSABLE_RESOURCE_PREFIX is required}-services
