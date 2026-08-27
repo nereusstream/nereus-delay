@@ -109,6 +109,10 @@ case "${component}" in
     # false ResourceIncarnationMismatch.
     replace_property "${broker_conf}" brokerDeleteInactiveTopicsEnabled \
       "${PULSAR_BROKER_DELETE_INACTIVE_TOPICS_ENABLED:-false}"
+    if [[ -n "${PULSAR_DELAYED_DELIVERY_STRICT:-}" ]]; then
+      replace_property "${broker_conf}" isDelayedDeliveryDeliverAtTimeStrict \
+        "${PULSAR_DELAYED_DELIVERY_STRICT}"
+    fi
     printf '%s\n' \
       'brokerEntryMetadataInterceptors=org.apache.pulsar.common.intercept.AppendBrokerTimestampMetadataInterceptor,org.apache.pulsar.common.intercept.AppendIndexMetadataInterceptor' \
       'exposingBrokerEntryMetadataToClientEnabled=true' >> "${broker_conf}"

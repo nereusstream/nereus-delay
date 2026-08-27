@@ -585,6 +585,32 @@ tasks.register('runRealPulsarNativeSmoke', JavaExec) {
             project.ext.optionalRealTaskArgument.call(findProperty('pulsarNativeTopic'))
 }
 
+tasks.register('runRealPulsarNativeMatrixSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs one explicit native Pulsar Subscription/strictness/delay-policy matrix cell against P1.'
+    dependsOn tasks.named('compileRealPulsar')
+    def requiredProperties = ['pulsarNativeMatrixServiceUrl', 'pulsarNativeMatrixAdminUrl',
+                              'pulsarNativeMatrixTopic', 'pulsarNativeMatrixSubscriptionType',
+                              'pulsarNativeMatrixPolicyMode', 'pulsarNativeMatrixBrokerStrictness',
+                              'pulsarNativeMatrixEvidencePath']
+    if (realPulsarClientClasspath == null || realPulsarRuntimeDir == null
+            || requiredProperties.any { findProperty(it) == null }) {
+        doFirst {
+            throw new GradleException(
+                    'runRealPulsarNativeMatrixSmoke requires P1 client/runtime and all pulsarNativeMatrix* properties')
+        }
+    }
+    doFirst {
+        if (!file(realPulsarRuntimeDir).isDirectory()) {
+            throw new GradleException('pulsarRuntimeDir must be an extracted P1 distribution lib directory')
+        }
+    }
+    classpath = files(sourceSets.main.output,
+            sourceSets.realPulsar.output, realPulsarClientFiles, realPulsarRuntimeFiles)
+    mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactNativeMatrixSmoke'
+    args requiredProperties.collect { project.ext.optionalRealTaskArgument.call(findProperty(it)) }
+}
+
 tasks.register('runRealPulsarSourceSmoke', JavaExec) {
     group = 'verification'
     description = 'Runs the P1 guarded source SUBSCRIBE, replay, Broker timestamp, and ACK handoff smoke.'
