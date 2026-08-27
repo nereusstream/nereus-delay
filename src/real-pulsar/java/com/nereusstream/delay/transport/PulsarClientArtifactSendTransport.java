@@ -82,7 +82,9 @@ public final class PulsarClientArtifactSendTransport
             return CompletableFuture.completedFuture(PulsarSendResult.unknown(
                     com.nereusstream.delay.protocol.StableCode.RESOURCE_INCARNATION_MISMATCH.wireValue(), null));
         }
-        return sendFrame(request.preparedBytes());
+        // H0 disables the native physical record path before newMessage().
+        return CompletableFuture.completedFuture(PulsarSendResult.definitelyNotPersisted(
+                com.nereusstream.delay.protocol.StableCode.CAPABILITY_UNAVAILABLE.wireValue(), null));
     }
 
     @Override

@@ -11,7 +11,6 @@ import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.DeliveryMode;
 import com.nereusstream.delay.protocol.KafkaMetadata;
 import com.nereusstream.delay.protocol.NativeCapabilitySnapshot;
-import com.nereusstream.delay.protocol.NativeDeliveryReceipt;
 import com.nereusstream.delay.protocol.NativePreparedDelivery;
 import com.nereusstream.delay.protocol.NonPersistenceProofKind;
 import com.nereusstream.delay.protocol.OrderingMode;
@@ -37,46 +36,39 @@ import org.junit.jupiter.api.Test;
 
 class NativeSubmissionAdapterTest {
     @Test
-    void persistedResultBecomesNativeReceiptWithPinnedIdentity() throws Exception {
+    void validNativeRequestIsDefinitivelyRejectedBeforeTransport() throws Exception {
         final Fixture fixture = fixture(4_000, 3_000);
-        final byte[] evidence = Bytes.utf8("native-persisted-evidence");
+        final AtomicBoolean called = new AtomicBoolean();
         final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport transport = request -> {
-            assertEquals(fixture.prepared.canonicalBytes().length, request.preparedBytes().length);
-            assertArrayEquals(fixture.prepared.canonicalBytes(), request.preparedBytes());
-            return CompletableFuture.completedFuture(PulsarSendResult.persisted(
-                    fixture.resource.authenticatedClusterId(),
-                    fixture.resource.resourceIncarnation(),
-                    fixture.resource.physicalTopic(),
-                    fixture.resource.physicalTopicCreationTimestamp(),
-                    fixture.resource.partition(),
-                    8,
-                    9,
-                    0,
-                    1,
-                    false,
-                    3_100,
-                    evidence));
+            called.set(true);
+            throw new AssertionError("valid native request reached transport");
         };
         try (PinnedPulsarNativeSubmissionAdapter adapter = fixture.adapter(transport)) {
             final SubmissionOutcomeMessage outcome = adapter.submit(fixture.prepared, attempt(1))
                     .toCompletableFuture()
                     .join();
-            assertEquals(com.nereusstream.delay.protocol.SubmissionOutcomeKind.NATIVE_RECEIPT, outcome.kind());
-            final NativeDeliveryReceipt receipt = outcome.nativeReceipt();
-            assertEquals(fixture.prepared.preparedRef(), receipt.prepared());
-            assertEquals(0, receipt.brokerAck().partition());
-            assertArrayEquals(Bytes.sha256(evidence), receipt.brokerAck().sendReceiptSha256());
+            assertEquals(
+                    com.nereusstream.delay.protocol.SubmissionOutcomeKind.NATIVE_DEFINITELY_NOT_QUEUED, outcome.kind());
+            assertEquals(
+                    StableCode.CAPABILITY_UNAVAILABLE,
+                    outcome.nativeDefinitelyNotQueued().error().code());
+            assertEquals(
+                    NonPersistenceProofKind.LOCAL_BEFORE_PRODUCER_OWNERSHIP,
+                    outcome.nativeDefinitelyNotQueued().proof().kind());
+            assertFalse(called.get());
             assertEquals(outcome, SubmissionOutcomeMessage.decode(outcome.canonicalBytes()));
         }
     }
 
     @Test
-    void guardRejectionBecomesAuthenticatedNativeProof() throws Exception {
+    void validNativeRequestDoesNotUseBrokerGuardRejectionProof() throws Exception {
         final Fixture fixture = fixture(4_000, 3_000);
-        final byte[] evidence = Bytes.utf8("native-guard-rejection");
-        final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport transport =
-                request -> CompletableFuture.completedFuture(PulsarSendResult.definitelyNotPersisted(
-                        StableCode.BROKER_DEFINITIVE_NOT_PERSISTED.wireValue(), evidence));
+        final AtomicBoolean called = new AtomicBoolean();
+        final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport transport = request -> {
+            called.set(true);
+            return CompletableFuture.completedFuture(PulsarSendResult.definitelyNotPersisted(
+                    StableCode.BROKER_DEFINITIVE_NOT_PERSISTED.wireValue(), Bytes.utf8("unexpected")));
+        };
         try (PinnedPulsarNativeSubmissionAdapter adapter = fixture.adapter(transport)) {
             final SubmissionOutcomeMessage outcome = adapter.submit(fixture.prepared, attempt(2))
                     .toCompletableFuture()
@@ -84,70 +76,13 @@ class NativeSubmissionAdapterTest {
             assertEquals(
                     com.nereusstream.delay.protocol.SubmissionOutcomeKind.NATIVE_DEFINITELY_NOT_QUEUED, outcome.kind());
             assertEquals(
-                    NonPersistenceProofKind.PULSAR_GUARD_REJECTION,
+                    NonPersistenceProofKind.LOCAL_BEFORE_PRODUCER_OWNERSHIP,
                     outcome.nativeDefinitelyNotQueued().proof().kind());
             assertEquals(
-                    StableCode.NATIVE_GUARD_DEFINITIVE_NOT_PERSISTED,
+                    StableCode.CAPABILITY_UNAVAILABLE,
                     outcome.nativeDefinitelyNotQueued().error().code());
+            assertFalse(called.get());
             assertEquals(outcome, SubmissionOutcomeMessage.decode(outcome.canonicalBytes()));
-        }
-    }
-
-    @Test
-    void mismatchedDefinitiveCodeCannotBecomeNativeGuardProof() throws Exception {
-        final Fixture fixture = fixture(4_000, 3_000);
-        final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport transport =
-                request -> CompletableFuture.completedFuture(PulsarSendResult.definitelyNotPersisted(
-                        StableCode.BROKER_RESOURCE_UNCERTIFIED.wireValue(), Bytes.utf8("not-a-guard-rejection")));
-        try (PinnedPulsarNativeSubmissionAdapter adapter = fixture.adapter(transport)) {
-            final SubmissionOutcomeMessage outcome = adapter.submit(fixture.prepared, attempt(21))
-                    .toCompletableFuture()
-                    .join();
-            assertEquals(
-                    com.nereusstream.delay.protocol.SubmissionOutcomeKind.NATIVE_ENQUEUE_UNCERTAIN, outcome.kind());
-            assertEquals(
-                    StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN,
-                    outcome.nativeUncertain().error().code());
-            assertEquals(
-                    StableCode.BROKER_RESOURCE_UNCERTIFIED.wireValue(),
-                    outcome.nativeUncertain().error().diagnosticCode());
-        }
-    }
-
-    @Test
-    void transportFailureRemainsExactByteUncertain() throws Exception {
-        final Fixture fixture = fixture(4_000, 3_000);
-        final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport transport = request -> {
-            throw new IllegalStateException("connection lost after Producer ownership");
-        };
-        try (PinnedPulsarNativeSubmissionAdapter adapter = fixture.adapter(transport)) {
-            final SubmissionOutcomeMessage outcome = adapter.submit(fixture.prepared, attempt(3))
-                    .toCompletableFuture()
-                    .join();
-            assertEquals(
-                    com.nereusstream.delay.protocol.SubmissionOutcomeKind.NATIVE_ENQUEUE_UNCERTAIN, outcome.kind());
-            assertEquals(
-                    StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN,
-                    outcome.nativeUncertain().error().code());
-            assertArrayEquals(attempt(3), outcome.nativeUncertain().physicalEnqueueAttemptId());
-        }
-    }
-
-    @Test
-    void callbackRegistrationFailureRemainsExactByteUncertain() throws Exception {
-        final Fixture fixture = fixture(4_000, 3_000);
-        final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport transport =
-                request -> new HandleRegistrationFailureFuture<>();
-        try (PinnedPulsarNativeSubmissionAdapter adapter = fixture.adapter(transport)) {
-            final SubmissionOutcomeMessage outcome = adapter.submit(fixture.prepared, attempt(31))
-                    .toCompletableFuture()
-                    .join();
-            assertEquals(
-                    com.nereusstream.delay.protocol.SubmissionOutcomeKind.NATIVE_ENQUEUE_UNCERTAIN, outcome.kind());
-            assertEquals(
-                    StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN,
-                    outcome.nativeUncertain().error().code());
-            assertArrayEquals(attempt(31), outcome.nativeUncertain().physicalEnqueueAttemptId());
         }
     }
 

@@ -141,6 +141,16 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
         final LongSupplier clock = Objects.requireNonNull(ownerClock, "ownerClock");
         requireAttemptIdentity(exactAttempt, exactRequest);
 
+        // H0 keeps the not-yet-closed native handoff path before every
+        // physical gate, reservation, and adapter/delegate invocation.
+        if (exactRequest.actionAtEpochMs() < exactRequest.deliverAtEpochMs()) {
+            return handoff(
+                    exactAttempt,
+                    exactRequest,
+                    DestinationPublishResult.definitelyNotPublished(StableCode.CAPABILITY_UNAVAILABLE, null),
+                    clock);
+        }
+
         final Decision initial = checkGate(exactAttempt, exactRequest, clock);
         if (initial.kind() == DecisionKind.DEFERRED) {
             return Submission.deferred(exactAttempt, exactRequest, initial);

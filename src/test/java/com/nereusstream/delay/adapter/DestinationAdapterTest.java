@@ -105,9 +105,9 @@ class DestinationAdapterTest {
             throw new IllegalStateException("connection closed after send ownership");
         };
         try (PinnedPulsarDestinationAdapter adapter = new PinnedPulsarDestinationAdapter(
-                resource, transport, PulsarDestinationTimingPolicy.certifiedHandoff(100))) {
+                resource, transport, PulsarDestinationTimingPolicy.ordinaryManaged())) {
             final DestinationPublishResult result =
-                    adapter.publish(request(900, 1_000)).toCompletableFuture().join();
+                    adapter.publish(request(1_000, 1_000)).toCompletableFuture().join();
             assertEquals(DestinationPublishResult.Disposition.UNKNOWN, result.disposition());
             assertEquals(StableCode.DESTINATION_OUTCOME_UNKNOWN, result.stableCode());
         }
@@ -214,13 +214,13 @@ class DestinationAdapterTest {
             final DestinationPublishResult result =
                     adapter.publish(request(900, 1_000)).toCompletableFuture().join();
             assertEquals(DestinationPublishResult.Disposition.DEFINITIVELY_NOT_PUBLISHED, result.disposition());
-            assertEquals(StableCode.INVALID_METADATA, result.stableCode());
+            assertEquals(StableCode.CAPABILITY_UNAVAILABLE, result.stableCode());
             assertEquals(0, calls.get());
         }
     }
 
     @Test
-    void pulsarCertifiedHandoffRequiresTheExactFixedLead() {
+    void pulsarEarlyRequestsAreRejectedBeforeTimingPolicyAndTransport() {
         final PulsarTargetResource resource = new PulsarTargetResource(
                 "cluster",
                 Bytes.sha256(Bytes.utf8("pulsar-certified-timing")),
@@ -235,14 +235,15 @@ class DestinationAdapterTest {
         };
         try (PinnedPulsarDestinationAdapter adapter = new PinnedPulsarDestinationAdapter(
                 resource, transport, PulsarDestinationTimingPolicy.certifiedHandoff(100))) {
-            final DestinationPublishResult accepted =
+            final DestinationPublishResult exactLead =
                     adapter.publish(request(900, 1_000)).toCompletableFuture().join();
-            assertEquals(DestinationPublishResult.Disposition.UNKNOWN, accepted.disposition());
-            final DestinationPublishResult rejected =
+            final DestinationPublishResult wrongLead =
                     adapter.publish(request(899, 1_000)).toCompletableFuture().join();
-            assertEquals(DestinationPublishResult.Disposition.DEFINITIVELY_NOT_PUBLISHED, rejected.disposition());
-            assertEquals(StableCode.INVALID_METADATA, rejected.stableCode());
-            assertEquals(1, calls.get());
+            assertEquals(DestinationPublishResult.Disposition.DEFINITIVELY_NOT_PUBLISHED, exactLead.disposition());
+            assertEquals(StableCode.CAPABILITY_UNAVAILABLE, exactLead.stableCode());
+            assertEquals(DestinationPublishResult.Disposition.DEFINITIVELY_NOT_PUBLISHED, wrongLead.disposition());
+            assertEquals(StableCode.CAPABILITY_UNAVAILABLE, wrongLead.stableCode());
+            assertEquals(0, calls.get());
         }
     }
 

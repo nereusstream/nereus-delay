@@ -70,6 +70,11 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
                 && !request.delayMessageId().routingId().shardId().equals(sourcePosition.shardId())) {
             return completed(DestinationPublishResult.definitelyNotPublished(StableCode.INVALID_METADATA, null));
         }
+        // H0 blocks the incomplete native handoff before timing-policy
+        // validation can authorize any Pulsar transport ownership.
+        if (request.actionAtEpochMs() < request.deliverAtEpochMs()) {
+            return completed(DestinationPublishResult.definitelyNotPublished(StableCode.CAPABILITY_UNAVAILABLE, null));
+        }
         try {
             timingPolicy.validate(request);
         } catch (RuntimeException exception) {

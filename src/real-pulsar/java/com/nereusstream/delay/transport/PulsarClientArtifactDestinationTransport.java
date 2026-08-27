@@ -120,6 +120,12 @@ public final class PulsarClientArtifactDestinationTransport
             return CompletableFuture.completedFuture(
                     DestinationPublishResult.unknown(StableCode.RESOURCE_INCARNATION_MISMATCH, null));
         }
+        // Defense in depth for direct transport callers: H0 must reject
+        // before Producer ownership even when the adapter is bypassed.
+        if (request.actionAtEpochMs() < request.deliverAtEpochMs()) {
+            return CompletableFuture.completedFuture(
+                    DestinationPublishResult.definitelyNotPublished(StableCode.CAPABILITY_UNAVAILABLE, null));
+        }
         try {
             return producer.newMessage()
                     .value(request.payload())

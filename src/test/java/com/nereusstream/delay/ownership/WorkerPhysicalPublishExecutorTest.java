@@ -88,6 +88,39 @@ class WorkerPhysicalPublishExecutorTest {
     }
 
     @Test
+    void earlyManagedRequestIsDefinitivelyRejectedBeforePhysicalAdmission() {
+        final Fixture fixture = new Fixture();
+        final AtomicInteger gateCalls = new AtomicInteger();
+        final AtomicInteger delegateCalls = new AtomicInteger();
+        final AtomicReference<SystemMutation> outcome = new AtomicReference<>();
+        final DestinationPublishAdapter delegate = request -> {
+            delegateCalls.incrementAndGet();
+            return CompletableFuture.failedFuture(new AssertionError("early request reached the adapter"));
+        };
+        final WorkerPhysicalPublishExecutor executor = fixture.executor(delegate, outcome, ignored -> {
+            gateCalls.incrementAndGet();
+            throw new AssertionError("early request reached the live physical gate");
+        });
+        try (executor) {
+            final WorkerPhysicalPublishExecutor.Submission submission =
+                    executor.submit(fixture.attempt, fixture.request(900, 1_000), () -> 1_000);
+
+            assertEquals(WorkerPhysicalPublishExecutor.SubmissionState.OUTCOME_HANDOFF_QUEUED, submission.state());
+            assertEquals(
+                    DestinationPublishResult.Disposition.DEFINITIVELY_NOT_PUBLISHED,
+                    submission.physicalResult().orElseThrow().disposition());
+            assertEquals(
+                    StableCode.CAPABILITY_UNAVAILABLE,
+                    submission.physicalResult().orElseThrow().stableCode());
+            assertEquals(0, gateCalls.get());
+            assertEquals(0, delegateCalls.get());
+            assertEquals(0, fixture.admission.workerSnapshot().activeRequests());
+            assertTrue(submission.physicalCall().isEmpty());
+            assertEquals(outcome.get(), submission.outcomeMutation().orElseThrow());
+        }
+    }
+
+    @Test
     void lateGateRecheckPreventsTheDelegateCallAndHandsOffDefinitiveResult() {
         final Fixture fixture = new Fixture();
         final AtomicInteger gateCalls = new AtomicInteger();
@@ -230,6 +263,19 @@ class WorkerPhysicalPublishExecutorTest {
                 1_000,
                 Bytes.utf8("payload"),
                 Bytes.utf8("metadata"));
+
+        private DestinationPublishRequest request(final long actionAt, final long deliverAt) {
+            return new DestinationPublishRequest(
+                    lane,
+                    laneIncarnation,
+                    attempt.delayMessageId(),
+                    0,
+                    attempt.publishAttemptId(),
+                    actionAt,
+                    deliverAt,
+                    Bytes.utf8("payload"),
+                    Bytes.utf8("metadata"));
+        }
 
         private WorkerPhysicalPublishExecutor executor(
                 final DestinationPublishAdapter delegate,

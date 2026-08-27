@@ -454,6 +454,21 @@ tasks.register('runRealPulsarSmoke', JavaExec) {
     mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactBindingSmoke'
 }
 
+tasks.register('runRealPulsarH0Smoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the no-Broker H0 fail-closed smoke against the locked P1 client artifact.'
+    dependsOn tasks.named('compileRealPulsar')
+    if (realPulsarClientClasspath == null) {
+        doFirst {
+            throw new GradleException(
+                    'runRealPulsarH0Smoke requires -PpulsarClientClasspath=/absolute/path/client.jar:api.jar:common.jar')
+        }
+    }
+    classpath = files(sourceSets.main.runtimeClasspath,
+            sourceSets.realPulsar.output, realPulsarClientClasspath.split(File.pathSeparator))
+    mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactH0Smoke'
+}
+
 tasks.register('runRealPulsarServiceSmoke', JavaExec) {
     group = 'verification'
     description = 'Runs the P1 guarded binding against an explicitly supplied Pulsar service and admin endpoint.'

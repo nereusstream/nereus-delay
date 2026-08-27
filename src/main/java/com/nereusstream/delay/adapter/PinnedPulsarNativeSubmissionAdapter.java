@@ -143,6 +143,13 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
         } catch (RuntimeException exception) {
             return completed(localDefinite(prepared, StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE));
         }
+        // H0 keeps the native physical record path fail-closed until the
+        // accepted contract, record projection, and evidence chain exist.
+        return completed(localDefinite(prepared, StableCode.CAPABILITY_UNAVAILABLE));
+    }
+
+    private CompletionStage<SubmissionOutcomeMessage> sendPrepared(
+            final NativePreparedDelivery prepared, final PulsarNativeSendRequest request, final byte[] attempt) {
         final CompletionStage<PulsarSendResult> result;
         try {
             result = transport.send(request);
