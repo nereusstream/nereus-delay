@@ -361,6 +361,7 @@ def verify_environment(receipt: dict[str, Any]) -> None:
             "topics",
             "workers",
             "resources",
+            "oxiaBootstrap",
         },
         "environment",
     )
@@ -388,6 +389,53 @@ def verify_environment(receipt: dict[str, Any]) -> None:
     for key in resources:
         if not isinstance(resources[key], list) or any(not isinstance(item, str) or not item for item in resources[key]):
             raise VerificationError(f"environment.resources.{key} must be a list of strings")
+    bootstrap = closed_object(
+        environment["oxiaBootstrap"],
+        {"status", "command", "logPath", "resultSha256", "namespace", "dataServers"},
+        "environment.oxiaBootstrap",
+    )
+    if bootstrap["status"] != "PASS":
+        raise VerificationError("environment.oxiaBootstrap.status must be PASS")
+    non_empty_string(bootstrap["command"], "environment.oxiaBootstrap.command")
+    bootstrap_log = absolute_path(bootstrap["logPath"], "environment.oxiaBootstrap.logPath")
+    if not bootstrap_log.is_file():
+        raise VerificationError("environment.oxiaBootstrap.logPath is missing")
+    if sha256_file(bootstrap_log, "environment.oxiaBootstrap.logPath") != digest(
+        bootstrap["resultSha256"], "environment.oxiaBootstrap.resultSha256"
+    ):
+        raise VerificationError("environment.oxiaBootstrap.resultSha256 does not match its log")
+    namespace = closed_object(
+        bootstrap["namespace"],
+        {"name", "initialShards", "replicationFactor", "notifications"},
+        "environment.oxiaBootstrap.namespace",
+    )
+    if namespace != {
+        "name": "default",
+        "initialShards": 1,
+        "replicationFactor": 3,
+        "notifications": True,
+    }:
+        raise VerificationError("environment.oxiaBootstrap.namespace is not the expected disposable namespace")
+    data_servers = bootstrap["dataServers"]
+    if not isinstance(data_servers, list) or len(data_servers) != 3:
+        raise VerificationError("environment.oxiaBootstrap.dataServers must contain three servers")
+    expected_ports = [ports["oxiaData1"], ports["oxiaData2"], ports["oxiaData3"]]
+    for index, value in enumerate(data_servers, 1):
+        server = closed_object(
+            value,
+            {"name", "public", "internal", "state"},
+            f"environment.oxiaBootstrap.dataServers[{index - 1}]",
+        )
+        expected = {
+            "name": f"data-server-{index}",
+            "public": f"127.0.0.1:{expected_ports[index - 1]}",
+            "internal": f"data-server-{index}:6649",
+            "state": "DATA_SERVER_STATE_RUNNING",
+        }
+        if server != expected:
+            raise VerificationError(
+                f"environment.oxiaBootstrap.dataServers[{index - 1}] is not the exact registered server"
+            )
 
 
 def verify_matrix(receipt: dict[str, Any]) -> None:

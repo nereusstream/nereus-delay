@@ -48,6 +48,7 @@ runtime_dir=""
 compose_started=0
 cleanup_started=0
 test_process_pid=""
+oxia_bootstrap_log="${artifact_dir}/logs/oxia-bootstrap.log"
 
 remove_exact_directory() {
   local directory="$1"
@@ -356,7 +357,7 @@ python3 - "${context_json}" "${delay_root}" "${delay_commit}" "${p1_dir}" "${p1_
   "${p1_client_cp}" "${compose_project}" "${resource_prefix}" "${p1_image}" "${minio_image}" \
   "${minio_digest}" "${broker_1_port}" "${web_1_port}" "${broker_2_port}" "${web_2_port}" \
   "${oxia_data_1_port}" "${oxia_data_2_port}" "${oxia_data_3_port}" "${minio_port}" \
-  "${command_topic}" "${evidence_topic}" "${business_topic}" <<'PY'
+  "${command_topic}" "${evidence_topic}" "${business_topic}" "${oxia_bootstrap_log}" <<'PY'
 import hashlib
 import json
 import os
@@ -369,7 +370,7 @@ from pathlib import Path
     p1_tarball_sha, compose_config, compose_config_sha, attestation, attestation_sha,
     client_cp, compose_project, resource_prefix, p1_image, minio_image, minio_digest,
     broker_1, web_1, broker_2, web_2, oxia_data_1, oxia_data_2, oxia_data_3,
-    minio_port, command_topic, evidence_topic, business_topic,
+    minio_port, command_topic, evidence_topic, business_topic, oxia_bootstrap_log,
 ) = sys.argv[1:]
 client_entries = [
     {"path": path, "sha256": hashlib.sha256(Path(path).read_bytes()).hexdigest()}
@@ -433,6 +434,31 @@ context = {
             "networks": [f"{resource_prefix}-pulsar", f"{resource_prefix}-services"],
             "topics": [command_topic, evidence_topic, business_topic],
         },
+        "oxiaBootstrap": {
+            "status": "PENDING",
+            "command": (
+                f"docker compose --project-name {compose_project} exec coordinator-1 oxia admin "
+                "register data-server-1..3 with host public addresses and create default "
+                "namespace with initial-shards=1 replication-factor=3; verify RUNNING"
+            ),
+            "logPath": oxia_bootstrap_log,
+            "resultSha256": "0" * 64,
+            "namespace": {
+                "name": "default",
+                "initialShards": 1,
+                "replicationFactor": 3,
+                "notifications": True,
+            },
+            "dataServers": [
+                {
+                    "name": f"data-server-{index}",
+                    "public": f"127.0.0.1:{port}",
+                    "internal": f"data-server-{index}:6649",
+                    "state": "PENDING",
+                }
+                for index, port in enumerate((oxia_data_1, oxia_data_2, oxia_data_3), 1)
+            ],
+        },
     },
 }
 Path(output).write_text(json.dumps(context, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -483,6 +509,52 @@ record_supporting() {
   printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" >>"${supporting_file}"
 }
 
+assert_focused_test_executed() {
+  python3 - "$1" "$2" <<'PY'
+import sys
+import time
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+selector, marker_text = sys.argv[1:]
+marker = Path(marker_text)
+if not marker.is_file():
+    raise SystemExit("focused-test execution marker is missing")
+class_name, method_name = selector.rsplit(".", 1)
+result_root = Path("build/test-results/test")
+if not result_root.is_dir():
+    raise SystemExit("Gradle test-results directory is missing")
+minimum_mtime = marker.stat().st_mtime_ns
+paths = [
+    path
+    for path in result_root.rglob("*.xml")
+    if path.is_file() and path.stat().st_mtime_ns > minimum_mtime
+]
+matches = []
+for path in paths:
+    try:
+        suite = ET.parse(path).getroot()
+    except ET.ParseError as exc:
+        raise SystemExit(f"invalid Gradle test result XML: {path}: {exc}") from exc
+    for case in suite.findall("testcase"):
+        if case.get("classname") != class_name:
+            continue
+        case_method = (case.get("name") or "").split("(", 1)[0]
+        if case_method == method_name:
+            matches.append(case)
+if len(matches) != 1:
+    raise SystemExit(
+        f"focused test did not execute exactly once: selector={selector}, matches={len(matches)}"
+    )
+case = matches[0]
+if case.find("skipped") is not None:
+    raise SystemExit(f"focused test was skipped: {selector}")
+if case.find("failure") is not None or case.find("error") is not None:
+    raise SystemExit(f"focused test result contains failure or error: {selector}")
+print(f"focused test executed exactly once without skip: {selector}")
+PY
+}
+
 validate_native_evidence() {
   python3 - "$1" "$2" <<'PY'
 import json
@@ -529,9 +601,27 @@ wait_for_minio() {
 
 wait_for_oxia() {
   local deadline=$((SECONDS + 180))
+  local services=(
+    "data-server-1:6648"
+    "data-server-2:6648"
+    "data-server-3:6648"
+    "coordinator-1:6651"
+    "coordinator-2:6651"
+    "coordinator-3:6651"
+  )
   while (( SECONDS < deadline )); do
-    if "${compose[@]}" exec --no-TTY data-server-1 oxia health --host 127.0.0.1 --port 6648 --timeout 2s \
-      >/dev/null 2>&1; then
+    local all_ready=1
+    local service port
+    for service_port in "${services[@]}"; do
+      service="${service_port%%:*}"
+      port="${service_port##*:}"
+      if ! "${compose[@]}" exec --no-TTY "${service}" oxia health \
+        --host 127.0.0.1 --port "${port}" --timeout 2s >/dev/null 2>&1; then
+        all_ready=0
+        break
+      fi
+    done
+    if [[ "${all_ready}" == 1 ]]; then
       return 0
     fi
     sleep 2
@@ -539,6 +629,117 @@ wait_for_oxia() {
   echo "Oxia data-server-1 did not become ready" >&2
   "${compose[@]}" logs data-server-1 coordinator-1 >&2 || true
   return 1
+}
+
+oxia_admin() {
+  "${compose[@]}" exec --no-TTY coordinator-1 oxia admin \
+    --admin-address 127.0.0.1:6651 "$@"
+}
+
+bootstrap_oxia_cluster() {
+  local data_servers_ready=0
+  local namespace_ready=0
+  local deadline
+  local server port_var public_port
+  : >"${oxia_bootstrap_log}"
+  {
+    echo "Oxia disposable bootstrap: register three data servers with host-authority public addresses"
+    for server in 1 2 3; do
+      port_var="oxia_data_${server}_port"
+      public_port="${!port_var}"
+      oxia_admin dataserver create "data-server-${server}" \
+        --public "127.0.0.1:${public_port}" \
+        --internal "data-server-${server}:6649" --output json
+    done
+
+    deadline=$((SECONDS + 180))
+    while (( SECONDS < deadline )); do
+      if oxia_admin dataserver list --output json \
+          | python3 -c '
+import json
+import sys
+
+values = json.load(sys.stdin)
+expected = {"data-server-1", "data-server-2", "data-server-3"}
+observed = {
+    entry.get("data_server", {}).get("identity", {}).get("name")
+    for entry in values
+    if isinstance(entry, dict)
+}
+states = {
+    entry.get("data_server", {}).get("identity", {}).get("name"):
+    entry.get("data_server_status", {}).get("state")
+    for entry in values
+    if isinstance(entry, dict)
+}
+sys.exit(0 if observed == expected and all(states.get(name) == "DATA_SERVER_STATE_RUNNING" for name in expected) else 1)
+'; then
+        data_servers_ready=1
+        break
+      fi
+      sleep 2
+    done
+    if [[ "${data_servers_ready}" != 1 ]]; then
+      echo "Oxia data servers did not all reach DATA_SERVER_STATE_RUNNING" >&2
+      return 1
+    fi
+
+    oxia_admin namespace create default --initial-shards 1 --replication-factor 3 --output json
+
+    deadline=$((SECONDS + 180))
+    while (( SECONDS < deadline )); do
+      if oxia_admin namespace get default --output json \
+          | python3 -c '
+import json
+import sys
+
+value = json.load(sys.stdin)
+status = value.get("namespace_status", {})
+shards = status.get("shards", {})
+ready = (
+    status.get("replication_factor") == 3
+    and len(shards) == 1
+    and all(
+        shard.get("status") == 1
+        and shard.get("leader", {}).get("public", "").startswith("127.0.0.1:")
+        and len(shard.get("ensemble", [])) == 3
+        for shard in shards.values()
+    )
+)
+sys.exit(0 if ready else 1)
+'; then
+        namespace_ready=1
+        break
+      fi
+      sleep 2
+    done
+    if [[ "${namespace_ready}" != 1 ]]; then
+      echo "Oxia default namespace did not reach a three-server ready shard" >&2
+      return 1
+    fi
+    oxia_admin dataserver list --output json
+    oxia_admin namespace get default --output json
+    echo "Oxia disposable bootstrap passed: three RUNNING data servers and default RF=3 namespace"
+  } >>"${oxia_bootstrap_log}" 2>&1
+}
+
+finalize_oxia_bootstrap_context() {
+  local bootstrap_sha256
+  bootstrap_sha256="$(sha256_file "${oxia_bootstrap_log}")"
+  python3 - "${context_json}" "${bootstrap_sha256}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+value = json.loads(path.read_text(encoding="utf-8"))
+bootstrap = value["environment"]["oxiaBootstrap"]
+bootstrap["status"] = "PASS"
+bootstrap["resultSha256"] = sys.argv[2]
+for server in bootstrap["dataServers"]:
+    server["state"] = "DATA_SERVER_STATE_RUNNING"
+path.write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
 }
 
 topic_guard_body() {
@@ -624,16 +825,22 @@ run_junit_cell() {
   local reason_on_pass="$5"
   shift 5
   local log_path="${artifact_dir}/logs/${cell_id//[^A-Za-z0-9_.-]/_}.log"
+  local execution_marker="${artifact_dir}/recovery/${cell_id//[^A-Za-z0-9_.-]/_}.test-start"
   local env_command=(env "GRADLE_USER_HOME=${gradle_user_home}" "$@")
   local command_text="GRADLE_USER_HOME=${gradle_user_home} ./gradlew test --tests ${selector} --no-daemon --console=plain"
   local result_status="EXECUTED_FAIL"
   local result_reason="Gradle focused test failed"
   local evidence_status="FAIL"
+  touch "${execution_marker}"
   if "${env_command[@]}" ./gradlew test --tests "${selector}" --rerun-tasks --no-daemon --console=plain \
       >"${log_path}" 2>&1; then
-    result_status="EXECUTED_PASS"
-    result_reason="${reason_on_pass}"
-    evidence_status="PASS"
+    if assert_focused_test_executed "${selector}" "${execution_marker}" >>"${log_path}" 2>&1; then
+      result_status="EXECUTED_PASS"
+      result_reason="${reason_on_pass}"
+      evidence_status="PASS"
+    else
+      result_reason="focused test exited successfully but was not proven as exactly one non-skipped test"
+    fi
   fi
   write_generic_evidence "${evidence_path}" "${cell_id}" "${evidence_status}" "${result_reason}" "${log_path}"
   record_cell "${cell_id}" "recovery" "${expected}" "${result_status}" "0" \
@@ -1020,7 +1227,8 @@ cleanup_exact() {
   docker network ls --format '{{.Name}}' \
     | awk -v prefix="${resource_prefix}-" 'index($0, prefix) == 1 {print}' >"${networks_file}"
   docker image ls --format '{{.Repository}}:{{.Tag}}' \
-    | awk -v prefix="${resource_prefix}" 'index($0, prefix) == 1 {print}' >"${images_file}"
+    | awk -v project="${compose_project}" -v resource="${resource_prefix}" \
+        'index($0, project) == 1 || index($0, resource) == 1 {print}' >"${images_file}"
   if [[ -d "${artifact_dir}" ]]; then
     rg -l --hidden --fixed-strings -- "${minio_access_key}" "${artifact_dir}" >>"${credentials_file}" 2>/dev/null || true
     rg -l --hidden --fixed-strings -- "${minio_secret_key}" "${artifact_dir}" >>"${credentials_file}" 2>/dev/null || true
@@ -1107,6 +1315,8 @@ wait_for_admin "${admin_url_1}" "broker-1" || fail_preflight "broker-1 did not b
 wait_for_admin "${admin_url_2}" "broker-2" || fail_preflight "broker-2 did not become ready"
 wait_for_minio || fail_preflight "MinIO did not become ready"
 wait_for_oxia || fail_preflight "Oxia did not become ready"
+bootstrap_oxia_cluster || fail_preflight "Oxia disposable cluster bootstrap failed"
+finalize_oxia_bootstrap_context || fail_preflight "could not bind Oxia bootstrap to the context"
 
 curl --silent --show-error --fail --aws-sigv4 "aws:amz:${minio_region}:s3" \
   --user "${minio_access_key}:${minio_secret_key}" --request PUT \
@@ -1126,18 +1336,18 @@ create_topic "${evidence_topic}" || fail_preflight "could not create evidence to
 create_topic "${business_topic}" || fail_preflight "could not create business topic"
 printf '%s\n' "${native_topic_names[@]}" >>"${created_topics_file}"
 
-set_broker_strictness true || true
+set_broker_strictness true || fail_preflight "could not enable strict Pulsar delayed delivery"
 run_native_cell native.shared.strict "${native_topic_names[0]}" shared strict strict \
   "strict mode rejects early delivery at deliverAt"
-set_broker_strictness false || true
+set_broker_strictness false || fail_preflight "could not disable strict Pulsar delayed delivery"
 run_native_cell native.shared.non_strict "${native_topic_names[1]}" shared non-strict non-strict \
   "non-strict mode records Pulsar tick-precision delivery risk"
 run_native_cell native.shared.disabled "${native_topic_names[2]}" shared disabled disabled \
   "disabled delayed delivery permits immediate delivery"
-set_broker_strictness true || true
+set_broker_strictness true || fail_preflight "could not re-enable strict Pulsar delayed delivery"
 run_native_cell native.key_shared.strict "${native_topic_names[3]}" key_shared strict strict \
   "strict Key_Shared mode rejects early delivery at deliverAt"
-set_broker_strictness false || true
+set_broker_strictness false || fail_preflight "could not disable strict Pulsar delayed delivery for Key_Shared"
 run_native_cell native.key_shared.non_strict "${native_topic_names[4]}" key_shared non-strict non-strict \
   "non-strict Key_Shared mode records Pulsar tick-precision delivery risk"
 run_native_cell native.key_shared.disabled "${native_topic_names[5]}" key_shared disabled disabled \
