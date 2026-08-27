@@ -11,20 +11,47 @@ Spec revision：`DESIGN-BASELINE-2026-08-25`
 
 **Open semantic questions: none.**
 
-## 2026-08-27 NDIP-1 lifecycle gate audit
+## 2026-08-28 NDIP-1 H1-H6 implementation audit boundary
+
+The current main worktree has implementation slices for H1 through H6. The
+slice boundary is generation-bound: current declarations, activation markers,
+policy snapshots, prepared records, Attempt Journal entries, P1 evidence and
+physical-send gates must agree on one `ArtifactGenerationSet`; missing or
+mixed generation data fails closed. AUTO_FAST uses the exact business
+`deliverAt` timestamp, while ordinary Managed delivery remains
+`NEREUS_MANAGED_NOT_BEFORE` and does not project a Pulsar `deliverAt`.
+
+The H6 `DataResetManifest` is signed and self-contained, but it is only an
+activation prerequisite. There is no real persistent deployment, Gate C
+receipt, production manifest, SHADOW observation or ENABLED lease in this
+worktree. Accordingly this audit records implementation evidence only;
+`Accepted` and `Gate C=PENDING_DEPLOYMENT` remain unchanged, and H0's
+no-producer-touch fail-closed behavior remains the safe default.
+
+The implementation commit is
+`main@c7c99d377dc9e8bb786032173d62d1981011a4e2`; its P1 correctness-critical
+source lock is
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`.
+Bounded disposable verification covers managed destination typed evidence and
+native `Shared`-subscription `deliverAt` visibility. P1's `Exclusive`
+immediate-visibility behavior and the remaining broader behavior/recovery
+matrix remain explicit open certification evidence.
+
+## 2026-08-27 NDIP-1 lifecycle gate audit (historical snapshot)
 
 Accepted `NDP-0002` and the generation-2 `NDIP-1` receipt separate implementation from deployment safety:
 Gate B PASS authorizes H1-H6 in predecessor order and exact disposable local tests; Gate C is not an H1
 precondition. The read-only G0 assessment core and `DeploymentSafetyGate` are implemented at
-`68fe2c292e34f0162aac9377b9f935fe598831e4`. Current status is H1 READY, H2-H6 predecessor-blocked,
-G0 `NOT_APPLICABLE_FOR_IMPLEMENTATION / PENDING_DEPLOYMENT`, SHADOW blocked by Gate C, and ENABLED
-blocked by Gate C plus SHADOW requirements.
+`68fe2c292e34f0162aac9377b9f935fe598831e4`. At that historical snapshot the
+status was H1 READY, H2-H6 predecessor-blocked, G0 `NOT_APPLICABLE_FOR_IMPLEMENTATION /
+PENDING_DEPLOYMENT`, SHADOW blocked by Gate C, and ENABLED blocked by Gate C plus SHADOW
+requirements.
 
 The audit found no path that uses missing deployment identity as implementation denial and no path that turns
 missing environment evidence into a placeholder PASS. `DISPOSABLE_LOCAL` requires exact synthetic/isolated/
 owned/cleanup attestation; existing/staging/production require exact Gate C binding; unknown remains
-fail-closed. No H1-H6 product implementation or runtime native capability is claimed by this governance/G0
-slice.
+fail-closed. No H1-H6 product implementation or runtime native capability was claimed by that historical
+governance/G0 slice.
 
 The 2026-08-13 revision accepts ADR 0043/0044 and the code-level
 [`Direct SDK / Delay Gateway / Guarded Transport design`](DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md).

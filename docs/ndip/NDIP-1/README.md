@@ -7,7 +7,8 @@
 - 提案状态：`Accepted`
 - 审查基线：`main@8915d21ed325a90ec305201ca85ab8daea3803dc`
 - H0 实现提交：`main@7cb377ca9dd3135792237af0f027076630d5e4f3`
-- 整理日期：`2026-08-27`
+- H1-H6 实现提交：`main@c7c99d377dc9e8bb786032173d62d1981011a4e2`
+- 整理日期：`2026-08-28`
 
 仓库的 Accepted `NDP-0001` 持续演进规则保持不变。Accepted
 [`NDP-0002`](../../proposals/0002-register-ndip-governance.md) 已完成一次性治理桥接；本工作包
@@ -19,6 +20,9 @@ Gate B PASS 是 implementation authorization：H1-H6 可按切片依赖顺序实
 `DISPOSABLE_LOCAL` attestation 的本地集成/恢复/故障测试也被允许。Gate C 是
 deployment/upgrade authorization；它仍严格阻止 persistent environment mutation、SHADOW 和
 ENABLED。H0 不改变权威语义，不受这一命名桥接阻塞。
+
+本轮实现开始时的前置状态为 `H1 READY`；其余切片按 H1→H6 依赖顺序推进并分别保留认证前的
+代码实现与测试边界。
 
 `normative package digest` 不包含本 README 和 candidate/final receipt，避免自引用与操作文本
 改变设计身份。仓库不保存会话执行提示词；需要时由用户请求并在会话内临时生成。摘要固定
@@ -77,7 +81,7 @@ receipt 同时固定 `gateCRequiredBeforeShadow=true` 与 `gateCRequiredBeforeEn
 NDP-0002 Accepted
 + final NDIP-1 acceptance receipt binds exact package digest
     -> Gate B PASS（当前）
-    -> H1 READY；H2-H6 按前置 slice 顺序推进
+    -> H1-H6 按前置顺序实现；当前代码切片已完成，认证/部署证据仍未完成
     -> exact disposable local integration/recovery/fault testing ALLOWED
 
 H1 -> H2 -> H3 -> H4(.deliverAt) -> H5 -> H6
@@ -94,6 +98,30 @@ first persistent deployment / upgrade
 当前没有真实 persistent deployment，不生成虚假 Assessment receipt。G0 状态是
 `NOT_APPLICABLE_FOR_IMPLEMENTATION / PENDING_DEPLOYMENT`：不阻塞 H1-H6，但 existing、staging、
 production、unknown 环境在 Gate C PASS 前继续 fail-closed。
+
+## 2026-08-28 实现切片状态
+
+H1-H6 的当前代码切片已经按 `H1 -> H2 -> H3 -> H4(.deliverAt) -> H5 -> H6`
+顺序落入主干并配有 focused tests：H1 的 generation-2 contract、generation-5
+store 与双 READY head，H2 的签名 policy/head、动态 eligibility 与 snapshot-frozen
+admission，H3 的无损 prepared record、固定 sequence 和 Attempt Journal，H4 的
+source-locked P1 encoder/transport/evidence，H5 的无 clock shift AUTO_FAST，以及
+H6 的 signed `DataResetManifest`、`ArtifactGenerationSet` activation 和四个运行时
+generation gates 均已实现。
+
+这里的“已实现”仅表示代码/本地 disposable 验证边界；它不表示 NDIP 已进入
+`Implemented`，也不生成 production Manifest、Gate C、SHADOW、ENABLED 或 cutover
+evidence。H0 仍然 fail-closed，缺少 exact current generation、signed manifest 或能力
+gate 时不得触碰 Producer/物理适配器。由于没有真实 persistent deployment，Gate C 仍为
+`PENDING_DEPLOYMENT`，SHADOW/ENABLED 继续阻断。
+
+本轮实现提交为 `main@c7c99d377dc9e8bb786032173d62d1981011a4e2`，P1 correctness-critical
+source lock 固定为 `nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`。
+主线 `test`、`check`、`compileRealPulsar`、binding smoke 和 H0 smoke 均通过；在独占
+disposable standalone 上，managed destination typed SEND/ACK evidence 与 native
+`Shared` subscription 的 exact `deliverAt` 前后可见性 smoke 均通过。`Exclusive` 的立即可见
+行为按 P1 原生契约保留为显式风险，不被包装成 not-before 保证。Oxia/MinIO 需要外部真实服务
+的测试仍按条件 skip。
 
 H0 的目标只有一个：在完整契约尚未被接受、物理链路尚未闭环时，所有尚未正确编码业务
 record 的 Pulsar native 物理入口都必须在 Producer ownership 前确定拒绝。范围同时包括：
@@ -121,9 +149,12 @@ adapter/delegate，并排队既有 source-log Outcome handoff。两个 real tran
   `compileRealPulsar` 与 `runRealPulsarH0Smoke`。no-Broker smoke 报告两个 real transport 的
   `newMessage=0`、`sendAsync=0`。
 
-这不是完整 Handoff 或 physical record chain 的实现：`.deliverAt(...)`、无损 record 投影、
-Attempt Journal、P1 evidence/recovery、capability activation 以及 H1-H6 均未实施。NDIP-1
-虽为 `Accepted`，仍必须保持 H0 fail-closed，直到后续 gates 明确开放相应范围。
+这不是部署、SHADOW、ENABLED 或 release certification：real Broker behavior matrix、生产
+evidence/recovery、persistent reset receipt 和 cutover 仍未完成。当前代码切片已经实现
+`.deliverAt(...)` 的 generation-bound projection、无损 record/Attempt Journal、P1 evidence、
+AUTO_FAST timestamp alignment 和 activation gates，但 H0 仍作为缺少 exact generation/manifest/
+capability 的 fail-closed fallback。NDIP-1 虽为 `Accepted`，在 Gate C 与后续生产证据完成前不得
+标记 `Implemented`。
 
 ## 当前结论
 
@@ -162,14 +193,18 @@ head 投影，防止 policy disabled 或 lead 缩小时 native head 阻塞 ordin
 |---|---|---:|---|
 | H0 | patch-ready，五个生产入口与测试落点已固定 | complete；不得重复实施 | 已有 code/docs receipt |
 | G0 | read-only compatibility/reset assessment tooling 与 receipt | core implemented；`NOT_APPLICABLE_FOR_IMPLEMENTATION / PENDING_DEPLOYMENT` | 仅在真实 persistent environment 明确后运行；不得修改运行资源 |
-| H1 | code-level target，产品决策已关闭 | **H1 READY** | Gate B PASS（已满足） |
-| H2-H6 | code-level target，产品决策已关闭 | blocked by predecessor | 依次完成 H1、H2、H3、H4、H5 |
+| H1 | code-level contract/store slice | **implemented; certification pending** | focused/full gates |
+| H2 | signed policy/scheduler/admission slice | **implemented; certification pending** | H1 + focused/full gates |
+| H3 | Attempt Journal/physical handoff slice | **implemented; certification pending** | H2 + focused/full gates |
+| H4 | P1 encoder/transport/evidence slice | **implemented; bounded managed/native smoke passed; wider behavior matrix pending** | H3 + source-locked P1 gates |
+| H5 | AUTO_FAST contract/timestamp/recovery slice | **implemented; certification pending** | H4 + focused/full gates |
+| H6 | activation/reset/generation-barrier slice | **implemented; deployment evidence pending** | H5 + exact environment gates |
 | local disposable testing | synthetic integration/recovery/fault environment | **ALLOWED** | Gate B PASS + exact complete disposable attestation |
 | SHADOW | environment-specific deployment | blocked | exact environment Gate C PASS |
 | ENABLED | controlled native delivery activation | blocked | Gate C PASS + SHADOW requirements PASS + signed Manifest/source lock/Worker barrier |
 
-H1-H6 开始后仍需在每个切片前重核最新源码签名、P1 source lock 和生成号占用；这属于正常的
-source-drift 审计，不得借此重新打开本文已经关闭的产品契约。H0 不应重复执行；当前可正式
-开始 H1。G0 pure evaluator、closed inventory、本地 receipt writer 与 `DeploymentSafetyGate` 已
-实现；真实 environment 出现前不提供虚假 scope 或 PASS。需要执行提示词时由用户在会话中
-另行请求，不写入仓库。
+H1-H6 代码切片完成后仍需在每个发布/部署边界重核最新源码签名、P1 source lock 和生成号
+占用；这属于正常的 source-drift 审计，不得借此重新打开本文已经关闭的产品契约。G0 pure
+evaluator、closed inventory、本地 receipt writer、`DeploymentSafetyGate` 与 H6 manifest gate
+均已实现；真实 environment 出现前不提供虚假 scope 或 PASS。需要执行提示词时由用户在
+会话中另行请求，不写入仓库。

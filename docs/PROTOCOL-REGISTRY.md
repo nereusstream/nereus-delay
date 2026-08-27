@@ -455,7 +455,7 @@ retryJitterDigest = SHA-256(
 
 #### 5.1.1 Immutable semantic objects
 
-`DestinationProfileSemantic` exact fields: 1 `AdapterKind`; 2 target `BrokerResourceIdentity`; 3 `uint32 target_partition_count`; 4 `TargetPartitionPolicy`; 5 `TargetPartitionHashInput`; repeated 6 allowed explicit partitions, strictly numeric-sorted/unique and `< field 3`; 7 delivery-capability `ProfileRef`; 8 `uint32 allowed_ordering_mode_bits` (`0x01 BEST_EFFORT`, `0x02 DELIVERY_TIME_FIFO` only); 9 `uint64 handoff_lead_ms`; 10 `uint64 target_clock_ahead_bound_ms`; 11 immutable credential-authorization-scope/policy digest[32]; 12 `uint32 credential_binding_protocol_version`=1; 13 `uint64 max_target_record_bytes`; 14 `uint64 max_adapter_metadata_bytes`; 15 `uint64 max_payload_bytes`; 16 `uint32 unordered_lane_bucket_count`; 17 bounded public-safe destination alias UTF-8 NFC; 18 `uint64 minimum_topic_ttl_ms`; 19 `uint64 minimum_topic_retention_ms`; 20 `uint32 adapter_encoding_version`; 21 prerequisite-policy digest[32]. Field 7 must be kind `DELIVERY_CAPABILITY`, its semantic Adapter must equal field 1, and every destination reference to this envelope must be kind `DESTINATION`. Partition count/bucket count/limits are nonzero. `EXPLICIT_ONLY` requires a nonempty field 6 and ignores field 5; `HASH_ONLY` requires field 6 empty; `EXPLICIT_OR_HASH` requires nonempty field 6 and uses field 5 only when no permitted explicit partition was supplied. Kafka forbids timing bits other than ordinary and requires fields 9–10 zero; Pulsar handoff/auto-fast bits require the source-locked guards and bounds in the main spec. Strict ordering requires a non-baseline capability certified for the selected Adapter. Field 11 covers the exact target/evidence resources and operations the credential may authorize; changing that scope or policy requires a new Profile version.
+`DestinationProfileSemantic` generation 2 exact fields: 1 `AdapterKind`; 2 target `BrokerResourceIdentity`; 3 `uint32 target_partition_count`; 4 `TargetPartitionPolicy`; 5 `TargetPartitionHashInput`; repeated 6 allowed explicit partitions, strictly numeric-sorted/unique and `< field 3`; 7 delivery-capability `ProfileRef`; 8 `uint32 allowed_ordering_mode_bits` (`0x01 BEST_EFFORT`, `0x02 DELIVERY_TIME_FIFO` only); 9 `uint64 max_handoff_lead_ms`; field 10 is permanently reserved and absent; 11 immutable credential-authorization-scope/policy digest[32]; 12 `uint32 credential_binding_protocol_version`=1; 13 `uint64 max_target_record_bytes`; 14 `uint64 max_adapter_metadata_bytes`; 15 `uint64 max_payload_bytes`; 16 `uint32 unordered_lane_bucket_count`; 17 bounded public-safe destination alias UTF-8 NFC; 18 `uint64 minimum_topic_ttl_ms`; 19 `uint64 minimum_topic_retention_ms`; 20 `uint32 adapter_encoding_version`; 21 prerequisite-policy digest[32]. Field 7 must be kind `DELIVERY_CAPABILITY`, its semantic Adapter must equal field 1, and every destination reference to this envelope must be kind `DESTINATION`. Partition count/bucket count/limits are nonzero. `EXPLICIT_ONLY` requires a nonempty field 6 and ignores field 5; `HASH_ONLY` requires field 6 empty; `EXPLICIT_OR_HASH` requires nonempty field 6 and uses field 5 only when no permitted explicit partition was supplied. Kafka forbids timing bits other than ordinary and requires field 9 zero; Pulsar handoff/auto-fast bits require the source-locked guards and the field-9 bound in the main spec. The old clock-ahead field is reader-only compatibility state and cannot be emitted by a generation-2 writer. Strict ordering requires a non-baseline capability certified for the selected Adapter. Field 11 covers the exact target/evidence resources and operations the credential may authorize; changing that scope or policy requires a new Profile version.
 
 `DeliveryCapabilitySemantic` exact fields: 1 `AdapterKind`; 2 `OutcomeCapability`; 3 `uint32 timing_capability_bits` from `TimingCapability`; optional 4 evidence `BrokerResourceIdentity`; 5 `uint32 evidence_partition_count`; 6 `uint64 minimum_evidence_retention_ms`; 7 `uint64 minimum_dedup_horizon_ms`; 8 `uint64 maximum_certified_producer_keys`; 9 Broker prerequisite digest[32]; 10 source-lock digest[32]; 11 `uint32 adapter_conformance_version`; 12 `uint32 rejection_classifier_version`. Baseline forbids evidence resource/count and uses zero evidence/dedup values; strong branches require the Adapter-specific main-spec fields and nonzero conformance/source-lock values. Kafka transactional receipt requires a Kafka evidence resource; Pulsar dedup requires a Pulsar Attempt Journal resource.
 
@@ -522,7 +522,7 @@ Field 18 and `RetryPolicyRef.semantic_hash` must match. `PayloadProofTrustSetSem
 
 `PayloadForPublish` exact fields: 1 `uint64 length`; 2 `bytes payload_sha256`=32; closed oneof field 3 `bytes inline_payload` / field 4 `CommittedPayloadDescriptor object`. Inline bytes must match length/hash; an object descriptor must match the same length/hash.
 
-`ClaimMaterialization` exact fields: 1 destination `ProfileRef`; 2 capability `ProfileRef`; 3 `BrokerResourceIdentity target_resource`; 4 physical partition `uint32`; 5 DelayMessageId[41]; 6 generation `uint32`; 7 `PayloadForPublish payload`; 8 `AdapterMetadata business_metadata`; 9 `int64 deliver_at`; 10 `int64 expire_at`; 11 `int64 action_at`. Its digest is `SHA-256("nereus-delay-claim-materialization\0" || canonicalProtobuf(ClaimMaterialization))`.
+`ClaimMaterialization` generation 2 exact fields: 1 destination `ProfileRef`; 2 capability `ProfileRef`; 3 `BrokerResourceIdentity target_resource`; 4 physical partition `uint32`; 5 DelayMessageId[41]; 6 generation `uint32`; 7 `PayloadForPublish payload`; 8 `AdapterMetadata business_metadata`; 9 `int64 deliver_at`; 10 `int64 expire_at`; 11 `int64 action_at`; 12 `NativeDeliveryPolicy`; optional 13 `int64 event_time`; optional 14 `HandoffPolicyHeadRef`. Field 12 is explicit on every new value; `FORBID` means ordinary Managed and requires `action_at=deliver_at`. A native branch requires the exact policy head reference and derives `action_at` from the signed lead without reading a later Oxia value during replay. The eleven-field shape is a reader-only legacy migration value. Its digest is `SHA-256("nereus-delay-claim-materialization\0" || canonicalProtobuf(ClaimMaterialization))`.
 
 `AttemptObligationRef` exact fields: 1 PublishAttemptId[32]; 2 `uint32 generation`; 3 `AttemptLedgerState ledger_state`; 4 `bytes encoded_inflight_key`; 5 `bytes inflight_key_sha256`=32; 6 `bytes ref_digest`=32. Field 4 is the exact §7 PUBLISHING or UNCERTAIN key, including admitted Owner Epoch and field-1 ID; its tag must match field 3, and field 5 is SHA-256(field 4). Field 6 is `SHA-256("nereus-delay-attempt-obligation-ref\0" || canonicalProtobuf(fields 1–5))`. Sets are strictly byte-sorted/unique by `(publishAttemptId, encoded_inflight_key)` and forbid two refs with one ID.
 
@@ -532,7 +532,17 @@ Fields 8 and 14–15 are historical Claim/live-gate identity, not apply-time cur
 
 `ReservedPublishMetadata` exact fields: 1 Route UUID[16]; 2 shard partition `uint32`; 3 DelayMessageId[41]; 4 generation `uint32`; 5 PublishAttemptId[32]; 6 destination Profile semantic hash[32]; 7 capability Profile semantic hash[32]; 8 `int64 deliver_at`; 9 `DeliveryMode delivery_mode`. Caller metadata cannot contain a reserved name.
 
-`PreparedPublishDescriptor` exact fields: 1 `uint32 descriptor_version`=1; 2 `AdapterKind adapter_kind`; 3 `uint32 adapter_encoding_version`=1; 4 `bytes destination_lane_id`=32; 5 `bytes lane_incarnation`=16; 6 `ProfileRef destination_profile`; 7 `ProfileRef capability_profile`; 8 `BrokerResourceIdentity target_resource`; 9 `uint32 physical_partition`; 10 `ChannelResourceIdentity channel`; 11 DelayMessageId[41]; 12 generation `uint32`; 13 PublishAttemptId[32]; 14 `uint32 attempt_no`; 15 `PayloadForPublish payload`; 16 `AdapterMetadata business_metadata`; 17 `ReservedPublishMetadata reserved_metadata_without_hash`; 18 `int64 deliver_at`; 19 `int64 expire_at`; 20 `int64 action_at`. Every duplicated identity/time field must be byte-equal across the descriptor and nested objects. Ordinary managed requires `action_at=deliver_at`; certified Pulsar handoff requires the exact pinned timing-policy derivation.
+`PreparedPublishDescriptor` generation 2 exact fields: 1 `uint32 descriptor_version`=2; 2 `AdapterKind adapter_kind`; 3 `uint32 adapter_encoding_version`=2; 4 `bytes destination_lane_id`=32; 5 `bytes lane_incarnation`=16; 6 `ProfileRef destination_profile`; 7 `ProfileRef capability_profile`; 8 `BrokerResourceIdentity target_resource`; 9 `uint32 physical_partition`; 10 `ChannelResourceIdentity channel`; 11 DelayMessageId[41]; 12 generation `uint32`; 13 PublishAttemptId[32]; 14 `uint32 attempt_no`; 15 `PayloadForPublish payload`; 16 `AdapterMetadata business_metadata`; 17 `ReservedPublishMetadata reserved_metadata_without_hash`; 18 `int64 deliver_at`; 19 `int64 expire_at`; 20 `int64 action_at`; 21 `NativeDeliveryPolicy`; 22 `DeliveryContract`; optional 23 `HandoffPolicySnapshot`; optional 24 `int64 event_time`; optional 25 `PulsarRecordTemplate`; optional 26 record-template hash[32]; required 27 ArtifactGenerationSet digest[32]. Pulsar current descriptors require fields 25–27; Kafka forbids the Pulsar template fields. Every duplicated identity/time field must be byte-equal across the descriptor and nested objects. Ordinary managed requires `action_at=deliver_at` and no snapshot; certified Pulsar handoff requires the exact signed snapshot and pinned lead. The former twenty-field shape is reader-only.
+
+`HandoffPolicySnapshot` exact fields: 1 schema generation=1; 2 policy-scope digest[32]; 3 nonzero policy generation `uint64`; 4 `HandoffPolicyMode`; 5 effective lead `uint64`; 6 valid-from `uint64`; 7 valid-until `uint64`; 8 `HandoffPath` bits; 9 `TrustedUtcIntervalEvidence issued_at`; 10 issuer key generation `uint32`; 11 ArtifactGenerationSet digest[32]; 12 snapshot digest[32]; 13 Ed25519 signature[64]. Field 12 is SHA-256 of domain `nereus-delay-handoff-policy-snapshot\0` plus fields 1–11; field 13 signs domain `nereus-delay-handoff-policy-snapshot-signature\0`, the digest and field 10. `DISABLED` requires zero lead/path, `ENABLED` requires bounded positive lead/path, and every native decision requires the snapshot to remain self-contained and historically replayable.
+
+`HandoffPolicyHead` exact fields: 1 schema generation=1; 2 scope digest[32]; 3 generation `uint64`; 4 `HandoffPolicyMode`; 5 complete `HandoffPolicySnapshot`; 6 effective-disabled-after `int64`; 7 head digest[32]. The head digest covers fields 1–6. Its Oxia revision is metadata in `HandoffPolicyHeadRef`, not part of the head value. `HandoffPolicyHeadRef` fields are 1 scope digest[32], 2 generation `uint64`, 3 snapshot digest[32], 4 observed Oxia version `uint64`; a Claim/Admission must carry the exact observed reference and its frozen snapshot.
+
+`ArtifactGenerationSet` exact fields: 1 schema generation=1; 2 client-command `ProtocolTuple`; 3 system-mutation `ProtocolTuple`; 4 destination-profile generation=2; 5 descriptor generation=2; 6 adapter-encoding generation=2; 7 native-prepared generation=2; 8 Attempt-Journal generation=2; 9 Pulsar-record generation=1; 10 handoff-snapshot generation=1; 11 evidence generation=2; 12 store-value generation=5; 13 environment reset generation `uint64`; 14 exact P1 source-lock digest[32]; 15 canonical schema bundle hash[32]; 16 set digest[32]. Field 16 covers fields 1–15 under domain `nereus-delay-artifact-generation-set\0`; the set is the exact equality key for Worker declarations, activation, preparation and physical send.
+
+`PulsarRecordTemplate` exact fields: 1 schema generation=1; 2 target `BrokerResourceIdentity`; 3 physical partition `uint32`; 4 closed `PulsarKey` (`NONE`, `UTF8`, `BINARY`); optional 5 ordering key bytes; repeated 6 caller properties sorted by unsigned key bytes and unique; optional 7 `int64 event_time`; 8 `ReservedPublishMetadata`; 9 `DeliveryContract`; optional 10 native `int64 deliver_at`; 11 `PayloadForPublish`; 12 ArtifactGenerationSet digest[32]. The native timestamp is present only for `PULSAR_NATIVE_DELIVERY` and equals business `deliver_at`; ordinary Managed omits it. The template hash is SHA-256 of domain `nereus-delay-pulsar-record-template\0` plus its canonical bytes.
+
+`PulsarPreparedRecord` exact fields: 1 schema generation=1; 2 `PulsarRecordTemplate`; 3 record-template hash[32]; 4 `ResolvedPayload`; 5 `PulsarSequenceAuthority`; 6 `ExternalDeliveryIdentity`; 7 prepared identity hash[32]; repeated 8 exactly nine final reserved properties; 9 ArtifactGenerationSet digest[32]. Managed records require `MANAGED_JOURNAL` with journal mapping ID/fixed sequence/producer-name hash and a publish-attempt identity; native records require `PRODUCER_ASSIGNED` and a native-delivery identity. The record hash is SHA-256 of domain `nereus-delay-pulsar-prepared-record\0` plus its canonical bytes.
 
 ```text
 preparedPublishHash = SHA-256(
@@ -559,6 +569,19 @@ The Broker record appends the hash after computing it. Kafka appends, after call
 | 17 | `OperatorAttestationEvidence` | 1 verifier `ProfileRef`; 2 `ExternalDeliveryIdentity`; 3 exact prepared/export envelope hash[32]; 4 target `BrokerResourceIdentity`; 5 partition `uint32`; 6 verification status; 7 issued-at `int64`; 8 not-after `int64`; 9 payload SHA-256[32]; 10 key version `uint32`; 11 Ed25519 signature[64] |
 | 18 | `AdapterNonSubmissionEvidence` | 1 `ChannelResourceIdentity`; 2 `ExternalDeliveryIdentity`; 3 exact prepared/export envelope hash[32]; 4 `AdapterNonSubmissionKind`; 5 exact local request SHA-256[32]; 6 activated Adapter conformance version `uint32`; 7 `StableCode`; valid only as `VERIFIED_NOT_PUBLISHED` |
 | 19 | `BrokerDefinitiveRejectionEvidence` | 1 `AdapterKind`; 2 target `BrokerResourceIdentity`; 3 partition `uint32`; 4 `ExternalDeliveryIdentity`; 5 exact prepared/export envelope hash[32]; 6 exact Broker request SHA-256[32]; 7 unsigned wire error code `uint32`; 8 authenticated response SHA-256[32]; 9 activated rejection-classifier version `uint32`; valid only as `VERIFIED_NOT_PUBLISHED` |
+
+Current generation-2 `PulsarSendAckEvidence` replaces the legacy eleven-field
+Pulsar branch for new evidence. Its exact fields are: 1 schema generation=2;
+2 target; 3 partition; 4 ledger; 5 entry; 6 normalized batch index; 7 batch
+size; 8 Broker persistence time; 9 producer-name hash; 10 P1 protocol version;
+11 connection generation; 12 producer ID; 13 actual sequence; 14
+`ExternalDeliveryIdentity`; 15 prepared identity hash; 16 record-template hash;
+17 prepared-record hash; 18 sequence-authority/mapping evidence; 19 actual P1
+SEND command hash; 20 authenticated response hash; 21 exact P1 source-lock
+digest; 22 ArtifactGenerationSet digest. ACK resolution must bind the exact
+target/position, prepared/template/record hashes, sequence authority, SEND
+hash, authenticated response and source lock; missing or mixed evidence is
+not a definitive publication result.
 
 `RetryDecision` exact fields: 1 `RetryDecisionKind kind`; 2 `RetryPolicyRef policy`; 3 `uint32 completed_attempt_no`; 4 `int64 first_attempt_at`; 5 `int64 retry_deadline`; optional 6 `int64 next_retry_at`; 7 `uint32 jitter_algorithm_version` (1 for `RETRY_JITTER`); 8 `StableCode cause`; 9 `RetryDomain retry_domain`. Field 3 is the complete unsigned `uint32` domain (`0xffffffff` is valid on the wire; values above it are rejected); local successor/comparison logic must not use signed ordering or wrap at the all-ones value. `SCHEDULED` and `LANE_WAIT` require field 6; `NONE`, `EXHAUSTED`, and `UNCERTAIN_HOLD` forbid it. Business Outcome/Resolution requires `MESSAGE_PUBLISH`; DLQ result requires `DLQ_EXPORT`. Apply recomputes the domain-separated jitter/deadline from prior state and the accompanying trusted interval; mismatch is an integrity failure.
 
@@ -642,6 +665,12 @@ Intent creation compares the exact active Owner Lease/session/Store and base cat
 `RetireIntentRef`: 1 System Mutation ID[32]; 2 mutation hash[32]; 3 exact resource identity SHA-256[32]; 4 expected resource-state version `uint64`. This `uint64` carries the complete 64-bit pattern; implementations must not reject the high bit merely because their host integer type is signed. `ExternalDeleteEvidence`: 1 exact resource identity SHA-256[32]; 2 provider request ID hash[32]; 3 `DeleteOutcome outcome`; 4 optional exact observed immutable version; 5 optional exact observed etag; 6 authenticated HEAD/delete response SHA-256[32]; 7 `TrustedUtcIntervalEvidence observed_at`. `ALREADY_ABSENT` forbids version/etag presence; `DELETED` requires every provider-returned identity field.
 
 `CanonicalScheduleIntent` exact fields：1 `ProfileRef profile`；2 `RetryPolicyRef retry_policy`；3 `int64 deliver_at`；4 `int64 expire_at`；5 `DeliveryMode delivery_mode`；6 `OrderingMode ordering_mode`；7 `bytes ordering_key`；closed oneof field 8 `bytes inline_payload` / field 9 `CommittedPayloadDescriptor committed_payload`；10 `AdapterMetadata adapter_metadata`；optional 11 `bytes business_key`；optional 12 `int64 event_time`；13 `uint32 quota_accounting_version=1`。Prepare body requires neither payload branch; ordinary Schedule requires exactly one. `nereus.delay.*` names are forbidden in caller metadata.
+
+Current generation-2 Schedule writers extend this shape with field 14
+`NativeDeliveryPolicy`; the field is mandatory for new values and a missing
+field is reader-only legacy input interpreted as `FORBID`. Native delivery is
+limited to explicit policy plus `BEST_EFFORT`; `DELIVERY_TIME_FIFO` plus
+native is rejected. The older text above describes the pre-extension shape.
 
 ### 5.2 Client bodies
 
@@ -1023,6 +1052,13 @@ The exact messages are: `DefinitelyNotQueued` fields 1 `PreparedCommandRef`, 2 `
 
 `ControlTypedResult` is a closed oneof whose fields 1–9 and branch types are exactly the same-number `ControlResultKind` variants listed above. `CurrentControlOperation` exact fields: 1 Control Operation ID[32]; 2 request hash[32]; 3 authenticated scope hash[32]; 4 `ControlOperationState`; 5 `uint64 operation_revision`; 6 repeated `ControlTargetStateView`; optional 7 `ControlTypedResult`. Typed result is absent while no operation-specific result exists and required for `SUCCEEDED/SUCCEEDED_WITH_OUTSTANDING`; its branch must match the operation kind.
 `ControlOperationQueryResponse` exact fields: 1 version=1; 2 `ControlOperationQueryResult result_kind`; closed oneof field 10 `CurrentControlOperation current`; fields 11–13 `PublicQueryError` fixed respectively to `INVALID_RECEIPT`, `NOT_FOUND_OR_NOT_AUTHORIZED`, `INTEGRITY_ERROR`.
+
+The legacy `NativePreparedDelivery` shape above is reader/migration-only for
+the generation-2 implementation: its shifted Broker timestamp cannot
+authorize a current physical send. Current native publication uses the
+generation-1 `PulsarRecordTemplate`/`PulsarPreparedRecord` pair documented in
+§5.1.1, and only the `PULSAR_NATIVE_DELIVERY` contract projects the exact
+business `deliver_at` to Pulsar `deliverAt`.
 
 ### 6.4 Stable code
 
@@ -1667,7 +1703,7 @@ Value envelope：`4e56 | valueType:u8 | valueVersion:u8=01 | payloadLength:u32be
 
 | `valueType` | Registered payload contexts |
 |---:|---|
-| 1 | `meta/FIXED` kinds 1--9 and 11, `id/MESSAGE` (`MessageRecord` payload versions 1--4 or the `RETIRED_IDENTITY` payload version 5 branch), `timeline/DUE|ORDERED|EXPIRY`, `dedupe/COMMAND`, `terminal/GENERATION` |
+| 1 | `meta/FIXED` kinds 1--9 and 11, `id/MESSAGE` (`MessageRecord` payload generation 5 or the `RETIRED_IDENTITY` payload version 6 branch), `timeline/DUE|ORDERED|EXPIRY`, `dedupe/COMMAND`, `terminal/GENERATION` |
 | 2 | `id/RESERVATION`, `meta/LANE` |
 | 3 | `timeline/READY`, `dedupe/POSITION` |
 | 4 | `dedupe/SYSTEM_MUTATION` (`SystemMutationResult`) |
@@ -1679,12 +1715,26 @@ Value envelope：`4e56 | valueType:u8 | valueVersion:u8=01 | payloadLength:u32be
 | 10 | `meta/FIXED` kind 13 |
 | 11 | `timeline/SYSTEM` close-materialization cursor |
 
-Within the `id/MESSAGE` context, payload version 5 is the compact retired
+Current `id/MESSAGE` `MessageRecord` generation 5 has this exact binary order:
+`i32 version=5 | u8 status | i32 generation | i64 stateVersion | i64
+deliverAt | i64 earliestNativeCandidateAt | i64 retryEligibilityAt |
+lane[32] | u8 ordering | u8 NativeDeliveryPolicy | u8 payloadKind |
+lp32(scheduleSourcePosition) | (lp32(inlinePayload) or i32 zero ||
+lp32(payloadReference)) | lp32(GenerationRuntimeIndex)`. New resources must
+use generation 5; legacy generations 1–4 are reader/migration-only. The
+runtime index retains the ordinary and native heads independently, and a
+native head cannot block an ordinary due item when policy or eligibility
+changes.
+
+Within the `id/MESSAGE` context, payload version 6 is the compact retired
 identity branch; it is not a new value-envelope discriminator and cannot be
-used in another context:
+used in another context. Payload version 5 was used by the pre-generation-5
+implementation and remains reader-only for migration; it must be recognized
+by its complete retired-identity shape so it cannot collide with the current
+`MessageRecord` generation:
 
 ```text
-u32be(5)
+u32be(6)
 || delayMessageId[41]
 || messageIdentityReuseUntilEpochMs:u64be
 || retirementMutationSequence:u64be (raw uint64 bits)
@@ -1692,7 +1742,7 @@ u32be(5)
 ```
 
 The key remains `[MESSAGE=01][format=0x01] || delayMessageId[41]`. A current
-`MessageRecord` and a version-5 retired identity are mutually exclusive at
+`MessageRecord` and a version-6 retired identity are mutually exclusive at
 that key. Readers must validate the key/value identity and source-position
 shard, treat the retired branch as non-live for runtime indexes, and expose
 the public `IDENTITY_RETIRED` query result rather than projecting `UNKNOWN`.
@@ -1719,6 +1769,31 @@ evidenceKind:u8
 ```
 
 `EvidenceKind`: 1 `KAFKA_RECEIPT_CONTIGUOUS`, 2 `PULSAR_ATTEMPT_JOURNAL_CONTIGUOUS`。数组按上述 bytes 严格递增，duplicate full key 非法。Dominance 只在 full key 相同的 cursor 间比较；Kafka 比 `nextOffsetExclusive`，Pulsar 比 `(ledgerId,entryId,batchIndex)`。不同 generation 可同时存在，不能因前五项相同而覆盖旧 cursor。
+
+### 8.1 NDIP-1 generation binding
+
+`ProtocolCapabilityDeclaration` generation 2 keeps fields 1–6 and adds one or
+more repeated field 7 `ArtifactGenerationSet`; field 8 is the declaration
+digest over fields 1–6 and the repeated sets. Generation 1 declarations are
+reader-only and cannot satisfy a current activation or reset manifest.
+
+`ProtocolVersionActivatePayload` accepts the legacy fields 1–3 only for
+compatibility. A current marker has field 4 `ArtifactGenerationSet` and field
+5 `DataResetManifest` digest[32], and the tuple/schema hash must match the
+generation set. `ProtocolActivationState.Activation` retains source position
+and mutation ID in fields 4–5 and adds the exact set and manifest digest in
+fields 6–7 for the current form. Source apply rejects a legacy/current mix or
+any set/manifest mismatch.
+
+`DataResetManifest` is the signed H6 activation input, not a deployment
+receipt: fields 1–14 are schema generation, exact scope, source baseline,
+reset generation, ArtifactGenerationSet, repeated fresh resource incarnations,
+fresh-resource evidence, zero-obligation proof, repeated Worker capabilities,
+trusted creation interval, activation window, issuer key generation, manifest
+digest and Ed25519 signature. Its digest/signature are domain separated, and
+the activation gate checks the exact environment, route/shard, Worker
+declarations, resource set, generation digest and trusted window at startup,
+assignment, source apply and physical send.
 
 ## 9. Version activation
 

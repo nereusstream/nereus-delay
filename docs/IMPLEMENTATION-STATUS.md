@@ -7,7 +7,42 @@ normative requirements in [`Nereus Delay 设计.md`](Nereus%20Delay%20设计.md)
 the [`Current Protocol Registry`](PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
-## 2026-08-27 NDIP-1 implementation/deployment gate boundary — 68fe2c29
+## 2026-08-28 NDIP-1 H1-H6 implementation slices
+
+Implementation commit: `main@c7c99d377dc9e8bb786032173d62d1981011a4e2`.
+The correctness-critical P1 source lock is
+`nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`.
+
+The post-Gate-B implementation pass now contains the current H1-H6 code slices
+on top of the H0 fail-closed boundary. H1 supplies the generation-2 delivery
+contracts, generation-5 Message/READY projections and closed Pulsar record
+types; H2 supplies signed self-contained policy snapshots/heads, trust-store
+resolution, dynamic eligibility and snapshot-frozen admission; H3 supplies
+lossless prepared records, fixed-sequence Attempt Journal materialization and
+the durable ownership marker; H4 supplies the source-locked deterministic P1
+record encoder, ordinary/native transport projection and generation-2
+send/ACK evidence; H5 removes the old clock shift and binds AUTO_FAST to an
+explicit native policy with pre-ownership fallback; H6 supplies signed
+`DataResetManifest`, exact `ArtifactGenerationSet` activation and
+startup/assignment/source-apply/physical-send generation gates.
+
+These are implementation and disposable-test artifacts, not a deployment or
+release certificate. The current native physical path remains fail-closed
+unless the exact current generation, signed manifest and relevant capability
+gates are present. No persistent environment has been assessed, no production
+manifest or cutover receipt exists, and no SHADOW or ENABLED authority is
+claimed. NDIP-1 therefore remains `Accepted`, while Gate C remains
+`PENDING_DEPLOYMENT`.
+
+The bounded disposable verification passed the managed destination typed
+SEND/ACK evidence smoke and the native `Shared`-subscription exact-
+`deliverAt` smoke; the P1 `Exclusive` immediate-visibility behavior remains
+an explicit native subscription risk. The broader Shared/Key_Shared/
+Exclusive/Failover, strictness, disabled-delay, TTL/retention and process
+recovery matrix still needs a real environment-specific receipt. Conditional
+Oxia/MinIO tests remain skips when those services are not supplied.
+
+## 2026-08-27 NDIP-1 implementation/deployment gate boundary — 68fe2c29 (historical snapshot)
 
 Accepted `NDP-0002` and the generation-2 `NDIP-1` acceptance receipt now define Gate B as
 implementation authorization and Gate C as environment-specific deployment/upgrade authorization. Gate B is

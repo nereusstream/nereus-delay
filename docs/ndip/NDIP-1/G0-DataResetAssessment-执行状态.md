@@ -3,7 +3,7 @@
 ## 当前结论
 
 - Gate B：`PASS`
-- implementation：`H1 READY`；H2-H6 依次等待前置 slice
+- implementation：`H1-H6 code slices implemented; certification/deployment pending`
 - local disposable integration/recovery/fault testing：`ALLOWED_WITH_EXACT_ATTESTATION`
 - G0 tooling core：`implemented`
 - G0 lifecycle：`NOT_APPLICABLE_FOR_IMPLEMENTATION`
@@ -19,7 +19,25 @@ Worker 或 unresolved obligation 环境。因此不能构造权威 Assessment sc
 
 `NOT_APPLICABLE_FOR_IMPLEMENTATION` 只表示 G0 不是 H1-H6 的前置条件；它不是 Gate C PASS。
 第一个 existing/staging/production deployment 出现后，状态转为 `PENDING` 并使用真实 closed
-scope 执行 G0。在此之前 H1 可开始，但任何 persistent deployment、SHADOW 或 ENABLED 仍被阻断。
+scope 执行 G0。在此之前 H1-H6 的代码/本地 disposable 验证可以推进，但任何 persistent
+deployment、SHADOW 或 ENABLED 仍被阻断。
+
+## H1-H6 implementation boundary
+
+H1-H6 的代码切片已经落入当前主干：current generation contract/store、signed
+handoff policy and dynamic scheduler/admission、Attempt Journal、source-locked P1
+record/evidence path、exact-timestamp AUTO_FAST，以及 signed manifest/activation
+barriers。`DataResetManifest` 仅接受 fresh resource、zero-obligation proof 和所有 Worker
+对同一 `ArtifactGenerationSet` 的 current declaration；`DataResetActivationGate` 在
+startup、assignment、source apply 和 physical send 边界拒绝 stale/mixed generation。
+
+这不改变当前 G0 结论。没有真实 persistent deployment，因此没有 Assessment receipt、Gate C
+receipt、production manifest、SHADOW observation 或 ENABLED lease；这些缺失是
+`PENDING_DEPLOYMENT`，不是可以用 synthetic placeholder 填补的证据。
+
+H1-H6 当前实现提交为 `main@c7c99d377dc9e8bb786032173d62d1981011a4e2`；P1 source lock
+为 `nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`。下面引用的
+`68fe2c29` G0 implementation gate 文字是该提交时的历史状态，不是当前 H1-H6 完成状态。
 
 ## 已实现的只读核心
 
@@ -65,8 +83,10 @@ fresh resource 和 all-Worker exact generation 仍由 H6 后的环境 Manifest �
 `DeploymentSafetyGate` 把 implementation、local disposable operation 和 deployment 分成三个
 closed API：
 
-1. `implementation(...)` 只读取 Gate B 和 H1-H6 completed prefix。当前 Gate B PASS、completed
-   set 为空，因此 H1 AUTHORIZED，H2-H6 返回 `PREDECESSOR_REQUIRED`；它不读取 Gate C。
+1. `implementation(...)` 只读取 Gate B 和调用者提供的 H1-H6 completed prefix；历史的
+   `68fe2c29` G0 快照中 completed set 为空，因此当时 H1 AUTHORIZED、H2-H6 返回
+   `PREDECESSOR_REQUIRED`。当前代码已完成这些实现切片，但该通用 API 仍不会凭空生成
+   deployment 或 certification authority；它不读取 Gate C。
 2. `localDisposable(...)` 只在 classification 为 `DISPOSABLE_LOCAL`，且 attestation 与 exact
    environmentId 相等、isolated scope、synthetic-only、exclusive ownership、cleanup authorization
    和 evidence digest 全部存在时，允许 create/reset/destroy/rebuild/integration test。
@@ -97,7 +117,7 @@ closed API：
 
 ## 已验证
 
-- Gate B PASS 时 H1 READY、H2-H6 按 predecessor 阻断；Gate B PENDING 阻断 H1；
+- Gate B PASS 时 H1-H6 可按 predecessor 实现；当前代码切片已完成但认证/部署证据仍未闭合；Gate B PENDING 阻断 H1；
 - exact disposable attestation 允许本地 reset/integration test，无 attestation 或 environment
   mismatch 拒绝；
 - existing/staging/production 无 Gate C 拒绝，unknown 无条件拒绝；
