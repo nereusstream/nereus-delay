@@ -151,7 +151,8 @@ curl --help all 2>/dev/null | grep -F -- '--aws-sigv4' >/dev/null \
   || fail_preflight "Delay checkout is not clean"
 git -C "${delay_root}" fetch origin main >"${artifact_dir}/logs/delay-fetch.log" 2>&1 \
   || fail_preflight "could not fetch origin/main"
-[[ "$(git -C "${delay_root}" rev-list --left-right --count origin/main...HEAD)" == "0 0" ]] \
+read -r delay_ahead delay_behind <<<"$(git -C "${delay_root}" rev-list --left-right --count origin/main...HEAD)"
+[[ "${delay_ahead}" == 0 && "${delay_behind}" == 0 ]] \
   || fail_preflight "Delay main is not cleanly synchronized with origin/main"
 
 [[ -d "${p1_dir}" ]] || fail_preflight "P1 checkout is missing: ${p1_dir}"
