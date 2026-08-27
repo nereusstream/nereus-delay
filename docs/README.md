@@ -10,7 +10,7 @@
 4. [`DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md`](DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md) 把 ADR 0043/0044 映射到 Gradle 模块、Java API、signed RouteSnapshot、Gateway 幂等记录、Kafka/Pulsar patch 点、失败分类和逐切片测试门。它是代码级实现蓝图，不覆盖主设计或 Registry。
 5. [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) 只记录当前代码、测试和剩余 blocker 的证据。它不能把“未实现”变成实现许可，也不能放宽设计或 Registry 的要求。
 6. [`DESIGN-AUDIT.md`](DESIGN-AUDIT.md) 是跨文档审计和发布检查视图，用来发现规范、ADR、代码和证据之间的漂移；它不是新的协议规范。
-7. [`proposals/`](proposals/README.md) 保存 NDP。重大跨模块变更先形成提案；Accepted 后直接同步当前主设计、Registry、ADR、实现和 gate，不形成另一条版本线。
+7. [`ndip/`](ndip/README.md) 是当前改进提案入口；[`proposals/`](proposals/README.md) 永久保存 NDP bootstrap 历史。重大跨模块变更先形成提案；Accepted 后直接同步当前主设计、Registry、ADR、实现和 gate，不形成另一条版本线。
 8. [`CONTEXT.md`](../CONTEXT.md) 是术语和语义速查表，帮助统一 `deliverAt`、`actionAt`、Receipt、Source Position 等名称；它不新增规范，也不覆盖主设计、Registry 或 ADR。
 
 ## 按问题查文档
@@ -23,7 +23,7 @@
 | Direct SDK/Gateway 如何复用语义、Kafka/Pulsar client 改哪些类和怎么验收 | [`DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md`](DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md) | 不证明这些生产模块已经实现或通过 release gate |
 | 当前代码、测试证据和剩余 release blocker | [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) | 不把未实现项变成实现许可，也不放宽主设计 |
 | 多份文档、代码和证据是否发生漂移，能否发布 | [`DESIGN-AUDIT.md`](DESIGN-AUDIT.md) | 不新增协议语义 |
-| 重大设计为何以及如何改变 | [`proposals/`](proposals/README.md) | 不替代被同步更新后的权威设计 |
+| 重大设计为何以及如何改变 | [`ndip/`](ndip/README.md) | NDP bootstrap 历史见 [`proposals/`](proposals/README.md)；不替代被同步更新后的权威设计 |
 | 某个术语在当前系统中的固定含义和禁用混淆 | [`CONTEXT.md`](../CONTEXT.md) | 不决定字段号、实现状态或架构取舍 |
 
 因此，`Nereus Delay 设计.md` 不是废弃文档；它是“系统要成为什么样”的基线。其余文档分别回答“怎么编码”“为什么这样定”“现在做到哪”“有没有偏离”，是对它的分层补充。
@@ -41,4 +41,5 @@
 
 Gradle 的 `checkDocumentation` verification task 会在 `check` 中执行，验证上述
 权威文件存在、文档地图没有丢失主设计入口，并且主设计、Protocol Registry、ADR、
-Status 与 Audit 使用同一个当前设计基线修订号，并验证 Accepted NDP 与版本命名残留 gate。
+Status 与 Audit 使用同一个当前设计基线修订号，并验证 Accepted NDP/NDIP、exact package
+receipt、Gate B implementation authority、Gate C deployment boundary 与版本命名残留 gate。

@@ -1,6 +1,10 @@
-# Nereus Delay Proposal（NDP）
+# Nereus Delay Proposal（NDP，历史 bootstrap 治理）
 
-Nereus Delay 只有一条持续演进的产品与设计主线。项目不用整体编号版本切分架构，也不因为一次重大修改而复制一套旧设计、旧实现或永久兼容层。重大变更通过 NDP 提出、评审、接受并合入当前权威设计。
+Nereus Delay 只有一条持续演进的产品与设计主线。项目不用整体编号版本切分架构，也不因为一次重大修改而复制一套旧设计、旧实现或永久兼容层。重大变更通过提案提出、评审、接受并合入当前权威设计。
+
+`NDP-0002` 已完成一次性治理桥接。`NDP-0001` 和 `NDP-0002` 作为 bootstrap 历史记录永久
+保留；后续改进提案使用 [`docs/ndip/`](../ndip/README.md) 中定义的 `NDIP-N` 身份与工作包，
+不再分配新的 NDP 编号。
 
 ## 何时必须提交 NDP
 
@@ -20,9 +24,9 @@ Nereus Delay 只有一条持续演进的产品与设计主线。项目不用整�
 
 终止状态是 `Rejected` 或 `Withdrawn`。已接受提案可被后续提案 `Superseded`，但历史文件保留。只有 `Accepted` 的 NDP 才能修改权威设计；只有实现与所需 gate 完成后才可标记 `Implemented`。
 
-## 编号与文件名
+## 历史编号与文件名
 
-- 编号为四位递增序号：`NDP-0001`、`NDP-0002`……
+- 已登记编号为 `NDP-0001`、`NDP-0002`；后续编号由 NDIP 治理接替。
 - 文件名为 `NNNN-short-kebab-title.md`。
 - 编号只表达提案身份，不表达项目版本或发布代际。
 
@@ -42,4 +46,11 @@ Nereus Delay 只有一条持续演进的产品与设计主线。项目不用整�
 
 NDP 记录“为什么以及如何改变”；被接受后，当前结论必须同步写入主设计、Protocol Registry、ADR、Implementation Status、Design Audit、运行手册和相关 gate。实现和权威文档始终面向同一个当前系统，不保留一整套按项目大版本分叉的文档树。
 
-模板见 [`TEMPLATE.md`](TEMPLATE.md)，当前提案见本目录编号文件。
+历史模板见 [`TEMPLATE.md`](TEMPLATE.md)，后续提案入口见 [`docs/ndip/`](../ndip/README.md)。
+
+## 当前提案
+
+- [`NDP-0001`](0001-adopt-continuous-design-evolution.md)：Accepted，采用单一持续演进设计主线。
+- [`NDP-0002`](0002-register-ndip-governance.md)：Accepted，注册 NDIP 工作包、exact package digest
+  与外置接受凭证；2026-08-27 amendment 明确 Gate B 授权 implementation，Gate C 只保护
+  persistent deployment、SHADOW 与 ENABLED。

@@ -11,6 +11,21 @@ Spec revision：`DESIGN-BASELINE-2026-08-25`
 
 **Open semantic questions: none.**
 
+## 2026-08-27 NDIP-1 lifecycle gate audit
+
+Accepted `NDP-0002` and the generation-2 `NDIP-1` receipt separate implementation from deployment safety:
+Gate B PASS authorizes H1-H6 in predecessor order and exact disposable local tests; Gate C is not an H1
+precondition. The read-only G0 assessment core and `DeploymentSafetyGate` are implemented at
+`68fe2c292e34f0162aac9377b9f935fe598831e4`. Current status is H1 READY, H2-H6 predecessor-blocked,
+G0 `NOT_APPLICABLE_FOR_IMPLEMENTATION / PENDING_DEPLOYMENT`, SHADOW blocked by Gate C, and ENABLED
+blocked by Gate C plus SHADOW requirements.
+
+The audit found no path that uses missing deployment identity as implementation denial and no path that turns
+missing environment evidence into a placeholder PASS. `DISPOSABLE_LOCAL` requires exact synthetic/isolated/
+owned/cleanup attestation; existing/staging/production require exact Gate C binding; unknown remains
+fail-closed. No H1-H6 product implementation or runtime native capability is claimed by this governance/G0
+slice.
+
 The 2026-08-13 revision accepts ADR 0043/0044 and the code-level
 [`Direct SDK / Delay Gateway / Guarded Transport design`](DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md).
 It closes the previously incomplete entry-shape choice as two optional

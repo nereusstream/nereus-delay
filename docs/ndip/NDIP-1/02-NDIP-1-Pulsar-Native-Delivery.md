@@ -1,21 +1,22 @@
 # NDIP-1：显式 Pulsar Native Delivery 与 Handoff
 
-- Status: Draft
+- Status: Accepted
 - Authors: Nereus Delay maintainers
 - Created: 2026-08-27
 - Discussion: `docs/ndip/NDIP-1/`
 - Baseline: `main@8915d21ed325a90ec305201ca85ab8daea3803dc`
-- Supersedes: Accepted 后有界修订当前全局 not-before、固定 Handoff lead 和 Pulsar guarded timing 约束
+- Supersedes: Gate B PASS 后有界修订当前全局 not-before、固定 Handoff lead 和 Pulsar guarded timing 约束；Gate C 仍保护 deployment
 - Superseded by:
 - Implementation status: H0 implemented (fail-closed)；Managed Handoff 与 AUTO_FAST 物理 record 链路仍未闭环
 
-> NDIP 表示 Nereus Delay Improvement Proposal。本文件是 `NDIP-1` 工作包内的 Draft；
-> 它沿用现行 NDP 生命周期和必填结构，但不改名仓库全局 NDP 治理。Draft 不修改当前
-> 权威设计，也不授予生产 Handoff capability。
+> NDIP 表示 Nereus Delay Improvement Proposal。`NDP-0002` 与本提案已于 2026-08-27 经
+> 维护者接受，final receipt 已绑定 post-transition exact normative package。Gate B PASS 授权
+> H1-H6 按 predecessor 顺序实施，并允许 exact disposable local tests；Gate C 仍保护 persistent
+> deployment、SHADOW 和 ENABLED。
 
-> 当前全局 gate 只识别 `docs/proposals/`。本文所称 Accepted 必须由现行治理中的 Accepted
-> record 绑定 README 定义的 exact normative package digest，或由先行 Accepted 治理变更正式注册 NDIP；
-> 不能通过直接修改本文件的 `Status` 自我授权。
+> 当前 NDIP gate 由 Accepted `NDP-0002` 注册。本文的 Accepted authority 由最终
+> `acceptance-receipt.json`、README 定义的 exact normative package digest 和维护者决定共同
+> 证明；不能通过直接修改 `Status` 或只运行 digest verifier 自我授权。
 
 ## 摘要
 
@@ -27,8 +28,10 @@
 真实 SEND/ACK evidence 和 recovery 闭环，并让 AUTO_FAST 与 Managed Handoff 受同一显式
 消息策略约束，但保持两者不同的 ownership/unknown 状态机。
 
-在提案 Accepted 前，只实现 H0：所有 Managed early request 和有效 AUTO_FAST native request
-都在 Producer ownership 前 fail-closed。
+Gate B 前只实现了 H0：所有 Managed early request 和有效 AUTO_FAST native request 都在
+Producer ownership 前 fail-closed。当前 Gate B 已 PASS，H1 READY；H2-H6 依次等待前置 slice。
+当前没有真实 persistent deployment，G0 为 `NOT_APPLICABLE_FOR_IMPLEMENTATION /
+PENDING_DEPLOYMENT`，不阻塞实现，但 SHADOW/ENABLED 仍等待 Gate C。
 
 ## 动机
 
@@ -77,7 +80,9 @@
 
 ## 当前约束
 
-1. 当前权威设计仍将 `deliverAt` 定义为 earliest consumer visibility；Draft 阶段不得删除。
+1. 当前 runtime 权威设计仍将 `deliverAt` 定义为 earliest consumer visibility；只有完成 H1
+   contract slice 并同步对应权威文档后才能按本 Accepted NDIP 有界修订。persistent deployment
+   仍必须等待 Gate C。
 2. 当前 `PulsarDestinationTimingPolicy.certifiedHandoff` 只验证固定时间差，不构成完整
    capability authorization。
 3. 当前 Managed real transport 不设置 Pulsar `deliverAt`，也不应用完整 metadata/sequence。
@@ -430,9 +435,18 @@ incarnation、Worker 和 generation。
 若任一条件不能证明，暂停切换并为该环境实现一次性迁移；迁移必须有退出条件和删除时间，
 不得演化为永久双轨。
 
-NDIP Accepted 后，read-only `DataResetAssessment` PASS 才允许开始 H1-H6。由实现提供的环境级
-signed `DataResetManifest` PASS 只允许 activation/cutover，从而避免 manifest 工具尚未实现却
-要求其先证明自身的循环。
+Gate B PASS 后直接按 H1-H6 依赖顺序实施，并允许带 exact attestation 的
+`DISPOSABLE_LOCAL` 环境生成 synthetic data、执行集成/恢复/故障测试后销毁。G0 在准备接触
+existing/staging/production persistent environment 时执行；它对明确 scope 内的 runtime
+resources 只能读取，唯一允许的写入是本地 assessment receipt。closed outcome 为
+`PASS_DIRECT_REPLACE / PASS_RETAIN / MIGRATION_REQUIRED / INCOMPLETE`，分别形成 RESET、RETAIN、
+MIGRATE candidate 或保持不完整；Assessment 本身不授予 Gate C。
+
+G0 不清理资源，不要求尚未构建的 Worker 已支持未来 generation，也不证明 actual cutover
+readiness。Gate C 必须绑定 exact environment/classification/scope 与 Assessment/gate receipt；
+Gate C PASS 后只允许 SHADOW。H6 提供的环境级 signed `DataResetManifest` 必须在切换窗口重新
+证明 zero external retention、zero unresolved obligation、fresh resource incarnation 和全 Worker
+exact generation；Gate C、SHADOW requirements 和 Manifest 全部 PASS 才允许 ENABLED/cutover。
 
 ## 安全、故障与运维影响
 
@@ -467,7 +481,7 @@ Nereus 可以观测和告警，但不把诊断结果描述为 capability certifi
 
 ## 实施切片
 
-### H0：Draft 阶段 fail-closed
+### H0：Gate B 前 fail-closed（已完成）
 
 - Managed 在 Worker physical admission、Pinned adapter 和 real transport 三层返回
   `DEFINITELY_NOT_PUBLISHED / CAPABILITY_UNAVAILABLE`；
@@ -482,6 +496,17 @@ Nereus 可以观测和告警，但不把诊断结果描述为 capability certifi
 `pulsar-worktrees/nereus-delay-p1@0a2536484cd3932801a98dc88ff112b2df88a1c7` 的 `compileRealPulsar` 与 no-Broker
 `runRealPulsarH0Smoke` 均已通过；完整 physical record、`.deliverAt(...)`、Journal、evidence
 和 H1-H6 仍未实现。
+
+### G0：deployment 前的只读 DataResetAssessment
+
+- core 已在 `main@68fe2c292e34f0162aac9377b9f935fe598831e4` 实现；
+- 只包含 inventory reader、closed outcome evaluator 和 assessment receipt；
+- 禁止任何 Producer/Writer、cleanup、drain、migration、resource mutation 或 Worker rollout；
+- receipt 绑定 exact NDIP package digest、source baseline、assessment scope、observed resource
+  identities、trusted observation time 和 evidence digests；
+- closed outcome 映射为 RESET / RETAIN / MIGRATE candidate，不能直接授权 SHADOW/ENABLED；
+- 没有真实 deployment 时为 `NOT_APPLICABLE_FOR_IMPLEMENTATION / PENDING_DEPLOYMENT`，不生成
+  虚假 scope、placeholder PASS 或 receipt。
 
 ### H1：治理 receipt 证明 Accepted 后的 closed contracts 与 generation
 
@@ -521,7 +546,7 @@ Nereus 可以观测和告警，但不把诊断结果描述为 capability certifi
 
 ### H6：数据切换与权威文档同步
 
-- DataReset assessment/manifest 工具；
+- canonical signed DataResetManifest 工具；
 - fresh resource incarnation 和 Worker barrier；
 - activation smoke、restart/recovery、mixed generation rejection；
 - 同步主设计、Protocol Registry、ADR、Implementation Status、Design Audit、Runbook 和 gate；
@@ -536,6 +561,17 @@ Nereus 可以观测和告警，但不把诊断结果描述为 capability certifi
 - AUTO_FAST adapter/real transport direct call：transport 或 `newMessage/sendAsync` 全为零；
 - 两条路径对外都是 local definitive non-publication/not-queued；
 - reservation、queue permits、buffer bytes 无泄漏。
+
+### G0 assessment gate
+
+- Gate B 已由 final accepted receipt 证明；candidate receipt 不满足前置条件；
+- 所有 adapter 都是 read-only，Producer/Writer/cleanup/drain/resource mutation 调用为零；
+- scope、resource identity、current obligation、external retention 和 Worker inventory 完整；
+- closed outcome 只能是
+  `PASS_DIRECT_REPLACE / PASS_RETAIN / MIGRATION_REQUIRED / INCOMPLETE`；
+- Assessment receipt 与 exact NDIP package digest、source baseline 和 observation evidence 绑定；
+- 任一 Assessment outcome 都不得被解释为 Gate C、Manifest 或 activation authority；
+- `DISPOSABLE_LOCAL` 与 `UNKNOWN` 不能创建真实 Assessment scope。
 
 ### Contract/codec gate
 
@@ -642,8 +678,11 @@ AUTO_FAST 在 transport call 前再次验证。进入 ownership 后按 exact pub
 
 ### R4. reset gate
 
-Accepted + read-only `DataResetAssessment` PASS 允许实现；environment signed
-`DataResetManifest` PASS 允许 activation/cutover。
+Gate B PASS 允许 H1-H6 按 predecessor 顺序实施和 exact disposable local tests。H1-H6/local
+tests 完成后，真实 persistent environment 才运行 G0；Gate C 必须绑定 RESET、RETAIN 或已完成
+迁移的 MIGRATED resolution。Gate C PASS 允许 SHADOW；Gate C + SHADOW requirements + environment
+signed `DataResetManifest` PASS 才允许 ENABLED/cutover。G0 不证明 future Worker capability、fresh
+resource 或 actual zero obligation；这些只能由 H6 后的 Manifest 在切换窗口证明。
 
 ### R5. generation activation
 
@@ -658,7 +697,7 @@ Admission 绑定 template；Journal 后产生 final record。`preparedRecordHash
 和逐字段 golden vectors关联，不要求 hash 数值相等。
 
 字段表、dual-head scheduler、Journal ownership marker、exact evidence branch 和类级落点见
-[`04-代码级目标设计.md`](04-代码级目标设计.md)。本 Draft 不再把这些决定留给编码者任选。
+[`04-代码级目标设计.md`](04-代码级目标设计.md)。本 Accepted NDIP 不再把这些决定留给编码者任选。
 
 ## 权威文档同步清单
 
@@ -670,4 +709,6 @@ Admission 绑定 template；Journal 后产生 final record。`preparedRecordHash
 - [ ] Operations Runbook
 - [ ] 自动化 gate 与测试
 
-Draft/Discussion 阶段这些复选框保持未完成；只有 Accepted 后才能修改权威结论。
+NDIP-1 已 Accepted 且 Gate B PASS，H1 可开始；H2-H6 与 authority docs 按 slice 同步。Gate C 尚未
+通过，因此 deployment/SHADOW/ENABLED 相关复选框保持未完成，不能把 implementation authority
+误报成环境 activation authority。

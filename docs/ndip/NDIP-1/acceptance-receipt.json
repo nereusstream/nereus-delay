@@ -1,0 +1,57 @@
+{
+  "receiptSchema": "nereus-delay.ndip.acceptance-receipt",
+  "receiptSchemaGeneration": 2,
+  "proposalId": "NDIP-1",
+  "receiptStatus": "ACCEPTED",
+  "authority": true,
+  "preparedAt": "2026-08-27",
+  "governanceBridge": {
+    "proposalId": "NDP-0002",
+    "requiredStatus": "ACCEPTED",
+    "observedStatus": "ACCEPTED"
+  },
+  "normativePackage": {
+    "digestAlgorithm": "SHA-256",
+    "digestDomain": "nereus-delay-ndip-package\\0",
+    "pathBase": "repository-root",
+    "files": [
+      {
+        "path": "docs/ndip/NDIP-1/01-调查与决策记录.md",
+        "sha256": "70d9dd7c113fa5f457a20a97996322ef9a2018772efd225aa982c13ec4935140"
+      },
+      {
+        "path": "docs/ndip/NDIP-1/02-NDIP-1-Pulsar-Native-Delivery.md",
+        "sha256": "c167ed42dd29c383c08a8a102f36b0e4deee8ae5c7a5da115a09d04ffcb9fa6f"
+      },
+      {
+        "path": "docs/ndip/NDIP-1/03-实施计划.md",
+        "sha256": "9affafa81952959d39ed9c09a00abe6b84da4fd3b0b6280422f297684d56f727"
+      },
+      {
+        "path": "docs/ndip/NDIP-1/04-代码级目标设计.md",
+        "sha256": "2a26c107cd69ee522ea138b3487b8ec206e913acc6ad5b862aa69288ddcaa88e"
+      }
+    ],
+    "digest": "13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b"
+  },
+  "reviewBaseline": {
+    "mainCommit": "68fe2c292e34f0162aac9377b9f935fe598831e4",
+    "designBaselineCommit": "8915d21ed325a90ec305201ca85ab8daea3803dc",
+    "h0ImplementationCommit": "7cb377ca9dd3135792237af0f027076630d5e4f3",
+    "h0DocumentationCommit": "1fcc887f6553f6ed5a5f299109b760402d94573b",
+    "p1SourceLockCommit": "0a2536484cd3932801a98dc88ff112b2df88a1c7"
+  },
+  "decision": {
+    "status": "ACCEPTED",
+    "acceptedBy": "Nereus Delay maintainers",
+    "acceptedAt": "2026-08-27",
+    "decisionReference": "Maintainer lifecycle correction: Gate B authorizes implementation; Gate C protects deployment, 2026-08-27"
+  },
+  "authorization": {
+    "gateB": "PASS",
+    "implementationAuthorized": true,
+    "localDisposableTestingAuthorized": true,
+    "gateCRequiredBeforeShadow": true,
+    "gateCRequiredBeforeEnabled": true
+  }
+}

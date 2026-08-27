@@ -19,8 +19,6 @@ import static com.nereusstream.delay.assessment.DeploymentSafetyGate.Implementat
 import static com.nereusstream.delay.assessment.DeploymentSafetyGate.ImplementationSlice.H4;
 import static com.nereusstream.delay.assessment.DeploymentSafetyGate.ImplementationSlice.H5;
 import static com.nereusstream.delay.assessment.DeploymentSafetyGate.ImplementationSlice.H6;
-import static com.nereusstream.delay.assessment.DeploymentSafetyGate.LocalOperation.INTEGRATION_TEST;
-import static com.nereusstream.delay.assessment.DeploymentSafetyGate.LocalOperation.RESET;
 import static com.nereusstream.delay.assessment.DeploymentSafetyGate.ShadowReadiness.NOT_STARTED;
 import static com.nereusstream.delay.assessment.DeploymentSafetyGate.ShadowReadiness.REQUIREMENTS_PASS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -28,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.assessment.DeploymentSafetyGate.Decision;
+import com.nereusstream.delay.assessment.DeploymentSafetyGate.LocalOperation;
 import com.nereusstream.delay.assessment.GateCAuthorization.Resolution;
 import java.util.Arrays;
 import java.util.Optional;
@@ -52,36 +51,44 @@ class DeploymentSafetyGateTest {
     void completeAttestationAllowsDisposableTestingWithoutAssessmentOrGateC() {
         final DisposableEnvironmentAttestation attestation = attestation("local-run");
 
-        assertAuthorized(DeploymentSafetyGate.localDisposable(
-                PASS, "local-run", EnvironmentClassification.DISPOSABLE_LOCAL, Optional.of(attestation), RESET));
-        assertAuthorized(DeploymentSafetyGate.localDisposable(
-                PASS,
-                "local-run",
-                EnvironmentClassification.DISPOSABLE_LOCAL,
-                Optional.of(attestation),
-                INTEGRATION_TEST));
+        for (LocalOperation operation : LocalOperation.values()) {
+            assertAuthorized(DeploymentSafetyGate.localDisposable(
+                    PASS,
+                    "local-run",
+                    EnvironmentClassification.DISPOSABLE_LOCAL,
+                    Optional.of(attestation),
+                    operation));
+        }
 
         assertDenied(
                 DeploymentSafetyGate.localDisposable(
-                        PASS, "local-run", EnvironmentClassification.DISPOSABLE_LOCAL, Optional.empty(), RESET),
+                        PASS,
+                        "local-run",
+                        EnvironmentClassification.DISPOSABLE_LOCAL,
+                        Optional.empty(),
+                        LocalOperation.RESET),
                 DISPOSABLE_ATTESTATION_REQUIRED);
         assertDenied(
                 DeploymentSafetyGate.localDisposable(
-                        PASS, "other-run", EnvironmentClassification.DISPOSABLE_LOCAL, Optional.of(attestation), RESET),
+                        PASS,
+                        "other-run",
+                        EnvironmentClassification.DISPOSABLE_LOCAL,
+                        Optional.of(attestation),
+                        LocalOperation.RESET),
                 ATTESTATION_ENVIRONMENT_MISMATCH);
     }
 
     @Test
     void existingAndUnknownEnvironmentsRemainFailClosedWithoutExactGateC() {
-        assertDenied(
-                DeploymentSafetyGate.deployment(
-                        PASS,
-                        "staging-a",
-                        EnvironmentClassification.STAGING,
-                        Optional.empty(),
-                        ENTER_SHADOW,
-                        NOT_STARTED),
-                GATE_C_REQUIRED);
+        for (EnvironmentClassification classification : Set.of(
+                EnvironmentClassification.EXISTING,
+                EnvironmentClassification.STAGING,
+                EnvironmentClassification.PRODUCTION)) {
+            assertDenied(
+                    DeploymentSafetyGate.deployment(
+                            PASS, "persistent-a", classification, Optional.empty(), ENTER_SHADOW, NOT_STARTED),
+                    GATE_C_REQUIRED);
+        }
         assertDenied(
                 DeploymentSafetyGate.deployment(
                         PASS,

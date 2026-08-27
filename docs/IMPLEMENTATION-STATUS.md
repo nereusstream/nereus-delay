@@ -7,6 +7,27 @@ normative requirements in [`Nereus Delay 设计.md`](Nereus%20Delay%20设计.md)
 the [`Current Protocol Registry`](PROTOCOL-REGISTRY.md), or the Accepted ADRs.
 An unchecked item is not an implementation permission; it is a release blocker.
 
+## 2026-08-27 NDIP-1 implementation/deployment gate boundary — 68fe2c29
+
+Accepted `NDP-0002` and the generation-2 `NDIP-1` acceptance receipt now define Gate B as
+implementation authorization and Gate C as environment-specific deployment/upgrade authorization. Gate B is
+`PASS`: H1 is `READY`, while H2-H6 remain blocked only by their predecessor slices. This does not claim any
+H1-H6 Pulsar native delivery product code is implemented; H0 remains the current physical fail-closed runtime
+boundary.
+
+Commit `68fe2c292e34f0162aac9377b9f935fe598831e4` adds the read-only G0 core and closed
+`DeploymentSafetyGate`. `DataResetAssessment` schema generation 2 distinguishes RESET candidate
+(`PASS_DIRECT_REPLACE`), RETAIN candidate (`PASS_RETAIN`), migration required and incomplete. Assessment
+scope accepts only existing/staging/production classifications; disposable and unknown classifications fail
+closed. No real persistent deployment exists, so G0 is
+`NOT_APPLICABLE_FOR_IMPLEMENTATION / PENDING_DEPLOYMENT` and no Assessment receipt has been generated.
+
+Exact `DISPOSABLE_LOCAL` attestation permits create/reset/destroy/rebuild and local integration/recovery/fault
+testing without Gate C. Existing/staging/production require Gate C bound to the exact environment before
+SHADOW; unknown is always rejected. ENABLED additionally requires SHADOW requirements PASS. The focused
+assessment/lifecycle tests, receipt verifier tests and full `./gradlew check` pass on the documented working
+tree. This is implementation/test authority, not deployment, SHADOW, ENABLED or release evidence.
+
 The `DESIGN-BASELINE-2026-08-25` revision accepts ADR 0043/0044 and the code-level
 [`Direct SDK / Delay Gateway / Guarded Transport design`](DIRECT-SDK-GATEWAY-GUARDED-TRANSPORT-DETAILED-DESIGN.md).
 The repository is still a single Gradle module. It now contains a local

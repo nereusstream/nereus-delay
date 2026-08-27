@@ -885,14 +885,38 @@ def designDocumentPaths = [
         'docs/proposals/README.md',
         'docs/proposals/TEMPLATE.md',
         'docs/proposals/0001-adopt-continuous-design-evolution.md',
+        'docs/proposals/0002-register-ndip-governance.md',
+        'docs/ndip/README.md',
+        'docs/ndip/NDIP-1/README.md',
+        'docs/ndip/NDIP-1/G0-DataResetAssessment-执行状态.md',
+        'docs/ndip/NDIP-1/acceptance-receipt.json',
         'docs/adr/README.md',
         'docs/adr/0043-share-one-semantic-core-across-direct-sdk-and-delay-gateway.md',
         'docs/adr/0044-use-first-class-guarded-broker-transports.md'
 ]
 
+tasks.register('verifyNdip1PackageAccepted', Exec) {
+    group = 'verification'
+    description = 'Verifies the accepted NDIP-1 package and its final Gate B receipt.'
+    workingDir projectDir
+    commandLine 'python3', '-B', 'scripts/verify-ndip-package.py',
+            '--package-dir', 'docs/ndip/NDIP-1',
+            '--receipt', 'docs/ndip/NDIP-1/acceptance-receipt.json',
+            '--require-accepted'
+}
+
+tasks.register('testNdip1PackageVerifier', Exec) {
+    group = 'verification'
+    description = 'Runs focused closed-schema and lifecycle tests for the NDIP package verifier.'
+    workingDir projectDir
+    commandLine 'python3', '-B', 'scripts/test-verify-ndip-package.py'
+}
+
 tasks.register('checkDocumentation') {
     group = 'verification'
-    description = 'Checks the current authority documents, accepted proposals, and shared baseline revision.'
+    description = 'Checks current authority documents, accepted proposals, NDIP receipts, and baseline revision.'
+    dependsOn tasks.named('verifyNdip1PackageAccepted')
+    dependsOn tasks.named('testNdip1PackageVerifier')
     doLast {
         designDocumentPaths.each { path ->
             if (!file(path).isFile()) {
@@ -911,6 +935,10 @@ tasks.register('checkDocumentation') {
         def proposalIndex = read('docs/proposals/README.md')
         def proposalTemplate = read('docs/proposals/TEMPLATE.md')
         def governanceProposal = read('docs/proposals/0001-adopt-continuous-design-evolution.md')
+        def ndipGovernanceProposal = read('docs/proposals/0002-register-ndip-governance.md')
+        def ndipIndex = read('docs/ndip/README.md')
+        def ndipPackageReadme = read('docs/ndip/NDIP-1/README.md')
+        def dataResetAssessmentStatus = read('docs/ndip/NDIP-1/G0-DataResetAssessment-执行状态.md')
 
         [
                 [design, '本文是 Nereus Delay 当前实现与验收基线'],
@@ -924,17 +952,32 @@ tasks.register('checkDocumentation') {
                 [detailedDesign, 'GatewayIdempotencyRecord'],
                 [documentMap, '不是废弃文档'],
                 [documentMap, 'IMPLEMENTATION-STATUS.md'],
-                [documentMap, 'proposals/'],
+                [documentMap, 'ndip/'],
                 [proposalIndex, '兼容不是默认目标'],
+                [proposalIndex, 'NDP-0002'],
                 [proposalTemplate, '数据、协议与兼容策略'],
                 [governanceProposal, 'Status: Accepted'],
                 [governanceProposal, '选择：**直接替换**'],
+                [ndipGovernanceProposal, 'Status: Accepted'],
+                [ndipGovernanceProposal, 'candidate 永远不产生 authority'],
+                [ndipIndex, 'NDIP-1'],
+                [ndipIndex, 'Gate B PASS'],
+                [ndipPackageReadme, '提案状态：`Accepted`'],
+                [ndipPackageReadme, 'acceptance-receipt.json'],
+                [ndipPackageReadme, 'H1 READY'],
+                [dataResetAssessmentStatus, 'NOT_APPLICABLE_FOR_IMPLEMENTATION'],
+                [dataResetAssessmentStatus, 'PENDING_DEPLOYMENT'],
                 [status, revision],
                 [audit, revision]
         ].each { entry ->
             if (!entry[0].contains(entry[1])) {
                 throw new GradleException("documentation invariant is missing: ${entry[1]}")
             }
+        }
+
+        if (file('docs/ndip/NDIP-1/acceptance-receipt.candidate.json').exists()) {
+            throw new GradleException(
+                    'NDIP-1 candidate receipt must not remain after the Accepted transition')
         }
 
         def revisionMarkers = [
