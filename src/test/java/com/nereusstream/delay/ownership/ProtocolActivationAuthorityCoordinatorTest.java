@@ -3,9 +3,12 @@ package com.nereusstream.delay.ownership;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.ProtocolCapabilityDeclaration;
 import com.nereusstream.delay.protocol.ProtocolTuple;
 import com.nereusstream.delay.protocol.ProtocolVersionActivatePayload;
+import com.nereusstream.delay.protocol.PulsarSourceLock;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,9 +51,35 @@ class ProtocolActivationAuthorityCoordinatorTest {
                 () -> coordinator.requireEligibleReaders(tuple, List.of("worker-a", "worker-c")));
     }
 
+    @Test
+    void currentReaderEvidenceIncludesTheExactArtifactGenerationSet() {
+        final ArtifactGenerationSet artifacts =
+                ArtifactGenerationSet.current(12, PulsarSourceLock.digest(), bytes(32, 80));
+        final ProtocolTuple tuple = artifacts.clientCommandTuple();
+        final InMemoryAuthority authority = new InMemoryAuthority();
+        authority.putCurrent("worker-a", declaration("worker-a", tuple, artifacts, 1));
+        authority.putCurrent("worker-b", declaration("worker-b", tuple, artifacts, 2));
+        final ProtocolActivationAuthorityCoordinator coordinator =
+                new ProtocolActivationAuthorityCoordinator(authority);
+
+        final var evidence = coordinator.requireEligibleReaders(tuple, artifacts, List.of("worker-b", "worker-a"));
+        final ProtocolVersionActivatePayload payload = new ProtocolVersionActivatePayload(
+                tuple, artifacts.canonicalSchemaBundleHash(), evidence.evidenceHash(), artifacts, bytes(32, 90));
+        final var authorized = coordinator.authorize(payload, artifacts, List.of("worker-a", "worker-b"));
+
+        assertArrayEquals(evidence.evidenceHash(), authorized.evidenceHash());
+        assertTrue(payload.isCurrentGeneration());
+    }
+
     private static ProtocolCapabilityDeclaration declaration(
             final String workerId, final ProtocolTuple tuple, final int seed) {
         return new ProtocolCapabilityDeclaration(workerId, bytes(32, seed), List.of(tuple), seed, bytes(32, seed + 10));
+    }
+
+    private static ProtocolCapabilityDeclaration declaration(
+            final String workerId, final ProtocolTuple tuple, final ArtifactGenerationSet artifacts, final int seed) {
+        return new ProtocolCapabilityDeclaration(
+                workerId, bytes(32, seed), List.of(tuple), artifacts, seed, bytes(32, seed + 10));
     }
 
     private static ProtocolTuple tuple(final int minor) {
@@ -70,6 +99,10 @@ class ProtocolActivationAuthorityCoordinatorTest {
 
         private void put(final String workerId, final ProtocolCapabilityDeclaration declaration) {
             values.put(workerId, new Publication(declaration.capabilityEpoch(), declaration));
+        }
+
+        private void putCurrent(final String workerId, final ProtocolCapabilityDeclaration declaration) {
+            put(workerId, declaration);
         }
 
         @Override

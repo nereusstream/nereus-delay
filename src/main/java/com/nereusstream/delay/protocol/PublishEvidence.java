@@ -136,10 +136,13 @@ public final class PublishEvidence {
         if (!Arrays.equals(target.canonicalBytes(), channel.targetResource().canonicalBytes())) {
             throw new IllegalArgumentException("certified Pulsar handoff target mismatch");
         }
-        if (uint(fields, 2) != channel.physicalPartition()) {
+        final boolean generation2 = fields.size() == 22;
+        final int partitionField = generation2 ? 3 : 2;
+        final int preparedHashField = generation2 ? 15 : 10;
+        if (uint(fields, partitionField) != channel.physicalPartition()) {
             throw new IllegalArgumentException("certified Pulsar handoff partition mismatch");
         }
-        if (!MessageDigest.isEqual(fixed(fields, 10), admission.preparedPublishHash())) {
+        if (!MessageDigest.isEqual(fixed(fields, preparedHashField), admission.preparedPublishHash())) {
             throw new IllegalArgumentException("certified Pulsar handoff prepared hash mismatch");
         }
     }
@@ -170,7 +173,7 @@ public final class PublishEvidence {
                 switch (branchField) {
                     case 10 -> 6;
                     case 11, 12, 15 -> 3;
-                    case 13 -> 9;
+                    case 13 -> fields.size() == 22 ? 14 : 9;
                     case 14 -> 5;
                     case 16 -> 9;
                     case 17 -> 2;
@@ -252,21 +255,65 @@ public final class PublishEvidence {
     }
 
     private static void validatePulsarAck(final List<CanonicalProtobuf.Reader.Field> fields) {
-        requireNumbers(fields, new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11});
+        if (fields.size() == 11) {
+            requireNumbers(fields, new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11});
+            requireBrokerKind(
+                    BrokerResourceIdentity.decode(nested(fields, 1)),
+                    BrokerResourceIdentity.Kind.PULSAR,
+                    "Pulsar Send Ack");
+            uint(fields, 2);
+            uint(fields, 3);
+            uint(fields, 4);
+            uint(fields, 5);
+            uint(fields, 6);
+            fixed(fields, 7);
+            uint(fields, 8);
+            ExternalDeliveryIdentity.decode(nested(fields, 9));
+            fixed(fields, 10);
+            fixed(fields, 11);
+            return;
+        }
+        requireNumbers(
+                fields, new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22});
+        if (uint(fields, 1) != 2) {
+            throw new IllegalArgumentException("unsupported Pulsar Send Ack evidence generation");
+        }
         requireBrokerKind(
-                BrokerResourceIdentity.decode(nested(fields, 1)),
+                BrokerResourceIdentity.decode(nested(fields, 2)),
                 BrokerResourceIdentity.Kind.PULSAR,
                 "Pulsar Send Ack");
-        uint(fields, 2);
         uint(fields, 3);
         uint(fields, 4);
         uint(fields, 5);
         uint(fields, 6);
-        fixed(fields, 7);
+        uint(fields, 7);
         uint(fields, 8);
-        ExternalDeliveryIdentity.decode(nested(fields, 9));
-        fixed(fields, 10);
-        fixed(fields, 11);
+        fixed(fields, 9);
+        uint(fields, 10);
+        uint(fields, 11);
+        uint(fields, 12);
+        final long actualSequence = uint(fields, 13);
+        final ExternalDeliveryIdentity identity = ExternalDeliveryIdentity.decode(nested(fields, 14));
+        final PulsarSequenceAuthority authority = PulsarSequenceAuthority.decode(nested(fields, 18));
+        if (identity.kind() == ExternalDeliveryIdentity.Kind.PUBLISH_ATTEMPT
+                && authority.kind() != PulsarSequenceAuthority.Kind.MANAGED_JOURNAL) {
+            throw new IllegalArgumentException("managed Pulsar ACK requires managed sequence authority");
+        }
+        if (identity.kind() == ExternalDeliveryIdentity.Kind.NATIVE_DELIVERY
+                && authority.kind() != PulsarSequenceAuthority.Kind.PRODUCER_ASSIGNED) {
+            throw new IllegalArgumentException("native Pulsar ACK requires producer-assigned authority");
+        }
+        if (authority.kind() == PulsarSequenceAuthority.Kind.MANAGED_JOURNAL
+                && authority.sequenceId() != actualSequence) {
+            throw new IllegalArgumentException("Pulsar ACK sequence differs from Journal authority");
+        }
+        fixed(fields, 15);
+        fixed(fields, 16);
+        fixed(fields, 17);
+        fixed(fields, 19);
+        fixed(fields, 20);
+        fixed(fields, 21);
+        fixed(fields, 22);
     }
 
     private static void validatePulsarJournal(final List<CanonicalProtobuf.Reader.Field> fields) {

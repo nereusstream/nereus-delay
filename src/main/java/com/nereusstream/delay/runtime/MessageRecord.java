@@ -2,6 +2,7 @@ package com.nereusstream.delay.runtime;
 
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.DestinationLaneId;
+import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.PayloadReference;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
@@ -16,13 +17,87 @@ public record MessageRecord(
         long stateVersion,
         long deliverAtEpochMs,
         long expireAtEpochMs,
+        long earliestNativeCandidateAtEpochMs,
         DestinationLaneId laneId,
         OrderingMode orderingMode,
+        NativeDeliveryPolicy nativeDeliveryPolicy,
         byte[] payload,
         byte[] scheduleSourcePosition,
         PayloadReference payloadReference,
         long retryEligibilityAtEpochMs,
-        GenerationRuntimeIndex runtimeIndex) {
+        GenerationRuntimeIndex runtimeIndex,
+        boolean legacyEncoding) {
+
+    public MessageRecord(
+            final MessageStatus status,
+            final int generation,
+            final long stateVersion,
+            final long deliverAtEpochMs,
+            final long expireAtEpochMs,
+            final DestinationLaneId laneId,
+            final OrderingMode orderingMode,
+            final byte[] payload,
+            final byte[] scheduleSourcePosition,
+            final PayloadReference payloadReference,
+            final long retryEligibilityAtEpochMs,
+            final GenerationRuntimeIndex runtimeIndex) {
+        this(
+                status,
+                generation,
+                stateVersion,
+                deliverAtEpochMs,
+                expireAtEpochMs,
+                deliverAtEpochMs,
+                laneId,
+                orderingMode,
+                NativeDeliveryPolicy.FORBID,
+                payload,
+                scheduleSourcePosition,
+                payloadReference,
+                retryEligibilityAtEpochMs,
+                runtimeIndex,
+                false);
+    }
+
+    /** Full generation-5 constructor with an explicit native-delivery policy. */
+    public MessageRecord(
+            final MessageStatus status,
+            final int generation,
+            final long stateVersion,
+            final long deliverAtEpochMs,
+            final long expireAtEpochMs,
+            final long earliestNativeCandidateAtEpochMs,
+            final DestinationLaneId laneId,
+            final OrderingMode orderingMode,
+            final NativeDeliveryPolicy nativeDeliveryPolicy,
+            final byte[] payload,
+            final byte[] scheduleSourcePosition,
+            final PayloadReference payloadReference,
+            final long retryEligibilityAtEpochMs) {
+        this(
+                status,
+                generation,
+                stateVersion,
+                deliverAtEpochMs,
+                expireAtEpochMs,
+                earliestNativeCandidateAtEpochMs,
+                laneId,
+                orderingMode,
+                nativeDeliveryPolicy,
+                payload,
+                scheduleSourcePosition,
+                payloadReference,
+                retryEligibilityAtEpochMs,
+                legacyRuntimeIndex(status, stateVersion),
+                false);
+    }
+
+    /*
+     * The remaining constructors retain the source-compatible pre-NDIP call
+     * shapes. They are retained as read/migrate compatibility constructors;
+     * production writers use the current(...) factories below so every new
+     * resource is emitted as generation 5.
+     */
     public MessageRecord(
             final MessageStatus status,
             final int generation,
@@ -39,13 +114,16 @@ public record MessageRecord(
                 stateVersion,
                 deliverAtEpochMs,
                 expireAtEpochMs,
+                deliverAtEpochMs,
                 laneId,
                 orderingMode,
+                NativeDeliveryPolicy.FORBID,
                 payload,
                 scheduleSourcePosition,
                 null,
                 deliverAtEpochMs,
-                legacyRuntimeIndex(status, stateVersion));
+                legacyRuntimeIndex(status, stateVersion),
+                true);
     }
 
     public MessageRecord(
@@ -65,13 +143,16 @@ public record MessageRecord(
                 stateVersion,
                 deliverAtEpochMs,
                 expireAtEpochMs,
+                deliverAtEpochMs,
                 laneId,
                 orderingMode,
+                NativeDeliveryPolicy.FORBID,
                 payload,
                 scheduleSourcePosition,
                 payloadReference,
                 deliverAtEpochMs,
-                legacyRuntimeIndex(status, stateVersion));
+                legacyRuntimeIndex(status, stateVersion),
+                true);
     }
 
     /** Compatibility constructor for the pre-runtime-index value shape. */
@@ -93,19 +174,212 @@ public record MessageRecord(
                 stateVersion,
                 deliverAtEpochMs,
                 expireAtEpochMs,
+                deliverAtEpochMs,
                 laneId,
                 orderingMode,
+                NativeDeliveryPolicy.FORBID,
                 payload,
                 scheduleSourcePosition,
                 payloadReference,
                 retryEligibilityAtEpochMs,
-                legacyRuntimeIndex(status, stateVersion));
+                legacyRuntimeIndex(status, stateVersion),
+                true);
+    }
+
+    /** Current generation-5 writer for the pre-NDIP scalar shape. */
+    public static MessageRecord current(
+            final MessageStatus status,
+            final int generation,
+            final long stateVersion,
+            final long deliverAtEpochMs,
+            final long expireAtEpochMs,
+            final DestinationLaneId laneId,
+            final OrderingMode orderingMode,
+            final byte[] payload,
+            final byte[] scheduleSourcePosition) {
+        return new MessageRecord(
+                status,
+                generation,
+                stateVersion,
+                deliverAtEpochMs,
+                expireAtEpochMs,
+                deliverAtEpochMs,
+                laneId,
+                orderingMode,
+                NativeDeliveryPolicy.FORBID,
+                payload,
+                scheduleSourcePosition,
+                null,
+                deliverAtEpochMs,
+                legacyRuntimeIndex(status, stateVersion),
+                false);
+    }
+
+    /** Current generation-5 writer for an object-backed scalar shape. */
+    public static MessageRecord current(
+            final MessageStatus status,
+            final int generation,
+            final long stateVersion,
+            final long deliverAtEpochMs,
+            final long expireAtEpochMs,
+            final DestinationLaneId laneId,
+            final OrderingMode orderingMode,
+            final byte[] payload,
+            final byte[] scheduleSourcePosition,
+            final PayloadReference payloadReference) {
+        return new MessageRecord(
+                status,
+                generation,
+                stateVersion,
+                deliverAtEpochMs,
+                expireAtEpochMs,
+                deliverAtEpochMs,
+                laneId,
+                orderingMode,
+                NativeDeliveryPolicy.FORBID,
+                payload,
+                scheduleSourcePosition,
+                payloadReference,
+                deliverAtEpochMs,
+                legacyRuntimeIndex(status, stateVersion),
+                false);
+    }
+
+    /** Current generation-5 writer for a scalar shape with retry eligibility. */
+    public static MessageRecord current(
+            final MessageStatus status,
+            final int generation,
+            final long stateVersion,
+            final long deliverAtEpochMs,
+            final long expireAtEpochMs,
+            final DestinationLaneId laneId,
+            final OrderingMode orderingMode,
+            final byte[] payload,
+            final byte[] scheduleSourcePosition,
+            final PayloadReference payloadReference,
+            final long retryEligibilityAtEpochMs) {
+        return new MessageRecord(
+                status,
+                generation,
+                stateVersion,
+                deliverAtEpochMs,
+                expireAtEpochMs,
+                deliverAtEpochMs,
+                laneId,
+                orderingMode,
+                NativeDeliveryPolicy.FORBID,
+                payload,
+                scheduleSourcePosition,
+                payloadReference,
+                retryEligibilityAtEpochMs,
+                legacyRuntimeIndex(status, stateVersion),
+                false);
+    }
+
+    /** Current generation-5 writer for a scalar shape with a typed runtime index. */
+    public static MessageRecord current(
+            final MessageStatus status,
+            final int generation,
+            final long stateVersion,
+            final long deliverAtEpochMs,
+            final long expireAtEpochMs,
+            final DestinationLaneId laneId,
+            final OrderingMode orderingMode,
+            final byte[] payload,
+            final byte[] scheduleSourcePosition,
+            final PayloadReference payloadReference,
+            final long retryEligibilityAtEpochMs,
+            final GenerationRuntimeIndex runtimeIndex) {
+        return new MessageRecord(
+                status,
+                generation,
+                stateVersion,
+                deliverAtEpochMs,
+                expireAtEpochMs,
+                deliverAtEpochMs,
+                laneId,
+                orderingMode,
+                NativeDeliveryPolicy.FORBID,
+                payload,
+                scheduleSourcePosition,
+                payloadReference,
+                retryEligibilityAtEpochMs,
+                runtimeIndex,
+                false);
+    }
+
+    /** Current generation-5 writer with explicit native-delivery fields. */
+    public static MessageRecord current(
+            final MessageStatus status,
+            final int generation,
+            final long stateVersion,
+            final long deliverAtEpochMs,
+            final long expireAtEpochMs,
+            final long earliestNativeCandidateAtEpochMs,
+            final DestinationLaneId laneId,
+            final OrderingMode orderingMode,
+            final NativeDeliveryPolicy nativeDeliveryPolicy,
+            final byte[] payload,
+            final byte[] scheduleSourcePosition,
+            final PayloadReference payloadReference,
+            final long retryEligibilityAtEpochMs) {
+        return new MessageRecord(
+                status,
+                generation,
+                stateVersion,
+                deliverAtEpochMs,
+                expireAtEpochMs,
+                earliestNativeCandidateAtEpochMs,
+                laneId,
+                orderingMode,
+                nativeDeliveryPolicy,
+                payload,
+                scheduleSourcePosition,
+                payloadReference,
+                retryEligibilityAtEpochMs,
+                legacyRuntimeIndex(status, stateVersion),
+                false);
+    }
+
+    /** Current generation-5 writer with explicit native-delivery fields and runtime. */
+    public static MessageRecord current(
+            final MessageStatus status,
+            final int generation,
+            final long stateVersion,
+            final long deliverAtEpochMs,
+            final long expireAtEpochMs,
+            final long earliestNativeCandidateAtEpochMs,
+            final DestinationLaneId laneId,
+            final OrderingMode orderingMode,
+            final NativeDeliveryPolicy nativeDeliveryPolicy,
+            final byte[] payload,
+            final byte[] scheduleSourcePosition,
+            final PayloadReference payloadReference,
+            final long retryEligibilityAtEpochMs,
+            final GenerationRuntimeIndex runtimeIndex) {
+        return new MessageRecord(
+                status,
+                generation,
+                stateVersion,
+                deliverAtEpochMs,
+                expireAtEpochMs,
+                earliestNativeCandidateAtEpochMs,
+                laneId,
+                orderingMode,
+                nativeDeliveryPolicy,
+                payload,
+                scheduleSourcePosition,
+                payloadReference,
+                retryEligibilityAtEpochMs,
+                runtimeIndex,
+                false);
     }
 
     public MessageRecord {
         Objects.requireNonNull(status, "status");
         Objects.requireNonNull(laneId, "laneId");
         Objects.requireNonNull(orderingMode, "orderingMode");
+        Objects.requireNonNull(nativeDeliveryPolicy, "nativeDeliveryPolicy");
         Objects.requireNonNull(payload, "payload");
         Objects.requireNonNull(scheduleSourcePosition, "scheduleSourcePosition");
         Objects.requireNonNull(runtimeIndex, "runtimeIndex");
@@ -113,9 +387,15 @@ public record MessageRecord(
         if (stateVersion < 0
                 || deliverAtEpochMs < 0
                 || expireAtEpochMs < deliverAtEpochMs
+                || earliestNativeCandidateAtEpochMs < 0
+                || earliestNativeCandidateAtEpochMs > deliverAtEpochMs
                 || retryEligibilityAtEpochMs < 0
                 || retryEligibilityAtEpochMs > expireAtEpochMs) {
             throw new IllegalArgumentException("invalid message record");
+        }
+        if (nativeDeliveryPolicy == NativeDeliveryPolicy.FORBID
+                && earliestNativeCandidateAtEpochMs != deliverAtEpochMs) {
+            throw new IllegalArgumentException("FORBID cannot carry an early native candidate");
         }
         if (payloadReference != null && payload.length != 0) {
             throw new IllegalArgumentException("object-backed message cannot carry inline payload");
@@ -149,13 +429,18 @@ public record MessageRecord(
                 stateVersion,
                 deliverAtEpochMs,
                 expireAtEpochMs,
+                earliestNativeCandidateAtEpochMs,
                 laneId,
                 orderingMode,
+                nativeDeliveryPolicy,
                 payload,
                 scheduleSourcePosition,
                 payloadReference,
                 retryEligibilityAtEpochMs,
-                nextRuntimeIndex);
+                nextRuntimeIndex,
+                legacyEncoding
+                        && nativeDeliveryPolicy == NativeDeliveryPolicy.FORBID
+                        && earliestNativeCandidateAtEpochMs == deliverAtEpochMs);
     }
 
     @Override
@@ -168,9 +453,11 @@ public record MessageRecord(
                 && stateVersion == that.stateVersion
                 && deliverAtEpochMs == that.deliverAtEpochMs
                 && expireAtEpochMs == that.expireAtEpochMs
+                && earliestNativeCandidateAtEpochMs == that.earliestNativeCandidateAtEpochMs
                 && retryEligibilityAtEpochMs == that.retryEligibilityAtEpochMs
                 && laneId.equals(that.laneId)
                 && orderingMode == that.orderingMode
+                && nativeDeliveryPolicy == that.nativeDeliveryPolicy
                 && Arrays.equals(payload, that.payload)
                 && Arrays.equals(scheduleSourcePosition, that.scheduleSourcePosition)
                 && Objects.equals(payloadReference, that.payloadReference)
@@ -185,9 +472,11 @@ public record MessageRecord(
                 stateVersion,
                 deliverAtEpochMs,
                 expireAtEpochMs,
+                earliestNativeCandidateAtEpochMs,
                 retryEligibilityAtEpochMs,
                 laneId,
                 orderingMode,
+                nativeDeliveryPolicy,
                 Arrays.hashCode(payload),
                 Arrays.hashCode(scheduleSourcePosition),
                 payloadReference,
@@ -195,10 +484,19 @@ public record MessageRecord(
     }
 
     public byte[] encode() {
+        if (legacyEncoding
+                && nativeDeliveryPolicy == NativeDeliveryPolicy.FORBID
+                && earliestNativeCandidateAtEpochMs == deliverAtEpochMs) {
+            return encodeLegacy();
+        }
+        return encodeGeneration5();
+    }
+
+    private byte[] encodeLegacy() {
         final byte[] reference = payloadReference == null ? new byte[0] : payloadReference.encode();
         final byte[] runtime = runtimeIndex.canonicalBytes();
-        final boolean legacy = runtimeIndex.isLegacyCompatibility();
-        final int version = legacy ? 3 : 4;
+        final boolean scalar = runtimeIndex.isLegacyCompatibility();
+        final int version = scalar ? 3 : 4;
         final ByteBuffer result = ByteBuffer.allocate(4
                 + 1
                 + 4
@@ -215,7 +513,7 @@ public record MessageRecord(
                 + payload.length
                 + 4
                 + reference.length
-                + (legacy ? 0 : 4 + runtime.length));
+                + (scalar ? 0 : 4 + runtime.length));
         result.putInt(version)
                 .put((byte) status.wireValue())
                 .putInt(generation)
@@ -233,28 +531,83 @@ public record MessageRecord(
         } else {
             result.putInt(0).putInt(reference.length).put(reference);
         }
-        if (!legacy) {
+        if (!scalar) {
             result.putInt(runtime.length).put(runtime);
         }
+        return result.array();
+    }
+
+    private byte[] encodeGeneration5() {
+        final byte[] reference = payloadReference == null ? new byte[0] : payloadReference.encode();
+        final byte[] runtime = runtimeIndex.canonicalBytes();
+        final ByteBuffer result = ByteBuffer.allocate(4
+                + 1
+                + 4
+                + 8
+                + 8
+                + 8
+                + 8
+                + 8
+                + 32
+                + 1
+                + 1
+                + 1
+                + 4
+                + scheduleSourcePosition.length
+                + 4
+                + payload.length
+                + 4
+                + reference.length
+                + 4
+                + runtime.length);
+        result.putInt(5)
+                .put((byte) status.wireValue())
+                .putInt(generation)
+                .putLong(stateVersion)
+                .putLong(deliverAtEpochMs)
+                .putLong(expireAtEpochMs)
+                .putLong(earliestNativeCandidateAtEpochMs)
+                .putLong(retryEligibilityAtEpochMs)
+                .put(laneId.bytes())
+                .put((byte) orderingMode.wireValue())
+                .put((byte) nativeDeliveryPolicy.wireValue())
+                .put((byte) (payloadReference == null ? 1 : 2))
+                .putInt(scheduleSourcePosition.length)
+                .put(scheduleSourcePosition);
+        if (payloadReference == null) {
+            result.putInt(payload.length).put(payload).putInt(0);
+        } else {
+            result.putInt(0).putInt(reference.length).put(reference);
+        }
+        result.putInt(runtime.length).put(runtime);
         return result.array();
     }
 
     public static MessageRecord decode(final byte[] encoded) {
         final ByteBuffer input = ByteBuffer.wrap(encoded);
         final int version = readInt(input, "version");
-        if (version != 1 && version != 2 && version != 3) {
-            if (version != 4) {
-                throw new IllegalArgumentException("unsupported message record version");
-            }
+        if (version < 1 || version > 5) {
+            throw new IllegalArgumentException("unsupported message record version");
         }
         final MessageStatus status = MessageStatus.fromWire(readUnsignedByte(input, "status"));
         final int generation = readInt(input, "generation");
         final long stateVersion = readLong(input, "stateVersion");
         final long deliverAt = readLong(input, "deliverAt");
         final long expireAt = readLong(input, "expireAt");
-        final long retryEligibilityAt = version >= 3 ? readLong(input, "retryEligibilityAt") : deliverAt;
+        final long earliestNativeCandidateAt;
+        final long retryEligibilityAt;
+        if (version == 5) {
+            earliestNativeCandidateAt = readLong(input, "earliestNativeCandidateAt");
+            retryEligibilityAt = readLong(input, "retryEligibilityAt");
+        } else {
+            earliestNativeCandidateAt = deliverAt;
+            retryEligibilityAt = version >= 3 ? readLong(input, "retryEligibilityAt") : deliverAt;
+        }
         final byte[] lane = readBytes(input, 32, "lane");
         final int ordering = readUnsignedByte(input, "ordering");
+        final NativeDeliveryPolicy nativeDeliveryPolicy = version == 5
+                ? NativeDeliveryPolicy.fromWire(readUnsignedByte(input, "native delivery policy"))
+                : NativeDeliveryPolicy.FORBID;
         final int payloadKind = version == 1 ? 1 : readUnsignedByte(input, "payloadKind");
         if (payloadKind != 1 && payloadKind != 2) {
             throw new IllegalArgumentException("unknown message payload kind");
@@ -312,8 +665,35 @@ public record MessageRecord(
             if (input.hasRemaining()) {
                 throw new IllegalArgumentException("trailing message runtime index bytes");
             }
-            runtimeIndex = GenerationRuntimeIndex.decode(runtime);
+            GenerationRuntimeIndex decodedRuntime;
+            try {
+                decodedRuntime = GenerationRuntimeIndex.decode(runtime);
+            } catch (IllegalArgumentException strictFailure) {
+                if (version != 5) {
+                    throw strictFailure;
+                }
+                // Transitional Java constructors still use the exact legacy
+                // runtime-index shape with an empty NONE projection. Accept
+                // that shape only inside the MessageRecord decoder.
+                final GenerationRuntimeIndex compatibility = GenerationRuntimeIndex.decodeLegacyCompatibility(runtime);
+                if (!compatibility.isLegacyCompatibility()
+                        || compatibility.currentWorkKind() != CurrentSendWorkKind.NONE
+                        || compatibility.timeline() != null
+                        || compatibility.claimId().length != 0
+                        || compatibility.publishAttemptId().length != 0
+                        || !compatibility.attemptObligations().isEmpty()
+                        || compatibility.admissionsUsed() != 0
+                        || compatibility.uncertainRetryAdmissionsUsed() != 0
+                        || compatibility.possibleDestinationDuplicate()) {
+                    throw strictFailure;
+                }
+                decodedRuntime = compatibility;
+            }
+            runtimeIndex = decodedRuntime;
         } else {
+            if (input.hasRemaining()) {
+                throw new IllegalArgumentException("trailing legacy message bytes");
+            }
             runtimeIndex = legacyRuntimeIndex(status, stateVersion);
         }
         final MessageRecord result = new MessageRecord(
@@ -322,15 +702,17 @@ public record MessageRecord(
                 stateVersion,
                 deliverAt,
                 expireAt,
+                earliestNativeCandidateAt,
                 new DestinationLaneId(lane),
                 mode,
+                nativeDeliveryPolicy,
                 payload,
                 source,
                 payloadReference,
                 retryEligibilityAt,
-                runtimeIndex);
+                runtimeIndex,
+                version < 5);
         if (!Arrays.equals(encoded, result.encode())) {
-            // Legacy version 1/2/3 records remain readable, but all new writes use version 4.
             if (version >= 4) {
                 throw new IllegalArgumentException("non-canonical message record");
             }

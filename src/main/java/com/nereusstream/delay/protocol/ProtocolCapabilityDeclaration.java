@@ -17,7 +17,8 @@ import java.util.Objects;
  * before it writes a source-ordered activation marker.</p>
  */
 public final class ProtocolCapabilityDeclaration {
-    public static final int VERSION = 1;
+    public static final int VERSION = 2;
+    public static final int LEGACY_VERSION = 1;
     public static final int DIGEST_LENGTH = 32;
     private static final int MAX_TUPLES = 32;
     private static final int MAX_CANONICAL_BYTES = 1 << 20;
@@ -26,6 +27,8 @@ public final class ProtocolCapabilityDeclaration {
     private final String workerId;
     private final byte[] workerIdentity;
     private final List<ProtocolTuple> supportedTuples;
+    private final int version;
+    private final List<ArtifactGenerationSet> artifactGenerationSets;
     private final long capabilityEpoch;
     private final byte[] sessionIdentity;
     private final byte[] declarationDigest;
@@ -36,27 +39,78 @@ public final class ProtocolCapabilityDeclaration {
             final List<ProtocolTuple> supportedTuples,
             final long capabilityEpoch,
             final byte[] sessionIdentity) {
-        this(workerId, workerIdentity, supportedTuples, capabilityEpoch, sessionIdentity, null);
+        this(
+                LEGACY_VERSION,
+                workerId,
+                workerIdentity,
+                supportedTuples,
+                List.of(),
+                capabilityEpoch,
+                sessionIdentity,
+                null);
     }
 
-    private ProtocolCapabilityDeclaration(
+    /** Creates a current Worker declaration bound to the exact generation set. */
+    public ProtocolCapabilityDeclaration(
             final String workerId,
             final byte[] workerIdentity,
             final List<ProtocolTuple> supportedTuples,
+            final List<ArtifactGenerationSet> artifactGenerationSets,
+            final long capabilityEpoch,
+            final byte[] sessionIdentity) {
+        this(
+                VERSION,
+                workerId,
+                workerIdentity,
+                supportedTuples,
+                artifactGenerationSets,
+                capabilityEpoch,
+                sessionIdentity,
+                null);
+    }
+
+    /** Convenience form for a Worker session supporting one exact set. */
+    public ProtocolCapabilityDeclaration(
+            final String workerId,
+            final byte[] workerIdentity,
+            final List<ProtocolTuple> supportedTuples,
+            final ArtifactGenerationSet artifactGenerationSet,
+            final long capabilityEpoch,
+            final byte[] sessionIdentity) {
+        this(
+                workerId,
+                workerIdentity,
+                supportedTuples,
+                List.of(Objects.requireNonNull(artifactGenerationSet, "artifactGenerationSet")),
+                capabilityEpoch,
+                sessionIdentity);
+    }
+
+    private ProtocolCapabilityDeclaration(
+            final int version,
+            final String workerId,
+            final byte[] workerIdentity,
+            final List<ProtocolTuple> supportedTuples,
+            final List<ArtifactGenerationSet> artifactGenerationSets,
             final long capabilityEpoch,
             final byte[] sessionIdentity,
             final byte[] declarationDigest) {
+        if (version != LEGACY_VERSION && version != VERSION) {
+            throw new IllegalArgumentException("unsupported protocol capability declaration version");
+        }
+        this.version = version;
         this.workerId = canonicalText(workerId, "workerId");
         this.workerIdentity = fixed(workerIdentity, "workerIdentity");
         requireNonZero(this.workerIdentity, "workerIdentity");
         this.supportedTuples = sortedTuples(supportedTuples);
+        this.artifactGenerationSets = sortedArtifactSets(artifactGenerationSets, version == VERSION);
         if (capabilityEpoch <= 0) {
             throw new IllegalArgumentException("capabilityEpoch must be positive");
         }
         this.capabilityEpoch = capabilityEpoch;
         this.sessionIdentity = fixed(sessionIdentity, "sessionIdentity");
         requireNonZero(this.sessionIdentity, "sessionIdentity");
-        final byte[] expected = Bytes.sha256(DIGEST_DOMAIN, fieldsOneToFive());
+        final byte[] expected = Bytes.sha256(DIGEST_DOMAIN, fieldsOneToSixAndArtifacts());
         if (declarationDigest != null && !Bytes.constantTimeEquals(declarationDigest, expected)) {
             throw new IllegalArgumentException("protocol capability declaration digest mismatch");
         }
@@ -67,12 +121,24 @@ public final class ProtocolCapabilityDeclaration {
         return workerId;
     }
 
+    public int version() {
+        return version;
+    }
+
     public byte[] workerIdentity() {
         return Bytes.copy(workerIdentity);
     }
 
     public List<ProtocolTuple> supportedTuples() {
         return supportedTuples;
+    }
+
+    public List<ArtifactGenerationSet> artifactGenerationSets() {
+        return artifactGenerationSets;
+    }
+
+    public boolean isCurrentGeneration() {
+        return version == VERSION && !artifactGenerationSets.isEmpty();
     }
 
     public long capabilityEpoch() {
@@ -92,10 +158,22 @@ public final class ProtocolCapabilityDeclaration {
         return supportedTuples.contains(tuple);
     }
 
+    public boolean supports(final ArtifactGenerationSet artifacts) {
+        Objects.requireNonNull(artifacts, "artifacts");
+        return artifactGenerationSets.stream().anyMatch(candidate -> candidate.equals(artifacts));
+    }
+
     public byte[] canonicalBytes() {
         final byte[] encoded = CanonicalProtobuf.message(output -> {
-            output.writeBytes(fieldsOneToFive());
-            CanonicalProtobuf.bytes(output, 7, declarationDigest);
+            output.writeBytes(fieldsOneToSix());
+            if (version == VERSION) {
+                for (ArtifactGenerationSet artifactGenerationSet : artifactGenerationSets) {
+                    CanonicalProtobuf.bytes(output, 7, artifactGenerationSet.canonicalBytes());
+                }
+                CanonicalProtobuf.bytes(output, 8, declarationDigest);
+            } else {
+                CanonicalProtobuf.bytes(output, 7, declarationDigest);
+            }
         });
         if (encoded.length > MAX_CANONICAL_BYTES) {
             throw new IllegalArgumentException("protocol capability declaration is too large");
@@ -119,7 +197,8 @@ public final class ProtocolCapabilityDeclaration {
                 || fields.get(2).number() != 3) {
             throw new IllegalArgumentException("protocol capability declaration is incomplete");
         }
-        if (QueryCodecSupport.uint(fields.get(0), 1) != VERSION) {
+        final int version = (int) QueryCodecSupport.uint(fields.get(0), 1);
+        if (version != LEGACY_VERSION && version != VERSION) {
             throw new IllegalArgumentException("unsupported protocol capability declaration version");
         }
         final String workerId = text(QueryCodecSupport.bytes(fields.get(1), 2), "workerId");
@@ -129,16 +208,35 @@ public final class ProtocolCapabilityDeclaration {
         while (index < fields.size() - 3 && fields.get(index).number() == 4) {
             tuples.add(ProtocolTuple.decode(QueryCodecSupport.nested(fields.get(index++), 4)));
         }
-        if (index + 3 != fields.size()
+        if (index + 2 > fields.size()
                 || fields.get(index).number() != 5
                 || fields.get(index + 1).number() != 6) {
             throw new IllegalArgumentException("protocol capability declaration fields are out of order");
         }
         final long epoch = QueryCodecSupport.uint(fields.get(index), 5);
         final byte[] sessionIdentity = QueryCodecSupport.fixed(fields.get(index + 1), 6, DIGEST_LENGTH);
-        final byte[] digest = QueryCodecSupport.fixed(fields.get(index + 2), 7, DIGEST_LENGTH);
-        final ProtocolCapabilityDeclaration result =
-                new ProtocolCapabilityDeclaration(workerId, workerIdentity, tuples, epoch, sessionIdentity, digest);
+        index += 2;
+        final List<ArtifactGenerationSet> artifactGenerationSets = new ArrayList<>();
+        final byte[] digest;
+        if (version == VERSION) {
+            while (index < fields.size() - 1 && fields.get(index).number() == 7) {
+                artifactGenerationSets.add(
+                        ArtifactGenerationSet.decode(QueryCodecSupport.nested(fields.get(index++), 7)));
+            }
+            if (artifactGenerationSets.isEmpty()
+                    || index + 1 != fields.size()
+                    || fields.get(index).number() != 8) {
+                throw new IllegalArgumentException("current protocol capability declaration is incomplete");
+            }
+            digest = QueryCodecSupport.fixed(fields.get(index), 8, DIGEST_LENGTH);
+        } else {
+            if (index + 1 != fields.size() || fields.get(index).number() != 7) {
+                throw new IllegalArgumentException("legacy protocol capability declaration is incomplete");
+            }
+            digest = QueryCodecSupport.fixed(fields.get(index), 7, DIGEST_LENGTH);
+        }
+        final ProtocolCapabilityDeclaration result = new ProtocolCapabilityDeclaration(
+                version, workerId, workerIdentity, tuples, artifactGenerationSets, epoch, sessionIdentity, digest);
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "ProtocolCapabilityDeclaration");
         return result;
     }
@@ -146,9 +244,11 @@ public final class ProtocolCapabilityDeclaration {
     @Override
     public boolean equals(final Object other) {
         return other instanceof ProtocolCapabilityDeclaration that
+                && version == that.version
                 && workerId.equals(that.workerId)
                 && Arrays.equals(workerIdentity, that.workerIdentity)
                 && supportedTuples.equals(that.supportedTuples)
+                && artifactGenerationSets.equals(that.artifactGenerationSets)
                 && capabilityEpoch == that.capabilityEpoch
                 && Arrays.equals(sessionIdentity, that.sessionIdentity)
                 && Arrays.equals(declarationDigest, that.declarationDigest);
@@ -157,17 +257,19 @@ public final class ProtocolCapabilityDeclaration {
     @Override
     public int hashCode() {
         return Objects.hash(
+                version,
                 workerId,
                 Arrays.hashCode(workerIdentity),
                 supportedTuples,
+                artifactGenerationSets,
                 capabilityEpoch,
                 Arrays.hashCode(sessionIdentity),
                 Arrays.hashCode(declarationDigest));
     }
 
-    private byte[] fieldsOneToFive() {
+    private byte[] fieldsOneToSix() {
         return CanonicalProtobuf.message(output -> {
-            CanonicalProtobuf.uint32(output, 1, VERSION);
+            CanonicalProtobuf.uint32(output, 1, version);
             CanonicalProtobuf.bytes(output, 2, workerId.getBytes(StandardCharsets.UTF_8));
             CanonicalProtobuf.bytes(output, 3, workerIdentity);
             for (ProtocolTuple tuple : supportedTuples) {
@@ -175,6 +277,17 @@ public final class ProtocolCapabilityDeclaration {
             }
             CanonicalProtobuf.uint64Bits(output, 5, capabilityEpoch);
             CanonicalProtobuf.bytes(output, 6, sessionIdentity);
+        });
+    }
+
+    private byte[] fieldsOneToSixAndArtifacts() {
+        return CanonicalProtobuf.message(output -> {
+            output.writeBytes(fieldsOneToSix());
+            if (version == VERSION) {
+                for (ArtifactGenerationSet artifactGenerationSet : artifactGenerationSets) {
+                    CanonicalProtobuf.bytes(output, 7, artifactGenerationSet.canonicalBytes());
+                }
+            }
         });
     }
 
@@ -188,6 +301,26 @@ public final class ProtocolCapabilityDeclaration {
         for (int index = 1; index < result.size(); index++) {
             if (result.get(index - 1).equals(result.get(index))) {
                 throw new IllegalArgumentException("duplicate supported protocol tuple");
+            }
+        }
+        return List.copyOf(result);
+    }
+
+    private static List<ArtifactGenerationSet> sortedArtifactSets(
+            final List<ArtifactGenerationSet> values, final boolean current) {
+        Objects.requireNonNull(values, "artifactGenerationSets");
+        if (!current && !values.isEmpty()) {
+            throw new IllegalArgumentException("legacy declaration cannot carry an ArtifactGenerationSet");
+        }
+        if (current && (values.isEmpty() || values.size() > MAX_TUPLES)) {
+            throw new IllegalArgumentException("current declaration requires bounded ArtifactGenerationSets");
+        }
+        final List<ArtifactGenerationSet> result = new ArrayList<>(values);
+        result.sort(Comparator.comparing(
+                ArtifactGenerationSet::canonicalBytes, ProtocolCapabilityDeclaration::compareBytes));
+        for (int index = 1; index < result.size(); index++) {
+            if (result.get(index - 1).equals(result.get(index))) {
+                throw new IllegalArgumentException("duplicate ArtifactGenerationSet");
             }
         }
         return List.copyOf(result);

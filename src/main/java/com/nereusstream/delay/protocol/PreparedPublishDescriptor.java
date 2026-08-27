@@ -33,6 +33,14 @@ public final class PreparedPublishDescriptor {
     private final long deliverAtEpochMs;
     private final long expireAtEpochMs;
     private final long actionAtEpochMs;
+    private final NativeDeliveryPolicy nativeDeliveryPolicy;
+    private final DeliveryContract deliveryContract;
+    private final HandoffPolicySnapshot handoffPolicySnapshot;
+    private final Long eventTimeEpochMs;
+    private final PulsarRecordTemplate pulsarRecordTemplate;
+    private final byte[] recordTemplateHash;
+    private final byte[] artifactGenerationSetDigest;
+    private final boolean legacyEncoding;
 
     public PreparedPublishDescriptor(
             final AdapterKind adapterKind,
@@ -53,6 +61,117 @@ public final class PreparedPublishDescriptor {
             final long deliverAtEpochMs,
             final long expireAtEpochMs,
             final long actionAtEpochMs) {
+        this(
+                adapterKind,
+                destinationLaneId,
+                laneIncarnation,
+                destinationProfile,
+                capabilityProfile,
+                targetResource,
+                physicalPartition,
+                channel,
+                messageId,
+                generation,
+                publishAttemptId,
+                attemptNo,
+                payload,
+                businessMetadata,
+                reservedMetadata,
+                deliverAtEpochMs,
+                expireAtEpochMs,
+                actionAtEpochMs,
+                NativeDeliveryPolicy.FORBID,
+                DeliveryContract.NEREUS_MANAGED_NOT_BEFORE,
+                null,
+                null,
+                null,
+                null,
+                legacyArtifactGenerationSetDigest(),
+                true);
+    }
+
+    public PreparedPublishDescriptor(
+            final AdapterKind adapterKind,
+            final DestinationLaneId destinationLaneId,
+            final byte[] laneIncarnation,
+            final ProfileRef destinationProfile,
+            final ProfileRef capabilityProfile,
+            final BrokerResourceIdentity targetResource,
+            final long physicalPartition,
+            final ChannelResourceIdentity channel,
+            final DelayMessageId messageId,
+            final long generation,
+            final byte[] publishAttemptId,
+            final long attemptNo,
+            final PayloadForPublish payload,
+            final AdapterMetadata businessMetadata,
+            final ReservedPublishMetadata reservedMetadata,
+            final long deliverAtEpochMs,
+            final long expireAtEpochMs,
+            final long actionAtEpochMs,
+            final NativeDeliveryPolicy nativeDeliveryPolicy,
+            final DeliveryContract deliveryContract,
+            final HandoffPolicySnapshot handoffPolicySnapshot,
+            final Long eventTimeEpochMs,
+            final PulsarRecordTemplate pulsarRecordTemplate,
+            final byte[] recordTemplateHash,
+            final byte[] artifactGenerationSetDigest) {
+        this(
+                adapterKind,
+                destinationLaneId,
+                laneIncarnation,
+                destinationProfile,
+                capabilityProfile,
+                targetResource,
+                physicalPartition,
+                channel,
+                messageId,
+                generation,
+                publishAttemptId,
+                attemptNo,
+                payload,
+                businessMetadata,
+                reservedMetadata,
+                deliverAtEpochMs,
+                expireAtEpochMs,
+                actionAtEpochMs,
+                nativeDeliveryPolicy,
+                deliveryContract,
+                handoffPolicySnapshot,
+                eventTimeEpochMs,
+                pulsarRecordTemplate,
+                recordTemplateHash,
+                artifactGenerationSetDigest,
+                false);
+    }
+
+    private PreparedPublishDescriptor(
+            final AdapterKind adapterKind,
+            final DestinationLaneId destinationLaneId,
+            final byte[] laneIncarnation,
+            final ProfileRef destinationProfile,
+            final ProfileRef capabilityProfile,
+            final BrokerResourceIdentity targetResource,
+            final long physicalPartition,
+            final ChannelResourceIdentity channel,
+            final DelayMessageId messageId,
+            final long generation,
+            final byte[] publishAttemptId,
+            final long attemptNo,
+            final PayloadForPublish payload,
+            final AdapterMetadata businessMetadata,
+            final ReservedPublishMetadata reservedMetadata,
+            final long deliverAtEpochMs,
+            final long expireAtEpochMs,
+            final long actionAtEpochMs,
+            final NativeDeliveryPolicy nativeDeliveryPolicy,
+            final DeliveryContract deliveryContract,
+            final HandoffPolicySnapshot handoffPolicySnapshot,
+            final Long eventTimeEpochMs,
+            final PulsarRecordTemplate pulsarRecordTemplate,
+            final byte[] recordTemplateHash,
+            final byte[] artifactGenerationSetDigest,
+            final boolean legacyEncoding) {
         this.adapterKind = Objects.requireNonNull(adapterKind, "adapterKind");
         this.destinationLaneId = Objects.requireNonNull(destinationLaneId, "destinationLaneId");
         Bytes.requireLength(laneIncarnation, LANE_INCARNATION_LENGTH, "laneIncarnation");
@@ -85,6 +204,77 @@ public final class PreparedPublishDescriptor {
         this.deliverAtEpochMs = deliverAtEpochMs;
         this.expireAtEpochMs = expireAtEpochMs;
         this.actionAtEpochMs = actionAtEpochMs;
+        this.nativeDeliveryPolicy = Objects.requireNonNull(nativeDeliveryPolicy, "nativeDeliveryPolicy");
+        this.deliveryContract = Objects.requireNonNull(deliveryContract, "deliveryContract");
+        this.handoffPolicySnapshot = handoffPolicySnapshot;
+        if (eventTimeEpochMs != null && eventTimeEpochMs < 0) {
+            throw new IllegalArgumentException("eventTime must be non-negative");
+        }
+        this.eventTimeEpochMs = eventTimeEpochMs;
+        this.pulsarRecordTemplate = pulsarRecordTemplate;
+        if (recordTemplateHash == null) {
+            if (pulsarRecordTemplate != null) {
+                throw new IllegalArgumentException("Pulsar record template hash is missing");
+            }
+            this.recordTemplateHash = null;
+        } else {
+            this.recordTemplateHash = fixed(recordTemplateHash, "recordTemplateHash");
+            if (pulsarRecordTemplate == null
+                    || !Arrays.equals(this.recordTemplateHash, pulsarRecordTemplate.recordTemplateHash())) {
+                throw new IllegalArgumentException("Pulsar record template hash mismatch");
+            }
+        }
+        this.artifactGenerationSetDigest = fixed(artifactGenerationSetDigest, "artifactGenerationSetDigest");
+        this.legacyEncoding = legacyEncoding;
+        if (pulsarRecordTemplate != null
+                && !Arrays.equals(
+                        this.artifactGenerationSetDigest, pulsarRecordTemplate.artifactGenerationSetDigest())) {
+            throw new IllegalArgumentException("descriptor artifact generation digest mismatch");
+        }
+        if (deliveryContract.isNative() && adapterKind != AdapterKind.PULSAR) {
+            throw new IllegalArgumentException("native delivery contract requires Pulsar");
+        }
+        if (deliveryContract == DeliveryContract.NEREUS_MANAGED_NOT_BEFORE) {
+            if (!legacyEncoding && (actionAtEpochMs != deliverAtEpochMs || handoffPolicySnapshot != null)) {
+                throw new IllegalArgumentException(
+                        "ordinary managed contract requires actionAt=deliverAt and no snapshot");
+            }
+        } else {
+            if (nativeDeliveryPolicy == NativeDeliveryPolicy.FORBID
+                    || handoffPolicySnapshot == null
+                    || handoffPolicySnapshot.mode() != HandoffPolicyMode.ENABLED
+                    || !handoffPolicySnapshot.allows(HandoffPath.MANAGED_HANDOFF)) {
+                throw new IllegalArgumentException("native contract requires an enabled managed-handoff snapshot");
+            }
+            final long expectedActionAt;
+            try {
+                expectedActionAt = Math.subtractExact(deliverAtEpochMs, handoffPolicySnapshot.effectiveLeadMs());
+            } catch (ArithmeticException overflow) {
+                throw new IllegalArgumentException("native actionAt arithmetic overflow", overflow);
+            }
+            if (expectedActionAt < 0 || actionAtEpochMs != expectedActionAt) {
+                throw new IllegalArgumentException("native actionAt does not match the signed handoff lead");
+            }
+        }
+        if (!legacyEncoding && adapterKind == AdapterKind.PULSAR) {
+            if (pulsarRecordTemplate == null || recordTemplateHash == null) {
+                throw new IllegalArgumentException("Pulsar descriptor requires an exact record template");
+            }
+            if (!pulsarRecordTemplate.targetResource().equals(targetResource)
+                    || pulsarRecordTemplate.physicalPartition() != physicalPartition
+                    || !pulsarRecordTemplate.reservedMetadata().equals(reservedMetadata)
+                    || !pulsarRecordTemplate.payload().equals(payload)
+                    || pulsarRecordTemplate.deliveryContract() != deliveryContract
+                    || !Objects.equals(pulsarRecordTemplate.eventTimeEpochMs(), eventTimeEpochMs)) {
+                throw new IllegalArgumentException("Pulsar record template does not match descriptor");
+            }
+        } else if (!legacyEncoding && (pulsarRecordTemplate != null || recordTemplateHash != null)) {
+            throw new IllegalArgumentException("Kafka descriptor cannot carry a Pulsar record template");
+        }
+        if (handoffPolicySnapshot != null
+                && !Arrays.equals(handoffPolicySnapshot.artifactGenerationSetDigest(), artifactGenerationSetDigest)) {
+            throw new IllegalArgumentException("handoff snapshot artifact generation digest mismatch");
+        }
         validateCrossObjectIdentity();
     }
 
@@ -93,11 +283,15 @@ public final class PreparedPublishDescriptor {
     }
 
     public int descriptorVersion() {
-        return 1;
+        return legacyEncoding ? 1 : 2;
     }
 
     public int adapterEncodingVersion() {
-        return 1;
+        return legacyEncoding ? 1 : 2;
+    }
+
+    boolean legacyEncoding() {
+        return legacyEncoding;
     }
 
     public DestinationLaneId destinationLaneId() {
@@ -168,8 +362,50 @@ public final class PreparedPublishDescriptor {
         return actionAtEpochMs;
     }
 
+    public NativeDeliveryPolicy nativeDeliveryPolicy() {
+        return nativeDeliveryPolicy;
+    }
+
+    public DeliveryContract deliveryContract() {
+        return deliveryContract;
+    }
+
+    public HandoffPolicySnapshot handoffPolicySnapshot() {
+        return handoffPolicySnapshot;
+    }
+
+    public Long eventTimeEpochMs() {
+        return eventTimeEpochMs;
+    }
+
+    public PulsarRecordTemplate pulsarRecordTemplate() {
+        return pulsarRecordTemplate;
+    }
+
+    public byte[] recordTemplateHash() {
+        return recordTemplateHash == null ? null : Bytes.copy(recordTemplateHash);
+    }
+
+    public byte[] artifactGenerationSetDigest() {
+        return Bytes.copy(artifactGenerationSetDigest);
+    }
+
     /** Returns the replay-stable materialization projection carried by this descriptor. */
     public ClaimMaterialization materialization() {
+        if (legacyEncoding) {
+            return new ClaimMaterialization(
+                    destinationProfile,
+                    capabilityProfile,
+                    targetResource,
+                    physicalPartition,
+                    messageId,
+                    generation,
+                    payload,
+                    businessMetadata,
+                    deliverAtEpochMs,
+                    expireAtEpochMs,
+                    actionAtEpochMs);
+        }
         return new ClaimMaterialization(
                 destinationProfile,
                 capabilityProfile,
@@ -181,10 +417,54 @@ public final class PreparedPublishDescriptor {
                 businessMetadata,
                 deliverAtEpochMs,
                 expireAtEpochMs,
-                actionAtEpochMs);
+                actionAtEpochMs,
+                nativeDeliveryPolicy,
+                eventTimeEpochMs,
+                handoffPolicySnapshot == null ? null : handoffPolicySnapshot.headRef());
     }
 
     public byte[] canonicalBytes() {
+        if (legacyEncoding) {
+            return legacyCanonicalBytes();
+        }
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, 2);
+            CanonicalProtobuf.uint32(output, 2, adapterKind.wireValue());
+            CanonicalProtobuf.uint32(output, 3, 2);
+            CanonicalProtobuf.bytes(output, 4, destinationLaneId.bytes());
+            CanonicalProtobuf.bytes(output, 5, laneIncarnation);
+            CanonicalProtobuf.bytes(output, 6, destinationProfile.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 7, capabilityProfile.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 8, targetResource.canonicalBytes());
+            CanonicalProtobuf.uint32(output, 9, physicalPartition);
+            CanonicalProtobuf.bytes(output, 10, channel.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 11, messageId.bytes());
+            CanonicalProtobuf.uint32(output, 12, generation);
+            CanonicalProtobuf.bytes(output, 13, publishAttemptId);
+            CanonicalProtobuf.uint32(output, 14, attemptNo);
+            CanonicalProtobuf.bytes(output, 15, payload.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 16, businessMetadata.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 17, reservedMetadata.canonicalBytes());
+            CanonicalProtobuf.int64(output, 18, deliverAtEpochMs);
+            CanonicalProtobuf.int64(output, 19, expireAtEpochMs);
+            CanonicalProtobuf.int64(output, 20, actionAtEpochMs);
+            CanonicalProtobuf.uint32(output, 21, nativeDeliveryPolicy.wireValue());
+            CanonicalProtobuf.uint32(output, 22, deliveryContract.wireValue());
+            if (handoffPolicySnapshot != null) {
+                CanonicalProtobuf.bytes(output, 23, handoffPolicySnapshot.canonicalBytes());
+            }
+            if (eventTimeEpochMs != null) {
+                CanonicalProtobuf.int64(output, 24, eventTimeEpochMs);
+            }
+            if (pulsarRecordTemplate != null) {
+                CanonicalProtobuf.bytes(output, 25, pulsarRecordTemplate.canonicalBytes());
+                CanonicalProtobuf.bytes(output, 26, recordTemplateHash);
+            }
+            CanonicalProtobuf.bytes(output, 27, artifactGenerationSetDigest);
+        });
+    }
+
+    private byte[] legacyCanonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, 1);
             CanonicalProtobuf.uint32(output, 2, adapterKind.wireValue());
@@ -215,12 +495,76 @@ public final class PreparedPublishDescriptor {
 
     public static PreparedPublishDescriptor decode(final byte[] encoded) {
         final var fields = QueryCodecSupport.read(encoded, "PreparedPublishDescriptor");
-        QueryCodecSupport.requireNumbers(
-                fields,
-                new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20},
-                "PreparedPublishDescriptor");
-        if (QueryCodecSupport.uint(fields.get(0), 1) != 1 || QueryCodecSupport.uint(fields.get(2), 3) != 1) {
+        if (fields.size() == 20) {
+            QueryCodecSupport.requireNumbers(
+                    fields,
+                    new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20},
+                    "PreparedPublishDescriptor");
+            if (QueryCodecSupport.uint(fields.get(0), 1) != 1 || QueryCodecSupport.uint(fields.get(2), 3) != 1) {
+                throw new IllegalArgumentException("unsupported PreparedPublishDescriptor version");
+            }
+            final PreparedPublishDescriptor result = new PreparedPublishDescriptor(
+                    AdapterKind.fromWire(QueryCodecSupport.uint(fields.get(1), 2)),
+                    new DestinationLaneId(QueryCodecSupport.fixed(fields.get(3), 4, DestinationLaneId.LENGTH)),
+                    QueryCodecSupport.fixed(fields.get(4), 5, LANE_INCARNATION_LENGTH),
+                    ProfileRef.decode(QueryCodecSupport.nested(fields.get(5), 6)),
+                    ProfileRef.decode(QueryCodecSupport.nested(fields.get(6), 7)),
+                    BrokerResourceIdentity.decode(QueryCodecSupport.nested(fields.get(7), 8)),
+                    uint32(QueryCodecSupport.uint(fields.get(8), 9), "physicalPartition"),
+                    ChannelResourceIdentity.decode(QueryCodecSupport.nested(fields.get(9), 10)),
+                    new DelayMessageId(QueryCodecSupport.fixed(fields.get(10), 11, DelayMessageId.LENGTH)),
+                    uint32(QueryCodecSupport.uint(fields.get(11), 12), "generation"),
+                    QueryCodecSupport.fixed(fields.get(12), 13, HASH_LENGTH),
+                    uint32(QueryCodecSupport.uint(fields.get(13), 14), "attemptNo"),
+                    PayloadForPublish.decode(QueryCodecSupport.nested(fields.get(14), 15)),
+                    AdapterMetadata.decode(QueryCodecSupport.nested(fields.get(15), 16)),
+                    ReservedPublishMetadata.decode(QueryCodecSupport.nested(fields.get(16), 17)),
+                    nonNegative(QueryCodecSupport.uint(fields.get(17), 18), "deliverAtEpochMs"),
+                    nonNegative(QueryCodecSupport.uint(fields.get(18), 19), "expireAtEpochMs"),
+                    nonNegative(QueryCodecSupport.uint(fields.get(19), 20), "actionAtEpochMs"));
+            QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "PreparedPublishDescriptor");
+            return result;
+        }
+        if (fields.size() < 23 || fields.size() > 27) {
+            throw new IllegalArgumentException("PreparedPublishDescriptor has an unexpected field count");
+        }
+        for (int index = 0; index < 20; index++) {
+            if (fields.get(index).number() != index + 1) {
+                throw new IllegalArgumentException("PreparedPublishDescriptor field order mismatch");
+            }
+        }
+        if (QueryCodecSupport.uint(fields.get(0), 1) != 2 || QueryCodecSupport.uint(fields.get(2), 3) != 2) {
             throw new IllegalArgumentException("unsupported PreparedPublishDescriptor version");
+        }
+        int index = 20;
+        final NativeDeliveryPolicy policy =
+                NativeDeliveryPolicy.fromWire(QueryCodecSupport.uint(fields.get(index++), 21));
+        final DeliveryContract contract = DeliveryContract.fromWire(QueryCodecSupport.uint(fields.get(index++), 22));
+        HandoffPolicySnapshot snapshot = null;
+        if (index < fields.size() && fields.get(index).number() == 23) {
+            snapshot = HandoffPolicySnapshot.decode(QueryCodecSupport.nested(fields.get(index++), 23));
+        }
+        Long eventTime = null;
+        if (index < fields.size() && fields.get(index).number() == 24) {
+            eventTime = QueryCodecSupport.uint(fields.get(index++), 24);
+        }
+        PulsarRecordTemplate template = null;
+        byte[] templateHash = null;
+        if (index < fields.size() && fields.get(index).number() == 25) {
+            template = PulsarRecordTemplate.decode(QueryCodecSupport.nested(fields.get(index++), 25));
+            if (index >= fields.size() || fields.get(index).number() != 26) {
+                throw new IllegalArgumentException("PreparedPublishDescriptor record template hash is missing");
+            }
+            templateHash = QueryCodecSupport.fixed(fields.get(index++), 26, HASH_LENGTH);
+        } else if (index < fields.size() && fields.get(index).number() == 26) {
+            throw new IllegalArgumentException("PreparedPublishDescriptor record template is missing");
+        }
+        if (index >= fields.size() || fields.get(index).number() != 27) {
+            throw new IllegalArgumentException("PreparedPublishDescriptor artifact generation set is missing");
+        }
+        final byte[] artifactDigest = QueryCodecSupport.fixed(fields.get(index++), 27, HASH_LENGTH);
+        if (index != fields.size()) {
+            throw new IllegalArgumentException("PreparedPublishDescriptor field order mismatch");
         }
         final PreparedPublishDescriptor result = new PreparedPublishDescriptor(
                 AdapterKind.fromWire(QueryCodecSupport.uint(fields.get(1), 2)),
@@ -240,7 +584,14 @@ public final class PreparedPublishDescriptor {
                 ReservedPublishMetadata.decode(QueryCodecSupport.nested(fields.get(16), 17)),
                 nonNegative(QueryCodecSupport.uint(fields.get(17), 18), "deliverAtEpochMs"),
                 nonNegative(QueryCodecSupport.uint(fields.get(18), 19), "expireAtEpochMs"),
-                nonNegative(QueryCodecSupport.uint(fields.get(19), 20), "actionAtEpochMs"));
+                nonNegative(QueryCodecSupport.uint(fields.get(19), 20), "actionAtEpochMs"),
+                policy,
+                contract,
+                snapshot,
+                eventTime,
+                template,
+                templateHash,
+                artifactDigest);
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "PreparedPublishDescriptor");
         return result;
     }
@@ -301,6 +652,10 @@ public final class PreparedPublishDescriptor {
         return value;
     }
 
+    public static byte[] legacyArtifactGenerationSetDigest() {
+        return Bytes.sha256(Bytes.utf8("nereus-delay-legacy-artifact-generation-set\0"));
+    }
+
     @Override
     public boolean equals(final Object other) {
         if (!(other instanceof PreparedPublishDescriptor that)) {
@@ -323,7 +678,14 @@ public final class PreparedPublishDescriptor {
                 && reservedMetadata.equals(that.reservedMetadata)
                 && deliverAtEpochMs == that.deliverAtEpochMs
                 && expireAtEpochMs == that.expireAtEpochMs
-                && actionAtEpochMs == that.actionAtEpochMs;
+                && actionAtEpochMs == that.actionAtEpochMs
+                && nativeDeliveryPolicy == that.nativeDeliveryPolicy
+                && deliveryContract == that.deliveryContract
+                && Objects.equals(handoffPolicySnapshot, that.handoffPolicySnapshot)
+                && Objects.equals(eventTimeEpochMs, that.eventTimeEpochMs)
+                && Objects.equals(pulsarRecordTemplate, that.pulsarRecordTemplate)
+                && Arrays.equals(recordTemplateHash, that.recordTemplateHash)
+                && Arrays.equals(artifactGenerationSetDigest, that.artifactGenerationSetDigest);
     }
 
     @Override
@@ -346,6 +708,13 @@ public final class PreparedPublishDescriptor {
                 reservedMetadata,
                 deliverAtEpochMs,
                 expireAtEpochMs,
-                actionAtEpochMs);
+                actionAtEpochMs,
+                nativeDeliveryPolicy,
+                deliveryContract,
+                handoffPolicySnapshot,
+                eventTimeEpochMs,
+                pulsarRecordTemplate,
+                Arrays.hashCode(recordTemplateHash),
+                Arrays.hashCode(artifactGenerationSetDigest));
     }
 }

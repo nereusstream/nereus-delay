@@ -33,7 +33,19 @@ public final class ProtocolTuple {
 
     /** The currently managed Client Command tuple. */
     public static ProtocolTuple managedCommand() {
+        // This accessor is retained as the generation-1 compatibility
+        // baseline. New generation-2 writers use currentClientCommand().
         return new ProtocolTuple(1, 1, CLIENT_COMMAND, 1, 1);
+    }
+
+    /** The current-generation Client Command tuple used by NDIP activation. */
+    public static ProtocolTuple currentClientCommand() {
+        return new ProtocolTuple(1, 1, CLIENT_COMMAND, 1, 2);
+    }
+
+    /** The current-generation System Mutation tuple used by NDIP activation. */
+    public static ProtocolTuple currentSystemMutation() {
+        return new ProtocolTuple(1, 1, SYSTEM_MUTATION, 1, 2);
     }
 
     public long framingVersion() {

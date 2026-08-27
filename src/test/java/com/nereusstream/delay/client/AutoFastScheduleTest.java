@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nereusstream.delay.protocol.AdapterKind;
 import com.nereusstream.delay.protocol.AdapterMetadata;
+import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
@@ -16,7 +17,11 @@ import com.nereusstream.delay.protocol.DeliveryMode;
 import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.DestinationProfileSemantic;
 import com.nereusstream.delay.protocol.FailureStage;
+import com.nereusstream.delay.protocol.HandoffPath;
+import com.nereusstream.delay.protocol.HandoffPolicyMode;
+import com.nereusstream.delay.protocol.HandoffPolicySnapshot;
 import com.nereusstream.delay.protocol.NativeCapabilitySnapshot;
+import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
 import com.nereusstream.delay.protocol.NativePreparedDelivery;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.OutcomeCapability;
@@ -26,6 +31,7 @@ import com.nereusstream.delay.protocol.ProfileKind;
 import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
 import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
 import com.nereusstream.delay.protocol.PulsarMetadata;
+import com.nereusstream.delay.protocol.PulsarSourceLock;
 import com.nereusstream.delay.protocol.RetryPolicyRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ScheduleIntent;
@@ -63,7 +69,8 @@ class AutoFastScheduleTest {
             final NativePreparedDelivery nativePrepared = prepared.nativePrepared();
             assertNotNull(nativePrepared);
             assertEquals(fixture.target, nativePrepared.target());
-            assertEquals(4_020, nativePrepared.brokerDeliverAtEpochMs());
+            assertEquals(fixture.candidate.deliverAtEpochMs(), nativePrepared.deliverAtEpochMs());
+            assertEquals(nativePrepared.deliverAtEpochMs(), nativePrepared.brokerDeliverAtEpochMs());
             assertTrue(nativePrepared.nativeDeliveryId().length == 32);
             assertTrue(java.util.Arrays.stream(toUnsigned(nativePrepared.nativeDeliveryId()))
                     .anyMatch(value -> value != 0));
@@ -73,7 +80,7 @@ class AutoFastScheduleTest {
     }
 
     @Test
-    void nativeBrokerTimestampNeverExceedsTheActivatedTargetClockBound() throws Exception {
+    void nativeBrokerTimestampUsesTheExactBusinessDeliveryTime() throws Exception {
         final Fixture fixture = fixture();
         try (EmbeddedDelayService service = fixture.service(tempDir.resolve("target-clock-bound"))) {
             final PreparedSubmission prepared =
@@ -82,13 +89,13 @@ class AutoFastScheduleTest {
                     fixture.candidate.destinationProfile().body();
 
             assertFalse(prepared.isManaged());
-            assertEquals(20, destination.targetClockAheadBoundMs());
+            assertEquals(20, destination.maxHandoffLeadMs());
             assertEquals(
-                    fixture.candidate.deliverAtEpochMs() + destination.targetClockAheadBoundMs(),
+                    fixture.candidate.deliverAtEpochMs(),
+                    prepared.nativePrepared().deliverAtEpochMs());
+            assertEquals(
+                    prepared.nativePrepared().deliverAtEpochMs(),
                     prepared.nativePrepared().brokerDeliverAtEpochMs());
-            assertTrue(prepared.nativePrepared().brokerDeliverAtEpochMs()
-                            - prepared.nativePrepared().deliverAtEpochMs()
-                    <= destination.targetClockAheadBoundMs());
         }
     }
 
@@ -160,7 +167,8 @@ class AutoFastScheduleTest {
                 null,
                 AdapterMetadata.pulsar(metadata),
                 null,
-                null);
+                null,
+                NativeDeliveryPolicy.ALLOW_AUTO_FAST_AND_MANAGED_HANDOFF);
         final PreparedCommand command = PreparedCommand.schedule(base.shard, intent, 10_000);
         final TrustedUtcIntervalEvidence issuedAt = new TrustedUtcIntervalEvidence(
                 2_000,
@@ -201,7 +209,8 @@ class AutoFastScheduleTest {
                 5_000,
                 expectedSnapshot,
                 base.keyPair.getPublic(),
-                true);
+                true,
+                base.candidate.handoffPolicySnapshot());
         final int wrongPartition = expectedPartition == 0 ? 1 : 0;
         final NativeCapabilitySnapshot wrongSnapshot = NativeCapabilitySnapshot.create(
                 destination.ref(),
@@ -230,7 +239,8 @@ class AutoFastScheduleTest {
                 5_000,
                 wrongSnapshot,
                 base.keyPair.getPublic(),
-                true);
+                true,
+                base.candidate.handoffPolicySnapshot());
 
         try (EmbeddedDelayService service = base.service(tempDir.resolve("hash-only-valid"))) {
             assertFalse(service.prepareAutoFast(AutoFastSchedule.withNativeCandidate(command, expectedCandidate))
@@ -268,7 +278,8 @@ class AutoFastScheduleTest {
                 null,
                 AdapterMetadata.pulsar(base.metadata),
                 null,
-                null);
+                null,
+                NativeDeliveryPolicy.ALLOW_AUTO_FAST_AND_MANAGED_HANDOFF);
         final PreparedCommand command = PreparedCommand.schedule(base.shard, intent, 10_000);
         final TrustedUtcIntervalEvidence issuedAt = new TrustedUtcIntervalEvidence(
                 2_000,
@@ -308,7 +319,8 @@ class AutoFastScheduleTest {
                 5_000,
                 snapshot,
                 base.keyPair.getPublic(),
-                true);
+                true,
+                base.candidate.handoffPolicySnapshot());
 
         try (EmbeddedDelayService service = base.service(tempDir.resolve("high-bit-partition"))) {
             final PreparedSubmission prepared =
@@ -360,7 +372,8 @@ class AutoFastScheduleTest {
                 null,
                 AdapterMetadata.pulsar(metadata),
                 null,
-                null);
+                null,
+                NativeDeliveryPolicy.ALLOW_AUTO_FAST_AND_MANAGED_HANDOFF);
         final PreparedCommand command = PreparedCommand.schedule(shard, intent, 10_000);
         final TrustedUtcIntervalEvidence issuedAt = new TrustedUtcIntervalEvidence(
                 2_000,
@@ -388,6 +401,20 @@ class AutoFastScheduleTest {
                 9_000,
                 1,
                 keyPair.getPrivate());
+        final ArtifactGenerationSet artifacts =
+                ArtifactGenerationSet.current(1, PulsarSourceLock.digest(), bytes(32, 52));
+        final HandoffPolicySnapshot handoff = HandoffPolicySnapshot.create(
+                bytes(32, 53),
+                1,
+                HandoffPolicyMode.ENABLED,
+                20,
+                2_010,
+                9_000,
+                HandoffPath.MANAGED_HANDOFF | HandoffPath.AUTO_FAST,
+                issuedAt,
+                1,
+                artifacts.setDigest(),
+                keyPair.getPrivate());
         final AutoFastSchedule.NativeCandidate candidate = new AutoFastSchedule.NativeCandidate(
                 destination,
                 capability,
@@ -400,7 +427,8 @@ class AutoFastScheduleTest {
                 5_000,
                 snapshot,
                 keyPair.getPublic(),
-                true);
+                true,
+                handoff);
         return new Fixture(shard, target, payload, metadata, command, candidate, snapshot, keyPair);
     }
 
@@ -440,7 +468,6 @@ class AutoFastScheduleTest {
                 allowedPartitions,
                 capability,
                 1,
-                0,
                 20,
                 bytes(32, 50),
                 1_024,

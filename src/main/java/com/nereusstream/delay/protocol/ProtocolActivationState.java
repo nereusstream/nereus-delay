@@ -92,6 +92,38 @@ public final class ProtocolActivationState {
         return new ProtocolActivationState(shard, next);
     }
 
+    /** Returns a new state after a current-generation source-ordered marker. */
+    public ProtocolActivationState activate(
+            final ProtocolTuple tuple,
+            final byte[] canonicalSchemaHash,
+            final byte[] compatibleReaderSetEvidenceHash,
+            final ArtifactGenerationSet artifactGenerationSet,
+            final byte[] manifestDigest,
+            final SourcePosition sourcePosition,
+            final byte[] mutationId) {
+        Objects.requireNonNull(tuple, "tuple");
+        Objects.requireNonNull(artifactGenerationSet, "artifactGenerationSet");
+        Objects.requireNonNull(sourcePosition, "sourcePosition");
+        if (!shard.shardId().equals(sourcePosition.shardId())) {
+            throw new IllegalArgumentException("protocol activation source position belongs to another shard");
+        }
+        if (activation(tuple) != null) {
+            throw new IllegalArgumentException("protocol tuple is already marked activated");
+        }
+        final ProtocolVersionActivatePayload payload = new ProtocolVersionActivatePayload(
+                tuple, canonicalSchemaHash, compatibleReaderSetEvidenceHash, artifactGenerationSet, manifestDigest);
+        final List<Activation> next = new ArrayList<>(activations);
+        next.add(new Activation(
+                payload.tuple(),
+                payload.canonicalSchemaHash(),
+                payload.compatibleReaderSetEvidenceHash(),
+                payload.artifactGenerationSet(),
+                payload.manifestDigest(),
+                sourcePosition.canonicalBytes(),
+                mutationId));
+        return new ProtocolActivationState(shard, next);
+    }
+
     public byte[] canonicalBytes() {
         final byte[] encoded = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.uint32(output, 1, VERSION);
@@ -112,7 +144,8 @@ public final class ProtocolActivationState {
         if (encoded.length == 0 || encoded.length > MAX_CANONICAL_BYTES) {
             throw new IllegalArgumentException("invalid protocol activation state length");
         }
-        final List<CanonicalProtobuf.Reader.Field> fields = QueryCodecSupport.read(encoded, "ProtocolActivationState");
+        final List<CanonicalProtobuf.Reader.Field> fields =
+                QueryCodecSupport.read(encoded, "ProtocolActivationState", true);
         if (fields.size() < 3 || fields.get(0).number() != 1 || fields.get(1).number() != 2) {
             throw new IllegalArgumentException("protocol activation state is missing required fields");
         }
@@ -185,6 +218,8 @@ public final class ProtocolActivationState {
         private final ProtocolTuple tuple;
         private final byte[] canonicalSchemaHash;
         private final byte[] compatibleReaderSetEvidenceHash;
+        private final ArtifactGenerationSet artifactGenerationSet;
+        private final byte[] manifestDigest;
         private final byte[] sourcePosition;
         private final byte[] mutationId;
 
@@ -194,10 +229,44 @@ public final class ProtocolActivationState {
                 final byte[] compatibleReaderSetEvidenceHash,
                 final byte[] sourcePosition,
                 final byte[] mutationId) {
+            this(
+                    tuple,
+                    canonicalSchemaHash,
+                    compatibleReaderSetEvidenceHash,
+                    null,
+                    new byte[0],
+                    sourcePosition,
+                    mutationId);
+        }
+
+        public Activation(
+                final ProtocolTuple tuple,
+                final byte[] canonicalSchemaHash,
+                final byte[] compatibleReaderSetEvidenceHash,
+                final ArtifactGenerationSet artifactGenerationSet,
+                final byte[] manifestDigest,
+                final byte[] sourcePosition,
+                final byte[] mutationId) {
             this.tuple = Objects.requireNonNull(tuple, "tuple");
             this.canonicalSchemaHash = fixed(canonicalSchemaHash, "canonicalSchemaHash");
             this.compatibleReaderSetEvidenceHash =
                     fixed(compatibleReaderSetEvidenceHash, "compatibleReaderSetEvidenceHash");
+            if (artifactGenerationSet == null) {
+                if (manifestDigest != null && manifestDigest.length != 0) {
+                    throw new IllegalArgumentException("legacy activation cannot carry a manifest digest");
+                }
+                this.artifactGenerationSet = null;
+                this.manifestDigest = new byte[0];
+            } else {
+                final ProtocolVersionActivatePayload payload = new ProtocolVersionActivatePayload(
+                        tuple,
+                        this.canonicalSchemaHash,
+                        this.compatibleReaderSetEvidenceHash,
+                        artifactGenerationSet,
+                        manifestDigest);
+                this.artifactGenerationSet = payload.artifactGenerationSet();
+                this.manifestDigest = payload.manifestDigest();
+            }
             this.sourcePosition = SourcePositionCodec.decode(Objects.requireNonNull(sourcePosition, "sourcePosition"))
                     .canonicalBytes();
             this.mutationId = fixed(mutationId, "mutationId");
@@ -215,6 +284,28 @@ public final class ProtocolActivationState {
             return Bytes.copy(compatibleReaderSetEvidenceHash);
         }
 
+        public boolean isCurrentGeneration() {
+            return artifactGenerationSet != null;
+        }
+
+        public ArtifactGenerationSet artifactGenerationSet() {
+            if (artifactGenerationSet == null) {
+                throw new IllegalStateException("legacy activation has no ArtifactGenerationSet");
+            }
+            return artifactGenerationSet;
+        }
+
+        public ArtifactGenerationSet artifacts() {
+            return artifactGenerationSet();
+        }
+
+        public byte[] manifestDigest() {
+            if (manifestDigest.length == 0) {
+                throw new IllegalStateException("legacy activation has no DataResetManifest digest");
+            }
+            return Bytes.copy(manifestDigest);
+        }
+
         public SourcePosition sourcePosition() {
             return SourcePositionCodec.decode(sourcePosition);
         }
@@ -230,17 +321,42 @@ public final class ProtocolActivationState {
                 CanonicalProtobuf.bytes(output, 3, compatibleReaderSetEvidenceHash);
                 CanonicalProtobuf.bytes(output, 4, sourcePosition);
                 CanonicalProtobuf.bytes(output, 5, mutationId);
+                if (artifactGenerationSet != null) {
+                    CanonicalProtobuf.bytes(output, 6, artifactGenerationSet.canonicalBytes());
+                    CanonicalProtobuf.bytes(output, 7, manifestDigest);
+                }
             });
         }
 
         public static Activation decode(final byte[] encoded) {
             final List<CanonicalProtobuf.Reader.Field> fields =
                     QueryCodecSupport.read(encoded, "ProtocolActivationState.Activation");
-            QueryCodecSupport.requireNumbers(fields, new int[] {1, 2, 3, 4, 5}, "ProtocolActivationState.Activation");
+            if (fields.size() != 5 && fields.size() != 7) {
+                throw new IllegalArgumentException("ProtocolActivationState.Activation field count mismatch");
+            }
+            for (int index = 0; index < fields.size(); index++) {
+                final int expected = index < 3 ? index + 1 : index == 3 ? 4 : index == 4 ? 5 : index + 1;
+                if (fields.get(index).number() != expected) {
+                    throw new IllegalArgumentException("ProtocolActivationState.Activation field order mismatch");
+                }
+            }
+            final ProtocolTuple tuple = ProtocolTuple.decode(QueryCodecSupport.nested(fields.get(0), 1));
+            final byte[] schema = QueryCodecSupport.fixed(fields.get(1), 2, DIGEST_LENGTH);
+            final byte[] readers = QueryCodecSupport.fixed(fields.get(2), 3, DIGEST_LENGTH);
+            if (fields.size() == 5) {
+                return new Activation(
+                        tuple,
+                        schema,
+                        readers,
+                        QueryCodecSupport.nested(fields.get(3), 4),
+                        QueryCodecSupport.fixed(fields.get(4), 5, DIGEST_LENGTH));
+            }
             return new Activation(
-                    ProtocolTuple.decode(QueryCodecSupport.nested(fields.get(0), 1)),
-                    QueryCodecSupport.fixed(fields.get(1), 2, DIGEST_LENGTH),
-                    QueryCodecSupport.fixed(fields.get(2), 3, DIGEST_LENGTH),
+                    tuple,
+                    schema,
+                    readers,
+                    ArtifactGenerationSet.decode(QueryCodecSupport.nested(fields.get(5), 6)),
+                    QueryCodecSupport.fixed(fields.get(6), 7, DIGEST_LENGTH),
                     QueryCodecSupport.nested(fields.get(3), 4),
                     QueryCodecSupport.fixed(fields.get(4), 5, DIGEST_LENGTH));
         }
@@ -251,6 +367,8 @@ public final class ProtocolActivationState {
                     && tuple.equals(that.tuple)
                     && Arrays.equals(canonicalSchemaHash, that.canonicalSchemaHash)
                     && Arrays.equals(compatibleReaderSetEvidenceHash, that.compatibleReaderSetEvidenceHash)
+                    && Objects.equals(artifactGenerationSet, that.artifactGenerationSet)
+                    && Arrays.equals(manifestDigest, that.manifestDigest)
                     && Arrays.equals(sourcePosition, that.sourcePosition)
                     && Arrays.equals(mutationId, that.mutationId);
         }
@@ -260,6 +378,8 @@ public final class ProtocolActivationState {
             int result = tuple.hashCode();
             result = 31 * result + Arrays.hashCode(canonicalSchemaHash);
             result = 31 * result + Arrays.hashCode(compatibleReaderSetEvidenceHash);
+            result = 31 * result + Objects.hashCode(artifactGenerationSet);
+            result = 31 * result + Arrays.hashCode(manifestDigest);
             result = 31 * result + Arrays.hashCode(sourcePosition);
             result = 31 * result + Arrays.hashCode(mutationId);
             return result;

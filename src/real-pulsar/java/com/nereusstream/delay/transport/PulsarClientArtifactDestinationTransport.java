@@ -4,20 +4,26 @@ import com.nereusstream.delay.adapter.DestinationPublishResult;
 import com.nereusstream.delay.adapter.PinnedPulsarDestinationAdapter;
 import com.nereusstream.delay.adapter.PulsarDestinationRequest;
 import com.nereusstream.delay.adapter.PulsarSendAckEvidence;
+import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.EvidenceVerificationStatus;
 import com.nereusstream.delay.protocol.PublishEvidence;
 import com.nereusstream.delay.protocol.PublishEvidenceKind;
 import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.PulsarPreparedRecord;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import org.apache.pulsar.client.api.GuardedMessageId;
+import org.apache.pulsar.client.api.GuardedSendErrorEvidence;
 import org.apache.pulsar.client.api.GuardedSendSuccessEvidence;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.MessageIdAdv;
@@ -38,6 +44,7 @@ public final class PulsarClientArtifactDestinationTransport
     private final byte[] producerNameHash;
     private final TopicResourceGuard expectedGuard;
     private final PublishEvidenceProvider publishEvidenceProvider;
+    private final boolean nativePreparedDeliveryEnabled;
 
     public PulsarClientArtifactDestinationTransport(
             final Producer<byte[]> producer,
@@ -55,7 +62,8 @@ public final class PulsarClientArtifactDestinationTransport
                 physicalTopicCreationTimestamp,
                 partition,
                 producerNameHash,
-                null);
+                null,
+                false);
     }
 
     /**
@@ -73,6 +81,29 @@ public final class PulsarClientArtifactDestinationTransport
             final int partition,
             final byte[] producerNameHash,
             final PublishEvidenceProvider publishEvidenceProvider) {
+        this(
+                producer,
+                authenticatedClusterId,
+                resourceIncarnation,
+                physicalTopic,
+                physicalTopicCreationTimestamp,
+                partition,
+                producerNameHash,
+                publishEvidenceProvider,
+                false);
+    }
+
+    /** Creates the transport with an explicit H6 native-record activation bit. */
+    public PulsarClientArtifactDestinationTransport(
+            final Producer<byte[]> producer,
+            final String authenticatedClusterId,
+            final byte[] resourceIncarnation,
+            final String physicalTopic,
+            final long physicalTopicCreationTimestamp,
+            final int partition,
+            final byte[] producerNameHash,
+            final PublishEvidenceProvider publishEvidenceProvider,
+            final boolean nativePreparedDeliveryEnabled) {
         this.producer = Objects.requireNonNull(producer, "producer");
         this.authenticatedClusterId = Objects.requireNonNull(authenticatedClusterId, "authenticatedClusterId");
         Bytes.requireLength(resourceIncarnation, 32, "resourceIncarnation");
@@ -86,6 +117,7 @@ public final class PulsarClientArtifactDestinationTransport
         Bytes.requireLength(producerNameHash, 32, "producerNameHash");
         this.producerNameHash = Bytes.copy(producerNameHash);
         this.publishEvidenceProvider = publishEvidenceProvider;
+        this.nativePreparedDeliveryEnabled = nativePreparedDeliveryEnabled;
         this.expectedGuard = new TopicResourceGuard(
                 authenticatedClusterId, this.resourceIncarnation, physicalTopicCreationTimestamp);
         if (!physicalTopic.equals(producer.getTopic())) {
@@ -135,6 +167,35 @@ public final class PulsarClientArtifactDestinationTransport
                             : failure(request, preparedPublishHash, failure));
         } catch (RuntimeException failure) {
             return CompletableFuture.completedFuture(failure(request, preparedPublishHash, failure));
+        }
+    }
+
+    /**
+     * Publishes the final logical record through the source-locked P1
+     * encoder. The caller must have completed Journal ownership and pass the
+     * exact ArtifactGenerationSet used by the record.
+     */
+    public CompletionStage<DestinationPublishResult> publishPreparedRecord(
+            final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts) {
+        Objects.requireNonNull(record, "record");
+        Objects.requireNonNull(artifacts, "artifacts");
+        if (!Arrays.equals(record.artifactGenerationSetDigest(), artifacts.setDigest())
+                || !record.template().targetResource().equals(expectedTarget())
+                || record.template().physicalPartition() != partition
+                || artifacts.pulsarRecordGeneration() != PulsarPreparedRecord.SCHEMA_GENERATION) {
+            return CompletableFuture.completedFuture(
+                    DestinationPublishResult.unknown(StableCode.PREPARED_SUBMISSION_MISMATCH, null));
+        }
+        if (record.template().deliveryContract().isNative() && !nativePreparedDeliveryEnabled) {
+            return CompletableFuture.completedFuture(
+                    DestinationPublishResult.definitelyNotPublished(StableCode.CAPABILITY_UNAVAILABLE, null));
+        }
+        try {
+            return PulsarClientArtifactRecordEncoder.send(producer, record)
+                    .handle((messageId, failure) ->
+                            failure == null ? success(record, artifacts, messageId) : failure(record, failure));
+        } catch (RuntimeException failure) {
+            return CompletableFuture.completedFuture(failure(record, failure));
         }
     }
 
@@ -207,6 +268,63 @@ public final class PulsarClientArtifactDestinationTransport
         }
     }
 
+    private DestinationPublishResult success(
+            final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts, final MessageId messageId) {
+        if (!(messageId instanceof GuardedMessageId guarded)
+                || !expectedGuard.equals(guarded.resourceGuard())
+                || !physicalTopic.equals(guarded.physicalTopic())
+                || partition != guarded.partition()
+                || guarded.brokerEntryTimestamp() < 0
+                || guarded.responseEvidence() == null
+                || !(messageId instanceof MessageIdAdv advanced)
+                || advanced.getLedgerId() < 0
+                || advanced.getEntryId() < 0
+                || advanced.getPartitionIndex() != partition) {
+            return DestinationPublishResult.unknown(StableCode.INTEGRITY_ERROR, null);
+        }
+        final GuardedSendSuccessEvidence evidence = guarded.responseEvidence();
+        final TopicResourceGuardAttestation expectedAttestation =
+                new TopicResourceGuardAttestation(expectedGuard, physicalTopic, partition);
+        if (!expectedAttestation.equals(evidence.attestation())
+                || evidence.ledgerId() != advanced.getLedgerId()
+                || evidence.entryId() != advanced.getEntryId()
+                || evidence.brokerEntryTimestamp() != guarded.brokerEntryTimestamp()) {
+            return DestinationPublishResult.unknown(StableCode.INTEGRITY_ERROR, null);
+        }
+        final int rawBatchIndex = advanced.getBatchIndex();
+        final int rawBatchSize = advanced.getBatchSize();
+        final int normalizedBatchIndex = rawBatchIndex < 0 ? 0 : rawBatchIndex;
+        final int batchSize = rawBatchIndex < 0 ? 1 : rawBatchSize;
+        if (rawBatchIndex >= 0 && (rawBatchSize <= 0 || Integer.compareUnsigned(rawBatchIndex, rawBatchSize) >= 0)) {
+            return DestinationPublishResult.unknown(StableCode.INTEGRITY_ERROR, null);
+        }
+        try {
+            final PublishEvidence typed = PulsarSendAckEvidence.publishedRecord(
+                    record,
+                    artifacts,
+                    producerNameHash,
+                    advanced.getLedgerId(),
+                    advanced.getEntryId(),
+                    normalizedBatchIndex,
+                    batchSize,
+                    evidence.brokerEntryTimestamp(),
+                    evidence.protocolVersion(),
+                    evidence.connectionGeneration(),
+                    evidence.producerId(),
+                    evidence.sequenceId(),
+                    evidence.sendCommandSha256(),
+                    evidence.authenticatedResponseCommandSha256());
+            return DestinationPublishResult.published(
+                    expectedTarget(),
+                    partition,
+                    record.externalIdentity().identity(),
+                    evidence.brokerEntryTimestamp(),
+                    typed.canonicalBytes());
+        } catch (RuntimeException evidenceFailure) {
+            return DestinationPublishResult.unknown(StableCode.INTEGRITY_ERROR, null);
+        }
+    }
+
     private DestinationPublishResult failure(
             final PulsarDestinationRequest request, final byte[] preparedPublishHash, final Throwable failure) {
         final TopicResourceGuardException guardFailure = unwrap(failure);
@@ -246,6 +364,47 @@ public final class PulsarClientArtifactDestinationTransport
             }
         }
         return DestinationPublishResult.unknown(StableCode.ENQUEUE_RESULT_UNCERTAIN, null);
+    }
+
+    private DestinationPublishResult failure(final PulsarPreparedRecord record, final Throwable failure) {
+        final TopicResourceGuardException guardFailure = unwrap(failure);
+        if (guardFailure != null && guardFailure.definitelyNotPersisted()) {
+            final byte[] evidence = guardFailure.responseEvidence().isPresent()
+                    ? encodeErrorEvidence(guardFailure.responseEvidence().get())
+                    : null;
+            return DestinationPublishResult.definitelyNotPublished(
+                    StableCode.BROKER_DEFINITIVE_NOT_PERSISTED, evidence);
+        }
+        return DestinationPublishResult.unknown(StableCode.ENQUEUE_RESULT_UNCERTAIN, null);
+    }
+
+    private BrokerResourceIdentity expectedTarget() {
+        return BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
+                authenticatedClusterId, resourceIncarnation, physicalTopic, physicalTopicCreationTimestamp));
+    }
+
+    private static byte[] encodeErrorEvidence(final GuardedSendErrorEvidence evidence) {
+        try {
+            final ByteArrayOutputStream bytes = new ByteArrayOutputStream(128);
+            final DataOutputStream output = new DataOutputStream(bytes);
+            output.writeInt(1);
+            output.writeInt(evidence.protocolVersion());
+            output.writeLong(evidence.connectionGeneration());
+            output.writeLong(evidence.producerId());
+            output.writeLong(evidence.sequenceId());
+            output.writeInt(evidence.serverErrorCode());
+            writeBytes(output, evidence.sendCommandSha256());
+            writeBytes(output, evidence.authenticatedResponseCommandSha256());
+            output.flush();
+            return bytes.toByteArray();
+        } catch (IOException impossible) {
+            throw new IllegalStateException("in-memory Pulsar error evidence encoding failed", impossible);
+        }
+    }
+
+    private static void writeBytes(final DataOutputStream output, final byte[] value) throws IOException {
+        output.writeInt(value.length);
+        output.write(value);
     }
 
     private boolean matches(final PulsarDestinationRequest request) {

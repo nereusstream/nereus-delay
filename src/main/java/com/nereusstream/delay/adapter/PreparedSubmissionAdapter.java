@@ -1,9 +1,12 @@
 package com.nereusstream.delay.adapter;
 
+import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.EnqueueOutcomeMessage;
+import com.nereusstream.delay.protocol.NativePreparedDelivery;
 import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.PreparedSubmission;
+import com.nereusstream.delay.protocol.PulsarPreparedRecord;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SubmissionOutcomeMessage;
 import java.util.Objects;
@@ -70,6 +73,19 @@ public final class PreparedSubmissionAdapter implements AutoCloseable {
         // Native receipts do not carry managed query authority; retain the
         // already prepared native branch and ignore the managed policy.
         return nativeSubmission.submit(submission.nativePrepared(), physicalEnqueueAttemptId);
+    }
+
+    /**
+     * Sends the exact H4/H5 native record projection. The branch and record
+     * are passed separately so callers cannot silently fall back to the
+     * envelope-only compatibility path after preparation.
+     */
+    public CompletionStage<SubmissionOutcomeMessage> submitNativePreparedRecord(
+            final NativePreparedDelivery prepared,
+            final PulsarPreparedRecord record,
+            final ArtifactGenerationSet artifacts,
+            final byte[] physicalEnqueueAttemptId) {
+        return nativeSubmission.submitPreparedRecord(prepared, record, artifacts, physicalEnqueueAttemptId);
     }
 
     private CompletionStage<SubmissionOutcomeMessage> submitManaged(

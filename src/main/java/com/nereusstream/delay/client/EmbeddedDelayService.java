@@ -510,21 +510,33 @@ public final class EmbeddedDelayService implements DelayClient {
                     || payloadBytes > destination.maxTargetRecordBytes() - metadataBytes.length) {
                 return null;
             }
-            final long brokerDeliverAt =
-                    Math.addExact(candidate.deliverAtEpochMs(), destination.targetClockAheadBoundMs());
             final byte[] nativeDeliveryId = nextNativeDeliveryId();
-            return NativePreparedDelivery.create(
-                    nativeDeliveryId,
-                    destinationEnvelope.ref(),
-                    capabilityEnvelope.ref(),
-                    candidate.target(),
-                    candidate.physicalPartition(),
-                    candidate.inlinePayload(),
-                    candidate.metadata(),
-                    candidate.eventTimeEpochMs(),
-                    candidate.deliverAtEpochMs(),
-                    brokerDeliverAt,
-                    snapshot);
+            if (candidate.handoffPolicySnapshot() != null) {
+                if (intent.nativeDeliveryPolicy()
+                        != com.nereusstream.delay.protocol.NativeDeliveryPolicy.ALLOW_AUTO_FAST_AND_MANAGED_HANDOFF) {
+                    return null;
+                }
+                return NativePreparedDelivery.createCurrent(
+                        nativeDeliveryId,
+                        destinationEnvelope.ref(),
+                        capabilityEnvelope.ref(),
+                        candidate.target(),
+                        candidate.physicalPartition(),
+                        candidate.inlinePayload(),
+                        candidate.metadata(),
+                        candidate.eventTimeEpochMs(),
+                        candidate.deliverAtEpochMs(),
+                        intent.nativeDeliveryPolicy(),
+                        com.nereusstream.delay.protocol.DeliveryContract.PULSAR_NATIVE_DELIVERY,
+                        candidate.handoffPolicySnapshot(),
+                        snapshot);
+            }
+            // A native physical record is only legal with the explicit
+            // generation-2 policy/contract/snapshot branch. The old
+            // policy-free envelope is readable for migration, but must not
+            // be emitted by a current writer merely to preserve the former
+            // Broker-clock shift.
+            return null;
         } catch (RuntimeException ineligible) {
             // Selection failure is a managed fallback. The strict managed frame
             // has already been validated and is returned by the caller.

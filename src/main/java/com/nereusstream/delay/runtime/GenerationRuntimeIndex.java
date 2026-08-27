@@ -112,7 +112,36 @@ public final class GenerationRuntimeIndex {
                 admissionsUsed,
                 uncertainRetryAdmissionsUsed,
                 duplicate,
-                runtimeRevision);
+                runtimeRevision,
+                runtimeDigest,
+                false);
+    }
+
+    private GenerationRuntimeIndex(
+            final GenerationAggregateState aggregateState,
+            final CurrentSendWorkKind currentWorkKind,
+            final TimelineWorkRef timeline,
+            final byte[] claimId,
+            final byte[] publishAttemptId,
+            final List<AttemptObligationRef> obligations,
+            final int admissionsUsed,
+            final int uncertainRetryAdmissionsUsed,
+            final boolean duplicate,
+            final long runtimeRevision,
+            final byte[] runtimeDigest,
+            final boolean legacyCompatibility) {
+        this(
+                aggregateState,
+                currentWorkKind,
+                timeline,
+                claimId,
+                publishAttemptId,
+                obligations,
+                admissionsUsed,
+                uncertainRetryAdmissionsUsed,
+                duplicate,
+                runtimeRevision,
+                legacyCompatibility);
         Bytes.requireLength(runtimeDigest, HASH_LENGTH, "runtimeDigest");
         if (!Bytes.constantTimeEquals(this.runtimeDigest, runtimeDigest)) {
             throw new IllegalArgumentException("generation runtime digest mismatch");
@@ -290,6 +319,20 @@ public final class GenerationRuntimeIndex {
     }
 
     public static GenerationRuntimeIndex decode(final byte[] encoded) {
+        return decodeInternal(encoded, false);
+    }
+
+    /**
+     * Decodes the v5 scalar-constructor placeholder used only while older
+     * Java call sites are being migrated to a typed runtime projection.
+     * Store readers must use {@link #decode(byte[])}; MessageRecord is the
+     * only caller allowed to use this transitional path.
+     */
+    static GenerationRuntimeIndex decodeLegacyCompatibility(final byte[] encoded) {
+        return decodeInternal(encoded, true);
+    }
+
+    private static GenerationRuntimeIndex decodeInternal(final byte[] encoded, final boolean allowLegacyCompatibility) {
         final List<CanonicalProtobuf.Reader.Field> fields = readAll(new CanonicalProtobuf.Reader(encoded, true));
         if (fields.size() < 8) {
             throw new IllegalArgumentException("generation runtime index is incomplete");
@@ -334,7 +377,8 @@ public final class GenerationRuntimeIndex {
                 uncertainAdmissions,
                 duplicate,
                 runtimeRevision,
-                runtimeDigest);
+                runtimeDigest,
+                allowLegacyCompatibility);
         if (!Arrays.equals(encoded, result.canonicalBytes())) {
             throw new IllegalArgumentException("non-canonical generation runtime index");
         }

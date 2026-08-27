@@ -394,7 +394,7 @@ public final class TimelineWorkRef {
     }
 
     private static long timelineKeyTime(final byte[] key) {
-        if (key.length < 2 + 32 + Long.BYTES || (key[0] != 1 && key[0] != 2) || key[1] != 1) {
+        if (key.length < 2 + 32 + Long.BYTES || (key[0] != 1 && key[0] != 2 && key[0] != 7) || key[1] != 1) {
             throw new IllegalArgumentException("timeline key is truncated");
         }
         // KeyCodec uses unsigned big-endian u64 for the physical timestamp;
@@ -417,7 +417,7 @@ public final class TimelineWorkRef {
 
     private static byte[] requireTimelineKey(final byte[] value) {
         Objects.requireNonNull(value, "encodedTimelineKey");
-        if (value.length < 2 || (value[0] != 1 && value[0] != 2) || value[1] != 1) {
+        if (value.length < 2 || (value[0] != 1 && value[0] != 2 && value[0] != 7) || value[1] != 1) {
             throw new IllegalArgumentException("timeline key is not a currentDUE/ORDERED key");
         }
         final int tokenOffset = 2 + 32 + Long.BYTES;

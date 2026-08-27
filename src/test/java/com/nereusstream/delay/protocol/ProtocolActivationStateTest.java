@@ -3,6 +3,7 @@ package com.nereusstream.delay.protocol;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -52,5 +53,39 @@ class ProtocolActivationStateTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> state.activate(tuple, schema, readers, foreign, Bytes.sha256(Bytes.utf8("other-mutation"))));
+    }
+
+    @Test
+    void currentMarkerRoundTripsTheArtifactSetAndManifestDigest() {
+        final ShardId shard = new ShardId(new RouteIncarnation(bytes(16, 41)), 2);
+        final ArtifactGenerationSet artifacts = ArtifactGenerationSet.current(
+                11, PulsarSourceLock.digest(), Bytes.sha256(Bytes.utf8("activation-schema")));
+        final SourcePosition position =
+                new KafkaSourcePosition(shard, "activation-current-cluster", UUID.randomUUID(), 3, 1, 20_000);
+        final byte[] manifest = Bytes.sha256(Bytes.utf8("activation-manifest"));
+        final ProtocolActivationState state = new ProtocolActivationState(new ShardSubject(shard), List.of())
+                .activate(
+                        artifacts.clientCommandTuple(),
+                        artifacts.canonicalSchemaBundleHash(),
+                        Bytes.sha256(Bytes.utf8("activation-readers")),
+                        artifacts,
+                        manifest,
+                        position,
+                        Bytes.sha256(Bytes.utf8("activation-current-mutation")));
+
+        final ProtocolActivationState decoded = ProtocolActivationState.decode(state.canonicalBytes());
+        final ProtocolActivationState.Activation activation = decoded.activation(artifacts.clientCommandTuple());
+        assertEquals(state, decoded);
+        assertTrue(activation.isCurrentGeneration());
+        assertEquals(artifacts, activation.artifactGenerationSet());
+        assertArrayEquals(manifest, activation.manifestDigest());
+    }
+
+    private static byte[] bytes(final int length, final int seed) {
+        final byte[] result = new byte[length];
+        for (int index = 0; index < length; index++) {
+            result[index] = (byte) (seed + index);
+        }
+        return result;
     }
 }

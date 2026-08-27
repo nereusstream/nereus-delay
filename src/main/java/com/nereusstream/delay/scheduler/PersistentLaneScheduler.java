@@ -15,6 +15,7 @@ import com.nereusstream.delay.runtime.AdmissionGate;
 import com.nereusstream.delay.runtime.LaneRecord;
 import com.nereusstream.delay.runtime.MessageRecord;
 import com.nereusstream.delay.runtime.MessageStatus;
+import com.nereusstream.delay.runtime.NativeCandidateRef;
 import com.nereusstream.delay.runtime.ReadyIndexValue;
 import com.nereusstream.delay.runtime.RuntimeReadiness;
 import com.nereusstream.delay.runtime.TimelineEntry;
@@ -239,20 +240,22 @@ public final class PersistentLaneScheduler {
             if (entries.size() > maxReadyEntries) {
                 throw new IllegalStateException("READY index exceeds scheduler recovery bound");
             }
-            final Map<DestinationLaneId, ScheduleWorkItem> byLane = new HashMap<>();
+            final Map<DestinationLaneId, List<ScheduleWorkItem>> byLane = new HashMap<>();
             final Map<DestinationLaneId, DiscoveredHead> discovered = new HashMap<>();
             final List<DestinationLaneId> activeOrder = new ArrayList<>();
             for (ShardStore.KeyValue entry : entries) {
                 final ReadyProjection projection = decodeReadyProjection(entry);
-                if (byLane.put(projection.lane().laneId(), projection.item()) != null) {
+                if (byLane.put(projection.lane().laneId(), projection.items()) != null) {
                     throw new IllegalStateException("multiple READY heads for Lane: "
                             + projection.lane().laneId());
                 }
                 discovered.put(
-                        projection.lane().laneId(), new DiscoveredHead(projection.item(), projection.readyKey()));
+                        projection.lane().laneId(), new DiscoveredHead(projection.items(), projection.readyKey()));
                 activeOrder.add(projection.lane().laneId());
             }
-            delegate.replacePending(new ArrayList<>(byLane.values()));
+            final List<ScheduleWorkItem> pending = new ArrayList<>();
+            byLane.values().forEach(pending::addAll);
+            delegate.replacePending(pending);
             delegate.rebuildActiveRing(activeOrder);
             discoveredHeads.clear();
             discoveredHeads.putAll(discovered);
@@ -352,7 +355,7 @@ public final class PersistentLaneScheduler {
                             + projection.lane().laneId());
                 }
                 projections.add(projection);
-                if (projection.item().eligibleAtEpochMs() <= dueThroughEpochMs) {
+                if (projection.items().stream().anyMatch(item -> item.eligibleAtEpochMs() <= dueThroughEpochMs)) {
                     lastEligibleReadyKey = entry.key();
                 }
             }
@@ -362,11 +365,11 @@ public final class PersistentLaneScheduler {
             final Map<DestinationLaneId, DiscoveredHead> nextHeads = new HashMap<>();
             for (ReadyProjection projection : projections) {
                 final DestinationLaneId laneId = projection.lane().laneId();
-                final ScheduleWorkItem item = projection.item();
-                final ScheduleWorkItem queued = delegate.pendingHead(laneId);
+                final List<ScheduleWorkItem> items = projection.items();
+                final List<ScheduleWorkItem> queued = delegate.queueSnapshot().getOrDefault(laneId, List.of());
                 final DiscoveredHead known = discoveredHeads.get(laneId);
-                if (queued != null) {
-                    if (!sameWork(queued, item)) {
+                if (!queued.isEmpty()) {
+                    if (!samePendingItems(queued, items)) {
                         throw new IllegalStateException(
                                 "in-memory READY head differs from authoritative READY: " + laneId);
                     }
@@ -374,17 +377,19 @@ public final class PersistentLaneScheduler {
                         throw new IllegalStateException(
                                 "in-memory READY key differs from authoritative READY: " + laneId);
                     }
-                    nextHeads.put(laneId, new DiscoveredHead(queued, projection.readyKey()));
+                    nextHeads.put(laneId, new DiscoveredHead(items, projection.readyKey()));
                     continue;
                 }
                 if (known != null && sameHead(known, projection)) {
                     nextHeads.put(laneId, known);
                     continue;
                 }
-                nextHeads.put(laneId, new DiscoveredHead(item, projection.readyKey()));
-                newlyPromoted.add(item);
-                if (item.eligibleAtEpochMs() <= dueThroughEpochMs) {
-                    toOffer.add(item);
+                nextHeads.put(laneId, new DiscoveredHead(items, projection.readyKey()));
+                newlyPromoted.addAll(items);
+                for (ScheduleWorkItem item : items) {
+                    if (item.eligibleAtEpochMs() <= dueThroughEpochMs) {
+                        toOffer.add(item);
+                    }
                 }
             }
             for (ScheduleWorkItem item : newlyPromoted) {
@@ -520,7 +525,7 @@ public final class PersistentLaneScheduler {
         }
         final ReadyProjection projection =
                 decodeReadyProjection(new ShardStore.KeyValue(known.readyKey(), encoded), trusted);
-        if (!sameWork(projection.item(), selected)) {
+        if (projection.items().stream().noneMatch(candidate -> sameWork(candidate, selected))) {
             throw new IllegalStateException("Claim candidate differs from current durable READY head");
         }
         final ActiveLaneState lane = readTypedLane(projection.lane());
@@ -534,10 +539,11 @@ public final class PersistentLaneScheduler {
     private ScheduleWorkItem requirePolledClaimCandidate(final ScheduleWorkItem item) {
         final ScheduleWorkItem selected = Objects.requireNonNull(item, "Claim work item");
         final DiscoveredHead known = discoveredHeads.get(selected.laneId());
-        if (known == null || !sameWork(known.item(), selected)) {
+        if (known == null || known.items().stream().noneMatch(candidate -> sameWork(candidate, selected))) {
             throw new IllegalArgumentException("Claim work item is not the discovered Lane head");
         }
-        if (delegate.pendingHead(selected.laneId()) != null) {
+        if (delegate.queueSnapshot().getOrDefault(selected.laneId(), List.of()).stream()
+                .anyMatch(candidate -> sameWork(candidate, selected))) {
             throw new IllegalStateException("Claim work item has not been polled from its Lane");
         }
         return selected;
@@ -555,8 +561,9 @@ public final class PersistentLaneScheduler {
         }
         return delegate.dueSchedulableLanes(dueThroughEpochMs).stream()
                 .filter(laneId -> {
-                    final ScheduleWorkItem head = delegate.pendingHead(laneId);
-                    return head != null && head.accountedBytes() <= maximumHeadBytes;
+                    return delegate.queueSnapshot().getOrDefault(laneId, List.of()).stream()
+                            .filter(item -> item.eligibleAtEpochMs() <= dueThroughEpochMs)
+                            .anyMatch(item -> item.accountedBytes() <= maximumHeadBytes);
                 })
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
@@ -870,7 +877,7 @@ public final class PersistentLaneScheduler {
         final ReadyIndexValue value =
                 ReadyIndexValue.decode(ValueEnvelope.decode(entry.value(), 3).payload());
         if (!key.laneId().equals(value.laneId())
-                || key.nextEligibleAtEpochMs() != value.nextEligibleAtEpochMs()
+                || key.nextEligibleAtEpochMs() != value.persistentWakeAtEpochMs()
                 || key.laneVersion() != value.laneVersion()) {
             throw new IllegalStateException("READY key/value identity mismatch during scheduler rebuild");
         }
@@ -881,7 +888,7 @@ public final class PersistentLaneScheduler {
         validateStoredLane(lane);
         if (!lane.schedulable()
                 || lane.laneVersion() != key.laneVersion()
-                || lane.nextEligibleAtEpochMs() != key.nextEligibleAtEpochMs()) {
+                || lane.nextEligibleAtEpochMs() != value.nextEligibleAtEpochMs()) {
             throw new IllegalStateException("stale or non-schedulable READY Lane: " + key.laneId());
         }
         final ValueEnvelope.Decoded messageValue =
@@ -934,20 +941,20 @@ public final class PersistentLaneScheduler {
         final TimelineWorkRef timeline = validateTimelineValue(
                 ValueEnvelope.decode(timelineBytes, 1).payload(), value.messageId(), message, timelineKey);
         if (timeline != null
-                && key.nextEligibleAtEpochMs()
+                && value.nextEligibleAtEpochMs()
                         != Math.max(timeline.actionAtEpochMs(), timeline.retryEligibilityAtEpochMs())) {
             throw new IllegalStateException("READY eligibility disagrees with TimelineWorkRef: " + value.messageId());
         }
         final ActiveLaneState typedLane = readTypedLane(lane);
         if (typedLane != null) {
-            validateTypedReadyProjection(typedLane, entry.key(), key, evidence);
+            validateTypedReadyProjection(typedLane, entry.key(), key, value, evidence);
             final long actionAt = timeline == null
                     ? (currentWork == null ? message.deliverAtEpochMs() : currentWork.actionAtEpochMs())
                     : timeline.actionAtEpochMs();
             if (typedLane.earliestActionAtEpochMs() == null
                     || typedLane.earliestActionAtEpochMs() != actionAt
                     || typedLane.nextEligibleAtEpochMs() == null
-                    || typedLane.nextEligibleAtEpochMs() != key.nextEligibleAtEpochMs()) {
+                    || typedLane.nextEligibleAtEpochMs() != value.nextEligibleAtEpochMs()) {
                 throw new IllegalStateException(
                         "typed READY action/eligibility projection disagrees with current head: " + value.messageId());
             }
@@ -955,15 +962,78 @@ public final class PersistentLaneScheduler {
             throw new IllegalStateException("strict READY discovery requires a typed ACTIVE Lane projection");
         }
         final long accountedBytes = Math.max(1, message.payloadLength());
-        return new ReadyProjection(
-                lane,
-                new ScheduleWorkItem(
-                        key.laneId(),
-                        value.messageId(),
-                        value.generation(),
-                        key.nextEligibleAtEpochMs(),
-                        accountedBytes),
-                entry.key());
+        final List<ScheduleWorkItem> items = new ArrayList<>();
+        items.add(new ScheduleWorkItem(
+                key.laneId(),
+                value.messageId(),
+                value.generation(),
+                value.persistentWakeAtEpochMs(),
+                value.nextEligibleAtEpochMs(),
+                ScheduleWorkItem.CandidateKind.ORDINARY,
+                null,
+                accountedBytes));
+        if (value.nativeHead() != null) {
+            final ReadyIndexValue nativeHead = value.nativeHead();
+            final MessageRecord nativeMessage = validateNativeReadyHead(nativeHead, key.laneId());
+            final long nativeBytes = Math.max(1, nativeMessage.payloadLength());
+            items.add(new ScheduleWorkItem(
+                    key.laneId(),
+                    nativeHead.messageId(),
+                    nativeHead.generation(),
+                    value.persistentWakeAtEpochMs(),
+                    nativeHead.nextEligibleAtEpochMs(),
+                    ScheduleWorkItem.CandidateKind.MANAGED_NATIVE,
+                    nativeHead.policyHeadRef(),
+                    nativeBytes));
+        }
+        return new ReadyProjection(lane, items, entry.key());
+    }
+
+    private MessageRecord validateNativeReadyHead(
+            final ReadyIndexValue nativeHead, final DestinationLaneId expectedLane) {
+        if (!nativeHead.isNativeCandidate()
+                || nativeHead.policyHeadRef() == null
+                || nativeHead.nextEligibleAtEpochMs() < 0) {
+            throw new IllegalStateException("native READY head is missing its policy reference");
+        }
+        final ValueEnvelope.Decoded messageValue =
+                store.getValue(ColumnFamily.ID, KeyCodec.idMessage(nativeHead.messageId()), 1);
+        if (messageValue == null) {
+            throw new IllegalStateException("native READY points to a missing message: " + nativeHead.messageId());
+        }
+        final MessageRecord message = MessageRecord.decode(messageValue.payload());
+        if (message.status() != MessageStatus.SCHEDULED
+                || message.generation() != nativeHead.generation()
+                || !message.laneId().equals(expectedLane)
+                || message.orderingMode() == com.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO
+                || message.nativeDeliveryPolicy() == com.nereusstream.delay.protocol.NativeDeliveryPolicy.FORBID
+                || message.earliestNativeCandidateAtEpochMs() != nativeHead.nextEligibleAtEpochMs()) {
+            throw new IllegalStateException("native READY points to an invalid current message");
+        }
+        final var sourcePosition = SourcePositionCodec.decode(message.scheduleSourcePosition());
+        final byte[] nativeKey = KeyCodec.timelineNativeCandidate(
+                expectedLane,
+                nativeHead.nextEligibleAtEpochMs(),
+                sourcePosition.sourceOrderToken(),
+                nativeHead.messageId(),
+                nativeHead.generation());
+        if (!Bytes.constantTimeEquals(nativeHead.timelineKeySha256(), Bytes.sha256(nativeKey))) {
+            throw new IllegalStateException("native READY timeline digest mismatch: " + nativeHead.messageId());
+        }
+        final byte[] encoded = store.get(ColumnFamily.TIMELINE, nativeKey);
+        if (encoded == null) {
+            throw new IllegalStateException("native READY points to a missing candidate: " + nativeHead.messageId());
+        }
+        final NativeCandidateRef candidate =
+                NativeCandidateRef.decode(ValueEnvelope.decode(encoded, 1).payload());
+        if (!candidate.messageId().equals(nativeHead.messageId())
+                || candidate.generation() != nativeHead.generation()
+                || candidate.candidateAtEpochMs() != nativeHead.nextEligibleAtEpochMs()
+                || !Arrays.equals(candidate.timelineKey(), nativeKey)
+                || !candidate.policyHeadRef().equals(nativeHead.policyHeadRef())) {
+            throw new IllegalStateException("native READY candidate identity mismatch");
+        }
+        return message;
     }
 
     /**
@@ -977,6 +1047,7 @@ public final class PersistentLaneScheduler {
             final ActiveLaneState state,
             final byte[] physicalReadyKey,
             final ReadyKey decodedReadyKey,
+            final ReadyIndexValue readyValue,
             final TrustedUtcIntervalEvidence evidence) {
         if (state.runtimeReadiness() != RuntimeReadiness.READY || state.admissionGate() != AdmissionGate.OPEN) {
             throw new IllegalStateException("typed READY projection belongs to a non-schedulable Lane");
@@ -989,7 +1060,7 @@ public final class PersistentLaneScheduler {
         if (!Arrays.equals(encodedReadyKey, physicalReadyKey)) {
             throw new IllegalStateException("typed READY key disagrees with physical READY index");
         }
-        if (decodedReadyKey.nextEligibleAtEpochMs() != state.nextEligibleAtEpochMs()
+        if (readyValue.nextEligibleAtEpochMs() != state.nextEligibleAtEpochMs()
                 || decodedReadyKey.laneVersion() != state.laneVersion()
                 || !decodedReadyKey.laneId().equals(state.laneId())) {
             throw new IllegalStateException("typed READY key fields disagree with Lane state");
@@ -1068,12 +1139,49 @@ public final class PersistentLaneScheduler {
         return left.laneId().equals(right.laneId())
                 && left.messageId().equals(right.messageId())
                 && left.generation() == right.generation()
-                && left.eligibleAtEpochMs() == right.eligibleAtEpochMs()
+                && left.persistentWakeAtEpochMs() == right.persistentWakeAtEpochMs()
+                && left.candidateKind() == right.candidateKind()
+                && Objects.equals(left.policyHeadRef(), right.policyHeadRef())
                 && left.accountedBytes() == right.accountedBytes();
     }
 
     private static boolean sameHead(final DiscoveredHead known, final ReadyProjection projection) {
-        return sameWork(known.item(), projection.item()) && Arrays.equals(known.readyKey(), projection.readyKey());
+        return sameItems(known.items(), projection.items()) && Arrays.equals(known.readyKey(), projection.readyKey());
+    }
+
+    private static boolean sameItems(final List<ScheduleWorkItem> left, final List<ScheduleWorkItem> right) {
+        if (left.size() != right.size()) {
+            return false;
+        }
+        for (int index = 0; index < left.size(); index++) {
+            if (!sameWork(left.get(index), right.get(index))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Allows an already-polled sibling of a dual READY value to be absent from the local queue. */
+    private static boolean samePendingItems(
+            final List<ScheduleWorkItem> pending, final List<ScheduleWorkItem> expected) {
+        if (pending.size() > expected.size()) {
+            return false;
+        }
+        final boolean[] used = new boolean[expected.size()];
+        for (ScheduleWorkItem candidate : pending) {
+            boolean matched = false;
+            for (int index = 0; index < expected.size(); index++) {
+                if (!used[index] && sameWork(candidate, expected.get(index))) {
+                    used[index] = true;
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void validateStoredLane(final LaneRecord expected) {
@@ -1263,8 +1371,13 @@ public final class PersistentLaneScheduler {
 
     private record ReadyKey(DestinationLaneId laneId, long nextEligibleAtEpochMs, long laneVersion) {}
 
-    private record ReadyProjection(LaneRecord lane, ScheduleWorkItem item, byte[] readyKey) {
+    private record ReadyProjection(LaneRecord lane, List<ScheduleWorkItem> items, byte[] readyKey) {
         private ReadyProjection {
+            Objects.requireNonNull(lane, "lane");
+            items = List.copyOf(items);
+            if (items.isEmpty()) {
+                throw new IllegalArgumentException("READY projection must contain at least one candidate");
+            }
             readyKey = Bytes.copy(readyKey);
         }
 
@@ -1274,8 +1387,12 @@ public final class PersistentLaneScheduler {
         }
     }
 
-    private record DiscoveredHead(ScheduleWorkItem item, byte[] readyKey) {
+    private record DiscoveredHead(List<ScheduleWorkItem> items, byte[] readyKey) {
         private DiscoveredHead {
+            items = List.copyOf(items);
+            if (items.isEmpty()) {
+                throw new IllegalArgumentException("discovered READY head must contain at least one candidate");
+            }
             readyKey = Bytes.copy(readyKey);
         }
 

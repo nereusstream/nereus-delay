@@ -5,10 +5,16 @@ import com.nereusstream.delay.adapter.DestinationPhysicalAdmission;
 import com.nereusstream.delay.adapter.DestinationPublishAdapter;
 import com.nereusstream.delay.adapter.DestinationPublishRequest;
 import com.nereusstream.delay.adapter.DestinationPublishResult;
+import com.nereusstream.delay.adapter.PulsarAttemptJournal;
+import com.nereusstream.delay.adapter.PulsarPreparedRecordFactory;
+import com.nereusstream.delay.assessment.DataResetActivationGate;
+import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.PayloadForPublish;
 import com.nereusstream.delay.protocol.PreparedPublishDescriptor;
 import com.nereusstream.delay.protocol.PublishAdmissionBody;
+import com.nereusstream.delay.protocol.PulsarPreparedRecord;
+import com.nereusstream.delay.protocol.ResolvedPayload;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.protocol.SystemMutation;
@@ -20,6 +26,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
 
 /**
@@ -42,6 +49,7 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
     private final PublishOutcomeMutationFactory outcomeFactory;
     private final PhysicalPublishGate physicalGate;
     private final Runnable fenceOnFailure;
+    private final DataResetActivationGate dataResetActivationGate;
 
     /**
      * Creates the production composition and binds the physical admission
@@ -57,6 +65,29 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
             final PublishOutcomeMutationFactory outcomeFactory,
             final Runnable fenceOnFailure) {
         this(
+                delegate,
+                physicalAdmission,
+                workClasses,
+                physicalExecutor,
+                outcomeExecutor,
+                physicalGate,
+                outcomeFactory,
+                fenceOnFailure,
+                null);
+    }
+
+    /** Production composition with an exact H6 generation/send barrier. */
+    public WorkerPhysicalPublishExecutor(
+            final DestinationPublishAdapter delegate,
+            final DestinationPhysicalAdmission physicalAdmission,
+            final WorkClassExecutionRegistry workClasses,
+            final Executor physicalExecutor,
+            final OutcomeWorkClassExecutor outcomeExecutor,
+            final PhysicalPublishGate physicalGate,
+            final PublishOutcomeMutationFactory outcomeFactory,
+            final Runnable fenceOnFailure,
+            final DataResetActivationGate dataResetActivationGate) {
+        this(
                 new BoundedDestinationPublishAdapter(
                         Objects.requireNonNull(delegate, "delegate"),
                         Objects.requireNonNull(physicalAdmission, "physicalAdmission"),
@@ -66,7 +97,8 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
                         .submit(mutation, ownerClock),
                 physicalGate,
                 outcomeFactory,
-                fenceOnFailure);
+                fenceOnFailure,
+                dataResetActivationGate);
     }
 
     /** Creates the bridge around an already composed bounded physical adapter. */
@@ -76,13 +108,25 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
             final PhysicalPublishGate physicalGate,
             final PublishOutcomeMutationFactory outcomeFactory,
             final Runnable fenceOnFailure) {
+        this(physicalAdapter, outcomeExecutor, physicalGate, outcomeFactory, fenceOnFailure, null);
+    }
+
+    /** Bounded-adapter composition with an exact H6 generation/send barrier. */
+    public WorkerPhysicalPublishExecutor(
+            final BoundedDestinationPublishAdapter physicalAdapter,
+            final OutcomeWorkClassExecutor outcomeExecutor,
+            final PhysicalPublishGate physicalGate,
+            final PublishOutcomeMutationFactory outcomeFactory,
+            final Runnable fenceOnFailure,
+            final DataResetActivationGate dataResetActivationGate) {
         this(
                 physicalAdapter,
                 (mutation, ownerClock) -> Objects.requireNonNull(outcomeExecutor, "outcomeExecutor")
                         .submit(mutation, ownerClock),
                 physicalGate,
                 outcomeFactory,
-                fenceOnFailure);
+                fenceOnFailure,
+                dataResetActivationGate);
     }
 
     WorkerPhysicalPublishExecutor(
@@ -91,11 +135,22 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
             final PhysicalPublishGate physicalGate,
             final PublishOutcomeMutationFactory outcomeFactory,
             final Runnable fenceOnFailure) {
+        this(physicalAdapter, outcomeSink, physicalGate, outcomeFactory, fenceOnFailure, null);
+    }
+
+    WorkerPhysicalPublishExecutor(
+            final BoundedDestinationPublishAdapter physicalAdapter,
+            final OutcomeMutationSink outcomeSink,
+            final PhysicalPublishGate physicalGate,
+            final PublishOutcomeMutationFactory outcomeFactory,
+            final Runnable fenceOnFailure,
+            final DataResetActivationGate dataResetActivationGate) {
         this.physicalAdapter = Objects.requireNonNull(physicalAdapter, "physicalAdapter");
         this.outcomeSink = Objects.requireNonNull(outcomeSink, "outcomeSink");
         this.physicalGate = Objects.requireNonNull(physicalGate, "physicalGate");
         this.outcomeFactory = Objects.requireNonNull(outcomeFactory, "outcomeFactory");
         this.fenceOnFailure = Objects.requireNonNull(fenceOnFailure, "fenceOnFailure");
+        this.dataResetActivationGate = dataResetActivationGate;
     }
 
     /**
@@ -110,15 +165,7 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
         final PreparedPublishDescriptor descriptor = admission.descriptor().value();
         requireAttemptIdentity(attempt, descriptor, admission);
         final byte[] exactPayload = Objects.requireNonNull(payload, "payload");
-        final PayloadForPublish payloadProjection = descriptor.payload();
-        if (payloadProjection.hasInlinePayload()) {
-            if (!Arrays.equals(payloadProjection.inlinePayload(), exactPayload)) {
-                throw new IllegalArgumentException("physical payload differs from inline Publish Admission");
-            }
-        } else if (payloadProjection.length() != exactPayload.length
-                || !Arrays.equals(payloadProjection.payloadSha256(), Bytes.sha256(exactPayload))) {
-            throw new IllegalArgumentException("physical payload differs from Object Store commitment");
-        }
+        requireExactPayload(descriptor.payload(), exactPayload);
         return new DestinationPublishRequest(
                 descriptor.destinationLaneId(),
                 descriptor.laneIncarnation(),
@@ -129,6 +176,222 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
                 descriptor.deliverAtEpochMs(),
                 exactPayload,
                 descriptor.businessMetadata().canonicalBytes());
+    }
+
+    /**
+     * Joins a current Pulsar Admission to its exact durable Journal mapping.
+     * The mapping must already be durable; this method has no transport side
+     * effect and deliberately cannot allocate a new sequence.
+     */
+    public static PulsarPreparedRecord preparePulsarRecord(
+            final PublishAttemptLedger attempt,
+            final PulsarAttemptJournal.Mapping mapping,
+            final ArtifactGenerationSet artifacts,
+            final byte[] payload) {
+        final PublishAttemptLedger exactAttempt = requirePublishingAttempt(attempt);
+        final PulsarAttemptJournal.Mapping exactMapping = Objects.requireNonNull(mapping, "mapping");
+        final PublishAdmissionBody admission = PublishAdmissionBody.decode(exactAttempt.admissionBytes());
+        final PreparedPublishDescriptor descriptor = admission.descriptor().value();
+        requireAttemptIdentity(exactAttempt, descriptor, admission);
+        if (!Arrays.equals(exactAttempt.sourcePosition(), exactMapping.sourcePosition())) {
+            throw new IllegalArgumentException("Journal mapping source position differs from the attempt ledger");
+        }
+        final byte[] exactPayload = Objects.requireNonNull(payload, "payload");
+        requireExactPayload(descriptor.payload(), exactPayload);
+        return PulsarPreparedRecordFactory.managed(
+                descriptor,
+                exactMapping,
+                ResolvedPayload.of(exactPayload),
+                Objects.requireNonNull(artifacts, "artifacts"));
+    }
+
+    /** Builds the current H3 Journal identity from the admitted descriptor. */
+    public static PulsarAttemptJournal.CurrentAttemptIdentity prepareCurrentPulsarJournalIdentity(
+            final PublishAttemptLedger attempt, final ArtifactGenerationSet artifacts) {
+        final PublishAttemptLedger exactAttempt = requirePublishingAttempt(attempt);
+        final ArtifactGenerationSet exactArtifacts = Objects.requireNonNull(artifacts, "artifacts");
+        final PublishAdmissionBody admission = PublishAdmissionBody.decode(exactAttempt.admissionBytes());
+        final PreparedPublishDescriptor descriptor = admission.descriptor().value();
+        requireAttemptIdentity(exactAttempt, descriptor, admission);
+        if (descriptor.pulsarRecordTemplate() == null
+                || descriptor.recordTemplateHash() == null
+                || !Arrays.equals(descriptor.artifactGenerationSetDigest(), exactArtifacts.setDigest())) {
+            throw new IllegalArgumentException("current Pulsar Journal identity requires the exact record template");
+        }
+        return new PulsarAttemptJournal.CurrentAttemptIdentity(
+                descriptor.messageId(),
+                Math.toIntExact(descriptor.generation()),
+                descriptor.publishAttemptId(),
+                descriptor.preparedPublishHash(),
+                descriptor.recordTemplateHash(),
+                descriptor.deliveryContract(),
+                exactAttempt.sourcePosition(),
+                exactArtifacts.setDigest());
+    }
+
+    /**
+     * Submits the managed final Pulsar record after Journal mapping. This is
+     * the first production call site for the record projection: the ordinary
+     * request remains the outcome-mutation identity, while the final record
+     * itself is admitted and sent through the source-locked P1 adapter.
+     * Native delivery is intentionally not reachable from this method; its
+     * AUTO_FAST path requires the separate H5/H6 activation fence.
+     */
+    public Submission submitPulsarRecord(
+            final PublishAttemptLedger attempt,
+            final PulsarAttemptJournal.Mapping mapping,
+            final ArtifactGenerationSet artifacts,
+            final byte[] payload,
+            final LongSupplier ownerClock) {
+        final PublishAttemptLedger exactAttempt = requirePublishingAttempt(attempt);
+        final DestinationPublishRequest request = prepareRequest(exactAttempt, payload);
+        final PulsarPreparedRecord record = preparePulsarRecord(exactAttempt, mapping, artifacts, payload);
+        final LongSupplier clock = Objects.requireNonNull(ownerClock, "ownerClock");
+
+        if (request.actionAtEpochMs() < request.deliverAtEpochMs()) {
+            return handoff(
+                    exactAttempt,
+                    request,
+                    DestinationPublishResult.definitelyNotPublished(StableCode.CAPABILITY_UNAVAILABLE, null),
+                    clock);
+        }
+        final DestinationPublishResult generationRejection = requireH6PhysicalGeneration(artifacts);
+        if (generationRejection != null) {
+            return handoff(exactAttempt, request, generationRejection, clock);
+        }
+        final Decision initial = checkGate(exactAttempt, request, clock);
+        if (initial.kind() == DecisionKind.DEFERRED) {
+            return Submission.deferred(exactAttempt, request, initial);
+        }
+        if (initial.kind() == DecisionKind.DEFINITIVELY_NOT_PUBLISHED) {
+            return handoff(exactAttempt, request, initial.result(), clock);
+        }
+
+        final Submission submission = Submission.pending(exactAttempt, request);
+        try {
+            final BoundedDestinationPublishAdapter.PublishCall call = physicalAdapter.submitPreparedRecord(
+                    record,
+                    artifacts,
+                    request.laneId(),
+                    request.laneIncarnation(),
+                    (ignoredRecord, ignoredArtifacts) -> lateGateResult(exactAttempt, request, clock));
+            submission.attachPhysicalCall(call);
+            registerCompletion(call.outcome(), exactResult -> completeResult(submission, exactResult, clock));
+            return submission;
+        } catch (RuntimeException | Error failure) {
+            fail(submission, failure);
+            throw failure;
+        }
+    }
+
+    /**
+     * Completes the full managed H3 ordering: current Journal mapping, final
+     * record construction, durable ownership marker, bounded P1 submission,
+     * and Journal PUBLISHED marker before the source outcome handoff.
+     */
+    public Submission submitPulsarRecord(
+            final PulsarAttemptJournal journal,
+            final PulsarAttemptJournal.ProducerKey producer,
+            final PublishAttemptLedger attempt,
+            final ArtifactGenerationSet artifacts,
+            final byte[] payload,
+            final LongSupplier ownerClock) {
+        final PulsarAttemptJournal exactJournal = Objects.requireNonNull(journal, "journal");
+        final PulsarAttemptJournal.ProducerKey exactProducer = Objects.requireNonNull(producer, "producer");
+        final PublishAttemptLedger exactAttempt = requirePublishingAttempt(attempt);
+        final DestinationPublishRequest request = prepareRequest(exactAttempt, payload);
+        final LongSupplier clock = Objects.requireNonNull(ownerClock, "ownerClock");
+        if (request.actionAtEpochMs() < request.deliverAtEpochMs()) {
+            return handoff(
+                    exactAttempt,
+                    request,
+                    DestinationPublishResult.definitelyNotPublished(StableCode.CAPABILITY_UNAVAILABLE, null),
+                    clock);
+        }
+        final DestinationPublishResult generationRejection = requireH6PhysicalGeneration(artifacts);
+        if (generationRejection != null) {
+            return handoff(exactAttempt, request, generationRejection, clock);
+        }
+        final Decision initial = checkGate(exactAttempt, request, clock);
+        if (initial.kind() == DecisionKind.DEFERRED) {
+            return Submission.deferred(exactAttempt, request, initial);
+        }
+        if (initial.kind() == DecisionKind.DEFINITIVELY_NOT_PUBLISHED) {
+            return handoff(exactAttempt, request, initial.result(), clock);
+        }
+
+        final PulsarAttemptJournal.CurrentAttemptIdentity journalIdentity =
+                prepareCurrentPulsarJournalIdentity(exactAttempt, artifacts);
+        if (journalIdentity.deliveryContract()
+                != com.nereusstream.delay.protocol.DeliveryContract.NEREUS_MANAGED_NOT_BEFORE) {
+            throw new IllegalArgumentException("managed Journal submission cannot use the native contract");
+        }
+        final PulsarAttemptJournal.Mapping mapping = exactJournal
+                .appendOrReuseCurrent(exactProducer, journalIdentity)
+                .record()
+                .mapping();
+        final PulsarPreparedRecord record = preparePulsarRecord(exactAttempt, mapping, artifacts, payload);
+        final Submission submission = Submission.pending(exactAttempt, request);
+        try {
+            exactJournal.markOwnershipStarted(mapping);
+            final AtomicReference<BoundedDestinationPublishAdapter.PublishCall> physicalCall = new AtomicReference<>();
+            final CompletionStage<DestinationPublishResult> journalStage =
+                    exactJournal.sendAfterOwnershipStarted(mapping, ignored -> {
+                        final BoundedDestinationPublishAdapter.PublishCall call = physicalAdapter.submitPreparedRecord(
+                                record,
+                                artifacts,
+                                request.laneId(),
+                                request.laneIncarnation(),
+                                (ignoredRecord, ignoredArtifacts) -> lateGateResult(exactAttempt, request, clock));
+                        physicalCall.set(call);
+                        return call.outcome();
+                    });
+            final BoundedDestinationPublishAdapter.PublishCall call = physicalCall.get();
+            if (call == null) {
+                throw new IllegalStateException("Journal sender did not expose the bounded physical call");
+            }
+            submission.attachPhysicalCall(call);
+            registerCompletion(
+                    journalStage,
+                    exactResult -> completePulsarJournalResult(submission, exactResult, exactJournal, mapping, clock));
+            return submission;
+        } catch (RuntimeException | Error failure) {
+            fail(submission, failure);
+            throw failure;
+        }
+    }
+
+    private void completePulsarJournalResult(
+            final Submission submission,
+            final DestinationPublishResult result,
+            final PulsarAttemptJournal journal,
+            final PulsarAttemptJournal.Mapping mapping,
+            final LongSupplier ownerClock) {
+        if (result.disposition() == DestinationPublishResult.Disposition.PUBLISHED) {
+            try {
+                journal.markPublished(mapping);
+            } catch (RuntimeException | Error failure) {
+                failClosed(failure);
+                completeResult(
+                        submission,
+                        DestinationPublishResult.unknown(StableCode.PULSAR_EVIDENCE_DIVERGENCE, null),
+                        ownerClock);
+                return;
+            }
+        }
+        completeResult(submission, result, ownerClock);
+    }
+
+    private static void requireExactPayload(final PayloadForPublish payloadProjection, final byte[] exactPayload) {
+        Objects.requireNonNull(payloadProjection, "payloadProjection");
+        if (payloadProjection.hasInlinePayload()) {
+            if (!Arrays.equals(payloadProjection.inlinePayload(), exactPayload)) {
+                throw new IllegalArgumentException("physical payload differs from inline Publish Admission");
+            }
+        } else if (payloadProjection.length() != exactPayload.length
+                || !Arrays.equals(payloadProjection.payloadSha256(), Bytes.sha256(exactPayload))) {
+            throw new IllegalArgumentException("physical payload differs from Object Store commitment");
+        }
     }
 
     /** Starts one bounded physical attempt or returns a deferred gate result. */
@@ -228,6 +491,19 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
             case DEFINITIVELY_NOT_PUBLISHED -> decision.result();
             case DEFERRED -> DestinationPublishResult.unknown(decision.code(), decision.evidence());
         };
+    }
+
+    private DestinationPublishResult requireH6PhysicalGeneration(final ArtifactGenerationSet artifacts) {
+        if (dataResetActivationGate == null) {
+            return DestinationPublishResult.definitelyNotPublished(StableCode.CAPABILITY_UNAVAILABLE, null);
+        }
+        try {
+            dataResetActivationGate.requirePhysicalSend(
+                    artifacts, dataResetActivationGate.manifest().manifestDigest());
+            return null;
+        } catch (RuntimeException failure) {
+            return DestinationPublishResult.definitelyNotPublished(StableCode.CAPABILITY_UNAVAILABLE, null);
+        }
     }
 
     private void fail(final Submission submission, final Throwable failure) {

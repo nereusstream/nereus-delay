@@ -3,6 +3,7 @@ package com.nereusstream.delay.protocol;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.Test;
 
 class ProtocolVersionActivatePayloadTest {
@@ -48,6 +49,32 @@ class ProtocolVersionActivatePayloadTest {
             CanonicalProtobuf.bytes(output, 3, readerHash);
         });
         assertThrows(IllegalArgumentException.class, () -> ProtocolVersionActivatePayload.decode(outOfOrder));
+    }
+
+    @Test
+    void currentPayloadBindsTheFullArtifactSetAndManifest() {
+        final ArtifactGenerationSet artifacts =
+                ArtifactGenerationSet.current(9, PulsarSourceLock.digest(), Bytes.sha256(Bytes.utf8("schema-bundle")));
+        final ProtocolVersionActivatePayload payload = new ProtocolVersionActivatePayload(
+                artifacts.clientCommandTuple(),
+                artifacts.canonicalSchemaBundleHash(),
+                Bytes.sha256(Bytes.utf8("current-readers")),
+                artifacts,
+                Bytes.sha256(Bytes.utf8("manifest")));
+
+        final ProtocolVersionActivatePayload decoded = ProtocolVersionActivatePayload.decode(payload.canonicalBytes());
+        assertEquals(payload, decoded);
+        assertTrue(decoded.isCurrentGeneration());
+        assertEquals(artifacts, decoded.artifactGenerationSet());
+        assertArrayEquals(payload.manifestDigest(), decoded.manifestDigest());
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new ProtocolVersionActivatePayload(
+                        new ProtocolTuple(1, 1, ProtocolTuple.CLIENT_COMMAND, 1, 1),
+                        artifacts.canonicalSchemaBundleHash(),
+                        Bytes.sha256(Bytes.utf8("current-readers")),
+                        artifacts,
+                        Bytes.sha256(Bytes.utf8("manifest"))));
     }
 
     private static byte[] controlBody(

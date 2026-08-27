@@ -53,8 +53,13 @@ public final class ProfileCatalogScheduleResolver implements ScheduleResolver {
         requireIntentProfileLimits(intent, payloadLength(intent), semantics.destination());
         final ResolvedSchedule resolved = Objects.requireNonNull(
                 delegate.resolveSchedule(shardId, messageId, intent, sourcePosition), "resolved Schedule projection");
-        final long expectedActionAt =
-                expectedActionAt(intent.deliverAtEpochMs(), semantics.destination(), semantics.capability());
+        final long expectedActionAt = expectedActionAt(
+                intent.deliverAtEpochMs(),
+                intent.nativeDeliveryPolicy(),
+                intent.orderingMode(),
+                semantics.destination(),
+                semantics.capability(),
+                intent.legacyPolicyDefault());
         if (resolved.actionAtEpochMs() != null && resolved.actionAtEpochMs() != expectedActionAt) {
             throw new CommandResolutionException(
                     StableCode.INVALID_COMMAND,
@@ -81,7 +86,12 @@ public final class ProfileCatalogScheduleResolver implements ScheduleResolver {
         // upload. Reject an impossible certified handoff before either action;
         // Commit will re-derive the same boundary from the durable binding.
         expectedActionAt(
-                body.intentWithoutPayload().deliverAtEpochMs(), semantics.destination(), semantics.capability());
+                body.intentWithoutPayload().deliverAtEpochMs(),
+                body.intentWithoutPayload().nativeDeliveryPolicy(),
+                body.intentWithoutPayload().orderingMode(),
+                semantics.destination(),
+                semantics.capability(),
+                body.intentWithoutPayload().legacyPolicyDefault());
         return delegate.resolvePrepare(shardId, messageId, body, sourcePosition);
     }
 
@@ -129,6 +139,13 @@ public final class ProfileCatalogScheduleResolver implements ScheduleResolver {
                     StableCode.INVALID_METADATA,
                     "Schedule metadata branch does not match the immutable Destination Profile");
         }
+        if (intent.nativeDeliveryPolicy() != com.nereusstream.delay.protocol.NativeDeliveryPolicy.FORBID
+                && (destination.adapterKind() != com.nereusstream.delay.protocol.AdapterKind.PULSAR
+                        || intent.orderingMode() != com.nereusstream.delay.protocol.OrderingMode.BEST_EFFORT)) {
+            throw new CommandResolutionException(
+                    StableCode.ORDERING_CAPABILITY_UNAVAILABLE,
+                    "native delivery requires a Pulsar BEST_EFFORT Schedule");
+        }
         final int orderingBit =
                 intent.orderingMode() == com.nereusstream.delay.protocol.OrderingMode.BEST_EFFORT ? 0x01 : 0x02;
         if ((destination.allowedOrderingModeBits() & orderingBit) == 0) {
@@ -157,13 +174,27 @@ public final class ProfileCatalogScheduleResolver implements ScheduleResolver {
 
     private static long expectedActionAt(
             final long deliverAt,
+            final com.nereusstream.delay.protocol.NativeDeliveryPolicy policy,
+            final com.nereusstream.delay.protocol.OrderingMode orderingMode,
             final DestinationProfileSemantic destination,
-            final DeliveryCapabilitySemantic capability) {
-        if (destination.adapterKind() == com.nereusstream.delay.protocol.AdapterKind.PULSAR
+            final DeliveryCapabilitySemantic capability,
+            final boolean legacyPolicyDefault) {
+        final boolean legacyCertifiedHandoff = legacyPolicyDefault
+                && policy == com.nereusstream.delay.protocol.NativeDeliveryPolicy.FORBID
+                && orderingMode == com.nereusstream.delay.protocol.OrderingMode.BEST_EFFORT
+                && destination.adapterKind() == com.nereusstream.delay.protocol.AdapterKind.PULSAR
                 && destination.handoffLeadMs() > 0
                 && capability != null
                 && TimingCapability.includes(
-                        capability.timingCapabilityBits(), TimingCapability.PULSAR_GUARDED_HANDOFF)) {
+                        capability.timingCapabilityBits(), TimingCapability.PULSAR_GUARDED_HANDOFF);
+        final boolean nativeCertifiedHandoff = policy != com.nereusstream.delay.protocol.NativeDeliveryPolicy.FORBID
+                && orderingMode == com.nereusstream.delay.protocol.OrderingMode.BEST_EFFORT
+                && destination.adapterKind() == com.nereusstream.delay.protocol.AdapterKind.PULSAR
+                && destination.handoffLeadMs() > 0
+                && capability != null
+                && TimingCapability.includes(
+                        capability.timingCapabilityBits(), TimingCapability.PULSAR_NATIVE_MANAGED_HANDOFF);
+        if (legacyCertifiedHandoff || nativeCertifiedHandoff) {
             try {
                 final long actionAt = Math.subtractExact(deliverAt, destination.handoffLeadMs());
                 if (actionAt < 0) {

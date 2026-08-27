@@ -2,6 +2,7 @@ package com.nereusstream.delay.semantic;
 
 import com.nereusstream.delay.protocol.DeliveryCapabilitySemantic;
 import com.nereusstream.delay.protocol.DestinationProfileSemantic;
+import com.nereusstream.delay.protocol.HandoffPolicySnapshot;
 import com.nereusstream.delay.protocol.NativeCapabilitySnapshot;
 import com.nereusstream.delay.protocol.ProfileKind;
 import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
@@ -18,7 +19,8 @@ public final class NativePreparationSnapshot {
     private final PulsarBrokerResourceIdentity target;
     private final int physicalPartition;
     private final NativeCapabilitySnapshot capabilitySnapshot;
-    private final long brokerDeliverAtEpochMs;
+    private final HandoffPolicySnapshot handoffPolicySnapshot;
+    private final Long legacyBrokerDeliverAtEpochMs;
 
     public NativePreparationSnapshot(
             final ProfileSemanticEnvelope destination,
@@ -27,6 +29,28 @@ public final class NativePreparationSnapshot {
             final int physicalPartition,
             final NativeCapabilitySnapshot capabilitySnapshot,
             final long brokerDeliverAtEpochMs) {
+        this(destination, capability, target, physicalPartition, capabilitySnapshot, brokerDeliverAtEpochMs, null);
+    }
+
+    /** Current H2/H5 form: the candidate time is the Schedule's business deliverAt. */
+    public NativePreparationSnapshot(
+            final ProfileSemanticEnvelope destination,
+            final ProfileSemanticEnvelope capability,
+            final PulsarBrokerResourceIdentity target,
+            final int physicalPartition,
+            final NativeCapabilitySnapshot capabilitySnapshot,
+            final HandoffPolicySnapshot handoffPolicySnapshot) {
+        this(destination, capability, target, physicalPartition, capabilitySnapshot, null, handoffPolicySnapshot);
+    }
+
+    private NativePreparationSnapshot(
+            final ProfileSemanticEnvelope destination,
+            final ProfileSemanticEnvelope capability,
+            final PulsarBrokerResourceIdentity target,
+            final int physicalPartition,
+            final NativeCapabilitySnapshot capabilitySnapshot,
+            final Long legacyBrokerDeliverAtEpochMs,
+            final HandoffPolicySnapshot handoffPolicySnapshot) {
         this.destination = requireKind(destination, ProfileKind.DESTINATION, "destination");
         this.capability = requireKind(capability, ProfileKind.DELIVERY_CAPABILITY, "capability");
         this.target = Objects.requireNonNull(target, "target");
@@ -41,10 +65,11 @@ public final class NativePreparationSnapshot {
                 || physicalPartition != capabilitySnapshot.physicalPartition()) {
             throw new IllegalArgumentException("native snapshot projection disagrees with capability snapshot");
         }
-        if (brokerDeliverAtEpochMs < 0) {
-            throw new IllegalArgumentException("brokerDeliverAtEpochMs must be non-negative");
+        if (legacyBrokerDeliverAtEpochMs != null && legacyBrokerDeliverAtEpochMs < 0) {
+            throw new IllegalArgumentException("legacy Broker delivery time must be non-negative");
         }
-        this.brokerDeliverAtEpochMs = brokerDeliverAtEpochMs;
+        this.legacyBrokerDeliverAtEpochMs = legacyBrokerDeliverAtEpochMs;
+        this.handoffPolicySnapshot = handoffPolicySnapshot;
         final DestinationProfileSemantic destinationBody = destinationBody();
         final DeliveryCapabilitySemantic capabilityBody = capabilityBody();
         if (destinationBody.adapterKind() != com.nereusstream.delay.protocol.AdapterKind.PULSAR
@@ -84,8 +109,20 @@ public final class NativePreparationSnapshot {
         return capabilitySnapshot;
     }
 
+    public HandoffPolicySnapshot handoffPolicySnapshot() {
+        return handoffPolicySnapshot;
+    }
+
+    /**
+     * Compatibility accessor for the removed shifted Broker timestamp. New
+     * snapshots do not carry one and therefore fail closed if this method is
+     * called.
+     */
     public long brokerDeliverAtEpochMs() {
-        return brokerDeliverAtEpochMs;
+        if (legacyBrokerDeliverAtEpochMs == null) {
+            throw new IllegalStateException("current native snapshot has no shifted Broker timestamp");
+        }
+        return legacyBrokerDeliverAtEpochMs;
     }
 
     private DestinationProfileSemantic destinationBody() {

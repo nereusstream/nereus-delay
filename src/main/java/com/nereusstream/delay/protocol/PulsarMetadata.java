@@ -159,6 +159,34 @@ public final class PulsarMetadata {
             this.valueUtf8 = validateUtf8Nfc(valueUtf8, "property value", false);
         }
 
+        /** Creates one Nereus-owned property for the final physical record projection. */
+        public static Property reserved(final String key, final String value) {
+            final byte[] keyBytes = utf8Nfc(key, "property key", true);
+            if (!new String(keyBytes, StandardCharsets.UTF_8).startsWith("nereus.delay.")) {
+                throw new IllegalArgumentException("reserved property key must use the Nereus prefix");
+            }
+            return new Property(
+                    validateUtf8Nfc(keyBytes, "property key", true),
+                    validateUtf8Nfc(utf8Nfc(value, "property value", false), "property value", false),
+                    true);
+        }
+
+        static Property decodeReserved(final byte[] encoded) {
+            final List<CanonicalProtobuf.Reader.Field> fields = QueryCodecSupport.read(encoded, "PulsarProperty");
+            QueryCodecSupport.requireNumbers(fields, new int[] {1, 2}, "PulsarProperty");
+            final Property result = new Property(
+                    QueryCodecSupport.bytes(fields.get(0), 1), QueryCodecSupport.bytes(fields.get(1), 2), true);
+            QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "PulsarProperty");
+            return result;
+        }
+
+        private Property(final byte[] keyUtf8, final byte[] valueUtf8, final boolean reserved) {
+            this.keyUtf8 = reserved
+                    ? validateUtf8Nfc(keyUtf8, "property key", true)
+                    : validateCallerMetadataName(keyUtf8, "property key");
+            this.valueUtf8 = validateUtf8Nfc(valueUtf8, "property value", false);
+        }
+
         public String key() {
             return new String(keyUtf8, StandardCharsets.UTF_8);
         }
@@ -175,7 +203,7 @@ public final class PulsarMetadata {
             return Bytes.copy(valueUtf8);
         }
 
-        private byte[] canonicalBytes() {
+        public byte[] canonicalBytes() {
             return CanonicalProtobuf.message(output -> {
                 CanonicalProtobuf.bytes(output, 1, keyUtf8);
                 CanonicalProtobuf.bytes(output, 2, valueUtf8);

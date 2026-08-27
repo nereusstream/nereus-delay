@@ -20,11 +20,22 @@ public final class PulsarClientArtifactSourceConsumerFactory {
             final String physicalTopic,
             final String subscriptionName)
             throws PulsarClientException {
+        return create(client, guard, physicalTopic, subscriptionName, SubscriptionType.Exclusive);
+    }
+
+    /** Creates a guarded consumer with an explicit subscription risk profile. */
+    public static GuardedConsumer<byte[]> create(
+            final PulsarClient client,
+            final TopicResourceGuard guard,
+            final String physicalTopic,
+            final String subscriptionName,
+            final SubscriptionType subscriptionType)
+            throws PulsarClientException {
         Objects.requireNonNull(client, "client");
         final Consumer<byte[]> consumer = client.newConsumer(Schema.BYTES)
                 .topic(Objects.requireNonNull(physicalTopic, "physicalTopic"))
                 .subscriptionName(Objects.requireNonNull(subscriptionName, "subscriptionName"))
-                .subscriptionType(SubscriptionType.Exclusive)
+                .subscriptionType(Objects.requireNonNull(subscriptionType, "subscriptionType"))
                 .subscriptionInitialPosition(SubscriptionInitialPosition.Earliest)
                 .receiverQueueSize(1)
                 .isAckReceiptEnabled(true)

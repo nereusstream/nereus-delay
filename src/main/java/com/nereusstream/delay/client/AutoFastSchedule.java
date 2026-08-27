@@ -3,6 +3,7 @@ package com.nereusstream.delay.client;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CommandCodec;
 import com.nereusstream.delay.protocol.CommandType;
+import com.nereusstream.delay.protocol.HandoffPolicySnapshot;
 import com.nereusstream.delay.protocol.NativeCapabilitySnapshot;
 import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.ProfileSemanticEnvelope;
@@ -75,6 +76,7 @@ public final class AutoFastSchedule {
         private final NativeCapabilitySnapshot capabilitySnapshot;
         private final PublicKey issuerKey;
         private final boolean directTargetAuthority;
+        private final HandoffPolicySnapshot handoffPolicySnapshot;
 
         public NativeCandidate(
                 final ProfileSemanticEnvelope destinationProfile,
@@ -89,6 +91,37 @@ public final class AutoFastSchedule {
                 final NativeCapabilitySnapshot capabilitySnapshot,
                 final PublicKey issuerKey,
                 final boolean directTargetAuthority) {
+            this(
+                    destinationProfile,
+                    capabilityProfile,
+                    target,
+                    physicalPartition,
+                    inlinePayload,
+                    metadata,
+                    eventTimeEpochMs,
+                    deliverAtEpochMs,
+                    nativeDelayBudgetMs,
+                    capabilitySnapshot,
+                    issuerKey,
+                    directTargetAuthority,
+                    null);
+        }
+
+        /** Current native candidate form with the full frozen Handoff policy. */
+        public NativeCandidate(
+                final ProfileSemanticEnvelope destinationProfile,
+                final ProfileSemanticEnvelope capabilityProfile,
+                final PulsarBrokerResourceIdentity target,
+                final int physicalPartition,
+                final byte[] inlinePayload,
+                final PulsarMetadata metadata,
+                final Long eventTimeEpochMs,
+                final long deliverAtEpochMs,
+                final long nativeDelayBudgetMs,
+                final NativeCapabilitySnapshot capabilitySnapshot,
+                final PublicKey issuerKey,
+                final boolean directTargetAuthority,
+                final HandoffPolicySnapshot handoffPolicySnapshot) {
             this.destinationProfile = require(destinationProfile, "destinationProfile");
             this.capabilityProfile = require(capabilityProfile, "capabilityProfile");
             this.target = require(target, "target");
@@ -110,6 +143,7 @@ public final class AutoFastSchedule {
             this.capabilitySnapshot = require(capabilitySnapshot, "capabilitySnapshot");
             this.issuerKey = require(issuerKey, "issuerKey");
             this.directTargetAuthority = directTargetAuthority;
+            this.handoffPolicySnapshot = handoffPolicySnapshot;
         }
 
         private static <T> T require(final T value, final String name) {
@@ -165,6 +199,10 @@ public final class AutoFastSchedule {
 
         public boolean directTargetAuthority() {
             return directTargetAuthority;
+        }
+
+        public HandoffPolicySnapshot handoffPolicySnapshot() {
+            return handoffPolicySnapshot;
         }
     }
 }

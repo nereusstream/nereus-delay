@@ -1,6 +1,9 @@
 package com.nereusstream.delay.adapter;
 
+import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.DestinationLaneId;
+import com.nereusstream.delay.protocol.PulsarPreparedRecord;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
 import com.nereusstream.delay.scheduler.WorkClassExecutionRegistry;
@@ -92,7 +95,7 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
      * manufacture a physical success or mutate shard state.</p>
      */
     public PublishCall submit(final DestinationPublishRequest request, final PublishPreflight preflight) {
-        return submit(request, preflight, delegate::publish);
+        return submit(request, preflight, () -> delegate.publish(request));
     }
 
     /**
@@ -107,7 +110,47 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
             final PublishPreflight preflight) {
         Objects.requireNonNull(sourcePosition, "sourcePosition");
         Bytes.requireLength(preparedPublishHash, 32, "preparedPublishHash");
-        return submit(request, preflight, ignored -> delegate.publish(ignored, sourcePosition, preparedPublishHash));
+        return submit(request, preflight, () -> delegate.publish(request, sourcePosition, preparedPublishHash));
+    }
+
+    /**
+     * Submits a final Pulsar record behind the same physical admission and
+     * zombie-release fence as an ordinary request. Lane identity is explicit
+     * because the current Pulsar record schema intentionally contains no
+     * scheduler-owned Lane incarnation field.
+     */
+    public PublishCall submitPreparedRecord(
+            final PulsarPreparedRecord record,
+            final ArtifactGenerationSet artifacts,
+            final DestinationLaneId laneId,
+            final byte[] laneIncarnation) {
+        return submitPreparedRecord(
+                record, artifacts, laneId, laneIncarnation, (ignoredRecord, ignoredArtifacts) -> null);
+    }
+
+    /** Prepared-record submission with a final live admission preflight. */
+    public PublishCall submitPreparedRecord(
+            final PulsarPreparedRecord record,
+            final ArtifactGenerationSet artifacts,
+            final DestinationLaneId laneId,
+            final byte[] laneIncarnation,
+            final PreparedPublishPreflight preflight) {
+        final PulsarPreparedRecord exactRecord = Objects.requireNonNull(record, "record");
+        final ArtifactGenerationSet exactArtifacts = Objects.requireNonNull(artifacts, "artifacts");
+        final DestinationLaneId exactLane = Objects.requireNonNull(laneId, "laneId");
+        Bytes.requireLength(laneIncarnation, 16, "laneIncarnation");
+        Objects.requireNonNull(preflight, "preflight");
+        if (!java.util.Arrays.equals(exactRecord.artifactGenerationSetDigest(), exactArtifacts.setDigest())
+                || exactArtifacts.pulsarRecordGeneration() != PulsarPreparedRecord.SCHEMA_GENERATION) {
+            return PublishCall.completed(
+                    DestinationPublishResult.unknown(StableCode.PREPARED_SUBMISSION_MISMATCH, null));
+        }
+        return submitPhysical(
+                exactLane,
+                laneIncarnation,
+                exactRecord.physicalByteCharge(),
+                () -> preflight.check(exactRecord, exactArtifacts),
+                () -> delegate.publishPreparedRecord(exactRecord, exactArtifacts));
     }
 
     private PublishCall submit(
@@ -117,12 +160,32 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(preflight, "preflight");
         Objects.requireNonNull(delegateCall, "delegateCall");
+        return submitPhysical(
+                request.laneId(),
+                request.laneIncarnation(),
+                requestPhysicalBytes(request),
+                () -> preflight.check(request),
+                delegateCall);
+    }
+
+    private PublishCall submitPhysical(
+            final DestinationLaneId laneId,
+            final byte[] laneIncarnation,
+            final long physicalBytes,
+            final PhysicalPreflight preflight,
+            final DelegateCall delegateCall) {
+        Objects.requireNonNull(laneId, "laneId");
+        Bytes.requireLength(laneIncarnation, 16, "laneIncarnation");
+        if (physicalBytes < 0) {
+            throw new IllegalArgumentException("physical byte charge must be non-negative");
+        }
+        Objects.requireNonNull(preflight, "preflight");
+        Objects.requireNonNull(delegateCall, "delegateCall");
         if (closeGuard.isClosed()) {
             return PublishCall.completed(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
         }
-        final long physicalBytes = requestPhysicalBytes(request);
         final DestinationPhysicalAdmission.AdmissionDecision decision =
-                admission.tryAcquire(request.laneId(), request.laneIncarnation(), physicalBytes);
+                admission.tryAcquire(laneId, laneIncarnation, physicalBytes);
         if (!decision.granted()) {
             final byte[] evidence =
                     Bytes.utf8("physical-admission:" + decision.rejection().name());
@@ -152,14 +215,7 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                 // rejection and release an operation whose ownership is
                 // already unknown.
                 taskStarted.set(true);
-                invokeDelegate(
-                        request,
-                        preflight,
-                        outcome,
-                        reservation,
-                        retainPhysicalCharge,
-                        completionObserved,
-                        delegateCall);
+                invokeDelegate(preflight, outcome, reservation, retainPhysicalCharge, completionObserved, delegateCall);
             });
         } catch (RuntimeException exception) {
             if (!taskStarted.get()) {
@@ -217,6 +273,19 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
                 .outcome();
     }
 
+    /**
+     * A direct interface call has no Lane identity and therefore cannot be
+     * admitted safely. Callers must use {@link #submitPreparedRecord}.
+     */
+    @Override
+    public CompletionStage<DestinationPublishResult> publishPreparedRecord(
+            final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts) {
+        Objects.requireNonNull(record, "record");
+        Objects.requireNonNull(artifacts, "artifacts");
+        return CompletableFuture.completedFuture(
+                DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
+    }
+
     @Override
     public void close() {
         closeGuard.close(() -> {
@@ -269,8 +338,7 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
     }
 
     private void invokeDelegate(
-            final DestinationPublishRequest request,
-            final PublishPreflight preflight,
+            final PhysicalPreflight preflight,
             final CompletableFuture<DestinationPublishResult> outcome,
             final DestinationPhysicalAdmission.Reservation reservation,
             final AtomicBoolean retainPhysicalCharge,
@@ -280,12 +348,12 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
         try {
             invocation = closeGuard.invokeIfOpen(
                     () -> {
-                        final DestinationPublishResult preflightResult = preflight.check(request);
+                        final DestinationPublishResult preflightResult = preflight.check();
                         if (preflightResult != null) {
                             return new DelegateInvocation(CompletableFuture.completedFuture(preflightResult), false);
                         }
                         try {
-                            return new DelegateInvocation(delegateCall.publish(request), false);
+                            return new DelegateInvocation(delegateCall.publish(), false);
                         } catch (RuntimeException exception) {
                             // A synchronous transport exception does not
                             // prove that the request stopped before
@@ -423,13 +491,24 @@ public final class BoundedDestinationPublishAdapter implements DestinationPublis
 
     @FunctionalInterface
     private interface DelegateCall {
-        CompletionStage<DestinationPublishResult> publish(DestinationPublishRequest request);
+        CompletionStage<DestinationPublishResult> publish();
+    }
+
+    @FunctionalInterface
+    private interface PhysicalPreflight {
+        DestinationPublishResult check();
     }
 
     /** Runs immediately before the target delegate; non-null means do not call the delegate. */
     @FunctionalInterface
     public interface PublishPreflight {
         DestinationPublishResult check(DestinationPublishRequest request);
+    }
+
+    /** Runs immediately before a prepared-record delegate; non-null blocks it. */
+    @FunctionalInterface
+    public interface PreparedPublishPreflight {
+        DestinationPublishResult check(PulsarPreparedRecord record, ArtifactGenerationSet artifacts);
     }
 
     public static final class PublishCall {

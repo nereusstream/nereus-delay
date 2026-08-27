@@ -337,7 +337,8 @@ public final class PublishAdmissionBody {
         final ProfileRef capabilityRef = ProfileRef.decode(descriptor.capabilityProfile());
         if (!destinationProfile.deliveryCapability().equals(capabilityRef)
                 || destinationProfile.adapterKind() != capabilityProfile.adapterKind()
-                || destinationProfile.adapterEncodingVersion() != 1
+                || destinationProfile.adapterEncodingVersion()
+                        != descriptor.value().adapterEncodingVersion()
                 || !Arrays.equals(destinationProfile.targetResource().canonicalBytes(), descriptor.targetResource())) {
             throw new IllegalArgumentException("Publish Admission Profile identity mismatch");
         }
@@ -363,9 +364,35 @@ public final class PublishAdmissionBody {
                         && !explicitPartition)) {
             requireHashedPartition(destinationProfile, destinationRef, physicalPartition);
         }
-        final long deliverAt = descriptor.deliverAtEpochMs();
-        final long actionAt = descriptor.actionAtEpochMs();
-        if (actionAt == deliverAt) {
+        final PreparedPublishDescriptor typedDescriptor = descriptor.value();
+        final long deliverAt = typedDescriptor.deliverAtEpochMs();
+        final long actionAt = typedDescriptor.actionAtEpochMs();
+        if (typedDescriptor.legacyEncoding() && actionAt != deliverAt) {
+            if (destinationProfile.adapterKind() != AdapterKind.PULSAR
+                    || destinationProfile.handoffLeadMs() <= 0
+                    || !TimingCapability.includes(
+                            capabilityProfile.timingCapabilityBits(), TimingCapability.PULSAR_GUARDED_HANDOFF)) {
+                throw new IllegalArgumentException("certified Pulsar handoff is not capability-authorized");
+            }
+            final long expectedActionAt;
+            try {
+                expectedActionAt = Math.subtractExact(deliverAt, destinationProfile.handoffLeadMs());
+            } catch (ArithmeticException overflow) {
+                throw new IllegalArgumentException("Pulsar handoff timing underflows deliverAt", overflow);
+            }
+            if (expectedActionAt < 0 || actionAt != expectedActionAt) {
+                throw new IllegalArgumentException("Pulsar handoff actionAt does not match the pinned lead");
+            }
+            return;
+        }
+        if (typedDescriptor.deliveryContract() == DeliveryContract.NEREUS_MANAGED_NOT_BEFORE) {
+            if (typedDescriptor.nativeDeliveryPolicy() == NativeDeliveryPolicy.FORBID
+                    && typedDescriptor.handoffPolicySnapshot() != null) {
+                throw new IllegalArgumentException("FORBID managed Admission cannot carry a handoff snapshot");
+            }
+            if (actionAt != deliverAt) {
+                throw new IllegalArgumentException("ordinary managed timing requires actionAt=deliverAt");
+            }
             if (!TimingCapability.includes(
                     capabilityProfile.timingCapabilityBits(), TimingCapability.ORDINARY_MANAGED)) {
                 throw new IllegalArgumentException("ordinary managed timing is not capability-authorized");
@@ -373,9 +400,13 @@ public final class PublishAdmissionBody {
             return;
         }
         if (destinationProfile.adapterKind() != AdapterKind.PULSAR
+                || typedDescriptor.nativeDeliveryPolicy() == NativeDeliveryPolicy.FORBID
+                || typedDescriptor.handoffPolicySnapshot() == null
+                || typedDescriptor.handoffPolicySnapshot().mode() != HandoffPolicyMode.ENABLED
+                || !typedDescriptor.handoffPolicySnapshot().allows(HandoffPath.MANAGED_HANDOFF)
                 || destinationProfile.handoffLeadMs() <= 0
                 || !TimingCapability.includes(
-                        capabilityProfile.timingCapabilityBits(), TimingCapability.PULSAR_GUARDED_HANDOFF)) {
+                        capabilityProfile.timingCapabilityBits(), TimingCapability.PULSAR_NATIVE_MANAGED_HANDOFF)) {
             throw new IllegalArgumentException("certified Pulsar handoff is not capability-authorized");
         }
         final long expectedActionAt;
@@ -384,7 +415,9 @@ public final class PublishAdmissionBody {
         } catch (ArithmeticException overflow) {
             throw new IllegalArgumentException("Pulsar handoff timing underflows deliverAt", overflow);
         }
-        if (expectedActionAt < 0 || actionAt != expectedActionAt) {
+        if (expectedActionAt < 0
+                || actionAt != expectedActionAt
+                || typedDescriptor.handoffPolicySnapshot().effectiveLeadMs() != destinationProfile.handoffLeadMs()) {
             throw new IllegalArgumentException("Pulsar handoff actionAt does not match the pinned lead");
         }
     }
@@ -1135,20 +1168,7 @@ public final class PublishAdmissionBody {
         }
 
         public byte[] materializationBytes() {
-            final List<CanonicalProtobuf.Reader.Field> fields = read(canonicalBytes, "PreparedPublishDescriptor");
-            return CanonicalProtobuf.message(output -> {
-                emitBytes(output, 1, nested(field(fields, 6), 6));
-                emitBytes(output, 2, nested(field(fields, 7), 7));
-                emitBytes(output, 3, nested(field(fields, 8), 8));
-                emitVarint(output, 4, unsigned(field(fields, 9), 9));
-                emitBytes(output, 5, bytes(field(fields, 11), 11));
-                emitVarint(output, 6, unsigned(field(fields, 12), 12));
-                emitBytes(output, 7, nested(field(fields, 15), 15));
-                emitBytes(output, 8, nested(field(fields, 16), 16));
-                emitVarint(output, 9, unsigned(field(fields, 18), 18));
-                emitVarint(output, 10, unsigned(field(fields, 19), 19));
-                emitVarint(output, 11, unsigned(field(fields, 20), 20));
-            });
+            return value().materialization().canonicalBytes();
         }
 
         /** Returns the typed replay-stable Claim materialization projection. */

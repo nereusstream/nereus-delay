@@ -240,8 +240,16 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
             throw SemanticPreparationException.of(StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE, failure);
         }
         try {
-            return NativePreparedDelivery.create(
-                    NativeDeliveryIdGenerator.require(nativeDeliveryIds.next(managed, intent)),
+            final byte[] nativeDeliveryId = NativeDeliveryIdGenerator.require(nativeDeliveryIds.next(managed, intent));
+            if (candidate.handoffPolicySnapshot() == null) {
+                // A current writer must not manufacture the removed
+                // Broker-clock-shifted native envelope from the compatibility
+                // provider API. Without a full signed handoff lease the
+                // caller falls back to the already validated managed frame.
+                throw new IllegalArgumentException("native delivery requires a frozen generation-2 handoff snapshot");
+            }
+            return NativePreparedDelivery.createCurrent(
+                    nativeDeliveryId,
                     candidate.destination().ref(),
                     candidate.capability().ref(),
                     candidate.target(),
@@ -250,7 +258,9 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
                     intent.adapterMetadata().pulsar(),
                     intent.eventTimeEpochMs(),
                     intent.deliverAtEpochMs(),
-                    candidate.brokerDeliverAtEpochMs(),
+                    intent.nativeDeliveryPolicy(),
+                    com.nereusstream.delay.protocol.DeliveryContract.PULSAR_NATIVE_DELIVERY,
+                    candidate.handoffPolicySnapshot(),
                     candidate.capabilitySnapshot());
         } catch (RuntimeException failure) {
             throw SemanticPreparationException.of(StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE, failure);

@@ -90,6 +90,26 @@ public final class KeyCodec {
                 Bytes.u32beBits(generation));
     }
 
+    /** Native-candidate timeline projection; it never replaces ordinary DUE/ORDERED work. */
+    public static byte[] timelineNativeCandidate(
+            final DestinationLaneId laneId,
+            final long candidateAtEpochMs,
+            final byte[] sourceOrderToken,
+            final DelayMessageId messageId,
+            final int generation) {
+        if (candidateAtEpochMs < 0) {
+            throw new IllegalArgumentException("invalid native candidate key values");
+        }
+        validateSourceOrderToken(sourceOrderToken);
+        return Bytes.concat(
+                new byte[] {7, 1},
+                laneId.bytes(),
+                Bytes.u64be(candidateAtEpochMs),
+                sourceOrderToken,
+                messageId.bytes(),
+                Bytes.u32beBits(generation));
+    }
+
     public static byte[] timelineReady(
             final long nextEligibleAtEpochMs, final DestinationLaneId laneId, final long laneVersion) {
         if (nextEligibleAtEpochMs < 0 || laneVersion < 0) {

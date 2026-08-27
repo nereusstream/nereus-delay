@@ -5,11 +5,25 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.DelayMessageId;
+import com.nereusstream.delay.protocol.DeliveryContract;
+import com.nereusstream.delay.protocol.DeliveryMode;
 import com.nereusstream.delay.protocol.DestinationLaneId;
+import com.nereusstream.delay.protocol.ExternalDeliveryIdentity;
 import com.nereusstream.delay.protocol.KafkaBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.PayloadForPublish;
+import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
+import com.nereusstream.delay.protocol.PulsarKey;
+import com.nereusstream.delay.protocol.PulsarPreparedRecord;
+import com.nereusstream.delay.protocol.PulsarRecordTemplate;
+import com.nereusstream.delay.protocol.PulsarReservedProperties;
+import com.nereusstream.delay.protocol.PulsarSequenceAuthority;
+import com.nereusstream.delay.protocol.PulsarSourceLock;
+import com.nereusstream.delay.protocol.ReservedPublishMetadata;
+import com.nereusstream.delay.protocol.ResolvedPayload;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.StableCode;
@@ -19,6 +33,7 @@ import com.nereusstream.delay.scheduler.WorkClassPolicy;
 import com.nereusstream.delay.scheduler.WorkClassRuntimeConfig;
 import java.lang.reflect.Modifier;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -31,6 +46,46 @@ import java.util.function.BiConsumer;
 import org.junit.jupiter.api.Test;
 
 class BoundedDestinationPublishAdapterTest {
+    @Test
+    void preparedRecordUsesLaneAdmissionAndCannotBypassIt() {
+        final DestinationLaneId lane = lane("prepared-record");
+        final DestinationPhysicalAdmission admission = admission(lane, 1, 10_000, 1, 10_000);
+        admission.openReady(lane);
+        final PreparedFixture fixture = preparedFixture();
+        final AtomicInteger calls = new AtomicInteger();
+        final DestinationPublishAdapter delegate = new DestinationPublishAdapter() {
+            @Override
+            public java.util.concurrent.CompletionStage<DestinationPublishResult> publish(
+                    final DestinationPublishRequest request) {
+                return CompletableFuture.completedFuture(published());
+            }
+
+            @Override
+            public java.util.concurrent.CompletionStage<DestinationPublishResult> publishPreparedRecord(
+                    final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts) {
+                calls.incrementAndGet();
+                return CompletableFuture.completedFuture(published());
+            }
+        };
+        final BoundedDestinationPublishAdapter adapter =
+                new BoundedDestinationPublishAdapter(delegate, admission, Runnable::run);
+
+        final BoundedDestinationPublishAdapter.PublishCall call =
+                adapter.submitPreparedRecord(fixture.record, fixture.artifacts, lane, new byte[16]);
+        assertEquals(
+                DestinationPublishResult.Disposition.PUBLISHED,
+                call.outcome().toCompletableFuture().join().disposition());
+        assertEquals(1, calls.get());
+        assertEquals(0, admission.workerSnapshot().activeRequests());
+        assertEquals(
+                DestinationPublishResult.Disposition.UNKNOWN,
+                adapter.publishPreparedRecord(fixture.record, fixture.artifacts)
+                        .toCompletableFuture()
+                        .join()
+                        .disposition());
+        assertEquals(1, calls.get());
+    }
+
     @Test
     void productionCompositionBindsOneWorkerPhysicalAdmissionPool() throws Exception {
         assertFalse(Modifier.isPublic(BoundedDestinationPublishAdapter.class
@@ -565,6 +620,51 @@ class BoundedDestinationPublishAdapterTest {
     private static DestinationLaneId lane(final String seed) {
         return DestinationLaneId.derive(Bytes.utf8(seed));
     }
+
+    private static PreparedFixture preparedFixture() {
+        final ShardId shard = new ShardId(RouteIncarnation.random(), 1);
+        final DelayMessageId messageId = DelayMessageId.random(shard);
+        final byte[] attemptId = Bytes.sha256(Bytes.utf8("prepared-attempt"));
+        final ReservedPublishMetadata reserved = new ReservedPublishMetadata(
+                shard.routeIncarnation(),
+                shard.unsignedPartition(),
+                messageId,
+                1,
+                attemptId,
+                Bytes.sha256(Bytes.utf8("destination")),
+                Bytes.sha256(Bytes.utf8("capability")),
+                2_000,
+                DeliveryMode.MANAGED);
+        final ArtifactGenerationSet artifacts =
+                ArtifactGenerationSet.current(1, PulsarSourceLock.digest(), Bytes.sha256(Bytes.utf8("schema")));
+        final PulsarRecordTemplate template = new PulsarRecordTemplate(
+                BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
+                        "cluster", Bytes.sha256(Bytes.utf8("resource")), "persistent://public/default/target", 1)),
+                0,
+                PulsarKey.none(),
+                null,
+                List.of(),
+                null,
+                reserved,
+                DeliveryContract.NEREUS_MANAGED_NOT_BEFORE,
+                null,
+                PayloadForPublish.inline(Bytes.utf8("payload")),
+                artifacts.setDigest());
+        final byte[] preparedHash = Bytes.sha256(Bytes.utf8("prepared"));
+        final PulsarPreparedRecord record = new PulsarPreparedRecord(
+                template,
+                template.recordTemplateHash(),
+                ResolvedPayload.of(Bytes.utf8("payload")),
+                PulsarSequenceAuthority.managedJournal(
+                        Bytes.sha256(Bytes.utf8("mapping")), 1, Bytes.sha256(Bytes.utf8("producer"))),
+                ExternalDeliveryIdentity.publishAttempt(attemptId),
+                preparedHash,
+                PulsarReservedProperties.all(reserved, attemptId, preparedHash),
+                artifacts.setDigest());
+        return new PreparedFixture(record, artifacts);
+    }
+
+    private record PreparedFixture(PulsarPreparedRecord record, ArtifactGenerationSet artifacts) {}
 
     private static final class RegistrationFailureFuture<T> extends CompletableFuture<T> {
         @Override

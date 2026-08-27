@@ -33,7 +33,7 @@ public final class ProfileSemanticEnvelope {
         }
         this.version = version;
         this.body = Objects.requireNonNull(body, "body");
-        if (body.profileKind() != profileKind || body.schemaVersion() != BODY_SCHEMA_VERSION) {
+        if (body.profileKind() != profileKind || body.schemaVersion() != bodySchemaVersion(profileKind)) {
             throw new IllegalArgumentException("Profile kind/body schema branch mismatch");
         }
         this.semanticHash = computeSemanticHash();
@@ -82,7 +82,7 @@ public final class ProfileSemanticEnvelope {
             CanonicalProtobuf.uint32(output, 2, profileKind.wireValue());
             CanonicalProtobuf.bytes(output, 3, profileId);
             CanonicalProtobuf.uint64Bits(output, 4, version);
-            CanonicalProtobuf.uint32(output, 5, BODY_SCHEMA_VERSION);
+            CanonicalProtobuf.uint32(output, 5, body.schemaVersion());
             CanonicalProtobuf.bytes(output, branchNumber(profileKind), body.canonicalBytes());
             CanonicalProtobuf.bytes(output, 20, semanticHash);
         });
@@ -101,11 +101,13 @@ public final class ProfileSemanticEnvelope {
         if (fields.get(6).number() != 20) {
             throw new IllegalArgumentException("ProfileSemanticEnvelope semantic hash field is missing");
         }
-        if (QueryCodecSupport.uint(fields.get(0), 1) != ENVELOPE_VERSION
-                || QueryCodecSupport.uint(fields.get(4), 5) != BODY_SCHEMA_VERSION) {
+        if (QueryCodecSupport.uint(fields.get(0), 1) != ENVELOPE_VERSION) {
             throw new IllegalArgumentException("unsupported ProfileSemanticEnvelope version");
         }
         final ProfileKind kind = ProfileKind.fromWire(QueryCodecSupport.uint(fields.get(1), 2));
+        if (QueryCodecSupport.uint(fields.get(4), 5) != bodySchemaVersion(kind)) {
+            throw new IllegalArgumentException("unsupported ProfileSemanticEnvelope body schema version");
+        }
         final int branch = branchNumber(kind);
         if (fields.get(5).number() != branch) {
             throw new IllegalArgumentException("Profile semantic branch does not match kind");
@@ -142,7 +144,7 @@ public final class ProfileSemanticEnvelope {
                 Bytes.u16be(profileKind.wireValue()),
                 Bytes.lp32(profileId),
                 Bytes.u64beBits(version),
-                Bytes.u32be(BODY_SCHEMA_VERSION),
+                Bytes.u32be(body.schemaVersion()),
                 Bytes.lp32(body.canonicalBytes()));
     }
 
@@ -162,6 +164,10 @@ public final class ProfileSemanticEnvelope {
             case OBJECT_STORE -> 12;
             case EVIDENCE_VERIFIER -> 13;
         };
+    }
+
+    private static int bodySchemaVersion(final ProfileKind kind) {
+        return kind == ProfileKind.DESTINATION ? DestinationProfileSemantic.SCHEMA_VERSION : BODY_SCHEMA_VERSION;
     }
 
     private static byte[] boundedId(final byte[] value) {

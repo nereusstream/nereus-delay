@@ -1,5 +1,6 @@
 package com.nereusstream.delay.runtime;
 
+import com.nereusstream.delay.assessment.DataResetActivationGate;
 import com.nereusstream.delay.ownership.ControlTargetRegistrationAuthority;
 import com.nereusstream.delay.protocol.ActiveLaneState;
 import com.nereusstream.delay.protocol.ApplyShardControlBody;
@@ -39,6 +40,7 @@ import com.nereusstream.delay.protocol.LaneRecordEnvelope;
 import com.nereusstream.delay.protocol.LaneRetirementProgress;
 import com.nereusstream.delay.protocol.LaneTerminalGuard;
 import com.nereusstream.delay.protocol.LargeScheduleIntent;
+import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
 import com.nereusstream.delay.protocol.ObjectStoreProfileSemantic;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PayloadCommitProofView;
@@ -160,6 +162,8 @@ public final class DelayShard {
     private final SloObjective commandAppliedSloObjective;
     /** Optional ALL_ACCEPTED due-admission objective for source Admission turns. */
     private final SloObjective dueAdmissionSloObjective;
+    /** Optional exact H6 barrier for generation-bound source activation. */
+    private final DataResetActivationGate dataResetActivationGate;
 
     private final SloObservationOutboxStore sloObservationOutboxStore;
     private PayloadProofTrustSetControlState payloadProofTrustSetControlState;
@@ -414,6 +418,37 @@ public final class DelayShard {
             final SloObjective commandAppliedSloObjective,
             final SloObjective dueAdmissionSloObjective,
             final SloObservationOutboxLimits sloObservationOutboxLimits) {
+        this(
+                store,
+                config,
+                payloadProofTrustSet,
+                capacityEnvelope,
+                scheduleResolver,
+                payloadProofTrustSetControlCatalog,
+                retryPolicyCatalog,
+                controlTargetRegistrationAuthority,
+                profileCatalog,
+                commandAppliedSloObjective,
+                dueAdmissionSloObjective,
+                sloObservationOutboxLimits,
+                null);
+    }
+
+    /** Full constructor with an optional signed H6 DataResetManifest gate. */
+    public DelayShard(
+            final ShardStore store,
+            final DelayShardConfig config,
+            final PayloadProofTrustSet payloadProofTrustSet,
+            final ShardCapacityEnvelope capacityEnvelope,
+            final ScheduleResolver scheduleResolver,
+            final PayloadProofTrustSetControlCatalog payloadProofTrustSetControlCatalog,
+            final RetryPolicyCatalog retryPolicyCatalog,
+            final ControlTargetRegistrationAuthority controlTargetRegistrationAuthority,
+            final ProfileCatalog profileCatalog,
+            final SloObjective commandAppliedSloObjective,
+            final SloObjective dueAdmissionSloObjective,
+            final SloObservationOutboxLimits sloObservationOutboxLimits,
+            final DataResetActivationGate dataResetActivationGate) {
         this.store = Objects.requireNonNull(store, "store");
         this.config = Objects.requireNonNull(config, "config");
         this.payloadProofTrustSet = payloadProofTrustSet;
@@ -432,6 +467,7 @@ public final class DelayShard {
         }
         this.commandAppliedSloObjective = commandAppliedSloObjective;
         this.dueAdmissionSloObjective = dueAdmissionSloObjective;
+        this.dataResetActivationGate = dataResetActivationGate;
         this.sloObservationOutboxStore = commandAppliedSloObjective == null
                         && dueAdmissionSloObjective == null
                         && sloObservationOutboxLimits == null
@@ -1322,7 +1358,10 @@ public final class DelayShard {
                 intent.adapterMetadata(),
                 current.deliverAtEpochMs(),
                 current.expireAtEpochMs(),
-                timeline.actionAtEpochMs());
+                timeline.actionAtEpochMs(),
+                intent.nativeDeliveryPolicy(),
+                intent.eventTimeEpochMs(),
+                null);
         requireClaimMaterializationMatchesMessage(exactMessageId, current, materialization);
         return materialization;
     }
@@ -1521,7 +1560,7 @@ public final class DelayShard {
                 materialization,
                 claimedCharge,
                 workKind);
-        MessageRecord next = new MessageRecord(
+        MessageRecord next = MessageRecord.current(
                 MessageStatus.CLAIMED,
                 current.generation(),
                 Math.addExact(current.stateVersion(), 1),
@@ -1711,7 +1750,7 @@ public final class DelayShard {
      */
     private MessageRecord restoreClaimedMessageToTimeline(
             final ClaimRecord claim, final MessageRecord current, final TimelineWorkKind workKind) {
-        MessageRecord next = new MessageRecord(
+        MessageRecord next = MessageRecord.current(
                 MessageStatus.SCHEDULED,
                 current.generation(),
                 Math.addExact(current.stateVersion(), 1),
@@ -2494,6 +2533,22 @@ public final class DelayShard {
             return persistSystemResult(
                     mutation, sourcePosition, ApplyStatus.REJECTED, StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
         }
+        if (payload.isCurrentGeneration()) {
+            if (dataResetActivationGate == null) {
+                return persistSystemResult(
+                        mutation, sourcePosition, ApplyStatus.REJECTED, StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+            }
+            try {
+                dataResetActivationGate.requireSourceApply(
+                        payload.tuple(),
+                        payload.artifactGenerationSet(),
+                        payload.manifestDigest(),
+                        sourcePosition.brokerPersistenceTimeEpochMs());
+            } catch (IllegalArgumentException | IllegalStateException rejected) {
+                return persistSystemResult(
+                        mutation, sourcePosition, ApplyStatus.REJECTED, StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+            }
+        }
         final ProtocolActivationState current = protocolActivationState;
         if (current != null) {
             final ProtocolActivationState.Activation existing = current.activation(payload.tuple());
@@ -2505,18 +2560,34 @@ public final class DelayShard {
                     return persistSystemResult(
                             mutation, sourcePosition, ApplyStatus.REJECTED, StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
                 }
+                if (existing.isCurrentGeneration() != payload.isCurrentGeneration()
+                        || (payload.isCurrentGeneration()
+                                && (!existing.artifactGenerationSet().equals(payload.artifactGenerationSet())
+                                        || !Arrays.equals(existing.manifestDigest(), payload.manifestDigest())))) {
+                    return persistSystemResult(
+                            mutation, sourcePosition, ApplyStatus.REJECTED, StableCode.UNAUTHORIZED_SYSTEM_MUTATION);
+                }
                 return persistSystemResult(
                         mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.STALE_SYSTEM_MUTATION);
             }
         }
         final ProtocolActivationState base =
                 current == null ? new ProtocolActivationState(new ShardSubject(store.shardId()), List.of()) : current;
-        final ProtocolActivationState next = base.activate(
-                payload.tuple(),
-                payload.canonicalSchemaHash(),
-                payload.compatibleReaderSetEvidenceHash(),
-                sourcePosition,
-                mutation.systemMutationId());
+        final ProtocolActivationState next = payload.isCurrentGeneration()
+                ? base.activate(
+                        payload.tuple(),
+                        payload.canonicalSchemaHash(),
+                        payload.compatibleReaderSetEvidenceHash(),
+                        payload.artifactGenerationSet(),
+                        payload.manifestDigest(),
+                        sourcePosition,
+                        mutation.systemMutationId())
+                : base.activate(
+                        payload.tuple(),
+                        payload.canonicalSchemaHash(),
+                        payload.compatibleReaderSetEvidenceHash(),
+                        sourcePosition,
+                        mutation.systemMutationId());
         final SystemMutationResult result = SystemMutationResult.from(
                 mutation, ApplyStatus.APPLIED, StableCode.OK, sourcePosition.canonicalBytes());
         store.write(batch -> {
@@ -2978,7 +3049,7 @@ public final class DelayShard {
                 throw new IllegalStateException("closed Claim does not match current message");
             }
             final long nextStateVersion = Math.addExact(current.stateVersion(), 1);
-            final MessageRecord terminalMessage = new MessageRecord(
+            final MessageRecord terminalMessage = MessageRecord.current(
                             MessageStatus.DEAD_LETTER,
                             current.generation(),
                             nextStateVersion,
@@ -3312,7 +3383,7 @@ public final class DelayShard {
             if (claim != null) {
                 next = restoreClaimedMessageToTimeline(claim, current, workKind);
             } else {
-                next = new MessageRecord(
+                next = MessageRecord.current(
                         MessageStatus.SCHEDULED,
                         current.generation(),
                         Math.addExact(current.stateVersion(), 1),
@@ -3895,7 +3966,7 @@ public final class DelayShard {
         if (retryAt >= current.expireAtEpochMs()) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
         }
-        MessageRecord scheduled = new MessageRecord(
+        MessageRecord scheduled = MessageRecord.current(
                 MessageStatus.SCHEDULED,
                 current.generation(),
                 Math.addExact(current.stateVersion(), 1),
@@ -4181,7 +4252,7 @@ public final class DelayShard {
         }
         final long nextStateVersion =
                 nextStatus == current.status() ? current.stateVersion() : Math.addExact(current.stateVersion(), 1);
-        final MessageRecord next = new MessageRecord(
+        final MessageRecord next = MessageRecord.current(
                         nextStatus,
                         current.generation(),
                         nextStateVersion,
@@ -4251,7 +4322,7 @@ public final class DelayShard {
                 index.uncertainRetryAdmissionsUsed(),
                 index.possibleDestinationDuplicate(),
                 Math.addExact(index.runtimeRevision(), 1));
-        final MessageRecord next = new MessageRecord(
+        final MessageRecord next = MessageRecord.current(
                         current.status(),
                         current.generation(),
                         current.stateVersion(),
@@ -4328,7 +4399,7 @@ public final class DelayShard {
         final int candidateAttemptNo = index.currentWorkKind() == CurrentSendWorkKind.TIMELINE
                 ? index.timeline().candidateAttemptNo()
                 : Math.addExact(index.admissionsUsed(), 1);
-        final MessageRecord scheduled = new MessageRecord(
+        final MessageRecord scheduled = MessageRecord.current(
                 MessageStatus.SCHEDULED,
                 current.generation(),
                 Math.addExact(current.stateVersion(), 1),
@@ -4428,7 +4499,7 @@ public final class DelayShard {
                 GenerationAggregateState.fromMessageStatus(terminalStatus), remaining,
                 current.runtimeIndex().admissionsUsed(), current.runtimeIndex().uncertainRetryAdmissionsUsed(),
                 current.runtimeIndex().possibleDestinationDuplicate(), Math.addExact(current.stateVersion(), 1));
-        final MessageRecord terminalMessage = new MessageRecord(
+        final MessageRecord terminalMessage = MessageRecord.current(
                         terminalStatus,
                         current.generation(),
                         Math.addExact(current.stateVersion(), 1),
@@ -4593,7 +4664,7 @@ public final class DelayShard {
                 || !ledger.laneId().equals(body.laneId())) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.STALE_SYSTEM_MUTATION);
         }
-        final MessageRecord terminalMessage = new MessageRecord(
+        final MessageRecord terminalMessage = MessageRecord.current(
                         MessageStatus.DEAD_LETTER,
                         current.generation(),
                         Math.addExact(current.stateVersion(), 1),
@@ -4749,7 +4820,7 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.STALE_SYSTEM_MUTATION);
         }
         final long actionAt = actionAtFor(body.messageId(), current, body.deliverAtEpochMs());
-        MessageRecord next = new MessageRecord(
+        MessageRecord next = MessageRecord.current(
                 MessageStatus.SCHEDULED,
                 nextGeneration,
                 Math.addExact(current.stateVersion(), 1),
@@ -4911,7 +4982,7 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.STALE_SYSTEM_MUTATION);
         }
 
-        MessageRecord terminalMessage = new MessageRecord(
+        MessageRecord terminalMessage = MessageRecord.current(
                 MessageStatus.DEAD_LETTER,
                 current.generation(),
                 Math.addExact(current.stateVersion(), 1),
@@ -5600,7 +5671,7 @@ public final class DelayShard {
                         sourcePosition.canonicalBytes())
                 : systemResult;
         if (outcome.disposition() == 2 || closedAfterAdmission) {
-            MessageRecord terminalMessage = new MessageRecord(
+            MessageRecord terminalMessage = MessageRecord.current(
                     MessageStatus.DEAD_LETTER,
                     current.generation(),
                     Math.addExact(current.stateVersion(), 1),
@@ -5690,7 +5761,7 @@ public final class DelayShard {
         if (retryAt >= current.expireAtEpochMs()) {
             return persistSystemResultByResult(systemResult, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
         }
-        MessageRecord scheduled = new MessageRecord(
+        MessageRecord scheduled = MessageRecord.current(
                 MessageStatus.SCHEDULED,
                 current.generation(),
                 Math.addExact(current.stateVersion(), 1),
@@ -5830,7 +5901,7 @@ public final class DelayShard {
         if (current.status() == MessageStatus.CLAIMED && claim == null) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED, StableCode.INTEGRITY_ERROR);
         }
-        MessageRecord next = new MessageRecord(
+        MessageRecord next = MessageRecord.current(
                 MessageStatus.EXPIRED,
                 current.generation(),
                 Math.addExact(current.stateVersion(), 1),
@@ -6556,7 +6627,7 @@ public final class DelayShard {
         validatePersistedRetryWindow(admission, current, lane, sourcePosition);
         final List<AttemptObligationRef> obligations =
                 withObligation(current.runtimeIndex(), admission.obligationRef());
-        MessageRecord next = new MessageRecord(
+        MessageRecord next = MessageRecord.current(
                 MessageStatus.PUBLISHING,
                 current.generation(),
                 Math.addExact(current.stateVersion(), 1),
@@ -6820,7 +6891,7 @@ public final class DelayShard {
                 currentLedger.withUnknownOutcome(canonicalOutcome, evidence, sourcePosition.canonicalBytes());
         final List<AttemptObligationRef> nextObligations =
                 withObligation(current.runtimeIndex(), nextLedger.obligationRef());
-        MessageRecord next = new MessageRecord(
+        MessageRecord next = MessageRecord.current(
                 scheduleUncertainRetry ? MessageStatus.SCHEDULED : MessageStatus.UNCERTAIN,
                 current.generation(),
                 Math.addExact(current.stateVersion(), 1),
@@ -6983,7 +7054,7 @@ public final class DelayShard {
         if (current.status() != expectedMessageStatus) {
             throw new IllegalStateException("published outcome is stale for the current message");
         }
-        MessageRecord next = new MessageRecord(
+        MessageRecord next = MessageRecord.current(
                 terminalStatus,
                 current.generation(),
                 Math.addExact(current.stateVersion(), 1),
@@ -7087,7 +7158,7 @@ public final class DelayShard {
                     current.runtimeIndex().uncertainRetryAdmissionsUsed(),
                     duplicate,
                     Math.addExact(current.runtimeIndex().runtimeRevision(), 1));
-            final MessageRecord next = new MessageRecord(
+            final MessageRecord next = MessageRecord.current(
                             current.status(),
                             current.generation(),
                             current.stateVersion(),
@@ -7143,7 +7214,7 @@ public final class DelayShard {
             throw new IllegalStateException("unsupported current work for uncertain success");
         }
 
-        final MessageRecord next = new MessageRecord(
+        final MessageRecord next = MessageRecord.current(
                         terminalStatus,
                         current.generation(),
                         Math.addExact(current.stateVersion(), 1),
@@ -7246,7 +7317,7 @@ public final class DelayShard {
         final List<AttemptObligationRef> remaining =
                 withoutObligation(current.runtimeIndex(), ledger.publishAttemptId());
         final boolean duplicate = current.runtimeIndex().possibleDestinationDuplicate() || verifiedPublished;
-        final MessageRecord next = new MessageRecord(
+        final MessageRecord next = MessageRecord.current(
                         current.status(),
                         current.generation(),
                         current.stateVersion(),
@@ -8383,7 +8454,8 @@ public final class DelayShard {
                     direct.laneId(),
                     direct.orderingMode(),
                     direct.payload(),
-                    null);
+                    null,
+                    NativeDeliveryPolicy.FORBID);
         }
         final ScheduleCommandBody body = CommandBodies.decodeSchedule(command.canonicalBody());
         requireBodyIdentity(command, body.delayMessageId(), body.retryUntilEpochMs());
@@ -8409,7 +8481,8 @@ public final class DelayShard {
                 resolved.laneId(),
                 body.intent().orderingMode(),
                 resolved.inlinePayload() == null ? new byte[0] : resolved.inlinePayload(),
-                resolved.payloadReference());
+                resolved.payloadReference(),
+                body.intent().nativeDeliveryPolicy());
     }
 
     private ScheduleResolver requireScheduleResolver() {
@@ -8678,7 +8751,7 @@ public final class DelayShard {
                 proof.proofId());
         final long actionAt = actionAtFor(
                 command.delayMessageId(),
-                new MessageRecord(
+                MessageRecord.current(
                         MessageStatus.SCHEDULED,
                         0,
                         1,
@@ -8690,7 +8763,7 @@ public final class DelayShard {
                         sourcePosition.canonicalBytes(),
                         reference),
                 reservation.intent().deliverAtEpochMs());
-        final MessageRecord message = new MessageRecord(
+        final MessageRecord message = MessageRecord.current(
                 MessageStatus.SCHEDULED,
                 0,
                 1,
@@ -8815,14 +8888,18 @@ public final class DelayShard {
                 || intent.payload().length > config.maxPendingBytes() - accountedBytes) {
             return rejected(StableCode.HARD_QUOTA_EXCEEDED, sourcePosition, -1, 0, null);
         }
-        final MessageRecord message = new MessageRecord(
+        final MessageRecord message = MessageRecord.current(
                 MessageStatus.SCHEDULED,
                 0,
                 1,
                 intent.deliverAtEpochMs(),
                 intent.expireAtEpochMs(),
+                intent.nativeDeliveryPolicy() == NativeDeliveryPolicy.FORBID
+                        ? intent.deliverAtEpochMs()
+                        : intent.actionAtEpochMs(),
                 intent.laneId(),
                 intent.orderingMode(),
+                intent.nativeDeliveryPolicy(),
                 intent.payload(),
                 sourcePosition.canonicalBytes(),
                 intent.payloadReference(),
@@ -8942,7 +9019,7 @@ public final class DelayShard {
                 applied(
                         StableCode.CANCELED,
                         sourcePosition,
-                        new MessageRecord(
+                        MessageRecord.current(
                                 MessageStatus.CANCELED,
                                 existing.generation(),
                                 Math.incrementExact(existing.stateVersion()),
@@ -8996,7 +9073,7 @@ public final class DelayShard {
         }
         validateWindow(
                 request.deliverAtEpochMs(), request.expireAtEpochMs(), sourcePosition.brokerPersistenceTimeEpochMs());
-        final MessageRecord replacement = new MessageRecord(
+        final MessageRecord replacement = MessageRecord.current(
                 MessageStatus.SCHEDULED,
                 UnsignedInt32.successor(existing.generation()),
                 Math.incrementExact(existing.stateVersion()),
@@ -10036,14 +10113,18 @@ public final class DelayShard {
                     yield null;
                 }
                 final var intent = decodeScheduleApplication(command, position);
-                yield new MessageRecord(
+                yield MessageRecord.current(
                         MessageStatus.SCHEDULED,
                         0,
                         1,
                         intent.deliverAtEpochMs(),
                         intent.expireAtEpochMs(),
+                        intent.nativeDeliveryPolicy() == NativeDeliveryPolicy.FORBID
+                                ? intent.deliverAtEpochMs()
+                                : intent.actionAtEpochMs(),
                         intent.laneId(),
                         intent.orderingMode(),
+                        intent.nativeDeliveryPolicy(),
                         intent.payload(),
                         position.canonicalBytes(),
                         intent.payloadReference(),
@@ -10051,7 +10132,7 @@ public final class DelayShard {
             }
             case CANCEL ->
                 result.stableCode() == StableCode.CANCELED && prior != null
-                        ? new MessageRecord(
+                        ? MessageRecord.current(
                                 MessageStatus.CANCELED,
                                 prior.generation(),
                                 Math.incrementExact(prior.stateVersion()),
@@ -10107,7 +10188,7 @@ public final class DelayShard {
         // otherwise the later persistMutation() normalization would silently
         // erase a certified early handoff on a same-deliverAt Reschedule.
         final long actionAt = actionAtFor(command.delayMessageId(), prior, values.deliverAtEpochMs());
-        return new MessageRecord(
+        return MessageRecord.current(
                 MessageStatus.SCHEDULED,
                 UnsignedInt32.successor(prior.generation()),
                 Math.incrementExact(prior.stateVersion()),
@@ -11321,11 +11402,13 @@ public final class DelayShard {
             com.nereusstream.delay.protocol.DestinationLaneId laneId,
             com.nereusstream.delay.protocol.OrderingMode orderingMode,
             byte[] payload,
-            PayloadReference payloadReference) {
+            PayloadReference payloadReference,
+            NativeDeliveryPolicy nativeDeliveryPolicy) {
         private ScheduleApplication {
             Objects.requireNonNull(laneId, "laneId");
             Objects.requireNonNull(orderingMode, "orderingMode");
             Objects.requireNonNull(payload, "payload");
+            Objects.requireNonNull(nativeDeliveryPolicy, "nativeDeliveryPolicy");
             if (deliverAtEpochMs < 0
                     || expireAtEpochMs < deliverAtEpochMs
                     || actionAtEpochMs < 0
@@ -11334,6 +11417,10 @@ public final class DelayShard {
                 throw new IllegalArgumentException("invalid resolved Schedule projection");
             }
             payload = Bytes.copy(payload);
+            if (nativeDeliveryPolicy != NativeDeliveryPolicy.FORBID
+                    && orderingMode != com.nereusstream.delay.protocol.OrderingMode.BEST_EFFORT) {
+                throw new IllegalArgumentException("native Schedule projection requires BEST_EFFORT ordering");
+            }
         }
 
         @Override

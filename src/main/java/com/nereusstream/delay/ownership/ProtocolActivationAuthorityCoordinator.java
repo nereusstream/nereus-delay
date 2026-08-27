@@ -1,5 +1,6 @@
 package com.nereusstream.delay.ownership;
 
+import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
 import com.nereusstream.delay.protocol.ProtocolCapabilityDeclaration;
@@ -53,10 +54,46 @@ public final class ProtocolActivationAuthorityCoordinator {
         return new EligibleReaderSet(tuple, workerIds, publications, evidenceHash);
     }
 
+    /**
+     * Requires every eligible Worker to advertise one exact current
+     * ArtifactGenerationSet before a generation-bound marker is built.
+     */
+    public EligibleReaderSet requireEligibleReaders(
+            final ProtocolTuple tuple, final ArtifactGenerationSet artifacts, final List<String> eligibleWorkerIds) {
+        Objects.requireNonNull(tuple, "tuple");
+        Objects.requireNonNull(artifacts, "artifacts");
+        final List<String> workerIds = sortedWorkerIds(eligibleWorkerIds);
+        final List<ProtocolCapabilityAuthority.Publication> publications = new ArrayList<>();
+        for (String workerId : workerIds) {
+            final ProtocolCapabilityAuthority.Publication publication = authority
+                    .current(workerId)
+                    .orElseThrow(() -> new IllegalStateException(
+                            "eligible Worker has no current protocol capability: " + workerId));
+            final ProtocolCapabilityDeclaration declaration = publication.declaration();
+            if (!workerId.equals(declaration.workerId())) {
+                throw new IllegalStateException("protocol capability authority returned another Worker");
+            }
+            if (!declaration.isCurrentGeneration() || !declaration.supports(artifacts)) {
+                throw new IllegalStateException(
+                        "eligible Worker does not support the requested ArtifactGenerationSet: " + workerId);
+            }
+            if (!declaration.supports(tuple)) {
+                throw new IllegalStateException(
+                        "eligible Worker does not support the requested protocol tuple: " + workerId);
+            }
+            publications.add(publication);
+        }
+        final byte[] evidenceHash = evidenceHash(tuple, artifacts, publications);
+        return new EligibleReaderSet(tuple, workerIds, publications, evidenceHash);
+    }
+
     /** Verifies a control-plane activation payload against current readers. */
     public EligibleReaderSet authorize(
             final ProtocolVersionActivatePayload payload, final List<String> eligibleWorkerIds) {
         Objects.requireNonNull(payload, "payload");
+        if (payload.isCurrentGeneration()) {
+            return authorize(payload, payload.artifactGenerationSet(), eligibleWorkerIds);
+        }
         final EligibleReaderSet result = requireEligibleReaders(payload.tuple(), eligibleWorkerIds);
         if (!Bytes.constantTimeEquals(payload.compatibleReaderSetEvidenceHash(), result.evidenceHash())) {
             throw new IllegalStateException("activation payload reader-set evidence is stale or forged");
@@ -64,10 +101,48 @@ public final class ProtocolActivationAuthorityCoordinator {
         return result;
     }
 
+    /** Verifies a generation-bound activation payload against current readers. */
+    public EligibleReaderSet authorize(
+            final ProtocolVersionActivatePayload payload,
+            final ArtifactGenerationSet artifacts,
+            final List<String> eligibleWorkerIds) {
+        Objects.requireNonNull(payload, "payload");
+        Objects.requireNonNull(artifacts, "artifacts");
+        if (!payload.isCurrentGeneration() || !payload.artifactGenerationSet().equals(artifacts)) {
+            throw new IllegalStateException("activation payload ArtifactGenerationSet is stale or mixed");
+        }
+        final EligibleReaderSet result = requireEligibleReaders(payload.tuple(), artifacts, eligibleWorkerIds);
+        if (!Bytes.constantTimeEquals(payload.compatibleReaderSetEvidenceHash(), result.evidenceHash())) {
+            throw new IllegalStateException("activation payload reader-set evidence is stale or forged");
+        }
+        return result;
+    }
+
+    /** Reads one exact current declaration for an assignment barrier. */
+    public ProtocolCapabilityDeclaration requireCurrentDeclaration(final String workerId) {
+        final String exactWorkerId = canonicalText(workerId);
+        return authority
+                .current(exactWorkerId)
+                .map(ProtocolCapabilityAuthority.Publication::declaration)
+                .filter(declaration -> exactWorkerId.equals(declaration.workerId()))
+                .orElseThrow(
+                        () -> new IllegalStateException("Worker has no current protocol capability: " + exactWorkerId));
+    }
+
     private static byte[] evidenceHash(
             final ProtocolTuple tuple, final List<ProtocolCapabilityAuthority.Publication> publications) {
+        return evidenceHash(tuple, null, publications);
+    }
+
+    private static byte[] evidenceHash(
+            final ProtocolTuple tuple,
+            final ArtifactGenerationSet artifacts,
+            final List<ProtocolCapabilityAuthority.Publication> publications) {
         final byte[] canonical = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, tuple.canonicalBytes());
+            if (artifacts != null) {
+                CanonicalProtobuf.bytes(output, 2, artifacts.canonicalBytes());
+            }
             for (ProtocolCapabilityAuthority.Publication publication : publications) {
                 final ProtocolCapabilityDeclaration declaration = publication.declaration();
                 final byte[] worker = CanonicalProtobuf.message(workerOutput -> {
@@ -77,7 +152,7 @@ public final class ProtocolActivationAuthorityCoordinator {
                     CanonicalProtobuf.bytes(workerOutput, 3, declaration.declarationDigest());
                     CanonicalProtobuf.bytes(workerOutput, 4, declaration.sessionIdentity());
                 });
-                CanonicalProtobuf.bytes(output, 2, worker);
+                CanonicalProtobuf.bytes(output, artifacts == null ? 2 : 3, worker);
             }
         });
         return Bytes.sha256(EVIDENCE_DOMAIN, canonical);

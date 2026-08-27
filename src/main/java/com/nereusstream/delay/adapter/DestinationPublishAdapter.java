@@ -1,7 +1,10 @@
 package com.nereusstream.delay.adapter;
 
+import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.PulsarPreparedRecord;
 import com.nereusstream.delay.protocol.SourcePosition;
+import com.nereusstream.delay.protocol.StableCode;
 import java.util.Objects;
 import java.util.concurrent.CompletionStage;
 
@@ -22,6 +25,20 @@ public interface DestinationPublishAdapter extends AutoCloseable {
         Objects.requireNonNull(sourcePosition, "sourcePosition");
         Bytes.requireLength(preparedPublishHash, 32, "preparedPublishHash");
         return publish(request);
+    }
+
+    /**
+     * Publishes a current final Pulsar record projection. Adapters that do
+     * not own a source-locked Pulsar record encoder fail closed by default.
+     * The bounded wrapper must use its lane-aware prepared submission method
+     * so this hook cannot bypass physical admission.
+     */
+    default CompletionStage<DestinationPublishResult> publishPreparedRecord(
+            final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts) {
+        Objects.requireNonNull(record, "record");
+        Objects.requireNonNull(artifacts, "artifacts");
+        return java.util.concurrent.CompletableFuture.completedFuture(
+                DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
     }
 
     @Override

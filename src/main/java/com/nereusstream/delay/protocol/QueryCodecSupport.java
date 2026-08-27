@@ -9,17 +9,17 @@ import java.util.Objects;
 import java.util.UUID;
 
 /** Shared strict helpers for the closed public query view codecs. */
-final class QueryCodecSupport {
+public final class QueryCodecSupport {
     private static final int KAFKA_SOURCE_BRANCH = 1;
     private static final int PULSAR_SOURCE_BRANCH = 2;
 
     private QueryCodecSupport() {}
 
-    static List<CanonicalProtobuf.Reader.Field> read(final byte[] encoded, final String name) {
+    public static List<CanonicalProtobuf.Reader.Field> read(final byte[] encoded, final String name) {
         return read(encoded, name, false);
     }
 
-    static List<CanonicalProtobuf.Reader.Field> read(
+    public static List<CanonicalProtobuf.Reader.Field> read(
             final byte[] encoded, final String name, final boolean allowRepeatedFields) {
         Objects.requireNonNull(encoded, name);
         final CanonicalProtobuf.Reader reader = new CanonicalProtobuf.Reader(encoded, allowRepeatedFields);
@@ -33,7 +33,7 @@ final class QueryCodecSupport {
         return fields;
     }
 
-    static void requireNumbers(
+    public static void requireNumbers(
             final List<CanonicalProtobuf.Reader.Field> fields, final int[] expected, final String name) {
         if (fields.size() != expected.length) {
             throw new IllegalArgumentException(name + " has an unexpected field count");
@@ -45,31 +45,31 @@ final class QueryCodecSupport {
         }
     }
 
-    static byte[] nested(final CanonicalProtobuf.Reader.Field field, final int number) {
+    public static byte[] nested(final CanonicalProtobuf.Reader.Field field, final int number) {
         return bytes(field, number);
     }
 
-    static byte[] bytes(final CanonicalProtobuf.Reader.Field field, final int number) {
+    public static byte[] bytes(final CanonicalProtobuf.Reader.Field field, final int number) {
         if (field.number() != number || field.wireType() != 2) {
             throw new IllegalArgumentException("invalid protobuf bytes field " + number);
         }
         return field.rawValue();
     }
 
-    static byte[] fixed(final CanonicalProtobuf.Reader.Field field, final int number, final int length) {
+    public static byte[] fixed(final CanonicalProtobuf.Reader.Field field, final int number, final int length) {
         final byte[] value = bytes(field, number);
         Bytes.requireLength(value, length, "protobuf field " + number);
         return value;
     }
 
-    static long uint(final CanonicalProtobuf.Reader.Field field, final int number) {
+    public static long uint(final CanonicalProtobuf.Reader.Field field, final int number) {
         if (field.number() != number || field.wireType() != 0) {
             throw new IllegalArgumentException("invalid protobuf varint field " + number);
         }
         return field.unsignedValue();
     }
 
-    static int uint32(final CanonicalProtobuf.Reader.Field field, final int number) {
+    public static int uint32(final CanonicalProtobuf.Reader.Field field, final int number) {
         final long value = uint(field, number);
         if (value < 0 || value > Integer.MAX_VALUE) {
             throw new IllegalArgumentException("protobuf uint32 field exceeds local range " + number);
@@ -77,7 +77,7 @@ final class QueryCodecSupport {
         return (int) value;
     }
 
-    static int uint32Bits(final CanonicalProtobuf.Reader.Field field, final int number) {
+    public static int uint32Bits(final CanonicalProtobuf.Reader.Field field, final int number) {
         final long value = uint(field, number);
         if (value < 0 || value > 0xffff_ffffL) {
             throw new IllegalArgumentException("protobuf uint32 field exceeds unsigned range " + number);
@@ -86,14 +86,14 @@ final class QueryCodecSupport {
     }
 
     /** Returns the complete raw bit pattern of a protobuf uint64 field. */
-    static long uint64Bits(final CanonicalProtobuf.Reader.Field field, final int number) {
+    public static long uint64Bits(final CanonicalProtobuf.Reader.Field field, final int number) {
         if (field.number() != number || field.wireType() != 0) {
             throw new IllegalArgumentException("invalid protobuf uint64 field " + number);
         }
         return field.unsignedValue();
     }
 
-    static boolean bool(final CanonicalProtobuf.Reader.Field field, final int number) {
+    public static boolean bool(final CanonicalProtobuf.Reader.Field field, final int number) {
         final long value = uint(field, number);
         if (value < 0 || value > 1) {
             throw new IllegalArgumentException("protobuf bool field is not 0 or 1: " + number);
@@ -101,7 +101,8 @@ final class QueryCodecSupport {
         return value == 1;
     }
 
-    static CanonicalProtobuf.Reader.Field field(final List<CanonicalProtobuf.Reader.Field> fields, final int number) {
+    public static CanonicalProtobuf.Reader.Field field(
+            final List<CanonicalProtobuf.Reader.Field> fields, final int number) {
         for (CanonicalProtobuf.Reader.Field field : fields) {
             if (field.number() == number) {
                 return field;
@@ -110,7 +111,7 @@ final class QueryCodecSupport {
         throw new IllegalArgumentException("missing protobuf field " + number);
     }
 
-    static CanonicalProtobuf.Reader.Field optional(
+    public static CanonicalProtobuf.Reader.Field optional(
             final List<CanonicalProtobuf.Reader.Field> fields, final int number) {
         for (CanonicalProtobuf.Reader.Field field : fields) {
             if (field.number() == number) {
@@ -120,7 +121,7 @@ final class QueryCodecSupport {
         return null;
     }
 
-    static void requireCanonical(final byte[] encoded, final byte[] canonical, final String name) {
+    public static void requireCanonical(final byte[] encoded, final byte[] canonical, final String name) {
         if (!Arrays.equals(encoded, canonical)) {
             throw new IllegalArgumentException("non-canonical " + name);
         }

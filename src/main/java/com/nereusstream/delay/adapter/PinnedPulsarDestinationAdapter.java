@@ -1,7 +1,9 @@
 package com.nereusstream.delay.adapter;
 
+import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.PulsarPreparedRecord;
 import com.nereusstream.delay.protocol.SourcePosition;
 import com.nereusstream.delay.protocol.StableCode;
 import java.util.Objects;
@@ -13,6 +15,7 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
     private final PulsarTargetResource resource;
     private final PulsarDestinationTransport transport;
     private final PulsarDestinationTimingPolicy timingPolicy;
+    private final boolean nativePreparedDeliveryEnabled;
     private final CloseGuard closeGuard = new CloseGuard();
 
     public PinnedPulsarDestinationAdapter(
@@ -29,9 +32,23 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
             final PulsarTargetResource resource,
             final PulsarDestinationTransport transport,
             final PulsarDestinationTimingPolicy timingPolicy) {
+        this(resource, transport, timingPolicy, false);
+    }
+
+    /**
+     * Creates an adapter with an explicit activation bit for the native
+     * prepared-record path. The default constructors keep H0 fail-closed;
+     * only H6 activation may supply {@code true}.
+     */
+    public PinnedPulsarDestinationAdapter(
+            final PulsarTargetResource resource,
+            final PulsarDestinationTransport transport,
+            final PulsarDestinationTimingPolicy timingPolicy,
+            final boolean nativePreparedDeliveryEnabled) {
         this.resource = Objects.requireNonNull(resource, "resource");
         this.transport = Objects.requireNonNull(transport, "transport");
         this.timingPolicy = Objects.requireNonNull(timingPolicy, "timingPolicy");
+        this.nativePreparedDeliveryEnabled = nativePreparedDeliveryEnabled;
     }
 
     @Override
@@ -52,6 +69,20 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
         Bytes.requireLength(preparedPublishHash, 32, "preparedPublishHash");
         return closeGuard.invokeIfOpen(
                 () -> publishOpen(request, sourcePosition, preparedPublishHash),
+                () -> completed(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null)));
+    }
+
+    /**
+     * Sends a final prepared record only through a transport that explicitly
+     * implements the current record projection. Native records remain blocked
+     * unless the H6 activation bit was supplied at construction time.
+     */
+    public CompletionStage<DestinationPublishResult> publishPreparedRecord(
+            final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts) {
+        Objects.requireNonNull(record, "record");
+        Objects.requireNonNull(artifacts, "artifacts");
+        return closeGuard.invokeIfOpen(
+                () -> publishPreparedRecordOpen(record, artifacts),
                 () -> completed(DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null)));
     }
 
@@ -128,6 +159,40 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
         }
     }
 
+    private CompletionStage<DestinationPublishResult> publishPreparedRecordOpen(
+            final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts) {
+        final BrokerResourceIdentity target = record.template().targetResource();
+        if (target.kind() != BrokerResourceIdentity.Kind.PULSAR
+                || !resource.authenticatedClusterId().equals(target.pulsar().authenticatedClusterId())
+                || !java.util.Arrays.equals(
+                        resource.resourceIncarnation(), target.pulsar().resourceIncarnation())
+                || !resource.physicalTopic().equals(target.pulsar().physicalTopic())
+                || resource.physicalTopicCreationTimestamp() != target.pulsar().physicalTopicCreationTimestamp()
+                || record.template().physicalPartition() != resource.partition()) {
+            return completed(
+                    DestinationPublishResult.definitelyNotPublished(StableCode.PREPARED_SUBMISSION_MISMATCH, null));
+        }
+        if (record.template().deliveryContract().isNative() && !nativePreparedDeliveryEnabled) {
+            return completed(DestinationPublishResult.definitelyNotPublished(StableCode.CAPABILITY_UNAVAILABLE, null));
+        }
+        final CompletionStage<DestinationPublishResult> result;
+        try {
+            result = transport.publishPreparedRecord(record, artifacts);
+        } catch (RuntimeException exception) {
+            return UnobservedDestinationPublishStage.unknown();
+        }
+        if (result == null) {
+            return UnobservedDestinationPublishStage.unknown();
+        }
+        try {
+            return result.handle((value, error) -> error == null && value != null
+                    ? validate(value)
+                    : DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
+        } catch (RuntimeException registrationFailure) {
+            return UnobservedDestinationPublishStage.unknown();
+        }
+    }
+
     @Override
     public void close() {
         closeGuard.close(transport::close);
@@ -159,6 +224,15 @@ public final class PinnedPulsarDestinationAdapter implements DestinationPublishA
     @FunctionalInterface
     public interface PulsarDestinationTransport extends AutoCloseable {
         CompletionStage<DestinationPublishResult> publish(PulsarDestinationRequest request);
+
+        /** Current final-record hook; legacy transports fail closed by default. */
+        default CompletionStage<DestinationPublishResult> publishPreparedRecord(
+                final PulsarPreparedRecord record, final ArtifactGenerationSet artifacts) {
+            Objects.requireNonNull(record, "record");
+            Objects.requireNonNull(artifacts, "artifacts");
+            return CompletableFuture.completedFuture(
+                    DestinationPublishResult.unknown(StableCode.CAPABILITY_UNAVAILABLE, null));
+        }
 
         /** Source-bound transport hook; legacy transports use the request-only path. */
         default CompletionStage<DestinationPublishResult> publish(

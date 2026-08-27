@@ -69,17 +69,30 @@ public final class NativeCapabilitySnapshotIssuer {
             final int physicalPartition,
             final long brokerDeliverAtEpochMs,
             final TrustedUtcIntervalEvidence issuedAt) {
+        // Reader-only compatibility overload for callers compiled against
+        // the pre-H5 shifted-timestamp API. The supplied Broker timestamp is
+        // intentionally not carried into the current snapshot.
+        if (brokerDeliverAtEpochMs < 0) {
+            throw new IllegalArgumentException("native broker delivery time is invalid");
+        }
+        return issue(context, route, destinationReference, physicalPartition, issuedAt);
+    }
+
+    /** Issues the current native capability without accepting a Broker-clock shift. */
+    public NativePreparationSnapshot issue(
+            final AuthenticatedTenantContext context,
+            final RouteSnapshot route,
+            final ProfileRef destinationReference,
+            final int physicalPartition,
+            final TrustedUtcIntervalEvidence issuedAt) {
         Objects.requireNonNull(context, "context");
         Objects.requireNonNull(route, "route");
         final ProfileRef destinationRef = Objects.requireNonNull(destinationReference, "destinationReference");
         Objects.requireNonNull(issuedAt, "issuedAt");
-        if (physicalPartition < 0 || brokerDeliverAtEpochMs < 0) {
-            throw new IllegalArgumentException("native issuance partition/time is invalid");
+        if (physicalPartition < 0) {
+            throw new IllegalArgumentException("native issuance partition is invalid");
         }
         final RouteSnapshot verifiedRoute = RouteSnapshot.decode(route.canonicalBytes(), routeVerificationKey);
-        if (brokerDeliverAtEpochMs > verifiedRoute.validUntilEpochMs()) {
-            throw new IllegalArgumentException("native broker delivery time exceeds the Route validity");
-        }
         verifiedRoute.requireUsableForNewSchedule(
                 context.authenticatedTenantScopeHash(), context.tenantRoutingScope(), issuedAt.latestEpochMs());
 
@@ -155,7 +168,12 @@ public final class NativeCapabilitySnapshotIssuer {
                 issuerSigningKeyVersion,
                 issuerKey);
         return new NativePreparationSnapshot(
-                destination, capability, guard.target(), physicalPartition, snapshot, brokerDeliverAtEpochMs);
+                destination,
+                capability,
+                guard.target(),
+                physicalPartition,
+                snapshot,
+                (com.nereusstream.delay.protocol.HandoffPolicySnapshot) null);
     }
 
     private ProfileSemanticEnvelope exactProfile(final ProfileRef reference, final ProfileKind expectedKind) {

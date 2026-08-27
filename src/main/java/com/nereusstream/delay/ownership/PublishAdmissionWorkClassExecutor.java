@@ -6,6 +6,7 @@ import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.ChannelResourceIdentity;
 import com.nereusstream.delay.protocol.ClaimMaterialization;
 import com.nereusstream.delay.protocol.ClaimResultBody;
+import com.nereusstream.delay.protocol.DeliveryContract;
 import com.nereusstream.delay.protocol.DeliveryMode;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.PreparedPublishDescriptor;
@@ -156,6 +157,27 @@ public final class PublishAdmissionWorkClassExecutor {
                 materialization.capabilityProfile().semanticHash(),
                 materialization.deliverAtEpochMs(),
                 DeliveryMode.MANAGED);
+        if (materialization.legacyEncoding() || adapterKind == AdapterKind.PULSAR) {
+            return new PreparedPublishDescriptor(
+                    adapterKind,
+                    claim.laneId(),
+                    claim.laneIncarnation(),
+                    materialization.destinationProfile(),
+                    materialization.capabilityProfile(),
+                    materialization.targetResource(),
+                    materialization.physicalPartition(),
+                    channel,
+                    materialization.messageId(),
+                    materialization.generation(),
+                    publishAttemptId,
+                    attemptNo,
+                    materialization.payload(),
+                    materialization.businessMetadata(),
+                    reserved,
+                    materialization.deliverAtEpochMs(),
+                    materialization.expireAtEpochMs(),
+                    materialization.actionAtEpochMs());
+        }
         return new PreparedPublishDescriptor(
                 adapterKind,
                 claim.laneId(),
@@ -174,7 +196,14 @@ public final class PublishAdmissionWorkClassExecutor {
                 reserved,
                 materialization.deliverAtEpochMs(),
                 materialization.expireAtEpochMs(),
-                materialization.actionAtEpochMs());
+                materialization.actionAtEpochMs(),
+                materialization.nativeDeliveryPolicy(),
+                DeliveryContract.NEREUS_MANAGED_NOT_BEFORE,
+                null,
+                materialization.eventTimeEpochMs(),
+                null,
+                null,
+                PreparedPublishDescriptor.legacyArtifactGenerationSetDigest());
     }
 
     private void execute(final Request request, final Submission submission) {

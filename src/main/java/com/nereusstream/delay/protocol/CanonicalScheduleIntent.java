@@ -16,12 +16,14 @@ public final class CanonicalScheduleIntent {
     private final long expireAtEpochMs;
     private final DeliveryMode deliveryMode;
     private final OrderingMode orderingMode;
+    private final NativeDeliveryPolicy nativeDeliveryPolicy;
     private final byte[] orderingKey;
     private final byte[] inlinePayload;
     private final CommittedPayloadDescriptor committedPayload;
     private final AdapterMetadata adapterMetadata;
     private final byte[] businessKey;
     private final Long eventTimeEpochMs;
+    private final boolean legacyPolicyDefault;
 
     private CanonicalScheduleIntent(
             final ProfileRef profile,
@@ -36,7 +38,9 @@ public final class CanonicalScheduleIntent {
             final AdapterMetadata adapterMetadata,
             final byte[] businessKey,
             final Long eventTimeEpochMs,
-            final boolean payloadRequired) {
+            final NativeDeliveryPolicy nativeDeliveryPolicy,
+            final boolean payloadRequired,
+            final boolean legacyPolicyDefault) {
         this.profile = Objects.requireNonNull(profile, "profile");
         if (profile.profileKind() != ProfileKind.DESTINATION) {
             throw new IllegalArgumentException("Schedule profile must have DESTINATION kind");
@@ -52,6 +56,7 @@ public final class CanonicalScheduleIntent {
             throw new IllegalArgumentException("unsupported delivery mode");
         }
         this.orderingMode = Objects.requireNonNull(orderingMode, "orderingMode");
+        this.nativeDeliveryPolicy = Objects.requireNonNull(nativeDeliveryPolicy, "nativeDeliveryPolicy");
         this.orderingKey = Bytes.copy(Objects.requireNonNull(orderingKey, "orderingKey"));
         if ((inlinePayload == null) == (committedPayload == null)
                 && (payloadRequired || inlinePayload != null || committedPayload != null)) {
@@ -60,14 +65,80 @@ public final class CanonicalScheduleIntent {
         this.inlinePayload = inlinePayload == null ? null : Bytes.copy(inlinePayload);
         this.committedPayload = committedPayload;
         this.adapterMetadata = Objects.requireNonNull(adapterMetadata, "adapterMetadata");
+        requireNativePolicyCompatibility(this.nativeDeliveryPolicy, this.orderingMode, this.adapterMetadata);
         this.businessKey = businessKey == null ? null : nonEmpty(businessKey, "businessKey");
         if (eventTimeEpochMs != null && eventTimeEpochMs < 0) {
             throw new IllegalArgumentException("eventTime must be non-negative");
         }
         this.eventTimeEpochMs = eventTimeEpochMs;
+        this.legacyPolicyDefault = legacyPolicyDefault;
     }
 
     /** Creates an ordinary Schedule intent with exactly one payload branch. */
+    public static CanonicalScheduleIntent create(
+            final ProfileRef profile,
+            final RetryPolicyRef retryPolicy,
+            final long deliverAtEpochMs,
+            final long expireAtEpochMs,
+            final DeliveryMode deliveryMode,
+            final OrderingMode orderingMode,
+            final byte[] orderingKey,
+            final byte[] inlinePayload,
+            final CommittedPayloadDescriptor committedPayload,
+            final AdapterMetadata adapterMetadata,
+            final byte[] businessKey,
+            final Long eventTimeEpochMs,
+            final NativeDeliveryPolicy nativeDeliveryPolicy) {
+        return new CanonicalScheduleIntent(
+                profile,
+                retryPolicy,
+                deliverAtEpochMs,
+                expireAtEpochMs,
+                deliveryMode,
+                orderingMode,
+                orderingKey,
+                inlinePayload,
+                committedPayload,
+                adapterMetadata,
+                businessKey,
+                eventTimeEpochMs,
+                nativeDeliveryPolicy,
+                true,
+                false);
+    }
+
+    /** Required-policy overload with the policy adjacent to the ordering contract. */
+    public static CanonicalScheduleIntent create(
+            final ProfileRef profile,
+            final RetryPolicyRef retryPolicy,
+            final long deliverAtEpochMs,
+            final long expireAtEpochMs,
+            final DeliveryMode deliveryMode,
+            final OrderingMode orderingMode,
+            final NativeDeliveryPolicy nativeDeliveryPolicy,
+            final byte[] orderingKey,
+            final byte[] inlinePayload,
+            final CommittedPayloadDescriptor committedPayload,
+            final AdapterMetadata adapterMetadata,
+            final byte[] businessKey,
+            final Long eventTimeEpochMs) {
+        return create(
+                profile,
+                retryPolicy,
+                deliverAtEpochMs,
+                expireAtEpochMs,
+                deliveryMode,
+                orderingMode,
+                orderingKey,
+                inlinePayload,
+                committedPayload,
+                adapterMetadata,
+                businessKey,
+                eventTimeEpochMs,
+                nativeDeliveryPolicy);
+    }
+
+    /** Source migration overload; new writers should pass the explicit policy. */
     public static CanonicalScheduleIntent create(
             final ProfileRef profile,
             final RetryPolicyRef retryPolicy,
@@ -94,10 +165,70 @@ public final class CanonicalScheduleIntent {
                 adapterMetadata,
                 businessKey,
                 eventTimeEpochMs,
+                NativeDeliveryPolicy.FORBID,
+                true,
                 true);
     }
 
     /** Creates the PrepareLargeSchedule form, which deliberately has no payload branch. */
+    public static CanonicalScheduleIntent forPrepare(
+            final ProfileRef profile,
+            final RetryPolicyRef retryPolicy,
+            final long deliverAtEpochMs,
+            final long expireAtEpochMs,
+            final DeliveryMode deliveryMode,
+            final OrderingMode orderingMode,
+            final byte[] orderingKey,
+            final AdapterMetadata adapterMetadata,
+            final byte[] businessKey,
+            final Long eventTimeEpochMs,
+            final NativeDeliveryPolicy nativeDeliveryPolicy) {
+        return new CanonicalScheduleIntent(
+                profile,
+                retryPolicy,
+                deliverAtEpochMs,
+                expireAtEpochMs,
+                deliveryMode,
+                orderingMode,
+                orderingKey,
+                null,
+                null,
+                adapterMetadata,
+                businessKey,
+                eventTimeEpochMs,
+                nativeDeliveryPolicy,
+                false,
+                false);
+    }
+
+    /** Required-policy overload with the policy adjacent to the ordering contract. */
+    public static CanonicalScheduleIntent forPrepare(
+            final ProfileRef profile,
+            final RetryPolicyRef retryPolicy,
+            final long deliverAtEpochMs,
+            final long expireAtEpochMs,
+            final DeliveryMode deliveryMode,
+            final OrderingMode orderingMode,
+            final NativeDeliveryPolicy nativeDeliveryPolicy,
+            final byte[] orderingKey,
+            final AdapterMetadata adapterMetadata,
+            final byte[] businessKey,
+            final Long eventTimeEpochMs) {
+        return forPrepare(
+                profile,
+                retryPolicy,
+                deliverAtEpochMs,
+                expireAtEpochMs,
+                deliveryMode,
+                orderingMode,
+                orderingKey,
+                adapterMetadata,
+                businessKey,
+                eventTimeEpochMs,
+                nativeDeliveryPolicy);
+    }
+
+    /** Source migration overload; new writers should pass the explicit policy. */
     public static CanonicalScheduleIntent forPrepare(
             final ProfileRef profile,
             final RetryPolicyRef retryPolicy,
@@ -122,7 +253,9 @@ public final class CanonicalScheduleIntent {
                 adapterMetadata,
                 businessKey,
                 eventTimeEpochMs,
-                false);
+                NativeDeliveryPolicy.FORBID,
+                false,
+                true);
     }
 
     public ProfileRef profile() {
@@ -147,6 +280,15 @@ public final class CanonicalScheduleIntent {
 
     public OrderingMode orderingMode() {
         return orderingMode;
+    }
+
+    public NativeDeliveryPolicy nativeDeliveryPolicy() {
+        return nativeDeliveryPolicy;
+    }
+
+    /** True only for the source-compatible overload that omitted field 14. */
+    public boolean legacyPolicyDefault() {
+        return legacyPolicyDefault;
     }
 
     public byte[] orderingKey() {
@@ -209,12 +351,15 @@ public final class CanonicalScheduleIntent {
                 CanonicalProtobuf.int64(output, 12, eventTimeEpochMs);
             }
             CanonicalProtobuf.uint32(output, 13, QUOTA_ACCOUNTING_VERSION);
+            if (!legacyPolicyDefault) {
+                CanonicalProtobuf.uint32(output, 14, nativeDeliveryPolicy.wireValue());
+            }
         });
     }
 
     public static CanonicalScheduleIntent decode(final byte[] encoded) {
         final var fields = QueryCodecSupport.read(encoded, "CanonicalScheduleIntent");
-        if (fields.size() < 9 || fields.size() > 13) {
+        if (fields.size() < 9 || fields.size() > 14) {
             throw new IllegalArgumentException("CanonicalScheduleIntent has invalid field count");
         }
         int index = 0;
@@ -243,37 +388,79 @@ public final class CanonicalScheduleIntent {
         }
         if (index >= fields.size()
                 || fields.get(index).number() != 13
-                || QueryCodecSupport.uint(fields.get(index), 13) != QUOTA_ACCOUNTING_VERSION
-                || ++index != fields.size()) {
+                || QueryCodecSupport.uint(fields.get(index), 13) != QUOTA_ACCOUNTING_VERSION) {
             throw new IllegalArgumentException("CanonicalScheduleIntent quota accounting version is invalid");
+        }
+        index++;
+        final boolean legacyPolicyDefault;
+        final NativeDeliveryPolicy nativeDeliveryPolicy;
+        if (index == fields.size()) {
+            // The pre-NDIP shape omitted field 14. It is readable only as a
+            // migration value; all new writers use the explicit field.
+            legacyPolicyDefault = true;
+            nativeDeliveryPolicy = NativeDeliveryPolicy.FORBID;
+        } else {
+            if (fields.get(index).number() != 14 || ++index != fields.size()) {
+                throw new IllegalArgumentException("CanonicalScheduleIntent native delivery policy is invalid");
+            }
+            legacyPolicyDefault = false;
+            nativeDeliveryPolicy = NativeDeliveryPolicy.fromWire(QueryCodecSupport.uint(fields.get(index - 1), 14));
         }
         final CanonicalScheduleIntent result;
         if (inline != null || committed != null) {
-            result = create(
-                    profile,
-                    retry,
-                    deliverAt,
-                    expireAt,
-                    delivery,
-                    ordering,
-                    orderingKey,
-                    inline,
-                    committed,
-                    metadata,
-                    business,
-                    eventTime);
+            result = legacyPolicyDefault
+                    ? create(
+                            profile,
+                            retry,
+                            deliverAt,
+                            expireAt,
+                            delivery,
+                            ordering,
+                            orderingKey,
+                            inline,
+                            committed,
+                            metadata,
+                            business,
+                            eventTime)
+                    : create(
+                            profile,
+                            retry,
+                            deliverAt,
+                            expireAt,
+                            delivery,
+                            ordering,
+                            orderingKey,
+                            inline,
+                            committed,
+                            metadata,
+                            business,
+                            eventTime,
+                            nativeDeliveryPolicy);
         } else {
-            result = forPrepare(
-                    profile,
-                    retry,
-                    deliverAt,
-                    expireAt,
-                    delivery,
-                    ordering,
-                    orderingKey,
-                    metadata,
-                    business,
-                    eventTime);
+            result = legacyPolicyDefault
+                    ? forPrepare(
+                            profile,
+                            retry,
+                            deliverAt,
+                            expireAt,
+                            delivery,
+                            ordering,
+                            orderingKey,
+                            metadata,
+                            business,
+                            eventTime)
+                    : forPrepare(
+                            profile,
+                            retry,
+                            deliverAt,
+                            expireAt,
+                            delivery,
+                            ordering,
+                            orderingKey,
+                            metadata,
+                            business,
+                            eventTime,
+                            nativeDeliveryPolicy);
         }
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "CanonicalScheduleIntent");
         return result;
@@ -287,6 +474,15 @@ public final class CanonicalScheduleIntent {
         return Bytes.copy(value);
     }
 
+    private static void requireNativePolicyCompatibility(
+            final NativeDeliveryPolicy policy, final OrderingMode orderingMode, final AdapterMetadata adapterMetadata) {
+        if (policy != NativeDeliveryPolicy.FORBID
+                && (adapterMetadata.kind() != AdapterMetadata.Kind.PULSAR
+                        || orderingMode != OrderingMode.BEST_EFFORT)) {
+            throw new IllegalArgumentException("native delivery policy requires Pulsar BEST_EFFORT Schedule metadata");
+        }
+    }
+
     @Override
     public boolean equals(final Object other) {
         return other instanceof CanonicalScheduleIntent that
@@ -294,6 +490,7 @@ public final class CanonicalScheduleIntent {
                 && expireAtEpochMs == that.expireAtEpochMs
                 && deliveryMode == that.deliveryMode
                 && orderingMode == that.orderingMode
+                && nativeDeliveryPolicy == that.nativeDeliveryPolicy
                 && profile.equals(that.profile)
                 && retryPolicy.equals(that.retryPolicy)
                 && Arrays.equals(orderingKey, that.orderingKey)
@@ -313,6 +510,7 @@ public final class CanonicalScheduleIntent {
                 expireAtEpochMs,
                 deliveryMode,
                 orderingMode,
+                nativeDeliveryPolicy,
                 Arrays.hashCode(orderingKey),
                 Arrays.hashCode(inlinePayload),
                 committedPayload,

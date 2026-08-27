@@ -10,7 +10,8 @@ public final class ExternalDeliveryIdentity {
 
     public enum Kind {
         PUBLISH_ATTEMPT,
-        DLQ_EXPORT
+        DLQ_EXPORT,
+        NATIVE_DELIVERY
     }
 
     private final Kind kind;
@@ -31,6 +32,10 @@ public final class ExternalDeliveryIdentity {
 
     public static ExternalDeliveryIdentity dlqExport(final byte[] dlqExportId) {
         return new ExternalDeliveryIdentity(Kind.DLQ_EXPORT, dlqExportId);
+    }
+
+    public static ExternalDeliveryIdentity nativeDelivery(final byte[] nativeDeliveryId) {
+        return new ExternalDeliveryIdentity(Kind.NATIVE_DELIVERY, nativeDeliveryId);
     }
 
     public Kind kind() {
@@ -55,18 +60,28 @@ public final class ExternalDeliveryIdentity {
         return identity();
     }
 
+    public byte[] nativeDeliveryId() {
+        if (kind != Kind.NATIVE_DELIVERY) {
+            throw new IllegalStateException("external identity is not a Native Delivery");
+        }
+        return identity();
+    }
+
     public byte[] canonicalBytes() {
-        return CanonicalProtobuf.message(
-                output -> CanonicalProtobuf.bytes(output, kind == Kind.PUBLISH_ATTEMPT ? 1 : 2, identity));
+        return CanonicalProtobuf.message(output -> CanonicalProtobuf.bytes(
+                output, kind == Kind.PUBLISH_ATTEMPT ? 1 : kind == Kind.DLQ_EXPORT ? 2 : 3, identity));
     }
 
     public static ExternalDeliveryIdentity decode(final byte[] encoded) {
         final List<CanonicalProtobuf.Reader.Field> fields = QueryCodecSupport.read(encoded, "ExternalDeliveryIdentity");
-        QueryCodecSupport.requireNumbers(fields, new int[] {fields.get(0).number()}, "ExternalDeliveryIdentity");
+        if (fields.size() != 1) {
+            throw new IllegalArgumentException("ExternalDeliveryIdentity must select one branch");
+        }
         final ExternalDeliveryIdentity result =
                 switch (fields.get(0).number()) {
                     case 1 -> publishAttempt(QueryCodecSupport.fixed(fields.get(0), 1, LENGTH));
                     case 2 -> dlqExport(QueryCodecSupport.fixed(fields.get(0), 2, LENGTH));
+                    case 3 -> nativeDelivery(QueryCodecSupport.fixed(fields.get(0), 3, LENGTH));
                     default -> throw new IllegalArgumentException("unknown ExternalDeliveryIdentity branch");
                 };
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "ExternalDeliveryIdentity");

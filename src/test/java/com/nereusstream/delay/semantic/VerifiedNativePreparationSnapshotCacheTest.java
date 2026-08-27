@@ -14,7 +14,11 @@ import com.nereusstream.delay.protocol.CanonicalScheduleIntent;
 import com.nereusstream.delay.protocol.DeliveryCapabilitySemantic;
 import com.nereusstream.delay.protocol.DeliveryMode;
 import com.nereusstream.delay.protocol.DestinationProfileSemantic;
+import com.nereusstream.delay.protocol.HandoffPath;
+import com.nereusstream.delay.protocol.HandoffPolicyMode;
+import com.nereusstream.delay.protocol.HandoffPolicySnapshot;
 import com.nereusstream.delay.protocol.NativeCapabilitySnapshot;
+import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
 import com.nereusstream.delay.protocol.OrderingMode;
 import com.nereusstream.delay.protocol.OutcomeCapability;
 import com.nereusstream.delay.protocol.ProfileKind;
@@ -159,7 +163,6 @@ class VerifiedNativePreparationSnapshotCacheTest {
                 List.of(),
                 capability.ref(),
                 1,
-                0,
                 20,
                 bytes(32, 40),
                 1024,
@@ -186,7 +189,8 @@ class VerifiedNativePreparationSnapshotCacheTest {
                 null,
                 AdapterMetadata.pulsar(metadata),
                 null,
-                null);
+                null,
+                NativeDeliveryPolicy.ALLOW_AUTO_FAST_AND_MANAGED_HANDOFF);
         final int physicalPartition = (int) TargetPartitionHash.partition(destination.ref(), 2, metadata.orderingKey());
         final TrustedUtcIntervalEvidence nativeIssuedAt = nativeIssuedAt();
         final NativeCapabilitySnapshot capabilitySnapshot = NativeCapabilitySnapshot.create(
@@ -204,8 +208,20 @@ class VerifiedNativePreparationSnapshotCacheTest {
                 900,
                 1,
                 keys.getPrivate());
+        final HandoffPolicySnapshot handoffPolicy = HandoffPolicySnapshot.create(
+                bytes(32, 53),
+                1,
+                HandoffPolicyMode.ENABLED,
+                20,
+                250,
+                900,
+                HandoffPath.AUTO_FAST,
+                nativeIssuedAt,
+                1,
+                bytes(32, 54),
+                keys.getPrivate());
         final NativePreparationSnapshot candidate = new NativePreparationSnapshot(
-                destination, capability, target, physicalPartition, capabilitySnapshot, 420);
+                destination, capability, target, physicalPartition, capabilitySnapshot, handoffPolicy);
         final RouteSnapshot route = route(keys);
         final RouteSelectionHint hint = new RouteSelectionHint(AdapterKind.PULSAR, Bytes.utf8("primary"));
         final com.nereusstream.delay.protocol.ShardId shard =

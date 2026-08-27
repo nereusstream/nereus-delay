@@ -13,6 +13,7 @@ import com.nereusstream.delay.protocol.ChannelResourceIdentity;
 import com.nereusstream.delay.protocol.CredentialUseKind;
 import com.nereusstream.delay.protocol.CredentialUseLease;
 import com.nereusstream.delay.protocol.DelayMessageId;
+import com.nereusstream.delay.protocol.DeliveryContract;
 import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.KafkaSourcePosition;
 import com.nereusstream.delay.protocol.ProfileKind;
@@ -32,6 +33,42 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 
 class PulsarAttemptJournalTest {
+    @Test
+    void currentH3MappingBindsTemplateContractSourceAdmissionAndArtifactWithoutClockShift() {
+        final ShardId shard = shard();
+        final PulsarAttemptJournal.ProducerKey producer = producer();
+        final byte[] source = sourcePosition(shard, 700);
+        final byte[] templateHash = Bytes.sha256(Bytes.utf8("record-template"));
+        final byte[] preparedHash = Bytes.sha256(Bytes.utf8("prepared-current"));
+        final byte[] artifactDigest = Bytes.sha256(Bytes.utf8("artifact-set"));
+        final PulsarAttemptJournal.CurrentAttemptIdentity identity = new PulsarAttemptJournal.CurrentAttemptIdentity(
+                DelayMessageId.random(shard),
+                7,
+                bytes(32, 7),
+                preparedHash,
+                templateHash,
+                DeliveryContract.NEREUS_MANAGED_NOT_BEFORE,
+                source,
+                artifactDigest);
+        final PulsarAttemptJournal.Mapping mapping =
+                PulsarAttemptJournal.Mapping.createCurrent(shard, producer, 0, identity);
+
+        assertTrue(mapping.isCurrentGeneration());
+        assertArrayEquals(templateHash, mapping.recordTemplateHash());
+        assertEquals(DeliveryContract.NEREUS_MANAGED_NOT_BEFORE, mapping.deliveryContract());
+        assertArrayEquals(source, mapping.sourcePosition());
+        assertArrayEquals(artifactDigest, mapping.artifactGenerationSetDigest());
+        assertThrows(IllegalStateException.class, mapping::guardedBrokerTimestampEpochMs);
+
+        final AtomicLong journalEntry = new AtomicLong(700);
+        final PulsarAttemptJournal journal =
+                new PulsarAttemptJournal(shard, request -> position(journalEntry.getAndIncrement()));
+        final PulsarAttemptJournal.AppendResult appended = journal.appendMapped(mapping);
+        assertFalse(appended.idempotent());
+        assertTrue(journal.markOwnershipStarted(mapping).record().kind()
+                == PulsarAttemptJournal.RecordKind.OWNERSHIP_STARTED);
+    }
+
     @Test
     void localAppenderFailsClosedAfterUnsignedEntryExhaustionWithoutWrapping() {
         final ShardId shard = shard();
@@ -93,38 +130,37 @@ class PulsarAttemptJournalTest {
     void h3JournalRequiresOwnershipBeforeSendAndUsesFourStateTransitions() {
         final ShardId shard = shard();
         final AtomicLong entry = new AtomicLong(100);
-        final PulsarAttemptJournal journal = new PulsarAttemptJournal(shard, request -> position(entry.getAndIncrement()));
+        final PulsarAttemptJournal journal =
+                new PulsarAttemptJournal(shard, request -> position(entry.getAndIncrement()));
         final PulsarAttemptJournal.ProducerKey producer = producer();
-        final PulsarAttemptJournal.Mapping mapping = journal.appendNext(producer, identity(shard, 101))
-                .record()
-                .mapping();
+        final PulsarAttemptJournal.Mapping mapping =
+                journal.appendNext(producer, identity(shard, 101)).record().mapping();
 
         assertEquals(PulsarAttemptJournal.AttemptState.MAPPED, journal.state(mapping.mappingId()));
         assertThrows(
                 PulsarAttemptJournal.JournalException.class,
                 () -> journal.sendAfterOwnershipStarted(mapping, ignored -> CompletableFuture.completedFuture("no")));
-        assertThrows(
-                PulsarAttemptJournal.JournalException.class,
-                () -> journal.markPublished(mapping.mappingId()));
+        assertThrows(PulsarAttemptJournal.JournalException.class, () -> journal.markPublished(mapping.mappingId()));
         assertEquals(1, journal.records().size());
 
         final PulsarAttemptJournal.AppendResult ownership = journal.markOwnershipStarted(mapping.mappingId());
-        assertEquals(PulsarAttemptJournal.RecordKind.OWNERSHIP_STARTED, ownership.record().kind());
+        assertEquals(
+                PulsarAttemptJournal.RecordKind.OWNERSHIP_STARTED,
+                ownership.record().kind());
         assertEquals(PulsarAttemptJournal.AttemptState.OWNERSHIP_STARTED, journal.state(mapping.mappingId()));
         assertTrue(journal.markOwnershipStarted(mapping.mappingId()).idempotent());
         assertThrows(
-                PulsarAttemptJournal.JournalException.class,
-                () -> journal.retireNotPublished(mapping.mappingId()));
+                PulsarAttemptJournal.JournalException.class, () -> journal.retireNotPublished(mapping.mappingId()));
 
         assertEquals(
                 "sent",
-                journal.sendAfterOwnershipStarted(
-                                mapping, ignored -> CompletableFuture.completedFuture("sent"))
+                journal.sendAfterOwnershipStarted(mapping, ignored -> CompletableFuture.completedFuture("sent"))
                         .toCompletableFuture()
                         .join());
 
         final PulsarAttemptJournal.AppendResult published = journal.markPublished(mapping.mappingId());
-        assertEquals(PulsarAttemptJournal.RecordKind.PUBLISHED, published.record().kind());
+        assertEquals(
+                PulsarAttemptJournal.RecordKind.PUBLISHED, published.record().kind());
         assertEquals(PulsarAttemptJournal.AttemptState.PUBLISHED, journal.state(mapping.mappingId()));
         assertTrue(journal.markPublished(mapping.mappingId()).idempotent());
         assertTrue(journal.unresolved(producer).isEmpty());
@@ -132,7 +168,8 @@ class PulsarAttemptJournalTest {
                 PulsarAttemptJournal.JournalException.class,
                 () -> journal.sendAfterOwnershipStarted(mapping, ignored -> CompletableFuture.completedFuture("no")));
 
-        final PulsarAttemptJournal.Mapping next = journal.appendNext(producer, identity(shard, 102)).record().mapping();
+        final PulsarAttemptJournal.Mapping next =
+                journal.appendNext(producer, identity(shard, 102)).record().mapping();
         assertEquals(1, next.sequenceId(), "published ownership releases the Producer sequence fence");
     }
 
@@ -142,9 +179,8 @@ class PulsarAttemptJournalTest {
         final AtomicLong entry = new AtomicLong(110);
         final PulsarAttemptJournal source =
                 new PulsarAttemptJournal(shard, request -> position(entry.getAndIncrement()));
-        final PulsarAttemptJournal.Mapping mapping = source.appendNext(producer(), identity(shard, 103))
-                .record()
-                .mapping();
+        final PulsarAttemptJournal.Mapping mapping =
+                source.appendNext(producer(), identity(shard, 103)).record().mapping();
         source.markOwnershipStarted(mapping.mappingId());
         source.markPublished(mapping.mappingId());
 
@@ -162,12 +198,10 @@ class PulsarAttemptJournalTest {
                         .kind());
 
         final PulsarAttemptJournal source2 = new PulsarAttemptJournal(shard, request -> position(300));
-        final PulsarAttemptJournal.Mapping mapping2 = source2.appendNext(producer(), identity(shard, 104))
-                .record()
-                .mapping();
-        final PulsarAttemptJournal.JournalRecord publishedWithoutOwnership =
-                new PulsarAttemptJournal.JournalRecord(
-                        PulsarAttemptJournal.RecordKind.PUBLISHED, mapping2, position(301));
+        final PulsarAttemptJournal.Mapping mapping2 =
+                source2.appendNext(producer(), identity(shard, 104)).record().mapping();
+        final PulsarAttemptJournal.JournalRecord publishedWithoutOwnership = new PulsarAttemptJournal.JournalRecord(
+                PulsarAttemptJournal.RecordKind.PUBLISHED, mapping2, position(301));
         assertThrows(
                 PulsarAttemptJournal.JournalException.class,
                 () -> new PulsarAttemptJournal(shard, request -> position(400)).replay(publishedWithoutOwnership));

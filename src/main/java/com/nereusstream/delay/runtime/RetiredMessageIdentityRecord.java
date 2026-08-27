@@ -23,7 +23,10 @@ public record RetiredMessageIdentityRecord(
         long messageIdentityReuseUntilEpochMs,
         long retirementMutationSequence,
         byte[] appliedSourcePosition) {
-    public static final int VERSION = 5;
+    /** Current discriminator; generation-5 MessageRecord now owns payload version 5. */
+    public static final int VERSION = 6;
+    /** Reader-only discriminator emitted by the pre-generation-5 implementation. */
+    private static final int LEGACY_VERSION = 5;
 
     public RetiredMessageIdentityRecord {
         Objects.requireNonNull(messageId, "messageId");
@@ -46,8 +49,12 @@ public record RetiredMessageIdentityRecord(
     }
 
     public byte[] encode() {
+        return encode(VERSION);
+    }
+
+    private byte[] encode(final int version) {
         return Bytes.concat(
-                Bytes.u32be(VERSION),
+                Bytes.u32be(version),
                 messageId.bytes(),
                 Bytes.u64be(messageIdentityReuseUntilEpochMs),
                 Bytes.u64beBits(retirementMutationSequence),
@@ -56,16 +63,34 @@ public record RetiredMessageIdentityRecord(
 
     /** Returns whether the CF-local MESSAGE payload selects this branch. */
     public static boolean isEncoded(final byte[] encoded) {
-        return encoded != null
-                && encoded.length >= Integer.BYTES
-                && ByteBuffer.wrap(encoded, 0, Integer.BYTES).getInt() == VERSION;
+        if (encoded == null || encoded.length < Integer.BYTES) {
+            return false;
+        }
+        final int version = ByteBuffer.wrap(encoded, 0, Integer.BYTES).getInt();
+        if (version == VERSION) {
+            return true;
+        }
+        // Version 5 collides with the current MessageRecord generation.  A
+        // legacy tombstone is selected only after its complete canonical
+        // shape has been decoded; an ordinary generation-5 MessageRecord is
+        // therefore never misclassified by its first four bytes alone.
+        if (version != LEGACY_VERSION) {
+            return false;
+        }
+        try {
+            decode(encoded);
+            return true;
+        } catch (IllegalArgumentException notRetiredIdentity) {
+            return false;
+        }
     }
 
     public static RetiredMessageIdentityRecord decode(final byte[] encoded) {
         Objects.requireNonNull(encoded, "encoded");
         final ByteBuffer input = ByteBuffer.wrap(encoded);
         requireRemaining(input, Integer.BYTES, "version");
-        if (input.getInt() != VERSION) {
+        final int version = input.getInt();
+        if (version != VERSION && version != LEGACY_VERSION) {
             throw new IllegalArgumentException("unsupported retired Message identity version");
         }
         final byte[] messageId = readBytes(input, DelayMessageId.LENGTH, "messageId");
@@ -81,7 +106,7 @@ public record RetiredMessageIdentityRecord(
         }
         final RetiredMessageIdentityRecord result =
                 new RetiredMessageIdentityRecord(new DelayMessageId(messageId), reuseUntil, retirementSequence, source);
-        if (!Arrays.equals(encoded, result.encode())) {
+        if (!Arrays.equals(encoded, result.encode(version))) {
             throw new IllegalArgumentException("non-canonical retired Message identity record");
         }
         return result;

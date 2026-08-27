@@ -1,5 +1,6 @@
 package com.nereusstream.delay.ownership;
 
+import com.nereusstream.delay.assessment.DataResetActivationGate;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CapacityVector;
 import com.nereusstream.delay.protocol.RouteIncarnation;
@@ -21,10 +22,11 @@ public final class RouteWorkerAssignmentCoordinator {
     private final RouteSourceAssignmentResolver sourceResolver;
     private final WorkerAssignmentCoordinator workerCoordinator;
     private final ProtocolActivationAuthorityCoordinator protocolAuthority;
+    private final DataResetActivationGate dataResetActivationGate;
 
     public RouteWorkerAssignmentCoordinator(
             final RouteSnapshotProvider routeProvider, final WorkerAssignmentCoordinator workerCoordinator) {
-        this(routeProvider, workerCoordinator, null);
+        this(routeProvider, workerCoordinator, null, null);
     }
 
     /**
@@ -36,11 +38,28 @@ public final class RouteWorkerAssignmentCoordinator {
             final RouteSnapshotProvider routeProvider,
             final WorkerAssignmentCoordinator workerCoordinator,
             final ProtocolCapabilityAuthority capabilityAuthority) {
+        this(routeProvider, workerCoordinator, capabilityAuthority, null);
+    }
+
+    /**
+     * Creates a Route coordinator with an exact H6 manifest barrier. The
+     * capability authority is mandatory in this form because the selected
+     * assignment must be checked against the same Worker session evidence.
+     */
+    public RouteWorkerAssignmentCoordinator(
+            final RouteSnapshotProvider routeProvider,
+            final WorkerAssignmentCoordinator workerCoordinator,
+            final ProtocolCapabilityAuthority capabilityAuthority,
+            final DataResetActivationGate dataResetActivationGate) {
         this.routeProvider = Objects.requireNonNull(routeProvider, "routeProvider");
         this.sourceResolver = new RouteSourceAssignmentResolver(routeProvider);
         this.workerCoordinator = Objects.requireNonNull(workerCoordinator, "workerCoordinator");
         this.protocolAuthority =
                 capabilityAuthority == null ? null : new ProtocolActivationAuthorityCoordinator(capabilityAuthority);
+        if (dataResetActivationGate != null && this.protocolAuthority == null) {
+            throw new IllegalArgumentException("H6 manifest assignment gating requires a capability authority");
+        }
+        this.dataResetActivationGate = dataResetActivationGate;
     }
 
     /** Publishes a new assignment from the tenant-authorized active Route alias. */
@@ -87,20 +106,39 @@ public final class RouteWorkerAssignmentCoordinator {
             throw new IllegalStateException("signed Route projection changed before Worker acceptance");
         }
         if (protocolAuthority != null) {
-            protocolAuthority.requireEligibleReaders(
-                    resolved.routeSnapshot().protocolTuple(), List.of(expectedAssignment.workerId()));
+            if (dataResetActivationGate == null) {
+                protocolAuthority.requireEligibleReaders(
+                        resolved.routeSnapshot().protocolTuple(), List.of(expectedAssignment.workerId()));
+            } else {
+                protocolAuthority.requireEligibleReaders(
+                        resolved.routeSnapshot().protocolTuple(),
+                        dataResetActivationGate.artifacts(),
+                        List.of(expectedAssignment.workerId()));
+            }
         }
-        return workerCoordinator.requireAccepted(expectedSource.shardId(), expectedRevision, expectedAssignment);
+        final WorkerAssignment accepted =
+                workerCoordinator.requireAccepted(expectedSource.shardId(), expectedRevision, expectedAssignment);
+        if (dataResetActivationGate != null) {
+            dataResetActivationGate.requireAssignment(
+                    accepted, protocolAuthority.requireCurrentDeclaration(accepted.workerId()));
+        }
+        return accepted;
     }
 
     private RoutePlacementResult publish(
             final RouteSourceAssignmentResolver.Resolved resolved, final PlacementRequest request) {
         if (protocolAuthority != null) {
-            protocolAuthority.requireEligibleReaders(
-                    resolved.routeSnapshot().protocolTuple(),
-                    request.candidates().stream()
-                            .map(WorkerPlacementPolicy.WorkerCandidate::workerId)
-                            .toList());
+            final List<String> workerIds = request.candidates().stream()
+                    .map(WorkerPlacementPolicy.WorkerCandidate::workerId)
+                    .toList();
+            if (dataResetActivationGate == null) {
+                protocolAuthority.requireEligibleReaders(
+                        resolved.routeSnapshot().protocolTuple(), workerIds);
+            } else {
+                protocolAuthority.requireEligibleReaders(
+                        resolved.routeSnapshot().protocolTuple(), dataResetActivationGate.artifacts(), workerIds);
+                dataResetActivationGate.requireManifest(request.nowEpochMs());
+            }
         }
         final WorkerAssignmentCoordinator.PlacementResult placement = workerCoordinator.place(
                 resolved.sourceAssignment(),
@@ -115,6 +153,14 @@ public final class RouteWorkerAssignmentCoordinator {
                 request.nowEpochMs(),
                 request.movementBytes(),
                 request.expectedRevision());
+        if (dataResetActivationGate != null) {
+            final WorkerAssignment assignment =
+                    placement.publication().orElseThrow().assignment();
+            dataResetActivationGate.requireAssignment(
+                    assignment,
+                    protocolAuthority.requireCurrentDeclaration(assignment.workerId()),
+                    request.nowEpochMs());
+        }
         return new RoutePlacementResult(
                 routeProvider.publishedRevision(), resolved.routeSnapshot(), resolved.sourceAssignment(), placement);
     }

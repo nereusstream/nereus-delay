@@ -155,8 +155,13 @@ public final class LaneScheduler {
                     servedThisPoll.remove(id);
                     continue;
                 }
-                final ScheduleWorkItem head = lane.queue.peekFirst();
-                if (head.eligibleAtEpochMs() > dueThroughEpochMs) {
+                // A dual READY projection can contain an ordinary head and a
+                // native candidate with independent effective eligibility.
+                // Keep the queue order as the deterministic tie-breaker, but
+                // do not let a future candidate at the front hide a due
+                // sibling.  The old single-head case therefore remains FIFO.
+                final ScheduleWorkItem head = lane.firstDue(dueThroughEpochMs);
+                if (head == null) {
                     continue;
                 }
                 final long increment = checkedWeightIncrement(lane.weight);
@@ -169,7 +174,9 @@ public final class LaneScheduler {
                 // A clock regression or invalid sample must fail closed before
                 // any fairness projection can make the head look served.
                 readClock();
-                lane.queue.removeFirst();
+                if (!lane.queue.removeFirstOccurrence(head)) {
+                    throw new IllegalStateException("scheduler due item disappeared before removal");
+                }
                 lane.deficit -= head.accountedBytes();
                 roundGeneration = nextRoundGeneration(roundGeneration);
                 lane.lastServedRound = roundGeneration;
@@ -345,9 +352,7 @@ public final class LaneScheduler {
         requireDueThrough(dueThroughEpochMs);
         final Set<DestinationLaneId> result = new HashSet<>();
         for (LaneQueue lane : lanes.values()) {
-            if (lane.schedulable()
-                    && !lane.queue.isEmpty()
-                    && lane.queue.peekFirst().eligibleAtEpochMs() <= dueThroughEpochMs) {
+            if (lane.schedulable() && lane.firstDue(dueThroughEpochMs) != null) {
                 result.add(lane.laneId);
             }
         }
@@ -369,10 +374,9 @@ public final class LaneScheduler {
         requireDueThrough(dueThroughEpochMs);
         long minimum = Long.MAX_VALUE;
         for (LaneQueue lane : lanes.values()) {
-            if (lane.schedulable()
-                    && !lane.queue.isEmpty()
-                    && lane.queue.peekFirst().eligibleAtEpochMs() <= dueThroughEpochMs) {
-                minimum = Math.min(minimum, lane.queue.peekFirst().accountedBytes());
+            final ScheduleWorkItem due = lane.firstDue(dueThroughEpochMs);
+            if (lane.schedulable() && due != null) {
+                minimum = Math.min(minimum, due.accountedBytes());
             }
         }
         return minimum == Long.MAX_VALUE ? 0 : minimum;
@@ -656,6 +660,15 @@ public final class LaneScheduler {
         private boolean schedulable() {
             return gate == com.nereusstream.delay.runtime.AdmissionGate.OPEN
                     && runtimeReadiness == RuntimeReadiness.READY;
+        }
+
+        private ScheduleWorkItem firstDue(final long dueThroughEpochMs) {
+            for (ScheduleWorkItem item : queue) {
+                if (item.eligibleAtEpochMs() <= dueThroughEpochMs) {
+                    return item;
+                }
+            }
+            return null;
         }
     }
 }

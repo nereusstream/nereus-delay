@@ -4,13 +4,27 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
-/** Exact Pulsar AUTO_FAST prepared submission; no Broker I/O is performed here. */
+/**
+ * Exact Pulsar AUTO_FAST prepared submission; no Broker I/O is performed
+ * here.
+ *
+ * <p>The current generation is the only production representation. The old
+ * policy-free factory is retained as a reader-only compatibility seam for
+ * callers compiled against the initial H0 API. It emits generation 1 and is
+ * rejected by the physical submission adapter. New code must use
+ * {@link #createCurrent}.</p>
+ */
 public final class NativePreparedDelivery {
-    public static final int PREPARED_VERSION = 1;
-    public static final int NATIVE_ENCODING_VERSION = 1;
+    public static final int PREPARED_VERSION = 2;
+    public static final int NATIVE_ENCODING_VERSION = 2;
     public static final int HASH_LENGTH = 32;
+    private static final int LEGACY_PREPARED_VERSION = 1;
+    private static final int LEGACY_NATIVE_ENCODING_VERSION = 1;
     private static final int NATIVE_DELIVERY_ID_LENGTH = 32;
+    private static final String HASH_DOMAIN = "nereus-delay-native-submission\0";
 
+    private final int preparedVersion;
+    private final int nativeEncodingVersion;
     private final byte[] nativeDeliveryId;
     private final ProfileRef destination;
     private final ProfileRef capability;
@@ -20,13 +34,18 @@ public final class NativePreparedDelivery {
     private final PulsarMetadata metadata;
     private final Long eventTimeEpochMs;
     private final long deliverAtEpochMs;
-    private final long brokerDeliverAtEpochMs;
+    private final long legacyBrokerDeliverAtEpochMs;
+    private final NativeDeliveryPolicy nativeDeliveryPolicy;
+    private final DeliveryContract deliveryContract;
+    private final HandoffPolicySnapshot handoffPolicySnapshot;
     private final NativeCapabilitySnapshot capabilitySnapshot;
     private final byte[] resourceGuardAttestationSha256;
     private final long capabilityExpiryEpochMs;
     private final byte[] submissionHash;
 
     private NativePreparedDelivery(
+            final int preparedVersion,
+            final int nativeEncodingVersion,
             final byte[] nativeDeliveryId,
             final ProfileRef destination,
             final ProfileRef capability,
@@ -36,33 +55,40 @@ public final class NativePreparedDelivery {
             final PulsarMetadata metadata,
             final Long eventTimeEpochMs,
             final long deliverAtEpochMs,
-            final long brokerDeliverAtEpochMs,
+            final long legacyBrokerDeliverAtEpochMs,
+            final NativeDeliveryPolicy nativeDeliveryPolicy,
+            final DeliveryContract deliveryContract,
+            final HandoffPolicySnapshot handoffPolicySnapshot,
             final NativeCapabilitySnapshot capabilitySnapshot,
             final byte[] resourceGuardAttestationSha256,
             final long capabilityExpiryEpochMs,
             final byte[] submissionHash) {
+        if (preparedVersion != LEGACY_PREPARED_VERSION && preparedVersion != PREPARED_VERSION) {
+            throw new IllegalArgumentException("unsupported NativePreparedDelivery generation");
+        }
+        if (nativeEncodingVersion != LEGACY_NATIVE_ENCODING_VERSION
+                && nativeEncodingVersion != NATIVE_ENCODING_VERSION) {
+            throw new IllegalArgumentException("unsupported NativePreparedDelivery encoding generation");
+        }
+        this.preparedVersion = preparedVersion;
+        this.nativeEncodingVersion = nativeEncodingVersion;
         requireNonZero(nativeDeliveryId, NATIVE_DELIVERY_ID_LENGTH, "nativeDeliveryId");
         this.nativeDeliveryId = Bytes.copy(nativeDeliveryId);
-        this.destination = Objects.requireNonNull(destination, "destination");
-        if (destination.profileKind() != ProfileKind.DESTINATION) {
-            throw new IllegalArgumentException("native prepared destination must be a DESTINATION profile");
-        }
-        this.capability = Objects.requireNonNull(capability, "capability");
-        if (capability.profileKind() != ProfileKind.DELIVERY_CAPABILITY) {
-            throw new IllegalArgumentException("native prepared capability must be a DELIVERY_CAPABILITY profile");
-        }
+        this.destination = requireProfile(destination, ProfileKind.DESTINATION, "destination");
+        this.capability = requireProfile(capability, ProfileKind.DELIVERY_CAPABILITY, "capability");
         this.target = Objects.requireNonNull(target, "target");
-        if (deliverAtEpochMs < 0
-                || brokerDeliverAtEpochMs < deliverAtEpochMs
-                || (eventTimeEpochMs != null && eventTimeEpochMs < 0)) {
-            throw new IllegalArgumentException("invalid NativePreparedDelivery timestamps or partition");
-        }
         this.physicalPartition = physicalPartition;
         this.inlinePayload = Bytes.copy(Objects.requireNonNull(inlinePayload, "inlinePayload"));
         this.metadata = Objects.requireNonNull(metadata, "metadata");
+        if (deliverAtEpochMs < 0 || (eventTimeEpochMs != null && eventTimeEpochMs < 0) || capabilityExpiryEpochMs < 0) {
+            throw new IllegalArgumentException("invalid NativePreparedDelivery timestamps");
+        }
         this.eventTimeEpochMs = eventTimeEpochMs;
         this.deliverAtEpochMs = deliverAtEpochMs;
-        this.brokerDeliverAtEpochMs = brokerDeliverAtEpochMs;
+        this.legacyBrokerDeliverAtEpochMs = legacyBrokerDeliverAtEpochMs;
+        this.nativeDeliveryPolicy = Objects.requireNonNull(nativeDeliveryPolicy, "nativeDeliveryPolicy");
+        this.deliveryContract = Objects.requireNonNull(deliveryContract, "deliveryContract");
+        this.handoffPolicySnapshot = handoffPolicySnapshot;
         this.capabilitySnapshot = Objects.requireNonNull(capabilitySnapshot, "capabilitySnapshot");
         if (!destination.equals(capabilitySnapshot.destination())
                 || !capability.equals(capabilitySnapshot.capability())
@@ -77,13 +103,20 @@ public final class NativePreparedDelivery {
         if (capabilityExpiryEpochMs != capabilitySnapshot.notAfterEpochMs()) {
             throw new IllegalArgumentException("NativePreparedDelivery capability expiry disagrees with snapshot");
         }
-        if (capabilityExpiryEpochMs < 0) {
-            throw new IllegalArgumentException("capability expiry must be non-negative");
-        }
         this.capabilityExpiryEpochMs = capabilityExpiryEpochMs;
+        if (preparedVersion == PREPARED_VERSION) {
+            requireCurrentProjection();
+        } else if (legacyBrokerDeliverAtEpochMs < deliverAtEpochMs) {
+            throw new IllegalArgumentException("legacy Broker delivery time must not precede business delivery time");
+        }
         this.submissionHash = fixed(submissionHash, "submissionHash");
     }
 
+    /**
+     * Reader-only compatibility factory for the original policy-free native
+     * envelope. It is deliberately not used by the current production
+     * physical adapter.
+     */
     public static NativePreparedDelivery create(
             final byte[] nativeDeliveryId,
             final ProfileRef destination,
@@ -96,7 +129,9 @@ public final class NativePreparedDelivery {
             final long deliverAtEpochMs,
             final long brokerDeliverAtEpochMs,
             final NativeCapabilitySnapshot capabilitySnapshot) {
-        final byte[] fields = canonicalFields(
+        final NativePreparedDelivery fields = new NativePreparedDelivery(
+                LEGACY_PREPARED_VERSION,
+                LEGACY_NATIVE_ENCODING_VERSION,
                 nativeDeliveryId,
                 destination,
                 capability,
@@ -107,35 +142,93 @@ public final class NativePreparedDelivery {
                 eventTimeEpochMs,
                 deliverAtEpochMs,
                 brokerDeliverAtEpochMs,
-                capabilitySnapshot,
-                capabilitySnapshot.resourceGuardAttestationSha256(),
-                capabilitySnapshot.notAfterEpochMs());
-        final byte[] submissionHash = Bytes.sha256(Bytes.utf8("nereus-delay-native-submission\0"), fields);
-        return new NativePreparedDelivery(
-                nativeDeliveryId,
-                destination,
-                capability,
-                target,
-                physicalPartition,
-                inlinePayload,
-                metadata,
-                eventTimeEpochMs,
-                deliverAtEpochMs,
-                brokerDeliverAtEpochMs,
+                NativeDeliveryPolicy.FORBID,
+                DeliveryContract.NEREUS_MANAGED_NOT_BEFORE,
+                null,
                 capabilitySnapshot,
                 capabilitySnapshot.resourceGuardAttestationSha256(),
                 capabilitySnapshot.notAfterEpochMs(),
+                new byte[HASH_LENGTH]);
+        return withSubmissionHash(fields, fields.legacyCanonicalFields());
+    }
+
+    /** Creates the generation-2 native envelope with one exact business timestamp. */
+    public static NativePreparedDelivery createCurrent(
+            final byte[] nativeDeliveryId,
+            final ProfileRef destination,
+            final ProfileRef capability,
+            final PulsarBrokerResourceIdentity target,
+            final int physicalPartition,
+            final byte[] inlinePayload,
+            final PulsarMetadata metadata,
+            final Long eventTimeEpochMs,
+            final long deliverAtEpochMs,
+            final NativeDeliveryPolicy nativeDeliveryPolicy,
+            final DeliveryContract deliveryContract,
+            final HandoffPolicySnapshot handoffPolicySnapshot,
+            final NativeCapabilitySnapshot capabilitySnapshot) {
+        final NativePreparedDelivery fields = new NativePreparedDelivery(
+                PREPARED_VERSION,
+                NATIVE_ENCODING_VERSION,
+                nativeDeliveryId,
+                destination,
+                capability,
+                target,
+                physicalPartition,
+                inlinePayload,
+                metadata,
+                eventTimeEpochMs,
+                deliverAtEpochMs,
+                deliverAtEpochMs,
+                nativeDeliveryPolicy,
+                deliveryContract,
+                handoffPolicySnapshot,
+                capabilitySnapshot,
+                capabilitySnapshot.resourceGuardAttestationSha256(),
+                capabilitySnapshot.notAfterEpochMs(),
+                new byte[HASH_LENGTH]);
+        return withSubmissionHash(fields, fields.currentCanonicalFields());
+    }
+
+    private static NativePreparedDelivery withSubmissionHash(
+            final NativePreparedDelivery fields, final byte[] canonicalFields) {
+        final byte[] submissionHash = Bytes.sha256(Bytes.utf8(HASH_DOMAIN), canonicalFields);
+        return new NativePreparedDelivery(
+                fields.preparedVersion,
+                fields.nativeEncodingVersion,
+                fields.nativeDeliveryId,
+                fields.destination,
+                fields.capability,
+                fields.target,
+                fields.physicalPartition,
+                fields.inlinePayload,
+                fields.metadata,
+                fields.eventTimeEpochMs,
+                fields.deliverAtEpochMs,
+                fields.legacyBrokerDeliverAtEpochMs,
+                fields.nativeDeliveryPolicy,
+                fields.deliveryContract,
+                fields.handoffPolicySnapshot,
+                fields.capabilitySnapshot,
+                fields.resourceGuardAttestationSha256,
+                fields.capabilityExpiryEpochMs,
                 submissionHash);
     }
 
     public static NativePreparedDelivery decode(final byte[] encoded) {
         final List<CanonicalProtobuf.Reader.Field> fields = QueryCodecSupport.read(encoded, "NativePreparedDelivery");
-        if (fields.size() != 15 && fields.size() != 16) {
-            throw new IllegalArgumentException("NativePreparedDelivery fields are incomplete or unknown");
+        if (fields.isEmpty() || fields.get(0).number() != 1) {
+            throw new IllegalArgumentException("NativePreparedDelivery is missing its generation");
         }
-        if (QueryCodecSupport.uint(fields.get(0), 1) != PREPARED_VERSION
-                || fields.get(0).number() != 1) {
-            throw new IllegalArgumentException("unsupported NativePreparedDelivery version");
+        return QueryCodecSupport.uint(fields.get(0), 1) == LEGACY_PREPARED_VERSION
+                ? decodeLegacy(fields, encoded)
+                : decodeCurrent(fields, encoded);
+    }
+
+    private static NativePreparedDelivery decodeLegacy(
+            final List<CanonicalProtobuf.Reader.Field> fields, final byte[] encoded) {
+        if (fields.size() != 15 && fields.size() != 16) {
+            throw new IllegalArgumentException("legacy NativePreparedDelivery fields are incomplete or unknown");
         }
         final byte[] nativeDeliveryId = QueryCodecSupport.fixed(fields.get(1), 2, NATIVE_DELIVERY_ID_LENGTH);
         final ProfileRef destination = ProfileRef.decode(QueryCodecSupport.nested(fields.get(2), 3));
@@ -152,19 +245,21 @@ public final class NativePreparedDelivery {
             index++;
         }
         if (fields.size() != index + 7 || fields.get(index).number() != 10) {
-            throw new IllegalArgumentException("NativePreparedDelivery timestamp fields are invalid");
+            throw new IllegalArgumentException("legacy NativePreparedDelivery timestamp fields are invalid");
         }
         final long deliverAt = QueryCodecSupport.uint(fields.get(index), 10);
         final long brokerDeliverAt = QueryCodecSupport.uint(fields.get(index + 1), 11);
         final NativeCapabilitySnapshot snapshot =
                 NativeCapabilitySnapshot.decode(QueryCodecSupport.nested(fields.get(index + 2), 12));
-        final byte[] guardAttestation = QueryCodecSupport.fixed(fields.get(index + 3), 13, HASH_LENGTH);
+        final byte[] guard = QueryCodecSupport.fixed(fields.get(index + 3), 13, HASH_LENGTH);
         final long expiry = QueryCodecSupport.uint(fields.get(index + 4), 14);
-        if (QueryCodecSupport.uint(fields.get(index + 5), 15) != NATIVE_ENCODING_VERSION) {
-            throw new IllegalArgumentException("unsupported NativePreparedDelivery encoding version");
+        if (QueryCodecSupport.uint(fields.get(index + 5), 15) != LEGACY_NATIVE_ENCODING_VERSION) {
+            throw new IllegalArgumentException("unsupported legacy NativePreparedDelivery encoding version");
         }
         final byte[] submissionHash = QueryCodecSupport.fixed(fields.get(index + 6), 16, HASH_LENGTH);
         final NativePreparedDelivery result = new NativePreparedDelivery(
+                LEGACY_PREPARED_VERSION,
+                LEGACY_NATIVE_ENCODING_VERSION,
                 nativeDeliveryId,
                 destination,
                 capability,
@@ -175,31 +270,95 @@ public final class NativePreparedDelivery {
                 eventTime,
                 deliverAt,
                 brokerDeliverAt,
+                NativeDeliveryPolicy.FORBID,
+                DeliveryContract.NEREUS_MANAGED_NOT_BEFORE,
+                null,
                 snapshot,
-                guardAttestation,
+                guard,
                 expiry,
                 submissionHash);
-        final byte[] expected = Bytes.sha256(
-                Bytes.utf8("nereus-delay-native-submission\0"),
-                canonicalFields(
-                        nativeDeliveryId,
-                        destination,
-                        capability,
-                        target,
-                        partition,
-                        payload,
-                        metadata,
-                        eventTime,
-                        deliverAt,
-                        brokerDeliverAt,
-                        snapshot,
-                        guardAttestation,
-                        expiry));
+        final byte[] expected = Bytes.sha256(Bytes.utf8(HASH_DOMAIN), result.legacyCanonicalFields());
         if (!Bytes.constantTimeEquals(submissionHash, expected)) {
             throw new IllegalArgumentException("NativePreparedDelivery submission hash mismatch");
         }
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "NativePreparedDelivery");
         return result;
+    }
+
+    private static NativePreparedDelivery decodeCurrent(
+            final List<CanonicalProtobuf.Reader.Field> fields, final byte[] encoded) {
+        if (fields.size() != 17 && fields.size() != 18) {
+            throw new IllegalArgumentException("NativePreparedDelivery generation 2 has an invalid field count");
+        }
+        final byte[] nativeDeliveryId = QueryCodecSupport.fixed(fields.get(1), 2, NATIVE_DELIVERY_ID_LENGTH);
+        final ProfileRef destination = ProfileRef.decode(QueryCodecSupport.nested(fields.get(2), 3));
+        final ProfileRef capability = ProfileRef.decode(QueryCodecSupport.nested(fields.get(3), 4));
+        final PulsarBrokerResourceIdentity target =
+                PulsarBrokerResourceIdentity.decode(QueryCodecSupport.nested(fields.get(4), 5));
+        final int partition = QueryCodecSupport.uint32Bits(fields.get(5), 6);
+        final byte[] payload = QueryCodecSupport.bytes(fields.get(6), 7);
+        final PulsarMetadata metadata = PulsarMetadata.decode(QueryCodecSupport.nested(fields.get(7), 8));
+        int index = 8;
+        Long eventTime = null;
+        if (fields.get(index).number() == 9) {
+            eventTime = QueryCodecSupport.uint(fields.get(index++), 9);
+        }
+        requireField(fields, index, 10);
+        final long deliverAt = QueryCodecSupport.uint(fields.get(index++), 10);
+        final NativeDeliveryPolicy policy =
+                NativeDeliveryPolicy.fromWire(QueryCodecSupport.uint(fields.get(index++), 11));
+        final DeliveryContract contract = DeliveryContract.fromWire(QueryCodecSupport.uint(fields.get(index++), 12));
+        final HandoffPolicySnapshot handoff =
+                HandoffPolicySnapshot.decode(QueryCodecSupport.nested(fields.get(index++), 13));
+        final NativeCapabilitySnapshot capabilitySnapshot =
+                NativeCapabilitySnapshot.decode(QueryCodecSupport.nested(fields.get(index++), 14));
+        final byte[] guard = QueryCodecSupport.fixed(fields.get(index++), 15, HASH_LENGTH);
+        final long expiry = QueryCodecSupport.uint(fields.get(index++), 16);
+        if (QueryCodecSupport.uint(fields.get(index++), 17) != NATIVE_ENCODING_VERSION) {
+            throw new IllegalArgumentException("unsupported NativePreparedDelivery encoding version");
+        }
+        if (index + 1 != fields.size() || fields.get(index).number() != 18) {
+            throw new IllegalArgumentException("NativePreparedDelivery submission hash field is missing");
+        }
+        final byte[] submissionHash = QueryCodecSupport.fixed(fields.get(index), 18, HASH_LENGTH);
+        final NativePreparedDelivery result = new NativePreparedDelivery(
+                PREPARED_VERSION,
+                NATIVE_ENCODING_VERSION,
+                nativeDeliveryId,
+                destination,
+                capability,
+                target,
+                partition,
+                payload,
+                metadata,
+                eventTime,
+                deliverAt,
+                deliverAt,
+                policy,
+                contract,
+                handoff,
+                capabilitySnapshot,
+                guard,
+                expiry,
+                submissionHash);
+        final byte[] expected = Bytes.sha256(Bytes.utf8(HASH_DOMAIN), result.currentCanonicalFields());
+        if (!Bytes.constantTimeEquals(submissionHash, expected)) {
+            throw new IllegalArgumentException("NativePreparedDelivery submission hash mismatch");
+        }
+        QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "NativePreparedDelivery");
+        return result;
+    }
+
+    public int preparedVersion() {
+        return preparedVersion;
+    }
+
+    public int nativeEncodingVersion() {
+        return nativeEncodingVersion;
+    }
+
+    public boolean isCurrentGeneration() {
+        return preparedVersion == PREPARED_VERSION && nativeEncodingVersion == NATIVE_ENCODING_VERSION;
     }
 
     public byte[] nativeDeliveryId() {
@@ -238,8 +397,21 @@ public final class NativePreparedDelivery {
         return deliverAtEpochMs;
     }
 
+    /** Compatibility accessor; generation 2 returns the same business timestamp. */
     public long brokerDeliverAtEpochMs() {
-        return brokerDeliverAtEpochMs;
+        return preparedVersion == LEGACY_PREPARED_VERSION ? legacyBrokerDeliverAtEpochMs : deliverAtEpochMs;
+    }
+
+    public NativeDeliveryPolicy nativeDeliveryPolicy() {
+        return nativeDeliveryPolicy;
+    }
+
+    public DeliveryContract deliveryContract() {
+        return deliveryContract;
+    }
+
+    public HandoffPolicySnapshot handoffPolicySnapshot() {
+        return handoffPolicySnapshot;
     }
 
     public NativeCapabilitySnapshot capabilitySnapshot() {
@@ -259,10 +431,15 @@ public final class NativePreparedDelivery {
     }
 
     public byte[] canonicalBytes() {
-        return CanonicalProtobuf.message(output -> {
-            writeFields(output);
-            CanonicalProtobuf.bytes(output, 16, submissionHash);
-        });
+        return preparedVersion == LEGACY_PREPARED_VERSION
+                ? CanonicalProtobuf.message(output -> {
+                    output.writeBytes(legacyCanonicalFields());
+                    CanonicalProtobuf.bytes(output, 16, submissionHash);
+                })
+                : CanonicalProtobuf.message(output -> {
+                    output.writeBytes(currentCanonicalFields());
+                    CanonicalProtobuf.bytes(output, 18, submissionHash);
+                });
     }
 
     public NativePreparedRef preparedRef() {
@@ -282,10 +459,14 @@ public final class NativePreparedDelivery {
         if (!(other instanceof NativePreparedDelivery that)) {
             return false;
         }
-        return physicalPartition == that.physicalPartition
+        return preparedVersion == that.preparedVersion
+                && nativeEncodingVersion == that.nativeEncodingVersion
+                && physicalPartition == that.physicalPartition
                 && Objects.equals(eventTimeEpochMs, that.eventTimeEpochMs)
                 && deliverAtEpochMs == that.deliverAtEpochMs
-                && brokerDeliverAtEpochMs == that.brokerDeliverAtEpochMs
+                && legacyBrokerDeliverAtEpochMs == that.legacyBrokerDeliverAtEpochMs
+                && nativeDeliveryPolicy == that.nativeDeliveryPolicy
+                && deliveryContract == that.deliveryContract
                 && capabilityExpiryEpochMs == that.capabilityExpiryEpochMs
                 && Arrays.equals(nativeDeliveryId, that.nativeDeliveryId)
                 && destination.equals(that.destination)
@@ -293,6 +474,7 @@ public final class NativePreparedDelivery {
                 && target.equals(that.target)
                 && Arrays.equals(inlinePayload, that.inlinePayload)
                 && metadata.equals(that.metadata)
+                && Objects.equals(handoffPolicySnapshot, that.handoffPolicySnapshot)
                 && capabilitySnapshot.equals(that.capabilitySnapshot)
                 && Arrays.equals(resourceGuardAttestationSha256, that.resourceGuardAttestationSha256)
                 && Arrays.equals(submissionHash, that.submissionHash);
@@ -301,6 +483,8 @@ public final class NativePreparedDelivery {
     @Override
     public int hashCode() {
         return Objects.hash(
+                preparedVersion,
+                nativeEncodingVersion,
                 Arrays.hashCode(nativeDeliveryId),
                 destination,
                 capability,
@@ -310,63 +494,87 @@ public final class NativePreparedDelivery {
                 metadata,
                 eventTimeEpochMs,
                 deliverAtEpochMs,
-                brokerDeliverAtEpochMs,
+                legacyBrokerDeliverAtEpochMs,
+                nativeDeliveryPolicy,
+                deliveryContract,
+                handoffPolicySnapshot,
                 capabilitySnapshot,
                 Arrays.hashCode(resourceGuardAttestationSha256),
                 capabilityExpiryEpochMs,
                 Arrays.hashCode(submissionHash));
     }
 
-    private void writeFields(final java.io.ByteArrayOutputStream output) {
-        CanonicalProtobuf.uint32(output, 1, PREPARED_VERSION);
-        CanonicalProtobuf.bytes(output, 2, nativeDeliveryId);
-        CanonicalProtobuf.bytes(output, 3, destination.canonicalBytes());
-        CanonicalProtobuf.bytes(output, 4, capability.canonicalBytes());
-        CanonicalProtobuf.bytes(output, 5, target.canonicalBytes());
-        CanonicalProtobuf.uint32Bits(output, 6, physicalPartition);
-        CanonicalProtobuf.bytes(output, 7, inlinePayload);
-        CanonicalProtobuf.bytes(output, 8, metadata.canonicalBytes());
-        if (eventTimeEpochMs != null) {
-            CanonicalProtobuf.int64(output, 9, eventTimeEpochMs);
-        }
-        CanonicalProtobuf.int64(output, 10, deliverAtEpochMs);
-        CanonicalProtobuf.int64(output, 11, brokerDeliverAtEpochMs);
-        CanonicalProtobuf.bytes(output, 12, capabilitySnapshot.canonicalBytes());
-        CanonicalProtobuf.bytes(output, 13, resourceGuardAttestationSha256);
-        CanonicalProtobuf.int64(output, 14, capabilityExpiryEpochMs);
-        CanonicalProtobuf.uint32(output, 15, NATIVE_ENCODING_VERSION);
+    private byte[] legacyCanonicalFields() {
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, LEGACY_PREPARED_VERSION);
+            CanonicalProtobuf.bytes(output, 2, nativeDeliveryId);
+            CanonicalProtobuf.bytes(output, 3, destination.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 4, capability.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 5, target.canonicalBytes());
+            CanonicalProtobuf.uint32Bits(output, 6, physicalPartition);
+            CanonicalProtobuf.bytes(output, 7, inlinePayload);
+            CanonicalProtobuf.bytes(output, 8, metadata.canonicalBytes());
+            if (eventTimeEpochMs != null) {
+                CanonicalProtobuf.int64(output, 9, eventTimeEpochMs);
+            }
+            CanonicalProtobuf.int64(output, 10, deliverAtEpochMs);
+            CanonicalProtobuf.int64(output, 11, legacyBrokerDeliverAtEpochMs);
+            CanonicalProtobuf.bytes(output, 12, capabilitySnapshot.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 13, resourceGuardAttestationSha256);
+            CanonicalProtobuf.int64(output, 14, capabilityExpiryEpochMs);
+            CanonicalProtobuf.uint32(output, 15, LEGACY_NATIVE_ENCODING_VERSION);
+        });
     }
 
-    private static byte[] canonicalFields(
-            final byte[] nativeDeliveryId,
-            final ProfileRef destination,
-            final ProfileRef capability,
-            final PulsarBrokerResourceIdentity target,
-            final int physicalPartition,
-            final byte[] inlinePayload,
-            final PulsarMetadata metadata,
-            final Long eventTimeEpochMs,
-            final long deliverAtEpochMs,
-            final long brokerDeliverAtEpochMs,
-            final NativeCapabilitySnapshot capabilitySnapshot,
-            final byte[] resourceGuardAttestationSha256,
-            final long capabilityExpiryEpochMs) {
-        final NativePreparedDelivery fields = new NativePreparedDelivery(
-                nativeDeliveryId,
-                destination,
-                capability,
-                target,
-                physicalPartition,
-                inlinePayload,
-                metadata,
-                eventTimeEpochMs,
-                deliverAtEpochMs,
-                brokerDeliverAtEpochMs,
-                capabilitySnapshot,
-                resourceGuardAttestationSha256,
-                capabilityExpiryEpochMs,
-                new byte[HASH_LENGTH]);
-        return CanonicalProtobuf.message(fields::writeFields);
+    private byte[] currentCanonicalFields() {
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.uint32(output, 1, PREPARED_VERSION);
+            CanonicalProtobuf.bytes(output, 2, nativeDeliveryId);
+            CanonicalProtobuf.bytes(output, 3, destination.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 4, capability.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 5, target.canonicalBytes());
+            CanonicalProtobuf.uint32Bits(output, 6, physicalPartition);
+            CanonicalProtobuf.bytes(output, 7, inlinePayload);
+            CanonicalProtobuf.bytes(output, 8, metadata.canonicalBytes());
+            if (eventTimeEpochMs != null) {
+                CanonicalProtobuf.int64(output, 9, eventTimeEpochMs);
+            }
+            CanonicalProtobuf.int64(output, 10, deliverAtEpochMs);
+            CanonicalProtobuf.uint32(output, 11, nativeDeliveryPolicy.wireValue());
+            CanonicalProtobuf.uint32(output, 12, deliveryContract.wireValue());
+            CanonicalProtobuf.bytes(output, 13, handoffPolicySnapshot.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 14, capabilitySnapshot.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 15, resourceGuardAttestationSha256);
+            CanonicalProtobuf.int64(output, 16, capabilityExpiryEpochMs);
+            CanonicalProtobuf.uint32(output, 17, NATIVE_ENCODING_VERSION);
+        });
+    }
+
+    private void requireCurrentProjection() {
+        if (nativeDeliveryPolicy != NativeDeliveryPolicy.ALLOW_AUTO_FAST_AND_MANAGED_HANDOFF
+                || deliveryContract != DeliveryContract.PULSAR_NATIVE_DELIVERY
+                || handoffPolicySnapshot == null
+                || handoffPolicySnapshot.mode() != HandoffPolicyMode.ENABLED
+                || !handoffPolicySnapshot.allows(HandoffPath.AUTO_FAST)
+                || deliverAtEpochMs >= capabilityExpiryEpochMs
+                || deliverAtEpochMs >= handoffPolicySnapshot.validUntilEpochMs()) {
+            throw new IllegalArgumentException("NativePreparedDelivery generation 2 has an invalid native projection");
+        }
+    }
+
+    private static void requireField(
+            final List<CanonicalProtobuf.Reader.Field> fields, final int index, final int number) {
+        if (index >= fields.size() || fields.get(index).number() != number) {
+            throw new IllegalArgumentException("NativePreparedDelivery field order mismatch at " + number);
+        }
+    }
+
+    private static ProfileRef requireProfile(final ProfileRef value, final ProfileKind kind, final String name) {
+        Objects.requireNonNull(value, name);
+        if (value.profileKind() != kind) {
+            throw new IllegalArgumentException(name + " has the wrong Profile kind");
+        }
+        return value;
     }
 
     private static byte[] fixed(final byte[] value, final String name) {

@@ -26,6 +26,10 @@ public final class ClaimMaterialization {
     private final long deliverAtEpochMs;
     private final long expireAtEpochMs;
     private final long actionAtEpochMs;
+    private final NativeDeliveryPolicy nativeDeliveryPolicy;
+    private final Long eventTimeEpochMs;
+    private final HandoffPolicyHeadRef handoffPolicyHeadRef;
+    private final boolean legacyEncoding;
 
     public ClaimMaterialization(
             final ProfileRef destinationProfile,
@@ -39,6 +43,73 @@ public final class ClaimMaterialization {
             final long deliverAtEpochMs,
             final long expireAtEpochMs,
             final long actionAtEpochMs) {
+        this(
+                destinationProfile,
+                capabilityProfile,
+                targetResource,
+                physicalPartition,
+                messageId,
+                generation,
+                payload,
+                businessMetadata,
+                deliverAtEpochMs,
+                expireAtEpochMs,
+                actionAtEpochMs,
+                NativeDeliveryPolicy.FORBID,
+                null,
+                null,
+                true);
+    }
+
+    public ClaimMaterialization(
+            final ProfileRef destinationProfile,
+            final ProfileRef capabilityProfile,
+            final BrokerResourceIdentity targetResource,
+            final long physicalPartition,
+            final DelayMessageId messageId,
+            final long generation,
+            final PayloadForPublish payload,
+            final AdapterMetadata businessMetadata,
+            final long deliverAtEpochMs,
+            final long expireAtEpochMs,
+            final long actionAtEpochMs,
+            final NativeDeliveryPolicy nativeDeliveryPolicy,
+            final Long eventTimeEpochMs,
+            final HandoffPolicyHeadRef handoffPolicyHeadRef) {
+        this(
+                destinationProfile,
+                capabilityProfile,
+                targetResource,
+                physicalPartition,
+                messageId,
+                generation,
+                payload,
+                businessMetadata,
+                deliverAtEpochMs,
+                expireAtEpochMs,
+                actionAtEpochMs,
+                nativeDeliveryPolicy,
+                eventTimeEpochMs,
+                handoffPolicyHeadRef,
+                false);
+    }
+
+    private ClaimMaterialization(
+            final ProfileRef destinationProfile,
+            final ProfileRef capabilityProfile,
+            final BrokerResourceIdentity targetResource,
+            final long physicalPartition,
+            final DelayMessageId messageId,
+            final long generation,
+            final PayloadForPublish payload,
+            final AdapterMetadata businessMetadata,
+            final long deliverAtEpochMs,
+            final long expireAtEpochMs,
+            final long actionAtEpochMs,
+            final NativeDeliveryPolicy nativeDeliveryPolicy,
+            final Long eventTimeEpochMs,
+            final HandoffPolicyHeadRef handoffPolicyHeadRef,
+            final boolean legacyEncoding) {
         this.destinationProfile = requireProfile(destinationProfile, ProfileKind.DESTINATION, "destinationProfile");
         this.capabilityProfile =
                 requireProfile(capabilityProfile, ProfileKind.DELIVERY_CAPABILITY, "capabilityProfile");
@@ -60,6 +131,11 @@ public final class ClaimMaterialization {
                         && businessMetadata.kind() != AdapterMetadata.Kind.PULSAR)) {
             throw new IllegalArgumentException("Claim materialization metadata branch does not match target resource");
         }
+        if (nativeDeliveryPolicy != NativeDeliveryPolicy.FORBID
+                && (targetResource.kind() != BrokerResourceIdentity.Kind.PULSAR
+                        || businessMetadata.kind() != AdapterMetadata.Kind.PULSAR)) {
+            throw new IllegalArgumentException("native Claim materialization requires Pulsar metadata");
+        }
         if (deliverAtEpochMs < 0
                 || expireAtEpochMs < deliverAtEpochMs
                 || actionAtEpochMs < 0
@@ -69,6 +145,16 @@ public final class ClaimMaterialization {
         this.deliverAtEpochMs = deliverAtEpochMs;
         this.expireAtEpochMs = expireAtEpochMs;
         this.actionAtEpochMs = actionAtEpochMs;
+        this.nativeDeliveryPolicy = Objects.requireNonNull(nativeDeliveryPolicy, "nativeDeliveryPolicy");
+        if (eventTimeEpochMs != null && eventTimeEpochMs < 0) {
+            throw new IllegalArgumentException("eventTime must be non-negative");
+        }
+        this.eventTimeEpochMs = eventTimeEpochMs;
+        this.handoffPolicyHeadRef = handoffPolicyHeadRef;
+        this.legacyEncoding = legacyEncoding;
+        if (nativeDeliveryPolicy != NativeDeliveryPolicy.FORBID && handoffPolicyHeadRef == null) {
+            throw new IllegalArgumentException("native Claim materialization requires a policy head reference");
+        }
     }
 
     public ProfileRef destinationProfile() {
@@ -115,7 +201,49 @@ public final class ClaimMaterialization {
         return actionAtEpochMs;
     }
 
+    public NativeDeliveryPolicy nativeDeliveryPolicy() {
+        return nativeDeliveryPolicy;
+    }
+
+    public Long eventTimeEpochMs() {
+        return eventTimeEpochMs;
+    }
+
+    public HandoffPolicyHeadRef handoffPolicyHeadRef() {
+        return handoffPolicyHeadRef;
+    }
+
+    public boolean legacyEncoding() {
+        return legacyEncoding;
+    }
+
     public byte[] canonicalBytes() {
+        if (legacyEncoding) {
+            return legacyCanonicalBytes();
+        }
+        return CanonicalProtobuf.message(output -> {
+            CanonicalProtobuf.bytes(output, 1, destinationProfile.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 2, capabilityProfile.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 3, targetResource.canonicalBytes());
+            CanonicalProtobuf.uint32(output, 4, physicalPartition);
+            CanonicalProtobuf.bytes(output, 5, messageId.bytes());
+            CanonicalProtobuf.uint32(output, 6, generation);
+            CanonicalProtobuf.bytes(output, 7, payload.canonicalBytes());
+            CanonicalProtobuf.bytes(output, 8, businessMetadata.canonicalBytes());
+            CanonicalProtobuf.int64(output, 9, deliverAtEpochMs);
+            CanonicalProtobuf.int64(output, 10, expireAtEpochMs);
+            CanonicalProtobuf.int64(output, 11, actionAtEpochMs);
+            CanonicalProtobuf.uint32(output, 12, nativeDeliveryPolicy.wireValue());
+            if (eventTimeEpochMs != null) {
+                CanonicalProtobuf.int64(output, 13, eventTimeEpochMs);
+            }
+            if (handoffPolicyHeadRef != null) {
+                CanonicalProtobuf.bytes(output, 14, handoffPolicyHeadRef.canonicalBytes());
+            }
+        });
+    }
+
+    private byte[] legacyCanonicalBytes() {
         return CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, destinationProfile.canonicalBytes());
             CanonicalProtobuf.bytes(output, 2, capabilityProfile.canonicalBytes());
@@ -139,7 +267,48 @@ public final class ClaimMaterialization {
     /** Decodes and validates canonical ClaimMaterialization bytes. */
     public static ClaimMaterialization decode(final byte[] encoded) {
         final var fields = QueryCodecSupport.read(encoded, "ClaimMaterialization");
-        QueryCodecSupport.requireNumbers(fields, new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}, "ClaimMaterialization");
+        if (fields.size() == 11) {
+            for (int index = 0; index < 11; index++) {
+                if (fields.get(index).number() != index + 1) {
+                    throw new IllegalArgumentException("ClaimMaterialization field order mismatch");
+                }
+            }
+            final ClaimMaterialization result = new ClaimMaterialization(
+                    ProfileRef.decode(QueryCodecSupport.nested(fields.get(0), 1)),
+                    ProfileRef.decode(QueryCodecSupport.nested(fields.get(1), 2)),
+                    BrokerResourceIdentity.decode(QueryCodecSupport.nested(fields.get(2), 3)),
+                    uint32(fields.get(3), 4),
+                    new DelayMessageId(QueryCodecSupport.fixed(fields.get(4), 5, DelayMessageId.LENGTH)),
+                    uint32(fields.get(5), 6),
+                    PayloadForPublish.decode(QueryCodecSupport.nested(fields.get(6), 7)),
+                    AdapterMetadata.decode(QueryCodecSupport.nested(fields.get(7), 8)),
+                    nonNegativeInt64(fields.get(8), 9),
+                    nonNegativeInt64(fields.get(9), 10),
+                    nonNegativeInt64(fields.get(10), 11));
+            QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "ClaimMaterialization");
+            return result;
+        }
+        if (fields.size() < 12 || fields.size() > 14) {
+            throw new IllegalArgumentException("ClaimMaterialization has an unexpected field count");
+        }
+        for (int index = 0; index < 11; index++) {
+            if (fields.get(index).number() != index + 1) {
+                throw new IllegalArgumentException("ClaimMaterialization field order mismatch");
+            }
+        }
+        final NativeDeliveryPolicy policy = NativeDeliveryPolicy.fromWire(QueryCodecSupport.uint(fields.get(11), 12));
+        int index = 12;
+        Long eventTime = null;
+        if (index < fields.size() && fields.get(index).number() == 13) {
+            eventTime = QueryCodecSupport.uint(fields.get(index++), 13);
+        }
+        HandoffPolicyHeadRef headRef = null;
+        if (index < fields.size() && fields.get(index).number() == 14) {
+            headRef = HandoffPolicyHeadRef.decode(QueryCodecSupport.nested(fields.get(index++), 14));
+        }
+        if (index != fields.size()) {
+            throw new IllegalArgumentException("ClaimMaterialization field order mismatch");
+        }
         final ClaimMaterialization result = new ClaimMaterialization(
                 ProfileRef.decode(QueryCodecSupport.nested(fields.get(0), 1)),
                 ProfileRef.decode(QueryCodecSupport.nested(fields.get(1), 2)),
@@ -151,7 +320,10 @@ public final class ClaimMaterialization {
                 AdapterMetadata.decode(QueryCodecSupport.nested(fields.get(7), 8)),
                 nonNegativeInt64(fields.get(8), 9),
                 nonNegativeInt64(fields.get(9), 10),
-                nonNegativeInt64(fields.get(10), 11));
+                nonNegativeInt64(fields.get(10), 11),
+                policy,
+                eventTime,
+                headRef);
         QueryCodecSupport.requireCanonical(encoded, result.canonicalBytes(), "ClaimMaterialization");
         return result;
     }
@@ -188,6 +360,9 @@ public final class ClaimMaterialization {
                 && deliverAtEpochMs == that.deliverAtEpochMs
                 && expireAtEpochMs == that.expireAtEpochMs
                 && actionAtEpochMs == that.actionAtEpochMs
+                && nativeDeliveryPolicy == that.nativeDeliveryPolicy
+                && Objects.equals(eventTimeEpochMs, that.eventTimeEpochMs)
+                && Objects.equals(handoffPolicyHeadRef, that.handoffPolicyHeadRef)
                 && destinationProfile.equals(that.destinationProfile)
                 && capabilityProfile.equals(that.capabilityProfile)
                 && targetResource.equals(that.targetResource)
@@ -210,6 +385,9 @@ public final class ClaimMaterialization {
                 deliverAtEpochMs,
                 expireAtEpochMs,
                 actionAtEpochMs,
+                nativeDeliveryPolicy,
+                eventTimeEpochMs,
+                handoffPolicyHeadRef,
                 Arrays.hashCode(materializationDigest()));
     }
 }

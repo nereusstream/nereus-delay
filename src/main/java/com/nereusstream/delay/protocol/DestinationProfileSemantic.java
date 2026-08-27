@@ -9,7 +9,7 @@ import java.util.Objects;
 
 /** Immutable Destination Profile semantic body from Registry §5.1.1. */
 public final class DestinationProfileSemantic implements ProfileSemanticBody {
-    public static final int SCHEMA_VERSION = 1;
+    public static final int SCHEMA_VERSION = 2;
     public static final int ALLOWED_ORDERING_MODE_BITS = 0x03;
     public static final int CREDENTIAL_BINDING_PROTOCOL_VERSION = 1;
     public static final int MAX_ALIAS_BYTES = 256;
@@ -82,11 +82,8 @@ public final class DestinationProfileSemantic implements ProfileSemanticBody {
         if (handoffLeadMs < 0 || targetClockAheadBoundMs < 0) {
             throw new IllegalArgumentException("timing bounds must be non-negative");
         }
-        if (adapterKind == AdapterKind.KAFKA && (handoffLeadMs != 0 || targetClockAheadBoundMs != 0)) {
-            throw new IllegalArgumentException("Kafka Destination Profile cannot carry handoff timing bounds");
-        }
-        if (adapterKind == AdapterKind.PULSAR && handoffLeadMs > 0 && targetClockAheadBoundMs <= 0) {
-            throw new IllegalArgumentException("Pulsar handoff requires a positive target clock bound");
+        if (adapterKind == AdapterKind.KAFKA && handoffLeadMs != 0) {
+            throw new IllegalArgumentException("Kafka Destination Profile cannot carry a handoff lead");
         }
         this.handoffLeadMs = handoffLeadMs;
         this.targetClockAheadBoundMs = targetClockAheadBoundMs;
@@ -110,6 +107,50 @@ public final class DestinationProfileSemantic implements ProfileSemanticBody {
         this.minimumTopicRetentionMs = minimumTopicRetentionMs;
         this.adapterEncodingVersion = adapterEncodingVersion;
         this.prerequisitePolicyDigest = fixed(prerequisitePolicyDigest, "prerequisitePolicyDigest");
+    }
+
+    /** Generation-2 constructor; native delivery no longer shifts a Broker timestamp. */
+    public DestinationProfileSemantic(
+            final AdapterKind adapterKind,
+            final BrokerResourceIdentity targetResource,
+            final int targetPartitionCount,
+            final TargetPartitionPolicy targetPartitionPolicy,
+            final TargetPartitionHashInput targetPartitionHashInput,
+            final List<Integer> allowedExplicitPartitions,
+            final ProfileRef deliveryCapability,
+            final int allowedOrderingModeBits,
+            final long maxHandoffLeadMs,
+            final byte[] credentialAuthorizationScopeDigest,
+            final long maxTargetRecordBytes,
+            final long maxAdapterMetadataBytes,
+            final long maxPayloadBytes,
+            final int unorderedLaneBucketCount,
+            final byte[] destinationAliasUtf8Nfc,
+            final long minimumTopicTtlMs,
+            final long minimumTopicRetentionMs,
+            final int adapterEncodingVersion,
+            final byte[] prerequisitePolicyDigest) {
+        this(
+                adapterKind,
+                targetResource,
+                targetPartitionCount,
+                targetPartitionPolicy,
+                targetPartitionHashInput,
+                allowedExplicitPartitions,
+                deliveryCapability,
+                allowedOrderingModeBits,
+                maxHandoffLeadMs,
+                0,
+                credentialAuthorizationScopeDigest,
+                maxTargetRecordBytes,
+                maxAdapterMetadataBytes,
+                maxPayloadBytes,
+                unorderedLaneBucketCount,
+                destinationAliasUtf8Nfc,
+                minimumTopicTtlMs,
+                minimumTopicRetentionMs,
+                adapterEncodingVersion,
+                prerequisitePolicyDigest);
     }
 
     @Override
@@ -155,6 +196,11 @@ public final class DestinationProfileSemantic implements ProfileSemanticBody {
     }
 
     public long handoffLeadMs() {
+        return handoffLeadMs;
+    }
+
+    /** Generation-2 name for the immutable upper bound on native handoff lead. */
+    public long maxHandoffLeadMs() {
         return handoffLeadMs;
     }
 
@@ -216,7 +262,6 @@ public final class DestinationProfileSemantic implements ProfileSemanticBody {
             CanonicalProtobuf.bytes(output, 7, deliveryCapability.canonicalBytes());
             CanonicalProtobuf.uint32(output, 8, allowedOrderingModeBits);
             CanonicalProtobuf.uint64(output, 9, handoffLeadMs);
-            CanonicalProtobuf.uint64(output, 10, targetClockAheadBoundMs);
             CanonicalProtobuf.bytes(output, 11, credentialAuthorizationScopeDigest);
             CanonicalProtobuf.uint32(output, 12, CREDENTIAL_BINDING_PROTOCOL_VERSION);
             CanonicalProtobuf.uint64(output, 13, maxTargetRecordBytes);
@@ -233,7 +278,7 @@ public final class DestinationProfileSemantic implements ProfileSemanticBody {
 
     public static DestinationProfileSemantic decode(final byte[] encoded) {
         final List<CanonicalProtobuf.Reader.Field> fields = readAll(encoded);
-        if (fields.size() < 20) {
+        if (fields.size() < 19) {
             throw new IllegalArgumentException("DestinationProfileSemantic is incomplete");
         }
         int index = 0;
@@ -247,14 +292,13 @@ public final class DestinationProfileSemantic implements ProfileSemanticBody {
             partitions.add(QueryCodecSupport.uint32Bits(fields.get(index++), 6));
         }
         final int remaining = fields.size() - index;
-        if (remaining != 15) {
+        if (remaining != 14) {
             throw new IllegalArgumentException("DestinationProfileSemantic has an unexpected field count");
         }
         int cursor = index;
         final ProfileRef capability = ProfileRef.decode(QueryCodecSupport.nested(fields.get(cursor++), 7));
         final int orderingBits = QueryCodecSupport.uint32(fields.get(cursor++), 8);
         final long handoffLead = QueryCodecSupport.uint(fields.get(cursor++), 9);
-        final long clockBound = QueryCodecSupport.uint(fields.get(cursor++), 10);
         final byte[] scopeDigest = QueryCodecSupport.fixed(fields.get(cursor++), 11, HASH_LENGTH);
         final int bindingVersion = QueryCodecSupport.uint32(fields.get(cursor++), 12);
         final long maxRecord = QueryCodecSupport.uint(fields.get(cursor++), 13);
@@ -279,7 +323,7 @@ public final class DestinationProfileSemantic implements ProfileSemanticBody {
                 capability,
                 orderingBits,
                 handoffLead,
-                clockBound,
+                0,
                 scopeDigest,
                 maxRecord,
                 maxMetadata,
@@ -309,7 +353,6 @@ public final class DestinationProfileSemantic implements ProfileSemanticBody {
                 && deliveryCapability.equals(that.deliveryCapability)
                 && allowedOrderingModeBits == that.allowedOrderingModeBits
                 && handoffLeadMs == that.handoffLeadMs
-                && targetClockAheadBoundMs == that.targetClockAheadBoundMs
                 && Arrays.equals(credentialAuthorizationScopeDigest, that.credentialAuthorizationScopeDigest)
                 && maxTargetRecordBytes == that.maxTargetRecordBytes
                 && maxAdapterMetadataBytes == that.maxAdapterMetadataBytes
@@ -334,7 +377,6 @@ public final class DestinationProfileSemantic implements ProfileSemanticBody {
                 deliveryCapability,
                 allowedOrderingModeBits,
                 handoffLeadMs,
-                targetClockAheadBoundMs,
                 Arrays.hashCode(credentialAuthorizationScopeDigest),
                 maxTargetRecordBytes,
                 maxAdapterMetadataBytes,

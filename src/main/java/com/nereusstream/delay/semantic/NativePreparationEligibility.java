@@ -102,19 +102,28 @@ public final class NativePreparationEligibility {
                 || snapshot.physicalPartition() != candidate.physicalPartition()
                 || trustedTime.epochMs() < snapshot.issuedAt().earliestEpochMs()
                 || trustedTime.epochMs() >= snapshot.notAfterEpochMs()
-                || candidate.brokerDeliverAtEpochMs() < intent.deliverAtEpochMs()
-                || candidate.brokerDeliverAtEpochMs() > intent.expireAtEpochMs()
-                || candidate.brokerDeliverAtEpochMs() > managedRoute.validUntilEpochMs()) {
+                || intent.deliverAtEpochMs() >= snapshot.notAfterEpochMs()
+                || intent.deliverAtEpochMs() > intent.expireAtEpochMs()
+                || intent.deliverAtEpochMs() > managedRoute.validUntilEpochMs()) {
             throw new IllegalArgumentException("native capability snapshot is stale or mismatched");
         }
-        final long targetClockDelta;
-        try {
-            targetClockDelta = Math.subtractExact(candidate.brokerDeliverAtEpochMs(), intent.deliverAtEpochMs());
-        } catch (ArithmeticException overflow) {
-            throw new IllegalArgumentException("native broker delivery time overflow", overflow);
-        }
-        if (targetClockDelta > destinationBody.targetClockAheadBoundMs()) {
-            throw new IllegalArgumentException("native broker delivery time exceeds the Profile clock bound");
+        final var handoff = candidate.handoffPolicySnapshot();
+        if (handoff != null) {
+            if (intent.nativeDeliveryPolicy()
+                            != com.nereusstream.delay.protocol.NativeDeliveryPolicy.ALLOW_AUTO_FAST_AND_MANAGED_HANDOFF
+                    || handoff.mode() != com.nereusstream.delay.protocol.HandoffPolicyMode.ENABLED
+                    || !handoff.allows(com.nereusstream.delay.protocol.HandoffPath.AUTO_FAST)) {
+                throw new IllegalArgumentException(
+                        "native candidate is not explicitly authorized by the Schedule policy");
+            }
+            if (trustedTime.epochMs() < handoff.validFromEpochMs()
+                    || trustedTime.epochMs() >= handoff.validUntilEpochMs()) {
+                throw new IllegalArgumentException("native handoff snapshot is not active at trusted time");
+            }
+            handoff.requireLeadAtMost(destinationBody.handoffLeadMs());
+            if (intent.deliverAtEpochMs() >= handoff.validUntilEpochMs()) {
+                throw new IllegalArgumentException("native candidate is outside the handoff lease");
+            }
         }
 
         final long payloadBytes = intent.inlinePayload().length;
