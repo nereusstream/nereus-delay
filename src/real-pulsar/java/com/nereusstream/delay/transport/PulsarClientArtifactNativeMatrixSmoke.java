@@ -75,7 +75,9 @@ public final class PulsarClientArtifactNativeMatrixSmoke {
         final String brokerStrictness = requireText(arguments[5], "broker-strictness");
         final Path evidencePath = Path.of(arguments[6]).toAbsolutePath();
         final long startedAt = System.currentTimeMillis();
-        final HttpClient admin = HttpClient.newHttpClient();
+        final HttpClient admin = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
         final byte[] incarnation = Bytes.sha256(Bytes.utf8("ndip1-disposable-resource\0" + topic));
         final long creationTimestamp = startedAt;
         createTopic(admin, adminUrl, topic, incarnation, creationTimestamp);

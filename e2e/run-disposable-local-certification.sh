@@ -565,7 +565,7 @@ create_topic() {
   local path="http://127.0.0.1:${web_1_port}/admin/v2/persistent/public/default/${topic}"
   local attempt code
   for attempt in $(seq 1 60); do
-    code="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+    code="$(curl --silent --show-error --location --output /dev/null --write-out '%{http_code}' \
       --header 'Content-Type: application/json' --request PUT --data "${body}" "${path}" || true)"
     if [[ "${code}" =~ ^2[0-9][0-9]$ ]]; then
       printf '%s\n' "${topic}" >>"${created_topics_file}"
@@ -590,7 +590,7 @@ delete_topic_if_present() {
   fi
   local url="http://127.0.0.1:${admin_port}/admin/v2/persistent/public/default/${topic}?force=true"
   local code
-  code="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+  code="$(curl --silent --show-error --location --output /dev/null --write-out '%{http_code}' \
     --request DELETE "${url}" || true)"
   [[ "${code}" == "404" || "${code}" =~ ^2[0-9][0-9]$ ]]
 }
