@@ -66,7 +66,9 @@ public final class PulsarClientArtifactDestinationSmoke {
         final String adminUrl = arguments[1];
         final String topic = arguments[2];
         final String physicalTopic = "persistent://public/default/" + topic;
-        final HttpClient admin = HttpClient.newHttpClient();
+        final HttpClient admin = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
         final String freshProcessPhase = System.getenv("NEREUS_DELAY_PULSAR_DESTINATION_RESPONSE_LOSS_PHASE");
         if (!"READ".equals(freshProcessPhase)) {
             createTopic(admin, adminUrl, topic, INCARNATION, CREATION_TIMESTAMP);

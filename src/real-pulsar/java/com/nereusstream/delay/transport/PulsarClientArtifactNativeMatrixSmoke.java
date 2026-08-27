@@ -123,7 +123,7 @@ public final class PulsarClientArtifactNativeMatrixSmoke {
             final long startedAt)
             throws Exception {
         final String physicalTopic = "persistent://public/default/" + topic;
-        final String cellId = "native." + subscriptionTypeName(subscriptionType) + "." + policyMode.value();
+        final String cellId = "native." + subscriptionTypeName(subscriptionType) + "." + policyMode.matrixValue();
         final byte[] payload = Bytes.utf8("ndip1-disposable-native-payload-" + cellId);
         final long deliverAtEpochMs = System.currentTimeMillis() + DELIVERY_DELAY_MILLIS;
         final long eventTimeEpochMs = System.currentTimeMillis();
@@ -508,6 +508,10 @@ public final class PulsarClientArtifactNativeMatrixSmoke {
 
         private String value() {
             return value;
+        }
+
+        private String matrixValue() {
+            return value.replace('-', '_');
         }
     }
 
