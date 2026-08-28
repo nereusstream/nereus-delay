@@ -519,7 +519,7 @@ write_authority_configs() {
   local scope_path="${run_dir}/authority/scope.json"
   local assessment_config="${run_dir}/authority/assessment-config.json"
   local manifest_config="${run_dir}/authority/manifest-config.json"
-  local resources_json scope_digest observation_now observation_latest observation_mono
+  local resources_json scope_json scope_digest observation_now observation_latest observation_mono
   local scope_evidence obligation_evidence worker_evidence source_evidence
   local resource_evidence route_incarnation worker_identity session_identity tenant_scope_digest route_snapshot_digest
   resources_json="$(jq -n \
@@ -552,6 +552,8 @@ write_authority_configs() {
       deploymentId:$deploymentId,tenantIds:["tenant-ndip1"],routeIds:["route-ndip1"],
       shardIds:["route-ndip1/0"],eligibleWorkerIds:[$workerId,$workerBId],resources:$resources}}' \
     >"${scope_path}"
+  scope_json="$(jq -c '.scope' "${scope_path}")"
+  [[ -n "${scope_json}" && "${scope_json}" != null ]] || fail "canonical G0 scope could not be loaded"
   scope_digest="$(authority_task scope-digest scope-digest "${scope_path}" | sed -n 's/^scopeDigest=//p' | tail -1)"
   [[ "${scope_digest}" =~ ^[0-9a-f]{64}$ ]] || fail "authority scope digest was not canonical"
   observation_now="$(now_epoch_ms)"
@@ -573,10 +575,11 @@ write_authority_configs() {
     --arg signedEnvelopePath "${run_dir}/authority/data-reset-assessment.signed.json" \
     --arg privateKeyPath "${key_dir}/issuer-ed25519-private.der" \
     --arg publicKeyPath "${key_dir}/issuer-ed25519-public.der" \
-    --arg workerId "worker-ndip1-a" --arg workerBId "worker-ndip1-b" \
+    --arg workerId "worker-ndip1-a" --arg workerBId "worker-ndip1-b" --argjson scope "${scope_json}" \
     '{ndipPackageDigest:$packageDigest,sourceBaselineCommit:$sourceCommit,
       receiptPath:$receiptPath,signedEnvelopePath:$signedEnvelopePath,
       privateKeyPath:$privateKeyPath,publicKeyPath:$publicKeyPath,issuerKeyGeneration:1,
+      scope:$scope,
       scopeDigest:$scopeDigest,
       inventory:{scopeDigest:$scopeDigest,scopeEnumerationComplete:true,scopeEvidenceSha256:$scopeEvidence,
         observationTime:{earliestEpochMs:$earliest,latestEpochMs:$latest,qualified:true,
