@@ -335,7 +335,14 @@ public final class PulsarClientArtifactDestinationTransport
             final PulsarDestinationRequest request, final byte[] preparedPublishHash, final Throwable failure) {
         final TopicResourceGuardException guardFailure = unwrap(failure);
         if (guardFailure != null && guardFailure.definitelyNotPersisted()) {
-            return DestinationPublishResult.unknown(StableCode.BROKER_DEFINITIVE_NOT_PERSISTED, null);
+            if (guardFailure.responseEvidence().isPresent()) {
+                return DestinationPublishResult.definitelyNotPublished(
+                        StableCode.BROKER_DEFINITIVE_NOT_PERSISTED,
+                        encodeErrorEvidence(guardFailure.responseEvidence().get()));
+            }
+            // The disposition alone is not the exact authenticated proof
+            // required by the legacy result branch.
+            return DestinationPublishResult.unknown(StableCode.ENQUEUE_RESULT_UNCERTAIN, null);
         }
         if (publishEvidenceProvider != null) {
             try {

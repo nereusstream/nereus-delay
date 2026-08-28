@@ -203,15 +203,17 @@ public final class PulsarPreparedRecord {
         for (PulsarMetadata.Property property : copy) {
             Objects.requireNonNull(property, "reserved property");
         }
-        String previous = null;
+        byte[] previous = null;
         for (PulsarMetadata.Property property : copy) {
             if (!property.key().startsWith(PulsarReservedProperties.PREFIX)) {
                 throw new IllegalArgumentException("final properties must use the reserved Nereus prefix");
             }
-            if (previous != null && previous.equals(property.key())) {
-                throw new IllegalArgumentException("final reserved properties must be unique");
+            final byte[] current = property.keyUtf8();
+            if (previous != null && Arrays.compareUnsigned(previous, current) >= 0) {
+                throw new IllegalArgumentException(
+                        "final reserved properties must be strictly unsigned-byte key-sorted and unique");
             }
-            previous = property.key();
+            previous = current;
         }
         return Collections.unmodifiableList(copy);
     }

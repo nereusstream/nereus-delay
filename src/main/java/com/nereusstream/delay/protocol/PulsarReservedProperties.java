@@ -1,8 +1,10 @@
 package com.nereusstream.delay.protocol;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
@@ -28,14 +30,16 @@ public final class PulsarReservedProperties {
         result.add(reserved("destination_profile_hash", encode(checked.destinationProfileSemanticHash())));
         result.add(reserved("capability_profile_hash", encode(checked.capabilityProfileSemanticHash())));
         result.add(reserved("deliver_at", Long.toString(checked.deliverAtEpochMs())));
+        result.sort(Comparator.comparing(PulsarMetadata.Property::keyUtf8, Arrays::compareUnsigned));
         return Collections.unmodifiableList(result);
     }
 
-    /** Returns all nine properties with prepared_hash appended exactly last by key order. */
+    /** Returns all nine properties in strict unsigned-byte key order. */
     public static List<PulsarMetadata.Property> all(
             final ReservedPublishMetadata metadata, final byte[] attemptId, final byte[] preparedHash) {
         final List<PulsarMetadata.Property> result = new ArrayList<>(identityProperties(metadata, attemptId));
         result.add(reserved("prepared_hash", encode(fixed(preparedHash, "preparedHash"))));
+        result.sort(Comparator.comparing(PulsarMetadata.Property::keyUtf8, Arrays::compareUnsigned));
         return Collections.unmodifiableList(result);
     }
 

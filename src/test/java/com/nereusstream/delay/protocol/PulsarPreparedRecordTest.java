@@ -1,7 +1,10 @@
 package com.nereusstream.delay.protocol;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -37,6 +40,47 @@ class PulsarPreparedRecordTest {
                         ordinary.preparedIdentity,
                         PulsarReservedProperties.all(ordinary.reserved, ordinary.attemptId, ordinary.preparedIdentity),
                         ordinary.artifacts.setDigest()));
+    }
+
+    @Test
+    void reservedPropertiesAreCanonicalUnsignedByteSorted() {
+        final Fixture fixture = fixture(DeliveryContract.NEREUS_MANAGED_NOT_BEFORE);
+        final List<PulsarMetadata.Property> properties =
+                PulsarReservedProperties.all(fixture.reserved, fixture.attemptId, fixture.preparedIdentity);
+
+        assertEquals(
+                List.of(
+                        "nereus.delay.attempt_id",
+                        "nereus.delay.capability_profile_hash",
+                        "nereus.delay.deliver_at",
+                        "nereus.delay.destination_profile_hash",
+                        "nereus.delay.generation",
+                        "nereus.delay.message_id",
+                        "nereus.delay.partition",
+                        "nereus.delay.prepared_hash",
+                        "nereus.delay.route"),
+                properties.stream().map(PulsarMetadata.Property::key).toList());
+    }
+
+    @Test
+    void preparedRecordRejectsAnUnsortedReservedPropertyList() {
+        final Fixture fixture = fixture(DeliveryContract.NEREUS_MANAGED_NOT_BEFORE);
+        final List<PulsarMetadata.Property> unsorted = new ArrayList<>(
+                PulsarReservedProperties.all(fixture.reserved, fixture.attemptId, fixture.preparedIdentity));
+        Collections.swap(unsorted, 0, 1);
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PulsarPreparedRecord(
+                        fixture.template,
+                        fixture.template.recordTemplateHash(),
+                        ResolvedPayload.of(fixture.payload),
+                        PulsarSequenceAuthority.managedJournal(
+                                Bytes.sha256(Bytes.utf8("mapping")), 7, Bytes.sha256(Bytes.utf8("producer"))),
+                        ExternalDeliveryIdentity.publishAttempt(fixture.attemptId),
+                        fixture.preparedIdentity,
+                        unsorted,
+                        fixture.artifacts.setDigest()));
     }
 
     private static Fixture fixture(final DeliveryContract contract) {
