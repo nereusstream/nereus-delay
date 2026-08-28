@@ -636,26 +636,69 @@ oxia_admin() {
     --admin-address 127.0.0.1:6651 "$@"
 }
 
+oxia_admin_is_ready() {
+  local response
+  response="$(oxia_admin dataserver list --output json 2>/dev/null)" || return 1
+  [[ -n "${response}" ]] || return 1
+  python3 -c '
+import json
+import sys
+
+value = json.load(sys.stdin)
+sys.exit(0 if isinstance(value, list) else 1)
+' <<<"${response}" >/dev/null 2>&1
+}
+
+wait_for_oxia_admin() {
+  local deadline=$((SECONDS + 180))
+  while (( SECONDS < deadline )); do
+    if oxia_admin_is_ready; then
+      echo "Oxia coordinator admin is initialized"
+      return 0
+    fi
+    sleep 2
+  done
+  echo "Oxia coordinator admin did not become initialized" >&2
+  "${compose[@]}" logs coordinator-1 coordinator-2 coordinator-3 >&2 || true
+  return 1
+}
+
 bootstrap_oxia_cluster() {
   local data_servers_ready=0
   local namespace_ready=0
+  local namespace_created=0
   local deadline
-  local server port_var public_port
+  local server port_var public_port registered dataservers_json namespace_json
   : >"${oxia_bootstrap_log}"
   {
     echo "Oxia disposable bootstrap: register three data servers with host-authority public addresses"
+    if ! wait_for_oxia_admin; then
+      return 1
+    fi
     for server in 1 2 3; do
       port_var="oxia_data_${server}_port"
       public_port="${!port_var}"
-      oxia_admin dataserver create "data-server-${server}" \
-        --public "127.0.0.1:${public_port}" \
-        --internal "data-server-${server}:6649" --output json
+      registered=0
+      deadline=$((SECONDS + 180))
+      while (( SECONDS < deadline )); do
+        if oxia_admin dataserver create "data-server-${server}" \
+            --public "127.0.0.1:${public_port}" \
+            --internal "data-server-${server}:6649" --output json; then
+          registered=1
+          break
+        fi
+        sleep 2
+      done
+      if [[ "${registered}" != 1 ]]; then
+        echo "Oxia data-server-${server} registration failed" >&2
+        return 1
+      fi
     done
 
     deadline=$((SECONDS + 180))
     while (( SECONDS < deadline )); do
-      if oxia_admin dataserver list --output json \
-          | python3 -c '
+      if dataservers_json="$(oxia_admin dataserver list --output json 2>/dev/null)" \
+          && python3 -c '
 import json
 import sys
 
@@ -673,7 +716,7 @@ states = {
     if isinstance(entry, dict)
 }
 sys.exit(0 if observed == expected and all(states.get(name) == "DATA_SERVER_STATE_RUNNING" for name in expected) else 1)
-'; then
+' <<<"${dataservers_json}" >/dev/null 2>&1; then
         data_servers_ready=1
         break
       fi
@@ -684,12 +727,27 @@ sys.exit(0 if observed == expected and all(states.get(name) == "DATA_SERVER_STAT
       return 1
     fi
 
-    oxia_admin namespace create default --initial-shards 1 --replication-factor 3 --output json
+    deadline=$((SECONDS + 180))
+    while (( SECONDS < deadline )); do
+      if oxia_admin namespace get default --output json >/dev/null 2>&1; then
+        namespace_created=1
+        break
+      fi
+      if oxia_admin namespace create default --initial-shards 1 --replication-factor 3 --output json; then
+        namespace_created=1
+        break
+      fi
+      sleep 2
+    done
+    if [[ "${namespace_created}" != 1 ]]; then
+      echo "Oxia default namespace creation failed" >&2
+      return 1
+    fi
 
     deadline=$((SECONDS + 180))
     while (( SECONDS < deadline )); do
-      if oxia_admin namespace get default --output json \
-          | python3 -c '
+      if namespace_json="$(oxia_admin namespace get default --output json 2>/dev/null)" \
+          && python3 -c '
 import json
 import sys
 
@@ -707,7 +765,7 @@ ready = (
     )
 )
 sys.exit(0 if ready else 1)
-'; then
+' <<<"${namespace_json}" >/dev/null 2>&1; then
         namespace_ready=1
         break
       fi
