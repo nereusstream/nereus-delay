@@ -8,6 +8,8 @@ import com.nereusstream.delay.protocol.CommandId;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.MessagePrecondition;
 import com.nereusstream.delay.protocol.NativePreparedDelivery;
+import com.nereusstream.delay.protocol.NativePreparedRecordBinding;
+import com.nereusstream.delay.protocol.NativePreparedRecordContext;
 import com.nereusstream.delay.protocol.PayloadReservationReceipt;
 import com.nereusstream.delay.protocol.PreparedCommand;
 import com.nereusstream.delay.protocol.PreparedSubmission;
@@ -98,8 +100,7 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
             return PreparedSubmission.managed(managedFrame);
         }
         try {
-            return PreparedSubmission.nativePrepared(
-                    prepareNative(tenant, managed, intent, nativeCandidate.get(), snapshot, trustedTime));
+            return prepareNative(tenant, managed, intent, nativeCandidate.get(), snapshot, trustedTime);
         } catch (SemanticPreparationException failure) {
             if (failure.error().code() == StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE) {
                 return PreparedSubmission.managed(managedFrame);
@@ -227,7 +228,7 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
         return PreparedSubmission.managed(strictFrameWithinRoute(command, snapshot));
     }
 
-    private NativePreparedDelivery prepareNative(
+    private PreparedSubmission prepareNative(
             final AuthenticatedTenantContext tenant,
             final PreparedCommand managed,
             final CanonicalScheduleIntent intent,
@@ -240,7 +241,7 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
             throw SemanticPreparationException.of(StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE, failure);
         }
         try {
-            final byte[] nativeDeliveryId = NativeDeliveryIdGenerator.require(nativeDeliveryIds.next(managed, intent));
+            final byte[] publishAttemptId = NativeDeliveryIdGenerator.require(nativeDeliveryIds.next(managed, intent));
             if (candidate.handoffPolicySnapshot() == null) {
                 // A current writer must not manufacture the removed
                 // Broker-clock-shifted native envelope from the compatibility
@@ -248,7 +249,23 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
                 // caller falls back to the already validated managed frame.
                 throw new IllegalArgumentException("native delivery requires a frozen generation-2 handoff snapshot");
             }
-            return NativePreparedDelivery.createCurrent(
+            final NativePreparedRecordContext recordContext = NativePreparedRecordContext.initialSchedule(
+                    managed, publishAttemptId, candidate.handoffPolicySnapshot().artifactGenerationSetDigest());
+            final byte[] nativeDeliveryId = NativePreparedRecordBinding.derive(
+                    recordContext,
+                    candidate.destination().ref(),
+                    candidate.capability().ref(),
+                    candidate.target(),
+                    candidate.physicalPartition(),
+                    intent.inlinePayload(),
+                    intent.adapterMetadata().pulsar(),
+                    intent.eventTimeEpochMs(),
+                    intent.deliverAtEpochMs(),
+                    intent.nativeDeliveryPolicy(),
+                    com.nereusstream.delay.protocol.DeliveryContract.PULSAR_NATIVE_DELIVERY,
+                    candidate.handoffPolicySnapshot(),
+                    candidate.capabilitySnapshot());
+            final NativePreparedDelivery prepared = NativePreparedDelivery.createCurrent(
                     nativeDeliveryId,
                     candidate.destination().ref(),
                     candidate.capability().ref(),
@@ -262,6 +279,7 @@ public final class DefaultDelaySemanticCore implements DelaySemanticCore {
                     com.nereusstream.delay.protocol.DeliveryContract.PULSAR_NATIVE_DELIVERY,
                     candidate.handoffPolicySnapshot(),
                     candidate.capabilitySnapshot());
+            return PreparedSubmission.nativePrepared(prepared, recordContext);
         } catch (RuntimeException failure) {
             throw SemanticPreparationException.of(StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE, failure);
         }

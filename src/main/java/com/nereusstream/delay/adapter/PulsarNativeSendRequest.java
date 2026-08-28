@@ -1,8 +1,10 @@
 package com.nereusstream.delay.adapter;
 
+import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.NativePreparedDelivery;
 import com.nereusstream.delay.protocol.NativePreparedRef;
+import com.nereusstream.delay.protocol.PulsarPreparedRecord;
 import com.nereusstream.delay.transport.TransportRequest;
 import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
@@ -17,7 +19,9 @@ public record PulsarNativeSendRequest(
         int partition,
         byte[] nativeDeliveryId,
         byte[] submissionHash,
-        byte[] preparedBytes)
+        byte[] preparedBytes,
+        PulsarPreparedRecord preparedRecord,
+        ArtifactGenerationSet artifacts)
         implements TransportRequest {
     public PulsarNativeSendRequest {
         authenticatedClusterId = canonicalText(authenticatedClusterId, "authenticatedClusterId");
@@ -30,11 +34,42 @@ public record PulsarNativeSendRequest(
         if (preparedBytes.length == 0) {
             throw new IllegalArgumentException("invalid Pulsar native send request");
         }
+        if ((preparedRecord == null) != (artifacts == null)) {
+            throw new IllegalArgumentException("native prepared record and ArtifactGenerationSet must be paired");
+        }
+        if (preparedRecord != null
+                && (!java.util.Arrays.equals(preparedRecord.artifactGenerationSetDigest(), artifacts.setDigest())
+                        || !java.util.Arrays.equals(preparedRecord.preparedIdentityHash(), submissionHash))) {
+            throw new IllegalArgumentException("native prepared record does not match the request identity");
+        }
         requireNonZero(nativeDeliveryId, "nativeDeliveryId");
         resourceIncarnation = Bytes.copy(resourceIncarnation);
         nativeDeliveryId = Bytes.copy(nativeDeliveryId);
         submissionHash = Bytes.copy(submissionHash);
         preparedBytes = Bytes.copy(preparedBytes);
+    }
+
+    /** Compatibility constructor for the envelope-only H0 request. */
+    public PulsarNativeSendRequest(
+            final String authenticatedClusterId,
+            final byte[] resourceIncarnation,
+            final String physicalTopic,
+            final long physicalTopicCreationTimestamp,
+            final int partition,
+            final byte[] nativeDeliveryId,
+            final byte[] submissionHash,
+            final byte[] preparedBytes) {
+        this(
+                authenticatedClusterId,
+                resourceIncarnation,
+                physicalTopic,
+                physicalTopicCreationTimestamp,
+                partition,
+                nativeDeliveryId,
+                submissionHash,
+                preparedBytes,
+                null,
+                null);
     }
 
     public static PulsarNativeSendRequest from(
@@ -48,7 +83,33 @@ public record PulsarNativeSendRequest(
                 resource.partition(),
                 prepared.nativeDeliveryId(),
                 prepared.submissionHash(),
-                prepared.canonicalBytes());
+                prepared.canonicalBytes(),
+                null,
+                null);
+    }
+
+    /** Creates the current H5 request carrying the exact physical record authority. */
+    public static PulsarNativeSendRequest from(
+            final PulsarTargetResource resource,
+            final NativePreparedDelivery prepared,
+            final PulsarPreparedRecord record,
+            final ArtifactGenerationSet artifacts) {
+        Objects.requireNonNull(prepared, "prepared");
+        return new PulsarNativeSendRequest(
+                resource.authenticatedClusterId(),
+                resource.resourceIncarnation(),
+                resource.physicalTopic(),
+                resource.physicalTopicCreationTimestamp(),
+                resource.partition(),
+                prepared.nativeDeliveryId(),
+                prepared.submissionHash(),
+                prepared.canonicalBytes(),
+                Objects.requireNonNull(record, "record"),
+                Objects.requireNonNull(artifacts, "artifacts"));
+    }
+
+    public boolean hasPreparedRecord() {
+        return preparedRecord != null;
     }
 
     @Override

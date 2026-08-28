@@ -3,6 +3,7 @@ package com.nereusstream.delay.submission;
 import com.nereusstream.delay.adapter.KafkaIngressResource;
 import com.nereusstream.delay.adapter.KafkaProduceRequest;
 import com.nereusstream.delay.adapter.PulsarIngressResource;
+import com.nereusstream.delay.adapter.PulsarNativePreparedRecordValidator;
 import com.nereusstream.delay.adapter.PulsarNativeSendRequest;
 import com.nereusstream.delay.adapter.PulsarSendRequest;
 import com.nereusstream.delay.adapter.PulsarTargetResource;
@@ -33,11 +34,21 @@ import java.util.Objects;
 public final class RouteBoundSubmissionTransportPlanResolver implements SubmissionTransportPlanResolver {
     private final RouteSnapshotProvider routes;
     private final TrustedClock trustedClock;
+    private final PulsarNativePreparedRecordValidator nativePreparedRecordValidator;
 
     public RouteBoundSubmissionTransportPlanResolver(
             final RouteSnapshotProvider routes, final TrustedClock trustedClock) {
+        this(routes, trustedClock, null);
+    }
+
+    /** Activated H5 composition with a shared pre-ownership record validator. */
+    public RouteBoundSubmissionTransportPlanResolver(
+            final RouteSnapshotProvider routes,
+            final TrustedClock trustedClock,
+            final PulsarNativePreparedRecordValidator nativePreparedRecordValidator) {
         this.routes = Objects.requireNonNull(routes, "routes");
         this.trustedClock = Objects.requireNonNull(trustedClock, "trustedClock");
+        this.nativePreparedRecordValidator = nativePreparedRecordValidator;
     }
 
     @Override
@@ -108,7 +119,9 @@ public final class RouteBoundSubmissionTransportPlanResolver implements Submissi
         final NativePreparedDelivery prepared = submission.nativePrepared();
         final NativeCapabilitySnapshot snapshot = prepared.capabilitySnapshot();
         try {
-            if (!Arrays.equals(snapshot.sdkPrincipalScopeDigest(), tenant.principalScopeHash())
+            if (!submission.isNativeRecordReady()
+                    || nativePreparedRecordValidator == null
+                    || !Arrays.equals(snapshot.sdkPrincipalScopeDigest(), tenant.principalScopeHash())
                     || !prepared.target().equals(snapshot.target())
                     || prepared.physicalPartition() != snapshot.physicalPartition()
                     || !Bytes.constantTimeEquals(
@@ -128,7 +141,16 @@ public final class RouteBoundSubmissionTransportPlanResolver implements Submissi
                 target.physicalTopic(),
                 target.physicalTopicCreationTimestamp(),
                 prepared.physicalPartition());
-        final PulsarNativeSendRequest request = PulsarNativeSendRequest.from(resource, prepared);
+        final com.nereusstream.delay.protocol.PulsarPreparedRecord record;
+        try {
+            record = nativePreparedRecordValidator.materialize(submission);
+        } catch (PulsarNativePreparedRecordValidator.Rejection rejection) {
+            throw failure(rejection.code(), rejection);
+        } catch (RuntimeException failure) {
+            throw failure(StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE, failure);
+        }
+        final PulsarNativeSendRequest request =
+                PulsarNativeSendRequest.from(resource, prepared, record, nativePreparedRecordValidator.artifacts());
         final CredentialBindingKey binding = new CredentialBindingKey(
                 snapshot.credentialBindingGeneration(),
                 new Digest32(snapshot.credentialBindingDigest()),

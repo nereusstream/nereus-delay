@@ -42,6 +42,28 @@ public final class NativePreparedRecordContext {
         this.artifactGenerationSetDigest = fixed(artifactGenerationSetDigest, "artifactGenerationSetDigest");
     }
 
+    /** Creates the logical record context for a new AUTO_FAST Schedule. */
+    public static NativePreparedRecordContext initialSchedule(
+            final PreparedCommand managedCommand,
+            final byte[] publishAttemptId,
+            final byte[] artifactGenerationSetDigest) {
+        final PreparedCommand command = Objects.requireNonNull(managedCommand, "managedCommand");
+        if (command.type() != CommandType.SCHEDULE || !CommandBodies.isRegistryClientBody(command.canonicalBody())) {
+            throw new IllegalArgumentException("AUTO_FAST record context requires a current Schedule command");
+        }
+        final ScheduleCommandBody body = CommandBodies.decodeSchedule(command.canonicalBody());
+        if (!body.delayMessageId().equals(command.delayMessageId())) {
+            throw new IllegalArgumentException("AUTO_FAST Schedule body identity mismatch");
+        }
+        return new NativePreparedRecordContext(
+                command.shardId().routeIncarnation(),
+                command.shardId().unsignedPartition(),
+                command.delayMessageId(),
+                1,
+                publishAttemptId,
+                artifactGenerationSetDigest);
+    }
+
     public RouteIncarnation routeIncarnation() {
         return routeIncarnation;
     }

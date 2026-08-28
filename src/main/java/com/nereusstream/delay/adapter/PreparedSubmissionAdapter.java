@@ -49,7 +49,7 @@ public final class PreparedSubmissionAdapter implements AutoCloseable {
         // The native adapter has its own pinned close gate and therefore
         // returns the exact native-branch local-definite outcome when this
         // wrapper has already been fenced. Keep the prepared branch fixed.
-        return nativeSubmission.submit(submission.nativePrepared(), physicalEnqueueAttemptId);
+        return nativeSubmission.submitPreparedSubmission(submission, physicalEnqueueAttemptId);
     }
 
     /**
@@ -72,7 +72,7 @@ public final class PreparedSubmissionAdapter implements AutoCloseable {
         }
         // Native receipts do not carry managed query authority; retain the
         // already prepared native branch and ignore the managed policy.
-        return nativeSubmission.submit(submission.nativePrepared(), physicalEnqueueAttemptId);
+        return nativeSubmission.submitPreparedSubmission(submission, physicalEnqueueAttemptId);
     }
 
     /**

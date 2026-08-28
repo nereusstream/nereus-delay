@@ -5,7 +5,6 @@ import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalCommandQueuedReceipt;
-import com.nereusstream.delay.protocol.DeliveryContract;
 import com.nereusstream.delay.protocol.FailureStage;
 import com.nereusstream.delay.protocol.NativeCapabilitySnapshot;
 import com.nereusstream.delay.protocol.NativeDefinitelyNotQueued;
@@ -15,6 +14,7 @@ import com.nereusstream.delay.protocol.NativePreparedDelivery;
 import com.nereusstream.delay.protocol.NativePreparedRef;
 import com.nereusstream.delay.protocol.NonPersistenceProof;
 import com.nereusstream.delay.protocol.NonPersistenceProofKind;
+import com.nereusstream.delay.protocol.PreparedSubmission;
 import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
 import com.nereusstream.delay.protocol.PulsarKey;
 import com.nereusstream.delay.protocol.PulsarMetadata;
@@ -42,6 +42,7 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
     private final CredentialFingerprintProvider credentialFingerprintProvider;
     private final boolean nativePreparedDeliveryEnabled;
     private final DataResetActivationGate dataResetActivationGate;
+    private final PulsarNativePreparedRecordValidator preparedRecordValidator;
     private final CloseGuard closeGuard = new CloseGuard();
 
     public PinnedPulsarNativeSubmissionAdapter(
@@ -103,6 +104,10 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
         this.credentialFingerprintProvider = credentialFingerprintProvider;
         this.nativePreparedDeliveryEnabled = nativePreparedDeliveryEnabled;
         this.dataResetActivationGate = dataResetActivationGate;
+        this.preparedRecordValidator = dataResetActivationGate == null
+                ? null
+                : new PulsarNativePreparedRecordValidator(
+                        resource, issuerKey, clock, credentialFingerprintProvider, dataResetActivationGate);
     }
 
     public PinnedPulsarNativeSubmissionAdapter(
@@ -175,6 +180,41 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
                 () -> completed(localDefinite(prepared, StableCode.CLIENT_CLOSED)));
     }
 
+    /**
+     * Materializes and sends the current hash-bound AUTO_FAST branch. Legacy
+     * envelope-only prepared submissions remain on the H0 entry point.
+     */
+    public CompletionStage<SubmissionOutcomeMessage> submitPreparedSubmission(
+            final PreparedSubmission submission, final byte[] physicalEnqueueAttemptId) {
+        Objects.requireNonNull(submission, "submission");
+        if (submission.isManaged()) {
+            throw new IllegalArgumentException("native adapter cannot submit a managed branch");
+        }
+        final NativePreparedDelivery prepared = submission.nativePrepared();
+        return closeGuard.invokeIfOpen(
+                () -> submitPreparedSubmissionOpen(submission, prepared, physicalEnqueueAttemptId),
+                () -> completed(localDefinite(prepared, StableCode.CLIENT_CLOSED)));
+    }
+
+    private CompletionStage<SubmissionOutcomeMessage> submitPreparedSubmissionOpen(
+            final PreparedSubmission submission,
+            final NativePreparedDelivery prepared,
+            final byte[] physicalEnqueueAttemptId) {
+        if (!nativePreparedDeliveryEnabled || preparedRecordValidator == null || !submission.isNativeRecordReady()) {
+            return completed(localDefinite(prepared, StableCode.CAPABILITY_UNAVAILABLE));
+        }
+        final PulsarPreparedRecord record;
+        try {
+            record = preparedRecordValidator.materialize(submission);
+        } catch (PulsarNativePreparedRecordValidator.Rejection rejection) {
+            return completed(localDefinite(prepared, rejection.code()));
+        } catch (RuntimeException invalid) {
+            return completed(localDefinite(prepared, StableCode.PREPARED_SUBMISSION_MISMATCH));
+        }
+        return submitPreparedRecordOpen(
+                prepared, record, preparedRecordValidator.artifacts(), physicalEnqueueAttemptId);
+    }
+
     private CompletionStage<SubmissionOutcomeMessage> submitPreparedRecordOpen(
             final NativePreparedDelivery prepared,
             final PulsarPreparedRecord record,
@@ -183,80 +223,12 @@ public final class PinnedPulsarNativeSubmissionAdapter implements AutoCloseable 
         if (!nativePreparedDeliveryEnabled) {
             return completed(localDefinite(prepared, StableCode.CAPABILITY_UNAVAILABLE));
         }
-        if (dataResetActivationGate == null) {
+        if (preparedRecordValidator == null) {
             return completed(localDefinite(prepared, StableCode.CAPABILITY_UNAVAILABLE));
         }
-        final long nowEpochMs;
-        try {
-            nowEpochMs = clock.millis();
-        } catch (RuntimeException unavailable) {
-            return completed(localDefinite(prepared, StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE));
-        }
-        try {
-            dataResetActivationGate.requirePhysicalSend(
-                    artifacts, dataResetActivationGate.manifest().manifestDigest(), nowEpochMs);
-        } catch (RuntimeException unavailable) {
-            return completed(localDefinite(prepared, StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE));
-        }
-        if (!prepared.isCurrentGeneration()
-                || prepared.nativeDeliveryPolicy()
-                        != com.nereusstream.delay.protocol.NativeDeliveryPolicy.ALLOW_AUTO_FAST_AND_MANAGED_HANDOFF
-                || prepared.deliveryContract() != DeliveryContract.PULSAR_NATIVE_DELIVERY
-                || prepared.handoffPolicySnapshot() == null
-                || artifacts.pulsarRecordGeneration() != PulsarPreparedRecord.SCHEMA_GENERATION
-                || !Arrays.equals(record.artifactGenerationSetDigest(), artifacts.setDigest())
-                || !record.template().targetResource().equals(BrokerResourceIdentity.pulsar(prepared.target()))
-                || record.template().physicalPartition() != Integer.toUnsignedLong(prepared.physicalPartition())
-                || record.template().deliveryContract() != DeliveryContract.PULSAR_NATIVE_DELIVERY
-                || !Long.valueOf(prepared.deliverAtEpochMs())
-                        .equals(record.template().nativeDeliverAtEpochMs())
-                || record.sequenceAuthority().kind()
-                        != com.nereusstream.delay.protocol.PulsarSequenceAuthority.Kind.PRODUCER_ASSIGNED
-                || record.externalIdentity().kind()
-                        != com.nereusstream.delay.protocol.ExternalDeliveryIdentity.Kind.NATIVE_DELIVERY
-                || !Arrays.equals(record.externalIdentity().nativeDeliveryId(), prepared.nativeDeliveryId())
-                || !Arrays.equals(record.preparedIdentityHash(), prepared.submissionHash())
-                || !matchesMetadata(prepared, record)) {
-            return completed(localDefinite(prepared, StableCode.PREPARED_SUBMISSION_MISMATCH));
-        }
-        final boolean signatureValid;
-        try {
-            signatureValid = prepared.capabilitySnapshot().verifySignature(issuerKey)
-                    && prepared.handoffPolicySnapshot().verifySignature(issuerKey);
-        } catch (RuntimeException invalid) {
-            return completed(localDefinite(prepared, StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE));
-        }
-        if (!signatureValid || !matchesPinnedResource(prepared)) {
-            return completed(localDefinite(
-                    prepared,
-                    signatureValid
-                            ? StableCode.PREPARED_SUBMISSION_MISMATCH
-                            : StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE));
-        }
-        if (nowEpochMs < 0
-                || nowEpochMs >= prepared.capabilityExpiryEpochMs()
-                || nowEpochMs < prepared.handoffPolicySnapshot().validFromEpochMs()
-                || nowEpochMs >= prepared.handoffPolicySnapshot().validUntilEpochMs()
-                || !prepared.handoffPolicySnapshot().allows(com.nereusstream.delay.protocol.HandoffPath.AUTO_FAST)
-                || prepared.handoffPolicySnapshot().mode()
-                        != com.nereusstream.delay.protocol.HandoffPolicyMode.ENABLED) {
-            return completed(localDefinite(prepared, StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE));
-        }
-        if (credentialFingerprintProvider != null) {
-            final byte[] resolvedFingerprint;
-            try {
-                resolvedFingerprint = credentialFingerprintProvider.resolve(prepared);
-                Bytes.requireLength(
-                        resolvedFingerprint,
-                        NativeCapabilitySnapshot.HASH_LENGTH,
-                        "resolvedCredentialFingerprintDigest");
-            } catch (RuntimeException unavailable) {
-                return completed(localDefinite(prepared, StableCode.AUTO_FAST_PREREQUISITE_UNAVAILABLE));
-            }
-            if (!Bytes.constantTimeEquals(
-                    resolvedFingerprint, prepared.capabilitySnapshot().resolvedCredentialFingerprintDigest())) {
-                return completed(localDefinite(prepared, StableCode.CREDENTIAL_BINDING_DRIFT));
-            }
+        final StableCode rejection = preparedRecordValidator.validate(prepared, record, artifacts);
+        if (rejection != null) {
+            return completed(localDefinite(prepared, rejection));
         }
         final byte[] attempt;
         try {

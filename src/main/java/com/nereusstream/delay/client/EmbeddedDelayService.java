@@ -42,6 +42,8 @@ import com.nereusstream.delay.protocol.MessagePrecondition;
 import com.nereusstream.delay.protocol.MessageQueryResponse;
 import com.nereusstream.delay.protocol.NativeDefinitelyNotQueued;
 import com.nereusstream.delay.protocol.NativePreparedDelivery;
+import com.nereusstream.delay.protocol.NativePreparedRecordBinding;
+import com.nereusstream.delay.protocol.NativePreparedRecordContext;
 import com.nereusstream.delay.protocol.NativePreparedRef;
 import com.nereusstream.delay.protocol.NonPersistenceProof;
 import com.nereusstream.delay.protocol.NonPersistenceProofKind;
@@ -395,10 +397,8 @@ public final class EmbeddedDelayService implements DelayClient {
         try {
             Objects.requireNonNull(request, "request");
             final byte[] managedFrame = CommandCodec.encodeManagedFrame(request.managedCommand());
-            final NativePreparedDelivery nativePrepared = prepareNative(request);
-            return nativePrepared == null
-                    ? PreparedSubmission.managed(managedFrame)
-                    : PreparedSubmission.nativePrepared(nativePrepared);
+            final PreparedSubmission nativePrepared = prepareNative(request);
+            return nativePrepared == null ? PreparedSubmission.managed(managedFrame) : nativePrepared;
         } catch (PreparationFailure failure) {
             throw failure;
         } catch (RuntimeException invalidRequest) {
@@ -428,7 +428,7 @@ public final class EmbeddedDelayService implements DelayClient {
      * the already-validated managed frame; it never performs I/O or changes
      * the branch after this method returns.
      */
-    private NativePreparedDelivery prepareNative(final AutoFastSchedule request) {
+    private PreparedSubmission prepareNative(final AutoFastSchedule request) {
         final AutoFastSchedule.NativeCandidate candidate = request.nativeCandidate();
         if (candidate == null) {
             return null;
@@ -510,13 +510,31 @@ public final class EmbeddedDelayService implements DelayClient {
                     || payloadBytes > destination.maxTargetRecordBytes() - metadataBytes.length) {
                 return null;
             }
-            final byte[] nativeDeliveryId = nextNativeDeliveryId();
+            final byte[] publishAttemptId = nextNativeDeliveryId();
             if (candidate.handoffPolicySnapshot() != null) {
                 if (intent.nativeDeliveryPolicy()
                         != com.nereusstream.delay.protocol.NativeDeliveryPolicy.ALLOW_AUTO_FAST_AND_MANAGED_HANDOFF) {
                     return null;
                 }
-                return NativePreparedDelivery.createCurrent(
+                final NativePreparedRecordContext recordContext = NativePreparedRecordContext.initialSchedule(
+                        request.managedCommand(),
+                        publishAttemptId,
+                        candidate.handoffPolicySnapshot().artifactGenerationSetDigest());
+                final byte[] nativeDeliveryId = NativePreparedRecordBinding.derive(
+                        recordContext,
+                        destinationEnvelope.ref(),
+                        capabilityEnvelope.ref(),
+                        candidate.target(),
+                        candidate.physicalPartition(),
+                        candidate.inlinePayload(),
+                        candidate.metadata(),
+                        candidate.eventTimeEpochMs(),
+                        candidate.deliverAtEpochMs(),
+                        intent.nativeDeliveryPolicy(),
+                        com.nereusstream.delay.protocol.DeliveryContract.PULSAR_NATIVE_DELIVERY,
+                        candidate.handoffPolicySnapshot(),
+                        snapshot);
+                final NativePreparedDelivery prepared = NativePreparedDelivery.createCurrent(
                         nativeDeliveryId,
                         destinationEnvelope.ref(),
                         capabilityEnvelope.ref(),
@@ -530,6 +548,7 @@ public final class EmbeddedDelayService implements DelayClient {
                         com.nereusstream.delay.protocol.DeliveryContract.PULSAR_NATIVE_DELIVERY,
                         candidate.handoffPolicySnapshot(),
                         snapshot);
+                return PreparedSubmission.nativePrepared(prepared, recordContext);
             }
             // A native physical record is only legal with the explicit
             // generation-2 policy/contract/snapshot branch. The old

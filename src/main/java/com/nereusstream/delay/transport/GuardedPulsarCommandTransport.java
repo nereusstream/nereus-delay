@@ -2,6 +2,7 @@ package com.nereusstream.delay.transport;
 
 import com.nereusstream.delay.adapter.PinnedPulsarCommandIngress;
 import com.nereusstream.delay.adapter.PinnedPulsarNativeSubmissionAdapter;
+import com.nereusstream.delay.adapter.PulsarNativePreparedRecordValidator;
 import com.nereusstream.delay.adapter.PulsarNativeSendRequest;
 import com.nereusstream.delay.adapter.PulsarSendRequest;
 import com.nereusstream.delay.adapter.PulsarSendResult;
@@ -15,14 +16,25 @@ public final class GuardedPulsarCommandTransport implements CommandTransport {
     private final PulsarCommandTransportKey key;
     private final PinnedPulsarCommandIngress.PulsarSendTransport managedSender;
     private final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport nativeSender;
+    private final PulsarNativePreparedRecordValidator nativePreparedRecordValidator;
 
     public GuardedPulsarCommandTransport(
             final PulsarCommandTransportKey key,
             final PinnedPulsarCommandIngress.PulsarSendTransport managedSender,
             final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport nativeSender) {
+        this(key, managedSender, nativeSender, null);
+    }
+
+    /** Activated H5 composition. The same validator must materialize the request in the resolver. */
+    public GuardedPulsarCommandTransport(
+            final PulsarCommandTransportKey key,
+            final PinnedPulsarCommandIngress.PulsarSendTransport managedSender,
+            final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport nativeSender,
+            final PulsarNativePreparedRecordValidator nativePreparedRecordValidator) {
         this.key = Objects.requireNonNull(key, "key");
         this.managedSender = Objects.requireNonNull(managedSender, "managedSender");
         this.nativeSender = Objects.requireNonNull(nativeSender, "nativeSender");
+        this.nativePreparedRecordValidator = nativePreparedRecordValidator;
     }
 
     @Override
@@ -38,13 +50,27 @@ public final class GuardedPulsarCommandTransport implements CommandTransport {
             return CompletableFuture.completedFuture(PulsarSendResult.definitelyNotPersisted(
                     ownershipPermit.physicalAttemptId(), StableCode.BROKER_RESOURCE_UNCERTIFIED.wireValue(), null));
         }
+        if (request instanceof PulsarNativeSendRequest nativeRequest) {
+            if (nativePreparedRecordValidator == null || !nativeRequest.hasPreparedRecord()) {
+                return CompletableFuture.completedFuture(PulsarSendResult.definitelyNotPersisted(
+                        ownershipPermit.physicalAttemptId(), StableCode.CAPABILITY_UNAVAILABLE.wireValue(), null));
+            }
+            final StableCode rejection = nativePreparedRecordValidator.validate(
+                    com.nereusstream.delay.protocol.NativePreparedDelivery.decode(nativeRequest.preparedBytes()),
+                    nativeRequest.preparedRecord(),
+                    nativeRequest.artifacts());
+            if (rejection != null) {
+                return CompletableFuture.completedFuture(PulsarSendResult.definitelyNotPersisted(
+                        ownershipPermit.physicalAttemptId(), rejection.wireValue(), null));
+            }
+        }
         if (!ownershipPermit.tryTransferToLibraryOwnership()) {
             return CompletableFuture.completedFuture(PulsarSendResult.definitelyNotPersisted(
                     ownershipPermit.physicalAttemptId(), StableCode.BROKER_RESOURCE_UNCERTIFIED.wireValue(), null));
         }
         final CompletionStage<PulsarSendResult> result;
         if (request instanceof PulsarNativeSendRequest nativeRequest) {
-            result = nativeSender.send(nativeRequest);
+            result = nativeSender.sendPreparedRecord(nativeRequest.preparedRecord(), nativeRequest.artifacts());
         } else {
             result = managedSender.send((PulsarSendRequest) request);
         }

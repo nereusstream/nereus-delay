@@ -1,6 +1,7 @@
 package com.nereusstream.delay.submission;
 
 import com.nereusstream.delay.adapter.PulsarNativeSendRequest;
+import com.nereusstream.delay.adapter.PulsarSendAckEvidence;
 import com.nereusstream.delay.adapter.PulsarSendResult;
 import com.nereusstream.delay.protocol.BrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Bytes;
@@ -12,6 +13,7 @@ import com.nereusstream.delay.protocol.NativeEnqueueUncertain;
 import com.nereusstream.delay.protocol.NativePreparedDelivery;
 import com.nereusstream.delay.protocol.NonPersistenceProof;
 import com.nereusstream.delay.protocol.NonPersistenceProofKind;
+import com.nereusstream.delay.protocol.PublishEvidence;
 import com.nereusstream.delay.protocol.PulsarBrokerResourceIdentity;
 import com.nereusstream.delay.protocol.Retryability;
 import com.nereusstream.delay.protocol.StableCode;
@@ -44,7 +46,7 @@ public final class PulsarNativeSubmissionOutcomeProjector implements SubmissionO
         }
         final NativePreparedDelivery prepared = authority.prepared();
         return switch (pulsar.disposition()) {
-            case PERSISTED -> persisted(prepared, physicalAttemptId, pulsar);
+            case PERSISTED -> persisted(prepared, request, physicalAttemptId, pulsar);
             case DEFINITIVELY_NOT_PERSISTED -> definite(prepared, request, physicalAttemptId, pulsar);
             case UNKNOWN ->
                 uncertain(
@@ -82,6 +84,7 @@ public final class PulsarNativeSubmissionOutcomeProjector implements SubmissionO
 
     private static SubmissionOutcomeMessage persisted(
             final NativePreparedDelivery prepared,
+            final PulsarNativeSendRequest request,
             final PhysicalEnqueueAttemptId attempt,
             final PulsarSendResult result) {
         final var target = prepared.target();
@@ -90,8 +93,23 @@ public final class PulsarNativeSubmissionOutcomeProjector implements SubmissionO
                 || !target.physicalTopic().equals(result.physicalTopic())
                 || target.physicalTopicCreationTimestamp() != result.physicalTopicCreationTimestamp()
                 || prepared.physicalPartition() != result.partition()
-                || result.responseEvidenceBytes() == null) {
+                || result.responseEvidenceBytes() == null
+                || !request.hasPreparedRecord()) {
             return uncertainStatic(prepared, attempt, StableCode.NATIVE_ENQUEUE_RESULT_UNCERTAIN);
+        }
+        try {
+            final PublishEvidence evidence = PublishEvidence.decode(result.responseEvidenceBytes());
+            PulsarSendAckEvidence.requireExactRecordBinding(
+                    evidence,
+                    request.preparedRecord(),
+                    request.artifacts(),
+                    result.ledgerId(),
+                    result.entryId(),
+                    result.batchIndex(),
+                    result.batchSize(),
+                    result.brokerEntryTimestampEpochMs());
+        } catch (RuntimeException malformedEvidence) {
+            return uncertainStatic(prepared, attempt, StableCode.INTEGRITY_ERROR);
         }
         final CanonicalCommandQueuedReceipt.PulsarQueuedAck ack = new CanonicalCommandQueuedReceipt.PulsarQueuedAck(
                 result.authenticatedClusterId(),

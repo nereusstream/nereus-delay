@@ -73,6 +73,10 @@ class VerifiedNativePreparationSnapshotCacheTest {
         final var prepared =
                 core.prepareSchedule(fixture.tenant(), fixture.hint(), fixture.intent(), 700, SubmissionMode.AUTO_FAST);
         assertFalse(prepared.isManaged());
+        assertTrue(prepared.isNativeRecordReady());
+        assertArrayEquals(bytes(32, 90), prepared.nativeRecordContext().publishAttemptId());
+        com.nereusstream.delay.protocol.NativePreparedRecordBinding.requireExact(
+                prepared.nativeRecordContext(), prepared.nativePrepared());
         assertEquals(fixture.candidate().target(), prepared.nativePrepared().target());
         assertEquals(
                 fixture.candidate().physicalPartition(),

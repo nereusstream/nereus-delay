@@ -2,6 +2,7 @@ package com.nereusstream.delay.transport;
 
 import com.nereusstream.delay.adapter.PinnedPulsarCommandIngress;
 import com.nereusstream.delay.adapter.PinnedPulsarNativeSubmissionAdapter;
+import com.nereusstream.delay.adapter.PulsarNativePreparedRecordValidator;
 import java.util.Objects;
 import java.util.concurrent.CompletionStage;
 
@@ -20,6 +21,21 @@ public final class ProductionPulsarSendTransport implements CommandTransport {
             final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport nativeSender) {
         Objects.requireNonNull(configuration, "configuration").validate();
         this.delegate = new GuardedPulsarCommandTransport(key, managedSender, nativeSender);
+    }
+
+    /** Activated H5/H6 constructor with the shared last-moment native validator. */
+    public ProductionPulsarSendTransport(
+            final PulsarCommandTransportKey key,
+            final Configuration configuration,
+            final PinnedPulsarCommandIngress.PulsarSendTransport managedSender,
+            final PinnedPulsarNativeSubmissionAdapter.PulsarNativeSendTransport nativeSender,
+            final PulsarNativePreparedRecordValidator nativePreparedRecordValidator) {
+        Objects.requireNonNull(configuration, "configuration").validate();
+        this.delegate = new GuardedPulsarCommandTransport(
+                key,
+                managedSender,
+                nativeSender,
+                Objects.requireNonNull(nativePreparedRecordValidator, "nativePreparedRecordValidator"));
     }
 
     @Override

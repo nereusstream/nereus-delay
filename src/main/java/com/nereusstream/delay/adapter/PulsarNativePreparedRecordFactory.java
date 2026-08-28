@@ -7,6 +7,7 @@ import com.nereusstream.delay.protocol.DeliveryMode;
 import com.nereusstream.delay.protocol.ExternalDeliveryIdentity;
 import com.nereusstream.delay.protocol.NativeDeliveryPolicy;
 import com.nereusstream.delay.protocol.NativePreparedDelivery;
+import com.nereusstream.delay.protocol.NativePreparedRecordBinding;
 import com.nereusstream.delay.protocol.NativePreparedRecordContext;
 import com.nereusstream.delay.protocol.PayloadForPublish;
 import com.nereusstream.delay.protocol.PulsarKey;
@@ -43,6 +44,7 @@ public final class PulsarNativePreparedRecordFactory {
                 || !Arrays.equals(exactContext.artifactGenerationSetDigest(), exactArtifacts.setDigest())) {
             throw new IllegalArgumentException("AUTO_FAST native record inputs are not current and exact");
         }
+        NativePreparedRecordBinding.requireExact(exactContext, exact);
         if (!exact.destination().equals(exact.capabilitySnapshot().destination())
                 || !exact.capability().equals(exact.capabilitySnapshot().capability())
                 || !exact.target().equals(exact.capabilitySnapshot().target())

@@ -1,6 +1,7 @@
 package com.nereusstream.delay.client;
 
 import com.nereusstream.delay.adapter.CommandResultRetentionPolicy;
+import com.nereusstream.delay.adapter.PulsarNativePreparedRecordValidator;
 import com.nereusstream.delay.adapter.QueuedReceiptQueryPolicy;
 import com.nereusstream.delay.adapter.WireIngressOutcomeSupport;
 import com.nereusstream.delay.protocol.CanonicalCommandQueuedReceipt;
@@ -478,6 +479,7 @@ public final class DefaultDelayClient implements DelayClient {
         private TrustedClock trustedClock;
         private NativePreparationSnapshotProvider nativePreparationSnapshotProvider;
         private SubmissionCoordinator submissionCoordinator;
+        private PulsarNativePreparedRecordValidator nativePreparedRecordValidator;
         private CommandTransportRegistry transportRegistry;
         private SubmissionOutcomeProjectorRegistry projectorRegistry;
         private QueryClient queryClient;
@@ -521,6 +523,12 @@ public final class DefaultDelayClient implements DelayClient {
 
         public Builder submissionCoordinator(final SubmissionCoordinator value) {
             submissionCoordinator = value;
+            return this;
+        }
+
+        /** Supplies the signed H5/H6 authority used by the default native submit path. */
+        public Builder nativePreparedRecordValidator(final PulsarNativePreparedRecordValidator value) {
+            nativePreparedRecordValidator = value;
             return this;
         }
 
@@ -576,7 +584,8 @@ public final class DefaultDelayClient implements DelayClient {
                 Objects.requireNonNull(transportRegistry, "transportRegistry");
                 Objects.requireNonNull(projectorRegistry, "projectorRegistry");
                 resolvedCoordinator = new DefaultSubmissionCoordinator(
-                        new RouteBoundSubmissionTransportPlanResolver(routeSnapshotProvider, clock),
+                        new RouteBoundSubmissionTransportPlanResolver(
+                                routeSnapshotProvider, clock, nativePreparedRecordValidator),
                         transportRegistry,
                         projectorRegistry);
             }
