@@ -3,7 +3,6 @@ package com.nereusstream.delay.runtime;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
 import com.nereusstream.delay.protocol.DelayMessageId;
-import com.nereusstream.delay.protocol.HandoffPolicyHeadRef;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -20,15 +19,13 @@ public final class NativeCandidateRef {
     private final long candidateAtEpochMs;
     private final byte[] timelineKey;
     private final byte[] timelineKeySha256;
-    private final HandoffPolicyHeadRef policyHeadRef;
     private final byte[] digest;
 
     public NativeCandidateRef(
             final DelayMessageId messageId,
             final int generation,
             final long candidateAtEpochMs,
-            final byte[] timelineKey,
-            final HandoffPolicyHeadRef policyHeadRef) {
+            final byte[] timelineKey) {
         this.messageId = Objects.requireNonNull(messageId, "messageId");
         this.generation = generation;
         if (candidateAtEpochMs < 0) {
@@ -40,7 +37,6 @@ public final class NativeCandidateRef {
             throw new IllegalArgumentException("native candidate key must use the registered tag 7");
         }
         this.timelineKeySha256 = Bytes.sha256(this.timelineKey);
-        this.policyHeadRef = Objects.requireNonNull(policyHeadRef, "policyHeadRef");
         this.digest = computeDigest();
     }
 
@@ -50,9 +46,8 @@ public final class NativeCandidateRef {
             final long candidateAtEpochMs,
             final byte[] timelineKey,
             final byte[] keyHash,
-            final HandoffPolicyHeadRef policyHeadRef,
             final byte[] digest) {
-        this(messageId, generation, candidateAtEpochMs, timelineKey, policyHeadRef);
+        this(messageId, generation, candidateAtEpochMs, timelineKey);
         if (!Arrays.equals(this.timelineKeySha256, keyHash) || !Arrays.equals(this.digest, digest)) {
             throw new IllegalArgumentException("native candidate digest mismatch");
         }
@@ -78,10 +73,6 @@ public final class NativeCandidateRef {
         return Bytes.copy(timelineKeySha256);
     }
 
-    public HandoffPolicyHeadRef policyHeadRef() {
-        return policyHeadRef;
-    }
-
     public byte[] digest() {
         return Bytes.copy(digest);
     }
@@ -94,8 +85,7 @@ public final class NativeCandidateRef {
             CanonicalProtobuf.uint64(output, 4, candidateAtEpochMs);
             CanonicalProtobuf.bytes(output, 5, timelineKey);
             CanonicalProtobuf.bytes(output, 6, timelineKeySha256);
-            CanonicalProtobuf.bytes(output, 7, policyHeadRef.canonicalBytes());
-            CanonicalProtobuf.bytes(output, 8, digest);
+            CanonicalProtobuf.bytes(output, 7, digest);
         });
     }
 
@@ -105,7 +95,7 @@ public final class NativeCandidateRef {
         while (reader.hasRemaining()) {
             fields.add(reader.next());
         }
-        if (fields.size() != 8) {
+        if (fields.size() != 7) {
             throw new IllegalArgumentException("native candidate has an unexpected field count");
         }
         for (int index = 0; index < fields.size(); index++) {
@@ -122,8 +112,7 @@ public final class NativeCandidateRef {
                 uint(fields.get(3), 4),
                 bytes(fields.get(4), 5),
                 fixed(fields.get(5), 6),
-                HandoffPolicyHeadRef.decode(bytes(fields.get(6), 7)),
-                fixed(fields.get(7), 8));
+                fixed(fields.get(6), 7));
         if (!Arrays.equals(encoded, result.canonicalBytes())) {
             throw new IllegalArgumentException("non-canonical native candidate");
         }
@@ -137,7 +126,6 @@ public final class NativeCandidateRef {
             CanonicalProtobuf.uint64(output, 3, candidateAtEpochMs);
             CanonicalProtobuf.bytes(output, 4, timelineKey);
             CanonicalProtobuf.bytes(output, 5, timelineKeySha256);
-            CanonicalProtobuf.bytes(output, 6, policyHeadRef.canonicalBytes());
         }));
     }
 

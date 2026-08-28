@@ -433,16 +433,53 @@ public final class OwnedDelayShard {
             final ScheduleWorkItem item,
             final TrustedUtcIntervalEvidence evidence,
             final LongSupplier clock) {
-        requireClaimSubmission(authority, scheduler, item, evidence);
+        final PersistentLaneScheduler.ClaimCandidate candidate =
+                requireClaimSubmission(authority, scheduler, item, evidence);
         final long nowEpochMs = readActiveWorkClock(
                 Objects.requireNonNull(clock, "Claim materialization clock"), "Claim materialization");
         ensureAuthoritativeActive(authority, nowEpochMs, "Claim materialization");
-        final ClaimMaterialization materialization = delegate.resolveClaimMaterialization(item.messageId());
-        if (!materialization.messageId().equals(item.messageId())
-                || materialization.generation() != Integer.toUnsignedLong(item.generation())) {
+        final ClaimMaterialization materialization = materializationForCandidate(candidate.item());
+        if (!materialization.messageId().equals(candidate.item().messageId())
+                || materialization.generation()
+                        != Integer.toUnsignedLong(candidate.item().generation())) {
             throw new IllegalStateException("derived Claim materialization differs from READY work identity");
         }
         return materialization;
+    }
+
+    private ClaimMaterialization materializationForCandidate(final ScheduleWorkItem candidate) {
+        final ScheduleWorkItem exact = Objects.requireNonNull(candidate, "Claim candidate");
+        final ClaimMaterialization base = delegate.resolveClaimMaterialization(exact.messageId());
+        if (!base.messageId().equals(exact.messageId())
+                || base.generation() != Integer.toUnsignedLong(exact.generation())) {
+            throw new IllegalStateException("derived Claim materialization differs from READY work identity");
+        }
+        if (!exact.isNativeCandidate()) {
+            if (base.actionAtEpochMs() != base.deliverAtEpochMs() || base.handoffPolicyHeadRef() != null) {
+                throw new IllegalStateException("ordinary READY work resolved to an early Claim materialization");
+            }
+            return base;
+        }
+        if (!base.nativeDeliveryPolicy().allowsManagedHandoff()
+                || exact.policyHeadRef() == null
+                || exact.effectiveEligibleAtEpochMs() >= base.deliverAtEpochMs()) {
+            throw new IllegalStateException("native READY work lacks current managed handoff authority");
+        }
+        return new ClaimMaterialization(
+                base.destinationProfile(),
+                base.capabilityProfile(),
+                base.targetResource(),
+                base.physicalPartition(),
+                base.messageId(),
+                base.generation(),
+                base.payload(),
+                base.businessMetadata(),
+                base.deliverAtEpochMs(),
+                base.expireAtEpochMs(),
+                exact.effectiveEligibleAtEpochMs(),
+                base.nativeDeliveryPolicy(),
+                base.eventTimeEpochMs(),
+                exact.policyHeadRef());
     }
 
     /**
@@ -987,7 +1024,12 @@ public final class OwnedDelayShard {
             final ClaimMaterialization materialization,
             final byte[] claimedCharge,
             final LongSupplier clock) {
-        requireClaimSubmission(authority, scheduler, item, evidence);
+        final PersistentLaneScheduler.ClaimCandidate candidate =
+                requireClaimSubmission(authority, scheduler, item, evidence);
+        final ClaimMaterialization currentMaterialization = materializationForCandidate(candidate.item());
+        if (!currentMaterialization.equals(Objects.requireNonNull(materialization, "materialization"))) {
+            throw new IllegalStateException("Claim materialization changed before the Claim WriteBatch");
+        }
         if (evidence.latestEpochMs() >= claimDeadlineEpochMs) {
             throw new IllegalArgumentException("Claim deadline is not live through trusted UTC evidence");
         }
@@ -1001,7 +1043,7 @@ public final class OwnedDelayShard {
                     item.messageId(),
                     author,
                     claimDeadlineEpochMs,
-                    Objects.requireNonNull(materialization, "materialization"),
+                    currentMaterialization,
                     Objects.requireNonNull(claimedCharge, "claimedCharge"));
             scheduler.completeClaim(item);
             return claim;

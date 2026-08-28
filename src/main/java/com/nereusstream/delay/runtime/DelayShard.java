@@ -1573,17 +1573,10 @@ public final class DelayShard {
                 materialization,
                 claimedCharge,
                 workKind);
-        MessageRecord next = MessageRecord.current(
+        MessageRecord next = transitionMessage(
+                current,
                 MessageStatus.CLAIMED,
-                current.generation(),
                 Math.addExact(current.stateVersion(), 1),
-                current.deliverAtEpochMs(),
-                current.expireAtEpochMs(),
-                current.laneId(),
-                current.orderingMode(),
-                current.payload(),
-                current.scheduleSourcePosition(),
-                current.payloadReference(),
                 current.retryEligibilityAtEpochMs());
         final ClaimRecord claim = ClaimRecord.claimed(
                 messageId,
@@ -1615,6 +1608,7 @@ public final class DelayShard {
                 readyProjections(schedulePosition, messageId, current, next, null, nextLaneQuota);
         store.write(batch -> {
             batch.delete(ColumnFamily.TIMELINE, timelineKey);
+            deleteNativeCandidateIndex(batch, messageId, current);
             batch.putValue(ColumnFamily.INFLIGHT, ClaimRecord.VALUE_TYPE, claim.encodedKey(), claim.encode());
             batch.putValue(ColumnFamily.ID, 1, KeyCodec.idMessage(messageId), claimedNext.encode());
             batch.putValue(
@@ -1646,8 +1640,22 @@ public final class DelayShard {
             throw new IllegalArgumentException("Claim materialization delivery window mismatch");
         }
         final TimelineWorkRef currentWork = current.runtimeIndex().timeline();
-        if (currentWork == null || materialization.actionAtEpochMs() != currentWork.actionAtEpochMs()) {
+        if (currentWork == null) {
             throw new IllegalArgumentException("Claim materialization action time mismatch");
+        }
+        if (materialization.actionAtEpochMs() != currentWork.actionAtEpochMs()) {
+            final boolean validNativeCandidate = currentWork.workKind() == TimelineWorkKind.INITIAL_SCHEDULE
+                    && currentWork.candidateAttemptNo() == 1
+                    && current.runtimeIndex().admissionsUsed() == 0
+                    && currentWork.actionAtEpochMs() == current.deliverAtEpochMs()
+                    && materialization.nativeDeliveryPolicy() == current.nativeDeliveryPolicy()
+                    && materialization.nativeDeliveryPolicy().allowsManagedHandoff()
+                    && materialization.handoffPolicyHeadRef() != null
+                    && materialization.actionAtEpochMs() >= current.earliestNativeCandidateAtEpochMs()
+                    && materialization.actionAtEpochMs() < current.deliverAtEpochMs();
+            if (!validNativeCandidate) {
+                throw new IllegalArgumentException("Claim materialization action time mismatch");
+            }
         }
 
         final PayloadForPublish payload = materialization.payload();
@@ -1687,6 +1695,12 @@ public final class DelayShard {
         }
         if (!materialization.businessMetadata().equals(intent.adapterMetadata())) {
             throw new IllegalArgumentException("Claim materialization business metadata mismatch");
+        }
+        if (!intent.legacyPolicyDefault()
+                && (materialization.legacyEncoding()
+                        || materialization.nativeDeliveryPolicy() != intent.nativeDeliveryPolicy()
+                        || !Objects.equals(materialization.eventTimeEpochMs(), intent.eventTimeEpochMs()))) {
+            throw new IllegalArgumentException("Claim materialization native policy/event-time mismatch");
         }
         if (materialization.deliverAtEpochMs() != intent.deliverAtEpochMs()
                 || materialization.expireAtEpochMs() != intent.expireAtEpochMs()) {
@@ -1744,6 +1758,7 @@ public final class DelayShard {
                     1,
                     expiryKey(claim.delayMessageId(), revokedNext),
                     encodeTimelineValue(claim.delayMessageId(), revokedNext));
+            putNativeCandidateIndex(batch, claim.delayMessageId(), revokedNext);
             for (LaneProjection projection : projections.values()) {
                 deleteReadyKey(batch, projection.previousLane());
                 putReadyProjection(batch, projection);
@@ -1763,17 +1778,10 @@ public final class DelayShard {
      */
     private MessageRecord restoreClaimedMessageToTimeline(
             final ClaimRecord claim, final MessageRecord current, final TimelineWorkKind workKind) {
-        MessageRecord next = MessageRecord.current(
+        MessageRecord next = transitionMessage(
+                current,
                 MessageStatus.SCHEDULED,
-                current.generation(),
                 Math.addExact(current.stateVersion(), 1),
-                current.deliverAtEpochMs(),
-                current.expireAtEpochMs(),
-                current.laneId(),
-                current.orderingMode(),
-                current.payload(),
-                current.scheduleSourcePosition(),
-                current.payloadReference(),
                 current.retryEligibilityAtEpochMs());
         final byte[] sourceTimelineWork = claim.sourceTimelineWork();
         if (workKind == TimelineWorkKind.UNCERTAIN_RETRY && sourceTimelineWork.length == 0) {
@@ -2507,6 +2515,7 @@ public final class DelayShard {
                         1,
                         expiryKey(rollback.claim().delayMessageId(), rollback.nextMessage()),
                         encodeTimelineValue(rollback.claim().delayMessageId(), rollback.nextMessage()));
+                putNativeCandidateIndex(batch, rollback.claim().delayMessageId(), rollback.nextMessage());
             }
             putReadyProjection(batch, projection);
             if (closeCursor != null) {
@@ -3062,18 +3071,8 @@ public final class DelayShard {
                 throw new IllegalStateException("closed Claim does not match current message");
             }
             final long nextStateVersion = Math.addExact(current.stateVersion(), 1);
-            final MessageRecord terminalMessage = MessageRecord.current(
-                            MessageStatus.DEAD_LETTER,
-                            current.generation(),
-                            nextStateVersion,
-                            current.deliverAtEpochMs(),
-                            current.expireAtEpochMs(),
-                            current.laneId(),
-                            current.orderingMode(),
-                            current.payload(),
-                            current.scheduleSourcePosition(),
-                            current.payloadReference(),
-                            current.retryEligibilityAtEpochMs())
+            final MessageRecord terminalMessage = transitionMessage(
+                            current, MessageStatus.DEAD_LETTER, nextStateVersion, current.retryEligibilityAtEpochMs())
                     .withRuntimeIndex(GenerationRuntimeIndex.none(
                             GenerationAggregateState.DEAD_LETTER,
                             List.of(),
@@ -3396,17 +3395,10 @@ public final class DelayShard {
             if (claim != null) {
                 next = restoreClaimedMessageToTimeline(claim, current, workKind);
             } else {
-                next = MessageRecord.current(
+                next = transitionMessage(
+                        current,
                         MessageStatus.SCHEDULED,
-                        current.generation(),
                         Math.addExact(current.stateVersion(), 1),
-                        current.deliverAtEpochMs(),
-                        current.expireAtEpochMs(),
-                        current.laneId(),
-                        current.orderingMode(),
-                        current.payload(),
-                        current.scheduleSourcePosition(),
-                        current.payloadReference(),
                         current.retryEligibilityAtEpochMs());
                 next = next.withRuntimeIndex(timelineRuntimeIndex(
                         messageId,
@@ -3452,6 +3444,7 @@ public final class DelayShard {
                         1,
                         expiryKey(messageId, nextForWrite),
                         encodeTimelineValue(messageId, nextForWrite));
+                putNativeCandidateIndex(batch, messageId, nextForWrite);
                 for (LaneProjection projection : projections.values()) {
                     deleteReadyKey(batch, projection.previousLane());
                     putReadyProjection(batch, projection);
@@ -3979,18 +3972,8 @@ public final class DelayShard {
         if (retryAt >= current.expireAtEpochMs()) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.TOO_LATE);
         }
-        MessageRecord scheduled = MessageRecord.current(
-                MessageStatus.SCHEDULED,
-                current.generation(),
-                Math.addExact(current.stateVersion(), 1),
-                current.deliverAtEpochMs(),
-                current.expireAtEpochMs(),
-                current.laneId(),
-                current.orderingMode(),
-                current.payload(),
-                current.scheduleSourcePosition(),
-                current.payloadReference(),
-                retryAt);
+        MessageRecord scheduled =
+                transitionMessage(current, MessageStatus.SCHEDULED, Math.addExact(current.stateVersion(), 1), retryAt);
         scheduled = scheduled.withRuntimeIndex(timelineRuntimeIndex(
                 body.messageId(),
                 scheduled,
@@ -4265,18 +4248,8 @@ public final class DelayShard {
         }
         final long nextStateVersion =
                 nextStatus == current.status() ? current.stateVersion() : Math.addExact(current.stateVersion(), 1);
-        final MessageRecord next = MessageRecord.current(
-                        nextStatus,
-                        current.generation(),
-                        nextStateVersion,
-                        current.deliverAtEpochMs(),
-                        current.expireAtEpochMs(),
-                        current.laneId(),
-                        current.orderingMode(),
-                        current.payload(),
-                        current.scheduleSourcePosition(),
-                        current.payloadReference(),
-                        current.retryEligibilityAtEpochMs())
+        final MessageRecord next = transitionMessage(
+                        current, nextStatus, nextStateVersion, current.retryEligibilityAtEpochMs())
                 .withRuntimeIndex(nextRuntime);
         final OutcomeReserveUsage nextOutcomeReserve = releasedOutcomeReserve(ledger);
         final CapacityVector nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
@@ -4335,18 +4308,8 @@ public final class DelayShard {
                 index.uncertainRetryAdmissionsUsed(),
                 index.possibleDestinationDuplicate(),
                 Math.addExact(index.runtimeRevision(), 1));
-        final MessageRecord next = MessageRecord.current(
-                        current.status(),
-                        current.generation(),
-                        current.stateVersion(),
-                        current.deliverAtEpochMs(),
-                        current.expireAtEpochMs(),
-                        current.laneId(),
-                        current.orderingMode(),
-                        current.payload(),
-                        current.scheduleSourcePosition(),
-                        current.payloadReference(),
-                        current.retryEligibilityAtEpochMs())
+        final MessageRecord next = transitionMessage(
+                        current, current.status(), current.stateVersion(), current.retryEligibilityAtEpochMs())
                 .withRuntimeIndex(nextRuntime);
         final OutcomeReserveUsage nextOutcomeReserve = releasedOutcomeReserve(ledger);
         final CapacityVector nextOutcomeReserveVector = releasedOutcomeReserveVector(ledger);
@@ -4412,18 +4375,8 @@ public final class DelayShard {
         final int candidateAttemptNo = index.currentWorkKind() == CurrentSendWorkKind.TIMELINE
                 ? index.timeline().candidateAttemptNo()
                 : Math.addExact(index.admissionsUsed(), 1);
-        final MessageRecord scheduled = MessageRecord.current(
-                MessageStatus.SCHEDULED,
-                current.generation(),
-                Math.addExact(current.stateVersion(), 1),
-                current.deliverAtEpochMs(),
-                current.expireAtEpochMs(),
-                current.laneId(),
-                current.orderingMode(),
-                current.payload(),
-                current.scheduleSourcePosition(),
-                current.payloadReference(),
-                retryAt);
+        final MessageRecord scheduled =
+                transitionMessage(current, MessageStatus.SCHEDULED, Math.addExact(current.stateVersion(), 1), retryAt);
         final MessageRecord scheduledForWrite = scheduled.withRuntimeIndex(timelineRuntimeIndex(
                 ledger.delayMessageId(),
                 scheduled,
@@ -4462,6 +4415,7 @@ public final class DelayShard {
         store.write(batch -> {
             if (priorTimelineKey != null) {
                 batch.delete(ColumnFamily.TIMELINE, priorTimelineKey);
+                deleteNativeCandidateIndex(batch, ledger.delayMessageId(), current);
                 batch.delete(ColumnFamily.TIMELINE, expiryKey(ledger.delayMessageId(), current));
             }
             if (claimKey != null) {
@@ -4512,17 +4466,10 @@ public final class DelayShard {
                 GenerationAggregateState.fromMessageStatus(terminalStatus), remaining,
                 current.runtimeIndex().admissionsUsed(), current.runtimeIndex().uncertainRetryAdmissionsUsed(),
                 current.runtimeIndex().possibleDestinationDuplicate(), Math.addExact(current.stateVersion(), 1));
-        final MessageRecord terminalMessage = MessageRecord.current(
+        final MessageRecord terminalMessage = transitionMessage(
+                        current,
                         terminalStatus,
-                        current.generation(),
                         Math.addExact(current.stateVersion(), 1),
-                        current.deliverAtEpochMs(),
-                        current.expireAtEpochMs(),
-                        current.laneId(),
-                        current.orderingMode(),
-                        current.payload(),
-                        current.scheduleSourcePosition(),
-                        current.payloadReference(),
                         current.retryEligibilityAtEpochMs())
                 .withRuntimeIndex(nextRuntime);
         final TerminalGenerationRecord terminal = new TerminalGenerationRecord(
@@ -4597,6 +4544,7 @@ public final class DelayShard {
         store.write(batch -> {
             if (currentWorkKey != null) {
                 batch.delete(ColumnFamily.TIMELINE, currentWorkKey);
+                deleteNativeCandidateIndex(batch, ledger.delayMessageId(), current);
                 batch.delete(ColumnFamily.TIMELINE, expiryKey(ledger.delayMessageId(), current));
             }
             if (claimKey != null) {
@@ -4677,17 +4625,10 @@ public final class DelayShard {
                 || !ledger.laneId().equals(body.laneId())) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.STALE_SYSTEM_MUTATION);
         }
-        final MessageRecord terminalMessage = MessageRecord.current(
+        final MessageRecord terminalMessage = transitionMessage(
+                        current,
                         MessageStatus.DEAD_LETTER,
-                        current.generation(),
                         Math.addExact(current.stateVersion(), 1),
-                        current.deliverAtEpochMs(),
-                        current.expireAtEpochMs(),
-                        current.laneId(),
-                        current.orderingMode(),
-                        current.payload(),
-                        current.scheduleSourcePosition(),
-                        current.payloadReference(),
                         current.retryEligibilityAtEpochMs())
                 .withRuntimeIndex(GenerationRuntimeIndex.none(
                         GenerationAggregateState.DEAD_LETTER,
@@ -4832,19 +4773,14 @@ public final class DelayShard {
         } catch (ArithmeticException exception) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.STALE_SYSTEM_MUTATION);
         }
-        final long actionAt = actionAtFor(body.messageId(), current, body.deliverAtEpochMs());
-        MessageRecord next = MessageRecord.current(
-                MessageStatus.SCHEDULED,
+        MessageRecord next = nextGenerationScheduledMessage(
+                body.messageId(),
+                current,
                 nextGeneration,
                 Math.addExact(current.stateVersion(), 1),
                 body.deliverAtEpochMs(),
                 body.expireAtEpochMs(),
-                current.laneId(),
-                current.orderingMode(),
-                current.payload(),
-                sourcePosition.canonicalBytes(),
-                current.payloadReference(),
-                actionAt);
+                sourcePosition.canonicalBytes());
         next = next.withRuntimeIndex(timelineRuntimeIndex(
                 body.messageId(),
                 next,
@@ -4871,6 +4807,7 @@ public final class DelayShard {
                     1,
                     expiryKey(body.messageId(), nextForWrite),
                     encodeTimelineValue(body.messageId(), nextForWrite));
+            putNativeCandidateIndex(batch, body.messageId(), nextForWrite);
             for (LaneProjection projection : projections.values()) {
                 deleteReadyKey(batch, projection.previousLane());
                 putReadyProjection(batch, projection);
@@ -4995,17 +4932,10 @@ public final class DelayShard {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.APPLIED, StableCode.STALE_SYSTEM_MUTATION);
         }
 
-        MessageRecord terminalMessage = MessageRecord.current(
+        MessageRecord terminalMessage = transitionMessage(
+                current,
                 MessageStatus.DEAD_LETTER,
-                current.generation(),
                 Math.addExact(current.stateVersion(), 1),
-                current.deliverAtEpochMs(),
-                current.expireAtEpochMs(),
-                current.laneId(),
-                current.orderingMode(),
-                current.payload(),
-                current.scheduleSourcePosition(),
-                current.payloadReference(),
                 current.retryEligibilityAtEpochMs());
         terminalMessage = terminalMessage.withRuntimeIndex(GenerationRuntimeIndex.none(
                 GenerationAggregateState.DEAD_LETTER,
@@ -5049,6 +4979,7 @@ public final class DelayShard {
         final MessageRecord terminalMessageForWrite = terminalMessage;
         store.write(batch -> {
             batch.delete(ColumnFamily.TIMELINE, sourceTimelineKey);
+            deleteNativeCandidateIndex(batch, messageId, current);
             batch.delete(ColumnFamily.TIMELINE, expiryKey(messageId, current));
             if (currentClaim != null) {
                 batch.delete(ColumnFamily.INFLIGHT, currentClaim.encodedKey());
@@ -5265,6 +5196,74 @@ public final class DelayShard {
                 || status == MessageStatus.DEAD_LETTER;
     }
 
+    /** Copies one generation without erasing its explicit native opt-in/static candidate projection. */
+    private static MessageRecord transitionMessage(
+            final MessageRecord current,
+            final MessageStatus status,
+            final long stateVersion,
+            final long retryEligibilityAtEpochMs) {
+        final MessageRecord exact = Objects.requireNonNull(current, "current message");
+        return MessageRecord.current(
+                Objects.requireNonNull(status, "status"),
+                exact.generation(),
+                stateVersion,
+                exact.deliverAtEpochMs(),
+                exact.expireAtEpochMs(),
+                exact.earliestNativeCandidateAtEpochMs(),
+                exact.laneId(),
+                exact.orderingMode(),
+                exact.nativeDeliveryPolicy(),
+                exact.payload(),
+                exact.scheduleSourcePosition(),
+                exact.payloadReference(),
+                retryEligibilityAtEpochMs);
+    }
+
+    /**
+     * Creates the next scheduled generation without turning a static native
+     * candidate boundary into ordinary due work. The maximum-lead offset is
+     * immutable Profile state pinned by the original Schedule binding; a
+     * Reschedule changes the absolute delivery window, not that offset.
+     */
+    private MessageRecord nextGenerationScheduledMessage(
+            final DelayMessageId messageId,
+            final MessageRecord current,
+            final int generation,
+            final long stateVersion,
+            final long deliverAtEpochMs,
+            final long expireAtEpochMs,
+            final byte[] scheduleSourcePosition) {
+        final MessageRecord exact = Objects.requireNonNull(current, "current message");
+        final long ordinaryActionAt = actionAtFor(messageId, exact, deliverAtEpochMs);
+        final long earliestNativeCandidateAt;
+        if (!exact.legacyEncoding() && exact.nativeDeliveryPolicy() != NativeDeliveryPolicy.FORBID) {
+            final long staticLead =
+                    Math.subtractExact(exact.deliverAtEpochMs(), exact.earliestNativeCandidateAtEpochMs());
+            earliestNativeCandidateAt = Math.subtractExact(deliverAtEpochMs, staticLead);
+            if (earliestNativeCandidateAt < 0) {
+                throw new CommandResolutionException(
+                        StableCode.INVALID_DELIVERY_WINDOW,
+                        "rescheduled native candidate underflows the delivery window");
+            }
+        } else {
+            earliestNativeCandidateAt = deliverAtEpochMs;
+        }
+        return MessageRecord.current(
+                MessageStatus.SCHEDULED,
+                generation,
+                stateVersion,
+                deliverAtEpochMs,
+                expireAtEpochMs,
+                earliestNativeCandidateAt,
+                exact.laneId(),
+                exact.orderingMode(),
+                exact.nativeDeliveryPolicy(),
+                exact.payload(),
+                scheduleSourcePosition,
+                exact.payloadReference(),
+                ordinaryActionAt);
+    }
+
     /**
      * Selects the success terminal projection from the immutable Admission
      * timing and the verified evidence branch. The wire outcome intentionally
@@ -5453,6 +5452,13 @@ public final class DelayShard {
             final MessageRecord message,
             final long deliverAtEpochMs,
             final GenerationRuntimeIndex priorRuntime) {
+        if (!message.legacyEncoding() && message.nativeDeliveryPolicy() != NativeDeliveryPolicy.FORBID) {
+            // The durable DUE/ORDERED projection is always the ordinary Nereus
+            // contract. A separate static native-candidate index carries the
+            // Profile maximum-lead wake; only a current signed policy may turn
+            // that index into an earlier Claim action.
+            return deliverAtEpochMs;
+        }
         if (lastResolvedSchedule != null
                 && lastResolvedScheduleMessageId != null
                 && lastResolvedScheduleMessageId.equals(messageId)
@@ -5684,17 +5690,10 @@ public final class DelayShard {
                         sourcePosition.canonicalBytes())
                 : systemResult;
         if (outcome.disposition() == 2 || closedAfterAdmission) {
-            MessageRecord terminalMessage = MessageRecord.current(
+            MessageRecord terminalMessage = transitionMessage(
+                    current,
                     MessageStatus.DEAD_LETTER,
-                    current.generation(),
                     Math.addExact(current.stateVersion(), 1),
-                    current.deliverAtEpochMs(),
-                    current.expireAtEpochMs(),
-                    current.laneId(),
-                    current.orderingMode(),
-                    current.payload(),
-                    current.scheduleSourcePosition(),
-                    current.payloadReference(),
                     current.retryEligibilityAtEpochMs());
             terminalMessage = terminalMessage.withRuntimeIndex(GenerationRuntimeIndex.none(
                     GenerationAggregateState.DEAD_LETTER,
@@ -5774,18 +5773,8 @@ public final class DelayShard {
         if (retryAt >= current.expireAtEpochMs()) {
             return persistSystemResultByResult(systemResult, sourcePosition, StableCode.STALE_SYSTEM_MUTATION);
         }
-        MessageRecord scheduled = MessageRecord.current(
-                MessageStatus.SCHEDULED,
-                current.generation(),
-                Math.addExact(current.stateVersion(), 1),
-                current.deliverAtEpochMs(),
-                current.expireAtEpochMs(),
-                current.laneId(),
-                current.orderingMode(),
-                current.payload(),
-                current.scheduleSourcePosition(),
-                current.payloadReference(),
-                retryAt);
+        MessageRecord scheduled =
+                transitionMessage(current, MessageStatus.SCHEDULED, Math.addExact(current.stateVersion(), 1), retryAt);
         final List<AttemptObligationRef> remainingObligations =
                 withoutObligation(current.runtimeIndex(), ledger.publishAttemptId());
         if (remainingObligations.stream().anyMatch(ref -> ref.ledgerState() == AttemptLedgerState.UNCERTAIN)) {
@@ -5914,17 +5903,10 @@ public final class DelayShard {
         if (current.status() == MessageStatus.CLAIMED && claim == null) {
             return persistSystemResult(mutation, sourcePosition, ApplyStatus.REJECTED, StableCode.INTEGRITY_ERROR);
         }
-        MessageRecord next = MessageRecord.current(
+        MessageRecord next = transitionMessage(
+                current,
                 MessageStatus.EXPIRED,
-                current.generation(),
                 Math.addExact(current.stateVersion(), 1),
-                current.deliverAtEpochMs(),
-                current.expireAtEpochMs(),
-                current.laneId(),
-                current.orderingMode(),
-                current.payload(),
-                current.scheduleSourcePosition(),
-                current.payloadReference(),
                 current.retryEligibilityAtEpochMs());
         next = next.withRuntimeIndex(GenerationRuntimeIndex.none(
                 GenerationAggregateState.EXPIRED,
@@ -5961,6 +5943,7 @@ public final class DelayShard {
                 mutation, ApplyStatus.APPLIED, StableCode.OK, sourcePosition.canonicalBytes());
         store.write(batch -> {
             batch.delete(ColumnFamily.TIMELINE, claim == null ? timelineKey(messageId, current) : claim.timelineKey());
+            deleteNativeCandidateIndex(batch, messageId, current);
             batch.delete(ColumnFamily.TIMELINE, expiryKey(messageId, current));
             if (claim != null) {
                 batch.delete(ColumnFamily.INFLIGHT, claim.encodedKey());
@@ -6681,17 +6664,10 @@ public final class DelayShard {
         validatePersistedRetryWindow(admission, current, lane, sourcePosition);
         final List<AttemptObligationRef> obligations =
                 withObligation(current.runtimeIndex(), admission.obligationRef());
-        MessageRecord next = MessageRecord.current(
+        MessageRecord next = transitionMessage(
+                current,
                 MessageStatus.PUBLISHING,
-                current.generation(),
                 Math.addExact(current.stateVersion(), 1),
-                current.deliverAtEpochMs(),
-                current.expireAtEpochMs(),
-                current.laneId(),
-                current.orderingMode(),
-                current.payload(),
-                current.scheduleSourcePosition(),
-                current.payloadReference(),
                 current.retryEligibilityAtEpochMs());
         next = next.withRuntimeIndex(GenerationRuntimeIndex.publishing(
                 admission.publishAttemptId(),
@@ -6728,6 +6704,7 @@ public final class DelayShard {
                 readyProjections(sourcePosition, admission.delayMessageId(), current, next, null, projectedLaneQuota);
         store.write(batch -> {
             batch.delete(ColumnFamily.TIMELINE, priorTimelineKey);
+            deleteNativeCandidateIndex(batch, admission.delayMessageId(), current);
             batch.delete(ColumnFamily.TIMELINE, expiryKey(admission.delayMessageId(), current));
             if (claim != null) {
                 batch.delete(ColumnFamily.INFLIGHT, claim.encodedKey());
@@ -6945,17 +6922,10 @@ public final class DelayShard {
                 currentLedger.withUnknownOutcome(canonicalOutcome, evidence, sourcePosition.canonicalBytes());
         final List<AttemptObligationRef> nextObligations =
                 withObligation(current.runtimeIndex(), nextLedger.obligationRef());
-        MessageRecord next = MessageRecord.current(
+        MessageRecord next = transitionMessage(
+                current,
                 scheduleUncertainRetry ? MessageStatus.SCHEDULED : MessageStatus.UNCERTAIN,
-                current.generation(),
                 Math.addExact(current.stateVersion(), 1),
-                current.deliverAtEpochMs(),
-                current.expireAtEpochMs(),
-                current.laneId(),
-                current.orderingMode(),
-                current.payload(),
-                current.scheduleSourcePosition(),
-                current.payloadReference(),
                 retryAt);
         next = scheduleUncertainRetry
                 ? next.withRuntimeIndex(timelineRuntimeIndex(
@@ -7108,18 +7078,8 @@ public final class DelayShard {
         if (current.status() != expectedMessageStatus) {
             throw new IllegalStateException("published outcome is stale for the current message");
         }
-        MessageRecord next = MessageRecord.current(
-                terminalStatus,
-                current.generation(),
-                Math.addExact(current.stateVersion(), 1),
-                current.deliverAtEpochMs(),
-                current.expireAtEpochMs(),
-                current.laneId(),
-                current.orderingMode(),
-                current.payload(),
-                current.scheduleSourcePosition(),
-                current.payloadReference(),
-                current.retryEligibilityAtEpochMs());
+        MessageRecord next = transitionMessage(
+                current, terminalStatus, Math.addExact(current.stateVersion(), 1), current.retryEligibilityAtEpochMs());
         next = next.withRuntimeIndex(GenerationRuntimeIndex.none(
                 GenerationAggregateState.fromMessageStatus(terminalStatus),
                 withoutObligation(current.runtimeIndex(), ledger.publishAttemptId()),
@@ -7212,18 +7172,8 @@ public final class DelayShard {
                     current.runtimeIndex().uncertainRetryAdmissionsUsed(),
                     duplicate,
                     Math.addExact(current.runtimeIndex().runtimeRevision(), 1));
-            final MessageRecord next = MessageRecord.current(
-                            current.status(),
-                            current.generation(),
-                            current.stateVersion(),
-                            current.deliverAtEpochMs(),
-                            current.expireAtEpochMs(),
-                            current.laneId(),
-                            current.orderingMode(),
-                            current.payload(),
-                            current.scheduleSourcePosition(),
-                            current.payloadReference(),
-                            current.retryEligibilityAtEpochMs())
+            final MessageRecord next = transitionMessage(
+                            current, current.status(), current.stateVersion(), current.retryEligibilityAtEpochMs())
                     .withRuntimeIndex(nextRuntime);
             final LaneQuotaUsageProjection nextLaneQuota = removeAttemptQuotaUsage(ledger);
             store.write(batch -> {
@@ -7268,17 +7218,10 @@ public final class DelayShard {
             throw new IllegalStateException("unsupported current work for uncertain success");
         }
 
-        final MessageRecord next = MessageRecord.current(
+        final MessageRecord next = transitionMessage(
+                        current,
                         terminalStatus,
-                        current.generation(),
                         Math.addExact(current.stateVersion(), 1),
-                        current.deliverAtEpochMs(),
-                        current.expireAtEpochMs(),
-                        current.laneId(),
-                        current.orderingMode(),
-                        current.payload(),
-                        current.scheduleSourcePosition(),
-                        current.payloadReference(),
                         current.retryEligibilityAtEpochMs())
                 .withRuntimeIndex(GenerationRuntimeIndex.none(
                         GenerationAggregateState.fromMessageStatus(terminalStatus),
@@ -7324,6 +7267,7 @@ public final class DelayShard {
         store.write(batch -> {
             if (currentWorkKey != null) {
                 batch.delete(ColumnFamily.TIMELINE, currentWorkKey);
+                deleteNativeCandidateIndex(batch, ledger.delayMessageId(), current);
                 batch.delete(ColumnFamily.TIMELINE, expiryKey(ledger.delayMessageId(), current));
             }
             if (claimKey != null) {
@@ -7371,18 +7315,8 @@ public final class DelayShard {
         final List<AttemptObligationRef> remaining =
                 withoutObligation(current.runtimeIndex(), ledger.publishAttemptId());
         final boolean duplicate = current.runtimeIndex().possibleDestinationDuplicate() || verifiedPublished;
-        final MessageRecord next = MessageRecord.current(
-                        current.status(),
-                        current.generation(),
-                        current.stateVersion(),
-                        current.deliverAtEpochMs(),
-                        current.expireAtEpochMs(),
-                        current.laneId(),
-                        current.orderingMode(),
-                        current.payload(),
-                        current.scheduleSourcePosition(),
-                        current.payloadReference(),
-                        current.retryEligibilityAtEpochMs())
+        final MessageRecord next = transitionMessage(
+                        current, current.status(), current.stateVersion(), current.retryEligibilityAtEpochMs())
                 .withRuntimeIndex(GenerationRuntimeIndex.none(
                         GenerationAggregateState.fromMessageStatus(current.status()),
                         remaining,
@@ -7663,6 +7597,7 @@ public final class DelayShard {
         store.write(batch -> {
             for (ClosedMessageAction action : messageActions) {
                 batch.delete(ColumnFamily.TIMELINE, action.timelineKey());
+                deleteNativeCandidateIndex(batch, action.messageId(), action.current());
                 batch.delete(ColumnFamily.TIMELINE, action.expiryKey());
                 if (action.claim() != null) {
                     batch.delete(ColumnFamily.INFLIGHT, action.claim().encodedKey());
@@ -8104,7 +8039,7 @@ public final class DelayShard {
                     ReadyIndexValue.decode(com.nereusstream.delay.store.ValueEnvelope.decode(entry.value(), 3)
                             .payload());
             if (!key.laneId().equals(value.laneId())
-                    || key.nextEligibleAtEpochMs() != value.nextEligibleAtEpochMs()
+                    || key.nextEligibleAtEpochMs() != value.persistentWakeAtEpochMs()
                     || key.laneVersion() != value.laneVersion()) {
                 throw new IllegalStateException("READY key/value identity mismatch");
             }
@@ -8116,7 +8051,7 @@ public final class DelayShard {
             if (lane == null
                     || !lane.schedulable()
                     || lane.laneVersion() != key.laneVersion()
-                    || lane.nextEligibleAtEpochMs() != key.nextEligibleAtEpochMs()) {
+                    || lane.nextEligibleAtEpochMs() != value.persistentWakeAtEpochMs()) {
                 throw new IllegalStateException("stale READY lane projection");
             }
             final MessageRecord message = getMessage(value.messageId());
@@ -8137,16 +8072,22 @@ public final class DelayShard {
             final TimelineWorkRef work = validateTimelineValue(
                     timelineValue.payload(), value.messageId(), message, timelineKey, "READY discovery");
             if (work != null
-                    && key.nextEligibleAtEpochMs()
+                    && value.nextEligibleAtEpochMs()
                             != Math.max(work.actionAtEpochMs(), work.retryEligibilityAtEpochMs())) {
                 throw new IllegalStateException("READY eligibility disagrees with TimelineWorkRef");
             }
-            validateTypedReadyTimes(laneValue, value.messageId(), message, work, key.nextEligibleAtEpochMs());
+            if (value.nativeHead() != null) {
+                validateNativeReadyHead(value.nativeHead(), key.laneId());
+            }
+            validateTypedReadyTimes(laneValue, value.messageId(), message, work, value);
+            if (value.nextEligibleAtEpochMs() > earliestEpochMs) {
+                continue;
+            }
             result.add(new ReadyWork(
                     key.laneId(),
                     value.messageId(),
                     value.generation(),
-                    key.nextEligibleAtEpochMs(),
+                    value.nextEligibleAtEpochMs(),
                     key.laneVersion(),
                     message.orderingMode() == com.nereusstream.delay.protocol.OrderingMode.DELIVERY_TIME_FIFO));
         }
@@ -8158,16 +8099,19 @@ public final class DelayShard {
             final DelayMessageId messageId,
             final MessageRecord message,
             final TimelineWorkRef work,
-            final long expectedNextEligibleAtEpochMs) {
+            final ReadyIndexValue ready) {
         final ActiveLaneState state = laneValue.typedActiveState();
         if (state == null) {
             return;
         }
-        final long actionAt = work == null ? actionAtFor(messageId, message) : work.actionAtEpochMs();
+        final long ordinaryActionAt = work == null ? actionAtFor(messageId, message) : work.actionAtEpochMs();
+        final long actionAt = ready.nativeHead() == null
+                ? ordinaryActionAt
+                : Math.min(ordinaryActionAt, ready.nativeHead().nextEligibleAtEpochMs());
         if (state.earliestActionAtEpochMs() == null
                 || state.earliestActionAtEpochMs() != actionAt
                 || state.nextEligibleAtEpochMs() == null
-                || state.nextEligibleAtEpochMs() != expectedNextEligibleAtEpochMs) {
+                || state.nextEligibleAtEpochMs() != ready.persistentWakeAtEpochMs()) {
             throw new IllegalStateException("typed READY action/eligibility projection disagrees with current head");
         }
     }
@@ -8206,10 +8150,16 @@ public final class DelayShard {
             }
         }
         final Map<com.nereusstream.delay.protocol.DestinationLaneId, TimelineCandidate> candidates = new HashMap<>();
+        final Map<com.nereusstream.delay.protocol.DestinationLaneId, NativeTimelineCandidate> nativeCandidates =
+                new HashMap<>();
         for (var laneId : lanes.keySet()) {
             final TimelineCandidate candidate = findLaneCandidate(laneId, null, -1, null, null);
             if (candidate != null) {
                 candidates.put(laneId, candidate);
+            }
+            final NativeTimelineCandidate nativeCandidate = findLaneNativeCandidate(laneId, null, -1, null, null);
+            if (nativeCandidate != null) {
+                nativeCandidates.put(laneId, nativeCandidate);
             }
         }
         final int readyLimit = boundedLimitPlusOne(config.maxLanes());
@@ -8221,7 +8171,15 @@ public final class DelayShard {
         final Map<com.nereusstream.delay.protocol.DestinationLaneId, LaneProjection> projections = new HashMap<>();
         for (var entry : lanes.entrySet()) {
             final TimelineCandidate candidate = candidates.get(entry.getKey());
-            projections.put(entry.getKey(), projectLane(entry.getKey(), entry.getValue(), entry.getValue(), candidate));
+            projections.put(
+                    entry.getKey(),
+                    projectLane(
+                            entry.getKey(),
+                            entry.getValue(),
+                            entry.getValue(),
+                            candidate,
+                            nativeCandidates.get(entry.getKey()),
+                            laneQuotaUsage));
         }
         store.write(batch -> {
             for (var entry : existingReady) {
@@ -8505,6 +8463,7 @@ public final class DelayShard {
                     direct.deliverAtEpochMs(),
                     direct.expireAtEpochMs(),
                     direct.deliverAtEpochMs(),
+                    direct.deliverAtEpochMs(),
                     direct.laneId(),
                     direct.orderingMode(),
                     direct.payload(),
@@ -8528,10 +8487,15 @@ public final class DelayShard {
         lastResolvedSchedule = resolved;
         lastResolvedScheduleMessageId = command.delayMessageId();
         validateResolvedSchedulePayload(body.intent(), resolved);
+        final long resolvedBoundary =
+                resolved.actionAtEpochMs() == null ? body.intent().deliverAtEpochMs() : resolved.actionAtEpochMs();
+        final boolean explicitNative = !body.intent().legacyPolicyDefault()
+                && body.intent().nativeDeliveryPolicy() != NativeDeliveryPolicy.FORBID;
         return new ScheduleApplication(
                 body.intent().deliverAtEpochMs(),
                 body.intent().expireAtEpochMs(),
-                resolved.actionAtEpochMs() == null ? body.intent().deliverAtEpochMs() : resolved.actionAtEpochMs(),
+                explicitNative ? body.intent().deliverAtEpochMs() : resolvedBoundary,
+                explicitNative ? resolvedBoundary : body.intent().deliverAtEpochMs(),
                 resolved.laneId(),
                 body.intent().orderingMode(),
                 resolved.inlinePayload() == null ? new byte[0] : resolved.inlinePayload(),
@@ -8817,18 +8781,27 @@ public final class DelayShard {
                         sourcePosition.canonicalBytes(),
                         reference),
                 reservation.intent().deliverAtEpochMs());
+        final CanonicalScheduleIntent pinnedIntent =
+                pinnedPrepare == null ? null : pinnedPrepare.intentWithoutPayload();
+        final NativeDeliveryPolicy nativePolicy =
+                pinnedIntent == null ? NativeDeliveryPolicy.FORBID : pinnedIntent.nativeDeliveryPolicy();
+        final boolean explicitNative = pinnedIntent != null
+                && !pinnedIntent.legacyPolicyDefault()
+                && nativePolicy != NativeDeliveryPolicy.FORBID;
         final MessageRecord message = MessageRecord.current(
                 MessageStatus.SCHEDULED,
                 0,
                 1,
                 reservation.intent().deliverAtEpochMs(),
                 reservation.intent().expireAtEpochMs(),
+                explicitNative ? actionAt : reservation.intent().deliverAtEpochMs(),
                 reservation.intent().laneId(),
                 reservation.intent().orderingMode(),
+                nativePolicy,
                 new byte[0],
                 sourcePosition.canonicalBytes(),
                 reference,
-                actionAt);
+                explicitNative ? reservation.intent().deliverAtEpochMs() : actionAt);
         final PayloadReservation committed = reservation.withLifecycle(
                 PayloadReservationStatus.COMMITTED,
                 Math.addExact(reservation.stateVersion(), 1),
@@ -8948,16 +8921,14 @@ public final class DelayShard {
                 1,
                 intent.deliverAtEpochMs(),
                 intent.expireAtEpochMs(),
-                intent.nativeDeliveryPolicy() == NativeDeliveryPolicy.FORBID
-                        ? intent.deliverAtEpochMs()
-                        : intent.actionAtEpochMs(),
+                intent.earliestNativeCandidateAtEpochMs(),
                 intent.laneId(),
                 intent.orderingMode(),
                 intent.nativeDeliveryPolicy(),
                 intent.payload(),
                 sourcePosition.canonicalBytes(),
                 intent.payloadReference(),
-                intent.actionAtEpochMs());
+                intent.ordinaryActionAtEpochMs());
         return applied(StableCode.SCHEDULED, sourcePosition, message);
     }
 
@@ -9073,17 +9044,10 @@ public final class DelayShard {
                 applied(
                         StableCode.CANCELED,
                         sourcePosition,
-                        MessageRecord.current(
+                        transitionMessage(
+                                existing,
                                 MessageStatus.CANCELED,
-                                existing.generation(),
                                 Math.incrementExact(existing.stateVersion()),
-                                existing.deliverAtEpochMs(),
-                                existing.expireAtEpochMs(),
-                                existing.laneId(),
-                                existing.orderingMode(),
-                                existing.payload(),
-                                existing.scheduleSourcePosition(),
-                                existing.payloadReference(),
                                 existing.retryEligibilityAtEpochMs()));
             case CANCELED -> applied(StableCode.ALREADY_CANCELED, sourcePosition, existing);
             case PUBLISHED, HANDED_OFF, PUBLISHING, UNCERTAIN -> applied(StableCode.TOO_LATE, sourcePosition, existing);
@@ -9127,18 +9091,14 @@ public final class DelayShard {
         }
         validateWindow(
                 request.deliverAtEpochMs(), request.expireAtEpochMs(), sourcePosition.brokerPersistenceTimeEpochMs());
-        final MessageRecord replacement = MessageRecord.current(
-                MessageStatus.SCHEDULED,
+        final MessageRecord replacement = nextGenerationScheduledMessage(
+                command.delayMessageId(),
+                existing,
                 UnsignedInt32.successor(existing.generation()),
                 Math.incrementExact(existing.stateVersion()),
                 request.deliverAtEpochMs(),
                 request.expireAtEpochMs(),
-                existing.laneId(),
-                existing.orderingMode(),
-                existing.payload(),
-                sourcePosition.canonicalBytes(),
-                existing.payloadReference(),
-                actionAtFor(command.delayMessageId(), existing, request.deliverAtEpochMs()));
+                sourcePosition.canonicalBytes());
         return applied(StableCode.SUPERSEDED, sourcePosition, replacement);
     }
 
@@ -9431,6 +9391,7 @@ public final class DelayShard {
             if (persistedNext != null) {
                 if (prior != null
                         && (prior.status() == MessageStatus.SCHEDULED || prior.status() == MessageStatus.CLAIMED)) {
+                    deleteNativeCandidateIndex(batch, command.delayMessageId(), prior);
                     batch.delete(
                             ColumnFamily.TIMELINE,
                             priorClaim == null
@@ -9463,6 +9424,7 @@ public final class DelayShard {
                             1,
                             expiryKey(command.delayMessageId(), persistedNext),
                             encodeTimelineValue(command.delayMessageId(), persistedNext));
+                    putNativeCandidateIndex(batch, command.delayMessageId(), persistedNext);
                 }
             }
             if (reservation != null) {
@@ -9817,7 +9779,13 @@ public final class DelayShard {
                     excludedGeneration,
                     next != null && next.status() == MessageStatus.SCHEDULED ? messageId : null,
                     next);
-            result.put(laneId, projectLane(laneId, previous, base, candidate, projectedLaneQuota));
+            final NativeTimelineCandidate nativeCandidate = findLaneNativeCandidate(
+                    laneId,
+                    messageId,
+                    excludedGeneration,
+                    next != null && next.status() == MessageStatus.SCHEDULED ? messageId : null,
+                    next);
+            result.put(laneId, projectLane(laneId, previous, base, candidate, nativeCandidate, projectedLaneQuota));
         }
         return result;
     }
@@ -9827,7 +9795,13 @@ public final class DelayShard {
             final LaneRecord previous,
             final LaneRecord base,
             final TimelineCandidate candidate) {
-        return projectLane(laneId, previous, base, candidate, laneQuotaUsage);
+        return projectLane(
+                laneId,
+                previous,
+                base,
+                candidate,
+                findLaneNativeCandidate(laneId, null, -1, null, null),
+                laneQuotaUsage);
     }
 
     private LaneProjection projectLane(
@@ -9836,10 +9810,30 @@ public final class DelayShard {
             final LaneRecord base,
             final TimelineCandidate candidate,
             final LaneQuotaUsageProjection projectedLaneQuota) {
-        final long nextEligibleAt = candidate == null ? 0 : candidate.nextEligibleAtEpochMs();
+        return projectLane(
+                laneId,
+                previous,
+                base,
+                candidate,
+                findLaneNativeCandidate(laneId, null, -1, null, null),
+                projectedLaneQuota);
+    }
+
+    private LaneProjection projectLane(
+            final com.nereusstream.delay.protocol.DestinationLaneId laneId,
+            final LaneRecord previous,
+            final LaneRecord base,
+            final TimelineCandidate candidate,
+            final NativeTimelineCandidate nativeCandidate,
+            final LaneQuotaUsageProjection projectedLaneQuota) {
+        final long nextEligibleAt = candidate == null
+                ? 0
+                : nativeCandidate == null
+                        ? candidate.nextEligibleAtEpochMs()
+                        : Math.min(candidate.nextEligibleAtEpochMs(), nativeCandidate.candidateAtEpochMs());
         final LaneRecord projected =
                 base.nextEligibleAtEpochMs() == nextEligibleAt ? base : base.withNextEligibleAt(nextEligibleAt);
-        final ReadyIndexValue ready = projected.schedulable() && candidate != null
+        ReadyIndexValue ready = projected.schedulable() && candidate != null
                 ? new ReadyIndexValue(
                         laneId,
                         candidate.nextEligibleAtEpochMs(),
@@ -9848,8 +9842,21 @@ public final class DelayShard {
                         candidate.generation(),
                         Bytes.sha256(candidate.timelineKey()))
                 : null;
-        final Long earliestActionAt = candidate == null ? null : candidate.actionAtEpochMs();
-        final Long projectedNextEligibleAt = candidate == null ? null : candidate.nextEligibleAtEpochMs();
+        if (ready != null && nativeCandidate != null) {
+            ready = ready.withNativeHead(ReadyIndexValue.nativeCandidate(
+                    laneId,
+                    nativeCandidate.candidateAtEpochMs(),
+                    projected.laneVersion(),
+                    nativeCandidate.messageId(),
+                    nativeCandidate.generation(),
+                    Bytes.sha256(nativeCandidate.timelineKey())));
+        }
+        final Long earliestActionAt = candidate == null
+                ? null
+                : nativeCandidate == null
+                        ? candidate.actionAtEpochMs()
+                        : Math.min(candidate.actionAtEpochMs(), nativeCandidate.candidateAtEpochMs());
+        final Long projectedNextEligibleAt = candidate == null ? null : nextEligibleAt;
         final LaneValue previousValue = readLaneValue(laneId);
         final PublishAdmissionBody.ChargeVector laneUsage = previousValue == null || !previousValue.isActive()
                 ? projectedLaneQuota.usageFor(laneId, projected.laneIncarnation())
@@ -9883,7 +9890,7 @@ public final class DelayShard {
             final byte[] readyKey = projection.readyValue() == null
                     ? null
                     : KeyCodec.timelineReady(
-                            projection.readyValue().nextEligibleAtEpochMs(),
+                            projection.readyValue().persistentWakeAtEpochMs(),
                             projection.readyValue().laneId(),
                             projection.readyValue().laneVersion());
             final PublishAdmissionBody.ChargeVector usage = projection.laneUsage();
@@ -9918,7 +9925,7 @@ public final class DelayShard {
             batch.putValue(
                     ColumnFamily.TIMELINE,
                     3,
-                    KeyCodec.timelineReady(ready.nextEligibleAtEpochMs(), ready.laneId(), ready.laneVersion()),
+                    KeyCodec.timelineReady(ready.persistentWakeAtEpochMs(), ready.laneId(), ready.laneVersion()),
                     ready.encode());
         }
     }
@@ -10027,6 +10034,119 @@ public final class DelayShard {
             }
         }
         return selected;
+    }
+
+    private NativeTimelineCandidate findLaneNativeCandidate(
+            final com.nereusstream.delay.protocol.DestinationLaneId laneId,
+            final DelayMessageId excludedMessageId,
+            final int excludedGeneration,
+            final DelayMessageId includedMessageId,
+            final MessageRecord includedMessage) {
+        NativeTimelineCandidate selected = null;
+        if (includedMessageId != null
+                && includedMessage != null
+                && includedMessage.laneId().equals(laneId)
+                && hasNativeCandidateIndex(includedMessage)) {
+            selected = new NativeTimelineCandidate(
+                    includedMessageId,
+                    includedMessage.generation(),
+                    includedMessage.earliestNativeCandidateAtEpochMs(),
+                    nativeCandidateKey(includedMessageId, includedMessage));
+        }
+        final int candidateLimit = boundedLimitPlusOne(config.maxPendingMessages());
+        final byte[] prefix = Bytes.concat(new byte[] {7, 1}, laneId.bytes());
+        final List<com.nereusstream.delay.store.ShardStore.KeyValue> entries =
+                store.scan(ColumnFamily.TIMELINE, prefix, prefixUpperBound(prefix), candidateLimit);
+        if (entries.size() >= candidateLimit && config.maxPendingMessages() < Integer.MAX_VALUE) {
+            throw new IllegalStateException("native candidate scan exceeded configured bound");
+        }
+        for (var entry : entries) {
+            final NativeTimelineCandidate candidate = decodeNativeTimelineCandidate(entry, laneId);
+            if (excludedMessageId != null
+                    && candidate.messageId().equals(excludedMessageId)
+                    && candidate.generation() == excludedGeneration) {
+                continue;
+            }
+            if (selected == null || candidate.compareTo(selected) < 0) {
+                selected = candidate;
+            }
+        }
+        return selected;
+    }
+
+    private NativeTimelineCandidate decodeNativeTimelineCandidate(
+            final com.nereusstream.delay.store.ShardStore.KeyValue entry,
+            final com.nereusstream.delay.protocol.DestinationLaneId expectedLane) {
+        final byte[] key = entry.key();
+        final int tokenOffset = 2 + DestinationLaneId.LENGTH + Long.BYTES;
+        final int tokenLength = key.length > tokenOffset && key[tokenOffset] == 1
+                ? 9
+                : key.length > tokenOffset && key[tokenOffset] == 2 ? 21 : -1;
+        if (tokenLength < 0
+                || key.length != tokenOffset + tokenLength + DelayMessageId.LENGTH + Integer.BYTES
+                || key[0] != 7
+                || key[1] != 1) {
+            throw new IllegalStateException("invalid native candidate timeline key");
+        }
+        final ByteBuffer input = ByteBuffer.wrap(key);
+        input.position(2);
+        final byte[] laneBytes = new byte[DestinationLaneId.LENGTH];
+        input.get(laneBytes);
+        final DestinationLaneId lane = new DestinationLaneId(laneBytes);
+        final long candidateAt = input.getLong();
+        input.position(input.position() + tokenLength);
+        final byte[] messageBytes = new byte[DelayMessageId.LENGTH];
+        input.get(messageBytes);
+        final DelayMessageId messageId = new DelayMessageId(messageBytes);
+        final int generation = input.getInt();
+        if (!lane.equals(expectedLane)) {
+            throw new IllegalStateException("native candidate lane prefix mismatch");
+        }
+        final NativeCandidateRef value =
+                NativeCandidateRef.decode(ValueEnvelope.decode(entry.value(), 1).payload());
+        final MessageRecord message = getMessage(messageId);
+        if (message == null
+                || !hasNativeCandidateIndex(message)
+                || message.generation() != generation
+                || !message.laneId().equals(expectedLane)
+                || message.earliestNativeCandidateAtEpochMs() != candidateAt
+                || !value.messageId().equals(messageId)
+                || value.generation() != generation
+                || value.candidateAtEpochMs() != candidateAt
+                || !Arrays.equals(value.timelineKey(), key)
+                || !Arrays.equals(nativeCandidateKey(messageId, message), key)) {
+            throw new IllegalStateException("native candidate does not match the current scheduled message");
+        }
+        return new NativeTimelineCandidate(messageId, generation, candidateAt, key);
+    }
+
+    private void validateNativeReadyHead(
+            final ReadyIndexValue head, final com.nereusstream.delay.protocol.DestinationLaneId expectedLane) {
+        if (!head.isNativeCandidate() || !head.laneId().equals(expectedLane)) {
+            throw new IllegalStateException("READY native head identity is malformed");
+        }
+        final MessageRecord message = getMessage(head.messageId());
+        if (message == null
+                || message.generation() != head.generation()
+                || !hasNativeCandidateIndex(message)
+                || message.earliestNativeCandidateAtEpochMs() != head.nextEligibleAtEpochMs()) {
+            throw new IllegalStateException("READY native head does not reference current scheduled work");
+        }
+        final byte[] key = nativeCandidateKey(head.messageId(), message);
+        if (!Bytes.constantTimeEquals(head.timelineKeySha256(), Bytes.sha256(key))) {
+            throw new IllegalStateException("READY native head timeline digest mismatch");
+        }
+        final byte[] raw = store.get(ColumnFamily.TIMELINE, key);
+        if (raw == null) {
+            throw new IllegalStateException("READY native head points to a missing timeline candidate");
+        }
+        final NativeTimelineCandidate candidate = decodeNativeTimelineCandidate(
+                new com.nereusstream.delay.store.ShardStore.KeyValue(key, raw), expectedLane);
+        if (!candidate.messageId().equals(head.messageId())
+                || candidate.generation() != head.generation()
+                || candidate.candidateAtEpochMs() != head.nextEligibleAtEpochMs()) {
+            throw new IllegalStateException("READY native head candidate identity mismatch");
+        }
     }
 
     private TimelineCandidate decodeTimelineCandidate(
@@ -10173,30 +10293,21 @@ public final class DelayShard {
                         1,
                         intent.deliverAtEpochMs(),
                         intent.expireAtEpochMs(),
-                        intent.nativeDeliveryPolicy() == NativeDeliveryPolicy.FORBID
-                                ? intent.deliverAtEpochMs()
-                                : intent.actionAtEpochMs(),
+                        intent.earliestNativeCandidateAtEpochMs(),
                         intent.laneId(),
                         intent.orderingMode(),
                         intent.nativeDeliveryPolicy(),
                         intent.payload(),
                         position.canonicalBytes(),
                         intent.payloadReference(),
-                        intent.actionAtEpochMs());
+                        intent.ordinaryActionAtEpochMs());
             }
             case CANCEL ->
                 result.stableCode() == StableCode.CANCELED && prior != null
-                        ? MessageRecord.current(
+                        ? transitionMessage(
+                                prior,
                                 MessageStatus.CANCELED,
-                                prior.generation(),
                                 Math.incrementExact(prior.stateVersion()),
-                                prior.deliverAtEpochMs(),
-                                prior.expireAtEpochMs(),
-                                prior.laneId(),
-                                prior.orderingMode(),
-                                prior.payload(),
-                                prior.scheduleSourcePosition(),
-                                prior.payloadReference(),
                                 prior.retryEligibilityAtEpochMs())
                         : null;
             case RESCHEDULE ->
@@ -10241,19 +10352,14 @@ public final class DelayShard {
         // using the legacy constructor whose default actionAt is deliverAt;
         // otherwise the later persistMutation() normalization would silently
         // erase a certified early handoff on a same-deliverAt Reschedule.
-        final long actionAt = actionAtFor(command.delayMessageId(), prior, values.deliverAtEpochMs());
-        return MessageRecord.current(
-                MessageStatus.SCHEDULED,
+        return nextGenerationScheduledMessage(
+                command.delayMessageId(),
+                prior,
                 UnsignedInt32.successor(prior.generation()),
                 Math.incrementExact(prior.stateVersion()),
                 values.deliverAtEpochMs(),
                 values.expireAtEpochMs(),
-                prior.laneId(),
-                prior.orderingMode(),
-                prior.payload(),
-                position.canonicalBytes(),
-                prior.payloadReference(),
-                actionAt);
+                position.canonicalBytes());
     }
 
     private void persistPositionOnly(final PreparedCommand command, final SourcePosition position) {
@@ -11118,6 +11224,49 @@ public final class DelayShard {
         return timelineKey(messageId, message, actionAtFor(messageId, message));
     }
 
+    private boolean hasNativeCandidateIndex(final MessageRecord message) {
+        final TimelineWorkRef work = message.runtimeIndex().timeline();
+        return message.status() == MessageStatus.SCHEDULED
+                && !message.legacyEncoding()
+                && message.nativeDeliveryPolicy() != NativeDeliveryPolicy.FORBID
+                && message.orderingMode() == com.nereusstream.delay.protocol.OrderingMode.BEST_EFFORT
+                && message.earliestNativeCandidateAtEpochMs() < message.deliverAtEpochMs()
+                && work != null
+                && work.workKind() == TimelineWorkKind.INITIAL_SCHEDULE
+                && work.candidateAttemptNo() == 1
+                && message.runtimeIndex().admissionsUsed() == 0;
+    }
+
+    private byte[] nativeCandidateKey(final DelayMessageId messageId, final MessageRecord message) {
+        final SourcePosition position = SourcePositionCodec.decode(message.scheduleSourcePosition());
+        return KeyCodec.timelineNativeCandidate(
+                message.laneId(),
+                message.earliestNativeCandidateAtEpochMs(),
+                position.sourceOrderToken(),
+                messageId,
+                message.generation());
+    }
+
+    private void putNativeCandidateIndex(
+            final ShardStore.Batch batch, final DelayMessageId messageId, final MessageRecord message)
+            throws org.rocksdb.RocksDBException {
+        if (!hasNativeCandidateIndex(message)) {
+            return;
+        }
+        final byte[] key = nativeCandidateKey(messageId, message);
+        final NativeCandidateRef candidate = new NativeCandidateRef(
+                messageId, message.generation(), message.earliestNativeCandidateAtEpochMs(), key);
+        batch.putValue(ColumnFamily.TIMELINE, 1, key, candidate.canonicalBytes());
+    }
+
+    private void deleteNativeCandidateIndex(
+            final ShardStore.Batch batch, final DelayMessageId messageId, final MessageRecord message)
+            throws org.rocksdb.RocksDBException {
+        if (hasNativeCandidateIndex(message)) {
+            batch.delete(ColumnFamily.TIMELINE, nativeCandidateKey(messageId, message));
+        }
+    }
+
     private byte[] timelineKey(
             final DelayMessageId messageId, final MessageRecord message, final long actionAtEpochMs) {
         final long eligibleAt =
@@ -11390,6 +11539,29 @@ public final class DelayShard {
         }
     }
 
+    private record NativeTimelineCandidate(
+            DelayMessageId messageId, int generation, long candidateAtEpochMs, byte[] timelineKey)
+            implements Comparable<NativeTimelineCandidate> {
+        private NativeTimelineCandidate {
+            Objects.requireNonNull(messageId, "messageId");
+            if (candidateAtEpochMs < 0) {
+                throw new IllegalArgumentException("native candidate time must be non-negative");
+            }
+            timelineKey = Bytes.copy(Objects.requireNonNull(timelineKey, "timelineKey"));
+        }
+
+        @Override
+        public byte[] timelineKey() {
+            return Bytes.copy(timelineKey);
+        }
+
+        @Override
+        public int compareTo(final NativeTimelineCandidate other) {
+            final int time = Long.compare(candidateAtEpochMs, other.candidateAtEpochMs);
+            return time != 0 ? time : compareUnsigned(timelineKey, other.timelineKey);
+        }
+    }
+
     private record LaneProjection(
             LaneRecord previousLane,
             LaneRecord lane,
@@ -11452,7 +11624,8 @@ public final class DelayShard {
     private record ScheduleApplication(
             long deliverAtEpochMs,
             long expireAtEpochMs,
-            long actionAtEpochMs,
+            long ordinaryActionAtEpochMs,
+            long earliestNativeCandidateAtEpochMs,
             com.nereusstream.delay.protocol.DestinationLaneId laneId,
             com.nereusstream.delay.protocol.OrderingMode orderingMode,
             byte[] payload,
@@ -11465,8 +11638,10 @@ public final class DelayShard {
             Objects.requireNonNull(nativeDeliveryPolicy, "nativeDeliveryPolicy");
             if (deliverAtEpochMs < 0
                     || expireAtEpochMs < deliverAtEpochMs
-                    || actionAtEpochMs < 0
-                    || actionAtEpochMs > deliverAtEpochMs
+                    || ordinaryActionAtEpochMs < 0
+                    || ordinaryActionAtEpochMs > deliverAtEpochMs
+                    || earliestNativeCandidateAtEpochMs < 0
+                    || earliestNativeCandidateAtEpochMs > deliverAtEpochMs
                     || payloadReference != null && payload.length != 0) {
                 throw new IllegalArgumentException("invalid resolved Schedule projection");
             }

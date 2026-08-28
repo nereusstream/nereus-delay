@@ -4,7 +4,6 @@ import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.CanonicalProtobuf;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.HandoffPolicyHeadRef;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -32,7 +31,7 @@ public final class ReadyIndexValue {
     private final DelayMessageId messageId;
     private final int generation;
     private final byte[] timelineKeySha256;
-    private final HandoffPolicyHeadRef policyHeadRef;
+    private final boolean nativeCandidate;
     private final ReadyIndexValue nativeHead;
     private final long persistentWakeAtEpochMs;
     private final byte[] stateDigest;
@@ -44,7 +43,7 @@ public final class ReadyIndexValue {
             final DelayMessageId messageId,
             final int generation,
             final byte[] timelineKeySha256) {
-        this(laneId, nextEligibleAtEpochMs, laneVersion, messageId, generation, timelineKeySha256, null, null);
+        this(laneId, nextEligibleAtEpochMs, laneVersion, messageId, generation, timelineKeySha256, false, null);
     }
 
     private ReadyIndexValue(
@@ -54,7 +53,7 @@ public final class ReadyIndexValue {
             final DelayMessageId messageId,
             final int generation,
             final byte[] timelineKeySha256,
-            final HandoffPolicyHeadRef policyHeadRef,
+            final boolean nativeCandidate,
             final ReadyIndexValue nativeHead) {
         this.laneId = Objects.requireNonNull(laneId, "laneId");
         if (nextEligibleAtEpochMs < 0 || laneVersion < 0) {
@@ -66,14 +65,12 @@ public final class ReadyIndexValue {
         this.generation = generation;
         Bytes.requireLength(timelineKeySha256, HASH_LENGTH, "timelineKeySha256");
         this.timelineKeySha256 = Bytes.copy(timelineKeySha256);
-        this.policyHeadRef = policyHeadRef;
-        if (policyHeadRef != null && nativeHead != null) {
+        this.nativeCandidate = nativeCandidate;
+        if (nativeCandidate && nativeHead != null) {
             throw new IllegalArgumentException("READY value cannot be both a native head and a dual value");
         }
         if (nativeHead != null) {
-            if (!nativeHead.isNativeCandidate()
-                    || !nativeHead.laneId().equals(laneId)
-                    || nativeHead.policyHeadRef() == null) {
+            if (!nativeHead.isNativeCandidate() || !nativeHead.laneId().equals(laneId)) {
                 throw new IllegalArgumentException("invalid nested native READY head");
             }
             if (nativeHead.laneVersion() != laneVersion) {
@@ -95,17 +92,9 @@ public final class ReadyIndexValue {
             final long laneVersion,
             final DelayMessageId messageId,
             final int generation,
-            final byte[] timelineKeySha256,
-            final HandoffPolicyHeadRef policyHeadRef) {
+            final byte[] timelineKeySha256) {
         return new ReadyIndexValue(
-                laneId,
-                candidateAtEpochMs,
-                laneVersion,
-                messageId,
-                generation,
-                timelineKeySha256,
-                Objects.requireNonNull(policyHeadRef, "policyHeadRef"),
-                null);
+                laneId, candidateAtEpochMs, laneVersion, messageId, generation, timelineKeySha256, true, null);
     }
 
     /** Returns an ordinary head carrying the supplied native candidate. */
@@ -120,7 +109,7 @@ public final class ReadyIndexValue {
                 messageId,
                 generation,
                 timelineKeySha256,
-                null,
+                false,
                 Objects.requireNonNull(nativeCandidate, "nativeCandidate"));
     }
 
@@ -149,12 +138,8 @@ public final class ReadyIndexValue {
         return Bytes.copy(timelineKeySha256);
     }
 
-    public HandoffPolicyHeadRef policyHeadRef() {
-        return policyHeadRef;
-    }
-
     public boolean isNativeCandidate() {
-        return policyHeadRef != null;
+        return nativeCandidate;
     }
 
     public ReadyIndexValue nativeHead() {
@@ -179,7 +164,7 @@ public final class ReadyIndexValue {
                 && laneId.equals(that.laneId)
                 && messageId.equals(that.messageId)
                 && Arrays.equals(timelineKeySha256, that.timelineKeySha256)
-                && Objects.equals(policyHeadRef, that.policyHeadRef)
+                && nativeCandidate == that.nativeCandidate
                 && Objects.equals(nativeHead, that.nativeHead)
                 && Arrays.equals(stateDigest, that.stateDigest);
     }
@@ -192,7 +177,7 @@ public final class ReadyIndexValue {
                 laneVersion,
                 messageId,
                 generation,
-                policyHeadRef,
+                nativeCandidate,
                 nativeHead,
                 persistentWakeAtEpochMs);
         result = 31 * result + Arrays.hashCode(timelineKeySha256);
@@ -289,20 +274,16 @@ public final class ReadyIndexValue {
             CanonicalProtobuf.uint32Bits(output, 2, head.generation);
             CanonicalProtobuf.uint64(output, 3, head.nextEligibleAtEpochMs);
             CanonicalProtobuf.bytes(output, 4, head.timelineKeySha256);
-            if (head.policyHeadRef != null) {
-                CanonicalProtobuf.bytes(output, 5, head.policyHeadRef.canonicalBytes());
-            }
         });
     }
 
     private static ReadyIndexValue decodeHead(
             final byte[] encoded, final DestinationLaneId lane, final long laneVersion, final boolean nativeHead) {
         final List<CanonicalProtobuf.Reader.Field> fields = read(encoded);
-        if (fields.size() != (nativeHead ? 5 : 4)) {
+        if (fields.size() != 4) {
             throw new IllegalArgumentException("READY head has an unexpected field count");
         }
-        requireNumbers(fields, nativeHead ? new int[] {1, 2, 3, 4, 5} : new int[] {1, 2, 3, 4});
-        final HandoffPolicyHeadRef ref = nativeHead ? HandoffPolicyHeadRef.decode(bytes(fields.get(4), 5)) : null;
+        requireNumbers(fields, new int[] {1, 2, 3, 4});
         final ReadyIndexValue result = new ReadyIndexValue(
                 lane,
                 uint(fields.get(2), 3),
@@ -310,7 +291,7 @@ public final class ReadyIndexValue {
                 new DelayMessageId(fixedMessage(fields.get(0), 1)),
                 intBits(fields.get(1), 2),
                 fixed(fields.get(3), 4),
-                ref,
+                nativeHead,
                 null);
         if (!Arrays.equals(encoded, encodeHead(result))) {
             throw new IllegalArgumentException("non-canonical READY head");

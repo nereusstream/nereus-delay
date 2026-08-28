@@ -2,6 +2,7 @@ package com.nereusstream.delay.protocol;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import java.util.List;
 import java.util.UUID;
@@ -114,6 +115,71 @@ class ClaimMaterializationTest {
                         2_000,
                         1_000,
                         2_000));
+    }
+
+    @Test
+    void explicitNativePolicyNeedsAHeadOnlyForAnEarlyManagedCandidate() {
+        final ProfileRef destination = profile(ProfileKind.DESTINATION, "pulsar-destination");
+        final ProfileRef capability = profile(ProfileKind.DELIVERY_CAPABILITY, "pulsar-capability");
+        final BrokerResourceIdentity target = BrokerResourceIdentity.pulsar(new PulsarBrokerResourceIdentity(
+                "cluster", nonZero(32, 3), "persistent://tenant/ns/topic-partition-0", 1));
+        final AdapterMetadata metadata = AdapterMetadata.pulsar(new PulsarMetadata(null, null, null, List.of()));
+        final DelayMessageId messageId = messageId();
+
+        final ClaimMaterialization ordinary = new ClaimMaterialization(
+                destination,
+                capability,
+                target,
+                0,
+                messageId,
+                0,
+                PayloadForPublish.inline(Bytes.utf8("payload")),
+                metadata,
+                2_000,
+                5_000,
+                2_000,
+                NativeDeliveryPolicy.ALLOW_MANAGED_HANDOFF,
+                777L,
+                null);
+        assertNull(ordinary.handoffPolicyHeadRef());
+        assertEquals(ordinary, ClaimMaterialization.decode(ordinary.canonicalBytes()));
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new ClaimMaterialization(
+                        destination,
+                        capability,
+                        target,
+                        0,
+                        messageId,
+                        0,
+                        PayloadForPublish.inline(Bytes.utf8("payload")),
+                        metadata,
+                        2_000,
+                        5_000,
+                        1_500,
+                        NativeDeliveryPolicy.ALLOW_MANAGED_HANDOFF,
+                        777L,
+                        null));
+
+        final HandoffPolicyHeadRef head = new HandoffPolicyHeadRef(nonZero(32, 4), 1, nonZero(32, 5), 7);
+        final ClaimMaterialization early = new ClaimMaterialization(
+                destination,
+                capability,
+                target,
+                0,
+                messageId,
+                0,
+                PayloadForPublish.inline(Bytes.utf8("payload")),
+                metadata,
+                2_000,
+                5_000,
+                1_500,
+                NativeDeliveryPolicy.ALLOW_MANAGED_HANDOFF,
+                777L,
+                head);
+        assertEquals(head, early.handoffPolicyHeadRef());
+        assertEquals(early, ClaimMaterialization.decode(early.canonicalBytes()));
     }
 
     private static ClaimMaterialization materialization(

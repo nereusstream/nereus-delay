@@ -265,6 +265,19 @@ public final class LaneScheduler {
         requireLane(item.laneId()).queue.addFirst(item);
     }
 
+    /** Replaces one Lane's unclaimed process-local projection after a live policy refresh. */
+    synchronized void replaceLanePending(final DestinationLaneId laneId, final List<ScheduleWorkItem> replacement) {
+        final LaneQueue lane = requireLane(Objects.requireNonNull(laneId, "laneId"));
+        final List<ScheduleWorkItem> exact = List.copyOf(Objects.requireNonNull(replacement, "replacement"));
+        for (ScheduleWorkItem item : exact) {
+            if (!laneId.equals(Objects.requireNonNull(item, "replacement item").laneId())) {
+                throw new IllegalArgumentException("replacement item belongs to another Lane");
+            }
+        }
+        lane.queue.clear();
+        lane.queue.addAll(exact);
+    }
+
     /**
      * Removes work items that were appended by a discovery turn whose durable
      * projection write failed. Discovery appends at the tail, so reversing

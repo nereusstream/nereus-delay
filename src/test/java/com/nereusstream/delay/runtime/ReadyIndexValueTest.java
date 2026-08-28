@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.nereusstream.delay.protocol.Bytes;
 import com.nereusstream.delay.protocol.DelayMessageId;
 import com.nereusstream.delay.protocol.DestinationLaneId;
-import com.nereusstream.delay.protocol.HandoffPolicyHeadRef;
 import com.nereusstream.delay.protocol.RouteIncarnation;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.store.KeyCodec;
@@ -24,12 +23,10 @@ class ReadyIndexValueTest {
         sourceOrderToken[0] = 2;
         final byte[] ordinaryKey = KeyCodec.timelineDue(lane, 2_000, sourceOrderToken, ordinaryMessage, 4);
         final byte[] nativeKey = KeyCodec.timelineNativeCandidate(lane, 1_000, sourceOrderToken, nativeMessage, 5);
-        final HandoffPolicyHeadRef headRef = new HandoffPolicyHeadRef(
-                Bytes.sha256(Bytes.utf8("scope")), 9, Bytes.sha256(Bytes.utf8("snapshot")), 17);
         final ReadyIndexValue ordinary =
                 new ReadyIndexValue(lane, 2_000, 11, ordinaryMessage, 4, Bytes.sha256(ordinaryKey));
         final ReadyIndexValue nativeHead =
-                ReadyIndexValue.nativeCandidate(lane, 1_000, 11, nativeMessage, 5, Bytes.sha256(nativeKey), headRef);
+                ReadyIndexValue.nativeCandidate(lane, 1_000, 11, nativeMessage, 5, Bytes.sha256(nativeKey));
         final ReadyIndexValue value = ordinary.withNativeHead(nativeHead);
 
         final ReadyIndexValue decoded = ReadyIndexValue.decode(value.encode());
@@ -37,7 +34,7 @@ class ReadyIndexValueTest {
         assertEquals(1_000, decoded.persistentWakeAtEpochMs());
         assertEquals(2_000, decoded.nextEligibleAtEpochMs());
         assertEquals(nativeMessage, decoded.nativeHead().messageId());
-        assertEquals(headRef, decoded.nativeHead().policyHeadRef());
+        assertEquals(true, decoded.nativeHead().isNativeCandidate());
         assertArrayEquals(value.stateDigest(), decoded.stateDigest());
         assertArrayEquals(value.encode(), decoded.encode());
         assertNotNull(decoded.nativeHead());
@@ -51,8 +48,6 @@ class ReadyIndexValueTest {
         final DelayMessageId nativeMessage = DelayMessageId.random(shard);
         final byte[] token = new byte[21];
         token[0] = 2;
-        final HandoffPolicyHeadRef ref = new HandoffPolicyHeadRef(
-                Bytes.sha256(Bytes.utf8("scope-2")), 1, Bytes.sha256(Bytes.utf8("snapshot-2")), 2);
         final ReadyIndexValue value = new ReadyIndexValue(
                         lane,
                         4_000,
@@ -66,8 +61,7 @@ class ReadyIndexValueTest {
                         2,
                         nativeMessage,
                         1,
-                        Bytes.sha256(KeyCodec.timelineNativeCandidate(lane, 3_000, token, nativeMessage, 1)),
-                        ref));
+                        Bytes.sha256(KeyCodec.timelineNativeCandidate(lane, 3_000, token, nativeMessage, 1))));
 
         final byte[] tampered = value.encode();
         tampered[tampered.length - 1] ^= 1;
@@ -79,15 +73,13 @@ class ReadyIndexValueTest {
                         3,
                         nativeMessage,
                         1,
-                        Bytes.sha256(KeyCodec.timelineNativeCandidate(lane, 3_000, token, nativeMessage, 1)),
-                        ref)
+                        Bytes.sha256(KeyCodec.timelineNativeCandidate(lane, 3_000, token, nativeMessage, 1)))
                 .withNativeHead(ReadyIndexValue.nativeCandidate(
                         lane,
                         3_001,
                         2,
                         nativeMessage,
                         1,
-                        Bytes.sha256(KeyCodec.timelineNativeCandidate(lane, 3_001, token, nativeMessage, 1)),
-                        ref)));
+                        Bytes.sha256(KeyCodec.timelineNativeCandidate(lane, 3_001, token, nativeMessage, 1)))));
     }
 }

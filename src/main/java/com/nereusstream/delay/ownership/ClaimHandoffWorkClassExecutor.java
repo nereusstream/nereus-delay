@@ -74,8 +74,18 @@ public final class ClaimHandoffWorkClassExecutor {
             final long claimDeadlineEpochMs,
             final byte[] claimedCharge,
             final LongSupplier ownerClock) {
-        final ClaimMaterialization materialization = ownedShard.resolveClaimMaterializationAuthoritativelyStrict(
-                authority, scheduler, item, evidence, ownerClock);
+        final ClaimMaterialization materialization;
+        try {
+            materialization = ownedShard.resolveClaimMaterializationAuthoritativelyStrict(
+                    authority, scheduler, item, evidence, ownerClock);
+        } catch (RuntimeException | Error failure) {
+            try {
+                scheduler.requeueFailedClaim(item);
+            } catch (RuntimeException | Error rollbackFailure) {
+                failure.addSuppressed(rollbackFailure);
+            }
+            throw failure;
+        }
         return submit(item, evidence, claimDeadlineEpochMs, materialization, claimedCharge, ownerClock);
     }
 

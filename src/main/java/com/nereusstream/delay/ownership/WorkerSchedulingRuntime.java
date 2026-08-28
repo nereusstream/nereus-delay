@@ -6,6 +6,7 @@ import com.nereusstream.delay.protocol.TrustedUtcIntervalEvidence;
 import com.nereusstream.delay.runtime.AdmissionGate;
 import com.nereusstream.delay.runtime.LaneRecord;
 import com.nereusstream.delay.runtime.RuntimeReadiness;
+import com.nereusstream.delay.scheduler.ManagedNativeEligibilityAuthority;
 import com.nereusstream.delay.scheduler.PersistentLaneScheduler;
 import com.nereusstream.delay.scheduler.ScheduleWorkItem;
 import com.nereusstream.delay.scheduler.SchedulerBudget;
@@ -76,10 +77,28 @@ public final class WorkerSchedulingRuntime {
             final com.nereusstream.delay.protocol.OwnerIdentity owner,
             final List<LaneRecord> activeLanes,
             final int maxReadyEntries) {
+        return openForActiveOwner(workClasses, ownedShard, authority, store, owner, activeLanes, maxReadyEntries, null);
+    }
+
+    /**
+     * Opens the scheduling graph with the live current-policy authority used
+     * to turn a durable static native head into process-local Managed Handoff
+     * work. A missing authority keeps every opt-in message on ordinary due.
+     */
+    public static WorkerSchedulingRuntime openForActiveOwner(
+            final WorkClassExecutionRegistry workClasses,
+            final OwnedDelayShard ownedShard,
+            final OxiaOwnerLeaseStore authority,
+            final ShardStore store,
+            final com.nereusstream.delay.protocol.OwnerIdentity owner,
+            final List<LaneRecord> activeLanes,
+            final int maxReadyEntries,
+            final ManagedNativeEligibilityAuthority nativeEligibilityAuthority) {
         final PersistentLaneScheduler scheduler = PersistentLaneScheduler.forActiveOwner(
                 Objects.requireNonNull(store, "store"),
                 Objects.requireNonNull(owner, "owner"),
-                Objects.requireNonNull(activeLanes, "activeLanes"));
+                Objects.requireNonNull(activeLanes, "activeLanes"),
+                nativeEligibilityAuthority);
         final WorkerSchedulingRuntime runtime =
                 new WorkerSchedulingRuntime(workClasses, ownedShard, authority, scheduler);
         scheduler.rebuildAuthoritativeReady(maxReadyEntries);
@@ -99,6 +118,20 @@ public final class WorkerSchedulingRuntime {
             final com.nereusstream.delay.protocol.OwnerIdentity owner,
             final List<DestinationLaneId> laneIds,
             final int maxReadyEntries) {
+        return openForActiveOwnerFromTypedLanes(
+                workClasses, ownedShard, authority, store, owner, laneIds, maxReadyEntries, null);
+    }
+
+    /** Typed-Lane bootstrap with an optional live Managed Handoff policy authority. */
+    public static WorkerSchedulingRuntime openForActiveOwnerFromTypedLanes(
+            final WorkClassExecutionRegistry workClasses,
+            final OwnedDelayShard ownedShard,
+            final OxiaOwnerLeaseStore authority,
+            final ShardStore store,
+            final com.nereusstream.delay.protocol.OwnerIdentity owner,
+            final List<DestinationLaneId> laneIds,
+            final int maxReadyEntries,
+            final ManagedNativeEligibilityAuthority nativeEligibilityAuthority) {
         final OwnedDelayShard exactOwned = Objects.requireNonNull(ownedShard, "ownedShard");
         final List<DestinationLaneId> exactLaneIds = List.copyOf(Objects.requireNonNull(laneIds, "laneIds"));
         final Set<DestinationLaneId> seen = new HashSet<>();
@@ -133,7 +166,8 @@ public final class WorkerSchedulingRuntime {
                 store,
                 Objects.requireNonNull(owner, "owner"),
                 activeLanes,
-                maxReadyEntries);
+                maxReadyEntries,
+                nativeEligibilityAuthority);
     }
 
     /** Runs one arbitrary bounded WorkClass turn from the shared Worker graph. */

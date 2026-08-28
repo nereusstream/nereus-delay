@@ -7,6 +7,7 @@ import com.nereusstream.delay.protocol.DestinationLaneId;
 import com.nereusstream.delay.protocol.LaneRecordEnvelope;
 import com.nereusstream.delay.protocol.OwnerIdentity;
 import com.nereusstream.delay.protocol.ReadyCertificate;
+import com.nereusstream.delay.protocol.ScheduleBinding;
 import com.nereusstream.delay.protocol.SchedulerProjections;
 import com.nereusstream.delay.protocol.ShardId;
 import com.nereusstream.delay.protocol.SourcePositionCodec;
@@ -48,6 +49,7 @@ public final class PersistentLaneScheduler {
     private final LaneScheduler delegate;
     private final OwnerIdentity owner;
     private final LongSupplier clockNanos;
+    private final ManagedNativeEligibilityAuthority nativeEligibilityAuthority;
     private long lastClockNanos;
     private boolean clockInitialized;
     private final Map<DestinationLaneId, LaneRecord> registered = new HashMap<>();
@@ -63,11 +65,19 @@ public final class PersistentLaneScheduler {
     private boolean persistedRestored;
 
     PersistentLaneScheduler(final ShardStore store, final LaneScheduler delegate) {
-        this(store, delegate, defaultOwner(store), System::nanoTime);
+        this(store, delegate, defaultOwner(store), System::nanoTime, null);
     }
 
     public PersistentLaneScheduler(final ShardStore store, final LaneScheduler delegate, final OwnerIdentity owner) {
-        this(store, delegate, owner, System::nanoTime);
+        this(store, delegate, owner, System::nanoTime, null);
+    }
+
+    public PersistentLaneScheduler(
+            final ShardStore store,
+            final LaneScheduler delegate,
+            final OwnerIdentity owner,
+            final ManagedNativeEligibilityAuthority nativeEligibilityAuthority) {
+        this(store, delegate, owner, System::nanoTime, nativeEligibilityAuthority);
     }
 
     PersistentLaneScheduler(
@@ -75,10 +85,20 @@ public final class PersistentLaneScheduler {
             final LaneScheduler delegate,
             final OwnerIdentity owner,
             final LongSupplier clockNanos) {
+        this(store, delegate, owner, clockNanos, null);
+    }
+
+    PersistentLaneScheduler(
+            final ShardStore store,
+            final LaneScheduler delegate,
+            final OwnerIdentity owner,
+            final LongSupplier clockNanos,
+            final ManagedNativeEligibilityAuthority nativeEligibilityAuthority) {
         this.store = Objects.requireNonNull(store, "store");
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         this.owner = Objects.requireNonNull(owner, "owner");
         this.clockNanos = Objects.requireNonNull(clockNanos, "clockNanos");
+        this.nativeEligibilityAuthority = nativeEligibilityAuthority;
         this.persisted = load(store);
         this.ringGeneration = persisted == null ? 0 : persisted.activeRing().ringGeneration();
         this.lastScannedReadyKey =
@@ -100,10 +120,20 @@ public final class PersistentLaneScheduler {
      */
     public static PersistentLaneScheduler forActiveOwner(
             final ShardStore store, final OwnerIdentity owner, final List<LaneRecord> activeLanes) {
+        return forActiveOwner(store, owner, activeLanes, null);
+    }
+
+    /** Active-owner composition with the live current-policy authority required for Managed Handoff. */
+    public static PersistentLaneScheduler forActiveOwner(
+            final ShardStore store,
+            final OwnerIdentity owner,
+            final List<LaneRecord> activeLanes,
+            final ManagedNativeEligibilityAuthority nativeEligibilityAuthority) {
         final PersistentLaneScheduler scheduler = new PersistentLaneScheduler(
                 Objects.requireNonNull(store, "store"),
                 LaneScheduler.defaults(),
-                Objects.requireNonNull(owner, "owner"));
+                Objects.requireNonNull(owner, "owner"),
+                nativeEligibilityAuthority);
         for (LaneRecord lane : List.copyOf(Objects.requireNonNull(activeLanes, "activeLanes"))) {
             scheduler.register(Objects.requireNonNull(lane, "active lane"));
         }
@@ -369,6 +399,19 @@ public final class PersistentLaneScheduler {
                 final List<ScheduleWorkItem> queued = delegate.queueSnapshot().getOrDefault(laneId, List.of());
                 final DiscoveredHead known = discoveredHeads.get(laneId);
                 if (!queued.isEmpty()) {
+                    if (known != null
+                            && Arrays.equals(known.readyKey(), projection.readyKey())
+                            && sameItemsExact(queued, known.items())
+                            && !sameItemsExact(queued, items)) {
+                        delegate.replaceLanePending(laneId, items);
+                        nextHeads.put(laneId, new DiscoveredHead(items, projection.readyKey()));
+                        for (ScheduleWorkItem item : items) {
+                            if (item.eligibleAtEpochMs() <= dueThroughEpochMs) {
+                                toOffer.add(item);
+                            }
+                        }
+                        continue;
+                    }
                     if (!samePendingItems(queued, items)) {
                         throw new IllegalStateException(
                                 "in-memory READY head differs from authoritative READY: " + laneId);
@@ -507,6 +550,14 @@ public final class PersistentLaneScheduler {
         if (store.get(ColumnFamily.TIMELINE, known.readyKey()) != null) {
             throw new IllegalStateException("cannot complete Claim while its READY key still exists");
         }
+        final List<ScheduleWorkItem> remaining = delegate.queueSnapshot().getOrDefault(selected.laneId(), List.of());
+        if (!samePendingItems(remaining, known.items())) {
+            throw new IllegalStateException("Claim completion found work outside the consumed READY head");
+        }
+        // A dual READY value is one durable Lane head. Claiming either the
+        // ordinary or native branch consumes that physical head, so its
+        // unselected process-local sibling must not survive as phantom work.
+        delegate.replaceLanePending(selected.laneId(), List.of());
         discoveredHeads.remove(selected.laneId());
     }
 
@@ -525,7 +576,14 @@ public final class PersistentLaneScheduler {
         }
         final ReadyProjection projection =
                 decodeReadyProjection(new ShardStore.KeyValue(known.readyKey(), encoded), trusted);
-        if (projection.items().stream().noneMatch(candidate -> sameWork(candidate, selected))) {
+        final ScheduleWorkItem currentCandidate = projection.items().stream()
+                .filter(candidate -> sameWork(candidate, selected))
+                .findFirst()
+                .orElseThrow(
+                        () -> new IllegalStateException("Claim candidate differs from current durable READY head"));
+        if (selected.isNativeCandidate()
+                && (projection.nativeAction() != HandoffEligibilityAction.MANAGED_NATIVE_CANDIDATE
+                        || currentCandidate.effectiveEligibleAtEpochMs() > trusted.earliestEpochMs())) {
             throw new IllegalStateException("Claim candidate differs from current durable READY head");
         }
         final ActiveLaneState lane = readTypedLane(projection.lane());
@@ -533,7 +591,7 @@ public final class PersistentLaneScheduler {
             throw new IllegalStateException("Claim candidate lacks a typed Ready Certificate");
         }
         final ReadyCertificate certificate = ReadyCertificate.decode(lane.readyCertificate());
-        return new ClaimCandidate(selected, projection.lane().laneIncarnation(), certificate);
+        return new ClaimCandidate(currentCandidate, projection.lane().laneIncarnation(), certificate);
     }
 
     private ScheduleWorkItem requirePolledClaimCandidate(final ScheduleWorkItem item) {
@@ -888,7 +946,7 @@ public final class PersistentLaneScheduler {
         validateStoredLane(lane);
         if (!lane.schedulable()
                 || lane.laneVersion() != key.laneVersion()
-                || lane.nextEligibleAtEpochMs() != value.nextEligibleAtEpochMs()) {
+                || lane.nextEligibleAtEpochMs() != value.persistentWakeAtEpochMs()) {
             throw new IllegalStateException("stale or non-schedulable READY Lane: " + key.laneId());
         }
         final ValueEnvelope.Decoded messageValue =
@@ -948,13 +1006,16 @@ public final class PersistentLaneScheduler {
         final ActiveLaneState typedLane = readTypedLane(lane);
         if (typedLane != null) {
             validateTypedReadyProjection(typedLane, entry.key(), key, value, evidence);
-            final long actionAt = timeline == null
+            final long ordinaryActionAt = timeline == null
                     ? (currentWork == null ? message.deliverAtEpochMs() : currentWork.actionAtEpochMs())
                     : timeline.actionAtEpochMs();
+            final long actionAt = value.nativeHead() == null
+                    ? ordinaryActionAt
+                    : Math.min(ordinaryActionAt, value.nativeHead().nextEligibleAtEpochMs());
             if (typedLane.earliestActionAtEpochMs() == null
                     || typedLane.earliestActionAtEpochMs() != actionAt
                     || typedLane.nextEligibleAtEpochMs() == null
-                    || typedLane.nextEligibleAtEpochMs() != value.nextEligibleAtEpochMs()) {
+                    || typedLane.nextEligibleAtEpochMs() != value.persistentWakeAtEpochMs()) {
                 throw new IllegalStateException(
                         "typed READY action/eligibility projection disagrees with current head: " + value.messageId());
             }
@@ -972,29 +1033,39 @@ public final class PersistentLaneScheduler {
                 ScheduleWorkItem.CandidateKind.ORDINARY,
                 null,
                 accountedBytes));
+        HandoffEligibilityAction nativeAction = null;
         if (value.nativeHead() != null) {
             final ReadyIndexValue nativeHead = value.nativeHead();
             final MessageRecord nativeMessage = validateNativeReadyHead(nativeHead, key.laneId());
-            final long nativeBytes = Math.max(1, nativeMessage.payloadLength());
-            items.add(new ScheduleWorkItem(
-                    key.laneId(),
-                    nativeHead.messageId(),
-                    nativeHead.generation(),
-                    value.persistentWakeAtEpochMs(),
-                    nativeHead.nextEligibleAtEpochMs(),
-                    ScheduleWorkItem.CandidateKind.MANAGED_NATIVE,
-                    nativeHead.policyHeadRef(),
-                    nativeBytes));
+            if (evidence != null && nativeEligibilityAuthority != null) {
+                final HandoffEligibilityResolver.Decision decision = nativeEligibilityAuthority.resolve(
+                        nativeMessage, readScheduleBinding(nativeHead.messageId()), evidence);
+                nativeAction = decision.action();
+                if (decision.reason() == HandoffEligibilityReason.ELIGIBLE
+                        && (decision.action() == HandoffEligibilityAction.MANAGED_NATIVE_CANDIDATE
+                                || decision.action() == HandoffEligibilityAction.WAIT_UNTIL)
+                        && decision.policyHeadRef() != null
+                        && decision.policySnapshot() != null) {
+                    final long nativeBytes = Math.max(1, nativeMessage.payloadLength());
+                    items.add(new ScheduleWorkItem(
+                            key.laneId(),
+                            nativeHead.messageId(),
+                            nativeHead.generation(),
+                            value.persistentWakeAtEpochMs(),
+                            decision.effectiveEligibleAtEpochMs(),
+                            ScheduleWorkItem.CandidateKind.MANAGED_NATIVE,
+                            decision.policyHeadRef(),
+                            nativeBytes));
+                }
+            }
         }
-        return new ReadyProjection(lane, items, entry.key());
+        return new ReadyProjection(lane, items, entry.key(), nativeAction);
     }
 
     private MessageRecord validateNativeReadyHead(
             final ReadyIndexValue nativeHead, final DestinationLaneId expectedLane) {
-        if (!nativeHead.isNativeCandidate()
-                || nativeHead.policyHeadRef() == null
-                || nativeHead.nextEligibleAtEpochMs() < 0) {
-            throw new IllegalStateException("native READY head is missing its policy reference");
+        if (!nativeHead.isNativeCandidate() || nativeHead.nextEligibleAtEpochMs() < 0) {
+            throw new IllegalStateException("native READY head is malformed");
         }
         final ValueEnvelope.Decoded messageValue =
                 store.getValue(ColumnFamily.ID, KeyCodec.idMessage(nativeHead.messageId()), 1);
@@ -1029,11 +1100,22 @@ public final class PersistentLaneScheduler {
         if (!candidate.messageId().equals(nativeHead.messageId())
                 || candidate.generation() != nativeHead.generation()
                 || candidate.candidateAtEpochMs() != nativeHead.nextEligibleAtEpochMs()
-                || !Arrays.equals(candidate.timelineKey(), nativeKey)
-                || !candidate.policyHeadRef().equals(nativeHead.policyHeadRef())) {
+                || !Arrays.equals(candidate.timelineKey(), nativeKey)) {
             throw new IllegalStateException("native READY candidate identity mismatch");
         }
         return message;
+    }
+
+    private ScheduleBinding readScheduleBinding(final DelayMessageId messageId) {
+        final ValueEnvelope.Decoded value = store.getValue(ColumnFamily.ID, KeyCodec.idScheduleBinding(messageId), 4);
+        if (value == null) {
+            throw new IllegalStateException("native READY message has no Schedule binding");
+        }
+        final ScheduleBinding binding = ScheduleBinding.decode(value.payload());
+        if (!binding.delayMessageId().equals(messageId)) {
+            throw new IllegalStateException("native READY Schedule binding identity mismatch");
+        }
+        return binding;
     }
 
     /**
@@ -1060,7 +1142,7 @@ public final class PersistentLaneScheduler {
         if (!Arrays.equals(encodedReadyKey, physicalReadyKey)) {
             throw new IllegalStateException("typed READY key disagrees with physical READY index");
         }
-        if (readyValue.nextEligibleAtEpochMs() != state.nextEligibleAtEpochMs()
+        if (readyValue.persistentWakeAtEpochMs() != state.nextEligibleAtEpochMs()
                 || decodedReadyKey.laneVersion() != state.laneVersion()
                 || !decodedReadyKey.laneId().equals(state.laneId())) {
             throw new IllegalStateException("typed READY key fields disagree with Lane state");
@@ -1141,8 +1223,13 @@ public final class PersistentLaneScheduler {
                 && left.generation() == right.generation()
                 && left.persistentWakeAtEpochMs() == right.persistentWakeAtEpochMs()
                 && left.candidateKind() == right.candidateKind()
-                && Objects.equals(left.policyHeadRef(), right.policyHeadRef())
                 && left.accountedBytes() == right.accountedBytes();
+    }
+
+    private static boolean sameWorkExact(final ScheduleWorkItem left, final ScheduleWorkItem right) {
+        return sameWork(left, right)
+                && left.effectiveEligibleAtEpochMs() == right.effectiveEligibleAtEpochMs()
+                && Objects.equals(left.policyHeadRef(), right.policyHeadRef());
     }
 
     private static boolean sameHead(final DiscoveredHead known, final ReadyProjection projection) {
@@ -1155,6 +1242,18 @@ public final class PersistentLaneScheduler {
         }
         for (int index = 0; index < left.size(); index++) {
             if (!sameWork(left.get(index), right.get(index))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean sameItemsExact(final List<ScheduleWorkItem> left, final List<ScheduleWorkItem> right) {
+        if (left.size() != right.size()) {
+            return false;
+        }
+        for (int index = 0; index < left.size(); index++) {
+            if (!sameWorkExact(left.get(index), right.get(index))) {
                 return false;
             }
         }
@@ -1371,7 +1470,8 @@ public final class PersistentLaneScheduler {
 
     private record ReadyKey(DestinationLaneId laneId, long nextEligibleAtEpochMs, long laneVersion) {}
 
-    private record ReadyProjection(LaneRecord lane, List<ScheduleWorkItem> items, byte[] readyKey) {
+    private record ReadyProjection(
+            LaneRecord lane, List<ScheduleWorkItem> items, byte[] readyKey, HandoffEligibilityAction nativeAction) {
         private ReadyProjection {
             Objects.requireNonNull(lane, "lane");
             items = List.copyOf(items);

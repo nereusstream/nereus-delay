@@ -3,6 +3,7 @@ package com.nereusstream.delay.protocol;
 import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.util.Arrays;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -66,7 +67,7 @@ public final class CanonicalLaneTuple {
 
     private static Projection parse(final byte[] encoded) {
         final Cursor cursor = new Cursor(encoded);
-        cursor.fixed(TENANT_SCOPE_LENGTH, "tenantRoutingScope");
+        final byte[] tenantRouteScopeDigest = cursor.fixed(TENANT_SCOPE_LENGTH, "tenantRoutingScope");
         final int adapter = cursor.u8("adapterKind");
         if (adapter != KAFKA_ADAPTER && adapter != PULSAR_ADAPTER) {
             throw new IllegalArgumentException("unknown Lane tuple adapter kind");
@@ -124,6 +125,7 @@ public final class CanonicalLaneTuple {
                         new String(cluster, StandardCharsets.UTF_8), resourceIncarnation,
                         new String(physicalTopic, StandardCharsets.UTF_8), physicalTopicCreationTimestamp));
         return new Projection(
+                tenantRouteScopeDigest,
                 target,
                 physicalPartition,
                 new ProfileRef(destinationId, destinationVersion, destinationHash, ProfileKind.DESTINATION),
@@ -135,10 +137,24 @@ public final class CanonicalLaneTuple {
     }
 
     public record Projection(
+            byte[] tenantRouteScopeDigest,
             BrokerResourceIdentity targetResource,
             long physicalPartition,
             ProfileRef destinationProfile,
-            ProfileRef capabilityProfile) {}
+            ProfileRef capabilityProfile) {
+        public Projection {
+            Bytes.requireLength(tenantRouteScopeDigest, TENANT_SCOPE_LENGTH, "tenantRouteScopeDigest");
+            tenantRouteScopeDigest = Bytes.copy(tenantRouteScopeDigest);
+            Objects.requireNonNull(targetResource, "targetResource");
+            Objects.requireNonNull(destinationProfile, "destinationProfile");
+            Objects.requireNonNull(capabilityProfile, "capabilityProfile");
+        }
+
+        @Override
+        public byte[] tenantRouteScopeDigest() {
+            return Bytes.copy(tenantRouteScopeDigest);
+        }
+    }
 
     private static void requireCanonicalText(final byte[] value, final String name) {
         final String decoded = new String(value, StandardCharsets.UTF_8);

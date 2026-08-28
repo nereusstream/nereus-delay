@@ -152,8 +152,16 @@ public final class ClaimMaterialization {
         this.eventTimeEpochMs = eventTimeEpochMs;
         this.handoffPolicyHeadRef = handoffPolicyHeadRef;
         this.legacyEncoding = legacyEncoding;
-        if (nativeDeliveryPolicy != NativeDeliveryPolicy.FORBID && handoffPolicyHeadRef == null) {
-            throw new IllegalArgumentException("native Claim materialization requires a policy head reference");
+        final boolean early = actionAtEpochMs < deliverAtEpochMs;
+        if (early
+                && !legacyEncoding
+                && (nativeDeliveryPolicy == NativeDeliveryPolicy.FORBID
+                        || !nativeDeliveryPolicy.allowsManagedHandoff()
+                        || handoffPolicyHeadRef == null)) {
+            throw new IllegalArgumentException("early Claim materialization requires managed native authority");
+        }
+        if (!early && handoffPolicyHeadRef != null) {
+            throw new IllegalArgumentException("ordinary Claim materialization cannot carry a policy head reference");
         }
     }
 
