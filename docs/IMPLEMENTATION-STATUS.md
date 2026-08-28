@@ -9,59 +9,58 @@ An unchecked item is not an implementation permission; it is a release blocker.
 
 ## 2026-08-28 NDIP-1 H1-H6 implementation slices
 
-Implementation commit: `main@c7c99d377dc9e8bb786032173d62d1981011a4e2`.
-The correctness-critical P1 source lock is
+The H1-H6 implementation anchor is
+`main@c7c99d377dc9e8bb786032173d62d1981011a4e2`; the current fully certified
+disposable-local code source is
+`main@da15290e47b9255403c92e4ebba3c7d5189edb75`. The correctness-critical P1
+source lock remains
 `nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`.
 
-The post-Gate-B implementation pass now contains the current H1-H6 code slices
-on top of the H0 fail-closed boundary. H1 supplies the generation-2 delivery
-contracts, generation-5 Message/READY projections and closed Pulsar record
-types; H2 supplies signed self-contained policy snapshots/heads, trust-store
-resolution, dynamic eligibility and snapshot-frozen admission; H3 supplies
-lossless prepared records, fixed-sequence Attempt Journal materialization and
-the durable ownership marker; H4 supplies the source-locked deterministic P1
-record encoder, ordinary/native transport projection and generation-2
-send/ACK evidence; H5 removes the old clock shift and binds AUTO_FAST to an
-explicit native policy with pre-ownership fallback; H6 supplies signed
-`DataResetManifest`, exact `ArtifactGenerationSet` activation and
-startup/assignment/source-apply/physical-send generation gates.
+The post-Gate-B implementation contains H1-H6 on top of the H0 fail-closed
+boundary. H1 supplies generation-2 delivery contracts, generation-5
+Message/READY projections and closed Pulsar records; H2 supplies signed
+self-contained policy snapshots/heads, trust-store resolution, dynamic
+eligibility and snapshot-frozen Admission; H3 supplies lossless prepared
+records, fixed-sequence Attempt Journal materialization and durable ownership;
+H4 supplies the source-locked deterministic P1 encoder, ordinary/native
+transport projection and generation-2 SEND/ACK evidence; H5 binds AUTO_FAST to
+the exact business `deliverAt` and explicit native policy; H6 supplies signed
+`DataResetManifest`, exact `ArtifactGenerationSet` activation and four runtime
+generation gates.
 
-These are implementation and disposable-test artifacts, not a deployment or
-release certificate. The current native physical path remains fail-closed
-unless the exact current generation, signed manifest and relevant capability
-gates are present. No persistent environment has been assessed, no production
-manifest or cutover receipt exists, and no SHADOW or ENABLED authority is
-claimed. NDIP-1 therefore remains `Accepted`, while Gate C remains
-`PENDING_DEPLOYMENT`.
+Commit `62cb5e322edbc98e9a97c0d15dc017b06cdf5fd7` connected the source-locked
+Attempt Journal to the production Worker. It persists `MAPPED` before physical
+reservation/SEND and records ownership immediately before SEND. A replacement
+owner cannot inherit SEND authority: it retires a pre-ownership mapping and
+holds the attempt `UNCERTAIN` without touching the target. Later recovery
+slices added separately controllable SIGKILL cuts around definitive Outcome
+persistence/source apply and completion bookkeeping. Commit `ccb7652c` also
+asserts that unresolved Admission recovery cannot fake a clean drain, final
+checkpoint or lease release.
 
-Commit `62cb5e322edbc98e9a97c0d15dc017b06cdf5fd7` closes the remaining
-production-Worker gap in the managed Pulsar path. The Worker now opens and
-replays the source-locked guarded Attempt Journal, binds its stable Producer
-identity to the current prepared record, persists `MAPPED` before physical
-reservation/SEND, and durably records the ownership marker immediately before
-the target SEND. The mapping and retirement projections are fenced through the
-owned shard and persisted in RocksDB. There is no public prepared-send bypass
-around this sequence.
+The closed disposable-local matrix now has 24 cells. All 24 executed and
+passed, with no conditional skip, `NOT_COVERED` or execution failure. It covers
+Shared/Key_Shared strict and non-strict delayed delivery, disabled delayed
+delivery, Exclusive/Failover immediate visibility, topic TTL expiry, zero
+retention ledger trim, Candidate/Claim, Admission and Journal recovery,
+response loss at four physical/source boundaries, Worker ownership transfer,
+real two-Broker stop/resume/rejoin, real Oxia restart, Oxia/MinIO checkpoint
+publication/reaping, MinIO idempotent restore and RocksDB reopen/retention.
+P1 `compileRealPulsar` and H0 smoke also pass. Commit `456ea79c` makes the
+combined Gradle gate order explicit, while `f19a4edf` adds the two native risk
+cells and `da15290e` corrects the P1 unload call to HTTP PUT.
 
-A replacement owner cannot inherit the previous owner's SEND authority. It
-may replay and inspect the mapping, but a still-pre-ownership attempt is
-durably retired and source recovery becomes `UNCERTAIN`; the fresh-process
-smoke asserts that no target SEND occurred. Unit tests, full `check`, the
-source-locked `compileRealPulsar` gate and focused Journal tests pass at this
-commit. A new full disposable certification receipt bound to this source is
-still required, so the older receipt below remains historical evidence rather
-than release authority. Gate C, SHADOW and ENABLED remain blocked.
-
-The historical disposable verification passed the managed destination typed
-SEND/ACK evidence smoke and the native `Shared`-subscription exact-
-`deliverAt` smoke; the P1 `Exclusive` immediate-visibility behavior remains
-an explicit native subscription risk. That run covers Shared/Key_Shared/
-Exclusive/Failover, strictness, disabled-delay and process recovery, with one
-explicit `NOT_COVERED` fault cut. The current source must rerun that complete
-matrix; explicit TTL/retention native-risk cells and a portable retained
-artifact receipt also remain to be closed. Conditional Oxia/MinIO tests remain
-skips in ordinary unit-test mode when those services are not supplied; the
-strict certification entry point does not accept those skips.
+The exact receipt is recorded in
+[`NDIP-1 Disposable Local Certification`](ndip/NDIP-1/05-Disposable-Local-Certification-%E6%89%A7%E8%A1%8C%E8%AE%B0%E5%BD%95.md).
+It is deliberately non-authoritative: `authority=false`, `gateC=false`,
+`shadow=false` and `enabled=false`. These are implementation and disposable
+test artifacts, not a deployment or release certificate. No persistent
+environment has been assessed, no production Manifest or cutover receipt
+exists, and no SHADOW or ENABLED authority is claimed. NDIP-1 therefore remains
+`Accepted`, Gate C remains `PENDING_DEPLOYMENT`, and the physical path remains
+fail-closed unless exact current generation, signed Manifest and capability
+gates are all present. Ordinary unit-test mode may still conditionally skip
+external-service tests; the strict certification entry point accepts no skip.
 
 ## 2026-08-27 NDIP-1 implementation/deployment gate boundary — 68fe2c29 (historical snapshot)
 

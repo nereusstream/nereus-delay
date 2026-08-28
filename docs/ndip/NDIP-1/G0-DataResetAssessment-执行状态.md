@@ -3,7 +3,7 @@
 ## 当前结论
 
 - Gate B：`PASS`
-- implementation：`H1-H6 code slices implemented; certification/deployment pending`
+- implementation：`H1-H6 code slices implemented; disposable-local certification PASS; deployment pending`
 - local disposable integration/recovery/fault testing：`ALLOWED_WITH_EXACT_ATTESTATION`
 - G0 tooling core：`implemented`
 - G0 lifecycle：`NOT_APPLICABLE_FOR_IMPLEMENTATION`
@@ -18,9 +18,9 @@ Worker 或 unresolved obligation 环境。因此不能构造权威 Assessment sc
 虚假 environment、placeholder PASS 或模拟 production receipt。
 
 2026-08-28 的 `DISPOSABLE_LOCAL` certification runner 已在独占、可销毁环境中完成真实 native、
-recovery、fault、Oxia/MinIO 和 cleanup 矩阵；其 local receipt 为 `BLOCKED`，包含 21 个
-`EXECUTED_PASS` 与 1 个真实 `NOT_COVERED`，没有 skipped cell。该结果只证明本地认证边界，
-不创建 Assessment scope，不改变下面的 persistent deployment 状态。
+recovery、fault、Oxia/MinIO 和 cleanup 矩阵；local receipt 为 `PASS`，24 个 cell 全部
+`EXECUTED_PASS`，且 `EXECUTED_FAIL=0`、`NOT_COVERED=0`、`skipped=0`。该结果只证明
+本地认证边界，不创建 Assessment scope，不改变下面的 persistent deployment 状态。
 
 `NOT_APPLICABLE_FOR_IMPLEMENTATION` 只表示 G0 不是 H1-H6 的前置条件；它不是 Gate C PASS。
 第一个 existing/staging/production deployment 出现后，状态转为 `PENDING` 并使用真实 closed
@@ -40,9 +40,9 @@ startup、assignment、source apply 和 physical send 边界拒绝 stale/mixed g
 receipt、production manifest、SHADOW observation 或 ENABLED lease；这些缺失是
 `PENDING_DEPLOYMENT`，不是可以用 synthetic placeholder 填补的证据。
 
-H1-H6 代码切片历史锚点为 `main@c7c99d377dc9e8bb786032173d62d1981011a4e2`；本次
+H1-H6 代码切片历史锚点为 `main@c7c99d377dc9e8bb786032173d62d1981011a4e2`；当前
 disposable certification 绑定的 Delay source 为
-`main@35986a08462bd5facbd9be6f3d28f06080115745`。P1 source lock
+`main@da15290e47b9255403c92e4ebba3c7d5189edb75`。P1 source lock
 为 `nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`。下面引用的
 `68fe2c29` G0 implementation gate 文字是该提交时的历史状态，不是当前 H1-H6 完成状态。
 
@@ -124,7 +124,8 @@ closed API：
 
 ## 已验证
 
-- Gate B PASS 时 H1-H6 可按 predecessor 实现；当前代码切片已完成但认证/部署证据仍未闭合；Gate B PENDING 阻断 H1；
+- Gate B PASS 时 H1-H6 可按 predecessor 实现；当前代码切片和 disposable-local
+  认证已闭合，但 persistent deployment 证据未生成；Gate B PENDING 阻断 H1；
 - exact disposable attestation 允许本地 reset/integration test，无 attestation 或 environment
   mismatch 拒绝；
 - existing/staging/production 无 Gate C 拒绝，unknown 无条件拒绝；

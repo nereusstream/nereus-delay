@@ -10,6 +10,8 @@
 - H1-H6 实现提交：`main@c7c99d377dc9e8bb786032173d62d1981011a4e2`
 - Managed Attempt Journal / recovery 闭环提交：
   `main@62cb5e322edbc98e9a97c0d15dc017b06cdf5fd7`
+- Disposable-local 24-cell 认证代码与 source anchor：
+  `main@da15290e47b9255403c92e4ebba3c7d5189edb75`
 - 整理日期：`2026-08-28`
 
 仓库的 Accepted `NDP-0001` 持续演进规则保持不变。Accepted
@@ -23,8 +25,9 @@ Gate B PASS 是 implementation authorization：H1-H6 可按切片依赖顺序实
 deployment/upgrade authorization；它仍严格阻止 persistent environment mutation、SHADOW 和
 ENABLED。H0 不改变权威语义，不受这一命名桥接阻塞。
 
-本轮实现开始时的前置状态为 `H1 READY`；H1→H6 已按依赖顺序完成代码切片，当前工作重点是
-对最新主线重新生成完整的 local disposable certification，而不是进入部署或激活阶段。
+本轮实现开始时的前置状态为 `H1 READY`；H1→H6 已按依赖顺序完成代码切片，当前
+disposable-local 认证矩阵也已闭合。下一个生命周期阶段仍是等待明确的 persistent
+deployment 后执行 G0/Gate C，不是直接进入激活。
 
 `normative package digest` 不包含本 README 和 candidate/final receipt，避免自引用与操作文本
 改变设计身份。仓库不保存会话执行提示词；需要时由用户请求并在会话内临时生成。摘要固定
@@ -86,7 +89,7 @@ receipt 同时固定 `gateCRequiredBeforeShadow=true` 与 `gateCRequiredBeforeEn
 NDP-0002 Accepted
 + final NDIP-1 acceptance receipt binds exact package digest
     -> Gate B PASS（当前）
-    -> H1-H6 按前置顺序实现；当前代码切片已完成，认证/部署证据仍未完成
+    -> H1-H6 按前置顺序实现；当前代码切片与 disposable-local 认证已完成
     -> exact disposable local integration/recovery/fault testing ALLOWED
 
 H1 -> H2 -> H3 -> H4(.deliverAt) -> H5 -> H6
@@ -120,9 +123,9 @@ generation gates 均已实现。
 Producer 名称、current prepared descriptor、Journal replay 和 RocksDB projection 使用同一身份。
 新 owner 只能检查并退休旧 owner 的 pre-ownership mapping，随后产生
 `RECOVERY_FIRST_SEND_UNCERTAIN`，不得继承 SEND 权限或把旧尝试推断为 `PUBLISHED`。相应
-fresh-process smoke 明确验证 target SEND 为 0。该提交的 `test`、`check`、source-locked
-`compileRealPulsar` 和 focused Journal tests 已通过；完整 disposable certification 仍需在该
-source anchor 上重新执行并生成新 receipt。
+fresh-process smoke 明确验证 target SEND 为 0。后续又增加了 definitive Outcome 后的真实
+SIGKILL/replacement-Worker cut、未解决 `UNCERTAIN` drain 阻断及 TTL/retention 原生风险
+cell；完整 24-cell disposable certification 已在 `main@da15290e` 通过。
 
 这里的“已实现”仅表示代码/本地 disposable 验证边界；它不表示 NDIP 已进入
 `Implemented`，也不生成 production Manifest、Gate C、SHADOW、ENABLED 或 cutover
@@ -132,15 +135,16 @@ gate 时不得触碰 Producer/物理适配器。由于没有真实 persistent de
 
 ## 2026-08-28 disposable local certification
 
-历史 runner `e2e/run-disposable-local-certification.sh` 已在 source-locked P1、真实双 Broker、
-BookKeeper/metadata、Oxia、MinIO、RocksDB 和 ownership/failover 边界上完成一次严格
-fail-on-missing 运行。receipt 为 `BLOCKED`，覆盖结果是 22 个单元格中 21 个
-`EXECUTED_PASS`、1 个明确 `NOT_COVERED`、`skipped=0`，没有把缺失的 response-loss cut 伪造为
-PASS。完整的命令、source/config/attestation binding、证据路径与 cleanup 审计见
+当前 runner `e2e/run-disposable-local-certification.sh` 已在 source-locked P1、真实双 Broker、
+BookKeeper/metadata、Oxia、MinIO、RocksDB 和 ownership/failover 边界上完成严格
+fail-on-missing 运行。receipt 为 `PASS`：24 个单元格全部 `EXECUTED_PASS`，
+`EXECUTED_FAIL=0`、`NOT_COVERED=0`、`skipped=0`。完整命令、source/config/attestation
+binding、证据路径与 cleanup 审计见
 [`05-Disposable-Local-Certification-执行记录.md`](05-Disposable-Local-Certification-执行记录.md)。
 
-该 receipt 绑定的是早于 Managed Attempt Journal / recovery 闭环的 source；它只作为历史证据
-保留，不能认证 `main@62cb5e32`。最新主线的完整 disposable certification 尚待重新执行。
+当前 receipt 绑定 `main@da15290e47b9255403c92e4ebba3c7d5189edb75`、Accepted package
+digest、P1/Oxia source lock 和 exact disposable attestation。早期 21/22 `BLOCKED` receipt 只作为
+历史证据，不得替代当前 24/24 source-bound PASS。
 
 这只是 local disposable certification receipt/report；它不创建真实 DataResetAssessment
 scope，不是 Gate C authority，也不允许 SHADOW 或 ENABLED。当前 G0 仍为
@@ -148,11 +152,12 @@ scope，不是 Gate C authority，也不允许 SHADOW 或 ENABLED。当前 G0 �
 `PENDING_DEPLOYMENT`。
 
 本轮 H1-H6 代码切片的历史锚点为
-`main@c7c99d377dc9e8bb786032173d62d1981011a4e2`；本次 disposable certification 实际绑定的
-代码提交为 `main@35986a08462bd5facbd9be6f3d28f06080115745`。P1 correctness-critical source
+`main@c7c99d377dc9e8bb786032173d62d1981011a4e2`；当前 disposable certification 绑定
+`main@da15290e47b9255403c92e4ebba3c7d5189edb75`。P1 correctness-critical source
 lock 固定为 `nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`。主线
 `test`、`check`、`compileRealPulsar`、binding smoke 和 H0 smoke 均通过；独占 disposable
-运行还实际覆盖了真实双 Broker、Oxia/MinIO、ownership transfer 和 restart/reopen 路径。
+运行还实际覆盖真实双 Broker、Oxia/MinIO、ownership transfer、restart/reopen、
+response-loss 与 TTL/retention 路径。
 `Exclusive` 的立即可见行为按 P1 原生契约保留为显式风险，不被包装成 not-before 保证。
 普通 `./gradlew test` 中没有真实服务的测试仍可按条件 skip；严格认证入口不接受 skip。
 
@@ -182,8 +187,9 @@ adapter/delegate，并排队既有 source-log Outcome handoff。两个 real tran
   `compileRealPulsar` 与 `runRealPulsarH0Smoke`。no-Broker smoke 报告两个 real transport 的
   `newMessage=0`、`sendAsync=0`。
 
-这不是部署、SHADOW、ENABLED 或 release certification：real Broker behavior matrix、生产
-evidence/recovery、persistent reset receipt 和 cutover 仍未完成。当前代码切片已经实现
+这不是部署、SHADOW、ENABLED 或 release certification：disposable-local real Broker behavior
+matrix 已闭合，但生产 DataResetAssessment、Gate C、persistent reset receipt 和 cutover 仍未执行。
+当前代码切片已经实现
 `.deliverAt(...)` 的 generation-bound projection、无损 record/Attempt Journal、P1 evidence、
 AUTO_FAST timestamp alignment 和 activation gates，但 H0 仍作为缺少 exact generation/manifest/
 capability 的 fail-closed fallback。NDIP-1 虽为 `Accepted`，在 Gate C 与后续生产证据完成前不得
@@ -226,13 +232,13 @@ head 投影，防止 policy disabled 或 lead 缩小时 native head 阻塞 ordin
 |---|---|---:|---|
 | H0 | patch-ready，五个生产入口与测试落点已固定 | complete；不得重复实施 | 已有 code/docs receipt |
 | G0 | read-only compatibility/reset assessment tooling 与 receipt | core implemented；`NOT_APPLICABLE_FOR_IMPLEMENTATION / PENDING_DEPLOYMENT` | 仅在真实 persistent environment 明确后运行；不得修改运行资源 |
-| H1 | code-level contract/store slice | **implemented; certification pending** | focused/full gates |
-| H2 | signed policy/scheduler/admission slice | **implemented; certification pending** | H1 + focused/full gates |
-| H3 | Attempt Journal/physical handoff slice | **implemented; certification pending** | H2 + focused/full gates |
-| H4 | P1 encoder/transport/evidence slice | **implemented; bounded managed/native smoke passed; wider behavior matrix pending** | H3 + source-locked P1 gates |
-| H5 | AUTO_FAST contract/timestamp/recovery slice | **implemented; certification pending** | H4 + focused/full gates |
-| H6 | activation/reset/generation-barrier slice | **implemented; deployment evidence pending** | H5 + exact environment gates |
-| local disposable testing | synthetic integration/recovery/fault environment | **ALLOWED** | Gate B PASS + exact complete disposable attestation |
+| H1 | code-level contract/store slice | **implemented; disposable certification passed** | focused/full gates passed |
+| H2 | signed policy/scheduler/admission slice | **implemented; disposable certification passed** | H1 + focused/full gates passed |
+| H3 | Attempt Journal/physical handoff slice | **implemented; disposable certification passed** | H2 + focused/full gates passed |
+| H4 | P1 encoder/transport/evidence slice | **implemented; 24-cell source-locked certification passed** | H3 + source-locked P1 gates passed |
+| H5 | AUTO_FAST contract/timestamp/recovery slice | **implemented; disposable certification passed** | H4 + focused/full gates passed |
+| H6 | activation/reset/generation-barrier slice | **implemented; disposable tests passed; deployment evidence pending** | H5 + exact environment gates |
+| local disposable testing | synthetic integration/recovery/fault environment | **ALLOWED; current 24-cell run PASS** | Gate B PASS + exact complete disposable attestation |
 | SHADOW | environment-specific deployment | blocked | exact environment Gate C PASS |
 | ENABLED | controlled native delivery activation | blocked | Gate C PASS + SHADOW requirements PASS + signed Manifest/source lock/Worker barrier |
 

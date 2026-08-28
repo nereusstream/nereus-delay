@@ -2036,11 +2036,11 @@ directories were moved to
 `/Users/liusinan/.Trash/nereus-delay-cleanup-20260822-full` after `.git`
 checks. Current evidence and referenced historical receipts remain available.
 
-## 2026-08-28 NDIP-1 disposable local certification — 35986a08
+## 2026-08-28 NDIP-1 disposable local certification — da15290e
 
 The current disposable entry point is
 `e2e/run-disposable-local-certification.sh`. The source-bound run used Delay
-`35986a08462bd5facbd9be6f3d28f06080115745`, Pulsar P1
+`da15290e47b9255403c92e4ebba3c7d5189edb75`, Pulsar P1
 `0a2536484cd3932801a98dc88ff112b2df88a1c7` and Oxia
 `37a17bef17202d5fd6e232da5fd26d94865484`. Run it with a fresh artifact and an
 exclusive resource prefix:
@@ -2050,14 +2050,27 @@ NEREUS_DELAY_DISPOSABLE_GRADLE_USER_HOME=/Users/liusinan/.gradle \
   bash e2e/run-disposable-local-certification.sh
 ```
 
-The 2026-08-28 receipt is
-`/var/folders/vk/l_r0z80j1dj93fsrjx3zqv4r0000gn/T/nereus-delay-ndip1-cert.XXXXXX.LcUObXDn7T/disposable-local-certification-receipt.json`.
-It is `BLOCKED` only because the current source has no safe independently
-controllable cut for response loss after definitive Outcome persistence and
-before handoff. The other 21 of 22 cells executed and passed, including the
-native Shared/Key_Shared strictness matrix, Exclusive/Failover native immediate
-behavior, real two-Broker failover, real Oxia restart/ownership transfer and
-Oxia/MinIO checkpoint paths. The certification summary reports `skipped=0`.
+For a deliberately retained artifact, set
+`NEREUS_DELAY_DISPOSABLE_ARTIFACT_DIR` to an owned output base outside the
+repository before invoking the same runner. Without that variable the runner
+uses the host temporary directory.
+
+The current receipt is
+`/var/folders/vk/l_r0z80j1dj93fsrjx3zqv4r0000gn/T/nereus-delay-ndip1-cert.XXXXXX.e3ypGoUrmz/disposable-local-certification-receipt.json`,
+with SHA-256
+`e8dfd5feef88afdfdbebd89b2118ae214833e318c50d2377adbc84a1890b5e61`.
+It is `PASS`: all 24 closed cells are `EXECUTED_PASS`, with
+`EXECUTED_FAIL=0`, `NOT_COVERED=0` and `skipped=0`. Coverage includes the
+native Shared/Key_Shared strictness matrix, disabled delivery,
+Exclusive/Failover native immediate behavior, TTL expiry, zero-retention
+ledger trim, four response-loss cuts, real two-Broker failover, real Oxia
+restart/ownership transfer, Oxia/MinIO checkpoint paths and RocksDB reopen.
+Verify it from the exact bound source checkout with:
+
+```bash
+python3 -B scripts/verify-disposable-local-certification.py \
+  --receipt /var/folders/vk/l_r0z80j1dj93fsrjx3zqv4r0000gn/T/nereus-delay-ndip1-cert.XXXXXX.e3ypGoUrmz/disposable-local-certification-receipt.json
+```
 
 This is a local disposable certification receipt/report, not a deployment
 assessment or activation authority. It does not change the current G0
@@ -2068,4 +2081,7 @@ independent Gate C path before any SHADOW or ENABLED operation.
 Cleanup passed with the exact Compose project absent and empty remaining
 containers, generated images, networks, processes, temporary credentials,
 topics and volumes. The runner uses exact project/resource-prefix cleanup and
-does not authorize global Docker prune or source/worktree deletion.
+does not authorize global Docker prune or source/worktree deletion. A later
+documentation-only commit does not rewrite this receipt's exact source
+binding; historical verification must check out `da15290e` rather than editing
+the receipt.

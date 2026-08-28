@@ -28,14 +28,19 @@ worktree. Accordingly this audit records implementation evidence only;
 `Accepted` and `Gate C=PENDING_DEPLOYMENT` remain unchanged, and H0's
 no-producer-touch fail-closed behavior remains the safe default.
 
-The implementation commit is
-`main@c7c99d377dc9e8bb786032173d62d1981011a4e2`; its P1 correctness-critical
-source lock is
+The H1-H6 implementation anchor is
+`main@c7c99d377dc9e8bb786032173d62d1981011a4e2`; the current disposable-local
+certification binds
+`main@da15290e47b9255403c92e4ebba3c7d5189edb75`. Its P1
+correctness-critical source lock is
 `nereus/delay-resource-guard@0a2536484cd3932801a98dc88ff112b2df88a1c7`.
-Bounded disposable verification covers managed destination typed evidence and
-native `Shared`-subscription `deliverAt` visibility. P1's `Exclusive`
-immediate-visibility behavior and the remaining broader behavior/recovery
-matrix remain explicit open certification evidence.
+The closed 24-cell matrix is `PASS`: managed destination typed evidence,
+Shared/Key_Shared strict/non-strict/disabled behavior, Exclusive/Failover
+immediate visibility, TTL/retention native risks, four response-loss cuts,
+Worker/Broker/Oxia recovery, MinIO checkpoint paths and RocksDB reopen all
+executed without skip or `NOT_COVERED`. This closes the NDIP-1 disposable-local
+matrix only. Persistent G0/Gate C, production activation/cutover and release
+certification remain open and fail-closed.
 
 ## 2026-08-27 NDIP-1 lifecycle gate audit (historical snapshot)
 
