@@ -1236,6 +1236,15 @@ run_broker_failover_cell() {
             -PpulsarBrokerRecoveryTopic="${topic}" \
             --no-daemon --console=plain >>"${log_path}" 2>&1; then
           capture_topic_lookup "${admin_url_2}" "${topic}" "${log_path}" "after-broker-1-stop"
+          if ! NEREUS_DELAY_PULSAR_LISTENER_NAME=external \
+              GRADLE_USER_HOME="${gradle_user_home}" ./gradlew runRealPulsarBinaryLookupSmoke \
+              -PpulsarClientClasspath="${p1_client_cp}" \
+              -PpulsarRuntimeDir="${runtime_dir}/lib" \
+              -PpulsarServiceUrl="${service_url_failover}" \
+              -PpulsarTopic="${topic}" \
+              --no-daemon --console=plain >>"${log_path}" 2>&1; then
+            printf '%s\n' "binary lookup diagnostic failed" >>"${log_path}"
+          fi
           if NEREUS_DELAY_OXIA_ENDPOINT="${oxia_endpoint}" \
               NEREUS_DELAY_OXIA_NAMESPACE=default \
               NEREUS_DELAY_PULSAR_LISTENER_NAME=external \
