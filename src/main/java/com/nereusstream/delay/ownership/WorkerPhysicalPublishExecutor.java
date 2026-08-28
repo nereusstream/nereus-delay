@@ -284,7 +284,7 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
                     clock);
         }
         try {
-            requirePhysicalArtifact(exactContext);
+            requirePhysicalArtifact(exactContext, clock);
         } catch (RuntimeException failure) {
             return handoff(
                     exactAttempt,
@@ -363,7 +363,7 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
                     exactContext, exactAttempt, request, exactJournal, mapping, ownershipGate.result(), clock);
         }
         try {
-            requirePhysicalArtifact(exactContext);
+            requirePhysicalArtifact(exactContext, clock);
         } catch (RuntimeException failure) {
             return Submission.deferred(
                     exactAttempt, request, Decision.deferred(StableCode.CAPABILITY_UNAVAILABLE, null));
@@ -387,7 +387,7 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
                                         return DestinationPublishResult.unknown(late.code(), late.evidence());
                                     }
                                     try {
-                                        requirePhysicalArtifact(exactContext);
+                                        requirePhysicalArtifact(exactContext, clock);
                                     } catch (RuntimeException failure) {
                                         return DestinationPublishResult.unknown(
                                                 StableCode.CAPABILITY_UNAVAILABLE, null);
@@ -406,6 +406,7 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
             registerCompletion(
                     journalStage,
                     completionExecutor,
+                    failure -> fail(submission, failure),
                     exactResult -> completePulsarJournalResult(
                             submission, exactResult, exactContext, exactJournal, mapping, clock));
             return submission;
@@ -474,11 +475,16 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
         completeResult(submission, resolved, ownerClock);
     }
 
-    private void requirePhysicalArtifact(final ManagedPulsarContext context) {
+    private void requirePhysicalArtifact(final ManagedPulsarContext context, final LongSupplier ownerClock) {
         context.artifactGate().require(context.artifacts());
         if (dataResetActivationGate != null) {
+            final long trustedNowEpochMs =
+                    Objects.requireNonNull(ownerClock, "ownerClock").getAsLong();
+            if (trustedNowEpochMs < 0) {
+                throw new IllegalStateException("physical-send trusted time must be non-negative");
+            }
             dataResetActivationGate.requirePhysicalSend(
-                    context.artifacts(), dataResetActivationGate.manifest().manifestDigest());
+                    context.artifacts(), dataResetActivationGate.manifest().manifestDigest(), trustedNowEpochMs);
         }
     }
 
@@ -543,7 +549,10 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
                     ignored -> lateGateResult(exactAttempt, exactRequest, clock));
             submission.attachPhysicalCall(call);
             registerCompletion(
-                    call.outcome(), completionExecutor, exactResult -> completeResult(submission, exactResult, clock));
+                    call.outcome(),
+                    completionExecutor,
+                    failure -> fail(submission, failure),
+                    exactResult -> completeResult(submission, exactResult, clock));
             return submission;
         } catch (RuntimeException | Error failure) {
             fail(submission, failure);
@@ -621,6 +630,7 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
     private static void registerCompletion(
             final CompletionStage<DestinationPublishResult> stage,
             final Executor completionExecutor,
+            final java.util.function.Consumer<Throwable> rejection,
             final java.util.function.Consumer<DestinationPublishResult> callback) {
         Objects.requireNonNull(stage, "physical outcome stage").whenComplete((value, error) -> {
             final DestinationPublishResult result = error != null || value == null
@@ -630,7 +640,8 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
                 Objects.requireNonNull(completionExecutor, "completionExecutor").execute(() -> callback.accept(result));
             } catch (RuntimeException rejected) {
                 // Do not run blocking Journal or source handoff work on a Broker I/O callback.
-                callback.accept(DestinationPublishResult.unknown(StableCode.DESTINATION_OUTCOME_UNKNOWN, null));
+                Objects.requireNonNull(rejection, "completion rejection callback")
+                        .accept(rejected);
             }
         });
     }
@@ -722,6 +733,9 @@ public final class WorkerPhysicalPublishExecutor implements AutoCloseable {
             Objects.requireNonNull(artifacts, "artifacts");
             Objects.requireNonNull(artifactGate, "artifactGate");
             Objects.requireNonNull(projectionSink, "projectionSink");
+            if (ownerEpoch == 0) {
+                throw new IllegalArgumentException("ownerEpoch must be non-zero");
+            }
         }
     }
 

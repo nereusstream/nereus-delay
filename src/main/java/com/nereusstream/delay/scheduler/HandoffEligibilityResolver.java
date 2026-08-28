@@ -62,17 +62,17 @@ public final class HandoffEligibilityResolver {
         }
         final long earliest = time.earliestEpochMs();
         final long latest = time.latestEpochMs();
+        if (earliest < snapshot.validFromEpochMs() && latest >= snapshot.validFromEpochMs()) {
+            return timeSampleRequired(candidateAt, candidateAt, snapshot, latest);
+        }
+        if (earliest < snapshot.validUntilEpochMs() && latest >= snapshot.validUntilEpochMs()) {
+            return timeSampleRequired(candidateAt, candidateAt, snapshot, latest);
+        }
         if (latest < candidateAt) {
             return wait(candidateAt, HandoffEligibilityReason.ELIGIBLE, snapshot);
         }
         if (earliest < candidateAt) {
-            return new Decision(
-                    HandoffEligibilityAction.TIME_SAMPLE_REQUIRED,
-                    HandoffEligibilityReason.ELIGIBLE,
-                    candidateAt,
-                    candidateAt,
-                    headRef(snapshot),
-                    snapshot);
+            return timeSampleRequired(candidateAt, candidateAt, snapshot, latest);
         }
         if (latest < ordinaryAt) {
             return new Decision(
@@ -84,13 +84,7 @@ public final class HandoffEligibilityResolver {
                     snapshot);
         }
         if (earliest < ordinaryAt) {
-            return new Decision(
-                    HandoffEligibilityAction.TIME_SAMPLE_REQUIRED,
-                    HandoffEligibilityReason.ELIGIBLE,
-                    candidateAt,
-                    ordinaryAt,
-                    headRef(snapshot),
-                    snapshot);
+            return timeSampleRequired(candidateAt, ordinaryAt, snapshot, latest);
         }
         return new Decision(
                 HandoffEligibilityAction.ORDINARY_DUE,
@@ -228,13 +222,7 @@ public final class HandoffEligibilityResolver {
                     snapshot);
         }
         if (ordinaryAt <= time.latestEpochMs()) {
-            return new Decision(
-                    HandoffEligibilityAction.TIME_SAMPLE_REQUIRED,
-                    reason,
-                    candidateAt,
-                    ordinaryAt,
-                    headRef(snapshot),
-                    snapshot);
+            return timeSampleRequired(candidateAt, ordinaryAt, reason, snapshot, time.latestEpochMs());
         }
         return wait(ordinaryAt, reason, snapshot, candidateAt);
     }
@@ -258,6 +246,34 @@ public final class HandoffEligibilityResolver {
                 headRef(snapshot),
                 snapshot,
                 persistentWake);
+    }
+
+    private static Decision timeSampleRequired(
+            final Long candidateAt,
+            final long effectiveEligibleAt,
+            final HandoffPolicySnapshot snapshot,
+            final long trustedLatest) {
+        return timeSampleRequired(
+                candidateAt, effectiveEligibleAt, HandoffEligibilityReason.ELIGIBLE, snapshot, trustedLatest);
+    }
+
+    private static Decision timeSampleRequired(
+            final Long candidateAt,
+            final long effectiveEligibleAt,
+            final HandoffEligibilityReason reason,
+            final HandoffPolicySnapshot snapshot,
+            final long trustedLatest) {
+        if (trustedLatest == Long.MAX_VALUE) {
+            throw new IllegalArgumentException("trusted time cannot advance beyond Long.MAX_VALUE");
+        }
+        return new Decision(
+                HandoffEligibilityAction.TIME_SAMPLE_REQUIRED,
+                reason,
+                candidateAt,
+                effectiveEligibleAt,
+                headRef(snapshot),
+                snapshot,
+                trustedLatest + 1);
     }
 
     private static HandoffPolicyHeadRef headRef(final HandoffPolicySnapshot snapshot) {

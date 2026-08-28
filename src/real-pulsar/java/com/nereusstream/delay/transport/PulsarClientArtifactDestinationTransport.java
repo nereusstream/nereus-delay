@@ -115,6 +115,11 @@ public final class PulsarClientArtifactDestinationTransport
         this.physicalTopicCreationTimestamp = physicalTopicCreationTimestamp;
         this.partition = partition;
         Bytes.requireLength(producerNameHash, 32, "producerNameHash");
+        final byte[] actualProducerNameHash =
+                Bytes.sha256(Bytes.utf8(Objects.requireNonNull(producer.getProducerName(), "Pulsar producer name")));
+        if (!Bytes.constantTimeEquals(actualProducerNameHash, producerNameHash)) {
+            throw new IllegalArgumentException("Pulsar producer name hash does not match the live Producer");
+        }
         this.producerNameHash = Bytes.copy(producerNameHash);
         this.publishEvidenceProvider = publishEvidenceProvider;
         this.nativePreparedDeliveryEnabled = nativePreparedDeliveryEnabled;

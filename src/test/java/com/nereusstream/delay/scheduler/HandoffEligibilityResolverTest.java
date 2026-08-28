@@ -97,7 +97,45 @@ class HandoffEligibilityResolverTest {
 
         assertEquals(HandoffEligibilityAction.TIME_SAMPLE_REQUIRED, decision.action());
         assertEquals(1_900, decision.effectiveEligibleAtEpochMs());
-        assertEquals(1_900, decision.persistentWakeAtEpochMs());
+        assertEquals(1_951, decision.persistentWakeAtEpochMs());
+    }
+
+    @Test
+    void crossingPolicyLeaseBoundaryRequiresAFreshSample() throws Exception {
+        final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final HandoffPolicySnapshot snapshot = snapshot(keys, HandoffPolicyMode.ENABLED);
+
+        final HandoffEligibilityResolver.Decision validFrom = HandoffEligibilityResolver.resolve(input(
+                snapshot,
+                new TrustedUtcIntervalEvidence(
+                        999,
+                        1_001,
+                        TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                        Bytes.utf8("resolver-valid-from-clock"),
+                        1,
+                        3,
+                        4,
+                        bytes(32, 62),
+                        0,
+                        null)));
+        final HandoffEligibilityResolver.Decision validUntil = HandoffEligibilityResolver.resolve(input(
+                snapshot,
+                new TrustedUtcIntervalEvidence(
+                        2_999,
+                        3_001,
+                        TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                        Bytes.utf8("resolver-valid-until-clock"),
+                        1,
+                        3,
+                        4,
+                        bytes(32, 63),
+                        0,
+                        null)));
+
+        assertEquals(HandoffEligibilityAction.TIME_SAMPLE_REQUIRED, validFrom.action());
+        assertEquals(1_002, validFrom.persistentWakeAtEpochMs());
+        assertEquals(HandoffEligibilityAction.TIME_SAMPLE_REQUIRED, validUntil.action());
+        assertEquals(3_002, validUntil.persistentWakeAtEpochMs());
     }
 
     @Test

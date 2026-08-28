@@ -78,14 +78,6 @@ public final class DataResetActivationGate {
         requireAssignmentIdentity(assignment, declaration);
     }
 
-    /** Assignment identity barrier for callers that already checked trusted time. */
-    public void requireAssignment(final WorkerAssignment assignment, final ProtocolCapabilityDeclaration declaration) {
-        Objects.requireNonNull(assignment, "assignment");
-        Objects.requireNonNull(declaration, "declaration");
-        requireSignedCurrent();
-        requireAssignmentIdentity(assignment, declaration);
-    }
-
     private void requireAssignmentIdentity(
             final WorkerAssignment assignment, final ProtocolCapabilityDeclaration declaration) {
         if (!assignment.routeBound()
@@ -119,13 +111,6 @@ public final class DataResetActivationGate {
     public void requirePhysicalSend(
             final ArtifactGenerationSet candidateArtifacts, final byte[] manifestDigest, final long trustedNowEpochMs) {
         requireManifest(trustedNowEpochMs);
-        requireExactArtifacts(candidateArtifacts);
-        requireManifestDigest(manifestDigest);
-    }
-
-    /** Compatibility overload for callers that already proved the time window. */
-    public void requirePhysicalSend(final ArtifactGenerationSet candidateArtifacts, final byte[] manifestDigest) {
-        requireSignedCurrent();
         requireExactArtifacts(candidateArtifacts);
         requireManifestDigest(manifestDigest);
     }

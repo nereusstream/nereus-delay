@@ -88,6 +88,29 @@ public final class RouteWorkerAssignmentCoordinator {
             final AuthenticatedTenantContext context,
             final long expectedRevision,
             final WorkerAssignment expectedAssignment) {
+        if (dataResetActivationGate != null) {
+            throw new IllegalStateException("trusted time is required for H6 Worker acceptance");
+        }
+        return requireAcceptedInternal(context, expectedRevision, expectedAssignment, null);
+    }
+
+    /** Revalidates Worker acceptance and the H6 manifest at trusted time. */
+    public WorkerAssignment requireAccepted(
+            final AuthenticatedTenantContext context,
+            final long expectedRevision,
+            final WorkerAssignment expectedAssignment,
+            final long trustedNowEpochMs) {
+        if (trustedNowEpochMs < 0) {
+            throw new IllegalArgumentException("trustedNowEpochMs must be non-negative");
+        }
+        return requireAcceptedInternal(context, expectedRevision, expectedAssignment, trustedNowEpochMs);
+    }
+
+    private WorkerAssignment requireAcceptedInternal(
+            final AuthenticatedTenantContext context,
+            final long expectedRevision,
+            final WorkerAssignment expectedAssignment,
+            final Long trustedNowEpochMs) {
         Objects.requireNonNull(context, "context");
         Objects.requireNonNull(expectedAssignment, "expectedAssignment");
         if (!expectedAssignment.routeBound()) {
@@ -120,7 +143,9 @@ public final class RouteWorkerAssignmentCoordinator {
                 workerCoordinator.requireAccepted(expectedSource.shardId(), expectedRevision, expectedAssignment);
         if (dataResetActivationGate != null) {
             dataResetActivationGate.requireAssignment(
-                    accepted, protocolAuthority.requireCurrentDeclaration(accepted.workerId()));
+                    accepted,
+                    protocolAuthority.requireCurrentDeclaration(accepted.workerId()),
+                    Objects.requireNonNull(trustedNowEpochMs, "trustedNowEpochMs"));
         }
         return accepted;
     }

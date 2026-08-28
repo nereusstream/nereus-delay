@@ -72,6 +72,36 @@ class WorkerPhysicalPublishExecutorTest {
     }
 
     @Test
+    void rejectedCompletionExecutorFailsClosedWithoutInlineOutcomeHandoff() {
+        final Fixture fixture = new Fixture();
+        final CompletableFuture<DestinationPublishResult> physical = new CompletableFuture<>();
+        final AtomicInteger outcomeCalls = new AtomicInteger();
+        final AtomicInteger fenceCalls = new AtomicInteger();
+        final WorkerPhysicalPublishExecutor executor = new WorkerPhysicalPublishExecutor(
+                new BoundedDestinationPublishAdapter(
+                        ignored -> physical, fixture.admission, Fixture.workClasses(), Runnable::run),
+                (mutation, ownerClock) -> outcomeCalls.incrementAndGet(),
+                (ignoredAttempt, ignoredRequest, ignoredClock) -> WorkerPhysicalPublishExecutor.Decision.allowed(),
+                (ignoredAttempt, ignoredRequest, result) -> mutation(fixture.shard),
+                fenceCalls::incrementAndGet,
+                null,
+                ignored -> {
+                    throw new java.util.concurrent.RejectedExecutionException("completion queue closed");
+                });
+        try (executor) {
+            final WorkerPhysicalPublishExecutor.Submission submission =
+                    executor.submit(fixture.attempt, fixture.request, () -> 1_000);
+
+            physical.complete(DestinationPublishResult.published(Bytes.utf8("delivery"), 1_001, Bytes.utf8("ack")));
+
+            assertEquals(WorkerPhysicalPublishExecutor.SubmissionState.FAILED, submission.state());
+            assertEquals(0, outcomeCalls.get());
+            assertEquals(1, fenceCalls.get());
+            assertTrue(submission.failure().orElseThrow() instanceof java.util.concurrent.RejectedExecutionException);
+        }
+    }
+
+    @Test
     void allowedResultIsHandedOffAfterTheBoundedPhysicalCall() {
         final Fixture fixture = new Fixture();
         final AtomicInteger delegateCalls = new AtomicInteger();

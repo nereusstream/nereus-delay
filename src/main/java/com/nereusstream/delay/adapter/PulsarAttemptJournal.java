@@ -446,15 +446,15 @@ public final class PulsarAttemptJournal {
         if (state == null || !state.mapping.sameCanonical(mapping)) {
             throw conflict("published evidence has no exact Journal mapping");
         }
-        if (state.retired) {
-            throw conflict("retired Journal mapping cannot produce PUBLISHED evidence");
+        if (state.retired || !state.published || state.publishedRecord == null) {
+            throw conflict("Journal mapping has no durable PUBLISHED record");
         }
         final EvidenceCursor cursor = evidenceCursor(mapping.producer(), evidenceGeneration)
                 .orElseThrow(() -> conflict("published evidence has no Journal cursor"));
         if (targetAckEvidenceId != null) {
             Bytes.requireLength(targetAckEvidenceId, HASH_LENGTH, "targetAckEvidenceId");
         }
-        final JournalRecord record = state.mappedRecord;
+        final JournalRecord record = state.publishedRecord;
         final JournalPosition position = record.position();
         final byte[] branch = CanonicalProtobuf.message(output -> {
             CanonicalProtobuf.bytes(output, 1, cursor.canonicalBytes());

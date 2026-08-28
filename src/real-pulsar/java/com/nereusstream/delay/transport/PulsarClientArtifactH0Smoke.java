@@ -158,6 +158,7 @@ public final class PulsarClientArtifactH0Smoke {
         public Object invoke(final Object target, final Method method, final Object[] arguments) {
             return switch (method.getName()) {
                 case "getTopic" -> topic;
+                case "getProducerName" -> "h0-producer";
                 case "newMessage" -> {
                     newMessageCalls.incrementAndGet();
                     yield messageBuilder(method.getReturnType());

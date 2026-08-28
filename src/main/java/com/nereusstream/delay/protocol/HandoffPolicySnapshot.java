@@ -235,8 +235,8 @@ public final class HandoffPolicySnapshot {
     /** Requires a trusted interval to prove that this lease is currently active. */
     public void requireActiveAt(final TrustedUtcIntervalEvidence trustedTime) {
         Objects.requireNonNull(trustedTime, "trustedTime");
-        if (trustedTime.latestEpochMs() < validFromEpochMs || trustedTime.earliestEpochMs() >= validUntilEpochMs) {
-            throw new IllegalArgumentException("handoff policy snapshot is not active at trusted time");
+        if (trustedTime.earliestEpochMs() < validFromEpochMs || trustedTime.latestEpochMs() >= validUntilEpochMs) {
+            throw new IllegalArgumentException("trusted interval is not fully contained by the handoff policy lease");
         }
     }
 

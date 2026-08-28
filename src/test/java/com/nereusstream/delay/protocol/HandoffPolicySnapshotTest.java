@@ -85,6 +85,30 @@ class HandoffPolicySnapshotTest {
         assertEquals(first, authority.requireCurrent(scope).head());
     }
 
+    @Test
+    void activeLeaseMustFullyContainTheTrustedInterval() throws Exception {
+        final KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        final HandoffPolicySnapshot snapshot = snapshot(keys, bytes(32, 41), bytes(32, 42), HandoffPolicyMode.ENABLED);
+
+        snapshot.requireActiveAt(trustedTime(1_000, 1_999));
+        assertThrows(IllegalArgumentException.class, () -> snapshot.requireActiveAt(trustedTime(999, 1_001)));
+        assertThrows(IllegalArgumentException.class, () -> snapshot.requireActiveAt(trustedTime(1_999, 2_000)));
+    }
+
+    private static TrustedUtcIntervalEvidence trustedTime(final long earliest, final long latest) {
+        return new TrustedUtcIntervalEvidence(
+                earliest,
+                latest,
+                TrustedUtcIntervalEvidence.Source.CERTIFIED_HOST_CLOCK,
+                Bytes.utf8("active-policy-clock"),
+                1,
+                2,
+                3,
+                bytes(32, 43),
+                0,
+                null);
+    }
+
     private static HandoffPolicySnapshot snapshot(
             final KeyPair keys, final byte[] scope, final byte[] artifactDigest, final HandoffPolicyMode mode) {
         final long lead = mode == HandoffPolicyMode.DISABLED ? 0 : 100;

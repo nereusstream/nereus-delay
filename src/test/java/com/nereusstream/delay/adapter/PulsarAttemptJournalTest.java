@@ -627,6 +627,12 @@ class PulsarAttemptJournalTest {
                 journal.appendNext(producer, identity(shard, 11)).record().mapping();
         final byte[] targetAckEvidence = Bytes.sha256(Bytes.utf8("target-ack-evidence"));
 
+        assertThrows(
+                PulsarAttemptJournal.JournalException.class,
+                () -> journal.publishedEvidence(mapping, 2, targetAckEvidence));
+        journal.markOwnershipStarted(mapping);
+        journal.markPublished(mapping);
+
         final com.nereusstream.delay.protocol.PublishEvidence evidence =
                 journal.publishedEvidence(mapping, 2, targetAckEvidence);
         assertEquals(
@@ -640,11 +646,8 @@ class PulsarAttemptJournalTest {
                 com.nereusstream.delay.protocol.PublishEvidence.decode(evidence.canonicalBytes())
                         .canonicalBytes());
 
-        journal.retireNotPublished(mapping.mappingId());
-        final PulsarAttemptJournal.JournalException retired = assertThrows(
-                PulsarAttemptJournal.JournalException.class,
-                () -> journal.publishedEvidence(mapping, 2, targetAckEvidence));
-        assertEquals(StableCode.INTEGRITY_ERROR, retired.stableCode());
+        assertThrows(
+                PulsarAttemptJournal.JournalException.class, () -> journal.retireNotPublished(mapping.mappingId()));
     }
 
     @Test
