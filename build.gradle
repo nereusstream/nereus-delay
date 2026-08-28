@@ -629,7 +629,7 @@ tasks.register('runRealPulsarBinaryLookupSmoke', JavaExec) {
             throw new GradleException('pulsarRuntimeDir must be an extracted P1 distribution lib directory')
         }
     }
-    classpath = files(sourceSets.main.runtimeClasspath,
+    classpath = files(sourceSets.main.output,
             sourceSets.realPulsar.output, realPulsarClientFiles, realPulsarRuntimeFiles)
     mainClass = 'com.nereusstream.delay.transport.PulsarClientArtifactBinaryLookupSmoke'
     args project.ext.optionalRealTaskArgument.call(findProperty('pulsarServiceUrl')),
