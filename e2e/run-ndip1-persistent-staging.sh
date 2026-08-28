@@ -526,7 +526,7 @@ write_authority_configs() {
   local manifest_config="${run_dir}/authority/manifest-config.json"
   local resources_json scope_json scope_digest observation_now observation_latest observation_mono
   local scope_evidence obligation_evidence worker_evidence source_evidence
-  local resource_evidence route_incarnation worker_identity session_identity tenant_scope_digest route_snapshot_digest
+  local resource_evidence worker_identity session_identity tenant_scope_digest route_snapshot_digest
   resources_json="$(jq -n \
     --arg command "${command_resource}" --arg system "${system_resource}" \
     --arg rocksdb "${rocksdb_resource}" --arg checkpoint "${checkpoint_resource}" \
