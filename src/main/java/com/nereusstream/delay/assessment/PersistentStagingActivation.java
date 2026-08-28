@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.nereusstream.delay.protocol.ArtifactGenerationSet;
 import com.nereusstream.delay.protocol.Bytes;
+import com.nereusstream.delay.protocol.PulsarSourceLock;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -108,7 +109,7 @@ public final class PersistentStagingActivation {
         if (!Bytes.hex(manifest.manifestDigest()).equals(requiredField(gate, "manifestDigest"))) {
             throw new IOException("DataResetManifest logical digest differs from Gate C");
         }
-        if (!Bytes.hex(manifest.artifacts().p1SourceLockDigest()).equals(EXPECTED_P1_LOCK)) {
+        if (!Bytes.constantTimeEquals(manifest.artifacts().p1SourceLockDigest(), PulsarSourceLock.digest())) {
             throw new IOException("DataResetManifest P1 source lock differs from the accepted lock");
         }
         if (!manifest.isCurrentGeneration()) {

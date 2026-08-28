@@ -85,6 +85,7 @@ worker_registry_resource="oxia://default/${resource_prefix}/${run_id}/worker-reg
 
 accepted_package_digest="13caab8ecdc201901f06e905f1c0bf9792780e50c6f5948f93abf2bdb8f4d21b"
 p1_source_lock="0a2536484cd3932801a98dc88ff112b2df88a1c7"
+p1_source_lock_digest=""
 disposable_receipt="/Users/liusinan/apps/ideaproject/nereusstream/nereus-delay-artifacts/ndip1-final/20260828120404-32881-21717/disposable-local-certification-receipt.json"
 disposable_receipt_sha256="53b0e41ec03209577d6721f4d50e658cc4e8d3f989ddf0cb5ff14e3027462d9f"
 
@@ -173,6 +174,9 @@ pulsar_sha="$(git -C "${pulsar_checkout}" rev-parse HEAD)"
 pulsar_ref="$(git -C "${pulsar_checkout}" branch --show-current)"
 [[ -n "${pulsar_ref}" ]] || pulsar_ref="DETACHED:${pulsar_sha}"
 oxia_sha="$(git -C "${oxia_checkout}" rev-parse HEAD)"
+p1_source_lock_digest="$(printf 'nereus/delay-resource-guard@%s' "${p1_source_lock}" | shasum -a 256 | awk '{print $1}')"
+[[ "${p1_source_lock_digest}" == "e38d97ddcd3ba17d010fb1c75b132061551230a724785de52dee7eba9f5c34ed" ]] \
+  || fail "P1 source-lock digest does not match the accepted canonical lock"
 [[ -x "${oxia_cli}" ]] || fail "Oxia CLI is missing or not executable: ${oxia_cli}"
 oxia_cli_build_info="$(go version -m "${oxia_cli}" 2>/dev/null || true)"
 printf '%s\n' "${oxia_cli_build_info}" >"${run_dir}/g0/oxia-cli-build-info.txt"
@@ -606,7 +610,7 @@ write_authority_configs() {
   tenant_scope_digest="$(sha256_text tenant-ndip1)"
   route_snapshot_digest="$(sha256_text route-ndip1)"
   jq -n \
-    --arg packageDigest "${accepted_package_digest}" --arg p1Lock "${p1_source_lock}" \
+    --arg packageDigest "${accepted_package_digest}" --arg p1Lock "${p1_source_lock_digest}" \
     --arg sourceCommit "${candidate_commit}" --arg environmentId "${environment_id}" \
     --arg deploymentId "${resource_prefix}/${run_id}" --arg workerId "worker-ndip1-a" --arg workerBId "worker-ndip1-b" \
     --arg privateKeyPath "${key_dir}/issuer-ed25519-private.der" \
