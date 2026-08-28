@@ -444,7 +444,7 @@ public final class PulsarClientArtifactNativeMatrixSmoke {
             final String producerName,
             final long targetLedgerId)
             throws Exception {
-        requireAdminMutation(
+        requireAdminPut(
                 admin,
                 adminUrl + "/admin/v2/persistent/public/default/" + topic + "/unload",
                 "unload native retention topic");
@@ -634,11 +634,22 @@ public final class PulsarClientArtifactNativeMatrixSmoke {
         requireAdminMutation(client, path, operation, "");
     }
 
+    private static void requireAdminPut(final HttpClient client, final String path, final String operation)
+            throws Exception {
+        requireAdminRequest(client, path, "PUT", operation, "");
+    }
+
     private static void requireAdminMutation(
             final HttpClient client, final String path, final String operation, final String body) throws Exception {
+        requireAdminRequest(client, path, "POST", operation, body);
+    }
+
+    private static void requireAdminRequest(
+            final HttpClient client, final String path, final String method, final String operation, final String body)
+            throws Exception {
         HttpResponse<String> lastResponse = null;
         for (int attempt = 0; attempt < ADMIN_ATTEMPTS; attempt++) {
-            lastResponse = request(client, path, "POST", body);
+            lastResponse = request(client, path, method, body);
             if (lastResponse.statusCode() >= 200 && lastResponse.statusCode() < 300) {
                 return;
             }
