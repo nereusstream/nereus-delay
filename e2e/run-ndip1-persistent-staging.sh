@@ -49,6 +49,7 @@ data_server_3_port="${NEREUS_DELAY_OXIA_DATA_SERVER_3_PORT:-16683}"
 minio_port="${NEREUS_DELAY_MINIO_PORT:-21970}"
 minio_proxy_port="${NEREUS_DELAY_MINIO_PROXY_PORT:-21971}"
 gateway_port="${NEREUS_DELAY_GATEWAY_PORT:-22358}"
+minio_fault_mode_sequence=0
 
 service_url="pulsar://127.0.0.1:${broker_1_port}"
 admin_url="http://127.0.0.1:${web_1_port}"
@@ -423,6 +424,15 @@ start_fault_proxy() {
     --backend-port "${minio_port}" >>"${staging_root}/fault-proxy.log" 2>&1 &
   printf '%s\n' "$!" >"${pid_file}"
   wait_for_http "${minio_proxy_endpoint}/__health"
+}
+
+set_minio_fault_mode() {
+  local mode="$1"
+  minio_fault_mode_sequence=$((minio_fault_mode_sequence + 1))
+  local log_file="${run_dir}/logs/minio-fault-${minio_fault_mode_sequence}-${mode}.log"
+  curl --silent --show-error --fail --request POST --data-binary "${mode}" \
+    "${minio_proxy_endpoint}/__fault" >"${log_file}" \
+    || fail "could not set persistent MinIO fault proxy mode: ${mode}"
 }
 
 write_environment_snapshot() {
@@ -909,7 +919,6 @@ run_gate_c_unit_and_real_checks() {
     --tests com.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest.signedRoutePublicationFeedsSessionBoundWorkerAssignmentAuthority
     --tests com.nereusstream.delay.route.OxiaRealRouteWorkerAssignmentSmokeTest.signedRoutePublicationPlacesTwoShardsAcrossTwoWorkersWithSessionBoundCas
     --tests com.nereusstream.delay.runtime.OxiaRealProfileCatalogSmokeTest.profileHeadProtectionLeaseAndRotationReopenAgainstRealService
-    --tests com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.workerCheckpointRuntimeRemainsPendingWhenMinioCommitFailsBeforeProviderWrite
     --tests com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.workerCheckpointRuntimePublishesAtomicIntentAndCatalogAgainstRealService
     --tests com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.workerCheckpointRuntimePublishesToRealMinioAndOxia
     --tests com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.recoveryPinIsSessionBoundAndExpiresWithTheRealPublicationSession
@@ -919,6 +928,25 @@ run_gate_c_unit_and_real_checks() {
     --tests com.nereusstream.delay.store.OxiaRealRecoveryAuthoritySmokeTest.recoveryPinIsSessionBoundAndExpiresWithTheRealOxiaSession
   )
   run_gradle_tests gate-c-real-checks "${basic_tests[@]}"
+}
+
+run_checkpoint_precommit_fault_case() {
+  local chaos_dir="${run_dir}/chaos/checkpoint-precommit"
+  mkdir -p "${chaos_dir}"
+  export_common_test_environment
+  set_minio_fault_mode PUT_503_BEFORE_COMMIT
+  set +e
+  run_gradle_tests_current_env gate-c-checkpoint-precommit-fault \
+    --tests com.nereusstream.delay.store.OxiaRealCheckpointPublicationSmokeTest.workerCheckpointRuntimeRemainsPendingWhenMinioCommitFailsBeforeProviderWrite
+  local status=$?
+  set -e
+  set_minio_fault_mode NONE
+  [[ "${status}" == 0 ]] || fail "real checkpoint pre-commit fault case failed"
+  jq -n --arg mode "PUT_503_BEFORE_COMMIT" --arg reset "NONE" \
+    --arg result "${run_dir}/results/gate-c-checkpoint-precommit-fault" \
+    '{schema:"nereus-delay.ndip1-checkpoint-precommit-fault",status:"PASS",faultMode:$mode,
+      resetMode:$reset,resultDirectory:$result,realMinio:true,failClosed:true}' \
+    >"${chaos_dir}/receipt.json"
 }
 
 run_fresh_process_authority_checks() {
@@ -1919,6 +1947,7 @@ write_authority_configs
 execute_manifest_operations
 
 run_gate_c_unit_and_real_checks
+run_checkpoint_precommit_fault_case
 run_fresh_process_authority_checks
 run_gateway_session_churn
 run_gateway_leader_failover
