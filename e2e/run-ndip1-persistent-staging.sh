@@ -344,6 +344,22 @@ wait_for_oxia_client_ready() {
   fail "Oxia client endpoint did not become ready for ${label}: ${oxia_endpoint}"
 }
 
+wait_for_oxia_route_session_expiry() {
+  local label="$1" evidence_path="$2" grace_seconds=20 started_at ended_at
+  mkdir -p "$(dirname "${evidence_path}")"
+  started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  sleep "${grace_seconds}"
+  ended_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  jq -n --arg schema "nereus-delay.oxia-route-session-expiry-grace" --arg status PASS \
+    --arg label "${label}" --arg endpoint "${oxia_endpoint}" \
+    --arg startedAt "${started_at}" --arg endedAt "${ended_at}" \
+    --argjson graceSeconds "${grace_seconds}" \
+    '{schema:$schema,schemaGeneration:1,status:$status,label:$label,endpoint:$endpoint,
+      startedAt:$startedAt,endedAt:$endedAt,graceSeconds:$graceSeconds,
+      basis:"exceeds the 15-second Route restart smoke-test session timeout by 5 seconds"}' \
+    >"${evidence_path}"
+}
+
 oxia_admin() {
   local coordinator output
   for coordinator in coordinator-1 coordinator-2 coordinator-3; do
@@ -1091,6 +1107,7 @@ run_route_restart_case() {
   "${compose[@]}" start data-server-1 >"${chaos_dir}/start.log" 2>&1
   wait_for_oxia_service data-server-1 6648
   wait_for_oxia_client_ready "${label}" "${chaos_dir}/oxia-client-ready.json"
+  wait_for_oxia_route_session_expiry "${label}" "${chaos_dir}/session-expiry-grace.json"
   touch "${NEREUS_DELAY_OXIA_ROUTE_RESTART_GATE}"
   set +e
   wait "${child}"
