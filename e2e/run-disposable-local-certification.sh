@@ -1172,6 +1172,19 @@ capture_broker_listener_config() {
     >>"${log_path}" 2>&1 || printf '%s\n' "could not read ${service} broker.conf" >>"${log_path}"
 }
 
+capture_topic_lookup() {
+  local admin_endpoint="$1"
+  local topic="$2"
+  local log_path="$3"
+  local label="$4"
+  printf '%s\n' "--- ${label} HTTP topic lookup (listenerName=external) ---" >>"${log_path}"
+  curl --silent --show-error --fail --location \
+    --header 'X-Pulsar-ListenerName: external' \
+    "${admin_endpoint}/lookup/v2/topic/persistent/public/default/${topic}?listenerName=external&authoritative=false" \
+    >>"${log_path}" 2>&1 || printf '%s\n' "topic lookup failed for ${label}" >>"${log_path}"
+  printf '\n' >>"${log_path}"
+}
+
 run_broker_failover_cell() {
   local cell_id="recovery.broker_restart_failover"
   local topic="${resource_prefix}-broker-failover"
@@ -1198,6 +1211,7 @@ run_broker_failover_cell() {
       -PpulsarTopic="${topic}" \
       -PpulsarWorkerMode=prepare \
       --no-daemon --console=plain >>"${log_path}" 2>&1; then
+    capture_topic_lookup "${admin_url_1}" "${topic}" "${log_path}" "before-broker-1-stop"
     if NEREUS_DELAY_PULSAR_BROKER_RECOVERY_STATE_CELL=ndip1-disposable-broker-failover \
         NEREUS_DELAY_PULSAR_BROKER_RECOVERY_STATE_PHASE=before \
         NEREUS_DELAY_PULSAR_BROKER_RECOVERY_STATE_DUMP_DIR="${dump_dir}" \
@@ -1221,6 +1235,7 @@ run_broker_failover_cell() {
             -PpulsarAdminUrl="${admin_url_2}" \
             -PpulsarBrokerRecoveryTopic="${topic}" \
             --no-daemon --console=plain >>"${log_path}" 2>&1; then
+          capture_topic_lookup "${admin_url_2}" "${topic}" "${log_path}" "after-broker-1-stop"
           if NEREUS_DELAY_OXIA_ENDPOINT="${oxia_endpoint}" \
               NEREUS_DELAY_OXIA_NAMESPACE=default \
               NEREUS_DELAY_PULSAR_LISTENER_NAME=external \
