@@ -883,7 +883,7 @@ run_supporting_check() {
 
 service_url_1="pulsar://127.0.0.1:${broker_1_port}"
 service_url_2="pulsar://127.0.0.1:${broker_2_port}"
-service_url_failover="${service_url_1},${service_url_2}"
+service_url_failover="pulsar://127.0.0.1:${broker_1_port},127.0.0.1:${broker_2_port}"
 admin_url_1="http://127.0.0.1:${web_1_port}"
 admin_url_2="http://127.0.0.1:${web_2_port}"
 oxia_endpoint="127.0.0.1:${oxia_data_1_port}"
